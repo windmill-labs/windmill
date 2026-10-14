@@ -132,9 +132,8 @@ export function bundleRawAppFiles({
 
 		iframe.title = 'Raw app bundler'
 		iframe.tabIndex = -1
-		// No `credentialless`: /ui_builder/* is itself served with COEP=require-corp, so it
-		// embeds in isolated pages as is, while a credentialless frame gets an empty cookie
-		// jar, which would leave its npm installer unauthenticated against /api/w/*.
+		// No `credentialless`: a credentialless frame gets an empty cookie jar, which would
+		// leave its npm installer unauthenticated against /api/w/*.
 		iframe.style.position = 'fixed'
 		iframe.style.width = '0'
 		iframe.style.height = '0'

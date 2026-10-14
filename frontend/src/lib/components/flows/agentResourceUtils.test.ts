@@ -77,7 +77,7 @@ describe('summarizeAgentBrain', () => {
 			output_schema: { type: 'object' } as any
 		})
 		expect(rows).toEqual([
-			{ label: 'Memory', value: 'auto' },
+			{ label: 'Managed memory', value: 'Last 20 messages' },
 			{ label: 'Output schema', value: 'configured' }
 		])
 	})
@@ -143,16 +143,25 @@ describe('nonStaticBrainKeys', () => {
 })
 
 describe('flowLocalInputs', () => {
-	it('keeps only user_message/user_attachments, dropping brain transforms', () => {
+	it('keeps the step’s own inputs, dropping brain transforms', () => {
 		expect(
 			flowLocalInputs({
 				provider: { type: 'static', value: {} },
+				memory: { type: 'static', value: { kind: 'window', context_length: 10 } },
 				user_message: { type: 'static', value: 'hi' },
-				user_attachments: { type: 'static', value: [] }
+				user_attachments: { type: 'static', value: [] },
+				memory_id: { type: 'javascript', expr: 'flow_input.customer_id' },
+				previous_messages: { type: 'static', value: [{ role: 'user', content: 'earlier' }] },
+				// The roster it narrows belongs to the agent, but which of it one flow may call does
+				// not: saving this into the resource would impose it on every flow linking the agent.
+				enabled_tools: { type: 'javascript', expr: 'flow_input.tools' }
 			} as any)
 		).toEqual({
 			user_message: { type: 'static', value: 'hi' },
-			user_attachments: { type: 'static', value: [] }
+			user_attachments: { type: 'static', value: [] },
+			memory_id: { type: 'javascript', expr: 'flow_input.customer_id' },
+			previous_messages: { type: 'static', value: [{ role: 'user', content: 'earlier' }] },
+			enabled_tools: { type: 'javascript', expr: 'flow_input.tools' }
 		})
 	})
 

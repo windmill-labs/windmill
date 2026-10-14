@@ -1,6 +1,6 @@
 <script>
 	import { Boxes, FileText, FolderOpen } from 'lucide-svelte'
-	import { appIconComponent } from './icons'
+	import { appIconComponent } from './icons/appIcon.svelte'
 	/**
 	 * @typedef {Object} Props
 	 * @property {any} name

@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { Drawer, DrawerContent } from '$lib/components/common'
-	import { base } from '$lib/base'
 	import RawAppRecordSession from '$lib/components/workspaceSettings/RawAppRecordSession.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { isMac, userPathPrefix } from '$lib/utils'
+	import { isMac, userPathPrefix, emptyString } from '$lib/utils'
 	import { editPathFor } from '$lib/components/workspacePicker'
 	import { invalidateWorkspacePaths } from '$lib/components/PathNameAutocomplete.svelte'
 
@@ -13,7 +12,7 @@
 		type OpenInSessionSource
 	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { discardDraftAfterDeploy } from '$lib/userDraftToast'
-	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore, userWorkspaces } from '$lib/stores'
 	import {
 		Bug,
 		DiffIcon,
@@ -28,7 +27,7 @@
 		Undo,
 		WandSparkles
 	} from 'lucide-svelte'
-	import { untrack } from 'svelte'
+	import { onDestroy, untrack, type Snippet } from 'svelte'
 	import { orderedJsonStringify, type Value, replaceFalseWithUndefined } from '../../utils'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
 
@@ -39,6 +38,7 @@
 	import DeploymentHistory from '../apps/editor/DeploymentHistory.svelte'
 	import Awareness from '$lib/components/Awareness.svelte'
 	import type DiffDrawer from '$lib/components/DiffDrawer.svelte'
+	import { VERSION_PAGE_SIZE } from '$lib/components/diff_drawer'
 
 	import EditorHeader from '$lib/components/EditorHeader.svelte'
 	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
@@ -65,15 +65,27 @@
 	// In a session pane the editor does NOT own the localStorage draft — the
 	// session runtime does, keyed by the session's (fork) workspace. So the
 	// `if (!inSessionPane) UserDraft.remove(...)` guards below skip the editor's
-	// own removal (it would target the wrong, main-`$workspaceStore` key). The
+	// own removal (it would target the wrong, navigation-workspace key). The
 	// session-side equivalent is RawAppEditorView's `onDeploy` →
-	// `runtime.syncPreviewWithDeployed`, which discards the fork draft + reloads
+	// `runtime.itemDeployed`, which discards the fork draft + reloads
 	// the preview to the deployed version.
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
 	import { stripRawAppDiffNoise } from './utils'
 	import type { RawAppData } from './dataTableRefUtils'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
+	import {
+		operatingWorkspaceContextEntry,
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
+	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	// async function hash(message) {
 	// 	try {
@@ -109,6 +121,12 @@
 			  }
 			| undefined
 		version?: number | undefined
+		/** Moves the draft's base to the deployed head and keeps its content;
+		 *  offered in the diff drawer while the draft is behind. */
+		onTakeLatest?: (head?: string) => void | Promise<void>
+		/** The app_version the draft forked from; the drawer offers `onTakeLatest` only
+		 *  while it differs from the head on display. */
+		draftBaseVersion?: string | undefined
 		newApp: boolean
 		newPath?: string
 		/** Initial labels for the app, threaded from the loaded app data. */
@@ -138,16 +156,27 @@
 		 * EditorHeader's path/breadcrumb row dropped (summary only). Used by the
 		 * session preview to save vertical room. */
 		condensedHeader?: boolean
+		/** True for the route's own editor: its top bar becomes the page header. */
+		ownsPageHeader?: boolean
 		onNavigate?: (item: import('$lib/components/workspacePicker').WorkspaceItem) => void
 		liveEditorDraftStoragePath?: string
 		/** Indicator-only overrides for the sessions preview: the AutosaveIndicator
 		 *  watches the session's (workspace, path) so it renders + animates on the
 		 *  key SessionEditorTarget saves under. Undefined on the full-page editor →
-		 *  falls back to `$workspaceStore`/`liveEditorDraftStoragePath`. */
+		 *  falls back to the operating workspace/`liveEditorDraftStoragePath`. */
 		autosaveWorkspace?: string
 		autosavePath?: string
-		// Fired after a successful deploy; lets the session preview reload.
-		onDeploy?: (e: { path: string }) => void
+		// Fired after a successful deploy; lets the session preview reload. `version` is
+		// what this deploy wrote, for the next draft's fork base; `head` is what is
+		// deployed now, with its author and time, and the two differ when another deploy
+		// landed beside this one.
+		onDeploy?: (e: {
+			path: string
+			version?: number
+			head?: number
+			headBy?: string
+			headAt?: string
+		}) => void
 		/** Surfaces the user-typed path (`newEditedPath`) up to the route
 		 *  when (and only when) it differs from the deployed/seeded
 		 *  `savedApp.path`. The route writes it into the autosaved raw-app
@@ -156,6 +185,9 @@
 		pendingDraftPath?: string | undefined
 		// Threaded to the `AutosaveIndicator` popover so its "Reset to
 		// deployed" button can do the same thing the load-time toast offers.
+		/** `Exit & see details`: leaves the editor for the app's deployed page. A session hosts that
+		 *  page itself, so it flips the tab there rather than navigating out of the session. */
+		onDetails?: (e: { path: string }) => void
 		onResetToDeployed?: () => void | Promise<void>
 		// See ScriptBuilderProps — same semantics for the raw-app editor's
 		// indicator.
@@ -174,10 +206,12 @@
 
 	let {
 		summary = $bindable(),
-		policy = $bindable(),
+		policy,
 		diffDrawer = undefined,
 		savedApp = $bindable(undefined),
 		version = $bindable(undefined),
+		onTakeLatest = undefined,
+		draftBaseVersion = undefined,
 		newApp,
 		newPath = '',
 		labels: initialLabels = undefined,
@@ -197,12 +231,14 @@
 		sidebarCollapsed = false,
 		onToggleSidebar = undefined,
 		condensedHeader = false,
+		ownsPageHeader = false,
 		onNavigate = undefined,
 		liveEditorDraftStoragePath = undefined,
 		autosaveWorkspace = undefined,
 		autosavePath = undefined,
 		onDeploy = undefined,
 		pendingDraftPath = $bindable(undefined),
+		onDetails,
 		onResetToDeployed,
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
@@ -218,7 +254,7 @@
 
 	// The AutosaveIndicator watches these; in the sessions preview they're the
 	// session's (workspace, path), else the full-page editor's own values.
-	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	const opWorkspace = $derived(autosaveWorkspace ?? $operatingWorkspace)
 	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
 
 	$effect(() => {
@@ -282,18 +318,40 @@
 
 	// Top-bar responsive collapse — container width, not viewport.
 	let topbarWidth = $state(0)
-	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
+	// In the page header the bar folds the buttons (`actionFolds` below), once its breadcrumb has
+	// given all it can; anywhere else this editor's own top bar is theirs alone.
+	const compactTopbar = $derived(
+		ownsPageHeader ? pageHeader.actionFold >= 1 : topbarWidth > 0 && topbarWidth < 720
+	)
+	// The second fold keeps the trail, the file sidebar's toggle, Diff and Deploy. AI stands down —
+	// the sidebar's own Ask AI is the way in at that width — while Jobs and the export are already
+	// in the menu, Jobs from `compactTopbar` (true at the second fold too) and the export always.
+	const phoneTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 2)
 
 	// Top-bar button size + bar height. Condensed (session preview) uses the
 	// smallest well-supported unified size (`sm`) so the bar is thinner.
-	const headerBtnSize = $derived(condensedHeader ? 'sm' : 'md')
+	// In the page header the buttons ride a 44px band, the same size the condensed session-pane
+	// header uses.
+	const headerBtnSize = $derived(condensedHeader || ownsPageHeader ? 'sm' : 'md')
+
+	/** Held by the rename popover while it is open; the band's trail reads it so the path does not
+	 *  reflow under the pointer as the user types. */
+	let pathSnapshot = $state<string | undefined>(undefined)
+
+	// The actions render under the band, outside the subtree RawAppEditor declared the operating
+	// workspace in, so it has to travel with them: OpenInSessionButton asks who the acting user is.
+	const headerContexts = new Map<any, any>([operatingWorkspaceContextEntry()])
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
 	}
 
-	async function computeTriggerables() {
-		policy = await updateRawAppPolicy(runnables, policy)
+	// Returns a copy: `policy` is the editor's own object, which the Deploy panel's
+	// instant toggles mutate in place. Reassigning it would detach the panel from the
+	// editor, so later toggles would never reach the preview. After a successful save,
+	// copy only `triggerables_v2` back so the editor's value matches what was deployed.
+	function policyWithTriggerables() {
+		return updateRawAppPolicy(runnables, policy)
 	}
 
 	async function createApp(path: string) {
@@ -304,9 +362,9 @@
 		if (!policy.execution_mode) {
 			policy.execution_mode = 'publisher'
 		}
-		await computeTriggerables()
 		try {
 			const { js, css } = await getBundle()
+			const deployedPolicy = await policyWithTriggerables()
 			await AppService.createAppRaw({
 				workspace: opWorkspace!,
 				formData: {
@@ -314,7 +372,7 @@
 						value: app,
 						path,
 						summary: summary,
-						policy,
+						policy: deployedPolicy,
 						deployment_message: deploymentMsg,
 						custom_path: customPath,
 						preserve_on_behalf_of: preserveOnBehalfOf || undefined,
@@ -324,6 +382,7 @@
 					css
 				}
 			})
+			policy.triggerables_v2 = deployedPolicy.triggerables_v2
 			// New path now exists server-side — drop the autocomplete cache so
 			// it shows up immediately instead of after the 60s TTL.
 			invalidateWorkspacePaths(opWorkspace!)
@@ -331,7 +390,7 @@
 				summary: summary,
 				value: structuredClone(stateSnapshot(app)),
 				path: path,
-				policy: policy,
+				policy: deployedPolicy,
 				custom_path: customPath,
 				labels: $state.snapshot(labels)
 			}
@@ -343,9 +402,9 @@
 			// `path` orphaned the real draft row. Bracketed + flushed:
 			// RawAppEditor stays mounted through the post-deploy navigation
 			// and its mirror would otherwise displace the queued delete.
-			if (!inSessionPane && $workspaceStore) {
+			if (!inSessionPane && $operatingWorkspace) {
 				discardDraftAfterDeploy({
-					workspace: $workspaceStore,
+					workspace: $operatingWorkspace,
 					itemKind: 'raw_app',
 					path: appPath
 				})
@@ -388,34 +447,139 @@
 		}
 	}
 
-	async function syncWithDeployed() {
+	async function syncWithDeployed(opening?: number) {
 		const deployedApp = await AppService.getAppByPath({
 			workspace: opWorkspace!,
 			path: appPath!,
 			withStarredInfo: true
 		})
 
+		// A superseded opening must not write these: the current one would then render
+		// and offer Take latest against the older head.
+		if (opening != null && !diffDrawer?.ownsOpening(opening)) return
 		deployedBy = deployedApp.created_by
+		const shownVersions = (deployedApp as { versions?: number[] }).versions
+		deployedVersionShown = Array.isArray(shownVersions)
+			? shownVersions[shownVersions.length - 1]
+			: undefined
 
 		// Normalize away post-deploy noise (see stripRawAppDiffNoise) so the
 		// diff/comparison only reflects what the editor actually changed.
 		deployedValue = replaceFalseWithUndefined(stripRawAppDiffNoise(deployedApp))
 	}
 
-	async function openDiffDrawer() {
+	/** The app_version the payload in `deployedValue` came from, so the picker marks that
+	 *  one as head rather than trusting the history's first row. */
+	let deployedVersionShown: number | undefined = $state(undefined)
+
+	/** Deployed versions for the diff picker, newest first. Best-effort: losing the
+	 *  list costs the picker, not the diff. */
+	/** Throws: the drawer says so and lets the reader ask for the same page again. */
+	async function fetchVersionPage(page: number) {
+		if (!opWorkspace || !appPath) return undefined
+		{
+			const history = await AppService.getAppHistoryByPath({
+				workspace: opWorkspace,
+				path: appPath,
+				page,
+				perPage: VERSION_PAGE_SIZE
+			})
+			// Head is the version the payload beside this list came from; see FlowBuilder.
+			const head = deployedVersionShown ?? history[0]?.version
+			// No ordinal: the list arrives a page at a time, so a number counted within one
+			// would rename versions as more load.
+			return history.map((h) => {
+				const detail = [
+					h.created_by,
+					h.created_at ? new Date(h.created_at).toLocaleString() : undefined,
+					h.deployment_msg
+				].filter(Boolean)
+				const isHead = h.version === head
+				return {
+					id: String(h.version),
+					label: `${h.version}${isHead ? ' · latest' : ''}`,
+					subtitle: detail.length ? detail.join(' · ') : undefined,
+					isHead
+				}
+			})
+		}
+	}
+
+	/** Names the deployed side when the picker has no list to label it with — both are
+	 *  read in `syncWithDeployed`, which succeeds independently of the history. */
+	function deployedVersionLabel(): string | undefined {
+		if (deployedVersionShown == null) return undefined
+		return `Deployed ${deployedVersionShown}${deployedBy ? ` by ${deployedBy}` : ''} · latest`
+	}
+
+	/** The first page, best-effort: losing it costs the picker, not the diff. */
+	async function deployedVersionOptions() {
+		try {
+			return await fetchVersionPage(1)
+		} catch {
+			return undefined
+		}
+	}
+
+	/** Hands the drawer the next page each time the reader asks for one. The page number
+	 *  belongs to this item's history, so it lives here — and only moves once a page has
+	 *  actually arrived, or a failed request would skip it. */
+	function moreVersionsLoader() {
+		let loaded = 1
+		return async () => {
+			const page = await fetchVersionPage(loaded + 1)
+			loaded += 1
+			return page
+		}
+	}
+
+	/** The opening this editor claimed last. A path change remounts this editor while the
+	 *  drawer stays mounted, so its teardown hands that opening back rather than leaving
+	 *  the drawer on the item the user left. */
+	let lastOpening: number | undefined = undefined
+	onDestroy(() => {
+		if (lastOpening != null) diffDrawer?.abandonOpening(lastOpening)
+	})
+
+	export async function openDiffDrawer() {
 		if (!savedApp) {
 			return
 		}
+		// The fetches below are awaited, so a reopen (or a path change, which remounts
+		// this editor but not the drawer) while they run must not have the older one
+		// land last. The drawer counts the openings for that reason.
+		const opening = diffDrawer?.beginOpening()
+		lastOpening = opening
+		if (opening == null) return
 
 		// deployedValue should be syncronized when we open Diff
-		await syncWithDeployed()
+		await syncWithDeployed(opening)
 
-		diffDrawer?.openDrawer()
-		diffDrawer?.setDiff({
-			mode: 'normal',
-			deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
-			current: currentDiffValue
-		})
+		// Blanking the drawer belongs to the opening that will fill it.
+		if (!diffDrawer?.ownsOpening(opening)) return
+		diffDrawer.openDrawer(opening)
+		const versions = await deployedVersionOptions()
+		if (!diffDrawer?.ownsOpening(opening)) return
+		diffDrawer.setDiff(
+			{
+				mode: 'normal',
+				deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
+				deployedLabel: deployedVersionLabel(),
+				versions,
+				loadMoreVersions: moreVersionsLoader(),
+				onTakeLatest,
+				draftBase: draftBaseVersion,
+				deployedHead: deployedVersionShown != null ? String(deployedVersionShown) : undefined,
+				loadVersion: async (id) => {
+					const v = await AppService.getAppByVersion({ workspace: opWorkspace!, id: Number(id) })
+					// Same normalization as `syncWithDeployed`, so switching versions doesn't
+					// reintroduce the post-deploy noise the head side already strips.
+					return replaceFalseWithUndefined(stripRawAppDiffNoise(v as any))
+				},
+				current: currentDiffValue
+			},
+			opening
+		)
 	}
 
 	async function updateApp(npath: string) {
@@ -424,52 +588,56 @@
 			return
 		}
 		const { js, css } = await getBundle()
-		await computeTriggerables()
 		if (!policy.execution_mode) {
 			policy.execution_mode = 'publisher'
 		}
-		await AppService.updateAppRaw({
+		const deployedPolicy = await policyWithTriggerables()
+		const deployed = await AppService.updateAppRaw({
 			workspace: opWorkspace!,
 			path: appPath!,
 			formData: {
 				app: {
 					value: app!,
 					summary: summary,
-					policy,
+					policy: deployedPolicy,
 					path: npath,
 					deployment_message: deploymentMsg,
 					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
 					// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
 					// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
 					custom_path:
-						$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined,
+						actingUser?.is_admin || actingUser?.is_super_admin ? (customPath ?? '') : undefined,
 					labels
 				},
 				js,
 				css
 			}
 		})
+		policy.triggerables_v2 = deployedPolicy.triggerables_v2
 		invalidateWorkspacePaths(opWorkspace!)
 		savedApp = {
 			summary: summary,
 			value: structuredClone(stateSnapshot(app)),
 			path: npath,
-			policy,
+			policy: deployedPolicy,
 			custom_path: customPath,
 			labels: $state.snapshot(labels)
 		}
-		const appHistory = await AppService.getAppHistoryByPath({
+		const head = await AppService.getAppLatestVersion({
 			workspace: opWorkspace!,
 			path: npath
 		})
-		version = appHistory[0]?.version
+		// The deploy's own answer is the next draft's base; `version` is what is deployed
+		// now, and the two differ when another deploy landed beside this one. The route
+		// owns this prop and re-pushes `parentVersion ?? head` as soon as `onDeploy` returns.
+		version = head?.version
 
 		closeSaveDrawer()
 		sendUserToast('App deployed successfully')
 		// Bracketed + flushed (see createApp).
-		if (!inSessionPane && $workspaceStore) {
+		if (!inSessionPane && $operatingWorkspace) {
 			discardDraftAfterDeploy({
-				workspace: $workspaceStore,
+				workspace: $operatingWorkspace,
 				itemKind: 'raw_app',
 				path: appPath
 			})
@@ -477,16 +645,23 @@
 		if (appPath !== npath) {
 			onSavedNewAppPath?.(npath)
 		}
-		onDeploy?.({ path: npath })
+		onDeploy?.({
+			path: npath,
+			version: deployed.version,
+			head: version,
+			headBy: head?.created_by,
+			headAt: head?.created_at
+		})
 	}
 
 	async function setPublishState(message?: string) {
-		await computeTriggerables()
+		const nextPolicy = await policyWithTriggerables()
 		await AppService.updateApp({
 			workspace: opWorkspace!,
 			path: appPath,
-			requestBody: { policy }
+			requestBody: { policy: nextPolicy }
 		})
+		policy.triggerables_v2 = nextPolicy.triggerables_v2
 		if (message) {
 			sendUserToast(message)
 		} else if (policy.execution_mode == 'anonymous') {
@@ -502,6 +677,9 @@
 	}
 
 	let onLatest = $state(true)
+	/** The last comparison could not read the head, so the confirmation it raises is
+	 *  caution and not an observed deploy. Cleared by the next reading comparison. */
+	let headUnknown = $state(false)
 	async function compareVersions() {
 		if (version === undefined) {
 			return
@@ -512,9 +690,14 @@
 				path: appPath
 			})
 			onLatest = appVersion?.version === undefined || version === appVersion?.version
+			headUnknown = false
 		} catch (e) {
 			console.error('Error comparing versions', e)
-			onLatest = true
+			// The head is what this compares against, so an unanswered read is not
+			// evidence of being current: confirm, as an unclaimable deploy does, and say
+			// that is why rather than claiming a version that was never seen.
+			onLatest = false
+			headUnknown = true
 		}
 	}
 
@@ -607,6 +790,8 @@
 	{confirmCallback}
 	bind:open
 	{diffDrawer}
+	claimOpening={() => (lastOpening = diffDrawer?.beginOpening())}
+	{headUnknown}
 	bind:deployedValue
 	currentValue={currentDiffValue}
 />
@@ -622,26 +807,34 @@
 						if (!savedApp || newApp) {
 							return
 						}
+						// The other entry point into the same drawer, so it takes an opening too.
+						const opening = diffDrawer?.beginOpening()
+						lastOpening = opening
+						if (opening == null) return
 						// deployedValue should be syncronized when we open Diff
-						await syncWithDeployed()
+						await syncWithDeployed(opening)
 
+						if (!diffDrawer?.ownsOpening(opening)) return
 						saveDrawerOpen = false
-						diffDrawer?.openDrawer()
-						diffDrawer?.setDiff({
-							mode: 'normal',
-							deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
-							current: currentDiffValue,
-							button: {
-								text: 'Looks good, deploy',
-								onClick: () => {
-									if (newApp || appPath == '') {
-										createApp(newEditedPath)
-									} else {
-										handleUpdateApp(newEditedPath)
+						diffDrawer.openDrawer(opening)
+						diffDrawer.setDiff(
+							{
+								mode: 'normal',
+								deployed: deployedValue ?? stripRawAppDiffNoise(savedApp),
+								current: currentDiffValue,
+								button: {
+									text: 'Looks good, deploy',
+									onClick: () => {
+										if (newApp || appPath == '') {
+											createApp(newEditedPath)
+										} else {
+											handleUpdateApp(newEditedPath)
+										}
 									}
 								}
-							}
-						})
+							},
+							opening
+						)
 					}}
 				>
 					<div class="flex flex-row gap-2 items-center">
@@ -674,6 +867,7 @@
 			{setPublishState}
 			{appPath}
 			{onLatest}
+			{headUnknown}
 			{savedApp}
 			rawApp
 			operatingWorkspace={opWorkspace}
@@ -710,13 +904,13 @@
 				</span>
 				<span>
 					Stop recording, then <b>Download</b> the JSON. It is self-contained: open it on
-					<a href="{base}/replay" target="_blank" rel="noreferrer" class="text-blue-500 underline">
-						{base}/replay
+					<a href="/replay" target="_blank" rel="noreferrer" class="text-blue-500 underline">
+						/replay
 					</a>
 					— a public page that needs no login and can be embedded in an iframe. Host the JSON anywhere
 					it can be fetched (S3, GitHub raw, your docs site) and link
-					<span class="font-mono">{base}/replay?src=&lt;url&gt;</span> to have it load itself. Windmill
-					keeps no copy.
+					<span class="font-mono">/replay?src=&lt;url&gt;</span> to have it load itself. Windmill keeps
+					no copy.
 				</span>
 			</div>
 			<div class="flex-1 min-h-0">
@@ -744,121 +938,214 @@
 	errorByComponent={{}}
 />
 
-<div
-	bind:clientWidth={topbarWidth}
-	class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto shrink-0 {condensedHeader
-		? 'max-h-9 h-9'
-		: 'max-h-12 h-12'}"
->
-	<!-- Identity block: shrinks/truncates first so the cloud indicator and the
+{#if ownsPageHeader}
+	<!-- The editor's own top bar is the page header on this route: the app's path and summary are
+	     the breadcrumb's, and everything else the bar carried rides along as the header's actions.
+	     `separator="none"`: the splitpanes below draw their own top line, and the bar's edge would
+	     be a second one on top of it. -->
+	<PageHeaderContent
+		item={{
+			// The path being edited, not the stored one: a brand-new app is parked at a
+			// `draft_<uuid>` placeholder, and the trail would name that instead of the path Deploy
+			// will create — which is why `newEditedPath` refuses the placeholder. Frozen while the
+			// rename popover is open so the trail holds still as the user types.
+			kind: 'app',
+			path: pathSnapshot ?? (newEditedPath || appPath || newPath || undefined),
+			summary,
+			summaryContent: appSummary,
+			pathTrigger: rawAppPathTrigger
+		}}
+		actions={rawAppHeaderActions}
+		actionFolds={2}
+		contexts={headerContexts}
+		separator="none"
+	/>
+{:else}
+	<div
+		bind:clientWidth={topbarWidth}
+		class="flex flex-row justify-between gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto shrink-0 {condensedHeader
+			? 'max-h-9 h-9'
+			: 'max-h-12 h-12'}"
+	>
+		<!-- Identity block: shrinks/truncates first so the cloud indicator and the
 	     action buttons stay visible. Without min-w-0 the breadcrumb + summary
 	     overflow this box on narrow widths and get overlapped by the (formerly
 	     un-pinned) action group, hiding the autosave cloud. -->
-	<div class="flex flex-row gap-2 items-center min-w-0">
-		{#if onToggleSidebar}
-			<Button
-				unifiedSize="sm"
-				variant="subtle"
-				iconOnly
-				startIcon={{ icon: sidebarCollapsed ? PanelLeft : PanelLeftClose }}
-				title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} file sidebar (${isMac() ? '⌘' : 'Ctrl+'}B)`}
-				on:click={() => onToggleSidebar?.()}
-			/>
-		{/if}
-		<div class="min-w-0 overflow-hidden">
-			<EditorHeader
-				bind:summary
-				bind:path={newEditedPath}
-				savedPath={appPath || newPath || undefined}
-				kind="app"
-				raw_app
-				hidePath={condensedHeader}
-				workspaceId={autosaveWorkspace}
-				onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
-			/>
+		<div class="flex flex-row gap-2 items-center min-w-0">
+			{@render sidebarToggle()}
+			<div class="min-w-0 overflow-hidden">
+				<EditorHeader
+					bind:summary
+					bind:path={newEditedPath}
+					savedPath={appPath || newPath || undefined}
+					kind="app"
+					raw_app
+					hidePath={condensedHeader}
+					workspaceId={autosaveWorkspace}
+					onNavigate={(item) => (onNavigate ? onNavigate(item) : goto(editPathFor(item)))}
+				/>
+			</div>
+			{@render autosaveIndicator()}
 		</div>
-		{#if opWorkspace && indicatorPath !== undefined}
-			<AutosaveIndicator
-				workspace={opWorkspace}
-				itemKind="raw_app"
-				path={indicatorPath}
-				draftOnly={newApp}
-				{onResetToDeployed}
-				{loadedFromDraft}
-				{othersDraftsCount}
-				{onOpenOthersDrafts}
-			/>
-		{/if}
-	</div>
 
+		{@render awarenessMark()}
+		<div class="flex flex-row gap-2 justify-end items-center overflow-visible shrink-0">
+			{@render rawAppActions()}
+		</div>
+	</div>
+{/if}
+
+{#snippet sidebarToggle()}
+	{#if onToggleSidebar}
+		<Button
+			unifiedSize="sm"
+			variant="subtle"
+			iconOnly
+			startIcon={{ icon: sidebarCollapsed ? PanelLeft : PanelLeftClose }}
+			title={`${sidebarCollapsed ? 'Expand' : 'Collapse'} file sidebar (${isMac() ? '⌘' : 'Ctrl+'}B)`}
+			on:click={() => onToggleSidebar?.()}
+		/>
+	{/if}
+{/snippet}
+
+{#snippet autosaveIndicator()}
+	{#if opWorkspace && indicatorPath !== undefined}
+		<AutosaveIndicator
+			workspace={opWorkspace}
+			itemKind="raw_app"
+			path={indicatorPath}
+			draftOnly={newApp}
+			{onResetToDeployed}
+			{loadedFromDraft}
+			{othersDraftsCount}
+			{onOpenOthersDrafts}
+		/>
+	{/if}
+{/snippet}
+
+{#snippet awarenessMark()}
 	{#if $enterpriseLicense && appPath != '' && !inSessionPane}
 		<div class="shrink-0">
 			<Awareness />
 		</div>
 	{/if}
-	<div class="flex flex-row gap-2 justify-end items-center overflow-visible shrink-0">
-		<DropdownV2 items={moreItems} class="h-auto">
-			{#snippet buttonReplacement()}
-				<Button
-					nonCaptureEvent
-					unifiedSize={headerBtnSize}
-					variant="subtle"
-					startIcon={{ icon: EllipsisVertical }}
-					iconOnly
-				></Button>
-			{/snippet}
-		</DropdownV2>
+{/snippet}
 
-		<!-- A disabled <button> fires no pointer events, so a title/tooltip on it
+<!-- The summary's editor again, hung off the band's path segment so it opens under the path, with
+     the cursor in the path field. `bind:` cannot be spread, so the slots are written out twice;
+     both instances bind the same ones and only one is ever open. -->
+{#snippet rawAppPathTrigger(pathLabel: Snippet, triggerClass: string)}
+	<PathEditPopover
+		label={pathLabel}
+		{triggerClass}
+		focusField="path"
+		bind:summary
+		bind:path={newEditedPath}
+		bind:snapshotPath={pathSnapshot}
+		savedPath={appPath || undefined}
+		kind="app"
+		workspaceId={autosaveWorkspace}
+	/>
+{/snippet}
+
+{#snippet appSummary()}
+	<!-- Not edited in place: clicking the name opens the summary and the path together, so the band
+	     reads as a name rather than a form. `title` for one it truncates. -->
+	<div class="flex items-center gap-1 min-w-0">
+		{#snippet summaryText()}
+			<span
+				class="min-w-0 truncate text-xs {emptyString(summary)
+					? 'text-tertiary italic font-normal'
+					: 'font-medium text-emphasis'}"
+				title={summary}>{emptyString(summary) ? 'Add a summary...' : summary}</span
+			>
+		{/snippet}
+		<PathEditPopover
+			label={summaryText}
+			bind:summary
+			bind:path={newEditedPath}
+			bind:snapshotPath={pathSnapshot}
+			savedPath={appPath || undefined}
+			kind="app"
+			workspaceId={autosaveWorkspace}
+		/>
+	</div>
+{/snippet}
+
+{#snippet rawAppHeaderActions()}
+	<!-- The bar's own order kept: the file sidebar, how the draft is doing, who else is here, then
+	     what to do with the app. The sidebar's toggle is the only way back once it is folded — the
+	     collapsed sidebar renders nothing of its own — so it stays on the bar at every width. -->
+	{@render sidebarToggle()}
+	{@render autosaveIndicator()}
+	{@render awarenessMark()}
+	{@render rawAppActions()}
+{/snippet}
+
+{#snippet rawAppActions()}
+	<DropdownV2 items={moreItems} class="h-auto">
+		{#snippet buttonReplacement()}
+			<Button
+				nonCaptureEvent
+				unifiedSize={headerBtnSize}
+				variant="subtle"
+				startIcon={{ icon: EllipsisVertical }}
+				iconOnly
+			></Button>
+		{/snippet}
+	</DropdownV2>
+
+	<!-- A disabled <button> fires no pointer events, so a title/tooltip on it
 		     never shows on hover. pointer-events-none on the button lets the hover
 		     reach this titled wrapper instead. -->
-		<div
+	<div
+		title={newApp || savedApp?.no_deployed === true
+			? 'Deploy this app once to compare against the deployed version'
+			: 'Diff'}
+		class={!savedApp || newApp || savedApp?.no_deployed === true
+			? 'flex cursor-not-allowed'
+			: 'flex'}
+	>
+		<Button
+			variant="default"
+			unifiedSize={headerBtnSize}
+			on:click={() => openDiffDrawer()}
+			disabled={!savedApp || newApp || savedApp?.no_deployed === true}
+			btnClasses={!savedApp || newApp || savedApp?.no_deployed === true
+				? 'pointer-events-none'
+				: undefined}
+			iconOnly={compactTopbar}
 			title={newApp || savedApp?.no_deployed === true
 				? 'Deploy this app once to compare against the deployed version'
 				: 'Diff'}
-			class={!savedApp || newApp || savedApp?.no_deployed === true
-				? 'flex cursor-not-allowed'
-				: 'flex'}
+			startIcon={{ icon: DiffIcon }}
 		>
-			<Button
-				variant="default"
-				unifiedSize={headerBtnSize}
-				on:click={() => openDiffDrawer()}
-				disabled={!savedApp || newApp || savedApp?.no_deployed === true}
-				btnClasses={!savedApp || newApp || savedApp?.no_deployed === true
-					? 'pointer-events-none'
-					: undefined}
-				iconOnly={compactTopbar}
-				title={newApp || savedApp?.no_deployed === true
-					? 'Deploy this app once to compare against the deployed version'
-					: 'Diff'}
-				startIcon={{ icon: DiffIcon }}
-			>
-				Diff
-			</Button>
-		</div>
+			Diff
+		</Button>
+	</div>
 
-		<div class="{compactTopbar ? 'hidden' : 'hidden md:inline'} relative overflow-visible">
-			<Button
-				on:click={() => {
-					jobsDrawerOpen = true
-				}}
-				color="light"
-				unifiedSize={headerBtnSize}
-				variant="default"
-				btnClasses="relative"
-			>
-				<div class="flex flex-row gap-1 items-center">
-					<Bug size={14} />
-					<div>Jobs</div>
+	<div class="{compactTopbar ? 'hidden' : 'hidden md:inline'} relative overflow-visible">
+		<Button
+			on:click={() => {
+				jobsDrawerOpen = true
+			}}
+			color="light"
+			unifiedSize={headerBtnSize}
+			variant="default"
+			btnClasses="relative"
+		>
+			<div class="flex flex-row gap-1 items-center">
+				<Bug size={14} />
+				<div>Jobs</div>
 
-					<div class="text-2xs text-primary"
-						>({jobs?.length > 99 ? '99+' : (jobs?.length ?? 0)})</div
-					>
-				</div>
-			</Button>
-		</div>
-		<AppExportButton bind:this={appExport} />
+				<div class="text-2xs text-primary">({jobs?.length > 99 ? '99+' : (jobs?.length ?? 0)})</div>
+			</div>
+		</Button>
+	</div>
+	<!-- Draws nothing in the bar: it is the export drawer, opened from the menu's Export entry
+	     through this instance. -->
+	<AppExportButton bind:this={appExport} />
+	{#if !phoneTopbar}
 		<OpenInSessionButton source={sessionOpen}>
 			{#snippet fallback()}
 				<Button
@@ -873,34 +1160,44 @@
 				</Button>
 			{/snippet}
 		</OpenInSessionButton>
-		<Button
-			loading={loading.save}
-			startIcon={{ icon: Save }}
-			on:click={save}
-			unifiedSize={headerBtnSize}
-			variant="accent"
-			dropdownItems={appPath != ''
-				? () => [
-						{
-							label: 'Fork',
-							onClick: () => {
-								window.open(`/apps/add?template=${appPath}`)
-							}
-						},
-						...(!isCloudHosted() && editInForkAllowed(opWorkspace, $userWorkspaces)
-							? [
-									{
-										label: editInForkLabel(opWorkspace, $userWorkspaces),
-										onClick: () => {
-											openEditInFork('raw_app', appPath, opWorkspace)
-										}
+	{/if}
+	<Button
+		loading={loading.save}
+		startIcon={{ icon: Save }}
+		on:click={save}
+		unifiedSize={headerBtnSize}
+		variant="accent"
+		dropdownItems={appPath != ''
+			? () => [
+					// `appPath`, not the live edited path: a rename that has not been deployed yet
+					// would land on a details page for something that does not exist.
+					...(newApp
+						? []
+						: [
+								{
+									label: 'Exit & see details',
+									onClick: () => onDetails?.({ path: appPath })
+								}
+							]),
+					{
+						label: 'Fork',
+						onClick: () => {
+							window.open(`/apps/add?template=${appPath}`)
+						}
+					},
+					...(!isCloudHosted() && editInForkAllowed(opWorkspace, $userWorkspaces)
+						? [
+								{
+									label: editInForkLabel(opWorkspace, $userWorkspaces),
+									onClick: () => {
+										openEditInFork('raw_app', appPath, opWorkspace)
 									}
-								]
-							: [])
-					]
-				: undefined}
-		>
-			Deploy
-		</Button>
-	</div>
-</div>
+								}
+							]
+						: [])
+				]
+			: undefined}
+	>
+		Deploy
+	</Button>
+{/snippet}

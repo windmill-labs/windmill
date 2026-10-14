@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import { copilotInfo } from '$lib/aiStore'
 	import { ScriptService, type Script } from '$lib/gen'
 
@@ -8,6 +7,9 @@
 	import { emptyString } from '$lib/utils'
 	import { createEventDispatcher, onMount, untrack } from 'svelte'
 	import TextInput from '../text_input/TextInput.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let scripts: Script[] | undefined = $state(undefined)
 	interface Props {
@@ -34,7 +36,7 @@
 
 	async function loadScripts(): Promise<void> {
 		const loadedScripts = await ScriptService.listScripts({
-			workspace: $workspaceStore!,
+			workspace: $operatingWorkspace!,
 			perPage: 300,
 			kinds: trigger ? 'trigger' : 'script'
 		})

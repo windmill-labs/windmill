@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings\n           SET datatable = CASE WHEN $3::jsonb = 'null'::jsonb\n               THEN datatable #- ARRAY['datatables', $2, 'permissions']\n               ELSE jsonb_set(datatable, ARRAY['datatables', $2, 'permissions'], $3::jsonb)\n           END\n           WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f4adc9e26ebfebce18a29fb2c21bf06394cacb8a9699a608327b097e0ac1363e"
+}

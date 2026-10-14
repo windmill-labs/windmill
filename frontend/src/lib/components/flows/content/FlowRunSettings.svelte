@@ -28,6 +28,7 @@
 
 	import FlowModuleDebounce from './FlowModuleDebounce.svelte'
 	import FlowModuleMock from './FlowModuleMock.svelte'
+	import JobTokenScopesSetting from '$lib/components/JobTokenScopesSetting.svelte'
 	import WorkspaceScriptSettingInfo from './WorkspaceScriptSettingInfo.svelte'
 	import { slideDynamic } from '$lib/transitions'
 
@@ -346,6 +347,15 @@
 					<FlowModuleMock bind:flowModule />
 				</div>
 			{/if}
+
+			<div data-setting="job-token">
+				<JobTokenScopesSetting
+					bind:value={flowModule.job_token_scopes}
+					kind="step"
+					size="xs"
+					textClass="text-xs font-normal text-primary"
+				/>
+			</div>
 		</div></section
 	>
 

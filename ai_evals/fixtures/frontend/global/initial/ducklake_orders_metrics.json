@@ -1,0 +1,36 @@
+{
+  "workspace": {
+    "ducklakes": ["main"],
+    "dataMetrics": [
+      {
+        "script_path": "f/analytics/orders_pipeline",
+        "table_path": "main/main.orders",
+        "kind": "measure",
+        "name": "revenue",
+        "expr": "sum(amount)",
+        "filter": "not is_test"
+      },
+      {
+        "script_path": "f/analytics/orders_pipeline",
+        "table_path": "main/main.orders",
+        "kind": "measure",
+        "name": "order_count",
+        "expr": "count(*)"
+      },
+      {
+        "script_path": "f/analytics/orders_pipeline",
+        "table_path": "main/main.orders",
+        "kind": "dimension",
+        "name": "order_month",
+        "expr": "date_trunc('month', order_date)"
+      },
+      {
+        "script_path": "f/analytics/orders_pipeline",
+        "table_path": "main/main.orders",
+        "kind": "dimension",
+        "name": "region",
+        "expr": "region"
+      }
+    ]
+  }
+}

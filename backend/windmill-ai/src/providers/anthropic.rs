@@ -767,6 +767,7 @@ impl QueryBuilder for AnthropicQueryBuilder {
 
         let AnthropicSSEParser {
             accumulated_content,
+            accumulated_reasoning,
             accumulated_tool_calls,
             events_str,
             annotations,
@@ -781,7 +782,7 @@ impl QueryBuilder for AnthropicQueryBuilder {
         // Convert Anthropic usage to TokenUsage
         let usage = anthropic_usage.map(|u| {
             TokenUsage::from_input_output(u.input_tokens, u.output_tokens)
-                .with_cache(u.cache_read_input_tokens, u.cache_creation_input_tokens)
+                .with_cache_beside_input(u.cache_read_input_tokens, u.cache_creation_input_tokens)
         });
 
         Ok(ParsedResponse::Text {
@@ -790,6 +791,7 @@ impl QueryBuilder for AnthropicQueryBuilder {
             } else {
                 Some(accumulated_content)
             },
+            reasoning: (!accumulated_reasoning.is_empty()).then_some(accumulated_reasoning),
             tool_calls: accumulated_tool_calls.into_values().collect(),
             events_str: Some(events_str),
             annotations,
@@ -856,6 +858,7 @@ mod tests {
             aws_access_key_id: None,
             aws_secret_access_key: None,
             aws_session_token: None,
+            oidc_role_arn: None,
             platform,
             custom_headers: HashMap::new(),
         }
@@ -900,6 +903,7 @@ mod tests {
             attachments: None,
             has_websearch: false,
             prompt_cache_key: None,
+            reasoning_summary: false,
         };
 
         AnthropicQueryBuilder::new(AIProvider::Anthropic, platform)

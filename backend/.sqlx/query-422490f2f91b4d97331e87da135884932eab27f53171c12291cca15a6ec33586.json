@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE git_sync_ci_test_check\n         SET concluded = true, github_posted = true, concluded_at = now(),\n             conclusion = COALESCE(conclusion, 'failure')\n         WHERE (check_run_id IS NULL AND NOT concluded\n                AND created_at < now() - make_interval(secs => $1))\n            OR (concluded AND NOT github_posted\n                AND concluded_at < now() - make_interval(secs => $2))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Float8",
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "422490f2f91b4d97331e87da135884932eab27f53171c12291cca15a6ec33586"
+}

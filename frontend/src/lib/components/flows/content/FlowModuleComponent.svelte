@@ -34,12 +34,13 @@
 	import AgentToolBindings from './AgentToolBindings.svelte'
 	import { getLinkedAgentTools, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
 	import { flowLocalAgentSchema } from '../agentResourceUtils'
-	import { AI_AGENT_TOOL_AI_KEYS } from '../agentToolUtils'
+	import { AI_AGENT_TOOL_AI_KEYS, AI_DECISION_TOOL_AI_KEYS } from '../agentToolUtils'
+	import { setAiDecisionStep } from '../aiDecisionBranching'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import type { ButtonProp } from '$lib/components/diffEditorTypes'
 	import { loadSchemaFromModule } from '../flowInfers'
 	import { type Job } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
 	import { checkIfParentLoop } from '../utils.svelte'
 	import { useWorkspaceScriptSettings } from '../useWorkspaceScriptSettings.svelte'
 	import ScriptSettingsBadges from '$lib/components/ScriptSettingsBadges.svelte'
@@ -72,6 +73,10 @@
 	} from '$lib/components/debug'
 	import { Bug, Terminal } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/utils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatorBuilderFlows = useOperatorBuilderFlows()
 
 	const {
 		selectionManager,
@@ -103,7 +108,7 @@
 		return empty
 	}
 
-	let opWs = $derived(opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(opWorkspace?.() ?? $operatingWorkspace)
 
 	interface Props {
 		flowModule: FlowModule
@@ -126,10 +131,6 @@
 		staticOnly?: boolean
 		/** Lets the agent's Tools section add a tool through the graph's own insert path. */
 		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
-		/** Drop the tool roster's drill-in. Selecting a tool means selecting its graph node, so a
-		 *  surface without a graph — the agent editor, which addresses one tool at a time — would
-		 *  offer a row whose click lands nowhere. */
-		noToolNavigation?: boolean
 		toolDescription?: string | undefined
 		siblingToolNames?: string[]
 	}
@@ -150,10 +151,15 @@
 		isAgentTool = false,
 		staticOnly = false,
 		flowModuleSchemaMap = undefined,
-		noToolNavigation = false,
 		toolDescription = $bindable(undefined),
 		siblingToolNames = undefined
 	}: Props = $props()
+
+	setAiDecisionStep({
+		get id() {
+			return flowModule.value.type === 'aidecision' && !isAgentTool ? flowModule.id : undefined
+		}
+	})
 
 	// Key for the linked-agent tools store. Ancestry-qualified for a nested agent tool, whose id
 	// comes from a resource and is not flow-global — it could otherwise alias a top-level step and
@@ -162,6 +168,9 @@
 	let linkedToolsModuleId = $derived(
 		parentModule?.value?.type === 'aiagent' ? `${parentModule.id}/${flowModule.id}` : flowModule.id
 	)
+
+	// Which step's open agent fields to remember, and which the test form reads back.
+	let agentFieldsKey = $derived(`${$pathStore}:${linkedToolsModuleId}`)
 
 	let workspaceScriptTag: string | undefined = $state(undefined)
 	let workspaceScriptLang: ScriptLang | undefined = $state(undefined)
@@ -201,6 +210,14 @@
 	let visibleSelected = $derived(selected === 'chat' && !canShowChatTab ? 'inputs' : selected)
 	let runSettings: FlowRunSettings | undefined = $state()
 	let agentLinked = $derived(flowModule.value.type === 'aiagent' && Boolean(flowModule.value.agent))
+	// A tool row drills in by selecting that tool's graph node, and the graph draws tool nodes only
+	// for a step's own agent (`computeAIToolNodes`). An agent used as a tool has none, so its rows
+	// would offer a click that lands nowhere.
+	let onSelectToolInGraph = $derived(
+		isAgentTool
+			? undefined
+			: (toolId: string) => selectionManager.selectId(toolId, { openPanel: true })
+	)
 	let validCode = $state(true)
 	let width = $state(1200)
 	let testJob: Job | undefined = $state(undefined)
@@ -227,8 +244,11 @@
 			!flowModule.value.path?.startsWith('hub/') &&
 			flowModule.value.hash == undefined &&
 			customUi?.scriptEdit != false &&
+			!$operatorBuilderFlows &&
 			$workspaceScriptSettingsDrawer != undefined
 	)
+	// Same rule as the graph node's Run button (FlowModuleSchemaItem).
+	let builderCannotTestStep = $derived($operatorBuilderFlows && flowModule.value.type === 'script')
 	let workspaceScriptNoEditReason = $derived(
 		flowModule.value.type !== 'script' || canEditWorkspaceScriptSettings
 			? undefined
@@ -280,7 +300,7 @@
 	}
 
 	function onKeyDown(event: KeyboardEvent) {
-		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter') {
+		if ((event.ctrlKey || event.metaKey) && event.key == 'Enter' && !builderCannotTestStep) {
 			event.preventDefault()
 			selected = 'test'
 			modulePreview?.runTestWithStepArgs()
@@ -288,6 +308,8 @@
 	}
 	let inputTransformSchemaForm: { setArgs: (nargs: Record<string, any>) => void } | undefined =
 		$state(undefined)
+	// The linked agent's memory, which decides which history inputs the step offers.
+	let linkedAgentMemory: { memory: unknown } | undefined = $state(undefined)
 
 	let reloadError: string | undefined = $state(undefined)
 	async function reload(flowModule: FlowModule) {
@@ -303,7 +325,8 @@
 					flowModule.value.type == 'rawscript' ||
 					flowModule.value.type == 'script' ||
 					flowModule.value.type == 'flow' ||
-					flowModule.value.type == 'aiagent'
+					flowModule.value.type == 'aiagent' ||
+					flowModule.value.type == 'aidecision'
 				) {
 					if (!deepEqual(flowModule.value.input_transforms, input_transforms)) {
 						flowModule.value.input_transforms = input_transforms
@@ -852,7 +875,11 @@
 						console.log('tagChange', e.detail)
 						if (flowModule.value.type == 'script') {
 							flowModule.value.tag_override = e.detail
-						} else if (flowModule.value.type == 'rawscript' || flowModule.value.type == 'aiagent') {
+						} else if (
+							flowModule.value.type == 'rawscript' ||
+							flowModule.value.type == 'aiagent' ||
+							flowModule.value.type == 'aidecision'
+						) {
 							flowModule.value.tag = e.detail
 						}
 					}}
@@ -1111,7 +1138,9 @@
 										{#if !preprocessorModule}
 											<Tab value="inputs" label={isAgentTool ? 'Tool input' : 'Step Input'} />
 										{/if}
-										<Tab value="test" label={isAgentTool ? 'Test this tool' : 'Test this step'} />
+										{#if !builderCannotTestStep}
+											<Tab value="test" label={isAgentTool ? 'Test this tool' : 'Test this step'} />
+										{/if}
 										{#if canShowChatTab && flowModule.value.type === 'aiagent'}
 											<Tab
 												value="chat"
@@ -1127,7 +1156,7 @@
 											</Tab>
 										{/if}
 									</Tabs>
-									{#if visibleSelected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}
+									{#if visibleSelected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent' || flowModule.value.type == 'aidecision')}
 										<div class="flex-1 overflow-auto" id="flow-editor-step-input">
 											<!-- `sidePane` under `staticOnly`: that column only opens on a connect,
 											     and there is no connect button to open it. -->
@@ -1151,6 +1180,8 @@
 														opWorkspace={opWs}
 														flowPath={$pathStore}
 														fromAgentEditor={agentEditorHost?.() != undefined}
+														bind:linkedMemory={linkedAgentMemory}
+														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 														bind:agent={
 															() =>
 																flowModule.value.type === 'aiagent'
@@ -1231,11 +1262,16 @@
 														helperScript={retrieveDynCodeAndLang(flowModule.value)}
 														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 														workspace={opWs}
-														visibilityKey={`${$pathStore}:${linkedToolsModuleId}`}
-														tools={flowModule.value.tools ?? []}
-														onSelectTool={noToolNavigation
-															? undefined
-															: (toolId) => selectionManager.selectId(toolId, { openPanel: true })}
+														visibilityKey={agentFieldsKey}
+														linkedMemory={agentLinked ? linkedAgentMemory : undefined}
+														{agentLinked}
+														tools={agentLinked
+															? getLinkedAgentTools(
+																	linkedToolsScope(opWs, $pathStore),
+																	linkedToolsModuleId
+																)
+															: (flowModule.value.tools ?? [])}
+														onSelectTool={onSelectToolInGraph}
 														onAddTool={flowModuleSchemaMap
 															? (detail) =>
 																	flowModuleSchemaMap?.addToolToAgent(flowModule.id, detail)
@@ -1268,7 +1304,10 @@
 														{isAgentTool}
 														noConnect={staticOnly}
 														noJavascript={staticOnly}
-														allowedAiTransforms={undefined}
+														allowedAiTransforms={isAgentTool &&
+														flowModule.value.type === 'aidecision'
+															? AI_DECISION_TOOL_AI_KEYS
+															: undefined}
 														helperScript={retrieveDynCodeAndLang(flowModule.value)}
 														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 														workspace={opWs}
@@ -1302,7 +1341,7 @@
 												{/if}
 											</PropPickerWrapper>
 										</div>
-									{:else if visibleSelected === 'test'}
+									{:else if visibleSelected === 'test' && !builderCannotTestStep}
 										{#if debugMode && isDebuggableScript}
 											<div transition:slide={{ duration: 200 }}>
 												<DebugToolbar
@@ -1336,6 +1375,7 @@
 											focusArg={highlightArg}
 											{onJobDone}
 											hideRunButton={debugMode && isDebuggableScript}
+											openFieldsKey={agentFieldsKey}
 										/>
 									{:else if visibleSelected === 'chat' && canShowChatTab && flowModule.value.type === 'aiagent'}
 										<div class="flex-1 overflow-auto p-4">
@@ -1460,12 +1500,6 @@
 											{testJob}
 											{scriptProgress}
 											mod={flowModule}
-											linkedAgentTools={agentLinked
-												? getLinkedAgentTools(
-														linkedToolsScope(opWs, $pathStore),
-														linkedToolsModuleId
-													)
-												: undefined}
 											{testIsLoading}
 											disableMock={preprocessorModule || failureModule}
 											disableHistory={failureModule}
@@ -1479,7 +1513,7 @@
 						</Splitpanes>
 					{/snippet}
 
-					{#if flowModule.value.type === 'aiagent' || (noEditor && flowModule.value.type !== 'flow')}
+					{#if flowModule.value.type === 'aiagent' || flowModule.value.type === 'aidecision' || (noEditor && flowModule.value.type !== 'flow')}
 						<!-- Top pane has no content to show (aiagent has no editor; rawscript/script
 						gate their content on !noEditor). Skip the Splitpanes wrapper entirely so
 						there's no orphan splitter. type === 'flow' still renders FlowPathViewer

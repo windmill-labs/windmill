@@ -43,11 +43,14 @@ use axum::{
     extract::{Extension, Path},
     http::Request,
     middleware::Next,
-    response::Response,
+    response::{IntoResponse, Response},
     routing::get,
     Json, Router,
 };
-use windmill_common::{auth::hash_token, db::GatewayWorkspaceId, error::JsonResult};
+use windmill_common::{
+    auth::hash_token, db::GatewayWorkspaceId, error::JsonResult,
+    global_settings::MCP_DISABLE_TOKEN_QUERY_PARAM,
+};
 
 // McpAuth impl for ApiAuthed is in windmill-api-auth (same crate as the type)
 
@@ -369,7 +372,8 @@ impl McpBackend for WindmillBackend {
         token: &str,
         workspace_id: &str,
     ) -> BackendResult<ApiAuthed> {
-        self.auth_cache
+        let authed = self
+            .auth_cache
             .get_authed(Some(workspace_id.to_string()), token)
             .await
             .ok_or_else(|| {
@@ -380,7 +384,17 @@ impl McpBackend for WindmillBackend {
                     ),
                     None,
                 )
-            })
+            })?;
+        // Job token scopes never include MCP scopes, so a restricted job token gets none.
+        windmill_api_auth::check_job_token_scope(&authed, || "mcp:all".to_string())
+            .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
+        Ok(authed)
+    }
+
+    async fn runnable_list_fingerprint(&self, workspace_id: &str) -> BackendResult<String> {
+        windmill_common::runnables::runnable_list_fingerprint(&self.db, workspace_id)
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))
     }
 
     fn all_endpoint_tools(&self) -> Vec<EndpointTool> {
@@ -444,6 +458,29 @@ pub async fn add_www_authenticate_header(
     } else {
         response
     }
+}
+
+/// Middleware refusing a credential carried in the MCP URL once the instance sets
+/// `mcp_disable_token_query_param`. Sits outside everything that reads the token, so neither
+/// the gateway lookup nor `ApiAuthed` ever sees it, and inside the `WWW-Authenticate` layer,
+/// whose header is what sends the client into the OAuth flow instead. Refused rather than
+/// ignored: the URL leaked the token whether or not the request used it.
+pub async fn reject_token_query_param(request: Request<axum::body::Body>, next: Next) -> Response {
+    let carries_token = MCP_DISABLE_TOKEN_QUERY_PARAM.load(std::sync::atomic::Ordering::Relaxed)
+        && request
+            .uri()
+            .query()
+            .is_some_and(|q| url::form_urlencoded::parse(q.as_bytes()).any(|(k, _)| k == "token"));
+    if carries_token {
+        return (
+            axum::http::StatusCode::UNAUTHORIZED,
+            "This instance does not accept a token in the MCP URL. Remove the token query \
+             parameter and let your client sign in through OAuth, or send the token in an \
+             Authorization header.",
+        )
+            .into_response();
+    }
+    next.run(request).await
 }
 
 /// Extract the bearer token from either the `Authorization` header or the

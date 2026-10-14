@@ -25,11 +25,12 @@ import protectionRules from "./commands/protection-rules/protection-rules.ts";
 import instance from "./commands/instance/instance.ts";
 import workerGroups from "./commands/worker-groups/worker-groups.ts";
 import lint from "./commands/lint/lint.ts";
+import digest from "./commands/digest/digest.ts";
 
 import dev from "./commands/dev/dev.ts";
 import { GlobalOptions } from "./types.ts";
 import { OpenAPI } from "../gen/index.ts";
-import { getHeaders } from "./utils/utils.ts";
+import { apiErrorMessage, getHeaders } from "./utils/utils.ts";
 import { detectAuthGatewayChallenge } from "./utils/http_guards.ts";
 import { setShowDiffs } from "./core/conf.ts";
 import { markRequestsAsCliClient } from "./core/client.ts";
@@ -48,6 +49,7 @@ import job from "./commands/job/job.ts";
 import group from "./commands/group/group.ts";
 import audit from "./commands/audit/audit.ts";
 import token from "./commands/token/token.ts";
+import trash from "./commands/trash/trash.ts";
 import generateMetadata from "./commands/generate-metadata/generate-metadata.ts";
 import docs from "./commands/docs/docs.ts";
 import config from "./commands/config/config.ts";
@@ -202,6 +204,7 @@ const command = new Command()
   .command("dev", dev)
   .command("sync", sync)
   .command("lint", lint)
+  .command("digest", digest)
   .command("gitsync-settings", gitsyncSettings)
   .command("protection-rules", protectionRules)
   .command("instance", instance)
@@ -214,6 +217,7 @@ const command = new Command()
   .command("group", group)
   .command("audit", audit)
   .command("token", token)
+  .command("trash", trash)
   .command("generate-metadata", generateMetadata)
   .command("docs", docs)
   .command("config", config)
@@ -321,14 +325,9 @@ async function main() {
 
     await command.parse(args);
   } catch (e) {
-    if (e && typeof e === "object" && "name" in e && e.name === "ApiError") {
-      const body = (e as any).body;
-      let bodyStr = typeof body === "object" && body !== null ? JSON.stringify(body) : String(body ?? "");
-      // Strip backend source file references like (flows.rs:1400) or @scripts.rs:123:45
-      bodyStr = bodyStr.replace(/\s*[@(]\w+\.rs:\d+[:\d]*\)?/g, "");
-      log.error(
-        "Server failed. " + (e as any).statusText + ": " + bodyStr
-      );
+    const apiError = apiErrorMessage(e);
+    if (apiError !== undefined) {
+      log.error("Server failed. " + apiError);
     } else if (e instanceof Error) {
       log.error(e.message);
     } else if (e !== undefined && e !== null) {

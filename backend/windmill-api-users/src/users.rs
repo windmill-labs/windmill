@@ -46,15 +46,18 @@ use tracing::Instrument;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
-use windmill_common::auth::{safe_token_prefix, TOKEN_PREFIX_LEN};
-use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
+use windmill_common::auth::{hash_token, safe_token_prefix, TOKEN_PREFIX_LEN};
+use windmill_common::global_settings::{
+    load_value_from_global_settings, parse_max_token_expiration_days,
+    AUTOMATE_USERNAME_CREATION_SETTING, MAX_TOKEN_EXPIRATION_DAYS_SETTING,
+};
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::per_minute_counter::PerMinuteCounter;
 use windmill_common::users::truncate_token;
 use windmill_common::users::COOKIE_NAME;
 use windmill_common::users::{
-    username_to_permissioned_as, PERMISSIONED_AS_MAX_LEN, SUPERADMIN_NOTIFICATION_EMAIL,
-    SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL, VALID_EMAIL,
+    username_to_permissioned_as, EMAIL_COLUMN_MAX_LEN, PERMISSIONED_AS_MAX_LEN,
+    SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL, SUPERADMIN_SYNC_EMAIL, VALID_EMAIL,
 };
 use windmill_common::utils::paginate;
 use windmill_common::worker::CLOUD_HOSTED;
@@ -140,6 +143,16 @@ pub fn global_service() -> Router {
         )
         .route("/tokens/list", get(list_tokens))
         .route("/tokens/impersonate", post(impersonate))
+        .route("/login_links", post(create_login_link))
+        .route(
+            "/cloud_trial_offer",
+            post(set_cloud_trial_offer).get(get_cloud_trial_offer),
+        )
+        .route("/cloud_trial_offer/go", post(go_cloud_trial_offer))
+        .route(
+            "/onboarding_profile",
+            post(set_onboarding_profile).get(get_onboarding_profile),
+        )
         .route("/usage", get(get_usage))
         .route("/all_runnables", get(get_all_runnables))
         .route("/refresh_token", get(refresh_token))
@@ -158,6 +171,7 @@ pub fn make_unauthed_service() -> Router {
         .route("/logout", post(logout).get(logout))
         .route("/is_first_time_setup", get(is_first_time_setup))
         .route("/request_password_reset", post(request_password_reset))
+        .route("/login_link/{token}", get(consume_login_link))
         .route("/is_smtp_configured", get(is_smtp_configured))
         .route(
             "/is_password_login_disabled",
@@ -255,11 +269,14 @@ pub struct WorkspaceInvite {
 #[derive(Deserialize)]
 pub struct NewUser {
     pub email: String,
-    pub password: String,
+    /// Required when `login_type` is `password` (the default), ignored otherwise.
+    pub password: Option<String>,
     pub super_admin: bool,
     pub name: Option<String>,
     pub company: Option<String>,
     pub skip_email: Option<bool>,
+    /// `password`, `pending_oauth`, or a configured OAuth login client key.
+    pub login_type: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -473,7 +490,7 @@ async fn list_user_usage(
             "
     SELECT usr.email, usage.executions
         FROM usr, LATERAL (
-            SELECT COALESCE(SUM(c.duration_ms + 1000)/1000 , 0)::BIGINT executions
+            SELECT COALESCE(SUM(COALESCE((c.extras->>'wac_last_segment_ms')::bigint, c.duration_ms) + 1000)/1000 , 0)::BIGINT executions
                 FROM v2_job_completed c JOIN v2_job j USING (id)
                 WHERE j.workspace_id = $1
                 AND j.kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow')
@@ -510,7 +527,7 @@ async fn list_users_as_super_admin(
     let rows = if active_only.is_some_and(|x| x) {
         sqlx::query_as!(
             GlobalUserInfo,
-            r#"WITH active_users AS (SELECT distinct username as email FROM (SELECT username, timestamp, operation FROM audit_partitioned UNION ALL SELECT username, timestamp, operation FROM audit) AS a WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),
+            r#"WITH active_users AS (SELECT distinct username as email FROM audit_partitioned WHERE timestamp > NOW() - INTERVAL '1 month' AND (operation = 'users.login' OR operation = 'oauth.login' OR operation = 'users.token.refresh')),
             authors as (SELECT distinct email FROM usr WHERE usr.operator IS false)
             SELECT email as "email!", (email NOT IN (SELECT email FROM authors)) as operator_only, NULL::bool as is_workspace_admin, login_type::text, verified as "verified!", super_admin as "super_admin!", devops as "devops!", name, company, username, first_time_user as "first_time_user!", role_source as "role_source!", disabled as "disabled!", NULL::text as workspace_id
             FROM password
@@ -1689,14 +1706,25 @@ async fn delete_user(
         .await?;
     windmill_common::user_drafts::delete_drafts_of_email(&mut *tx, &email_to_delete).await?;
 
-    let usernames = sqlx::query_scalar!(
-        "DELETE FROM usr WHERE email = $1 RETURNING username",
+    let memberships = sqlx::query!(
+        "DELETE FROM usr WHERE email = $1 RETURNING username, workspace_id",
         &email_to_delete
     )
     .fetch_all(&mut *tx)
     .await?;
 
-    for username in usernames {
+    for row in memberships {
+        let username = row.username;
+        // A tenant list names a principal of its workspace, so the name has to be freed in every
+        // workspace this account belonged to: a later account taking the username would otherwise
+        // inherit the data table access it had.
+        windmill_common::workspaces::remove_datatable_tenant_in_workspace(
+            &mut tx,
+            &row.workspace_id,
+            &format!("u/{username}"),
+        )
+        .await?;
+
         sqlx::query!("DELETE FROM password WHERE email = $1", &email_to_delete)
             .execute(&mut *tx)
             .await?;
@@ -1744,7 +1772,6 @@ struct ChangeUserEmail {
 /// `varchar(50)`, and `v2_job.permissioned_as` in a `varchar(55)`; every other email column is
 /// `varchar(255)`. The strictest of the two bounds is used for all of them.
 const SHORT_EMAIL_COLUMN_MAX_LEN: usize = 50;
-const EMAIL_COLUMN_MAX_LEN: usize = 255;
 
 /// Move an account to a new email address, in place: the `password` row (and with it the
 /// instance-wide username, the role and the login type) is kept and every email-keyed row is
@@ -2381,6 +2408,18 @@ pub async fn update_workspace_user_internal(
     tx: &mut Transaction<'_, Postgres>,
     authed: Option<&ApiAuthed>, // None for system operations
 ) -> Result<()> {
+    // The role is one choice stored as two flags. Granting one clears the other, or a request
+    // setting only `is_admin` leaves a user shown as admin but refused as an operator.
+    let (is_admin, operator) = match (is_admin, operator) {
+        (Some(true), Some(true)) => {
+            return Err(Error::BadRequest(
+                "A user cannot be both admin and operator".to_string(),
+            ))
+        }
+        (Some(true), _) => (Some(true), Some(false)),
+        (_, Some(true)) => (Some(false), Some(true)),
+        flags => flags,
+    };
     if let Some(a) = is_admin {
         sqlx::query_scalar!(
             "UPDATE usr SET is_admin = $1 WHERE username = $2 AND workspace_id = $3",
@@ -2437,6 +2476,15 @@ pub async fn delete_workspace_user_internal(
     tx: &mut Transaction<'_, Postgres>,
     authed: Option<&ApiAuthed>, // None for system operations
 ) -> Result<()> {
+    // Same reasoning as the `extra_perms` sweep below: a freed username must not stay named
+    // anywhere that grants access, tenant lists included.
+    windmill_common::workspaces::remove_datatable_tenant_in_workspace(
+        tx,
+        w_id,
+        &format!("u/{username_to_delete}"),
+    )
+    .await?;
+
     // ---- Clean up extra_perms referencing this user ----
     let extra_perms_tables = [
         "script",
@@ -2515,6 +2563,14 @@ pub async fn delete_workspace_user_internal(
     // ---- Delete user records ----
     sqlx::query_scalar!(
         "DELETE FROM usr WHERE email = $1 AND workspace_id = $2",
+        email_to_delete,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM remote_deploy_token WHERE email = $1 AND workspace_id = $2",
         email_to_delete,
         w_id
     )
@@ -2804,8 +2860,26 @@ async fn refresh_token(
                 .to_string(),
         ));
     }
+    let t_hash = windmill_common::auth::hash_token(&token);
+    // Only a live, non-impersonation row may be exchanged for a session: an impersonation must
+    // end at its 24h expiry, not become a renewable service-account session billed as active.
+    // Read the row rather than trust `authed`, which the auth cache keeps serving for up to
+    // 120s after the row expired or was swept. `jwt_` tokens have no row.
+    if !token.starts_with("jwt_") {
+        let refreshable = sqlx::query_scalar!(
+            "SELECT NOT starts_with(COALESCE(label, ''), 'impersonation:') FROM token
+             WHERE token_hash = $1 AND (expiration IS NULL OR expiration > now())",
+            &t_hash
+        )
+        .fetch_optional(&db)
+        .await?
+        .flatten()
+        .unwrap_or(false);
+        if !refreshable {
+            return Ok("this session cannot be refreshed".to_string());
+        }
+    }
     if let Some(thresh_s) = query.if_expiring_in_less_than_s {
-        let t_hash = windmill_common::auth::hash_token(&token);
         let not_expired = sqlx::query_scalar!("SELECT true FROM token WHERE token_hash = $1 and expiration IS NOT NULL and expiration > now() + $2::int * '1 sec'::interval", &t_hash, thresh_s)
             .fetch_optional(&db)
             .await?
@@ -3053,11 +3127,68 @@ pub async fn create_guest_session_token<'c>(
 
 // create_token_internal is re-exported from windmill-api-auth above
 
+/// Applies the instance-wide ceiling on how long a token a caller picks the lifetime of may
+/// live (`create_token`, and `impersonate` for superadmins), returning the expiration to store:
+/// the requested one while it fits, the ceiling otherwise, and the ceiling as well when none was
+/// requested. Only the stored expiration is capped: tokens already stored when the setting is
+/// turned on or lowered keep theirs, since the auth lookup never reads the setting.
+///
+/// It shortens rather than refuses because most callers do not comply on their own. The CLI
+/// authorization page, `wmill user create-token` and the editor's language-server token each
+/// pick a lifetime, often none at all, without reading the setting (and CLIs already installed
+/// never will), so refusing would break logging in and the editor instead of the long-lived
+/// tokens the setting is aimed at.
+///
+/// Read from `global_settings` on each call rather than cached: token creation is rare
+/// enough that the round trip costs nothing, and the ceiling is then never served stale.
+///
+/// A token owned by a service account is exempt: in the workspace the token names, or in any
+/// workspace for a workspace-less token, which has none to match. Service accounts are the
+/// identity automation that needs a long-lived credential runs as. The cost is that any
+/// workspace admin can create and impersonate one to hold an uncapped token, so the ceiling
+/// bounds personal tokens rather than what an admin can obtain.
+async fn cap_token_expiration(
+    db: &DB,
+    owner_email: &str,
+    workspace_id: Option<&str>,
+    requested: Option<chrono::DateTime<chrono::Utc>>,
+) -> Result<Option<chrono::DateTime<chrono::Utc>>> {
+    let value = load_value_from_global_settings(db, MAX_TOKEN_EXPIRATION_DAYS_SETTING).await?;
+    let max_days = match parse_max_token_expiration_days(value.as_ref()) {
+        Ok(Some(max_days)) => max_days,
+        Ok(None) => return Ok(requested),
+        // Both write paths reject this, so only a row written around them gets here.
+        Err(e) => {
+            tracing::warn!("ignoring {MAX_TOKEN_EXPIRATION_DAYS_SETTING}: {e}");
+            return Ok(requested);
+        }
+    };
+    let max = chrono::Utc::now() + chrono::Duration::days(max_days);
+
+    let is_service_account = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM usr WHERE email = $1 AND is_service_account IS true
+            AND ($2::varchar IS NULL OR workspace_id = $2))",
+        owner_email,
+        workspace_id,
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false);
+    if is_service_account {
+        return Ok(requested);
+    }
+
+    Ok(Some(match requested {
+        Some(expiration) if expiration < max => expiration,
+        _ => max,
+    }))
+}
+
 async fn create_token(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
     OptJobAuthed { job_id, .. }: OptJobAuthed,
-    Json(token_config): Json<NewToken>,
+    Json(mut token_config): Json<NewToken>,
 ) -> Result<(StatusCode, String)> {
     forbid_elevated_job_token(&db, &authed.email, job_id).await?;
     check_token_create_rate_limit(&authed.username)?;
@@ -3078,6 +3209,14 @@ async fn create_token(
     }
 
     windmill_api_auth::ensure_scopes_within_caller(&authed, token_config.scopes.as_deref())?;
+
+    token_config.expiration = cap_token_expiration(
+        &db,
+        &authed.email,
+        token_config.workspace_id.as_deref(),
+        token_config.expiration,
+    )
+    .await?;
 
     let mut tx = db.begin().await?;
 
@@ -3135,6 +3274,7 @@ async fn impersonate(
     .fetch_optional(&db)
     .await?
     .unwrap_or(false);
+    let expiration = cap_token_expiration(&db, &impersonated, None, new_token.expiration).await?;
     let mut tx = db.begin().await?;
 
     sqlx::query!(
@@ -3146,7 +3286,7 @@ async fn impersonate(
         plaintext as Option<&str>,
         impersonated,
         new_token.label,
-        new_token.expiration,
+        expiration,
         is_super_admin
     )
     .execute(&mut *tx)
@@ -3156,7 +3296,7 @@ async fn impersonate(
         &mut *tx,
         &t_hash,
         new_token.label.as_deref(),
-        new_token.expiration,
+        expiration,
     )
     .await;
 
@@ -3173,6 +3313,506 @@ async fn impersonate(
     .await?;
     tx.commit().await?;
     Ok((StatusCode::CREATED, token))
+}
+
+const LOGIN_LINK_DEFAULT_TTL_S: u32 = 600;
+const LOGIN_LINK_MAX_TTL_S: u32 = 900;
+const LOGIN_LINK_DEFAULT_RD: &str = "/user/workspaces";
+const LOGIN_LINK_EXPIRED_PAGE: &str = "/user/login_link_expired";
+
+#[derive(Deserialize)]
+pub struct NewLoginLink {
+    pub email: String,
+    pub expires_in_s: Option<u32>,
+    pub rd: Option<String>,
+    /// Refuse to mint unless the account still has this login type: a caller re-entering an
+    /// account it created can require `pending_oauth`, so the link stops working once the
+    /// owner has set a password or signed in with a provider.
+    pub require_login_type: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct LoginLink {
+    pub url: String,
+    pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// A post-login destination is only ever a same-origin path: anything else would hand the
+/// fresh session's first navigation to another host. Control characters are refused because
+/// browsers strip tab/newline from a `Location` before parsing it, so `/\t/host` reads as
+/// the protocol-relative `//host`.
+fn same_origin_rd(rd: Option<String>) -> Option<String> {
+    rd.filter(|r| {
+        r.starts_with('/')
+            && !r.starts_with("//")
+            && !r.contains('\\')
+            && !r.chars().any(|c| c.is_ascii_control())
+    })
+}
+
+#[cfg(test)]
+mod same_origin_rd_tests {
+    use super::same_origin_rd;
+
+    fn accepts(rd: &str) -> bool {
+        same_origin_rd(Some(rd.to_string())).is_some()
+    }
+
+    #[test]
+    fn only_plain_same_origin_paths_pass() {
+        assert!(accepts("/"));
+        assert!(accepts("/user/workspaces?rd=%2Fx"));
+        assert!(!accepts("https://evil.example/"));
+        assert!(!accepts("//evil.example/"));
+        assert!(!accepts("/\\evil.example/"));
+        assert!(!accepts("/\t/evil.example/"));
+        assert!(!accepts("/x\r\nSet-Cookie: a=b"));
+        assert!(!accepts("user/workspaces"));
+    }
+}
+
+/// Both provisioning writes reference `password(email)`; a typo'd address from the
+/// provisioning script should read as "no such account", not as a foreign-key error.
+async fn require_account(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    email: &str,
+) -> Result<()> {
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM password WHERE email = $1)",
+        email
+    )
+    .fetch_one(&mut **tx)
+    .await?
+    .unwrap_or(false);
+    if !exists {
+        return Err(Error::NotFound(format!("no account for {email}")));
+    }
+    Ok(())
+}
+
+fn login_link_redirect(location: String) -> Response {
+    (
+        StatusCode::FOUND,
+        [
+            ("location", location),
+            ("referrer-policy", "no-referrer".to_string()),
+        ],
+    )
+        .into_response()
+}
+
+/// Mint a single-use link that signs `email` in when opened. The row is not a `token`:
+/// it can only ever become a session, and burning it needs no cache invalidation.
+async fn create_login_link(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
+    Json(nl): Json<NewLoginLink>,
+) -> Result<(StatusCode, Json<LoginLink>)> {
+    require_super_admin(&db, &authed).await?;
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
+
+    let email = nl.email.to_lowercase();
+    let rd = match nl.rd {
+        Some(rd) => Some(same_origin_rd(Some(rd)).ok_or_else(|| {
+            Error::BadRequest("rd must be a same-origin path starting with /".to_string())
+        })?),
+        None => None,
+    };
+    let ttl = nl
+        .expires_in_s
+        .unwrap_or(LOGIN_LINK_DEFAULT_TTL_S)
+        .clamp(1, LOGIN_LINK_MAX_TTL_S);
+
+    let mut tx = db.begin().await?;
+    let target = sqlx::query!(
+        "SELECT super_admin, devops, login_type FROM password WHERE email = $1 AND disabled = false",
+        &email
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(target) = target else {
+        return Err(Error::NotFound(format!("no active account for {email}")));
+    };
+    // A link is a full session for its account; whoever holds the minting credential
+    // must not be able to turn it into an instance-wide role.
+    if target.super_admin || target.devops {
+        return Err(Error::BadRequest(
+            "login links cannot target superadmin or devops accounts".to_string(),
+        ));
+    }
+    if let Some(required) = nl.require_login_type.as_deref() {
+        if target.login_type != required {
+            return Err(Error::Generic(
+                StatusCode::CONFLICT,
+                format!(
+                    "login_type_mismatch: {email} signs in with {}, not {required}",
+                    target.login_type
+                ),
+            ));
+        }
+    }
+
+    let token = rd_string(32);
+    let expires_at = chrono::Utc::now() + chrono::Duration::seconds(ttl as i64);
+    sqlx::query!(
+        "INSERT INTO login_link (token_hash, email, rd, expiration, created_by)
+         VALUES ($1, $2, $3, $4, $5)",
+        hash_token(&token),
+        &email,
+        rd,
+        expires_at,
+        &authed.email,
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.login_link.create",
+        ActionKind::Create,
+        "global",
+        Some(&email),
+        Some([("expires_in_s", &ttl.to_string()[..])].into()),
+    )
+    .await?;
+    tx.commit().await?;
+
+    let url = format!(
+        "{}/api/auth/login_link/{}",
+        (**BASE_URL.load()).clone(),
+        token
+    );
+    Ok((StatusCode::CREATED, Json(LoginLink { url, expires_at })))
+}
+
+#[derive(Deserialize)]
+pub struct CloudTrialOfferUpdate {
+    pub email: String,
+    #[serde(default)]
+    pub consumed: bool,
+}
+
+#[derive(Deserialize)]
+pub struct OnboardingProfileUpdate {
+    pub email: String,
+    pub profile: serde_json::Value,
+}
+
+#[derive(Serialize)]
+pub struct OnboardingProfile {
+    pub profile: Option<serde_json::Value>,
+}
+
+/// Context the invite carried about this account's owner, written at provisioning.
+/// Onboarding tailors itself from it (today: `touch_point` answers the source question
+/// so it is never asked); everything degrades to the plain flow when absent.
+async fn set_onboarding_profile(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
+    Json(body): Json<OnboardingProfileUpdate>,
+) -> Result<String> {
+    if !*CLOUD_HOSTED {
+        return Err(Error::NotFound("cloud only".to_string()));
+    }
+    require_super_admin(&db, &authed).await?;
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
+    if !body.profile.is_object() {
+        return Err(Error::BadRequest(
+            "profile must be a JSON object".to_string(),
+        ));
+    }
+    let email = body.email.to_lowercase();
+    let mut tx = db.begin().await?;
+    require_account(&mut tx, &email).await?;
+    sqlx::query!(
+        "INSERT INTO cloud_onboarding_profile (email, profile, created_by) VALUES ($1, $2, $3)
+         ON CONFLICT (email) DO UPDATE SET profile = EXCLUDED.profile",
+        &email,
+        body.profile,
+        &authed.email
+    )
+    .execute(&mut *tx)
+    .await?;
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.onboarding_profile.set",
+        ActionKind::Update,
+        "global",
+        Some(&email),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(format!("onboarding profile for {email} recorded"))
+}
+
+async fn get_onboarding_profile(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<OnboardingProfile> {
+    if !*CLOUD_HOSTED {
+        return Ok(Json(OnboardingProfile { profile: None }));
+    }
+    let profile = sqlx::query_scalar!(
+        "SELECT profile FROM cloud_onboarding_profile WHERE email = $1",
+        &authed.email
+    )
+    .fetch_optional(&db)
+    .await?;
+    Ok(Json(OnboardingProfile { profile }))
+}
+
+#[derive(Serialize)]
+pub struct CloudTrialOffer {
+    pub offered: bool,
+}
+
+/// What the customer portal answers when asked to sign a cloud account in and start its
+/// pre-approved trial.
+pub enum PortalTrialLogin {
+    /// Send the browser here: a short-lived portal login that starts the trial on landing.
+    LoginUrl(String),
+    /// The portal will not start one (a subscription exists, or it knows no offer); the
+    /// offer is spent and the browser goes to the portal home instead.
+    Unavailable { reason: String, portal_url: String },
+}
+
+async fn set_cloud_trial_offer(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    OptJobAuthed { job_id, .. }: OptJobAuthed,
+    Json(body): Json<CloudTrialOfferUpdate>,
+) -> Result<String> {
+    if !*CLOUD_HOSTED {
+        return Err(Error::NotFound("cloud only".to_string()));
+    }
+    require_super_admin(&db, &authed).await?;
+    forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
+    let email = body.email.to_lowercase();
+    let mut tx = db.begin().await?;
+    require_account(&mut tx, &email).await?;
+    if body.consumed {
+        sqlx::query!(
+            "UPDATE cloud_trial_offer SET consumed_at = now() WHERE email = $1 AND consumed_at IS NULL",
+            &email
+        )
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        // A consumed offer stays consumed: a trial or subscription already exists for it.
+        sqlx::query!(
+            "INSERT INTO cloud_trial_offer (email, created_by) VALUES ($1, $2)
+             ON CONFLICT (email) DO NOTHING",
+            &email,
+            &authed.email
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.cloud_trial_offer.set",
+        ActionKind::Update,
+        "global",
+        Some(&email),
+        Some([("consumed", if body.consumed { "true" } else { "false" })].into()),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(format!(
+        "cloud trial offer for {email} {}",
+        if body.consumed {
+            "consumed"
+        } else {
+            "recorded"
+        }
+    ))
+}
+
+async fn offered(db: &DB, email: &str) -> Result<bool> {
+    Ok(sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM cloud_trial_offer WHERE email = $1 AND consumed_at IS NULL)",
+        email
+    )
+    .fetch_one(db)
+    .await?
+    .unwrap_or(false))
+}
+
+async fn get_cloud_trial_offer(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<CloudTrialOffer> {
+    if !*CLOUD_HOSTED {
+        return Ok(Json(CloudTrialOffer { offered: false }));
+    }
+    Ok(Json(CloudTrialOffer {
+        offered: offered(&db, &authed.email).await?,
+    }))
+}
+
+/// Where the browser goes to start the pre-approved trial: a signed-in portal login, or
+/// the portal's front page with the reason it could not start one.
+#[derive(Serialize)]
+pub struct CloudTrialOfferGo {
+    pub location: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// The one click that turns a cloud account's pre-approved offer into a trial: the portal
+/// is asked for a login that starts it, and the browser is handed over. The portal is the
+/// authority on whether the offer still stands; its refusal spends the offer here so the
+/// sidebar stops advertising it.
+async fn go_cloud_trial_offer(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+) -> JsonResult<CloudTrialOfferGo> {
+    // The answer carries a signed-in portal login for this account: a credential for
+    // another system, and asking for it starts the trial. A script running as the offered
+    // user holds their identity through `$WM_TOKEN`, so a job token must not be able to
+    // fetch it and hand it to whoever wrote the script. It is a POST answered as JSON, not
+    // a redirecting GET, so a cross-site top-level navigation cannot start the trial with
+    // the SameSite=Lax session cookie either; the frontend navigates to `location` itself.
+    if authed.job_id.is_some() {
+        return Err(Error::NotAuthorized(
+            "This endpoint cannot be called with a job token ($WM_TOKEN).".to_string(),
+        ));
+    }
+    if !*CLOUD_HOSTED || !offered(&db, &authed.email).await? {
+        return Err(Error::NotFound(
+            "no pre-approved trial offer for this account".to_string(),
+        ));
+    }
+    let outcome = crate::users_oss::portal_cloud_trial_login(&authed.email).await?;
+    let (location, reason) = match outcome {
+        PortalTrialLogin::LoginUrl(url) => (url, None),
+        PortalTrialLogin::Unavailable { reason, portal_url } => (portal_url, Some(reason)),
+    };
+    let mut tx = db.begin().await?;
+    if reason.is_some() {
+        sqlx::query!(
+            "UPDATE cloud_trial_offer SET consumed_at = now() WHERE email = $1 AND consumed_at IS NULL",
+            &authed.email
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+    audit_log(
+        &mut *tx,
+        &authed,
+        "users.cloud_trial_offer.go",
+        ActionKind::Execute,
+        "global",
+        Some(&authed.email),
+        Some([("outcome", reason.as_deref().unwrap_or("login"))].into()),
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(Json(CloudTrialOfferGo { location, reason }))
+}
+
+#[derive(Deserialize)]
+struct LoginLinkQuery {
+    rd: Option<String>,
+}
+
+async fn consume_login_link(
+    headers: axum::http::HeaderMap,
+    cookies: Cookies,
+    Extension(db): Extension<DB>,
+    Path(token): Path<String>,
+    Query(query): Query<LoginLinkQuery>,
+) -> Result<Response> {
+    let bounce = |reason: &str| {
+        Ok(login_link_redirect(format!(
+            "{LOGIN_LINK_EXPIRED_PAGE}?reason={reason}"
+        )))
+    };
+    if token.len() != 32 {
+        return bounce("invalid");
+    }
+    let t_hash = hash_token(&token);
+    // The account is unknown until the row is read, so only the global and per-IP tiers
+    // apply here; a 32-char random token leaves nothing for the per-account tier to guard.
+    windmill_common::login_rate_limit::check_and_increment_login_attempt(
+        &headers,
+        &t_hash[..TOKEN_PREFIX_LEN],
+    )?;
+
+    let mut tx = db.begin().await?;
+    let link = sqlx::query!(
+        "UPDATE login_link SET consumed_at = now()
+         WHERE token_hash = $1 AND consumed_at IS NULL AND expiration > now()
+         RETURNING email, rd, created_by",
+        &t_hash
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(link) = link else {
+        let used = sqlx::query_scalar!(
+            "SELECT consumed_at IS NOT NULL AS \"used!\" FROM login_link WHERE token_hash = $1",
+            &t_hash
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        return bounce(match used {
+            Some(true) => "used",
+            Some(false) => "expired",
+            None => "invalid",
+        });
+    };
+
+    // Re-checked at open time and locked through session creation: a promotion inside
+    // the link's window must not turn a link minted for an ordinary account into a
+    // privileged session. The bounce drops the transaction, so the link is not spent.
+    let target = sqlx::query!(
+        "SELECT super_admin, devops FROM password WHERE email = $1 AND disabled = false FOR UPDATE",
+        &link.email
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(target) = target else {
+        return bounce("invalid");
+    };
+    if target.super_admin || target.devops {
+        return bounce("invalid");
+    }
+
+    let session = create_session_token(&link.email, false, None, false, &mut tx, cookies).await?;
+    audit_log(
+        &mut *tx,
+        &AuditAuthor {
+            email: link.email.clone(),
+            username: link.email.clone(),
+            username_override: None,
+            token_prefix: Some(safe_token_prefix(&session)),
+        },
+        "users.login",
+        ActionKind::Create,
+        "global",
+        Some(&truncate_token(&session)),
+        Some(
+            [
+                ("method", "login_link"),
+                ("minted_by", link.created_by.as_str()),
+            ]
+            .into(),
+        ),
+    )
+    .await?;
+    tx.commit().await?;
+
+    let rd = link
+        .rd
+        .or_else(|| same_origin_rd(query.rd))
+        .unwrap_or_else(|| LOGIN_LINK_DEFAULT_RD.to_string());
+    Ok(login_link_redirect(rd))
 }
 
 #[derive(Deserialize)]
@@ -3363,8 +4003,8 @@ async fn update_token_label(
     Path(token_prefix): Path<String>,
     Json(req): Json<UpdateTokenLabelRequest>,
 ) -> Result<String> {
-    // The new label must not collide with a system-token namespace (`session`,
-    // `ephemeral*`, `debugger-token`, `mcp-oauth-*`): those labels are
+    // The new label must not collide with a system-token namespace (see
+    // `windmill_common::auth::is_user_token`): those labels are
     // load-bearing, and a user-set collision would orphan the token — hidden
     // from the UI (`isUserToken`) and rejected by the editability guard below —
     // while it still authenticates. (`is_user_token(None)` is true, so clearing
@@ -3403,6 +4043,11 @@ async fn update_token_label(
                  AND lower(label) NOT LIKE 'ephemeral%'
                  AND label <> 'debugger-token'
                  AND label NOT LIKE 'mcp-oauth-%'
+                 AND NOT starts_with(label, 'embed_app:')
+                 AND NOT starts_with(label, 'sdk_app:')
+                 AND NOT starts_with(label, 'impersonation:')
+                 AND NOT starts_with(label, 'cli-login:')
+                 AND NOT starts_with(label, 'remote-deploy:')
              ))
            RETURNING token_prefix",
         req.label.as_deref(),
@@ -3443,13 +4088,31 @@ async fn leave_workspace(
 ) -> Result<String> {
     forbid_job_token_account_destruction(&authed)?;
     let mut tx = db.begin().await?;
-    sqlx::query!(
+    windmill_common::workspaces::remove_datatable_tenant_in_workspace(
+        &mut tx,
+        &w_id,
+        &format!("u/{}", authed.username),
+    )
+    .await?;
+    let left = sqlx::query!(
         "DELETE FROM usr WHERE workspace_id = $1 AND username = $2",
         &w_id,
         authed.username
     )
     .execute(&mut *tx)
-    .await?;
+    .await?
+    .rows_affected();
+    // A superadmin deploys from workspaces it is no member of; leaving none is no reason to drop
+    // its connection.
+    if left > 0 {
+        sqlx::query!(
+            "DELETE FROM remote_deploy_token WHERE email = $1 AND workspace_id = $2",
+            &authed.email,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     audit_log(
         &mut *tx,
@@ -3565,10 +4228,61 @@ async fn get_all_runnables(
 #[derive(Deserialize, Debug, Clone)]
 pub struct LoginUserInfo {
     pub email: Option<String>,
+    /// OIDC `email_verified` claim where the provider sends one.
+    #[serde(default, deserialize_with = "deserialize_lenient_bool")]
+    pub email_verified: Option<bool>,
     pub name: Option<String>,
     pub company: Option<String>,
     pub preferred_username: Option<String>,
     pub displayName: Option<String>,
+}
+
+/// Some providers (Cognito among them) send `email_verified` as the strings "true"/"false";
+/// a strict bool would reject their whole userinfo document and break login.
+fn deserialize_lenient_bool<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<Option<bool>, D::Error> {
+    Ok(match Option::<serde_json::Value>::deserialize(d)? {
+        Some(serde_json::Value::Bool(b)) => Some(b),
+        Some(serde_json::Value::String(s)) => match s.trim().to_ascii_lowercase().as_str() {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        },
+        _ => None,
+    })
+}
+
+#[cfg(test)]
+mod login_user_info_tests {
+    use super::LoginUserInfo;
+
+    fn email_verified(json: &str) -> Option<bool> {
+        serde_json::from_str::<LoginUserInfo>(json)
+            .unwrap()
+            .email_verified
+    }
+
+    #[test]
+    fn email_verified_accepts_bool_and_stringified_bool() {
+        assert_eq!(
+            email_verified(r#"{"email":"a@b","email_verified":true}"#),
+            Some(true)
+        );
+        assert_eq!(
+            email_verified(r#"{"email":"a@b","email_verified":"true"}"#),
+            Some(true)
+        );
+        assert_eq!(
+            email_verified(r#"{"email":"a@b","email_verified":"false"}"#),
+            Some(false)
+        );
+        assert_eq!(
+            email_verified(r#"{"email":"a@b","email_verified":"maybe"}"#),
+            None
+        );
+        assert_eq!(email_verified(r#"{"email":"a@b"}"#), None);
+    }
 }
 
 #[derive(Serialize)]

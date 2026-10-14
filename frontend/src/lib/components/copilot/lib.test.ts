@@ -13,7 +13,7 @@ import {
 import { parseFimCompletionChoice } from './fim'
 import {
 	getKnownModelContextWindow,
-	getModelContextWindow,
+	getModelContextWindowFromTable,
 	modelSupportsVision,
 	requiresMaxCompletionTokens
 } from './modelConfig'
@@ -263,6 +263,7 @@ describe('model context windows', () => {
 		expect(getKnownModelContextWindow('gemini-3-flash')).toBe(1000000)
 		expect(getKnownModelContextWindow('gemini-2.5-flash')).toBe(1000000)
 		expect(getKnownModelContextWindow('deepseek-v4-pro')).toBe(1000000)
+		expect(getKnownModelContextWindow('deepseek-flash')).toBe(1000000)
 		expect(getKnownModelContextWindow('deepseek-chat')).toBe(1000000)
 		expect(getKnownModelContextWindow('deepseek-reasoner')).toBe(1000000)
 	})
@@ -289,12 +290,12 @@ describe('model context windows', () => {
 		// a version between "qwen3" and "-max" must not claim the 256K entry, and
 		// there is deliberately no qwen family entry (variant windows range 8K–1M)
 		expect(getKnownModelContextWindow('qwen3.8-max')).toBeUndefined()
-		expect(getModelContextWindow('qwen3.8-max')).toBe(128000)
+		expect(getModelContextWindowFromTable('qwen3.8-max')).toBe(128000)
 	})
 
 	it('returns undefined for unrecognized models, 128K via the defaulting wrapper', () => {
 		expect(getKnownModelContextWindow('some-custom-model')).toBeUndefined()
-		expect(getModelContextWindow('some-custom-model')).toBe(128000)
+		expect(getModelContextWindowFromTable('some-custom-model')).toBe(128000)
 	})
 })
 

@@ -17,7 +17,7 @@ use crate::{
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     utils::{StripPath, HTTP_CLIENT},
-    worker::{to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, WINDMILL_DIR},
+    worker::{custom_tag_matches, to_raw_value, CUSTOM_TAGS_PER_WORKSPACE, WINDMILL_DIR},
     workspaces::workspace_with_fork_ancestors,
     FlowVersionInfo, ScriptHashInfo, Tag,
 };
@@ -136,6 +136,7 @@ pub async fn script_path_to_payload<'e>(
                 timeout,
                 has_preprocessor,
                 labels,
+                job_token_scopes,
                 ..
             } = script_info;
 
@@ -153,6 +154,7 @@ pub async fn script_path_to_payload<'e>(
                     debouncing_settings,
                     concurrency_settings,
                     labels,
+                    job_token_scopes,
                 },
                 tag,
                 delete_after_use,
@@ -203,7 +205,7 @@ pub async fn get_payload_tag_from_prefixed_path(
                 None,
             )
         } else {
-            let FlowVersionInfo { dedicated_worker, tag, version, labels, .. } =
+            let FlowVersionInfo { dedicated_worker, tag, version, labels, job_token_scopes, .. } =
                 get_latest_flow_version_info_for_path(None, &db, w_id, &path, true).await?;
             (
                 JobPayload::Flow {
@@ -212,6 +214,7 @@ pub async fn get_payload_tag_from_prefixed_path(
                     apply_preprocessor: false,
                     version,
                     labels,
+                    job_token_scopes,
                 },
                 tag,
                 None,
@@ -337,33 +340,70 @@ lazy_static::lazy_static! {
 // `is_super_admin` is passed in (not derived from an email here) so callers can
 // make it job-token-aware: a job's WM_TOKEN must never count as superadmin
 // (GHSA-hfh4-cx4h-3fcr). See `is_super_admin_authed` at the request wrapper.
+//
+// Custom tags judge `resolved_tag`, the queue the job actually lands on, and `tag` only as the
+// job's author wrote it: a dynamic tag names any queue its values do. Callers go through
+// `windmill_queue::check_tag_available_for_push`, which resolves it the way `push` does.
+// `resolved_tag` is `None` when the values are not known yet: only an entry spelled like `tag`
+// admits it then. `tag_workspace` resolves to what the job's `$workspace` stands for.
 pub async fn check_tag_available_for_workspace_internal(
     db: &DB,
     w_id: &str,
     tag: &str,
+    resolved_tag: Option<&str>,
+    tag_workspace: impl Future<Output = String>,
     is_super_admin: bool,
     scope_tags: Option<Vec<&str>>,
 ) -> error::Result<()> {
-    let mut is_tag_in_scope_tags = None;
-    let mut is_tag_in_workspace_custom_tags = false;
-
-    if let Some(scope_tags) = scope_tags.as_ref() {
-        is_tag_in_scope_tags = Some(scope_tags.contains(&tag));
-    }
+    let is_tag_in_scope_tags = scope_tags.as_ref().map(|scope_tags| {
+        scope_tags.contains(&tag) || resolved_tag.is_some_and(|r| scope_tags.contains(&r))
+    });
 
     let custom_tags_per_w = CUSTOM_TAGS_PER_WORKSPACE.load();
-    if custom_tags_per_w.global.contains(&tag.to_string()) {
-        is_tag_in_workspace_custom_tags = true;
-    } else if let Some(specific_tag) = custom_tags_per_w.specific.get(tag) {
-        // Only a fork-scoped tag can match through the lineage, so every other tag keeps the
-        // ancestor lookup off the push path entirely.
-        let chain = if specific_tag.is_fork_scoped() {
-            workspace_with_fork_ancestors(db, w_id).await?
-        } else {
-            vec![w_id.to_string()]
-        };
-        is_tag_in_workspace_custom_tags = specific_tag.applies_to_workspace(&chain);
-    }
+    // Only an entry reading `$workspace` needs it, so every other tag keeps its lookup off the
+    // push path.
+    let tag_workspace = if resolved_tag.is_some()
+        && custom_tags_per_w
+            .global
+            .iter()
+            .chain(custom_tags_per_w.specific.keys())
+            .any(|t| t.contains("$workspace"))
+    {
+        tag_workspace.await
+    } else {
+        w_id.to_string()
+    };
+    // A job whose tag is written exactly as an entry resolves inside what that entry admits, which
+    // is the only way in for an entry `custom_tag_matches` cannot turn into a pattern.
+    let admits = |entry: &str| {
+        entry == tag || resolved_tag.is_some_and(|r| custom_tag_matches(entry, r, &tag_workspace))
+    };
+    let scoped = custom_tags_per_w
+        .specific
+        .iter()
+        .filter(|(name, _)| admits(name))
+        .collect::<Vec<_>>();
+    // Only a fork-scoped tag can match through the lineage, so every other tag keeps the
+    // ancestor lookup off the push path entirely.
+    let chain = if scoped.iter().any(|(_, t)| t.is_fork_scoped()) {
+        workspace_with_fork_ancestors(db, w_id).await?
+    } else {
+        vec![w_id.to_string()]
+    };
+    // A tag listed by its own name with a scope stays inside that scope: a pattern it fits does
+    // not open it to other workspaces. Only listing it by name without a scope does.
+    let lands_on = resolved_tag.unwrap_or(tag);
+    let confined_by = custom_tags_per_w
+        .specific
+        .get_key_value(lands_on)
+        .filter(|(name, t)| {
+            !name.contains('$')
+                && !t.applies_to_workspace(&chain)
+                && !custom_tags_per_w.global.iter().any(|e| e == lands_on)
+        });
+    let is_tag_in_workspace_custom_tags = confined_by.is_none()
+        && (custom_tags_per_w.global.iter().any(|entry| admits(entry))
+            || scoped.iter().any(|(_, t)| t.applies_to_workspace(&chain)));
 
     match is_tag_in_scope_tags {
         Some(true) | None => {
@@ -375,6 +415,12 @@ pub async fn check_tag_available_for_workspace_internal(
     }
 
     if !is_super_admin {
+        let tag = match resolved_tag {
+            Some(resolved_tag) if resolved_tag != tag => {
+                format!("{tag} (resolved to {resolved_tag})")
+            }
+            _ => tag.to_string(),
+        };
         if scope_tags.is_some() && is_tag_in_scope_tags.is_some() {
             return Err(Error::BadRequest(format!(
                 "Tag {tag} is not available in your scope"
@@ -383,9 +429,35 @@ pub async fn check_tag_available_for_workspace_internal(
 
         if *TAGS_ARE_SENSITIVE {
             return Err(Error::BadRequest(format!("{tag} is not available to you")));
+        } else if let Some((name, confining)) = confined_by {
+            let overridden = custom_tags_per_w
+                .global
+                .iter()
+                .filter(|entry| admits(entry))
+                .cloned()
+                .chain(
+                    scoped
+                        .iter()
+                        .filter(|(_, t)| t.applies_to_workspace(&chain))
+                        .map(|(n, t)| t.authored(n)),
+                )
+                .collect::<Vec<_>>();
+            let overridden = if overridden.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    ", which takes precedence over the custom tags it also fits: {}",
+                    overridden.join(", ")
+                )
+            };
+            return Err(Error::BadRequest(format!(
+                "Tag {tag} is not available in workspace {w_id}: the custom tag {} restricts it \
+                 to other workspaces{overridden}",
+                confining.authored(name)
+            )));
         } else {
             return Err(error::Error::BadRequest(format!(
-            "Only super admins are allowed to use tags that are not included in the allowed CUSTOM_TAGS: {:?}",
+            "Tag {tag} is not included in the allowed CUSTOM_TAGS, which only super admins can go beyond: {:?}",
             custom_tags_per_w
         )));
         }
@@ -402,6 +474,11 @@ pub struct RunInlinePreviewScriptFnParams {
     pub created_by: String,
     pub permissioned_as: String,
     pub permissioned_as_email: String,
+    /// The caller's recorded end user: `job_perms.end_user_email` of the calling job.
+    pub end_user_email: Option<String>,
+    /// `job_perms.viewer_data_access` of the calling job: the code is the caller's own, so its
+    /// data table connections are made the way the caller's are.
+    pub viewer_data_access: bool,
     pub base_internal_url: String,
     pub worker_name: String,
     pub conn: crate::worker::Connection,
@@ -412,7 +489,8 @@ pub struct RunInlinePreviewScriptFnParams {
 }
 
 pub enum InlineScriptTarget {
-    Path(String),
+    /// A script addressed by path, pinned to the version the caller resolved and checked.
+    Path { path: String, hash: i64 },
     Hash(i64),
 }
 
@@ -423,6 +501,8 @@ pub struct RunInlineScriptFnParams {
     pub created_by: String,
     pub permissioned_as: String,
     pub permissioned_as_email: String,
+    /// The caller's recorded end user: `job_perms.end_user_email` of the calling job.
+    pub end_user_email: Option<String>,
     pub base_internal_url: String,
     pub worker_name: String,
     pub conn: crate::worker::Connection,
@@ -478,6 +558,14 @@ pub static WORKER_INTERNAL_SERVER_INLINE_UTILS: OnceCell<WorkerInternalServerInl
 /// set-based deletes below cost one scan per table per call instead. Because the cascade no
 /// longer fires, every code path that deletes from `v2_job` by id must go through this helper
 /// (or delete these tables itself) or it will leave orphan rows behind.
+/// **Transaction contract:** call this inside a transaction. The conversation cleanup below
+/// locks rows to serialise itself against a concurrent delete, and on an autocommit
+/// connection that lock is released at statement end, silently restoring the race.
+/// A message row goes with the flow run its turn started (`turn_job_id`), not with the step
+/// or tool job in `job_id`: those complete, and so expire, before the run, and deleting by
+/// them would drop a turn's answer while keeping its question. `job_id` is the fallback for
+/// rows written by a worker that predates `turn_job_id`. A conversation is collected once
+/// every message row of it has gone.
 pub async fn delete_jobs(conn: &mut sqlx::PgConnection, ids: &[uuid::Uuid]) -> error::Result<()> {
     sqlx::query!(
         "DELETE FROM dispatch_event WHERE producer_job_id = ANY($1)",
@@ -485,12 +573,56 @@ pub async fn delete_jobs(conn: &mut sqlx::PgConnection, ids: &[uuid::Uuid]) -> e
     )
     .execute(&mut *conn)
     .await?;
-    sqlx::query!(
-        "DELETE FROM flow_conversation_message WHERE job_id = ANY($1)",
+    let mut conversation_ids: Vec<uuid::Uuid> = sqlx::query_scalar!(
+        "DELETE FROM flow_conversation_message WHERE COALESCE(turn_job_id, job_id) = ANY($1)
+         RETURNING conversation_id",
         ids
     )
-    .execute(&mut *conn)
+    .fetch_all(&mut *conn)
     .await?;
+    conversation_ids.sort_unstable();
+    conversation_ids.dedup();
+    if !conversation_ids.is_empty() {
+        // A conversation is a view over its messages: once the last one goes with its job,
+        // the row and the agent's memory for it are all that is left, and nothing else
+        // collects them — `ai_agent_memory` carries no job id for retention to match on.
+        // Two statements rather than one CTE: a data-modifying CTE reads the snapshot from
+        // before the delete above, so every conversation would still look non-empty.
+        // Two calls each deleting one of a conversation's last messages would each still see
+        // the other's row — uncommitted deletes are invisible across transactions — so
+        // neither would collect it and nothing would try again. Taking the conversation row
+        // first serialises them: the second reads the first's delete and finds it empty.
+        sqlx::query_scalar!(
+            "SELECT id FROM flow_conversation WHERE id = ANY($1) ORDER BY id FOR UPDATE",
+            &conversation_ids
+        )
+        .fetch_all(&mut *conn)
+        .await?;
+        // Memory first, since it reads the conversation row for its workspace.
+        sqlx::query!(
+            "DELETE FROM ai_agent_memory a
+               USING flow_conversation c
+              WHERE c.id = ANY($1)
+                AND a.conversation_id = c.id
+                AND a.workspace_id = c.workspace_id
+                AND NOT EXISTS (
+                    SELECT 1 FROM flow_conversation_message m WHERE m.conversation_id = c.id
+                )",
+            &conversation_ids
+        )
+        .execute(&mut *conn)
+        .await?;
+        sqlx::query!(
+            "DELETE FROM flow_conversation c
+              WHERE c.id = ANY($1)
+                AND NOT EXISTS (
+                    SELECT 1 FROM flow_conversation_message m WHERE m.conversation_id = c.id
+                )",
+            &conversation_ids
+        )
+        .execute(&mut *conn)
+        .await?;
+    }
     sqlx::query!("DELETE FROM zombie_job_counter WHERE job_id = ANY($1)", ids)
         .execute(&mut *conn)
         .await?;

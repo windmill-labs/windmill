@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            workspace_id,\n            slack_team_id,\n            slack_name,\n            teams_team_id,\n            teams_team_name,\n            teams_team_guid,\n            mute_critical_alerts,\n            guest_access_enabled,\n            add_admins_and_developers_to_forks,\n            deploy_ui,\n            large_file_storage,\n            datatable\n        FROM\n            workspace_settings\n        WHERE\n            workspace_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "slack_team_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "slack_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "teams_team_id",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "teams_team_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "teams_team_guid",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "mute_critical_alerts",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "guest_access_enabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "add_admins_and_developers_to_forks",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "deploy_ui",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 10,
+        "name": "large_file_storage",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 11,
+        "name": "datatable",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "e6e31fdf705896c81f9a0f45d47c1b93db0406aaf278bccba07be00e9f937e2a"
+}

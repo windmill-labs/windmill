@@ -236,6 +236,8 @@ pub struct Postgres {
     pub sslmode: String,
     #[serde(default, deserialize_with = "empty_as_none")]
     pub root_certificate_pem: Option<String>,
+    #[serde(default, deserialize_with = "empty_as_none")]
+    pub options: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -349,6 +351,12 @@ pub async fn get_raw_postgres_connection(
         config.password(&database.password);
     }
 
+    if let Some(options) = &database.options {
+        config.options(options);
+    }
+
+    windmill_common::set_pg_keepalive(&mut config);
+
     let connector = build_tls_connector(ssl_mode, database.root_certificate_pem.as_ref())?;
     let client = if let Some(connector) = connector {
         let (client, connection) = config.connect(connector).await.map_err(to_anyhow)?;
@@ -374,6 +382,35 @@ pub async fn get_raw_postgres_connection(
     Ok(client)
 }
 
+/// A replication stream reads every row of every table whatever the data table's roles grant, so
+/// the two don't mix: a data table under roles takes no triggers or captures, and roles cannot be
+/// turned on while one is enabled on it.
+///
+/// Authorization: checks nothing, and its refusal says whether `w_id`'s data table is under roles.
+/// Callers MUST have established that the caller may manage triggers in `w_id` first.
+pub(crate) async fn ensure_not_under_roles(
+    db: &DB,
+    w_id: &str,
+    postgres_resource_path: &str,
+) -> Result<()> {
+    let Some(datatable_name) = postgres_resource_path.strip_prefix("datatable://") else {
+        return Ok(());
+    };
+    if windmill_common::workspaces::resolve_governing_datatable(db, w_id, datatable_name)
+        .await?
+        .datatable
+        .permissions
+        .is_some()
+    {
+        return Err(Error::BadRequest(format!(
+            "Data table '{datatable_name}' is under roles, and a Postgres trigger or capture \
+             cannot read one: a replication stream sees every row whatever the roles grant. \
+             Turn its roles off to stream it."
+        )));
+    }
+    Ok(())
+}
+
 pub async fn resolve_postgres_resource(
     authed: &ApiAuthed,
     user_db: Option<UserDB>,
@@ -382,6 +419,7 @@ pub async fn resolve_postgres_resource(
     w_id: &str,
 ) -> Result<Postgres> {
     if let Some(datatable_name) = postgres_resource_path.strip_prefix("datatable://") {
+        ensure_not_under_roles(db, w_id, postgres_resource_path).await?;
         // Trigger connections (publication/slot management + logical replication) run
         // as the dedicated replication user on custom-instance databases.
         let resource_value =

@@ -10,10 +10,13 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { Loader2, RotateCcw } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
-	import { workspaceStore, type UserExt } from '$lib/stores'
+	import { type UserExt } from '$lib/stores'
 	import { isOwner } from '$lib/utils'
 	import { isEncryptedDraftValue } from '$lib/encryptedDraft'
 	import EncryptedDraftField from './EncryptedDraftField.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Variable {
 		value: string
@@ -32,6 +35,10 @@
 		can_write: boolean
 		edit: boolean
 		onLoadSecret?: () => void
+		/** Fires after the user flips the Secret toggle, with its new state. */
+		onSecretChange?: (isSecret: boolean) => void
+		/** Whether the deployed variable being edited is secret. */
+		deployedSecret?: boolean
 		/** Workspace the path is validated against; defaults to the nav workspace. */
 		workspace?: string | undefined
 		/** The user acting in `workspace`, resolved by the editor above. `undefined` while
@@ -52,17 +59,23 @@
 		can_write,
 		edit,
 		onLoadSecret,
+		onSecretChange,
+		deployedSecret = false,
 		workspace = undefined,
 		actingUser
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	// Loading the deployed secret overwrites the draft row this form shares with the AI
 	// chat, so every path that would trigger it has to be blocked while that row stages a
 	// value — otherwise the staged one is replaced and the next deploy carries the old one.
 	// '' is the sentinel for "stages nothing", matching the deploy bodies.
 	let hasStagedValue = $derived(variable.value !== '')
+
+	// Un-securing has to send the plaintext, and fetching it silently on the toggle would
+	// reveal the secret without the explicit, audited "Load secret value" action.
+	let unsecureNeedsLoad = $derived(edit && deployedSecret && variable.is_secret && !hasStagedValue)
 
 	const MAX_VARIABLE_LENGTH = 10000
 
@@ -88,16 +101,28 @@
 	/>
 	<LabelsInput bind:labels />
 </div>
-<label class="flex flex-col gap-1">
+<!-- No <label> for the heading: clicking it would flip the toggle, and a wrapping one would
+stretch the hit area over the whole row and the alert. The toggle carries its name instead. -->
+<div class="flex flex-col gap-1">
 	<span class="text-xs font-semibold text-emphasis">Secret</span>
-	<!-- An `$encrypted:` value is only redeemable while the variable stays secret — the
-	deploy endpoints decrypt the marker inside their `is_secret` branch and store it
-	verbatim otherwise — so un-securing one has to be unreachable until it is Reset. -->
-	<Toggle
-		on:change={() => edit && !hasStagedValue && onLoadSecret?.()}
-		bind:checked={variable.is_secret}
-		disabled={edit && (!actingUser || actingUser.operator || isEncryptedDraftValue(variable.value))}
-	/>
+	<div class="flex flex-row items-center gap-2">
+		<!-- An `$encrypted:` value is only redeemable while the variable stays secret — the
+		deploy endpoints decrypt the marker inside their `is_secret` branch and store it
+		verbatim otherwise — so un-securing one has to be unreachable until it is Reset. -->
+		<Toggle
+			ariaLabel="Secret"
+			class="w-fit"
+			on:change={(e) => onSecretChange?.(e.detail)}
+			bind:checked={variable.is_secret}
+			disabled={unsecureNeedsLoad ||
+				(edit && (!actingUser || actingUser.operator || isEncryptedDraftValue(variable.value)))}
+		/>
+		{#if unsecureNeedsLoad && can_write && !actingUser?.operator}
+			<span class="text-2xs text-secondary">
+				Load the secret value or enter a new one to make it non-secret
+			</span>
+		{/if}
+	</div>
 	{#if variable.is_secret}
 		<Alert type="info" title="Audit log for each access">
 			Every secret is encrypted at rest and in transit with a key specific to this workspace. In
@@ -105,7 +130,7 @@
 			variables.decrypt_secret
 		</Alert>
 	{/if}
-</label>
+</div>
 
 {#if deployTo}
 	<Label

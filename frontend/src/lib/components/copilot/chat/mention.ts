@@ -29,3 +29,59 @@ const BARE_SAFE = /^[\w/.\-]+$/
 export function formatMention(name: string): string {
 	return BARE_SAFE.test(name) ? `@${name}` : `@[${name.replace(/[\\\]]/g, '\\$&')}]`
 }
+
+function isWordChar(char: string | undefined): boolean {
+	return char !== undefined && /[\p{L}\p{N}\p{M}_]/u.test(char)
+}
+
+function codePointBefore(text: string, index: number): string | undefined {
+	if (index <= 0) return undefined
+	const prev = text.charCodeAt(index - 1)
+	if (prev >= 0xdc00 && prev <= 0xdfff && index > 1) return text.slice(index - 2, index)
+	return text[index - 1]
+}
+
+// A mention is owned by this parser when the `@` starts a token. The trailing side is
+// intentionally open: non-spacing scripts often continue immediately after a mention,
+// while embedded forms like `owner@app.ts` are rejected by the leading boundary.
+export function hasMentionLeadingBoundary(text: string, index: number): boolean {
+	return !isWordChar(codePointBefore(text, index))
+}
+
+export function isStandaloneMention(text: string, match: RegExpMatchArray): boolean {
+	if (match.index === undefined) return false
+	return hasMentionLeadingBoundary(text, match.index)
+}
+
+export function hasMention(text: string, title: string): boolean {
+	return [...text.matchAll(MENTION_RE)].some(
+		(m) => mentionTitle(m[0]) === title && isStandaloneMention(text, m)
+	)
+}
+
+export function mentionTitlesInText(text: string): Set<string> {
+	const out = new Set<string>()
+	for (const m of text.matchAll(MENTION_RE)) {
+		if (isStandaloneMention(text, m)) out.add(mentionTitle(m[0]))
+	}
+	return out
+}
+
+export function removeMentionFromText(text: string, title: string): string {
+	let out = ''
+	let last = 0
+	for (const m of text.matchAll(MENTION_RE)) {
+		if (m.index === undefined || mentionTitle(m[0]) !== title) continue
+		let start = m.index
+		let end = m.index + m[0].length
+		if (!isStandaloneMention(text, m)) continue
+		const hasLead = start > 0 && /\s/.test(text[start - 1])
+		const hasTrail = end < text.length && /\s/.test(text[end])
+		if (hasLead && !hasTrail) start -= 1
+		if (!hasLead && hasTrail) end += 1
+		if (hasLead && hasTrail) end += 1
+		out += text.slice(last, start)
+		last = end
+	}
+	return out + text.slice(last)
+}

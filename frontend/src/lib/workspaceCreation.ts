@@ -13,7 +13,6 @@ import { SettingService, UserService, WorkspaceService } from '$lib/gen'
 import { usersWorkspaceStore } from '$lib/stores'
 import { switchWorkspace } from '$lib/storeUtils'
 import { isCloudHosted } from '$lib/cloud'
-import { base } from '$lib/base'
 import { WORKSPACE_NAME_MAX_LENGTH } from '$lib/utils/workspaceId'
 
 /**
@@ -30,7 +29,7 @@ import { WORKSPACE_NAME_MAX_LENGTH } from '$lib/utils/workspaceId'
 export async function canCreateWorkspace(isSuperadmin: boolean): Promise<boolean> {
 	if (isSuperadmin || isCloudHosted()) return true
 	try {
-		const r = await fetch(base + '/api/workspaces/create_workspace_require_superadmin')
+		const r = await fetch('/api/workspaces/create_workspace_require_superadmin')
 		if ((await r.text()) != 'true') return true
 		return !!(await UserService.globalWhoami()).super_admin
 	} catch {
@@ -109,7 +108,7 @@ export async function enterNewWorkspace(id: string): Promise<void> {
  * that time reads as nothing having happened — the floor is what makes it read as an action
  * that ran, and it covers the workspace layout's first load on the other side.
  */
-export const WORKSPACE_HANDOVER_MS = 900
+export const WORKSPACE_HANDOVER_MS = 500
 
 /**
  * What to call a workspace before its owner has said. The login provider's name when it gave

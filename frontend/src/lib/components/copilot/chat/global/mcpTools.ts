@@ -1,7 +1,9 @@
 import { z } from 'zod'
 import { ResourceService, type GetMcpToolsResponse } from '$lib/gen'
-import { createToolDef, type Tool } from '../shared'
+import { createToolDef } from '../shared'
+import { NONE, type SessionTool } from '../sessionCapabilities'
 import { enabledMcpPaths } from '$lib/components/mcp/enabledServers'
+import { isOwnOrSharedMcpPath, MCP_LIST_PER_PAGE, mcpViewer } from '$lib/components/mcp/ownServers'
 
 /**
  * Access to the MCP servers the user has connected (resources of type `mcp`)
@@ -91,13 +93,18 @@ export async function loadMcpServers(workspace: string): Promise<McpServer[]> {
 	const enabled = enabledMcpPaths(workspace)
 	if (enabled.length === 0) return []
 	try {
-		const resources = await ResourceService.listResource({
-			workspace,
-			resourceType: 'mcp',
-			perPage: 100
-		})
+		const [resources, viewer] = await Promise.all([
+			ResourceService.listResource({
+				workspace,
+				resourceType: 'mcp',
+				perPage: MCP_LIST_PER_PAGE
+			}),
+			mcpViewer(workspace)
+		])
 		return resources
-			.filter((r) => enabled.includes(r.path))
+			.filter(
+				(r) => enabled.includes(r.path) && isOwnOrSharedMcpPath(r.path, r.extra_perms, viewer)
+			)
 			.map((r) => ({ path: r.path, editedAt: r.edited_at }))
 	} catch (e) {
 		console.error('Failed to load MCP servers', e)
@@ -339,12 +346,14 @@ const callMcpToolSchema = z.object({
 
 /**
  * The read and write call tools differ only in which side of the `readOnlyHint`
- * split they accept, and that check is what keeps a mutating call behind the
- * user's confirmation — building both from one body keeps them from drifting.
+ * split they accept, and that check is what keeps a mutating call out of plan
+ * mode and behind the user's confirmation — building both from one body keeps
+ * them from drifting.
  */
-function createCallTool(servers: McpServer[], mode: 'read' | 'write'): Tool<{}> {
+function createCallTool(servers: McpServer[], mode: 'read' | 'write'): SessionTool<{}> {
 	const isRead = mode === 'read'
 	return {
+		requires: NONE,
 		def: createToolDef(
 			callMcpToolSchema,
 			isRead ? 'call_mcp_read_tool' : 'call_mcp_write_tool',
@@ -354,7 +363,7 @@ function createCallTool(servers: McpServer[], mode: 'read' | 'write'): Tool<{}> 
 		),
 		showDetails: true,
 		...(isRead
-			? {}
+			? { planModeSafe: true }
 			: {
 					requiresConfirmation: true,
 					confirmationMessage: (args: any) => `Call ${args?.tool ?? ''} on ${args?.server ?? ''}`
@@ -412,17 +421,19 @@ function createCallTool(servers: McpServer[], mode: 'read' | 'write'): Tool<{}> 
  * are not registered at all, so a workspace without an MCP connection pays no
  * per-iteration schema cost for them.
  */
-export function createMcpTools(servers: McpServer[]): Tool<{}>[] {
+export function createMcpTools(servers: McpServer[]): SessionTool<{}>[] {
 	if (servers.length === 0) return []
 	const serverList = servers.map((s) => s.path).join(', ')
 
 	return [
 		{
+			requires: NONE,
 			def: createToolDef(
 				searchMcpToolsSchema,
 				'search_mcp_tools',
 				'Search the tools exposed by the MCP servers connected to this workspace (listed in the system prompt). Returns server + tool names to pass to call_mcp_read_tool or call_mcp_write_tool, each with the input schema its arguments must follow.'
 			),
+			planModeSafe: true,
 			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 				const parsed = searchMcpToolsSchema.parse(args)
 				toolCallbacks.setToolStatus(toolId, { content: 'Searching MCP tools...' })

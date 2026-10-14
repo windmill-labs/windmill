@@ -22,7 +22,7 @@
 	import { badgeCounts, badgeOf, buildDeployItems, type DeployItem } from './sessionDeployModel'
 	import { useExistingMaskKeys } from './sessionDeployModel.svelte'
 	import { previewTargetForDeployKind } from './sessionPreviewTabs.svelte'
-	import { pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
+	import { PIPELINE_DRAFT_KIND, pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
 	import type { PreviewTarget } from './previewRouter'
 	import JobsSegment from '$lib/components/copilot/chat/JobsSegment.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
@@ -194,11 +194,13 @@
 	// Routed on the storage `path` — the edit route's key, which for a draft-only
 	// item is its `draft_<uuid>` path, not the friendly `displayPath`.
 	function previewTargetFor(item: DeployItem): PreviewTarget | undefined {
-		return previewTargetForDeployKind(item.deployKind, item.path)
+		// `done` means this session already deployed it, so there is a deployed
+		// version to show even though the row was built from a draft-only item.
+		return previewTargetForDeployKind(item.deployKind, item.path, item.draftOnly && !item.done)
 	}
 
-	// The row's primary action is the preview; kinds the panel can't host
-	// (triggers, schedules, resources, variables) fall back to their diff.
+	// The row's primary action is the preview; kinds the panel can't host fall back
+	// to their diff.
 	function openRow(item: DeployItem) {
 		if (previewTargetFor(item)) openInPreview(item)
 		else openDrawer(item.key)
@@ -376,6 +378,11 @@
 		onDataChanged={refreshDock}
 		onItemDeployed={(item) =>
 			void runtime?.manager.renameModifiedItem(item.draftKind, item.path, item.displayPath)}
-		onItemDiscarded={(item) => void runtime?.manager.removeModifiedItem(item.draftKind, item.path)}
+		onItemDiscarded={(item) => {
+			void runtime?.manager.removeModifiedItem(item.draftKind, item.path)
+			const folder = pipelineFolderFromBundlePath(item.path)
+			if (item.draftKind === PIPELINE_DRAFT_KIND && folder) void runtime?.forgetPipelineDrafts(folder)
+		}}
+		deployPipeline={runtime?.deployPipeline}
 	/>
 {/if}

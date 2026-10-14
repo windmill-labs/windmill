@@ -48,6 +48,10 @@ pub struct Flow {
     pub on_behalf_of: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Caps the scopes of the token minted for each job of this flow; `None` = unrestricted.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_token_scopes: Option<Vec<String>>,
     /// Labels inherited from the parent folder, computed at read time. Not stored on the flow row.
     #[sqlx(default)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -98,6 +102,11 @@ pub struct ListableFlow {
     pub deployment_msg: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    /// Projected from the flow value so a list can mark a flow that opens as a
+    /// chat without fetching every flow's value.
+    #[sqlx(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chat_input_enabled: Option<bool>,
     /// True when the authed user has a draft for this flow (draft-only or layered
     /// over the deployed row). See ListableScript in scripts.rs.
     #[serde(default)]
@@ -140,6 +149,15 @@ pub struct NewFlow {
     pub ws_error_handler_muted: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
+    /// Absent keeps the deployed flow's value, so a client unaware of the setting cannot
+    /// drop a restriction by saving; `null` clears it.
+    #[sqlx(skip)]
+    #[serde(
+        default,
+        deserialize_with = "crate::more_serde::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub job_token_scopes: Option<Option<Vec<String>>>,
     /// Caller-intent flag (set by the CLI / git sync): when true, deploying
     /// this flow must NOT delete an existing user draft at the same path.
     /// Transient — never persisted.
@@ -178,6 +196,12 @@ pub struct EditFlow {
     pub ws_error_handler_muted: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
+    #[serde(
+        default,
+        deserialize_with = "crate::more_serde::double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub job_token_scopes: Option<Option<Vec<String>>>,
     #[serde(default)]
     pub skip_draft_deletion: Option<bool>,
 }
@@ -202,6 +226,7 @@ impl EditFlow {
             preserve_on_behalf_of: self.preserve_on_behalf_of,
             ws_error_handler_muted: self.ws_error_handler_muted,
             labels: self.labels,
+            job_token_scopes: self.job_token_scopes,
             skip_draft_deletion: self.skip_draft_deletion,
         }
     }
@@ -352,6 +377,8 @@ impl FlowValue {
                 | Flow { .. }
                 | FlowScript { .. }
                 | Identity) => cb(&s, &module.id)?,
+                // Runs no script of its own.
+                AIDecision { .. } => {}
                 ForloopFlow { modules, .. } | WhileloopFlow { modules, .. } => {
                     Self::traverse_leafs(modules.iter().collect(), cb)?
                 }
@@ -610,6 +637,9 @@ pub struct FlowModule {
     pub pass_flow_input_directly: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub debouncing: Option<DebouncingSettings>,
+    /// Caps the token of the jobs this step runs, on top of the flow's own restriction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_token_scopes: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -897,6 +927,9 @@ pub struct AgentTool {
     /// Overrides the description auto-derived from the underlying runnable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Caps the token of this tool's jobs, on top of the agent step's own restriction.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_token_scopes: Option<Vec<String>>,
     pub value: ToolValue,
 }
 
@@ -910,6 +943,7 @@ impl AgentTool {
 
         self.id = flow_module.id;
         self.summary = flow_module.summary;
+        self.job_token_scopes = flow_module.job_token_scopes;
         self.value = ToolValue::FlowModule(module_value);
     }
 }
@@ -922,6 +956,7 @@ impl From<&AgentTool> for Option<FlowModule> {
                 id: tool.id.clone(),
                 value: to_raw_value(module_value),
                 summary: tool.summary.clone(),
+                job_token_scopes: tool.job_token_scopes.clone(),
                 ..Default::default()
             }),
             ToolValue::Mcp(_) => None,
@@ -1095,7 +1130,8 @@ pub enum FlowModuleValue {
         omit_output_from_conversation: bool,
         /// When set, the agent brain config (provider/model/system prompt/etc.) and tools are
         /// resolved at runtime from this `ai_agent` resource path (hybrid linking). The module's
-        /// `input_transforms` then only carry the flow-local inputs (user_message/user_attachments).
+        /// `input_transforms` then only carry the flow-local inputs: user_message,
+        /// user_attachments, enabled_tools and the history inputs memory_id and previous_messages.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         agent: Option<String>,
         /// Binds an agent's tools to *this* flow's context, keyed by tool id then input key, without
@@ -1103,6 +1139,13 @@ pub enum FlowModuleValue {
         /// `agent` set or not: a step forked for editing keeps these until saved back or unlinked.
         #[serde(default, skip_serializing_if = "HashMap::is_empty")]
         tool_inputs: HashMap<String, HashMap<String, InputTransform>>,
+    },
+    /// One call to a decision model (such as TypeSafe's Jev) answering the typed `questions` of its
+    /// `input_transforms` about a `state`. A flow branches on the answers with a `BranchOne`.
+    AIDecision {
+        input_transforms: HashMap<String, InputTransform>,
+        #[serde(skip_serializing_if = "is_none_or_empty")]
+        tag: Option<String>,
     },
 }
 
@@ -1248,6 +1291,10 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                 agent: untagged.agent,
                 tool_inputs: untagged.tool_inputs.unwrap_or_default(),
             }),
+            "aidecision" => Ok(FlowModuleValue::AIDecision {
+                input_transforms: untagged.input_transforms.unwrap_or_default(),
+                tag: untagged.tag,
+            }),
             other => Err(serde::de::Error::unknown_variant(
                 other,
                 &[
@@ -1260,6 +1307,7 @@ impl<'de> Deserialize<'de> for FlowModuleValue {
                     "rawscript",
                     "identity",
                     "aiagent",
+                    "aidecision",
                 ],
             )),
         }
@@ -1325,6 +1373,7 @@ pub fn add_virtual_items_if_necessary(modules: &mut Vec<FlowModule>) {
             apply_preprocessor: None,
             pass_flow_input_directly: None,
             debouncing: None,
+            job_token_scopes: None,
         });
     }
 }

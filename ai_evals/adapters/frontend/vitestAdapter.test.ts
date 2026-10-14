@@ -1,12 +1,18 @@
 import { expect, it, vi } from 'vitest'
 // @ts-ignore - Node.js fs/promises
-import { mkdir, writeFile } from 'fs/promises'
+import { mkdir, readFile, writeFile } from 'fs/promises'
 // @ts-ignore - Node.js path
 import { dirname, resolve } from 'path'
+// @ts-ignore - Node.js url
+import { fileURLToPath } from 'url'
 import { handleBenchmarkApiFetch, hasBenchmarkApiHandler } from './mockBackend'
+import { resolveWindmillBackendSettings } from '../../core/windmillBackendSettings'
+import { WindmillBackendClient } from './windmillBackend'
 
-// The API catalog executor issues relative fetch('/api/...') calls, which have
-// no meaning in the vitest environment — serve the ones the benchmark handles.
+const FRONTEND_DIR = fileURLToPath(new URL('../../../frontend/', import.meta.url))
+
+// Some tools reach the backend by relative fetch('/api/...'), which has no meaning
+// in the vitest environment — serve the ones the benchmark handles.
 // Every other relative fetch keeps its normal behavior (it fails the same way
 // it does without this stub) so unrelated tools see an unchanged environment.
 // The frontend builds API URLs from location.origin (fetchAvailableModels does), and node has no
@@ -24,8 +30,34 @@ globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
 	if (typeof url === 'string' && hasBenchmarkApiHandler(url)) {
 		return handleBenchmarkApiFetch(url, init)
 	}
+	// The docs tools read the documentation bundled into the backend: hand them to the
+	// benchmark's real backend, logged in like the AI proxy calls.
+	if (typeof url === 'string' && url.startsWith('/api/docs/')) {
+		return new WindmillBackendClient(resolveWindmillBackendSettings()).request(url.slice('/api'.length), init)
+	}
+	// The parsers behind inferArgs load their wasm from a vite `?url` path, which only a dev
+	// server serves. Unserved, every script schema infers as empty, and the tools then tell the
+	// model its arguments are undeclared, so it rewrites a correct script until it runs out of turns.
+	const wasmPath = typeof url === 'string' ? wasmFilePath(url) : undefined
+	if (wasmPath) {
+		return new Response(await readFile(wasmPath), {
+			headers: { 'Content-Type': 'application/wasm' }
+		})
+	}
 	return ORIGINAL_FETCH(input as Parameters<typeof fetch>[0], init)
 }) as typeof fetch
+
+function wasmFilePath(url: string): string | undefined {
+	const raw = url.split(/[?#]/)[0]
+	if (!raw.endsWith('.wasm')) return undefined
+	const pathname = decodeURIComponent(raw)
+	// Located past whatever base path the config prefixes.
+	const fs = pathname.indexOf('/@fs/')
+	if (fs !== -1) return pathname.slice(fs + '/@fs'.length)
+	const modules = pathname.indexOf('/node_modules/')
+	if (modules !== -1) return resolve(FRONTEND_DIR, `.${pathname.slice(modules)}`)
+	return undefined
+}
 
 vi.mock('monaco-editor', () => ({
 	editor: {},
@@ -60,8 +92,14 @@ vi.mock('$lib/gen', async () => {
 		getBenchmarkCompletedJob,
 		getBenchmarkCompletedJobResultMaybe,
 		getBenchmarkDatatableSchema,
+		getBenchmarkDatatableMigrationsStatus,
+		createBenchmarkDatatableMigration,
+		upsertBenchmarkDatatableMigration,
+		runBenchmarkDatatableMigrations,
+		rollbackBenchmarkDatatableMigration,
 		getBenchmarkDraftForUser,
 		getBenchmarkFlowByPath,
+		getBenchmarkFlowAllResults,
 		getBenchmarkJobLogs,
 		getBenchmarkOwnDraft,
 		getBenchmarkScriptByHash,
@@ -75,7 +113,9 @@ vi.mock('$lib/gen', async () => {
 		listBenchmarkPlainResources,
 		listBenchmarkApps,
 		listBenchmarkDatatables,
+		listBenchmarkDataMetrics,
 		listBenchmarkDrafts,
+		listBenchmarkDucklakes,
 		listBenchmarkFlows,
 		listBenchmarkJobs,
 		listBenchmarkScripts,
@@ -86,10 +126,10 @@ vi.mock('$lib/gen', async () => {
 		previewBenchmarkSchedule,
 		runBenchmarkDatatableSql,
 		runBenchmarkFlowByPath,
+		runBenchmarkFlowPreview,
 		runBenchmarkScriptByPath,
 		runBenchmarkScriptPreview,
-		updateBenchmarkDraft,
-		listBenchmarkMcpTools
+		updateBenchmarkDraft
 	} = await import('./mockBackend')
 
 	function wrapService<T extends object>(target: T, overrides: Record<string, unknown>): T {
@@ -292,6 +332,14 @@ vi.mock('$lib/gen', async () => {
 							args: data.requestBody
 						})
 					: actual.JobService.runScriptByPath(data),
+			runFlowPreview: async (data: {
+				workspace: string
+				memoryId?: string
+				requestBody?: { path?: string; value?: { chat_input_enabled?: boolean }; args?: unknown }
+			}) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? runBenchmarkFlowPreview(data)
+					: actual.JobService.runFlowPreview(data as any),
 			runFlowByPath: async (data: {
 				workspace: string
 				path: string
@@ -325,7 +373,11 @@ vi.mock('$lib/gen', async () => {
 			getJobLogs: async (data: { workspace: string; id: string }) =>
 				hasBenchmarkWorkspace(data.workspace)
 					? getBenchmarkJobLogs(data.workspace, data.id)
-					: actual.JobService.getJobLogs(data)
+					: actual.JobService.getJobLogs(data),
+			getFlowAllResults: async (data: { workspace: string; id: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkFlowAllResults(data.workspace, data.id)
+					: actual.JobService.getFlowAllResults(data)
 		}),
 		WorkspaceService: wrapService(actual.WorkspaceService, {
 			getCopilotInfo: async (data: { workspace: string }) =>
@@ -336,6 +388,10 @@ vi.mock('$lib/gen', async () => {
 				hasBenchmarkWorkspace(data.workspace)
 					? (listBenchmarkDatatables(data.workspace) ?? [])
 					: actual.WorkspaceService.listDataTableTables(data),
+			listDucklakes: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? (listBenchmarkDucklakes(data.workspace) ?? [])
+					: actual.WorkspaceService.listDucklakes(data),
 			getDataTableTableSchema: async (data: {
 				workspace: string
 				datatableName: string
@@ -349,7 +405,33 @@ vi.mock('$lib/gen', async () => {
 							schemaName: data.schemaName,
 							tableName: data.tableName
 						})
-					: actual.WorkspaceService.getDataTableTableSchema(data)
+					: actual.WorkspaceService.getDataTableTableSchema(data),
+			getDatatableMigrationsStatus: async (data: any) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkDatatableMigrationsStatus(data)
+					: actual.WorkspaceService.getDatatableMigrationsStatus(data),
+			createDatatableMigration: async (data: any) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? createBenchmarkDatatableMigration(data)
+					: actual.WorkspaceService.createDatatableMigration(data),
+			upsertDatatableMigration: async (data: any) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? upsertBenchmarkDatatableMigration(data)
+					: actual.WorkspaceService.upsertDatatableMigration(data),
+			runDatatableMigrations: async (data: any) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? runBenchmarkDatatableMigrations(data)
+					: actual.WorkspaceService.runDatatableMigrations(data),
+			rollbackDatatableMigrations: async (data: any) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? rollbackBenchmarkDatatableMigration(data)
+					: actual.WorkspaceService.rollbackDatatableMigrations(data)
+		}),
+		DataMetricService: wrapService(actual.DataMetricService, {
+			listDataMetrics: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? { metrics: listBenchmarkDataMetrics(data.workspace) ?? [] }
+					: actual.DataMetricService.listDataMetrics(data)
 		}),
 		ScheduleService: wrapService(actual.ScheduleService, {
 			existsSchedule: async (data: { workspace: string; path: string }) =>
@@ -407,12 +489,6 @@ vi.mock('$lib/gen', async () => {
 			},
 			queryResourceTypes: async (data: { workspace: string }) =>
 				hasBenchmarkWorkspace(data.workspace) ? [] : actual.ResourceService.queryResourceTypes(data)
-		}),
-		McpService: wrapService(actual.McpService, {
-			listMcpTools: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace)
-					? listBenchmarkMcpTools()
-					: actual.McpService.listMcpTools(data)
 		}),
 		VariableService: wrapService(actual.VariableService, {
 			existsVariable: async (data: { workspace: string; path: string }) =>
@@ -621,6 +697,13 @@ benchmarkIt(
 	async () => {
 		const { resetBenchmarkMockBackend } = await import('./mockBackend')
 		resetBenchmarkMockBackend()
+		// The tools swallow inference failures, so a wasm the fetch stub stops serving would
+		// only show up as empty schemas the model chases, never as an error.
+		const { inferArgs } = await import('$lib/infer')
+		const { emptySchema } = await import('$lib/utils')
+		const probe = emptySchema()
+		await inferArgs('bun', 'export async function main(name: string) {}', probe)
+		expect(Object.keys(probe.properties)).toEqual(['name'])
 		const { runFrontendBenchmarkFromEnv } = await import('./benchmarkRunner')
 		try {
 			const payload = await runFrontendBenchmarkFromEnv()
@@ -633,6 +716,7 @@ benchmarkIt(
 			resetBenchmarkMockBackend()
 		}
 	},
-	// Full-suite runs (30+ cases at concurrency 2-3) routinely exceed 10 minutes.
-	7_200_000
+	// A full suite on a slow reasoning model runs for hours (gpt-6-astra on global went past
+	// 2h); the CI job's own timeout is the real bound.
+	18_000_000
 )

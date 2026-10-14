@@ -11,8 +11,8 @@ import type { UserDraftItemKind } from '$lib/gen'
 // flow editors, where pulling the filter schemas that module reads views from would make
 // every trigger's save utils eager.
 import {
-	pageHref,
-	stripBase,
+	drawerHashFor,
+	barePath,
 	TRIGGER_PAGES,
 	RESOURCES_PATH,
 	SCHEDULES_PATH,
@@ -63,11 +63,6 @@ async function flushOrRefuse(query: Parameters<typeof UserDraftDbSyncer.flush>[0
 	}
 }
 
-// How each page addresses a row in its hash. Resources route theirs through an extra
-// segment; every other page names the path directly.
-const drawerHashFor = (pagePath: string, itemPath: string) =>
-	pagePath === RESOURCES_PATH ? `/resource/${itemPath}` : itemPath
-
 /**
  * Deep-link the row whose drawer just opened, so the location says what is on screen — a
  * drawer opened from a row's Edit button is as open as one reached by link, and the chat
@@ -81,7 +76,7 @@ const drawerHashFor = (pagePath: string, itemPath: string) =>
 export function setPageDrawerAnchor(pagePath: string, itemPath: string | undefined): void {
 	if (!itemPath) return
 	const { pathname, search, hash } = window.location
-	if (stripBase(pathname) !== pagePath) return
+	if (barePath(pathname) !== pagePath) return
 	const anchor = `#${drawerHashFor(pagePath, itemPath)}`
 	if (hash === anchor) return
 	history.replaceState(history.state, '', `${pathname}${search}${anchor}`)
@@ -98,7 +93,7 @@ export async function clearPageDrawerAnchor(pagePath: string): Promise<void> {
 	// filters with shallow routing, which never reaches `page.url`, so rebuilding the query
 	// from it would drop the filters the user typed along with the anchor.
 	const { pathname, search, hash } = window.location
-	if (stripBase(pathname) !== pagePath || !hash) return
+	if (barePath(pathname) !== pagePath || !hash) return
 	await goto(`${pathname}${search}`, { replaceState: true, noScroll: true })
 }
 
@@ -116,14 +111,14 @@ export function pageDrawerSessionSource(
 	itemPath: string | undefined,
 	workspaceId: string | undefined
 ): OpenInSessionSource | undefined {
-	if (!itemPath || stripBase(page.url.pathname) !== pagePath) return undefined
+	if (!itemPath || barePath(page.url.pathname) !== pagePath) return undefined
 	const anchor = drawerHashFor(pagePath, itemPath)
 	const itemKind = DRAWER_DRAFT_KIND[pagePath]
 	return {
 		// The list behind the drawer is part of what the user is looking at, and its filters
 		// are written with shallow routing — so the query has to come from the document at
 		// click time, as the thunk exists for.
-		page: () => `${pageHref(pagePath)}${window.location.search}#${anchor}`,
+		page: () => `${pagePath}${window.location.search}#${anchor}`,
 		workspaceId,
 		// Autosave is debounced, and the preview reads the draft back through the server
 		// from a document of its own — routing before the POST lands opens the drawer on a

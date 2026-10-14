@@ -123,6 +123,7 @@ export interface GlobalEvalOptions {
   planMode?: boolean;
   model?: string;
   maxIterations?: number;
+  userAnswers?: string[];
   provider?: AIProvider;
   backend: WindmillBackendSettings;
   workspaceRoot?: string;
@@ -220,6 +221,7 @@ export async function runGlobalEval(
       onToolCall: options.runContext?.onToolCall,
       options: {
         maxIterations: options.maxIterations,
+        userAnswers: options.userAnswers,
         model,
         workspace: workspaceRoot,
         provider: options.provider,

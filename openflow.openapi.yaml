@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.810.0
+  version: 1.833.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -145,7 +145,7 @@ components:
               description: Seconds to wait between retries
         exponential:
           type: object
-          description: Retry with exponential backoff (delay doubles each time)
+          description: "Retry with exponential backoff: the n-th retry waits multiplier × seconds^n"
           properties:
             attempts:
               type: integer
@@ -156,7 +156,7 @@ components:
             seconds:
               type: integer
               minimum: 1
-              description: Initial delay in seconds
+              description: Base of the exponential (seconds); the n-th retry waits multiplier × seconds^n, where n counts constant retries too
             random_factor:
               type: integer
               minimum: 0
@@ -203,11 +203,11 @@ components:
             - height
         color:
           type: string
-          description: Color of the note (e.g., "yellow", "#ffff00")
+          description: "Color of the note, one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray. Any other value renders unstyled."
         type:
           type: string
           enum: [free, group]
-          description: Type of note - 'free' for standalone notes, 'group' for notes that group other nodes
+          description: Type of note - 'free' for standalone notes. 'group' notes are deprecated; segment a flow with FlowValue.groups instead.
         locked:
           type: boolean
           default: false
@@ -245,7 +245,7 @@ components:
           description: ID of the last flow module in this group (topological exit point)
         color:
           type: string
-          description: Color for the group in the flow editor
+          description: "Color for the group in the flow editor, one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray. Omit it to let the editor pick one."
       required:
         - start_id
         - end_id
@@ -376,6 +376,12 @@ components:
         continue_on_error:
           type: boolean
           description: If true, flow continues even if this step fails
+        job_token_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: "Scopes the token of this step's jobs is restricted to (domain:action[:resource], e.g. oidc:write), on top of the flow's own restriction: a step can only narrow it. Applies to everything the step runs (loop and branch bodies, AI agent tools)."
         retry:
           description: Retry configuration if this step fails
           $ref: '#/components/schemas/Retry'
@@ -473,6 +479,8 @@ components:
         - togetherai
         - customai
         - aws_bedrock
+        - typesafe
+        - cloudflare
 
     ProviderConfig:
       type: object
@@ -533,9 +541,30 @@ components:
       required:
         - kind
 
+    MemoryWindow:
+      type: object
+      description: |
+        Keeps the most recent messages of the memory named by the run's memory id (or the step's
+        `memory_id`). Without a memory id the agent runs without memory.
+      properties:
+        kind:
+          type: string
+          enum:
+            - window
+        context_length:
+          type: integer
+          description: Number of most recent messages to load and store. 0 turns memory off.
+      required:
+        - kind
+        - context_length
+
     MemoryAuto:
       type: object
-      description: Automatic context management
+      deprecated: true
+      description: |
+        Deprecated, still read as it was written: the run's memory id, else the `memory_id` here.
+        The step's own `memory_id` is not read while this kind is set; switch the kind to `window`
+        to use it. Without a `context_length`, or with 0, it is `off` and reads `previous_messages`.
       properties:
         kind:
           type: string
@@ -547,6 +576,25 @@ components:
         memory_id:
           type: string
           description: Identifier for persistent memory across agent invocations
+      required:
+        - kind
+
+    MemoryCompaction:
+      type: object
+      description: |
+        Keeps the whole memory named by the run's memory id (or the step's `memory_id`), replacing
+        its older part with a summary as the conversation approaches the model's context window.
+        Without a memory id the agent runs without memory, and compaction bounds the run's own loop.
+      properties:
+        kind:
+          type: string
+          enum:
+            - compaction
+        context_window:
+          type: integer
+          description: |
+            Overrides the context window looked up from the model, in tokens. Only a model
+            Windmill does not know needs one; those fall back to 128000.
       required:
         - kind
 
@@ -568,7 +616,8 @@ components:
 
     MemoryManual:
       type: object
-      description: Explicit message history
+      deprecated: true
+      description: Deprecated, still read as it was written. Move the step to `off` with `previous_messages` instead.
       properties:
         kind:
           type: string
@@ -583,15 +632,19 @@ components:
         - messages
 
     MemoryConfig:
-      description: Conversation memory configuration
+      description: Managed memory, stored by Windmill and replayed with each request. The memory is named by a memory id, see `memory_id`. While it is off, a step can supply its history in `previous_messages`.
       oneOf:
         - $ref: '#/components/schemas/MemoryOff'
+        - $ref: '#/components/schemas/MemoryWindow'
+        - $ref: '#/components/schemas/MemoryCompaction'
         - $ref: '#/components/schemas/MemoryAuto'
         - $ref: '#/components/schemas/MemoryManual'
       discriminator:
         propertyName: kind
         mapping:
           'off': '#/components/schemas/MemoryOff'
+          window: '#/components/schemas/MemoryWindow'
+          compaction: '#/components/schemas/MemoryCompaction'
           auto: '#/components/schemas/MemoryAuto'
           manual: '#/components/schemas/MemoryManual'
 
@@ -634,6 +687,7 @@ components:
         - $ref: '#/components/schemas/BranchAll'
         - $ref: '#/components/schemas/Identity'
         - $ref: '#/components/schemas/AiAgent'
+        - $ref: '#/components/schemas/AiDecision'
       discriminator:
         propertyName: type
         mapping:
@@ -646,6 +700,7 @@ components:
           branchall: '#/components/schemas/BranchAll'
           identity: '#/components/schemas/Identity'
           aiagent: '#/components/schemas/AiAgent'
+          aidecision: '#/components/schemas/AiDecision'
 
     RawScript:
       type: object
@@ -954,6 +1009,12 @@ components:
         description:
           type: string
           description: Free-text description of the tool given to the AI to decide when and how to call it. Overrides the description auto-derived from the underlying script.
+        job_token_scopes:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: "Scopes the token of this tool's jobs is restricted to, on top of the agent step's own restriction: a tool can only narrow it."
         value:
           $ref: '#/components/schemas/ToolValue'
       required:
@@ -1041,7 +1102,10 @@ components:
             user_message:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
-              description: The user's prompt/message to the AI agent. Supports variable interpolation with flow.input syntax.
+              description: |
+                The user's prompt/message to the AI agent. Supports variable interpolation with
+                flow.input syntax. Required unless memory is off and `previous_messages` supplies
+                the prompt; image output always needs it.
             system_prompt:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
@@ -1054,6 +1118,24 @@ components:
                 Streaming events include: token_delta, reasoning_token_delta, tool_call, tool_call_arguments, tool_execution, tool_result
             memory:
               $ref: '#/components/schemas/MemoryTransform'
+            memory_id:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                String. Names the memory this step reads and writes, overriding the memory id the run
+                was started with (the chat conversation, an app chat session or the `memory_id` run
+                parameter). Leave unset to use the run's memory id. A fixed value shares one memory
+                across every run; an expression such as `flow_input.customer_id` keeps one memory per
+                key. When it evaluates to an empty value the agent runs without memory. Read only
+                while `memory` is `window` or `compaction`: it is ignored when memory is off, and an
+                older `auto` or `manual` memory reads neither history input.
+            previous_messages:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                Array of MemoryMessage. History supplied by the flow, sent between the system prompt
+                and the user message. Read only while `memory` is off or absent: managed memory
+                ignores it, and an older `auto` or `manual` memory reads neither history input.
             output_schema:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
@@ -1068,6 +1150,18 @@ components:
                 Array of file references (images or PDFs) for the AI agent.
                 Format: Array<{ bucket: string, key: string }> - S3 object references
                 Example: [{ bucket: 'my-bucket', key: 'documents/report.pdf' }]
+            enabled_tools:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                Array of strings naming which of the tools configured in `tools` the agent may call
+                this run. Leaving it unset carries every one of them; an empty array carries none.
+                A tool is named as the model is shown it. An entry the model is shown nothing of is
+                named by what identifies it instead: an MCP server by its resource path, carrying
+                every tool it exposes (which of them stays that entry's include_tools/exclude_tools),
+                and a websearch entry by the reserved name '__wm_web_search', whatever summary it carries
+                (no tool may take that name).
+                Example: ['get_user', 'u/admin/github_mcp', '__wm_web_search']
             max_completion_tokens:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
@@ -1090,9 +1184,8 @@ components:
                 Number. Limits how many times the agent can loop through reasoning and tool use.
                 Range: 1-1000.
           # Only the flow-local inputs are always present: a step linked to an `ai_agent` resource
-          # (see `agent`) keeps just those and takes provider/output_type from the resource.
-          required:
-            - user_message
+          # (see `agent`) keeps just those and takes provider/output_type from the resource. Even
+          # `user_message` may be absent, when memory is off and `previous_messages` is the prompt.
         tools:
           type: array
           description: Array of tools the agent can use. The agent decides which tools to call based on the task
@@ -1115,7 +1208,7 @@ components:
             Path of a reusable `ai_agent` resource (hybrid linking). When set, the agent brain
             config (provider/model/system prompt/etc.) and tool set are resolved at runtime from
             that resource; the module's input_transforms then only carry the flow-local inputs
-            (user_message/user_attachments).
+            (user_message, user_attachments, enabled_tools and the history inputs memory_id and previous_messages).
         tool_inputs:
           type: object
           description: |
@@ -1131,6 +1224,62 @@ components:
         parallel:
           type: boolean
           description: If true, the agent can execute multiple tool calls in parallel
+      required:
+        - type
+        - input_transforms
+
+    AiDecision:
+      type: object
+      description: |
+        AI decision step: one call to a decision model (TypeSafe's Jev, Cloudflare's
+        Jev-compatible Clef, or OpenAI's Decisions API) that answers typed questions about a
+        state with calibrated probabilities, instead of generating text.
+        Prefer it over an AI agent to classify, route, score or check something: it is fast,
+        cheap and its answers are structured. Its result is { output: { <question name>: answer },
+        model, usage }, so a later step reads e.g. results.<id>.output.intent.choice. To route on
+        the answers, follow it with a branchone whose branch exprs read
+        results.<id>.output.<question>.choice. Usable as an AI agent tool, where the calling agent
+        supplies the state.
+      properties:
+        input_transforms:
+          type: object
+          description: Input parameters for the decision mapped to their values
+          properties:
+            # A provider config whose kind is 'typesafe' (model 'jev-latest' unless pinned),
+            # 'cloudflare' (model 'clef' or 'clef-flash') or 'openai' (model 'gpt-6-luna').
+            provider:
+              $ref: '#/components/schemas/ProviderTransform'
+            state:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                What the questions are asked about: a string, an object or an array of strings.
+                An object with descriptive keys holding only what the questions need works best.
+                Example: { message: flow_input.message, plan: results.a.plan }
+            questions:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                Object mapping each question name to { type, instructions, criteria }, where type is:
+                - 'choice': criteria maps each option to its description (up to 255); the answer
+                  has choice, probabilities and confidence
+                - 'score': criteria is an ordered array of 2 to 10 level descriptions; the answer
+                  has score, legend, probabilities and confidence
+                - 'noul': yes/no, criteria optionally { true, false } descriptions; the answer has
+                  noul, the probability of yes (0 to 1)
+                Example: { intent: { type: 'choice', instructions: 'What does the customer want?',
+                criteria: { refund: 'Money back', bug: 'Something is broken' } } }
+          required:
+            - provider
+            - state
+            - questions
+        type:
+          type: string
+          enum:
+            - aidecision
+        tag:
+          type: string
+          description: Worker group tag for execution routing. If not set, the step runs on the flow's tag (default `flow`)
       required:
         - type
         - input_transforms

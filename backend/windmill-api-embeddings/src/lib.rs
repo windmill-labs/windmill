@@ -9,16 +9,11 @@ use windmill_common::DEFAULT_HUB_BASE_URL;
 #[cfg(feature = "embedding")]
 use windmill_common::HUB_BASE_URL;
 
-use axum::Router;
-
-#[cfg(feature = "embedding")]
 use axum::{
     extract::{Path, Query},
-    Json,
+    routing::get,
+    Extension, Json, Router,
 };
-
-#[cfg(feature = "embedding")]
-use axum::routing::get;
 #[cfg(feature = "embedding")]
 use candle_core::{Device, Tensor};
 #[cfg(feature = "embedding")]
@@ -27,10 +22,7 @@ use candle_nn::VarBuilder;
 use candle_transformers::models::bert::{BertModel, Config, DTYPE};
 #[cfg(feature = "embedding")]
 use hf_hub::api::tokio::Api;
-#[cfg(feature = "embedding")]
-use serde::Deserialize;
-#[cfg(feature = "embedding")]
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 #[cfg(feature = "embedding")]
 use sqlx::{Pool, Postgres};
 #[cfg(feature = "embedding")]
@@ -44,9 +36,7 @@ use tokenizers::Tokenizer;
 use tokio::sync::RwLock;
 #[cfg(feature = "embedding")]
 use windmill_common::utils::http_get_from_hub;
-
-#[cfg(feature = "embedding")]
-use windmill_common::error::JsonResult;
+use windmill_common::{db::DB, error::JsonResult};
 
 #[cfg(feature = "embedding")]
 use windmill_store::resources::ResourceType;
@@ -60,6 +50,7 @@ lazy_static::lazy_static! {
     // full pulling interval, so a transient startup error doesn't leave the
     // embeddings DB uninitialized for a whole day.
     pub static ref HUB_EMBEDDINGS_RETRY_INTERVAL_SECS: u64 = std::env::var("HUB_EMBEDDINGS_RETRY_INTERVAL_SECS").ok().map(|x| x.parse::<u64>().ok()).flatten().unwrap_or(60);
+    pub static ref RESOURCE_TYPE_EMBEDDINGS_CHECK_INTERVAL_SECS: u64 = std::env::var("RESOURCE_TYPE_EMBEDDINGS_CHECK_INTERVAL_SECS").ok().map(|x| x.parse::<u64>().ok()).flatten().unwrap_or(60);
 }
 
 #[cfg(feature = "embedding")]
@@ -78,6 +69,8 @@ pub struct HubScriptResult {
     id: i64,
     version_id: i64,
     summary: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
     app: String,
     kind: String,
     score: f32,
@@ -102,14 +95,12 @@ async fn query_hub_scripts(
     }
 }
 
-#[cfg(feature = "embedding")]
 #[derive(Deserialize)]
 struct ResourceTypesQuery {
     text: String,
     limit: Option<i64>,
 }
 
-#[cfg(feature = "embedding")]
 #[derive(Serialize)]
 pub struct ResourceTypeResult {
     name: String,
@@ -136,24 +127,107 @@ fn trim_to_top_score<T>(
         .take_while(|r| (top_score - score(r)) / top_score <= max_relative_drop)
         .collect()
 }
-#[cfg(feature = "embedding")]
 async fn query_resource_types(
+    Extension(db): Extension<DB>,
     Query(query): Query<ResourceTypesQuery>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<ResourceTypeResult>> {
-    let embeddings_db = EMBEDDINGS_DB.read().await;
-
-    if let Some(embeddings_db) = embeddings_db.as_ref() {
-        let results = embeddings_db
-            .query_resource_types(w_id, &query.text, query.limit)
-            .await?;
-
-        Ok(Json(results))
-    } else {
-        Err(windmill_common::error::Error::internal_err(
-            "Embeddings db not initialized".to_string(),
-        ))
+    #[cfg(feature = "embedding")]
+    if let Some(embeddings_db) = EMBEDDINGS_DB.read().await.as_ref() {
+        return Ok(Json(
+            embeddings_db
+                .query_resource_types(w_id, &query.text, query.limit)
+                .await?,
+        ));
     }
+    Ok(Json(
+        match_resource_types_by_text(&db, &w_id, &query.text, query.limit).await?,
+    ))
+}
+
+/// Serves the search when there is no embeddings index: a build without the `embedding`
+/// feature, or one whose index never loaded (air-gapped, `DISABLE_EMBEDDING`). The AI chat
+/// has no other way to read the instance's resource types.
+async fn match_resource_types_by_text(
+    db: &DB,
+    w_id: &str,
+    text: &str,
+    limit: Option<i64>,
+) -> windmill_common::error::Result<Vec<ResourceTypeResult>> {
+    let words: Vec<String> = text
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_string)
+        .collect();
+    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT workspace_id, name, description FROM resource_type WHERE workspace_id = $1 OR workspace_id = 'admins'",
+    )
+    .bind(w_id)
+    .fetch_all(db)
+    .await?;
+
+    let mut ranked: Vec<(f32, String, String)> = rows
+        .into_iter()
+        .map(|(workspace_id, name, description)| {
+            let score = text_match_score(&words, &name, description.as_deref().unwrap_or_default());
+            (score, workspace_id, name)
+        })
+        .filter(|(score, _, _)| *score > 0.0)
+        .collect();
+    ranked.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.2.cmp(&b.2)));
+    ranked.truncate(limit.unwrap_or(10).max(0) as usize);
+
+    // Schemas are read for the kept rows only: a synced instance holds megabytes of them.
+    let (workspaces, names): (Vec<&str>, Vec<&str>) = ranked
+        .iter()
+        .map(|(_, workspace_id, name)| (workspace_id.as_str(), name.as_str()))
+        .unzip();
+    let mut schemas: Vec<(String, String, Option<serde_json::Value>)> = sqlx::query_as(
+        "SELECT workspace_id, name, schema FROM resource_type WHERE (workspace_id, name) IN (SELECT * FROM unnest($1::text[], $2::text[]))",
+    )
+    .bind(&workspaces)
+    .bind(&names)
+    .fetch_all(db)
+    .await?;
+
+    Ok(ranked
+        .into_iter()
+        .map(|(score, workspace_id, name)| {
+            let schema = schemas
+                .iter_mut()
+                .find(|(w, n, _)| *w == workspace_id && *n == name)
+                .and_then(|(_, _, schema)| schema.take());
+            ResourceTypeResult { score, name, schema }
+        })
+        .collect())
+}
+
+/// A word found in the name counts twice a word found in the description: names are what
+/// a query for a service spells out ("postgres" in `postgresql`, "sheets" in `gsheets`).
+/// A word under 3 characters ("s3", "ai") would sit inside too many names, so it counts only
+/// as a whole name or one of its `_`-separated parts.
+fn text_match_score(words: &[String], name: &str, description: &str) -> f32 {
+    let name = name.to_lowercase();
+    let description = description.to_lowercase();
+    words
+        .iter()
+        .map(|word| {
+            let short = word.len() < 3;
+            let in_name = if short {
+                name.split('_').any(|part| part == word)
+            } else {
+                name.contains(word.as_str())
+            };
+            if in_name {
+                2.0
+            } else if !short && description.contains(word.as_str()) {
+                1.0
+            } else {
+                0.0
+            }
+        })
+        .sum()
 }
 
 #[cfg(feature = "embedding")]
@@ -163,6 +237,9 @@ struct HubScript {
     id: i64,
     version_id: i64,
     summary: String,
+    // Nearly a fifth of hub scripts carry an explicit `"description": null`; a bare
+    // String here fails the whole blob and takes hub search down with it.
+    description: Option<String>,
     app: String,
     kind: String,
     embedding: Vec<f32>,
@@ -283,17 +360,60 @@ impl ModelInstance {
 pub struct EmbeddingsDb {
     db: Db,
     model_instance: Arc<ModelInstance>,
+    /// Kept from the last full fill, so the resource types can be re-indexed between fills
+    /// without downloading the hub's embeddings again.
+    hub_resource_type_embeddings: Arc<HashMap<String, Vec<f32>>>,
+    /// The `resource_types_fingerprint` the resource types collection was built from.
+    resource_types_fingerprint: Option<String>,
+    /// See `ResourceTypeIndex::custom_vectors`.
+    custom_resource_type_vectors: Arc<HashMap<String, Vec<f32>>>,
+}
+
+/// A built resource types collection, with what a later refresh needs to tell it is stale and
+/// to reuse its vectors.
+#[cfg(feature = "embedding")]
+struct ResourceTypeIndex {
+    fingerprint: Option<String>,
+    embeddings: Vec<Embedding>,
+    /// Vectors of the types the hub has none for, by the `name;description` they embed: a
+    /// refresh runs the model only on types that are new or changed, not on every custom type.
+    custom_vectors: Arc<HashMap<String, Vec<f32>>>,
 }
 
 #[cfg(feature = "embedding")]
 impl EmbeddingsDb {
+    fn empty(model_instance: Arc<ModelInstance>) -> Self {
+        Self {
+            db: Db::new(),
+            model_instance,
+            hub_resource_type_embeddings: Arc::new(HashMap::new()),
+            resource_types_fingerprint: None,
+            custom_resource_type_vectors: Arc::new(HashMap::new()),
+        }
+    }
+
     pub async fn new(pg_db: &Pool<Postgres>, model_instance: Arc<ModelInstance>) -> Result<Self> {
-        let db = Db::new();
-
-        let mut embeddings_db = Self { db, model_instance: model_instance.clone() };
-
+        let mut embeddings_db = Self::empty(model_instance);
         embeddings_db.fill_db(pg_db).await?;
+        Ok(embeddings_db)
+    }
 
+    /// The resource types alone, all embedded locally, for when the full fill cannot download
+    /// the hub's embeddings: an air-gapped instance, or a private hub serving none. Hub script
+    /// search keeps failing, since it has no collection to search.
+    async fn resource_types_only(
+        pg_db: &Pool<Postgres>,
+        model_instance: Arc<ModelInstance>,
+    ) -> Result<Self> {
+        let mut embeddings_db = Self::empty(model_instance);
+        let index = resource_type_index(
+            pg_db,
+            &embeddings_db.model_instance,
+            &embeddings_db.hub_resource_type_embeddings,
+            &embeddings_db.custom_resource_type_vectors,
+        )
+        .await?;
+        embeddings_db.replace_resource_types(index)?;
         Ok(embeddings_db)
     }
 
@@ -304,13 +424,6 @@ impl EmbeddingsDb {
 
         self.db
             .create_collection("scripts".to_string(), 384, Distance::Cosine)?;
-
-        if self.db.get_collection("resource_types").is_some() {
-            self.db.delete_collection("resource_types")?;
-        }
-
-        self.db
-            .create_collection("resource_types".to_string(), 384, Distance::Cosine)?;
 
         let hub_base_url = (**HUB_BASE_URL.load()).clone();
 
@@ -360,6 +473,10 @@ impl EmbeddingsDb {
             let mut hm = HashMap::new();
             hm.insert("ask_id".to_string(), script.ask_id.clone().to_string());
             hm.insert("summary".to_string(), script.summary.clone());
+            hm.insert(
+                "description".to_string(),
+                script.description.clone().unwrap_or_default(),
+            );
             hm.insert("app".to_string(), script.app.clone());
             hm.insert("kind".to_string(), script.kind.clone());
             hm.insert("id".to_string(), script.id.clone().to_string());
@@ -416,44 +533,40 @@ impl EmbeddingsDb {
             ));
         }
         let hub_resource_types = response.json::<Vec<HubResourceType>>().await?;
+        self.hub_resource_type_embeddings = Arc::new(
+            hub_resource_types
+                .into_iter()
+                .map(|rt| (rt.name, rt.embedding))
+                .collect(),
+        );
 
-        let resource_types: Vec<ResourceType> =
-            sqlx::query_as!(ResourceType, "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset from resource_type ORDER BY name",)
-                .fetch_all(pg_db)
-                .await?;
+        let index = resource_type_index(
+            pg_db,
+            &self.model_instance,
+            &self.hub_resource_type_embeddings,
+            &self.custom_resource_type_vectors,
+        )
+        .await?;
+        self.replace_resource_types(index)
+    }
 
-        for rt in resource_types {
-            let mut hm = HashMap::new();
-            hm.insert("name".to_string(), rt.name.clone());
-            if let Some(schema) = rt.schema.clone() {
-                hm.insert("schema".to_string(), serde_json::to_string(&schema)?);
-            }
-            hm.insert("workspace".to_string(), rt.workspace_id.clone());
-            let hub_rt = hub_resource_types.iter().find(|hrt| hrt.name == rt.name);
-
-            let vector = if let Some(hub_rt) = hub_rt {
-                hub_rt.embedding.clone()
-            } else {
-                self.model_instance
-                    .clone()
-                    .create_embedding(&format!(
-                        "{};{}",
-                        rt.name,
-                        rt.description.unwrap_or_default()
-                    ))
-                    .await?
-            };
-
-            let embedding = Embedding {
-                id: format!("{}_{}", rt.workspace_id, rt.name),
-                vector,
-                metadata: Some(hm),
-            };
-
-            self.db
-                .insert_into_collection("resource_types", embedding)?;
+    fn replace_resource_types(&mut self, index: ResourceTypeIndex) -> Result<()> {
+        // Built aside and swapped in whole: an insert the collection refuses must not leave
+        // searches on a half-filled index.
+        const NEXT: &str = "resource_types_next";
+        self.db.collections.remove(NEXT);
+        self.db
+            .create_collection(NEXT.to_string(), 384, Distance::Cosine)?;
+        for embedding in index.embeddings {
+            self.db.insert_into_collection(NEXT, embedding)?;
         }
-
+        if let Some(next) = self.db.collections.remove(NEXT) {
+            self.db
+                .collections
+                .insert("resource_types".to_string(), next);
+        }
+        self.resource_types_fingerprint = index.fingerprint;
+        self.custom_resource_type_vectors = index.custom_vectors;
         Ok(())
     }
 
@@ -517,6 +630,10 @@ impl EmbeddingsDb {
                         .get("summary")
                         .ok_or(Error::msg("no summary"))?
                         .to_owned(),
+                    description: metadata
+                        .get("description")
+                        .filter(|d| !d.is_empty())
+                        .map(|d| d.to_owned()),
                     app: metadata.get("app").ok_or(Error::msg("no app"))?.to_owned(),
                     kind: metadata
                         .get("kind")
@@ -604,6 +721,101 @@ impl EmbeddingsDb {
     }
 }
 
+/// Covers everything an indexed resource type is built from, whichever path wrote it: the
+/// create and update routes, a hub sync's direct upserts, a delete.
+///
+/// A sum of per-row hashes needs no sort. Don't go back to an ORDER BY aggregate: sorting
+/// every schema spills to disk once they exceed work_mem, on every check of every server.
+#[cfg(feature = "embedding")]
+async fn resource_types_fingerprint(pg_db: &Pool<Postgres>) -> Result<Option<String>> {
+    Ok(sqlx::query_scalar(
+        "SELECT count(*)::text || ':' || coalesce(sum(('x' || left(md5(workspace_id || '/' || name || '/' || coalesce(description, '') || '/' || coalesce(schema::text, '')), 15))::bit(60)::bigint), 0)::text FROM resource_type",
+    )
+    .fetch_one(pg_db)
+    .await?)
+}
+
+/// The fingerprint is read before the rows: a write landing in between leaves it stale, so
+/// the next check indexes again rather than keeping an index that misses the write.
+#[cfg(feature = "embedding")]
+async fn resource_type_index(
+    pg_db: &Pool<Postgres>,
+    model_instance: &Arc<ModelInstance>,
+    hub_embeddings: &HashMap<String, Vec<f32>>,
+    known_custom_vectors: &HashMap<String, Vec<f32>>,
+) -> Result<ResourceTypeIndex> {
+    let fingerprint = resource_types_fingerprint(pg_db).await?;
+    let resource_types: Vec<ResourceType> =
+        sqlx::query_as!(ResourceType, "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset, display_name from resource_type ORDER BY name",)
+            .fetch_all(pg_db)
+            .await?;
+
+    let mut embeddings = Vec::with_capacity(resource_types.len());
+    let mut custom_vectors = HashMap::new();
+    for rt in resource_types {
+        let mut hm = HashMap::new();
+        hm.insert("name".to_string(), rt.name.clone());
+        if let Some(schema) = rt.schema.clone() {
+            hm.insert("schema".to_string(), serde_json::to_string(&schema)?);
+        }
+        hm.insert("workspace".to_string(), rt.workspace_id.clone());
+
+        let vector = match hub_embeddings.get(&rt.name) {
+            Some(vector) => vector.clone(),
+            None => {
+                let text = format!("{};{}", rt.name, rt.description.unwrap_or_default());
+                let vector = match known_custom_vectors
+                    .get(&text)
+                    .or_else(|| custom_vectors.get(&text))
+                {
+                    Some(vector) => vector.clone(),
+                    None => model_instance.clone().create_embedding(&text).await?,
+                };
+                custom_vectors.insert(text, vector.clone());
+                vector
+            }
+        };
+
+        embeddings.push(Embedding {
+            // Neither part can hold a `/`, so two types never share an id; with `_` between
+            // them, `acme_c` + `c_x` and `acme` + `c_c_x` would.
+            id: format!("{}/{}", rt.workspace_id, rt.name),
+            vector,
+            metadata: Some(hm),
+        });
+    }
+    Ok(ResourceTypeIndex { fingerprint, embeddings, custom_vectors: Arc::new(custom_vectors) })
+}
+
+/// The full fill runs once a day, so a resource type created or synced in between would stay
+/// unsearchable until then; this re-indexes the resource types alone when the table changed.
+#[cfg(feature = "embedding")]
+pub async fn refresh_resource_type_embeddings(pg_db: &Pool<Postgres>) -> Result<()> {
+    if EMBEDDINGS_DB.read().await.is_none() {
+        return Ok(());
+    }
+    let fingerprint = resource_types_fingerprint(pg_db).await?;
+    let (model_instance, hub_embeddings, custom_vectors) = match EMBEDDINGS_DB.read().await.as_ref()
+    {
+        Some(db) if db.resource_types_fingerprint != fingerprint => (
+            db.model_instance.clone(),
+            db.hub_resource_type_embeddings.clone(),
+            db.custom_resource_type_vectors.clone(),
+        ),
+        _ => return Ok(()),
+    };
+    let index =
+        resource_type_index(pg_db, &model_instance, &hub_embeddings, &custom_vectors).await?;
+    if let Some(db) = EMBEDDINGS_DB.write().await.as_mut() {
+        // A full fill that landed meanwhile indexed the types from newer hub vectors than
+        // the ones this index was built from.
+        if Arc::ptr_eq(&db.hub_resource_type_embeddings, &hub_embeddings) {
+            db.replace_resource_types(index)?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(feature = "embedding")]
 fn normalize_l2(v: &Tensor) -> Result<Tensor> {
     Ok(v.broadcast_div(&v.sqr()?.sum_keepdim(1)?.sqrt()?)?)
@@ -617,6 +829,19 @@ pub fn load_embeddings_db(db: &Pool<Postgres>) -> () {
         .unwrap_or(false);
 
     if !disable_embedding {
+        let resource_types_db = db.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(
+                    *RESOURCE_TYPE_EMBEDDINGS_CHECK_INTERVAL_SECS,
+                ))
+                .await;
+                if let Err(e) = refresh_resource_type_embeddings(&resource_types_db).await {
+                    tracing::warn!("Failed to refresh resource type embeddings: {e:#}");
+                }
+            }
+        });
+
         let db_clone = db.clone();
         tokio::spawn(async move {
             // Keep retrying model init: a transient failure here must not
@@ -651,6 +876,9 @@ pub fn load_embeddings_db(db: &Pool<Postgres>) -> () {
                     backoff_secs = *HUB_EMBEDDINGS_RETRY_INTERVAL_SECS;
                     *HUB_EMBEDDINGS_PULLING_INTERVAL_SECS
                 } else {
+                    if let Err(e) = index_resource_types_alone(&db_clone).await {
+                        tracing::warn!("Failed to index the resource types alone: {e:#}");
+                    }
                     let secs = backoff_secs;
                     backoff_secs = backoff_secs
                         .saturating_mul(2)
@@ -683,7 +911,29 @@ pub async fn update_embeddings_db(db: &Pool<Postgres>) -> bool {
     }
 }
 
+/// After a failed full fill, so a fill still downloading at startup is not raced. A full fill
+/// that succeeds later replaces this index.
 #[cfg(feature = "embedding")]
+async fn index_resource_types_alone(pg_db: &Pool<Postgres>) -> Result<()> {
+    if EMBEDDINGS_DB.read().await.is_some() {
+        return Ok(());
+    }
+    let Some(model_instance) = MODEL_INSTANCE.read().await.clone() else {
+        return Ok(());
+    };
+    let started = std::time::Instant::now();
+    let embeddings_db = EmbeddingsDb::resource_types_only(pg_db, model_instance).await?;
+    let mut current = EMBEDDINGS_DB.write().await;
+    if current.is_none() {
+        *current = Some(embeddings_db);
+        tracing::info!(
+            "Indexed the resource types alone in {:?}, without the hub's embeddings",
+            started.elapsed()
+        );
+    }
+    Ok(())
+}
+
 pub fn workspaced_service() -> Router {
     Router::new().route("/query_resource_types", get(query_resource_types))
 }
@@ -694,11 +944,6 @@ pub fn global_service() -> Router {
 }
 
 #[cfg(not(feature = "embedding"))]
-pub fn workspaced_service() -> Router {
-    Router::new()
-}
-
-#[cfg(not(feature = "embedding"))]
 pub fn global_service() -> Router {
     Router::new()
 }
@@ -706,6 +951,31 @@ pub fn global_service() -> Router {
 #[cfg(all(test, feature = "embedding"))]
 mod tests {
     use super::trim_to_top_score;
+
+    // The blob carries an explicit `"description": null` for roughly a fifth of hub
+    // scripts, and an older hub omits the key entirely. A bare String here fails the
+    // whole 155 MB array and takes hub search down with it.
+    #[test]
+    fn reads_a_hub_script_whether_or_not_it_has_a_description() {
+        let present = r#"{"ask_id":1,"id":2,"version_id":3,"summary":"s","description":"d","app":"a","kind":"script","embedding":[]}"#;
+        let null = r#"{"ask_id":1,"id":2,"version_id":3,"summary":"s","description":null,"app":"a","kind":"script","embedding":[]}"#;
+        let missing = r#"{"ask_id":1,"id":2,"version_id":3,"summary":"s","app":"a","kind":"script","embedding":[]}"#;
+
+        assert_eq!(
+            serde_json::from_str::<super::HubScript>(present)
+                .unwrap()
+                .description,
+            Some("d".to_string())
+        );
+        for without in [null, missing] {
+            assert_eq!(
+                serde_json::from_str::<super::HubScript>(without)
+                    .unwrap()
+                    .description,
+                None
+            );
+        }
+    }
 
     #[test]
     fn trims_scores_more_than_5pct_below_top() {
@@ -728,5 +998,36 @@ mod tests {
             Vec::<f32>::new()
         );
         assert_eq!(trim_to_top_score(vec![0.42f32], 0.05, |s| *s), vec![0.42]);
+    }
+}
+
+#[cfg(test)]
+mod text_match_tests {
+    use super::text_match_score;
+
+    // A query names the service, which a type's name only contains ("postgres" in
+    // `postgresql`): an exact comparison finds nothing for "postgres database".
+    #[test]
+    fn ranks_a_name_match_above_a_description_match() {
+        let words = vec!["postgres".to_string(), "database".to_string()];
+        assert_eq!(
+            text_match_score(&words, "PostgreSQL", "PostgreSQL connection"),
+            2.0
+        );
+        assert_eq!(
+            text_match_score(&words, "mysql", "MySQL database credentials"),
+            1.0
+        );
+        assert_eq!(text_match_score(&words, "slack", "Slack bot token"), 0.0);
+    }
+
+    // Many services go by a short name; matching it inside other names would rank `ms365`
+    // with `s3`.
+    #[test]
+    fn matches_a_short_word_only_as_a_whole_name_part() {
+        let words = vec!["s3".to_string()];
+        assert_eq!(text_match_score(&words, "s3", "Amazon S3 bucket"), 2.0);
+        assert_eq!(text_match_score(&words, "aws_s3", ""), 2.0);
+        assert_eq!(text_match_score(&words, "ms365", "mentions s3"), 0.0);
     }
 }

@@ -5,7 +5,10 @@
  * Please see the included NOTICE for copyright information and
  * LICENSE-AGPL for a copy of the license.
  */
-use crate::{db::ApiAuthed, utils::check_scopes};
+use crate::{
+    db::ApiAuthed,
+    utils::{build_scope_path_filter, check_scopes, ScopePathFilter},
+};
 use axum::{
     body::Body,
     extract::{Extension, Json, Path, Query},
@@ -101,6 +104,31 @@ async fn list_apps(
                     .bind(&l.trim()),
             );
         }
+    }
+
+    // In the WHERE, not a retain after the fetch: the result is paginated, and a
+    // post-fetch filter would return short pages and let a page's size report how
+    // many raw apps the token may not read. One `?` per term, since a chained `.bind`
+    // substitutes into a `?` inside the value an earlier one inserted; `starts_with`,
+    // since LIKE reads a `_` in the path as a wildcard.
+    if let ScopePathFilter::Restricted { exact, prefix } =
+        build_scope_path_filter(&authed, "raw_apps", "read")
+    {
+        let terms: Vec<String> = exact
+            .iter()
+            .chain(&prefix)
+            .map(|p| "app.path = ?".bind(p))
+            .chain(
+                prefix
+                    .iter()
+                    .map(|p| "starts_with(app.path, ?)".bind(&format!("{p}/"))),
+            )
+            .collect();
+        sqlb.and_where(if terms.is_empty() {
+            "false".to_string()
+        } else {
+            format!("({})", terms.join(" OR "))
+        });
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;

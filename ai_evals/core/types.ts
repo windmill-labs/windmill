@@ -29,6 +29,10 @@ export interface EvalCaseRuntimeAppContextSpec {
 
 export interface EvalCaseRuntimeSpec {
   maxTurns?: number;
+  // Global mode: scripted answers to askUserQuestion, one per question in order; a question
+  // past the last one is dismissed, so `[]` dismisses them all. Unset, the question tool
+  // reports that it cannot ask.
+  userAnswers?: string[];
   backendPreview?: EvalCaseRuntimeBackendPreview;
   appContext?: EvalCaseRuntimeAppContextSpec;
   // Global mode: run as a session chat (preview tools + session prompt) vs the standalone chat.
@@ -182,6 +186,13 @@ export interface ToolCallArgumentRule {
    * the point is that the model filled it in at all rather than what it said.
    */
   nonEmpty?: boolean;
+  /**
+   * Existential over calls: at least this many recorded calls to `tool` carry the
+   * same non-blank string in `field`. Use when calls have to share an identifier —
+   * e.g. test runs that continue one conversation — while a retry with a rejected
+   * value in between is still acceptable.
+   */
+  sharedByAtLeast?: number;
   /**
    * Universal over calls: no recorded call to `tool` may pass `field` at all.
    * For partial-update tools, where supplying a field the model could not have

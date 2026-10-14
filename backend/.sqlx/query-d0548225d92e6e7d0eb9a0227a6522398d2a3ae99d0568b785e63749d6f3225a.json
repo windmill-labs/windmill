@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings ws\n           SET datatable = (\n               SELECT jsonb_set(ws.datatable, '{datatables}', jsonb_object_agg(\n                   dt.key,\n                   (SELECT CASE WHEN r.v->'governed_by'->>'workspace_id' = $2\n                               THEN jsonb_set(r.v, '{governed_by,workspace_id}', to_jsonb($1::text))\n                               ELSE r.v END\n                    FROM (SELECT CASE WHEN dt.value->'reference'->>'workspace_id' = $2\n                                     THEN jsonb_set(dt.value, '{reference,workspace_id}', to_jsonb($1::text))\n                                     ELSE dt.value END AS v) r)\n               ))\n               FROM jsonb_each(ws.datatable->'datatables') dt\n           )\n           WHERE jsonb_typeof(ws.datatable->'datatables') = 'object'\n             AND (ws.datatable::text LIKE '%\"reference\"%'\n                  OR ws.datatable::text LIKE '%\"governed_by\"%')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d0548225d92e6e7d0eb9a0227a6522398d2a3ae99d0568b785e63749d6f3225a"
+}

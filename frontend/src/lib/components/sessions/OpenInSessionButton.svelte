@@ -41,9 +41,12 @@
 	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
 	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
 	import { copilotInfo } from '$lib/aiStore'
-	import { userStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { openSourceInSession } from './sessionSwitch.svelte'
+	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	let {
 		source,
@@ -66,7 +69,7 @@
 		 * says that clicking it leaves for a session. */
 		tooltip?: string
 		/** Rendered instead when the caller keeps a docked chat to drive — an
-		 * opted-out user or an operator (typically the editor's inline-chat
+		 * opted-out user (typically the editor's inline-chat
 		 * toggle). Never rendered inside the session panel. */
 		fallback?: Snippet
 	} = $props()
@@ -83,7 +86,7 @@
 	const show = $derived(
 		!inSessionPanel &&
 			!!(source?.target || source?.page) &&
-			prefersSessionHandoff($userStore?.operator)
+			prefersSessionHandoff(actingUser?.operator)
 	)
 
 	// Not $state: only read inside open() as a re-entrancy latch, never rendered.

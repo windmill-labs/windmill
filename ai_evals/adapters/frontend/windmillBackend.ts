@@ -1,9 +1,8 @@
-import { randomUUID } from "node:crypto";
 import type { WindmillBackendSettings } from "../../core/windmillBackendSettings";
+import { buildWorkspaceId } from "./workspaceId";
 
 const tokenCache = new Map<string, Promise<string>>();
 const sharedWorkspaceQueue = new Map<string, Promise<void>>();
-const DEFAULT_WORKSPACE_PREFIX = "ai-evals";
 
 export class WindmillBackendClient {
   constructor(private readonly settings: WindmillBackendSettings) {}
@@ -177,16 +176,6 @@ async function withSharedWorkspaceLock<T>(
       sharedWorkspaceQueue.delete(workspaceId);
     }
   }
-}
-
-function buildWorkspaceId(caseId: string, attempt: number): string {
-  const caseSlug = caseId
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 30);
-  const suffix = randomUUID().slice(0, 8);
-  return `${DEFAULT_WORKSPACE_PREFIX}-${caseSlug || "case"}-a${attempt}-${suffix}`;
 }
 
 async function expectOk(response: Response, context: string): Promise<void> {

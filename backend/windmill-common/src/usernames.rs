@@ -17,6 +17,23 @@ lazy_static::lazy_static! {
     pub static ref VALID_USERNAME: Regex = Regex::new(r#"^[a-zA-Z][a-zA-Z_0-9]*$"#).unwrap();
 }
 
+/// Width of the `username` columns of `usr`, `password` and `pending_user`.
+pub const USERNAME_MAX_LEN: usize = 50;
+
+/// `base` with the collision suffix of `attempt` appended (none for the first attempt), cut
+/// to `USERNAME_MAX_LEN`. A local part longer than the column is a valid email, and an
+/// insert that fails on the derived username rolls back everything around it.
+pub fn fit_username(base: &str, attempt: u32) -> String {
+    let suffix = if attempt > 1 {
+        attempt.to_string()
+    } else {
+        String::new()
+    };
+    let mut username: String = base.chars().take(USERNAME_MAX_LEN - suffix.len()).collect();
+    username.push_str(&suffix);
+    username
+}
+
 pub async fn generate_instance_wide_unique_username<'c>(
     tx: &mut Transaction<'c, Postgres>,
     email: &str,
@@ -41,9 +58,7 @@ pub async fn generate_instance_wide_unique_username<'c>(
                 email
             )));
         }
-        if i > 1 {
-            username = format!("{}{}", base_username, i)
-        }
+        username = fit_username(&base_username, i);
         username_conflict = sqlx::query_scalar!(
                 "SELECT EXISTS(SELECT 1 FROM usr WHERE username = $1 and email != $2 UNION SELECT 1 FROM password WHERE username = $1 UNION SELECT 1 FROM pending_user WHERE username = $1)",
                 &username,
@@ -162,5 +177,21 @@ pub async fn get_instance_username_or_create_pending<'c>(
 
             Ok(username)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fit_username_keeps_the_column_width() {
+        assert_eq!(fit_username("alice", 1), "alice");
+        assert_eq!(fit_username("alice", 2), "alice2");
+        let base = "a".repeat(60);
+        assert_eq!(fit_username(&base, 1), "a".repeat(USERNAME_MAX_LEN));
+        let with_suffix = fit_username(&base, 1000);
+        assert_eq!(with_suffix.len(), USERNAME_MAX_LEN);
+        assert!(with_suffix.ends_with("1000"));
     }
 }

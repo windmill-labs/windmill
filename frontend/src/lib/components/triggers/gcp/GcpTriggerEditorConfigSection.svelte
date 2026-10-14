@@ -13,10 +13,8 @@
 	} from '$lib/gen'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { base } from '$lib/base'
+	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
 
 	import { Button, Url } from '$lib/components/common'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -25,21 +23,21 @@
 	import TestingBadge from '../testingBadge.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 
-	// Declared before `DEFAULT_PUSH_CONFIG` / the `base_endpoint` prop default,
-	// which call `getBaseUrl()` (a `wsId` reader) during component init.
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
+	const wsId = $derived($operatingWorkspace)
+	const base_endpoint = $derived(`${apiBaseUrl()}/api/gcp/w/${wsId!}`)
 
 	let topic_items: string[] = $state([])
 	let subscription_items: string[] = $state([])
 	let loadingTopic = $state(false)
 	let loadingSubscription = $state(false)
-
-	const DEFAULT_PUSH_CONFIG: PushConfig = {
-		audience: getBaseUrl(),
-		authenticate: false
-	}
 
 	async function loadAllPubSubTopicsFromProject() {
 		// Listing is admin-only under application default credentials, and a non-admin viewing an
@@ -113,7 +111,6 @@
 		delivery_type?: DeliveryType | undefined
 		delivery_config: PushConfig | undefined
 		subscription_mode?: SubscriptionMode
-		base_endpoint?: string
 		path?: string
 		showTestingBadge?: boolean
 		cloud_subscription_id?: string
@@ -135,7 +132,6 @@
 		delivery_type = $bindable('pull'),
 		delivery_config = $bindable(),
 		subscription_mode = $bindable('create_update'),
-		base_endpoint = $bindable(getBaseUrl()),
 		auto_acknowledge_msg = $bindable(true),
 		ack_deadline = $bindable(),
 		path = '',
@@ -152,14 +148,14 @@
 	// Keyed on the loaded mode, not the live one: reading the live mode would make the toggle a
 	// one-way door, disabling itself the moment a non-admin switched an inherited ADC trigger away.
 	const canUseDefaultCredentials = $derived(
-		$userStore?.is_admin === true || loaded_uses_default_credentials
+		actingUser?.is_admin === true || loaded_uses_default_credentials
 	)
 	const hasCredentials = $derived(usesDefaultCredentials || !emptyStringTrimmed(gcp_resource_path))
 	/** Saving re-provisions the subscription with the instance's credentials, so the backend runs
 	 * the admin check on every write, not only when the mode is switched. A non-admin who inherits
 	 * such a trigger can open it, so say why saving is unavailable instead of letting them hit a
 	 * bare 403. */
-	const blockedByAdminGate = $derived(usesDefaultCredentials && $userStore?.is_admin !== true)
+	const blockedByAdminGate = $derived(usesDefaultCredentials && actingUser?.is_admin !== true)
 
 	// One-shot on mount, so read the props rather than the derived: referencing `$derived` state
 	// here captures its initial value anyway, and Svelte warns about it.
@@ -195,17 +191,9 @@
 		if (!delivery_type) {
 			delivery_type = 'pull'
 		} else if (delivery_type === 'push' && !delivery_config) {
-			delivery_config = DEFAULT_PUSH_CONFIG
+			delivery_config = { audience: base_endpoint, authenticate: false }
 		}
 	})
-	function getBaseUrl() {
-		return `${window.location.origin}${base}/api/gcp/w/${wsId!}`
-	}
-
-	$effect(() => {
-		!base_endpoint && (base_endpoint = getBaseUrl())
-	})
-
 	$effect(() => {
 		if (emptyStringTrimmed(subscription_id) && !emptyStringTrimmed(path)) {
 			subscription_id = `windmill-${wsId!}-${path.replaceAll('/', '_')}`
@@ -225,20 +213,22 @@
 				<div class="flex flex-col gap-3 mt-2">
 					<ToggleButtonGroup
 						selected={usesDefaultCredentials ? 'default' : 'resource'}
+						disabled={!can_write}
 						on:selected={(e) => onCredentialsModeChange(e.detail === 'default')}
 					>
-						{#snippet children({ item })}
+						{#snippet children({ item, disabled })}
 							<ToggleButton
 								label="Service account"
 								value="resource"
 								tooltip="Authenticate with a service account key held in a GCP resource."
 								showTooltipIcon
 								{item}
+								{disabled}
 							/>
 							<ToggleButton
 								label="Application default credentials"
 								value="default"
-								disabled={!canUseDefaultCredentials}
+								disabled={disabled || !canUseDefaultCredentials}
 								tooltip={canUseDefaultCredentials
 									? 'Authenticate as the Windmill server itself, using the credentials of its environment (workload identity, the metadata server, or GOOGLE_APPLICATION_CREDENTIALS).'
 									: 'Workspace admins can authenticate as the Windmill server itself. Ask one to set this up.'}
@@ -252,6 +242,7 @@
 						<ResourcePicker
 							workspace={wsId}
 							resourceType="gcloud"
+							disabled={!can_write}
 							bind:value={
 								() => gcp_resource_path,
 								(v) => {
@@ -274,7 +265,10 @@
 							     travel as `?project_id=`, dirty the config, and reach the column as a
 							     value `empty_as_none` does not trim away. -->
 							<TextInput
-								bind:value={() => project_id ?? '', (v) => (project_id = emptyStringTrimmed(v) ? undefined : v)}
+								bind:value={
+									() => project_id ?? '',
+									(v) => (project_id = emptyStringTrimmed(v) ? undefined : v)
+								}
 								inputProps={{
 									placeholder: 'my-gcp-project',
 									disabled: !can_write,
@@ -306,6 +300,7 @@
 						<div class="flex flex-row gap-1 mt-2">
 							<Select
 								loading={loadingTopic}
+								disabled={!can_write}
 								disablePortal
 								clearable
 								class="grow shrink"
@@ -340,19 +335,21 @@
 					<div class="flex flex-col gap-3">
 						<ToggleButtonGroup
 							bind:selected={subscription_mode}
+							disabled={!can_write}
 							on:selected={(e) => {
 								if (e.detail === 'existing' && subscription_items.length === 0) {
 									loadAllSubscriptionFromGooglePubSubTopic()
 								}
 							}}
 						>
-							{#snippet children({ item })}
+							{#snippet children({ item, disabled })}
 								<ToggleButton
 									label="Create/Update"
 									value="create_update"
 									tooltip="Create a new subscription or update an existing one with custom settings"
 									showTooltipIcon
 									{item}
+									{disabled}
 								/>
 								<ToggleButton
 									label="Existing subscription"
@@ -360,6 +357,7 @@
 									tooltip="Select an existing subscription from GCP Pub/Sub"
 									showTooltipIcon
 									{item}
+									{disabled}
 								/>
 							{/snippet}
 						</ToggleButtonGroup>
@@ -375,6 +373,7 @@
 										autocomplete="off"
 										placeholder="Enter subscription ID (leave empty to auto-generate)"
 										bind:value={create_update_subscription_id}
+										disabled={!can_write}
 										oninput={(event) => {
 											subscription_id = event?.currentTarget.value
 										}}
@@ -387,14 +386,15 @@
 									tooltip="Select the delivery type for the Pub/Sub subscription. If the subscription already exists and you want to keep it as-is, choose the same delivery type as in Google Cloud. You can switch the type here if the API allows it — otherwise, make the change directly in Google Cloud."
 								>
 									<div class="flex flex-col gap-2 mt-2">
-										<ToggleButtonGroup bind:selected={delivery_type}>
-											{#snippet children({ item })}
+										<ToggleButtonGroup bind:selected={delivery_type} disabled={!can_write}>
+											{#snippet children({ item, disabled })}
 												<ToggleButton
 													label="Pull"
 													tooltip="Create a subscription where your service will pull messages from the queue. Suitable for services that periodically check for new messages."
 													value="pull"
 													showTooltipIcon
 													{item}
+													{disabled}
 												/>
 												<ToggleButton
 													label="Push"
@@ -402,6 +402,7 @@
 													showTooltipIcon
 													value="push"
 													{item}
+													{disabled}
 												/>
 											{/snippet}
 										</ToggleButtonGroup>
@@ -418,7 +419,7 @@
 													required={true}
 												/>
 											</p>
-											<Toggle bind:checked={delivery_config.authenticate} />
+											<Toggle bind:checked={delivery_config.authenticate} disabled={!can_write} />
 										</Subsection>
 										{#if delivery_config.authenticate}
 											<Subsection
@@ -443,6 +444,7 @@
 								<div class="flex gap-1">
 									<Select
 										loading={loadingSubscription}
+										disabled={!can_write}
 										disablePortal
 										clearable
 										class="grow shrink"

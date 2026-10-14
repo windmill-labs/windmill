@@ -1,7 +1,6 @@
 <script lang="ts">
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { Alert } from '$lib/components/common'
-	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import { updateDevWorkspaceModal } from '$lib/utils/editInForkModal.svelte'
@@ -81,7 +80,7 @@
 	// confirm button leads when the user can't deploy here, so the request still has somewhere to go.
 	const compareHref = $derived(
 		pending
-			? `${base}/forks/compare?workspace_id=${encodeURIComponent(pending.devWorkspaceId)}` +
+			? `/forks/compare?workspace_id=${encodeURIComponent(pending.devWorkspaceId)}` +
 					`&mode=fork&dir=update` +
 					`&${COMPARE_ITEMS_PARAM}=${encodeURIComponent(`${pending.itemType}:${pending.itemPath}`)}`
 			: ''

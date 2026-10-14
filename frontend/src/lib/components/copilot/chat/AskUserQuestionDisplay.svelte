@@ -4,7 +4,7 @@
 	import { CircleHelp, ArrowUp, Plus, Square, SquareCheck } from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { getAiChatManager } from './aiChatManagerContext'
+	import { getChatViewHost } from './chatViewHost'
 	import type { UserQuestionDisplay } from './shared'
 
 	// Sessions inject a per-pane `AIChatManager` via context; outside of
@@ -12,7 +12,7 @@
 	// this, answers clicked inside a session would dispatch to the singleton's
 	// pending callbacks map (which doesn't have the session manager's question
 	// callback), and the AI loop would stall.
-	const aiChatManager = getAiChatManager()
+	const chatHost = getChatViewHost()
 
 	interface Props {
 		toolCallId: string
@@ -93,14 +93,14 @@
 			}
 			return
 		}
-		aiChatManager.handleUserQuestionAnswer(toolCallId, [choice])
+		chatHost.handleUserQuestionAnswer(toolCallId, [choice])
 	}
 
 	function submitPicked() {
 		if (!multiSelect || picked.size === 0) {
 			return
 		}
-		aiChatManager.handleUserQuestionAnswer(toolCallId, [...picked])
+		chatHost.handleUserQuestionAnswer(toolCallId, [...picked])
 	}
 
 	function submitCustomAnswer() {
@@ -119,7 +119,7 @@
 			return
 		}
 
-		aiChatManager.handleUserQuestionAnswer(toolCallId, [answer])
+		chatHost.handleUserQuestionAnswer(toolCallId, [answer])
 	}
 
 	function handleChoiceKeydown(event: KeyboardEvent, choice: string, index: number) {

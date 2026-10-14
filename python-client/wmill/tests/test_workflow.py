@@ -7,7 +7,7 @@ import pytest
 
 from datetime import datetime, timezone
 
-from wmill.client import WorkflowCtx, _StepSuspend, TaskError, workflow, task, step, sleep, parallel, wait_for_approval, _run_workflow, _run_workflow_async
+from wmill.client import WorkflowCtx, _StepSuspend, TaskError, workflow, task, task_script, step, sleep, parallel, wait_for_approval, _run_workflow, _run_workflow_async
 
 
 class _FakeItems(dict):
@@ -750,6 +750,84 @@ class TestChildModeParallel:
         )
         assert result["type"] == "complete"
         assert result["result"] == 8
+
+
+class TestSdkCallsInsideTaskBody:
+    """A task body runs as one child job, so the SDK calls it makes cannot be
+    dispatched as steps of their own."""
+
+    def _run_child(self, wf, key):
+        async def bounded():
+            return await asyncio.wait_for(
+                _run_workflow_async(wf, {"completed_steps": {}, "_executing_key": key}, {}),
+                timeout=2,
+            )
+
+        return asyncio.run(bounded())
+
+    def test_nested_task_and_step_run_in_the_tasks_own_job(self):
+        @task
+        async def inner(x: str):
+            return f"inner:{x}"
+
+        @task
+        def sync_leaf(x: str):
+            return f"sync:{x}"
+
+        # A sync body calls its tasks without awaiting, whatever called it.
+        @task
+        def sync_inner(x: str):
+            return sync_leaf(x).upper().lower()
+
+        @task
+        async def outer(x: str):
+            via_task = await inner(x)
+            via_sync = await sync_inner(x)
+            via_step = await step("s", lambda: "stepped")
+            return f"{via_task}+{via_sync}+{via_step}"
+
+        @workflow
+        async def wf():
+            return await outer("a")
+
+        result = self._run_child(wf, "outer")
+        assert result == {"type": "complete", "result": "inner:a+sync:a+stepped"}
+
+    def test_sibling_task_of_the_workflow_body_is_not_run(self):
+        # The workflow body keeps replaying beside the task body, and its own
+        # calls must stay parked: running them would execute a sibling task in
+        # this job.
+        ran = []
+
+        @task
+        async def inner(x: str):
+            ran.append(x)
+            return x
+
+        @task
+        async def outer(x: str):
+            await asyncio.sleep(0)
+            return await inner("nested")
+
+        @workflow
+        async def wf():
+            return await asyncio.gather(outer("a"), inner("sibling"))
+
+        result = self._run_child(wf, "outer")
+        assert result == {"type": "complete", "result": "nested"}
+        assert ran == ["nested"]
+
+    def test_step_that_would_need_a_dispatch_fails_instead_of_hanging(self):
+        @task
+        async def dispatching():
+            return await task_script("f/other/script")()
+
+        @workflow
+        async def wf():
+            return await dispatching()
+
+        with pytest.raises(RuntimeError, match="cannot be called from inside a task"):
+            self._run_child(wf, "dispatching")
 
 
 class TestKeyDeterminism:

@@ -854,6 +854,7 @@ fn run_main_script_job(hash: i64) -> RunJob {
         concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         labels: None,
+        job_token_scopes: None,
     })
 }
 
@@ -1206,6 +1207,156 @@ export function main() {
     assert_eq!(result["workspace"], serde_json::json!("test-workspace"));
     assert_eq!(result["hasToken"], serde_json::json!(true));
     assert_eq!(result["baseUrl"], serde_json::json!(true));
+    Ok(())
+}
+
+/// A deployed flow runs an inline step as the `flow_node` its deploy rewrote it into,
+/// a `FlowScript` job rather than the preview job the editor runs. A workflow-as-code
+/// step's `task()` children must dispatch from that kind too, as re-runs of the same
+/// node, or the step passes its editor test and fails once deployed.
+///
+/// The step is cached: a child that shared the parent's result-cache key would hand
+/// its own result (`10`) back to the parent on resume, in place of the workflow's.
+#[sqlx::test(fixtures("base", "wac_flow_script"))]
+async fn test_bun_wac_task_dispatch_from_flow_script(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_common::flows::FlowNodeId;
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let node = FlowNodeId(3000000000000011);
+    let job = RunJob::from(JobPayload::FlowScript {
+        id: node,
+        path: "f/system/wac_flow_script/a".to_string(),
+        language: ScriptLang::Bun,
+        cache_ttl: Some(60),
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(),
+    })
+    .arg("n", serde_json::json!(5))
+    .run_until_complete(&db, false, port)
+    .await;
+
+    assert_eq!(
+        job.json_result().unwrap(),
+        serde_json::json!({"doubled": 10})
+    );
+
+    let children: Vec<(String, Option<i64>, Option<i32>)> = sqlx::query_as(
+        "SELECT kind::text, runnable_id, cache_ttl FROM v2_job WHERE parent_job = $1",
+    )
+    .bind(job.id)
+    .fetch_all(&db)
+    .await?;
+    assert_eq!(
+        children,
+        vec![("flowscript".to_string(), Some(node.0), None)],
+        "the task child re-runs the parent's flow node, outside the result cache"
+    );
+    Ok(())
+}
+
+/// `task(fn, { cache_ttl })` on an inline task of a deployed flow's step: the child runs
+/// the parent's code with the parent's arguments, so its result-cache key carries its
+/// step key, or the parent and every sibling would read its result back as their own.
+#[sqlx::test(fixtures("base", "wac_flow_script"))]
+async fn test_bun_wac_inline_task_cache_is_per_task(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_common::flows::FlowNodeId;
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let payload = || JobPayload::FlowScript {
+        id: FlowNodeId(3000000000000012),
+        path: "f/system/wac_flow_script/a".to_string(),
+        language: ScriptLang::Bun,
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(),
+    };
+
+    let mut children_from_cache = Vec::new();
+    for _ in 0..2 {
+        let job = RunJob::from(payload())
+            .arg("n", serde_json::json!(5))
+            .run_until_complete(&db, false, port)
+            .await;
+        assert_eq!(
+            job.json_result().unwrap(),
+            serde_json::json!({"doubled": 10, "tripled": 15})
+        );
+        let from_cache: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM job_logs l JOIN v2_job j ON j.id = l.job_id \
+             WHERE j.parent_job = $1 AND l.logs LIKE '%found in cache%'",
+        )
+        .bind(job.id)
+        .fetch_one(&db)
+        .await?;
+        children_from_cache.push(from_cache);
+    }
+    assert_eq!(
+        children_from_cache,
+        vec![0, 2],
+        "the second run serves each task from its own cache entry"
+    );
+    Ok(())
+}
+
+/// A task that picks its own worker tag is held to CUSTOM_TAGS like a flow step: with none
+/// set, only a superadmin may send it to `gpu`, so the workflow fails instead of queueing it.
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_wac_task_tag_outside_custom_tags(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let content = r#"
+import { workflow, task } from "windmill-client";
+
+const onGpu = task(async (n: number) => {
+  return n * 2;
+}, { tag: "gpu" });
+
+export const main = workflow(async (n: number) => {
+  return await onGpu(n);
+});
+"#
+    .to_owned();
+
+    let job = RunJob::from(JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Bun,
+        lock: None,
+        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
+            .into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+        modules: None,
+        tag: None,
+    }))
+    .arg("n", serde_json::json!(5))
+    .as_user("test-user-2", "test2@windmill.dev")
+    .run_until_complete(&db, false, port)
+    .await;
+
+    assert!(!job.success, "the workflow must fail");
+    let result = job.json_result().unwrap();
+    let message = result["error"]["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains("task 'onGpu' cannot run on tag 'gpu'"),
+        "unexpected error: {result}"
+    );
+    let children: i64 = sqlx::query_scalar("SELECT count(*) FROM v2_job WHERE parent_job = $1")
+        .bind(job.id)
+        .fetch_one(&db)
+        .await?;
+    assert_eq!(children, 0, "no child is queued on the refused tag");
     Ok(())
 }
 

@@ -10,6 +10,7 @@
 		type Job
 	} from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history.svelte'
+	import { VERSION_PAGE_SIZE } from '$lib/components/diff_drawer'
 	import {
 		clearLinkedAgentTools,
 		linkedAgentToolsForScope,
@@ -17,13 +18,7 @@
 		linkedAgentToolsVersion,
 		migrateLinkedAgentToolsScope
 	} from '$lib/components/flows/linkedAgentToolsStore.svelte'
-	import {
-		enterpriseLicense,
-		userStore,
-		userWorkspaces,
-		workspaceStore,
-		usedTriggerKinds
-	} from '$lib/stores'
+	import { enterpriseLicense, userStore, userWorkspaces, usedTriggerKinds } from '$lib/stores'
 	import {
 		generateRandomString,
 		orderedJsonStringify,
@@ -33,7 +28,8 @@
 		userPathPrefix,
 		type Item,
 		type StateStore,
-		type Value
+		type Value,
+		emptyString
 	} from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
@@ -41,7 +37,10 @@
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import AIChangesWarningModal from '$lib/components/copilot/chat/flow/AIChangesWarningModal.svelte'
 
-	import { getContext, setContext, untrack } from 'svelte'
+	import { getContext, onDestroy, setContext, untrack, type Snippet } from 'svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button } from './common'
@@ -111,9 +110,26 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 	import { getEditorStoragePath, setEditorStoragePath } from './editorStoragePathContext'
+	import { useEditRights, useOperatorBuilderFlows, useTriggerLock } from '$lib/operatorWriteRights'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+	const triggerLock = useTriggerLock()
+	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const editRights = useEditRights()
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	let {
 		initialPath = $bindable(''),
+		/** The draft row's own path (the URL path). Unlike `initialPath`, which the
+		 *  route re-seeds from `draft_path` so the topbar shows the pending name,
+		 *  this stays where the item actually is. */
+		userDraftPath = '',
+		onTakeLatest = undefined,
 		pathStoreInit = undefined,
 		newFlow,
 		selectedId,
@@ -147,20 +163,24 @@
 		othersDraftsCount = 0,
 		onOpenOthersDrafts,
 		onTestJob,
-		condensedHeader = false
+		condensedHeader = false,
+		/** True for the route's own editor: its top bar becomes the page header. */
+		ownsPageHeader = false
 	}: FlowBuilderProps = $props()
 
 	// Top-bar button size + bar height. Condensed (session preview) uses the
 	// smallest well-supported unified size (`sm`) so the bar is thinner.
-	const headerBtnSize = $derived(condensedHeader ? 'sm' : 'md')
+	// In the page header the buttons ride a 40px band, the same size the condensed session-pane
+	// header uses.
+	const headerBtnSize = $derived(condensedHeader || ownsPageHeader ? 'sm' : 'md')
 
 	// The workspace this editor operates on: deploy, save-draft, trigger loading
 	// and the AutosaveIndicator all target it. Falls back to the global store, so
 	// the full-page editor is unchanged; the sessions preview overrides it to the
 	// session's (forked) workspace, so an embedded editor acts on the session's
-	// fork rather than the navigation workspace ($workspaceStore, which stays put).
+	// fork rather than the navigation workspace (`workspaceStore`, which stays put).
 	// indicatorPath is the matching draft path.
-	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	const opWorkspace = $derived(autosaveWorkspace ?? $operatingWorkspace)
 	const indicatorPath = $derived(autosavePath ?? liveEditorDraftStoragePath)
 
 	let initialPathStore = writable(initialPath)
@@ -183,6 +203,10 @@
 
 	// Used by multiplayer deploy collision warning
 	let deployedValue: Value | undefined = $state(undefined) // Value to diff against
+	let deployedLabel: string | undefined = $state(undefined) // Names it in the diff
+	/** The flow_version the payload in `deployedValue` came from, so the picker marks that
+	 *  one as head rather than trusting the history's first row. */
+	let deployedVersionShown: number | undefined = $state(undefined)
 	let deployedBy: string | undefined = $state(undefined) // Author
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
 	let open: boolean = $state(false) // Is confirmation modal open
@@ -201,8 +225,19 @@
 	// Top-bar responsive collapse. Measured via bind:clientWidth — we can't
 	// rely on viewport `md:` because the editor lives inside other panes
 	// (session pane, drawer, etc.) where the viewport stays wide.
+	/** Held by the rename popover while it is open; the band's trail reads it so the path does not
+	 *  reflow under the pointer as the user types. */
+	let pathSnapshot = $state<string | undefined>(undefined)
+
 	let topbarWidth = $state(0)
-	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 720)
+	// In the page header the bar folds the buttons (`actionFolds` below), once its breadcrumb has
+	// given all it can; anywhere else this editor's own top bar is theirs alone.
+	const compactTopbar = $derived(
+		ownsPageHeader ? pageHeader.actionFold >= 1 : topbarWidth > 0 && topbarWidth < 720
+	)
+	// The second fold holds the trail and Deploy: the diff joins the menu and the preview buttons
+	// stand down, since there is no room to run a flow beside its own name.
+	const phoneTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 2)
 
 	const diffEnabled = $derived(customUi?.topBar?.diff != false)
 	// Nothing to compare against until a deployed version exists.
@@ -213,7 +248,7 @@
 	// The narrow bar (sessions) and the width-collapsed one have no room for a Diff
 	// button, so it moves into the menu ahead of Deployment History instead of
 	// dropping out of reach.
-	const diffInMenu = $derived(condensedHeader || compactTopbar)
+	const diffInMenu = $derived(condensedHeader || compactTopbar || phoneTopbar)
 	const diffMenuItems: Item[] = $derived(
 		diffEnabled && diffInMenu
 			? [
@@ -321,7 +356,7 @@
 			savedValue: savedFlow,
 			modifiedValue: {
 				...flowStore.val,
-				// `$pathStore` is the live-edited path (the pen popover binds it).
+				// `$pathStore` is the live-edited path (the rename popover binds it).
 				// `flowStore.val.path` doesn't track those edits, so without this the
 				// rename wouldn't show up in the diff and the unsaved-changes warning
 				// wouldn't fire when leaving with a pending rename.
@@ -336,7 +371,7 @@
 		// a draft, else the load-time head. This catches both a concurrent deploy
 		// (head moved since open) AND a stale draft reopened after a deploy (head ==
 		// load-time head, but the draft was forked from an older version).
-		const base = draftBaseVersion ?? version
+		const base = draftBaseVersion ?? (version != null ? String(version) : undefined)
 		if (base === undefined) {
 			return
 		}
@@ -347,7 +382,7 @@
 					path: initialPath
 				})
 
-				onLatest = base === flowVersion?.id
+				onLatest = flowVersion != null && base === String(flowVersion.id)
 			} else {
 				onLatest = true
 			}
@@ -463,12 +498,19 @@
 			}
 		}
 	}
-	async function syncWithDeployed() {
+	async function syncWithDeployed(opening?: number) {
 		const flow = await FlowService.getFlowByPath({
 			workspace: opWorkspace!,
-			path: initialPath,
+			// The draft row's own path, not `initialPath` — the route re-seeds that from
+			// the draft's `draft_path` so the topbar shows the pending name, which after
+			// someone renames the item still names the old location. Comparing against
+			// that fetches the row left behind there instead of the live one.
+			path: userDraftPath || initialPath,
 			withStarredInfo: true
 		})
+		// A superseded opening must not write these: the current one would then render
+		// and offer Take latest against the older head.
+		if (opening != null && !diffDrawer?.ownsOpening(opening)) return
 		deployedValue = replaceFalseWithUndefined({
 			...flow,
 			edited_at: undefined,
@@ -476,6 +518,10 @@
 			workspace_id: undefined
 		})
 		deployedBy = flow.edited_by
+		deployedVersionShown = flow.version_id
+		// Names the deployed side of the diff. Without it the reader is shown two panes
+		// and told nothing about what the left one is.
+		deployedLabel = `Deployed${flow.version_id != null ? ` ${flow.version_id}` : ''}${flow.edited_by ? ` by ${flow.edited_by}` : ''} · latest`
 	}
 
 	async function saveFlow(deploymentMsg?: string, toDeploy?: DraftChangesToDeploy): Promise<void> {
@@ -506,12 +552,18 @@
 				// flag that answer for it are per workspace, so the nav user would answer for the wrong
 				// membership when a session editor operates on another workspace.
 				const user = await getUserExt(opWorkspace ?? '').catch(() => undefined)
+				const operatorSettings = $userWorkspaces.find(
+					(w) => w.id === opWorkspace
+				)?.operator_settings
 				agentCanWrite = Object.fromEntries(
-					draftAgents.map((a) => [a.path, agentDraftCanWrite(a, user ?? $userStore ?? undefined)])
+					draftAgents.map((a) => [
+						a.path,
+						agentDraftCanWrite(a, user ?? $userStore ?? undefined, operatorSettings)
+					])
 				)
 				// The path is passed, so a draft that renames the agent is refused here too: a rename is
-				// the resource editor's to deploy, and this dialog lists the agent under the path the
-				// flow links.
+				// the agent editor's to deploy, and this dialog lists the agent under the path the flow
+				// links.
 				agentRefusal = Object.fromEntries(
 					draftAgents.map((a) => [a.path, agentDraftDeployRefusal(a.state, a.path)])
 				)
@@ -592,22 +644,27 @@
 						on_behalf_of: flow.on_behalf_of,
 						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined,
-						labels: (flow as any).labels
+						labels: (flow as any).labels,
+						// Sent explicitly: an omitted field keeps the deployed value.
+						job_token_scopes: flow.job_token_scopes ?? null
 					}
 				})
-				await CaptureService.moveCapturesAndConfigs({
-					workspace: opWorkspace!,
-					path: fakeInitialPath,
-					requestBody: {
-						new_path: $pathStore
-					},
-					runnableKind: 'flow'
-				})
+				// Gated for operators without `manage_triggers`, who cannot have captures to move.
+				if (!$triggerLock) {
+					await CaptureService.moveCapturesAndConfigs({
+						workspace: opWorkspace!,
+						path: fakeInitialPath,
+						requestBody: {
+							new_path: $pathStore
+						},
+						runnableKind: 'flow'
+					})
+				}
 				if (triggersToDeploy) {
 					await deployTriggers(
 						triggersToDeploy,
 						opWorkspace,
-						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+						!!actingUser?.is_admin || !!actingUser?.is_super_admin,
 						usedTriggerKinds,
 						$pathStore,
 						true
@@ -618,7 +675,7 @@
 					await deployTriggers(
 						triggersToDeploy,
 						opWorkspace,
-						!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+						!!actingUser?.is_admin || !!actingUser?.is_super_admin,
 						usedTriggerKinds,
 						initialPath
 					)
@@ -641,7 +698,9 @@
 						on_behalf_of: flow.on_behalf_of,
 						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined,
-						labels: (flow as any).labels
+						labels: (flow as any).labels,
+						// Sent explicitly: an omitted field keeps the deployed value.
+						job_token_scopes: flow.job_token_scopes ?? null
 					}
 				})
 			}
@@ -1083,10 +1142,11 @@
 		onClick: () => void
 	}> = []
 
-	// In a session pane every one of these leaves the session (details page, new
-	// tab), so the deploy button carries no dropdown there — as in ScriptBuilder.
-	if (untrack(() => customUi).topBar?.extraDeployOptions != false && !inSessionPane) {
-		if (!newFlow) {
+	if (untrack(() => customUi).topBar?.extraDeployOptions != false) {
+		// The one option that stays in a session pane: the session hosts the details page
+		// itself, so this flips the tab to it rather than leaving the session. Everything
+		// below opens a details page or a new tab outside the session, so it stays hidden.
+		if (!newFlow && savedFlow?.no_deployed !== true) {
 			dropdownItems.push({
 				label: 'Exit & see details',
 				// Use the deployed path, not the live `$pathStore` — the latter
@@ -1096,7 +1156,7 @@
 			})
 		}
 
-		if (!untrack(() => newFlow)) {
+		if (!untrack(() => newFlow) && !inSessionPane) {
 			dropdownItems.push({
 				label: 'Fork',
 				onClick: () => window.open(`/flows/add?template=${initialPath}`)
@@ -1105,6 +1165,7 @@
 
 		if (
 			!untrack(() => newFlow) &&
+			!inSessionPane &&
 			!isCloudHosted() &&
 			editInForkAllowed(opWorkspace, $userWorkspaces)
 		) {
@@ -1115,21 +1176,117 @@
 		}
 	}
 
-	async function openDiffDrawer() {
+	/** Deployed versions for the diff picker, newest first. Best-effort: losing the
+	 *  list costs the picker, not the diff. */
+	/** Throws: the drawer says so and lets the reader ask for the same page again. */
+	async function fetchVersionPage(page: number) {
+		const path = userDraftPath || initialPath
+		if (!opWorkspace || !path) return undefined
+		{
+			const history = await FlowService.getFlowHistory({
+				workspace: opWorkspace,
+				path,
+				page,
+				perPage: VERSION_PAGE_SIZE
+			})
+			// Head is the version the payload beside this list came from, not whatever the
+			// history now leads with: a deploy landing between the two fetches would
+			// otherwise label the shown (older) value as the latest.
+			const head = deployedVersionShown ?? history[0]?.id
+			// No ordinal: the list arrives a page at a time, so a number counted within one
+			// would rename versions as more load.
+			return history.map((h) => {
+				const detail = [
+					h.created_by,
+					h.created_at ? new Date(h.created_at).toLocaleString() : undefined,
+					h.deployment_msg
+				].filter(Boolean)
+				const isHead = h.id === head
+				return {
+					id: String(h.id),
+					label: `${h.id}${isHead ? ' · latest' : ''}`,
+					subtitle: detail.length ? detail.join(' · ') : undefined,
+					isHead
+				}
+			})
+		}
+	}
+
+	/** The first page, best-effort: losing it costs the picker, not the diff. */
+	async function deployedVersionOptions() {
+		try {
+			return await fetchVersionPage(1)
+		} catch {
+			return undefined
+		}
+	}
+
+	/** Hands the drawer the next page each time the reader asks for one. The page number
+	 *  belongs to this item's history, so it lives here — and only moves once a page has
+	 *  actually arrived, or a failed request would skip it. */
+	function moreVersionsLoader() {
+		let loaded = 1
+		return async () => {
+			const page = await fetchVersionPage(loaded + 1)
+			loaded += 1
+			return page
+		}
+	}
+
+	/** The opening this editor claimed last. A path change remounts this editor while the
+	 *  drawer stays mounted, so its teardown hands that opening back rather than leaving
+	 *  the drawer on the item the user left. */
+	let lastOpening: number | undefined = undefined
+	onDestroy(() => {
+		if (lastOpening != null) diffDrawer?.abandonOpening(lastOpening)
+	})
+
+	export async function openDiffDrawer() {
 		if (!savedFlow) return
-		await syncWithDeployed()
+		// The fetches below are awaited, so a reopen (or a path change, which remounts
+		// this editor but not the drawer) while they run must not have the older one
+		// land last. The drawer counts the openings for that reason.
+		const opening = diffDrawer?.beginOpening()
+		lastOpening = opening
+		if (opening == null) return
+		await syncWithDeployed(opening)
 		const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
-		diffDrawer?.openDrawer()
+		// Blanking the drawer belongs to the opening that will fill it.
+		if (!diffDrawer?.ownsOpening(opening)) return
+		diffDrawer.openDrawer(opening)
 		const currentFlow = flowStore.val
-		diffDrawer?.setDiff({
-			mode: 'normal',
-			deployed: deployedValue ?? savedFlow,
-			current: {
-				...currentFlow,
-				path: $pathStore,
-				draft_triggers: currentDraftTriggers
-			}
-		})
+		const versions = await deployedVersionOptions()
+		if (!diffDrawer?.ownsOpening(opening)) return
+		diffDrawer.setDiff(
+			{
+				mode: 'normal',
+				deployed: deployedValue ?? savedFlow,
+				deployedLabel,
+				versions,
+				loadMoreVersions: moreVersionsLoader(),
+				onTakeLatest,
+				draftBase: draftBaseVersion,
+				deployedHead: deployedVersionShown != null ? String(deployedVersionShown) : undefined,
+				loadVersion: async (id) => {
+					const v = await FlowService.getFlowVersion({
+						workspace: opWorkspace!,
+						version: Number(id)
+					})
+					return replaceFalseWithUndefined({
+						...v,
+						edited_at: undefined,
+						edited_by: undefined,
+						workspace_id: undefined
+					})
+				},
+				current: {
+					...currentFlow,
+					path: $pathStore,
+					draft_triggers: currentDraftTriggers
+				}
+			},
+			opening
+		)
 	}
 
 	let flowCopilotContext: FlowCopilotContext = $state({
@@ -1146,6 +1303,16 @@
 	})
 
 	setContext('FlowCopilotContext', flowCopilotContext)
+
+	// The header's action buttons render under the page header, not under this component, so the
+	// contexts they look up have to travel with them. Read back here, after every setContext above.
+	const headerContexts = new Map<any, any>([
+		['FlowEditorContext', getContext('FlowEditorContext')],
+		['TriggerContext', getContext('TriggerContext')],
+		['FlowGraphAssetContext', getContext('FlowGraphAssetContext')],
+		['FlowCopilotContext', flowCopilotContext],
+		['customUi', customUi]
+	])
 
 	let renderCount = $state(0)
 
@@ -1374,6 +1541,7 @@
 	{confirmCallback}
 	bind:open
 	{diffDrawer}
+	claimOpening={() => (lastOpening = diffDrawer?.beginOpening())}
 	bind:deployedValue
 	currentValue={flowStore.val}
 />
@@ -1394,7 +1562,7 @@
 <AIChangesWarningModal bind:open={aiChangesWarningOpen} onConfirm={aiChangesConfirmCallback} />
 
 {#key renderCount}
-	{#if !$userStore?.operator}
+	{#if editRights.roleCanAuthor('flow')}
 		{#if $pathStore}
 			<FlowHistory bind:this={flowHistory} path={$pathStore} {onHistoryRestore} />
 		{/if}
@@ -1405,81 +1573,222 @@
 		<FlowEditorDrawer bind:this={$flowEditorDrawer} />
 
 		<div bind:this={flowBuilderRoot} class="flex flex-col h-full">
-			<!-- Nav between steps-->
-			<div
-				bind:clientWidth={topbarWidth}
-				class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto h-full relative {condensedHeader
-					? 'max-h-9'
-					: 'max-h-12'}"
-			>
-				<div class="flex flex-row items-center gap-2 min-w-0">
-					{#if customUi?.topBar?.path != false}
-						<div class="min-w-0 overflow-hidden">
-							<EditorHeader
-								bind:summary={flowStore.val.summary}
-								bind:path={$pathStore}
-								savedPath={initialPath}
-								onBehalfOfEmail={$savedOnBehalfOfEmail}
-								summaryEditable={customUi?.topBar?.editableSummary != false}
-								pathEditable={customUi?.topBar?.editablePath != false}
-								hidePath={condensedHeader}
-								workspaceId={autosaveWorkspace}
-								onNavigate={(item) => onNavigate?.(item)}
+			{#if ownsPageHeader}
+				<!-- The editor's own top bar is the page header on this route: its breadcrumb and
+				     summary are the header's, and its buttons are the header's actions. -->
+				<!-- `separator="none"`: the canvas right below the bar draws its own top line, and the
+				     bar's edge would be a second one on top of it. -->
+				<PageHeaderContent
+					item={{
+						// Frozen while the rename popover is open so the trail holds still as the user types.
+						kind: 'flow',
+						path: pathSnapshot ?? $pathStore,
+						summary: flowStore.val.summary,
+						summaryContent: flowSummary,
+						// Gated like the summary's own editor: a host that allows neither field keeps the
+						// band's segment, which copies the path.
+						pathTrigger:
+							customUi?.topBar?.editablePath != false || customUi?.topBar?.editableSummary != false
+								? flowPathTrigger
+								: undefined
+					}}
+					actions={flowHeaderActions}
+					actionFolds={2}
+					contexts={headerContexts}
+					separator="none"
+				/>
+			{:else}
+				<!-- Nav between steps-->
+				<div
+					bind:clientWidth={topbarWidth}
+					class="justify-between flex flex-row items-center pl-2 pr-4 space-x-4 scrollbar-hidden overflow-x-auto h-full relative {condensedHeader
+						? 'max-h-9'
+						: 'max-h-12'}"
+				>
+					<div class="flex flex-row items-center gap-2 min-w-0">
+						{#if customUi?.topBar?.path != false}
+							<div class="min-w-0 overflow-hidden">
+								<EditorHeader
+									bind:summary={flowStore.val.summary}
+									bind:path={$pathStore}
+									savedPath={initialPath}
+									onBehalfOfEmail={$savedOnBehalfOfEmail}
+									summaryEditable={customUi?.topBar?.editableSummary != false}
+									pathEditable={customUi?.topBar?.editablePath != false}
+									hidePath={condensedHeader}
+									workspaceId={autosaveWorkspace}
+									onNavigate={(item) => onNavigate?.(item)}
+								/>
+							</div>
+						{/if}
+						{#if opWorkspace && indicatorPath !== undefined}
+							<AutosaveIndicator
+								workspace={opWorkspace}
+								itemKind="flow"
+								path={indicatorPath}
+								draftOnly={newFlow}
+								{onResetToDeployed}
+								{loadedFromDraft}
+								{othersDraftsCount}
+								{onOpenOthersDrafts}
 							/>
-						</div>
-					{/if}
-					{#if opWorkspace && indicatorPath !== undefined}
-						<AutosaveIndicator
-							workspace={opWorkspace}
-							itemKind="flow"
-							path={indicatorPath}
-							draftOnly={newFlow}
-							{onResetToDeployed}
-							{loadedFromDraft}
-							{othersDraftsCount}
-							{onOpenOthersDrafts}
-						/>
-					{/if}
-				</div>
-				<div class="flex flex-row gap-2 items-center shrink-0">
-					{#if $enterpriseLicense && !newFlow && !inSessionPane}
-						<Awareness />
-					{/if}
-					<Dropdown items={getMoreItems} size={headerBtnSize} fixedHeight={!condensedHeader} />
-					{#if diffEnabled && !diffInMenu}
-						<!-- A disabled <button> fires no pointer events, so a title/tooltip on
+						{/if}
+					</div>
+					<div class="flex flex-row gap-2 items-center shrink-0">
+						{#if $enterpriseLicense && !newFlow && !inSessionPane}
+							<Awareness />
+						{/if}
+						<Dropdown items={getMoreItems} size={headerBtnSize} fixedHeight={!condensedHeader} />
+						{#if diffEnabled && !diffInMenu}
+							<!-- A disabled <button> fires no pointer events, so a title/tooltip on
 						     it never shows on hover. pointer-events-none on the button lets the
 						     hover reach this titled wrapper instead. -->
-						<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
-							<Button
-								variant="default"
-								unifiedSize={headerBtnSize}
-								on:click={() => openDiffDrawer()}
-								disabled={diffDisabled}
-								btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
-								title={diffTitle}
-								startIcon={{ icon: DiffIcon }}
-							>
-								Diff
-							</Button>
-						</div>
-					{/if}
-					{#if !compactTopbar}
-						{@render previewButtons()}
-					{/if}
+							<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
+								<Button
+									variant="default"
+									unifiedSize={headerBtnSize}
+									on:click={() => openDiffDrawer()}
+									disabled={diffDisabled}
+									btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
+									title={diffTitle}
+									startIcon={{ icon: DiffIcon }}
+								>
+									Diff
+								</Button>
+							</div>
+						{/if}
+						{#if !compactTopbar}
+							{@render previewButtons()}
+						{/if}
 
-					<DeployButton
-						on:save={async ({ detail }) => await handleSaveFlow(detail)}
-						{loading}
-						{loadingSave}
-						unifiedSize={headerBtnSize}
-						{dropdownItems}
-					/>
+						<DeployButton
+							on:save={async ({ detail }) => await handleSaveFlow(detail)}
+							{loading}
+							{loadingSave}
+							unifiedSize={headerBtnSize}
+							{dropdownItems}
+						/>
+					</div>
 				</div>
-			</div>
-			<!-- Rendered either inline in the top bar (wide) or as a graph overlay
-			     (compactTopbar). Crossing the 720px threshold remounts
-			     FlowPreviewButtons; any open preview state will reset. -->
+			{/if}
+
+			<!-- The summary's editor again, hung off the band's path segment so it opens under the
+			     path, with the cursor in the path field. `bind:` cannot be spread, so the slots are
+			     written out twice; both instances bind the same ones and only one is ever open. -->
+			{#snippet flowPathTrigger(pathLabel: Snippet, triggerClass: string)}
+				<!-- Gated the way the script editor gates its own, `{:else}` included: this renders from
+				     the band's tree, which outlives what it reads here by a flush, and the band has
+				     already given up its own segment by the time this decides. -->
+				{#if flowStore?.val}
+					<PathEditPopover
+						label={pathLabel}
+						{triggerClass}
+						focusField="path"
+						bind:summary={flowStore.val.summary}
+						summaryEditable={customUi?.topBar?.editableSummary != false}
+						pathEditable={customUi?.topBar?.editablePath != false}
+						bind:path={$pathStore}
+						bind:snapshotPath={pathSnapshot}
+						savedPath={initialPath}
+						kind="flow"
+						onBehalfOfEmail={$savedOnBehalfOfEmail}
+						workspaceId={autosaveWorkspace}
+					/>
+				{:else}
+					<span class={triggerClass}>{@render pathLabel()}</span>
+				{/if}
+			{/snippet}
+
+			{#snippet flowSummary()}
+				<!-- Not edited in place: clicking the name opens the summary and the path together, so
+				     the band reads as a name rather than a form. `title` for one it truncates. -->
+				<div class="flex items-center gap-1 min-w-0">
+					{#snippet summaryText()}
+						<span
+							class="min-w-0 truncate text-xs {emptyString(flowStore.val.summary)
+								? 'text-tertiary italic font-normal'
+								: 'font-medium text-emphasis'}"
+							title={flowStore.val.summary}
+							>{emptyString(flowStore.val.summary)
+								? 'Add a summary...'
+								: flowStore.val.summary}</span
+						>
+					{/snippet}
+					{#if customUi?.topBar?.editablePath != false || customUi?.topBar?.editableSummary != false}
+						<PathEditPopover
+							label={summaryText}
+							bind:summary={flowStore.val.summary}
+							summaryEditable={customUi?.topBar?.editableSummary != false}
+							pathEditable={customUi?.topBar?.editablePath != false}
+							bind:path={$pathStore}
+							bind:snapshotPath={pathSnapshot}
+							savedPath={initialPath}
+							kind="flow"
+							onBehalfOfEmail={$savedOnBehalfOfEmail}
+							workspaceId={autosaveWorkspace}
+						/>
+					{:else}
+						{@render summaryText()}
+					{/if}
+				</div>
+			{/snippet}
+
+			{#snippet flowHeaderActions()}
+				<!-- Saving state, the autosave toggle and other people's drafts: the editor's own
+					     bar carries them beside the path, so the header has to carry them when it owns
+					     the bar — without them a full-page editor saves with no word either way. -->
+				{#if opWorkspace && indicatorPath !== undefined}
+					<AutosaveIndicator
+						workspace={opWorkspace}
+						itemKind="flow"
+						path={indicatorPath}
+						draftOnly={newFlow}
+						{onResetToDeployed}
+						{loadedFromDraft}
+						{othersDraftsCount}
+						{onOpenOthersDrafts}
+					/>
+				{/if}
+				{#if $enterpriseLicense && !newFlow && !inSessionPane}
+					<Awareness />
+				{/if}
+				<Dropdown items={getMoreItems} size={headerBtnSize} fixedHeight={!condensedHeader} />
+				{#if diffEnabled && !diffInMenu}
+					<!-- A disabled <button> fires no pointer events, so a title/tooltip on
+						     it never shows on hover. pointer-events-none on the button lets the
+						     hover reach this titled wrapper instead. -->
+					<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
+						<Button
+							variant="default"
+							unifiedSize={headerBtnSize}
+							on:click={() => openDiffDrawer()}
+							disabled={diffDisabled}
+							btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
+							title={diffTitle}
+							startIcon={{ icon: DiffIcon }}
+						>
+							Diff
+						</Button>
+					</div>
+				{/if}
+				{#if !compactTopbar && !phoneTopbar}
+					{@render previewButtons()}
+				{/if}
+
+				<DeployButton
+					on:save={async ({ detail }) => await handleSaveFlow(detail)}
+					{loading}
+					{loadingSave}
+					unifiedSize={headerBtnSize}
+					{dropdownItems}
+				/>
+			{/snippet}
+
+			<!-- Rendered either inline in the top bar (wide) or as a graph overlay. The two
+			     conditions are exact complements: testing the flow is reachable at every width,
+			     and FlowPreviewButtons — which owns the preview state and the handles the graph
+			     calls into — is mounted exactly once. Crossing a threshold remounts it, so any
+			     open preview resets. -->
 			{#snippet previewButtons()}
 				<FlowPreviewButtons
 					{suspendStatus}
@@ -1509,7 +1818,7 @@
 			{#if flowStateStore.val}
 				<FlowEditor
 					bind:this={flowEditor}
-					graphOverlay={compactTopbar ? previewButtons : undefined}
+					graphOverlay={compactTopbar || phoneTopbar ? previewButtons : undefined}
 					{disabledFlowInputs}
 					disableAi={disableAi || customUi?.stepInputs?.ai == false}
 					disableSettings={customUi?.settingsPanel === false}
@@ -1548,7 +1857,9 @@
 					{forceTestTab}
 					{highlightArg}
 					aiChatOpen={aiChatManager.open}
-					showFlowAiButton={!disableAi && customUi?.topBar?.aiBuilder != false}
+					showFlowAiButton={!disableAi &&
+						customUi?.topBar?.aiBuilder != false &&
+						!$operatorBuilderFlows}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
 					{sessionOpen}
 					onOpenPreview={flowPreviewButtons?.openPreview}
@@ -1577,7 +1888,9 @@
 			{/if}
 		</div>
 	{:else}
-		Flow Builder not available to operators
+		<div class="h-full w-full center-center text-sm text-secondary">
+			Flow builder not available to operators
+		</div>
 	{/if}
 {/key}
 

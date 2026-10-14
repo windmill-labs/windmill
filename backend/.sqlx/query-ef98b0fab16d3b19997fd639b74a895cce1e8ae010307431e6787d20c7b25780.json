@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT flow_version.id, flow_version.created_at, flow_version.created_by, deployment_metadata.deployment_msg FROM flow_version \n        LEFT JOIN deployment_metadata ON flow_version.id = deployment_metadata.flow_version\n        WHERE flow_version.path = $1 AND flow_version.workspace_id = $2 \n        ORDER BY flow_version.created_at DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "deployment_msg",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "ef98b0fab16d3b19997fd639b74a895cce1e8ae010307431e6787d20c7b25780"
+}

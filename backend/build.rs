@@ -2,4 +2,19 @@
 fn main() {
     // trigger recompilation when a new migration is added
     println!("cargo:rerun-if-changed=migrations");
+
+    // Embed a VERSIONINFO resource so the exe's file properties carry the release
+    // version (from Cargo.toml), which Windows worker update scripts read.
+    // `cfg(windows)` is the host, matching the Windows-only build-dependency, so
+    // cross builds to Windows get no version resource.
+    #[cfg(windows)]
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        winresource::WindowsResource::new()
+            .set("ProductName", "Windmill")
+            .set("FileDescription", "Windmill")
+            .set("CompanyName", "Windmill Labs, Inc.")
+            .set("LegalCopyright", "Copyright Windmill Labs, Inc.")
+            .compile()
+            .expect("failed to embed the Windows version resource");
+    }
 }

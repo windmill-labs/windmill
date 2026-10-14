@@ -1,12 +1,29 @@
 <script lang="ts">
-	import { untrack } from 'svelte'
+	import { tick, untrack } from 'svelte'
+	import { goto } from '$lib/navigation'
+	import { sendUserToast } from '$lib/toast'
+	import { UserDraft } from '$lib/userDraft.svelte'
+	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import RawAppTemplatePicker, {
+		type RawAppBuildMode,
+		type RawAppTemplatePickerResult
+	} from '$lib/components/raw_apps/RawAppTemplatePicker.svelte'
+	import { runtimeRawAppToDraft } from './appDraftCodec'
+	import ViewportOverlays from '$lib/components/common/ViewportOverlays.svelte'
+	import { withWorkspaceParam } from './sessionMode.svelte'
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import DiffDrawer from '$lib/components/DiffDrawer.svelte'
 	import type { WorkspaceItem } from '$lib/components/workspacePicker'
-	import type { SessionRuntime } from './sessionRuntime.svelte'
+	import { removeSession, type SessionRuntime } from './sessionRuntime.svelte'
+	import {
+		BUILDER_FRAMEWORK_TEMPLATES,
+		FRAMEWORK_TEMPLATES,
+		STARTER_RUNNABLES
+	} from '$lib/components/raw_apps/templates'
 	import SessionEditorTarget from './SessionEditorTarget.svelte'
 	import { runResetToDeployed } from '$lib/userDraftToast'
 	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
+	import { operatorBuilderAppsIn } from '$lib/operatorWriteRights'
 	import type {
 		RawAppRuntimeLogRequester,
 		RawAppRunsProvider,
@@ -20,23 +37,96 @@
 		path,
 		workspaceId,
 		onNavigate,
+		onSeeDetails,
 		isActiveSession = true,
-		active = true
+		active = true,
+		newRawApp = false
 	}: {
 		runtime: SessionRuntime
 		path: string
 		workspaceId: string
 		onNavigate?: (item: WorkspaceItem) => void
+		/** `Exit & see details` — flips this tab to the item's deployed view rather than
+		 * navigating out of the session. */
+		onSeeDetails?: (e: { path: string }) => void
 		/** Forwarded to SessionEditorTarget — only the visible session claims the
 		 * workspace's single live-editor slot. */
 		isActiveSession?: boolean
 		/** Whether this is the visible preview tab (forwarded as isActiveTab). */
 		active?: boolean
+		/** The tab was opened on an app the new-app builder just started. */
+		newRawApp?: boolean
 	} = $props()
 
 	// This tab's own raw-app cell; each open app editor binds its own store.
 	const cell = $derived(runtime.rawAppCell(path))
+
+	// New only while it is still the untouched template: once built on, telling the chat it
+	// is a fresh app would steer it away from the work already there.
+	const untouchedTemplate = $derived.by(() => {
+		const files = cell.store.val?.files
+		if (!newRawApp || (cell.saved.val && !cell.saved.val.no_deployed) || !files) return false
+		const count = Object.keys(files).length
+		return [
+			...Object.values(FRAMEWORK_TEMPLATES),
+			...Object.values(BUILDER_FRAMEWORK_TEMPLATES)
+		].some((template: Record<string, string>) => {
+			const keys = Object.keys(template)
+			return count === keys.length && keys.every((k) => files[k] === template[k])
+		})
+	})
 	let diffDrawer: DiffDrawer | undefined = $state()
+
+	// A new app arrives here before anything is saved, on the starter template: its setup
+	// is asked over the session it will be built in. Once saved it has been set up, which
+	// is also what a reload sees.
+	let setupSettled = $state(false)
+	const awaitingSetup = $derived(
+		newRawApp &&
+			!setupSettled &&
+			isActiveSession &&
+			active &&
+			cell.slot.loadedPath === path &&
+			!!cell.store.val &&
+			!cell.saved.val
+	)
+
+	async function onSetup(result: RawAppTemplatePickerResult, mode: RawAppBuildMode) {
+		setupSettled = true
+		const val = cell.store.val
+		if (!val) return
+		const setUp = {
+			...val,
+			files: { ...result.files },
+			runnables: {
+				...result.runnables,
+				...(operatorBuilderAppsIn(workspaceId) ? {} : structuredClone(STARTER_RUNNABLES))
+			},
+			data: result.data,
+			policy: result.policy
+		}
+		cell.store.val = setUp
+		// Saved now rather than on the autosave debounce: both ways out read it back by path.
+		const key = { workspace: workspaceId, itemKind: 'raw_app' as const, path }
+		UserDraft.save('raw_app', path, runtimeRawAppToDraft(setUp), { workspace: workspaceId })
+		await tick()
+		await UserDraftDbSyncer.flush(key)
+		await UserDraft.forcePersist('raw_app', path, { workspace: workspaceId })
+		const saved = UserDraftDbSyncer.getState(key)
+		if (saved.state === 'failed') {
+			sendUserToast(`Could not save the app: ${saved.failureMessage ?? 'unknown error'}`, true)
+			return
+		}
+		if (mode === 'code') {
+			// The session was opened for this app alone; with nothing said in it, it goes.
+			const unused = runtime.manager.displayMessages.length === 0
+			await goto(withWorkspaceParam(`/apps_raw/edit/${path}`, workspaceId))
+			if (unused) removeSession(runtime.sessionId)
+			return
+		}
+		// Remounts the editor so the preview builds the picked template.
+		await runtime.loadRawApp(workspaceId, path, true)
+	}
 
 	// Path typed in the editor header, surfaced when it differs from the stored
 	// path. Mirror it into the runtime draft as `draft_path` so the rename
@@ -79,9 +169,17 @@
 		invalidateWorkspaceDrafts(workspaceId)
 	}
 
+	let runtimeLogRequester = $state<RawAppRuntimeLogRequester | undefined>(undefined)
 	function registerRuntimeLogRequester(requester: RawAppRuntimeLogRequester | undefined) {
-		runtime.setRuntimeLogRequester(requester)
+		runtimeLogRequester = requester
 	}
+	$effect(() => {
+		const p = path
+		const r = runtimeLogRequester
+		if (!r) return
+		runtime.registerRuntimeLogRequester(p, r)
+		return () => runtime.unregisterRuntimeLogRequester(p, r)
+	})
 
 	function registerRunsProvider(provider: RawAppRunsProvider | undefined) {
 		runtime.setAppRunsProvider(provider)
@@ -172,9 +270,10 @@
 
 	// The inline mini-composer over a selected element sends a chat turn; the
 	// element is already an app_dom_selector chip, so it rides along as context.
-	// Mirror the composer: while a turn is streaming, queue it (a second concurrent
-	// sendRequest would race the shared abortController / streaming buffers) — it
-	// auto-sends when the current turn completes.
+	// Mirror the composer: while another send holds the chat — streaming, in
+	// preflight, or waiting for the transcript to be restored — queue it (a second
+	// concurrent sendRequest would race the shared abortController / streaming
+	// buffers) — it auto-sends when the current turn completes.
 	function onInlinePrompt(selector: string, prompt: string) {
 		// Snapshot the selection synchronously at submit time so a re-selection
 		// during the async send preflight (immediate path) or before the queue
@@ -190,7 +289,7 @@
 			.filter(
 				(c) => c.type !== 'app_dom_selector' || (c.selector === selector && c.appPath === path)
 			)
-		if (runtime.manager.loading) {
+		if (runtime.manager.loading || runtime.manager.sendInFlight || runtime.manager.sendPending) {
 			runtime.manager.queueMessage(prompt, [], snapshot)
 		} else {
 			void runtime.manager.sendRequest({ instructions: prompt, contextOverride: snapshot })
@@ -224,6 +323,8 @@
 	{onNavigate}
 	{isActiveSession}
 	isActiveTab={active}
+	{newRawApp}
+	isNew={() => untouchedTemplate}
 	effectivePath={() =>
 		// A raw app's typed rename lives in `draft_path` (`val.path` is the storage
 		// key), unlike scripts where `val.path` is the typed name — without it the
@@ -231,6 +332,13 @@
 		(cell.store.val?.draft_path || cell.store.val?.path) ?? path}
 >
 	{#snippet editor()}
+		<!-- Over the whole page, not the preview pane: it decides what the session is for. -->
+		<ViewportOverlays>
+			<RawAppTemplatePicker
+				bind:open={() => awaitingSetup, (open) => (setupSettled = !open)}
+				onStart={onSetup}
+			/>
+		</ViewportOverlays>
 		{#if cell.store.val}
 			<!-- newApp: a draft-only app (no_deployed=true) has a truthy synthesized
 			     savedApp but no deployed row, so it must deploy via createApp — keying
@@ -240,6 +348,9 @@
 			     cell.saved.val), reactive state owned by the SessionRuntime class (via
 			     rawAppCell), not by a component ancestor — so Svelte's ownership check
 			     flags a false positive here. -->
+			<!-- version / draftBaseVersion: the pair the session's draft carries, so the
+			     deploy guard and the drawer compare what the full-page editor does;
+			     without them every deploy from a session tab reads as up to date. -->
 			<!-- svelte-ignore ownership_invalid_binding -->
 			<RawAppEditor
 				bind:files={cell.store.val.files}
@@ -253,17 +364,17 @@
 				autosavePath={path}
 				policy={cell.store.val.policy}
 				bind:savedApp={cell.saved.val}
+				version={cell.store.val?.parent_version ?? cell.saved.val?.deployed_version}
+				draftBaseVersion={cell.store.val?.parent_version != null
+					? String(cell.store.val.parent_version)
+					: undefined}
 				newApp={!cell.saved.val || cell.saved.val.no_deployed === true}
 				{diffDrawer}
 				{onNavigate}
+				onDetails={onSeeDetails}
 				condensedHeader={true}
 				onResetToDeployed={reloadDeployed}
-				onDeploy={(e) => {
-					// Sync the preview to deployed (raw apps deploy only from this editor).
-					runtime.syncPreviewWithDeployed(workspaceId, 'raw_app', e.path)
-					// Deploying clears the item's pending draft — refresh the Draft Count.
-					invalidateWorkspaceDrafts(workspaceId)
-				}}
+				onDeploy={(e) => runtime.itemDeployed(workspaceId, 'raw_app', path, e.path)}
 				defaultSidebarCollapsed
 				sidebarStorageKey="raw-app-sidebar-collapsed-preview"
 				defaultSplitWithPreview={false}

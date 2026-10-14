@@ -1,5 +1,3 @@
-import { SettingService } from '$lib/gen'
-
 /** Drives the banner palette and icon; the subset of `AlertType` that fits an announcement. */
 export type InstanceBannerSeverity = 'info' | 'warning' | 'error'
 
@@ -122,8 +120,4 @@ export function isInstanceBannerVisible(
 ): banner is ResolvedInstanceBanner {
 	if (banner == undefined) return false
 	return !banner.dismissible || dismissedFingerprint !== banner.fingerprint
-}
-
-export async function fetchInstanceBanner(): Promise<ResolvedInstanceBanner | undefined> {
-	return resolveInstanceBanner(await SettingService.getGlobal({ key: INSTANCE_BANNER_SETTING }))
 }

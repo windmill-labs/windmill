@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { ChatCompletionMessageParam } from 'openai/resources/index.mjs'
-import { convertOpenAIToAnthropicMessages, partialWebSearchQuery } from './anthropic'
+import {
+	convertOpenAIToAnthropicMessages,
+	parseAnthropicCompletion,
+	partialWebSearchQuery
+} from './anthropic'
+import { OutputTokenLimitError } from './outputTokenLimit'
 
 // anthropic.ts pulls in the chat client/registry layer at import time; the
 // converter under test is pure, so stub those side-effecting modules away.
@@ -215,5 +220,30 @@ describe('partialWebSearchQuery', () => {
 	it('returns undefined when no query string has started', () => {
 		expect(partialWebSearchQuery('{"que')).toBeUndefined()
 		expect(partialWebSearchQuery('{"query": ')).toBeUndefined()
+	})
+})
+
+describe('parseAnthropicCompletion output token limit', () => {
+	it('fails a message that stopped at max_tokens instead of ending the turn', async () => {
+		const stream = {
+			on: () => undefined,
+			done: async () => undefined,
+			finalMessage: async () => ({
+				content: [{ type: 'thinking', thinking: 'I need to plan the flow so each' }],
+				stop_reason: 'max_tokens',
+				usage: { input_tokens: 20000, output_tokens: 64000 }
+			})
+		}
+
+		const parsed = parseAnthropicCompletion(
+			stream as any,
+			{ onNewToken: vi.fn(), onMessageEnd: vi.fn(), setToolStatus: vi.fn() } as any,
+			[],
+			[],
+			[],
+			{}
+		)
+
+		await expect(parsed).rejects.toBeInstanceOf(OutputTokenLimitError)
 	})
 })

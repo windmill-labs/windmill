@@ -37,6 +37,7 @@ vi.mock('$lib/gen', async (orig) => {
 		WorkspaceService: {
 			...actual.WorkspaceService,
 			createWorkspaceFork: vi.fn().mockRejectedValue(new Error('fork creation failed')),
+			getForkCreationStatus: vi.fn().mockResolvedValue({ status: 'completed' }),
 			listUserWorkspaces: vi.fn().mockResolvedValue([])
 		}
 	}
@@ -101,6 +102,86 @@ describe('commitSessionWorkspace — fork-creation failure', () => {
 			expect(s?.workspace_id).toBeUndefined()
 			expect(s?.pending_fork).toBeUndefined()
 		} finally {
+			const i = sessionState.sessions.findIndex((x) => x.id === id)
+			if (i >= 0) sessionState.sessions.splice(i, 1)
+			enterpriseLicense.set(prevLicense)
+		}
+	})
+})
+
+describe('commitSessionWorkspace — fork creation resumed after a reload', () => {
+	it('waits for the creation the pending fork started instead of requesting it again', async () => {
+		const id = 'test-commit-fork-resume'
+		const prevLicense = get(enterpriseLicense)
+		enterpriseLicense.set('test-license')
+		vi.mocked(WorkspaceService.createWorkspaceFork).mockClear()
+		sessionState.sessions.push({
+			id,
+			name: 'fork-resume',
+			createdAt: 0,
+			pending_fork: {
+				parent_workspace_id: 'parent_ws',
+				id: 'wm-fork-resume',
+				name: 'resume',
+				creation_id: '5c3e1b1e-0000-4000-8000-000000000000'
+			}
+		} as Session)
+		try {
+			expect(await commitSessionWorkspace(id, 'parent_ws')).toBe('wm-fork-resume')
+			expect(WorkspaceService.getForkCreationStatus).toHaveBeenCalledWith({
+				workspace: 'parent_ws',
+				creationId: '5c3e1b1e-0000-4000-8000-000000000000'
+			})
+			expect(WorkspaceService.createWorkspaceFork).not.toHaveBeenCalled()
+		} finally {
+			const i = sessionState.sessions.findIndex((x) => x.id === id)
+			if (i >= 0) sessionState.sessions.splice(i, 1)
+			enterpriseLicense.set(prevLicense)
+		}
+	})
+})
+
+describe('commitSessionWorkspace — fork still being created', () => {
+	it('gives up a gone creation quickly, then adopts the fork once it is created', async () => {
+		const id = 'test-commit-fork-in-flight'
+		const prevLicense = get(enterpriseLicense)
+		const prevWorkspaces = get(usersWorkspaceStore)
+		enterpriseLicense.set('test-license')
+		vi.useFakeTimers()
+		const status = vi.mocked(WorkspaceService.getForkCreationStatus)
+		status.mockClear()
+		status.mockRejectedValue(Object.assign(new Error('Not Found'), { status: 404 }))
+		vi.mocked(WorkspaceService.createWorkspaceFork).mockRejectedValue({
+			body: "Bad request: workspace 'wm-fork-flight' is already being created"
+		})
+		vi.mocked(WorkspaceService.listUserWorkspaces)
+			.mockResolvedValueOnce({ email: 't@t', workspaces: [] } as never)
+			.mockResolvedValue({ email: 't@t', workspaces: [ws('wm-fork-flight', 'parent_ws')] } as never)
+		sessionState.sessions.push({
+			id,
+			name: 'fork-flight',
+			createdAt: 0,
+			pending_fork: {
+				parent_workspace_id: 'parent_ws',
+				id: 'wm-fork-flight',
+				name: 'flight',
+				creation_id: '5c3e1b1e-0000-4000-8000-000000000000'
+			}
+		} as Session)
+		try {
+			const committed = commitSessionWorkspace(id, 'parent_ws')
+			await vi.runAllTimersAsync()
+			expect(await committed).toBe('wm-fork-flight')
+			// The resumed creation is given up after its own short budget, not a fresh creation's.
+			expect(status.mock.calls.length).toBeLessThan(10)
+		} finally {
+			vi.useRealTimers()
+			status.mockResolvedValue({ status: 'completed' })
+			vi.mocked(WorkspaceService.createWorkspaceFork).mockRejectedValue(
+				new Error('fork creation failed')
+			)
+			vi.mocked(WorkspaceService.listUserWorkspaces).mockResolvedValue([] as never)
+			usersWorkspaceStore.set(prevWorkspaces)
 			const i = sessionState.sessions.findIndex((x) => x.id === id)
 			if (i >= 0) sessionState.sessions.splice(i, 1)
 			enterpriseLicense.set(prevLicense)

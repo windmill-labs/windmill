@@ -1,7 +1,6 @@
 <script lang="ts">
 	import {
 		Save,
-		Trash,
 		XCircle,
 		CheckCircle2,
 		RotateCw,
@@ -15,9 +14,9 @@
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import GitSyncFilterSettings from '$lib/components/workspaceSettings/GitSyncFilterSettings.svelte'
 	import DetectionFlow from './DetectionFlow.svelte'
+	import { applyNewConnectionDefaults } from './setup/connectionDefaults'
 	import { sendUserToast } from '$lib/toast'
 	import { apiErrorMessage } from '$lib/utils'
-	import { fade } from 'svelte/transition'
 	import { workspaceStore, userWorkspaces, enterpriseLicense } from '$lib/stores'
 	import type { GitSyncRepository } from './GitSyncContext.svelte'
 	import GitSyncModeDisplay from './GitSyncModeDisplay.svelte'
@@ -56,7 +55,6 @@
 	const repo = $derived(repository || (idx !== null ? gitSyncContext.getRepository(idx) : null))
 	const validation = $derived(idx !== null ? gitSyncContext.getValidation(idx) : null)
 	const gitSyncTestJob = $derived(idx !== null ? gitSyncContext.gitSyncTestJobs?.[idx] : null)
-	let confirmingDelete = $state(false)
 
 	function pullStatusDate(status: { at: number }): string {
 		return new Date(status.at * 1000).toISOString()
@@ -114,8 +112,9 @@
 		try {
 			await gitSyncContext.saveRepository(idx)
 		} catch (e) {
-			// The backend rejects promotion mode without an active EE plan; revert
-			// the optimistic toggle instead of leaving it stuck on until reload.
+			// The backend can reject promotion mode (non-EE build, outdated dev sync
+			// script, dev repo not matching its parent's); revert the optimistic
+			// toggle instead of leaving it stuck on until reload.
 			if (repo) {
 				repo.use_individual_branch = prevIndiv
 				repo.group_by_folder = prevGbf
@@ -302,38 +301,13 @@
 						// Extract git URL from resource value
 						const value = resource.value as Record<string, any>
 						isGithubApp = value?.is_github_app === true
-						// A newly added sync connection defaults to pulling from Git only
-						// when the repository is app-backed (instant webhook delivery).
-						// Polling is opt-in for token repositories, and fork/dev workspaces
-						// never get the parent-only defaults (the backend rejects them).
-						// EE-only.
-						if (
-							repoMode === 'sync' &&
-							repo.isUnsavedConnection &&
-							hasManagedCredential &&
-							!isFork &&
-							$enterpriseLicense &&
-							repo.auto_pull === undefined
-						) {
-							repo.auto_pull = { enabled: true, mode: 'auto', sync_forks: true }
-						}
-						// Promotion deploys push wm_deploy/** branches that exist to be
-						// merged; without a PR the deploy is an orphaned branch. Default
-						// the managed PR on where Windmill can open it (app-backed).
-						// Fork PRs stay opt-in everywhere.
-						if (
-							repoMode === 'promotion' &&
-							repo.isUnsavedConnection &&
-							hasManagedCredential &&
-							$enterpriseLicense &&
-							repo.promotion_open_prs === undefined
-						) {
-							repo.promotion_open_prs = true
-						}
-						// Webhook with polling fallback is the only delivery for app repos.
-						if (isGithubApp && repo.auto_pull?.mode === 'polling') {
-							repo.auto_pull = { ...repo.auto_pull, mode: 'auto' }
-						}
+						applyNewConnectionDefaults(repo, {
+							mode: repoMode,
+							managedCredential: hasManagedCredential,
+							isGithubApp,
+							isFork,
+							ee: !!$enterpriseLicense
+						})
 						let gitUrl = value?.url || value?.git_url
 
 						if (gitUrl && typeof gitUrl === 'string') {
@@ -478,27 +452,6 @@
 		}
 	}
 
-	function initiateDelete() {
-		confirmingDelete = true
-	}
-
-	async function confirmDelete() {
-		if (idx === null) return
-		try {
-			await gitSyncContext.removeRepository(idx)
-			sendUserToast('Repository connection removed successfully')
-		} catch (error: any) {
-			console.error('Failed to remove repository:', error)
-			sendUserToast('Failed to remove repository: ' + apiErrorMessage(error), true)
-		} finally {
-			confirmingDelete = false
-		}
-	}
-
-	function cancelDelete() {
-		confirmingDelete = false
-	}
-
 	function runGitSyncTestJob() {
 		if (idx !== null && gitSyncContext.runTestJob) {
 			gitSyncContext.runTestJob(idx)
@@ -564,36 +517,6 @@
 				</svg>
 			{/if}
 		</button>
-	{/if}
-	{#if !confirmingDelete}
-		<div transition:fade|local={{ duration: 100 }}>
-			<Button
-				size="xs"
-				variant="default"
-				onclick={initiateDelete}
-				startIcon={{ icon: Trash }}
-				destructive
-			>
-				Delete
-			</Button>
-		</div>
-	{:else}
-		<div class="flex gap-1">
-			<button
-				transition:fade|local={{ duration: 100 }}
-				class="px-3 py-1 text-xs bg-red-500 text-white rounded duration-200 hover:bg-red-600"
-				onclick={confirmDelete}
-			>
-				Confirm delete
-			</button>
-			<button
-				transition:fade|local={{ duration: 100 }}
-				class="px-2 py-1 text-xs bg-surface-secondary rounded duration-200 hover:bg-surface-hover"
-				onclick={cancelDelete}
-			>
-				<XCircle size={12} />
-			</button>
-		</div>
 	{/if}
 {/snippet}
 
@@ -674,7 +597,7 @@
 				</div>
 			{/if}
 			{#if gitSyncTestJob && gitSyncTestJob.status !== undefined}
-				<div class="flex text-sm gap-1 items-center">
+				<div class="flex text-xs gap-1 items-center">
 					{#if gitSyncTestJob.status === 'running'}
 						<RotateCw size={14} class="animate-spin" />
 					{:else if gitSyncTestJob.status === 'success'}
@@ -949,7 +872,7 @@
 										options={{
 											right: 'Automatically deploy changes from Git',
 											rightTooltip:
-												'Windmill deploys new commits from the tracked branch into this workspace. Repositories Windmill holds a credential for sync instantly via webhooks with a polling fallback; other token-based repositories are checked about every minute.'
+												'Windmill deploys new commits from the tracked branch into this workspace. Repositories Windmill holds a credential for sync instantly via webhooks with a polling fallback; other token-based repositories are checked about every minute. The webhook also delivers pull request events, which is what posts the diff check on pull requests and, for GitHub repositories, the Windmill CI tests check.'
 										}}
 										on:change={(e) => setAutoPullEnabled(e.detail)}
 									>
@@ -964,7 +887,7 @@
 											options={{
 												right: 'Automatically sync forks with git branches',
 												rightTooltip: repo.auto_pull?.enabled
-													? "When a fork's wm-fork/** branch changes in the repository (for example after merging the tracked branch into it), Windmill deploys those commits into the fork workspace. Configured once here, applied to every fork of this workspace."
+													? "When a fork's wm-fork/** branch changes in the repository (for example after merging the tracked branch into it), Windmill deploys those commits into the fork workspace. On GitHub, needed for the Windmill CI tests check on a fork pull request whose commits were pushed outside Windmill. Configured once here, applied to every fork of this workspace."
 													: 'Requires automatic deploy from Git to be enabled above.'
 											}}
 											on:change={(e) => setSyncForks(e.detail)}
@@ -1038,6 +961,14 @@
 												: 'Checking the tracked branch about every minute. New commits deploy automatically.'}
 										{/if}
 									</div>
+									{#if repo.auto_pull?.enabled_by}
+										<div class="text-2xs text-secondary mt-1">
+											Pulls apply changes as {repo.auto_pull.enabled_by}, the admin who last saved
+											these settings{repo.auto_pull.sync_forks
+												? ', in this workspace and its forks'
+												: ''}.
+										</div>
+									{/if}
 									{#if hasManagedCredential && repo.auto_pull?.webhook_error}
 										<div class="mt-2">
 											<Alert type="warning" title="Falling back to polling" size="xs">

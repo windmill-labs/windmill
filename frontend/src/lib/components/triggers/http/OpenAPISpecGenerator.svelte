@@ -11,11 +11,11 @@
 		type OpenapiV3Info,
 		type WebhookFilters
 	} from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { base } from '$lib/base'
+	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { ClipboardCopy, Download, Trash } from 'lucide-svelte'
@@ -35,6 +35,9 @@
 	import CreateToken from '$lib/components/settings/CreateToken.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type HttpRouteAndWebhook = WebhookFilters | OpenapiHttpRouteFilters
 
@@ -133,7 +136,7 @@
 			obj = {
 				openapi_spec_format: lang,
 				info,
-				url: `${window.location.origin}${base}`,
+				url: apiBaseUrl(),
 				http_route_filters: getHttpRouteFilters(),
 				webhook_filters: getWebhookFilters()
 			}
@@ -148,11 +151,11 @@
 			const info = buildInfo()
 			isGeneratingOpenapiSpec = true
 			openapiDocument = await OpenapiService.generateOpenapiSpec({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				requestBody: {
 					openapi_spec_format,
 					info,
-					url: `${window.location.origin}${base}`,
+					url: apiBaseUrl(),
 					http_route_filters: getHttpRouteFilters(),
 					webhook_filters: getWebhookFilters()
 				}
@@ -222,7 +225,7 @@
 				{/snippet}
 				<CopyableCodeBlock
 					code={`token=${emptyString(token) ? '' : token}; \\
-curl -X POST "${window.location.origin}${base}/api/w/${$workspaceStore!}/openapi/generate" \\
+curl -X POST "${apiBaseUrl()}/api/w/${$operatingWorkspace!}/openapi/generate" \\
 -H "Authorization: Bearer $token" \\
 -H "Content-Type: application/json" \\
 -d '${JSON.stringify(obj)}'`}

@@ -22,8 +22,6 @@
 <script lang="ts">
 	import { ResourceService, VariableService, WorkspaceService, type Script } from '$lib/gen'
 
-	import { workspaceStore } from '$lib/stores'
-	import { base } from '$lib/base'
 	import type Editor from './Editor.svelte'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
@@ -76,6 +74,9 @@
 	import FlowInlineScriptAiButton from './copilot/FlowInlineScriptAIButton.svelte'
 	import GitRepoPopoverPicker from './GitRepoPopoverPicker.svelte'
 	import { insertDelegateToGitRepoInCode } from '$lib/ansibleUtils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		lang: SupportedLanguage | 'bunnative' | undefined
@@ -103,6 +104,7 @@
 			| 'powershell'
 			| 'bunnative'
 			| 'claudesandbox'
+			| 'pisandbox'
 			| 'wac_python'
 			| 'wac_typescript'
 			| 'ci_test_bun'
@@ -121,9 +123,8 @@
 		right?: import('svelte').Snippet
 		openAiChat?: boolean
 		moduleId?: string
-		// Workspace to scope variable/resource/data-table lookups to. Defaults to
-		// the nav `$workspaceStore`; an AI-session live editor passes the session's
-		// acting workspace (a fork) so the helper pickers hit the right workspace.
+		// Workspace to scope variable/resource/data-table lookups to. Defaults to the
+		// operating workspace (see `useOperatingWorkspace`).
 		workspace?: string
 	}
 
@@ -153,7 +154,7 @@
 		workspace = undefined
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	let contextualVariablePicker: ItemPicker | undefined = $state()
 	let variablePicker: ItemPicker | undefined = $state()
@@ -843,7 +844,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				startIcon={{ icon: Plus }}
 				target="_blank"
 				variant="accent"
-				href="{base}/resources?connect_app=undefined"
+				href="/resources?connect_app=undefined"
 			>
 				Add resource
 			</Button>
@@ -902,7 +903,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					startIcon={{ icon: Settings }}
 					target="_blank"
 					variant="accent"
-					href="{base}/workspace_settings?tab=ducklake"
+					href="/workspace_settings?tab=ducklake"
 				>
 					Go to settings
 				</Button>
@@ -945,7 +946,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					startIcon={{ icon: Settings }}
 					target="_blank"
 					variant="accent"
-					href="{base}/workspace_settings?tab=windmill_data_tables"
+					href="/workspace_settings?tab=windmill_data_tables"
 				>
 					Go to settings
 				</Button>

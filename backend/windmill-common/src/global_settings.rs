@@ -9,6 +9,7 @@ pub const DEFAULT_TAGS_WORKSPACES_SETTING: &str = "default_tags_workspaces";
 pub const FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING: &str =
     "fork_workspace_tag_append_fork_suffix";
 pub const PREVIEW_TAGS_OVERRIDE_SETTING: &str = "preview_tags_override";
+pub const DEPENDENCY_JOB_TAG_SETTING: &str = "dependency_job_tag";
 pub const BASE_URL_SETTING: &str = "base_url";
 pub const WS_BASE_URL_SETTING: &str = "ws_base_url";
 pub const OAUTH_SETTING: &str = "oauths";
@@ -57,6 +58,11 @@ pub const SAML_METADATA_SETTING: &str = "saml_metadata";
 pub const SMTP_SETTING: &str = "smtp_settings";
 pub const TEAMS_SETTING: &str = "teams";
 pub const INDEXER_SETTING: &str = "indexer_settings";
+pub const EXTERNAL_INSTANCE_PG_SETTING: &str = "external_instance_pg";
+/// Turns off Windmill's own Postgres as a data table and Ducklake substrate. Absent means on,
+/// which is what every instance that predates the setting expects.
+pub const INSTANCE_PG_DISABLED_SETTING: &str = "instance_pg_disabled";
+pub const EXTERNAL_INSTANCE_PG_STATE_SETTING: &str = "external_instance_pg_state";
 pub const TIMEOUT_WAIT_RESULT_SETTING: &str = "timeout_wait_result";
 
 pub const UNIQUE_ID_SETTING: &str = "uid";
@@ -84,6 +90,11 @@ pub const SANDBOX_REGISTRY_AUTH_SETTING: &str = "sandbox_registry_auth";
 // windmill-worker/src/ssh_executor_ee.rs.
 pub const SSH_EXECUTION_SETTING: &str = "ssh_execution_enabled";
 pub const OBJECT_STORE_CONFIG_SETTING: &str = "object_store_cache_config";
+/// Whether the instance object store stands in for a workspace without storage of its own
+/// as the place its members' AI sessions are backed up to. On unless the row says `false`;
+/// inert without an instance object store.
+pub const AI_SESSIONS_INSTANCE_STORAGE_FALLBACK_SETTING: &str =
+    "ai_sessions_instance_storage_fallback";
 /// Compile a newly deployed script's binary right after its dependency job and push it
 /// to the instance object store, so the first run does not pay the compile. Inert unless
 /// instance object storage is configured — without it the binary would only ever land in
@@ -97,6 +108,49 @@ pub const HUB_API_SECRET_SETTING: &str = "hub_api_secret";
 pub const AUTOMATE_USERNAME_CREATION_SETTING: &str = "automate_username_creation";
 pub const DISABLE_WORKSPACE_INVITE_EMAILS_SETTING: &str = "disable_workspace_invite_emails";
 pub const DISABLE_PASSWORD_LOGIN_SETTING: &str = "disable_password_login";
+/// Refuse `?token=` on the MCP endpoints, leaving the `Authorization` header as the only way
+/// in. A URL-borne credential ends up in browser history, proxy logs and referrers, so an
+/// instance that cares sends MCP clients through the OAuth flow instead.
+pub const MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING: &str = "mcp_disable_token_query_param";
+/// Ceiling, in days, on how far ahead a token minted through `POST /users/tokens/create` or
+/// `POST /users/tokens/impersonate` may expire; a request asking for more, or for no
+/// expiration at all, is shortened to it rather than refused. On those routes only: server-side
+/// mints (webhook tokens, app embed tokens, sessions) choose a lifetime the caller never picks
+/// and go straight to `create_token_internal`. Read and validated by
+/// [`parse_max_token_expiration_days`].
+pub const MAX_TOKEN_EXPIRATION_DAYS_SETTING: &str = "max_token_expiration_days";
+/// Largest `max_token_expiration_days` read as a ceiling, about 2,700 years. The token form
+/// applies the same bound (`frontend/src/lib/tokenExpiration.ts`) so that it and the server
+/// agree on whether a ceiling exists.
+pub const MAX_TOKEN_EXPIRATION_DAYS_BOUND: i64 = 1_000_000;
+
+/// Reads a stored `max_token_expiration_days`: `Ok(None)` when unset or cleared (null or an
+/// empty string), the ceiling for a whole number of days within
+/// `1..=MAX_TOKEN_EXPIRATION_DAYS_BOUND` stored as an integer, an integral float or a string of
+/// digits, and an error for anything else.
+///
+/// The settings API and config sync both reject the error at write time: the token routes can
+/// only read an unparseable value as no ceiling, so accepting a typo would silently turn the
+/// policy off. `parseMaxTokenExpirationDays` in the frontend must accept exactly the same values.
+pub fn parse_max_token_expiration_days(
+    value: Option<&serde_json::Value>,
+) -> Result<Option<i64>, String> {
+    let days = match value {
+        None | Some(serde_json::Value::Null) => return Ok(None),
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => return Ok(None),
+        Some(serde_json::Value::Number(n)) => n
+            .as_i64()
+            .or_else(|| n.as_f64().filter(|f| f.fract() == 0.0).map(|f| f as i64)),
+        Some(serde_json::Value::String(s)) => s.trim().parse::<i64>().ok(),
+        Some(_) => None,
+    };
+    match days {
+        Some(days) if (1..=MAX_TOKEN_EXPIRATION_DAYS_BOUND).contains(&days) => Ok(Some(days)),
+        _ => Err(format!(
+            "must be a whole number of days from 1 to {MAX_TOKEN_EXPIRATION_DAYS_BOUND}, or empty for no limit"
+        )),
+    }
+}
 pub const AUTO_LOGIN_PROVIDER_SETTING: &str = "auto_login_provider";
 /// Name of the SAML attribute or OIDC userinfo claim carrying the user's IdP groups. Unset or
 /// empty leaves instance-group membership entirely to SCIM.
@@ -104,12 +158,14 @@ pub const SSO_GROUPS_CLAIM_SETTING: &str = "sso_groups_claim";
 pub const HUB_BASE_URL_SETTING: &str = "hub_base_url";
 pub const HUB_ACCESSIBLE_URL_SETTING: &str = "hub_accessible_url";
 pub const DISABLE_HUB_SETTING: &str = "disable_hub";
+pub const SYNC_HUB_RESOURCE_TYPES_DAILY_SETTING: &str = "sync_hub_resource_types_daily";
 pub const CRITICAL_ERROR_CHANNELS_SETTING: &str = "critical_error_channels";
 pub const CRITICAL_ALERT_MUTE_UI_SETTING: &str = "critical_alert_mute_ui";
 pub const CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING: &str = "critical_alerts_on_db_oversize";
 pub const CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING: &str = "critical_alerts_on_token_expiry";
 pub const CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING: &str =
     "critical_alert_mute_zombie_job_restart";
+pub const CRITICAL_ALERT_MUTE_STRANDED_JOBS_SETTING: &str = "critical_alert_mute_stranded_jobs";
 pub const DEV_INSTANCE_SETTING: &str = "dev_instance";
 pub const JWT_SECRET_SETTING: &str = "jwt_secret";
 pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
@@ -118,6 +174,7 @@ pub const OTEL_TRACING_PROXY_SETTING: &str = "otel_tracing_proxy";
 pub const OTEL_TRACES_RETENTION_SECS_SETTING: &str = "otel_traces_retention_secs";
 pub const APP_WORKSPACED_ROUTE_SETTING: &str = "app_workspaced_route";
 pub const HTTP_ROUTE_WORKSPACED_ROUTE_SETTING: &str = "http_route_workspaced_route";
+pub const HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING: &str = "http_route_default_allowed_origins";
 pub const SECRET_BACKEND_SETTING: &str = "secret_backend";
 pub const MIN_KEEP_ALIVE_VERSION_SETTING: &str = "min_keep_alive_version";
 pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
@@ -125,6 +182,12 @@ pub const GITHUB_ENTERPRISE_APP_SETTING: &str = "github_enterprise_app";
 /// `base_url` when unset; set it when the browser-facing URL is not reachable
 /// from GitHub and a separate ingress fronts the API for inbound webhooks.
 pub const GITHUB_APP_WEBHOOK_BASE_URL_SETTING: &str = "github_app_webhook_base_url";
+/// Base URL the UI shows for the endpoints external clients call (webhooks, HTTP
+/// routes, push trigger endpoints, the CLI), instead of the origin the UI is browsed on.
+/// For deployments that serve the API on a separate domain or behind a gateway.
+/// EE only. Readable by any authenticated user, like [`INSTANCE_BANNER_SETTING`]:
+/// every user is shown URLs built from it.
+pub const API_BASE_URL_SETTING: &str = "api_base_url";
 /// Instance-wide announcement rendered above every page of the app (maintenance
 /// windows, incidents). Readable by any authenticated user, unlike most settings:
 /// the banner exists to be shown to everyone, so it must never hold anything the
@@ -232,11 +295,66 @@ pub fn validate_instance_banner(value: &serde_json::Value) -> Result<(), String>
     Ok(())
 }
 
-/// Validate a [`GITHUB_APP_WEBHOOK_BASE_URL_SETTING`] value.
+/// Instance-wide accent color (`#rrggbb`) that recolors the UI's accent tokens and
+/// tints the sidebar, so each environment of a deployment is recognizable at a glance.
+/// Readable by any authenticated user, like [`INSTANCE_BANNER_SETTING`].
+pub const ACCENT_COLOR_SETTING: &str = "accent_color";
+
+/// Validate an [`ACCENT_COLOR_SETTING`] value.
 ///
-/// The receiver path is appended to it verbatim, so anything that doesn't
-/// concatenate into a URL GitHub can POST to must be rejected at write time
-/// rather than silently producing an unreachable hook: a wrong scheme
+/// Only `#rrggbb` is accepted: the value is interpolated into a stylesheet every user
+/// loads, so anything looser is CSS injection into every session of the instance.
+pub fn validate_accent_color(value: &serde_json::Value) -> Result<(), String> {
+    let s = value
+        .as_str()
+        .ok_or_else(|| "must be a string".to_string())?;
+    let hex = s.strip_prefix('#').unwrap_or("");
+    if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err("must be a hex color of the form #rrggbb".to_string());
+    }
+    Ok(())
+}
+
+/// The settings every signed-in browser reads on each full page load.
+#[derive(serde::Serialize, Clone, Debug, Default, PartialEq)]
+pub struct InstanceUi {
+    pub instance_banner: Option<serde_json::Value>,
+    pub accent_color: Option<serde_json::Value>,
+    pub api_base_url: Option<serde_json::Value>,
+}
+
+pub async fn get_instance_ui(db: &Pool<Postgres>) -> error::Result<InstanceUi> {
+    let rows = sqlx::query!(
+        "SELECT name, value FROM global_settings WHERE name = ANY($1)",
+        &[
+            INSTANCE_BANNER_SETTING,
+            ACCENT_COLOR_SETTING,
+            API_BASE_URL_SETTING
+        ] as &[&str]
+    )
+    .fetch_all(db)
+    .await?;
+    let mut ui = InstanceUi::default();
+    for row in rows {
+        match row.name.as_str() {
+            INSTANCE_BANNER_SETTING => ui.instance_banner = Some(row.value),
+            ACCENT_COLOR_SETTING => ui.accent_color = Some(row.value),
+            API_BASE_URL_SETTING => ui.api_base_url = Some(row.value),
+            _ => {}
+        }
+    }
+    Ok(ui)
+}
+
+const SHELL_ACTIVE_CHARS: [char; 16] = [
+    '$', '`', '\'', '"', '\\', ';', '&', '|', '<', '>', '(', ')', '{', '}', '*', '!',
+];
+
+/// Validate a [`GITHUB_APP_WEBHOOK_BASE_URL_SETTING`] or [`API_BASE_URL_SETTING`] value.
+///
+/// A path is appended to it verbatim, so anything that doesn't concatenate into a
+/// URL an external caller can reach must be rejected at write time rather than
+/// silently producing an unreachable hook or endpoint: a wrong scheme
 /// (`httpss://`), a missing host, embedded whitespace, or a query/fragment
 /// (appending a path after `?`/`#` keeps it inside the query/fragment).
 ///
@@ -252,7 +370,7 @@ pub fn validate_webhook_base_url(value: &str) -> Result<(), String> {
         url::Url::parse(value).map_err(|e| format!("must be an absolute http(s) URL: {e}"))?;
     if !url.username().is_empty() || url.password().is_some() {
         return Err(
-            "must not embed a username or password: the receiver URL is stored in workspace settings, where it is readable by workspace admins".to_string(),
+            "must not embed a username or password: the URL is readable by users who are not instance admins".to_string(),
         );
     }
     if !matches!(url.scheme(), "http" | "https") {
@@ -265,12 +383,20 @@ pub fn validate_webhook_base_url(value: &str) -> Result<(), String> {
     }
     if url.query().is_some() || url.fragment().is_some() {
         return Err(
-            "must not include a query string or fragment, since the webhook path is appended to it"
+            "must not include a query string or fragment, since a path is appended to it"
                 .to_string(),
         );
     }
     if value.chars().any(char::is_whitespace) {
         return Err("must not contain whitespace".to_string());
+    }
+    // The UI pastes the URL into shell commands users copy, where double quotes
+    // do not stop `$(...)` or backticks from running.
+    if value.contains(SHELL_ACTIVE_CHARS) {
+        return Err(
+            "must not contain shell metacharacters, since it is shown inside commands users copy"
+                .to_string(),
+        );
     }
     // Matches the sibling `base_url` / `hub_base_url` convention. The receiver
     // builder trims it anyway, so this is about keeping the stored value canonical
@@ -305,6 +431,10 @@ pub const CONCURRENCY_KEY_MAX_QUEUED_SETTING: &str = "concurrency_key_max_queued
 // disables the cap. See `windmill-queue/src/jobs.rs`, `check_workspace_queue_cap`.
 pub const WORKSPACE_MAX_QUEUED_JOBS_SETTING: &str = "workspace_max_queued_jobs";
 
+// Days after which a pending top-level job whose tag no worker has served in that time is
+// canceled. Unset or `0` only alerts. Read by the server monitor on each pass.
+pub const CANCEL_STRANDED_JOBS_AFTER_DAYS_SETTING: &str = "cancel_stranded_jobs_after_days";
+
 /// Global settings an agent worker (a remote worker connected over HTTP instead
 /// of to the database) must NEVER read through
 /// `GET /api/agent_workers/get_global_setting/{key}`. Every other key is served.
@@ -326,8 +456,9 @@ pub const WORKSPACE_MAX_QUEUED_JOBS_SETTING: &str = "workspace_max_queued_jobs";
 /// server keeps to itself, add it here.
 pub const AGENT_WORKER_BLOCKED_SETTINGS: &[&str] = &[
     // Instance identity / auth secrets — disclosure enables privilege escalation
-    // or impersonation.
+    // or impersonation. `rsa_keys` signs job OIDC tokens; only the server mints them.
     JWT_SECRET_SETTING,
+    "rsa_keys",
     OAUTH_SETTING,
     SMTP_SETTING,
     SCIM_TOKEN_SETTING,
@@ -349,6 +480,9 @@ pub const AGENT_WORKER_BLOCKED_SETTINGS: &[&str] = &[
     // resolve datatable connections through the dedicated datatable endpoints, never these.
     "custom_instance_pg_databases",
     "custom_instance_replication_pwd",
+    // The external cluster's admin login, and the passwords Windmill generated on it.
+    EXTERNAL_INSTANCE_PG_SETTING,
+    EXTERNAL_INSTANCE_PG_STATE_SETTING,
 ];
 
 /// Whether an agent worker may read the given global setting over HTTP.
@@ -362,6 +496,126 @@ use std::sync::atomic::AtomicBool;
 lazy_static::lazy_static! {
     pub static ref HTTP_ROUTE_WORKSPACED_ROUTE: AtomicBool = AtomicBool::new(false);
     pub static ref DISABLE_PASSWORD_LOGIN: AtomicBool = AtomicBool::new(false);
+    pub static ref MCP_DISABLE_TOKEN_QUERY_PARAM: AtomicBool = AtomicBool::new(false);
+    /// Origins HTTP routes allow cross-origin when they configure none of their
+    /// own. Empty means unset, which keeps the historical `*`.
+    pub static ref HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS: arc_swap::ArcSwap<Vec<String>> =
+        arc_swap::ArcSwap::from_pointee(vec![]);
+}
+
+/// Whether an allowlist places no restriction at all.
+///
+/// `*` is the explicit "open on purpose" entry, and a route carrying it behaves
+/// exactly as an unconfigured one: it is how a route opts out of a stricter
+/// instance default, including back into the `wm_headers` escape hatch.
+pub fn allows_any_origin(allowed_origins: &[String]) -> bool {
+    allowed_origins.iter().any(|allowed| allowed == "*")
+}
+
+/// An allowlist is scanned on every request to a restricted route, including
+/// the unauthenticated preflight, so its size is a request cost anyone can
+/// trigger.
+pub const MAX_ALLOWED_ORIGINS: usize = 100;
+pub const MAX_ALLOWED_ORIGIN_LEN: usize = 256;
+
+/// Reject allowlist entries that cannot be compared, stored, or safely allowed.
+///
+/// The stored string is only ever an operand: `match_origin` echoes the
+/// request's own `Origin` back, never this value, so a malformed entry matches
+/// nothing and fails closed. Shapes that merely cannot match are the editor's
+/// business to warn about, not this function's to refuse. What is left are the
+/// three cases where permissiveness costs something: `null` is what every
+/// sandboxed iframe sends, so allowing it would admit any page that can open
+/// one; a comma cannot survive the editor's comma-separated field, which would
+/// silently split one entry into two and widen the list; and an unbounded list
+/// makes every preflight pay for it.
+pub fn validate_allowed_origins(allowed_origins: &[String]) -> crate::error::Result<()> {
+    if allowed_origins.len() > MAX_ALLOWED_ORIGINS {
+        return Err(crate::error::Error::BadRequest(format!(
+            "At most {} allowed origins, got {}.",
+            MAX_ALLOWED_ORIGINS,
+            allowed_origins.len()
+        )));
+    }
+
+    for origin in allowed_origins {
+        if origin == "*" {
+            continue;
+        }
+
+        let invalid = |reason: &str| {
+            crate::error::Error::BadRequest(format!(
+                "Invalid allowed origin '{}': {}.",
+                origin, reason
+            ))
+        };
+
+        if origin.is_empty() {
+            return Err(invalid("must not be empty"));
+        }
+        if origin.len() > MAX_ALLOWED_ORIGIN_LEN {
+            return Err(invalid("is longer than any origin a browser sends"));
+        }
+        // The editor edits the whole list as one comma-separated field, so an
+        // entry carrying a comma comes back as two and widens the list.
+        if origin.contains(',') {
+            return Err(invalid("must not contain a comma, which separates entries"));
+        }
+        if origin.eq_ignore_ascii_case("null") {
+            return Err(invalid(
+                "'null' is what a sandboxed iframe sends, so allowing it would allow any page that can open one",
+            ));
+        }
+        // An Origin header is always visible ASCII, so a value outside it can
+        // never be the string this is compared against.
+        if !origin.chars().all(|c| c.is_ascii_graphic()) {
+            return Err(invalid(
+                "must contain only visible ASCII, with no whitespace",
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+/// Read [`HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING`] from its stored value.
+///
+/// Accepts the comma-separated string the settings UI writes, or a JSON array
+/// for anything setting it through the API directly.
+pub fn parse_allowed_origins_setting(
+    value: Option<&serde_json::Value>,
+) -> crate::error::Result<Vec<String>> {
+    let origins = match value {
+        None | Some(serde_json::Value::Null) => vec![],
+        Some(serde_json::Value::String(raw)) => raw
+            .split(',')
+            .map(|origin| origin.trim().to_string())
+            .filter(|origin| !origin.is_empty())
+            .collect(),
+        Some(serde_json::Value::Array(entries)) => entries
+            .iter()
+            .map(|entry| match entry {
+                serde_json::Value::String(origin) => Ok(origin.trim().to_string()),
+                _ => Err(crate::error::Error::BadRequest(format!(
+                    "{} entries must be strings",
+                    HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
+                ))),
+            })
+            // Not filtered for empties, unlike the string form: there a
+            // trailing separator naturally yields an empty token, whereas an
+            // empty array entry is something the caller wrote and validation
+            // should reject rather than silently drop.
+            .collect::<crate::error::Result<Vec<_>>>()?,
+        Some(_) => {
+            return Err(crate::error::Error::BadRequest(format!(
+                "{} expected to be a comma-separated string or an array of strings",
+                HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
+            )))
+        }
+    };
+
+    validate_allowed_origins(&origins)?;
+    Ok(origins)
 }
 
 pub const ENV_SETTINGS: &[&str] = &[
@@ -457,6 +711,7 @@ pub const ENV_SETTINGS: &[&str] = &[
     "OTEL_RESOURCE_ATTRIBUTES",
     "OTEL_JOB_LOGS",
     "OTEL_TRACES_RETENTION_SECS",
+    "AI_SHARED_ARTIFACT_RETENTION_SECS",
     "DISABLE_S3_STORE",
     "PG_SCHEMA",
     "PG_LISTENER_REFRESH_PERIOD_SECS",
@@ -685,6 +940,55 @@ pub fn workspace_integration_auth_endpoint(client_name: &str, base_url: &str) ->
 mod tests {
     use super::*;
 
+    // `frontend/src/lib/tokenExpiration.test.ts` holds the same table for the token form's
+    // parser; the two must stay in step.
+    #[test]
+    fn max_token_expiration_days_accepts_only_whole_days_within_the_bound() {
+        use serde_json::json;
+        for (stored, days) in [
+            (json!(7), 7),
+            (json!(7.0), 7),
+            (json!("7"), 7),
+            (json!(" 30 "), 30),
+            (json!("+7"), 7),
+            (
+                json!(MAX_TOKEN_EXPIRATION_DAYS_BOUND),
+                MAX_TOKEN_EXPIRATION_DAYS_BOUND,
+            ),
+        ] {
+            assert_eq!(
+                parse_max_token_expiration_days(Some(&stored)),
+                Ok(Some(days)),
+                "{stored}"
+            );
+        }
+        for cleared in [json!(null), json!(""), json!("  ")] {
+            assert_eq!(
+                parse_max_token_expiration_days(Some(&cleared)),
+                Ok(None),
+                "{cleared}"
+            );
+        }
+        assert_eq!(parse_max_token_expiration_days(None), Ok(None));
+        for bad in [
+            json!(7.5),
+            json!(0),
+            json!(-3),
+            json!("7.0"),
+            json!("1e1"),
+            json!("0x7"),
+            json!(MAX_TOKEN_EXPIRATION_DAYS_BOUND + 1),
+            json!("99999999999999999999"),
+            json!(true),
+            json!([7]),
+        ] {
+            assert!(
+                parse_max_token_expiration_days(Some(&bad)).is_err(),
+                "{bad} must be rejected"
+            );
+        }
+    }
+
     #[test]
     fn webhook_base_url_errors_never_echo_credentials() {
         // These strings reach sync-config output and operator logs, so no branch may
@@ -717,6 +1021,26 @@ mod tests {
                 !err.contains(SECRET),
                 "'{bad}' leaked its credential into: {err}"
             );
+        }
+    }
+
+    #[test]
+    fn accent_color_accepts_only_hex_rgb() {
+        for ok in ["#1f9d55", "#ABCDEF"] {
+            assert!(
+                validate_accent_color(&serde_json::json!(ok)).is_ok(),
+                "{ok}"
+            );
+        }
+        for bad in [
+            serde_json::json!("1f9d55"),
+            serde_json::json!("#fff"),
+            serde_json::json!("red"),
+            serde_json::json!("#000000;} body{display:none"),
+            serde_json::json!("#12345g"),
+            serde_json::json!(123),
+        ] {
+            assert!(validate_accent_color(&bad).is_err(), "{bad}");
         }
     }
 
@@ -802,6 +1126,9 @@ mod tests {
             "https://hooks.example.com#",
             "https://user:password@hooks.example.com",
             "https://user@hooks.example.com",
+            "https://hooks.example.com/$(uname)",
+            "https://hooks.example.com/`uname`",
+            "https://hooks.example.com/a;b",
         ];
         for v in accept {
             assert!(
@@ -846,6 +1173,7 @@ mod tests {
         // secrets. They must never be served by the agent-worker endpoint.
         for key in [
             JWT_SECRET_SETTING,
+            "rsa_keys",
             OAUTH_SETTING,
             SMTP_SETTING,
             SCIM_TOKEN_SETTING,

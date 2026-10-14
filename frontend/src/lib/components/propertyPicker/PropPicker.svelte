@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { ResourceService, VariableService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { getContext, onDestroy, untrack } from 'svelte'
 	import { Badge, Button } from '../common'
 	import type { PropPickerWrapperContext } from '../flows/propPicker/PropPickerWrapper.svelte'
@@ -12,6 +11,9 @@
 	import { filterNestedObject } from '../flows/previousResults'
 	import type { PropPickerContext } from '../prop_picker'
 	import Scrollable from '../Scrollable.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		pickableProperties: PickableProperties
@@ -101,7 +103,7 @@
 		variables = Object.fromEntries(
 			(
 				await VariableService.listVariable({
-					workspace: $workspaceStore ?? ''
+					workspace: $operatingWorkspace ?? ''
 				})
 			).map((variable) => [variable.path, variable.is_secret ? '***' : (variable.value ?? '')])
 		)
@@ -111,7 +113,7 @@
 		resources = Object.fromEntries(
 			(
 				await ResourceService.listResource({
-					workspace: $workspaceStore ?? ''
+					workspace: $operatingWorkspace ?? ''
 				})
 			).map((resource) => [resource.path, resource.description ?? ''])
 		)

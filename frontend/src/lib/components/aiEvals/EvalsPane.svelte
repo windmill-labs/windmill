@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import { Button } from '$lib/components/common'
 	import Select from '$lib/components/select/Select.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
@@ -22,7 +21,6 @@
 		type Scorer,
 		type ScorerMean
 	} from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { onDestroy, onMount, untrack } from 'svelte'
 	import {
@@ -52,6 +50,9 @@
 		subjectLabel,
 		type EvalsLocation
 	} from './evalUtils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	/** A dataset is capped at this many cases, so one page holds the whole set. */
 	const CASE_PAGE_SIZE = 1000
@@ -84,7 +85,7 @@
 		active?: boolean
 	} = $props()
 
-	let ws = $derived(opWorkspace ?? $workspaceStore)
+	let ws = $derived(opWorkspace ?? $operatingWorkspace)
 	let datasets = $state<EvalDataset[]>([])
 	let dataset = $state<EvalDataset | undefined>(undefined)
 	let selectedDataset = $state<string | undefined>(undefined)
@@ -766,7 +767,7 @@
 		{#if experiment?.run_job_id}
 			<a
 				class="text-xs text-accent hover:underline inline-flex items-center gap-1 shrink-0 pb-2"
-				href={`${base}/run/${experiment.run_job_id}?workspace=${ws}`}
+				href={`/run/${experiment.run_job_id}?workspace=${ws}`}
 				target="_blank"
 			>
 				Open the job
@@ -960,7 +961,7 @@
 								{#if openRow.job_id}
 									<a
 										class="text-2xs text-accent hover:underline inline-flex items-center gap-1"
-										href={`${base}/run/${openRow.job_id}?workspace=${ws}`}
+										href={`/run/${openRow.job_id}?workspace=${ws}`}
 										target="_blank"
 									>
 										Open the case job

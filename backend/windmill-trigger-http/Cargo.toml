@@ -34,6 +34,7 @@ regex.workspace = true
 matchit.workspace = true
 hyper.workspace = true
 futures.workspace = true
+rand.workspace = true
 
 # http_trigger_auth deps
 base64.workspace = true

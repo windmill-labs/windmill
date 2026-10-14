@@ -2,13 +2,14 @@
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import PreprocessedArgsDisplay from '$lib/components/runs/PreprocessedArgsDisplay.svelte'
 	import { getJobKindDisplayLabel, truncateHash } from '$lib/utils'
-	import { base } from '$lib/base'
 	import { truncateRev } from '$lib/utils'
-	import { workspaceStore } from '$lib/stores'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { ListFilter, Tag } from 'lucide-svelte'
 	import type { Job } from '$lib/gen'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		job: Job
@@ -33,7 +34,7 @@
 
 {#if job.script_hash && showScriptHash && job.job_kind !== 'aiagent'}
 	{#if job.job_kind == 'script'}
-		<a href="{base}/scripts/get/{job.script_hash}?workspace={$workspaceStore}"
+		<a href="/scripts/get/{job.script_hash}?workspace={$operatingWorkspace}"
 			><Badge color="gray" title={`Script hash: ${job.script_hash}`} {large}
 				>{truncateHash(job.script_hash)}
 			</Badge></a
@@ -107,7 +108,7 @@
 					</Button>
 				{:else}
 					<a
-						href={`${base}/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
+						href={`/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
 					>
 						{concurrencyKey}
 					</a>
@@ -119,7 +120,7 @@
 				</button>
 			{:else}
 				<a
-					href={`${base}/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
+					href={`/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
 				>
 					<Badge {large}>Concurrency: {truncateRev(concurrencyKey, 20)}</Badge>
 				</a>

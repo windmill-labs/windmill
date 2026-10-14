@@ -164,7 +164,10 @@ impl WebhookShared {
                 reqwest::Client::builder()
                     .connect_timeout(Duration::from_secs(5))
                     // TODO: investigate pool timeouts and such if TCP load is high
-                    .timeout(Duration::from_secs(5)),
+                    .timeout(Duration::from_secs(5))
+                    // The workspace webhook URL is SSRF-checked when saved; a redirect
+                    // would send the POST past that check.
+                    .redirect(reqwest::redirect::Policy::none()),
             )
             .build()
             .unwrap();

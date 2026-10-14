@@ -13,8 +13,7 @@
 	import TestTriggerConnection from '../TestTriggerConnection.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import TestingBadge from '../testingBadge.svelte'
-	import { workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		can_write?: boolean
@@ -36,8 +35,8 @@
 		showTestingBadge = false
 	}: Props = $props()
 
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	// Toggling the exchange binding on/off. Off means the queue is consumed
 	// directly with no exchange binding.
@@ -137,8 +136,9 @@
 								/>
 								<button
 									transition:fade|local={{ duration: 100 }}
-									class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover"
+									class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover disabled:opacity-50 disabled:cursor-not-allowed"
 									aria-label="Clear"
+									disabled={!can_write}
 									onclick={() => {
 										if (exchange) {
 											exchange.routing_keys = (exchange.routing_keys ?? []).filter(

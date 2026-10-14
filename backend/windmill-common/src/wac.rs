@@ -8,10 +8,16 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{Postgres, Transaction};
+use std::sync::atomic::AtomicBool;
 use uuid::Uuid;
 
 use crate::error::{self, Error};
 use crate::DB;
+
+/// Set when a child completion brought a parked WAC parent's `suspend` counter to
+/// zero, so a worker's pull loop tries the suspended-jobs query first instead of
+/// waiting for its next periodic attempt.
+pub static WAC_SUSPEND_READY: AtomicBool = AtomicBool::new(false);
 
 /// Checkpoint state persisted across workflow invocations.
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
@@ -671,4 +677,200 @@ pub async fn persist_inline_checkpoint_delta(
     .map_err(|e| Error::InternalErr(format!("Failed to write step timeline: {e}")))?;
 
     Ok(failure)
+}
+
+/// The step key a WAC v2 parent is waiting on `child_job` for, if any.
+///
+/// `job_ids` is the parent's `pending_steps.job_ids` (step key → child job id).
+/// A child absent from it is not a step this round is waiting on: a completion
+/// arriving after the parent re-dispatched the key to a new job, or a child the
+/// body launched directly (`runScript` and friends).
+fn pending_step_key(job_ids: &Value, child_job: &Uuid) -> Option<String> {
+    let child = child_job.to_string();
+    job_ids
+        .as_object()?
+        .iter()
+        .find_map(|(key, id)| (id.as_str() == Some(child.as_str())).then(|| key.clone()))
+}
+
+/// Record a completed child on its WAC parent, in the child's completion transaction.
+///
+/// Every path that brings a child to a terminal state — a worker's result, the
+/// zombie monitor, a cancel — completes it through `add_completed_job`, and this is
+/// where the parent learns of it. For a child the parent is parked on, the step's
+/// result (or failure record) is merged into the checkpoint's `completed_steps` and
+/// the parent's `suspend` counter drops by one, atomically with the child's own
+/// completion: there is no window in which the child is completed but the parent
+/// still waits for it. For any other child, only the timeline entry is stamped.
+///
+/// Returns whether the counter reached zero, i.e. the parent is ready to be pulled.
+///
+/// Exactly once: the merge is refused when `completed_steps` already holds the key
+/// or `job_ids` no longer maps it to this child, and the decrement follows only a
+/// merge that happened. Two completions of one child (a worker and the monitor
+/// racing) therefore decrement once, and a stale completion never touches a
+/// counter that belongs to a later round.
+///
+/// Lock order: the parent's queue row, then its status row, then (by the caller)
+/// the child's queue row. A cancel walks parent then children, the parent's own
+/// completion deletes its queue row and cascades to its status row, and the park
+/// (`suspend_wac_parent`) locks the queue row before writing the checkpoint, so
+/// any other order can deadlock against one of them.
+///
+/// Authorization: none is checked here. `child_job` is the job the caller is
+/// completing, which it already holds, and `parent_job` must be that job's
+/// persisted `v2_job.parent_job` (both callers read it from the child's row).
+/// The read that gates the step merge and the counter decrement joins on that
+/// relationship, so a mismatched pair changes no parent's `completed_steps` or
+/// `suspend`; only the timeline stamp at the end runs unconditionally. Job ids
+/// are global, so no workspace scoping is needed on top.
+pub async fn record_child_completion(
+    tx: &mut Transaction<'_, Postgres>,
+    parent_job: &Uuid,
+    child_job: &Uuid,
+    success: bool,
+    duration_ms: i64,
+    result: &str,
+) -> error::Result<bool> {
+    let job_ids: Option<Option<Value>> = sqlx::query_scalar(
+        "SELECT s.workflow_as_code_status->'_checkpoint'->'pending_steps'->'job_ids' \
+         FROM v2_job_status s JOIN v2_job c ON c.parent_job = s.id \
+         WHERE s.id = $1 AND c.id = $2",
+    )
+    .bind(parent_job)
+    .bind(child_job)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| Error::internal_err(format!("Failed to read WAC parent {parent_job}: {e}")))?;
+
+    let step_key = job_ids
+        .flatten()
+        .and_then(|ids| pending_step_key(&ids, child_job));
+
+    let mut parent_ready = false;
+    if let Some(step_key) = step_key {
+        let parked: Option<i32> =
+            sqlx::query_scalar("SELECT suspend FROM v2_job_queue WHERE id = $1 FOR UPDATE")
+                .bind(parent_job)
+                .fetch_optional(&mut **tx)
+                .await
+                .map_err(|e| {
+                    Error::internal_err(format!("Failed to lock WAC parent {parent_job}: {e}"))
+                })?;
+
+        if parked.is_some() {
+            let step_value = if success {
+                result.to_string()
+            } else {
+                let raw: Value = serde_json::from_str(result).unwrap_or(Value::Null);
+                wac_failure_record(&step_key, Some(&child_job.to_string()), &raw).to_string()
+            };
+            let merged: Option<i32> = sqlx::query_scalar(
+                "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
+                    workflow_as_code_status,
+                    '{_checkpoint,completed_steps}',
+                    COALESCE(workflow_as_code_status->'_checkpoint'->'completed_steps', '{}'::jsonb)
+                        || jsonb_build_object($2::text, $3::text::jsonb)
+                 ) WHERE id = $1
+                   AND workflow_as_code_status->'_checkpoint'->'pending_steps'->'job_ids'->>$2 = $4
+                   AND NOT COALESCE(workflow_as_code_status->'_checkpoint'->'completed_steps' ? $2, false)
+                 RETURNING 1",
+            )
+            .bind(parent_job)
+            .bind(&step_key)
+            .bind(&step_value)
+            .bind(child_job.to_string())
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(|e| {
+                Error::internal_err(format!("Failed to add WAC completed step: {e}"))
+            })?;
+
+            if merged.is_some() {
+                // `suspend_until` stays set: the suspended pull query is what takes a
+                // parked parent back, and it selects on `suspend_until IS NOT NULL`.
+                let suspend: Option<i32> = sqlx::query_scalar(
+                    "UPDATE v2_job_queue SET suspend = GREATEST(suspend - 1, 0) \
+                     WHERE id = $1 RETURNING suspend",
+                )
+                .bind(parent_job)
+                .fetch_optional(&mut **tx)
+                .await
+                .map_err(|e| Error::internal_err(format!("Failed to unsuspend WAC parent: {e}")))?;
+                parent_ready = suspend == Some(0);
+                if parent_ready {
+                    sqlx::query(
+                        "UPDATE v2_job_status SET workflow_as_code_status = \
+                         workflow_as_code_status #- '{_checkpoint,pending_steps}' WHERE id = $1",
+                    )
+                    .bind(parent_job)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|e| {
+                        Error::internal_err(format!("Failed to clear WAC pending steps: {e}"))
+                    })?;
+                }
+            }
+            tracing::info!(
+                parent_job = %parent_job,
+                child_job = %child_job,
+                step_key = %step_key,
+                success,
+                recorded = merged.is_some(),
+                parent_ready,
+                "WAC v2 child job completed"
+            );
+        }
+    }
+
+    // The child's entry in the parent's timeline, keyed by child id. The parent may
+    // already be completed (cancelled with its children still running), in which
+    // case the entry lives on its completed row instead. Errors propagate: a failed
+    // statement has already aborted the transaction, so there is nothing to continue with.
+    let stamped: Option<i32> = sqlx::query_scalar(
+        "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
+            jsonb_set(
+                workflow_as_code_status,
+                ARRAY[$1],
+                COALESCE(workflow_as_code_status->$1, '{}'::jsonb)
+            ),
+            ARRAY[$1, 'duration_ms'],
+            to_jsonb($2::bigint)
+         ) WHERE id = $3 AND workflow_as_code_status IS NOT NULL RETURNING 1",
+    )
+    .bind(child_job.to_string())
+    .bind(duration_ms)
+    .bind(parent_job)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|e| {
+        Error::internal_err(format!(
+            "Could not update parent job `duration_ms` in workflow as code status: {e}"
+        ))
+    })?;
+    if stamped.is_none() {
+        sqlx::query(
+            "UPDATE v2_job_completed SET workflow_as_code_status = jsonb_set(
+                jsonb_set(
+                    workflow_as_code_status,
+                    ARRAY[$1],
+                    COALESCE(workflow_as_code_status->$1, '{}'::jsonb)
+                ),
+                ARRAY[$1, 'duration_ms'],
+                to_jsonb($2::bigint)
+             ) WHERE id = $3 AND workflow_as_code_status IS NOT NULL",
+        )
+        .bind(child_job.to_string())
+        .bind(duration_ms)
+        .bind(parent_job)
+        .execute(&mut **tx)
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Could not update completed parent job `duration_ms` in workflow as code status: {e}"
+            ))
+        })?;
+    }
+
+    Ok(parent_ready)
 }

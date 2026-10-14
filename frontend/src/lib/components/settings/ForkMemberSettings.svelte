@@ -161,7 +161,7 @@
 				<Cell head first>Email</Cell>
 				<Cell head>Username</Cell>
 				<Cell head>Role</Cell>
-				<Cell head last><span class="sr-only">Actions</span></Cell>
+				<Cell head last actions><span class="sr-only">Actions</span></Cell>
 			</tr>
 		</Head>
 		<tbody>
@@ -187,7 +187,7 @@
 								{is_admin ? 'Admin' : operator ? 'Operator' : 'Developer'}
 							</Badge>
 						</Cell>
-						<Cell last>
+						<Cell last actions>
 							<Button
 								unifiedSize="sm"
 								variant="subtle"

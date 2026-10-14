@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import { SvelteSet } from 'svelte/reactivity'
 import Anthropic from '@anthropic-ai/sdk'
 import type {
 	ChatCompletionMessageParam,
@@ -20,6 +21,7 @@ import {
 	parseOpenAIResponsesCompletion
 } from './openai-responses'
 import type { Tool, ToolCallbacks } from './shared'
+import { OutputTokenLimitError } from './outputTokenLimit'
 import { sanitizeToolCallArguments } from './toolCallArguments'
 import { addChatTokenUsage, emptyChatTokenUsage, type ChatTokenUsage } from './tokenUsage'
 
@@ -70,13 +72,8 @@ export interface ChatLoopConfig {
 	 * lets the caller recover partial output if the loop throws or is aborted.
 	 */
 	addedMessages?: ChatCompletionMessageParam[]
-	/** Called before each iteration (e.g. to refresh tool schemas, or to record
-	 * which model the iteration is about to use). */
-	onBeforeIteration?: (
-		tools: Tool<any>[],
-		helpers: any,
-		modelProvider: ReasoningProviderModel
-	) => Promise<void>
+	/** Called before each iteration (e.g. to record which model it is about to use). */
+	onBeforeIteration?: (modelProvider: ReasoningProviderModel) => Promise<void>
 	/** Fired for each completed provider response, before the loop continues. The
 	 * loop can fail or be aborted at any iteration, so spend has to be handed over
 	 * as it happens — a callback only at the end would discard everything the
@@ -161,7 +158,9 @@ export function closeInterruptedToolBatch(
 	return [...paired, batch, ...answers, ...interrupted]
 }
 
-const unsupportedWebSearchCache = new Set<string>()
+// Reactive so the assistant settings modal stops listing web search the moment a
+// provider rejects it.
+const unsupportedWebSearchCache = new SvelteSet<string>()
 const WEB_SEARCH_UNAVAILABLE_STATUS_CODES = new Set([400, 403, 404])
 
 // Reasoning-summary availability is an org-level property of the provider
@@ -178,6 +177,20 @@ const unsupportedPromptCacheKeyCache = new Set<string>()
 
 function getWebSearchCacheKey(workspace: string, modelProvider: ReasoningProviderModel): string {
 	return [workspace, modelProvider.provider, modelProvider.model].join(':')
+}
+
+/** Whether a turn attaches the provider's native web search. `enabled` is the workspace's
+ * toggle for the provider. */
+export function sendsWebSearch(
+	workspace: string,
+	modelProvider: ReasoningProviderModel,
+	enabled: boolean
+): boolean {
+	return (
+		enabled &&
+		providerSupportsWebSearch(modelProvider.provider) &&
+		!unsupportedWebSearchCache.has(getWebSearchCacheKey(workspace, modelProvider))
+	)
 }
 
 function getReasoningSummaryCacheKey(
@@ -398,20 +411,19 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		// Re-read these from config each iteration so that mode changes
 		// (e.g. changeModeTool in Navigator) take effect immediately.
 		// Callers can use JS getter properties to provide dynamic values.
-		const tools = config.tools
 		const helpers = config.helpers
 		const systemMessage = config.systemMessage
 		const modelProvider = config.modelProvider
 		iterationModel = modelProvider
 		const webSearchCacheKey = getWebSearchCacheKey(workspace, modelProvider)
-		const webSearch =
-			(config.webSearch ?? true) &&
-			providerSupportsWebSearch(modelProvider.provider) &&
-			!unsupportedWebSearchCache.has(webSearchCacheKey)
+		const webSearch = sendsWebSearch(workspace, modelProvider, config.webSearch ?? true)
 
 		if (onBeforeIteration) {
-			await onBeforeIteration(tools, helpers, modelProvider)
+			await onBeforeIteration(modelProvider)
 		}
+		const tools = await Promise.all(
+			config.tools.map(async (t) => (t.schemaFor ? { ...t, def: await t.schemaFor(helpers) } : t))
+		)
 
 		const pendingUserMessage = getPendingUserMessage?.()
 
@@ -441,7 +453,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		const parseOptions = {
 			workspace,
 			provider: modelProvider.provider,
-			onTokenUsage: reportUsage
+			onTokenUsage: reportUsage,
+			live: () => ({ tools: config.tools, helpers: config.helpers })
 		}
 
 		if (isOpenAI) {
@@ -501,6 +514,11 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 					try {
 						outcome = (await runOpenAIResponses(useWebSearch)) ? 'continue' : 'break'
 					} catch (err) {
+						// The response streamed and was then cut off: retrying it on the
+						// Completions API would generate the whole iteration a second time.
+						if (err instanceof OutputTokenLimitError) {
+							throw err
+						}
 						if (reasoningSummary && shouldRetryWithoutReasoningSummary(err)) {
 							markReasoningSummaryUnsupported(
 								reasoningSummaryCacheKey,

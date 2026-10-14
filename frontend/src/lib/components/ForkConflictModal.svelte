@@ -32,29 +32,29 @@
 
 <ConfirmationModal
 	open={!!state}
-	title="Enable in fork conflicts with parent"
+	title="Enable in fork conflicts with upstream workspace"
 	confirmationText="Enable anyway"
 	onConfirmed={() => close(true)}
 	onCanceled={() => close(false)}
 >
 	{#if state}
 		<p>
-			The parent workspace (<span class="font-mono">{state.parentWorkspaceId}</span>) has the same
-			{state.kindLabel} configured at this path. Because this fork's row was cloned from it, the upstream
-			identifier is shared.
+			The upstream workspace (<span class="font-mono">{state.upstreamWorkspaceId}</span>) this fork
+			descends from has the same {state.kindLabel} configured at this path. Because this fork's row was
+			cloned from it, the upstream identifier is shared.
 		</p>
 		<p class="mt-2">
 			{#if family === 'split'}
 				If both are enabled, the two listeners will compete on the same upstream and each side will
 				receive only a fraction of its events.
 			{:else if family === 'duplicate'}
-				If both are enabled, every event will fire the script twice — once in the fork and once in
-				the parent.
+				If both are enabled, every event will fire the script twice: once in the fork and once in
+				the upstream workspace.
 			{:else if family === 'slot'}
 				The cloned <span class="font-mono">replication_slot_name</span> points at the same Postgres slot,
 				which only allows one consumer at a time. Enabling here will either fail with "slot already active"
-				if the parent is enabled, or hijack the slot's WAL position if it isn't — causing the parent
-				to lose events when re-enabled.
+				if the upstream workspace is enabled, or hijack the slot's WAL position if it isn't, causing
+				it to lose events when re-enabled.
 			{:else}
 				Enabling it here may compete for the same upstream events or duplicate side effects.
 			{/if}

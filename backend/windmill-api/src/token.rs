@@ -193,12 +193,17 @@ lazy_static! {
                 ScopeOption {
                     value: "jobs:read".to_string(),
                     label: "Read".to_string(),
-                    requires_resource_path: false,
+                    requires_resource_path: true,
                 },
                 ScopeOption {
                     value: "jobs:write".to_string(),
                     label: "Write".to_string(),
                     requires_resource_path: false,
+                },
+                ScopeOption {
+                    value: "jobs:cancel".to_string(),
+                    label: "Cancel".to_string(),
+                    requires_resource_path: true,
                 },
                 ScopeOption {
                     value: "jobs:run:scripts".to_string(),
@@ -208,6 +213,11 @@ lazy_static! {
                 ScopeOption {
                     value: "jobs:run:flows".to_string(),
                     label: "Run flows".to_string(),
+                    requires_resource_path: true,
+                },
+                ScopeOption {
+                    value: "jobs:run:dependencies".to_string(),
+                    label: "Generate dependency locks".to_string(),
                     requires_resource_path: true,
                 },
             ],

@@ -1,5 +1,4 @@
 import { untrack } from 'svelte'
-import { base } from '$lib/base'
 import {
 	AppService,
 	FlowService,
@@ -486,10 +485,10 @@ export class DeployToHubSession {
 
 	itemUrl(kind: ItemKind, path: string): string | undefined {
 		if (!path) return undefined
-		return `${base}/${ITEM_KIND_ROUTE[kind]}/${path}?workspace=${this.workspace}`
+		return `/${ITEM_KIND_ROUTE[kind]}/${path}?workspace=${this.workspace}`
 	}
 	triggerListUrl(kind: WorkspaceTriggerKind): string {
-		return `${base}/${TRIGGER_KINDS[kind].route}?workspace=${this.workspace}`
+		return `/${TRIGGER_KINDS[kind].route}?workspace=${this.workspace}`
 	}
 
 	#patchItem(key: string, patch: Partial<DeployItem>) {

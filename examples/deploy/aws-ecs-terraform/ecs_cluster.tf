@@ -17,9 +17,10 @@ resource "aws_launch_template" "windmill_cluster_lt" {
   }
 
   network_interfaces {
-    device_index                = 0
-    delete_on_termination       = true
-    associate_public_ip_address = true
+    device_index          = 0
+    delete_on_termination = true
+    # Private subnets: outbound traffic goes through the NAT gateways, so no public IP.
+    associate_public_ip_address = false
     security_groups = [
       aws_security_group.windmill_cluster_sg.id
     ]
@@ -57,6 +58,16 @@ resource "aws_autoscaling_group" "windmill_cluster_asg" {
     value               = true
     propagate_at_launch = true
   }
+
+  # The ECS agent on these instances reaches AWS through private route -> NAT gateway -> public
+  # route -> internet gateway. Keeping that whole path until the instances are gone lets
+  # `terraform destroy` drain and delete the ECS services, which otherwise hang in DRAINING.
+  depends_on = [
+    aws_route_table_association.windmill_cluster_subnet_private1__rtb_private1,
+    aws_route_table_association.windmill_cluster_subnet_private2__rtb_private2,
+    aws_route_table_association.windmill_cluster_subnet_public1__rtb_public,
+    aws_route_table_association.windmill_cluster_subnet_public2__rtb_public,
+  ]
 }
 
 resource "aws_ecs_cluster" "windmill_cluster" {

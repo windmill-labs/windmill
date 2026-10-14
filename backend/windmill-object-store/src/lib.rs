@@ -68,8 +68,8 @@ pub mod object_store_reexports {
     pub use object_store::path::Path;
     pub use object_store::{
         Attribute, Attributes, Error as ObjectStoreError, GetOptions, GetRange, GetResult,
-        ObjectStore, PutMultipartOpts, PutPayload, PutResult, Result as ObjectStoreResult,
-        WriteMultipart,
+        ObjectMeta, ObjectStore, PutMode, PutMultipartOpts, PutOptions, PutPayload, PutResult,
+        Result as ObjectStoreResult, UpdateVersion, WriteMultipart,
     };
 }
 
@@ -118,6 +118,10 @@ pub fn object_store_error_to_error(err: object_store::Error) -> error::Error {
 pub struct ExpirableObjectStore {
     pub store: Arc<dyn ObjectStore>,
     pub refresh: Option<ObjectStoreRefresh>,
+    /// What locates the store's objects ([`object_store_location`]), for a store built from
+    /// settings. Kept with the store rather than read off the settings again, so a server
+    /// whose reload is still pending never names one store by another's location.
+    pub location: Option<String>,
 }
 
 #[cfg(feature = "parquet")]
@@ -155,7 +159,7 @@ impl ObjectStoreRefresh {
 #[cfg(feature = "parquet")]
 impl From<Arc<dyn ObjectStore>> for ExpirableObjectStore {
     fn from(store: Arc<dyn ObjectStore>) -> Self {
-        Self { store, refresh: None }
+        Self { store, refresh: None, location: None }
     }
 }
 
@@ -197,6 +201,15 @@ static CACHE_OVERRIDE_GENERATION: std::sync::atomic::AtomicU64 =
 async fn resolve_object_store(
     settings_lock: &RwLock<Option<ExpirableObjectStore>>,
 ) -> Option<Arc<dyn ObjectStore>> {
+    resolve_object_store_with_location(settings_lock)
+        .await
+        .map(|(store, _)| store)
+}
+
+#[cfg(feature = "parquet")]
+async fn resolve_object_store_with_location(
+    settings_lock: &RwLock<Option<ExpirableObjectStore>>,
+) -> Option<(Arc<dyn ObjectStore>, Option<String>)> {
     let settings = settings_lock.read().await;
     let Some(s) = settings.as_ref() else {
         return None;
@@ -212,24 +225,31 @@ async fn resolve_object_store(
                 // A reload may have installed a different store while the credentials were
                 // being minted; that one reflects newer config, so the refresh is stale.
                 Some(current) if !Arc::ptr_eq(&current.store, &refreshed_from) => {
-                    Some(current.store.clone())
+                    Some((current.store.clone(), current.location.clone()))
                 }
                 Some(_) => {
-                    let arc = new_store.store.clone();
+                    let found = (new_store.store.clone(), new_store.location.clone());
                     *settings = Some(new_store);
-                    Some(arc)
+                    Some(found)
                 }
                 // Cleared while refreshing.
                 None => None,
             }
         }
-        _ => Some(s.store.clone()),
+        _ => Some((s.store.clone(), s.location.clone())),
     }
 }
 
 #[cfg(feature = "parquet")]
 pub async fn get_object_store() -> Option<Arc<dyn ObjectStore>> {
     resolve_object_store(&OBJECT_STORE_SETTINGS).await
+}
+
+/// The instance object store with what locates its objects ([`object_store_location`]),
+/// read together; the location is `None` for a store installed without settings.
+#[cfg(feature = "parquet")]
+pub async fn get_object_store_with_location() -> Option<(Arc<dyn ObjectStore>, Option<String>)> {
+    resolve_object_store_with_location(&OBJECT_STORE_SETTINGS).await
 }
 
 /// The store the dependency cache reads and writes: the worker group's override when it has one,
@@ -422,20 +442,22 @@ pub async fn reload_object_store_setting(db: &windmill_common::DB) -> ObjectStor
                     tracing::error!("S3 cache is not available for pro plan");
                     return ObjectStoreReload::Never;
                 }
-                *s3_cache_settings = build_s3_client_from_settings(S3Settings {
-                    bucket: None,
-                    region: None,
-                    access_key: None,
-                    secret_key: None,
-                    endpoint: None,
-                    store_logs: None,
-                    path_style: None,
-                    allow_http: None,
-                    port: None,
-                })
+                *s3_cache_settings = build_object_store_from_settings(
+                    ObjectSettings::S3(S3Settings {
+                        bucket: None,
+                        region: None,
+                        access_key: None,
+                        secret_key: None,
+                        endpoint: None,
+                        store_logs: None,
+                        path_style: None,
+                        allow_http: None,
+                        port: None,
+                    }),
+                    Some(db),
+                )
                 .await
                 .ok()
-                .map(|x| ExpirableObjectStore::from(x))
             } else {
                 *s3_cache_settings = None;
             }
@@ -561,8 +583,175 @@ pub async fn ambient_aws_credentials(
     ambient_aws_credentials_provider(region).await.get().await
 }
 
+/// An object-store HTTP connector whose client cannot reach a non-public address.
+///
+/// Validating a caller-supplied endpoint up front does not bind the connection: object_store
+/// resolves the host again when it connects, so a name can answer a public address to the check
+/// and an internal one to the connect. This client resolves every host through
+/// [`PublicOnlyResolver`], which judges the very addresses it hands to the connect, refuses IP-literal
+/// hosts that are not public (they never reach a resolver), and follows no redirect.
+///
+/// The environment's egress proxy (`HTTP(S)_PROXY`/`ALL_PROXY`) is still used, and its own host is
+/// exempt from the resolver check: it is operator configuration and typically internal. A request
+/// whose target is the proxy host itself is refused, so the exemption only ever serves the proxy
+/// hop. A proxied request's target is resolved by the proxy, out of this client's reach (see
+/// `ssrf::ValidatedTarget`).
+#[cfg(feature = "parquet")]
+#[derive(Debug, Clone, Copy)]
+pub struct PublicOnlyConnector;
+
+#[cfg(feature = "parquet")]
+impl object_store::client::HttpConnector for PublicOnlyConnector {
+    fn connect(
+        &self,
+        options: &ClientOptions,
+    ) -> object_store::Result<object_store::client::HttpClient> {
+        let allow_http = options
+            .get_config_value(&object_store::ClientConfigKey::AllowHttp)
+            .is_some_and(|v| v == "true");
+        let proxy_hosts: Arc<[String]> = system_proxy_hosts().into();
+        let client = reqwest_object_store::Client::builder()
+            .dns_resolver(Arc::new(PublicOnlyResolver {
+                proxy_hosts: proxy_hosts.clone(),
+            }))
+            .redirect(reqwest_object_store::redirect::Policy::none())
+            .connect_timeout(std::time::Duration::from_secs(5))
+            .default_headers(HeaderMap::from_iter([(
+                reqwest::header::ACCEPT_ENCODING,
+                reqwest::header::HeaderValue::from_static(""),
+            )]))
+            .no_gzip()
+            .no_brotli()
+            .no_deflate()
+            .no_zstd()
+            .https_only(!allow_http)
+            .build()
+            .map_err(|e| object_store::Error::Generic {
+                store: "HTTP client",
+                source: Box::new(e),
+            })?;
+        Ok(object_store::client::HttpClient::new(PublicOnlyClient {
+            client,
+            proxy_hosts,
+        }))
+    }
+}
+
+#[cfg(feature = "parquet")]
+#[derive(Debug)]
+struct PublicOnlyClient {
+    client: reqwest_object_store::Client,
+    proxy_hosts: Arc<[String]>,
+}
+
+#[cfg(feature = "parquet")]
+#[async_trait]
+impl object_store::client::HttpService for PublicOnlyClient {
+    async fn call(
+        &self,
+        req: object_store::client::HttpRequest,
+    ) -> Result<object_store::client::HttpResponse, object_store::client::HttpError> {
+        let host = req.uri().host().unwrap_or_default();
+        let literal = host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<std::net::IpAddr>()
+            .ok();
+        let refused = if literal.is_some_and(|ip| windmill_common::ssrf::is_private_ip(&ip)) {
+            Some("a private, loopback, or link-local address")
+        } else if self
+            .proxy_hosts
+            .iter()
+            .any(|p| p.eq_ignore_ascii_case(host))
+        {
+            Some("the egress proxy")
+        } else {
+            None
+        };
+        if let Some(what) = refused {
+            return Err(object_store::client::HttpError::new(
+                object_store::client::HttpErrorKind::Unknown,
+                std::io::Error::other(format!("'{host}' is {what}")),
+            ));
+        }
+        object_store::client::HttpService::call(&self.client, req).await
+    }
+}
+
+#[cfg(feature = "parquet")]
+struct PublicOnlyResolver {
+    proxy_hosts: Arc<[String]>,
+}
+
+/// The hosts of the proxies reqwest picks up from the environment.
+#[cfg(feature = "parquet")]
+fn system_proxy_hosts() -> Vec<String> {
+    [
+        "HTTP_PROXY",
+        "http_proxy",
+        "HTTPS_PROXY",
+        "https_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+    ]
+    .into_iter()
+    .filter_map(|k| std::env::var(k).ok())
+    .filter_map(|v| {
+        let v = v.trim();
+        let url = if v.contains("://") {
+            v.to_string()
+        } else {
+            format!("http://{v}")
+        };
+        Some(
+            reqwest::Url::parse(&url)
+                .ok()?
+                .host_str()?
+                .to_ascii_lowercase(),
+        )
+    })
+    .collect()
+}
+
+#[cfg(feature = "parquet")]
+impl reqwest_object_store::dns::Resolve for PublicOnlyResolver {
+    fn resolve(
+        &self,
+        name: reqwest_object_store::dns::Name,
+    ) -> reqwest_object_store::dns::Resolving {
+        let is_proxy = self
+            .proxy_hosts
+            .iter()
+            .any(|p| p.eq_ignore_ascii_case(name.as_str()));
+        Box::pin(async move {
+            let host = name.as_str();
+            let addrs: Vec<std::net::SocketAddr> =
+                tokio::net::lookup_host((host, 0)).await?.collect();
+            if !is_proxy
+                && addrs
+                    .iter()
+                    .any(|a| windmill_common::ssrf::is_private_ip(&a.ip()))
+            {
+                return Err(format!(
+                    "'{host}' resolves to a private, loopback, or link-local address"
+                )
+                .into());
+            }
+            Ok(Box::new(addrs.into_iter()) as reqwest_object_store::dns::Addrs)
+        })
+    }
+}
+
 #[cfg(feature = "parquet")]
 pub async fn build_s3_client(s3_resource_ref: &S3Resource) -> error::Result<Arc<dyn ObjectStore>> {
+    build_s3_client_with(s3_resource_ref, None).await
+}
+
+#[cfg(feature = "parquet")]
+async fn build_s3_client_with(
+    s3_resource_ref: &S3Resource,
+    connector: Option<PublicOnlyConnector>,
+) -> error::Result<Arc<dyn ObjectStore>> {
     let static_creds = s3_resource_has_static_credentials(s3_resource_ref);
 
     let credentials_provider = if !static_creds {
@@ -601,6 +790,9 @@ pub async fn build_s3_client(s3_resource_ref: &S3Resource) -> error::Result<Arc<
     if !s3_resource.use_ssl {
         store_builder = store_builder.with_allow_http(true)
     }
+    if let Some(connector) = connector {
+        store_builder = store_builder.with_http_connector(connector);
+    }
 
     if let Some(key) = s3_resource.access_key {
         if key != "" {
@@ -633,6 +825,14 @@ pub async fn build_s3_client(s3_resource_ref: &S3Resource) -> error::Result<Arc<
 #[cfg(feature = "parquet")]
 fn build_azure_blob_client(
     azure_blob_resource_ref: &AzureBlobResource,
+) -> error::Result<Arc<dyn ObjectStore>> {
+    build_azure_blob_client_with(azure_blob_resource_ref, None)
+}
+
+#[cfg(feature = "parquet")]
+fn build_azure_blob_client_with(
+    azure_blob_resource_ref: &AzureBlobResource,
+    connector: Option<PublicOnlyConnector>,
 ) -> error::Result<Arc<dyn ObjectStore>> {
     let blob_resource = azure_blob_resource_ref.clone();
 
@@ -679,6 +879,9 @@ fn build_azure_blob_client(
     if !blob_resource.use_ssl.unwrap_or(false) {
         store_builder = store_builder.with_allow_http(true)
     }
+    if let Some(connector) = connector {
+        store_builder = store_builder.with_http_connector(connector);
+    }
 
     if let Some(key) = blob_resource.access_key {
         if key != "" {
@@ -713,6 +916,14 @@ pub fn gcs_service_account_key_is_blank(service_account_key: &str) -> bool {
 
 #[cfg(feature = "parquet")]
 async fn build_gcs_client(gcs_resource_ref: &GcsResource) -> error::Result<Arc<dyn ObjectStore>> {
+    build_gcs_client_with(gcs_resource_ref, None).await
+}
+
+#[cfg(feature = "parquet")]
+async fn build_gcs_client_with(
+    gcs_resource_ref: &GcsResource,
+    connector: Option<PublicOnlyConnector>,
+) -> error::Result<Arc<dyn ObjectStore>> {
     let gcs_resource = gcs_resource_ref.clone();
 
     let mut store_builder = GoogleCloudStorageBuilder::new()
@@ -731,6 +942,9 @@ async fn build_gcs_client(gcs_resource_ref: &GcsResource) -> error::Result<Arc<d
     // blank/`{}` key to `with_service_account_key` would instead fail to parse.
     if !gcs_service_account_key_is_blank(&gcs_resource.service_account_key) {
         store_builder = store_builder.with_service_account_key(gcs_resource.service_account_key);
+    }
+    if let Some(connector) = connector {
+        store_builder = store_builder.with_http_connector(connector);
     }
 
     let store = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| store_builder.build()))
@@ -887,18 +1101,81 @@ impl ObjectStore for FilesystemStoreIgnoringAttributes {
     }
 }
 
+/// What locates a store's objects: endpoint, port, region and bucket (or account and
+/// container, or root), never the credentials, which rotate. Two stores with the same
+/// location hold the same objects.
+pub fn object_store_location(resource: &ObjectStoreResource) -> String {
+    match resource {
+        ObjectStoreResource::S3(s) => format!(
+            "s3:{}:{}:{}:{}",
+            s.endpoint,
+            s.port.unwrap_or_default(),
+            s.region,
+            s.bucket
+        ),
+        ObjectStoreResource::Azure(a) => format!(
+            "azure:{}:{}:{}",
+            a.endpoint.as_deref().unwrap_or_default(),
+            a.account_name,
+            a.container_name
+        ),
+        ObjectStoreResource::Gcs(g) => format!("gcs:{}", g.bucket),
+        ObjectStoreResource::Filesystem(f) => format!("fs:{}", f.root_path),
+    }
+}
+
 #[cfg(feature = "parquet")]
 pub async fn build_object_store_from_settings(
     settings: ObjectSettings,
     init_private_key: Option<&windmill_common::DB>,
 ) -> error::Result<ExpirableObjectStore> {
+    build_object_store_from_settings_with(settings, init_private_key, None).await
+}
+
+/// [`build_object_store_from_settings`] for a caller-supplied endpoint: the client refuses to
+/// connect to any non-public address (see [`PublicOnlyConnector`]). Filesystem and OIDC settings
+/// are refused; whether S3, Azure or GCS settings carry explicit credentials (rather than falling
+/// back to the server's ambient ones) is still the caller's to check.
+#[cfg(feature = "parquet")]
+pub async fn build_public_object_store_from_settings(
+    settings: ObjectSettings,
+) -> error::Result<Arc<dyn ObjectStore>> {
     match settings {
-        ObjectSettings::S3(s3_settings) => build_s3_client_from_settings(s3_settings)
-            .await
-            .map(|x| ExpirableObjectStore::from(x)),
+        ObjectSettings::S3(_) | ObjectSettings::Azure(_) | ObjectSettings::Gcs(_) => {
+            build_object_store_from_settings_with(settings, None, Some(PublicOnlyConnector))
+                .await
+                .map(|x| x.store)
+        }
+        ObjectSettings::AwsOidc(_) | ObjectSettings::Filesystem(_) => {
+            Err(error::Error::BadRequest(
+                "This object storage backend cannot be restricted to public endpoints".to_string(),
+            ))
+        }
+    }
+}
+
+#[cfg(feature = "parquet")]
+async fn build_object_store_from_settings_with(
+    settings: ObjectSettings,
+    init_private_key: Option<&windmill_common::DB>,
+    connector: Option<PublicOnlyConnector>,
+) -> error::Result<ExpirableObjectStore> {
+    let located =
+        |store: Arc<dyn ObjectStore>, resource: ObjectStoreResource| ExpirableObjectStore {
+            store,
+            refresh: None,
+            location: Some(object_store_location(&resource)),
+        };
+    match settings {
+        ObjectSettings::S3(s3_settings) => {
+            let s3_resource = s3_resource_from_settings(s3_settings);
+            build_s3_client_with(&s3_resource, connector)
+                .await
+                .map(|x| located(x, ObjectStoreResource::S3(s3_resource)))
+        }
         ObjectSettings::Azure(azure_settings) => {
-            let azure_blob_resource = azure_settings;
-            build_azure_blob_client(&azure_blob_resource).map(|x| ExpirableObjectStore::from(x))
+            build_azure_blob_client_with(&azure_settings, connector)
+                .map(|x| located(x, ObjectStoreResource::Azure(azure_settings)))
         }
         ObjectSettings::AwsOidc(ref s3_aws_oidc_settings) => {
             let token_generator = crate::job_s3_helpers_oss::TokenGenerator::AsServerInstance();
@@ -914,17 +1191,14 @@ pub async fn build_object_store_from_settings(
                 .map(|x| ExpirableObjectStore {
                     store: x,
                     refresh: Some(ObjectStoreRefresh::new(settings.clone(), res.expiration())),
+                    location: Some(object_store_location(&res)),
                 })
         }
-        ObjectSettings::Gcs(gcs_settings) => {
-            let gcs_resource = gcs_settings;
-            build_gcs_client(&gcs_resource)
-                .await
-                .map(|x| ExpirableObjectStore::from(x))
-        }
-        ObjectSettings::Filesystem(fs) => {
-            build_filesystem_client(&fs.root_path).map(|x| ExpirableObjectStore::from(x))
-        }
+        ObjectSettings::Gcs(gcs_settings) => build_gcs_client_with(&gcs_settings, connector)
+            .await
+            .map(|x| located(x, ObjectStoreResource::Gcs(gcs_settings))),
+        ObjectSettings::Filesystem(fs) => build_filesystem_client(&fs.root_path)
+            .map(|x| located(x, ObjectStoreResource::Filesystem(fs))),
     }
 }
 
@@ -937,14 +1211,14 @@ fn none_if_empty(s: Option<String>) -> Option<String> {
     }
 }
 
+/// The S3 resource instance settings resolve to, the environment filling in what they
+/// leave out.
 #[cfg(feature = "parquet")]
-pub async fn build_s3_client_from_settings(
-    settings: S3Settings,
-) -> error::Result<Arc<dyn ObjectStore>> {
+fn s3_resource_from_settings(settings: S3Settings) -> S3Resource {
     let region = none_if_empty(settings.region)
         .unwrap_or_else(|| std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".to_string()));
 
-    let s3_resource = S3Resource {
+    S3Resource {
         endpoint: none_if_empty(settings.endpoint).unwrap_or_else(|| {
             std::env::var("S3_ENDPOINT").unwrap_or_else(|_| format!("s3.{region}.amazonaws.com"))
         }),
@@ -959,9 +1233,7 @@ pub async fn build_s3_client_from_settings(
         port: settings.port,
         token: None,
         expiration: None,
-    };
-
-    build_s3_client(&s3_resource).await
+    }
 }
 
 // Resolving the default chain goes over the network (ECS/IMDS) on instances relying on an
@@ -2622,6 +2894,74 @@ mod tests {
         assert!(cache_object_store_override_failed().await);
 
         reload_cache_object_store_override(&db, None).await;
+    }
+
+    /// A store built from settings is located by where its objects are, not by how the
+    /// client describes itself: an S3 client prints only its bucket, so the same bucket name
+    /// on another endpoint would otherwise pass for the same store.
+    #[cfg(feature = "parquet")]
+    #[tokio::test]
+    async fn test_settings_store_location_tells_endpoints_apart() {
+        let s3 = |endpoint: &str| {
+            ObjectSettings::S3(S3Settings {
+                bucket: Some("windmill".to_string()),
+                region: Some("us-east-1".to_string()),
+                access_key: Some("key".to_string()),
+                secret_key: Some("secret".to_string()),
+                endpoint: Some(endpoint.to_string()),
+                allow_http: Some(true),
+                path_style: Some(true),
+                store_logs: None,
+                port: None,
+            })
+        };
+        let a = build_object_store_from_settings(s3("minio.internal:9000"), None)
+            .await
+            .unwrap();
+        let b = build_object_store_from_settings(s3("s3.us-east-1.amazonaws.com"), None)
+            .await
+            .unwrap();
+        assert_eq!(a.store.to_string(), b.store.to_string());
+        assert!(a.location.is_some());
+        assert_ne!(a.location, b.location);
+    }
+
+    /// The restricted store judges the addresses it connects to, not only what an earlier check
+    /// resolved: neither a hostname that resolves to loopback nor a loopback literal gets a
+    /// connection.
+    #[cfg(feature = "parquet")]
+    #[tokio::test]
+    async fn test_public_store_refuses_to_connect_to_private_address() {
+        use futures::StreamExt;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        for endpoint in ["localhost", "127.0.0.1"] {
+            let settings = ObjectSettings::S3(S3Settings {
+                bucket: Some("windmill".to_string()),
+                region: Some("us-east-1".to_string()),
+                access_key: Some("key".to_string()),
+                secret_key: Some("secret".to_string()),
+                endpoint: Some(endpoint.to_string()),
+                allow_http: Some(true),
+                path_style: Some(true),
+                store_logs: None,
+                port: Some(listener.local_addr().unwrap().port()),
+            });
+            let store = build_public_object_store_from_settings(settings)
+                .await
+                .unwrap();
+            // The listener never answers, so a store that connects waits forever: bound it.
+            let err =
+                tokio::time::timeout(std::time::Duration::from_secs(30), store.list(None).next())
+                    .await
+                    .unwrap_or_else(|_| panic!("the store connected to {endpoint}"))
+                    .unwrap()
+                    .unwrap_err();
+            assert!(
+                format!("{err:?}").contains("private, loopback, or link-local"),
+                "{endpoint}: {err:?}"
+            );
+        }
     }
 
     // --- get_logs_from_store test ---

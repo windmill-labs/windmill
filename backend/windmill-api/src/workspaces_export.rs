@@ -119,6 +119,8 @@ struct ScriptMetadata {
     pub debouncing_settings: DebouncingSettings,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_token_scopes: Option<Vec<String>>,
     #[serde(skip_serializing_if = "is_empty_extra_perms")]
     pub extra_perms: serde_json::Value,
 }
@@ -281,8 +283,29 @@ enum ArchiveImpl {
     Tar(tokio_tar::Builder<File>),
 }
 
+/// Entry paths come from item paths stored in the workspace; an absolute or
+/// drive-prefixed path, or a parent segment, would make extraction write outside
+/// the target directory. Win32 strips trailing dots and spaces from a segment,
+/// so `.. ` resolves to `..` there: any segment made only of those is refused.
+/// A colon matters only in the first segment (a drive prefix); later segments,
+/// such as a data table name, may carry one.
+fn check_archive_entry_path(path: &str) -> Result<()> {
+    let is_dot_segment = |seg: &str| !seg.is_empty() && seg.chars().all(|c| c == '.' || c == ' ');
+    let first = path.split(['/', '\\']).next().unwrap_or_default();
+    if path.starts_with(['/', '\\'])
+        || first.contains(':')
+        || path.split(['/', '\\']).any(is_dot_segment)
+    {
+        return Err(Error::internal_err(format!(
+            "refusing to write archive entry with path traversal: {path}"
+        )));
+    }
+    Ok(())
+}
+
 impl ArchiveImpl {
     async fn write_to_archive(&mut self, content: &str, path: &str) -> Result<()> {
+        check_archive_entry_path(path)?;
         match self {
             ArchiveImpl::Tar(t) => {
                 let bytes = content.as_bytes();
@@ -885,6 +908,7 @@ pub(crate) async fn tarball_workspace(
                     .then_some(true),
                 modules: script.modules,
                 labels: script.labels,
+                job_token_scopes: script.job_token_scopes,
                 // Same opt-in contract as flow/app: the tarball only surfaces
                 // ACLs when `?preserve_extra_perms=true`. Passing `Null` lets the
                 // `is_empty_extra_perms` skip-serializer drop the field entirely.
@@ -924,7 +948,7 @@ pub(crate) async fn tarball_workspace(
     if !skip_resource_types.unwrap_or(false) {
         let resource_types = sqlx::query_as!(
             ResourceType,
-            "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset FROM resource_type WHERE workspace_id = $1",
+            "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset, display_name FROM resource_type WHERE workspace_id = $1",
             &w_id
         )
         .fetch_all(&mut *tx)
@@ -945,7 +969,7 @@ pub(crate) async fn tarball_workspace(
 
     {
         let flows = sqlx::query_as::<_, Flow>(
-             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of, flow.labels, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
+             "SELECT flow.workspace_id, flow.path, flow.summary, flow.description, flow.archived, flow.extra_perms, flow.dedicated_worker, flow.tag, flow.ws_error_handler_muted, flow.timeout, flow.visible_to_runner_only, flow.on_behalf_of, flow.labels, flow.job_token_scopes, flow_version.schema, flow_version.value, flow_version.created_at as edited_at, flow_version.created_by as edited_by
              FROM flow
              LEFT JOIN flow_version ON flow_version.id = flow.versions[array_upper(flow.versions, 1)]
              WHERE flow.workspace_id = $1 AND flow.archived = false",
@@ -1425,9 +1449,17 @@ pub(crate) async fn tarball_workspace(
             use strum::IntoEnumIterator;
 
             for service_name in ServiceName::iter() {
-                let native_triggers =
-                    list_native_triggers(&mut *tx, &w_id, service_name, None, None, None, None)
-                        .await?;
+                let native_triggers = list_native_triggers(
+                    &mut *tx,
+                    &w_id,
+                    service_name,
+                    None,
+                    None,
+                    None,
+                    None,
+                    windmill_api_auth::ScopePathFilter::AllowAll,
+                )
+                .await?;
 
                 // Native triggers (Nextcloud, Google Drive, GitHub) are never
                 // cloned into a fork — a fork only has one if its owner created
@@ -1587,10 +1619,10 @@ pub(crate) async fn tarball_workspace(
 
         // Use v2 format only if explicitly requested, otherwise use v1 (legacy) for backward compatibility
         // Server-owned state (the HMAC webhook secret + hook id/error, the
-        // synced-sha / last-pull status, and what the credential check observed)
-        // must never leave the server: keep it out of export archives and synced
-        // repos, and don't let a re-imported workspace inherit another install's
-        // hook/sync state. Mirrors the GET-settings redaction.
+        // synced-sha / last-pull status, the admin automatic pulls run as, and what
+        // the credential check observed) must never leave the server: keep it out of
+        // export archives and synced repos, and don't let a re-imported workspace
+        // inherit another install's hook/sync state or pull identity.
         fn redact_git_sync_for_export(git_sync: Option<Value>) -> Option<Value> {
             let mut git_sync = git_sync?;
             if let Some(repos) = git_sync
@@ -1607,6 +1639,7 @@ pub(crate) async fn tarball_workspace(
                             "webhook_error",
                             "last_synced_sha",
                             "last_pull_status",
+                            "enabled_by",
                         ] {
                             auto_pull.remove(field);
                         }
@@ -1638,7 +1671,9 @@ pub(crate) async fn tarball_workspace(
                 mute_critical_alerts: row.mute_critical_alerts,
                 color: row.color.clone(),
                 operator_settings: row.operator_settings.clone(),
-                datatable: row.datatable.clone(),
+                datatable: windmill_common::workspaces::strip_datatable_permissions(
+                    row.datatable.clone(),
+                ),
                 slack_team_id: row.slack_team_id.clone(),
                 slack_name: row.slack_name.clone(),
                 slack_command_script: row.slack_command_script.clone(),
@@ -1702,7 +1737,7 @@ pub(crate) async fn tarball_workspace(
                 mute_critical_alerts: row.mute_critical_alerts,
                 color: row.color,
                 operator_settings: row.operator_settings,
-                datatable: row.datatable,
+                datatable: windmill_common::workspaces::strip_datatable_permissions(row.datatable),
                 slack_team_id: row.slack_team_id,
                 slack_name: row.slack_name,
                 slack_command_script: row.slack_command_script,
@@ -1781,6 +1816,41 @@ pub(crate) async fn tarball_workspace(
         ),
     ];
     Ok((headers, body))
+}
+
+#[cfg(test)]
+mod archive_entry_path_tests {
+    use super::check_archive_entry_path;
+
+    #[test]
+    fn rejects_traversal_and_absolute_paths() {
+        for ok in [
+            "u/admin/app.app.json",
+            "f/x/a..b.script.json",
+            "settings.yaml",
+            "migrations/datatable/foo:bar/20260617120000_name.up.sql",
+        ] {
+            assert!(
+                check_archive_entry_path(ok).is_ok(),
+                "{ok} should be accepted"
+            );
+        }
+        for bad in [
+            "f/x/../../evil.app.json",
+            "../evil",
+            "/etc/evil",
+            "f\\..\\evil",
+            "f/x/.. /.. /evil.app.json",
+            "f/x/.../evil",
+            "C:/evil",
+            "\\evil",
+        ] {
+            assert!(
+                check_archive_entry_path(bad).is_err(),
+                "{bad} should be rejected"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT f.path\n            FROM workspace_runnable_dependencies wru\n            JOIN flow f\n                ON wru.flow_path = f.path AND wru.workspace_id = f.workspace_id\n            WHERE wru.runnable_path = $1 AND wru.runnable_is_agent AND wru.workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "path",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "46e65196c2a4f07d171a22f1e45c6ac927bd0e6b0f383626e673225065ee90bf"
+}

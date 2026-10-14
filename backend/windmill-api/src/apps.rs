@@ -56,8 +56,11 @@ use std::str;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
-    apps::{AppScriptId, ListAppQuery, APP_WORKSPACED_ROUTE},
-    auth::TOKEN_PREFIX_LEN,
+    apps::{
+        app_value_has_inline_script, app_value_runnable_paths, AppScriptId, ListAppQuery,
+        APP_WORKSPACED_ROUTE,
+    },
+    auth::{APP_EMBED_TOKEN_LABEL_PREFIX, RAW_APP_SDK_TOKEN_LABEL_PREFIX, TOKEN_PREFIX_LEN},
     cache::{self, future::FutureCachedExt},
     db::{DbWithOptAuthed, UserDB},
     error::{to_anyhow, Error, JsonResult, Result},
@@ -69,13 +72,14 @@ use windmill_common::{
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     users::username_to_permissioned_as,
     utils::{
-        http_get_from_hub, not_found_if_none, paginate, query_elems_from_hub, require_admin,
-        strip_json_nul, Pagination, RunnableKind, StripPath,
+        check_proper_path, http_get_from_hub, not_found_if_none, paginate, paginate_optional,
+        query_elems_from_hub, require_admin, strip_json_nul, Pagination, RunnableKind, StripPath,
     },
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
     worker::{to_raw_value, CLOUD_HOSTED},
     workspaces::{
-        check_deploy_rules, check_user_against_rule, ProtectionRuleKind, RuleCheckResult,
+        check_deploy_rules, check_operator_can_build, check_user_against_rule,
+        operator_builder_rights, BuilderKind, ProtectionRuleKind, RuleCheckResult,
     },
     HUB_BASE_URL,
 };
@@ -284,6 +288,12 @@ pub struct AppHistory {
     pub version: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deployment_msg: Option<String>,
+    /// Who deployed this version, and when — the diff's version picker names them so
+    /// a reader can tell their own deploys from a teammate's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[derive(Deserialize)]
@@ -481,6 +491,12 @@ pub struct PolicyTriggerableInputs {
     sensitive_inputs: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tag: Option<String>,
+    /// The runnable reads data as the app's viewer rather than as the app's identity: data table
+    /// connections that name no role, and object storage advanced permission rules. Honored for
+    /// inline runnables only: their code is deployed with the app, so it is the publisher who
+    /// chose to read with the viewer's rights.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    viewer_data_access: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -574,6 +590,17 @@ pub struct CreateApp {
     /// Transient — never persisted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skip_draft_deletion: Option<bool>,
+}
+
+/// What a deploy of an existing app answers with. `version` is the one this call wrote,
+/// which is what an editor pins as the fork base of the draft it starts next: reading the
+/// head back afterwards cannot tell it from a deploy that landed beside it. A
+/// metadata-only update writes none and reports the head it kept.
+#[derive(Serialize)]
+pub struct AppDeployed {
+    /// Where the app now lives, which differs from the request path on a rename.
+    pub path: String,
+    pub version: i64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -741,7 +768,7 @@ async fn list_apps(
     // Append the authed user's `app`/`raw_app` drafts at paths with no deployed app;
     // see scripts.rs.
     if lq.include_draft_only.unwrap_or(false)
-        && !authed.is_operator
+        && (!authed.is_operator || operator_builder_rights(&db, &w_id).await?.apps)
         && offset == 0
         && lq.path_start.is_none()
         && lq.path_exact.is_none()
@@ -756,6 +783,7 @@ async fn list_apps(
                       path,
                       value as "value!: sqlx::types::Json<Box<serde_json::value::RawValue>>",
                       created_at,
+                      email IS NULL as "legacy!",
                       typ::text as "typ!"
                FROM draft
                WHERE workspace_id = $1
@@ -805,9 +833,9 @@ async fn list_apps(
                 inherited_labels: None,
                 is_draft: true,
                 draft_path,
-                // Synthesized rows are the authed user's own draft.
+                // Owned by nobody when legacy; see scripts.rs.
                 draft_users: Some(sqlx::types::Json(vec![DraftUserRef {
-                    username: Some(authed.username.clone()),
+                    username: (!row.legacy).then(|| authed.username.clone()),
                 }])),
             });
         }
@@ -970,7 +998,14 @@ async fn get_raw_app_data(
             // the opaque, sandboxed wrapper (incl. under a cross-origin-isolated
             // / COEP `require-corp` embedder).
             .header("X-Content-Type-Options", "nosniff")
-            .header("Cross-Origin-Resource-Policy", "cross-origin");
+            .header("Cross-Origin-Resource-Policy", "cross-origin")
+            // The secret names one app version, whose bundle is written once at deploy,
+            // so the URL's content never changes. `private`: the URL is a capability, so
+            // shared caches must not keep serving it after the app is deleted.
+            .header(
+                http::header::CACHE_CONTROL,
+                "private, max-age=31536000, immutable",
+            );
         Ok(res.body(body).unwrap())
     } else {
         return Err(Error::NotFound("File not found".to_string()));
@@ -989,7 +1024,6 @@ fn raw_app_wrapper_html(secret: &str) -> String {
 <html>
 <head>
 <meta charset="UTF-8" />
-<title>App</title>
 <link rel="stylesheet" href="./__SECRET__.css" />
 <script>
 (function () {
@@ -1040,6 +1074,17 @@ fn raw_app_wrapper_html(secret: &str) -> String {
   var _ps = history.pushState, _rs = history.replaceState;
   history.pushState = function () { _ps.apply(this, arguments); notifyParent(); };
   history.replaceState = function () { _rs.apply(this, arguments); notifyParent(); };
+
+  // The parent shows the app's document.title in its tab. This document has no
+  // <title> of its own: document.title reads the first one, so a placeholder would
+  // shadow the one a framework (React 19, react-helmet) appends.
+  var lastTitle = '';
+  new MutationObserver(function () {
+    var t = document.title;
+    if (t === lastTitle) return;
+    lastTitle = t;
+    try { window.parent.postMessage({ type: 'windmill:title', title: t }, '*'); } catch (_) {}
+  }).observe(document.head, { childList: true, subtree: true, characterData: true });
 
   // ctx handshake: the embedding parent hands us the user context (and any
   // persisted storage) before we evaluate the bundle, so `window.ctx` is set
@@ -1236,18 +1281,42 @@ async fn get_app_history(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(pagination): Query<Pagination>,
 ) -> JsonResult<Vec<AppHistory>> {
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:read:{}", &path))?;
+    // Unasked-for, this listing stays whole: the deployment-history panel reads it
+    // without paging. The diff picker asks for a page.
+    let (per_page, offset) = paginate_optional(pagination);
     let mut tx = user_db.begin(&authed).await?;
+    // Newest first in deployed order, which is a version's position in `app.versions` and
+    // not its `created_at`: the latter is the deploying transaction's start time, so two
+    // that overlap can carry it in the opposite order from the one they landed in. A row
+    // outside the array never sat in that sequence, so it sorts after the ones that did.
+    // Paging happens before the metadata joins, so a page costs its own rows.
     let query_result = sqlx::query!(
-        "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg
-        FROM app a LEFT JOIN app_version av ON a.id = av.app_id LEFT JOIN deployment_metadata dm ON av.id = dm.app_version
+        "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg,
+                av.created_by as created_by, av.created_at as created_at
+        FROM app a
+        JOIN LATERAL (
+            SELECT av2.id, COALESCE(v.ord, 0) AS ord
+            FROM app_version av2
+            LEFT JOIN unnest(a.versions) WITH ORDINALITY AS v(id, ord) ON v.id = av2.id
+            WHERE av2.app_id = a.id
+            ORDER BY ord DESC, av2.id DESC
+            LIMIT $3 OFFSET $4
+        ) page ON TRUE
+        JOIN app_version av ON av.id = page.id
+        LEFT JOIN deployment_metadata dm ON av.id = dm.app_version
         WHERE a.workspace_id = $1 AND a.path = $2
-        ORDER BY created_at DESC",
+        ORDER BY page.ord DESC",
         w_id,
         path,
-    ).fetch_all(&mut *tx).await?;
+        per_page,
+        offset,
+    )
+    .fetch_all(&mut *tx)
+    .await?;
     tx.commit().await?;
 
     let result: Vec<AppHistory> = query_result
@@ -1256,6 +1325,8 @@ async fn get_app_history(
             app_id: row.app_id,
             version: row.version_id,
             deployment_msg: row.deployment_msg,
+            created_by: Some(row.created_by),
+            created_at: Some(row.created_at),
         })
         .collect();
     return Ok(Json(result));
@@ -1269,14 +1340,22 @@ async fn get_latest_version(
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
+    // The head is the tail of `app.versions` — the version the runtime serves. Deploys
+    // append to it under the app row's lock, whereas `app_version.created_at` is the
+    // deploying transaction's start time, so two that overlap can carry it in either
+    // order and the newest timestamp is then not the one that landed last.
     let row = sqlx::query!(
-        "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg
-        FROM app a LEFT JOIN app_version av ON a.id = av.app_id LEFT JOIN deployment_metadata dm ON av.id = dm.app_version
-        WHERE a.workspace_id = $1 AND a.path = $2
-        ORDER BY created_at DESC",
+        "SELECT a.id as app_id, av.id as version_id, dm.deployment_msg as deployment_msg,
+                av.created_by as created_by, av.created_at as created_at
+        FROM app a JOIN app_version av
+             ON av.id = a.versions[array_upper(a.versions, 1)] AND av.app_id = a.id
+        LEFT JOIN deployment_metadata dm ON av.id = dm.app_version
+        WHERE a.workspace_id = $1 AND a.path = $2",
         w_id,
         path,
-    ).fetch_optional(&mut *tx).await?;
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
     tx.commit().await?;
 
     if let Some(row) = row {
@@ -1284,6 +1363,8 @@ async fn get_latest_version(
             app_id: row.app_id,
             version: row.version_id,
             deployment_msg: row.deployment_msg,
+            created_by: Some(row.created_by),
+            created_at: Some(row.created_at),
         };
 
         return Ok(Json(Some(result)));
@@ -1459,12 +1540,14 @@ const APP_EMBED_TOKEN_VALIDITY_HOURS: i64 = 12;
 /// Scopes an app author may declare in `Policy::frontend_sdk_scopes`. No `apps:*`
 /// scope, so the token cannot reach the mint endpoints and renew itself; the
 /// `raw_app_sdk` sentinel narrows the rest (see `scopes.rs`).
-pub const FRONTEND_SDK_ALLOWED_SCOPES: [&str; 5] = [
+pub const FRONTEND_SDK_ALLOWED_SCOPES: [&str; 7] = [
     "jobs:run",
     "jobs:read",
     "users:read",
     "resources:read",
     "variables:read",
+    "flow_conversations:read",
+    "flow_conversations:write",
 ];
 
 /// Reject a policy declaring frontend SDK scopes outside the curated list.
@@ -1539,7 +1622,10 @@ async fn mint_raw_app_sdk_token(
                 scopes.push(windmill_api_auth::scopes::GUEST_SENTINEL.to_string());
                 (label, exp)
             }
-            None => (format!("sdk_app:{app_path}"), requested_exp),
+            None => (
+                format!("{RAW_APP_SDK_TOKEN_LABEL_PREFIX}{app_path}"),
+                requested_exp,
+            ),
         };
     let token_config = NewToken::new(
         Some(label),
@@ -1693,11 +1779,14 @@ async fn mint_preview_sdk_token(
     Path(w_id): Path<String>,
     Json(req): Json<PreviewSdkTokenRequest>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot preview raw apps".to_string(),
-        ));
-    }
+    check_operator_can_build(
+        &db,
+        &w_id,
+        authed.is_operator,
+        BuilderKind::Apps,
+        "preview raw apps",
+    )
+    .await?;
     check_scopes(&authed, || format!("apps:write:{}", req.path))?;
     let (token, _expiration) =
         mint_raw_app_sdk_token(&db, &w_id, &req.path, &authed, &req.scopes, job_id).await?;
@@ -1821,7 +1910,10 @@ pub async fn mint_app_embed_token(
                     scopes.push(windmill_api_auth::scopes::GUEST_SENTINEL.to_string());
                     (label, exp)
                 }
-                None => (format!("embed_app:{app_path}"), requested_exp),
+                None => (
+                    format!("{APP_EMBED_TOKEN_LABEL_PREFIX}{app_path}"),
+                    requested_exp,
+                ),
             };
         let token_config = NewToken::new(
             Some(label),
@@ -2052,18 +2144,23 @@ async fn get_id_from_secret(
     prefix: Option<&str>,
 ) -> Result<i64> {
     let mc = build_crypt(db, w_id).await?;
-    let decrypted = mc
-        .decrypt_bytes_to_bytes(&(hex::decode(secret)?))
-        .map_err(|e| Error::internal_err(e.to_string()))?;
-    let mut bytes = str::from_utf8(&decrypted).map_err(to_anyhow)?;
-    if let Some(prefix) = prefix {
-        if !bytes.starts_with(prefix) {
-            return Err(Error::BadRequest("Invalid secret".to_string()));
-        }
-        bytes = bytes.strip_prefix(prefix).unwrap_or("");
+    id_from_secret(&mc, &secret, prefix)
+        .ok_or_else(|| Error::BadRequest("Invalid secret".to_string()))
+}
+
+/// The secret comes from the URL of unauthenticated routes, so every way it can be invalid
+/// must produce the same response: a caller must never learn why a secret was rejected.
+fn id_from_secret(
+    mc: &magic_crypt::MagicCrypt256,
+    secret: &str,
+    prefix: Option<&str>,
+) -> Option<i64> {
+    let decrypted = mc.decrypt_bytes_to_bytes(&hex::decode(secret).ok()?).ok()?;
+    let plaintext = String::from_utf8(decrypted).ok()?;
+    match prefix {
+        Some(prefix) => plaintext.strip_prefix(prefix)?.parse().ok(),
+        None => plaintext.parse().ok(),
     }
-    let id: i64 = bytes.parse().map_err(to_anyhow)?;
-    Ok(id)
 }
 
 async fn get_public_resource(
@@ -2212,6 +2309,262 @@ async fn store_raw_app_file<'a>(
 
     Ok(())
 }
+/// A builder app write is held to one set of rules whether it deploys or saves a draft: the
+/// editor previews a draft as whoever opens it, and an admin may deploy it as it stands. A deploy
+/// fills in what a draft must state, since it stores the policy it checked.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) enum BuilderAppWrite {
+    Deploy,
+    Draft,
+}
+
+/// The half of the builder-app check that needs no DB (see `docs/operator-builder-rights.md`).
+/// Returns every runnable the app can invoke, as `(is_flow, path)`, from both the policy's
+/// triggerables and the value's path runnables: they are not the same list.
+fn check_operator_composed_app(
+    write: BuilderAppWrite,
+    raw_app: bool,
+    value: Option<&RawValue>,
+    policy: Option<&mut Policy>,
+) -> Result<Vec<(bool, String)>> {
+    let verb = if write == BuilderAppWrite::Deploy {
+        "deploy"
+    } else {
+        "save"
+    };
+    if !raw_app {
+        return Err(Error::PermissionDenied(
+            "Operators with builder rights can only author full-code apps".to_string(),
+        ));
+    }
+    let mut referenced: Vec<(bool, String)> = Vec::new();
+    if let Some(value) = value {
+        // The text stored, NULs stripped: a stripped NUL can rename a key into one this reads.
+        let value: serde_json::Value =
+            serde_json::from_str(&strip_json_nul(value.get())).map_err(to_anyhow)?;
+        if app_value_has_inline_script(&value) {
+            return Err(Error::PermissionDenied(format!(
+                "Operators with builder rights cannot {verb} an app carrying inline scripts"
+            )));
+        }
+        referenced.extend(app_value_runnable_paths(&value)?);
+    }
+    let Some(policy) = policy else {
+        return Err(match write {
+            BuilderAppWrite::Deploy => Error::BadRequest(
+                "Operators with builder rights must deploy an app with its policy".to_string(),
+            ),
+            BuilderAppWrite::Draft => Error::PermissionDenied(
+                "Operators with builder rights can only save sandboxed apps".to_string(),
+            ),
+        });
+    };
+    // Every deploy of a draft rebuilds `triggerables_v2` from the runnables, so a draft's copy,
+    // stale since the last deploy, must not block autosave. A deploy path that skips the rebuild
+    // must stop exempting it here.
+    if write == BuilderAppWrite::Draft {
+        policy.triggerables_v2 = None;
+    }
+    referenced.extend(checked_policy_runnable_paths(policy)?);
+    match (policy.sandbox, write) {
+        (Some(true), _) => {}
+        (None, BuilderAppWrite::Deploy) => policy.sandbox = Some(true),
+        _ => {
+            return Err(Error::PermissionDenied(format!(
+                "Operators with builder rights can only {verb} sandboxed apps"
+            )))
+        }
+    }
+
+    // Viewer mode would make the triggerables collected above non-exhaustive (see the docs), and
+    // the deploy panel shows it as members-only, so an admin deploying a draft would not see it.
+    // Pin an omitted mode on deploy: `update_app_internal` resolves it to the deployed app's, so a
+    // redeploy over an admin's viewer-mode app would otherwise inherit `Viewer`.
+    match policy.stated_execution_mode() {
+        Some(ExecutionMode::Viewer) => {
+            return Err(Error::PermissionDenied(format!(
+                "Operators with builder rights cannot {verb} an app that runs as its viewer"
+            )))
+        }
+        None if write == BuilderAppWrite::Deploy => {
+            policy.set_execution_mode(ExecutionMode::Publisher)
+        }
+        _ => {}
+    }
+
+    referenced.sort();
+    referenced.dedup();
+    refuse_hub_runnables(&referenced)?;
+    Ok(referenced)
+}
+
+/// The runnables a builder app's policy authorizes, as `(is_flow, path)`; refuses a policy that
+/// pins inline code.
+fn checked_policy_runnable_paths(policy: &Policy) -> Result<Vec<(bool, String)>> {
+    // A `rawscript/<sha>` triggerable is the deployed app's authorization to run caller-supplied
+    // `raw_code` hashing to it: pinning one hands a builder arbitrary code execution through an
+    // app whose value passed the inline-script check. A composition-only app has none.
+    fn pins_raw_script<T>(map: &Option<HashMap<String, T>>) -> bool {
+        map.iter()
+            .flat_map(|m| m.keys())
+            .any(|k| k.starts_with("rawscript/") || k.contains(":rawscript/"))
+    }
+    if pins_raw_script(&policy.triggerables) || pins_raw_script(&policy.triggerables_v2) {
+        return Err(Error::PermissionDenied(
+            "Operators with builder rights cannot save or deploy an app whose policy pins inline code"
+                .to_string(),
+        ));
+    }
+    // `execute_component` looks up `{component}:{path}` with an unrestricted component, so every
+    // colon is a possible split (`a:b:script/x` resolves for `component = "a:b"`): check every
+    // suffix that parses as a runnable. That copies a key once per colon, so bound the key first:
+    // a 255-char path plus a component name is far below the cap.
+    const MAX_KEY_LEN: usize = 512;
+    let keys = || {
+        policy
+            .triggerables
+            .iter()
+            .flat_map(|t| t.keys())
+            .chain(policy.triggerables_v2.iter().flat_map(|t| t.keys()))
+    };
+    if keys().any(|k| k.len() > MAX_KEY_LEN) {
+        return Err(Error::BadRequest(format!(
+            "App policy triggerable keys must be at most {MAX_KEY_LEN} bytes"
+        )));
+    }
+    Ok(keys()
+        .flat_map(|key| {
+            std::iter::once(key.as_str())
+                .chain(key.match_indices(':').map(|(i, _)| &key[i + 1..]))
+                .filter_map(|candidate| {
+                    candidate
+                        .strip_prefix("script/")
+                        .map(|p| (false, p.to_string()))
+                        .or_else(|| {
+                            candidate
+                                .strip_prefix("flow/")
+                                .map(|p| (true, p.to_string()))
+                        })
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect())
+}
+
+fn refuse_hub_runnables(referenced: &[(bool, String)]) -> Result<()> {
+    for (_, path) in referenced {
+        if path.starts_with("hub/") {
+            return Err(Error::PermissionDenied(format!(
+                "Operators with builder rights cannot reference the hub runnable {path}. Deploy it to the workspace first."
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Runs on every app write by an operator with builder rights, from inside the create/update
+/// internals so both raw-app endpoints are covered by one check.
+///
+/// `execute_component` resolves the runnable it picks with the root DB handle, so a path the
+/// builder cannot read would still run, and in a `Viewer` app it would run as whoever opened it.
+/// RLS on this transaction is the check; refusing `Viewer` above is what makes it exhaustive.
+pub(crate) async fn validate_operator_composed_app(
+    authed: &ApiAuthed,
+    db: &DB,
+    user_db: &UserDB,
+    w_id: &str,
+    write: BuilderAppWrite,
+    raw_app: bool,
+    value: Option<&RawValue>,
+    policy: Option<&mut Policy>,
+) -> Result<()> {
+    // A deploy resets the run identity to its builder (unless they are in `wm_deployers`, see
+    // docs/operator-builder-rights.md); a draft keeps whatever it names, which an admin's
+    // one-click draft deploy preserves without showing it.
+    if let (BuilderAppWrite::Draft, Some(policy)) = (write, policy.as_deref()) {
+        let names_another = policy
+            .on_behalf_of
+            .as_deref()
+            .is_some_and(|p| p != username_to_permissioned_as(&authed.username))
+            // The address a caller may still *send*, which the policy no longer stores: the
+            // guard is about what this write names, so both spellings have to be checked.
+            || policy
+                .submitted_on_behalf_of_email
+                .as_deref()
+                .is_some_and(|e| e != authed.email);
+        if names_another {
+            return Err(Error::PermissionDenied(
+                "Operators with builder rights cannot save an app that runs as someone else"
+                    .to_string(),
+            ));
+        }
+    }
+    let referenced = check_operator_composed_app(write, raw_app, value, policy)?;
+    require_runnables_readable(authed, db, user_db, w_id, referenced).await
+}
+
+async fn require_runnables_readable(
+    authed: &ApiAuthed,
+    db: &DB,
+    user_db: &UserDB,
+    w_id: &str,
+    referenced: Vec<(bool, String)>,
+) -> Result<()> {
+    if referenced.is_empty() {
+        return Ok(());
+    }
+    // Each script version carries its own grants, and a path reused after its versions were
+    // archived starts with none. Check the version a run would pick, found without RLS, not
+    // whichever version the caller happens to see. Resolved before the transaction opens so no
+    // request holds two pool connections at once.
+    let mut hashes = Vec::with_capacity(referenced.len());
+    for (is_flow, path) in &referenced {
+        hashes.push(if *is_flow {
+            None
+        } else {
+            windmill_common::get_latest_script_hash(db, path, w_id).await?
+        });
+    }
+    let mut tx = user_db.clone().begin(authed).await?;
+    for ((is_flow, path), hash) in referenced.into_iter().zip(hashes) {
+        let readable = if is_flow {
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2)",
+                w_id,
+                path,
+            )
+            .fetch_one(&mut *tx)
+            .await?
+            .unwrap_or(false)
+        } else {
+            match hash {
+                Some(hash) => sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND hash = $2)",
+                    w_id,
+                    hash,
+                )
+                .fetch_one(&mut *tx)
+                .await?
+                .unwrap_or(false),
+                None => false,
+            }
+        };
+        // One message for every cause: telling "no runnable version" apart from "not readable"
+        // would reveal that a path the caller cannot read exists.
+        if !readable {
+            return Err(Error::PermissionDenied(if is_flow {
+                format!("Flow {path} does not exist or is not readable by you")
+            } else {
+                format!(
+                    "Script {path} does not exist, is not readable by you, or has not finished deploying"
+                )
+            }));
+        }
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
 macro_rules! process_app_multipart {
     ($authed:expr, $user_db:expr, $db:expr, $w_id:expr, $path:expr, $multipart:expr, $internal_fn:expr) => {
         async {
@@ -2288,11 +2641,14 @@ async fn create_app_raw<'a>(
     Path(w_id): Path<String>,
     multipart: Multipart,
 ) -> Result<(StatusCode, String)> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot create apps for security reasons".to_string(),
-        ));
-    }
+    check_operator_can_build(
+        &db,
+        &w_id,
+        authed.is_operator,
+        BuilderKind::Apps,
+        "create apps",
+    )
+    .await?;
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -2464,9 +2820,23 @@ async fn create_app_internal<'a>(
     // inside process_app_multipart!, so checking after this call would leave a
     // denied app committed in the DB.
     check_scopes(&authed, || format!("apps:write:{}", &app.path))?;
+    check_proper_path(&app.path)?;
     validate_frontend_sdk_scopes(&app.policy)?;
     if raw_app {
         validate_raw_app_path_keys(&app.value.0)?;
+    }
+    if authed.is_operator {
+        validate_operator_composed_app(
+            &authed,
+            &db,
+            &user_db,
+            w_id,
+            BuilderAppWrite::Deploy,
+            raw_app,
+            Some(&app.value.0),
+            Some(&mut app.policy),
+        )
+        .await?;
     }
     if *CLOUD_HOSTED {
         let nb_apps =
@@ -2600,6 +2970,14 @@ async fn create_app_internal<'a>(
         .execute(&mut *tx)
         .await?;
     }
+    windmill_common::user_drafts::clear_draft_moves_from(
+        &mut tx,
+        &w_id,
+        &[UserDraftItemKind::App, UserDraftItemKind::RawApp],
+        &app.path,
+        None,
+    )
+    .await?;
     let id = sqlx::query_scalar!(
         "INSERT INTO app
             (workspace_id, path, summary, policy, versions, custom_path, labels)
@@ -2702,6 +3080,7 @@ async fn create_app_internal<'a>(
         None,
         None,
         None,
+        None,
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
@@ -2763,13 +3142,23 @@ async fn delete_app(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot delete apps for security reasons".to_string(),
-        ));
-    }
+    check_operator_can_build(
+        &db,
+        &w_id,
+        authed.is_operator,
+        BuilderKind::Apps,
+        "delete apps",
+    )
+    .await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:write:{}", path))?;
+    // One endpoint deletes both kinds, and builder rights only cover full-code apps.
+    if authed.is_operator && deployed_app_kind(&user_db, &authed, &w_id, path).await? != Some(true)
+    {
+        return Err(Error::PermissionDenied(
+            "Operators with builder rights can only delete full-code apps".to_string(),
+        ));
+    }
 
     if path == "g/all/setup_app" && w_id == "admins" {
         return Err(Error::BadRequest(
@@ -2956,14 +3345,21 @@ async fn update_app(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditApp>,
-) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot update apps for security reasons".to_string(),
-        ));
-    }
-    // create_app_internal(authed, user_db, db, &w_id, &mut app).await?;
+) -> JsonResult<AppDeployed> {
     let path = path.to_path();
+    // The deploy panel saves a deployed full-code app's access and frontend scopes here. A
+    // builder may change those settings; the app itself only through `update_app_raw`.
+    if authed.is_operator {
+        check_operator_can_build(&db, &w_id, true, BuilderKind::Apps, "update apps").await?;
+        if ns.value.is_some()
+            || deployed_app_kind(&user_db, &authed, &w_id, path).await? != Some(true)
+        {
+            return Err(Error::PermissionDenied(
+                "Operators with builder rights can only change the settings of full-code apps"
+                    .to_string(),
+            ));
+        }
+    }
     check_scopes(&authed, || format!("apps:write:{}", path))?;
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -2980,8 +3376,10 @@ async fn update_app(
 
     let opath = path.to_string();
     let db2 = db.clone();
+    // Settings-only for an operator, of an app checked above to be full-code.
+    let raw_app = authed.is_operator;
     let (new_tx, npath, v_id) =
-        update_app_internal(authed, db, user_db, &w_id, path, false, ns, None).await?;
+        update_app_internal(authed, db, user_db, &w_id, path, raw_app, ns, None).await?;
     new_tx.commit().await?;
 
     tally_app_rename(&db2, &w_id, &opath, &npath, v_id).await;
@@ -2995,7 +3393,7 @@ async fn update_app(
         },
     );
 
-    Ok(format!("app {} updated (npath: {:?})", opath, npath))
+    Ok(Json(AppDeployed { path: npath, version: v_id }))
 }
 
 /// Deploy a raw app from its sources, compiling them on a worker. `update_raw`
@@ -3009,7 +3407,11 @@ async fn update_app_raw_source(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(ns): Json<EditApp>,
-) -> Result<String> {
+) -> JsonResult<AppDeployed> {
+    // Stays closed to operators even with builder rights, unlike `create_app_raw`/`update_app_raw`
+    // next to it: this path compiles caller-supplied sources with a bundler job on a worker, which
+    // is arbitrary code execution. Builders lose nothing: the browser and the CLI both bundle
+    // locally and deploy through the multipart endpoints.
     if authed.is_operator {
         return Err(Error::NotAuthorized(
             "Operators cannot update apps for security reasons".to_string(),
@@ -3107,7 +3509,7 @@ async fn update_app_raw_source(
         },
     );
 
-    Ok(format!("app {} updated (npath: {:?})", opath, npath))
+    Ok(Json(AppDeployed { path: npath, version: v_id }))
 }
 
 /// Whether the caller may create an app at `path` — asked of the database rather
@@ -3170,6 +3572,7 @@ async fn create_app_raw_source(
     Path(w_id): Path<String>,
     Json(mut app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
+    // Closed to builders too, for the reason on `update_app_raw_source`.
     if authed.is_operator {
         return Err(Error::NotAuthorized(
             "Operators cannot create apps for security reasons".to_string(),
@@ -3200,6 +3603,7 @@ async fn create_app_raw_source(
     // Before the compile, which costs a job on a worker: it must not run for a
     // path already taken, nor for one the caller can't write. `create_app_internal`
     // rejects both, but only after the sources have been built.
+    check_proper_path(&path)?;
     if app_exists(&db, &w_id, &path).await? {
         return Err(Error::BadRequest(format!("App {path} already exists")));
     }
@@ -3333,12 +3737,15 @@ async fn update_app_raw<'a>(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
     multipart: Multipart,
-) -> Result<String> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot update apps for security reasons".to_string(),
-        ));
-    }
+) -> JsonResult<AppDeployed> {
+    check_operator_can_build(
+        &db,
+        &w_id,
+        authed.is_operator,
+        BuilderKind::Apps,
+        "update apps",
+    )
+    .await?;
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -3354,6 +3761,14 @@ async fn update_app_raw<'a>(
 
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:write:{}", path))?;
+    // `update_app_internal` only compares kinds when a new value is deployed, so a
+    // policy-only update would otherwise let a builder rewrite a low-code app's policy.
+    if authed.is_operator && deployed_app_kind(&user_db, &authed, &w_id, path).await? != Some(true)
+    {
+        return Err(Error::PermissionDenied(
+            "Operators with builder rights can only update full-code apps".to_string(),
+        ));
+    }
     let opath = path.to_string();
     let db2 = db.clone();
     let (npath, v_id) = process_app_multipart!(
@@ -3381,7 +3796,7 @@ async fn update_app_raw<'a>(
         },
     );
 
-    Ok(format!("app {} updated (npath: {:?})", opath, npath))
+    Ok(Json(AppDeployed { path: npath, version: v_id }))
 }
 // async fn create_app_internal<'a>(
 //     authed: ApiAuthed,
@@ -3410,12 +3825,32 @@ async fn update_app_internal<'a>(
     // the token's write scope, not just the source path.
     if let Some(npath) = ns.path.as_deref() {
         check_scopes(&authed, || format!("apps:write:{}", npath))?;
+        if npath != path {
+            check_proper_path(npath)?;
+        }
     }
 
     if raw_app {
         if let Some(value) = ns.value.as_ref() {
             validate_raw_app_path_keys(&value.0)?;
         }
+    }
+
+    if authed.is_operator {
+        // Restoring a full-code version always sends allow_kind_change. A builder converts
+        // nothing, so drop it and let the locked kind check below refuse an actual conversion.
+        ns.allow_kind_change = None;
+        validate_operator_composed_app(
+            &authed,
+            &db,
+            &user_db,
+            w_id,
+            BuilderAppWrite::Deploy,
+            raw_app,
+            ns.value.as_ref().map(|v| v.0.as_ref()),
+            ns.policy.as_mut(),
+        )
+        .await?;
     }
 
     // Resolved on the (non-RLS) pool before the RLS transaction opens, for the reason
@@ -3759,6 +4194,19 @@ async fn update_app_internal<'a>(
         .execute(&mut *tx)
         .await?;
     }
+    if npath != path {
+        // Everything left at the old path is a draft this deploy didn't consume
+        // — teammates' rows, and the deployer's own when the caller asked us to
+        // keep it. Carry them rather than strand them.
+        windmill_common::user_drafts::move_drafts_for_path(
+            &mut tx,
+            &w_id,
+            &[UserDraftItemKind::App, UserDraftItemKind::RawApp],
+            path,
+            &npath,
+        )
+        .await?;
+    }
     audit_log(
         &mut *tx,
         &authed,
@@ -3827,6 +4275,7 @@ async fn update_app_internal<'a>(
         None,
         None,
         None,
+        None,
     )
     .await?;
     tracing::info!("Pushed app dependency job {}", dependency_job_uuid);
@@ -3867,6 +4316,26 @@ fn digest(code: &str) -> String {
     hasher.update(code);
     let result = hasher.finalize();
     format!("rawscript/{:x}", result)
+}
+
+/// Canonical `runnable_path` for a run-mode no-id inline app component:
+/// `<app_path>/<component>` — byte-for-byte what the runtime frontend sends. It is
+/// the relative-import base, so the caller must not steer it: reject a `component`
+/// that isn't a single non-empty path segment (empty, a separator, or `.`/`..`
+/// would walk the base out of the app, and a bare `rawscript/<sha>` policy key
+/// does not pin the component).
+fn inline_run_path(app_path: &str, component: &str) -> Result<String> {
+    if component.is_empty()
+        || component.contains('/')
+        || component.contains('\\')
+        || component == "."
+        || component == ".."
+    {
+        return Err(Error::BadRequest(
+            "component id must be a single non-empty path segment".to_string(),
+        ));
+    }
+    Ok(format!("{app_path}/{component}"))
 }
 
 async fn get_on_behalf_details_from_policy_and_authed(
@@ -3960,8 +4429,53 @@ lazy_static! {
     ///   change or deletion, which don't bump the version — see
     ///   `invalidate_app_policy_cache` and `process_notify_event`);
     /// - the entry is within its TTL (backstop for a missed event or a restart).
-    static ref APP_POLICY_CACHE: cache::Cache<(String, String), (Option<i64>, Arc<Policy>, std::time::Instant)> =
+    static ref APP_POLICY_CACHE: cache::Cache<(String, String), (Option<i64>, Arc<DeployedPolicy>, std::time::Instant)> =
         cache::Cache::new(1000);
+}
+
+/// What `execute_component` runs a deployed app against.
+struct DeployedPolicy {
+    policy: Policy,
+    /// Runnable id -> argument -> context property (`username`, `email`, `groups`,
+    /// `workspace`, `author`), for every `ctx` field the app's runnables declare. Read
+    /// from the deployed app rather than taken from the request, which only says what
+    /// the browser chose to send: a runnable filters rows on these. A deploy that
+    /// changes them under an unchanged policy evicts nothing, so a caller still naming
+    /// the replaced version keeps the previous declarations until the entry's TTL.
+    ctx_inputs: HashMap<String, HashMap<String, String>>,
+}
+
+async fn deployed_ctx_inputs(
+    db: &DB,
+    w_id: &str,
+    path: &str,
+) -> Result<HashMap<String, HashMap<String, String>>> {
+    let runnables = sqlx::query_scalar::<_, Option<sqlx::types::Json<serde_json::Value>>>(
+        "SELECT app_version.value -> 'runnables' FROM app
+        JOIN app_version ON app_version.id = app.versions[array_upper(app.versions, 1)]
+        WHERE app.path = $1 AND app.workspace_id = $2",
+    )
+    .bind(path)
+    .bind(w_id)
+    .fetch_optional(db)
+    .await?
+    .flatten();
+    let Some(serde_json::Value::Object(runnables)) = runnables.map(|r| r.0) else {
+        return Ok(HashMap::new());
+    };
+    Ok(runnables
+        .into_iter()
+        .filter_map(|(id, runnable)| {
+            let ctx_inputs: HashMap<String, String> = runnable
+                .get("fields")?
+                .as_object()?
+                .iter()
+                .filter(|(_, f)| f.get("type").and_then(|t| t.as_str()) == Some("ctx"))
+                .filter_map(|(arg, f)| Some((arg.clone(), f.get("ctx")?.as_str()?.to_string())))
+                .collect();
+            (!ctx_inputs.is_empty()).then_some((id, ctx_inputs))
+        })
+        .collect())
 }
 
 /// Backstop time-to-live for an [`APP_POLICY_CACHE`] entry — the maximum a policy
@@ -4016,13 +4530,14 @@ async fn execute_component(
         _ => {}
     };
 
-    let arc_policy: Arc<Policy>;
+    let arc_policy: Arc<DeployedPolicy>;
     let policy_triggerables_default = Default::default();
     // Preview mode means the request was issued from the editor; the editing
     // user is already trusted by the policy check, so client-supplied `tag`
     // on the inline script is honored. In any other case we must read the
     // tag from the deployed policy and ignore the request body.
     let is_preview = payload.force_viewer_static_fields.is_some();
+    let is_inline = payload.raw_code.is_some();
 
     // Preview mode runs request-supplied code as a `Viewer`-mode job (the
     // app-editor equivalent of `/jobs/run/preview`), so it enforces the same
@@ -4041,10 +4556,26 @@ async fn execute_component(
         let authed = opt_authed.as_ref().ok_or_else(|| {
             Error::NotAuthorized("App component preview requires authentication".to_string())
         })?;
+        // A builder testing the app it is composing only ever previews a deployed runnable
+        // (`path`), confined below to what it may read. Inline `raw_code`, which an `id` also
+        // requires, is authoring code, so it stays closed to every operator. So is a hub
+        // path, which `require_path_read_access_for_preview` admits for everyone and
+        // `get_payload_tag_from_prefixed_path` then downloads and enqueues: it is exactly the
+        // unreviewed code the composition check refuses in a flow.
+        let previews_hub = payload.path.as_deref().is_some_and(|p| {
+            p.strip_prefix("script/")
+                .or_else(|| p.strip_prefix("flow/"))
+                .unwrap_or(p)
+                .starts_with("hub/")
+        });
         if authed.is_operator {
-            return Err(Error::NotAuthorized(
-                "Operators cannot run preview jobs for security reasons".to_string(),
-            ));
+            let msg = "Operators cannot run preview jobs for security reasons".to_string();
+            if !operator_builder_rights(&db, &w_id).await?.apps {
+                return Err(Error::NotAuthorized(msg));
+            }
+            if payload.raw_code.is_some() || previews_hub {
+                return Err(Error::PermissionDenied(msg));
+            }
         }
         check_scopes(authed, || format!("jobs:run"))?;
         if let Some(p) = payload.path.as_deref() {
@@ -4083,7 +4614,7 @@ async fn execute_component(
     //    - The policy and triggerables are fetched from the database.
     //    - In case of inline script, if an entry exists in the `app_script` table, push
     //      an `AppScript` job payload, as in (.1) otherwise.
-    let (policy, policy_triggerables) = match payload {
+    let (policy, policy_triggerables, ctx_inputs) = match payload {
         // 1. "preview" mode.
         ExecuteApp {
             force_viewer_static_fields: Some(static_inputs),
@@ -4101,7 +4632,10 @@ async fn execute_component(
                 delete_after_secs: force_viewer_delete_after_secs,
                 sensitive_inputs: force_viewer_sensitive_inputs.unwrap_or_default(),
                 tag: None,
+                // A preview runs as the caller, whose roles these are either way.
+                viewer_data_access: false,
             },
+            None,
         ),
         // 2. "run" mode.
         _ => {
@@ -4131,9 +4665,12 @@ async fn execute_component(
                 .map(|(_, p, _)| p);
             let policy = if let Some(p) = fresh {
                 arc_policy = p;
-                &*arc_policy
+                &arc_policy.policy
             } else {
-                arc_policy = Arc::new(policy_fut.await?);
+                arc_policy = Arc::new(DeployedPolicy {
+                    policy: policy_fut.await?,
+                    ctx_inputs: deployed_ctx_inputs(&db, &w_id, path).await?,
+                });
                 APP_POLICY_CACHE.insert(
                     cache_key,
                     (
@@ -4142,7 +4679,7 @@ async fn execute_component(
                         std::time::Instant::now(),
                     ),
                 );
-                &*arc_policy
+                &arc_policy.policy
             };
 
             // Caller-supplied inline code (`raw_code`), with or without an
@@ -4204,7 +4741,11 @@ async fn execute_component(
                 })
                 .ok_or_else(|| Error::BadRequest(format!("Path {path} forbidden by policy")))?;
 
-            (policy, policy_triggerables)
+            (
+                policy,
+                policy_triggerables,
+                arc_policy.ctx_inputs.get(&payload.component),
+            )
         }
     };
 
@@ -4232,34 +4773,48 @@ async fn execute_component(
     if let (ExecutionMode::Publisher, Some(authed)) = (policy.execution_mode(), opt_authed.as_ref())
     {
         lazy_static! {
-            /// Cache for the permit to execute an app component.
-            static ref PERMIT_CACHE: cache::Cache<[u8; 32], bool> = cache::Cache::new(1000);
+            /// When each (caller, app) was last granted the permit to execute.
+            static ref PERMIT_CACHE: cache::Cache<[u8; 32], std::time::Instant> =
+                cache::Cache::new(1000);
         }
+        // The outcome follows the app's `extra_perms` and the caller's groups and
+        // folders, all mutable and absent from the key. Only grants are cached, and
+        // briefly: a refusal is rechecked every time so a new grant applies at once,
+        // and a revocation takes effect within the TTL.
+        const PERMIT_TTL: std::time::Duration = std::time::Duration::from_secs(60);
 
-        // Avoid allocation for the permit key using a sha256 hash of:
-        // - the user email,
-        // - the application path,
-        // - the workspace id.
-        let permit_key: [u8; 32] = [authed.email.as_bytes(), path.as_bytes(), &w_id.as_bytes()]
+        let permit_key: [u8; 32] = [authed.email.as_bytes(), path.as_bytes(), w_id.as_bytes()]
             .iter()
-            .fold(Sha256::new(), |hasher, bytes| hasher.chain_update(bytes))
+            .fold(Sha256::new(), |hasher, bytes| {
+                hasher
+                    .chain_update((bytes.len() as u32).to_be_bytes())
+                    .chain_update(bytes)
+            })
             .finalize()
             .into();
-        let permit_fut = PERMIT_CACHE.get_or_insert_async(&permit_key, async {
-            let mut tx = user_db.clone().begin(authed).await?;
-            // Permissions are checked by the database; just fetch a row from app using `user_db`:
-            let row = sqlx::query_scalar!(
-                "SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2 LIMIT 1",
-                path,
-                &w_id,
-            )
-            .fetch_optional(&mut *tx)
-            .await?;
-            tx.commit().await?;
-            Result::Ok(row.is_some_and(|x| x.is_some()))
-        });
 
-        if !permit_fut.await? {
+        let granted = match PERMIT_CACHE.get(&permit_key) {
+            Some(at) if at.elapsed() < PERMIT_TTL => true,
+            _ => {
+                let mut tx = user_db.clone().begin(authed).await?;
+                // Permissions are checked by the database; just fetch a row from app using `user_db`:
+                let row = sqlx::query_scalar!(
+                    "SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2 LIMIT 1",
+                    path,
+                    &w_id,
+                )
+                .fetch_optional(&mut *tx)
+                .await?;
+                tx.commit().await?;
+                let granted = row.is_some_and(|x| x.is_some());
+                if granted {
+                    PERMIT_CACHE.insert(permit_key, std::time::Instant::now());
+                }
+                granted
+            }
+        };
+
+        if !granted {
             return Err(Error::NotAuthorized(format!(
                 "Missing read permissions on the `{}` app to execute `{}` runnable",
                 path, payload.component
@@ -4273,9 +4828,16 @@ async fn execute_component(
     let resolved_delete_secs =
         resolve_delete_after_secs(None, policy_triggerables.delete_after_secs);
 
+    // `_TEMP_SCRIPT_REFS` is a server-injected control key (into `extra`) that the
+    // worker reads back for a `Preview` job, which an inline run is. A caller
+    // supplying it in `args` would redirect relative-import resolution, unpinned, as
+    // the app identity. Drop it; the legitimate value rides in `extra`.
+    payload.args.remove("_TEMP_SCRIPT_REFS");
+
     let (mut args, job_id) = build_args(
         policy,
         policy_triggerables,
+        ctx_inputs,
         payload.args,
         opt_authed.as_ref(),
         &user_db,
@@ -4292,11 +4854,11 @@ async fn execute_component(
         }
     }
 
-    let is_flow = payload
+    let flow_path = payload
         .path
-        .as_ref()
-        .map(|p| p.starts_with("flow/"))
-        .unwrap_or(false);
+        .as_deref()
+        .and_then(|path| path.strip_prefix("flow/"))
+        .map(str::to_string);
 
     // Tag for inline-script jobs is read from the deployed policy in run mode;
     // only preview mode (editor) honors the client-supplied tag. This applies to
@@ -4310,6 +4872,7 @@ async fn execute_component(
         }
         .filter(|t| !t.is_empty())
     };
+    let component = payload.component.clone();
     let (job_payload, tag, _runnable_on_behalf_of) =
         match (payload.path, payload.raw_code, payload.id) {
             // flow or script:
@@ -4320,11 +4883,41 @@ async fn execute_component(
             // `app_script` table (legacy `rawscript/<sha>`-keyed triggerables).
             (None, Some(raw_code), None) => {
                 let tag = resolved_inline_tag(raw_code.tag.clone());
+                let raw_code = if is_preview {
+                    // Preview (editor / `wmill app dev`): the caller runs their own
+                    // code, like `/jobs/run/preview` — honored verbatim.
+                    raw_code
+                } else {
+                    // Run mode. Legacy back-compat only: current deploys assign an
+                    // `app_script` id (reduce_app) and take the `Some(id)` arm;
+                    // drop this branch once id-less deployed apps are gone.
+                    //
+                    // Only `content` is pinned (`rawscript/<sha>`), so keep just
+                    // that plus `language`/`cache_ttl`, derive `path` server-side
+                    // (`inline_run_path`), and default the rest: a caller `hash`/
+                    // `lock`/`modules`/`path`/`dedicated_worker` would otherwise run
+                    // or install unpinned code as the app identity. Reconstructing
+                    // (vs nulling) keeps a new field defaulting safe.
+                    RawCode {
+                        content: raw_code.content,
+                        language: raw_code.language,
+                        path: Some(inline_run_path(path, &component)?),
+                        cache_ttl: raw_code.cache_ttl,
+                        ..Default::default()
+                    }
+                };
                 (JobPayload::Code(raw_code), tag, None)
             }
             // inline script: run mode (deployed app) with an entry in `app_script`.
-            (None, Some(RawCode { language, path, cache_ttl, tag, .. }), Some(id)) => (
-                JobPayload::AppScript { id: AppScriptId(id), cache_ttl, language, path },
+            // The path is derived like the legacy arm's: job identity (e.g. OIDC `sub`)
+            // reads it, so a caller must not choose it.
+            (None, Some(RawCode { language, cache_ttl, tag, .. }), Some(id)) => (
+                JobPayload::AppScript {
+                    id: AppScriptId(id),
+                    cache_ttl,
+                    language,
+                    path: Some(inline_run_path(path, &component)?),
+                },
                 resolved_inline_tag(tag),
                 None,
             ),
@@ -4334,9 +4927,11 @@ async fn execute_component(
     // — like `/jobs/run/preview` — confine it to worker tags the caller may use
     // (a `if_jobs:filter_tags`-restricted token must not escape its filter).
     // `is_preview` implies an authed caller (the guard above returns otherwise).
+    let push_args = PushArgs { args: &args.args, extra: args.extra };
     if is_preview {
         if let Some(authed) = opt_authed.as_ref() {
-            crate::jobs::check_tag_available_for_workspace(&db, &w_id, &tag, authed).await?;
+            crate::jobs::check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, authed)
+                .await?;
         }
     }
     // Identity is already resolved to the requesting user in preview mode (the
@@ -4362,12 +4957,16 @@ async fn execute_component(
     let app_trigger =
         (!is_preview).then(|| TriggerMetadata::new(Some(path.to_string()), JobTriggerKind::App));
 
+    let scope_ceiling = match opt_authed.as_ref() {
+        Some(authed) => windmill_api_auth::caller_scope_ceiling(&db, authed).await?,
+        None => None,
+    };
     let (uuid, mut tx) = push(
         &db,
         tx,
         &w_id,
         job_payload,
-        PushArgs { args: &args.args, extra: args.extra },
+        push_args,
         &username,
         email,
         permissioned_as,
@@ -4397,13 +4996,24 @@ async fn execute_component(
         end_user_email,
         app_trigger,
         None,
+        scope_ceiling.as_deref(),
     )
     .await?;
 
+    if policy_triggerables.viewer_data_access && is_inline {
+        sqlx::query!(
+            "UPDATE job_perms SET viewer_data_access = true WHERE job_id = $1",
+            uuid
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
     // Apply runnable query parameters if provided
     if let Some(ref run_query) = payload.run_query_params {
-        if is_flow {
-            crate::jobs::process_flow_run_query_params(&mut tx, uuid, run_query).await?;
+        if let Some(flow_path) = flow_path.as_deref() {
+            crate::jobs::process_flow_run_query_params(&mut tx, uuid, &w_id, flow_path, run_query)
+                .await?;
         }
     }
 
@@ -4681,8 +5291,9 @@ async fn upload_s3_file_from_app(
                 if let Some(ref s3_resource_path) = query.s3_resource_path {
                     if matched_input.allow_user_resources {
                         if let Some(authed) = opt_authed {
+                            let viewer = policy_granted_viewer(&authed);
                             let db_with_opt_authed = DbWithOptAuthed::from_authed(
-                                &authed,
+                                &viewer,
                                 db.clone(),
                                 Some(user_db.clone()),
                             );
@@ -5353,6 +5964,10 @@ impl AppLoadCountQuery {
                 search_col: self.search_col,
                 search_term: self.search_term,
                 storage: self.storage,
+                s3_resource_path: None,
+                csv_separator: None,
+                csv_has_header: None,
+                filters: None,
             },
         )
     }
@@ -5386,6 +6001,9 @@ impl AppLoadPreviewQuery {
                 search_term: self.search_term,
                 storage: self.storage,
                 csv_separator: self.csv_separator,
+                s3_resource_path: None,
+                csv_has_header: None,
+                filters: None,
             },
         )
     }
@@ -5472,9 +6090,10 @@ async fn app_load_table_count(
     let file_query = app_s3_file_query(file_key.clone(), inner.storage.clone(), sig);
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
-    let resp =
-        crate::job_helpers_oss::load_table_count_internal(job_authed, &db, &w_id, file_key, inner)
-            .await?;
+    let resp = crate::job_helpers_oss::load_table_count_internal(
+        job_authed, &db, None, &w_id, file_key, inner,
+    )
+    .await?;
     Ok(Json(resp).into_response())
 }
 
@@ -5492,7 +6111,7 @@ async fn app_load_parquet_preview(
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
     let resp = crate::job_helpers_oss::load_preview_internal(
-        job_authed, &db, &w_id, file_key, inner, true,
+        job_authed, &db, None, &w_id, file_key, inner, true,
     )
     .await?;
     Ok(Json(resp).into_response())
@@ -5512,7 +6131,7 @@ async fn app_load_csv_preview(
     let job_authed =
         app_s3_on_behalf_and_provenance(&db, &path, &w_id, &opt_authed, &file_query).await?;
     let resp = crate::job_helpers_oss::load_preview_internal(
-        job_authed, &db, &w_id, file_key, inner, false,
+        job_authed, &db, None, &w_id, file_key, inner, false,
     )
     .await?;
     Ok(Json(resp).into_response())
@@ -5687,6 +6306,59 @@ async fn exists_app(
     Ok(Json(exists))
 }
 
+/// The viewer as whom a resource an app policy lets the viewer pick (`allow_user_resources`)
+/// is resolved. The policy, not the token, grants that resource, and app tokens are minted
+/// with a fixed scope set that never names variables, so the references inside it resolve on
+/// the viewer's RLS alone.
+fn policy_granted_viewer(authed: &ApiAuthed) -> ApiAuthed {
+    ApiAuthed { scopes: None, ..authed.clone() }
+}
+
+/// The value of an app context property for this run. Everything about the viewer comes
+/// from `authed`, the session the request authenticated with; an anonymous run has none
+/// and gets `null`.
+async fn ctx_value(
+    prop: &str,
+    policy: &Policy,
+    authed: Option<&ApiAuthed>,
+    w_id: &str,
+    db: &DB,
+) -> Result<Box<RawValue>> {
+    let value = match prop {
+        "username" => authed.map(|a| serde_json::to_value(a.display_username())),
+        "email" => authed.map(|a| serde_json::to_value(&a.email)),
+        "workspace" => Some(serde_json::to_value(w_id)),
+        "groups" => authed.map(|a| serde_json::to_value(&a.groups)),
+        // Derived from the principal, cached, exactly as `get_on_behalf_of` does: this is the
+        // same address the run it is an argument to executes under.
+        "author" => {
+            let author = match policy.on_behalf_of.as_deref() {
+                Some(permissioned_as) => Some(
+                    windmill_common::users::get_email_from_permissioned_as(
+                        permissioned_as,
+                        w_id,
+                        db,
+                    )
+                    .await?,
+                ),
+                None => None,
+            };
+            Some(serde_json::to_value(&author))
+        }
+        _ => {
+            return Err(Error::BadRequest(format!(
+                "context variable {} not allowed",
+                prop
+            )))
+        }
+    };
+    Ok(to_raw_value(
+        &value.unwrap_or(Ok(serde_json::Value::Null)).map_err(|e| {
+            Error::internal_err(format!("failed to serialize ctx variable {}: {}", prop, e))
+        })?,
+    ))
+}
+
 async fn build_args(
     policy: &Policy,
     PolicyTriggerableInputs {
@@ -5696,6 +6368,7 @@ async fn build_args(
         sensitive_inputs,
         ..
     }: &PolicyTriggerableInputs,
+    ctx_inputs: Option<&HashMap<String, String>>,
     mut args: HashMap<String, Box<RawValue>>,
     authed: Option<&ApiAuthed>,
     user_db: &UserDB,
@@ -5705,6 +6378,16 @@ async fn build_args(
     let mut job_id: Option<Uuid> = None;
     let mut safe_args = HashMap::<String, Box<RawValue>>::new();
 
+    // Before anything reads `args`: a context input the runnable declares is never taken
+    // from the request, or a viewer could name someone else as themselves.
+    for (k, prop) in ctx_inputs.into_iter().flatten() {
+        args.remove(k);
+        safe_args.insert(
+            k.to_string(),
+            ctx_value(prop, policy, authed, w_id, db).await?,
+        );
+    }
+
     // tracing::error!("{:?}", allow_user_resources);
     for k in allow_user_resources.iter() {
         if let Some(arg_val) = args.get(k) {
@@ -5713,8 +6396,9 @@ async fn build_args(
                 key.and_then(|x| x.clone().strip_prefix("$res:").map(|x| x.to_string()))
             {
                 if let Some(authed) = authed {
+                    let viewer = policy_granted_viewer(authed);
                     let db_with_opt_authed =
-                        DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
+                        DbWithOptAuthed::from_authed(&viewer, db.clone(), Some(user_db.clone()));
                     let res = get_resource_value_interpolated_internal(
                         &db_with_opt_authed,
                         w_id,
@@ -5795,44 +6479,9 @@ async fn build_args(
 
         if arg_str.starts_with("\"$ctx:") {
             let prop = arg_str.trim_start_matches("\"$ctx:").trim_end_matches("\"");
-            let value = match prop {
-                "username" => authed
-                    .as_ref()
-                    .map(|a| serde_json::to_value(a.display_username())),
-                "email" => authed.as_ref().map(|a| serde_json::to_value(&a.email)),
-                "workspace" => Some(serde_json::to_value(&w_id)),
-                "groups" => authed.as_ref().map(|a| serde_json::to_value(&a.groups)),
-                // Derived from the principal, cached, exactly as `get_on_behalf_of` does: this
-                // is the same address the run it is an argument to executes under.
-                "author" => {
-                    let author = match policy.on_behalf_of.as_deref() {
-                        Some(permissioned_as) => Some(
-                            windmill_common::users::get_email_from_permissioned_as(
-                                permissioned_as,
-                                w_id,
-                                db,
-                            )
-                            .await?,
-                        ),
-                        None => None,
-                    };
-                    Some(serde_json::to_value(&author))
-                }
-                _ => {
-                    return Err(Error::BadRequest(format!(
-                        "context variable {} not allowed",
-                        prop
-                    )))
-                }
-            };
             safe_args.insert(
                 k.to_string(),
-                to_raw_value(&value.unwrap_or(Ok(serde_json::Value::Null)).map_err(|e| {
-                    Error::internal_err(format!(
-                        "failed to serialize ctx variable for {}: {}",
-                        k, e
-                    ))
-                })?),
+                ctx_value(prop, policy, authed, w_id, db).await?,
             );
         } else if !arg_str.contains("\"$var:") && !arg_str.contains("\"$res:") {
             safe_args.insert(k.to_string(), v);
@@ -6067,6 +6716,10 @@ mod embed_token_tests {
             // the author declared it and the viewer consented.
             ("/api/w/test/resources/get_value/u/admin/r", "GET"),
             ("/api/w/test/variables/get_value/u/admin/v", "GET"),
+            // A chat UI's history for a chat-mode flow; RLS keeps it to the viewer's own.
+            ("/api/w/test/flow_conversations/list", "GET"),
+            ("/api/w/test/flow_conversations/some-uuid/messages", "GET"),
+            ("/api/w/test/flow_conversations/delete/some-uuid", "DELETE"),
         ];
         for (path, method) in allowed {
             assert!(
@@ -6224,6 +6877,127 @@ mod embed_token_tests {
 }
 
 #[cfg(test)]
+mod operator_app_tests {
+    use super::{check_operator_composed_app, BuilderAppWrite, Policy};
+    use windmill_common::error::Result;
+    use windmill_common::worker::to_raw_value;
+
+    fn builder_policy(triggerables_v2: serde_json::Value) -> Policy {
+        serde_json::from_value(serde_json::json!({
+            "execution_mode": "publisher",
+            "triggerables_v2": triggerables_v2,
+        }))
+        .unwrap()
+    }
+
+    fn path_runnable(path: &str, run_type: &str) -> serde_json::Value {
+        serde_json::json!({"files": {}, "runnables": {
+            "a": {"name": "a", "type": "runnableByPath", "path": path, "runType": run_type}
+        }})
+    }
+
+    fn composed_app(value: serde_json::Value, policy: &mut Policy) -> Result<Vec<(bool, String)>> {
+        let value = to_raw_value(&value);
+        check_operator_composed_app(BuilderAppWrite::Deploy, true, Some(&value), Some(policy))
+    }
+
+    #[test]
+    fn operator_app_check_forces_the_sandbox_and_refuses_code() {
+        let clean = serde_json::json!({"files": {}, "runnables": {
+            "a": {"name": "a", "type": "runnableByPath", "path": "f/x/s", "runType": "script"}
+        }});
+
+        // A composition-only app goes through, sandboxed whether or not it asked to be.
+        let mut policy = builder_policy(
+            serde_json::json!({"a:script/f/x/s": {"static_inputs": {}, "one_of_inputs": {}}}),
+        );
+        let referenced = composed_app(clean.clone(), &mut policy).unwrap();
+        assert_eq!(policy.sandbox, Some(true));
+        // The runnables the policy authorizes are handed back for the caller to authorize.
+        assert_eq!(referenced, vec![(false, "f/x/s".to_string())]);
+
+        // A hub reference is unreviewed code, refused like it is in a flow.
+        let mut policy = builder_policy(
+            serde_json::json!({"a:script/hub/1/x": {"static_inputs": {}, "one_of_inputs": {}}}),
+        );
+        assert!(composed_app(clean.clone(), &mut policy).is_err());
+
+        let mut policy = builder_policy(serde_json::json!({}));
+        policy.sandbox = Some(false);
+        assert!(composed_app(clean.clone(), &mut policy).is_err());
+
+        // An inline script is refused even with no `language`, which the locking traversal skips.
+        let mut policy = builder_policy(serde_json::json!({}));
+        assert!(composed_app(
+            serde_json::json!({"runnables": {"a": {"inlineScript": {"content": "x"}}}}),
+            &mut policy
+        )
+        .is_err());
+
+        // A `rawscript/<sha>` triggerable is what authorizes caller-supplied `raw_code` on the
+        // deployed app, so pinning one would be arbitrary code execution behind a clean value.
+        for key in ["rawscript/abc", "a:rawscript/abc"] {
+            let mut policy = builder_policy(
+                serde_json::json!({ key: {"static_inputs": {}, "one_of_inputs": {}} }),
+            );
+            assert!(
+                composed_app(clean.clone(), &mut policy).is_err(),
+                "{key} must be refused"
+            );
+        }
+
+        // What the deployed bundle actually asks to run comes from the value's `runnableByPath`
+        // entries, which are a separate surface from the policy: both are reported.
+        let mut policy = builder_policy(serde_json::json!({}));
+        assert_eq!(
+            composed_app(path_runnable("f/x/s", "script"), &mut policy).unwrap(),
+            vec![(false, "f/x/s".to_string())]
+        );
+        let mut policy = builder_policy(serde_json::json!({}));
+        assert_eq!(
+            composed_app(path_runnable("f/x/f", "flow"), &mut policy).unwrap(),
+            vec![(true, "f/x/f".to_string())]
+        );
+        let mut policy = builder_policy(serde_json::json!({}));
+        assert!(composed_app(path_runnable("hub/1/x", "hubscript"), &mut policy).is_err());
+
+        // `execute_component` looks up `<component>:<path>` with an unrestricted component, so a
+        // second colon must not hide the path from validation: `x:y:script/hub/…` resolves at run
+        // time for `component = "x:y"`.
+        let mut policy = builder_policy(
+            serde_json::json!({"x:y:script/hub/123/foo": {"static_inputs": {}, "one_of_inputs": {}}}),
+        );
+        assert!(composed_app(clean.clone(), &mut policy).is_err());
+        let mut policy = builder_policy(
+            serde_json::json!({"x:y:script/f/x/s": {"static_inputs": {}, "one_of_inputs": {}}}),
+        );
+        assert_eq!(
+            composed_app(clean.clone(), &mut policy).unwrap(),
+            vec![(false, "f/x/s".to_string())]
+        );
+
+        // `Viewer` mode makes `execute_component` accept any script/flow path, triggerables or
+        // not, and run it as the viewer, so the checks above would stop binding.
+        let mut policy: Policy = serde_json::from_value(serde_json::json!({
+            "execution_mode": "viewer", "triggerables_v2": {}
+        }))
+        .unwrap();
+        assert!(composed_app(clean.clone(), &mut policy).is_err());
+
+        // Low-code apps stay closed.
+        let value = to_raw_value(&clean);
+        let mut policy = builder_policy(serde_json::json!({}));
+        assert!(check_operator_composed_app(
+            BuilderAppWrite::Deploy,
+            false,
+            Some(&value),
+            Some(&mut policy)
+        )
+        .is_err());
+    }
+}
+
+#[cfg(test)]
 mod policy_tests {
     /// `execution_mode` is optional in the OpenAPI schema the API clients and the
     /// MCP tools are generated from, so an omitted one must deserialize. It must
@@ -6242,6 +7016,39 @@ mod policy_tests {
         let p: Policy = serde_json::from_str(r#"{"execution_mode": "anonymous"}"#).unwrap();
         assert_eq!(p.execution_mode(), ExecutionMode::Anonymous);
         assert_eq!(p.stated_execution_mode(), Some(ExecutionMode::Anonymous));
+    }
+}
+
+#[cfg(test)]
+mod app_secret_tests {
+    use super::{id_from_secret, BUNDLE_SECRET_PREFIX};
+    use magic_crypt::MagicCryptTrait;
+
+    #[test]
+    fn every_invalid_secret_is_rejected_alike() {
+        let mc = magic_crypt::new_magic_crypt!("workspace-key", 256);
+        let other = magic_crypt::new_magic_crypt!("another-key", 256);
+        let valid = hex::encode(mc.encrypt_str_to_bytes("42"));
+        assert_eq!(id_from_secret(&mc, &valid, None), Some(42));
+        let bundle = hex::encode(mc.encrypt_str_to_bytes(format!("{BUNDLE_SECRET_PREFIX}7")));
+        assert_eq!(
+            id_from_secret(&mc, &bundle, Some(BUNDLE_SECRET_PREFIX)),
+            Some(7)
+        );
+
+        let mut tampered = mc.encrypt_str_to_bytes("42");
+        *tampered.last_mut().unwrap() ^= 1;
+        for bad in [
+            "not hex".to_string(),
+            hex::encode(&tampered),
+            hex::encode(other.encrypt_str_to_bytes("42")),
+            hex::encode(mc.encrypt_bytes_to_bytes(&[0xff, 0xfe])),
+            hex::encode(mc.encrypt_str_to_bytes("not a number")),
+            valid.clone(),
+        ] {
+            let prefix = (bad == valid).then_some(BUNDLE_SECRET_PREFIX);
+            assert_eq!(id_from_secret(&mc, &bad, prefix), None, "{bad}");
+        }
     }
 }
 

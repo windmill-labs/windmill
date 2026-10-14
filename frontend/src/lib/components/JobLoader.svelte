@@ -14,7 +14,6 @@
 		type WorkflowStatus,
 		type OpenFlow
 	} from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { getViewToken } from '$lib/viewToken'
 	import { WM_LOGS_SKIPPED } from '$lib/consts'
 	import { getContext, onDestroy, tick, untrack } from 'svelte'
@@ -22,6 +21,9 @@
 	import { sendUserToast } from '$lib/toast'
 	import { DynamicInput, isScriptPreview } from '$lib/utils'
 	import { getActiveReplay, getReplayStartTime } from './recording/replay.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	// Will be set to number if job is not a flow
 
@@ -75,7 +77,7 @@
 		children
 	}: Props = $props()
 
-	let workspace = $derived(workspaceOverride ?? $workspaceStore)
+	let workspace = $derived(workspaceOverride ?? $operatingWorkspace)
 
 	let syncIteration: number = 0
 	let errorIteration = 0
@@ -409,6 +411,8 @@
 		errorIteration = 0
 		currentId = testId
 		scriptProgress = undefined
+		notfound = false
+		loadError = undefined
 
 		// Replay mode: feed recorded events instead of real SSE
 		const replay = getActiveReplay()
@@ -442,6 +446,8 @@
 										streamedResult.length >= completedResult.length
 											? streamedResult
 											: completedResult
+									njob.raw_code ??= job?.raw_code
+									njob.raw_flow = job?.raw_flow ?? njob.raw_flow
 									job = njob
 									await onJobCompleted(testId, job, callbacks)
 								}
@@ -723,6 +729,9 @@
 						}),
 						noLogs
 					)
+					// The completed-job branch below returns before the end of this block.
+					notfound = false
+					loadError = undefined
 
 					callbacks?.change?.(job)
 				}
@@ -868,6 +877,11 @@
 									const njob = previewJobUpdates.job as Job & { result_stream?: string }
 									njob.logs = pickMoreCompleteLogs(job?.logs, njob.logs)
 									njob.result_stream = job?.result_stream ?? ''
+									// The server sends the completed job without its code to keep the
+									// update small (no raw_code, "..." for a deployed flow's inline
+									// steps), so keep the code fetched with the initial job.
+									njob.raw_code ??= job?.raw_code
+									njob.raw_flow = job?.raw_flow ?? njob.raw_flow
 									job = njob
 									onJobCompleted(id, job, callbacks)
 								}

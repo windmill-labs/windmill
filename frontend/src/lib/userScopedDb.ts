@@ -1,4 +1,11 @@
-import { openDB as idbOpenDB, deleteDB as idbDeleteDB, type DBSchema, type IDBPDatabase } from 'idb'
+import {
+	openDB as idbOpenDB,
+	deleteDB as idbDeleteDB,
+	type DBSchema,
+	type IDBPDatabase,
+	type IDBPTransaction,
+	type StoreNames
+} from 'idb'
 import { scopedKey } from '$lib/userScopedStorage'
 
 // Per-user IndexedDB lifecycle, shared by the session list and the copilot
@@ -21,7 +28,12 @@ export interface UserScopedDbMigrateDeps {
 
 export interface UserScopedDbOptions<Schema extends DBSchema> {
 	version: number
-	upgrade: (db: IDBPDatabase<Schema>) => void
+	// The version-change transaction is the only way to add an index to a store that
+	// already exists; a store being created gets it from the store handle instead.
+	upgrade: (
+		db: IDBPDatabase<Schema>,
+		tx: IDBPTransaction<Schema, StoreNames<Schema>[], 'versionchange'>
+	) => void
 	// Invoked once per scoped name right after a successful open. The fn owns its
 	// own "already migrated / not applicable" gate (e.g. checking a store's
 	// count) — claim-then-delete legacy data lives here.
@@ -100,11 +112,11 @@ export function userScopedDb<Schema extends DBSchema>(
 		try {
 			let handle: IDBPDatabase<Schema> | undefined
 			const db = await openDB<Schema>(name, opts.version, {
-				upgrade(database) {
+				upgrade(database, _oldVersion, _newVersion, transaction) {
 					// The version-change transaction is ours: nothing is queued ahead of this
 					// open any more, and what remains is our own upgrade running.
 					stopWaiting()
-					opts.upgrade(database)
+					opts.upgrade(database, transaction)
 				},
 				// Another tab is opening this database at a higher version, which our open
 				// connection would block indefinitely. Let go so their upgrade lands; this

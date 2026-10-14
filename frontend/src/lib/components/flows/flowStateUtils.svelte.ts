@@ -1,3 +1,4 @@
+import { DEFAULT_AGENT_MEMORY } from './agentFormFields'
 import type { Schema } from '$lib/common'
 import {
 	ScriptService,
@@ -28,8 +29,10 @@ import type { InlineScript, InsertKind } from '$lib/components/graph/graphBuilde
 import {
 	agentToolToFlowModule,
 	createAiAgentTool,
+	createAiDecisionTool,
 	createMcpTool,
 	createWebsearchTool,
+	newAiDecisionInputTransforms,
 	newFlowModuleAgentTool,
 	SPECIAL_TOOL_KINDS,
 	type AgentTool,
@@ -48,7 +51,8 @@ export async function loadFlowModuleState(
 			flowModule.value.type == 'script' ||
 			flowModule.value.type == 'rawscript' ||
 			flowModule.value.type == 'flow' ||
-			flowModule.value.type == 'aiagent'
+			flowModule.value.type == 'aiagent' ||
+			flowModule.value.type == 'aidecision'
 		) {
 			flowModule.value.input_transforms = input_transforms
 		}
@@ -104,7 +108,7 @@ export async function pickFlow(
 export async function createInlineScriptModule(
 	language: RawScript['language'],
 	kind: Script['kind'],
-	subkind: 'pgsql' | 'flow' | 'claudesandbox' | undefined,
+	subkind: 'pgsql' | 'flow' | 'claudesandbox' | 'pisandbox' | undefined,
 	id: string,
 	summary?: string
 ): Promise<[FlowModule, FlowModuleState]> {
@@ -197,7 +201,8 @@ export async function createBranchAll(id: string): Promise<[FlowModule, FlowModu
 
 export async function createAiAgent(
 	id: string,
-	agentPath?: string
+	agentPath?: string,
+	chatInputEnabled = false
 ): Promise<[FlowModule, FlowModuleState]> {
 	const storedConfig = loadStoredConfig()
 	const providerValue = storedConfig ?? { kind: 'openai', resource: '', model: '' }
@@ -214,7 +219,16 @@ export async function createAiAgent(
 				...(agentPath
 					? {}
 					: {
-							provider: { type: 'static', value: providerValue }
+							provider: { type: 'static', value: providerValue },
+							// A chat agent answers a conversation, so it remembers it from the start.
+							...(chatInputEnabled
+								? {
+										memory: {
+											type: 'static' as const,
+											value: structuredClone(DEFAULT_AGENT_MEMORY)
+										}
+									}
+								: {})
 						}),
 				user_message: { type: 'static', value: undefined }
 			}
@@ -224,6 +238,18 @@ export async function createAiAgent(
 	const flowModuleState = await loadFlowModuleState(aiAgentFlowModules)
 
 	return [aiAgentFlowModules, flowModuleState]
+}
+
+export async function createAiDecision(id: string): Promise<[FlowModule, FlowModuleState]> {
+	const decisionModule: FlowModule = {
+		id,
+		summary: '',
+		value: { type: 'aidecision', input_transforms: newAiDecisionInputTransforms() }
+	}
+
+	const flowModuleState = await loadFlowModuleState(decisionModule)
+
+	return [decisionModule, flowModuleState]
 }
 
 export async function createFlow(id: string): Promise<[FlowModule, FlowModuleState]> {
@@ -490,8 +516,14 @@ export async function createNewModule(
 		;[module, state] = await createBranches(module.id)
 	} else if (kind == 'branchall') {
 		;[module, state] = await createBranchAll(module.id)
+	} else if (kind == 'aidecision') {
+		;[module, state] = await createAiDecision(module.id)
 	} else if (kind == 'aiagent') {
-		;[module, state] = await createAiAgent(module.id, agentPath)
+		;[module, state] = await createAiAgent(
+			module.id,
+			agentPath,
+			flowStore.val.value?.chat_input_enabled ?? false
+		)
 	} else if (inlineScript) {
 		const { language, kind, subkind, summary } = inlineScript
 		;[module, state] = await createInlineScriptModule(language, kind, subkind, module.id, summary)
@@ -563,6 +595,14 @@ export async function insertNewModuleAtIndex(
 			workspace
 		)
 		;(modules as AgentTool[]).splice(index, 0, aiAgentTool)
+		return modules as AgentTool[]
+	} else if (toolKind === 'aiDecisionTool') {
+		const aiDecisionTool = createAiDecisionTool(module.id)
+		flowStateStore.val[module.id] = await loadFlowModuleState(
+			agentToolToFlowModule(aiDecisionTool),
+			workspace
+		)
+		;(modules as AgentTool[]).splice(index, 0, aiDecisionTool)
 		return modules as AgentTool[]
 	} else if (toolKind === 'flowmoduleTool') {
 		const agentTool = newFlowModuleAgentTool(module)

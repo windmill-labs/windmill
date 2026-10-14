@@ -5,6 +5,10 @@ type MaybePromise<T> = T | Promise<T>
 type ToolDisplayActionHandler = (action: ToolDisplayAction) => MaybePromise<void>
 
 const toolDisplayActionHandlers = $state<Record<string, ToolDisplayActionHandler | undefined>>({})
+// Every registration per type, latest last: a page that takes over a type from the layout
+// (the sessions page opens items in its panel rather than in drawers) hands it back on
+// unmount instead of leaving the type unhandled.
+const registrations: Record<string, ToolDisplayActionHandler[]> = {}
 
 function formatUnknownError(error: unknown): string {
 	if (error instanceof Error) {
@@ -17,11 +21,16 @@ export function registerToolDisplayActionHandler(
 	type: ToolDisplayAction['type'],
 	handler: ToolDisplayActionHandler
 ): () => void {
+	const stack = (registrations[type] ??= [])
+	stack.push(handler)
 	toolDisplayActionHandlers[type] = handler
 	return () => {
-		if (toolDisplayActionHandlers[type] === handler) {
-			delete toolDisplayActionHandlers[type]
-		}
+		const at = stack.lastIndexOf(handler)
+		if (at < 0) return
+		stack.splice(at, 1)
+		const current = stack[stack.length - 1]
+		if (current) toolDisplayActionHandlers[type] = current
+		else delete toolDisplayActionHandlers[type]
 	}
 }
 

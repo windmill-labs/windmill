@@ -1,5 +1,5 @@
-import { base } from '$lib/base'
 import type { WorkspaceItemKind } from '$lib/components/workspacePicker'
+import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 
 // The paths a preview location can point at, and the base handling around them. Kept apart
 // from `previewRouter`, which reads a location's *view* from each page's filter schema and
@@ -48,35 +48,163 @@ export const TRIGGER_PAGES: Record<TriggerKind, { path: string; label: string; e
 	email: { path: '/email_triggers', label: 'Email triggers' }
 }
 
-/** Label a trigger list page from its (base-stripped) pathname, or undefined. */
+/** A workspace item edited from its list page rather than at an editor route: a variable,
+ * resource, schedule or trigger. A session hosts each in a tab of its own. */
+export type PageItemRef =
+	| { kind: 'variable' | 'resource' | 'schedule'; path: string }
+	| { kind: 'trigger'; triggerKind: TriggerKind; path: string }
+
+/** How a list page addresses a row in its hash. Resources route theirs through an extra
+ * segment; every other page names the path directly. */
+export const drawerHashFor = (pagePath: string, itemPath: string) =>
+	pagePath === RESOURCES_PATH ? `/resource/${itemPath}` : itemPath
+
+/** The full page a page item is edited on: its list page, with the row's drawer open. */
+export function pageItemPageHref(ref: PageItemRef): string {
+	const listPath = pageItemListPath(ref)
+	return `${listPath}#${drawerHashFor(listPath, ref.path)}`
+}
+
+/** The list page a page item is edited from. */
+export function pageItemListPath(ref: PageItemRef): string {
+	switch (ref.kind) {
+		case 'variable':
+			return VARIABLES_PATH
+		case 'resource':
+			return RESOURCES_PATH
+		case 'schedule':
+			return SCHEDULES_PATH
+		case 'trigger':
+			return TRIGGER_PAGES[ref.triggerKind].path
+	}
+}
+
+/** Whether a path is the list page of a page item kind. */
+export function isPageItemListPath(path: string): boolean {
+	return pageItemForListPath(path, '') !== undefined
+}
+
+/** Whether a path is the runs list: every run, or `/runs/<item path>` for one item's. */
+export function isRunsListPath(path: string): boolean {
+	const clean = barePath(path)
+	return clean === RUNS_PATH || clean.startsWith(`${RUNS_PATH}/`)
+}
+
+/** Whether a path is a list page a session preview mounts in process rather than frames. */
+export function isPreviewListPath(path: string): boolean {
+	return isPageItemListPath(path) || isRunsListPath(path)
+}
+
+/** The page item a list page's row names, or undefined for a page that lists none. */
+export function pageItemForListPath(pagePath: string, path: string): PageItemRef | undefined {
+	const clean = barePath(pagePath)
+	if (clean === VARIABLES_PATH) return { kind: 'variable', path }
+	if (clean === RESOURCES_PATH) return { kind: 'resource', path }
+	if (clean === SCHEDULES_PATH) return { kind: 'schedule', path }
+	const trigger = Object.entries(TRIGGER_PAGES).find(([, p]) => p.path === clean)
+	return trigger ? { kind: 'trigger', triggerKind: trigger[0] as TriggerKind, path } : undefined
+}
+
+const PAGE_ITEM_ROUTE = /^pageitem:(variable|resource|schedule|trigger\.([a-z]+))\/([^?#]+)$/
+
+// A scheme rather than a path, like artifacts: the tab mounts the item's editor in process,
+// so there is no page a frame could load. The path is encoded whole, so its slashes cannot
+// be read as part of the scheme.
+export function pageItemUrl(ref: PageItemRef): string {
+	const kind = ref.kind === 'trigger' ? `trigger.${ref.triggerKind}` : ref.kind
+	return `pageitem:${kind}/${encodeURIComponent(ref.path)}`
+}
+
+export function parsePageItemRoute(url: string): PageItemRef | null {
+	const m = url.match(PAGE_ITEM_ROUTE)
+	if (!m) return null
+	let path: string
+	try {
+		path = decodeURIComponent(m[3])
+	} catch {
+		return null
+	}
+	if (m[2] !== undefined) {
+		if (!(m[2] in TRIGGER_PAGES)) return null
+		return { kind: 'trigger', triggerKind: m[2] as TriggerKind, path }
+	}
+	return { kind: m[1] as 'variable' | 'resource' | 'schedule', path }
+}
+
+/** Singular human name of a page item's kind, e.g. "Kafka trigger". */
+export function pageItemKindLabel(ref: PageItemRef): string {
+	switch (ref.kind) {
+		case 'variable':
+			return 'Variable'
+		case 'resource':
+			return 'Resource'
+		case 'schedule':
+			return 'Schedule'
+		case 'trigger':
+			return TRIGGER_PAGES[ref.triggerKind].label.replace(/s$/, '')
+	}
+}
+
+/** Label a trigger list page from its pathname, or undefined. */
 export function triggerLabelForPath(path: string): string | undefined {
-	const clean = stripBase(path)
+	const clean = barePath(path)
 	return Object.values(TRIGGER_PAGES).find((t) => t.path === clean)?.label
 }
 
 export const pageKey = (path: string) => `page:${path}`
-export const pageHref = (path: string) => `${base}${path}`
 
-/** Strip the deployment base prefix (and any query/hash) from a preview path
- * so it can be matched against `PREVIEW_PAGES` / parsed as an item route. */
-export function stripBase(path: string): string {
-	let p = path.split('?')[0].split('#')[0]
-	if (base && p.startsWith(base)) p = p.slice(base.length)
-	return p || '/'
+/** Strip the query and hash from a preview path so it can be matched against
+ * `PREVIEW_PAGES` / parsed as an item route. */
+export function barePath(path: string): string {
+	// The router serves `/runs/` as `/runs`, and links are written both ways.
+	return (
+		path
+			.split('?')[0]
+			.split('#')[0]
+			.replace(/(.)\/+$/, '$1') || '/'
+	)
 }
 
-export type PreviewItemRoute = { kind: WorkspaceItemKind; raw_app: boolean; itemPath: string }
+/** Which side of an item a route addresses: `/edit/` builds it, `/get/` shows the
+ * deployed version. The two are one tab in a session, switched by re-pointing its URL. */
+export type PreviewItemMode = 'edit' | 'view'
 
-// Parse a preview URL/pathname into the workspace item it edits, or null for a
+export type PreviewItemRoute = {
+	kind: WorkspaceItemKind
+	raw_app: boolean
+	itemPath: string
+	mode: PreviewItemMode
+}
+
+// Parse a preview URL/pathname into the workspace item it addresses, or null for a
 // non-item page (home, runs, …). Shared by the breadcrumb (drill segments) and
 // `previewRouter`'s tab resolver so both agree on what counts as an item route.
 export function parsePreviewItemRoute(fullPath: string): PreviewItemRoute | null {
-	const p = stripBase(fullPath)
-	const m = p.match(/^\/(scripts|flows|apps|apps_raw)\/(?:edit|get)\/(.+)$/)
+	const p = barePath(fullPath)
+	const m = p.match(/^\/(scripts|flows|apps|apps_raw)\/(edit|get)\/(.+)$/)
 	if (!m) return null
-	const itemPath = decodeURIComponent(m[2])
-	if (m[1] === 'scripts') return { kind: 'script', raw_app: false, itemPath }
-	if (m[1] === 'flows') return { kind: 'flow', raw_app: false, itemPath }
-	if (m[1] === 'apps_raw') return { kind: 'app', raw_app: true, itemPath }
-	return { kind: 'app', raw_app: false, itemPath }
+	const itemPath = decodeURIComponent(m[3])
+	const mode: PreviewItemMode = m[2] === 'get' ? 'view' : 'edit'
+	if (m[1] === 'scripts') return { kind: 'script', raw_app: false, itemPath, mode }
+	if (m[1] === 'flows') return { kind: 'flow', raw_app: false, itemPath, mode }
+	if (m[1] === 'apps_raw') return { kind: 'app', raw_app: true, itemPath, mode }
+	return { kind: 'app', raw_app: false, itemPath, mode }
+}
+
+/** The script and hash of an editor opened on a historical version (`/scripts/edit/<path>?hash=`),
+ * or null. The session's live editor holds only the current draft, so this route is the
+ * standalone editor — which writes no draft in that mode — and never that editor's tab. */
+export function parseHistoricalScriptEdit(url: string): { path: string; hash: string } | null {
+	const route = parsePreviewItemRoute(url)
+	if (route?.kind !== 'script' || route.mode !== 'edit') return null
+	const hash = new URL(url, 'http://x').searchParams.get('hash')
+	return hash ? { path: route.itemPath, hash } : null
+}
+
+// A `/pipeline/<folder>` route is the data-pipeline graph editor for that folder
+// (the folder is a single path segment, not a workspace item path). The bare
+// `/pipeline` list page is not an editor. Returns the folder name, or null.
+export function parsePipelineRoute(fullPath: string): string | null {
+	const m = barePath(fullPath).match(/^\/pipeline\/([^/?#]+)/)
+	return m ? normalizePipelineFolder(decodeURIComponent(m[1])) : null
 }

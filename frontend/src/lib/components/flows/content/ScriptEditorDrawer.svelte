@@ -5,7 +5,6 @@
 	import ScriptEditor from '$lib/components/ScriptEditor.svelte'
 	import { ScriptService, type Preview, type Script } from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
-	import { workspaceStore } from '$lib/stores'
 	import { Loader2, Save, DiffIcon, Settings } from 'lucide-svelte'
 	import ScriptAdvancedSettings from '$lib/components/ScriptAdvancedSettings.svelte'
 	import ScriptSettingsBadges from '$lib/components/ScriptSettingsBadges.svelte'
@@ -21,13 +20,16 @@
 	import { fade } from 'svelte/transition'
 	import WorkerTagSelect from '$lib/components/WorkerTagSelect.svelte'
 	import type { FlowEditorContext } from '../types'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let scriptEditorDrawer: Drawer | undefined = $state()
 
 	const dispatch = createEventDispatcher()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
-	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $operatingWorkspace)
 
 	export async function openDrawer(hash: string, cb: () => void): Promise<void> {
 		script = undefined

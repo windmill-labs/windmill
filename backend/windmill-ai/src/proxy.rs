@@ -72,7 +72,9 @@ pub fn proxy_execution_mode(provider: &AIProvider) -> ProxyExecutionMode {
         | AIProvider::Groq
         | AIProvider::OpenRouter
         | AIProvider::TogetherAI
-        | AIProvider::CustomAI => ProxyExecutionMode::HttpForward,
+        | AIProvider::CustomAI
+        | AIProvider::TypeSafe
+        | AIProvider::Cloudflare => ProxyExecutionMode::HttpForward,
         AIProvider::GoogleAI => ProxyExecutionMode::NativeGoogleAi,
         AIProvider::AWSBedrock => ProxyExecutionMode::NativeAwsBedrock,
     }
@@ -263,6 +265,7 @@ mod tests {
             aws_access_key_id: None,
             aws_secret_access_key: None,
             aws_session_token: None,
+            oidc_role_arn: None,
             platform: AIPlatform::Standard,
             custom_headers: HashMap::new(),
         }
@@ -443,6 +446,8 @@ mod tests {
             (AIProvider::OpenRouter, ProxyExecutionMode::HttpForward),
             (AIProvider::TogetherAI, ProxyExecutionMode::HttpForward),
             (AIProvider::CustomAI, ProxyExecutionMode::HttpForward),
+            (AIProvider::TypeSafe, ProxyExecutionMode::HttpForward),
+            (AIProvider::Cloudflare, ProxyExecutionMode::HttpForward),
             (AIProvider::GoogleAI, ProxyExecutionMode::NativeGoogleAi),
             (AIProvider::AWSBedrock, ProxyExecutionMode::NativeAwsBedrock),
         ];

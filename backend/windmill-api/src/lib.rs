@@ -13,8 +13,11 @@ use crate::embeddings::load_embeddings_db;
 use crate::oauth2_oss::SlackVerifier;
 #[cfg(feature = "smtp")]
 use crate::smtp_server_oss::SmtpServer;
+use axum::middleware::from_fn_with_state;
 #[cfg(feature = "enterprise")]
 use windmill_api_auth::ee_oss::ExternalJwks;
+use windmill_api_auth::gate_operator_writes;
+use windmill_common::workspaces::ManageKind;
 use windmill_store::resources::public_service;
 
 #[cfg(feature = "mcp")]
@@ -69,6 +72,11 @@ mod ai;
 #[cfg(feature = "private")]
 mod ai_free_tier_ee;
 mod ai_free_tier_oss;
+#[cfg(feature = "parquet")]
+mod ai_sessions;
+#[cfg(feature = "parquet")]
+pub use ai_sessions::sweep_expired_ai_session_backups;
+mod ai_shared_artifacts;
 mod apps;
 mod apps_raw_bundle;
 pub use apps::invalidate_app_policy_cache;
@@ -116,6 +124,7 @@ pub mod storage_list_ee;
 mod storage_list_oss;
 mod workspace_dependencies;
 
+mod agent_runs;
 mod ai_evals;
 mod approvals;
 #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -140,6 +149,8 @@ pub mod oauth2_oss;
 #[cfg(feature = "private")]
 pub mod oidc_ee;
 mod oidc_oss;
+#[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
+pub mod oidc_signer_tools_ee;
 mod path_autocomplete;
 mod raw_apps;
 mod resources;
@@ -529,10 +540,15 @@ pub async fn run_server(
     #[cfg(feature = "http_trigger")]
     {
         let http_killpill_rx = killpill_rx.resubscribe();
-        triggers::http::refresh_routers_loop(&db, http_killpill_rx).await;
+        // A worker only serves `/r` when one of its own jobs calls the local API, so it loads the
+        // routers on that first request rather than at startup.
+        triggers::http::refresh_routers_loop(&db, http_killpill_rx, server_mode).await;
     }
 
-    let triggers_service = triggers::generate_trigger_routers();
+    let triggers_service = triggers::generate_trigger_routers().layer(from_fn_with_state(
+        ManageKind::Triggers,
+        gate_operator_writes,
+    ));
 
     if !*CLOUD_HOSTED && server_mode && !mcp_mode {
         start_all_listeners(db.clone(), &killpill_rx);
@@ -555,7 +571,7 @@ pub async fn run_server(
         if server_mode || mcp_mode {
             use mcp::{
                 add_www_authenticate_header, add_www_authenticate_header_gateway,
-                extract_workspace_from_token,
+                extract_workspace_from_token, reject_token_query_param,
             };
             let (mcp_router, mcp_cancellation_token) = setup_mcp_server(
                 db.clone(),
@@ -568,15 +584,17 @@ pub async fn run_server(
             let workspaced_mcp_router = mcp_router
                 .clone()
                 .route_layer(from_extractor::<ApiAuthed>())
+                .layer(axum::middleware::from_fn(reject_token_query_param))
                 .layer(axum::middleware::from_fn(add_www_authenticate_header))
                 .layer(axum::middleware::from_fn(extract_and_store_workspace_id));
             // Gateway MCP router — resolves workspace from token
             let gateway_mcp_router = mcp_router
                 .route_layer(from_extractor::<ApiAuthed>())
+                .layer(axum::middleware::from_fn(extract_workspace_from_token))
+                .layer(axum::middleware::from_fn(reject_token_query_param))
                 .layer(axum::middleware::from_fn(
                     add_www_authenticate_header_gateway,
-                ))
-                .layer(axum::middleware::from_fn(extract_workspace_from_token));
+                ));
             (
                 workspaced_mcp_router,
                 gateway_mcp_router,
@@ -644,7 +662,15 @@ pub async fn run_server(
                         )
                         .nest("/assets", windmill_api_assets::workspaced_service())
                         .nest("/audit", audit::workspaced_service())
-                        .nest("/capture", capture::workspaced_service())
+                        // Capture configures a trigger without creating one. Its unauthed
+                        // ingestion routes are a separate service and stay open.
+                        .nest(
+                            "/capture",
+                            capture::workspaced_service().layer(from_fn_with_state(
+                                ManageKind::Triggers,
+                                gate_operator_writes,
+                            )),
+                        )
                         .nest(
                             "/concurrency_groups",
                             concurrency_groups::workspaced_service(),
@@ -659,9 +685,13 @@ pub async fn run_server(
                             "/workspace_dependencies",
                             workspace_dependencies::workspaced_service(),
                         )
+                        // CORS so a chat UI on another origin (an external site, or
+                        // a sandboxed raw app with its frontend SDK token) can read
+                        // its conversation history. Bearer-only, like variables.
                         .nest(
                             "/flow_conversations",
-                            windmill_api_flow_conversations::workspaced_service(),
+                            windmill_api_flow_conversations::workspaced_service()
+                                .layer(cors.clone()),
                         )
                         // CORS so an opaque-origin app iframe (WIN-2006 embed,
                         // no separate domain) can read folders/listnames with a
@@ -685,9 +715,18 @@ pub async fn run_server(
                         .nest("/native_triggers", {
                             #[cfg(feature = "native_trigger")]
                             {
-                                native_triggers::handler::generate_native_trigger_routers().merge(
-                                    native_triggers::workspace_integrations::workspaced_service(),
-                                )
+                                // Only the trigger routes take the gate: the integrations beside
+                                // them connect the workspace's GitHub/Google account, which is a
+                                // settings concern and admin-only already.
+                                native_triggers::handler::generate_native_trigger_routers()
+                                    .layer(from_fn_with_state(
+                                        ManageKind::Triggers,
+                                        gate_operator_writes,
+                                    ))
+                                    .merge(
+                                        native_triggers::workspace_integrations::workspaced_service(
+                                        ),
+                                    )
                             }
                             #[cfg(not(feature = "native_trigger"))]
                             {
@@ -720,6 +759,12 @@ pub async fn run_server(
                             path_autocomplete::workspaced_service(),
                         )
                         .nest("/raw_apps", raw_apps::workspaced_service())
+                        .nest(
+                            "/remote_deploy",
+                            windmill_api_workspaces::remote_deploy::workspaced_service(
+                                request_size_limit * 5,
+                            ),
+                        )
                         // CORS so the opaque-origin app iframe can read
                         // resources/list, resources/type/* with a scoped token.
                         .nest(
@@ -727,7 +772,13 @@ pub async fn run_server(
                             resources::workspaced_service().layer(cors.clone()),
                         )
                         .nest("/shared_ui", workspace_shared_ui::workspaced_service())
-                        .nest("/schedules", windmill_api_schedule::workspaced_service())
+                        .nest(
+                            "/schedules",
+                            windmill_api_schedule::workspaced_service().layer(from_fn_with_state(
+                                ManageKind::Schedules,
+                                gate_operator_writes,
+                            )),
+                        )
                         .nest("/scripts", scripts::workspaced_service())
                         .nest("/trash", trash::workspaced_service())
                         .nest(
@@ -1231,6 +1282,15 @@ pub async fn run_server(
     });
 
     server.await?;
+    let forks = &windmill_api_workspaces::workspaces::BACKGROUND_FORKS;
+    forks.close();
+    if !forks.is_empty() {
+        tracing::info!(
+            "server off. waiting for {} fork(s) being created",
+            forks.len()
+        );
+        forks.wait().await;
+    }
     #[cfg(feature = "agent_worker_server")]
     for (i, bg_processor) in agent_workers_bg_processor.into_iter().enumerate() {
         tracing::info!("server off. shutting down agent worker bg processor {i}");

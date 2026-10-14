@@ -3,14 +3,21 @@
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Button, CopyButton, Section, Skeleton, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Button, Section, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	import DeployToSetting from '$lib/components/DeployToSetting.svelte'
+	import RemoteDeployTargetSetting from '$lib/components/RemoteDeployTargetSetting.svelte'
 	import DevWorkspaceSetting from '$lib/components/DevWorkspaceSetting.svelte'
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
-	import PageHeader from '$lib/components/PageHeader.svelte'
+	import {
+		cloneHandlerDraft,
+		handlerDraftFromStored,
+		handlerDraftToStored,
+		type HandlerDraft
+	} from '$lib/components/handlerDraft.svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -23,7 +30,6 @@
 		WorkspaceService,
 		SettingService,
 		type AIConfig,
-		type ErrorHandler,
 		type GetCopilotSettingsStateResponse,
 		type InstanceAISummary,
 		type GetSettingsResponse
@@ -56,7 +62,6 @@
 		convertBackendSettingsToFrontendSettings,
 		type S3ResourceSettings
 	} from '$lib/workspace_settings'
-	import { base } from '$lib/base'
 	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
 	import AISettings from '$lib/components/workspaceSettings/AISettings.svelte'
 	import SharedUiSettings from '$lib/components/workspaceSettings/SharedUiSettings.svelte'
@@ -65,7 +70,6 @@
 	import GitSyncSection from '$lib/components/git_sync/GitSyncSection.svelte'
 	import Trashbin from '$lib/components/settings/Trashbin.svelte'
 	import { untrack } from 'svelte'
-	import { getHandlerType } from '$lib/components/triggers/utils'
 	import DbtSettings, {
 		convertDbtSettingsFromBackend,
 		type DbtSettingsType
@@ -178,10 +182,16 @@
 	let plan: string | undefined = $state(undefined)
 	let customer_id: string | undefined = $state(undefined)
 	let webhook: string | undefined = $state(undefined)
-	let errorHandlerSelected: ErrorHandler = $state('slack')
-	let errorHandlerScriptPath: string | undefined = $state(undefined)
-	let errorHandlerItemKind: 'flow' | 'script' = $state('script')
-	let errorHandlerExtraArgs: Record<string, any> = $state({})
+	const noErrorHandler = handlerDraftFromStored(
+		'error',
+		undefined,
+		'script',
+		{},
+		{
+			emptySelected: 'slack'
+		}
+	)
+	let errorHandlerDraft: HandlerDraft = $state(cloneHandlerDraft(noErrorHandler))
 	let errorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
 	let errorHandlerMutedOnUserPath: boolean | undefined = $state(undefined)
 	let successHandlerScriptPath: string | undefined = $state(undefined)
@@ -247,10 +257,7 @@
 	let initialEditedWorkspaceEncryptionKey: string | undefined = $state(undefined)
 
 	// Track initial error handler settings for unsaved changes detection
-	let initialErrorHandlerSelected: ErrorHandler = $state('slack')
-	let initialErrorHandlerScriptPath: string | undefined = $state(undefined)
-	let initialErrorHandlerItemKind: 'flow' | 'script' = $state('script')
-	let initialErrorHandlerExtraArgs: Record<string, any> = $state({})
+	let initialErrorHandlerDraft: HandlerDraft = $state(cloneHandlerDraft(noErrorHandler))
 	let initialErrorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
 	let initialErrorHandlerMutedOnUserPath: boolean | undefined = $state(undefined)
 
@@ -296,6 +303,13 @@
 		const changes = getErrorHandlerSettingsInitialAndModifiedValues()
 		if (!changes.savedValue || !changes.modifiedValue) return false
 		return hasUnsavedChanges(changes.savedValue, changes.modifiedValue)
+	})
+
+	let errorHandlerChannelMissing = $derived.by(() => {
+		const { selected } = errorHandlerDraft
+		if (selected !== 'slack' && selected !== 'teams') return false
+		const slot = errorHandlerDraft[selected]
+		return !!slot.path && emptyString(slot.args['channel'])
 	})
 
 	// Derived state for checking unsaved changes in success handler
@@ -517,7 +531,7 @@
 				webhook = ''
 			}
 		} catch (error) {
-			sendUserToast(`Failed to save webhook: ${error}`, true)
+			sendUserToast(`Failed to save webhook: ${error?.body ?? error}`, true)
 		}
 	}
 
@@ -684,10 +698,6 @@
 			| { path?: string; extra_args?: any; muted_on_cancel?: boolean; muted_on_user_path?: boolean }
 			| undefined
 		const errorHandlerPath = errorHandler?.path ?? ''
-		errorHandlerItemKind = errorHandlerPath
-			? (errorHandlerPath.split('/')[0] as 'flow' | 'script')
-			: 'script'
-		errorHandlerScriptPath = errorHandlerPath.split('/').slice(1).join('/')
 		errorHandlerMutedOnCancel = errorHandler?.muted_on_cancel
 		errorHandlerMutedOnUserPath = errorHandler?.muted_on_user_path
 		criticalAlertUIMuted = settings.mute_critical_alerts
@@ -704,18 +714,22 @@
 		WorkspaceService.getGuestUsage({ workspace: $workspaceStore! })
 			.then((u) => (guestUsage = u))
 			.catch(() => (guestUsage = undefined))
-		if (emptyString($enterpriseLicense)) {
-			errorHandlerSelected = 'custom'
-		} else if (
+		const [errorHandlerKind, ...errorHandlerScriptPath] = errorHandlerPath.split('/')
+		errorHandlerDraft = handlerDraftFromStored(
+			'error',
+			errorHandlerScriptPath.join('/'),
+			errorHandlerKind === 'flow' ? 'flow' : 'script',
+			errorHandler?.extra_args,
+			{ asCustom: emptyString($enterpriseLicense) }
+		)
+		if (
+			!emptyString($enterpriseLicense) &&
 			canUseInstanceAlerts &&
 			!errorHandlerPath &&
 			settings.error_handler_fallback_to_instance_alerts
 		) {
-			errorHandlerSelected = 'instance_alerts'
-		} else {
-			errorHandlerSelected = getHandlerType(errorHandlerScriptPath)
+			errorHandlerDraft.selected = 'instance_alerts'
 		}
-		errorHandlerExtraArgs = errorHandler?.extra_args ?? {}
 		const successHandler = settings.success_handler as
 			| { path?: string; extra_args?: any }
 			| undefined
@@ -762,10 +776,7 @@
 		initialEditedWorkspaceEncryptionKey = editedWorkspaceEncryptionKey
 
 		// Store initial error handler state for unsaved changes detection
-		initialErrorHandlerSelected = errorHandlerSelected
-		initialErrorHandlerScriptPath = errorHandlerScriptPath
-		initialErrorHandlerItemKind = errorHandlerItemKind
-		initialErrorHandlerExtraArgs = clone(errorHandlerExtraArgs)
+		initialErrorHandlerDraft = cloneHandlerDraft(errorHandlerDraft)
 		initialErrorHandlerMutedOnCancel = errorHandlerMutedOnCancel
 		initialErrorHandlerMutedOnUserPath = errorHandlerMutedOnUserPath
 
@@ -824,7 +835,7 @@
 			})
 
 			// Redirect to OAuth flow
-			window.location.href = `${base}/api/oauth/connect_slack?workspace=${$workspaceStore}`
+			window.location.href = `/api/oauth/connect_slack?workspace=${$workspaceStore}`
 		} catch (e) {
 			sendUserToast('Failed to save Slack OAuth configuration', true)
 			console.error(e)
@@ -902,18 +913,19 @@
 	})
 
 	async function editErrorHandler() {
-		if (errorHandlerScriptPath) {
+		const handler = handlerDraftToStored(errorHandlerDraft)
+		if (handler.path) {
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: `${errorHandlerItemKind}/${errorHandlerScriptPath}`,
-					extra_args: errorHandlerExtraArgs,
+					path: `${handler.kind}/${handler.path}`,
+					extra_args: handler.args,
 					muted_on_cancel: errorHandlerMutedOnCancel,
 					muted_on_user_path: errorHandlerMutedOnUserPath,
 					fallback_to_instance_alerts: false
 				}
 			})
-			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
+			sendUserToast(`workspace error handler set to ${handler.path}`)
 		} else {
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
@@ -922,23 +934,28 @@
 					extra_args: undefined,
 					muted_on_cancel: undefined,
 					muted_on_user_path: undefined,
-					fallback_to_instance_alerts: errorHandlerSelected === 'instance_alerts'
+					fallback_to_instance_alerts: errorHandlerDraft.selected === 'instance_alerts'
 				}
 			})
 			sendUserToast(
-				errorHandlerSelected === 'instance_alerts'
+				errorHandlerDraft.selected === 'instance_alerts'
 					? `failed jobs will be reported to the instance critical alert channels`
-					: initialErrorHandlerScriptPath
+					: handlerDraftToStored(initialErrorHandlerDraft).path
 						? `workspace error handler removed`
 						: `error handler settings saved`
 			)
 		}
 
-		// Update initial values for dirty detection
-		initialErrorHandlerSelected = errorHandlerSelected
-		initialErrorHandlerScriptPath = errorHandlerScriptPath
-		initialErrorHandlerItemKind = errorHandlerItemKind
-		initialErrorHandlerExtraArgs = clone(errorHandlerExtraArgs)
+		// Rebuilt from what was stored, so Discard also drops the other tabs' unsaved edits.
+		initialErrorHandlerDraft = handlerDraftFromStored(
+			'error',
+			handler.path,
+			handler.kind,
+			handler.args,
+			{
+				emptySelected: errorHandlerDraft.selected
+			}
+		)
 		initialErrorHandlerMutedOnCancel = errorHandlerMutedOnCancel
 		initialErrorHandlerMutedOnUserPath = errorHandlerMutedOnUserPath
 	}
@@ -1130,43 +1147,40 @@
 		guestJwtKeyType = initialGuestJwtJwksUrl ? 'jwks' : 'pem'
 	}
 
-	// Strip keys from extraArgs that are auto-managed by child components:
-	// - 'slack': computed by ErrorOrRecoveryHandler's $effect based on handler type
-	// - 'channel_name': display metadata stripped by SchemaForm's removeExtraKey()
-	function normalizeHandlerExtraArgs(args: Record<string, any>): Record<string, any> {
-		const { slack: _, channel_name: __, ...rest } = args
-		return rest
+	// Compares what Save would send, so visiting another tab and coming back is not a change.
+	// The stored handler is nested because `hasUnsavedChanges` drops a top-level `path`.
+	function errorHandlerSettingsValue(
+		draft: HandlerDraft,
+		mutedOnCancel: boolean | undefined,
+		mutedOnUserPath: boolean | undefined
+	) {
+		return {
+			errorHandler: handlerDraftToStored(draft),
+			fallbackToInstanceAlerts: draft.selected === 'instance_alerts',
+			errorHandlerMutedOnCancel: mutedOnCancel,
+			errorHandlerMutedOnUserPath: mutedOnUserPath
+		}
 	}
 
 	// Function to check if there are unsaved changes in error handler settings
 	function getErrorHandlerSettingsInitialAndModifiedValues() {
-		const savedValue = {
-			errorHandlerSelected: initialErrorHandlerSelected,
-			errorHandlerScriptPath: initialErrorHandlerScriptPath,
-			errorHandlerItemKind: initialErrorHandlerItemKind,
-			errorHandlerExtraArgs: normalizeHandlerExtraArgs(initialErrorHandlerExtraArgs),
-			errorHandlerMutedOnCancel: initialErrorHandlerMutedOnCancel,
-			errorHandlerMutedOnUserPath: initialErrorHandlerMutedOnUserPath
+		return {
+			savedValue: errorHandlerSettingsValue(
+				initialErrorHandlerDraft,
+				initialErrorHandlerMutedOnCancel,
+				initialErrorHandlerMutedOnUserPath
+			),
+			modifiedValue: errorHandlerSettingsValue(
+				errorHandlerDraft,
+				errorHandlerMutedOnCancel,
+				errorHandlerMutedOnUserPath
+			)
 		}
-
-		const modifiedValue = {
-			errorHandlerSelected: errorHandlerSelected,
-			errorHandlerScriptPath: errorHandlerScriptPath,
-			errorHandlerItemKind: errorHandlerItemKind,
-			errorHandlerExtraArgs: normalizeHandlerExtraArgs(errorHandlerExtraArgs),
-			errorHandlerMutedOnCancel: errorHandlerMutedOnCancel,
-			errorHandlerMutedOnUserPath: errorHandlerMutedOnUserPath
-		}
-
-		return { savedValue, modifiedValue }
 	}
 
 	// Function to discard unsaved error handler settings changes
 	function discardErrorHandlerSettingsChanges() {
-		errorHandlerSelected = initialErrorHandlerSelected
-		errorHandlerScriptPath = initialErrorHandlerScriptPath
-		errorHandlerItemKind = initialErrorHandlerItemKind
-		errorHandlerExtraArgs = clone(initialErrorHandlerExtraArgs)
+		errorHandlerDraft = cloneHandlerDraft(initialErrorHandlerDraft)
 		errorHandlerMutedOnCancel = initialErrorHandlerMutedOnCancel
 		errorHandlerMutedOnUserPath = initialErrorHandlerMutedOnUserPath
 	}
@@ -1454,26 +1468,31 @@
 					}
 				]
 	)
+
+	// The label of the entry the sidebar highlights, so the breadcrumb and the sidebar name the
+	// same pane: both read `tab`, which resolves the URL's aliases (`teams`, `deploy_to`, …).
+	const tabLabel = $derived(
+		navigationGroups.flatMap((g) => g.items).find((i) => i.id === tab)?.label
+	)
 </script>
 
-<CenteredPage wrapperClasses="pb-0 h-screen" handleOverflow={false} class="flex flex-col h-full">
+<CenteredPage wrapperClasses="pb-0 h-full" handleOverflow={false} class="flex flex-col h-full">
 	{#if canAdmin || isForkOwner}
-		<PageHeader title="Workspace settings: {$workspaceStore}">
-			{#snippet titleActions()}
-				{#if $workspaceStore}
-					<CopyButton value={$workspaceStore} title={`Copy id: ${$workspaceStore}`} />
-				{/if}
-			{/snippet}
-			{#if $superadmin}
-				<Button variant="default" size="sm" on:click={() => goto('#superadmin-settings')}>
-					Instance settings
-				</Button>
-			{/if}</PageHeader
-		>
+		<!-- No title of its own: the band already says which workspace's settings these are, and the
+		     two controls that sat beside the title are the page's actions. The panes below scroll
+		     inside themselves, so the bar keeps its edge at rest rather than only under a scroll. -->
+		<PageHeaderContent
+			section={tabLabel ? { parent: 'Workspace settings', label: tabLabel } : undefined}
+			actions={settingsActions}
+			separator="always"
+		/>
 
 		<div class="flex grow min-h-0 pb-4">
 			<!-- Sidebar Navigation -->
-			<div class="w-60 shrink-0 h-full overflow-auto pb-4 pr-4 -ml-2">
+			<!-- The top padding belongs inside both scrollers, not above them: it is the gap under the
+			     separator at rest, and it has to travel with the content so what scrolls passes under
+			     the line rather than stopping short of it. -->
+			<div class="w-60 shrink-0 h-full overflow-auto pt-6 pb-4 pr-4 -ml-2">
 				<SidebarNavigation
 					groups={navigationGroups}
 					selectedId={tab}
@@ -1488,7 +1507,7 @@
 			<!-- Main Content -->
 			<div class="flex-1 min-w-0 h-full">
 				<div class="h-full overflow-auto">
-					<div class="h-fit px-6" style="scrollbar-gutter: stable both-edges;">
+					<div class="h-fit px-6 pt-6" style="scrollbar-gutter: stable both-edges;">
 						{#if !loadedSettings}
 							<Skeleton layout={[1, [40]]} />
 						{:else if tab == 'users'}
@@ -1546,11 +1565,17 @@
 									<Button
 										variant="default"
 										startIcon={{ icon: Target }}
-										onclick={() => goto(`${base}/forks/compare?mode=fork`)}
+										onclick={() => goto('/forks/compare?mode=fork')}
 									>
 										Merge into another workspace
 									</Button>
 								</div>
+							</div>
+							<!-- The other destination the lineage cannot express: a workspace on another
+							     instance. Its own section, since it needs a credential per person. -->
+							<div class="flex flex-col gap-2 max-w-2xl mt-8 pt-6 border-t">
+								<span class="text-xs font-semibold text-emphasis">Deploy to another instance</span>
+								<RemoteDeployTargetSetting />
 							</div>
 						{:else if tab == 'rulesets'}
 							<SettingsPageHeader
@@ -1578,7 +1603,7 @@
 													<Button
 														endIcon={{ icon: ExternalLink }}
 														variant="accent"
-														href="{base}/api/w/{$workspaceStore}/workspaces/billing_portal"
+														href="/api/w/{$workspaceStore}/workspaces/billing_portal"
 													>
 														Customer portal
 													</Button>
@@ -1630,9 +1655,9 @@
 											}
 										}}
 										onSelect={editSlackCommand}
-										connectHref="{base}/api/oauth/connect_slack"
-										createScriptHref="{base}/scripts/add?hub=hub%2F28071%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
-										createFlowHref="{base}/flows/add?hub=28"
+										connectHref="/api/oauth/connect_slack"
+										createScriptHref="/scripts/add?hub=hub%2F28071%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
+										createFlowHref="/flows/add?hub=28"
 										documentationLink="https://www.windmill.dev/docs/integrations/slack"
 										onLoadSettings={loadSettings}
 										display_name={slack_team_name}
@@ -1717,7 +1742,7 @@
 																Slack API
 															</a>. Set the redirect URI to:{' '}
 															<code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">
-																{window.location.origin}{base}/oauth/callback_slack
+																{window.location.origin}/oauth/callback_slack
 															</code>
 														</div>
 													</CollapseLink>
@@ -1767,8 +1792,8 @@
 											}}
 											onSelect={editTeamsCommand}
 											connectHref={undefined}
-											createScriptHref="{base}/scripts/add?hub=hub%2F11591%2Fteams%2FExample%20of%20responding%20to%20a%20Microsoft%20Teams%20command"
-											createFlowHref="{base}/flows/add?hub=58"
+											createScriptHref="/scripts/add?hub=hub%2F11591%2Fteams%2FExample%20of%20responding%20to%20a%20Microsoft%20Teams%20command"
+											createFlowHref="/flows/add?hub=58"
 											documentationLink="https://www.windmill.dev/docs/integrations/teams"
 											onLoadSettings={loadSettings}
 											display_name={teams_team_name}
@@ -1821,7 +1846,7 @@
 								{:else}
 									<Button
 										size="sm"
-										href="{base}/api/w/{$workspaceStore ?? ''}/workspaces/tarball?archive_type=zip"
+										href="/api/w/{$workspaceStore ?? ''}/workspaces/tarball?archive_type=zip"
 										target="_blank"
 									>
 										Export workspace as zip file
@@ -1954,11 +1979,8 @@
 										isEditable={true}
 										errorOrRecovery="error"
 										showScriptHelpText={true}
-										bind:handlerSelected={errorHandlerSelected}
-										bind:handlerPath={errorHandlerScriptPath}
+										bind:draft={errorHandlerDraft}
 										customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
-										bind:customHandlerKind={errorHandlerItemKind}
-										bind:handlerExtraArgs={errorHandlerExtraArgs}
 										showInstanceAlerts={canUseInstanceAlerts}
 									>
 										{#snippet customTabTooltip()}
@@ -1989,21 +2011,15 @@
 										{/snippet}
 									</ErrorOrRecoveryHandler>
 
-									{#if errorHandlerSelected !== 'instance_alerts'}
+									{#if errorHandlerDraft.selected !== 'instance_alerts'}
 										<SettingCard class="gap-2">
 											<Toggle
-												disabled={!$enterpriseLicense ||
-													((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-														!emptyString(errorHandlerScriptPath) &&
-														emptyString(errorHandlerExtraArgs['channel']))}
+												disabled={!$enterpriseLicense || errorHandlerChannelMissing}
 												bind:checked={errorHandlerMutedOnCancel}
 												options={{ right: 'Do not run error handler for canceled jobs' }}
 											/>
 											<Toggle
-												disabled={!$enterpriseLicense ||
-													((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-														!emptyString(errorHandlerScriptPath) &&
-														emptyString(errorHandlerExtraArgs['channel']))}
+												disabled={!$enterpriseLicense || errorHandlerChannelMissing}
 												bind:checked={errorHandlerMutedOnUserPath}
 												options={{ right: 'Do not run error handler for u/ scripts and flows' }}
 											/>
@@ -2018,10 +2034,7 @@
 									onSave={editErrorHandler}
 									onDiscard={discardErrorHandlerSettingsChanges}
 									saveLabel="Save error handler"
-									disabled={!$enterpriseLicense ||
-										((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-											!emptyString(errorHandlerScriptPath) &&
-											emptyString(errorHandlerExtraArgs['channel']))}
+									disabled={!$enterpriseLicense || errorHandlerChannelMissing}
 								/>
 							</Section>
 
@@ -2043,7 +2056,7 @@
 											/>
 											<Button
 												variant="default"
-												href={`${base}/scripts/add?lang=bun#` +
+												href={'/scripts/add?lang=bun#' +
 													encodeState({
 														path: 'f/success_handler',
 														summary: 'Workspace Success Handler',
@@ -2425,6 +2438,14 @@ export async function main(
 	triggerOnSearchParamsChange={true}
 	tabMode={true}
 />
+
+{#snippet settingsActions()}
+	{#if $superadmin}
+		<Button variant="default" unifiedSize="sm" on:click={() => goto('#superadmin-settings')}>
+			Instance settings
+		</Button>
+	{/if}
+{/snippet}
 
 <style>
 </style>

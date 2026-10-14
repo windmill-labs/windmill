@@ -116,6 +116,7 @@ async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<Pipt
 
 const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download.py.config.proto");
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
+const NSJAIL_CONFIG_LOCK_PY_CONTENT: &str = include_str!("../nsjail/lock.py.config.proto");
 pub const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
 /// Every file exchanged with a job is UTF-8 by construction, so the interpreter
@@ -156,7 +157,7 @@ use crate::{
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry_with_workspace_override,
+    is_sandboxing_enabled, read_ee_registry,
     worker_utils::ping_job_status,
     PyV, DISABLE_NUSER, HOME_ENV, INDEX_CERT, NATIVE_CERT, NSJAIL_AVAILABLE, NSJAIL_PATH,
     NSJAIL_PY_RLIMIT_AS_MB, PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS,
@@ -279,7 +280,12 @@ pub async fn uv_pip_compile(
     #[cfg(feature = "enterprise")]
     let requirements = replace_pip_secret(conn, w_id, &requirements, worker_name, job_id).await?;
 
-    let ws_suffix = crate::workspace_registry_cache_suffix(w_id).await;
+    let pip_indexes = PipIndexes::snapshot(w_id).await;
+    let ws_suffix = if pip_indexes.ws_scoped {
+        format!(":ws:{w_id}")
+    } else {
+        String::new()
+    };
     let exclude_newer_suffix = uv_exclude_newer
         .as_deref()
         .map(|v| format!("-en{}", v))
@@ -343,31 +349,12 @@ pub async fn uv_pip_compile(
         if no_cache {
             args.extend(["--no-cache"]);
         }
-        let pip_extra_index_url = read_ee_registry_with_workspace_override(
-            PIP_EXTRA_INDEX_URL.read().await.clone(),
-            "pip_extra_index_url",
-            "pip extra index url",
-            job_id,
-            w_id,
-            conn,
-        )
-        .await
-        .map(handle_ephemeral_token);
+        let (pip_extra_index_url, pip_index_url) = pip_indexes.urls(job_id, w_id, conn).await;
         if let Some(url) = pip_extra_index_url.as_ref() {
             url.split(",").for_each(|url| {
                 args.extend(["--extra-index-url", url]);
             });
         }
-        let pip_index_url = read_ee_registry_with_workspace_override(
-            PIP_INDEX_URL.read().await.clone(),
-            "pip_index_url",
-            "pip index url",
-            job_id,
-            w_id,
-            conn,
-        )
-        .await
-        .map(handle_ephemeral_token);
         if let Some(url) = pip_index_url.as_ref() {
             args.extend(["--index-url", url]);
         }
@@ -380,7 +367,7 @@ pub async fn uv_pip_compile(
             args.extend(["--cert", cert_path]);
         }
         if *NATIVE_CERT {
-            args.extend(["--native-tls"]);
+            args.extend(["--system-certs"]);
         }
         if let Some(exclude_newer) = uv_exclude_newer.as_deref() {
             args.extend(["--exclude-newer", exclude_newer]);
@@ -393,18 +380,76 @@ pub async fn uv_pip_compile(
         #[cfg(unix)]
         let uv_cmd = UV_PATH.as_str();
 
-        let mut child_cmd = Command::new(uv_cmd);
-        child_cmd
-            .current_dir(job_dir)
-            .env_clear()
-            .env("HOME", HOME_ENV.to_string())
-            .env("PATH", PATH_ENV.to_string())
-            .env("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR.to_string())
-            .env("UV_INDEX_STRATEGY", uv_index_strategy)
-            .envs(PROXY_ENVS.clone())
-            .args(&args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        // Resolving an sdist whose metadata is not static makes uv invoke its
+        // PEP 517 build backend, which runs arbitrary package code (e.g.
+        // setup.py). When sandboxing is on, confine that under nsjail exactly
+        // like the install and run steps already are — otherwise it runs as the
+        // worker, in the worker's namespaces, with the worker's env and tokens
+        // readable. The jail gets network to the index, the job dir and the
+        // shared uv cache writable, and the managed interpreter read-only.
+        let mut child_cmd = if is_sandboxing_enabled() {
+            let index_cert_mount = INDEX_CERT
+                .as_ref()
+                .map(|p| {
+                    format!(
+                        "mount {{\n    src: \"{p}\"\n    dst: \"{p}\"\n    is_bind: true\n    mandatory: false\n}}\n"
+                    )
+                })
+                .unwrap_or_default();
+            // The cache dir is bind-mounted into the jail, so it must exist before
+            // nsjail builds the mount tree (uv would otherwise create it itself).
+            std::fs::create_dir_all(&*UV_CACHE_DIR)?;
+            let nsjail_timeout = resolve_nsjail_timeout(conn, w_id, *job_id, None).await;
+            write_file(
+                job_dir,
+                "lock.config.proto",
+                NSJAIL_CONFIG_LOCK_PY_CONTENT
+                    .replace("{TIMEOUT}", &nsjail_timeout)
+                    .replace("{JOB_DIR}", job_dir)
+                    .replace("{UV_CACHE_DIR}", &*UV_CACHE_DIR)
+                    .replace("{PY_INSTALL_DIR}", &*PY_INSTALL_DIR)
+                    .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                    .replace("{INDEX_CERT_MOUNT}", &index_cert_mount)
+                    .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
+                    .replace("#{DEV}", DEV_CONF_NSJAIL)
+                    .replace(
+                        "{TMP_MOUNT_BLOCK}",
+                        &resolve_nsjail_tmp_mount_block(job_dir).await,
+                    )
+                    .as_str(),
+            )?;
+
+            let mut nsjail_args = vec!["--config", "lock.config.proto", "--", uv_cmd];
+            nsjail_args.extend(args.iter().copied());
+
+            let mut child_cmd = Command::new(NSJAIL_PATH.as_str());
+            child_cmd
+                .current_dir(job_dir)
+                .env_clear()
+                // HOME is set to /tmp by the nsjail config; keep_env passes the rest.
+                .env("PATH", PATH_ENV.to_string())
+                .env("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR.to_string())
+                .env("UV_INDEX_STRATEGY", uv_index_strategy)
+                .envs(PROXY_ENVS.clone())
+                .args(nsjail_args)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            child_cmd
+        } else {
+            let mut child_cmd = Command::new(uv_cmd);
+            child_cmd
+                .current_dir(job_dir)
+                .env_clear()
+                .env("HOME", HOME_ENV.to_string())
+                .env("PATH", PATH_ENV.to_string())
+                .env("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR.to_string())
+                .env("UV_INDEX_STRATEGY", uv_index_strategy)
+                .envs(PROXY_ENVS.clone())
+                .args(&args)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            child_cmd
+        };
 
         if let Some(mirror) = UV_PYTHON_INSTALL_MIRROR.read().await.as_ref() {
             child_cmd.env("UV_PYTHON_INSTALL_MIRROR", mirror);
@@ -454,7 +499,12 @@ pub async fn uv_pip_compile(
                 );
         }
 
-        let child_process = start_child_process(child_cmd, uv_cmd, false).await?;
+        let child_executable = if is_sandboxing_enabled() {
+            NSJAIL_PATH.as_str()
+        } else {
+            uv_cmd
+        };
+        let child_process = start_child_process(child_cmd, child_executable, false).await?;
         append_logs(&job_id, &w_id, logs, conn).await;
         handle_child(
             job_id,
@@ -462,7 +512,8 @@ pub async fn uv_pip_compile(
             mem_peak,
             canceled_by,
             child_process,
-            false,
+            // jailed when sandboxing is on, so mem sampling finds the real process
+            is_sandboxing_enabled(),
             worker_name,
             &w_id,
             // TODO: Rename to uv-pip-compile?
@@ -828,7 +879,7 @@ pub async fn handle_python_job(
         for k, v in list(pre_args.items()):
             if v == '<function call>':
                 del pre_args[k]
-        kwargs = inner_script.preprocessor(**pre_args)
+        kwargs = _await(inner_script.preprocessor(**pre_args))
         kwrags_json = res_to_json(kwargs, type(kwargs))
         with open("args.json", 'w', encoding="utf-8") as f:
             f.write(kwrags_json)"#
@@ -860,7 +911,7 @@ pub async fn handle_python_job(
         if v == '<function call>':
             del pre_args[k]
     _pre_result = inner_script.preprocessor(**pre_args)
-    if hasattr(_pre_result, '__await__'):
+    if any('__await__' in vars(c) for c in type(_pre_result).__mro__):
         import asyncio
         _pre_result = asyncio.run(_pre_result)
     kwargs = _pre_result if _pre_result is not None else {{}}
@@ -969,6 +1020,8 @@ result_json = os.path.join(os.path.abspath(os.path.dirname(__file__)), "result.j
 def res_to_json(res, typ):
 {res_to_json_body}
 
+{PY_AWAIT_HELPER}
+
 try:
     {preprocessor}
     {spread}
@@ -977,9 +1030,9 @@ try:
             del args[k]
     if inner_script.{main_override} is None or not callable(inner_script.{main_override}):
         raise ValueError("{main_override} function is missing")
-    res = inner_script.{main_override}(**args)
+    res = _await(inner_script.{main_override}(**args))
     typ = type(res)
-    if hasattr(res, '__iter__') and not isinstance(res, (str, dict, list, bytes, tuple, set, frozenset, range, memoryview, bytearray)) and typ.__name__ != 'DataFrame':
+    if _defines(res, '__iter__') and not isinstance(res, (str, dict, list, bytes, tuple, set, frozenset, range, memoryview, bytearray)) and typ.__name__ != 'DataFrame':
         for chunk in res:
             print("WM_STREAM: " + chunk.replace('\n', '\\n'))
         res = None
@@ -1513,6 +1566,8 @@ _fix=lambda s:s if 'Infinity' not in s and 'NaN' not in s and '\\u0000' not in s
 
 def res_to_json(res, typ):
 {res_to_json_body}
+
+{PY_AWAIT_HELPER}
 {functions}
 {registrations}
 
@@ -1546,11 +1601,11 @@ for line in sys.stdin:
                 continue
             kwargs = json.loads(args_json, strict=False)
             pre_args = entry['pre_transform'](kwargs)
-            preprocessed = mod.preprocessor(**pre_args)
+            preprocessed = _await(mod.preprocessor(**pre_args))
             preprocessed_json = json.dumps(preprocessed, separators=(',', ':'), default=str).replace('\n', '')
             sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
             main_args = entry['transform'](preprocessed if preprocessed else {{}})
-            res = mod.main(**main_args)
+            res = _await(mod.main(**main_args))
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
@@ -1574,11 +1629,11 @@ for line in sys.stdin:
                 continue
             kwargs = json.loads(args_json, strict=False)
             pre_args = entry['pre_transform'](kwargs)
-            preprocessed = mod.preprocessor(**pre_args)
+            preprocessed = _await(mod.preprocessor(**pre_args))
             preprocessed_json = json.dumps(preprocessed, separators=(',', ':'), default=str).replace('\n', '')
             sys.stdout.write("wm_res[preprocessed_args]:" + preprocessed_json + "\n")
             main_args = entry['transform'](preprocessed if preprocessed else {{}})
-            res = mod.main(**main_args)
+            res = _await(mod.main(**main_args))
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
@@ -1596,7 +1651,7 @@ for line in sys.stdin:
             entry = next(iter(scripts.values()))
             kwargs = json.loads(args_json, strict=False)
             args = entry['transform'](kwargs)
-            res = entry['mod'].main(**args)
+            res = _await(entry['mod'].main(**args))
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
@@ -1624,7 +1679,7 @@ for line in sys.stdin:
 
             kwargs = json.loads(args_json, strict=False)
             args = entry['transform'](kwargs)
-            res = entry['mod'].main(**args)
+            res = _await(entry['mod'].main(**args))
             typ = type(res)
             res_json = res_to_json(res, typ)
             sys.stdout.write("wm_res[success]:" + res_json + "\n")
@@ -2064,6 +2119,62 @@ Returned from server: py_version - {:?}, py_version_v2 - {:?}
     Ok((pyv, additional_python_paths))
 }
 
+/// The pip index settings a job resolves and installs from, and whether its workspace
+/// overrides any registry.
+///
+/// Both come from one snapshot of the workspace's overrides: read separately, a settings
+/// reload in between could file an install from an overridden index under a shared cache name.
+struct PipIndexes {
+    extra_index_url: Option<String>,
+    index_url: Option<String>,
+    /// Caches filled through these URLs must not be shared with other workspaces.
+    ws_scoped: bool,
+}
+
+impl PipIndexes {
+    async fn snapshot(w_id: &str) -> Self {
+        let overrides = crate::workspace_registry_overrides(w_id).await;
+        let ws_value = |key: &str| match overrides.get(key) {
+            Some(serde_json::Value::String(s)) => Some(s.clone()),
+            _ => None,
+        };
+        // An empty value means unset, and an empty workspace override unsets the global one.
+        Self {
+            extra_index_url: ws_value("pip_extra_index_url")
+                .or(PIP_EXTRA_INDEX_URL.read().await.clone())
+                .filter(|s| !s.trim().is_empty()),
+            index_url: ws_value("pip_index_url")
+                .or(PIP_INDEX_URL.read().await.clone())
+                .filter(|s| !s.trim().is_empty()),
+            ws_scoped: !overrides.is_empty(),
+        }
+    }
+
+    /// The `(extra index, index)` URLs to hand uv. Kept apart from [`Self::snapshot`]: it runs
+    /// `EPHEMERAL_TOKEN_CMD`, which a caller served from a cache has no reason to pay for.
+    async fn urls(
+        self,
+        job_id: &Uuid,
+        w_id: &str,
+        conn: &Connection,
+    ) -> (Option<String>, Option<String>) {
+        (
+            read_ee_registry(
+                self.extra_index_url,
+                "pip extra index url",
+                job_id,
+                w_id,
+                conn,
+            )
+            .await
+            .map(handle_ephemeral_token),
+            read_ee_registry(self.index_url, "pip index url", job_id, w_id, conn)
+                .await
+                .map(handle_ephemeral_token),
+        )
+    }
+}
+
 lazy_static::lazy_static! {
     static ref PIP_SECRET_VARIABLE: Regex = Regex::new(r"\$\{PIP_SECRET:([^\s\}]+)\}").unwrap();
 
@@ -2136,7 +2247,7 @@ async fn spawn_uv_install(
             vars.push(("TRUSTED_HOST", host));
         }
         if *NATIVE_CERT {
-            vars.push(("UV_NATIVE_TLS", "true"));
+            vars.push(("UV_SYSTEM_CERTS", "true"));
         }
         if let Some(timeout) = UV_HTTP_TIMEOUT.as_ref() {
             vars.push(("UV_HTTP_TIMEOUT", timeout.as_str()));
@@ -2260,7 +2371,7 @@ async fn spawn_uv_install(
             });
         }
         if *NATIVE_CERT {
-            command_args.extend(["--native-tls"]);
+            command_args.extend(["--system-certs"]);
         }
         // TODO:
         // Track https://github.com/astral-sh/uv/issues/6715
@@ -2338,6 +2449,33 @@ async fn spawn_uv_install(
     }
 }
 
+/// First field (the path) of a wheel RECORD line. RECORD is CSV (PEP 376 /
+/// RFC 4180): a path containing a comma or a double quote is written quoted,
+/// with inner quotes doubled, so splitting on the first comma turns such an
+/// entry into a name that never exists on disk.
+fn record_first_field(line: &str) -> Option<String> {
+    let Some(quoted) = line.strip_prefix('"') else {
+        return line
+            .split(',')
+            .next()
+            .filter(|p| !p.is_empty())
+            .map(str::to_owned);
+    };
+    let mut field = String::new();
+    let mut chars = quoted.chars();
+    while let Some(c) = chars.next() {
+        if c != '"' {
+            field.push(c);
+        } else if chars.as_str().starts_with('"') {
+            chars.next();
+            field.push('"');
+        } else {
+            return Some(field).filter(|f| !f.is_empty());
+        }
+    }
+    None
+}
+
 /// Verify that every file listed in the wheel's RECORD exists on disk under
 /// `venv_p`. Used as a structural integrity check after both a successful
 /// `pull_from_tar` (object-store cache hit) and a successful local
@@ -2386,9 +2524,9 @@ async fn verify_wheel_record(venv_p: &str) -> Result<(), String> {
         if trimmed.is_empty() {
             continue;
         }
-        let rel_path = match trimmed.split(',').next() {
-            Some(p) if !p.is_empty() => p,
-            _ => continue,
+        let rel_path = match record_first_field(trimmed) {
+            Some(p) => p,
+            None => continue,
         };
         // Defensive: skip absolute paths or escaping entries — we only
         // validate package-relative files.
@@ -2397,7 +2535,7 @@ async fn verify_wheel_record(venv_p: &str) -> Result<(), String> {
         }
         let full = format!("{venv_p}/{rel_path}");
         if tokio::fs::metadata(&full).await.is_err() {
-            missing.push(rel_path.to_string());
+            missing.push(rel_path);
             // Bound error size in pathological cases (e.g. wholly empty dir).
             if missing.len() >= 10 {
                 missing.push("...".to_string());
@@ -2496,28 +2634,18 @@ pub async fn handle_python_reqs(
         job_id
     );
 
-    let pip_indexes = (
-        read_ee_registry_with_workspace_override(
-            PIP_EXTRA_INDEX_URL.read().await.clone(),
-            "pip_extra_index_url",
-            "pip extra index url",
-            job_id,
-            w_id,
-            conn,
-        )
-        .await
-        .map(handle_ephemeral_token),
-        read_ee_registry_with_workspace_override(
-            PIP_INDEX_URL.read().await.clone(),
-            "pip_index_url",
-            "pip index url",
-            job_id,
-            w_id,
-            conn,
-        )
-        .await
-        .map(handle_ephemeral_token),
-    );
+    let pip_indexes = PipIndexes::snapshot(w_id).await;
+    let ws_scoped = pip_indexes.ws_scoped;
+    let pip_indexes = pip_indexes.urls(job_id, w_id, conn).await;
+    // The wheel dir is shared by every workspace on the worker, and by every worker through
+    // the object store, under a name that says nothing of the index it was filled from. A
+    // workspace with its own registries gets its own, as its resolution cache does. The id
+    // is hashed: it is not restricted to characters safe in a file name.
+    let ws_dir_suffix = if ws_scoped {
+        format!("-ws-{}", &calculate_hash(w_id)[..16])
+    } else {
+        String::new()
+    };
 
     // Cached paths
     let mut req_with_penv: Vec<(String, String)> = vec![];
@@ -2546,7 +2674,7 @@ pub async fn handle_python_reqs(
         let py_prefix = &py_version.to_cache_dir(false);
 
         let venv_p = format!(
-            "{py_prefix}/{}",
+            "{py_prefix}/{}{ws_dir_suffix}",
             req.replace(' ', "").replace('/', "").replace(':', "")
         );
         if metadata(venv_p.clone() + "/.valid.windmill").await.is_ok() {
@@ -3303,6 +3431,37 @@ This is not normal behavior, please make sure all workers have enough memory.\n
     };
 }
 
+/// Python helper running what an `async def` main or preprocessor returns.
+/// One loop per process: a dedicated worker's module-level async clients and
+/// locks are bound to the loop they were first used on, so `asyncio.run`'s
+/// loop-per-call would break them from the second job on. A loop the script
+/// set while importing (`asyncio.set_event_loop`) is reused. asyncio is
+/// imported lazily so sync jobs don't pay its import time.
+/// `_defines` reads the class dicts instead of calling `hasattr`: a result is
+/// arbitrary user data, and `hasattr` runs its `__getattr__` (or its
+/// metaclass's), which may raise something other than AttributeError or
+/// answer every name.
+const PY_AWAIT_HELPER: &str = r#"_loop = None
+def _defines(r, name):
+    return any(name in vars(c) for c in type(r).__mro__)
+def _await(r):
+    global _loop
+    if not _defines(r, '__await__'):
+        return r
+    import asyncio
+    if _loop is None or _loop.is_closed():
+        import warnings
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', DeprecationWarning)
+                _loop = asyncio.get_event_loop()
+            if _loop.is_closed():
+                raise RuntimeError
+        except RuntimeError:
+            _loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(_loop)
+    return _loop.run_until_complete(r)"#;
+
 /// Python function body for `res_to_json(res, typ)`.
 /// Handles DataFrame, bytes, dict coercion + JSON serialization.
 fn python_res_to_json_body(postprocessor: &str) -> String {
@@ -3750,6 +3909,44 @@ mod tests {
         assert!(verify_wheel_record(dir.path().to_str().unwrap())
             .await
             .is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_verify_wheel_record_accepts_csv_quoted_path() {
+        let dir = tempfile::tempdir().unwrap();
+        // A path containing a comma is CSV-quoted in RECORD (wcwidth 0.8.3
+        // ships `wcwidth/textwrap.py,cover`). Splitting on the first comma
+        // looked for `"pkg/textwrap.py` and rejected a complete install.
+        write_fake_wheel(
+            dir.path(),
+            &["pkg/textwrap.py", "pkg/textwrap.py,cover"],
+            &[
+                "pkg/textwrap.py,sha256=aaa,1",
+                "\"pkg/textwrap.py,cover\",sha256=bbb,1",
+                "pkg-1.0.0.dist-info/RECORD,,",
+            ],
+        );
+        assert!(verify_wheel_record(dir.path().to_str().unwrap())
+            .await
+            .is_ok());
+    }
+
+    #[test]
+    fn test_record_first_field_unquotes_rfc4180() {
+        assert_eq!(
+            record_first_field("pkg/a.py,sha256=x,1").as_deref(),
+            Some("pkg/a.py")
+        );
+        assert_eq!(
+            record_first_field("\"pkg/a.py,cover\",sha256=x,1").as_deref(),
+            Some("pkg/a.py,cover")
+        );
+        assert_eq!(
+            record_first_field("\"pkg/say \"\"hi\"\".py\",sha256=x,1").as_deref(),
+            Some("pkg/say \"hi\".py")
+        );
+        assert_eq!(record_first_field(",,"), None);
+        assert_eq!(record_first_field("\"unterminated,sha256=x,1"), None);
     }
 
     // Regression tests for the concurrent-install guard. Two jobs installing the

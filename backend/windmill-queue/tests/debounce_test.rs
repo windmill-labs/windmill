@@ -3457,7 +3457,9 @@ mod debounce {
             trigger_kind: None,
             visible_to_owner: false,
             permissioned_as_end_user_email: None,
+            viewer_data_access: None,
             runnable_settings_handle: rs_handle,
+            job_token_scopes: None,
         };
 
         let pulled = PulledJob {
@@ -3698,7 +3700,9 @@ mod debounce {
             trigger_kind: None,
             visible_to_owner: false,
             permissioned_as_end_user_email: None,
+            viewer_data_access: None,
             runnable_settings_handle: rs_handle,
+            job_token_scopes: None,
         };
 
         let pulled = PulledJob {

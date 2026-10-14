@@ -13,7 +13,7 @@ use windmill_common::flows::FlowModuleValue;
 use windmill_common::{
     db::DB,
     error::Error,
-    flow_conversations::{add_message_to_conversation_tx, MessageType},
+    flow_conversations::{add_message_to_conversation_tx, MessageExtras, MessageType},
     flow_status::AgentAction,
     flows::{InputTransform, Step},
     jobs::JobKind,
@@ -103,9 +103,9 @@ pub fn filter_schema_by_input_transforms(
             .get_mut("properties")
             .and_then(|p| p.as_object_mut())
         {
-            for key in &keys_to_remove {
-                properties.remove(key);
-            }
+            // `remove` swaps the last entry into the freed slot, so removing in set order
+            // would leave the survivors in a different order on every run.
+            properties.retain(|key, _| !keys_to_remove.contains(key));
         }
 
         // Also remove from required array
@@ -154,6 +154,8 @@ pub async fn get_flow_job_runnable_and_raw_flow(
 pub struct FlowContext {
     pub flow_inputs: Option<HashMap<String, Box<RawValue>>>,
     pub flow_status: Option<windmill_common::flow_status::FlowStatus>,
+    /// Path of the flow the run started from, which scopes a string memory id.
+    pub flow_path: Option<String>,
 }
 
 /// Get flow context (chat settings + args + flow_status) from root flow's job data
@@ -171,7 +173,8 @@ pub async fn get_flow_context(db: &DB, job: &MiniPulledJob) -> FlowContext {
         r#"
         SELECT
             j.args as "args: Json<HashMap<String, Box<RawValue>>>",
-            js.flow_status as "flow_status: Json<windmill_common::flow_status::FlowStatus>"
+            js.flow_status as "flow_status: Json<windmill_common::flow_status::FlowStatus>",
+            j.runnable_path
         FROM v2_job_status js
         INNER JOIN v2_job j ON j.id = js.id
         WHERE js.id = $1
@@ -184,6 +187,7 @@ pub async fn get_flow_context(db: &DB, job: &MiniPulledJob) -> FlowContext {
         Ok(Some(row)) => FlowContext {
             flow_inputs: row.args.map(|j| j.0),
             flow_status: row.flow_status.map(|j| j.0),
+            flow_path: row.runnable_path,
         },
         Ok(None) => {
             tracing::warn!(
@@ -205,20 +209,24 @@ pub async fn add_message_to_conversation(
     db: &DB,
     conversation_id: &Uuid,
     job_id: Option<Uuid>,
+    turn_job_id: Uuid,
     message_content: &str,
     message_type: MessageType,
     step_name: &Option<String>,
     success: bool,
+    extras: Option<&MessageExtras>,
 ) -> Result<(), Error> {
     let mut tx = db.begin().await?;
     add_message_to_conversation_tx(
         &mut tx,
         *conversation_id,
         job_id,
+        turn_job_id,
         &message_content,
         message_type,
         step_name.as_deref(),
         success,
+        extras,
     )
     .await?;
     tx.commit().await?;
@@ -562,7 +570,7 @@ pub async fn load_mcp_tools(
         // is not allowed to read (resources:read:{path}). Reading through the raw
         // db pool here would bypass the authorization enforced by the regular MCP
         // tools API (get_mcp_tools) and act as a confused deputy.
-        let mcp_resource = client
+        let mut mcp_resource = client
             .get_resource_value::<McpResource>(path)
             .await
             .map_err(|e| {
@@ -606,6 +614,29 @@ pub async fn load_mcp_tools(
         } else {
             None
         };
+
+        // A URL can carry the server's key, so it goes through the same
+        // permissioned path as the token.
+        if let Some(var_path) = mcp_resource.url.strip_prefix("$var:") {
+            mcp_resource.url = client.get_variable_value(var_path).await.map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to resolve variable {} for the url of MCP resource {}: {}",
+                    var_path, resource_name, e
+                ))
+            })?;
+        }
+
+        // Header secrets go through the same permissioned path as the token.
+        for (name, value) in mcp_resource.headers.iter_mut().flatten() {
+            if let Some(var_path) = value.strip_prefix("$var:") {
+                *value = client.get_variable_value(var_path).await.map_err(|e| {
+                    Error::internal_err(format!(
+                        "Failed to resolve variable {} for header {} of MCP resource {}: {}",
+                        var_path, name, resource_name, e
+                    ))
+                })?;
+            }
+        }
 
         // Create new MCP client for this execution
         tracing::debug!("Creating fresh MCP client for {}", resource_name);
@@ -712,6 +743,7 @@ pub fn any_tool_needs_previous_result(tools: &[Tool]) -> bool {
                     FlowModuleValue::RawScript { input_transforms, .. } => input_transforms,
                     FlowModuleValue::FlowScript { input_transforms, .. } => input_transforms,
                     FlowModuleValue::AIAgent { input_transforms, .. } => input_transforms,
+                    FlowModuleValue::AIDecision { input_transforms, .. } => input_transforms,
                     _ => return false,
                 };
 
@@ -726,4 +758,33 @@ pub fn any_tool_needs_previous_result(tools: &[Tool]) -> bool {
         }
         false
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A tool's schema sits in the prompt prefix the provider caches on, so the
+    /// parameters left for the model must keep their order on every run.
+    #[test]
+    fn filtering_preset_inputs_keeps_the_remaining_property_order() {
+        let keys = ["a", "b", "c", "d", "e", "f", "g", "h"];
+        let props = keys
+            .iter()
+            .map(|k| format!(r#""{k}":{{"type":"string"}}"#))
+            .collect::<Vec<_>>()
+            .join(",");
+        let schema =
+            RawValue::from_string(format!(r#"{{"type":"object","properties":{{{props}}}}}"#))
+                .unwrap();
+        let preset = ["a", "c", "f"]
+            .iter()
+            .map(|k| (k.to_string(), InputTransform::Static { value: to_raw_value(&1) }))
+            .collect();
+
+        let filtered = filter_schema_by_input_transforms(schema, &preset).unwrap();
+        let value: serde_json::Value = serde_json::from_str(filtered.get()).unwrap();
+        let remaining: Vec<&String> = value["properties"].as_object().unwrap().keys().collect();
+        assert_eq!(remaining, ["b", "d", "e", "g", "h"]);
+    }
 }

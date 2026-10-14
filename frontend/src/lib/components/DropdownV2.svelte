@@ -132,8 +132,9 @@
 		})
 	})
 
-	export function close() {
+	export function close(afterClose?: () => void) {
 		open = false
+		if (afterClose) setTimeout(afterClose, 10)
 	}
 
 	async function computeItems(): Promise<Item[]> {
@@ -145,6 +146,9 @@
 		}
 	}
 	async function getMenuElements(): Promise<HTMLElement[]> {
+		// Runs on every pointerdown anywhere, for every mounted dropdown. Skip the
+		// whole-document query when the outside handler below cannot act anyway.
+		if (!usePointerDownOutside || !open) return []
 		return Array.from(document.querySelectorAll('[data-menu]')) as HTMLElement[]
 	}
 </script>
@@ -206,7 +210,7 @@
 				class="bg-surface-tertiary dark:border w-56 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1"
 				style={`${customWidth ? `width: ${customWidth}px;` : ''} max-height: ${maxHeight || '50vh'};`}
 			>
-				<DropdownV2Inner {aiId} items={computeItems} meltItem={item} {builders} />
+				<DropdownV2Inner {aiId} items={computeItems} meltItem={item} {builders} {close} />
 			</div>
 		{/if}
 	</div>

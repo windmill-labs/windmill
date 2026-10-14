@@ -45,6 +45,14 @@ describe('parsePostgresConnectionString', () => {
 		expect(parsePostgresConnectionString('postgres://u:p%40ss@host/db')?.password).toBe('p@ss')
 		expect(parsePostgresConnectionString('postgres://u%40corp:p@host/db')?.user).toBe('u@corp')
 	})
+
+	// libpq only percent-decodes the query, so `+` stays a plus: `Etc/GMT+3` is a timezone,
+	// `Etc/GMT 3` is a failed connection.
+	it('keeps a literal + in options, as libpq does', () => {
+		expect(
+			parsePostgresConnectionString('postgres://u@h/db?options=-c%20timezone%3DEtc/GMT+3')?.options
+		).toBe('-c timezone=Etc/GMT+3')
+	})
 })
 
 // The wizard offers the same connection as a string or as fields and switches between them
@@ -94,7 +102,8 @@ describe('composePostgresConnectionString', () => {
 			host: 'db.example.com',
 			port: 6543,
 			dbname: 'mydb',
-			sslmode: 'require'
+			sslmode: 'require',
+			options: 'endpoint=ep-x -c search_path=a&b+c'
 		}
 		expect(parsePostgresConnectionString(composePostgresConnectionString(parts))).toEqual(parts)
 	})
@@ -105,10 +114,10 @@ describe('composePostgresConnectionString', () => {
 // dangerous ones are precisely the ones a hand-written denylist would miss.
 describe('unsupportedConnectionParam', () => {
 	it('names a parameter that decides where data lands', () => {
-		expect(unsupportedConnectionParam('postgres://u:p@h/db?options=-csearch_path%3Dtenant')).toBe(
-			'options'
-		)
 		expect(unsupportedConnectionParam('postgres://u:p@h/db?search_path=tenant')).toBe('search_path')
+		expect(
+			unsupportedConnectionParam('postgres://u:p@h/db?options=-csearch_path%3Dtenant')
+		).toBeUndefined()
 	})
 
 	// Dropping these saves a *weaker* connection than the one pasted.

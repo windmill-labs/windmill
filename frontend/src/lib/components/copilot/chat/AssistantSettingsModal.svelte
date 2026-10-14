@@ -10,16 +10,30 @@ The trigger sits in the composer next to the model pill; `open(section)` is for 
 callers that already know which section they mean, such as the "+" menu's Manage entries.
 -->
 <script lang="ts" module>
-	export type AssistantSettingsSection = 'tools' | 'skills' | 'instructions' | 'mcp' | 'files'
+	export type AssistantSettingsSection =
+		| 'tools'
+		| 'skills'
+		| 'instructions'
+		| 'mcp'
+		| 'files'
+		| 'permissions'
 </script>
 
 <script lang="ts">
-	import { BookOpen, Boxes, Paperclip, Plug, ScrollText, SlidersHorizontal } from 'lucide-svelte'
+	import {
+		BookOpen,
+		Boxes,
+		ExternalLink,
+		Paperclip,
+		Plug,
+		ScrollText,
+		ShieldCheck,
+		SlidersHorizontal
+	} from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Modal2 from '$lib/components/common/modal/Modal2.svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import { summarizeTools } from './agentContext'
@@ -28,6 +42,15 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	import AssistantInstructionsSection from './AssistantInstructionsSection.svelte'
 	import AssistantMcpSection from './AssistantMcpSection.svelte'
 	import AssistantFilesSection from './AssistantFilesSection.svelte'
+	import AssistantPermissionsSection from './AssistantPermissionsSection.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	// Prefilled title marks the issue as AI Sessions feedback for triage.
+	const FEEDBACK_ISSUE_URL =
+		'https://github.com/windmill-labs/windmill/issues/new?title=' +
+		encodeURIComponent('AI Sessions feedback: ')
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	const aiChatManager = getAiChatManager()
 
@@ -56,7 +79,8 @@ callers that already know which section they mean, such as the "+" menu's Manage
 		skills: skillsBusy,
 		instructions: instructionsBusy,
 		mcp: mcpBusy,
-		files: filesBusy
+		files: filesBusy,
+		permissions: false
 	})
 	let blockingSection = $derived<AssistantSettingsSection | undefined>(
 		busyBySection[section]
@@ -88,24 +112,26 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	// unconditionally rather than behind `??`: short-circuiting it would leave this
 	// derived with no dependency at all, frozen on the workspace it first saw.
 	let ws = $derived.by(() => {
-		const active = $workspaceStore
+		const active = $operatingWorkspace
 		return aiChatManager.operatingWorkspace ?? active ?? ''
 	})
 
-	// Exactly what the chat loop sends — plan mode's transition tool is registered
-	// alongside `tools` there, so listing only `tools` would under-report.
-	let tools = $derived(summarizeTools([...aiChatManager.tools, ...aiChatManager.planMode.tools]))
+	// The session's capability surface, not this turn's: the heading answers what the
+	// assistant can call here, so it must not shift when the autonomy picker does.
+	let tools = $derived(summarizeTools(aiChatManager.availableTools))
+	let providerTools = $derived(aiChatManager.providerTools)
 
 	// `SidebarNavigation`'s item shape, which is what the instance and workspace settings
 	// navs are built from too.
 	let sections = $derived([
-		{ id: 'tools', label: 'Tools', icon: Boxes, count: tools.length },
+		{ id: 'tools', label: 'Tools', icon: Boxes, count: tools.length + providerTools.length },
 		{ id: 'skills', label: 'Skills', icon: BookOpen, count: skillCount },
 		{ id: 'instructions', label: 'Instructions', icon: ScrollText },
 		{ id: 'mcp', label: 'MCP connections', icon: Plug, count: mcpCount },
 		// The count is what is readable rather than what is attached: a locked folder under
 		// a heading about what the assistant can use would say the opposite of the truth.
-		{ id: 'files', label: 'Files & folders', icon: Paperclip, count: fileCount }
+		{ id: 'files', label: 'Files & folders', icon: Paperclip, count: fileCount },
+		{ id: 'permissions', label: 'Permissions', icon: ShieldCheck }
 	])
 
 	/** Opens on `target`, or back on whichever section was last read. */
@@ -147,6 +173,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 		if (!aiChatManager.loading && !aiChatManager.sendInFlight) {
 			void aiChatManager.refreshGlobalSkills()
 			void aiChatManager.refreshMcpServers()
+			void aiChatManager.refreshSessionAccess()
 		}
 	}
 </script>
@@ -191,6 +218,18 @@ callers that already know which section they mean, such as the "+" menu's Manage
 				selectedId={section}
 				onNavigate={(id) => select(id as AssistantSettingsSection)}
 			/>
+			<div class="mt-auto">
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					endIcon={{ icon: ExternalLink }}
+					btnClasses="!justify-start !w-full"
+					href={FEEDBACK_ISSUE_URL}
+					target="_blank"
+				>
+					Give feedback
+				</Button>
+			</div>
 		</div>
 
 		<div class="grow min-w-0 flex flex-col min-h-0">
@@ -199,7 +238,12 @@ callers that already know which section they mean, such as the "+" menu's Manage
 			     own their own scrolling — each is a list and a detail page laid over each
 			     other — so only Instructions scrolls here. -->
 			<div class="{section === 'tools' ? 'flex' : 'hidden'} grow min-h-0 flex-col overflow-hidden">
-				<AssistantToolsSection {tools} active={section === 'tools'} bind:blocksClose={toolsBusy} />
+				<AssistantToolsSection
+					{tools}
+					{providerTools}
+					active={section === 'tools'}
+					bind:blocksClose={toolsBusy}
+				/>
 			</div>
 			<!-- Skills owns its own scrolling: its list and its editor are PagedContent pages
 			     laid over each other, and each keeps a scroll position of its own. -->
@@ -232,6 +276,11 @@ callers that already know which section they mean, such as the "+" menu's Manage
 			</div>
 			<div class="{section === 'files' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto pr-2">
 				<AssistantFilesSection bind:count={fileCount} bind:blocksClose={filesBusy} />
+			</div>
+			<div
+				class="{section === 'permissions' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto pr-2"
+			>
+				<AssistantPermissionsSection {ws} />
 			</div>
 		</div>
 	</div>

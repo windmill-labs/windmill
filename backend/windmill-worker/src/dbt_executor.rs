@@ -31,7 +31,7 @@ use windmill_parser_yaml::{
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::common::{
-    render_nsjail_rlimit_as, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
+    render_envars, render_nsjail_rlimit_as, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
 };
 use crate::common::{start_child_process, OccupancyMetrics};
 use crate::dbt_engine::{provision_engine, ProvisionedEngine, DBT_CACHE_DIR};
@@ -779,6 +779,7 @@ pub(crate) async fn dbt_dep(
     // A dependency job carries no per-job timeout of its own, but its phases
     // still share one wall clock rather than each getting the instance-wide
     // one.
+    let _custom_timeout = crate::common::RunningJobCustomTimeout::register(*job_id, None);
     let deadline = JobDeadline::start(&conn, w_id, *job_id, None).await;
     let mut ctx = JobCtx { mem_peak, canceled_by, occupancy_metrics, worker_name, deadline };
     let prepared = prepare_project(
@@ -1392,12 +1393,10 @@ pub(crate) async fn prepare_project(
                 // invocation's. Neither may sit on the launcher.
                 .replace(
                     "{ENVARS}",
-                    &jail_envars(
+                    &render_envars(
                         env.iter()
-                            .map(|(k, v)| (k.clone(), v.clone()))
-                            .chain(invocation_env.iter().map(|(k, v)| (k.clone(), v.clone())))
-                            .collect::<Vec<_>>()
-                            .as_slice(),
+                            .map(|(k, v)| (k.as_str(), v.as_str()))
+                            .chain(invocation_env.iter().map(|(k, v)| (k.as_str(), v.as_str()))),
                     ),
                 )
                 .replace("{SHARED_MOUNT}", "")
@@ -2373,16 +2372,6 @@ pub(crate) fn dbt_command(p: &PreparedProject, args: &[&str]) -> Command {
         // environment above can displace it.
         .env("DBT_TARGET_PATH", ARTIFACTS_DIR);
     cmd
-}
-
-/// The project's environment, as jail directives rather than launcher
-/// environment. `keep_env` passes nsjail's own environment through, so these
-/// are added on top of the Windmill-controlled ones the launcher carries.
-fn jail_envars(env: &[(String, String)]) -> String {
-    env.iter()
-        .map(|(k, v)| format!("envar: \"{}={}\"", escape_textproto(k), escape_textproto(v)))
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 const SANDBOX_PROFILE_NAME: &str = "dbt.nsjail.config.proto";
@@ -3560,11 +3549,10 @@ async fn attach_column_index(
         .iter()
         .map(|n| n.unique_id.as_str())
         .collect();
-    let index =
-        crate::dbt_column_index::collect(
-            p, descriptor, inv, command, ctx, job_id, w_id, conn, &kept,
-        )
-            .await?;
+    let index = crate::dbt_column_index::collect(
+        p, descriptor, inv, command, ctx, job_id, w_id, conn, &kept,
+    )
+    .await?;
     drop(kept);
     let Some(index) = index else {
         return Ok(());
@@ -5862,7 +5850,7 @@ mod tests {
             };
         }
 
-        let envars = jail_envars(&[("LD_PRELOAD".to_string(), hostile.to_string())]);
+        let envars = render_envars([("LD_PRELOAD", hostile)]);
         assert_eq!(envars.lines().count(), 1, "{envars}");
         assert!(envars.starts_with("envar: \"LD_PRELOAD="), "{envars}");
     }

@@ -153,6 +153,10 @@ impl From<anyhow::Error> for Error {
 impl From<sqlx::Error> for Error {
     #[track_caller]
     fn from(e: sqlx::Error) -> Self {
+        if crate::db::is_stale_cached_plan(&e) {
+            tracing::warn!("a schema change invalidated cached statements, reopening the database connections: {e}");
+            crate::db::retire_connections_opened_before_now();
+        }
         Self::SqlErr { error: e, location: prettify_location(std::panic::Location::caller()) }
     }
 }
@@ -303,7 +307,11 @@ impl IntoResponse for Error {
 
         let e = &self;
 
-        if matches!(status, axum::http::StatusCode::NOT_FOUND) {
+        // A refused turn is as expected as a miss: the chat follows the turn that refused it.
+        if matches!(
+            status,
+            axum::http::StatusCode::NOT_FOUND | axum::http::StatusCode::CONFLICT
+        ) {
             tracing::warn!(message = e.to_string());
         } else {
             tracing::error!(message = e.to_string(), error = ?e);

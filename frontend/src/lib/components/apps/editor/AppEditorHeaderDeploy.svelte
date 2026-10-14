@@ -2,7 +2,8 @@
 	import { Alert } from '$lib/components/common'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore } from '$lib/stores'
+	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
 	import { Loader2 } from 'lucide-svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -15,7 +16,6 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import { computeSecretUrl } from './appDeploy.svelte'
-	import { base } from '$lib/base'
 	import { isCloudHosted } from '$lib/cloud'
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -26,6 +26,15 @@
 	import { canUserBypassRuleKind, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
 	import { FRONTEND_SDK_SCOPES } from '$lib/components/raw_apps/sdkScopes'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspaceStore = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
+	const operatorBuilderApps = useOperatorBuilderApps()
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
 
@@ -35,6 +44,7 @@
 		appPath,
 		customPath = $bindable(),
 		onLatest,
+		headUnknown = false,
 		savedApp,
 		summary = $bindable(),
 		deploymentMsg = $bindable(),
@@ -59,6 +69,9 @@
 		appPath: string
 		customPath: string | undefined
 		onLatest: boolean
+		/** The comparison behind `onLatest` could not read the deployed head, so the warning
+		 *  is caution rather than an observed newer version. */
+		headUnknown?: boolean
 		savedApp: any
 		summary: string
 		deploymentMsg: string | undefined
@@ -69,39 +82,36 @@
 		hideSecretUrl?: boolean
 		preserveOnBehalfOf?: boolean
 		labels?: string[] | undefined
-		// Raw apps need cross-origin isolation (wm_coep) to be embeddable. Classic
-		// (low-code) apps must NOT get the flag — it would force COEP on the
-		// document and break no-CORP cross-origin subresources (external images,
-		// {@html} embeds, CDN imports).
+		// Only raw apps are offered the `wm_coep` embedding hint: on a classic
+		// (low-code) app COEP breaks no-CORP cross-origin subresources (external
+		// images, {@html} embeds, CDN imports) that the app cannot opt out of.
 		rawApp?: boolean
 		/** True while the editor is on a draft-only URL (`/edit/u/{user}/draft_{uuid}`
 		 *  with no deployed row yet). Suppresses the public-secret-URL fetch
 		 *  (`/secret_of/...` 404s with no `app` row) and renders a placeholder
 		 *  instead of the eternally-spinning link. */
 		newApp?: boolean
-		/** Workspace the app is deployed to — the session's acting workspace when
-		 *  embedded in a session preview, else the navigation `$workspaceStore`.
-		 *  The secret-URL / custom-path / folder / on-behalf-of lookups must target
-		 *  it, not `$workspaceStore` (which stays on the nav workspace in a session). */
+		/** Workspace the app is deployed to. The secret-URL / custom-path / folder /
+		 *  on-behalf-of lookups target it; defaults to the operating workspace. */
 		operatingWorkspace?: string
 	} = $props()
 
-	const opWs = $derived(operatingWorkspace ?? $workspaceStore)
+	const opWs = $derived(operatingWorkspace ?? $operatingWorkspaceStore)
 
-	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
+	let isDeployer = $derived(actingUser?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
 	// Admins always pass the backend check. For everyone else, fail closed
 	// while the workspace protection rules are still loading so the toggle
 	// is never briefly enabled for a user the rules will end up restricting.
 	let rulesetsLoaded = $derived(protectionRulesState.rulesets !== undefined)
 	let canSetAnonymous = $derived(
-		!!$userStore?.is_admin ||
-			!!$userStore?.is_super_admin ||
+		!!actingUser?.is_admin ||
+			!!actingUser?.is_super_admin ||
 			(rulesetsLoaded &&
 				canUserBypassRuleKind('RestrictAnonymousAppDeployment', $userStore ?? undefined))
 	)
 	let canSetGuest = $derived(
-		!!$userStore?.is_admin ||
-			!!$userStore?.is_super_admin ||
+		!!actingUser?.is_admin ||
+			!!actingUser?.is_super_admin ||
 			(rulesetsLoaded &&
 				canUserBypassRuleKind('RestrictGuestAppDeployment', $userStore ?? undefined))
 	)
@@ -148,7 +158,7 @@
 			setPublishState()
 		}
 	}
-	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
+	let canPreserve = $derived(!!actingUser?.is_admin || !!actingUser?.is_super_admin || isDeployer)
 	let savedOnBehalfOf = $derived(savedApp?.policy?.on_behalf_of)
 	let savedOnBehalfOfEmail = $derived(savedApp?.on_behalf_of_email)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
@@ -181,7 +191,7 @@
 	let secretUrl: string | undefined = $state(undefined)
 	let secretUrlHref = $derived(secretUrl ? computeSecretUrl(secretUrl) : undefined)
 	let fullCustomUrl = $derived(
-		`${window.location.origin}${base}/a/${
+		`${window.location.origin}/a/${
 			isCloudHosted() || globalWorkspacedRoute ? opWs + '/' : ''
 		}${customPath}`
 	)
@@ -190,15 +200,9 @@
 	// token as a seatless guest. Uses the custom URL when set, else the public secret URL.
 	let guestJwtBase = $derived(customPath !== undefined ? fullCustomUrl : secretUrlHref)
 
-	// When embedding a raw app in an iframe inside another Windmill app (or any
-	// cross-origin-isolated page), the embedded document must set COEP. The
-	// `wm_coep` flag opts the public app into the cross-origin isolation headers.
-	// Only raw apps get it — for classic (low-code) apps COEP would break
-	// no-CORP cross-origin subresources, so their snippet stays a plain iframe.
 	let embedMode = $state(false)
 	function toEmbedSnippet(url: string): string {
-		const finalUrl = rawApp ? `${url}${url.includes('?') ? '&' : '?'}wm_coep=on` : url
-		return `<iframe src="${finalUrl}" title="Windmill app" width="100%" height="600"></iframe>`
+		return `<iframe src="${url}" title="Windmill app" width="100%" height="600"></iframe>`
 	}
 	async function getSecretUrl() {
 		secretUrl = await AppService.getPublicSecretOfApp({
@@ -244,8 +248,15 @@
 </script>
 
 {#if !onLatest}
-	<Alert title="You're not on the latest app version. " type="warning">
-		By deploying, you may overwrite changes made by other users. Press 'Deploy' to see diff.
+	<Alert
+		title={headUnknown
+			? 'Could not check the deployed version. '
+			: "You're not on the latest app version. "}
+		type="warning"
+	>
+		{headUnknown
+			? "Deploying may overwrite changes made by other users. Press 'Deploy' to see diff."
+			: "By deploying, you may overwrite changes made by other users. Press 'Deploy' to see diff."}
 	</Alert>
 	<div class="py-2"></div>
 {/if}
@@ -325,8 +336,8 @@
 				onSelect={(choice, details) => {
 					onBehalfOfChoice = choice
 					if (choice === 'me') {
-						policy.on_behalf_of = `u/${$userStore?.username}`
-						onBehalfOfEmail = $userStore?.email
+						policy.on_behalf_of = `u/${actingUser?.username}`
+						onBehalfOfEmail = actingUser?.email
 						customOnBehalfOfEmail = ''
 						preserveOnBehalfOf = false
 					} else if (choice === 'target') {
@@ -359,7 +370,7 @@
 <div class="my-6">
 	<Toggle
 		options={{ right: "Isolate the app from the viewer's browser session" }}
-		checked={policy.sandbox == true}
+		checked={$operatorBuilderApps || policy.sandbox == true}
 		on:change={(e) => {
 			policy.sandbox = e.detail || undefined
 			// Counted where the toggle is flipped rather than where the policy is
@@ -382,8 +393,13 @@
 				setPublishState(e.detail ? 'Sandbox isolation enabled' : 'Sandbox isolation disabled')
 			}
 		}}
-		disabled={!savedApp}
+		disabled={!savedApp || $operatorBuilderApps}
 	/>
+	{#if $operatorBuilderApps}
+		<div class="text-xs text-secondary mt-1">
+			Required for apps built by operators, and cannot be turned off.
+		</div>
+	{/if}
 	<div class="text-xs text-secondary mt-1">
 		Controls what the app's browser-side code can reach in each viewer's browser — distinct from the
 		on-behalf-of model above (which sets who its runnables run as). Off by default, the app's code
@@ -556,11 +572,12 @@
 			{#if embedMode}
 				Paste this iframe snippet into another app.
 				{#if rawApp}
-					The <code>wm_coep</code> flag <Tooltip
-						>Sets the cross-origin isolation headers (COEP) so the app can be embedded inside
-						another Windmill app or any cross-origin-isolated page. Without it the browser blocks
-						the iframe.</Tooltip
-					> lets it load inside a cross-origin-isolated page.
+					To embed it in a cross-origin isolated page, add <code>wm_coep=on</code>
+					<Tooltip
+						>Sets the cross-origin isolation headers (COEP) on the app, which such a page requires
+						of its iframes. The app then only loads cross-origin resources that send CORS or a
+						Cross-Origin-Resource-Policy header.</Tooltip
+					> to the URL.
 				{/if}
 				(if requiring login, top-level domain of embedding app must be the same as the one of Windmill)
 			{:else}
@@ -601,7 +618,7 @@
 		{/if}
 
 		<div class="mt-4">
-			{#if !($userStore?.is_admin || $userStore?.is_super_admin)}
+			{#if !(actingUser?.is_admin || actingUser?.is_super_admin)}
 				<Alert type="warning" title="Admin only" size="xs">
 					Custom path can only be set by workspace admins
 				</Alert>
@@ -622,7 +639,7 @@
 				options={{
 					right: 'Use a custom URL'
 				}}
-				disabled={!$enterpriseLicense || !($userStore?.is_admin || $userStore?.is_super_admin)}
+				disabled={!$enterpriseLicense || !(actingUser?.is_admin || actingUser?.is_super_admin)}
 			/>
 
 			{#if customPath !== undefined}
@@ -630,7 +647,7 @@
 					<div>Custom path</div>
 				</div>
 				<input
-					disabled={!($userStore?.is_admin || $userStore?.is_super_admin)}
+					disabled={!(actingUser?.is_admin || actingUser?.is_super_admin)}
 					type="text"
 					autocomplete="off"
 					bind:value={customPath}

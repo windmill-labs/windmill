@@ -85,6 +85,7 @@ export async function runEval<THelpers, TOutput>(
 
   const model = options.model ?? "gpt-4o";
   const maxIterations = options.maxIterations ?? 20;
+  const pendingAnswers = options.userAnswers && [...options.userAnswers];
   const workspace = options.workspace ?? "test-workspace";
   const provider = toFrontendEvalProvider(options.provider);
 
@@ -98,9 +99,11 @@ export async function runEval<THelpers, TOutput>(
   // Wrap tools to intercept fn calls for tracking.
   // Cast to ProductionTool since the eval Tool has a narrower toolCallbacks type
   // but the actual callbacks passed at runtime will satisfy both interfaces.
+  // `fn` forwards `this`: the chat loop calls it on a per-iteration copy carrying the def the
+  // model was sent, and a tool reading `this.def` must see that one, as it does in production.
   const wrappedTools = tools.map((tool) => ({
     ...tool,
-    fn: async (p: any) => {
+    fn: async function (this: unknown, p: any) {
       toolCallsCount++;
       toolsCalled.push(tool.def.function.name);
       let argumentsText = "";
@@ -120,7 +123,7 @@ export async function runEval<THelpers, TOutput>(
         toolName: tool.def.function.name,
         argumentsText,
       });
-      return tool.fn(p);
+      return tool.fn.call(this, p);
     },
   }));
 
@@ -136,6 +139,12 @@ export async function runEval<THelpers, TOutput>(
     // edit the arguments, so a case can assert what the model proposed but never how
     // it reacts to the user changing something.
     requestRunArgs: async (_toolId, form) => form.args,
+    ...(pendingAnswers && {
+      requestUserQuestion: async () => {
+        const answer = pendingAnswers.shift();
+        return answer === undefined ? undefined : [answer];
+      },
+    }),
     onNewToken: (token: string) => {
       if (shouldEmitMessageStart) {
         onAssistantMessageStart?.();

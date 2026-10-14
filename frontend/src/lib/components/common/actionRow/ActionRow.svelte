@@ -42,7 +42,7 @@
 				{@render middle?.()}
 			{/if}
 		</div>
-		<div class="flex flex-wrap items-center gap-2 lg:gap-4">
+		<div class="flex flex-wrap items-center gap-2">
 			{#if right}
 				{@render right?.()}
 			{/if}

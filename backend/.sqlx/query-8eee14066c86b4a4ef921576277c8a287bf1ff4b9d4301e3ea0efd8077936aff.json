@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT workspace_settings.workspace_id AS \"id!\",\n                workspace_settings.ai_config->'sessions_retention_days' AS retention\n         FROM workspace_settings\n         LEFT JOIN usr ON usr.workspace_id = workspace_settings.workspace_id AND usr.email = $2\n         WHERE workspace_settings.workspace_id = ANY($1)\n           AND ($3 OR (usr.email IS NOT NULL AND NOT usr.disabled))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "retention",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "TextArray",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "8eee14066c86b4a4ef921576277c8a287bf1ff4b9d4301e3ea0efd8077936aff"
+}

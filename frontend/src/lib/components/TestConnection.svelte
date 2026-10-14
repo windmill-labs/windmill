@@ -13,7 +13,9 @@
 	import Button from './common/button/Button.svelte'
 	import Tooltip from './meltComponents/Tooltip.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 	import { tryEvery } from '$lib/utils'
 
 	interface Props {
@@ -174,7 +176,7 @@ export async function main(bucket: any, api_token: string) {
 	async function mintApiToken(): Promise<string> {
 		return await UserService.createToken({
 			requestBody: {
-				label: `test connection: ${resourceType}`,
+				label: `ephemeral-test-connection: ${resourceType}`,
 				expiration: new Date(Date.now() + API_TOKEN_TTL_MS).toISOString(),
 				scopes: ['settings:write']
 			}
@@ -268,7 +270,7 @@ export async function main(bucket: any, api_token: string) {
 		loading = true
 
 		const resourceScript = scripts[resourceType]
-		const workspace = workspaceOverride ?? $workspaceStore!
+		const workspace = workspaceOverride ?? $operatingWorkspace!
 		const objectStorageArgs: Record<string, any> | undefined =
 			resourceType in objectStorageBody ? objectStorageBody[resourceType](args) : undefined
 

@@ -409,7 +409,8 @@ async fn create_schedule(
             paused_until,
             cron_version,
             dynamic_skip,
-            labels
+            labels,
+            late_run_streak
         "#,
         w_id,
         ns.path,
@@ -619,8 +620,12 @@ async fn edit_schedule(
             dynamic_skip            = $23,
             email                   = $24,
             edited_by               = $25,
+            edited_at               = now(),
             permissioned_as         = $26,
-            labels                  = COALESCE($27, labels)
+            labels                  = COALESCE($27, labels),
+            late_run_streak            = 0,
+            missed_occurrences     = 0,
+            last_missed_at              = NULL
         WHERE path = $19 AND workspace_id = $20
         RETURNING
             workspace_id,
@@ -655,7 +660,8 @@ async fn edit_schedule(
             paused_until,
             cron_version,
             dynamic_skip,
-            labels
+            labels,
+            late_run_streak
         "#,
         es.schedule,
         es.timezone,
@@ -1003,6 +1009,9 @@ async fn list_schedule(
 pub struct ScheduleWJobs {
     pub path: String,
     pub jobs: Option<Vec<serde_json::Value>>,
+    pub late_run_streak: i32,
+    pub missed_occurrences: i32,
+    pub last_missed_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 async fn list_schedule_with_jobs(
@@ -1019,7 +1028,7 @@ async fn list_schedule_with_jobs(
         // - use of the `ix_v2_job_root_by_path` index; hence the `parent_job IS NULL` clause.
         // - both `workspace_id = $1` checks are required to hit both indexes.
         "SELECT
-            schedule.path, t.jobs FROM schedule,
+            schedule.path, t.jobs, schedule.late_run_streak, schedule.missed_occurrences, schedule.last_missed_at FROM schedule,
             LATERAL(SELECT ARRAY(
                 SELECT json_build_object('id', id, 'success', status = 'success', 'duration_ms', duration_ms)
                 FROM v2_job_completed c JOIN v2_job j USING (id)
@@ -1129,35 +1138,23 @@ pub async fn set_enabled(
     check_scopes(&authed, || format!("schedules:write:{}", path))?;
     reject_reserved_schedule_path(path)?;
 
-    // Block enabling a schedule in a fork when the parent has the same path
-    // (regardless of parent's enabled flag), unless force=true. Two enabled
-    // crons fire in lockstep; even when the parent is currently disabled the
-    // user is likely to re-enable it later, at which point both fire — better
-    // to surface that risk at every fork-side enable. There's no namespacing
-    // fix for schedules (Phase 3 doesn't help cron); the user has to confirm
-    // or point the script at fork-only side effects.
+    // Block enabling a schedule in a fork when an ancestor has the same path
+    // (regardless of its enabled flag), unless force=true. Two enabled crons
+    // fire in lockstep; even when the ancestor is currently disabled the user
+    // is likely to re-enable it later, at which point both fire — better to
+    // surface that risk at every fork-side enable. There's no namespacing fix
+    // for schedules (Phase 3 doesn't help cron); the user has to confirm or
+    // point the script at fork-only side effects.
     if payload.enabled && !payload.force {
-        let parent_id: Option<String> = sqlx::query_scalar!(
-            "SELECT parent_workspace_id FROM workspace WHERE id = $1",
-            &w_id
+        if let Some(ancestor_id) = windmill_common::workspaces::nearest_fork_ancestor_having(
+            &mut *tx, "schedule", &w_id, path,
         )
-        .fetch_optional(&mut *tx)
         .await?
-        .flatten();
-        if let Some(parent_id) = parent_id {
-            let exists: Option<bool> = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM schedule WHERE workspace_id = $1 AND path = $2)",
-                &parent_id,
-                path,
-            )
-            .fetch_one(&mut *tx)
-            .await?;
-            if exists == Some(true) {
-                return Err(Error::BadRequest(format!(
-                    "fork-conflict:schedule:{}",
-                    parent_id
-                )));
-            }
+        {
+            return Err(Error::BadRequest(format!(
+                "fork-conflict:schedule:{}",
+                ancestor_id
+            )));
         }
     }
     let before = trigger_history::snapshot_row(&mut *tx, "schedule", &w_id, path).await?;
@@ -1168,7 +1165,10 @@ pub async fn set_enabled(
         r#"
         UPDATE schedule SET
             enabled = $1,
-            email = $2
+            email = $2,
+            late_run_streak = 0,
+            missed_occurrences = 0,
+            last_missed_at = NULL
         WHERE path = $3 AND workspace_id = $4
         RETURNING
             workspace_id,
@@ -1203,7 +1203,8 @@ pub async fn set_enabled(
             paused_until,
             cron_version,
             dynamic_skip,
-            labels
+            labels,
+            late_run_streak
         "#,
         payload.enabled,
         authed.email,
@@ -1486,11 +1487,13 @@ async fn set_default_error_handler(
         }
     };
 
-    if let Some(value_content) = value {
-        windmill_api_settings::set_global_setting_internal(&db, key, value_content).await?;
+    if let Some(value_content) = value.clone() {
+        windmill_api_settings::set_global_setting_internal(&db, key.clone(), value_content).await?;
     } else {
         windmill_api_settings::delete_global_setting(&db, key.as_str()).await?;
     }
+    windmill_audit::instance_config::audit_setting_write(&db, &authed, &key, value.as_ref(), None)
+        .await?;
 
     if payload.override_existing {
         // The rewrite and its history rows go in one transaction: on separate
@@ -1699,9 +1702,9 @@ pub use windmill_queue::schedule::clear_schedule;
 #[derive(Deserialize)]
 pub struct SetEnabled {
     pub enabled: bool,
-    /// Bypass the parent-state warning when enabling a schedule in a fork
-    /// whose parent has the same path enabled. The frontend sets this after
-    /// the user confirms the duplicate-firing dialog.
+    /// Bypass the fork-conflict warning when enabling a schedule in a fork
+    /// while an ancestor workspace has the same path. The frontend sets this
+    /// after the user confirms the duplicate-firing dialog.
     #[serde(default)]
     pub force: bool,
 }

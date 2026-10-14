@@ -2,6 +2,7 @@
 	import AppRow from '../common/table/AppRow.svelte'
 	import FlowRow from '../common/table/FlowRow.svelte'
 	import RawAppRow from '../common/table/RawAppRow.svelte'
+	import AgentRow from '../common/table/AgentRow.svelte'
 	import ScriptRow from '../common/table/ScriptRow.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { Alert } from '$lib/components/common'
@@ -131,6 +132,19 @@
 		{depth}
 		bind:menuOpen
 		{keyboardSelected}
+	/>
+{:else if item.type == 'agent'}
+	<AgentRow
+		bind:deleteConfirmedCallback
+		marked={item.marked}
+		on:change={() => dispatch('reload')}
+		agent={item}
+		{shareModal}
+		{deploymentDrawer}
+		{depth}
+		bind:menuOpen
+		{keyboardSelected}
+		{rowSelection}
 	/>
 {/if}
 

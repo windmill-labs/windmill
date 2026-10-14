@@ -1,3 +1,4 @@
+import { AI_DECISION_SCHEMA } from '../../flows/flowInfers'
 import type {
 	ChatCompletionFunctionTool,
 	ChatCompletionMessageFunctionToolCall,
@@ -7,6 +8,8 @@ import type { UserDraftItemKind } from '$lib/gen'
 // The gate's two refusals, from a module that holds prose and one size limit: under the
 // shallow-import rule below, the rest of plan mode is not reachable from here.
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
+import { NONE, type SessionTool } from './sessionCapabilities'
+import { integrationDisplayName } from '$lib/components/resourceTypeDisplay'
 // Import-free leaf, so it satisfies the shallow-import rule below.
 import {
 	openItemPreviewAction,
@@ -38,11 +41,13 @@ import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } fro
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import { findModuleInFlow, findModuleInModules } from '$lib/components/flows/flowTree'
+import { agentTestInputTransforms } from '$lib/components/flows/agentFormFields'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
 import { z } from 'zod'
 import {
 	ScriptService,
 	FlowService,
+	IntegrationService,
 	JobService,
 	type Job,
 	type CompletedJob,
@@ -58,7 +63,9 @@ import { logFeatureUsage, logHubScriptPick } from '$lib/utils/featureUsage'
 import { forLater } from '$lib/forLater'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getCurrentModel } from '$lib/aiStore'
-import { type editor as meditor } from 'monaco-editor'
+import type { editor as meditor } from 'monaco-editor'
+import { pendingFolderInstructions, type FolderInstructionsContext } from './folderInstructions'
+import type { WebSearchSource } from './webSearchResult'
 
 // Prettify function for code arguments - extracts and formats code from JSON
 function prettifyCodeArguments(content: string): string {
@@ -604,10 +611,21 @@ export type RunFormDraft = {
 	schema: Record<string, any>
 }
 
-/** One page hit from a provider-side web search (OpenAI sources carry no title). */
-export type WebSearchSource = {
-	url: string
-	title?: string
+export {
+	isRenderableSourceUrl,
+	webSearchResultOf,
+	type WebSearchResult,
+	type WebSearchSource
+} from './webSearchResult'
+
+export type ToolCodeDiff = {
+	before: string
+	after: string
+	/** Monaco language id. */
+	lang: string
+	/** Language of the before side, when the edit changed it (an inline runnable rewritten from
+	 * TypeScript to Python). */
+	beforeLang?: string
 }
 
 export type ToolDisplayMessage = {
@@ -634,10 +652,19 @@ export type ToolDisplayMessage = {
 	 * workspace rides along: a chat is readable from any workspace, and the same path names
 	 * a different server in each. */
 	mcpServer?: { workspace: string; path: string }
+	/** The run behind the call. Flow chats only: the card links to it. */
+	jobId?: string
 	showFade?: boolean
 	actions?: ToolDisplayAction[]
 	userQuestion?: UserQuestionDisplay
 	runForm?: RunFormDisplay
+	/** A run this call inspected rather than started, rendered by the same card. The card
+	 * reads its panes from this job, so the user sees its own args and result in full, and its
+	 * logs as a 4000-char tail, while the model keeps the capped envelope the tool returned.
+	 * `runId` and `step` are the address the call was made with, kept so the card can name what
+	 * was inspected the way the tool's own row did: a step job names neither the step nor the
+	 * run it belongs to. */
+	inspectedRun?: { jobId: string; workspace: string; runId: string; step?: string }
 	webSearchSources?: WebSearchSource[]
 	/** Data URL of an image the tool produced (e.g. take_screenshot), shown on the card. */
 	imageUrl?: string
@@ -645,6 +672,9 @@ export type ToolDisplayMessage = {
 	 * always-visible card that opens (or focuses) the item's preview in the
 	 * session side panel. Set only for session chats — the side panel is their surface. */
 	previewCard?: { kind: PreviewCardKind; path: string }
+	/** Whole text on both sides of an edit this call saved. Kept in full rather than as a
+	 * reference: drafts are overwritten in place, so the sides cannot be fetched back later. */
+	codeDiff?: ToolCodeDiff
 	planArtifactId?: string
 	/** The version this card's proposal wrote, so a card scrolled far up still opens the plan
 	 * it proposed rather than what the document became. */
@@ -652,6 +682,8 @@ export type ToolDisplayMessage = {
 	/** Refused by the plan-mode gate. Renders as its own lean row rather than a tool
 	 * error, so the transcript says the mode stopped it and not that the call failed. */
 	blockedByPlanMode?: boolean
+	/** Held back until the model has read the folder instructions it was handed. */
+	heldForFolderInstructions?: boolean
 	/** The user declined: the reject button, a Stop, or a posture switch. Set only there, so
 	 * a decision is distinguishable from every other way a call errors. */
 	declinedByUser?: boolean
@@ -671,6 +703,16 @@ export type AssistantDisplayMessage = BaseDisplayMessage & {
 	 * would look like it is still streaming forever.
 	 */
 	streaming?: boolean
+	/** Flow step that produced this message, when the conversation is a flow run
+	 * rather than a copilot turn. Rendered as a label above the content. */
+	stepName?: string
+	/** The run behind this answer. Flow chats only: a copilot turn happens in the
+	 * browser and has no job. */
+	jobId?: string
+	/** When the answer arrived: the server's time for a flow chat's stored row, the browser's
+	 * for a copilot answer, which is stamped as it lands. Absent on a copilot chat restored
+	 * from history, which predates the stamp. */
+	createdAt?: string
 }
 
 /**
@@ -765,11 +807,11 @@ export function pendingUserActionDetail(
 // the sessions page) react to mutating tools — refreshing previews — without
 // the tool layer knowing about the UI. Single slot; the consumer filters by name
 // and reads the tool args (e.g. the mutated item's `path`) to scope its refresh.
-let toolCompletionListener: ((toolName: string, args: any) => void) | undefined
+// `workspace` is the one the tool acted on: a path names an item only within it.
+export type ToolCompletionListener = (toolName: string, args: any, workspace: string) => void
+let toolCompletionListener: ToolCompletionListener | undefined
 
-export function setToolCompletionListener(
-	fn: ((toolName: string, args: any) => void) | undefined
-): void {
+export function setToolCompletionListener(fn: ToolCompletionListener | undefined): void {
 	toolCompletionListener = fn
 }
 
@@ -792,12 +834,19 @@ async function callTool<T>({
 }): Promise<string> {
 	const tool = tools.find((t) => t.def.function.name === functionName)
 	if (!tool) {
+		// The pipeline tools exist only while a pipeline editor is mounted, and change_mode
+		// cannot mount one, so the generic hint would send the model probing.
+		if (/_pipeline_node$|^get_pipeline_graph$/.test(functionName)) {
+			throw new Error(
+				`${functionName} is not available yet: no pipeline editor is open for this chat. Call open_preview(kind="pipeline", path="<folder>") first and wait for its result; once it reports the editor open, the pipeline tools are callable. Do not fall back to write_script.`
+			)
+		}
 		throw new Error(
 			`Unknown tool call: ${functionName}. Probably not in the correct mode, use the change_mode tool to switch to the correct mode.`
 		)
 	}
 	const result = await tool.fn({ args, workspace, helpers, toolCallbacks, toolId })
-	toolCompletionListener?.(functionName, args)
+	toolCompletionListener?.(functionName, args, workspace)
 	return result
 }
 
@@ -874,21 +923,41 @@ function stringifyErrorBody(body: unknown): string {
  * (tab closed while a tool polls) logs nothing, so the statuses sum to the calls that
  * finished, not to the calls made.
  */
-type ToolCallStatus = 'ok' | 'error' | 'declined' | 'rejected' | 'blocked_plan_mode'
+type ToolCallStatus =
+	| 'ok'
+	| 'error'
+	| 'declined'
+	| 'rejected'
+	| 'blocked_plan_mode'
+	| 'held_for_instructions'
+
+/** Re-reads the chat loop's current tools and helpers. A call earlier in the same
+ * response can register tools (open_preview mounting the pipeline editor, change_mode),
+ * so a later call in that batch must resolve against the live set, not the snapshot the
+ * response was requested with. */
+export type LiveToolSet = () => { tools: Tool<any>[]; helpers: any }
 
 export async function processToolCall<T>({
-	tools,
+	tools: snapshotTools,
 	toolCall,
-	helpers,
+	helpers: snapshotHelpers,
 	toolCallbacks,
-	workspace
+	workspace,
+	messages = [],
+	live
 }: {
 	tools: Tool<T>[]
 	toolCall: ChatCompletionMessageFunctionToolCall
 	helpers: T
+	live?: LiveToolSet
 	toolCallbacks: ToolCallbacks
 	workspace?: string
+	/** The conversation so far, for which folder instructions it already carries. */
+	messages?: readonly ChatCompletionMessageParam[]
 }): Promise<ChatCompletionMessageParam> {
+	const current = live?.()
+	const tools: Tool<T>[] = current?.tools ?? snapshotTools
+	const helpers: T = current ? current.helpers : snapshotHelpers
 	const tool = tools.find((t) => t.def.function.name === toolCall.function.name)
 	const workspaceId = workspace ?? get(workspaceStore) ?? ''
 
@@ -968,6 +1037,43 @@ export async function processToolCall<T>({
 				role: 'tool' as const,
 				tool_call_id: toolCall.id,
 				content: rejection.result
+			}
+		}
+
+		// After the gates that refuse the call, so a refused call does not use up the
+		// delivery. A call that changes something is held back until the model has read
+		// the instructions: arriving with its result, they would be too late to shape it.
+		const folderInstructions = tool
+			? await pendingFolderInstructions(
+					toolCallbacks.folderInstructions,
+					messages,
+					args,
+					workspaceId
+				)
+			: undefined
+		if (folderInstructions?.paths.length) {
+			toolCallbacks.folderInstructions?.deliveredBy.set(toolCall.id, {
+				workspace: workspaceId,
+				paths: folderInstructions.paths
+			})
+		}
+		if (folderInstructions && tool?.planModeSafe !== true) {
+			logToolOutcome('held_for_instructions')
+			toolCallbacks.setToolStatus(toolCall.id, {
+				content: 'Read folder instructions',
+				heldForFolderInstructions: true,
+				parameters: args,
+				isLoading: false,
+				isQueued: false,
+				isStreamingArguments: false,
+				needsConfirmation: false,
+				showDetails: tool?.showDetails,
+				autoCollapseDetails: tool?.autoCollapseDetails
+			})
+			return {
+				role: 'tool' as const,
+				tool_call_id: toolCall.id,
+				content: `Not run: this call touches a folder whose instructions you had not read yet. Follow them, then make the call again (adjusted if they require it).\n\n${folderInstructions.text}`
 			}
 		}
 
@@ -1075,7 +1181,7 @@ export async function processToolCall<T>({
 		const toAdd = {
 			role: 'tool' as const,
 			tool_call_id: toolCall.id,
-			content: result
+			content: folderInstructions ? `${result}\n\n${folderInstructions.text}` : result
 		}
 		return toAdd
 	} catch (err) {
@@ -1149,7 +1255,10 @@ export interface Tool<T> {
 		workspace: string
 		helpers: T
 	}) => MaybePromise<ToolRejection | undefined>
-	setSchema?: (helpers: any) => Promise<void>
+	/** This chat's definition of the tool, for a schema that depends on the chat (its workspace,
+	 * its open flow). Returns a new def: tools are module singletons shared by every chat, so
+	 * one written back leaks into the others. */
+	schemaFor?: (helpers: any) => Promise<ChatCompletionFunctionTool>
 	/** Safe to run while plan mode is active. Absence fails closed. */
 	planModeSafe?: boolean
 	/** The arguments a plan-mode-safe tool still refuses while the posture holds — for a tool
@@ -1350,6 +1459,9 @@ export interface ToolCallbacks {
 	attachToolImage?: (toolId: string, image: AttachedImage) => void
 	/** Drain every image buffered this batch (insertion order), clearing the buffer. */
 	takePendingToolImages?: () => AttachedImage[]
+	/** Wired only by the global/sessions chat: delivers the folder instructions
+	 * covering the paths a tool call names, once per conversation. */
+	folderInstructions?: FolderInstructionsContext
 }
 
 export function createToolDef(
@@ -1427,13 +1539,22 @@ function hasOptionalProperties(schema: Record<string, any> | undefined): boolean
 const searchHubScriptsSchema = z.object({
 	query: z
 		.string()
-		.describe('The query to search for, e.g. send email, list stripe invoices, etc..')
+		.optional()
+		.describe(
+			'What you want the script to do, e.g. "send email", "list stripe invoices". Semantic search, so describe the intent. Omit when browsing with `integration` alone.'
+		),
+	integration: z
+		.string()
+		.optional()
+		.describe(
+			"Integration slug (e.g. \"stripe\") from a previous result's `integration` or `suggested_integrations`, or the vendor the user named. Alone, lists that integration's scripts with descriptions, including ones that do not match your task but show how the integration is used. With `query`, narrows the search to it; pass it whenever the user names the vendor, since ranking alone can surface another integration's scripts that merely mention it."
+		)
 })
 
 const searchHubScriptsToolDef = createToolDef(
 	searchHubScriptsSchema,
 	'search_hub_scripts',
-	'Search for scripts in the hub'
+	"Search the Windmill Hub for prebuilt integration scripts, or list one integration's scripts with `integration`."
 )
 
 /** The hub resolves a script by its version id alone; the app and summary
@@ -1448,28 +1569,304 @@ export function isHubPath(path: string): boolean {
 	return path.startsWith('hub/')
 }
 
+const MAX_BROWSED_HUB_SCRIPTS = 20
+const MAX_FETCHED_HUB_SCRIPTS = 3
+const MAX_SUGGESTED_INTEGRATIONS = 5
+
+/** Common shape of the two hub listings. Both carry a description, but the hub has
+ * none for roughly a fifth of its scripts, and says so as a null rather than by
+ * omitting the key. */
+type HubScriptHit = {
+	version_id: number
+	app: string
+	summary: string
+	description?: string | null
+}
+
+type HubIntegration = { name: string; displayName?: string | null; documented: boolean }
+
+/** The integration slugs are a large but static list, so one fetch per session
+ * is enough. Only matched slugs ever reach the model, never the whole list. */
+let hubIntegrationsCache: Promise<HubIntegration[]> | undefined
+
+async function fetchHubIntegrations(): Promise<HubIntegration[]> {
+	try {
+		const integrations = await IntegrationService.listHubIntegrations({ kind: 'script' })
+		return integrations.map((i) => ({
+			name: i.name,
+			// The hub names only the slugs its own titleisation gets wrong, so a slug it
+			// leaves null can still have a name here — `gcloud` is "Google Cloud" in the
+			// word table this resolves through.
+			displayName: i.display_name ?? integrationDisplayName(i.name),
+			// A hub predating the flag omits it, and so does one with no authored
+			// notes. Both mean the same thing: nothing to read beyond what the
+			// metadata call returns for every integration.
+			documented: i.documented === true
+		}))
+	} catch (err) {
+		console.error('Could not list hub integrations', err)
+		return []
+	}
+}
+
+/** Concurrent callers share one in-flight fetch. An unreachable hub must degrade to
+ * "no suggestions" rather than turn the search into a tool error, so a failed or
+ * empty response is left uncached and retried. */
+function loadHubIntegrations(): Promise<HubIntegration[]> {
+	return (hubIntegrationsCache ??= fetchHubIntegrations().then((integrations) => {
+		if (!integrations.length) hubIntegrationsCache = undefined
+		return integrations
+	}))
+}
+
+/** Which integrations carry provider knowledge checked against the live API,
+ * lowercased because a hub slug is case-sensitive and both casings can exist. The
+ * mark means there is more to read, never that the call is skippable elsewhere. */
+async function documentedIntegrations(): Promise<Set<string>> {
+	const available = await loadHubIntegrations()
+	return new Set(available.filter((i) => i.documented).map((i) => i.name.toLowerCase()))
+}
+
+async function suggestHubIntegrations(query: string): Promise<string[]> {
+	const available = await loadHubIntegrations()
+	const tokens = query
+		.toLowerCase()
+		.split(/[^a-z0-9]+/)
+		.filter((t) => t.length >= 2)
+	// Ranked by how much of the query each name accounts for, because a vendor with
+	// several products shares one word across all of them: "google drive" matches
+	// every `g*` integration on "google", and only Google Drive on both words. The
+	// cap would otherwise cut the one the user named.
+	return available
+		.map(({ name, displayName }) => ({
+			name,
+			matched: tokens.filter((t) => tokenMatchesIntegration(t, name, displayName)).length
+		}))
+		.filter(({ matched }) => matched > 0)
+		.sort((a, b) => b.matched - a.matched)
+		.map(({ name }) => name)
+		.slice(0, MAX_SUGGESTED_INTEGRATIONS)
+}
+
+/** Matches a query word against an integration's slug and its name, which is what
+ * reaches a slug compressing the vendor to a letter: "google drive" matches `gdrive`
+ * only through its "Google Drive". A bare substring test
+ * instead makes every three-letter English word a hit — `for` in sales*for*ce, `the`
+ * in basis_*the*ory — so a token matches a whole word, or extends one from four
+ * characters on. Short tokens must equal a word, which is also what reaches the
+ * two-character slugs (`s3`, `wiz`) a length floor would hide. */
+function tokenMatchesIntegration(
+	token: string,
+	slug: string,
+	displayName?: string | null
+): boolean {
+	const words = [slug, displayName ?? '']
+		.join(' ')
+		.toLowerCase()
+		.split(/[^a-z0-9]+/)
+		.filter(Boolean)
+	if (words.includes(token)) {
+		return true
+	}
+	if (token.length < 4) {
+		return false
+	}
+	const extends_ = (a: string, b: string) => a.startsWith(b) || b.startsWith(a)
+	return words.some((w) => w.length >= 4 && extends_(w, token))
+}
+
+export const clearHubIntegrationsCache = () => {
+	hubIntegrationsCache = undefined
+}
+
+const getHubIntegrationSchema = z.object({
+	integration: z
+		.string()
+		.describe(
+			'Integration slug, e.g. "stripe". Take it from a search_hub_scripts result\'s `integration`, or guess the vendor name: a wrong guess comes back with the closest real slugs.'
+		)
+})
+
+const getHubIntegrationToolDef = createToolDef(
+	getHubIntegrationSchema,
+	'get_hub_integration',
+	'Read how one integration works before writing code against it: the resource type it takes, its auth fields, and its most-used scripts as examples. For an integration a search marked `documented` it also returns provider knowledge checked against the live API: pagination, enums, error codes and gotchas.'
+)
+
+/** Enough to show the integration's idiom; search_hub_scripts is the way to find
+ * a specific one. */
+const MAX_INTEGRATION_EXAMPLES = 5
+
+/** How the authored notes were checked — method, per-surface confidence, the instance
+ * used — is provenance for a human reviewing the hub, and up to a third of the
+ * document. The verdict and any fields it flags as shaky are the parts a caller can
+ * act on, so those stay. */
+function withoutProvenance(meta: unknown): unknown {
+	if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) {
+		return meta
+	}
+	const { validation, ...rest } = meta as Record<string, unknown>
+	const kept = Object.fromEntries(
+		Object.entries((validation as Record<string, unknown> | undefined) ?? {}).filter(
+			([key]) => key === 'status' || key === 'low_confidence_fields'
+		)
+	)
+	return Object.keys(kept).length ? { ...rest, validation: kept } : rest
+}
+
+/** The hub keeps a resource type's schema in a text column and hands it back as a
+ * JSON string, so parse it rather than passing an escaped blob to the model.
+ * Anything already structured goes through untouched. */
+function parseResourceTypeSchema(schema: unknown): unknown {
+	if (typeof schema !== 'string') {
+		return schema
+	}
+	try {
+		return JSON.parse(schema)
+	} catch {
+		return schema
+	}
+}
+
+export const getHubIntegrationTool = {
+	requires: NONE,
+	def: getHubIntegrationToolDef,
+	// Reads one hub document over a GET and writes nothing, so planning may use it.
+	planModeSafe: true,
+	fn: async ({ args, toolId, toolCallbacks }) => {
+		const { integration } = getHubIntegrationSchema.parse(args)
+		toolCallbacks.setToolStatus(toolId, { content: `Reading the ${integration} integration...` })
+
+		let doc: Awaited<ReturnType<typeof IntegrationService.getHubIntegrationMeta>>
+		try {
+			doc = await IntegrationService.getHubIntegrationMeta({ app: integration })
+		} catch (err) {
+			// Only a 404 means the integration is absent — an unknown slug, or a hub
+			// predating the endpoint. Reporting a timeout the same way would teach the
+			// model that a real integration does not exist for the rest of the chat.
+			const absent = (err as { status?: number } | undefined)?.status === 404
+			const label = absent
+				? `No hub integration named ${integration}`
+				: `Could not reach the hub for ${integration}`
+			toolCallbacks.setToolStatus(toolId, { content: label })
+			const suggested = await suggestHubIntegrations(integration)
+			return JSON.stringify({
+				error: absent
+					? `No hub metadata for "${integration}".`
+					: `Could not reach the hub for "${integration}"; it may still exist. Read its scripts instead, or try again.`,
+				suggested_integrations: suggested
+			})
+		}
+
+		toolCallbacks.setToolStatus(toolId, { content: `Read the ${doc.display_name} integration` })
+		// The hub owns this response's shape and can be older than this client, so
+		// every section is read as optional: a hub that sends less should return less,
+		// not fail the call.
+		const derived = doc.derived
+		return JSON.stringify({
+			integration: doc.app,
+			display_name: doc.display_name,
+			...(doc.description ? { description: doc.description } : {}),
+			...(doc.docs_url ? { docs_url: doc.docs_url } : {}),
+			// Authored provider knowledge and facts inferred from the scripts stay
+			// separate: only the former was checked against the live API.
+			...(doc.meta ? { verified_provider_notes: withoutProvenance(doc.meta) } : {}),
+			...(derived
+				? {
+						observed_from_scripts: {
+							api_hosts: derived.api_hosts?.map((h) => h.host) ?? [],
+							style: derived.style,
+							languages: Object.keys(derived.languages ?? {}),
+							script_counts: derived.script_counts
+						}
+					}
+				: {}),
+			// `curated` is three-state: only an integration's own meta.json asserts it, and
+			// anything else means nobody has assessed the script set. Speak only for a
+			// positive assertion, so an unassessed integration is never characterised
+			// either way; `script_counts` below is the factual signal for the rest.
+			...(doc.curated === true
+				? {
+						scripts_note:
+							'These scripts were pruned to idiomatic actions rather than generated one per API endpoint, so they are worth following as style examples.'
+					}
+				: {}),
+			resource_types: (doc.resource_types ?? []).map((rt) => ({
+				name: rt.name,
+				...(rt.description ? { description: rt.description } : {}),
+				schema: parseResourceTypeSchema(rt.schema)
+			})),
+			example_scripts: (derived?.top_scripts ?? []).slice(0, MAX_INTEGRATION_EXAMPLES).map((s) => ({
+				path: s.path,
+				summary: s.summary,
+				...(s.description ? { description: s.description } : {}),
+				...(s.language ? { language: s.language } : {})
+			}))
+		})
+	}
+} satisfies SessionTool<{}>
+
 export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
+	requires: NONE,
 	def: searchHubScriptsToolDef,
 	planModeSafe: true,
 	fn: async ({ args, toolId, toolCallbacks }) => {
-		toolCallbacks.setToolStatus(toolId, {
-			content: 'Searching for hub scripts related to "' + args.query + '"...'
-		})
 		const parsedArgs = searchHubScriptsSchema.parse(args)
-		const scripts = await ScriptService.queryHubScripts({
-			text: parsedArgs.query,
-			kind: 'script'
-		})
+		// The hub's own query param is `app`; the tool exposes it as `integration`,
+		// since `app` already means a Windmill app everywhere else in this surface.
+		const { query, integration: app } = parsedArgs
+		if (!query && !app) {
+			return 'Pass query (what the script should do), integration (a slug to list), or both.'
+		}
+		const subject = query ? `"${query}"` : `the ${app} integration`
+		toolCallbacks.setToolStatus(toolId, { content: `Searching hub scripts for ${subject}...` })
+		// Started alongside the search, not after it: this is where the model learns a
+		// slug exists, so it is where it has to learn how much get_hub_integration has
+		// to add for that slug. One cached fetch per session either way.
+		const documented = documentedIntegrations()
+
+		// Listing an integration goes through the hub's top-scripts endpoint rather
+		// than the semantic one: it takes no query, and it applies no similarity
+		// floor, so the near-misses worth reading as examples of how the integration
+		// is used survive instead of being cut.
+		const scripts: HubScriptHit[] = query
+			? await ScriptService.queryHubScripts({ text: query, kind: 'script', app })
+			: ((
+					await ScriptService.getTopHubScripts({
+						app,
+						kind: 'script',
+						limit: MAX_BROWSED_HUB_SCRIPTS
+					})
+				).asks ?? [])
+
+		if (scripts.length === 0) {
+			// A whiffed search still leaves the integration browsable, which is what
+			// turns "no exact match" into a worked example to follow. Suggest against
+			// the slug too, so a browse for a misremembered one lands on the real name
+			// instead of dead-ending on an empty list.
+			const suggested = await suggestHubIntegrations([app, query].filter(Boolean).join(' '))
+			toolCallbacks.setToolStatus(toolId, { content: `No hub script found for ${subject}` })
+			return JSON.stringify({ results: [], suggested_integrations: suggested })
+		}
+
 		// Each result costs a content fetch, so cap the fan-out when content is wanted.
-		const matches = withContent ? scripts.slice(0, 3) : scripts
+		const matches = withContent ? scripts.slice(0, MAX_FETCHED_HUB_SCRIPTS) : scripts
 		toolCallbacks.setToolStatus(toolId, {
-			content: `Found ${matches.length} script${matches.length === 1 ? '' : 's'} in the hub related to "${parsedArgs.query}"`
+			content: `Found ${matches.length} hub script${matches.length === 1 ? '' : 's'} for ${subject}`
 		})
+		const documentedSlugs = await documented
 		const results = await Promise.all(
 			matches.map(async (s) => {
 				const path = hubScriptPath(s)
+				const base = {
+					path,
+					summary: s.summary,
+					integration: s.app,
+					...(documentedSlugs.has(s.app.toLowerCase()) ? { documented: true } : {}),
+					...(s.description ? { description: s.description } : {})
+				}
 				if (!withContent) {
-					return { path, summary: s.summary }
+					return base
 				}
 				// The content fetch, not the listing above: these are the few candidates
 				// the AI pulled to choose between, which is the closest signal we have.
@@ -1478,18 +1875,17 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 					// get_full, not the raw content endpoint: callers are told to match the
 					// script's language, which raw content does not carry.
 					const hub = await ScriptService.getHubScriptByPath({ path })
-					return { path, summary: s.summary, language: hub.language, content: hub.content }
+					return { ...base, language: hub.language, content: hub.content }
 				} catch (err) {
 					// One unreachable script must not sink the whole search.
 					return {
-						path,
-						summary: s.summary,
+						...base,
 						error: `Could not fetch content: ${err instanceof Error ? err.message : String(err)}`
 					}
 				}
 			})
 		)
-		return JSON.stringify(results)
+		return JSON.stringify({ results })
 	}
 })
 
@@ -1852,14 +2248,23 @@ export async function buildTestRunArgs(
 	return parsedArgs
 }
 
+// Said with the result rather than in the system prompt: there, models still copied a
+// result's table or JSON into the reply, under a card that already renders it. Only for
+// a successful run in the generic card completedJobToolStatus fills: a failed run's card
+// lands on the error with the logs a tab away, and a formatCompletion card shows its own.
+// Never on a background completion: its card can be far up the chat by then, so the
+// reply may be the only place the user reads the result.
+const RESULT_SHOWN_NOTE =
+	"The user already sees this run's result in its card. Do not repeat the result or logs in your reply: say what it shows, quoting only the values your conclusion rests on."
+
 // The string handed back to the model when a job is backgrounded. It carries the
-// job id so the model can pull status/logs on demand (get_job_logs / list_runs),
+// job id so the model can pull status/args/result/logs on demand (get_run / list_runs),
 // and tells it the completion will be reported later (notify-only wake).
 function backgroundedSummary(jobId: string, label: string): string {
 	return (
 		`Job ${jobId} for "${label}" is taking a while and is now running in the background — ` +
 		`the chat is free to continue and you'll be told when it finishes. ` +
-		`To inspect it now, call get_job_logs with id="${jobId}" (or list_runs); ` +
+		`To inspect it now, call get_run with id="${jobId}" (or list_runs); ` +
 		`to stop it, call cancel_job with id="${jobId}".`
 	)
 }
@@ -1890,7 +2295,7 @@ export function completedJobToolStatus(job: CompletedJob): Partial<ToolDisplayMe
 }
 
 // Short completion note handed to the model on its next turn (notify-only wake).
-// Carries the id so the model can pull full logs via get_job_logs on demand.
+// Carries the id so the model can pull the args, result and logs via get_run on demand.
 export function backgroundJobCompletionNote(
 	jobId: string,
 	label: string,
@@ -1905,12 +2310,12 @@ export function backgroundJobCompletionNote(
 	const resultHead = formattedResult ?? formatResult(job.result).slice(0, 2000)
 	const flowHint =
 		!job.success && (job.job_kind === 'flow' || job.job_kind === 'flowpreview')
-			? ` For per-step statuses and results call get_flow_run_details with id="${jobId}".`
+			? ` For per-step statuses and results call get_run with id="${jobId}".`
 			: ''
 	return (
 		`Background job ${jobId} for "${label}" ${status}.\n` +
 		`Result: ${resultHead}\n` +
-		`(For full logs call get_job_logs with id="${jobId}".${flowHint})`
+		`(For the args, result and logs call get_run with id="${jobId}".${flowHint})`
 	)
 }
 
@@ -1996,13 +2401,18 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 			...(job.success ? {} : { error: getErrorMessage(job.result) })
 		})
 
-		const summary = formatResultSummary(job.result, job.logs, job.success)
-		// get_flow_run_details only exists in the global/sessions chat (the same
-		// hosts that wire the job hooks) — don't advertise it to in-editor chats.
+		// detachEnabled marks the global/sessions chat; the in-editor chats read the summary
+		// alone. The card opening on the result is up to each tool: a run card does, a
+		// generic one only with `autoCollapseDetails: false` at its registration.
+		const summary =
+			(detachEnabled && job.success ? `${RESULT_SHOWN_NOTE}\n` : '') +
+			formatResultSummary(job.result, job.logs, job.success)
+		// get_run only exists in the global/sessions chat (the same hosts that wire
+		// the job hooks) — don't advertise it to in-editor chats.
 		if (detachEnabled && config.contextName === 'flow' && !job.success) {
 			return (
 				summary +
-				`\n\nFor per-step statuses and results (subflow steps included), call get_flow_run_details with id="${jobId}".`
+				`\n\nFor per-step statuses and results (subflow steps included), call get_run with id="${jobId}".`
 			)
 		}
 		return summary
@@ -2023,23 +2433,58 @@ export async function executeTestRun(config: TestRunConfig): Promise<string> {
 type FlowStepScriptLoader = (
 	moduleValue: { path: string; hash?: string },
 	workspace: string
-) => Promise<{ content: string; language: ScriptLang }>
+) => Promise<{ content: string; language: ScriptLang; schema?: Record<string, any> }>
 
-type FlowStepPreviewLoader = (path: string, workspace: string) => Promise<FlowValue | undefined>
+/** A subflow step's target. `previewValue` is set only when a draft exists — that is what
+ * decides between previewing the draft and running the deployed flow by path — while
+ * `schema` describes whichever of the two is about to run. */
+type FlowStepSubflowLoader = (
+	path: string,
+	workspace: string
+) => Promise<{ previewValue?: FlowValue; schema?: Record<string, any> } | undefined>
 
-export type FlowStepTestRunConfig = {
+type FlowStepRunConfig = {
 	flowValue: FlowValue
 	stepId: string
-	args?: Record<string, any> | null
 	workspace: string
 	toolCallbacks: ToolCallbacks
 	toolId: string
+	loadScript?: FlowStepScriptLoader
+	loadSubflow?: FlowStepSubflowLoader
+	/** The path of the flow the step belongs to. An agent step's preview carries it, as the flow
+	 * editor's own step test does: the run is filed under it, and a managed memory keyed on a
+	 * memory id someone named reads the flow's conversation rather than a stray one. */
+	flowPath?: string
+	/** The flow editor's substitution of a linked agent's unsaved draft, passed in because it
+	 * reaches the draft store, which this module's import list must not. */
+	withAgentDrafts?: (value: FlowValue) => Promise<FlowValue>
+}
+
+export type FlowStepTestRunConfig = FlowStepRunConfig & {
+	args?: Record<string, any> | null
 	background?: boolean
 	/** Inline wait budget (ms) before the step job detaches into the tray; forwarded
 	 * to executeTestRun. Ignored when `background` is set. */
 	detachAfterMs?: number
-	loadScript?: FlowStepScriptLoader
-	loadFlowPreviewValue?: FlowStepPreviewLoader
+}
+
+/** One step resolved to the job it would start, short of starting it, so a caller that
+ * puts an argument form in front of the run can build the form's fields from the same
+ * read the job uses. Schema inference lives with the caller: this module is kept on a
+ * shallow import list (see the note at the top of the file). */
+export type ResolvedFlowStepRun = {
+	module: FlowModule
+	runnableKind: 'script' | 'flow'
+	/** A subflow step carries `schema` instead, having no code of its own to read. */
+	code?: string
+	lang?: ScriptLang
+	schema?: Record<string, any>
+	startMessage: string
+	/** Takes the arguments as submitted. The preprocessor's entrypoint override is added
+	 * here rather than by the caller: it is declared by no schema, so anything that
+	 * conforms arguments to one would drop it. An agent step also takes the run form's rows:
+	 * each runs from its submitted value, including one the submission leaves out. */
+	startJob: (args: Record<string, any>, formKeys?: readonly string[]) => Promise<string>
 }
 
 function normalizeFlowStepArgs(args: Record<string, any> | null | undefined): Record<string, any> {
@@ -2065,25 +2510,28 @@ function getAvailableFlowStepIds(flowValue: FlowValue): string {
 async function loadDeployedScriptForFlowStep(
 	moduleValue: { path: string; hash?: string },
 	workspace: string
-): Promise<{ content: string; language: ScriptLang }> {
+): Promise<{ content: string; language: ScriptLang; schema?: Record<string, any> }> {
 	const script = moduleValue.hash
 		? await ScriptService.getScriptByHash({ workspace, hash: moduleValue.hash })
 		: await ScriptService.getScriptByPath({ workspace, path: moduleValue.path })
-	return { content: script.content, language: script.language }
+	return {
+		content: script.content,
+		language: script.language,
+		schema: script.schema as Record<string, any> | undefined
+	}
 }
 
-export async function executeFlowStepTestRun({
+export async function resolveFlowStepRun({
 	flowValue,
 	stepId,
-	args,
 	workspace,
 	toolCallbacks,
 	toolId,
-	background,
-	detachAfterMs,
 	loadScript = loadDeployedScriptForFlowStep,
-	loadFlowPreviewValue
-}: FlowStepTestRunConfig): Promise<string> {
+	loadSubflow,
+	flowPath,
+	withAgentDrafts
+}: FlowStepRunConfig): Promise<ResolvedFlowStepRun> {
 	const targetModule = findModuleInFlow(flowValue, stepId) ?? undefined
 
 	if (!targetModule) {
@@ -2097,94 +2545,160 @@ export async function executeFlowStepTestRun({
 	}
 
 	const moduleValue = targetModule.value
-	const stepArgs = normalizeFlowStepArgs(args)
+	const withEntrypoint = (args: Record<string, any>) => flowStepArgsForModule(targetModule.id, args)
 
 	if (moduleValue.type === 'rawscript') {
-		return executeTestRun({
-			jobStarter: () =>
+		return {
+			module: targetModule,
+			runnableKind: 'script',
+			code: moduleValue.content ?? '',
+			lang: moduleValue.language,
+			startMessage: `Starting test run of step "${stepId}"...`,
+			startJob: (args) =>
 				JobService.runScriptPreview({
 					workspace,
 					requestBody: {
 						content: moduleValue.content ?? '',
 						language: moduleValue.language,
-						args: flowStepArgsForModule(targetModule.id, stepArgs)
+						args: withEntrypoint(args)
 					}
-				}),
-			workspace,
-			toolCallbacks,
-			toolId,
-			startMessage: `Starting test run of step "${stepId}"...`,
-			contextName: 'script',
-			label: `step ${stepId}`,
-			background,
-			detachAfterMs
-		})
+				})
+		}
 	}
 
 	if (moduleValue.type === 'script') {
 		const script = await loadScript(moduleValue, workspace)
-		return executeTestRun({
-			jobStarter: () =>
+		return {
+			module: targetModule,
+			runnableKind: 'script',
+			code: script.content,
+			lang: script.language,
+			schema: script.schema,
+			startMessage: `Starting test run of script step "${stepId}"...`,
+			startJob: (args) =>
 				JobService.runScriptPreview({
 					workspace,
 					requestBody: {
 						path: moduleValue.path,
 						content: script.content,
 						language: script.language,
-						args: flowStepArgsForModule(targetModule.id, stepArgs)
+						args: withEntrypoint(args)
 					}
-				}),
-			workspace,
-			toolCallbacks,
-			toolId,
-			startMessage: `Starting test run of script step "${stepId}"...`,
-			contextName: 'script',
-			label: `step ${stepId}`,
-			background,
-			detachAfterMs
-		})
+				})
+		}
 	}
 
 	if (moduleValue.type === 'flow') {
-		const previewValue = await loadFlowPreviewValue?.(moduleValue.path, workspace)
-		if (previewValue) {
-			return executeTestRun({
-				jobStarter: () =>
-					JobService.runFlowPreview({
-						workspace,
-						requestBody: {
+		const subflow = await loadSubflow?.(moduleValue.path, workspace)
+		const previewValue = subflow?.previewValue
+		return {
+			module: targetModule,
+			runnableKind: 'flow',
+			schema: subflow?.schema,
+			startMessage: previewValue
+				? `Starting test run of draft flow step "${stepId}"...`
+				: `Starting test run of flow step "${stepId}"...`,
+			startJob: (args) =>
+				previewValue
+					? JobService.runFlowPreview({
+							workspace,
+							requestBody: { path: moduleValue.path, value: previewValue, args }
+						})
+					: JobService.runFlowByPath({
+							workspace,
 							path: moduleValue.path,
-							value: previewValue,
-							args: stepArgs
-						}
-					}),
-				workspace,
-				toolCallbacks,
-				toolId,
-				startMessage: `Starting test run of draft flow step "${stepId}"...`,
-				contextName: 'flow',
-				label: `step ${stepId}`,
-				background,
-				detachAfterMs
-			})
+							requestBody: args,
+							// As the flow editor's own step test does: these are the subflow's main input
+							// schema's arguments, and a preprocessor would take them for a trigger event
+							// and hand the flow its own output instead. A parent flow runs a subflow step
+							// the same way (apply_preprocessor: false).
+							skipPreprocessor: true
+						})
 		}
+	}
 
-		return executeTestRun({
-			jobStarter: () =>
-				JobService.runFlowByPath({
+	if (moduleValue.type === 'aiagent') {
+		return {
+			module: targetModule,
+			// The job started is a flow preview: an agent step has none of its own, and the tool
+			// calls it makes are that flow's steps.
+			runnableKind: 'flow',
+			startMessage: `Starting test run of agent step "${stepId}"...`,
+			startJob: async (args, formKeys) => {
+				// The step alone, stripped of the settings around it: a mock would answer for it
+				// and a suspend would hold the run for an approval nobody is watching for.
+				const value: FlowValue = {
+					modules: [
+						{
+							id: targetModule.id,
+							value: {
+								...moduleValue,
+								input_transforms: agentTestInputTransforms(
+									moduleValue.input_transforms,
+									args,
+									formKeys
+								)
+							}
+						}
+					]
+				}
+				return JobService.runFlowPreview({
 					workspace,
-					path: moduleValue.path,
-					requestBody: stepArgs
-				}),
-			workspace,
-			toolCallbacks,
-			toolId,
-			startMessage: `Starting test run of flow step "${stepId}"...`,
-			contextName: 'flow',
-			label: `step ${stepId}`,
-			background,
-			detachAfterMs
-		})
+					requestBody: {
+						// After the inputs are wired, as the flow editor's step test does: a linked agent's
+						// draft brings its own brain and tools, and the step's run inputs stay on top.
+						value: withAgentDrafts ? await withAgentDrafts(value) : value,
+						args,
+						path: flowPath
+					}
+				})
+			}
+		}
+	}
+
+	if (moduleValue.type === 'aidecision') {
+		return {
+			module: targetModule,
+			// Run alone as a one-step flow preview, as the editor's step test does: the inputs given here
+			// override the step's own, so a state that reads an earlier step can be passed directly.
+			runnableKind: 'flow',
+			// What a run supplies: the state. The provider and questions are the step's own.
+			schema: {
+				$schema: 'https://json-schema.org/draft/2020-12/schema',
+				type: 'object',
+				properties: { state: AI_DECISION_SCHEMA.properties.state },
+				required: ['state'],
+				order: ['state']
+			},
+			startMessage: `Starting test run of AI decision step "${stepId}"...`,
+			startJob: async (args) =>
+				JobService.runFlowPreview({
+					workspace,
+					requestBody: {
+						value: {
+							modules: [
+								{
+									id: targetModule.id,
+									value: {
+										...moduleValue,
+										input_transforms: {
+											...moduleValue.input_transforms,
+											...Object.fromEntries(
+												Object.keys(args).map((key) => [
+													key,
+													{ type: 'javascript' as const, expr: `flow_input.${key}` }
+												])
+											)
+										}
+									}
+								}
+							]
+						},
+						args,
+						path: flowPath
+					}
+				})
+		}
 	}
 
 	toolCallbacks.setToolStatus(toolId, {
@@ -2192,8 +2706,28 @@ export async function executeFlowStepTestRun({
 		error: `Cannot test step of type "${moduleValue.type}"`
 	})
 	throw new Error(
-		`Cannot test step of type "${moduleValue.type}". Supported types: rawscript, script, flow`
+		`Cannot test step of type "${moduleValue.type}". Supported types: rawscript, script, flow, aiagent, aidecision`
 	)
+}
+
+export async function executeFlowStepTestRun({
+	args,
+	background,
+	detachAfterMs,
+	...config
+}: FlowStepTestRunConfig): Promise<string> {
+	const resolved = await resolveFlowStepRun(config)
+	return executeTestRun({
+		jobStarter: () => resolved.startJob(normalizeFlowStepArgs(args)),
+		workspace: config.workspace,
+		toolCallbacks: config.toolCallbacks,
+		toolId: config.toolId,
+		startMessage: resolved.startMessage,
+		contextName: resolved.runnableKind,
+		label: `step ${config.stepId}`,
+		background,
+		detachAfterMs
+	})
 }
 
 function formatLogs(logs: string | undefined): undefined | string {

@@ -201,7 +201,10 @@ async fn wac_approval_urls_mint_guards(db: Pool<Postgres>) -> anyhow::Result<()>
     let client = reqwest::Client::new();
     let mint = |ws: &str, job: &str, key: &str| {
         let url = format!("{base}/w/{ws}/jobs/wac_approval_urls/{job}/{key}");
-        client.get(url).header("Authorization", "Bearer SECRET_TOKEN").send()
+        client
+            .get(url)
+            .header("Authorization", "Bearer SECRET_TOKEN")
+            .send()
     };
 
     assert_eq!(
@@ -227,8 +230,15 @@ async fn wac_approval_urls_mint_guards(db: Pool<Postgres>) -> anyhow::Result<()>
     let resp = mint("test-workspace", WAC_JOB, APPROVAL_COLLISION_B).await?;
     let status = resp.status();
     let body = resp.text().await.unwrap_or_default();
-    assert_eq!(status, reqwest::StatusCode::BAD_REQUEST, "colliding key: {body}");
-    assert!(body.contains(APPROVAL_COLLISION_A), "error must name the other key: {body}");
+    assert_eq!(
+        status,
+        reqwest::StatusCode::BAD_REQUEST,
+        "colliding key: {body}"
+    );
+    assert!(
+        body.contains(APPROVAL_COLLISION_A),
+        "error must name the other key: {body}"
+    );
 
     Ok(())
 }
@@ -236,7 +246,9 @@ async fn wac_approval_urls_mint_guards(db: Pool<Postgres>) -> anyhow::Result<()>
 /// Colliding keys share one resume_job row and one capability, so the mint that
 /// records them must let exactly one through however the requests interleave.
 #[sqlx::test(fixtures("base", "wac_approval_urls"))]
-async fn wac_concurrent_colliding_mints_admit_exactly_one(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn wac_concurrent_colliding_mints_admit_exactly_one(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let base = format!("http://localhost:{}/api", server.addr.port());
@@ -262,6 +274,92 @@ async fn wac_concurrent_colliding_mints_admit_exactly_one(db: Pool<Postgres>) ->
             other => anyhow::bail!("unexpected status {other}"),
         }
     }
-    assert_eq!((ok, rejected), (1, 1), "exactly one colliding key may be minted");
+    assert_eq!(
+        (ok, rejected),
+        (1, 1),
+        "exactly one colliding key may be minted"
+    );
+    Ok(())
+}
+
+/// A resume signature skips the step's approval_conditions, so only the suspended job's own
+/// run (its `WM_TOKEN`) or a workspace admin may mint one, and a signature made with another
+/// workspace's key must not reach a job outside that workspace.
+#[sqlx::test(fixtures("base", "wac_approval_urls"))]
+async fn resume_signatures_are_bound_to_the_run_and_its_workspace(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use hmac::Mac;
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!("http://localhost:{}/api", server.addr.port());
+    let client = reqwest::Client::new();
+    set_jwt_secret().await;
+    let job_token = windmill_common::auth::create_token_for_owner(
+        &db,
+        "test-workspace",
+        "u/test-user-2",
+        "ephemeral-script",
+        300,
+        "test2@windmill.dev",
+        &uuid::Uuid::parse_str(WAC_JOB)?,
+        None,
+        None,
+    )
+    .await?;
+
+    for route in ["job_signature", "resume_urls"] {
+        for (token, allowed) in [
+            ("SECRET_TOKEN_2", false),
+            (&job_token, true),
+            ("SECRET_TOKEN", true),
+        ] {
+            let status = client
+                .get(format!("{base}/w/test-workspace/jobs/{route}/{WAC_JOB}/7"))
+                .bearer_auth(token)
+                .send()
+                .await?
+                .status();
+            assert_eq!(
+                status.is_success(),
+                allowed,
+                "{route} with a {} token: {status}",
+                if token == job_token { "job" } else { token }
+            );
+        }
+    }
+
+    let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(b"test-key-2")?;
+    mac.update(uuid::Uuid::parse_str(WAC_JOB)?.as_bytes());
+    mac.update(&5u32.to_be_bytes());
+    let foreign = hex::encode(mac.finalize().into_bytes());
+    for op in ["resume", "cancel"] {
+        let status = client
+            .post(format!(
+                "{base}/w/test-workspace-2/jobs_u/{op}/{WAC_JOB}/5/{foreign}"
+            ))
+            .json(&serde_json::json!({}))
+            .send()
+            .await?
+            .status();
+        assert_eq!(
+            status,
+            reqwest::StatusCode::NOT_FOUND,
+            "{op} from test-workspace-2"
+        );
+    }
+    let (suspend, resumes): (i32, i64) = sqlx::query_as(
+        "SELECT suspend, (SELECT count(*) FROM resume_job WHERE job = $1::uuid)
+         FROM v2_job_queue WHERE id = $1::uuid",
+    )
+    .bind(WAC_JOB)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        (suspend, resumes),
+        (1, 0),
+        "the job must still be suspended"
+    );
     Ok(())
 }

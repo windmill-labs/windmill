@@ -2,6 +2,7 @@
 	import { Button } from '$lib/components/common'
 	import { ExternalLink, RotateCw, Loader2 } from 'lucide-svelte'
 	import { workerTags, workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import AssignableTags from './AssignableTags.svelte'
 	import { WorkerService } from '$lib/gen'
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
@@ -11,8 +12,8 @@
 		popupPlacement?: 'bottom-end' | 'top-end'
 		disabled?: boolean
 		placeholder?: string
-		// Workspace to read tags from; defaults to $workspaceStore. A fork-scoped
-		// session passes its effective workspace so the picker matches the deploy target.
+		// Workspace to read tags from; defaults to the operating workspace (see
+		// `useOperatingWorkspace`).
 		workspaceId?: string
 	}
 
@@ -26,8 +27,11 @@
 
 	// See WorkerTagSelect: the shared `workerTags` cache is navigation-scoped, so a
 	// different target workspace reads/writes a local list to avoid clobbering it.
-	let effectiveWorkspace = $derived(workspaceId ?? $workspaceStore)
-	let usesLocal = $derived(workspaceId != undefined && workspaceId !== $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	let effectiveWorkspace = $derived(workspaceId ?? $operatingWorkspace)
+	let usesLocal = $derived(
+		effectiveWorkspace != undefined && effectiveWorkspace !== $workspaceStore
+	)
 	let localWorkerTags = $state<string[] | undefined>(undefined)
 	let currentTags = $derived(usesLocal ? localWorkerTags : $workerTags)
 

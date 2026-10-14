@@ -21,11 +21,11 @@
 		type WebsocketTriggerInitialMessage,
 		type WebsocketHeartbeat,
 		type Retry,
-		type ErrorHandler,
 		type TriggerMode
 	} from '$lib/gen'
-	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptySchema, emptyString, sendUserToast } from '$lib/utils'
+	import { usedTriggerKinds } from '$lib/stores'
+	import { emptySchema, emptyString, sendUserToast } from '$lib/utils'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, X, Plus } from 'lucide-svelte'
@@ -42,7 +42,8 @@
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { saveWebsocketTriggerFromCfg } from './utils'
-	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
+	import { handleConfigChange, type Trigger } from '../utils'
+	import { handlerDraftFromStored, handlerDraftToStored } from '../../handlerDraft.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
@@ -53,9 +54,19 @@
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { capitalize } from '$lib/utils'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
+	const editRights = useEditRights()
 
 	interface Props {
 		useDrawer?: boolean
+		/** With `useDrawer`, render the drawer's content in place, filling the parent, with no drawer or close button. */
+		inline?: boolean
+		/** With `inline`, closes whatever hosts the editor; the header has a close button only when set. */
+		onClose?: () => void
 		description?: Snippet | undefined
 		hideTarget?: boolean
 		hideTooltips?: boolean
@@ -75,6 +86,8 @@
 
 	let {
 		useDrawer = true,
+		inline = false,
+		onClose = undefined,
 		description = undefined,
 		hideTarget = false,
 		hideTooltips = false,
@@ -90,6 +103,11 @@
 		onReset = undefined,
 		cloudDisabled = false
 	}: Props = $props()
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
+	const operatingHref = useOperatingWorkspaceHref()
+	const wsId = $derived($operatingWorkspace)
 
 	let drawer: Drawer | undefined = $state()
 	let is_flow: boolean = $state(false)
@@ -114,7 +132,15 @@
 	let heartbeat_message = $state('')
 	let heartbeat_state_field = $state('')
 	let dirtyPath = $state(false)
-	let can_write = $state(true)
+	let permsPath = $state<string | undefined>(undefined)
+	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
+	// The acting user in the operating workspace arrives asynchronously, and an unknown user
+	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
+	const can_write = $derived(
+		permsPath === undefined
+			? editRights.roleCanAuthor('trigger')
+			: editRights.canEditItem('trigger', permsPath, permsForWrite)
+	)
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
 	let initialConfig: Record<string, any> | undefined = undefined
@@ -124,9 +150,10 @@
 	let preservePermissionedAs = $state(false)
 	let isValid = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
-	let errorHandlerSelected: ErrorHandler = $state('slack')
-	let error_handler_path: string | undefined = $state()
-	let error_handler_args: Record<string, any> = $state({})
+	let errorHandler = $state(handlerDraftFromStored('error', undefined))
+	const storedErrorHandler = $derived(handlerDraftToStored(errorHandler))
+	const error_handler_path = $derived(storedErrorHandler.path)
+	const error_handler_args = $derived(storedErrorHandler.args)
 	let retry: Retry | undefined = $state()
 	let mode = $state<TriggerMode>('enabled')
 
@@ -139,7 +166,7 @@
 	const draftSync = useTriggerDraftSync({
 		itemKind: 'trigger_websocket',
 		path: () => initialPath,
-		workspace: () => $workspaceStore,
+		workspace: () => wsId,
 		drawerLoading: () => drawerLoading,
 		getCfg: () => websocketCfg,
 		applyCfg: loadTriggerConfig,
@@ -179,6 +206,9 @@
 		isFlow: boolean,
 		defaultConfig?: Record<string, any>
 	) {
+		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
+		operatingUser.forgetFailures()
+		editRights.forgetFailures()
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -239,10 +269,13 @@
 			dirtyPath = false
 			can_return_message = false
 			can_return_error_result = false
-			error_handler_path = defaultValues?.error_handler_path ?? undefined
-			error_handler_args = defaultValues?.error_handler_args ?? {}
+			errorHandler = handlerDraftFromStored(
+				'error',
+				defaultValues?.error_handler_path,
+				'script',
+				defaultValues?.error_handler_args
+			)
 			retry = defaultValues?.retry ?? undefined
-			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			mode = defaultValues?.mode ?? 'enabled'
 			permissionedAs = undefined
 			selectedPermissionedAs = undefined
@@ -256,6 +289,8 @@
 	}
 
 	function loadTriggerConfig(cfg?: Record<string, any>): void {
+		// The loaded trigger says what it runs; an opener's `isFlow` is only its guess.
+		if (cfg?.is_flow !== undefined) itemKind = cfg.is_flow ? 'flow' : 'script'
 		script_path = cfg?.script_path
 		initialScriptPath = cfg?.script_path
 		is_flow = cfg?.is_flow
@@ -272,11 +307,15 @@
 		heartbeat_interval_secs = hb?.interval_secs ?? 41
 		heartbeat_message = hb?.message ?? ''
 		heartbeat_state_field = hb?.state_field ?? ''
-		can_write = canWrite(path, cfg?.extra_perms, $userStore)
-		error_handler_path = cfg?.error_handler_path
-		error_handler_args = cfg?.error_handler_args ?? {}
+		permsPath = path
+		permsForWrite = cfg?.extra_perms
+		errorHandler = handlerDraftFromStored(
+			'error',
+			cfg?.error_handler_path,
+			'script',
+			cfg?.error_handler_args
+		)
 		retry = cfg?.retry
-		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		mode = cfg?.mode ?? 'enabled'
 		permissionedAs = cfg?.permissioned_as
 		selectedPermissionedAs = cfg?.permissioned_as
@@ -320,7 +359,7 @@
 			return { overlay: undefined, noDeployed: false }
 		}
 		const s = await WebsocketTriggerService.getWebsocketTrigger({
-			workspace: $workspaceStore!,
+			workspace: wsId!,
 			path: initialPath,
 			getDraft: true
 		})
@@ -348,8 +387,8 @@
 			try {
 				let schema: Schema | undefined = emptySchema()
 				let scriptOrFlow: Script | Flow = is_flow
-					? await FlowService.getFlowByPath({ workspace: $workspaceStore!, path })
-					: await ScriptService.getScriptByPath({ workspace: $workspaceStore!, path })
+					? await FlowService.getFlowByPath({ workspace: wsId!, path })
+					: await ScriptService.getScriptByPath({ workspace: wsId!, path })
 				schema = scriptOrFlow.schema as Schema
 				if (schema && schema.properties) {
 					initialMessageRunnableSchemas[(is_flow ? 'flow/' : '') + path] = schema
@@ -380,7 +419,7 @@
 			initialPath,
 			saveCfg,
 			edit,
-			$workspaceStore!,
+			wsId!,
 			usedTriggerKinds
 		)
 		if (isSaved) {
@@ -412,7 +451,7 @@
 				(force) =>
 					WebsocketTriggerService.setWebsocketTriggerMode({
 						path: initialPath,
-						workspace: $workspaceStore ?? '',
+						workspace: wsId ?? '',
 						requestBody: { mode: newMode, force }
 					}),
 				'websocket trigger'
@@ -458,36 +497,44 @@
 	/>
 {/if}
 
-{#if useDrawer}
+{#snippet drawerBody()}
+	<DrawerContent
+		hideClose={inline && !onClose}
+		fullScreen={!inline}
+		bannerReserved={draftSync.hasBaseline}
+		title={edit
+			? can_write
+				? `Edit WebSocket trigger ${initialPath}`
+				: `WebSocket trigger ${initialPath}`
+			: 'New WebSocket trigger'}
+		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
+	>
+		{#snippet actions()}
+			{@render actionsButtons()}
+		{/snippet}
+		{#snippet banner()}
+			<LocalDraftBanner
+				show={draftSync.hasDraft}
+				getDeployed={() => draftSync.deployed}
+				reserveSpace={draftSync.hasBaseline}
+				getCurrent={() => draftSync.current}
+				onDiscard={() => draftSync.resetToDeployed(initialPath)}
+				disabled={!can_write}
+			/>
+		{/snippet}
+		{@render config()}
+	</DrawerContent>
+{/snippet}
+
+{#if useDrawer && inline}
+	{@render drawerBody()}
+{:else if useDrawer}
 	<Drawer
 		size="800px"
 		bind:this={drawer}
 		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.websocket.path)}
 	>
-		<DrawerContent
-			bannerReserved={draftSync.hasBaseline}
-			title={edit
-				? can_write
-					? `Edit WebSocket trigger ${initialPath}`
-					: `WebSocket trigger ${initialPath}`
-				: 'New WebSocket trigger'}
-			on:close={drawer.closeDrawer}
-		>
-			{#snippet actions()}
-				{@render actionsButtons()}
-			{/snippet}
-			{#snippet banner()}
-				<LocalDraftBanner
-					show={draftSync.hasDraft}
-					getDeployed={() => draftSync.deployed}
-					reserveSpace={draftSync.hasBaseline}
-					getCurrent={() => draftSync.current}
-					onDiscard={() => draftSync.resetToDeployed(initialPath)}
-					disabled={!can_write}
-				/>
-			{/snippet}
-			{@render config()}
-		</DrawerContent>
+		{@render drawerBody()}
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'WebSocket trigger' : ''} headerClass="grow min-w-0 h-[30px]">
@@ -534,6 +581,7 @@
 	{:else}
 		<PermissionedAsLine
 			{permissionedAs}
+			disabled={!can_write}
 			{path}
 			onPermissionedAsChange={(pa, preserve) => {
 				selectedPermissionedAs = pa
@@ -589,7 +637,7 @@
 								bind:itemKind
 								bind:scriptPath={script_path}
 								allowRefresh={can_write}
-								allowEdit={!$userStore?.operator}
+								allowEdit={!actingUser?.operator}
 								clearable
 							/>
 							{#if emptyString(script_path)}
@@ -598,7 +646,9 @@
 									variant="accent"
 									size="xs"
 									disabled={!can_write}
-									href={itemKind === 'flow' ? '/flows/add?hub=64' : '/scripts/add?hub=hub%2F19660'}
+									href={operatingHref(
+										itemKind === 'flow' ? '/flows/add?hub=64' : '/scripts/add?hub=hub%2F19660'
+									)}
 									target="_blank"
 								>
 									Create from template
@@ -873,9 +923,7 @@
 								{optionTabSelected}
 								{itemKind}
 								{can_write}
-								bind:errorHandlerSelected
-								bind:error_handler_path
-								bind:error_handler_args
+								bind:errorHandler
 								bind:retry
 							/>
 						</div>

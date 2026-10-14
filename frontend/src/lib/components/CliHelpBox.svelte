@@ -1,9 +1,12 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import ClipboardPanel from './details/ClipboardPanel.svelte'
 	import Section from './Section.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 
-	let url = $derived(`${window.location.protocol}//${window.location.hostname}/`)
+	const operatingWorkspace = useOperatingWorkspace()
+
+	let url = $derived(`${apiBaseUrl()}/`)
 </script>
 
 <Section label="CLI quick setup">
@@ -20,7 +23,7 @@
 				<span class="font-medium">Setup the wmill cli for this workspace & remote:</span>
 				<div class="mt-1">
 					<ClipboardPanel
-						content={`wmill workspace add ${$workspaceStore} ${$workspaceStore} ${url}`}
+						content={`wmill workspace add ${$operatingWorkspace} ${$operatingWorkspace} ${url}`}
 					/>
 				</div>
 			</li>

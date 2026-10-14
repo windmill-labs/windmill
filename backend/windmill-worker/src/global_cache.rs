@@ -10,6 +10,73 @@ use std::sync::Arc;
 pub const TARGET: &str = const_format::concatcp!(std::env::consts::OS, "_", std::env::consts::ARCH);
 
 #[cfg(all(feature = "enterprise", feature = "parquet"))]
+lazy_static::lazy_static! {
+    /// Object-store clients are built with their request timeout disabled so a large job
+    /// payload can stream for as long as it needs. A cache transfer must not inherit that:
+    /// a put or get that stalls after connecting would otherwise hold the job for its whole
+    /// duration limit, with nothing in the job log saying why.
+    pub(crate) static ref OBJECT_STORE_CACHE_IO_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(
+        std::env::var("OBJECT_STORE_CACHE_IO_TIMEOUT_SECS")
+            .ok()
+            .and_then(|x| x.parse::<u64>().ok())
+            .filter(|secs| *secs > 0)
+            .unwrap_or(30 * 60),
+    );
+}
+
+/// A cache transfer that did not complete: the store answered with an error, or
+/// [`OBJECT_STORE_CACHE_IO_TIMEOUT`] ran out first. Nothing is logged on the way out: a failed
+/// download is usually an ordinary miss, so each call site decides which outcome gets a line,
+/// and logs it once.
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+pub(crate) enum CacheIoError {
+    TimedOut { what: String, path: String, secs: u64 },
+    Failed(error::Error),
+}
+
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+impl std::fmt::Display for CacheIoError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CacheIoError::TimedOut { what, path, secs } => write!(
+                f,
+                "{what} {path} in the object store cache timed out after {secs}s \
+                 (OBJECT_STORE_CACHE_IO_TIMEOUT_SECS)"
+            ),
+            CacheIoError::Failed(e) => write!(f, "{e:#}"),
+        }
+    }
+}
+
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+impl From<CacheIoError> for error::Error {
+    fn from(e: CacheIoError) -> Self {
+        match e {
+            CacheIoError::Failed(e) => e,
+            timed_out => error::Error::ExecutionErr(timed_out.to_string()),
+        }
+    }
+}
+
+/// Runs one object-store cache transfer under [`OBJECT_STORE_CACHE_IO_TIMEOUT`].
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
+pub(crate) async fn bounded_cache_io<T>(
+    what: &str,
+    path: &str,
+    io: impl std::future::Future<Output = error::Result<T>>,
+) -> Result<T, CacheIoError> {
+    let timeout = *OBJECT_STORE_CACHE_IO_TIMEOUT;
+    match tokio::time::timeout(timeout, io).await {
+        Ok(result) => result.map_err(CacheIoError::Failed),
+        Err(_) => Err(CacheIoError::TimedOut {
+            what: what.to_string(),
+            path: path.to_string(),
+            secs: timeout.as_secs(),
+        }),
+    }
+}
+
+#[cfg(all(feature = "enterprise", feature = "parquet"))]
 pub async fn build_tar_and_push(
     s3_client: Arc<dyn ObjectStore>,
     folder: String,
@@ -56,17 +123,20 @@ pub async fn build_tar_and_push(
     // let s3_client = s3_settings.as_ref().ok_or_else(|| {
     //     error::Error::ExecutionErr("Failed to read s3 cache settings".to_string())
     // })?;
-    if let Err(e) = s3_client
-        .put(
-            &Path::from(format!(
-                "/tar/{}/{lang}/{folder_name}.tar",
-                if platform_agnostic { "" } else { TARGET }
-            )),
-            std::fs::read(&tar_path)?.into(),
-        )
-        .await
-    {
-        tracing::info!("Failed to put tar to s3: {tar_path}. Error: {:?}", e);
+    let remote_path = format!(
+        "/tar/{}/{lang}/{folder_name}.tar",
+        if platform_agnostic { "" } else { TARGET }
+    );
+    let tar_bytes = std::fs::read(&tar_path)?;
+    let put = bounded_cache_io("uploading", &remote_path, async {
+        s3_client
+            .put(&Path::from(remote_path.as_str()), tar_bytes.into())
+            .await
+            .map_err(|e| error::Error::ExecutionErr(format!("{e:?}")))
+    })
+    .await;
+    if let Err(e) = put {
+        tracing::info!("Failed to put tar to s3: {tar_path}. Error: {e}");
         return Err(error::Error::ExecutionErr(format!(
             "Failed to put tar to s3: {tar_path}"
         )));
@@ -109,7 +179,12 @@ pub async fn pull_from_tar(
         "tar/{}/{lang}/{folder_name}.tar",
         if platform_agnostic { "" } else { TARGET }
     );
-    let bytes = attempt_fetch_bytes(client, &tar_path).await?;
+    let bytes = bounded_cache_io(
+        "downloading",
+        &tar_path,
+        attempt_fetch_bytes(client, &tar_path),
+    )
+    .await?;
 
     extract_tar(bytes, &folder).map_err(|e| {
         tracing::error!("Failed to extract piptar {folder_name}. Error: {:?}", e);
@@ -160,7 +235,16 @@ pub async fn load_cache(bin_path: &str, _remote_path: &str, is_dir: bool) -> (bo
         if let Some(os) = windmill_object_store::get_cache_object_store().await {
             let started = std::time::Instant::now();
 
-            if let Ok(mut x) = windmill_object_store::attempt_fetch_bytes(os, _remote_path).await {
+            let fetched = bounded_cache_io(
+                "downloading",
+                _remote_path,
+                windmill_object_store::attempt_fetch_bytes(os, _remote_path),
+            )
+            .await;
+            if let Err(e @ CacheIoError::TimedOut { .. }) = &fetched {
+                tracing::error!("{e}");
+            }
+            if let Ok(mut x) = fetched {
                 if is_dir {
                     // Extract into a sibling temp dir then atomically publish it,
                     // so a concurrent cold-load gating on metadata(bin_path) never
@@ -227,12 +311,18 @@ pub async fn object_store_available() -> bool {
 pub async fn exists_in_object_store(_remote_path: &str) -> bool {
     #[cfg(all(feature = "enterprise", feature = "parquet"))]
     if let Some(os) = windmill_object_store::get_cache_object_store().await {
-        return os
-            .head(&windmill_object_store::object_store_reexports::Path::from(
+        let head = bounded_cache_io("checking", _remote_path, async {
+            os.head(&windmill_object_store::object_store_reexports::Path::from(
                 _remote_path,
             ))
             .await
-            .is_ok();
+            .map_err(|e| error::Error::ExecutionErr(format!("{e:?}")))
+        })
+        .await;
+        if let Err(e @ CacheIoError::TimedOut { .. }) = &head {
+            tracing::error!("{e}");
+        }
+        return head.is_ok();
     }
     false
 }
@@ -258,12 +348,18 @@ pub async fn exists_in_cache(bin_path: &str, _remote_path: &str) -> bool {
     } else {
         #[cfg(all(feature = "enterprise", feature = "parquet"))]
         if let Some(os) = windmill_object_store::get_cache_object_store().await {
-            return os
-                .get(&windmill_object_store::object_store_reexports::Path::from(
+            let get = bounded_cache_io("checking", _remote_path, async {
+                os.get(&windmill_object_store::object_store_reexports::Path::from(
                     _remote_path,
                 ))
                 .await
-                .is_ok();
+                .map_err(|e| error::Error::ExecutionErr(format!("{e:?}")))
+            })
+            .await;
+            if let Err(e @ CacheIoError::TimedOut { .. }) = &get {
+                tracing::error!("{e}");
+            }
+            return get.is_ok();
         }
         return false;
     }
@@ -307,17 +403,15 @@ pub async fn save_cache(
             origin.to_owned()
         };
 
-        if let Err(e) = os
-            .put(
-                &Path::from(_remote_cache_path),
-                std::fs::read(&file_to_cache)?.into(),
-            )
-            .await
-        {
-            tracing::error!(
-                "Failed to put bin to object store: {_remote_cache_path}. Error: {:?}",
-                e
-            );
+        let bytes = std::fs::read(&file_to_cache)?;
+        let put = bounded_cache_io("uploading", _remote_cache_path, async {
+            os.put(&Path::from(_remote_cache_path), bytes.into())
+                .await
+                .map_err(|e| error::Error::ExecutionErr(format!("{e:?}")))
+        })
+        .await;
+        if let Err(e) = put {
+            tracing::error!("Failed to put bin to object store: {_remote_cache_path}. Error: {e}");
         } else {
             _cached_to_s3 = true;
             if is_dir {

@@ -1,11 +1,11 @@
 /**
  * Beta opt-out gate for AI Sessions (and the Global AI chat mode).
  *
- * Sessions ship enabled by default. Users can switch back to the legacy
- * docked chat from the beta banner under the session chat, which stores an
- * opt-out in this browser's localStorage; the mirror banner in the legacy
- * chat switches back. Both toggles do a full page reload: every call site
- * reads the gate once at init, so a live flip would leave the UI half-switched.
+ * Sessions ship enabled by default. The opt-out lives in this browser's
+ * localStorage; nothing in the UI sets it any more, so only browsers that
+ * opted out earlier keep the legacy docked chat, whose banner switches them
+ * back. The toggle does a full page reload: every call site reads the gate
+ * once at init, so a live flip would leave the UI half-switched.
  *
  * When the beta ends, replace every call to `isGlobalAiEnabled()` with `true`
  * and delete this file. The references are intentionally narrow (chat mode
@@ -25,39 +25,52 @@ export function isGlobalAiEnabled(): boolean {
 	}
 }
 
+const OPERATOR_SESSIONS_KEY = 'wm_operator_ai_sessions'
+
+/**
+ * Operators get AI sessions only in a browser that opted in, until the operator experience
+ * has been tested; everywhere else they keep the docked chat and `/sessions` refuses them.
+ * Set with `localStorage.setItem('wm_operator_ai_sessions', '1')` and reload. To ship it,
+ * delete this and `sessionsAllowedFor`, and drop the `isOperator` argument from every caller.
+ */
+function operatorSessionsEnabled(): boolean {
+	if (typeof localStorage === 'undefined') return false
+	try {
+		return localStorage.getItem(OPERATOR_SESSIONS_KEY) === '1'
+	} catch {
+		return false
+	}
+}
+
+/** Whether this user's role may use AI sessions at all. */
+export function sessionsAllowedFor(isOperator: boolean | undefined): boolean {
+	return !isOperator || operatorSessionsEnabled()
+}
+
 /**
  * Whether an AI entry point hands off to a session instead of driving the docked
  * chat. Deliberately the same condition as the root layout's `disableAi`, so a
  * caller falling back on `false` always has a mounted pane to fall back to.
- * Operators keep that pane (`/sessions` refuses them) until the operator chat ships.
  */
 export function prefersSessionHandoff(isOperator: boolean | undefined): boolean {
-	return isGlobalAiEnabled() && !isOperator
+	return isGlobalAiEnabled() && sessionsAllowedFor(isOperator)
 }
 
-/** Persist the opt-out choice, then hard-reload so every gated site re-reads it. */
-export function setSessionsBetaOptOut(optOut: boolean, target: string) {
+/** Clear the opt-out, then hard-reload so every gated site re-reads it. */
+export function clearSessionsBetaOptOut(target: string) {
 	// Navigate even when persistence throws (quota, private browsing) — the
 	// button must not be a silent no-op. The reload then shows the unchanged
 	// mode, which is the honest feedback that the toggle didn't stick.
 	let persisted = true
 	try {
-		if (optOut) {
-			localStorage.setItem(OPT_OUT_KEY, '1')
-			// Land with the legacy pane open — on a fresh profile the pane
-			// defaults to closed, and the round-trip must end in a visible chat
-			// (with its reactivation banner), not on a bare workspace page.
-			localStorage.setItem('ai-chat-open', 'true')
-		} else {
-			localStorage.removeItem(OPT_OUT_KEY)
-		}
+		localStorage.removeItem(OPT_OUT_KEY)
 	} catch {
 		persisted = false
 	}
 	// Anonymous usage counter on the shared feature_usage channel. The buffer's
 	// pagehide flush + keepalive fetch carry it across the hard navigation below.
 	if (persisted) {
-		logFeatureUsage('ai_session', optOut ? 'beta_optout' : 'beta_optin')
+		logFeatureUsage('ai_session', 'beta_optin')
 	}
 	window.location.href = target
 }

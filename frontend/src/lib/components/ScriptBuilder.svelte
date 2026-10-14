@@ -13,6 +13,7 @@
 		WorkerService
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
+	import { VERSION_PAGE_SIZE } from '$lib/components/diff_drawer'
 	import {
 		initialCode,
 		canHavePreprocessor,
@@ -30,6 +31,10 @@
 		workerTags,
 		workspaceStore
 	} from '$lib/stores'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
 	import {
 		emptySchema,
 		emptyString,
@@ -67,7 +72,6 @@
 		Tag,
 		X
 	} from 'lucide-svelte'
-	import { base } from '$lib/base'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { parsePipelineAnnotations } from './assets/AssetGraph/parsePipelineAnnotations'
 	import DropdownV2 from './DropdownV2.svelte'
@@ -78,6 +82,7 @@
 	import { fade } from 'svelte/transition'
 	import Popover from './Popover.svelte'
 	import Toggle from './Toggle.svelte'
+	import JobTokenScopesSetting from './JobTokenScopesSetting.svelte'
 	import ScriptSchema from './ScriptSchema.svelte'
 	import Section from './Section.svelte'
 	import Label from './Label.svelte'
@@ -87,8 +92,11 @@
 	import { writable } from 'svelte/store'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
 	import DefaultScripts from './DefaultScripts.svelte'
-	import { getContext, onMount, setContext, tick, untrack } from 'svelte'
+	import { getContext, onDestroy, onMount, setContext, tick, untrack, type Snippet } from 'svelte'
 	import EditorHeader from './EditorHeader.svelte'
+	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import ScriptSettingsBadges from './ScriptSettingsBadges.svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import Modal from './common/modal/Modal.svelte'
@@ -103,6 +111,12 @@
 	import DeployButton from './DeployButton.svelte'
 	import { type Trigger, deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
 	import DraftChangesConfirmationModal from './common/confirmationModal/DraftChangesConfirmationModal.svelte'
+	import PerpetualRunsDeployModal from './scripts/PerpetualRunsDeployModal.svelte'
+	import {
+		loadPerpetualRunsAtPath,
+		stopPerpetualRuns,
+		type PerpetualRunsAtPath
+	} from './scripts/perpetualRuns'
 	import { Triggers } from './triggers/triggers.svelte'
 	import type { ScriptBuilderProps } from './script_builder'
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
@@ -113,12 +127,17 @@
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { useEditRights, useTriggerLock } from '$lib/operatorWriteRights'
+	const triggerLock = useTriggerLock()
+	const editRights = useEditRights()
 
 	let {
 		script = $bindable(),
 		fullyLoaded = true,
 		initialPath = $bindable(''),
 		userDraftPath = '',
+		onTakeLatest = undefined,
+		draftBaseHash = undefined,
 		autosaveWorkspace = undefined,
 		autosavePath = undefined,
 		template = $bindable('script'),
@@ -146,12 +165,14 @@
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
 		onOpenOthersDrafts,
-		condensedHeader = false
+		condensedHeader = false,
+		ownsPageHeader = false
 	}: ScriptBuilderProps = $props()
 
 	// Top-bar button size + bar height. Condensed (session preview) uses the
 	// smallest well-supported unified size (`sm`) so the bar is thinner.
-	const headerBtnSize = $derived(condensedHeader ? 'sm' : 'md')
+	// In the page header the buttons ride a 44px band, which takes the same size.
+	const headerBtnSize = $derived(condensedHeader || ownsPageHeader ? 'sm' : 'md')
 
 	export function getInitialAndModifiedValues(): SavedAndModifiedValue {
 		return {
@@ -180,8 +201,19 @@
 	// right group (hide the ~200px tag select, icon-only Diff/Settings) before the
 	// full group crowds the path into heavy truncation; ~900 is where the path
 	// keeps a usable width given the right group's natural ~440px.
+	/** Held by the rename popover while it is open; the band's trail reads it so the path does not
+	 *  reflow under the pointer as the user types. */
+	let pathSnapshot = $state<string | undefined>(undefined)
+
 	let topbarWidth = $state(0)
-	const compactTopbar = $derived(topbarWidth > 0 && topbarWidth < 900)
+	// In the page header the bar folds the buttons (`actionFolds` below), once its breadcrumb has
+	// given all it can; anywhere else this editor's own top bar is theirs alone.
+	const compactTopbar = $derived(
+		ownsPageHeader ? pageHeader.actionFold >= 1 : topbarWidth > 0 && topbarWidth < 900
+	)
+	// The second fold holds the trail and one button. Diff and Settings join the menu that compact
+	// already shows, and Deploy stays out: it is what this page is for.
+	const phoneTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 2)
 
 	// The workspace this editor operates on: deploy, save-draft, trigger loading
 	// and the AutosaveIndicator all target it. Falls back to the full-page
@@ -189,7 +221,10 @@
 	// (forked) workspace, so an embedded editor acts on the session's fork rather
 	// than the navigation workspace ($workspaceStore, which stays put). indicatorPath
 	// is the matching draft path (URL path full-page, session target in preview).
-	const opWorkspace = $derived(autosaveWorkspace ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
+	const opWorkspace = $derived(autosaveWorkspace ?? $operatingWorkspace)
 	const indicatorPath = $derived(autosavePath ?? userDraftPath)
 
 	// The shared `workerTags` store caches tags for the navigation workspace. A
@@ -201,7 +236,21 @@
 
 	function getCompactMenuItems(): Item[] {
 		const hasTags = (scriptWorkerTags?.length ?? 0) > 0
+		const isDraftOnly = savedScript?.no_deployed === true
 		return [
+			...(phoneTopbar && customUi?.topBar?.diff != false
+				? [
+						{
+							displayName: 'Diff',
+							icon: DiffIcon,
+							disabled: !savedScript || !diffDrawer || isDraftOnly,
+							action: () => openDiffDrawer()
+						}
+					]
+				: []),
+			...(phoneTopbar && customUi?.topBar?.settings != false
+				? [{ displayName: 'Settings', icon: Settings, action: () => (metadataOpen = true) }]
+				: []),
 			...(customUi?.topBar?.tagEdit != false && hasTags
 				? [
 						{
@@ -223,8 +272,8 @@
 	let preserveOnBehalfOf = $state(false)
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
-	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
-	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
+	let isDeployer = $derived(actingUser?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
+	let canPreserve = $derived(!!actingUser?.is_admin || !!actingUser?.is_super_admin || isDeployer)
 	let originalOnBehalfOfEmail = $derived(savedScript?.on_behalf_of_email)
 	let originalOnBehalfOfPermissionedAs = $derived(savedScript?.on_behalf_of)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
@@ -274,6 +323,19 @@
 	// Draft triggers confirmation modal
 	let draftTriggersModalOpen = $state(false)
 	let confirmDeploymentCallback: (triggersToDeploy: Trigger[]) => void = () => {}
+
+	let perpetualRunsToConfirm: PerpetualRunsAtPath | undefined = $state(undefined)
+	let confirmPerpetualRunsCallback: () => void = () => {}
+
+	async function stopPerpetualRunsFromModal(): Promise<boolean> {
+		try {
+			await stopPerpetualRuns(opWorkspace!, initialPath)
+			return true
+		} catch (error) {
+			sendUserToast(`Could not stop the runs of this script: ${error.body ?? error.message}`, true)
+			return false
+		}
+	}
 
 	async function handleDraftTriggersConfirmed(event: CustomEvent<{ selectedTriggers: Trigger[] }>) {
 		const { selectedTriggers } = event.detail
@@ -529,6 +591,7 @@
 			| 'powershell'
 			| 'bunnative'
 			| 'claudesandbox'
+			| 'pisandbox'
 			| 'wac_python'
 			| 'wac_typescript'
 			| 'ci_test_bun'
@@ -558,10 +621,13 @@
 
 		try {
 			if (initialPath && initialPath != '') {
+				// The row's path, not `initialPath`: that is the typed path, where a
+				// staged rename has nothing deployed, and a missing head would deploy
+				// on a base that already has a child.
 				actual_parent_hash = (
 					await ScriptService.getScriptLatestVersion({
 						workspace: opWorkspace!,
-						path: initialPath
+						path: userDraftPath || initialPath
 					})
 				)?.script_hash
 			}
@@ -573,9 +639,15 @@
 		// But if we specify parent_hash that is already used, than we get error
 		// In order to fix it we make sure that client's understanding of parent_hash
 		// is aligns with understanding of backend.
-		if (actual_parent_hash == undefined || script.parent_hash == actual_parent_hash) {
+		//
+		// A draft with no base (one predating `draft.base`) is compared on the head this
+		// editor loaded, as the flow and raw-app guards are: comparing `undefined` would
+		// open the confirmation on every deploy, telling the user a version landed while
+		// they were editing when none had.
+		const baseHash = script.parent_hash ?? deployedScriptHash
+		if (actual_parent_hash == undefined || baseHash == actual_parent_hash) {
 			// Handle directly
-			await editScript(stay, script.parent_hash!, deployMsg)
+			await editScript(stay, (script.parent_hash ?? actual_parent_hash)!, deployMsg)
 		} else {
 			// Fetch entire script, since we need it to show Diff
 			await syncWithDeployed()
@@ -605,13 +677,20 @@
 		}
 	}
 
-	async function syncWithDeployed() {
+	async function syncWithDeployed(opening?: number) {
 		const latestScript = await ScriptService.getScriptByPath({
 			workspace: opWorkspace!,
-			path: initialPath,
+			// The draft row's own path, not `initialPath` — that one tracks the path
+			// the user has typed, so after someone renames the item it still names
+			// the old location and this would compare against the archived row left
+			// there. Resolving by the row is what lets the diff show the rename.
+			path: userDraftPath || initialPath,
 			withStarredInfo: true
 		})
 
+		// A superseded opening must not write these: the current one would then render
+		// and offer Take latest against the older head.
+		if (opening != null && !diffDrawer?.ownsOpening(opening)) return
 		deployedValue = replaceFalseWithUndefined({
 			...latestScript,
 			workspace_id: undefined,
@@ -630,7 +709,8 @@
 		stay: boolean,
 		parentHash: string,
 		deploymentMsg?: string,
-		triggersToDeploy?: Trigger[]
+		triggersToDeploy?: Trigger[],
+		perpetualRunsConfirmed?: boolean
 	): Promise<void> {
 		if (!triggersToDeploy) {
 			// Check if there are draft triggers that need confirmation
@@ -638,8 +718,35 @@
 			if (draftTriggers.length > 0) {
 				draftTriggersModalOpen = true
 				confirmDeploymentCallback = async (triggersToDeploy: Trigger[]) => {
-					await editScript(stay, parentHash, deploymentMsg, triggersToDeploy)
+					await editScript(
+						stay,
+						parentHash,
+						deploymentMsg,
+						triggersToDeploy,
+						perpetualRunsConfirmed
+					)
 				}
+				return
+			}
+		}
+
+		// Runs are restarted on a newer version at their own path, so a deploy that renames the
+		// script leaves them running the version they have.
+		if (
+			!perpetualRunsConfirmed &&
+			script.restart_unless_cancelled &&
+			initialPath &&
+			script.path === initialPath
+		) {
+			loadingSave = true
+			const runs = await loadPerpetualRunsAtPath(opWorkspace!, initialPath, script.schema)
+			loadingSave = false
+			if (runs) {
+				confirmPerpetualRunsCallback = () => {
+					perpetualRunsToConfirm = undefined
+					editScript(stay, parentHash, deploymentMsg, triggersToDeploy, true)
+				}
+				perpetualRunsToConfirm = runs
 				return
 			}
 		}
@@ -712,7 +819,9 @@
 					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
 					assets: script.assets,
 					modules: script.modules,
-					labels: script.labels
+					labels: script.labels,
+					// Sent explicitly: an omitted field keeps the deployed value.
+					job_token_scopes: script.job_token_scopes ?? null
 				}
 			})
 
@@ -725,7 +834,8 @@
 			// content just deployed. Fire-and-forget — must never gate the deploy.
 			notifyContractWarnings(opWorkspace!, script.language, script.content)
 
-			if (!initialPath) {
+			// Gated for operators without `manage_triggers`, who cannot have captures to move.
+			if (!initialPath && !$triggerLock) {
 				await CaptureService.moveCapturesAndConfigs({
 					workspace: opWorkspace!,
 					path: fakeInitialPath,
@@ -740,7 +850,7 @@
 				await deployTriggers(
 					triggersToDeploy,
 					opWorkspace,
-					!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+					!!actingUser?.is_admin || !!actingUser?.is_super_admin,
 					usedTriggerKinds,
 					script.path,
 					true
@@ -782,7 +892,7 @@
 	// + `tick()` first so the last keystrokes reach the bindable before the
 	// syncer flushes. No toast — the AutosaveIndicator narrates the result, and
 	// `flush` never rejects (postSave routes errors to the failures map).
-	async function saveDraft(): Promise<void> {
+	export async function saveDraft(): Promise<void> {
 		if (!opWorkspace || !userDraftPath) return
 		editor?.flushPendingChanges()
 		await tick()
@@ -806,16 +916,96 @@
 
 	// Inside an AI session pane (which injects an aiChatManager via context) the
 	// extra deploy-dropdown options — Deploy & Stay here, Fork, Edit in workspace
-	// fork, Exit & See details, Export — don't make sense: the session always
-	// stays put and is already scoped to a fork. Diff is exposed as a standalone
-	// top-bar button (rendered independently of the session pane), not here.
+	// fork, Export — don't make sense: the session always stays put and is already
+	// scoped to a fork. `Exit & See details` is the exception: the session hosts the
+	// details page itself, so it switches the tab instead of leaving. Diff is exposed
+	// as a standalone top-bar button (rendered independently of the pane), not here.
 	const inSessionPane = !!getContext('aiChatManager')
 
-	async function openDiffDrawer() {
+	/** Names the version on the deployed side of the diff. Without it the reader is
+	 *  shown two panes and told nothing about what the left one is — which matters
+	 *  most in the stale-draft case, where the whole question is "whose version am I
+	 *  about to overwrite". */
+	function deployedVersionLabel(deployed: any): string | undefined {
+		if (!deployed?.hash) return undefined
+		// `deployedBy` is captured in `syncWithDeployed` before it strips `created_by`.
+		// Only used when the version list is unavailable; otherwise the picker labels it.
+		return `Deployed${deployedBy ? ` by ${deployedBy}` : ''} · latest`
+	}
+
+	/** Deployed versions to offer in the diff picker, newest first. Best-effort: a
+	 *  failure here costs the picker, not the diff, so the drawer still opens on the
+	 *  head. `deployment_msg` is all the history endpoint carries besides the hash. */
+	/** Throws: the drawer says so and lets the reader ask for the same page again. */
+	async function fetchVersionPage(headHash: string | undefined, page: number) {
+		if (!opWorkspace || !userDraftPath) return undefined
+		{
+			const history = await ScriptService.getScriptHistoryByPath({
+				workspace: opWorkspace,
+				path: userDraftPath,
+				page,
+				perPage: VERSION_PAGE_SIZE
+			})
+			// The hash identifies the version — it is what the API and the CLI speak — and
+			// who deployed it drops to the subtitle. No ordinal: the list arrives a page at
+			// a time, so a number counted within one would rename versions as more load.
+			return history.map((h) => {
+				const isHead = h.script_hash === headHash
+				const detail = [
+					h.created_by,
+					h.created_at ? new Date(h.created_at).toLocaleString() : undefined,
+					h.deployment_msg
+				].filter(Boolean)
+				return {
+					id: h.script_hash,
+					label: `${h.script_hash.slice(0, 8)}${isHead ? ' · latest' : ''}`,
+					subtitle: detail.length ? detail.join(' · ') : undefined,
+					isHead
+				}
+			})
+		}
+	}
+
+	/** The first page, best-effort: losing it costs the picker, not the diff. */
+	async function deployedVersionOptions(headHash: string | undefined) {
+		try {
+			return await fetchVersionPage(headHash, 1)
+		} catch {
+			return undefined
+		}
+	}
+
+	/** Hands the drawer the next page each time the reader asks for one. The page number
+	 *  belongs to this item's history, so it lives here — and only moves once a page has
+	 *  actually arrived, or a failed request would skip it. */
+	function moreVersionsLoader(headHash: string | undefined) {
+		let loaded = 1
+		return async () => {
+			const page = await fetchVersionPage(headHash, loaded + 1)
+			loaded += 1
+			return page
+		}
+	}
+
+	/** The opening this editor claimed last. A path change remounts this editor while the
+	 *  drawer stays mounted, so its teardown hands that opening back rather than leaving
+	 *  the drawer on the item the user left. */
+	let lastOpening: number | undefined = undefined
+	onDestroy(() => {
+		if (lastOpening != null) diffDrawer?.abandonOpening(lastOpening)
+	})
+
+	export async function openDiffDrawer() {
 		if (!savedScript) {
 			return
 		}
-		await syncWithDeployed()
+		// The fetches below are awaited, so a reopen (or a path change, which remounts
+		// this editor but not the drawer) while they run must not have the older one
+		// land last. The drawer counts the openings for that reason.
+		const opening = diffDrawer?.beginOpening()
+		lastOpening = opening
+		if (opening == null) return
+		await syncWithDeployed(opening)
 
 		const currentDraftTriggers = structuredClone(triggersState.getDraftTriggersSnapshot())
 
@@ -832,13 +1022,40 @@
 		}
 		if (current.assets && !current.assets.length) delete current.assets
 
-		diffDrawer?.openDrawer()
-		diffDrawer?.setDiff({
-			mode: 'normal',
-			deployed,
-			draft: savedScript['draft'],
-			current
-		})
+		// Blanking the drawer belongs to the opening that will fill it.
+		if (!diffDrawer?.ownsOpening(opening)) return
+		diffDrawer.openDrawer(opening)
+		const headHash = (deployed as { hash?: string } | undefined)?.hash
+		const versions = await deployedVersionOptions(headHash)
+		if (!diffDrawer?.ownsOpening(opening)) return
+		diffDrawer.setDiff(
+			{
+				mode: 'normal',
+				deployed,
+				deployedLabel: deployedVersionLabel(deployed),
+				versions,
+				loadMoreVersions: moreVersionsLoader(headHash),
+				onTakeLatest,
+				draftBase: draftBaseHash,
+				deployedHead: headHash,
+				loadVersion: async (hash) => {
+					const v = await ScriptService.getScriptByHash({ workspace: opWorkspace!, hash })
+					return replaceFalseWithUndefined({
+						...v,
+						workspace_id: undefined,
+						created_at: undefined,
+						created_by: undefined,
+						extra_perms: undefined,
+						lock: undefined,
+						lock_error_logs: undefined,
+						parent_hashes: undefined
+					})
+				},
+				draft: savedScript['draft'],
+				current
+			},
+			opening
+		)
 	}
 
 	function computeDropdownItems(
@@ -874,10 +1091,7 @@
 										: [])
 								]
 							: []),
-						...(!inSessionPane &&
-						savedScript?.no_deployed !== true &&
-						script.kind === 'script' &&
-						!script.auto_kind
+						...(savedScript?.no_deployed !== true && script.kind === 'script' && !script.auto_kind
 							? [
 									{
 										label: 'Exit & See details',
@@ -1145,6 +1359,7 @@
 	{confirmCallback}
 	bind:open
 	{diffDrawer}
+	claimOpening={() => (lastOpening = diffDrawer?.beginOpening())}
 	bind:deployedValue
 	currentValue={script}
 />
@@ -1158,7 +1373,14 @@
 	on:confirmed={handleDraftTriggersConfirmed}
 />
 
-{#if !$userStore?.operator}
+<PerpetualRunsDeployModal
+	runs={perpetualRunsToConfirm}
+	onStop={stopPerpetualRunsFromModal}
+	onConfirmed={() => confirmPerpetualRunsCallback()}
+	onCanceled={() => (perpetualRunsToConfirm = undefined)}
+/>
+
+{#if editRights.roleCanAuthor('script')}
 	<Drawer
 		placement="right"
 		bind:open={metadataOpen}
@@ -1317,10 +1539,12 @@
 														(lang == script.language &&
 															template != 'bunnative' &&
 															template != 'docker' &&
-															template != 'claudesandbox') ||
+															template != 'claudesandbox' &&
+															template != 'pisandbox') ||
 														(template == 'bunnative' && lang == 'bunnative') ||
 														(template == 'docker' && lang == 'docker') ||
-														(template == 'claudesandbox' && lang == 'bun')}
+														((template == 'claudesandbox' || template == 'pisandbox') &&
+															lang == 'bun')}
 													<Popover
 														disablePopup={!enterpriseLangs.includes(lang) || !!$enterpriseLicense}
 													>
@@ -1370,6 +1594,21 @@
 											}}
 										>
 											Claude Sandbox
+										</Button>
+										<Button
+											unifiedSize="xs"
+											variant="default"
+											startIcon={{
+												icon: LanguageIcon,
+												props: { lang: 'pisandbox', width: 16, height: 16 }
+											} as ButtonType.Icon}
+											onclick={() => {
+												template = 'pisandbox'
+												script.language = 'bun'
+												initContent('bun', script.kind, template)
+											}}
+										>
+											Pi Sandbox
 										</Button>
 										<span title="Workflow-as-Code">
 											<Button
@@ -1877,6 +2116,9 @@
 											/>
 										</div>
 									</Section>
+									<Section label="Job token">
+										<JobTokenScopesSetting bind:value={script.job_token_scopes} kind="script" />
+									</Section>
 									<Section
 										label={canPreserve
 											? 'Run on behalf of a specified user'
@@ -2041,7 +2283,7 @@
 									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
 									isDeployed={savedScript && savedScript?.no_deployed !== true}
 									schema={script.schema}
-									runnableVersion={script.parent_hash}
+									runnableVersion={deployedScriptHash}
 									onDeployTrigger={handleDeployTrigger}
 								/>
 
@@ -2055,164 +2297,300 @@
 	</Drawer>
 
 	<div class="flex flex-col h-full">
-		<div
-			bind:clientWidth={topbarWidth}
-			class="flex items-center px-4 {condensedHeader ? 'h-9' : 'h-12'}"
-		>
-			<div class="flex gap-2 lg:gap-2 w-full items-center">
-				<div class="flex flex-row items-center gap-2 min-w-0 shrink">
-					<button
-						disabled={customUi?.topBar?.settings == false}
-						class="shrink-0"
-						onclick={async () => {
-							metadataOpen = true
-						}}
-					>
-						<LanguageIcon lang={script.language} size={condensedHeader ? 18 : 24} />
-					</button>
-					{#if customUi?.topBar?.path != false}
-						<div class="min-w-0 overflow-hidden">
-							<EditorHeader
-								bind:summary={script.summary}
-								bind:path={script.path}
-								savedPath={initialPath}
-								kind="script"
-								summaryEditable={customUi?.topBar?.editableSummary != false}
-								pathEditable={customUi?.topBar?.editablePath != false}
-								hidePath={condensedHeader}
-								workspaceId={autosaveWorkspace}
-								onNavigate={(item) => onNavigate?.(item)}
-							/>
-						</div>
+		{#if ownsPageHeader}
+			<!-- The editor's own top bar is the page header on this route: the script's path and
+			     summary are the breadcrumb's, and its buttons are the header's actions. -->
+			<!-- `separator="none"`: the toolbar right below the bar draws its own `border-b`, and the
+			     bar's edge would be a second line on top of it. -->
+			<PageHeaderContent
+				item={{
+					// Frozen while the rename popover is open so the trail holds still as the user types.
+					kind: 'script',
+					// `script?`: this object is built inside a getter the band evaluates from its own
+					// tree, and `script` is a bindable prop. Deploying a new script clears the draft the
+					// route binds here and drops the `{#if}` around this editor in one flush, which
+					// invalidates the band before this component is torn down.
+					path: pathSnapshot ?? script?.path,
+					summary: script?.summary,
+					summaryContent: scriptSummary,
+					// Gated like the summary's own editor: a host that allows neither field keeps the
+					// band's segment, which copies the path.
+					pathTrigger:
+						customUi?.topBar?.editablePath != false || customUi?.topBar?.editableSummary != false
+							? scriptPathTrigger
+							: undefined
+				}}
+				afterName={scriptMarks}
+				actions={scriptHeaderActions}
+				actionFolds={2}
+				separator="none"
+			/>
+		{:else}
+			<div
+				bind:clientWidth={topbarWidth}
+				class="flex items-center px-4 {condensedHeader ? 'h-9' : 'h-12'}"
+			>
+				<div class="flex gap-2 lg:gap-2 w-full items-center">
+					<div class="flex flex-row items-center gap-2 min-w-0 shrink">
+						{@render languageButton(condensedHeader ? 18 : 24)}
+						{#if customUi?.topBar?.path != false}
+							<div class="min-w-0 overflow-hidden">
+								<EditorHeader
+									bind:summary={script.summary}
+									bind:path={script.path}
+									savedPath={initialPath}
+									kind="script"
+									summaryEditable={customUi?.topBar?.editableSummary != false}
+									pathEditable={customUi?.topBar?.editablePath != false}
+									hidePath={condensedHeader}
+									workspaceId={autosaveWorkspace}
+									onNavigate={(item) => onNavigate?.(item)}
+								/>
+							</div>
+						{/if}
+						{@render autosaveIndicator()}
+						{#if !condensedHeader}
+							{@render settingsBadges()}
+						{/if}
+					</div>
+
+					<!-- Separator -->
+					<div class="flex-1"></div>
+
+					{#if $enterpriseLicense && initialPath != '' && !inSessionPane}
+						<Awareness />
 					{/if}
-					{#if opWorkspace}
-						<AutosaveIndicator
-							workspace={opWorkspace}
-							itemKind="script"
-							path={indicatorPath}
-							draftOnly={savedScript?.no_deployed === true}
-							{onResetToDeployed}
-							{loadedFromDraft}
-							{othersDraftsCount}
-							{onOpenOthersDrafts}
+
+					<!-- Separator -->
+					<div class="flex-1"></div>
+
+					{@render rightButtons()}
+				</div>
+			</div>
+		{/if}
+
+		{#snippet scriptSummary()}
+			<!-- Everything the band pulls from this editor is gated on `script`. It is a bindable prop,
+			     and these snippets render from the band's tree, where nothing orders the route clearing
+			     that prop against this component's teardown: deploying a new script discards the draft
+			     bound here and drops the `{#if}` around this editor in the same flush. -->
+			{#if script}
+				<!-- Not edited in place: clicking the name opens the summary and the path together, so
+				     the band reads as a name rather than a form. `title` for one it truncates. -->
+				<div class="flex items-center gap-1 min-w-0">
+					{#snippet summaryText()}
+						<span
+							class="min-w-0 truncate text-xs {emptyString(script.summary)
+								? 'text-tertiary italic font-normal'
+								: 'font-medium text-emphasis'}"
+							title={script.summary}
+							>{emptyString(script.summary) ? 'Add a summary...' : script.summary}</span
+						>
+					{/snippet}
+					{#if customUi?.topBar?.editablePath != false || customUi?.topBar?.editableSummary != false}
+						<PathEditPopover
+							label={summaryText}
+							bind:summary={script.summary}
+							summaryEditable={customUi?.topBar?.editableSummary != false}
+							pathEditable={customUi?.topBar?.editablePath != false}
+							bind:path={script.path}
+							bind:snapshotPath={pathSnapshot}
+							savedPath={initialPath}
+							kind="script"
+							workspaceId={autosaveWorkspace}
 						/>
-					{/if}
-					{#if !condensedHeader}
-						{@const canOpenRuntime =
-							customUi?.topBar?.settings != false &&
-							customUi?.settingsPanel?.disableRuntime !== true}
-						<ScriptSettingsBadges
-							settings={script}
-							onclick={canOpenRuntime
-								? () => {
-										selectedTab = 'runtime'
-										metadataOpen = true
-									}
-								: undefined}
-						/>
+					{:else}
+						{@render summaryText()}
 					{/if}
 				</div>
+			{/if}
+		{/snippet}
 
-				<!-- Separator -->
-				<div class="flex-1"></div>
+		<!-- The same editor as the summary's, hung off the band's path segment: anchored there it
+		     opens under the path, and `focusField` puts the cursor in the field that half of the
+		     name belongs to. The bindings are written out again because `bind:` cannot be spread;
+		     both instances bind the same slots, and only one is ever open. -->
+		{#snippet scriptPathTrigger(pathLabel: Snippet, triggerClass: string)}
+			<!-- Gated like the summary beside it: `script` is a bindable prop the route can clear in
+			     the same flush that drops this editor, and this renders from the band's tree. The
+			     `{:else}` is not decoration: the band hands the segment over the moment a page offers
+			     a `pathTrigger`, so a gate that drew nothing would take the path off the trail. -->
+			{#if script}
+				<PathEditPopover
+					label={pathLabel}
+					{triggerClass}
+					focusField="path"
+					bind:summary={script.summary}
+					summaryEditable={customUi?.topBar?.editableSummary != false}
+					pathEditable={customUi?.topBar?.editablePath != false}
+					bind:path={script.path}
+					bind:snapshotPath={pathSnapshot}
+					savedPath={initialPath}
+					kind="script"
+					workspaceId={autosaveWorkspace}
+				/>
+			{:else}
+				<span class={triggerClass}>{@render pathLabel()}</span>
+			{/if}
+		{/snippet}
 
+		{#snippet scriptMarks()}
+			{#if script}
+				<!-- Concurrency, cache, a dedicated worker: settings that hold whatever the editor shows,
+				     so they belong with the script's name. The language icon the editor's own bar carried
+				     does not come along — the code under it says which language this is. -->
+				{@render settingsBadges('pl-1.5')}
+			{/if}
+		{/snippet}
+
+		{#snippet scriptHeaderActions()}
+			{#if script}
+				<!-- Saving state and other people's drafts: the editor's own bar carries them beside the
+				     path, so the header has to carry them when it owns the bar — without them a
+				     full-page editor saves with no word either way. -->
+				{@render autosaveIndicator()}
 				{#if $enterpriseLicense && initialPath != '' && !inSessionPane}
 					<Awareness />
 				{/if}
+				{@render rightButtons()}
+			{/if}
+		{/snippet}
 
-				<!-- Separator -->
-				<div class="flex-1"></div>
+		{#snippet languageButton(size: number)}
+			<button
+				disabled={customUi?.topBar?.settings == false}
+				class="shrink-0"
+				title="Settings"
+				onclick={async () => {
+					metadataOpen = true
+				}}
+			>
+				<LanguageIcon lang={script.language} {size} />
+			</button>
+		{/snippet}
 
-				{#snippet settingsButton()}
-					{#if customUi?.topBar?.settings != false}
-						<Button
-							aiId="script-builder-settings"
-							aiDescription="Script builder settings to configure metadata, runtime, triggers, and generated UI."
-							variant="default"
-							unifiedSize={headerBtnSize}
-							on:click={() => (metadataOpen = true)}
-							startIcon={{ icon: Settings }}
-							iconOnly={compactTopbar}
-							title="Settings"
-						>
-							<span> Settings </span>
-						</Button>
-					{/if}
-				{/snippet}
-				{#snippet diffButton()}
-					{#if customUi?.topBar?.diff != false}
-						{@const isDraftOnly = savedScript?.no_deployed === true}
-						{@const diffDisabled = !savedScript || !diffDrawer || isDraftOnly}
-						{@const diffTitle = isDraftOnly
-							? 'Deploy this script once to compare against the deployed version'
-							: 'Diff'}
-						<!-- A disabled <button> fires no pointer events, so a title/tooltip on it
+		{#snippet autosaveIndicator()}
+			{#if opWorkspace}
+				<AutosaveIndicator
+					workspace={opWorkspace}
+					itemKind="script"
+					path={indicatorPath}
+					draftOnly={savedScript?.no_deployed === true}
+					{onResetToDeployed}
+					{loadedFromDraft}
+					{othersDraftsCount}
+					{onOpenOthersDrafts}
+				/>
+			{/if}
+		{/snippet}
+
+		{#snippet settingsBadges(className?: string)}
+			{@const canOpenRuntime =
+				customUi?.topBar?.settings != false && customUi?.settingsPanel?.disableRuntime !== true}
+			<ScriptSettingsBadges
+				class={className}
+				settings={script}
+				onclick={canOpenRuntime
+					? () => {
+							selectedTab = 'runtime'
+							metadataOpen = true
+						}
+					: undefined}
+			/>
+		{/snippet}
+
+		{#snippet rightButtons()}
+			{#snippet settingsButton()}
+				{#if customUi?.topBar?.settings != false}
+					<Button
+						aiId="script-builder-settings"
+						aiDescription="Script builder settings to configure metadata, runtime, triggers, and generated UI."
+						variant="default"
+						unifiedSize={headerBtnSize}
+						on:click={() => (metadataOpen = true)}
+						startIcon={{ icon: Settings }}
+						iconOnly={compactTopbar}
+						title="Settings"
+					>
+						<span> Settings </span>
+					</Button>
+				{/if}
+			{/snippet}
+			{#snippet diffButton()}
+				{#if customUi?.topBar?.diff != false}
+					{@const isDraftOnly = savedScript?.no_deployed === true}
+					{@const diffDisabled = !savedScript || !diffDrawer || isDraftOnly}
+					{@const diffTitle = isDraftOnly
+						? 'Deploy this script once to compare against the deployed version'
+						: 'Diff'}
+					<!-- A disabled <button> fires no pointer events, so a title/tooltip on it
 						     never shows on hover. pointer-events-none on the button lets the hover
 						     reach this titled wrapper instead. -->
-						<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
-							<Button
-								variant="default"
-								unifiedSize={headerBtnSize}
-								on:click={() => openDiffDrawer()}
-								disabled={diffDisabled}
-								btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
-								iconOnly={compactTopbar}
-								title={diffTitle}
-								startIcon={{ icon: DiffIcon }}
-							>
-								Diff
-							</Button>
-						</div>
-					{/if}
-				{/snippet}
-				{#if compactTopbar}
-					<DropdownV2 items={getCompactMenuItems} placement="bottom-end">
-						{#snippet buttonReplacement()}
-							<Button
-								nonCaptureEvent
-								unifiedSize={headerBtnSize}
-								variant="subtle"
-								startIcon={{ icon: EllipsisVertical }}
-								iconOnly
-								title="More"
-							/>
-						{/snippet}
-					</DropdownV2>
+					<div title={diffTitle} class={diffDisabled ? 'flex cursor-not-allowed' : 'flex'}>
+						<Button
+							variant="default"
+							unifiedSize={headerBtnSize}
+							on:click={() => openDiffDrawer()}
+							disabled={diffDisabled}
+							btnClasses={diffDisabled ? 'pointer-events-none' : undefined}
+							iconOnly={compactTopbar}
+							title={diffTitle}
+							startIcon={{ icon: DiffIcon }}
+						>
+							Diff
+						</Button>
+					</div>
+				{/if}
+			{/snippet}
+			{#if compactTopbar}
+				<DropdownV2 items={getCompactMenuItems} placement="bottom-end">
+					{#snippet buttonReplacement()}
+						<Button
+							nonCaptureEvent
+							unifiedSize={headerBtnSize}
+							variant="subtle"
+							startIcon={{ icon: EllipsisVertical }}
+							iconOnly
+							title="More"
+						/>
+					{/snippet}
+				</DropdownV2>
+				{#if !phoneTopbar}
 					{@render diffButton()}
-					{@render settingsButton()}
-				{:else}
-					{@render diffButton()}
-					{#if customUi?.topBar?.tagEdit != false}
-						{#if scriptWorkerTags}
-							{#if scriptWorkerTags?.length ?? 0 > 0}
-								<div class="max-w-[200px]">
-									<WorkerTagSelect
-										nullTag={script.language}
-										placeholder={customUi?.tagSelectPlaceholder}
-										bind:tag={script.tag}
-										size={headerBtnSize}
-										workspaceId={opWorkspace}
-									/>
-								</div>
-							{/if}
-						{/if}
-					{/if}
 					{@render settingsButton()}
 				{/if}
+			{:else}
+				{@render diffButton()}
+				{#if customUi?.topBar?.tagEdit != false}
+					{#if scriptWorkerTags}
+						{#if scriptWorkerTags?.length ?? 0 > 0}
+							<div class="max-w-[200px]">
+								<WorkerTagSelect
+									nullTag={script.language}
+									placeholder={customUi?.tagSelectPlaceholder}
+									bind:tag={script.tag}
+									size={headerBtnSize}
+									workspaceId={opWorkspace}
+								/>
+							</div>
+						{/if}
+					{/if}
+				{/if}
+				{@render settingsButton()}
+			{/if}
 
-				<DeployButton
-					loading={!fullyLoaded}
-					{loadingSave}
-					unifiedSize={headerBtnSize}
-					dropdownItems={computeDropdownItems(initialPath, savedScript)}
-					on:save={({ detail }) => handleEditScript(false, detail)}
-				/>
-			</div>
-		</div>
+			<DeployButton
+				loading={!fullyLoaded}
+				{loadingSave}
+				unifiedSize={headerBtnSize}
+				dropdownItems={computeDropdownItems(initialPath, savedScript)}
+				on:save={({ detail }) => handleEditScript(false, detail)}
+			/>
+		{/snippet}
 
 		{#if showPipelineHint}
 			<div
-				class="flex items-center gap-2 px-4 py-1 border-y bg-surface-secondary text-xs text-secondary"
+				class="flex items-center gap-2 px-4 py-1 border-b bg-surface-secondary text-xs text-secondary"
 			>
 				<Network size={14} class="shrink-0 text-tertiary" />
 				<span class="truncate">
@@ -2223,7 +2601,7 @@
 						-- materialize
 					</code>
 					to materialize its result, or build it in the
-					<a href="{base}/pipeline" class="text-blue-500 hover:underline">pipeline editor</a>.
+					<a href="/pipeline" class="text-blue-500 hover:underline">pipeline editor</a>.
 					<a
 						href="https://www.windmill.dev/docs/pipelines"
 						target="_blank"

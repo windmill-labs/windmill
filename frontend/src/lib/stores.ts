@@ -242,7 +242,7 @@ export type GlobalForkModalState = {
 export type ForkConflictModalState = {
 	kind: string
 	kindLabel: string
-	parentWorkspaceId: string
+	upstreamWorkspaceId: string
 	resolve: (proceed: boolean) => void
 }
 

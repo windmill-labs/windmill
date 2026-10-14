@@ -9,8 +9,11 @@
 		CircleMinus,
 		FileText,
 		PanelRight,
-		Lock
+		Lock,
+		ExternalLink,
+		BookOpen
 	} from 'lucide-svelte'
+	import { truncateRev } from '$lib/utils'
 	import {
 		EXIT_PLAN_MODE_TOOL,
 		isPlanCardTool,
@@ -21,10 +24,10 @@
 	} from './planMode'
 	import { Button } from '$lib/components/common'
 	import { markdownProse } from '$lib/components/markdownProse'
-	import { getAiChatManager } from './aiChatManagerContext'
+	import { getChatViewHost } from './chatViewHost'
 
-	const aiChatManager = getAiChatManager()
-	import { isActiveUserQuestion, type ToolDisplayMessage } from './shared'
+	const chatHost = getChatViewHost()
+	import { isActiveUserQuestion, webSearchResultOf, type ToolDisplayMessage } from './shared'
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { slide } from 'svelte/transition'
@@ -38,6 +41,8 @@
 	import ToolPreviewCard from './ToolPreviewCard.svelte'
 	import AskUserQuestionDisplay from './AskUserQuestionDisplay.svelte'
 	import RunScriptCard from './RunScriptCard.svelte'
+	import ToolDiffCard from './ToolDiffCard.svelte'
+	import { hasToolCodeDiff } from './toolCodeDiff'
 	import WebSearchSourcesDisplay from './WebSearchSourcesDisplay.svelte'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 	import McpServerIcon from '$lib/components/mcp/McpServerIcon.svelte'
@@ -45,9 +50,10 @@
 
 	interface Props {
 		message: ToolDisplayMessage
+		hidePreviewChip?: boolean
 	}
 
-	let { message }: Props = $props()
+	let { message, hidePreviewChip = false }: Props = $props()
 
 	// Recorded by the call itself, from the connected-server list rather than from the
 	// model's arguments — which is what lets a reloaded transcript still resolve it, and
@@ -69,7 +75,7 @@
 	const planLabel = $derived((planState && planCopy?.[planState]) ?? '')
 	const planDoc = $derived(
 		message.planArtifactId
-			? aiChatManager.artifacts.artifacts.find((a) => a.id === message.planArtifactId)
+			? chatHost.artifacts.artifacts.find((a) => a.id === message.planArtifactId)
 			: undefined
 	)
 	// The version this card wrote, not the document's current one, since later proposals move it on.
@@ -107,12 +113,22 @@
 	// otherwise the error set on its status would be invisible.
 	const detailsAvailable = $derived(message.showDetails === true || message.error !== undefined)
 
-	let isExpanded = $derived(
-		Boolean(
-			(detailsAvailable && (!isSuccessful || !autoCollapseDetails)) ||
-				(message.isStreamingArguments && hasParameters) ||
-				(message.isLoading && message.needsConfirmation)
-		)
+	// Queued and running calls stay closed: their label already says what they are doing, and
+	// opening them would only show empty logs and result. A call opens while its arguments
+	// stream, while it waits on the user, and once it has an error or details to keep in view.
+	// The user's toggle lives in state keyed by call id: the `message` prop is replaced on every
+	// chat update, so an override written onto a derived would be recomputed away. A pending
+	// confirmation wins over it, since the Run/Reject footer renders inside the card.
+	let toggled = $state<{ id: string | undefined; open: boolean } | undefined>(undefined)
+	const isExpanded = $derived(
+		Boolean(message.isLoading && message.needsConfirmation) ||
+			(toggled?.id === message.tool_call_id
+				? toggled.open
+				: Boolean(
+						(detailsAvailable &&
+							(message.error !== undefined || (isSuccessful && !autoCollapseDetails))) ||
+							(message.isStreamingArguments && hasParameters)
+					))
 	)
 
 	const visibleActions = $derived(
@@ -127,14 +143,33 @@
 
 	// The run card owns this call from the form to whatever settled it, cancelling included:
 	// the card is the call, and a run the user stopped is not a different kind of thing.
-	const isRunCard = $derived(Boolean(message.runForm))
+	// A call that inspected a run rather than starting one gets the same card, bound to
+	// the job it named — what happened in a run reads the same either way.
+	const isRunCard = $derived(Boolean(message.runForm || message.inspectedRun))
+	const isDiffCard = $derived(hasToolCodeDiff(message))
 
 	// The preview chip sits on the header row (to the right of the tool-call text);
 	// shown once the tool settled, never while loading/erroring/awaiting confirmation.
 	const showPreviewChip = $derived(
 		Boolean(
-			message.previewCard && !message.isLoading && !message.error && !message.needsConfirmation
+			!hidePreviewChip &&
+				message.previewCard &&
+				!message.isLoading &&
+				!message.error &&
+				!message.needsConfirmation
 		)
+	)
+
+	// A provider-side search sets `webSearchSources` and words its own header; any other tool
+	// gets the same card by returning the web search result shape.
+	const searchResult = $derived(
+		message.webSearchSources || message.error ? undefined : webSearchResultOf(message.result)
+	)
+	const sources = $derived(message.webSearchSources ?? searchResult?.sources)
+	const label = $derived(
+		searchResult?.query !== undefined
+			? `${message.content} · "${searchResult.query}"`
+			: message.content
 	)
 </script>
 
@@ -152,8 +187,22 @@
 			<span class="text-2xs text-tertiary truncate">{message.toolName}</span>
 		{/if}
 	</div>
+{:else if message.heldForFolderInstructions}
+	<!-- The call never ran: the model gets the folder's instructions and calls it again.
+	     A diff or run card here would show a write that did not happen. -->
+	<div class="font-mono text-xs flex items-center gap-2 py-0.5 my-0.5 min-w-0">
+		<BookOpen class="w-3.5 h-3.5 text-tertiary shrink-0" />
+		<span class="font-medium text-2xs text-tertiary shrink-0">
+			{message.content}
+		</span>
+		{#if message.toolName}
+			<span class="text-2xs text-tertiary truncate">{message.toolName} held until read</span>
+		{/if}
+	</div>
 {:else if isRunCard}
 	<RunScriptCard {message} />
+{:else if isDiffCard}
+	<ToolDiffCard {message} {hidePreviewChip} />
 {:else if planState}
 	<!-- Same lean shape as a tool call below: a header row that collapses into the
 	     transcript, with everything else in one box under it. -->
@@ -201,7 +250,7 @@
 					title="Open this plan in the side panel: {planDoc.name}"
 					startIcon={{ icon: FileText, classes: PLAN_MODE_TEXT_COLOR }}
 					endIcon={{ icon: PanelRight }}
-					on:click={() => aiChatManager.openArtifact?.(planDoc.id, planDoc.name, planCardVersion)}
+					on:click={() => chatHost.openArtifact?.(planDoc.id, planDoc.name, planCardVersion)}
 				>
 					<span class="font-main">Plan</span>
 				</Button>
@@ -249,6 +298,19 @@
 		{/if}
 	{/snippet}
 
+	{#snippet jobLink()}
+		<a
+			href="/run/{message.jobId}?workspace={chatHost.operatingWorkspace}"
+			target="_blank"
+			rel="noopener noreferrer"
+			class="shrink-0 inline-flex items-center gap-1 font-main text-2xs text-tertiary hover:text-primary hover:underline"
+			title="Open this run"
+		>
+			<span>job <span class="font-mono">{truncateRev(message.jobId ?? '', 8)}</span></span>
+			<ExternalLink size={11} class="shrink-0" />
+		</a>
+	{/snippet}
+
 	<!-- Which system a call reaches is the first thing to know about it, so an MCP call
 	     is marked before its label. Awaited rather than drawn immediately: the MCP logo
 	     appearing first and being replaced would flicker on every row. -->
@@ -264,18 +326,19 @@
 	     weight alone: queued calls (waiting their turn behind the executing tool)
 	     are faded, the running one sweeps, a settled one is plain. -->
 	<ChatCollapsibleCard
-		label={message.content}
+		{label}
 		expanded={isExpanded}
-		onToggle={() => (isExpanded = !isExpanded)}
+		onToggle={() => (toggled = { id: message.tool_call_id, open: !isExpanded })}
 		toggleable={detailsAvailable || message.isStreamingArguments === true}
 		shimmer={isRunning}
+		settleLabel
 		class={message.isQueued && !message.error
 			? 'opacity-60 hover:opacity-100 transition-opacity'
 			: ''}
 		headerClass={message.needsConfirmation ? 'opacity-80' : ''}
 		labelClass={showPreviewChip ? 'truncate' : ''}
 		contentClass="space-y-3"
-		headerRight={showPreviewChip ? previewChip : undefined}
+		headerRight={showPreviewChip ? previewChip : message.jobId ? jobLink : undefined}
 		headerLeft={mcpServer?.workspace ? serverMark : undefined}
 	>
 		<!-- Image a tool produced (e.g. take_screenshot) — shown inline, not gated on expand. -->
@@ -326,8 +389,8 @@
 
 			{#if visibleActions.length > 0}
 				<ToolMessageActions actions={visibleActions} />
-			{:else if message.webSearchSources?.length && !message.error}
-				<WebSearchSourcesDisplay sources={message.webSearchSources} />
+			{:else if sources?.length && !message.error}
+				<WebSearchSourcesDisplay {sources} favicons={message.webSearchSources !== undefined} />
 			{:else}
 				<ToolContentDisplay
 					title="Result"

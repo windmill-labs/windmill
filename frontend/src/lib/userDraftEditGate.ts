@@ -53,7 +53,16 @@ export function onUserInput(handle: (kind: UserInputKind) => void): void {
 		const onEvent = (e: Event) => {
 			// A programmatic `dispatchEvent` is untrusted, which is what keeps the
 			// form's own settling from opening the gate it is gated by.
-			if (e.isTrusted) handle(kind)
+			if (!e.isTrusted) return
+			try {
+				handle(kind)
+			} catch (err) {
+				// Removing a focused field whose value changed fires `change` from inside
+				// the teardown that removes it, where Svelte refuses state writes. The
+				// gate then opens just after, which is still before anything is saved.
+				if (!String((err as Error)?.message).includes('state_unsafe_mutation')) throw err
+				queueMicrotask(() => handle(kind))
+			}
 		}
 		document.addEventListener(type, onEvent, true)
 		listeners.push([type, onEvent])

@@ -14,12 +14,14 @@
 	} from '$lib/utils'
 	import { orderedYamlStringify } from '$lib/utils/orderedYaml'
 	import { AppService, type AppWithLastVersion, type AppHistory } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { Skeleton } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import { Pencil, ArrowRight, X, Loader2 } from 'lucide-svelte'
 	import Select from '$lib/components/select/Select.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		appPath: string | undefined
@@ -48,7 +50,7 @@
 			return cached
 		}
 
-		const app = await AppService.getAppByVersion({ workspace: $workspaceStore!, id: version })
+		const app = await AppService.getAppByVersion({ workspace: $operatingWorkspace!, id: version })
 		versionCache[version] = app
 		return app
 	}
@@ -60,7 +62,7 @@
 
 		loading = true
 		versions = await AppService.getAppHistoryByPath({
-			workspace: $workspaceStore!,
+			workspace: $operatingWorkspace!,
 			path: appPath
 		})
 		loading = false
@@ -90,7 +92,7 @@
 			return
 		}
 		await AppService.updateAppHistory({
-			workspace: $workspaceStore!,
+			workspace: $operatingWorkspace!,
 			id: appId,
 			version: appVersion,
 			requestBody: {
@@ -107,7 +109,9 @@
 	}
 
 	function toVersionLabel(version: AppHistory): string {
-		return emptyString(version.deployment_msg) ? `Version ${version.version}` : version.deployment_msg!
+		return emptyString(version.deployment_msg)
+			? `Version ${version.version}`
+			: version.deployment_msg!
 	}
 
 	let availableVersions = $derived(

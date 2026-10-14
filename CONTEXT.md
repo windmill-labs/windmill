@@ -37,6 +37,43 @@ _Avoid_: argument field, param
 Any other place a property can be picked into: the loop iterator, skip and early-stop predicates, the retry condition, a branch predicate, timeout. Its prop picker opens in a popover from the connect button rather than taking a pane.
 _Avoid_: JS field, code input
 
+### Flow chat
+
+**Conversation**:
+One thread of messages against one chat-enabled flow, with its own agent memory. A flow has
+many; the chat shows one at a time.
+_Avoid_: thread, session (that names an AI session, a different thing), chat (that names the surface)
+
+**Turn**:
+One question and the answer to it: the run the question started, the handle that stops it,
+and the rows it is writing. At most one per conversation, and the chat is held for its whole
+length — from the moment the question takes the chat, before it has a job, until it is ended.
+The server holds the same rule: a question sent to a conversation whose turn is still running
+is refused, whoever sends it. Several conversations of one flow can each have a turn running.
+_Avoid_: request, exchange, message round
+
+**Running turn**:
+A turn whose run has not finished. Which conversations have one is the server's to say, so a
+chat opened after the turn started — a reload, another tab — still sees it and follows it.
+_Avoid_: busy, active, in flight
+
+**Queued message**:
+A question typed into a conversation while its turn runs, sent when that turn ends answered.
+At most one per conversation; typing another adds to it. A turn that fails, or is stopped,
+hands it back to the composer instead of sending it.
+_Avoid_: pending message (a pending message is one already sent and not yet confirmed)
+
+**Unread**:
+The answers that arrived in a conversation while it was not the one shown. Counted per open
+chat and forgotten on reload.
+_Avoid_: new messages, notifications
+
+**Transcript**:
+The rows a conversation's chat holds. Not the conversation: it is the newest page plus
+whatever older pages the reader has scrolled back through, so a question it cannot answer
+from what it holds is one to ask the server rather than to guess at.
+_Avoid_: history, messages (too easily read as "all of them")
+
 ### Permissions
 
 **Member**:

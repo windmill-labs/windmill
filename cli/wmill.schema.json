@@ -10,7 +10,7 @@
         "bun",
         "deno"
       ],
-      "description": "Default TypeScript runtime for new scripts"
+      "description": "TypeScript runtime of a plain .ts script (bun when absent)"
     },
     "includes": {
       "type": "array",
@@ -146,6 +146,13 @@
           "relative_path": {
             "type": "string",
             "description": "Path to the codebase directory"
+          },
+          "extra_digest_paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Paths outside relative_path that scripts import, relative to wmill.yaml; hashed recursively"
           },
           "includes": {
             "type": "array",

@@ -9,6 +9,7 @@ import { expect, test, describe, afterAll, beforeEach, mock } from "bun:test";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { mockServices } from "./mock_services.ts";
 
 let updateScheduleCalls: any[] = [];
 let remotePermissionedAs: string | undefined = "u/svc";
@@ -45,7 +46,7 @@ afterAll(() => {
   }
 });
 
-await mockModule("../gen/services.gen.ts", () => ({
+mockServices({
   getSchedule: async () => REMOTE_SCHEDULE(),
   updateSchedule: async (a: unknown) => {
     updateScheduleCalls.push(a);
@@ -56,7 +57,7 @@ await mockModule("../gen/services.gen.ts", () => ({
     is_admin: true,
     groups: [],
   }),
-}));
+});
 
 await mockModule("../src/core/context.ts", (real) => ({
   ...real,

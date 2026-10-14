@@ -5,6 +5,7 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { Button } from '$lib/components/common'
 	import AddDataTableWizard from '$lib/components/workspaceSettings/AddDataTableWizard.svelte'
+	import { useManagedInstances } from '$lib/components/workspaceSettings/utils.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import Portal from '$lib/components/Portal.svelte'
 	import { createAsyncConfirmationModal } from '$lib/components/common/confirmationModal/asyncConfirmationModal.svelte'
@@ -19,7 +20,11 @@
 	import { applyRetarget, seesWholeWorkspace } from '$lib/importWizard/retargetDeployed'
 	import { OauthService } from '$lib/gen'
 	import { registryCcCapableFor } from '$lib/components/oauthRegistry'
-	import { resourceTypeDisplayName } from '$lib/components/resourceTypeDisplay'
+	import {
+		addResourceTypeDisplayName,
+		resourceTypeDisplayName
+	} from '$lib/components/resourceTypeDisplay'
+	import { loadResourceTypeDisplayName } from '$lib/components/displayNameLoaders'
 	import { applyOneMigration } from '$lib/components/workspaceSettings/projectInstall'
 	import { probeMigrationsApplied } from '$lib/importWizard/probe'
 	import {
@@ -197,9 +202,18 @@
 	 * first half and Connect disappears on the eight such providers, where it would work.
 	 */
 	const canConnectType = (rt: string) => instanceConnects.has(rt) || registryCcCapableFor(rt)
+
+	// A row blocked by a resource of another type names that type, whose row nothing here reads.
+	$effect(() => {
+		for (const b of blanks) {
+			if (b.occupiedBy) void loadResourceTypeDisplayName(workspace, b.occupiedBy)
+		}
+	})
+
 	let appConnect: AppConnectDrawer | undefined = $state(undefined)
 
 	const customInstanceDbs = resource([() => workspace], SettingService.listCustomInstanceDbs)
+	const managed = useManagedInstances(() => !!$superadmin)
 	const confirmationModal = createAsyncConfirmationModal()
 	let wizardOpen = $state(false)
 	let wizard = $state<AddDataTableWizard | undefined>(undefined)
@@ -396,8 +410,9 @@
 			// row is kept instead; it just cannot name which fields are short.
 			let requirementsUnknown = false
 			try {
-				const schema = (await ResourceService.getResourceType({ workspace, path: r.resource_type }))
-					?.schema as { required?: string[] } | undefined
+				const rt = await ResourceService.getResourceType({ workspace, path: r.resource_type })
+				addResourceTypeDisplayName(rt)
+				const schema = rt?.schema as { required?: string[] } | undefined
 				required = schema?.required ?? []
 			} catch {
 				requirementsUnknown = true
@@ -1077,6 +1092,10 @@
 		existingDataTables={configuredNames}
 		onDone={() => void afterWizard()}
 		{customInstanceDbs}
+		externalInstanceDbs={managed.externalDbs}
+		externalInstanceAvailable={managed.externalAvailable}
+		instanceAvailable={managed.instanceAvailable}
+		refreshManagedInstances={managed.refresh}
 		{confirmationModal}
 		{defaultInstanceDbName}
 	/>

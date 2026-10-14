@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import { CaptureService, type CaptureConfig, type CaptureTriggerKind } from '$lib/gen'
 	import { onDestroy, untrack } from 'svelte'
 	import { sendUserToast, sleep } from '$lib/utils'
@@ -18,6 +17,9 @@
 	import GcpCapture from './gcp/GcpCapture.svelte'
 	import AzureCapture from './azure/AzureCapture.svelte'
 	import EmailCapture from './email/EmailCapture.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		isFlow: boolean
@@ -63,7 +65,7 @@
 					is_flow: isFlow,
 					trigger_config: args && Object.keys(args).length > 0 ? args : undefined
 				},
-				workspace: $workspaceStore!
+				workspace: $operatingWorkspace!
 			})
 			return true
 		} catch (error) {
@@ -94,7 +96,7 @@
 
 	async function getCaptureConfigs() {
 		const captureConfigsList = await CaptureService.getCaptureConfigs({
-			workspace: $workspaceStore!,
+			workspace: $operatingWorkspace!,
 			runnableKind: isFlow ? 'flow' : 'script',
 			path
 		})
@@ -123,7 +125,7 @@
 		while (captureActive) {
 			if (i % 3 === 0) {
 				await CaptureService.pingCaptureConfig({
-					workspace: $workspaceStore!,
+					workspace: $operatingWorkspace!,
 					triggerKind: captureType,
 					runnableKind: isFlow ? 'flow' : 'script',
 					path

@@ -29,4 +29,5 @@ serde.workspace = true
 serde_json.workspace = true
 sql-builder.workspace = true
 sqlx.workspace = true
+tracing.workspace = true
 uuid.workspace = true

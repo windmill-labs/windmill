@@ -643,6 +643,7 @@ pub async fn update_worker_ping_for_failed_init_script(
                         wm_memory_usage: None,
                         job_isolation: None,
                         native_mode: None,
+                        draining: None,
                         ping_type: PingType::InitScript,
                     },
                 )
@@ -1068,12 +1069,87 @@ pub async fn start_child_process(
     Ok(child)
 }
 
+/// Which limit a resolved job timeout comes from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TimeoutSource {
+    /// The timeout set on the script or the flow step.
+    Custom,
+    /// What is left of a wall clock that the phases of one job spend down together.
+    RemainingBudget,
+    /// The instance `job_default_timeout` setting.
+    InstanceDefault,
+    /// The instance ceiling (`TIMEOUT`), which no other timeout can exceed.
+    InstanceMax,
+}
+
+impl TimeoutSource {
+    /// How to name a limit of `secs` seconds in a message shown to the job's author.
+    pub fn describe(&self, secs: u64) -> String {
+        match self {
+            TimeoutSource::Custom => {
+                format!("the {secs}s custom timeout set on the script or flow step")
+            }
+            TimeoutSource::RemainingBudget => format!(
+                "the {secs}s left of the job's timeout, which its phases share"
+            ),
+            TimeoutSource::InstanceDefault => format!(
+                "the {secs}s instance default timeout (instance setting 'Default timeout'); set a longer custom timeout on the script or flow step to raise it"
+            ),
+            TimeoutSource::InstanceMax => format!(
+                "the {secs}s instance maximum job duration (TIMEOUT env variable of the worker), which no custom or default timeout can exceed"
+            ),
+        }
+    }
+}
+
+lazy_static! {
+    static ref RUNNING_JOB_CUSTOM_TIMEOUTS: std::sync::Mutex<HashMap<Uuid, Option<i32>>> =
+        std::sync::Mutex::new(HashMap::new());
+}
+
+/// Makes a running job's custom timeout visible to the phases that are not handed it (dependency
+/// resolution, install, build), for as long as the guard lives.
+pub struct RunningJobCustomTimeout(Uuid);
+
+impl RunningJobCustomTimeout {
+    pub fn register(job_id: Uuid, custom_timeout_secs: Option<i32>) -> Self {
+        if let Ok(mut m) = RUNNING_JOB_CUSTOM_TIMEOUTS.lock() {
+            m.insert(
+                job_id,
+                windmill_common::runnable_settings::none_if_non_positive(custom_timeout_secs),
+            );
+        }
+        Self(job_id)
+    }
+}
+
+impl Drop for RunningJobCustomTimeout {
+    fn drop(&mut self) {
+        if let Ok(mut m) = RUNNING_JOB_CUSTOM_TIMEOUTS.lock() {
+            m.remove(&self.0);
+        }
+    }
+}
+
+/// `None` when the job is not registered, `Some(None)` when it runs without a custom timeout.
+fn registered_custom_timeout(job_id: Uuid) -> Option<Option<i32>> {
+    RUNNING_JOB_CUSTOM_TIMEOUTS
+        .lock()
+        .ok()
+        .and_then(|m| m.get(&job_id).copied())
+}
+
+/// Resolves the time limit of one phase of a job and where that limit comes from.
+///
+/// A phase called without a custom timeout runs under the instance default. A job's custom
+/// timeout may only lengthen such a phase, never shorten it: a short run timeout must not kill
+/// a dependency install that the instance default allows.
 pub async fn resolve_job_timeout(
     _conn: &Connection,
     _w_id: &str,
-    _job_id: Uuid,
+    job_id: Uuid,
     custom_timeout_secs: Option<i32>,
-) -> (Duration, Option<String>, bool) {
+) -> (Duration, Option<String>, TimeoutSource) {
     let mut warn_msg: Option<String> = None;
     #[cfg(feature = "cloud")]
     let cloud_premium_workspace =
@@ -1091,6 +1167,7 @@ pub async fn resolve_job_timeout(
 
     let global_max_timeout_duration =
         Duration::from_secs(max_job_duration_secs(cloud_premium_workspace));
+    let max_secs = global_max_timeout_duration.as_secs();
 
     // A `custom_timeout_secs <= 0` is not a 0-second limit but "unset": fall through to the
     // default/global-max timeout instead of killing the job immediately.
@@ -1098,31 +1175,92 @@ pub async fn resolve_job_timeout(
         Some(timeout_secs)
             if Duration::from_secs(timeout_secs as u64) < global_max_timeout_duration =>
         {
-            (Duration::from_secs(timeout_secs as u64), warn_msg, true)
+            // A phase handed anything but the job's own custom timeout was handed the rest of a
+            // shared wall clock, whatever limit that clock was started from.
+            let source =
+                if registered_custom_timeout(job_id).is_none_or(|t| t == Some(timeout_secs)) {
+                    TimeoutSource::Custom
+                } else {
+                    TimeoutSource::RemainingBudget
+                };
+            (Duration::from_secs(timeout_secs as u64), warn_msg, source)
         }
         Some(timeout_secs) => {
-            warn_msg = Some(format!("WARNING: Custom job timeout of {timeout_secs} seconds was greater than the maximum timeout. It will be ignored and the max timeout will be used instead"));
+            warn_msg = Some(format!("WARNING: Custom job timeout of {timeout_secs} seconds was greater than the instance maximum job duration of {max_secs} seconds (TIMEOUT env variable of the worker). It will be ignored and the max timeout will be used instead"));
             tracing::warn!(warn_msg);
-            (global_max_timeout_duration, warn_msg, false)
+            (
+                global_max_timeout_duration,
+                warn_msg,
+                TimeoutSource::InstanceMax,
+            )
         }
         None => {
             // fallback to default timeout or max if not set
-            let default_timeout = match JOB_DEFAULT_TIMEOUT.read().await.clone() {
-                None => global_max_timeout_duration,
+            let (default_timeout, source) = match JOB_DEFAULT_TIMEOUT.read().await.clone() {
+                None => (global_max_timeout_duration, TimeoutSource::InstanceMax),
                 Some(default_timeout_secs)
                     if Duration::from_secs(default_timeout_secs as u64)
                         < global_max_timeout_duration =>
                 {
-                    Duration::from_secs(default_timeout_secs as u64)
+                    (
+                        Duration::from_secs(default_timeout_secs as u64),
+                        TimeoutSource::InstanceDefault,
+                    )
                 }
                 Some(default_timeout_secs) => {
-                    warn_msg = Some(format!("WARNING: Default job timeout of {default_timeout_secs} seconds was greater than the maximum timeout. It will be ignored and the global max timeout will be used instead"));
+                    warn_msg = Some(format!("WARNING: Default job timeout of {default_timeout_secs} seconds was greater than the instance maximum job duration of {max_secs} seconds (TIMEOUT env variable of the worker). It will be ignored and the max timeout will be used instead"));
                     tracing::warn!(warn_msg);
-                    global_max_timeout_duration
+                    (global_max_timeout_duration, TimeoutSource::InstanceMax)
                 }
             };
-            (default_timeout, warn_msg, false)
+            let job_custom_timeout = registered_custom_timeout(job_id)
+                .flatten()
+                .map(|secs| Duration::from_secs(secs as u64));
+            let (timeout, source) = lengthen_with_job_custom_timeout(
+                default_timeout,
+                source,
+                job_custom_timeout,
+                global_max_timeout_duration,
+            );
+            (timeout, warn_msg, source)
         }
+    }
+}
+
+fn lengthen_with_job_custom_timeout(
+    phase_timeout: Duration,
+    phase_source: TimeoutSource,
+    job_custom_timeout: Option<Duration>,
+    max_timeout: Duration,
+) -> (Duration, TimeoutSource) {
+    match job_custom_timeout {
+        Some(custom) if custom > phase_timeout && custom < max_timeout => {
+            (custom, TimeoutSource::Custom)
+        }
+        Some(custom) if custom > phase_timeout => (max_timeout, TimeoutSource::InstanceMax),
+        _ => (phase_timeout, phase_source),
+    }
+}
+
+#[cfg(test)]
+mod job_timeout_tests {
+    use super::{lengthen_with_job_custom_timeout, TimeoutSource};
+    use std::time::Duration;
+
+    // A phase that is not handed the job's custom timeout (dependency install, build) runs under
+    // the instance default. The custom timeout may extend it up to the instance max, but a
+    // shorter one must leave it alone.
+    #[test]
+    fn job_custom_timeout_only_lengthens_a_setup_phase() {
+        let s = Duration::from_secs;
+        let default = (s(120), TimeoutSource::InstanceDefault);
+        let resolve = |custom: Option<u64>| {
+            lengthen_with_job_custom_timeout(default.0, default.1, custom.map(s), s(600))
+        };
+        assert_eq!(resolve(None), default);
+        assert_eq!(resolve(Some(240)), (s(240), TimeoutSource::Custom));
+        assert_eq!(resolve(Some(30)), default);
+        assert_eq!(resolve(Some(900)), (s(600), TimeoutSource::InstanceMax));
     }
 }
 
@@ -1174,6 +1312,84 @@ pub fn render_nsjail_rlimit_as(env_override: Option<&str>, default_mb: u32) -> S
             }
         },
     }
+}
+
+/// Quote a string as a protobuf-text-format string literal for safe inclusion in
+/// an nsjail config. Every byte is emitted as a printable ASCII char or a valid
+/// protobuf escape (`\"`, `\\`, `\n`/`\r`/`\t`, or 3-digit octal `\NNN` for
+/// control/non-ASCII bytes), so a hostile value can neither break the literal nor
+/// inject further directives.
+///
+/// `{` and `}` are escaped too: profiles are rendered by substituting `{PLACEHOLDER}`
+/// tokens one after another, so a value that still contained braces could smuggle in a
+/// later placeholder's expansion — and `{ENVARS}` expands to unquoted directives.
+pub(crate) fn proto_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for &b in s.as_bytes() {
+        match b {
+            b'"' => out.push_str("\\\""),
+            b'\\' => out.push_str("\\\\"),
+            b'\n' => out.push_str("\\n"),
+            b'\r' => out.push_str("\\r"),
+            b'\t' => out.push_str("\\t"),
+            b'{' | b'}' => out.push_str(&format!("\\{b:03o}")),
+            0x20..=0x7e => out.push(b as char),
+            _ => out.push_str(&format!("\\{b:03o}")),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// Render env vars as nsjail `envar:` directives (one per line), the only way
+/// caller-controlled env may reach a jailed child. Set on the process that execs
+/// nsjail instead, `LD_PRELOAD`/`LD_LIBRARY_PATH`/`LD_AUDIT` would be honoured by
+/// the loader for nsjail itself, before any namespace or chroot exists.
+pub(crate) fn render_envars<'a>(env: impl IntoIterator<Item = (&'a str, &'a str)>) -> String {
+    env.into_iter()
+        .map(|(k, v)| format!("envar: {}", proto_str(&format!("{k}={v}"))))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The script's env vars as `envar:` directives for its nsjail run profile.
+///
+/// The profile sets `keep_env`, so the child also inherits the launcher's env, and
+/// an `envar:` overrides an inherited key. A key the launcher sets therefore keeps
+/// the launcher's value, as it did when both were set on the launcher with the
+/// script's env first, unless it is listed in `script_overrides` (see
+/// [`script_overrides`]).
+pub(crate) fn script_envars(
+    envs: &HashMap<String, String>,
+    launcher: &Command,
+    script_overrides: &[&str],
+) -> String {
+    let launcher_keys: HashSet<&std::ffi::OsStr> =
+        launcher.as_std().get_envs().map(|(k, _)| k).collect();
+    render_envars(
+        envs.iter()
+            .filter(|(k, _)| {
+                script_overrides.contains(&k.as_str())
+                    || !launcher_keys.contains(std::ffi::OsStr::new(k.as_str()))
+            })
+            .map(|(k, v)| (k.as_str(), v.as_str())),
+    )
+}
+
+/// The keys an executor sets on its nsjail launcher before the script's env, so the
+/// script's value wins, less those `reserved_variables` (applied after the script's env,
+/// and carrying worker-group env vars) sets again, so the worker's value wins.
+#[cfg(any(feature = "nu", feature = "java", feature = "ruby", feature = "rlang"))]
+pub(crate) fn script_overrides<'a>(
+    set_before: &[&'a str],
+    reserved_variables: &HashMap<String, String>,
+) -> Vec<&'a str> {
+    set_before
+        .iter()
+        .copied()
+        .filter(|k| !reserved_variables.contains_key(*k))
+        .collect()
 }
 
 /// Default size (in bytes) of the `/tmp` tmpfs mount inside nsjail sandboxes,
@@ -1517,6 +1733,10 @@ async fn hash_args(
     #[allow(unused)] ignore_s3_path: bool,
 ) {
     if let Some(Json(hm)) = v {
+        // Resolving an AWS OIDC storage mints a token for the job, so each storage is
+        // resolved once however many arguments point into it.
+        #[cfg(feature = "parquet")]
+        let mut storages: HashMap<Option<String>, Option<ObjectStoreResource>> = HashMap::new();
         for k in hm.keys().sorted() {
             hasher.update(k.as_bytes());
             let arg_value = hm.get(k).unwrap();
@@ -1524,18 +1744,21 @@ async fn hash_args(
             #[cfg(feature = "parquet")]
             let etag = match serde_json::from_str::<S3Object>(arg_value.get()).ok() {
                 Some(s3_object) => {
-                    let s3_resource = get_workspace_s3_resource_path(
-                        db,
-                        client,
-                        workspace_id,
-                        s3_object.storage.as_ref(),
-                        job_id,
-                    )
-                    .await
-                    .ok()
-                    .flatten();
-                    match s3_resource {
-                        Some(s3_resource) => get_etag_or_empty(&s3_resource, s3_object).await,
+                    if !storages.contains_key(&s3_object.storage) {
+                        let s3_resource = get_workspace_s3_resource_path(
+                            db,
+                            client,
+                            workspace_id,
+                            s3_object.storage.as_ref(),
+                            job_id,
+                        )
+                        .await
+                        .ok()
+                        .flatten();
+                        storages.insert(s3_object.storage.clone(), s3_resource);
+                    }
+                    match storages.get(&s3_object.storage).and_then(Option::as_ref) {
+                        Some(s3_resource) => get_etag_or_empty(s3_resource, s3_object).await,
                         None => None,
                     }
                 }
@@ -1559,7 +1782,7 @@ pub async fn cached_result_path(
     client: &AuthedClient,
     job: &MiniPulledJob,
     raw_data: Option<&RawData>,
-) -> String {
+) -> windmill_common::error::Result<String> {
     let mut hasher = sha2::Sha256::new();
     hasher.update(&[job.kind as u8]);
     if let Some(ScriptHash(hash)) = job.runnable_id {
@@ -1574,6 +1797,36 @@ pub async fn cached_result_path(
             _ => {}
         }
     }
+    // A workflow-as-code task child runs its parent's code with the parent's
+    // arguments; the step it executes is what tells its result from the parent's
+    // and from its siblings'.
+    if let Some(step_key) = wac_executing_key(db, job).await? {
+        hasher.update(b"wac_step:");
+        hasher.update(step_key.as_bytes());
+    }
+    // What a run returns depends on whose roles its data table connections hold, its own
+    // identity's or its viewer's, and `WM_END_USER_EMAIL` names the viewer: a result cached for
+    // one of either, or in one of the two modes, is never served to another. The arguments follow
+    // undelimited, so every field here is fixed-width or length-prefixed and always present: an
+    // optional marker would read the same as an argument whose name starts with it.
+    hasher.update(b"permissioned_as:");
+    hasher.update((job.permissioned_as.len() as u64).to_le_bytes());
+    hasher.update(job.permissioned_as.as_bytes());
+    // Read from `job_perms`: a flow job re-fetched between steps does not carry them.
+    let perms: Option<(Option<String>, bool)> = sqlx::query_as(
+        "SELECT end_user_email, viewer_data_access FROM job_perms
+         WHERE job_id = $1 AND workspace_id = $2",
+    )
+    .bind(job.id)
+    .bind(&job.workspace_id)
+    .fetch_optional(db)
+    .await?;
+    let (end_user, as_viewer) = perms.unwrap_or_default();
+    hasher.update([as_viewer as u8, end_user.is_some() as u8]);
+    if let Some(end_user) = end_user {
+        hasher.update((end_user.len() as u64).to_le_bytes());
+        hasher.update(end_user.as_bytes());
+    }
     hash_args(
         db,
         client,
@@ -1584,7 +1837,26 @@ pub async fn cached_result_path(
         job.cache_ignore_s3_path.unwrap_or(false),
     )
     .await;
-    format!("g/results/{:064x}", hasher.finalize())
+    Ok(format!("g/results/{:064x}", hasher.finalize()))
+}
+
+/// The checkpoint step key a workflow-as-code parent seeded for this child at push
+/// time; `None` for any job that is not such a child.
+async fn wac_executing_key(
+    db: &DB,
+    job: &MiniPulledJob,
+) -> windmill_common::error::Result<Option<String>> {
+    if job.parent_job.is_none() || job.flow_step_id.is_some() {
+        return Ok(None);
+    }
+    let key: Option<Option<String>> = sqlx::query_scalar(
+        "SELECT workflow_as_code_status->'_checkpoint'->>'_executing_key' \
+         FROM v2_job_status WHERE id = $1",
+    )
+    .bind(job.id)
+    .fetch_optional(db)
+    .await?;
+    Ok(key.flatten())
 }
 
 #[cfg(feature = "parquet")]
@@ -1791,6 +2063,18 @@ pub async fn save_in_cache(
     CACHED_RESULTS.insert(cached_path, Arc::new(store_cache_resource));
 }
 
+pub(crate) fn deno_not_installed_error() -> Error {
+    Error::ExecutionErr(format!(
+        "Deno is not installed on this worker (looked for it at {}). The standard Windmill images \
+         no longer ship Deno: official support for it on those images was discontinued after Deno \
+         announced the end of development of the Deno runtime (https://deno.com/blog/cloudflare). \
+         We recommend migrating this script to Bun. To keep running Deno scripts, use the \
+         windmill-full or windmill-ee-full image on every worker that accepts the deno tag, or \
+         install Deno on them and point DENO_PATH at it.",
+        crate::DENO_PATH.as_str()
+    ))
+}
+
 fn tentatively_improve_error(err: Error, executable: &str) -> Error {
     #[cfg(unix)]
     let err_msgs = vec!["os error 2", "os error 3", "No such file or directory"];
@@ -1799,6 +2083,11 @@ fn tentatively_improve_error(err: Error, executable: &str) -> Error {
     let err_msgs = vec!["program not found", "os error 2", "os error 3"];
 
     if err_msgs.iter().any(|msg| err.to_string().contains(msg)) {
+        // An absolute DENO_PATH is checked before spawning, where a missing job dir
+        // cannot be mistaken for a missing binary.
+        if executable == crate::DENO_PATH.as_str() && !Path::new(executable).is_absolute() {
+            return deno_not_installed_error();
+        }
         return Error::internal_err(format!(
             "Executable {executable} not found on worker. PATH: {}",
             *PATH_ENV
@@ -2282,8 +2571,79 @@ mod tests {
             trigger_kind: None,
             visible_to_owner: false,
             permissioned_as_end_user_email: None,
+            viewer_data_access: None,
             runnable_settings_handle: None,
+            job_token_scopes: None,
         }
+    }
+
+    // A cache hit returns before the job runs, so the key is all that keeps a result computed
+    // for one identity or viewer (whose data table roles it read with, `WM_END_USER_EMAIL`)
+    // from another.
+    #[sqlx::test(migrations = "../migrations")]
+    async fn a_cached_result_is_keyed_by_the_identity_and_the_recorded_viewer(pool: sqlx::PgPool) {
+        let client = test_client();
+
+        // The last two differ only in where the viewer's address ends and the first argument
+        // name starts.
+        let mut paths = vec![];
+        for (owner, viewer, as_viewer, arg) in [
+            ("u/publisher", Some("a@windmill.dev"), false, "mode"),
+            ("u/publisher", Some("a@windmill.dev"), false, "mode"),
+            ("u/publisher", Some("b@windmill.dev"), false, "mode"),
+            ("u/publisher", None, false, "mode"),
+            ("u/publisher", Some("a@windmill.co"), false, "mode"),
+            ("u/publisher", Some("a@windmill.com"), false, "ode"),
+            ("u/other", None, false, "mode"),
+            ("u/publisher", Some("a@windmill.dev"), true, "mode"),
+            ("u/publisher", None, false, "viewer_data_access;mode"),
+            ("u/publisher", None, true, "mode"),
+        ] {
+            let args = HashMap::from([(arg.to_string(), to_raw_value(&"all"))]);
+            let job = MiniPulledJob {
+                id: uuid::Uuid::new_v4(),
+                args: Some(sqlx::types::Json(args)),
+                permissioned_as: owner.to_string(),
+                ..test_job()
+            };
+            sqlx::query(
+                "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator,
+                     workspace_id, groups, folders, end_user_email, viewer_data_access)
+                 VALUES ($1, 'publisher@windmill.dev', 'publisher', false, false, 'test', '{}',
+                     '{}', $2, $3)",
+            )
+            .bind(job.id)
+            .bind(viewer)
+            .bind(as_viewer)
+            .execute(&pool)
+            .await
+            .unwrap();
+            paths.push(
+                cached_result_path(&pool, &client, &job, None)
+                    .await
+                    .unwrap(),
+            );
+        }
+        assert_eq!(
+            paths[0], paths[1],
+            "one viewer shares their own cached result"
+        );
+        assert_ne!(paths[0], paths[2], "two viewers share a cached result");
+        assert_ne!(paths[0], paths[3]);
+        assert_ne!(paths[2], paths[3]);
+        assert_ne!(
+            paths[4], paths[5],
+            "an address runs into the argument names"
+        );
+        assert_ne!(paths[3], paths[6], "two owners share a cached result");
+        assert_ne!(
+            paths[0], paths[7],
+            "a result read with the app's roles is served once the runnable connects as its viewer"
+        );
+        assert_ne!(
+            paths[8], paths[9],
+            "an argument name reads as the mode of another run"
+        );
     }
 
     #[tokio::test]
@@ -2353,6 +2713,78 @@ mod tests {
         let result = transform_json_value("test", &client, "test", input, &job, &conn, 0).await;
 
         assert!(result.is_err());
+    }
+
+    // A profile that loses `{ENVARS}` silently drops the script's env, since a
+    // `replace` on a missing token does nothing. It must also precede every fixed
+    // `envar:`, which overrides it the way it overrode the launcher's env.
+    #[test]
+    fn script_profiles_take_envars_before_their_fixed_ones() {
+        for (name, profile) in [
+            ("go", include_str!("../nsjail/run.go.config.proto")),
+            ("rust", include_str!("../nsjail/run.rust.config.proto")),
+            ("bun", include_str!("../nsjail/run.bun.config.proto")),
+            ("nu", include_str!("../nsjail/run.nu.config.proto")),
+            ("php", include_str!("../nsjail/run.php.config.proto")),
+            ("csharp", include_str!("../nsjail/run.csharp.config.proto")),
+            ("java", include_str!("../nsjail/run.java.config.proto")),
+            ("ruby", include_str!("../nsjail/run.ruby.config.proto")),
+            ("r", include_str!("../nsjail/run.r.config.proto")),
+            (
+                "gem install",
+                include_str!("../nsjail/download.ruby.config.proto"),
+            ),
+        ] {
+            let at = profile
+                .find("\n{ENVARS}\n")
+                .unwrap_or_else(|| panic!("{name}: no {{ENVARS}}"));
+            assert!(
+                !profile[..at].contains("\nenvar:"),
+                "{name}: a fixed envar precedes {{ENVARS}}"
+            );
+        }
+    }
+
+    #[test]
+    fn script_envars_reach_the_jail_not_the_launcher() {
+        let envs = HashMap::from([
+            ("LD_PRELOAD".to_string(), "/tmp/evil.so".to_string()),
+            ("WM_TOKEN".to_string(), "forged".to_string()),
+            ("PATH".to_string(), "/custom/bin".to_string()),
+        ]);
+        let mut launcher = Command::new("nsjail");
+        launcher
+            .env_clear()
+            .env("PATH", "/usr/bin")
+            .env("WM_TOKEN", "real");
+
+        let out = script_envars(&envs, &launcher, &["PATH"]);
+        let mut lines = out.lines().collect::<Vec<_>>();
+        lines.sort();
+        // A launcher key keeps the launcher's value unless the executor lets the
+        // script override it.
+        assert_eq!(
+            lines,
+            vec![
+                "envar: \"LD_PRELOAD=/tmp/evil.so\"",
+                "envar: \"PATH=/custom/bin\"",
+            ]
+        );
+        assert!(launcher
+            .as_std()
+            .get_envs()
+            .all(|(k, _)| k != std::ffi::OsStr::new("LD_PRELOAD")));
+
+        let hostile = HashMap::from([(
+            "X".to_string(),
+            "v\"\nclone_newuser: false {JOB_DIR}".to_string(),
+        )]);
+        let line = script_envars(&hostile, &launcher, &[]);
+        assert_eq!(line.lines().count(), 1, "{line}");
+        assert!(
+            !line.contains('{') && !line.contains("\nclone_newuser"),
+            "{line}"
+        );
     }
 }
 

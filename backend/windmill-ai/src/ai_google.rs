@@ -303,7 +303,7 @@ pub struct GeminiUsageMetadata {
 /// 60 tool-use + 17 candidates + 52 thoughts against a `totalTokenCount` of 146, so
 /// leaving them out under-reports the input of every tool-using turn. Cached tokens
 /// are not added here, being already part of `promptTokenCount`.
-fn gemini_prompt_tokens(usage: &GeminiUsageMetadata) -> i32 {
+pub(crate) fn gemini_prompt_tokens(usage: &GeminiUsageMetadata) -> i32 {
     usage
         .prompt_token_count
         .unwrap_or(0)
@@ -313,7 +313,7 @@ fn gemini_prompt_tokens(usage: &GeminiUsageMetadata) -> i32 {
 /// Output tokens as billed: Gemini counts thinking apart from `candidatesTokenCount`
 /// but charges it at the output rate, so a reply that thought would otherwise be
 /// reported as far cheaper than it was.
-fn gemini_completion_tokens(usage: &GeminiUsageMetadata) -> i32 {
+pub(crate) fn gemini_completion_tokens(usage: &GeminiUsageMetadata) -> i32 {
     usage
         .candidates_token_count
         .unwrap_or(0)
@@ -326,6 +326,17 @@ pub struct GeminiSSEEvent {
     pub candidates: Option<Vec<GeminiSSECandidate>>,
     #[serde(rename = "usageMetadata")]
     pub usage_metadata: Option<GeminiUsageMetadata>,
+    #[serde(default)]
+    pub error: Option<crate::retry::StreamErrorBody>,
+    #[serde(rename = "promptFeedback", default)]
+    pub prompt_feedback: Option<GeminiPromptFeedback>,
+}
+
+/// Set when Gemini refuses the prompt itself, in which case no candidate follows.
+#[derive(Deserialize, Debug)]
+pub struct GeminiPromptFeedback {
+    #[serde(rename = "blockReason", default)]
+    pub block_reason: Option<String>,
 }
 
 // ============================================================================
@@ -550,10 +561,40 @@ pub fn openai_tools_to_gemini(
     }
 }
 
+/// Follows a Gemini stream to tell a complete turn from one cut short.
+#[derive(Default)]
+pub struct GeminiTurn {
+    ended: bool,
+    has_output: bool,
+}
+
+impl GeminiTurn {
+    pub fn observe(&mut self, event: &GeminiParsedEvent) {
+        // A function call arrives whole and may come without a `finishReason`, so it
+        // counts too, as in gemini-cli's stream validation.
+        self.ended |= event.finish_reason.is_some() || !event.tool_calls.is_empty();
+        self.has_output |= event.text.is_some() || event.reasoning.is_some();
+    }
+
+    /// Whether the turn's final event arrived.
+    pub fn ended(&self) -> bool {
+        self.ended
+    }
+
+    /// Whether a stream that closed cleanly here holds the whole turn. Gemini 2.5 closes
+    /// its stream without a single event when thinking spends the whole
+    /// `maxOutputTokens`: an empty answer, which a retry would only get again, rather
+    /// than a cut one.
+    pub fn complete_at_close(&self) -> bool {
+        self.ended || !self.has_output
+    }
+}
+
 /// Parse one Gemini SSE data line into a [`GeminiParsedEvent`].
 ///
 /// Returns `Ok(None)` for empty data or unrecognised payloads (e.g. `"[DONE]"`).
 /// Logs a warning and returns `Ok(None)` on JSON parse errors rather than propagating.
+/// An error the stream reports is returned as one.
 pub fn parse_gemini_sse_event(data: &str) -> Result<Option<GeminiParsedEvent>, Error> {
     if data.is_empty() || data == "[DONE]" {
         return Ok(None);
@@ -566,6 +607,21 @@ pub fn parse_gemini_sse_event(data: &str) -> Result<Option<GeminiParsedEvent>, E
             return Ok(None);
         }
     };
+
+    if let Some(error) = event.error {
+        return Err(error.into_error("Gemini"));
+    }
+
+    // `BLOCK_REASON_UNSPECIFIED` is the protobuf enum's placeholder, not a block.
+    if let Some(reason) = event
+        .prompt_feedback
+        .and_then(|f| f.block_reason)
+        .filter(|r| !matches!(r.as_str(), "" | "BLOCK_REASON_UNSPECIFIED"))
+    {
+        return Err(Error::AIError(format!(
+            "Gemini blocked the prompt: {reason}"
+        )));
+    }
 
     let mut parsed = GeminiParsedEvent { usage: event.usage_metadata, ..Default::default() };
 
@@ -1041,7 +1097,10 @@ mod tests {
         // through unchanged and the cached share is reported alongside it; thinking
         // is billed as output but counted apart from the candidates.
         assert_eq!(usage_chunk["usage"]["prompt_tokens"], 1000);
-        assert_eq!(usage_chunk["usage"]["prompt_tokens_details"]["cached_tokens"], 900);
+        assert_eq!(
+            usage_chunk["usage"]["prompt_tokens_details"]["cached_tokens"],
+            900
+        );
         assert_eq!(usage_chunk["usage"]["completion_tokens"], 120);
     }
 

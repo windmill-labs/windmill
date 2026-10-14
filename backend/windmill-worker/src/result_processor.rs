@@ -16,15 +16,12 @@ use windmill_common::otel_oss::FutureExt;
 
 use uuid::Uuid;
 
-/// Set by the result processor when a WAC child completion makes suspend reach 0,
-/// signaling the worker main loop to check for suspended jobs immediately.
-pub static WAC_SUSPEND_READY: AtomicBool = AtomicBool::new(false);
-
 use windmill_common::{
     add_time,
     error::{self, Error},
     flow_status::FlowJobDuration,
     jobs::JobKind,
+    runnable_job_stats::{accumulate_runnable_job_stats, flush_runnable_job_stats},
     utils::WarnAfterExt,
     worker::{error_to_value, to_raw_value, Connection, WORKER_GROUP},
     worker_group_job_stats::{accumulate_job_stats, flush_stats_to_db, JobStatsMap},
@@ -36,8 +33,8 @@ use windmill_common::bench::{BenchmarkInfo, BenchmarkIter};
 
 use windmill_queue::{
     append_logs, asset_dispatch, get_mini_completed_job, is_pre_shaped_wm_failure_result,
-    CanceledBy, FlowRunners, JobCompleted, MiniCompletedJob, MiniPulledJob, ValidableJson,
-    WrappedError, INIT_SCRIPT_TAG, MANUAL_FAILURE_ERROR_NAME,
+    parse_result_object, CanceledBy, FlowRunners, JobCompleted, JobResourceUsage, MiniCompletedJob,
+    MiniPulledJob, ValidableJson, WrappedError, INIT_SCRIPT_TAG, MANUAL_FAILURE_ERROR_NAME,
 };
 
 use serde_json::{json, value::RawValue, Value};
@@ -76,13 +73,11 @@ struct NestedErrorMessage {
 /// named `name`/`message`), and we want OTel to record the ManualFailure
 /// rather than the user's sibling fields.
 fn extract_error_message(raw: &str) -> Option<ErrorMessage> {
-    let nested = serde_json::from_str::<NestedErrorMessage>(raw)
-        .ok()
-        .map(|n| n.error);
+    let nested = parse_result_object::<NestedErrorMessage>(raw).map(|n| n.error);
     if matches!(&nested, Some(em) if em.name == MANUAL_FAILURE_ERROR_NAME) {
         return nested;
     }
-    if let Ok(em) = serde_json::from_str::<ErrorMessage>(raw) {
+    if let Some(em) = parse_result_object::<ErrorMessage>(raw) {
         return Some(em);
     }
     nested
@@ -237,6 +232,10 @@ async fn process_jc(
     let duration_ms = jc.duration.clone();
     let script_lang = jc.job.script_lang.clone();
     let workspace_id = jc.job.workspace_id.clone();
+    let job_kind = jc.job.kind;
+    let runnable_path = jc.job.runnable_path.clone();
+    let mem_peak = jc.mem_peak;
+    let resource_usage = jc.resource_usage.take();
 
     let root_job = handle_receive_completed_job(
         jc,
@@ -275,6 +274,17 @@ async fn process_jc(
             duration_ms,
         )
         .await;
+        accumulate_runnable_job_stats(
+            &workspace_id,
+            job_kind,
+            runnable_path.as_deref(),
+            resource_usage
+                .as_ref()
+                .map_or(WORKER_GROUP.as_str(), |u| u.worker_group.as_str()),
+            duration_ms,
+            mem_peak,
+            resource_usage.as_ref().and_then(|u| u.cpu_time_ms),
+        );
     }
 
     success
@@ -323,11 +333,24 @@ pub fn start_background_processor(
         let flush_handle = tokio::spawn(async move {
             let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(900)); // Flush every 15 min
 
+            // Once per hourly bucket, at an offset of its own per worker so that a fleet
+            // started together does not write the same rows in the same second.
+            let runnable_period = tokio::time::Duration::from_secs(3600);
+            let mut runnable_interval = tokio::time::interval_at(
+                tokio::time::Instant::now() + runnable_period.mul_f64(rand::random::<f64>()),
+                runnable_period,
+            );
+
             loop {
                 tokio::select! {
                     _ = interval.tick() => {
                         if let Err(e) = flush_stats_to_db(&db_clone, &stats_map_clone).await {
                             tracing::error!("Failed to flush worker group job stats: {}", e);
+                        }
+                    }
+                    _ = runnable_interval.tick() => {
+                        if let Err(e) = flush_runnable_job_stats(&db_clone).await {
+                            tracing::error!("Failed to flush runnable job stats: {}", e);
                         }
                     }
                     _ = killpill_rx_clone.recv() => {
@@ -530,6 +553,18 @@ pub fn start_background_processor(
             Ok(Err(join_err)) => tracing::error!("Stats flush task failed: {}", join_err),
             Err(_) => tracing::error!("Stats flush timed out after 10 seconds"),
         }
+        // The periodic task stops at the killpill, before the jobs drained above were
+        // accumulated: without this a short-lived worker would lose its whole rollup.
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            flush_runnable_job_stats(&db),
+        )
+        .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => tracing::error!("Failed to flush runnable job stats: {}", e),
+            Err(_) => tracing::error!("Runnable job stats flush timed out after 10 seconds"),
+        }
 
         job_completed_processor_is_done.store(true, Ordering::SeqCst);
 
@@ -561,6 +596,7 @@ pub async fn process_result(
     job_dir: &str,
     job_completed_tx: JobCompletedSender,
     mem_peak: i32,
+    cpu_time_ms: Option<i64>,
     canceled_by: Option<CanceledBy>,
     cached_res_path: Option<String>,
     token: &str,
@@ -571,6 +607,7 @@ pub async fn process_result(
     has_stream: bool,
     flow_runners: Option<Arc<FlowRunners>>,
 ) -> error::Result<crate::worker::JobOutcome> {
+    let resource_usage = Some(JobResourceUsage { worker_group: WORKER_GROUP.clone(), cpu_time_ms });
     match result {
         Ok(result) => {
             send_job_completed(
@@ -581,6 +618,7 @@ pub async fn process_result(
                     result,
                     result_columns,
                     mem_peak,
+                    resource_usage,
                     canceled_by,
                     success: true,
                     cached_res_path,
@@ -664,6 +702,7 @@ pub async fn process_result(
                     result_columns: None,
                     preprocessed_args: None,
                     mem_peak,
+                    resource_usage,
                     canceled_by,
                     success: false,
                     cached_res_path,
@@ -983,19 +1022,21 @@ mod git_sync_check_tests {
     }
 }
 
-/// When an auto-pull job (carrying `__git_sync_auto_pull`) fails, roll the
+/// When an auto-pull job (carrying `__git_sync_auto_pull`) completes: on success,
+/// record the commit as a head the workspace reflects; on failure, roll the
 /// optimistic `last_synced_sha` advance back to the pre-pull value so the commit
 /// is retried instead of being silently treated as synced, and record the failure.
+/// The recorded commit is the one the pull script reports having checked out
+/// (`{sha, branch}` in its result): the branch can move between the observation
+/// the marker holds and the clone. A result without it falls back to the marker.
 #[cfg(all(feature = "enterprise", feature = "private"))]
 async fn maybe_reconcile_git_sync_auto_pull(
     db: &DB,
     job_id: &uuid::Uuid,
     workspace_id: &str,
     success: bool,
+    result: &str,
 ) {
-    if success {
-        return; // the optimistic synced state is already correct
-    }
     let marker: Option<serde_json::Value> = match sqlx::query_scalar!(
         "SELECT args->'__git_sync_auto_pull' FROM v2_job WHERE id = $1",
         job_id
@@ -1015,12 +1056,50 @@ async fn maybe_reconcile_git_sync_auto_pull(
     #[derive(serde::Deserialize)]
     struct AutoPullMarker {
         repo_resource_path: String,
+        branch: Option<String>,
+        head_sha: Option<String>,
         #[serde(default)]
         prev_synced: std::collections::HashMap<String, String>,
     }
     let Ok(m) = serde_json::from_value::<AutoPullMarker>(marker) else {
         return;
     };
+    if success {
+        // The optimistic synced state is already correct; record that the workspace
+        // now reflects the commit, which the PR CI-test check waits for.
+        #[derive(serde::Deserialize)]
+        struct PullResult {
+            sha: Option<String>,
+            branch: Option<String>,
+        }
+        let applied = serde_json::from_str::<PullResult>(result).ok();
+        let branch = applied
+            .as_ref()
+            .and_then(|r| r.branch.as_deref())
+            .or(m.branch.as_deref());
+        let sha = applied
+            .as_ref()
+            .and_then(|r| r.sha.as_deref())
+            .or(m.head_sha.as_deref());
+        if let (Some(branch), Some(sha)) = (branch, sha) {
+            if let Err(e) = windmill_git_sync::record_synced_head(
+                db,
+                workspace_id,
+                &m.repo_resource_path,
+                branch,
+                sha,
+                "pull",
+                Some(*job_id),
+            )
+            .await
+            {
+                tracing::warn!(
+                    "git auto-pull: failed to record synced head {sha} on {branch}: {e:#}"
+                );
+            }
+        }
+        return;
+    }
     windmill_git_sync::record_auto_pull_failure(
         db,
         workspace_id,
@@ -1109,6 +1188,70 @@ fn git_sync_push_result_pushed(result: &str) -> Option<bool> {
         .as_bool()
 }
 
+/// When a git-sync push job pushed a commit, record it as a head the workspace
+/// reflects, the way a successful pull records the commit it applied. The PR
+/// CI-test check waits for that record. Best-effort: failures are logged, never
+/// propagated.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+async fn maybe_record_git_sync_pushed_head(
+    db: &DB,
+    job_id: &uuid::Uuid,
+    workspace_id: &str,
+    result: &str,
+) {
+    #[derive(serde::Deserialize)]
+    struct PushResult {
+        pushed: bool,
+        sha: Option<String>,
+        branch: Option<String>,
+        #[serde(default)]
+        rebased: bool,
+    }
+    let Ok(PushResult { pushed: true, sha: Some(sha), branch: Some(branch), rebased }) =
+        serde_json::from_str::<PushResult>(result)
+    else {
+        return;
+    };
+    // A push that had to rebase sits on commits this workspace has not pulled, so the
+    // pushed head is not something it reflects yet; the pull those commits trigger
+    // records the head once they are in.
+    if rebased {
+        tracing::info!(
+            "git sync push: {sha} on {branch} was rebased onto unpulled commits; not recording it as synced for {workspace_id}"
+        );
+        return;
+    }
+    let repo_path = match sqlx::query_scalar!(
+        "SELECT args->>'repo_url_resource_path' FROM v2_job WHERE id = $1",
+        job_id
+    )
+    .fetch_optional(db)
+    .await
+    {
+        Ok(Some(Some(p))) => p,
+        Ok(_) => return,
+        Err(e) => {
+            tracing::error!("git sync push: failed to read job args: {e:#}");
+            return;
+        }
+    };
+    if let Err(e) = windmill_git_sync::record_synced_head(
+        db,
+        workspace_id,
+        &repo_path,
+        &branch,
+        &sha,
+        "push",
+        Some(*job_id),
+    )
+    .await
+    {
+        tracing::warn!(
+            "git sync push: failed to record pushed head {sha} on {branch} for {workspace_id}/{repo_path}: {e:#}"
+        );
+    }
+}
+
 /// When a git-sync push job carrying `__git_sync_open_pr` succeeds, open (or
 /// reopen) the PR for the branch it pushed: `wm-fork/<base>/<id>` for a fork
 /// deploy, `wm_deploy/**` for a promotion deploy. Runs outbound with the
@@ -1154,18 +1297,6 @@ async fn maybe_open_git_sync_deploy_pr(
         }
     };
     if row.marker.is_none() {
-        return;
-    }
-    // Runtime Enterprise gate, like the poller: the toggles may have been set
-    // while a license was active (or written directly), and this hook drives
-    // GitHub API calls with the installation token.
-    if !matches!(
-        windmill_common::ee_oss::get_license_plan().await,
-        windmill_common::ee_oss::LicensePlan::Enterprise
-    ) {
-        tracing::warn!(
-            "git sync PR: skipping PR creation for {workspace_id}: requires an Enterprise license"
-        );
         return;
     }
     let Some(repo_path) = row.repo_path else {
@@ -1690,7 +1821,7 @@ pub async fn process_completed_job(
 
         add_time!(bench, "pre add_completed_job");
 
-        let (_, duration, wac_job_ids) = add_completed_job(
+        let (_, span) = add_completed_job(
             db,
             &job,
             true,
@@ -1707,7 +1838,25 @@ pub async fn process_completed_job(
         #[cfg(all(feature = "enterprise", feature = "private"))]
         if job.kind == JobKind::DeploymentCallback {
             maybe_post_git_sync_check(db, &job_id, &workspace_id, true, result.get()).await;
+            maybe_reconcile_git_sync_auto_pull(db, &job_id, &workspace_id, true, result.get())
+                .await;
+            maybe_record_git_sync_pushed_head(db, &job_id, &workspace_id, result.get()).await;
             maybe_open_git_sync_deploy_pr(db, &job_id, &workspace_id, result.get()).await;
+        }
+        // A CI test job just finished: advance any open "Windmill CI tests" PR check for
+        // its workspace. Detached, since concluding a check calls GitHub and this loop
+        // completes jobs serially; the evaluation is idempotent and the poller retries.
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        if job
+            .trigger_kind
+            .as_ref()
+            .is_some_and(|k| k.is(windmill_common::jobs::JobTriggerKind::CiTest))
+        {
+            let db = db.clone();
+            let w_id = workspace_id.clone();
+            tokio::spawn(async move {
+                windmill_git_sync::evaluate_and_conclude_ci_test_checks(&db, &w_id).await
+            });
         }
 
         // Asset-trigger fan-out: best-effort, never propagates errors.
@@ -1731,7 +1880,10 @@ pub async fn process_completed_job(
                     true,
                     canceled_by,
                     result,
-                    started_at.map(|x| FlowJobDuration { started_at: x, duration_ms: duration }),
+                    span.started_at.or(started_at).map(|x| FlowJobDuration {
+                        started_at: x,
+                        duration_ms: span.duration_ms,
+                    }),
                     StepFailureKind::Normal,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
@@ -1753,29 +1905,6 @@ pub async fn process_completed_job(
                 }
                 return Ok(r);
             }
-        } else if let Some(parent_job) = parent_job {
-            // wac_job_ids is piggybacked from the duration write in
-            // add_completed_job — no extra query needed.
-            if let Some(job_ids) = wac_job_ids {
-                if let Ok(Some(_)) = handle_wac_child_completion(
-                    db,
-                    &job_id,
-                    parent_job,
-                    &workspace_id,
-                    result,
-                    true,
-                    job_ids,
-                )
-                .await
-                {
-                    if let Some(done_tx) = done_tx {
-                        done_tx
-                            .send(())
-                            .expect("done receiver should still be alive");
-                    }
-                    return Ok(None);
-                }
-            }
         }
     } else {
         // The result already carries our injected
@@ -1786,9 +1915,10 @@ pub async fn process_completed_job(
         // `wm_failure` field) so a real runtime failure whose raw
         // result happens to contain a `wm_failure` field still goes
         // through the standard `WrappedError { error: ... }` wrap path.
-        let downstream_result: Arc<Box<RawValue>> = if is_pre_shaped_wm_failure_result(result.get())
-        {
-            windmill_queue::add_completed_job_pre_shaped_failure(
+        let (downstream_result, span): (Arc<Box<RawValue>>, _) = if is_pre_shaped_wm_failure_result(
+            result.get(),
+        ) {
+            let span = windmill_queue::add_completed_job_pre_shaped_failure(
                 db,
                 &job,
                 mem_peak.to_owned(),
@@ -1799,9 +1929,9 @@ pub async fn process_completed_job(
                 None,
             )
             .await?;
-            result.clone()
+            (result.clone(), span)
         } else {
-            let wrapped = add_completed_job_error(
+            let (wrapped, span) = windmill_queue::add_completed_job_error_with_span(
                 db,
                 &job,
                 mem_peak.to_owned(),
@@ -1814,12 +1944,28 @@ pub async fn process_completed_job(
                 None,
             )
             .await?;
-            Arc::new(serde_json::value::to_raw_value(&wrapped).unwrap())
+            (
+                Arc::new(serde_json::value::to_raw_value(&wrapped).unwrap()),
+                span,
+            )
         };
         #[cfg(all(feature = "enterprise", feature = "private"))]
         if job.kind == JobKind::DeploymentCallback {
             maybe_post_git_sync_check(db, &job.id, &job.workspace_id, false, result.get()).await;
-            maybe_reconcile_git_sync_auto_pull(db, &job.id, &job.workspace_id, false).await;
+            maybe_reconcile_git_sync_auto_pull(db, &job.id, &job.workspace_id, false, "").await;
+        }
+        // A failed CI test job also settles its check; same detached advance as on success.
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        if job
+            .trigger_kind
+            .as_ref()
+            .is_some_and(|k| k.is(windmill_common::jobs::JobTriggerKind::CiTest))
+        {
+            let db = db.clone();
+            let w_id = job.workspace_id.clone();
+            tokio::spawn(async move {
+                windmill_git_sync::evaluate_and_conclude_ci_test_checks(&db, &w_id).await
+            });
         }
         if job.is_flow_step() {
             if let Some(parent_job) = job.parent_job {
@@ -1833,12 +1979,19 @@ pub async fn process_completed_job(
                     false,
                     canceled_by,
                     downstream_result,
-                    duration.and_then(|d| {
-                        job.started_at.map(|started_at| FlowJobDuration {
-                            started_at: started_at,
-                            duration_ms: d,
+                    if span.outlasts_run(job.started_at) {
+                        span.started_at.map(|started_at| FlowJobDuration {
+                            started_at,
+                            duration_ms: span.duration_ms,
                         })
-                    }),
+                    } else {
+                        duration.and_then(|d| {
+                            job.started_at.map(|started_at| FlowJobDuration {
+                                started_at: started_at,
+                                duration_ms: d,
+                            })
+                        })
+                    },
                     StepFailureKind::Normal,
                     &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS).to_owned(),
                     &worker_dir,
@@ -1859,225 +2012,9 @@ pub async fn process_completed_job(
                 }
                 return Ok(r);
             }
-        } else if let Some(parent_job) = job.parent_job {
-            // WAC child failed — query job_ids from parent (errors are rare,
-            // so the extra read is acceptable here).
-            let job_ids_json: Option<Option<Value>> = sqlx::query_scalar(
-                "SELECT workflow_as_code_status->'_checkpoint'->'pending_steps'->'job_ids' \
-                 FROM v2_job_status WHERE id = $1",
-            )
-            .bind(&parent_job)
-            .fetch_optional(db)
-            .await?;
-            if let Some(Some(job_ids)) = job_ids_json {
-                if let Ok(Some(_)) = handle_wac_child_completion(
-                    db,
-                    &job.id,
-                    parent_job,
-                    &job.workspace_id,
-                    downstream_result,
-                    false,
-                    job_ids,
-                )
-                .await
-                {
-                    if let Some(done_tx) = done_tx {
-                        done_tx
-                            .send(())
-                            .expect("done receiver should still be alive");
-                    }
-                    return Ok(None);
-                }
-            }
         }
     }
     return Ok(None);
-}
-
-/// Handle a WAC v2 child job completion.
-/// Returns Ok(Some(())) if the parent was a WAC job and was handled,
-/// Ok(None) if the parent is not a WAC job (caller should fall through).
-///
-/// CONCURRENCY: Multiple parallel children may complete simultaneously on
-/// different workers.  We use atomic SQL operations throughout:
-///   - `completed_steps` is merged via `jsonb_set(... || jsonb_build_object(...))`
-///     — PostgreSQL serialises concurrent UPDATEs on the same row, so each
-///     worker sees the previous worker's writes.
-///   - The suspend counter (set to N at dispatch time) is decremented atomically
-///     with `RETURNING` to determine the "all done" condition.
-pub(crate) async fn handle_wac_child_completion(
-    db: &DB,
-    child_job_id: &Uuid,
-    parent_job_id: Uuid,
-    workspace_id: &str,
-    result: Arc<Box<RawValue>>,
-    success: bool,
-    job_ids_value: Value,
-) -> error::Result<Option<()>> {
-    let job_ids = match job_ids_value {
-        Value::Object(m) => m,
-        _ => return Ok(None), // Not a WAC parent or no pending steps
-    };
-
-    let child_id_str = child_job_id.to_string();
-    let step_key = job_ids.iter().find_map(|(key, val)| {
-        if val.as_str() == Some(&child_id_str) {
-            Some(key.clone())
-        } else {
-            None
-        }
-    });
-
-    let step_key = match step_key {
-        Some(k) => k,
-        None => {
-            if !success {
-                // No step key and failed — can't store error, fail parent immediately
-                tracing::error!(
-                    parent_job = %parent_job_id,
-                    child_job = %child_job_id,
-                    "WAC v2 child job failed but no step key found, failing parent"
-                );
-                sqlx::query!(
-                    "UPDATE v2_job_queue SET suspend = 0, suspend_until = NULL WHERE id = $1",
-                    parent_job_id,
-                )
-                .execute(db)
-                .await?;
-                let parent_mini = get_mini_completed_job(&parent_job_id, workspace_id, db).await?;
-                if let Some(parent_mini) = parent_mini {
-                    let child_err: Value =
-                        serde_json::from_str(result.get()).unwrap_or(Value::Null);
-                    let err_value = json!({
-                        "message": format!("WAC child job {} failed (no step key)", child_job_id),
-                        "error": child_err,
-                    });
-                    let _ = windmill_queue::add_completed_job_error(
-                        db,
-                        &parent_mini,
-                        0,
-                        None,
-                        err_value,
-                        "wac_child_handler",
-                        false,
-                        None,
-                    )
-                    .await;
-                }
-                return Ok(Some(()));
-            }
-            tracing::warn!(
-                parent_job = %parent_job_id,
-                child_job = %child_job_id,
-                "WAC v2 child completed but no matching step key found in checkpoint, decrementing suspend to avoid parent hang"
-            );
-            // Still decrement suspend so the parent doesn't hang indefinitely
-            let _ = sqlx::query_scalar!(
-                "UPDATE v2_job_queue \
-                 SET suspend = GREATEST(suspend - 1, 0) \
-                 WHERE id = $1 \
-                 RETURNING suspend",
-                parent_job_id,
-            )
-            .fetch_optional(db)
-            .await?;
-            return Ok(Some(()));
-        }
-    };
-
-    // Build result — wrap errors with _error marker so workflow try/catch can handle them
-    let result_value: Value = if success {
-        serde_json::from_str(result.get()).unwrap_or(Value::Null)
-    } else {
-        let child_err: Value = serde_json::from_str(result.get()).unwrap_or(Value::Null);
-        tracing::info!(
-            parent_job = %parent_job_id,
-            child_job = %child_job_id,
-            step_key = %step_key,
-            "WAC v2 child job failed, storing error for workflow try/catch"
-        );
-        windmill_common::wac::wac_failure_record(
-            &step_key,
-            Some(&child_job_id.to_string()),
-            &child_err,
-        )
-    };
-
-    tracing::info!(
-        parent_job = %parent_job_id,
-        child_job = %child_job_id,
-        step_key = %step_key,
-        success = success,
-        "WAC v2 child job completed"
-    );
-
-    // Use a transaction to ensure completed_steps merge + suspend decrement
-    // are atomic.  Without this, a crash between the two could strand the parent.
-    let result_json = serde_json::to_value(&result_value)
-        .map_err(|e| error::Error::InternalErr(format!("Failed to serialize step result: {e}")))?;
-
-    let mut tx = db.begin().await?;
-
-    // Merge the completed step into the checkpoint.
-    // Uses `|| jsonb_build_object(key, value)` so concurrent children on
-    // different workers don't overwrite each other — PostgreSQL serialises
-    // concurrent UPDATEs on the same row and each sees the previous write.
-    sqlx::query(
-        "UPDATE v2_job_status SET workflow_as_code_status = jsonb_set(
-            workflow_as_code_status,
-            '{_checkpoint,completed_steps}',
-            COALESCE(workflow_as_code_status->'_checkpoint'->'completed_steps', '{}'::jsonb)
-            || jsonb_build_object($2::text, $3::jsonb)
-        ) WHERE id = $1",
-    )
-    .bind(&parent_job_id)
-    .bind(&step_key)
-    .bind(&result_json)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| error::Error::InternalErr(format!("Failed to add WAC completed step: {e}")))?;
-
-    // Decrement the suspend counter.  The counter was set to N (number of
-    // children) at dispatch time.  When it reaches 0 all children are done.
-    // Keep suspend_until non-null so the suspended pull query
-    // (`WHERE suspend_until IS NOT NULL AND suspend <= 0`) picks up the parent.
-    let new_suspend: Option<i32> = sqlx::query_scalar!(
-        "UPDATE v2_job_queue \
-         SET suspend = GREATEST(suspend - 1, 0) \
-         WHERE id = $1 \
-         RETURNING suspend",
-        parent_job_id,
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
-
-    let all_done = new_suspend == Some(0);
-
-    if all_done {
-        // Clear pending_steps from checkpoint since all children are complete.
-        // This is cosmetic — the next replay will overwrite it anyway — but
-        // keeps the checkpoint clean for frontend display.
-        let _ = sqlx::query(
-            "UPDATE v2_job_status SET workflow_as_code_status = \
-             workflow_as_code_status #- '{_checkpoint,pending_steps}' \
-             WHERE id = $1",
-        )
-        .bind(&parent_job_id)
-        .execute(&mut *tx)
-        .await;
-    }
-
-    tx.commit().await?;
-
-    if all_done {
-        tracing::info!(
-            parent_job = %parent_job_id,
-            "WAC v2 all child jobs completed, unsuspending parent"
-        );
-        WAC_SUSPEND_READY.store(true, Ordering::Relaxed);
-    }
-
-    Ok(Some(()))
 }
 
 pub async fn handle_non_flow_job_error(

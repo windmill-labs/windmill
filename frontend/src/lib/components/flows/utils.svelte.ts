@@ -6,13 +6,13 @@ import {
 	type Job,
 	type RestartedFrom,
 	type OpenFlow,
-	type MemoryConfig,
 	type FlowValue,
 	type Retry
 } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { cleanExpr, emptySchema } from '$lib/utils'
 import { unescapeTemplateBackticks } from '$lib/utils/templateLiteral'
+import { evalSandboxed } from '$lib/utils/quickjsEval.svelte'
 import { get } from 'svelte/store'
 import type { FlowModuleState } from './flowState'
 import { type PickableProperties, dfs } from './previousResults'
@@ -23,25 +23,6 @@ import { sendUserToast } from '$lib/toast'
 import type { ExtendedOpenFlow } from './types'
 import type { GraphModuleState } from '../graph'
 import type { ModulesTestStates } from '../modulesTest.svelte'
-
-function create_context_function_template(eval_string: string, context: Record<string, any>) {
-	return `
-return function (context) {
-"use strict";
-${
-	Object.keys(context).length > 0
-		? `let ${Object.keys(context).map((key) => ` ${key} = context['${key}']`)};`
-		: ``
-}
-return ${eval_string}
-}`
-}
-
-function make_context_evaluator(eval_string, context): (context) => any {
-	let template = create_context_function_template(eval_string, context)
-	let functor = Function(template)
-	return functor()
-}
 
 export function evalValue(
 	k: string,
@@ -57,11 +38,10 @@ export function evalValue(
 		v = t.value
 	} else if (t?.type == 'javascript') {
 		try {
-			let context = {
+			v = evalSandboxed(t.expr, {
 				flow_input: pickableProperties?.flow_input,
 				results: pickableProperties?.priorIds
-			}
-			v = make_context_evaluator(t.expr, context)(context)
+			})
 		} catch (e) {
 			if (showError) {
 				sendUserToast(`Error evaluating ${k}: ${e.message}`, true)
@@ -108,11 +88,13 @@ export function filteredContentForExport(flow: ExtendedOpenFlow) {
 	if (flow.tag) {
 		o['tag'] = flow.tag
 	}
+	if (flow.job_token_scopes != null) {
+		o['job_token_scopes'] = flow.job_token_scopes
+	}
 	return o
 }
 
 import { dfs as dfsApply } from './dfs'
-import { randomUUID } from '$lib/utils/uuid'
 
 export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 	tag?: string
@@ -121,6 +103,7 @@ export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 	visible_to_runner_only?: boolean
 	on_behalf_of_email?: string
 	on_behalf_of?: string
+	job_token_scopes?: string[] | null
 } {
 	const newFlow: Flow = $state.snapshot(flow)
 
@@ -141,24 +124,8 @@ export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 		if (mod.value.type == 'rawscript' && mod.value.assets?.length == 0) {
 			mod.value.assets = undefined
 		}
-		// Generate memory_id for AI agents with auto memory if not already set
-		// Only if chat input is not enabled, as otherwise memory id is based on conversation id
-		if (!newFlow.value.chat_input_enabled && mod.value.type === 'aiagent') {
-			const memoryTransform = mod.value.input_transforms?.memory
-			if (memoryTransform?.type === 'static' && memoryTransform.value) {
-				const memoryValue = memoryTransform.value as MemoryConfig
-				if (
-					memoryValue.kind === 'auto' &&
-					memoryValue.context_length &&
-					memoryValue.context_length > 0 &&
-					!memoryValue.memory_id
-				) {
-					memoryTransform.value = {
-						...memoryValue,
-						memory_id: randomUUID()
-					}
-				}
-			}
+		if (mod.value.type === 'aiagent') {
+			normalizeAgentHistory(mod.value.input_transforms, newFlow.value.chat_input_enabled ?? false)
 		}
 	})
 	if (newFlow.value.concurrency_key == '') {
@@ -166,6 +133,43 @@ export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 	}
 
 	return newFlow
+}
+
+/**
+ * A baked legacy id is dropped in a chat flow, which runs on the conversation id; elsewhere it
+ * stays until the author converts it. Blank static history inputs read as unset and managed
+ * memory keeping no messages runs as off, so each is saved as what it runs as.
+ */
+export function normalizeAgentHistory(
+	inputTransforms: Record<string, any> | undefined,
+	chatInputEnabled: boolean
+) {
+	if (!inputTransforms) return
+	const memory = inputTransforms.memory
+	if (
+		memory?.type === 'static' &&
+		memory.value?.kind === 'window' &&
+		!memory.value.context_length
+	) {
+		memory.value = { kind: 'off' }
+	}
+	if (
+		memory?.type === 'static' &&
+		memory.value?.kind === 'auto' &&
+		'memory_id' in memory.value &&
+		(chatInputEnabled || !String(memory.value.memory_id ?? '').trim())
+	) {
+		const { memory_id: _, ...policy } = memory.value
+		memory.value = policy
+	}
+	const memoryId = inputTransforms.memory_id
+	if (memoryId?.type === 'static' && !String(memoryId.value ?? '').trim()) {
+		delete inputTransforms.memory_id
+	}
+	const previousMessages = inputTransforms.previous_messages
+	if (previousMessages?.type === 'static' && !previousMessages.value?.length) {
+		delete inputTransforms.previous_messages
+	}
 }
 
 export function getDefaultExpr(

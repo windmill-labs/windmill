@@ -9,6 +9,8 @@ on:
   push:
     paths:
       - "frontend/**"
+      # The flow chat compiles the chat SDK's source in (svelte.config.js alias).
+      - "chat-sdk/src/**"
       - ".github/workflows/frontend-check.yml"
 
 jobs:
@@ -16,7 +18,7 @@ jobs:
     runs-on: ubicloud-standard-8
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: "npm"

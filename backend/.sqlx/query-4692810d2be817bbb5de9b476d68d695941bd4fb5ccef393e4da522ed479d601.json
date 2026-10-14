@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE postgres_trigger SET server_id = NULL, last_server_ping = NULL\n         WHERE workspace_id = $1\n           AND (postgres_resource_path = $2 OR postgres_resource_path LIKE $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4692810d2be817bbb5de9b476d68d695941bd4fb5ccef393e4da522ed479d601"
+}

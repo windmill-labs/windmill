@@ -3,12 +3,14 @@
 	// lucide glyphs, where a coloured brand mark reads as a different kind of thing.
 	import { triggerIconMapMono as triggerIconMap, type TriggerType } from './utils'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
-	import { SchedulePollIcon } from '$lib/components/icons'
+	import SchedulePollIcon from '$lib/components/icons/SchedulePollIcon.svelte'
 	import type { Placement } from '@floating-ui/core'
 	import { isCloudHosted } from '$lib/cloud'
 	import { CloudOff } from 'lucide-svelte'
 	import { isServiceAvailable } from './native/utils'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		setDropdownWidthToButtonWidth?: boolean
@@ -41,15 +43,15 @@
 	let githubAvailable = $state(false)
 
 	async function setNextcloudState() {
-		nextcloudAvailable = await isServiceAvailable('nextcloud', $workspaceStore!)
+		nextcloudAvailable = await isServiceAvailable('nextcloud', $operatingWorkspace!)
 	}
 
 	async function setGoogleState() {
-		googleAvailable = await isServiceAvailable('google', $workspaceStore!)
+		googleAvailable = await isServiceAvailable('google', $operatingWorkspace!)
 	}
 
 	async function setGithubState() {
-		githubAvailable = await isServiceAvailable('github', $workspaceStore!)
+		githubAvailable = await isServiceAvailable('github', $operatingWorkspace!)
 	}
 
 	setNextcloudState()

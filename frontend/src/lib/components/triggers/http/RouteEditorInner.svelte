@@ -12,22 +12,17 @@
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import {
 		HttpTriggerService,
+		SettingService,
 		VariableService,
 		type AuthenticationMethod,
-		type ErrorHandler,
 		type HttpTrigger,
 		type NewHttpTrigger,
 		type Retry,
 		type TriggerMode
 	} from '$lib/gen'
-	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import {
-		canWrite,
-		capitalize,
-		emptyString,
-		generateRandomString,
-		sendUserToast
-	} from '$lib/utils'
+	import { usedTriggerKinds } from '$lib/stores'
+	import { capitalize, emptyString, generateRandomString, sendUserToast } from '$lib/utils'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, Pipette, Plus } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -46,13 +41,23 @@
 	import ResourcePicker from '$lib/components/ResourcePicker.svelte'
 	import ItemPicker from '../../ItemPicker.svelte'
 	import { Popover } from '$lib/components/meltComponents'
-	import { HUB_SCRIPT_ID, saveHttpRouteFromCfg, SECRET_KEY_PATH } from './utils'
+	import {
+		HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
+		HUB_SCRIPT_ID,
+		allowedOriginsError,
+		isOriginRestricted,
+		parseAllowedOriginsSetting,
+		saveHttpRouteFromCfg,
+		SECRET_KEY_PATH
+	} from './utils'
 	import { HubFlow } from '$lib/hub'
 	import RouteBodyTransformerOption from './RouteBodyTransformerOption.svelte'
+	import RouteCorsOption from './RouteCorsOption.svelte'
 	import TestingBadge from '../testingBadge.svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
-	import { getHandlerType, handleConfigChange } from '../utils'
+	import { handleConfigChange } from '../utils'
+	import { handlerDraftFromStored, handlerDraftToStored } from '../../handlerDraft.svelte'
 	import autosize from '$lib/autosize'
 	import { untrack } from 'svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
@@ -66,9 +71,17 @@
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
+	const editRights = useEditRights()
 
 	let {
 		useDrawer = true,
+		inline = false,
+		onClose = undefined,
 		hideTarget = false,
 		description = undefined,
 		isEditor = false,
@@ -83,6 +96,11 @@
 		trigger = undefined,
 		customSaveBehavior = undefined
 	} = $props()
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
+	const operatingHref = useOperatingWorkspaceHref()
+	const wsId = $derived($operatingWorkspace)
 
 	// Form data state
 	let initialPath = $state('')
@@ -110,17 +128,48 @@
 	let workspaced_route = $state(false)
 	let raw_string = $state(false)
 	let wrap_body = $state(false)
+	let allowed_origins = $state<string[] | undefined>(undefined)
+	// Derived from the stored list, not reported by the field: the field only
+	// exists on the request-options tab, so an error owned by it would keep Save
+	// disabled from a screen that cannot show why. An empty list is not an error
+	// either, since it resolves as an unset one, so only what the API refuses
+	// blocks the save.
+	const originsError = $derived(allowedOriginsError(allowed_origins))
+	// Fetched once here rather than in RouteCorsOption so the Advanced badge can
+	// show an inherited restriction without the section being expanded.
+	let instanceDefaultOrigins = $state<string[]>([])
+	async function loadInstanceDefaultOrigins() {
+		try {
+			const setting = await SettingService.getGlobal({
+				key: HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
+			})
+			instanceDefaultOrigins = parseAllowedOriginsSetting(setting)
+		} catch {
+			instanceDefaultOrigins = []
+		}
+	}
+	loadInstanceDefaultOrigins()
 	let drawerLoading = $state(true)
 	let showLoader = $state(false)
 	let authentication_resource_path = $state('')
 	let variable_path = $state('')
 	let signature_options_type = $state<'custom_script' | 'custom_signature'>('custom_signature')
-	let can_write = $state(true)
+	let permsPath = $state<string | undefined>(undefined)
+	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
+	// The acting user in the operating workspace arrives asynchronously, and an unknown user
+	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
+	const can_write = $derived(
+		permsPath === undefined
+			? editRights.roleCanAuthor('trigger')
+			: editRights.canEditItem('trigger', permsPath, permsForWrite)
+	)
 	let extraPerms = $state<Record<string, boolean> | undefined>(undefined)
 	let summary: string | undefined = $state()
 	let routeDescription: string | undefined = $state()
-	let error_handler_path: string | undefined = $state()
-	let error_handler_args: Record<string, any> = $state({})
+	let errorHandler = $state(handlerDraftFromStored('error', undefined))
+	const storedErrorHandler = $derived(handlerDraftToStored(errorHandler))
+	const error_handler_path = $derived(storedErrorHandler.path)
+	const error_handler_args = $derived(storedErrorHandler.args)
 	let retry: Retry | undefined = $state()
 	// Component references
 	let s3FilePicker = $state<S3FilePicker | undefined>(undefined)
@@ -134,7 +183,6 @@
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
 	let preservePermissionedAs = $state(false)
 	let optionTabSelected: 'request_options' | 'error_handler' | 'retries' = $state('request_options')
-	let errorHandlerSelected: ErrorHandler = $state('slack')
 
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<NewHttpTrigger | undefined>(undefined)
@@ -148,7 +196,7 @@
 	const draftSync = useTriggerDraftSync({
 		itemKind: 'trigger_http',
 		path: () => initialPath,
-		workspace: () => $workspaceStore,
+		workspace: () => wsId,
 		drawerLoading: () => drawerLoading,
 		getCfg: () => routeConfig,
 		applyCfg: (c) => loadTriggerConfig(c as Partial<HttpTrigger>),
@@ -160,6 +208,7 @@
 			!can_write ||
 			pathError != '' ||
 			!isValid ||
+			originsError != undefined ||
 			(!static_asset_config && emptyString(script_path)) ||
 			!hasChanged
 	)
@@ -183,7 +232,7 @@
 	}
 
 	async function loadVariables() {
-		return await VariableService.listVariable({ workspace: $workspaceStore ?? '' })
+		return await VariableService.listVariable({ workspace: wsId ?? '' })
 	}
 
 	const authentication_options: AuthenticationOption[] = [
@@ -223,6 +272,9 @@
 		isFlow: boolean,
 		defaultConfig?: Partial<NewHttpTrigger>
 	) {
+		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
+		operatingUser.forgetFailures()
+		editRights.forgetFailures()
 		drawerLoading = true
 		let loader = setTimeout(() => {
 			showLoader = true
@@ -295,12 +347,16 @@
 			signature_options_type = defaultValues?.signature_options_type ?? 'custom_signature'
 			raw_string = defaultValues?.raw_string ?? false
 			wrap_body = defaultValues?.wrap_body ?? false
+			allowed_origins = defaultValues?.allowed_origins ?? undefined
 			summary = defaultValues?.summary ?? ''
 			routeDescription = defaultValues?.description ?? ''
-			error_handler_path = defaultValues?.error_handler_path ?? undefined
-			error_handler_args = defaultValues?.error_handler_args ?? {}
+			errorHandler = handlerDraftFromStored(
+				'error',
+				defaultValues?.error_handler_path,
+				'script',
+				defaultValues?.error_handler_args
+			)
 			retry = defaultValues?.retry ?? undefined
-			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			permissionedAs = undefined
 			selectedPermissionedAs = undefined
 			preservePermissionedAs = false
@@ -313,6 +369,8 @@
 	}
 
 	function loadTriggerConfig(cfg?: Partial<HttpTrigger>): void {
+		// The loaded trigger says what it runs; an opener's `isFlow` is only its guess.
+		if (cfg?.is_flow !== undefined) itemKind = cfg.is_flow ? 'flow' : 'script'
 		script_path = cfg?.script_path ?? ''
 		initialScriptPath = cfg?.script_path ?? ''
 		is_flow = cfg?.is_flow ?? false
@@ -323,6 +381,7 @@
 		workspaced_route = cfg?.workspaced_route ?? false
 		wrap_body = cfg?.wrap_body ?? false
 		raw_string = cfg?.raw_string ?? false
+		allowed_origins = cfg?.allowed_origins ?? undefined
 		summary = cfg?.summary ?? ''
 		mode = cfg?.mode ?? 'enabled'
 		routeDescription = cfg?.description ?? ''
@@ -340,11 +399,15 @@
 			is_static_website = cfg?.is_static_website ?? false
 		}
 		extraPerms = cfg?.extra_perms ?? undefined
-		can_write = canWrite(path, cfg?.extra_perms ?? {}, $userStore)
-		error_handler_path = cfg?.error_handler_path
-		error_handler_args = cfg?.error_handler_args ?? {}
+		permsPath = path
+		permsForWrite = cfg?.extra_perms ?? {}
+		errorHandler = handlerDraftFromStored(
+			'error',
+			cfg?.error_handler_path,
+			'script',
+			cfg?.error_handler_args
+		)
 		retry = cfg?.retry
-		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		permissionedAs = cfg?.permissioned_as
 		selectedPermissionedAs = cfg?.permissioned_as
 		preservePermissionedAs = !!cfg?.permissioned_as
@@ -359,7 +422,7 @@
 			return { overlay: undefined, noDeployed: false }
 		}
 		const s = await HttpTriggerService.getHttpTrigger({
-			workspace: $workspaceStore!,
+			workspace: wsId!,
 			path: initialPath,
 			getDraft: true
 		})
@@ -385,8 +448,8 @@
 				initialPath,
 				saveCfg,
 				edit,
-				$workspaceStore!,
-				!!$userStore?.is_admin || !!$userStore?.is_super_admin,
+				wsId!,
+				!!actingUser?.is_admin || !!actingUser?.is_super_admin,
 				usedTriggerKinds
 			)
 			if (isSaved) {
@@ -423,6 +486,7 @@
 			mode,
 			wrap_body,
 			raw_string,
+			allowed_origins,
 			authentication_resource_path,
 			authentication_method: auth_method,
 			static_asset_config,
@@ -447,7 +511,7 @@
 			// and parent live at distinct URLs — no fork-conflict warning.
 			await HttpTriggerService.setHttpTriggerMode({
 				path: initialPath,
-				workspace: $workspaceStore ?? '',
+				workspace: wsId ?? '',
 				requestBody: { mode: newMode }
 			})
 			sendUserToast(`${capitalize(newMode)} HTTP trigger ${initialPath}`)
@@ -500,8 +564,8 @@
 {#if authentication_method === 'windmill'}
 	<UserSettings
 		bind:this={userSettings}
-		newTokenWorkspace={$workspaceStore}
-		newTokenLabel={`http-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
+		newTokenWorkspace={wsId}
+		newTokenLabel={`http-${actingUser?.username ?? 'superadmin'}-${generateRandomString(4)}`}
 		{scopes}
 	/>
 {/if}
@@ -531,6 +595,7 @@
 	{:else}
 		<PermissionedAsLine
 			{permissionedAs}
+			disabled={!can_write}
 			{path}
 			onPermissionedAsChange={(pa, preserve) => {
 				selectedPermissionedAs = pa
@@ -666,6 +731,7 @@
 											{#key is_static_website}
 												<FileUpload
 													folderOnly={is_static_website}
+													disabled={!can_write}
 													allowMultiple={false}
 													randomFileKey={true}
 													on:addition={(evt) => {
@@ -712,7 +778,7 @@
 										bind:itemKind
 										bind:scriptPath={script_path}
 										allowRefresh={can_write}
-										allowEdit={!$userStore?.operator}
+										allowEdit={!actingUser?.operator}
 										clearable
 									/>
 
@@ -720,9 +786,9 @@
 										<Button
 											variant="default"
 											size="lg"
-											href={itemKind === 'flow'
-												? '/flows/add?hub=62'
-												: '/scripts/add?hub=hub%2F19669'}
+											href={operatingHref(
+												itemKind === 'flow' ? '/flows/add?hub=62' : '/scripts/add?hub=hub%2F19669'
+											)}
 											target="_blank">Create from template</Button
 										>
 									{/if}
@@ -758,7 +824,11 @@
 							extraBadges={[
 								{ name: 'Async', active: request_type === 'async' },
 								{ name: 'SSE', active: request_type === 'sync_sse' },
-								{ name: 'Authentication', active: authentication_method !== 'none' }
+								{ name: 'Authentication', active: authentication_method !== 'none' },
+								{
+									name: 'CORS',
+									active: isOriginRestricted(allowed_origins, instanceDefaultOrigins)
+								}
 							]}
 						/>
 					{/snippet}
@@ -928,13 +998,11 @@
 														disabled={emptyString(variable_path) || !can_write}
 														variant="default"
 														size="xs"
-														href={itemKind === 'flow'
-															? `/flows/add?${SECRET_KEY_PATH}=${encodeURIComponent(variable_path)}&hub=${
-																	HubFlow.SIGNATURE_TEMPLATE
-																}`
-															: `/scripts/add?${SECRET_KEY_PATH}=${encodeURIComponent(
-																	variable_path
-																)}&hub=hub%2F${HUB_SCRIPT_ID}`}
+														href={operatingHref(
+															itemKind === 'flow'
+																? `/flows/add?${SECRET_KEY_PATH}=${encodeURIComponent(variable_path)}&hub=${HubFlow.SIGNATURE_TEMPLATE}`
+																: `/scripts/add?${SECRET_KEY_PATH}=${encodeURIComponent(variable_path)}&hub=hub%2F${HUB_SCRIPT_ID}`
+														)}
 														target="_blank">Create from template</Button
 													>
 												</div>
@@ -961,15 +1029,21 @@
 										disabled={!can_write}
 										{testingBadge}
 									/>
+
+									<RouteCorsOption
+										bind:allowed_origins
+										error={originsError}
+										{instanceDefaultOrigins}
+										disabled={!can_write}
+										{testingBadge}
+									/>
 								</div>
 							{:else}
 								<TriggerRetriesAndErrorHandler
 									{optionTabSelected}
 									{itemKind}
 									{can_write}
-									bind:errorHandlerSelected
-									bind:error_handler_path
-									bind:error_handler_args
+									bind:errorHandler
 									bind:retry
 								/>
 							{/if}
@@ -1010,36 +1084,40 @@
 	{/if}
 {/snippet}
 
-{#if useDrawer}
+{#snippet drawerBody()}
+	<DrawerContent
+		hideClose={inline && !onClose}
+		fullScreen={!inline}
+		bannerReserved={draftSync.hasBaseline}
+		title={edit ? (can_write ? `Edit route ${initialPath}` : `Route ${initialPath}`) : 'New route'}
+		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
+	>
+		{#snippet actions()}
+			{@render saveButton()}
+		{/snippet}
+		{#snippet banner()}
+			<LocalDraftBanner
+				show={draftSync.hasDraft}
+				getDeployed={() => draftSync.deployed}
+				reserveSpace={draftSync.hasBaseline}
+				getCurrent={() => draftSync.current}
+				onDiscard={() => draftSync.resetToDeployed(initialPath)}
+				disabled={!can_write}
+			/>
+		{/snippet}
+		{@render config()}
+	</DrawerContent>
+{/snippet}
+
+{#if useDrawer && inline}
+	{@render drawerBody()}
+{:else if useDrawer}
 	<Drawer
 		size="700px"
 		bind:this={drawer}
 		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.http.path)}
 	>
-		<DrawerContent
-			bannerReserved={draftSync.hasBaseline}
-			title={edit
-				? can_write
-					? `Edit route ${initialPath}`
-					: `Route ${initialPath}`
-				: 'New route'}
-			on:close={() => drawer?.closeDrawer()}
-		>
-			{#snippet actions()}
-				{@render saveButton()}
-			{/snippet}
-			{#snippet banner()}
-				<LocalDraftBanner
-					show={draftSync.hasDraft}
-					getDeployed={() => draftSync.deployed}
-					reserveSpace={draftSync.hasBaseline}
-					getCurrent={() => draftSync.current}
-					onDiscard={() => draftSync.resetToDeployed(initialPath)}
-					disabled={!can_write}
-				/>
-			{/snippet}
-			{@render config()}
-		</DrawerContent>
+		{@render drawerBody()}
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'HTTP Route' : ''} headerClass="grow min-w-0 h-[30px]">

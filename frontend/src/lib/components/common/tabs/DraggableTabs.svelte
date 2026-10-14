@@ -50,6 +50,9 @@
 		/** Render after the right-pinned tabs, outside the scroll area so it stays
 		 * pinned (e.g. a "Split with Preview" toggle). */
 		trailing?: import('svelte').Snippet
+		/** Tab height. `sm` (the default) is the 24px pill the panel strips use; `md` is 28px, for a
+		 * strip that fills a 44px bar, where the smaller pill leaves too much air around it. */
+		size?: 'sm' | 'md'
 		/** Render inside each tab (after the label; receives the tab + isActive). Clicks
 		 * bubble to the tab unless the accessory stops them. The tab is position:relative
 		 * so an `absolute inset-0 pointer-events-none` child can anchor a whole-tab
@@ -65,6 +68,7 @@
 		onReorder,
 		onActiveClick,
 		class: c = '',
+		size = 'sm',
 		afterTabs,
 		trailing,
 		tabAccessory
@@ -180,7 +184,8 @@
 
 	function tabClasses(isActive: boolean) {
 		return twMerge(
-			'group relative inline-flex items-center gap-1.5 px-2.5 h-6 text-xs rounded-md select-none cursor-pointer whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-border-selected focus-visible:ring-inset',
+			'group relative inline-flex items-center gap-1.5 text-xs rounded-md select-none cursor-pointer whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-border-selected focus-visible:ring-inset',
+			size === 'md' ? 'h-7 px-3 gap-2' : 'h-6 px-2.5',
 			isActive
 				? 'bg-surface-tertiary text-emphasis'
 				: 'bg-transparent text-hint hover:text-secondary'
@@ -197,6 +202,8 @@
 	// would fire, so the tab must claim its keys first via stopPropagation.
 	function handleKeydown(e: KeyboardEvent, tab: TabItem) {
 		if (e.target !== e.currentTarget) return // let nested controls (close ×) act
+		// A modified key is the host page's shortcut (e.g. Cmd+Enter to run), not a tab action.
+		if (e.ctrlKey || e.metaKey || e.altKey) return
 		if (e.key === 'Delete' || e.key === 'Backspace') {
 			if (tab.closable !== false) {
 				e.preventDefault()
@@ -219,6 +226,19 @@
 			e.stopPropagation()
 			activate(tab)
 		}
+	}
+
+	// svelte-dnd-action claims every Enter/Space on a focused tab or on its (also focusable)
+	// item wrapper to start a keyboard drag, and stops it there — so a modified one, the host
+	// page's shortcut, is stopped first and re-sent from the strip, above the dnd zone. The
+	// target test mirrors dnd's own skip, leaving nested buttons and inputs alone.
+	function forwardModifiedKey(e: KeyboardEvent) {
+		if (!(e.ctrlKey || e.metaKey || e.altKey) || (e.key !== 'Enter' && e.key !== ' ')) return
+		const target = e.target as HTMLElement & { disabled?: boolean; href?: string }
+		if (target === stripEl || target.disabled !== undefined || target.href) return
+		if (target.isContentEditable) return
+		e.stopPropagation()
+		stripEl?.dispatchEvent(new KeyboardEvent(e.type, e))
 	}
 
 	function handleAuxClick(e: MouseEvent, tab: TabItem) {
@@ -269,7 +289,12 @@
 	</div>
 {/snippet}
 
-<div bind:this={stripEl} class={twMerge('flex items-center bg-surface min-h-8', c)}>
+<div
+	bind:this={stripEl}
+	class={twMerge('flex items-center bg-surface min-h-8', c)}
+	onkeydowncapture={forwardModifiedKey}
+	role="presentation"
+>
 	<!-- The tabs centre in the full strip and the bar overlays the air under them,
 	     flush with the strip's bottom edge — it takes no height of its own, so the
 	     strip never resizes and the tabs sit at the same place whether or not they

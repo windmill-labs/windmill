@@ -1,23 +1,14 @@
 <script lang="ts">
 	import { untrack } from 'svelte'
-	import Markdown from 'svelte-exmarkdown'
-	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
-	import { Code, Eye, FileText, Copy, Check, Download, ClipboardList } from 'lucide-svelte'
+	import { Code, Eye, FileText, ClipboardList } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
-	import { copyToClipboard, download } from '$lib/utils'
+	import { currentVersion, type ArtifactVersion, type PersistedArtifact } from './artifactsDB'
 	import CodeDisplay from '../script/CodeDisplay.svelte'
-	import LinkRenderer from '../LinkRenderer.svelte'
-	import {
-		artifactFilename,
-		artifactMimeType,
-		currentVersion,
-		type ArtifactVersion,
-		type PersistedArtifact
-	} from './artifactsDB'
-	import { markdownProse } from '$lib/components/markdownProse'
+	import ArtifactBody from './ArtifactBody.svelte'
+	import ArtifactExportButton from './ArtifactExportButton.svelte'
+	import ArtifactShareButton from './ArtifactShareButton.svelte'
 	import ArtifactVersionPicker from './ArtifactVersionPicker.svelte'
 	import type { SessionArtifactsStore } from './artifactsState.svelte'
 	import { History } from 'lucide-svelte'
@@ -114,22 +105,6 @@
 	const backTo = $derived(view.backToPlan)
 	let showSource = $state(false)
 	const source = $derived(!canPreview || showSource)
-
-	let copied = $state(false)
-	async function copyRaw() {
-		if (!(await copyToClipboard(shown.content))) return
-		copied = true
-		setTimeout(() => (copied = false), 1500)
-	}
-	function downloadFile() {
-		download(
-			artifactFilename({ name: shown.name, kind: artifact.kind }),
-			shown.content,
-			artifactMimeType(artifact.kind)
-		)
-	}
-
-	const plugins = [gfmPlugin(), { renderer: { pre: CodeDisplay, a: LinkRenderer } }]
 </script>
 
 <div class="flex flex-col h-full bg-surface-tertiary">
@@ -169,27 +144,22 @@
 			{/if}
 		</div>
 		<div class="flex items-center gap-2 shrink-0">
-			<!-- Copy raw markdown, with a dropdown for the download-as-file variant. Both export
-			     `shown`, which is still the current document while a pin is restoring — so both
-			     are disabled, the item explicitly: a Button's `disabled` does not reach it. -->
-			<Button
-				unifiedSize="sm"
-				variant="default"
+			<!-- Both export and share `shown`, which is still the current document while a pin is
+			     restoring, so both wait for it. -->
+			<ArtifactShareButton
+				artifactId={artifact.id}
+				name={shown.name}
+				kind={artifact.kind}
+				content={shown.content}
+				version={shownVersion ?? latest}
 				disabled={restoringPin}
-				startIcon={{ icon: copied ? Check : Copy }}
-				onClick={copyRaw}
-				title="Copy raw markdown"
-				dropdownItems={[
-					{
-						label: 'Download as .md',
-						icon: Download,
-						onClick: downloadFile,
-						disabled: restoringPin
-					}
-				]}
-			>
-				{copied ? 'Copied' : 'Copy'}
-			</Button>
+			/>
+			<ArtifactExportButton
+				name={shown.name}
+				kind={artifact.kind}
+				content={shown.content}
+				disabled={restoringPin}
+			/>
 			{#if canPreview}
 				<ToggleButtonGroup
 					noWFull
@@ -269,19 +239,8 @@
 	<div class="flex-1 min-h-0 overflow-auto px-8">
 		{#if restoringPin}
 			<!-- Deliberately blank until the pinned snapshot lands; see restoringPin. -->
-		{:else if source}
-			<!-- key: SimpleEditor reads `code` only on init; remount on id or content change. -->
-			{#key `${artifact.id}:${pinnedContent ? `v${pinnedContent.version}` : artifact.updatedAt}`}
-				<SimpleEditor lang="markdown" code={shown.content} readOnly class="h-full" />
-			{/key}
 		{:else}
-			<!-- Pinned under the header, fades scrolled-under content instead of hard-clipping it.
-			     The negative margin cancels its flow height so it overlays instead of pushing. -->
-			<div class="sticky top-0 z-10 h-4 -mb-4 bg-gradient-to-b from-surface-tertiary to-transparent"
-			></div>
-			<div class="pb-4 pt-2 {markdownProse.doc}">
-				<Markdown md={shown.content} {plugins} />
-			</div>
+			<ArtifactBody content={shown.content} {source} pre={CodeDisplay} />
 		{/if}
 	</div>
 </div>

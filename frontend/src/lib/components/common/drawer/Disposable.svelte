@@ -32,6 +32,9 @@
 		children?: import('svelte').Snippet<[any]>
 		onOpen?: () => void
 		onClose?: () => void
+		/** Asked before a click away or Escape closes it; resolving false keeps it open, e.g. to
+		 *  confirm discarding unsaved changes. */
+		confirmClose?: () => boolean | Promise<boolean>
 	}
 
 	let {
@@ -42,8 +45,24 @@
 		minZIndex = 0,
 		children,
 		onOpen,
-		onClose
+		onClose,
+		confirmClose
 	}: Props = $props()
+
+	// While the question is on screen, the keys and clicks are its own.
+	let confirming = false
+	async function requestClose() {
+		if (confirming) return
+		if (confirmClose) {
+			confirming = true
+			try {
+				if (!(await confirmClose())) return
+			} finally {
+				confirming = false
+			}
+		}
+		closeDrawer()
+	}
 
 	let offset = $state(untrack(() => initialOffset))
 	// Note: when a Modal with minZIndex is open, all disposables (including
@@ -71,6 +90,16 @@
 		}
 	}
 
+	// The entry follows the prop for as long as the overlay is open: a dialog opened before
+	// the AI chat still has to rise above it when the chat is opened underneath it.
+	$effect(() => {
+		const wanted = open && minZIndex > 0 ? minZIndex : undefined
+		untrack(() => {
+			if (wanted !== undefined) minZIndexEntries[id] = wanted
+			else delete minZIndexEntries[id]
+		})
+	})
+
 	// A disposable can be unmounted while still open, by an ancestor that tears its whole
 	// subtree down. Its id would then sit on the stack forever, and since the topmost entry
 	// arbitrates Escape, every overlay opened afterwards would stop answering it.
@@ -84,10 +113,10 @@
 		offset = initialOffset
 		if (stack.val.includes(id)) {
 			stack.val = stack.val.filter((drawer) => drawer !== id)
-			if (minZIndex > 0) {
-				delete minZIndexEntries[id]
-			}
 		}
+		// Unconditionally: `minZIndex` may have fallen to 0 since the entry was written (the
+		// chat closed), and a leftover entry keeps every later overlay elevated for good.
+		delete minZIndexEntries[id]
 	}
 
 	export function isOpen() {
@@ -105,7 +134,7 @@
 		const last = stack.val[stack.val.length - 1]
 		if (last === id) {
 			e.stopPropagation()
-			closeDrawer()
+			requestClose()
 		}
 	}
 
@@ -115,7 +144,16 @@
 		if (open) {
 			switch (event.key) {
 				case 'Escape':
+					// The confirmation on screen answers this Escape itself, as its Cancel.
+					if (confirming) break
 					if ((id == stack.val[stack.val.length - 1] || stack.val.length == 0) && !preventEscape) {
+						if (confirmClose) {
+							event.preventDefault()
+							event.stopPropagation()
+							event.stopImmediatePropagation()
+							requestClose()
+							break
+						}
 						stack.val.pop()
 						event.preventDefault()
 						event.stopPropagation()

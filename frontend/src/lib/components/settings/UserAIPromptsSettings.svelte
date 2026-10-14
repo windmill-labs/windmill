@@ -6,7 +6,10 @@
 	import Label from '../Label.svelte'
 	import AIPromptsModal from './AIPromptsModal.svelte'
 	import { ExternalLink, Settings } from 'lucide-svelte'
-	import { userStore } from '$lib/stores'
+	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	const USER_CUSTOM_PROMPTS_KEY = 'userCustomAIPrompts'
 
@@ -49,7 +52,7 @@
 		<div class="flex flex-col gap-4">
 			<p class="text-xs text-secondary">
 				Customize AI behavior with system prompts. These are stored locally in your browser and
-				apply in addition to {#if $userStore?.is_admin || $userStore?.is_super_admin}<a
+				apply in addition to {#if actingUser?.is_admin || actingUser?.is_super_admin}<a
 						href="/workspace_settings?tab=ai"
 						>workspace-level prompts <ExternalLink size={12} class="inline-block" /></a
 					>{:else}workspace-level prompts{/if}.

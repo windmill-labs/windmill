@@ -37,8 +37,8 @@
 	const hubProjectUrl = $derived(`//${hubHost}/projects/${project.slug}`)
 
 	// Resolved locally rather than fetched: these are Windmill's own bundled icons, so the
-	// card draws them synchronously instead of waiting on the hub — and keeps working on a
-	// hub that refuses uncredentialed reads.
+	// card does not wait on the hub — and keeps working on a hub that refuses uncredentialed
+	// reads.
 	const icons = $derived(
 		project.iconApps
 			.slice(0, 4)

@@ -22,9 +22,8 @@ so patching here is sufficient:
 - `DockerfileExtra` builds `FROM windmill-ee-slim`.
 
 The nsjail *builder* stages are throwaway (only the compiled `nsjail` binary is
-copied out), so they are intentionally not upgraded. `DockerfileMultiplayer`
-(`node:slim`), the CLI, Caddy-L4, CUDA-only, and RHEL/dnf images are out of scope
-for this apt-based patching.
+copied out), so they are intentionally not upgraded. The CLI, Caddy-L4,
+CUDA-only, and RHEL/dnf images are out of scope for this apt-based patching.
 
 ## Why `apt-get upgrade` and not `unattended-upgrades` / pinning
 

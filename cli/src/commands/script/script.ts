@@ -61,7 +61,11 @@ import {
   readConfigFile,
   readEffectiveSyncBehavior,
 } from "../../core/conf.ts";
-import { SyncCodebase, listSyncCodebases } from "../../utils/codebase.ts";
+import {
+  SyncCodebase,
+  listSyncCodebases,
+  uncoveredBundleInputs,
+} from "../../utils/codebase.ts";
 import { pollJobWithQueueLogging } from "../../utils/job_polling.ts";
 import fs from "node:fs";
 import { createTarBlob, type TarEntry } from "../../utils/tar.ts";
@@ -446,8 +450,19 @@ export async function handleFile(
           target: format == "cjs" ? "node20.15.1" : "esnext",
           banner: codebase.banner,
           // ...(codebase.banner != null && { banner: codebase.banner }),
+          metafile: true,
         });
         const endTime = performance.now();
+        const uncovered = uncoveredBundleInputs(
+          codebase,
+          path,
+          Object.keys(out.metafile?.inputs ?? {})
+        );
+        if (uncovered.length > 0) {
+          log.warnAlways(
+            `${path} bundles files outside codebase ${codebase.relative_path}; edits to them won't be detected as changes unless listed in extra_digest_paths: ${uncovered.join(", ")}`
+          );
+        }
         bundleContent = out.outputFiles[0].text;
         outputFiles = out.outputFiles ?? [];
         if (outputFiles.length == 0) {
@@ -621,6 +636,9 @@ export async function handleFile(
       envs: typed?.envs,
       modules: modules,
       labels: typed?.labels,
+      // Always sent: the server keeps a restriction the body omits, so a script.yaml without
+      // the key has to clear it explicitly.
+      job_token_scopes: typed?.job_token_scopes ?? null,
     };
 
     const hasOnBehalfOf = (typed as any)?.has_on_behalf_of ?? !!typed?.on_behalf_of_email;
@@ -697,6 +715,7 @@ export async function handleFile(
             (hasOnBehalfOf ? true : typed.on_behalf_of_email == remote.on_behalf_of_email) &&
             deepEqual(typed.envs, remote.envs) &&
             deepEqual(typed.labels ?? null, remote.labels ?? null) &&
+            deepEqual(typed.job_token_scopes ?? null, remote.job_token_scopes ?? null) &&
             deepEqual(modules ?? null, remote.modules ?? null))
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));

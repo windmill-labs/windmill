@@ -8,9 +8,9 @@
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
-	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
-	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { usedTriggerKinds } from '$lib/stores'
+	import { capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -20,7 +20,6 @@
 		type PushConfig,
 		type SubscriptionMode,
 		type Retry,
-		type ErrorHandler,
 		type TriggerMode
 	} from '$lib/gen'
 	import Section from '$lib/components/Section.svelte'
@@ -30,19 +29,26 @@
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { saveGcpTriggerFromCfg } from './utils'
-	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
+	import { handleConfigChange, type Trigger } from '../utils'
+	import { handlerDraftFromStored, handlerDraftToStored } from '../../handlerDraft.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
-	import { base } from '$lib/base'
+	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import Subsection from '$lib/components/Subsection.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace,
+		useOperatingWorkspaceHref
+	} from '$lib/components/operatingWorkspace.svelte'
+	const editRights = useEditRights()
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let initialPath = $state('')
@@ -56,7 +62,17 @@
 	let pathError = $state('')
 	let mode = $state<TriggerMode>('enabled')
 	let dirtyPath = $state(false)
-	let can_write = $state(true)
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
+	let permsPath = $state<string | undefined>(undefined)
+	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
+	// The acting user in the operating workspace arrives asynchronously, and an unknown user
+	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
+	const can_write = $derived(
+		permsPath === undefined
+			? editRights.roleCanAuthor('trigger')
+			: editRights.canEditItem('trigger', permsPath, permsForWrite)
+	)
 	let drawerLoading = $state(true)
 	let topic_id: string = $state('')
 	let gcp_resource_path: string | undefined = $state('')
@@ -73,13 +89,14 @@
 	let permissionedAs = $state<string | undefined>(undefined)
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
 	let preservePermissionedAs = $state(false)
-	let base_endpoint = $derived(`${window.location.origin}${base}`)
+	let base_endpoint = $derived(apiBaseUrl())
 	let auto_acknowledge_msg = $state(true)
 	let ack_deadline: number | undefined = $state()
 	let optionTabSelected: 'settings' | 'error_handler' | 'retries' = $state('error_handler')
-	let errorHandlerSelected: ErrorHandler = $state('slack')
-	let error_handler_path: string | undefined = $state()
-	let error_handler_args: Record<string, any> = $state({})
+	let errorHandler = $state(handlerDraftFromStored('error', undefined))
+	const storedErrorHandler = $derived(handlerDraftToStored(errorHandler))
+	const error_handler_path = $derived(storedErrorHandler.path)
+	const error_handler_args = $derived(storedErrorHandler.args)
 	let retry: Retry | undefined = $state()
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
@@ -90,6 +107,8 @@
 	let loadedUsesDefaultCredentials = $state(false)
 	let {
 		useDrawer = true,
+		inline = false,
+		onClose = undefined,
 		description = undefined,
 		hideTarget = false,
 		hideTooltips = false,
@@ -106,6 +125,10 @@
 		cloudDisabled = false
 	}: {
 		useDrawer?: boolean
+		/** With `useDrawer`, render the drawer's content in place, filling the parent, with no drawer or close button. */
+		inline?: boolean
+		/** With `inline`, closes whatever hosts the editor; the header has a close button only when set. */
+		onClose?: () => void
 		description?: Snippet | undefined
 		hideTarget?: boolean
 		hideTooltips?: boolean
@@ -121,8 +144,9 @@
 		onReset?: () => void
 		cloudDisabled?: boolean
 	} = $props()
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingHref = useOperatingWorkspaceHref()
+	const wsId = $derived($operatingWorkspace)
 
 	let hasChanged = $derived(!deepEqual(getGcpConfig(), originalConfig ?? {}))
 	const gcpConfig = $derived.by(getGcpConfig)
@@ -141,12 +165,20 @@
 	)
 	const captureConfig = $derived.by(untrack(() => isEditor) ? getGcpCaptureConfig : () => ({}))
 
+	// Set by `openNew(…, { onSaveDraft })`: the caller keeps the trigger as its own
+	// draft, so Save hands it the config instead of writing it.
+	let saveDraftHandler: ((cfg: Record<string, any>) => boolean) | undefined = $state(undefined)
+
 	export async function openEdit(
 		ePath: string,
 		isFlow: boolean,
 		defaultValues?: Record<string, any>,
 		fixedScriptPath_?: string
 	) {
+		saveDraftHandler = undefined
+		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
+		operatingUser.forgetFailures()
+		editRights.forgetFailures()
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
@@ -177,8 +209,14 @@
 	export async function openNew(
 		nis_flow: boolean,
 		fixedScriptPath_?: string,
-		defaultValues?: Record<string, any>
+		defaultValues?: Record<string, any>,
+		opts: {
+			onSaveDraft?: (cfg: Record<string, any>) => boolean
+			/** A config this editor saved before, re-applied over the defaults. */
+			draftConfig?: Record<string, any>
+		} = {}
 	) {
+		saveDraftHandler = opts.onSaveDraft
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
@@ -210,16 +248,20 @@
 			edit = false
 			dirtyPath = false
 			mode = defaultValues?.mode ?? 'enabled'
-			error_handler_path = defaultValues?.error_handler_path ?? undefined
-			error_handler_args = defaultValues?.error_handler_args ?? {}
+			errorHandler = handlerDraftFromStored(
+				'error',
+				defaultValues?.error_handler_path,
+				'script',
+				defaultValues?.error_handler_args
+			)
 			retry = defaultValues?.retry ?? undefined
 			auto_acknowledge_msg = defaultValues?.auto_acknowledge_msg ?? true
 			ack_deadline = defaultValues?.ack_deadline
-			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			permissionedAs = undefined
 			selectedPermissionedAs = undefined
 			preservePermissionedAs = false
 			originalConfig = undefined
+			if (opts.draftConfig) await loadTriggerConfig(opts.draftConfig)
 		} finally {
 			drawerLoading = false
 		}
@@ -254,6 +296,8 @@
 	}
 
 	async function loadTriggerConfig(cfg?: Record<string, any>): Promise<void> {
+		// The loaded trigger says what it runs; an opener's `isFlow` is only its guess.
+		if (cfg?.is_flow !== undefined) itemKind = cfg.is_flow ? 'flow' : 'script'
 		script_path = cfg?.script_path
 		initialScriptPath = cfg?.script_path
 		gcp_resource_path = cfg?.gcp_resource_path ?? undefined
@@ -267,19 +311,28 @@
 		path = cfg?.path
 		mode = cfg?.mode ?? 'enabled'
 		topic_id = cfg?.topic_id ?? ''
-		can_write = canWrite(cfg?.path, cfg?.extra_perms, $userStore)
-		error_handler_path = cfg?.error_handler_path
-		error_handler_args = cfg?.error_handler_args ?? {}
+		permsPath = cfg?.path
+		permsForWrite = cfg?.extra_perms
+		errorHandler = handlerDraftFromStored(
+			'error',
+			cfg?.error_handler_path,
+			'script',
+			cfg?.error_handler_args
+		)
 		retry = cfg?.retry
 		auto_acknowledge_msg = cfg?.auto_acknowledge_msg ?? true
 		ack_deadline = cfg?.ack_deadline
-		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		permissionedAs = cfg?.permissioned_as
 		selectedPermissionedAs = cfg?.permissioned_as
 		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
 	async function updateTrigger(): Promise<void> {
+		if (saveDraftHandler) {
+			if (!saveDraftHandler($state.snapshot(getGcpConfig()))) return
+			drawer?.closeDrawer()
+			return
+		}
 		deploymentLoading = true
 		const previousPath = initialPath
 		const cfg = gcpConfig
@@ -332,7 +385,9 @@
 			subscription_id,
 			delivery_type,
 			delivery_config,
-			base_endpoint,
+			// The capture URL shown to the user stays on the browsing origin, so the
+			// endpoint registered for it must too.
+			base_endpoint: window.location.origin,
 			auto_acknowledge_msg,
 			ack_deadline,
 			topic_id,
@@ -405,36 +460,46 @@
 	/>
 {/if}
 
-{#if useDrawer}
+{#snippet drawerBody()}
+	<DrawerContent
+		hideClose={inline && !onClose}
+		fullScreen={!inline}
+		bannerReserved={draftSync.hasBaseline}
+		title={edit
+			? can_write
+				? `Edit GCP Pub/Sub trigger ${initialPath}`
+				: `GCP Pub/Sub trigger ${initialPath}`
+			: saveDraftHandler
+				? 'Draft GCP Pub/Sub trigger'
+				: 'New GCP Pub/Sub trigger'}
+		on:close={() => (inline ? onClose?.() : drawer?.closeDrawer())}
+	>
+		{#snippet actions()}
+			{@render actionsButtons()}
+		{/snippet}
+		{#snippet banner()}
+			<LocalDraftBanner
+				show={draftSync.hasDraft}
+				getDeployed={() => draftSync.deployed}
+				reserveSpace={draftSync.hasBaseline}
+				getCurrent={() => draftSync.current}
+				onDiscard={() => draftSync.resetToDeployed(initialPath)}
+				disabled={!can_write}
+			/>
+		{/snippet}
+		{@render config()}
+	</DrawerContent>
+{/snippet}
+
+{#if useDrawer && inline}
+	{@render drawerBody()}
+{:else if useDrawer}
 	<Drawer
 		size="800px"
 		bind:this={drawer}
 		on:close={() => clearPageDrawerAnchor(TRIGGER_PAGES.gcp.path)}
 	>
-		<DrawerContent
-			bannerReserved={draftSync.hasBaseline}
-			title={edit
-				? can_write
-					? `Edit GCP Pub/Sub trigger ${initialPath}`
-					: `GCP Pub/Sub trigger ${initialPath}`
-				: 'New GCP Pub/Sub trigger'}
-			on:close={drawer?.closeDrawer}
-		>
-			{#snippet actions()}
-				{@render actionsButtons()}
-			{/snippet}
-			{#snippet banner()}
-				<LocalDraftBanner
-					show={draftSync.hasDraft}
-					getDeployed={() => draftSync.deployed}
-					reserveSpace={draftSync.hasBaseline}
-					getCurrent={() => draftSync.current}
-					onDiscard={() => draftSync.resetToDeployed(initialPath)}
-					disabled={!can_write}
-				/>
-			{/snippet}
-			{@render config()}
-		</DrawerContent>
+		{@render drawerBody()}
 	</Drawer>
 {:else}
 	<Section label={!customLabel ? 'GCP Pub/Sub trigger' : ''} headerClass="grow min-w-0 h-[30px]">
@@ -463,6 +528,7 @@
 			{allowDraft}
 			{isDeployed}
 			onUpdate={updateTrigger}
+			saveLabel={saveDraftHandler ? 'Save draft' : undefined}
 			{onReset}
 			{onDelete}
 			onToggleMode={handleToggleMode}
@@ -482,6 +548,7 @@
 	{:else}
 		<PermissionedAsLine
 			{permissionedAs}
+			disabled={!can_write}
 			{path}
 			onPermissionedAsChange={(pa, preserve) => {
 				selectedPermissionedAs = pa
@@ -532,7 +599,7 @@
 						bind:scriptPath={script_path}
 						{initialScriptPath}
 						canWrite={can_write}
-						isOperator={!!$userStore?.operator}
+						isOperator={!!actingUser?.operator}
 						promptText="Pick a script or flow to be triggered "
 					>
 						{#snippet createButton()}
@@ -542,7 +609,9 @@
 									variant="default"
 									unifiedSize="md"
 									disabled={!can_write}
-									href={itemKind === 'flow' ? '/flows/add?hub=68' : '/scripts/add?hub=hub%2F19796'}
+									href={operatingHref(
+										itemKind === 'flow' ? '/flows/add?hub=68' : '/scripts/add?hub=hub%2F19796'
+									)}
 									target="_blank">Create from template</Button
 								>
 							{/if}
@@ -596,7 +665,7 @@
 											tooltip="When enabled (recommended), Windmill automatically acknowledges Pub/Sub messages after successful processing. When disabled, your script/flow must explicitly acknowledge each message."
 										>
 											<div class="mt-2">
-												<Toggle bind:checked={auto_acknowledge_msg} />
+												<Toggle bind:checked={auto_acknowledge_msg} disabled={!can_write} />
 											</div>
 											{#if !auto_acknowledge_msg}
 												<div class="mt-3">
@@ -639,9 +708,7 @@
 									{optionTabSelected}
 									{itemKind}
 									{can_write}
-									bind:errorHandlerSelected
-									bind:error_handler_path
-									bind:error_handler_args
+									bind:errorHandler
 									bind:retry
 								/>
 							{/if}

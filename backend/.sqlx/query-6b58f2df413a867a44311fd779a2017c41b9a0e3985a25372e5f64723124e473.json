@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO remote_deploy_token\n             (workspace_id, email, base_url, remote_workspace_id, token, remote_email, proxy_key,\n              connected_at)\n         VALUES ($1, $2, '', '', '', '', '', clock_timestamp())\n         ON CONFLICT (workspace_id, email) DO UPDATE SET\n             token = '', proxy_key = '', connected_at = clock_timestamp()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6b58f2df413a867a44311fd779a2017c41b9a0e3985a25372e5f64723124e473"
+}

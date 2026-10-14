@@ -52,10 +52,8 @@
 	import TriggersNode from './renderers/nodes/TriggersNode.svelte'
 	import { Alert, Drawer } from '../common'
 	import Button from '../common/button/Button.svelte'
-	import FlowYamlEditor from '../flows/header/FlowYamlEditor.svelte'
 	import BranchOneEndNode from './renderers/nodes/branchOneEndNode.svelte'
 	import type { TriggerContext } from '../triggers'
-	import { workspaceStore } from '$lib/stores'
 	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
 	import DiffDrawer from '../DiffDrawer.svelte'
 	import ViewportResizer from './ViewportResizer.svelte'
@@ -112,6 +110,9 @@
 		locateModules,
 		areContiguousSiblings
 	} from '../flows/multiSelectUtils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	let useDataflow: Writable<boolean | undefined> = writable<boolean | undefined>(false)
 	let showAssets: Writable<boolean | undefined> = writable<boolean | undefined>(true)
@@ -266,7 +267,7 @@
 		fullSize = false,
 		disableAi = false,
 		triggerNode = false,
-		workspace = $workspaceStore ?? 'NO_WORKSPACE',
+		workspace = $operatingWorkspace ?? 'NO_WORKSPACE',
 		editMode = false,
 		allowSimplifiedPoll = true,
 		expandedSubflows = $bindable({}),
@@ -1294,7 +1295,10 @@
 </script>
 
 {#if insertable}
-	<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
+	<!-- Dynamic: the YAML editor is monaco, which read-only graphs (run previews) never need. -->
+	{#await import('../flows/header/FlowYamlEditor.svelte') then FlowYamlEditor}
+		<FlowYamlEditor.default bind:drawer={yamlEditorDrawer} />
+	{/await}
 {/if}
 {#if canUseDiffDrawer}
 	<DiffDrawer bind:this={diffDrawer} />

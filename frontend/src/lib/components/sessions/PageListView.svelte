@@ -1,0 +1,192 @@
+<script lang="ts">
+	import { setContext, untrack } from 'svelte'
+	import { Loader2 } from 'lucide-svelte'
+	import { setOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { setHostedPage, type HostedPage } from '$lib/components/hostedPage'
+	import {
+		RUNS_PATH,
+		barePath,
+		isRunsListPath,
+		pageItemForListPath,
+		parsePreviewItemRoute
+	} from './previewPaths'
+	import { parseRunRoute, previewLocationLabel } from './previewRouter'
+	import { whereIs } from './sessionPreviewTabs.svelte'
+	import type { SessionPreviewTab } from './sessionState.svelte'
+	import type { SessionRuntime } from './sessionRuntime.svelte'
+
+	let {
+		runtime,
+		tab,
+		path,
+		workspaceId,
+		container,
+		reloadNonce = 0
+	}: {
+		runtime: SessionRuntime
+		tab: SessionPreviewTab
+		/** The list page path. */
+		path: string
+		workspaceId: string
+		/** The tab's element, which also holds the list's portalled drawers and menus. */
+		container: HTMLElement
+		/** Bumped to load the list again from the server. */
+		reloadNonce?: number
+	} = $props()
+
+	// Mounted in the preview panel, outside the chat's own subtree, as PageItemEditorView is.
+	setContext(
+		'aiChatManager',
+		untrack(() => runtime.manager)
+	)
+	setOperatingWorkspace(() => workspaceId)
+
+	// The tab is where the list keeps its filters: written as the tab's observed location, so
+	// the chat reads them and a remount restores them, as it would for a frame.
+	const locationParts = () => {
+		const loc = whereIs(tab).split('#')[0]
+		const at = loc.indexOf('?')
+		return at < 0
+			? { pathname: loc, search: '' }
+			: { pathname: loc.slice(0, at), search: loc.slice(at) }
+	}
+	// The location this page last wrote itself, and the one it was last moved to from outside.
+	let ownLoc: string | undefined
+	let movedTo: string | undefined
+	let moves = 0
+	// Bumped when the location moves other than by the page's own write. Derived rather than
+	// effected: it has to flip in the same flush as the location, before the page's own
+	// effects read the new query and write their defaults back over the stored preferences.
+	const moved = $derived.by(() => {
+		const loc = whereIs(tab)
+		if (loc !== ownLoc && loc !== movedTo) {
+			movedTo = loc
+			moves++
+		}
+		return moves
+	})
+	const host: HostedPage = {
+		get search() {
+			return locationParts().search
+		},
+		setSearch(search) {
+			ownLoc = locationParts().pathname + search
+			movedTo = undefined
+			runtime.previewTabs.observeLocation(tab.id, ownLoc)
+		},
+		openItem(itemPath) {
+			const ref = pageItemForListPath(path, itemPath)
+			if (ref) runtime.previewTabs.open({ type: 'pageitem', ref })
+		},
+		openLink(href) {
+			const run = parseRunRoute(href)
+			if (run) {
+				runtime.manager.openRunInPreview?.({
+					jobId: run.jobId,
+					workspace: run.workspace ?? workspaceId,
+					label: previewLocationLabel(`/run/${run.jobId}`)
+				})
+				return
+			}
+			const item = parsePreviewItemRoute(href)
+			// A link to one version stays a page tab: opening an item focuses a tab already
+			// on it as it stands, where a page tab's URL is written whole, pin included.
+			if (item && !new URL(href, 'http://_').searchParams.has('version')) {
+				runtime.previewTabs.open({
+					type: 'item',
+					item: { kind: item.kind, raw_app: item.raw_app, path: item.itemPath, summary: '' },
+					// A list page only ever links what it runs — a schedule's script, a
+					// trigger's flow — which is deployed by construction. Its deployed page
+					// is what the reader clicking through is asking about.
+					mode: item.mode ?? 'view'
+				})
+			} else {
+				runtime.previewTabs.open({ type: 'page', href, label: previewLocationLabel(href) })
+			}
+		}
+	}
+	setHostedPage(host)
+
+	// Any in-app link under the tab opens in the session rather than taking the whole window off
+	// it: a list, its drawers and its menus carry plain hrefs throughout (runs, audit logs, a
+	// job). A `#` link is a row's own: its handler opens the row through the host, and following
+	// it would write the row into the sessions page's own hash.
+	$effect(() => {
+		const el = container
+		function onClick(e: MouseEvent) {
+			if (e.defaultPrevented || e.button !== 0) return
+			if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+			const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null
+			if (!a || a.hasAttribute('download')) return
+			const url = new URL(a.href, window.location.href)
+			if (url.origin !== window.location.origin) return
+			const href = url.pathname + url.search + url.hash
+			// A run's link asks for a new tab so the list keeps its place: here that tab is a
+			// preview tab, not a browser one that would leave the session.
+			if (a.target && a.target !== '_self' && !parseRunRoute(href)) return
+			e.preventDefault()
+			if (a.getAttribute('href')?.startsWith('#')) return
+			host.openLink(href)
+		}
+		el.addEventListener('click', onClick)
+		return () => el.removeEventListener('click', onClick)
+	})
+
+	const listed = $derived(pageItemForListPath(path, ''))
+	// `/runs/<item path>` lists one item's runs.
+	const runsOf = $derived.by(() => {
+		if (!isRunsListPath(path)) return undefined
+		const itemPath = barePath(path).slice(RUNS_PATH.length + 1)
+		try {
+			return decodeURIComponent(itemPath)
+		} catch {
+			return itemPath
+		}
+	})
+</script>
+
+{#snippet loading()}
+	<div class="flex-1 flex items-center justify-center text-tertiary">
+		<Loader2 class="animate-spin" />
+	</div>
+{/snippet}
+
+<!-- Dynamic imports, as the editors: each list pulls in its item's editor. -->
+<div class="flex h-full min-h-0 flex-col overflow-auto">
+	{#key `${path}:${workspaceId}:${reloadNonce}`}
+		{#if listed?.kind === 'variable'}
+			{#await import('$lib/components/variables/VariablesList.svelte')}
+				{@render loading()}
+			{:then Module}
+				<Module.default />
+			{/await}
+		{:else if listed?.kind === 'resource'}
+			{#await import('$lib/components/resources/ResourcesList.svelte')}
+				{@render loading()}
+			{:then Module}
+				<Module.default />
+			{/await}
+		{:else if listed?.kind === 'schedule'}
+			{#await import('$lib/components/schedules/SchedulesList.svelte')}
+				{@render loading()}
+			{:then Module}
+				<Module.default />
+			{/await}
+		{:else if listed?.kind === 'trigger'}
+			{#await import('$lib/components/triggers/TriggerList.svelte')}
+				{@render loading()}
+			{:then Module}
+				<Module.default triggerKind={listed.triggerKind} />
+			{/await}
+		{:else if runsOf !== undefined}
+			<!-- A move from outside remounts it, so it seeds the filters the user keeps stored. -->
+			{#key moved}
+				{#await import('$lib/components/RunsPage.svelte')}
+					{@render loading()}
+				{:then Module}
+					<Module.default initialPath={runsOf} />
+				{/await}
+			{/key}
+		{/if}
+	{/key}
+</div>

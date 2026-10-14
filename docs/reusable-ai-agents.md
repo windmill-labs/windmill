@@ -16,8 +16,12 @@ every workspace via the standard cached-resource-type sync, like other built-in 
 - The brain config and tools are resolved at runtime from the resource
   (`windmill-worker/src/ai_executor.rs`): the brain is interpolated, so a nested provider `$res:`
   credential resolves automatically.
-- The step keeps only the flow-local inputs (`user_message`, `user_attachments`) in its own
-  `input_transforms`; the brain and tools stay in the resource (read-only in the step).
+- The step keeps only the flow-local inputs (`user_message`, `user_attachments`, `enabled_tools`,
+  and the history inputs `memory_id` and `previous_messages`) in its own `input_transforms`; the
+  brain and tools stay in the resource (read-only in the step). `enabled_tools` says which of the
+  roster this step may call, narrowing one use of a shared agent without touching the agent: an
+  absent field carries every tool, a list carries the ones it names, and an empty list carries
+  none.
 - The agent carries its tools' default input bindings verbatim as authored (static, AI-filled,
   or flow expressions), so saving round-trips losslessly. Each host flow overrides what it
   needs: `tool_inputs` stores per-tool overrides (a diff from the resource tool's own
@@ -33,6 +37,125 @@ agent step); below the step's inputs, each tool gets a section with the standard
 input editors (prop picker included) and a read-only view of its code — edits persist into
 `tool_inputs`.
 
+## Memory
+
+Memory is split between three owners, so a saved agent carries whether it remembers and never
+which memory it is:
+
+- **Agent: managed memory.** `memory` is a brain key, so it moves with a saved agent.
+  `{ kind: window, context_length }` has Windmill store the conversation and replay its last N
+  messages; `{ kind: compaction }` replays all of it and summarizes the older part as it fills the
+  model's context window (see below); `{ kind: off }` keeps none. An absent `memory` means off, the
+  default: the editor turns it on when chat input is enabled, as compaction, since a chat has no
+  end. `auto` and `manual` are the older spellings and are still read.
+- **Run: memory id.** `flow_status.memory_id`, set when the run is queued: the chat conversation
+  id, an app chat session id, or the `memory_id` run parameter. Any string is accepted, and one
+  that is not a uuid is hashed to a v5 uuid scoped to the workspace and the flow the run started
+  from (`memory_key` in `windmill-common/src/flow_conversations.rs`), so the same key in two flows
+  names two memories. A uuid is used as is. Nothing is generated at save time, so schedules,
+  webhooks, evals and plain runs pass no id and run stateless.
+- **Step: history inputs.** Flow-local, so they stay on a linked step. Each is read in one memory
+  state only, and the editor offers it only there, the memory id behind a *Custom* toggle that
+  writes the key only once it is on. With managed memory on, `memory_id` overrides the run's id,
+  hashed the same way: a fixed value is one memory shared by every run, an expression such as
+  `flow_input.customer_id` one memory per key, and an expression that evaluates to nothing runs
+  stateless rather than falling back to the run's id. With memory off, `previous_messages` supplies
+  the history itself. An older `auto` or `manual` memory reads neither, so the editor offers them
+  only once the step is moved to the current settings, which the alert's button does. The editor
+  never seeds a placeholder for either, because a present key is the step's choice, and a static
+  empty value reads as unset.
+
+The worker reconciles them once per agent invocation, nested agent tools included, in
+`resolve_history_source` (`windmill-worker/src/ai_executor.rs`):
+
+1. A legacy `auto` or `manual` memory: read as the editor that wrote it ran it. `manual` replays
+   its list; `auto` uses the run's memory id, else the id baked into it, else runs stateless.
+   Neither history input is read. An `auto` without a count, or with 0, is off and read as such.
+2. Managed memory, `window` or `compaction`: the memory id is the step's, else the run's. With no
+   memory id the agent runs stateless, and a step `previous_messages` is ignored. Compaction still
+   bounds a stateless run's own loop, which is where a long tool sequence overflows.
+3. Memory off: the history is `previous_messages`, else nothing. Memory is neither read nor
+   written, and a step `memory_id` is ignored.
+
+Each ignored input and each stateless fallback is written to the job log.
+
+### Compaction
+
+`{ kind: compaction }` keeps the whole conversation and lets a summary, rather than a message count,
+decide what leaves the prompt.
+
+The window it plans against comes from the model, through `MODEL_CONTEXT_WINDOWS` in
+`windmill-ai/src/model_context.rs`, falling back to 128000 for an id the table does not list. That
+table mirrors the one the AI session's own compaction reads
+(`frontend/src/lib/components/copilot/modelConfig.ts`) and the two have to be updated together. The
+step's `context_window` overrides it, for a Custom AI deployment or a model the table cannot name;
+setting it too large never trips the trigger and the provider raises the context error itself.
+Workspace AI chat `context_window_per_model` overrides are separate and are not inherited by
+agent steps; configure a custom deployment's size on the step itself.
+
+`windmill-worker/src/ai/compaction.rs` keeps two histories: model context, which can be compacted,
+and the execution record, which retains the loaded history and every message produced by the run.
+Returned results and max-iteration partial results use the execution record. Compaction cannot remove or
+reorder the action messages the flow viewer indexes, or the MCP results it finds by call ID.
+
+Before each provider request, including the first, the worker checks the projected context size.
+It reserves the larger of 20% of the model window and the configured maximum output tokens.
+At the remaining input budget it summarizes an older prefix, retaining up to 20K estimated tokens
+of recent complete exchanges (at most half the input budget on smaller models).
+The newest exchange is always retained. A user prompt stays with its
+first response; later tool rounds can be compacted within a single turn, but a call and its results
+are never split. A prefix containing only an earlier summary is not summarized again.
+
+The summarization request carries no tools; its tool exchanges are rendered as text because
+Bedrock rejects tool blocks without definitions. A dedicated system instruction asks for a factual
+handoff from a labelled transcript, keeping the compaction instruction outside that transcript;
+media parts remain available. Its output cap matches the reserved summary budget,
+and its temperature and reasoning settings are independent of the step's answer settings.
+A replacement is built separately and installed only if it reduces projected context and fits
+the estimated input budget. An empty, oversized or failed summary leaves the context and its
+usage measurement untouched; compaction never evicts messages. Three consecutive failed attempts
+disable summary requests for the run. Estimates schedule compaction but do not reject model calls.
+
+The projection uses normalized `TokenUsage::input_tokens` from the last request plus a `bytes/4`
+estimate of appended messages. Without usage, or after rewriting context, it estimates the whole
+prompt including tools. S3 descriptors get a nominal attachment allowance; actual attachment costs
+and tokenizer differences remain approximate. Provider parsing owns usage normalization: Anthropic
+and Bedrock report cached input separately, while OpenAI-shaped providers include it in input tokens.
+If a provider explicitly rejects the context size, the worker summarizes all older complete
+exchanges and retries that request once if a usable replacement was produced. This also recovers
+from undercounted attachments loaded from a previous run, without provider-specific tokenizers.
+Unrelated errors are not retried this way. The newest exchange is still retained, so a request
+that cannot fit even after recovery fails; estimates do not guarantee every first request fits.
+
+If recovery fails or the retry is rejected, the provider error is returned without saving changed
+memory. A successful checkpoint uses the same execution record as before compaction.
+
+Memory is stored per (memory id, step id), in `ai_agent_memory` or S3 at
+`memory/{workspace}/{memory id}/{step}.json`. The chat transcript (`flow_conversation_message`)
+always follows the run's id, even when a step sets its own. Persistence independently checks
+serialized memory against the database's 100KB limit (`MAX_MEMORY_SIZE_BYTES`),
+when `memory_storage_capacity_bytes` reports one. System messages and tool definitions are not
+stored, so they do not count towards this byte limit. If oversized, it requests one checkpoint
+of all older exchanges, then measures bytes again. If memory still cannot fit, persistence saves
+the largest suffix of complete exchanges that fits and starts with a user message, dropping
+older exchanges and logging that loss. This selection changes neither model context nor the
+returned execution record.
+If no user-starting suffix fits, the write is skipped and the flow log explains that the
+next run will load the previous saved memory. The completed answer succeeds in either case.
+If object storage fails and falls back to the database, an oversized compaction write is
+rejected without changing existing memory; the flow log reports the failed save.
+There is no model-window compaction after the final answer unless storage needs
+it. Persistence reads model context independently of the execution record returned by the step.
+Nothing expires stored memory: deleting a chat conversation deletes its memory, and a memory named
+by a string id stays until it is overwritten.
+
+Compatibility runs one way. New workers read every older shape. The editor rewrites a legacy step
+only when the author changes it, so a flow nobody edits keeps running on older workers, while a
+step saved with `window`, `compaction` or a history input needs a worker that knows them. An id an
+older editor baked into `memory` stays a fallback behind the run's id until the author chooses
+*Keep as memory id* or *Use the run's memory id*. In a chat flow it is dropped on save, since the
+conversation id always took precedence there.
+
 ## Drafts
 
 The agent editor edits the resource through a **per-user resource draft** (`draft` table,
@@ -45,7 +168,7 @@ A flow does not wait for that deploy to see the draft:
 - Testing the flow, or a single linked step, runs the draft. `runFlowPreview` and `ModuleTest`
   substitute each linked step for the standalone step the draft would run as
   (`linkedAgentDrafts.ts`): `agent` cleared, the draft's brain as static input transforms, the
-  draft's tools on the step, and the step's own `user_message`/`user_attachments` kept on top —
+  draft's tools on the step, and the step's own flow-local inputs kept on top —
   the same overlay order `ai_executor.rs` applies to a linked step. `tool_inputs` is untouched,
   since the worker overlays it in both branches.
 - The step's linked card and the graph's tool nodes show the draft, with a *Draft* badge, so the

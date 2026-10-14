@@ -23,6 +23,8 @@ export interface SchemaProperty {
 	pattern?: string
 	default?: any
 	enum?: EnumType
+	/** Display names by stored value, for an enum's options or a one-of's variants. */
+	enumLabels?: Record<string, string>
 	contentEncoding?: 'base64' | 'binary'
 	format?: string
 	items?: {
@@ -45,6 +47,10 @@ export interface SchemaProperty {
 	required?: string[]
 	showExpr?: string
 	hideWhenChatEnabled?: boolean
+	/** Why the oneOf variant is chat mode's to pick. Set = selector disabled, reason shown. */
+	lockOneOfWhenChatEnabled?: string
+	/** One line under the oneOf selector explaining the selected variant, keyed by its title. */
+	oneOfHints?: Record<string, string>
 	password?: boolean
 	order?: string[]
 	nullable?: boolean

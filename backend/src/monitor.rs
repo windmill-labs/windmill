@@ -40,12 +40,15 @@ use windmill_common::ee_oss::{jobs_waiting_alerts, worker_groups_alerts};
 use windmill_common::global_settings::OAUTH_SETTING;
 use windmill_common::otel_oss::{
     otel_incr_zombie_delete_count, otel_incr_zombie_restart_count, otel_set_db_pool,
-    otel_set_queue_count, otel_set_queue_running_count,
+    otel_set_queue_count, otel_set_queue_delay, otel_set_queue_running_count,
 };
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::APP_WORKSPACED_ROUTE,
-    auth::{create_token_for_owner, ephemeral_script_token_label, job_token_expiry_secs},
+    auth::{
+        create_token_for_owner, ephemeral_script_token_label, job_token_expiry_secs,
+        TOKEN_EXPIRY_WARNING_DAYS,
+    },
     ee_oss::CriticalErrorChannel,
     email_oss::send_email_if_possible,
     error,
@@ -57,16 +60,17 @@ use windmill_common::{
         CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING,
-        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HUB_API_SECRET_SETTING,
-        HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
-        JOB_ISOLATION_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
-        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPMRC_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING, NUGET_CONFIG_SETTING,
-        OTEL_SETTING, OTEL_TRACES_RETENTION_SECS_SETTING, OTEL_TRACING_PROXY_SETTING,
-        PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING,
-        PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, DEPENDENCY_JOB_TAG_SETTING, DISABLE_PASSWORD_LOGIN,
+        DISABLE_PASSWORD_LOGIN_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
+        EXTRA_PIP_INDEX_URL_SETTING, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING,
+        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
+        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
+        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MCP_DISABLE_TOKEN_QUERY_PARAM,
+        MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPMRC_SETTING,
+        NPM_CONFIG_REGISTRY_SETTING, NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING,
+        NUGET_CONFIG_SETTING, OTEL_SETTING, OTEL_TRACES_RETENTION_SECS_SETTING,
+        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
+        POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
         SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
@@ -89,11 +93,11 @@ use windmill_common::{
         load_periodic_bash_script_interval_from_env, load_whitelist_env_vars_from_env,
         load_worker_config, store_pull_query, store_suspended_pull_query, Connection, WorkerConfig,
         CLOUD_HOSTED, CONCURRENCY_KEY_MAX_QUEUED, CONCURRENCY_KEY_MAX_QUEUED_DEFAULT,
-        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX,
-        INDEXER_CONFIG, PREVIEW_TAGS_OVERRIDE, SMTP_CONFIG, WINDMILL_DIR, WORKER_CONFIG,
-        WORKER_GROUP, WORKSPACE_FAIRNESS_DURATION_SECS, WORKSPACE_FAIRNESS_ENABLED,
-        WORKSPACE_FAIRNESS_MAX_PERCENT, WORKSPACE_FAIRNESS_MIN_TOTAL, WORKSPACE_MAX_QUEUED_JOBS,
-        WORKSPACE_MAX_QUEUED_JOBS_DEFAULT,
+        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, DEPENDENCY_JOB_TAG,
+        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX, INDEXER_CONFIG, PREVIEW_TAGS_OVERRIDE, SMTP_CONFIG,
+        WINDMILL_DIR, WORKER_CONFIG, WORKER_GROUP, WORKSPACE_FAIRNESS_DURATION_SECS,
+        WORKSPACE_FAIRNESS_ENABLED, WORKSPACE_FAIRNESS_MAX_PERCENT, WORKSPACE_FAIRNESS_MIN_TOTAL,
+        WORKSPACE_MAX_QUEUED_JOBS, WORKSPACE_MAX_QUEUED_JOBS_DEFAULT,
     },
     KillpillSender, AUDIT_LOG_RETENTION_DAYS, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE,
     CRITICAL_ALERTS_ON_TOKEN_EXPIRY, CRITICAL_ALERT_MUTE_UI_ENABLED,
@@ -106,8 +110,9 @@ use windmill_common::{
 use windmill_common::{
     client::AuthedClient,
     global_settings::{
-        APP_WORKSPACED_ROUTE_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE,
-        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
+        parse_allowed_origins_setting, APP_WORKSPACED_ROUTE_SETTING,
+        HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
+        HTTP_ROUTE_WORKSPACED_ROUTE, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
     },
     queue_metrics::{
         QueueSample, QUEUE_COUNT_PREFIX, QUEUE_DELAY_PREFIX, QUEUE_DELAY_SAME_HEAD_SECS,
@@ -117,9 +122,9 @@ use windmill_common::{
 #[cfg(feature = "parquet")]
 use windmill_object_store::reload_object_store_setting;
 use windmill_queue::{
-    cancel_job, get_queued_job_v2,
+    add_completed_job_error, cancel_job, canceled_result, get_queued_job_v2,
     schedule::{find_unarmed_schedules, rearm_schedule, RearmOutcome},
-    SameWorkerPayload,
+    CanceledBy, MiniCompletedJob, SameWorkerPayload,
 };
 use windmill_store::resources::MAX_RESOURCE_VERSIONS;
 use windmill_worker::{
@@ -160,6 +165,12 @@ lazy_static::lazy_static! {
     static ref QUEUE_COUNT: prometheus::IntGaugeVec = prometheus::register_int_gauge_vec!(
         "queue_count",
         "Number of jobs in the queue",
+        &["tag"]
+    ).unwrap();
+
+    static ref QUEUE_DELAY_SECONDS: prometheus::GaugeVec = prometheus::register_gauge_vec!(
+        "queue_delay_seconds",
+        "How long the next job to be picked up has been waiting, in seconds",
         &["tag"]
     ).unwrap();
 
@@ -284,6 +295,15 @@ pub async fn initial_load(
     );
 
     if let Some(db) = conn.as_sql() {
+        // Outside the `server_mode` block below: a `MODE=mcp` process serves the MCP routes
+        // with `server_mode` false and would otherwise never read this at all. That mode
+        // joins no monitor loop, so there — as for every global setting, `base_url`
+        // included — this pass is the only read, and a change lands on restart.
+        pass.setting(
+            MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING,
+            false,
+            |v| async move { apply_mcp_disable_token_query_param(v) },
+        );
         pass.setting(DEFAULT_TAGS_PER_WORKSPACE_SETTING, false, |v| async move {
             apply_tag_per_workspace_enabled(v)
         });
@@ -297,6 +317,9 @@ pub async fn initial_load(
         );
         pass.setting(PREVIEW_TAGS_OVERRIDE_SETTING, false, |v| async move {
             apply_preview_tags_override(v)
+        });
+        pass.setting(DEPENDENCY_JOB_TAG_SETTING, false, |v| async move {
+            apply_dependency_job_tag(v)
         });
 
         // Load per-workspace retention overrides before the first cleanup tick so a fresh server
@@ -404,6 +427,8 @@ pub async fn initial_load(
                     native_mode,
                     // an agent worker never reads its group's config, only its token
                     object_store_cache_config: None,
+                    // nor whether it is paused: the server refuses it jobs instead
+                    paused: false,
                 }));
             }
         }
@@ -428,6 +453,18 @@ pub async fn initial_load(
         pass.setting(APP_WORKSPACED_ROUTE_SETTING, false, |v| async move {
             apply_app_workspaced_route_setting(v)
         });
+        pass.setting(
+            HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
+            false,
+            |v| async move {
+                if let Err(e) = apply_http_route_default_allowed_origins_setting(v) {
+                    tracing::error!(
+                        "Error reloading http route default allowed origins: {:?}",
+                        e
+                    )
+                }
+            },
+        );
         pass.setting(
             HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
             false,
@@ -848,6 +885,24 @@ pub fn apply_preview_tags_override(value: Option<serde_json::Value>) {
     if let Some(serde_json::Value::Bool(t)) = value {
         PREVIEW_TAGS_OVERRIDE.store(t, Ordering::Relaxed)
     }
+}
+
+pub async fn load_dependency_job_tag(db: &DB) -> error::Result<()> {
+    let v = load_value_from_global_settings(db, DEPENDENCY_JOB_TAG_SETTING).await?;
+    apply_dependency_job_tag(v);
+    Ok(())
+}
+
+pub fn apply_dependency_job_tag(value: Option<serde_json::Value>) {
+    let tag = match value {
+        Some(serde_json::Value::String(t)) if !t.trim().is_empty() => Some(t.trim().to_string()),
+        None | Some(serde_json::Value::Null) | Some(serde_json::Value::String(_)) => None,
+        Some(other) => {
+            tracing::error!("{DEPENDENCY_JOB_TAG_SETTING} is not a string: {other}, ignoring");
+            return;
+        }
+    };
+    DEPENDENCY_JOB_TAG.store(std::sync::Arc::new(tag));
 }
 
 // Upper bound on the duration window. Postgres `make_interval(secs => $1::int4)` is the consumer
@@ -1601,6 +1656,23 @@ pub fn apply_disable_password_login(value: Option<serde_json::Value>) {
     };
 }
 
+pub async fn load_mcp_disable_token_query_param(db: &DB) {
+    match load_value_from_global_settings(db, MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING).await {
+        Ok(v) => apply_mcp_disable_token_query_param(v),
+        Err(e) => tracing::error!("Error loading mcp_disable_token_query_param setting: {e:#}"),
+    };
+}
+
+pub fn apply_mcp_disable_token_query_param(value: Option<serde_json::Value>) {
+    match value {
+        Some(serde_json::Value::Bool(t)) => {
+            MCP_DISABLE_TOKEN_QUERY_PARAM.store(t, Ordering::Relaxed)
+        }
+        None => MCP_DISABLE_TOKEN_QUERY_PARAM.store(false, Ordering::Relaxed),
+        _ => (),
+    };
+}
+
 struct LogFile {
     file_path: String,
     hostname: String,
@@ -1771,6 +1843,23 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Err(e) => tracing::error!("Error deleting token: {}", e.to_string()),
     }
 
+    let expired_login_links_r: std::result::Result<Vec<String>, _> =
+        // Expired rows stay a day so an open still reports "expired" rather than "invalid".
+        sqlx::query_scalar(
+            "DELETE FROM login_link WHERE expiration <= now() - interval '1 day' RETURNING token_hash",
+        )
+            .fetch_all(db)
+            .await;
+
+    match expired_login_links_r {
+        Ok(hashes) => {
+            if !hashes.is_empty() {
+                tracing::info!("deleted {} expired login links", hashes.len())
+            }
+        }
+        Err(e) => tracing::error!("Error deleting login links: {}", e.to_string()),
+    }
+
     let pip_resolution_r = sqlx::query_scalar!(
         "DELETE FROM pip_resolution_cache WHERE expiration <= now() RETURNING hash",
     )
@@ -1882,18 +1971,15 @@ pub async fn delete_expired_items(db: &DB) -> () {
         tracing::info!("deleted {} expired otel trace spans", deleted_spans);
     }
 
-    let audit_retention_days = audit_log_retention_days().await;
-    let audit_retention_secs: i64 = audit_retention_days * 60 * 60 * 24;
-
-    // Clean up old (non-partitioned) audit table — will eventually be empty and dropped
-    if let Err(e) = sqlx::query_scalar!(
-        "DELETE FROM audit WHERE timestamp <= now() - ($1::bigint::text || ' s')::interval",
-        audit_retention_secs,
+    if let Err(e) = sqlx::query!(
+        "DELETE FROM ai_shared_artifact
+         WHERE shared_at <= now() - ($1::bigint::text || ' s')::interval",
+        windmill_common::ai_shared_artifact_retention_secs(),
     )
-    .fetch_all(db)
+    .execute(db)
     .await
     {
-        tracing::error!("Error deleting audit log: {:?}", e);
+        tracing::error!("Error deleting expired shared AI artifacts: {:?}", e);
     }
 
     if let Err(e) = sqlx::query_scalar!(
@@ -2157,7 +2243,7 @@ async fn cleanup_scheduled_job_deletions(db: &Pool<Postgres>) {
 }
 
 pub async fn check_expiring_tokens(db: &DB) {
-    // Find tokens expiring within 7 days that still have a pending notification row.
+    // Find tokens expiring within the warning window that still have a pending notification row.
     // The notification table stores token_hash (not plaintext) so the join works
     // even after the hash migration makes token.token nullable.
     let expiring_tokens_r = sqlx::query_as!(
@@ -2166,8 +2252,9 @@ pub async fn check_expiring_tokens(db: &DB) {
          USING token t
          WHERE n.token_hash = t.token_hash
            AND n.expiration > now()
-           AND n.expiration <= now() + interval '7 days'
+           AND n.expiration <= now() + make_interval(days => $1)
          RETURNING t.token_prefix, t.label, t.email, t.workspace_id",
+        TOKEN_EXPIRY_WARNING_DAYS,
     )
     .fetch_all(db)
     .await;
@@ -4049,6 +4136,20 @@ pub async fn monitor_db(
                     }
                     _ => {}
                 }
+                match windmill_common::runnable_job_stats::cleanup_old_runnable_job_stats(
+                    db,
+                    windmill_common::runnable_job_stats::RETENTION_DAYS,
+                )
+                .await
+                {
+                    Ok(count) if count > 0 => {
+                        tracing::info!("Deleted {} old runnable job stats rows", count);
+                    }
+                    Err(e) => {
+                        tracing::error!("Error cleaning up runnable job stats: {:?}", e);
+                    }
+                    _ => {}
+                }
             }
         }
     };
@@ -4310,6 +4411,15 @@ pub async fn monitor_db(
         }
     };
 
+    // run every 30 iterations (~5min at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
+    let stranded_jobs_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(30) {
+            if let Some(db) = conn.as_sql() {
+                crate::stranded_jobs::check_stranded_jobs(&db).await;
+            }
+        }
+    };
+
     // Poll git-sync repositories for new commits and pull them into the
     // workspace (repo → Windmill auto-pull). Runs every 2 iterations.
     let git_auto_pull_f = async {
@@ -4335,6 +4445,61 @@ pub async fn monitor_db(
             if let Some(db) = conn.as_sql() {
                 let db = db.clone();
                 tokio::spawn(async move { maintain_git_credentials(&db).await });
+            }
+        }
+    };
+
+    // Drop the data table role set logins nobody has connected with for a month. Every ~40 min,
+    // spawned for the same reason as the credential maintenance above: it opens a connection per
+    // managed database for each login it drops.
+    let datatable_role_set_sweep_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(240) {
+            if let Some(db) = conn.as_sql() {
+                let db = db.clone();
+                tokio::spawn(async move {
+                    if let Err(e) =
+                        windmill_common::datatable_roles::sweep_unused_role_set_logins(&db).await
+                    {
+                        tracing::error!("Error sweeping unused data table role set logins: {e}");
+                    }
+                });
+            }
+        }
+    };
+
+    // Re-encrypt the legacy-format secret variables once new values are written in AES-256-GCM.
+    // Every ~5 min until one pass has gone through every workspace; spawned so a large instance
+    // does not hold up the join below. The column widening it starts with is tried every
+    // iteration: a v2 value too long for the narrow column fails to save until it is done.
+    let legacy_secret_upgrade_f = async {
+        if server_mode
+            && iteration.is_some()
+            && (windmill_common::variables::variable_value_widen_pending()
+                || (iteration.as_ref().unwrap().should_run(30)
+                    && windmill_common::variables::legacy_secret_upgrade_pending()))
+        {
+            if let Some(db) = conn.as_sql() {
+                let db = db.clone();
+                tokio::spawn(async move {
+                    windmill_common::variables::upgrade_legacy_secret_variables(&db).await
+                });
+            }
+        }
+    };
+
+    // Delete the AI session backups older than their workspace's retention. Every ~40 min
+    // (240 iterations at the default 10 s, the most a u8 `should_run` counts): the retention
+    // counts in days. Spawned for the same reason as the credential maintenance above, a
+    // sweep of many sessions outlasting the join's deadline; the sweep's own advisory lock
+    // keeps one server at a time at it.
+    let ai_session_retention_f = async {
+        #[cfg(feature = "parquet")]
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(240) {
+            if let Some(db) = conn.as_sql() {
+                let db = db.clone();
+                tokio::spawn(
+                    async move { windmill_api::sweep_expired_ai_session_backups(&db).await },
+                );
             }
         }
     };
@@ -4393,8 +4558,12 @@ pub async fn monitor_db(
         cleanup_scheduled_job_deletions_f,
         git_auto_pull_f,
         git_credential_maintenance_f,
+        datatable_role_set_sweep_f,
+        ai_session_retention_f,
+        legacy_secret_upgrade_f,
         pipeline_freshness_watchdog_f,
         reconcile_unarmed_schedules_f,
+        stranded_jobs_f,
     );
 }
 
@@ -4653,17 +4822,11 @@ const GIT_AUTO_PULL_LOCK_ID: i64 = 737_483_921;
 /// Poll every git-sync repository with auto-pull enabled and enqueue a pull when
 /// the tracked branch has new commits (repo → Windmill direction).
 ///
-/// Runs on a single replica at a time (advisory lock) and only on
-/// Enterprise-licensed instances. Detection is `git ls-remote`; GitHub-App
-/// repositories are skipped here and sync via webhooks instead (phase 2).
+/// Runs on a single replica at a time (advisory lock). Detection is
+/// `git ls-remote`; GitHub-App repositories are skipped here and sync via
+/// webhooks instead (phase 2).
 #[cfg(feature = "private")]
 pub async fn poll_git_auto_pull(db: &Pool<Postgres>) {
-    use windmill_common::ee_oss::{get_license_plan, LicensePlan};
-
-    if !matches!(get_license_plan().await, LicensePlan::Enterprise) {
-        return;
-    }
-
     let mut lock_conn = match db.acquire().await {
         Ok(c) => c,
         Err(e) => {
@@ -4698,6 +4861,14 @@ pub async fn poll_git_auto_pull(db: &Pool<Postgres>) {
     {
         tracing::error!("git auto-pull: advisory unlock failed: {e:#}");
     }
+
+    // Backstop for the "Windmill CI tests" checks: retry a failed GitHub create or
+    // delivery, conclude checks whose tests settled, time out stuck ones, prune old
+    // rows. Detached and outside the advisory lock: its writes are guarded (claimed
+    // conclude, greatest-id upsert), it is single-flight, and its GitHub calls must not
+    // count against the monitor pass's budget.
+    let db = db.clone();
+    tokio::spawn(async move { windmill_git_sync::sweep_ci_test_checks(&db).await });
 }
 
 #[cfg(feature = "private")]
@@ -4725,12 +4896,6 @@ const GIT_CREDENTIAL_LOCK_ID: i64 = 737_483_923;
 /// sync down on its expiry date.
 #[cfg(all(feature = "enterprise", feature = "private"))]
 async fn maintain_git_credentials(db: &Pool<Postgres>) {
-    use windmill_common::ee_oss::{get_license_plan, LicensePlan};
-
-    if !matches!(get_license_plan().await, LicensePlan::Enterprise) {
-        return;
-    }
-
     // Transaction-scoped advisory lock, as for the schedule reconcile above: a
     // session lock on a pooled connection would ride back into the pool still
     // held if the sweep died before unlocking, and wedge the pass on every
@@ -5494,6 +5659,7 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
         for q in QUEUE_COUNT_TAGS.read().await.iter() {
             if queue_stats.get(q).is_none() {
                 (*QUEUE_COUNT).with_label_values(&[q]).set(0);
+                (*QUEUE_DELAY_SECONDS).with_label_values(&[q]).set(0.0);
             }
         }
     }
@@ -5502,6 +5668,7 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
         for q in OTEL_QUEUE_COUNT_TAGS.read().await.iter() {
             if queue_stats.get(q).is_none() {
                 otel_set_queue_count(q, 0);
+                otel_set_queue_delay(q, 0.0);
             }
         }
     }
@@ -5517,6 +5684,9 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
         if metrics_enabled {
             let metric = (*QUEUE_COUNT).with_label_values(&[tag]);
             metric.set(count as i64);
+            (*QUEUE_DELAY_SECONDS)
+                .with_label_values(&[tag])
+                .set(stat.delay);
             tags_to_watch.push(tag.to_string());
         }
 
@@ -5524,6 +5694,7 @@ pub async fn expose_queue_metrics(db: &Pool<Postgres>) {
             otel_tags_to_watch.push(tag.to_string());
         }
         otel_set_queue_count(tag, count as i64);
+        otel_set_queue_delay(tag, stat.delay);
     }
 
     if save_metrics {
@@ -5574,8 +5745,13 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
                 .as_ref()
                 .is_some_and(|dws| !dws.is_empty());
 
+        // Pausing or resuming must not restart the workers, dedicated ones included: a reload
+        // whose only difference is the flag skips every restart below.
+        let only_pause_changed = wc.paused != config.paused
+            && WorkerConfig { paused: wc.paused, ..config.clone() } == **wc;
+
         if **wc != config || has_dedicated {
-            if kill_if_change {
+            if kill_if_change && !only_pause_changed {
                 if has_dedicated
                     || wc.dedicated_worker != config.dedicated_worker
                     || wc.dedicated_workers != config.dedicated_workers
@@ -6064,6 +6240,21 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
             continue;
         }
         if let Some(job) = job.unwrap() {
+            // Read while the job is still queued: a re-run (perpetual, retry) takes its cap from
+            // here once the `job_perms` row is swept after completion. A failed read leaves the
+            // job for the next sweep rather than completing it with no cap.
+            let perms =
+                match windmill_common::auth::get_job_perms(db, &job.id, &job.workspace_id).await {
+                    Ok(perms) => perms,
+                    Err(e) => {
+                        tracing::error!(
+                            "Could not read the permissions of zombie job {}: {e:#}",
+                            job.id
+                        );
+                        continue;
+                    }
+                };
+            let job_token_scopes = perms.as_ref().and_then(|p| p.job_token_scopes.clone());
             let label = ephemeral_script_token_label(&job.permissioned_as, &job.created_by);
             let token = create_token_for_owner(
                 &db,
@@ -6073,7 +6264,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
                 job_token_expiry_secs(&db, &job.workspace_id).await,
                 &job.permissioned_as_email,
                 &job.id,
-                None,
+                perms,
                 Some(format!("handle_zombie_jobs")),
             )
             .await
@@ -6095,10 +6286,12 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
             );
             let memory_peak = job.memory_peak.unwrap_or(0);
             let (_, killpill_rx_never_used) = KillpillSender::new(1);
+            let mut completed = windmill_queue::MiniCompletedJob::from(job);
+            completed.job_token_scopes = job_token_scopes;
             let _ = handle_job_error(
                 db,
                 &client,
-                &windmill_queue::MiniCompletedJob::from(job),
+                &completed,
                 memory_peak,
                 None,
                 error::Error::ExecutionErr(error_message.clone()),
@@ -6128,9 +6321,12 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
 }
 
 /// Force-complete a zombie job that handle_job_error failed to complete.
-/// This is a minimal fallback: it inserts a failed completed job and deletes
-/// from the queue in a single transaction, without schedule pushing or
-/// error handler logic that could cause the completion to fail.
+/// This is a minimal fallback: it moves the job from the queue to a failed
+/// completed job in a single transaction, without schedule pushing or
+/// error handler logic. The one thing it keeps is the WAC parent notification,
+/// deliberately inside the transaction: if that fails, the whole completion
+/// rolls back and the job waits for the next sweep, which is cheaper than a
+/// parent parked for its full suspend window and a task run twice.
 async fn force_complete_zombie_job(
     db: &Pool<Postgres>,
     job_id: &Uuid,
@@ -6152,34 +6348,84 @@ async fn force_complete_zombie_job(
         "Zombie job {job_id} was not completed by handle_job_error, force-completing it"
     );
 
+    // Same `{"error": ...}` shape as every other failed job's result, so a WAC
+    // parent's failure record reads the name and message like any task failure.
     let error_value = serde_json::json!({
-        "message": error_message,
-        "name": "ExecutionErr",
+        "error": {
+            "message": error_message,
+            "name": "ExecutionErr",
+        }
     });
 
     let mut tx = db.begin().await?;
 
-    sqlx::query!(
-        "INSERT INTO v2_job_completed
+    // Locks in the order of every other completion: a WAC parent's rows, then this job's queue
+    // row, then its completed row (see `record_child_completion`). A worker completing the same
+    // job concurrently would otherwise deadlock against this.
+    let duration_ms = sqlx::query_scalar!(
+        "SELECT COALESCE(c.duration_ms, COALESCE((EXTRACT('epoch' FROM now()) - EXTRACT('epoch' FROM COALESCE(q.started_at, now()))) * 1000, 0)::bigint) AS \"duration_ms!\"
+        FROM v2_job_queue q LEFT JOIN v2_job_completed c ON c.id = q.id WHERE q.id = $1",
+        job_id,
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(duration_ms) = duration_ms else {
+        return Ok(());
+    };
+
+    // A WAC parent parked on this job must learn of the failure here too, or it
+    // waits out its whole suspend window and runs the task again.
+    let mut wac_parent_ready = false;
+    let parent = sqlx::query!(
+        "SELECT parent_job, flow_step_id FROM v2_job WHERE id = $1",
+        job_id
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    if let Some(parent_job) = parent
+        .filter(|j| j.flow_step_id.is_none())
+        .and_then(|j| j.parent_job)
+    {
+        wac_parent_ready = windmill_common::wac::record_child_completion(
+            &mut tx,
+            &parent_job,
+            job_id,
+            false,
+            duration_ms,
+            &error_value.to_string(),
+        )
+        .await?;
+    }
+
+    let completed = sqlx::query_scalar!(
+        "WITH deleted AS (
+            DELETE FROM v2_job_queue WHERE id = $1 RETURNING id, workspace_id, started_at, worker
+        )
+        INSERT INTO v2_job_completed
             (workspace_id, id, started_at, duration_ms, result, memory_peak, status, worker)
-        SELECT q.workspace_id, q.id, q.started_at,
-            COALESCE((EXTRACT('epoch' FROM now()) - EXTRACT('epoch' FROM COALESCE(q.started_at, now()))) * 1000, 0)::bigint,
-            $2::jsonb, r.memory_peak, 'failure'::job_status, q.worker
-        FROM v2_job_queue q
-        LEFT JOIN v2_job_runtime r ON r.id = q.id
-        WHERE q.id = $1
-        ON CONFLICT (id) DO UPDATE SET status = 'failure', result = $2::jsonb",
+        SELECT d.workspace_id, d.id, d.started_at, $3, $2::jsonb, r.memory_peak,
+            'failure'::job_status, d.worker
+        FROM deleted d
+        LEFT JOIN v2_job_runtime r ON r.id = d.id
+        ON CONFLICT (id) DO UPDATE SET status = 'failure', result = $2::jsonb
+        RETURNING id",
         job_id,
         error_value,
+        duration_ms,
     )
-    .execute(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
-
-    sqlx::query!("DELETE FROM v2_job_queue WHERE id = $1", job_id)
-        .execute(&mut *tx)
-        .await?;
+    // Completed by someone else while this waited on the WAC parent: roll back, so the parent
+    // keeps what the winning completion recorded.
+    if completed.is_none() {
+        return Ok(());
+    }
 
     tx.commit().await?;
+
+    if wac_parent_ready {
+        windmill_common::wac::WAC_SUSPEND_READY.store(true, Ordering::Relaxed);
+    }
 
     tracing::info!("Force-completed zombie job {job_id}");
     Ok(())
@@ -6366,6 +6612,9 @@ async fn find_zombie_flow_culprit_worker(
 }
 
 async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
+    // A canceled flow gets ten times the transition timeout: requeuing it while its worker is
+    // still in a slow transition lets a second worker complete it under that transition, and
+    // which worker runs a transition is not recorded anywhere to tell a slow one from a dead one.
     // flow_status is cast ::text on purpose: decoding the jsonb column directly as Box<str>
     // yields its binary form (leading version byte) and fails serde_json parsing at column 1.
     let flows = sqlx::query!(
@@ -6381,13 +6630,14 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             wp.worker_group AS "worker_group?",
             wp.wm_version AS "worker_version?",
             wp.current_job_id AS "worker_current_job_id?",
-            wp.worker_instance AS "worker_instance?"
+            wp.worker_instance AS "worker_instance?",
+            q.canceled_by AS "canceled_by?", q.canceled_reason AS "canceled_reason?"
         FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
             LEFT JOIN worker_ping wp ON wp.worker = q.worker
         WHERE q.running = true AND q.suspend = 0 AND q.suspend_until IS null AND q.scheduled_for <= now()
             AND (j.kind = 'flow' OR j.kind = 'flowpreview' OR j.kind = 'flownode' OR j.kind = 'singlestepflow')
             AND r.ping IS NOT NULL AND r.ping < NOW() - ($1 || ' seconds')::interval
-            AND q.canceled_by IS NULL
+            AND (q.canceled_by IS NULL OR r.ping < NOW() - ($1 || ' seconds')::interval * 10)
 
         "#,
         FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str()
@@ -6400,20 +6650,98 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             .flow_status
             .as_deref()
             .and_then(|x| serde_json::from_str::<FlowStatus>(x).ok());
-        if !flow.same_worker.unwrap_or(false)
-            && status.as_ref().is_some_and(|s| s.is_not_yet_started())
+        // A worker that pulls a canceled flow completes it as canceled, and hands that to its
+        // parent like any step's cancel, so a canceled flow whose transition was lost goes back
+        // to the queue exactly like a flow that never started.
+        if flow.canceled_by.is_some()
+            || (!flow.same_worker.unwrap_or(false)
+                && status.as_ref().is_some_and(|s| s.is_not_yet_started()))
         {
-            let error_message = format!(
-                "Zombie flow detected: {} in workspace {}. It hasn't started yet, restarting it.",
-                flow.id, flow.workspace_id
-            );
-            tracing::error!(error_message);
-            if !CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART.load(Ordering::Relaxed) {
-                report_critical_error(error_message, db.clone(), Some(&flow.workspace_id), None)
-                    .await;
-            }
-            // if the flow hasn't started and is a zombie, we can simply restart it
             let mut tx = db.begin().await?;
+
+            // Claims the flow unless another sweep holds it or it visibly moved on since it was
+            // read. This does not tell a slow transition from a lost one: the ping is written when
+            // the step completes, at the start of the transition, and nothing is locked until its
+            // end, so the grace in the query above is what keeps a live transition safe.
+            let claimed = sqlx::query_scalar!(
+                "SELECT q.id FROM v2_job_queue q JOIN v2_job_runtime r ON r.id = q.id
+                WHERE q.id = $1 AND q.running AND r.ping = $2
+                FOR UPDATE OF q SKIP LOCKED",
+                flow.id,
+                flow.last_ping,
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+            .is_some();
+            if !claimed {
+                continue;
+            }
+
+            let error_message = if let Some(canceler) = flow.canceled_by.as_deref() {
+                // Bounds the requeues of a canceled flow whose completion keeps failing: past the
+                // limit it is completed on its own instead, on every sweep until that succeeds.
+                // The count is taken under the row claim, so the alert goes out once.
+                let attempt = sqlx::query_scalar!(
+                    "INSERT INTO zombie_job_counter (job_id, counter) VALUES ($1, 1)
+                    ON CONFLICT (job_id) DO UPDATE SET counter = zombie_job_counter.counter + 1
+                    RETURNING counter",
+                    flow.id
+                )
+                .fetch_one(&mut *tx)
+                .await?;
+                if attempt > RESTART_LIMIT {
+                    tx.commit().await?;
+                    if attempt == RESTART_LIMIT + 1 {
+                        let error_message = format!(
+                            "Zombie flow detected: {} in workspace {}. It was canceled by {canceler} but could not be completed after {RESTART_LIMIT} attempts, completing it as canceled without handing it to its parent.",
+                            flow.id, flow.workspace_id
+                        );
+                        tracing::error!(error_message);
+                        report_critical_error(
+                            error_message,
+                            db.clone(),
+                            Some(&flow.workspace_id),
+                            None,
+                        )
+                        .await;
+                    }
+                    let completed = match get_queued_job_v2(db, &flow.id).await {
+                        Ok(Some(job)) => add_completed_job_error(
+                            db,
+                            &MiniCompletedJob::from(job),
+                            0,
+                            Some(CanceledBy {
+                                username: Some(canceler.to_string()),
+                                reason: flow.canceled_reason.clone(),
+                            }),
+                            canceled_result(flow.canceled_reason.as_deref(), Some(canceler)),
+                            "monitor",
+                            false,
+                            None,
+                        )
+                        .await
+                        .map(|_| ()),
+                        Ok(None) => Ok(()),
+                        Err(e) => Err(e),
+                    };
+                    if let Err(e) = completed {
+                        tracing::error!(
+                            "could not complete canceled zombie flow {}, retrying on the next sweep: {e:#}",
+                            flow.id
+                        );
+                    }
+                    continue;
+                }
+                format!(
+                    "Zombie flow detected: {} in workspace {}. It was canceled by {canceler} but its worker stopped between two steps, queuing it again to complete the cancel ({attempt}/{RESTART_LIMIT}).",
+                    flow.id, flow.workspace_id
+                )
+            } else {
+                format!(
+                    "Zombie flow detected: {} in workspace {}. It hasn't started yet, restarting it.",
+                    flow.id, flow.workspace_id
+                )
+            };
 
             let concurrency_key =
                 sqlx::query_scalar!("SELECT key FROM concurrency_key WHERE job_id = $1", flow.id)
@@ -6434,15 +6762,26 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
                 }
             }
 
+            // A canceled flow keeps its start: the pull only sets a missing one, and the canceled
+            // run's duration is measured from it.
             sqlx::query!(
-                "UPDATE v2_job_queue SET running = false, started_at = null
-                WHERE id = $1 AND canceled_by IS NULL",
+                "UPDATE v2_job_queue SET running = false,
+                    started_at = CASE WHEN canceled_by IS NULL THEN NULL ELSE started_at END
+                WHERE id = $1",
                 flow.id
             )
             .execute(&mut *tx)
             .await?;
 
             tx.commit().await?;
+
+            tracing::error!(error_message);
+            if flow.canceled_by.is_some()
+                || !CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART.load(Ordering::Relaxed)
+            {
+                report_critical_error(error_message, db.clone(), Some(&flow.workspace_id), None)
+                    .await;
+            }
         } else {
             let id = flow.id.clone();
             let last_ping = flow.last_ping.clone();
@@ -7000,6 +7339,34 @@ pub fn apply_app_workspaced_route_setting(app_workspaced_route: Option<serde_jso
     };
 
     APP_WORKSPACED_ROUTE.store(ws_route, Ordering::Relaxed);
+}
+
+pub async fn reload_http_route_default_allowed_origins_setting(conn: &DB) -> error::Result<()> {
+    let v =
+        load_value_from_global_settings(conn, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING).await?;
+    apply_http_route_default_allowed_origins_setting(v)
+}
+
+pub fn apply_http_route_default_allowed_origins_setting(
+    value: Option<serde_json::Value>,
+) -> error::Result<()> {
+    // A bad value leaves whatever is already loaded in place rather than
+    // reverting to no restriction. On the boot path that is still the empty
+    // default, so what keeps a stored typo from widening CORS instance-wide is
+    // write-time validation, not this.
+    let origins = match parse_allowed_origins_setting(value.as_ref()) {
+        Ok(origins) => origins,
+        Err(err) => {
+            tracing::error!(
+                "Invalid {} setting, keeping the previous value: {err:#}",
+                HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING
+            );
+            return Ok(());
+        }
+    };
+
+    HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS.store(std::sync::Arc::new(origins));
+    Ok(())
 }
 
 pub async fn reload_http_route_workspaced_route_setting(conn: &DB) -> error::Result<()> {
@@ -7632,5 +7999,156 @@ mod log_file_listing_tests {
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].1, "h.log.2026-08-29-06-46");
         assert_eq!(files[0].0.to_string(), "2026-08-29 06:46:00");
+    }
+}
+
+#[cfg(test)]
+mod canceled_zombie_flow_tests {
+    use super::{handle_zombie_flows, DB, RESTART_LIMIT};
+    use serde_json::json;
+    use uuid::Uuid;
+
+    /// A running flow at `step` (0: not started yet), last pinged `ping_age` ago (`None`: mid-step, no ping).
+    async fn insert_flow(
+        db: &DB,
+        parent: Option<Uuid>,
+        step: i32,
+        ping_age: Option<&str>,
+        canceled_by: Option<&str>,
+    ) -> anyhow::Result<Uuid> {
+        let id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO v2_job (id, workspace_id, created_by, permissioned_as, permissioned_as_email,
+                kind, tag, parent_job, flow_step_id)
+             VALUES ($1, 'admins', 'admin', 'u/admin', 'admin@windmill.dev', 'flowpreview', 'flow',
+                $2, CASE WHEN $2 IS NOT NULL THEN 'sf' END)",
+        )
+        .bind(id)
+        .bind(parent)
+        .execute(db)
+        .await?;
+        sqlx::query(
+            "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for, running, started_at, tag,
+                canceled_by, canceled_reason)
+             VALUES ($1, 'admins', now(), true, now() - interval '1 hour', 'flow', $2, $2)",
+        )
+        .bind(id)
+        .bind(canceled_by)
+        .execute(db)
+        .await?;
+        sqlx::query("INSERT INTO v2_job_runtime (id, ping) VALUES ($1, now() - $2::interval)")
+            .bind(id)
+            .bind(ping_age)
+            .execute(db)
+            .await?;
+        sqlx::query("INSERT INTO v2_job_status (id, flow_status) VALUES ($1, $2)")
+            .bind(id)
+            .bind(json!({"step": step, "modules": [if step == 0 {
+                json!({"type": "WaitingForPriorSteps", "id": "a"})
+            } else {
+                json!({"type": "InProgress", "id": "a", "job": Uuid::nil()})
+            }],
+                "failure_module": {"type": "WaitingForPriorSteps", "id": "failure"}}))
+            .execute(db)
+            .await?;
+        Ok(id)
+    }
+
+    /// `(running, canceled_by, still started an hour ago)`
+    async fn queue_row(db: &DB, id: Uuid) -> anyhow::Result<(bool, Option<String>, Option<bool>)> {
+        Ok(sqlx::query_as(
+            "SELECT running, canceled_by, started_at < now() - interval '30 minutes'
+             FROM v2_job_queue WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_one(db)
+        .await?)
+    }
+
+    /// A subflow canceled on its own whose worker died between two steps goes back to the queue
+    /// with its cancel and its start, for a worker to complete it and hand it to its parent. The
+    /// parent is left alone: the cancel must not reach flows the user never canceled.
+    #[sqlx::test(migrations = "./migrations")]
+    async fn requeues_a_stranded_canceled_flow_and_nothing_else(db: DB) -> anyhow::Result<()> {
+        let root = insert_flow(&db, None, 0, None, None).await?;
+        let child = insert_flow(&db, Some(root), 1, Some("1 hour"), Some("admin")).await?;
+
+        handle_zombie_flows(&db).await?;
+
+        assert_eq!(
+            queue_row(&db, child).await?,
+            (false, Some("admin".to_string()), Some(true))
+        );
+        assert_eq!(queue_row(&db, root).await?, (true, None, Some(true)));
+        Ok(())
+    }
+
+    /// A canceled flow is left to a transition that may just be slow for ten times the timeout
+    /// a flow that never started gets.
+    #[sqlx::test(migrations = "./migrations")]
+    async fn gives_a_canceled_flow_a_longer_grace(db: DB) -> anyhow::Result<()> {
+        let slow = insert_flow(&db, None, 1, Some("2 minutes"), Some("admin")).await?;
+        let stuck = insert_flow(&db, None, 1, Some("1 hour"), Some("admin")).await?;
+        let not_started = insert_flow(&db, None, 0, Some("2 minutes"), None).await?;
+
+        handle_zombie_flows(&db).await?;
+
+        assert!(
+            queue_row(&db, slow).await?.0,
+            "a recent canceled flow is left running"
+        );
+        assert!(
+            !queue_row(&db, stuck).await?.0,
+            "past the grace, it is requeued"
+        );
+        assert!(
+            !queue_row(&db, not_started).await?.0,
+            "a flow that never started is not held back"
+        );
+        Ok(())
+    }
+
+    /// A canceled flow that keeps coming back after its requeues is completed as canceled on its
+    /// own instead of being requeued (and alerted on) forever, and that completion is retried by
+    /// the next sweep if a previous one did not land. Its parent is not advanced, since the
+    /// transition that would do it is what kept failing.
+    #[sqlx::test(migrations = "./migrations")]
+    async fn completes_a_canceled_flow_requeued_too_often(db: DB) -> anyhow::Result<()> {
+        let root = insert_flow(&db, None, 0, None, None).await?;
+        let child = insert_flow(&db, Some(root), 1, Some("1 hour"), Some("admin")).await?;
+        let retried = insert_flow(&db, None, 1, Some("1 hour"), Some("admin")).await?;
+        for (id, counter) in [(child, RESTART_LIMIT), (retried, RESTART_LIMIT + 1)] {
+            sqlx::query("INSERT INTO zombie_job_counter (job_id, counter) VALUES ($1, $2)")
+                .bind(id)
+                .bind(counter)
+                .execute(&db)
+                .await?;
+        }
+
+        handle_zombie_flows(&db).await?;
+
+        for id in [child, retried] {
+            let completed: Option<(String, Option<String>)> = sqlx::query_as(
+                "SELECT status::text, canceled_by FROM v2_job_completed WHERE id = $1",
+            )
+            .bind(id)
+            .fetch_optional(&db)
+            .await?;
+            assert_eq!(
+                completed,
+                Some(("canceled".to_string(), Some("admin".to_string())))
+            );
+        }
+        // the parent is not advanced, but the completion pings it: the sweep then reaps it as a
+        // flow hanging between two steps instead of leaving it waiting
+        assert_eq!(queue_row(&db, root).await?, (true, None, Some(true)));
+        let parent_pinged: bool = sqlx::query_scalar(
+            "SELECT ping > now() - interval '1 minute' FROM v2_job_runtime WHERE id = $1",
+        )
+        .bind(root)
+        .fetch_one(&db)
+        .await?;
+        assert!(parent_pinged);
+        Ok(())
     }
 }

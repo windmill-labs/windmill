@@ -3,8 +3,10 @@ import {
 	buildPromptCacheKey,
 	getOpenAIResponsesCompletion,
 	openAIWebSearchDetails,
+	parseOpenAIResponsesCompletion,
 	toResponsesContent
 } from './openai-responses'
+import { OutputTokenLimitError } from './outputTokenLimit'
 
 const mocks = vi.hoisted(() => ({
 	getProviderAndCompletionConfig: vi.fn(),
@@ -151,5 +153,36 @@ describe('openAIWebSearchDetails', () => {
 				action: { type: 'search', queries: [], sources: [{ url: 'https://a.dev' }, { nope: 1 }] }
 			})
 		).toEqual({ query: undefined, sources: [{ url: 'https://a.dev' }] })
+	})
+})
+
+describe('parseOpenAIResponsesCompletion output token limit', () => {
+	it('fails a response the stream reports incomplete at max_output_tokens', async () => {
+		const handlers: Record<string, (event: any) => void> = {}
+		// The SDK's final snapshot of an incomplete response still reads in_progress;
+		// only the response.incomplete event carries the reason.
+		const runner = {
+			on: (name: string, fn: (event: any) => void) => {
+				handlers[name] = fn
+			},
+			done: async () => {
+				handlers['response.incomplete']?.({
+					type: 'response.incomplete',
+					response: { incomplete_details: { reason: 'max_output_tokens' } }
+				})
+			},
+			finalResponse: async () => ({ status: 'in_progress', output: [] })
+		}
+
+		const parsed = parseOpenAIResponsesCompletion(
+			runner as any,
+			{ onNewToken: vi.fn(), onMessageEnd: vi.fn(), setToolStatus: vi.fn() } as any,
+			[],
+			[],
+			[],
+			{}
+		)
+
+		await expect(parsed).rejects.toBeInstanceOf(OutputTokenLimitError)
 	})
 })

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { toolReloadEffect, tabsToReload } from './previewReload'
+import { toolReloadEffect, tabsToReload, viewerTabsToReload } from './previewReload'
 import type { SessionPreviewTab } from './sessionState.svelte'
+import { pageItemUrl } from './previewPaths'
 
 describe('toolReloadEffect', () => {
 	it('maps a non-item mutation to its own list page only', () => {
@@ -52,6 +53,26 @@ describe('toolReloadEffect', () => {
 	})
 })
 
+describe('page item tabs', () => {
+	const tab = (url: string): SessionPreviewTab => ({ id: url, url, loc: url })
+	const kafkaA = tab('pageitem:trigger.kafka/u%2Fme%2Fa')
+	const kafkaB = tab('pageitem:trigger.kafka/u%2Fme%2Fb')
+	const list = tab('/kafka_triggers')
+
+	it('reloads only the trigger a write names, and its list page', () => {
+		const { pages, items } = toolReloadEffect('write_trigger', {
+			kind: 'kafka',
+			config: { path: 'u/me/a' }
+		})
+		const named = new Set(items.map((i) => pageItemUrl(i)))
+		expect(tabsToReload([kafkaA, kafkaB, list], new Set(pages), named)).toEqual([kafkaA, list])
+	})
+
+	it('reloads every tab of the kind when the tool names no item', () => {
+		expect(tabsToReload([kafkaA, kafkaB], new Set(['/kafka_triggers']))).toEqual([kafkaA, kafkaB])
+	})
+})
+
 describe('tabsToReload', () => {
 	const scheduleTab: SessionPreviewTab = { id: 's', url: '/schedules', loc: '/schedules' }
 	const resourceTab: SessionPreviewTab = { id: 'r', url: '/resources', loc: '/resources' }
@@ -83,5 +104,68 @@ describe('tabsToReload', () => {
 	it('matches on the observed loc (with query/hash stripped) over the seeded url', () => {
 		const navigated: SessionPreviewTab = { id: 'n', url: '/runs', loc: '/schedules?workspace=w' }
 		expect(tabsToReload([navigated], new Set(['/schedules']))).toEqual([navigated])
+	})
+})
+
+describe('viewerTabsToReload', () => {
+	const viewTab: SessionPreviewTab = {
+		id: 'v',
+		url: '/scripts/get/f/foo/bar',
+		loc: '/scripts/get/f/foo/bar'
+	}
+	const editTab: SessionPreviewTab = {
+		id: 'e',
+		url: '/flows/edit/f/foo/baz',
+		loc: '/flows/edit/f/foo/baz'
+	}
+	const pageTab: SessionPreviewTab = { id: 'p', url: '/schedules', loc: '/schedules' }
+
+	it('returns the view-side tab whose item was deployed', () => {
+		expect(viewerTabsToReload([viewTab, editTab, pageTab], new Set(['f/foo/bar']))).toEqual([
+			viewTab
+		])
+	})
+
+	// The editor holds what the user is writing; refetching the deployed version over it
+	// would discard that, and it self-syncs from the store the chat already mutated.
+	it('never returns the edit side, even for the item that was deployed', () => {
+		expect(viewerTabsToReload([editTab], new Set(['f/foo/baz']))).toEqual([])
+	})
+
+	it('leaves a view tab on a different item alone', () => {
+		expect(viewerTabsToReload([viewTab], new Set(['f/other/item']))).toEqual([])
+	})
+
+	it('is empty when no items were deployed', () => {
+		expect(viewerTabsToReload([viewTab, editTab], new Set())).toEqual([])
+	})
+})
+
+describe('toolReloadEffect deployed', () => {
+	// A deploy is invisible to a View tab otherwise: it renders the deployed version over
+	// the API and shares no store with the chat.
+	it('names the item a deploy or delete changed, for the kinds a tab can view', () => {
+		for (const type of ['script', 'flow', 'app']) {
+			expect(toolReloadEffect('deploy_workspace_item', { type, path: 'u/me/x' }).deployed).toEqual([
+				'u/me/x'
+			])
+			expect(toolReloadEffect('delete_workspace_item', { type, path: 'u/me/x' }).deployed).toEqual([
+				'u/me/x'
+			])
+		}
+	})
+
+	it('names no item for a draft-only tool — nothing deployed changed', () => {
+		expect(toolReloadEffect('write_script', { path: 'u/me/x' }).deployed).toEqual([])
+		expect(
+			toolReloadEffect('discard_local_draft', { type: 'script', path: 'u/me/x' }).deployed
+		).toEqual([])
+		expect(toolReloadEffect('rebase_draft', { type: 'flow', path: 'u/me/x' }).deployed).toEqual([])
+	})
+
+	it('names no item for types that have a list page instead of a view side', () => {
+		expect(
+			toolReloadEffect('deploy_workspace_item', { type: 'schedule', path: 'u/me/s' }).deployed
+		).toEqual([])
 	})
 })

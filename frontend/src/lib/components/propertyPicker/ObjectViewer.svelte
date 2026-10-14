@@ -26,13 +26,15 @@
 		Braces
 	} from 'lucide-svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import Popover from '../Popover.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ContextMenu, {
 		type ContextMenuItem
 	} from '$lib/components/common/contextmenu/ContextMenu.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		json: any
@@ -408,16 +410,14 @@
 					<div class="flex">
 						<span class="text-primary">{closeBracket}</span>
 						{#if getTypeAsString(jsonFiltered) === 's3object'}
-							{@const s3DownloadApiPath = `/w/${$workspaceStore}/job_helpers/download_s3_file?file_key=${encodeURIComponent(jsonFiltered?.s3 ?? '')}${jsonFiltered?.storage ? `&storage=${jsonFiltered.storage}` : ''}`}
+							{@const s3DownloadApiPath = `/w/${$operatingWorkspace}/job_helpers/download_s3_file?file_key=${encodeURIComponent(jsonFiltered?.s3 ?? '')}${jsonFiltered?.storage ? `&storage=${jsonFiltered.storage}` : ''}`}
 							{@const s3DownloadName = jsonFiltered?.s3.split('/').pop() ?? 'unnamed_download.file'}
 							{#if shouldDownloadViaClient()}
 								<button
 									class="text-secondary underline font-semibold text-2xs whitespace-nowrap ml-1 w-fit"
 									onclick={() => downloadViaClient(s3DownloadApiPath, s3DownloadName)}
 								>
-									<span class="flex items-center gap-1"
-										><Download size={12} />download</span
-									>
+									<span class="flex items-center gap-1"><Download size={12} />download</span>
 								</button>
 							{:else}
 								<a
@@ -425,9 +425,7 @@
 									href={`/api${s3DownloadApiPath}`}
 									download={s3DownloadName}
 								>
-									<span class="flex items-center gap-1"
-										><Download size={12} />download</span
-									>
+									<span class="flex items-center gap-1"><Download size={12} />download</span>
 								</a>
 							{/if}
 							<button

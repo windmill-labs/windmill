@@ -4,27 +4,56 @@
 	 * workspace and the admin bypass in its popover. Renders nothing for operators, who have no edit
 	 * affordance for it to explain.
 	 */
-	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { userWorkspaces, workspaceStore } from '$lib/stores'
+	import { resource } from 'runed'
 	import {
-		canUserBypassRuleKind,
-		getActiveRulesetsForKind,
-		isRuleActive
+		canUserBypassRuleKindInRulesets,
+		fetchProtectionRulesForWorkspace,
+		getActiveRulesetsForKindInRulesets,
+		isRuleActiveInRulesets,
+		protectionRulesState
 	} from '$lib/workspaceProtectionRules.svelte'
 	import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
 	import { devLabelKey, devLabelNoun } from '$lib/utils/devWorkspaceLabel'
-	import { canCreateFork } from '$lib/utils/editInFork'
 	import { switchWorkspace } from '$lib/storeUtils'
-	import { Badge, Button } from './common'
+	import { Button, ButtonType } from './common'
+	import { twMerge } from 'tailwind-merge'
 	import Popover from './meltComponents/Popover.svelte'
 	import Toggle from './Toggle.svelte'
 	import { GitFork, Lock, ShieldOff } from 'lucide-svelte'
+	import {
+		useOperatingWorkspace,
+		useOperatingUser
+	} from '$lib/components/operatingWorkspace.svelte'
 
-	let activeDeployRulesets = $derived(getActiveRulesetsForKind('DisableDirectDeployment'))
-	let canBypass = $derived(canUserBypassRuleKind('DisableDirectDeployment', $userStore))
-	let canonicalDev = $derived(findCanonicalDevWorkspace($workspaceStore, $userWorkspaces))
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+
+	// The shared rules state holds the navigation workspace's rules, so a host acting on another
+	// workspace (an AI session's fork) has to ask for that one's.
+	const foreignRules = resource(
+		() => ($operatingWorkspace !== $workspaceStore ? $operatingWorkspace : undefined),
+		(workspace) => (workspace ? fetchProtectionRulesForWorkspace(workspace) : Promise.resolve([]))
+	)
+	let rulesets = $derived(
+		$operatingWorkspace === $workspaceStore
+			? (protectionRulesState.rulesets ?? [])
+			: (foreignRules.current ?? [])
+	)
+
+	let activeDeployRulesets = $derived(
+		getActiveRulesetsForKindInRulesets(rulesets, 'DisableDirectDeployment')
+	)
+	let canBypass = $derived(
+		canUserBypassRuleKindInRulesets(rulesets, 'DisableDirectDeployment', operatingUser.current)
+	)
+	let canonicalDev = $derived(findCanonicalDevWorkspace($operatingWorkspace, $userWorkspaces))
 	// Forking may itself be blocked by DisableWorkspaceForking, so only suggest it
 	// when the user can actually fork this workspace.
-	let canFork = $derived(canCreateFork($userStore))
+	let canFork = $derived(
+		!isRuleActiveInRulesets(rulesets, 'DisableWorkspaceForking') ||
+			canUserBypassRuleKindInRulesets(rulesets, 'DisableWorkspaceForking', operatingUser.current)
+	)
 	let editAdvice = $derived(
 		canFork
 			? 'You will need to either fork the workspace, or make your changes locally and submit a PR to an authorized user.'
@@ -34,7 +63,9 @@
 	// The toggle is only offered to a user who can bypass, but the answer can change under a
 	// workspace switch, so the checked flag alone never grants the edit.
 	let bypassActive = $derived(canBypass && overrideChecked)
-	let canEdit = $derived(!isRuleActive('DisableDirectDeployment') || bypassActive)
+	let canEdit = $derived(
+		!isRuleActiveInRulesets(rulesets, 'DisableDirectDeployment') || bypassActive
+	)
 
 	let {
 		onUpdateCanEditStatus = (value) => {}
@@ -53,28 +84,35 @@
 				? `Edits in ${devLabelKey(canonicalDev.dev_workspace_label)}`
 				: 'Edits restricted'
 	)
+
+	// The Popover renders its trigger as a <button>, so this wears the design system's subtle
+	// button rather than containing one — a <Button> here would nest a button inside a button.
+	const triggerClass = twMerge(
+		'inline-flex items-center gap-1 rounded-md whitespace-nowrap transition-all',
+		ButtonType.VariantStyles.subtle,
+		ButtonType.UnifiedSizingClasses.sm,
+		ButtonType.UnifiedHeightClasses.sm,
+		ButtonType.UnifiedFontSizes.sm,
+		'text-xs'
+	)
 </script>
 
-{#if !$userStore?.operator && activeDeployRulesets.length > 0}
+{#if !operatingUser.current?.operator && activeDeployRulesets.length > 0}
 	<div class="my-2">
 		<Popover
 			placement="bottom-start"
-			class="inline-flex items-center"
+			class={triggerClass}
 			triggerAttrs={{ 'aria-label': badgeLabel }}
 		>
 			{#snippet trigger()}
-				<!-- `clickable` is unusable here: it renders the badge as a <button>, nested inside the
-				     one Popover wraps its trigger in. -->
-				<Badge small color={bypassActive ? 'yellow' : 'blue'} class="cursor-pointer">
-					{#if bypassActive}
-						<ShieldOff class="h-3 w-3" />
-					{:else if canonicalDev}
-						<GitFork class="h-3 w-3" />
-					{:else}
-						<Lock class="h-3 w-3" />
-					{/if}
-					{badgeLabel}
-				</Badge>
+				{#if bypassActive}
+					<ShieldOff size={ButtonType.UnifiedIconSizes.sm} class="shrink-0" />
+				{:else if canonicalDev}
+					<GitFork size={ButtonType.UnifiedIconSizes.sm} class="shrink-0" />
+				{:else}
+					<Lock size={ButtonType.UnifiedIconSizes.sm} class="shrink-0" />
+				{/if}
+				{badgeLabel}
 			{/snippet}
 			{#snippet content()}
 				<div class="flex flex-col gap-3 p-4 text-xs max-w-sm">

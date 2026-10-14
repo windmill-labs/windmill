@@ -72,7 +72,7 @@ const packageJson = {
     url: "https://github.com/windmill-labs/windmill/issues",
   },
   dependencies: {
-    esbuild: "0.28.0",
+    esbuild: "0.28.2",
     ...Object.fromEntries(parserPackages.map(p => [p, cliDeps[p] ?? "*"])),
   },
   optionalDependencies: {

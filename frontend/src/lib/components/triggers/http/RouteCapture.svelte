@@ -1,15 +1,14 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import Label from '$lib/components/Label.svelte'
 	import CopyableCodeBlock from '$lib/components/details/CopyableCodeBlock.svelte'
 	import { bash } from 'svelte-highlight/languages'
 	// import { page } from '$app/state'
-	import { base } from '$lib/base'
 	import type { CaptureInfo } from '../CaptureSection.svelte'
 	import CaptureSection from '../CaptureSection.svelte'
 	import { isObject } from '$lib/utils'
 	import { Url } from '$lib/components/common'
 	import { fade } from 'svelte/transition'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		route_path: string | undefined
@@ -32,9 +31,11 @@
 		isFlow = false,
 		captureLoading = false
 	}: Props = $props()
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	let captureURL = $derived(
-		`${location.origin}${base}/api/w/${$workspaceStore}/capture_u/http/${
+		`${location.origin}/api/w/${wsId}/capture_u/http/${
 			captureInfo?.isFlow ? 'flow' : 'script'
 		}/${captureInfo?.path.replaceAll('/', '.')}/${route_path ?? ''}`
 	)

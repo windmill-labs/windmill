@@ -29,6 +29,7 @@
 	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
 	import WorkspaceRegistries from './instanceSettings/WorkspaceRegistries.svelte'
 	import DbHealth from './instanceSettings/DbHealth.svelte'
+	import OidcSigningStatus from './instanceSettings/OidcSigningStatus.svelte'
 
 	interface Props {
 		tab?: string
@@ -60,6 +61,14 @@
 	let requirePreexistingUserForOauth: boolean = $state(false)
 
 	let initialValues: Record<string, any> = $state({})
+
+	/// A setting its own component writes (it has to persist before acting on the cluster) is
+	/// already saved, so the baseline must move with it: otherwise Discard restores the value it
+	/// replaced, and a later bulk save sends that stale one back.
+	function markSettingSaved(key: string) {
+		initialValues[key] =
+			$values[key] === undefined ? undefined : JSON.parse(JSON.stringify($values[key]))
+	}
 	let baseUrlIsFallback = $state(false)
 	// Per-instance OAuth providers (Snowflake, ServiceNow, …): instance name
 	// keyed by provider, used to build their per-instance connect_config URLs.
@@ -134,11 +143,15 @@
 		}
 		applyFormDefaults(nvalues)
 
-		// Apply select/select_python defaults so initialValues matches what InstanceSetting's $effect does
+		// Apply declared defaults before snapshotting initialValues, so a default shows without
+		// marking the form dirty: a select's mirrors InstanceSetting's $effect, a boolean's is
+		// what its toggle shows while the key is unset.
 		for (const category of settingsKeys) {
 			for (const s of settings[category]) {
 				if (
-					(s.fieldType === 'select' || s.fieldType === 'select_python') &&
+					(s.fieldType === 'select' ||
+						s.fieldType === 'select_python' ||
+						s.fieldType === 'boolean') &&
 					nvalues[s.key] == undefined &&
 					s.defaultValue
 				) {
@@ -723,9 +736,10 @@
 	// Each entry maps a top-level key to its sensitive sub-field names.
 	const nestedSensitiveFields: Record<string, string[]> = {
 		smtp_settings: ['smtp_password'],
-		secret_backend: ['token'],
-		object_store_cache_config: ['secret_key', 'serviceAccountKey'],
+		secret_backend: ['token', 'client_secret', 'secret_access_key'],
+		object_store_cache_config: ['secret_key', 'serviceAccountKey', 'accessKey'],
 		custom_instance_pg_databases: ['user_pwd'],
+		external_instance_pg: ['password'],
 		rsa_keys: ['private_key'],
 		github_enterprise_app: ['private_key']
 	}
@@ -1061,47 +1075,19 @@
 					Telemetry is required on Enterprise Edition for license compliance. When minimal telemetry
 					is enabled, only the following data is sent:
 					<ul class="list-disc list-inside pl-2">
-						<li>version of your instance</li>
-						<li>instance base URL</li>
-						<li>login type usage (login type, count)</li>
-						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
-						<li
-							>user usage (author count, operator count, the distinct guests of the last 30 days,
-							the seats they add past the free allowance, and the workspaces that allow guests)</li
-						>
-						<li>superadmin email addresses</li>
-						<li>development instance status</li>
+						<li>Instance version and base URL</li>
+						<li>Login types, user and seat counts</li>
+						<li>Worker count, vCPUs and memory</li>
+						<li>Superadmin email addresses</li>
+						<li>Development instance status</li>
 					</ul>
 					<br />When minimal telemetry is disabled, the following is also collected:
 					<ul class="list-disc list-inside pl-2">
-						<li>job usage (language, total duration, count)</li>
-						<li>git sync repo count (sync vs promotion mode)</li>
-						<li
-							>feature usage (counts of which product features are used, including AI provider and
-							model identifiers, the names of public hub scripts used, the languages debug sessions
-							are started for, whether AI chat skills are turned on or off and how often one is
-							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
-							membership, the plan tier and quota shown when the execution meter is opened, whether
-							app sandbox isolation is turned on, whether a step's workspace script is edited from
-							the flow editor, which skin approval steps are given, how data tables and their
-							migrations are set up and used, how often an empty workspace home is seen, how often
-							the home page’s create menu and hub-project picker are opened and from which entry
-							point, and the name of any public hub project imported from the home page and how far
-							that import got, last 30 days)</li
-						>
-						<li
-							>feature adoption (counts of which flow, script, trigger, worker and data table
-							features your deployed items use, including how many apps run sandboxed, how many data
-							tables exist per database kind, how many use migrations, and what references them)</li
-						>
-						<li
-							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
-							apps, raw apps)</li
-						>
-						<li
-							>infrastructure info (container runtime, managed database provider, database version,
-							size and cluster size, max and active connections, object storage backend)</li
-						>
+						<li>Job counts and durations per language</li>
+						<li>Git sync repository counts</li>
+						<li>Feature usage and adoption counts, including AI model and public Hub names</li>
+						<li>Counts of workspaces, scripts, flows and apps</li>
+						<li>Database, runtime and object storage details</li>
 					</ul>
 					<br />For air-gapped instances, you can download the telemetry data and send it manually.
 				</div>
@@ -1130,38 +1116,13 @@
 					Anonymous usage data is collected to help improve Windmill.
 					<br />The following information is collected:
 					<ul class="list-disc list-inside pl-2">
-						<li>version of your instance</li>
-						<li>instance base URL</li>
-						<li>job usage (language, total duration, count)</li>
-						<li>login type usage (login type, count)</li>
-						<li>worker usage (worker, worker instance, vCPUs, memory)</li>
-						<li
-							>user usage (author count, operator count, the distinct guests of the last 30 days,
-							the seats they add past the free allowance, and the workspaces that allow guests)</li
-						>
-						<li>development instance status</li>
-						<li
-							>feature usage (counts of which product features are used, including AI provider and
-							model identifiers, the names of public hub scripts used, the languages debug sessions
-							are started for, whether AI chat skills are turned on or off and how often one is
-							loaded, whether SSO logins evaluate an IdP groups claim (SAML or OIDC) and change a
-							membership, the plan tier and quota shown when the execution meter is opened, whether
-							app sandbox isolation is turned on, whether a step's workspace script is edited from
-							the flow editor, which skin approval steps are given, how data tables and their
-							migrations are set up and used, how often an empty workspace home is seen, how often
-							the home page’s create menu and hub-project picker are opened and from which entry
-							point, and the name of any public hub project imported from the home page and how far
-							that import got, last 30 days)</li
-						>
-						<li
-							>feature adoption (counts of which flow, script, trigger, worker and data table
-							features your deployed items use, including how many apps run sandboxed, how many data
-							tables exist per database kind, how many use migrations, and what references them)</li
-						>
-						<li
-							>resource counts (workspaces, scripts per language, flows, workflows as code, low-code
-							apps, raw apps)</li
-						>
+						<li>Instance version and base URL</li>
+						<li>Job counts and durations per language</li>
+						<li>Login types, user and seat counts</li>
+						<li>Worker count, vCPUs and memory</li>
+						<li>Development instance status</li>
+						<li>Feature usage and adoption counts, including AI model and public Hub names</li>
+						<li>Counts of workspaces, scripts, flows and apps</li>
 					</ul>
 				</div>
 			{/if}
@@ -1226,6 +1187,15 @@
 				description="On-demand database diagnostics. Analyze table sizes, job retention, connection pool health, vacuum status, and more."
 			/>
 			<DbHealth />
+		{:else if category == 'OIDC signing'}
+			<SettingsPageHeader
+				title="OIDC signing"
+				description="What signs the OIDC tokens Windmill issues, and the keys its JWKS serves to verifiers. Read-only: signing is configured with environment variables."
+				link="https://www.windmill.dev/docs/core_concepts/oidc#signing-key"
+			/>
+			{#if $enterpriseLicense}
+				<OidcSigningStatus />
+			{/if}
 		{:else if category == 'Auth/OAuth/SAML'}
 			<AuthSettings
 				bind:oauths
@@ -1243,6 +1213,7 @@
 								{loading}
 								{setting}
 								{values}
+								{markSettingSaved}
 								{version}
 								{oauths}
 							/>
@@ -1262,6 +1233,7 @@
 						{loading}
 						{setting}
 						{values}
+						{markSettingSaved}
 						{version}
 						{oauths}
 						warning={setting.key === 'base_url' && baseUrlIsFallback
@@ -1277,6 +1249,7 @@
 					{@const licenseKeySetting = settings['Core'].find((s) => s.key === 'license_key')}
 					{#if licenseKeySetting}
 						<InstanceSetting
+							{markSettingSaved}
 							{openSmtpSettings}
 							on:closeDrawer={() => closeDrawer?.()}
 							{loading}
@@ -1302,6 +1275,7 @@
 						{loading}
 						{setting}
 						{values}
+						{markSettingSaved}
 						{version}
 						{oauths}
 					/>

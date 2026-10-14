@@ -87,7 +87,9 @@
 <script lang="ts">
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 	import { untrack } from 'svelte'
 
 	type Props = {
@@ -101,9 +103,8 @@
 		error?: string | boolean
 		textInputClass?: string
 		onkeyup?: (e: KeyboardEvent) => void
-		/** Workspace whose paths feed the autocomplete. Defaults to the navigation
-		 *  `$workspaceStore`; pass the acting workspace when the editor operates on
-		 *  a workspace other than the one the top nav points at. */
+		/** Workspace whose paths feed the autocomplete. Defaults to the operating workspace
+		 *  (see `useOperatingWorkspace`). */
 		workspace?: string
 	}
 
@@ -121,7 +122,7 @@
 		workspace = undefined
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	let inputEl: TextInput | undefined = $state(undefined)
 	export function focus() {

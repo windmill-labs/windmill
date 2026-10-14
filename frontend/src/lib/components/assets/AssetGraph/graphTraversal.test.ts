@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { AssetGraphResponse } from './types'
 import {
+	hoverLineage,
+	transitivelyImpliedEdges,
 	buildDownstreamMap,
 	computeDownstreamClosure,
 	computeInducedSchedule
@@ -223,5 +225,46 @@ describe('computeInducedSchedule', () => {
 		const sched = computeInducedSchedule(g, new Set(['b', 'c']))
 		expect(sched.nodes).toEqual([])
 		expect(sched.cyclic.sort()).toEqual(['b', 'c'])
+	})
+})
+
+describe('hoverLineage', () => {
+	// a → b → c → d, with a side branch x → c and c → y; z is unrelated to b.
+	const edges = [
+		{ source: 'a', target: 'b' },
+		{ source: 'b', target: 'c' },
+		{ source: 'x', target: 'c' },
+		{ source: 'c', target: 'd' },
+		{ source: 'c', target: 'y' },
+		{ source: 'z', target: 'y' }
+	]
+
+	it('reaches everything upstream and downstream, recursively', () => {
+		const l = hoverLineage(edges, 'b')
+		expect([...l.upstream].sort()).toEqual(['a', 'b'])
+		expect([...l.downstream].sort()).toEqual(['b', 'c', 'd', 'y'])
+	})
+
+	it('keeps only the edges on a path through the node', () => {
+		const l = hoverLineage(edges, 'b')
+		expect(edges.filter(l.hasEdge)).toEqual([
+			{ source: 'a', target: 'b' },
+			{ source: 'b', target: 'c' },
+			{ source: 'c', target: 'd' },
+			{ source: 'c', target: 'y' }
+		])
+	})
+})
+
+describe('transitivelyImpliedEdges', () => {
+	it('flags an edge another path already implies, and only that one', () => {
+		const edges = [
+			{ id: 'ab', source: 'a', target: 'b' },
+			{ id: 'bc', source: 'b', target: 'c' },
+			{ id: 'ac', source: 'a', target: 'c' },
+			{ id: 'ad', source: 'a', target: 'd' },
+			{ id: 'ad2', source: 'a', target: 'd' }
+		]
+		expect([...transitivelyImpliedEdges(edges)]).toEqual(['ac'])
 	})
 })

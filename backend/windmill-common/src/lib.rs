@@ -37,6 +37,10 @@ pub mod bench;
 pub mod cache;
 pub mod client;
 pub mod data_metrics;
+pub mod datatable_roles;
+#[cfg(all(feature = "private", feature = "enterprise"))]
+mod datatable_roles_ee;
+pub mod datatable_roles_oss;
 pub mod db;
 #[cfg(all(feature = "enterprise", feature = "private"))]
 mod db_entra_ee;
@@ -54,6 +58,10 @@ pub mod ee_oss;
 pub mod email_ee;
 pub mod email_oss;
 pub mod error;
+pub mod external_instance_pg;
+#[cfg(all(feature = "private", feature = "enterprise"))]
+mod external_instance_pg_ee;
+pub mod external_instance_pg_oss;
 pub mod external_ip;
 #[cfg(feature = "private")]
 pub mod feature_usage_ee;
@@ -67,6 +75,7 @@ pub mod flow_status;
 pub mod flows;
 pub mod folders;
 pub mod global_settings;
+pub mod hub_resource_types;
 pub mod guest_jwt;
 pub mod indexer;
 pub mod instance_config;
@@ -82,6 +91,8 @@ pub mod workspace_dependencies;
 #[cfg(feature = "private")]
 pub mod git_sync_ee;
 pub mod git_sync_oss;
+pub mod item_digest;
+pub mod job_provenance;
 pub mod jobs;
 pub mod jwt;
 pub mod login_rate_limit;
@@ -91,6 +102,8 @@ pub mod oauth2;
 pub mod oidc_ee;
 #[cfg(all(feature = "enterprise", feature = "openidconnect"))]
 pub mod oidc_oss;
+#[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
+pub mod oidc_signer_ee;
 #[cfg(feature = "private")]
 pub mod otel_ee;
 pub mod otel_oss;
@@ -113,9 +126,12 @@ pub mod query_builders;
 pub mod queue;
 pub mod queue_metrics;
 pub mod result_stream;
+pub mod runnable_job_stats;
 pub mod runnable_settings;
+pub mod runnables;
 pub mod schedule;
 pub mod schema;
+pub mod scopes;
 pub mod scripts;
 pub mod secret_backend;
 pub mod sensitive_log_masks;
@@ -141,6 +157,7 @@ pub mod wac;
 pub mod webhook;
 pub mod worker;
 pub mod worker_group_job_stats;
+pub mod workspace_crypt;
 pub mod workspaces;
 
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
@@ -151,6 +168,7 @@ pub const DEFAULT_HUB_BASE_URL: &str = "https://hub.windmill.dev";
 pub const PRIVATE_HUB_MIN_VERSION: i32 = 10_000_000;
 pub const DEFAULT_SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 weeks retention period for logs
 pub const DEFAULT_OTEL_TRACES_RETENTION_SECS: i64 = 60 * 60 * 24 * 7; // 1 week retention period for HTTP request spans
+pub const DEFAULT_AI_SHARED_ARTIFACT_RETENTION_SECS: i64 = 60 * 60 * 24 * 30;
 pub const WM_DEPLOYERS_GROUP: &str = "wm_deployers";
 
 /// A century. Every consumer has to survive `now - retention`, and the ceilings are much lower
@@ -227,6 +245,13 @@ pub fn otel_traces_retention_secs() -> i64 {
 /// [`indexer::service_log_index_window_secs`] — the search index.
 pub fn service_log_retention_secs() -> i64 {
     SERVICE_LOG_RETENTION_SECS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// How long a shared AI session artifact stays viewable, in seconds, counted from the last time
+/// its author shared it. Read by both the API, which stops serving an expired share, and the
+/// monitor, which deletes it — so both must agree, which is why they share this one reader.
+pub fn ai_shared_artifact_retention_secs() -> i64 {
+    *AI_SHARED_ARTIFACT_RETENTION_SECS
 }
 
 /// Canonical form of a base URL, used as one of the inputs to the offline-license
@@ -473,6 +498,15 @@ lazy_static::lazy_static! {
     /// [`set_otel_traces_retention_secs`] is the only writer, [`otel_traces_retention_secs`] the
     /// only reader.
     static ref OTEL_TRACES_RETENTION_SECS: AtomicI64 = AtomicI64::new(DEFAULT_OTEL_TRACES_RETENTION_SECS);
+    /// Read it with [`ai_shared_artifact_retention_secs`].
+    static ref AI_SHARED_ARTIFACT_RETENTION_SECS: i64 = clamp_retention_secs(
+        std::env::var("AI_SHARED_ARTIFACT_RETENTION_SECS")
+            .ok()
+            .and_then(|s| s.parse::<i64>().ok())
+            .unwrap_or(DEFAULT_AI_SHARED_ARTIFACT_RETENTION_SECS),
+        DEFAULT_AI_SHARED_ARTIFACT_RETENTION_SECS,
+        "AI shared artifact",
+    );
 
     pub static ref MONITOR_LOGS_ON_OBJECT_STORE: AtomicBool = AtomicBool::new(false);
 
@@ -832,6 +866,7 @@ ta9ELulniZau8zUAtwqwecxodzl+KO8NYj0a9PGgAM64dMqkRtRA8P4UP350Nag3\n\
             accept_invalid_certs: None,
             use_iam_auth: None,
             region: None,
+            options: None,
         }
     }
 
@@ -919,6 +954,26 @@ ta9ELulniZau8zUAtwqwecxodzl+KO8NYj0a9PGgAM64dMqkRtRA8P4UP350Nag3\n\
         assert!(pg(None, None).to_uri().contains("sslmode=prefer"));
     }
 
+    #[test]
+    fn options_survive_to_uri() {
+        let mut db = pg(Some("require"), None);
+        db.options = Some("endpoint=ep-x -c search_path=a&b".to_string());
+        let uri = db.to_uri();
+        let config: tokio_postgres::Config = uri.parse().unwrap();
+        assert_eq!(config.get_options(), db.options.as_deref());
+        assert_eq!(PgDatabase::parse_uri(&uri).unwrap().options, db.options);
+
+        db.options = Some(String::new());
+        assert!(!db.to_uri().contains("options"));
+
+        // Read the way sqlx reads DATABASE_URL: `+` is a space.
+        let parsed = PgDatabase::parse_uri("postgres://u@h/db?options=-c+search_path%3Dwm");
+        assert_eq!(
+            parsed.unwrap().options.as_deref(),
+            Some("-c search_path=wm")
+        );
+    }
+
     /// The other paths default a missing login to `postgres`; Entra must not, or the
     /// server rejects a role the resource never named.
     #[test]
@@ -969,6 +1024,8 @@ pub struct PgDatabase {
     pub accept_invalid_certs: Option<bool>,
     pub use_iam_auth: Option<bool>,
     pub region: Option<String>,
+    /// The libpq `options` startup parameter (e.g. `endpoint=<id>` for Neon, `-c search_path=x`).
+    pub options: Option<String>,
 }
 
 // Wrapper enum to hold either Tls or NoTls connection
@@ -1000,6 +1057,32 @@ impl Future for TokioPgConnection {
     }
 }
 
+impl TokioPgConnection {
+    /// Drive the connection and hand back what the server sends outside of a query's response —
+    /// notices above all, which driving it as a future silently discards.
+    pub fn poll_message(
+        &mut self,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Option<Result<tokio_postgres::AsyncMessage, tokio_postgres::Error>>> {
+        match self {
+            TokioPgConnection::Tls(conn) => conn.poll_message(cx),
+            TokioPgConnection::NoTls(conn) => conn.poll_message(cx),
+        }
+    }
+}
+
+/// Without these, a server that vanishes without closing the socket (a failover,
+/// a dropped route) leaves a query waiting on a read for the OS default of two
+/// hours. The server's kernel answers the probes, so a slow query is unaffected.
+pub fn set_pg_keepalive(config: &mut tokio_postgres::Config) {
+    config
+        .keepalives(true)
+        .keepalives_idle(std::time::Duration::from_secs(60))
+        .keepalives_interval(std::time::Duration::from_secs(10))
+        .keepalives_retries(6)
+        .tcp_user_timeout(std::time::Duration::from_secs(120));
+}
+
 impl PgDatabase {
     /// The role the connection logs in as, whichever way it authenticates.
     pub fn login_name(&self) -> &str {
@@ -1022,8 +1105,12 @@ impl PgDatabase {
         } else {
             urlencoding::encode(&self.host).into_owned()
         };
+        let options = match self.non_empty_options() {
+            Some(o) => format!("&options={}", urlencoding::encode(o)),
+            None => String::new(),
+        };
         format!(
-            "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
+            "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}{options}",
             user = urlencoding::encode(self.login_name()),
             password = urlencoding::encode(&self.password.as_deref().unwrap_or("")),
             host = host,
@@ -1031,6 +1118,16 @@ impl PgDatabase {
             dbname = urlencoding::encode(&self.dbname),
             sslmode = sslmode
         )
+    }
+
+    pub fn non_empty_options(&self) -> Option<&str> {
+        self.options.as_deref().filter(|o| !o.is_empty())
+    }
+
+    fn uri_config(&self) -> Result<tokio_postgres::Config, error::Error> {
+        let mut config: tokio_postgres::Config = self.to_uri().parse().map_err(to_anyhow)?;
+        set_pg_keepalive(&mut config);
+        Ok(config)
     }
 
     pub async fn connect(
@@ -1044,7 +1141,13 @@ impl PgDatabase {
                 if err_str.contains("password authentication failed for user")
                     && err_str.contains("custom_instance_user")
                 {
-                    if let Some(db) = main_db {
+                    // The external instance cluster has a `custom_instance_user` of its own, whose
+                    // password setup manages. Rotating the local one would break every instance
+                    // data table and fix nothing.
+                    let local = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+                    let on_local_cluster = local.host == self.host
+                        && local.port.unwrap_or(5432) == self.port.unwrap_or(5432);
+                    if let Some(db) = main_db.filter(|_| on_local_cluster) {
                         tracing::warn!(
                             "custom_instance_user password auth failed, refreshing and retrying..."
                         );
@@ -1144,18 +1247,51 @@ impl PgDatabase {
         }
     }
 
+    fn sslmode_requires_tls(&self) -> bool {
+        matches!(
+            self.sslmode.as_deref(),
+            Some("require") | Some("verify-ca") | Some("verify-full")
+        )
+    }
+
+    /// Asks the server to cancel what the connection behind `token` is running. Dropping a
+    /// connection does not: the server works on until it next writes to the client.
+    ///
+    /// The request goes out the way the connection was made: `token_auth` is set for one
+    /// authenticated with an access token, which is over TLS whatever the sslmode.
+    pub async fn cancel_query(
+        &self,
+        token: tokio_postgres::CancelToken,
+        token_auth: bool,
+    ) -> Result<(), error::Error> {
+        if token_auth || self.sslmode_requires_tls() {
+            let mut connector = native_tls::TlsConnector::builder();
+            Self::configure_pg_tls_verification(
+                &mut connector,
+                self.sslmode.as_deref(),
+                self.root_certificate_pem.as_deref(),
+                self.accept_invalid_certs,
+            )?;
+            let connector =
+                postgres_native_tls::MakeTlsConnector::new(connector.build().map_err(to_anyhow)?);
+            token.cancel_query(connector).await.map_err(to_anyhow)?;
+        } else {
+            token
+                .cancel_query(tokio_postgres::tls::NoTls)
+                .await
+                .map_err(to_anyhow)?;
+        }
+        Ok(())
+    }
+
     async fn connect_inner(
         &self,
     ) -> Result<(tokio_postgres::Client, TokioPgConnection), error::Error> {
         use native_tls::TlsConnector;
         use postgres_native_tls::MakeTlsConnector;
         use tokio_postgres::tls::NoTls;
-        let ssl_mode_is_require = matches!(
-            self.sslmode.as_deref(),
-            Some("require") | Some("verify-ca") | Some("verify-full")
-        );
 
-        if ssl_mode_is_require {
+        if self.sslmode_requires_tls() {
             tracing::info!("Creating new connection");
             let mut connector = TlsConnector::builder();
             Self::configure_pg_tls_verification(
@@ -1173,10 +1309,8 @@ impl PgDatabase {
 
             let (client, connection) = tokio::time::timeout(
                 std::time::Duration::from_secs(20),
-                tokio_postgres::connect(
-                    &self.to_uri(),
-                    MakeTlsConnector::new(connector.build().map_err(to_anyhow)?),
-                ),
+                self.uri_config()?
+                    .connect(MakeTlsConnector::new(connector.build().map_err(to_anyhow)?)),
             )
             .await
             .map_err(to_anyhow)?
@@ -1187,7 +1321,7 @@ impl PgDatabase {
             tracing::info!("Creating new connection");
             let (client, connection) = tokio::time::timeout(
                 std::time::Duration::from_secs(20),
-                tokio_postgres::connect(&self.to_uri(), NoTls),
+                self.uri_config()?.connect(NoTls),
             )
             .await
             .map_err(to_anyhow)?
@@ -1301,6 +1435,10 @@ impl PgDatabase {
             .password(token)
             .dbname(&self.dbname)
             .ssl_mode(tokio_postgres::config::SslMode::Require);
+        if let Some(options) = self.non_empty_options() {
+            config.options(options);
+        }
+        set_pg_keepalive(&mut config);
 
         let (client, connection) = tokio::time::timeout(
             std::time::Duration::from_secs(20),
@@ -1333,9 +1471,14 @@ impl PgDatabase {
         let port = parsed_url.port();
         let dbname = parsed_url.path().trim_start_matches('/').to_string();
         let mut sslmode = None;
+        let mut options = None;
+        // Form decoding (`+` is a space) on purpose: this parses DATABASE_URL, and the instance's
+        // own sqlx pool reads it the same way, so connections derived from it must agree.
         for query in parsed_url.query_pairs() {
-            if query.0 == "sslmode" {
-                sslmode = Some(query.1.to_string());
+            match query.0.as_ref() {
+                "sslmode" => sslmode = Some(query.1.to_string()),
+                "options" => options = Some(query.1.to_string()),
+                _ => {}
             }
         }
 
@@ -1354,6 +1497,7 @@ impl PgDatabase {
             accept_invalid_certs: None,
             use_iam_auth: None,
             region: None,
+            options,
         })
     }
 }
@@ -1436,8 +1580,191 @@ pub fn validate_dbname(dbname: &str) -> error::Result<()> {
     Ok(())
 }
 
+/// Lock the instance databases among `names` until `tx` ends, in a stable order. Taken by every
+/// settings save naming an instance database, and by [`drop_unused_instance_database`]: a save
+/// cannot start using a database between that drop's check that nothing does and the drop.
+pub async fn lock_instance_databases<'a>(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    names: impl IntoIterator<Item = &'a str>,
+) -> error::Result<()> {
+    let names: std::collections::BTreeSet<&str> = names.into_iter().collect();
+    for name in names {
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtext('instance_database:' || $1))")
+            .bind(name)
+            .execute(&mut **tx)
+            .await?;
+    }
+    Ok(())
+}
+
+/// Drop instance database `dbname`, which a request just created, unless a workspace names it as a
+/// data table or a ducklake catalog — then it is kept, and who keeps it is what comes back. A
+/// database is registered on the instance as soon as it is created, so a superadmin can point a
+/// workspace at it before the request that created it gives up on it.
+///
+/// Authorization: none. Callers MUST pass only a database the same request created and has not
+/// handed to anything yet.
+///
+/// The lock, the check and the drop share one connection: a second one taken from the pool while
+/// the first is held could wait forever on a small pool. That connection is closed rather than
+/// returned, since a session lock outlives the future holding it: a cancellation between taking
+/// the lock and releasing it would otherwise hand a locked session back to the pool, where every
+/// later settings save waits on it. Closing on drop covers the cancellation and still counts the
+/// connection against the pool, which detaching it would not.
+pub async fn drop_unused_instance_database(db: &DB, dbname: &str) -> error::Result<Cleanup> {
+    let mut conn = db.acquire().await?;
+    conn.close_on_drop();
+    let key = format!("instance_database:{dbname}");
+    // A save blocked on this lock is about to name the database, but it may also roll back — a
+    // later validation of its own, a superadmin check, a cancelled request. So it is let through
+    // and what it committed is read, rather than taken as a user: trusting it would strand the
+    // database, whose name then blocks every retry. A fresh waiter can always arrive, so after a
+    // few rounds the database is kept instead; the name is then a superadmin's to drop from
+    // instance settings, since a retry fails on the name before reaching this cleanup.
+    let mut rounds = 0;
+    let dropped = loop {
+        if let Err(e) = sqlx::query("SELECT pg_advisory_lock(hashtext($1))")
+            .bind(&key)
+            .execute(&mut *conn)
+            .await
+        {
+            break Err(e.into());
+        }
+        match drop_if_unused_on(&mut conn, dbname).await {
+            Ok(Cleanup::Waiter(_)) if rounds < 2 => {
+                rounds += 1;
+                // Releasing hands the lock to the waiter; re-taking it above then waits for that
+                // transaction to end, so the next round reads what it actually committed.
+                if let Err(e) = unlock_instance_database(&mut conn, &key).await {
+                    break Err(e);
+                }
+            }
+            Ok(outcome) => break Ok(outcome),
+            Err(e) => break Err(e),
+        }
+    };
+    // Dropping closes the connection, and the server releases the lock with the session, so
+    // nothing here depends on an unlock landing.
+    dropped
+}
+
+async fn unlock_instance_database(conn: &mut sqlx::PgConnection, key: &str) -> error::Result<()> {
+    sqlx::query("SELECT pg_advisory_unlock(hashtext($1))")
+        .bind(key)
+        .execute(&mut *conn)
+        .await?;
+    Ok(())
+}
+
+/// What [`drop_unused_instance_database`] did, and for whom when it kept the database.
+pub enum Cleanup {
+    Dropped,
+    /// Workspaces that name the database, as [`instance_database_users`] reports them.
+    InUse(Vec<String>),
+    /// A transaction still blocked on the lock after the rounds above, so what it will commit
+    /// stays unknown, named as its `pid`.
+    Waiter(i32),
+}
+
+async fn drop_if_unused_on(conn: &mut sqlx::PgConnection, dbname: &str) -> error::Result<Cleanup> {
+    let users = instance_database_users(conn, dbname).await?;
+    if !users.is_empty() {
+        return Ok(Cleanup::InUse(users));
+    }
+    // A settings save naming this database takes the same lock, so one waiting on it would read
+    // its own users after the drop and commit a reference to nothing.
+    if let Some(waiter) = waiting_for_instance_database(conn, dbname).await? {
+        return Ok(Cleanup::Waiter(waiter));
+    }
+    drop_custom_instance_database_on(conn, dbname).await?;
+    Ok(Cleanup::Dropped)
+}
+
+/// The `pid` of a transaction blocked on `dbname`'s instance-database lock. The lock is
+/// taken by key, so `pg_locks` reports it split across `classid` and `objid`, and it lists every
+/// database on the cluster — another Windmill on the same one holds its own locks under the same
+/// key.
+async fn waiting_for_instance_database(
+    conn: &mut sqlx::PgConnection,
+    dbname: &str,
+) -> error::Result<Option<i32>> {
+    let pid: Option<i32> = sqlx::query_scalar(
+        "SELECT l.pid FROM pg_locks l
+         WHERE l.locktype = 'advisory' AND NOT l.granted
+           AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
+           AND l.classid = ((hashtext('instance_database:' || $1)::bigint >> 32) & 4294967295)::oid
+           AND l.objid = (hashtext('instance_database:' || $1)::bigint & 4294967295)::oid
+         LIMIT 1",
+    )
+    .bind(dbname)
+    .fetch_optional(&mut *conn)
+    .await?;
+    Ok(pid)
+}
+
+/// The workspaces naming instance database `dbname` as a data table or a ducklake catalog. Taken
+/// under [`lock_instance_databases`] for `dbname`, the answer holds until that lock is released.
+///
+/// Authorization: none, and it reads every workspace's settings. Callers MUST pass only a database
+/// their own request created, and may name the workspaces returned only to a caller allowed to
+/// create or drop instance databases.
+pub async fn instance_database_users(
+    conn: &mut sqlx::PgConnection,
+    dbname: &str,
+) -> error::Result<Vec<String>> {
+    Ok(sqlx::query_scalar(
+        "SELECT DISTINCT ws.workspace_id FROM workspace_settings ws
+         WHERE EXISTS (SELECT 1 FROM jsonb_each(CASE WHEN jsonb_typeof(ws.datatable->'datatables') = 'object'
+                                                THEN ws.datatable->'datatables' ELSE '{}'::jsonb END) dt
+                       WHERE dt.value->'database'->>'resource_type' = 'instance'
+                         AND dt.value->'database'->>'resource_path' = $1)
+            OR EXISTS (SELECT 1 FROM jsonb_each(CASE WHEN jsonb_typeof(ws.ducklake->'ducklakes') = 'object'
+                                                THEN ws.ducklake->'ducklakes' ELSE '{}'::jsonb END) dl
+                       WHERE dl.value->'catalog'->>'resource_type' = 'instance'
+                         AND dl.value->'catalog'->>'resource_path' = $1)",
+    )
+    .bind(dbname)
+    .fetch_all(conn)
+    .await?)
+}
+
 /// Drop a custom instance database: validate, terminate connections, DROP DATABASE, remove from global_settings.
+///
+/// Authorization: drops any instance database but Windmill's own and checks nothing. Callers MUST
+/// be superadmin, or have established the caller may drop this one — a fork's owner cleaning up
+/// its own copy that nothing else uses.
 pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Result<()> {
+    drop_custom_instance_database_on(&mut *db.acquire().await?, dbname).await
+}
+
+/// [`drop_custom_instance_database`] leaving its registry entry, for a caller holding row locks in
+/// a transaction: the registry write has to go through that transaction, as waiting on another
+/// connection for a lock the transaction's own peers hold is a deadlock Postgres cannot see. Same
+/// authorization contract.
+pub async fn drop_custom_instance_database_keep_entry(db: &DB, dbname: &str) -> error::Result<()> {
+    drop_instance_database_keep_entry_on(&mut *db.acquire().await?, dbname).await
+}
+
+async fn drop_custom_instance_database_on(
+    conn: &mut sqlx::PgConnection,
+    dbname: &str,
+) -> error::Result<()> {
+    let dbname = dbname.trim();
+    drop_instance_database_keep_entry_on(&mut *conn, dbname).await?;
+    // Always remove from global_settings
+    sqlx::query!(
+        r#"UPDATE global_settings SET value = value #- ARRAY['databases', $1] WHERE name = 'custom_instance_pg_databases'"#,
+        dbname
+    )
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+async fn drop_instance_database_keep_entry_on(
+    conn: &mut sqlx::PgConnection,
+    dbname: &str,
+) -> error::Result<()> {
     let dbname = dbname.trim();
     validate_dbname(dbname)?;
 
@@ -1452,7 +1779,7 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Resu
         "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_database WHERE datname = $1)",
         dbname
     )
-    .fetch_one(db)
+    .fetch_one(&mut *conn)
     .await?
     .unwrap_or(false);
 
@@ -1463,7 +1790,7 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Resu
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{}' AND pid <> pg_backend_pid()",
             dbname.replace('\'', "''")
         ))
-        .execute(db)
+        .execute(&mut *conn)
         .await
         {
             tracing::warn!("Failed to terminate connections to '{}': {}", dbname, e);
@@ -1472,7 +1799,7 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Resu
         // Drop the database
         // SAFETY: `dbname` has been validated via validate_dbname() before reaching this point.
         sqlx::query(&format!("DROP DATABASE IF EXISTS \"{}\"", dbname))
-            .execute(db)
+            .execute(&mut *conn)
             .await
             .map_err(|e| {
                 error::Error::internal_err(format!("Failed to drop database '{}': {}", dbname, e))
@@ -1483,23 +1810,54 @@ pub async fn drop_custom_instance_database(db: &DB, dbname: &str) -> error::Resu
         tracing::info!("Database '{}' does not exist, skipping drop", dbname);
     }
 
-    // Always remove from global_settings
-    sqlx::query!(
-        r#"UPDATE global_settings SET value = value #- ARRAY['databases', $1] WHERE name = 'custom_instance_pg_databases'"#,
-        dbname
-    )
-    .execute(db)
-    .await?;
-
     Ok(())
 }
 
+/// What `custom_instance_user` holds on an instance database.
+///
+/// `WITH GRANT OPTION` throughout: this is the connection every data table resolves to as `admin`,
+/// and it is the one that hands privileges to data table roles. Postgres refuses to let a role pass
+/// on a privilege it does not itself hold with grant option, so without these an admin could own
+/// the database and still be unable to grant `SELECT` on it to `analytics`.
+pub(crate) fn instance_db_grants(dbname: &str) -> String {
+    format!(
+        "GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user WITH GRANT OPTION;
+         GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user WITH GRANT OPTION;
+         DO $$ BEGIN
+           IF EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'public') THEN
+             GRANT USAGE ON SCHEMA public TO custom_instance_user WITH GRANT OPTION;
+             GRANT CREATE ON SCHEMA public TO custom_instance_user WITH GRANT OPTION;
+             ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;
+           END IF;
+         END $$;"
+    )
+}
+
+/// Re-apply [`instance_db_grants`] to a managed database provisioned before data table roles
+/// existed, whose grants carry no grant option. Connects as the cluster's administrator — the
+/// database and `public` schema owner — since only it can hand out an option it holds.
+///
+/// Authorization: reaches a managed database with the server's own credentials and checks
+/// nothing. Callers MUST have authorized administration of `dbname` — superadmin, or an admin of
+/// the workspace governing a data table on it.
+pub async fn ensure_instance_db_grant_options_unchecked(
+    db: &DB,
+    cluster: crate::datatable_roles::DatatableRoleCluster,
+    dbname: &str,
+) -> error::Result<()> {
+    crate::datatable_roles_oss::ensure_instance_db_grant_options_unchecked(db, cluster, dbname)
+        .await
+}
+
 /// Create a custom instance database: CREATE DATABASE, grant permissions, register in global_settings.
-/// The `tag` is stored in global_settings metadata (e.g. "datatable" or "ducklake").
+/// The `tag` is stored in global_settings metadata (e.g. "datatable" or "ducklake"). `for_workspace`
+/// is the workspace a member creates a fork copy for; see [`ensure_fork_database_available_to`].
 pub async fn create_custom_instance_database(
     db: &DB,
     dbname: &str,
     tag: &str,
+    for_workspace: Option<&str>,
 ) -> error::Result<()> {
     let dbname = dbname.trim();
     validate_dbname(dbname)?;
@@ -1527,23 +1885,57 @@ pub async fn create_custom_instance_database(
             error::Error::internal_err(format!("Failed to create database '{}': {}", dbname, e))
         })?;
 
+    // Nothing names a database that failed past this point, and its name blocks the retry: drop it
+    // rather than leave it behind.
+    if let Err(e) = finish_custom_instance_database(db, dbname, tag, for_workspace).await {
+        match drop_unused_instance_database(db, dbname).await {
+            Ok(Cleanup::InUse(users)) => tracing::warn!(
+                "Kept '{dbname}' after failing to set it up: workspaces {} use it",
+                users.join(", ")
+            ),
+            Ok(Cleanup::Waiter(pid)) => tracing::warn!(
+                "Kept '{dbname}' after failing to set it up: a request (pid {pid}) is still \
+                 waiting to name it. Drop it from instance settings once it is unused."
+            ),
+            Ok(Cleanup::Dropped) => {}
+            Err(drop_err) => {
+                tracing::error!("Could not drop '{dbname}' after failing to set it up: {drop_err}")
+            }
+        }
+        return Err(e);
+    }
+
+    // A data table role can only reach a database it may CONNECT to, and PUBLIC's default CONNECT
+    // would otherwise let every role in regardless of what this instance defines. Best-effort: a
+    // failure here leaves the database usable as `admin`, and the next role change repairs it.
+    if let Err(e) = crate::datatable_roles::converge_connect_grants(
+        db,
+        crate::datatable_roles::DatatableRoleCluster::Instance,
+        dbname,
+    )
+    .await
+    {
+        tracing::warn!("Could not set CONNECT grants on instance database '{dbname}': {e}");
+    }
+
+    tracing::info!("Created custom instance database '{}'", dbname);
+    Ok(())
+}
+
+/// Grant `custom_instance_user` its privileges on a database just created, and register it.
+async fn finish_custom_instance_database(
+    db: &DB,
+    dbname: &str,
+    tag: &str,
+    for_workspace: Option<&str>,
+) -> error::Result<()> {
     // Grant permissions to custom_instance_user
     let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
     let new_pg_creds = PgDatabase { dbname: dbname.to_string(), ..wmill_pg_creds };
     let (client, connection) = new_pg_creds.connect(Some(db)).await?;
     let join_handle = tokio::spawn(async move { connection.await });
 
-    if let Err(e) = client
-        .batch_execute(&format!(
-            "GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user;
-             GRANT USAGE ON SCHEMA public TO custom_instance_user;
-             GRANT CREATE ON SCHEMA public TO custom_instance_user;
-             GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user;
-             ALTER DEFAULT PRIVILEGES IN SCHEMA public
-                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;"
-        ))
-        .await
-    {
+    if let Err(e) = client.batch_execute(&instance_db_grants(dbname)).await {
         tracing::warn!(
             "Failed to grant permissions on '{}': {}. Continuing.",
             dbname,
@@ -1563,7 +1955,8 @@ pub async fn create_custom_instance_database(
         },
         "success": true,
         "error": null,
-        "tag": tag
+        "tag": tag,
+        "workspace_id": for_workspace,
     });
     sqlx::query!(
         r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}', (COALESCE(value->'databases', '{}'::jsonb) || to_jsonb($1::json))) WHERE name = 'custom_instance_pg_databases'"#,
@@ -1572,7 +1965,74 @@ pub async fn create_custom_instance_database(
     .execute(db)
     .await?;
 
-    tracing::info!("Created custom instance database '{}'", dbname);
+    Ok(())
+}
+
+/// The system's CA bundle file, for libpq clients that cannot take `sslrootcert=system`: that value
+/// needs libpq 16, and verify-full only.
+pub fn system_ca_bundle() -> Option<std::path::PathBuf> {
+    std::env::var_os("SSL_CERT_FILE")
+        .map(std::path::PathBuf::from)
+        .into_iter()
+        .chain(
+            [
+                "/etc/ssl/certs/ca-certificates.crt",
+                "/etc/pki/tls/certs/ca-bundle.crt",
+                "/etc/ssl/cert.pem",
+                "/etc/ssl/ca-bundle.pem",
+            ]
+            .map(std::path::PathBuf::from),
+        )
+        .find(|path| path.is_file())
+}
+
+/// Refuse a workspace member writing a fork copy into, or pointing a fork at, the managed database
+/// `dbname` of `kind`, unless `w_id` created it for that ([`create_custom_instance_database`], or
+/// its external instance counterpart) and nothing uses it yet. The `wm_fork_` prefix is no
+/// authorization: every database of a cluster answers to the same `custom_instance_user`, so a name
+/// is all it takes to reach another workspace's copy.
+///
+/// Runs on `conn`: its callers hold a transaction with the fork lock while they check, and a
+/// second connection taken from the pool under it is how a small pool deadlocks.
+///
+/// Authorization: reads the global registries and every workspace's settings, and names other
+/// workspaces in its refusal. Callers MUST have authorized `w_id` for the caller first — a member
+/// of it forking or importing there — and MUST NOT call it on a workspace the caller is not in.
+pub async fn ensure_fork_database_available_to(
+    conn: &mut sqlx::PgConnection,
+    kind: workspaces::DataTableCatalogResourceType,
+    dbname: &str,
+    w_id: &str,
+) -> error::Result<()> {
+    let created_for = match kind {
+        workspaces::DataTableCatalogResourceType::ExternalInstance => {
+            external_instance_pg::read_external_instance_pg_state(&mut *conn)
+                .await?
+                .databases
+                .remove(dbname)
+                .and_then(|entry| entry.workspace_id)
+        }
+        _ => sqlx::query_scalar::<_, Option<String>>(
+            "SELECT value->'databases'->$1->>'workspace_id' FROM global_settings
+             WHERE name = 'custom_instance_pg_databases'",
+        )
+        .bind(dbname)
+        .fetch_optional(&mut *conn)
+        .await?
+        .flatten(),
+    };
+    if created_for.as_deref() != Some(w_id) {
+        return Err(Error::BadRequest(format!(
+            "Database '{dbname}' was not created for a fork of workspace '{w_id}'"
+        )));
+    }
+    let uses = workspaces::managed_database_uses(conn, kind, dbname, None).await?;
+    if !uses.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "Database '{dbname}' is already in use: {}",
+            uses.join(", ")
+        )));
+    }
     Ok(())
 }
 
@@ -1823,6 +2283,7 @@ pub struct ScriptHashInfo<SR> {
     pub on_behalf_of: Option<String>,
     pub created_by: String,
     pub labels: Option<Vec<String>>,
+    pub job_token_scopes: Option<Vec<String>>,
     #[sqlx(flatten)]
     pub runnable_settings: SR,
 }
@@ -1916,6 +2377,7 @@ impl ScriptHashInfo<ScriptRunnableSettingsHandle> {
             on_behalf_of: self.on_behalf_of,
             created_by: self.created_by,
             labels: self.labels,
+            job_token_scopes: self.job_token_scopes,
             runnable_settings: ScriptRunnableSettingsInline {
                 concurrency_settings: concurrency_settings.maybe_fallback(
                     self.runnable_settings.concurrency_key,
@@ -2073,6 +2535,91 @@ pub fn invalidate_deployed_script_hash_cache(w_id: &str, script_path: &str) {
     DEPLOYED_SCRIPT_HASH_CACHE.remove(&(w_id.to_string(), script_path.to_string()));
 }
 
+pub const SCRIPT_VERSION_DELETED_CHANNEL: &str = "notify_script_version_deleted";
+
+/// The payload of a [`SCRIPT_VERSION_DELETED_CHANNEL`] event. `paths` and `hashes` are the
+/// deleted versions' paths and hashes as independent sets, not paired by position.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DeletedScriptVersions {
+    pub workspace_id: String,
+    pub paths: Vec<String>,
+    pub hashes: Vec<i64>,
+}
+
+/// Bounds each event's payload: pruning a workspace deletes every past version of every path
+/// in one call, and every process logs each event it receives.
+const DELETED_SCRIPT_VERSIONS_PER_EVENT: usize = 500;
+
+impl DeletedScriptVersions {
+    pub fn new(workspace_id: &str, deleted: impl IntoIterator<Item = (String, i64)>) -> Self {
+        let (mut paths, hashes): (Vec<String>, Vec<i64>) = deleted.into_iter().unzip();
+        paths.sort();
+        paths.dedup();
+        Self { workspace_id: workspace_id.to_string(), paths, hashes }
+    }
+
+    /// Tell every replica to drop these versions from its caches, in the transaction that
+    /// deletes them. Authorization is the caller's: only call it for versions the caller was
+    /// allowed to delete.
+    pub async fn notify(&self, db: &mut sqlx::PgConnection) -> error::Result<()> {
+        let per_event = DELETED_SCRIPT_VERSIONS_PER_EVENT;
+        let events = self.paths.len().max(self.hashes.len()).div_ceil(per_event);
+        for i in 0..events {
+            let range = i * per_event..(i + 1) * per_event;
+            let event = Self {
+                workspace_id: self.workspace_id.clone(),
+                paths: self
+                    .paths
+                    .get(range.start..range.end.min(self.paths.len()))
+                    .unwrap_or_default()
+                    .to_vec(),
+                hashes: self
+                    .hashes
+                    .get(range.start..range.end.min(self.hashes.len()))
+                    .unwrap_or_default()
+                    .to_vec(),
+            };
+            sqlx::query("INSERT INTO notify_event (channel, payload) VALUES ($1, $2)")
+                .bind(SCRIPT_VERSION_DELETED_CHANNEL)
+                .bind(serde_json::to_string(&event)?)
+                .execute(&mut *db)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// [`Self::evict_with`] for this crate's caches only.
+    pub fn evict(self) {
+        self.evict_with(|_| {});
+    }
+
+    /// Script data is cached by hash, memory and disk, with no expiry: without this, a
+    /// process that ran a version before its deletion keeps running that version's code,
+    /// and a path keeps resolving to its deleted latest version until its cache expires.
+    /// `also` drops the entries of caches other crates own, on both passes. Needs no
+    /// authorization: it only drops cache entries, refilled from the database. Must run
+    /// inside a Tokio runtime.
+    pub fn evict_with(self, also: impl Fn(&Self) + Send + 'static) {
+        let evict = move || {
+            for hash in &self.hashes {
+                cache::script::invalidate(ScriptHash(*hash));
+                DEPLOYED_SCRIPT_INFO_CACHE.remove(&(self.workspace_id.clone(), *hash));
+            }
+            for path in &self.paths {
+                invalidate_latest_script_hash_caches(&self.workspace_id, path);
+            }
+            also(&self);
+        };
+        evict();
+        // A fill that read a row before the deletion committed can still be writing it to
+        // the cache: a second pass, once such a fill has had time to finish, removes it.
+        spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            evict();
+        });
+    }
+}
+
 /// Same, for a new version row, which also moves the import-side answer (that one has no lock
 /// predicate, so only a new row moves it).
 pub fn invalidate_latest_script_hash_caches(w_id: &str, script_path: &str) {
@@ -2195,6 +2742,7 @@ async fn get_script_info_for_hash_inner<'e, E: sqlx::PgExecutor<'e>>(
                 on_behalf_of,
                 created_by,
                 labels,
+                job_token_scopes,
                 path
             FROM script WHERE hash = $1 AND workspace_id = $2",
     )
@@ -2216,6 +2764,7 @@ pub struct FlowVersionInfo {
     pub edited_by: String,
     pub dedicated_worker: Option<bool>,
     pub labels: Option<Vec<String>>,
+    pub job_token_scopes: Option<Vec<String>>,
 }
 
 impl FlowVersionInfo {
@@ -2359,7 +2908,8 @@ pub fn get_flow_version_info_from_version<
                                     flow.dedicated_worker,
                                     flow.on_behalf_of,
                                     flow.edited_by,
-                                    flow.labels
+                                    flow.labels,
+                                    flow.job_token_scopes
                                 FROM
                                     flow_version
                                 INNER JOIN flow
@@ -2494,9 +3044,10 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
     Option<jobs::OnBehalfOf>,
     Option<i64>,
     Option<Vec<String>>,
+    Option<Vec<String>>,
 )> {
     let r_o = sqlx::query!(
-            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of, created_by, labels FROM script
+            "select hash, tag, concurrency_key, concurrent_limit, concurrency_time_window_s, debounce_key, debounce_delay_s, cache_ttl, cache_ignore_s3_path, runnable_settings_handle, language as \"language: ScriptLang\", dedicated_worker, priority, timeout, on_behalf_of, created_by, labels, job_token_scopes FROM script
              WHERE path = $1 AND workspace_id = $2 AND archived = false AND (lock IS NOT NULL OR $3 = false)
              ORDER BY created_at DESC LIMIT 1",
             script_path,
@@ -2528,6 +3079,7 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
         on_behalf_of,
         script.runnable_settings_handle,
         script.labels,
+        script.job_token_scopes,
     ))
 }
 

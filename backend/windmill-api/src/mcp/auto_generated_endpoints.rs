@@ -699,6 +699,10 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "content": {
                         "type": "string"
                 },
+                "schema": {
+                        "type": "object",
+                        "description": "JSON Schema of the arguments of `main`, which is what a run form and an MCP tool offer. Omitted (or `{}`), it is inferred from `content` for TypeScript, Python, Go, Bash, PowerShell, SQL, GraphQL and Ansible scripts. For other languages, or code that does not parse, a new script gets none. A new version of an existing script also keeps what the previous version's schema says about each argument, or that whole schema when nothing can be inferred. A dbt script always takes its schema from its descriptor, whatever is sent."
+                },
                 "language": {
                         "type": "string",
                         "description": "Possible values: python3, deno, go, bash, powershell, postgresql, mysql, bigquery, snowflake, mssql, oracledb, graphql, nativets, bun, php, rust, ansible, csharp, nu, java, ruby, rlang, duckdb, bunnative, dbt"
@@ -756,6 +760,10 @@ is, a different one moves it there and archives the old path"),
                 },
                 "content": {
                         "type": "string"
+                },
+                "schema": {
+                        "type": "object",
+                        "description": "JSON Schema of the arguments of `main`, which is what a run form and an MCP tool offer. Omitted (or `{}`), it is inferred from `content` for TypeScript, Python, Go, Bash, PowerShell, SQL, GraphQL and Ansible scripts. For other languages, or code that does not parse, a new script gets none. A new version of an existing script also keeps what the previous version's schema says about each argument, or that whole schema when nothing can be inferred. A dbt script always takes its schema from its descriptor, whatever is sent."
                 },
                 "language": {
                         "type": "string",
@@ -1024,10 +1032,12 @@ is, a different one moves it there and archives the old path"),
                         "description": "Detailed documentation for this flow"
                 },
                 "value": {
-                        "type": "object"
+                        "type": "object",
+                        "description": "The flow structure containing modules and optional preprocessor/failure handlers"
                 },
                 "schema": {
-                        "type": "object"
+                        "type": "object",
+                        "description": "JSON Schema for flow inputs. Use this to define input parameters, their types, defaults, and validation. For resource inputs, set type to 'object' and format to 'resource-<type>' (e.g., 'resource-stripe')"
                 },
                 "path": {
                         "type": "string"
@@ -1080,10 +1090,12 @@ is, a different one moves it there and archives the old path"),
                         "description": "Detailed documentation for this flow"
                 },
                 "value": {
-                        "type": "object"
+                        "type": "object",
+                        "description": "The flow structure containing modules and optional preprocessor/failure handlers"
                 },
                 "schema": {
-                        "type": "object"
+                        "type": "object",
+                        "description": "JSON Schema for flow inputs. Use this to define input parameters, their types, defaults, and validation. For resource inputs, set type to 'object' and format to 'resource-<type>' (e.g., 'resource-stripe')"
                 },
                 "tag": {
                         "type": "string"
@@ -1268,10 +1280,12 @@ is, a different one moves it there and archives the old path"),
                                         "description": "Who may open the app, and who its runnables execute as. Optional, and what omitting it means depends on the operation: creating an app defaults it to `publisher` (runs on behalf of the app's publisher and requires an authenticated viewer), while updating one keeps the mode the app is already deployed under. Neither `anonymous`, which makes the app publicly executable, nor `guest`, which opens it to anyone the identity provider authenticates, is ever assumed. A guest is only admitted where the workspace also has `guest_access_enabled`, which is checked when the session is minted and again on every guest request. Possible values: viewer, publisher, guest, anonymous"
                                 },
                                 "on_behalf_of": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "description": "The user or group the app runs as in anonymous or publisher mode (e.g. 'u/admin' or 'g/mygroup'). The authority for the app's identity."
                                 },
                                 "on_behalf_of_email": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "description": "Address of `on_behalf_of`, written through from it on every save and returned as stored. Optional; when absent it is derived from `on_behalf_of`. Sending it is optional too; it must name the same account as `on_behalf_of`, and a pair that disagrees is rejected."
                                 },
                                 "sandbox": {
                                         "type": "boolean",
@@ -1282,7 +1296,7 @@ is, a different one moves it there and archives the old path"),
                                         "items": {
                                                 "type": "string"
                                         },
-                                        "description": "Raw apps: author-declared scopes for the frontend SDK token. Takes effect only when `sandbox` is also true — an unsandboxed bundle runs with the viewer's own session, so no token is advertised or minted for it and this list stays inert. On a sandboxed app a non-empty list lets viewers mint (after consenting) a short-lived token carrying their own identity restricted to these scopes, handed to the app bundle so `windmill-client` calls run as the viewer. Must be a subset of the server's curated allowlist (jobs:run, jobs:read, users:read, resources:read, variables:read).\n"
+                                        "description": "Raw apps: author-declared scopes for the frontend SDK token. Takes effect only when `sandbox` is also true — an unsandboxed bundle runs with the viewer's own session, so no token is advertised or minted for it and this list stays inert. On a sandboxed app a non-empty list lets viewers mint (after consenting) a short-lived token carrying their own identity restricted to these scopes, handed to the app bundle so `windmill-client` calls run as the viewer. Must be a subset of the server's curated allowlist (jobs:run, jobs:read, users:read, resources:read, variables:read, flow_conversations:read, flow_conversations:write).\n"
                                 }
                         }
                 }
@@ -1383,10 +1397,12 @@ is, a different one moves it there and archives the old path"),
                                         "description": "Who may open the app, and who its runnables execute as. Optional, and what omitting it means depends on the operation: creating an app defaults it to `publisher` (runs on behalf of the app's publisher and requires an authenticated viewer), while updating one keeps the mode the app is already deployed under. Neither `anonymous`, which makes the app publicly executable, nor `guest`, which opens it to anyone the identity provider authenticates, is ever assumed. A guest is only admitted where the workspace also has `guest_access_enabled`, which is checked when the session is minted and again on every guest request. Possible values: viewer, publisher, guest, anonymous"
                                 },
                                 "on_behalf_of": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "description": "The user or group the app runs as in anonymous or publisher mode (e.g. 'u/admin' or 'g/mygroup'). The authority for the app's identity."
                                 },
                                 "on_behalf_of_email": {
-                                        "type": "string"
+                                        "type": "string",
+                                        "description": "Address of `on_behalf_of`, written through from it on every save and returned as stored. Optional; when absent it is derived from `on_behalf_of`. Sending it is optional too; it must name the same account as `on_behalf_of`, and a pair that disagrees is rejected."
                                 },
                                 "sandbox": {
                                         "type": "boolean",
@@ -1397,7 +1413,7 @@ is, a different one moves it there and archives the old path"),
                                         "items": {
                                                 "type": "string"
                                         },
-                                        "description": "Raw apps: author-declared scopes for the frontend SDK token. Takes effect only when `sandbox` is also true — an unsandboxed bundle runs with the viewer's own session, so no token is advertised or minted for it and this list stays inert. On a sandboxed app a non-empty list lets viewers mint (after consenting) a short-lived token carrying their own identity restricted to these scopes, handed to the app bundle so `windmill-client` calls run as the viewer. Must be a subset of the server's curated allowlist (jobs:run, jobs:read, users:read, resources:read, variables:read).\n"
+                                        "description": "Raw apps: author-declared scopes for the frontend SDK token. Takes effect only when `sandbox` is also true — an unsandboxed bundle runs with the viewer's own session, so no token is advertised or minted for it and this list stays inert. On a sandboxed app a non-empty list lets viewers mint (after consenting) a short-lived token carrying their own identity restricted to these scopes, handed to the app bundle so `windmill-client` calls run as the viewer. Must be a subset of the server's curated allowlist (jobs:run, jobs:read, users:read, resources:read, variables:read, flow_conversations:read, flow_conversations:write).\n"
                                 }
                         }
                 },
@@ -2008,7 +2024,7 @@ You should get the schema of the script or flow before creating the schedule to 
                                 },
                                 "exponential": {
                                         "type": "object",
-                                        "description": "Retry with exponential backoff (delay doubles each time)",
+                                        "description": "Retry with exponential backoff: the n-th retry waits multiplier × seconds^n",
                                         "properties": {
                                                 "attempts": {
                                                         "type": "integer",
@@ -2021,7 +2037,7 @@ You should get the schema of the script or flow before creating the schedule to 
                                                 "seconds": {
                                                         "type": "integer",
                                                         "minimum": 1,
-                                                        "description": "Initial delay in seconds"
+                                                        "description": "Base of the exponential (seconds); the n-th retry waits multiplier × seconds^n, where n counts constant retries too"
                                                 },
                                                 "random_factor": {
                                                         "type": "integer",
@@ -2215,7 +2231,7 @@ You should get the schema of the script or flow before updating the schedule to 
                                 },
                                 "exponential": {
                                         "type": "object",
-                                        "description": "Retry with exponential backoff (delay doubles each time)",
+                                        "description": "Retry with exponential backoff: the n-th retry waits multiplier × seconds^n",
                                         "properties": {
                                                 "attempts": {
                                                         "type": "integer",
@@ -2228,7 +2244,7 @@ You should get the schema of the script or flow before updating the schedule to 
                                                 "seconds": {
                                                         "type": "integer",
                                                         "minimum": 1,
-                                                        "description": "Initial delay in seconds"
+                                                        "description": "Base of the exponential (seconds); the n-th retry waits multiplier × seconds^n, where n counts constant retries too"
                                                 },
                                                 "random_factor": {
                                                         "type": "integer",

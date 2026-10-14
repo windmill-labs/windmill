@@ -5,14 +5,17 @@
 	import CopyableCodeBlock from '$lib/components/details/CopyableCodeBlock.svelte'
 	import { Bot, ExternalLink, Terminal } from 'lucide-svelte'
 	import { shell } from 'svelte-highlight/languages'
+	import { mcpTokenUrlDisabled } from '$lib/mcpAuth'
+	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 
 	type ConnectTab = 'cli' | 'mcp'
 
 	let drawer: Drawer | undefined = $state()
+	let tokenUrlDisabled = $state(false)
 	let selectedTab: ConnectTab = $state('cli')
 	let openVersion = $state(0)
 
-	const origin = $derived(typeof window === 'undefined' ? '' : window.location.origin)
+	const origin = $derived(typeof window === 'undefined' ? '' : `${apiBaseUrl()}/`)
 	const workspaceId = $derived($workspaceStore ?? '<workspace>')
 	const cliCommands = $derived(`npm install -g windmill-cli
 wmill workspace add ${workspaceId} ${workspaceId} ${origin}
@@ -24,6 +27,10 @@ wmill sync pull`)
 	export function openDrawer(tab: ConnectTab = 'cli') {
 		selectedTab = tab
 		openVersion += 1
+		// Falls back like CreateToken below, which shows the bare URL when the read fails.
+		void mcpTokenUrlDisabled()
+			.then((v) => (tokenUrlDisabled = v))
+			.catch(() => (tokenUrlDisabled = true))
 		drawer?.openDrawer()
 	}
 
@@ -49,7 +56,8 @@ wmill sync pull`)
 												<h3 class="text-sm font-semibold text-emphasis">Local setup</h3>
 												<p class="text-xs text-secondary max-w-xl">
 													Run this in your local repo to bind the current workspace, create
-													<code class="rounded bg-surface-secondary px-1 py-0.5 font-mono text-2xs text-emphasis"
+													<code
+														class="rounded bg-surface-secondary px-1 py-0.5 font-mono text-2xs text-emphasis"
 														>wmill.yaml</code
 													>, and pull the latest files.
 												</p>
@@ -74,15 +82,18 @@ wmill sync pull`)
 										/>
 
 										<p class="text-2xs text-secondary">
-											<code class="rounded bg-surface-secondary px-1 py-0.5 font-mono text-2xs text-emphasis"
+											<code
+												class="rounded bg-surface-secondary px-1 py-0.5 font-mono text-2xs text-emphasis"
 												>wmill workspace add</code
 											>
 											will handle authentication,
-											<code class="rounded bg-surface-secondary px-1 py-0.5 font-mono text-2xs text-emphasis"
+											<code
+												class="rounded bg-surface-secondary px-1 py-0.5 font-mono text-2xs text-emphasis"
 												>wmill init</code
 											>
 											bootstraps the local config, and
-											<code class="rounded bg-surface-secondary px-1 py-0.5 font-mono text-2xs text-emphasis"
+											<code
+												class="rounded bg-surface-secondary px-1 py-0.5 font-mono text-2xs text-emphasis"
 												>wmill sync pull</code
 											>
 											fetches the workspace content.
@@ -96,8 +107,13 @@ wmill sync pull`)
 											<div class="flex flex-col gap-1">
 												<h3 class="text-sm font-semibold text-emphasis">MCP URL</h3>
 												<p class="text-xs text-secondary max-w-xl">
-													Generate an MCP server URL for the current workspace and choose which
-													scripts, flows, and endpoints the client can access.
+													{#if tokenUrlDisabled}
+														The MCP server URL for the current workspace. Your client signs in to
+														Windmill to use it.
+													{:else}
+														Generate an MCP server URL for the current workspace and choose which
+														scripts, flows, and endpoints the client can access.
+													{/if}
 												</p>
 											</div>
 

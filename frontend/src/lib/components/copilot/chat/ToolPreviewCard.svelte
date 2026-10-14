@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { PanelRight } from 'lucide-svelte'
+	import { Eye, Pen } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import type { IconType } from '$lib/utils'
@@ -15,9 +15,13 @@
 		/** The kind icon says what the chip opens. A card that already names its own runnable
 		 * in the row above has said it, and repeating it there reads as a second subject. */
 		kindIcon?: boolean
+		/** Which side of the item the chip opens, shown as the same pen/eye the preview
+		 * tabs use. Defaults to the editor: a card sits on a write-tool result, and the
+		 * draft it just wrote is what the reader is being offered. */
+		mode?: 'edit' | 'view'
 	}
 
-	let { card, onOpen, title, kindIcon = true }: Props = $props()
+	let { card, onOpen, title, kindIcon = true, mode = 'edit' }: Props = $props()
 
 	const kindLabel = $derived(card.kind === 'raw_app' ? 'app' : card.kind)
 
@@ -30,7 +34,7 @@
 		}
 		opening = true
 		try {
-			await runToolDisplayAction(openItemPreviewAction(card.kind, card.path))
+			await runToolDisplayAction(openItemPreviewAction(card.kind, card.path, mode))
 		} finally {
 			opening = false
 		}
@@ -41,12 +45,15 @@
 	variant="default"
 	unifiedSize="2xs"
 	disabled={opening}
-	title={title ?? `Open ${kindLabel} preview: ${card.path}`}
+	title={title ??
+		(mode === 'view'
+			? `Open the deployed ${kindLabel}: ${card.path}`
+			: `Open ${kindLabel} preview: ${card.path}`)}
 	onClick={open}
 	startIcon={kindIcon
 		? { icon: RowIcon as unknown as IconType, props: { kind: card.kind, size: 12 } }
 		: undefined}
-	endIcon={{ icon: PanelRight }}
+	endIcon={{ icon: mode === 'view' ? Eye : Pen }}
 	wrapperClasses="shrink-0"
 >
 	<!-- The chip renders inside the tool row's font-mono scope; the label is UI text.

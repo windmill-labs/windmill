@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ci_test_job_ids\n           FROM git_sync_synced_head\n           WHERE workspace_id = $1 AND repo_resource_path = $2 AND branch = $3 AND sha = $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ci_test_job_ids",
+        "type_info": "UuidArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "8efe5509034327c202cb3fdd409ce00cc1dbd4921a9ccee8f906515286190b8f"
+}

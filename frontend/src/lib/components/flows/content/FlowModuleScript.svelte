@@ -18,10 +18,12 @@
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { ScriptService, type ScriptLang } from '$lib/gen'
 	import { getScriptByPath, scriptLangToEditorLang } from '$lib/scripts'
-	import { workspaceStore } from '$lib/stores'
 	import { Loader2 } from 'lucide-svelte'
 	import { getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from '../types'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		path: string
@@ -46,7 +48,7 @@
 	}: Props = $props()
 
 	const flowEditorContext = getContext<FlowEditorContext>('FlowEditorContext')
-	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $workspaceStore)
+	let opWs = $derived(flowEditorContext?.opWorkspace?.() ?? $operatingWorkspace)
 
 	let code: string | undefined = $state()
 	let previousCode: string | undefined = $state()

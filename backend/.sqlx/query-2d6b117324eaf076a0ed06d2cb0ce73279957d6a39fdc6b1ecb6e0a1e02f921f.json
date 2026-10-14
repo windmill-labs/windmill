@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO usr (workspace_id, username, email, is_admin, created_at, operator, disabled, role, is_service_account, added_via)\n         SELECT $1, username, email, is_admin, created_at, operator, disabled, role, is_service_account,\n                CASE WHEN $3 THEN NULL ELSE added_via END\n         FROM usr WHERE workspace_id = $2\n           AND (NOT $3 OR (NOT operator AND NOT disabled AND NOT is_service_account))\n         ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2d6b117324eaf076a0ed06d2cb0ce73279957d6a39fdc6b1ecb6e0a1e02f921f"
+}

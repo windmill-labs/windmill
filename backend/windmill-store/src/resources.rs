@@ -7,7 +7,7 @@
  */
 
 use dashmap::DashMap;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::LazyLock;
 
@@ -17,7 +17,9 @@ use windmill_api_auth::{
 };
 use windmill_common::db::DB;
 use windmill_common::per_minute_counter::PerMinuteCounter;
-use windmill_common::ssrf::{private_git_host_allowed, private_git_host_hint, GitRemoteCaller};
+use windmill_common::ssrf::{
+    is_private_ip, private_git_host_allowed, private_git_host_hint, GitRemoteCaller,
+};
 use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
 
 use crate::secret_backend_ext::rename_vault_secret;
@@ -118,6 +120,10 @@ pub struct ResourceType {
     pub edited_at: Option<chrono::DateTime<chrono::Utc>>,
     pub format_extension: Option<String>,
     pub is_fileset: bool,
+    /// The name the product goes by (`gsheets` is "Google Sheets"), null where nobody named it.
+    /// Skipped when absent, so the type files of a synced repo gain nothing until one is set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -127,6 +133,7 @@ pub struct CreateResourceType {
     pub description: Option<String>,
     pub format_extension: Option<String>,
     pub is_fileset: Option<bool>,
+    pub display_name: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -143,6 +150,13 @@ pub struct EditResourceType {
         deserialize_with = "windmill_common::more_serde::double_option"
     )]
     pub format_extension: Option<Option<String>>,
+    /// Doubly optional for the same reason. A push from a CLI that predates the field omits it,
+    /// and must not clear a name the hub set.
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option"
+    )]
+    pub display_name: Option<Option<String>>,
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -192,6 +206,25 @@ pub struct ListableResource {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub is_draft: Option<bool>,
+}
+
+/// A row of the resource listing: the resource as a single read returns it, plus what only the
+/// listing carries.
+#[derive(FromRow, Serialize)]
+pub struct ListedResource {
+    #[sqlx(flatten)]
+    #[serde(flatten)]
+    pub resource: ListableResource,
+    /// An `ai_agent`'s `memory` setting, the one part of its value a listing shows: whether it
+    /// keeps a conversation decides how it is offered. `value` stays unlisted for every type.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub agent_memory: Option<serde_json::Value>,
+    /// On a draft-only row, the path its editor has staged when it differs from the storage path
+    /// (a new item parked at `u/{user}/draft_{uuid}`), as the other kinds' listings report it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub draft_path: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -310,7 +343,7 @@ async fn list_resources(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-) -> JsonResult<Vec<ListableResource>> {
+) -> JsonResult<Vec<ListedResource>> {
     let (per_page, offset) = paginate(pagination);
 
     let mut sqlb = SqlBuilder::select_from("resource")
@@ -332,6 +365,7 @@ async fn list_resources(
             "resource.labels",
             "folder_labels(resource.workspace_id, resource.path) as inherited_labels",
             "ws_specific.path IS NOT NULL as ws_specific",
+            "CASE WHEN resource.resource_type = 'ai_agent' THEN resource.value->'memory' END as agent_memory",
         ])
         // Scalar EXISTS flags the authed user's per-user draft without fanning rows out.
         .field(
@@ -416,11 +450,11 @@ async fn list_resources(
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
     let allowed = build_scope_path_predicate(&authed, "resources", "read");
-    let mut rows = sqlx::query_as::<_, ListableResource>(&sql)
+    let mut rows = sqlx::query_as::<_, ListedResource>(&sql)
         .fetch_all(&mut *tx)
         .await?
         .into_iter()
-        .filter(|r| allowed(&r.path))
+        .filter(|r| allowed(&r.resource.path))
         .collect::<Vec<_>>();
 
     tx.commit().await?;
@@ -455,14 +489,18 @@ async fn list_resources(
             let v: serde_json::Value =
                 serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
             // ResourceEditor's `ResourceState`: { path, description, args, labels?, wsSpecific, resource_type? }
-            let path = v
-                .get("path")
-                .and_then(|s| s.as_str())
-                .unwrap_or("")
-                .to_string();
-            if path.is_empty() || !allowed(&path) {
+            // Listed at the draft's key rather than its `path`: an editor keys the draft on the path
+            // it opened, which is the only one a draft read can find, while `path` moves on rename.
+            // The staged `path` is reported beside it as `draft_path`.
+            let path = row.path;
+            if !allowed(&path) {
                 continue;
             }
+            let draft_path = v
+                .get("path")
+                .and_then(|s| s.as_str())
+                .filter(|p| !p.is_empty() && *p != path)
+                .map(str::to_string);
             let description = v
                 .get("description")
                 .and_then(|x| x.as_str())
@@ -493,8 +531,13 @@ async fn list_resources(
                 })
             });
             let ws_specific = v.get("wsSpecific").and_then(|x| x.as_bool());
+            let agent_memory = if resource_type == "ai_agent" {
+                value.as_ref().and_then(|a| a.get("memory")).cloned()
+            } else {
+                None
+            };
 
-            rows.push(ListableResource {
+            let resource = ListableResource {
                 workspace_id: w_id.clone(),
                 path,
                 value,
@@ -516,7 +559,8 @@ async fn list_resources(
                 draft_only: Some(true),
                 // Synthesized rows are the authed user's draft.
                 is_draft: Some(true),
-            });
+            };
+            rows.push(ListedResource { resource, agent_memory, draft_path });
         }
     }
 
@@ -798,6 +842,7 @@ pub async fn get_resource_value_interpolated_internal<'a>(
             token_for_context,
             0,
             &used_job_context,
+            Some(path),
         )
         .await?;
         if let Some(identity) = cache_identity.as_deref() {
@@ -837,8 +882,27 @@ pub async fn transform_json_value(
         token,
         depth,
         &used_job_context,
+        None,
     )
     .await
+}
+
+/// RLS resolves a reference as the token's user, not as the token: a token scoped to one
+/// resource would otherwise read, through that resource, every variable or resource its
+/// user can. Job tokens carry no scopes, so what a runnable resolves is unaffected.
+/// `resource_path` is the resource being expanded: its own linked secrets
+/// ([`is_owned_linked_var`]) are covered by the read of it.
+fn check_interpolation_scope(
+    db_with_opt_authed: &DbWithOptAuthed<'_, ApiAuthed>,
+    domain: &str,
+    path: &str,
+    resource_path: Option<&str>,
+) -> Result<()> {
+    match db_with_opt_authed.authed() {
+        Some(_) if resource_path.is_some_and(|r| is_owned_linked_var(r, path)) => Ok(()),
+        Some(authed) => check_scopes(authed, || format!("{domain}:read:{path}")),
+        None => Ok(()),
+    }
 }
 
 /// Like [`transform_json_value`], but records into `used_job_context` whether the value
@@ -854,6 +918,7 @@ pub async fn transform_json_value_tracked(
     token: Option<&str>,
     depth: u8,
     used_job_context: &std::sync::atomic::AtomicBool,
+    resource_path: Option<&str>,
 ) -> Result<Value> {
     if depth >= MAX_RESOURCE_INTERPOLATION_DEPTH {
         return Err(Error::internal_err(format!(
@@ -863,6 +928,7 @@ pub async fn transform_json_value_tracked(
     match v {
         Value::String(y) if y.starts_with("$var:") => {
             let path = y.strip_prefix("$var:").unwrap();
+            check_interpolation_scope(db_with_opt_authed, "variables", path, resource_path)?;
 
             let v =
                 crate::variables::get_value_internal(&db_with_opt_authed, workspace, path, false)
@@ -871,6 +937,7 @@ pub async fn transform_json_value_tracked(
         }
         Value::String(y) if y.starts_with("$jsonvar:") => {
             let path = y.strip_prefix("$jsonvar:").unwrap();
+            check_interpolation_scope(db_with_opt_authed, "variables", path, resource_path)?;
 
             let v =
                 crate::variables::get_value_internal(&db_with_opt_authed, workspace, path, false)
@@ -886,6 +953,7 @@ pub async fn transform_json_value_tracked(
                     "Invalid resource path: {path}"
                 )));
             }
+            check_interpolation_scope(db_with_opt_authed, "resources", path, None)?;
             let mut tx: Transaction<'_, Postgres> = db_with_opt_authed.begin().await?;
             let v = sqlx::query_scalar!(
                 "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
@@ -905,6 +973,7 @@ pub async fn transform_json_value_tracked(
                     token,
                     depth + 1,
                     used_job_context,
+                    Some(path),
                 )
                 .await
             } else {
@@ -1004,6 +1073,7 @@ pub async fn transform_json_value_tracked(
                     token,
                     depth + 1,
                     used_job_context,
+                    resource_path,
                 )
                 .await?;
             }
@@ -1028,6 +1098,7 @@ pub async fn transform_json_value_tracked(
                     token,
                     depth + 1,
                     used_job_context,
+                    resource_path,
                 )
                 .await?;
                 m.insert(a.clone(), v);
@@ -1297,8 +1368,25 @@ async fn create_resource(
 
     webhook.send_message(
         w_id.clone(),
-        WebhookMessage::CreateResource { workspace: w_id, path: resource.path.clone() },
+        WebhookMessage::CreateResource { workspace: w_id.clone(), path: resource.path.clone() },
     );
+
+    // Trigger CI tests for items that reference this resource
+    {
+        let db2 = db.clone();
+        let path2 = resource.path.clone();
+        let email2 = authed.email.clone();
+        let username2 = authed.username.clone();
+        tokio::spawn(async move {
+            if let Err(e) = windmill_dep_map::ci_tests::trigger_ci_tests_for_item(
+                &db2, &w_id, &path2, "resource", &email2, &username2,
+            )
+            .await
+            {
+                tracing::error!(%e, "error triggering CI tests after resource creation");
+            }
+        });
+    }
 
     Ok((
         StatusCode::CREATED,
@@ -1339,53 +1427,21 @@ async fn delete_resource(
         return Err(Error::PermissionDenied(msg));
     }
 
+    let cascade = plan_linked_var_cascade(&db, &w_id, &[path.to_string()]).await?;
+
     let mut tx = user_db.begin(&authed).await?;
 
-    // Capture resource data for trashbin before deleting
-    let trash_resource: Option<serde_json::Value> = sqlx::query_scalar(
-        "SELECT to_jsonb(t) FROM resource t WHERE path = $1 AND workspace_id = $2",
+    // The whole row comes back out of the delete, so the trashbin entry below is built from
+    // what RLS actually removed, and the cascade runs only once RLS has allowed the delete.
+    let deleted: Option<(String, serde_json::Value)> = sqlx::query_as(
+        "DELETE FROM resource AS t WHERE t.path = $1 AND t.workspace_id = $2
+         RETURNING t.path, to_jsonb(t)",
     )
     .bind(path)
     .bind(&w_id)
     .fetch_optional(&mut *tx)
     .await?;
-
-    // Fetch the resource value before deleting, so we can find linked $var: references
-    let resource_value: Option<Option<serde_json::Value>> =
-        sqlx::query_scalar("SELECT value FROM resource WHERE path = $1 AND workspace_id = $2")
-            .bind(path)
-            .bind(&w_id)
-            .fetch_optional(&mut *tx)
-            .await?;
-
-    // Collect all $var: paths referenced in the resource value
-    let mut linked_var_paths: Vec<String> = Vec::new();
-    if let Some(Some(ref value)) = resource_value {
-        collect_var_refs(value, &mut linked_var_paths);
-    }
-
-    // A scoped token must not delete linked variables it lacks variables:write for.
-    check_linked_var_delete_scopes(&authed, &linked_var_paths)?;
-
-    // Capture linked variables for trashbin before deleting them
-    let trash_linked_vars: Vec<serde_json::Value> = if linked_var_paths.is_empty() {
-        Vec::new()
-    } else {
-        let placeholders: Vec<String> = linked_var_paths
-            .iter()
-            .enumerate()
-            .map(|(i, _)| format!("${}", i + 2))
-            .collect();
-        let query = format!(
-            "SELECT to_jsonb(t) FROM variable t WHERE workspace_id = $1 AND path IN ({})",
-            placeholders.join(", ")
-        );
-        let mut q = sqlx::query_scalar::<_, serde_json::Value>(&query).bind(&w_id);
-        for var_path in &linked_var_paths {
-            q = q.bind(var_path);
-        }
-        q.fetch_all(&mut *tx).await?
-    };
+    let (deleted_path, res_data) = not_found_if_none(deleted, "Resource", &path)?;
 
     sqlx::query!(
         "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = $2",
@@ -1395,64 +1451,63 @@ async fn delete_resource(
     .execute(&mut *tx)
     .await?;
 
-    let deleted_path = sqlx::query_scalar!(
-        "DELETE FROM resource WHERE path = $1 AND workspace_id = $2 RETURNING path",
-        path,
-        w_id
+    let linked_var_paths = cascade.resolve(std::slice::from_ref(&deleted_path));
+
+    // A scoped token must not delete linked variables it lacks variables:write for. Erroring
+    // here rolls the resource delete back with it, so nothing is deleted either way.
+    check_linked_var_delete_scopes(&authed, &linked_var_paths)?;
+
+    // Capture linked variables for trashbin before deleting them
+    let trash_linked_vars: Vec<(String, serde_json::Value)> = sqlx::query_as(
+        "SELECT path, to_jsonb(t) FROM variable t WHERE workspace_id = $1 AND path = ANY($2)",
     )
-    .fetch_optional(&mut *tx)
+    .bind(&w_id)
+    .bind(&linked_var_paths)
+    .fetch_all(&mut *tx)
     .await?;
-    not_found_if_none(deleted_path, "Resource", &path)?;
 
-    // Delete linked variables that are actually referenced in the resource value
-    let deleted_linked_variables: Vec<String> = if linked_var_paths.is_empty() {
-        Vec::new()
-    } else {
-        // Clean up any ws_specific rows for these variables first
-        // (mark_linked_variables_ws_specific may have auto-inserted them) so
-        // they don't survive the variable deletion as orphans — a variable
-        // later recreated at the same path would otherwise inherit the stale
-        // ws_specific flag.
-        sqlx::query!(
-            "DELETE FROM ws_specific
-             WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
-            w_id,
-            &linked_var_paths
-        )
-        .execute(&mut *tx)
-        .await?;
+    let deleted_linked_variables = sqlx::query_scalar!(
+        "DELETE FROM variable WHERE workspace_id = $1 AND path = ANY($2) RETURNING path",
+        w_id,
+        &linked_var_paths
+    )
+    .fetch_all(&mut *tx)
+    .await?;
 
-        let placeholders: Vec<String> = linked_var_paths
-            .iter()
-            .enumerate()
-            .map(|(i, _)| format!("${}", i + 2))
-            .collect();
-        let query = format!(
-            "DELETE FROM variable WHERE workspace_id = $1 AND path IN ({}) RETURNING path",
-            placeholders.join(", ")
-        );
-        let mut q = sqlx::query_scalar::<_, String>(&query).bind(&w_id);
-        for var_path in &linked_var_paths {
-            q = q.bind(var_path);
-        }
-        q.fetch_all(&mut *tx).await?
-    };
+    // ws_specific has no FK to variable, so a row mark_linked_variables_ws_specific inserted
+    // would survive as an orphan and a variable later recreated at that path would inherit
+    // the stale flag.
+    sqlx::query!(
+        "DELETE FROM ws_specific
+         WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
+        w_id,
+        &deleted_linked_variables
+    )
+    .execute(&mut *tx)
+    .await?;
 
-    if let Some(res_data) = trash_resource {
-        let mut trash_data = serde_json::json!({"row": res_data});
-        if !trash_linked_vars.is_empty() {
-            trash_data["linked_variables"] = serde_json::Value::Array(trash_linked_vars);
-        }
-        windmill_common::trashbin::move_to_trash(
-            &mut *tx,
-            &w_id,
-            "resource",
-            path,
-            trash_data,
-            &authed.username,
-        )
-        .await?;
+    // Only the rows that actually went: the snapshot above is what the caller could read,
+    // which is not necessarily what RLS let it delete, and the trashbin must not hold a copy
+    // of a secret that is still live.
+    let trash_linked_vars: Vec<serde_json::Value> = trash_linked_vars
+        .into_iter()
+        .filter(|(var_path, _)| deleted_linked_variables.contains(var_path))
+        .map(|(_, row)| row)
+        .collect();
+
+    let mut trash_data = serde_json::json!({"row": res_data});
+    if !trash_linked_vars.is_empty() {
+        trash_data["linked_variables"] = serde_json::Value::Array(trash_linked_vars);
     }
+    windmill_common::trashbin::move_to_trash(
+        &mut *tx,
+        &w_id,
+        "resource",
+        path,
+        trash_data,
+        &authed.username,
+    )
+    .await?;
 
     audit_log(
         &mut *tx,
@@ -1464,6 +1519,24 @@ async fn delete_resource(
         None,
     )
     .await?;
+
+    // The cascade is the one way a variable dies without a variables/delete request of its
+    // own, so give each one the audit row it would have had, stamped with what took it.
+    for var_path in &deleted_linked_variables {
+        let mut params = HashMap::new();
+        params.insert("via_resource", path);
+        audit_log(
+            &mut *tx,
+            &authed,
+            "variables.delete",
+            ActionKind::Delete,
+            &w_id,
+            Some(var_path),
+            Some(params),
+        )
+        .await?;
+    }
+
     tx.commit().await?;
 
     // Resource gone for everyone: wipe ALL users' drafts at this path (and any linked
@@ -1515,35 +1588,205 @@ async fn delete_resource(
         );
     }
 
-    Ok(format!("resource {} deleted", path))
+    // Name what else went: the cascade is silent from the caller's side otherwise, and a
+    // secret it took is not something to discover later from a failing job.
+    if deleted_linked_variables.is_empty() {
+        Ok(format!("resource {} deleted", path))
+    } else {
+        Ok(format!(
+            "resource {} deleted, along with its linked variables: {}",
+            path,
+            deleted_linked_variables.join(", ")
+        ))
+    }
 }
 
-/// Recursively collect all `$var:path` references from a JSON value.
-fn collect_var_refs(value: &serde_json::Value, out: &mut Vec<String>) {
+/// The forms that resolve a variable path against `variable`, so a value carrying any of them
+/// breaks when that variable goes. Only `$var:` is minted by the resource editor, which is why
+/// `collect_var_refs` stays narrower than this.
+const REFERRER_PREFIXES: [&str; 2] = ["$var:", "$jsonvar:"];
+
+/// Recursively collect the variable paths a JSON value references through any of `prefixes`.
+fn collect_refs_with_prefixes(value: &serde_json::Value, prefixes: &[&str], out: &mut Vec<String>) {
     match value {
         serde_json::Value::String(s) => {
-            if let Some(var_path) = s.strip_prefix("$var:") {
+            if let Some(var_path) = prefixes.iter().find_map(|p| s.strip_prefix(p)) {
                 out.push(var_path.to_string());
             }
         }
         serde_json::Value::Object(m) => {
             for v in m.values() {
-                collect_var_refs(v, out);
+                collect_refs_with_prefixes(v, prefixes, out);
             }
         }
         serde_json::Value::Array(arr) => {
             for v in arr {
-                collect_var_refs(v, out);
+                collect_refs_with_prefixes(v, prefixes, out);
             }
         }
         _ => {}
     }
 }
 
-/// Deleting a resource cascades into the `$var:` variables its value references. A
-/// scoped token must not use that cascade to delete variables it could not delete
-/// directly via `delete_variable` (which gates on `variables:write:<path>`), so require
-/// `variables:write` for EVERY linked variable and fail the whole delete otherwise.
+/// Recursively collect all `$var:path` references from a JSON value.
+fn collect_var_refs(value: &serde_json::Value, out: &mut Vec<String>) {
+    collect_refs_with_prefixes(value, &["$var:"], out)
+}
+
+/// Whether the variable at `var_path` is the resource's own secret rather than one its value
+/// merely points at: the same-path twin `delete_variable` and the `update_resource` rename
+/// already act on, or `<resource path>_<field>`, which the connect form mints for a resource
+/// type with several secret fields. Anything else is a standalone workspace variable, and
+/// deleting one destroys a secret its other referrers still need.
+///
+/// A rename moves only the twin, so `<old path>_<field>` secrets stop matching and are left
+/// behind instead. An orphaned secret can be deleted by hand; a destroyed one cannot.
+fn is_owned_linked_var(resource_path: &str, var_path: &str) -> bool {
+    var_path == resource_path
+        || var_path
+            .strip_prefix(resource_path)
+            .is_some_and(|suffix| suffix.starts_with('_'))
+}
+
+/// Which of `var_paths` a resource outside `excluded_resource_paths` still references.
+///
+/// Must run off the non-RLS pool: a referrer in a folder the caller cannot read is precisely
+/// the one whose variable has to survive. Nothing from those rows reaches the response.
+async fn linked_vars_referenced_elsewhere(
+    db: &DB,
+    w_id: &str,
+    var_paths: &[String],
+    excluded_resource_paths: &[String],
+) -> Result<HashSet<String>> {
+    if var_paths.is_empty() {
+        return Ok(HashSet::new());
+    }
+    // The quotes around the pattern are what make it a whole-JSON-string match rather than a
+    // prefix one, so `f/db` does not match `"$var:f/db_replica"`. Paths are `proper_id`
+    // segments, so no JSON escaping or LIKE wildcard can reach this.
+    let referenced = sqlx::query_scalar!(
+        "WITH survivors AS (
+             SELECT value::text AS rendered FROM resource
+             WHERE workspace_id = $1 AND NOT (path = ANY($2::text[]))
+         )
+         SELECT v.path FROM unnest($3::text[]) AS v(path)
+         WHERE EXISTS (
+             SELECT 1 FROM survivors s
+             WHERE strpos(s.rendered, '\"$var:' || v.path || '\"') > 0
+                OR strpos(s.rendered, '\"$jsonvar:' || v.path || '\"') > 0
+         )",
+        w_id,
+        excluded_resource_paths,
+        var_paths,
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(referenced.into_iter().flatten().collect())
+}
+
+/// A resource delete's candidate cascade, gathered before the caller's transaction opens: the
+/// referrer scan runs on `db` because it has to see resources RLS hides, and a second acquire
+/// from that same pool under an open `user_db` transaction stalls to the acquire timeout when
+/// `DATABASE_CONNECTIONS` is small. `resolve` then decides without touching the database.
+///
+/// So a resource that starts referencing a candidate between the scan and the delete keeps a
+/// `$var:` pointing at nothing. Narrowing that window means running the scan on the
+/// transaction's own connection under a tightly scoped `SET LOCAL ROLE NONE` (the elevation
+/// `windmill-queue/src/schedule.rs` uses); closing it needs a lock on every resource write.
+struct LinkedVarCascade {
+    /// Each owned `$var:` path with the requested resource whose value carries it.
+    candidates: Vec<(String, String)>,
+    /// Requested resource paths, each with every variable path its value references.
+    requested: Vec<(String, Vec<String>)>,
+    /// Candidate paths a resource outside the requested set still references.
+    referenced_outside: HashSet<String>,
+}
+
+impl LinkedVarCascade {
+    /// The variables to delete, now that RLS has settled which resources went.
+    ///
+    /// A requested resource left standing is the one referrer the scan could not account for,
+    /// having had to exclude every requested path before RLS had ruled.
+    fn resolve(&self, deleted_paths: &[String]) -> Vec<String> {
+        let referenced_by_survivors: HashSet<&str> = self
+            .requested
+            .iter()
+            .filter(|(path, _)| !deleted_paths.contains(path))
+            .flat_map(|(_, refs)| refs.iter().map(String::as_str))
+            .collect();
+
+        let mut resolved: Vec<String> = self
+            .candidates
+            .iter()
+            .filter(|(var_path, owner)| {
+                deleted_paths.contains(owner)
+                    && !self.referenced_outside.contains(var_path.as_str())
+                    && !referenced_by_survivors.contains(var_path.as_str())
+            })
+            .map(|(var_path, _)| var_path.clone())
+            .collect();
+        resolved.sort();
+        resolved.dedup();
+        resolved
+    }
+
+    /// Which deleted resource the cascade took `var_path` for, to stamp on its audit row.
+    fn owner_of<'a>(&'a self, var_path: &str, deleted_paths: &[String]) -> Option<&'a str> {
+        self.candidates
+            .iter()
+            .find(|(candidate, owner)| candidate == var_path && deleted_paths.contains(owner))
+            .map(|(_, owner)| owner.as_str())
+    }
+}
+
+/// Gather what `LinkedVarCascade::resolve` needs for a delete of `paths`.
+async fn plan_linked_var_cascade(
+    db: &DB,
+    w_id: &str,
+    paths: &[String],
+) -> Result<LinkedVarCascade> {
+    let rows: Vec<(String, Option<serde_json::Value>)> = sqlx::query_as(
+        "SELECT path, value FROM resource WHERE workspace_id = $1 AND path = ANY($2)",
+    )
+    .bind(w_id)
+    .bind(paths)
+    .fetch_all(db)
+    .await?;
+
+    let mut candidates: Vec<(String, String)> = Vec::new();
+    let mut requested: Vec<(String, Vec<String>)> = Vec::new();
+    for (path, value) in rows {
+        let mut owned: Vec<String> = Vec::new();
+        let mut refs: Vec<String> = Vec::new();
+        if let Some(value) = &value {
+            collect_var_refs(value, &mut owned);
+            collect_refs_with_prefixes(value, &REFERRER_PREFIXES, &mut refs);
+        }
+        candidates.extend(
+            owned
+                .into_iter()
+                .filter(|var_path| is_owned_linked_var(&path, var_path))
+                .map(|var_path| (var_path, path.clone())),
+        );
+        requested.push((path, refs));
+    }
+    candidates.sort();
+    candidates.dedup();
+
+    let mut candidate_paths: Vec<String> = candidates
+        .iter()
+        .map(|(var_path, _)| var_path.clone())
+        .collect();
+    candidate_paths.dedup();
+    let referenced_outside =
+        linked_vars_referenced_elsewhere(db, w_id, &candidate_paths, paths).await?;
+    Ok(LinkedVarCascade { candidates, requested, referenced_outside })
+}
+
+/// Deleting a resource cascades into the `$var:` variables it owns. A scoped token must not
+/// use that cascade to delete variables it could not delete directly via `delete_variable`
+/// (which gates on `variables:write:<path>`), so require `variables:write` for EVERY cascaded
+/// variable and fail the whole delete otherwise.
 ///
 /// No co-located-path exemption: a resource and a variable may share a path, and a
 /// resource-write token can create a resource over an existing standalone variable and
@@ -1646,111 +1889,91 @@ async fn delete_resources_bulk(
         return Err(Error::PermissionDenied(msg));
     }
 
+    let cascade = plan_linked_var_cascade(&db, &w_id, &request.paths).await?;
+
     let mut tx = user_db.begin(&authed).await?;
 
-    // Capture resources for trashbin per path before bulk delete, and
-    // collect $var: references so we can cascade-delete the linked variables
-    // (matching single-resource delete semantics).
-    let mut linked_var_paths: Vec<String> = Vec::new();
-    for path in &request.paths {
-        let trash_resource: Option<serde_json::Value> = sqlx::query_scalar(
-            "SELECT to_jsonb(t) FROM resource t WHERE path = $1 AND workspace_id = $2",
-        )
-        .bind(path)
-        .bind(&w_id)
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        if let Some(res_data) = trash_resource {
-            // Per-resource linked vars so each resource's trash entry carries
-            // exactly the variables that vanished with it (matching the
-            // single-delete shape: trash_data["linked_variables"]).
-            let mut this_linked: Vec<String> = Vec::new();
-            if let Some(value) = res_data.get("value") {
-                collect_var_refs(value, &mut this_linked);
-            }
-            this_linked.sort();
-            this_linked.dedup();
-
-            let trash_linked_vars: Vec<serde_json::Value> = if this_linked.is_empty() {
-                Vec::new()
-            } else {
-                let placeholders: Vec<String> = this_linked
-                    .iter()
-                    .enumerate()
-                    .map(|(i, _)| format!("${}", i + 2))
-                    .collect();
-                let query = format!(
-                    "SELECT to_jsonb(t) FROM variable t WHERE workspace_id = $1 AND path IN ({})",
-                    placeholders.join(", ")
-                );
-                let mut q = sqlx::query_scalar::<_, serde_json::Value>(&query).bind(&w_id);
-                for var_path in &this_linked {
-                    q = q.bind(var_path);
-                }
-                q.fetch_all(&mut *tx).await?
-            };
-
-            let mut trash_data = serde_json::json!({"row": res_data});
-            if !trash_linked_vars.is_empty() {
-                trash_data["linked_variables"] = serde_json::Value::Array(trash_linked_vars);
-            }
-            windmill_common::trashbin::move_to_trash(
-                &mut *tx,
-                &w_id,
-                "resource",
-                path,
-                trash_data,
-                &authed.username,
-            )
-            .await?;
-
-            linked_var_paths.extend(this_linked);
-        }
-    }
-    linked_var_paths.sort();
-    linked_var_paths.dedup();
-
-    // A scoped token must not delete linked variables it lacks variables:write for.
-    check_linked_var_delete_scopes(&authed, &linked_var_paths)?;
+    // Whole rows out of the delete; see delete_resource. RLS can leave a requested resource
+    // standing, so everything below is driven by this list rather than by `request.paths`.
+    let deleted: Vec<(String, serde_json::Value)> = sqlx::query_as(
+        "DELETE FROM resource AS t WHERE t.path = ANY($1) AND t.workspace_id = $2
+         RETURNING t.path, to_jsonb(t)",
+    )
+    .bind(&request.paths)
+    .bind(&w_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    let deleted_paths: Vec<String> = deleted.iter().map(|(path, _)| path.clone()).collect();
 
     sqlx::query!(
         "DELETE FROM ws_specific WHERE workspace_id = $1 AND item_kind = 'resource' AND path = ANY($2)",
         w_id,
-        &request.paths
+        &deleted_paths
     )
     .execute(&mut *tx)
     .await?;
 
-    let deleted_paths = sqlx::query_scalar!(
-        "DELETE FROM resource WHERE path = ANY($1) AND workspace_id = $2 RETURNING path",
-        &request.paths,
-        w_id
+    let linked_var_paths = cascade.resolve(&deleted_paths);
+
+    // A scoped token must not delete linked variables it lacks variables:write for. Erroring
+    // here rolls the resource deletes back with it.
+    check_linked_var_delete_scopes(&authed, &linked_var_paths)?;
+
+    // Snapshot before the delete below: the trashbin entries need the rows.
+    let trash_linked_vars: Vec<(String, serde_json::Value)> = sqlx::query_as(
+        "SELECT path, to_jsonb(t) FROM variable t WHERE workspace_id = $1 AND path = ANY($2)",
+    )
+    .bind(&w_id)
+    .bind(&linked_var_paths)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let deleted_linked_variables = sqlx::query_scalar!(
+        "DELETE FROM variable WHERE workspace_id = $1 AND path = ANY($2) RETURNING path",
+        w_id,
+        &linked_var_paths
     )
     .fetch_all(&mut *tx)
     .await?;
 
-    // Cascade-clean linked variables: delete any ws_specific 'variable' rows
-    // (typically auto-inserted by mark_linked_variables_ws_specific when the
-    // resource was ws_specific) BEFORE deleting the variable rows themselves
-    // — otherwise those ws_specific rows survive as orphans and a later
-    // variable created at the same path would inherit a stale flag.
-    if !linked_var_paths.is_empty() {
-        sqlx::query!(
-            "DELETE FROM ws_specific
-             WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
-            w_id,
-            &linked_var_paths
-        )
-        .execute(&mut *tx)
-        .await?;
+    // See delete_resource: ws_specific has no FK, so the rows would orphan.
+    sqlx::query!(
+        "DELETE FROM ws_specific
+         WHERE workspace_id = $1 AND item_kind = 'variable' AND path = ANY($2)",
+        w_id,
+        &deleted_linked_variables
+    )
+    .execute(&mut *tx)
+    .await?;
 
-        sqlx::query!(
-            "DELETE FROM variable WHERE workspace_id = $1 AND path = ANY($2)",
-            w_id,
-            &linked_var_paths
+    for (path, res_data) in &deleted {
+        // Every cascaded variable this resource's value points at, ownership aside: restoring
+        // it on its own must bring back each secret it needs, and the one it borrowed from a
+        // sibling in the same batch is gone too.
+        let mut refs: Vec<String> = Vec::new();
+        if let Some(value) = res_data.get("value") {
+            collect_var_refs(value, &mut refs);
+        }
+        let this_linked: Vec<serde_json::Value> = trash_linked_vars
+            .iter()
+            .filter(|(var_path, _)| {
+                refs.contains(var_path) && deleted_linked_variables.contains(var_path)
+            })
+            .map(|(_, row)| row.clone())
+            .collect();
+
+        let mut trash_data = serde_json::json!({"row": res_data});
+        if !this_linked.is_empty() {
+            trash_data["linked_variables"] = serde_json::Value::Array(this_linked);
+        }
+        windmill_common::trashbin::move_to_trash(
+            &mut *tx,
+            &w_id,
+            "resource",
+            path,
+            trash_data,
+            &authed.username,
         )
-        .execute(&mut *tx)
         .await?;
     }
 
@@ -1765,13 +1988,30 @@ async fn delete_resources_bulk(
     )
     .await?;
 
+    // See delete_resource: a cascaded variable gets the audit row it would have had.
+    for var_path in &deleted_linked_variables {
+        let params = cascade
+            .owner_of(var_path, &deleted_paths)
+            .map(|resource_path| HashMap::from([("via_resource", resource_path)]));
+        audit_log(
+            &mut *tx,
+            &authed,
+            "variables.delete",
+            ActionKind::Delete,
+            &w_id,
+            Some(var_path),
+            params,
+        )
+        .await?;
+    }
+
     tx.commit().await?;
 
     // Wipe ALL users' drafts at these paths (and linked variables); see delete_resource.
     for path in &deleted_paths {
         delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Resource, path).await?;
     }
-    for var_path in &linked_var_paths {
+    for var_path in &deleted_linked_variables {
         delete_all_drafts_for_path(&db, &w_id, UserDraftItemKind::Variable, var_path).await?;
     }
 
@@ -2560,7 +2800,7 @@ async fn list_resource_types(
 ) -> JsonResult<Vec<ResourceType>> {
     let rows = sqlx::query_as!(
         ResourceType,
-        "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset from resource_type WHERE (workspace_id = $1 OR workspace_id = 'admins') ORDER \
+        "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset, display_name from resource_type WHERE (workspace_id = $1 OR workspace_id = 'admins') ORDER \
          BY name",
         &w_id
     )
@@ -2940,7 +3180,7 @@ async fn get_resource_type(
 
     let resource_type_o = sqlx::query_as!(
         ResourceType,
-        "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'admins')",
+        "SELECT workspace_id, name, schema, description, created_by, edited_at, format_extension, is_fileset, display_name from resource_type WHERE name = $1 AND (workspace_id = $2 OR workspace_id = 'admins')",
         &name,
         &w_id
     )
@@ -2966,6 +3206,20 @@ async fn exists_resource_type(
     .unwrap_or(false);
 
     Ok(Json(exists))
+}
+
+/// Trimmed, blank as none, and held to the column's 100 characters, so an over-long name is
+/// refused with a message rather than a database error.
+fn normalize_display_name(name: Option<&str>) -> Result<Option<String>> {
+    let Some(name) = name.map(str::trim).filter(|n| !n.is_empty()) else {
+        return Ok(None);
+    };
+    if name.chars().count() > 100 {
+        return Err(Error::BadRequest(
+            "display_name must be at most 100 characters".to_string(),
+        ));
+    }
+    Ok(Some(name.to_string()))
 }
 
 async fn create_resource_type(
@@ -3001,11 +3255,12 @@ async fn create_resource_type(
             "A fileset resource type cannot have a format_extension".to_string(),
         ));
     }
+    let display_name = normalize_display_name(resource_type.display_name.as_deref())?;
 
     sqlx::query!(
         "INSERT INTO resource_type
-            (workspace_id, name, schema, description, created_by, format_extension, is_fileset, edited_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, now())",
+            (workspace_id, name, schema, description, created_by, format_extension, is_fileset, display_name, edited_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())",
         w_id,
         resource_type.name,
         resource_type.schema,
@@ -3013,6 +3268,7 @@ async fn create_resource_type(
         authed.username,
         resource_type.format_extension,
         is_fileset,
+        display_name,
     )
     .execute(&mut *tx)
     .await?;
@@ -3180,6 +3436,12 @@ async fn update_resource_type(
             None => sqlb.set("format_extension", "NULL"),
         };
     }
+    if let Some(display_name) = &ns.display_name {
+        match normalize_display_name(display_name.as_deref())? {
+            Some(name) => sqlb.set_str("display_name", name),
+            None => sqlb.set("display_name", "NULL"),
+        };
+    }
     sqlb.set_str("edited_at", "now()");
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
     let mut tx = user_db.begin(&authed).await?;
@@ -3300,38 +3562,6 @@ struct GitRepositoryResource {
     url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     branch: Option<String>,
-}
-
-/// Checks whether an IP address belongs to a private, loopback, link-local, or
-/// otherwise reserved range that should not be reachable from git operations.
-fn is_private_or_reserved_ip(ip: &IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => {
-            v4.is_loopback()
-                || v4.is_private()
-                || v4.is_link_local()
-                // RFC 1122 "this network": the whole /8, not just the
-                // unspecified address `is_unspecified()` matches — stacks that
-                // map 0.x.y.z onto the local host make `0.0.0.1` a bypass.
-                || v4.octets()[0] == 0 // 0.0.0.0/8
-                || v4.is_broadcast()
-                // 100.64.0.0/10 (Carrier-grade NAT / CGNAT)
-                || (v4.octets()[0] == 100 && (v4.octets()[1] & 0xC0) == 64)
-        }
-        IpAddr::V6(v6) => {
-            let seg = v6.segments();
-            v6.is_loopback()
-                || v6.is_unspecified()
-                // fc00::/7 (unique local address) — std has no stable is_unique_local()
-                || (seg[0] & 0xfe00) == 0xfc00
-                // fe80::/10 (link-local) — std has no stable is_unicast_link_local()
-                || (seg[0] & 0xffc0) == 0xfe80
-                // IPv4-mapped IPv6 (::ffff:x.x.x.x) — check the inner v4
-                || v6.to_ipv4_mapped().map_or(false, |v4| {
-                    is_private_or_reserved_ip(&IpAddr::V4(v4))
-                })
-        }
-    }
 }
 
 /// Extracts the hostname from a git URL.
@@ -3503,7 +3733,7 @@ async fn validate_git_url(url: &str, caller: GitRemoteCaller) -> Result<()> {
 
     // Check literal IP addresses
     if let Ok(ip) = host.parse::<IpAddr>() {
-        if is_private_or_reserved_ip(&ip) {
+        if is_private_ip(&ip) {
             return Err(Error::BadRequest(format!(
                 "Git URLs targeting private or reserved IP addresses are not allowed.{hint}"
             )));
@@ -3526,7 +3756,7 @@ async fn validate_git_url(url: &str, caller: GitRemoteCaller) -> Result<()> {
             )));
         }
         for addr in addrs {
-            if is_private_or_reserved_ip(&addr.ip()) {
+            if is_private_ip(&addr.ip()) {
                 return Err(Error::BadRequest(format!(
                     "Git URL hostname resolves to a private or reserved IP address.{hint}"
                 )));
@@ -4780,73 +5010,6 @@ mod tests {
             extract_host_from_git_url("file:///etc/passwd"),
             Some("".to_string()).filter(|s| !s.is_empty())
         );
-    }
-
-    #[test]
-    fn test_is_private_or_reserved_ip() {
-        use std::net::IpAddr;
-        // Loopback
-        assert!(is_private_or_reserved_ip(
-            &"127.0.0.1".parse::<IpAddr>().unwrap()
-        ));
-        assert!(is_private_or_reserved_ip(
-            &"127.0.0.2".parse::<IpAddr>().unwrap()
-        ));
-        // Private ranges
-        assert!(is_private_or_reserved_ip(
-            &"10.0.0.1".parse::<IpAddr>().unwrap()
-        ));
-        assert!(is_private_or_reserved_ip(
-            &"172.16.0.1".parse::<IpAddr>().unwrap()
-        ));
-        assert!(is_private_or_reserved_ip(
-            &"192.168.1.1".parse::<IpAddr>().unwrap()
-        ));
-        // Link-local / cloud metadata
-        assert!(is_private_or_reserved_ip(
-            &"169.254.169.254".parse::<IpAddr>().unwrap()
-        ));
-        // CGNAT
-        assert!(is_private_or_reserved_ip(
-            &"100.64.0.1".parse::<IpAddr>().unwrap()
-        ));
-        // "This network" 0.0.0.0/8, not just the unspecified address
-        assert!(is_private_or_reserved_ip(
-            &"0.0.0.0".parse::<IpAddr>().unwrap()
-        ));
-        assert!(is_private_or_reserved_ip(
-            &"0.0.0.1".parse::<IpAddr>().unwrap()
-        ));
-        // IPv6 loopback
-        assert!(is_private_or_reserved_ip(&"::1".parse::<IpAddr>().unwrap()));
-        // IPv6 unique local address (fc00::/7)
-        assert!(is_private_or_reserved_ip(
-            &"fd00::1".parse::<IpAddr>().unwrap()
-        ));
-        assert!(is_private_or_reserved_ip(
-            &"fc00::1".parse::<IpAddr>().unwrap()
-        ));
-        // IPv6 link-local (fe80::/10)
-        assert!(is_private_or_reserved_ip(
-            &"fe80::1".parse::<IpAddr>().unwrap()
-        ));
-        // IPv4-mapped IPv6
-        assert!(is_private_or_reserved_ip(
-            &"::ffff:127.0.0.1".parse::<IpAddr>().unwrap()
-        ));
-        // Public IPs should pass
-        assert!(!is_private_or_reserved_ip(
-            &"8.8.8.8".parse::<IpAddr>().unwrap()
-        ));
-        assert!(!is_private_or_reserved_ip(
-            &"140.82.121.4".parse::<IpAddr>().unwrap()
-        ));
-        // Public IPv6 should pass
-        assert!(!is_private_or_reserved_ip(
-            &"2606:2800:220:1:248:1893:25c8:1946"
-                .parse::<IpAddr>()
-                .unwrap()
-        ));
     }
 
     // A caller let through to private hosts must still hit the scheme check.

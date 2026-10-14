@@ -90,6 +90,24 @@ You can configure another proxy to use like so:
 REMOTE=http://127.0.0.1:8000 REMOTE_LSP=http://127.0.0.1:3001 npm run dev
 ```
 
+`REMOTE_LSP` needs a language server on port 3001. The `windmill-extra` image serves one:
+
+```bash
+docker run --rm -p 3001:3001 ghcr.io/windmill-labs/windmill-extra:latest
+```
+
+To proxy multiplayer and the debugger as well, publish the image's gateway on port 3000 and use `REMOTE_EXTRA`, which
+covers `/ws/*`, `/ws_mp/*` and `/ws_debug/*`. Those two services verify tokens signed by your backend, so give the
+container its URL (on Linux, add `--add-host=host.docker.internal:host-gateway`):
+
+```bash
+docker run --rm -p 3000:3000 -e WINDMILL_BASE_URL=http://host.docker.internal:8000 ghcr.io/windmill-labs/windmill-extra:latest
+REMOTE=http://127.0.0.1:8000 REMOTE_EXTRA=http://127.0.0.1:3000 npm run dev
+```
+
+To try local changes to `lsp/pyls_launcher.py` or `lsp/Pipfile`, build that image from the repo root with
+`docker build -f docker/DockerfileExtra -t windmill-extra-dev .` and run `windmill-extra-dev` instead.
+
 ### Run dev servers on demand
 
 A dev server costs 1.1-1.7 GB resident once a page has been browsed, which adds up when

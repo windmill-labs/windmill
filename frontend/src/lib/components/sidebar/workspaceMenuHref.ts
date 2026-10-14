@@ -1,5 +1,3 @@
-import { base } from '$lib/base'
-
 // Href for a workspace-switch link in the sidebar WorkspaceMenu: stay on the
 // current path and just swap the `workspace` query param, so a modifier/middle
 // click (open in new tab, which bypasses the onClick fast-path) lands on the
@@ -20,11 +18,23 @@ export function workspaceMenuHref(args: {
 	landOnHome?: boolean
 }): string {
 	if (args.landOnHome) {
-		return `${base}/?workspace=${encodeURIComponent(args.id)}`
+		return `/?workspace=${encodeURIComponent(args.id)}`
 	}
 	const params = new URLSearchParams(args.searchParams)
 	params.set('workspace', args.id)
+	// `workspace_id` names the workspace a page acts on rather than the one the app is pointed at
+	// — the compare page's source. A switch moves it too, or the link lands on a page still
+	// working on the workspace just left. Only rewritten, never added: a page that does not use
+	// it has no business gaining it.
+	if (params.has('workspace_id')) {
+		params.set('workspace_id', args.id)
+	}
+	// The compare page's one-off migration destination, chosen for the workspace being left. Kept,
+	// it would survive into a workspace it was never picked for — including the target itself,
+	// leaving that page comparing a workspace with itself.
+	params.delete('target')
 	if (!args.sameFamily) {
+		params.delete('session')
 		params.delete('session_name')
 	}
 	return `${args.pathname}?${params.toString()}`

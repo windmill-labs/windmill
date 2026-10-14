@@ -1,14 +1,16 @@
 <script lang="ts">
 	import { run } from 'svelte/legacy'
 
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore } from '$lib/stores'
 	import LabelsInput from './LabelsInput.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import {
+		addResourceTypeDisplayName,
 		isCustomResourceTypeName,
 		resourceTypeDisplayName,
 		resourceTypeMatchRank,
 		resourceTypeSearchText,
+		setResourceTypeDisplayNames,
 		sortResourceTypesByMatch
 	} from './resourceTypeDisplay'
 	import {
@@ -23,7 +25,7 @@
 	import { registryEntryFor, registryCcCapableFor, stripSandboxSuffix } from './oauthRegistry'
 	import { createEventDispatcher, onDestroy, tick } from 'svelte'
 	import Path from './Path.svelte'
-	import { ListRow, RadioCard, Skeleton } from './common'
+	import { Badge, ListRow, RadioCard, Skeleton } from './common'
 	import { useListHighlight } from './common/listRow/listHighlight.svelte'
 	import ApiConnectForm from './ApiConnectForm.svelte'
 	import SearchItems from './SearchItems.svelte'
@@ -31,7 +33,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import OauthScopes from './OauthScopes.svelte'
 	import autosize from '$lib/autosize'
-	import { base } from '$lib/base'
 	import Required from './Required.svelte'
 	import Toggle from './Toggle.svelte'
 	import { Pen, Search } from 'lucide-svelte'
@@ -51,6 +52,9 @@
 	import Label from './Label.svelte'
 	import ResourcePathHint from './ResourcePathHint.svelte'
 	import SchemaForm from './SchemaForm.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		step?: number
@@ -82,7 +86,7 @@
 		fillPath = undefined
 	}: Props = $props()
 
-	let effectiveWorkspace = $derived(workspace ?? $workspaceStore!)
+	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace!)
 
 	let isValid = $state(true)
 
@@ -196,6 +200,38 @@
 	 */
 	let useClientCredentials = $state(false)
 
+	/** Slack v2 grants a user token for `user_scope` and a bot token for `scope`,
+	 * from the same app: the registry's `user_scopes` offers the choice. */
+	let useUserToken = $state(false)
+	/** Both kinds share one resource type, so the default path and description tell them apart. */
+	let tokenKind = $derived(
+		registryEntry()?.user_scopes && !useClientCredentials
+			? useUserToken
+				? 'user'
+				: 'bot'
+			: undefined
+	)
+	let defaultName = $derived(tokenKind ? `${resourceType}_${tokenKind}` : resourceType)
+	/** Last description filled in from `tokenKind`, replaced on reconnect unless the user edited it. */
+	let generatedDescription = ''
+
+	function fillGeneratedDescription() {
+		if (description === generatedDescription) {
+			description = ''
+		}
+		generatedDescription = tokenKind ? `${resourceType} ${tokenKind} token` : ''
+		if (emptyString(description)) {
+			description = generatedDescription
+		}
+	}
+
+	function selectUserToken(user: boolean) {
+		if (user !== useUserToken) {
+			scopes = user ? (registryEntry()?.user_scopes ?? []) : instanceScopes
+		}
+		useUserToken = user
+	}
+
 	/**
 	 * Client credentials for resource-level OAuth
 	 */
@@ -236,6 +272,15 @@
 	 * list rather than "every other field" because most OAuth types also hold the fields of
 	 * another way in: ServiceNow's basic-auth password, Bitbucket's app password. */
 	let resourceFields = $derived((registryEntry()?.resource_fields as string[] | undefined) ?? [])
+	/** The grant's defaults are offered as checkboxes too, so unticking one drops it.
+	 * `scope_options` lists authorization-code scopes, invalid in a 2-legged request. */
+	let scopeOptions = $derived(
+		useClientCredentials
+			? defaultCcScopes()
+			: useUserToken
+				? [...(registryEntry()?.user_scope_options ?? []), ...(registryEntry()?.user_scopes ?? [])]
+				: [...(registryEntry()?.scope_options ?? []), ...instanceScopes]
+	)
 
 	/** Their slice of the resource type's schema, so they render with the type's own
 	 * descriptions; plain text inputs while the type is not synced from the hub. */
@@ -277,10 +322,20 @@
 			(registryCcCapable() && connectClient != '' && !(connects?.includes(connectClient) ?? false))
 	)
 
+	/** The provider also has a browser sign-in, unavailable here only because the
+	 * instance holds no OAuth client for it */
+	let signInNeedsInstanceClient = $derived.by(
+		() =>
+			(registryEntry()?.grant_types?.includes('authorization_code') ?? false) &&
+			connectClient != '' &&
+			!(connects?.includes(connectClient) ?? false)
+	)
+
 	/** Clear CC inputs and scopes so a previous selection never leaks into a new one */
 	function resetClientCredentialsState() {
 		supportsClientCredentials = false
 		useClientCredentials = false
+		useUserToken = false
 		authCodeUnavailable = false
 		ccInstanceConfigured = false
 		ccBringYourOwn = false
@@ -289,6 +344,10 @@
 		ccInstance = ''
 		tokenUrl = ''
 		scopes = []
+		if (description === generatedDescription) {
+			description = ''
+		}
+		generatedDescription = ''
 	}
 
 	/** Default scopes for the client-credentials grant. Registry providers use
@@ -444,16 +503,15 @@
 
 	// Google's terms require its own button on the control that starts the sign-in, which is
 	// the step-2 Connect: step 1 only picks a type, and a manual step 2 saves a resource
-	// without ever reaching Google.
+	// without ever reaching Google. Every registry provider that signs in through Google's
+	// authorize endpoint counts; `google` itself is a login provider, not a registry entry.
 	run(() => {
 		isGoogleSignin =
 			step == 2 &&
 			!manual &&
 			(resourceType == 'google' ||
-				resourceType == 'gmail' ||
-				resourceType == 'gcal' ||
-				resourceType == 'gdrive' ||
-				resourceType == 'gsheets')
+				(registryEntryFor(resourceType)?.auth_url?.startsWith('https://accounts.google.com/') ??
+					false))
 	})
 
 	run(() => {
@@ -497,6 +555,7 @@
 		// $derived, so search re-ranks when they land.
 		ResourceService.listResourceType({ workspace: effectiveWorkspace })
 			.then((types) => {
+				setResourceTypeDisplayNames(types)
 				resourceTypeDescriptions = Object.fromEntries(
 					types.filter((t) => t.description).map((t) => [t.name, t.description!])
 				)
@@ -600,16 +659,18 @@
 			value = data.res.access_token!
 			valueToken = data.res
 			responseExtra = data.extra ?? {}
+			fillGeneratedDescription()
 			step = 4
 			// `fillPath` decides the path as surely as express does, so neither stops here.
 			if (fillPath || express) {
-				path = fillPath ?? `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
+				path = fillPath ?? `u/${$userStore?.username}/${defaultName}_${new Date().getTime()}`
 				next()
 			}
 		}
 	}
 
 	async function getScopesAndParams() {
+		useUserToken = false
 		if (!connects?.includes(connectClient)) {
 			// No instance OAuth client (registry-declared CC-only provider):
 			// defaults come from the static registry instead.
@@ -652,6 +713,7 @@
 				workspace: effectiveWorkspace,
 				path: resourceType
 			})
+			addResourceTypeDisplayName(resourceTypeInfo)
 			const props: Record<string, SchemaProperty> = resourceTypeInfo?.schema?.['properties'] ?? {}
 			const newArgsKeys = Object.keys(props).filter((x) => props?.[x]?.type == 'string') ?? []
 
@@ -739,9 +801,10 @@
 						...tokenResponse,
 						grant_type: 'client_credentials' // Mark this token as client_credentials
 					}
+					fillGeneratedDescription()
 					step = 4
 					if (fillPath || express) {
-						path = fillPath ?? `u/${$userStore?.username}/${resourceType}_${new Date().getTime()}`
+						path = fillPath ?? `u/${$userStore?.username}/${defaultName}_${new Date().getTime()}`
 						next()
 					}
 				} catch (error) {
@@ -757,7 +820,11 @@
 				 * Opens popup for user to authenticate with OAuth provider
 				 */
 				const url = new URL(`/api/oauth/connect/${connectClient}`, window.location.origin)
-				url.searchParams.append('scopes', scopes.join('+'))
+				// An empty `scopes` still overrides the instance's bot scopes.
+				url.searchParams.append('scopes', useUserToken ? '' : scopes.join('+'))
+				if (useUserToken) {
+					url.searchParams.append('user_scope', scopes.join(','))
+				}
 				if (extra_params.length > 0) {
 					extra_params.forEach(([key, value]) => url.searchParams.append(key, value))
 				}
@@ -1140,8 +1207,6 @@
 		if (step !== 1) return
 		highlight.onKeydown(e)
 	}
-
-	let editScopes = $state(false)
 </script>
 
 {#if !express}
@@ -1343,11 +1408,7 @@
 				</div>
 				{#if apiTokenApps[resourceType].img}
 					<div class="mt-4 w-full overflow-hidden">
-						<img
-							class="m-auto max-h-60"
-							alt="connect"
-							src={base + apiTokenApps[resourceType].img}
-						/>
+						<img class="m-auto max-h-60" alt="connect" src={apiTokenApps[resourceType].img} />
 					</div>
 				{/if}
 			{/if}
@@ -1458,14 +1519,14 @@
 				{#if supportsClientCredentials}
 					<div class="flex flex-col gap-1">
 						<h3 class="text-sm font-semibold text-emphasis mb-1">Authentication</h3>
-						{#if ccOnly || ccBringYourOwn}
+						{#if (ccOnly || ccBringYourOwn) && !signInNeedsInstanceClient}
 							<div class="text-xs text-secondary font-normal mb-2">
 								{#if useSharedInstanceCreds}
 									{resourceType} connects server-to-server using the credentials configured for this
-									instance. The token is acquired and refreshed automatically.
+									instance.
 								{:else}
-									{resourceType} connects server-to-server. Enter a client ID and secret; the token is
-									acquired and refreshed automatically.
+									{resourceType} connects server-to-server with the client credentials grant. Enter a
+									client ID and secret.
 								{/if}
 							</div>
 						{:else}
@@ -1478,17 +1539,24 @@
 							>
 								<RadioCard
 									label={`Sign in through ${resourceType}`}
-									description="Opens a browser window to log in and authorize. Connects as you."
+									description={signInNeedsInstanceClient
+										? `Authorization code grant. Needs an OAuth client for ${resourceType} in the instance settings, added by a superadmin.`
+										: 'Authorization code grant. Opens a browser window to log in and authorize. Connects as you.'}
 									selected={!useClientCredentials}
 									onSelect={selectAuthCodeGrant}
+									disabled={signInNeedsInstanceClient}
+									badge={signInNeedsInstanceClient ? setupNeededBadge : undefined}
 								/>
+								{#snippet setupNeededBadge()}
+									<Badge verySmall class="px-2">Instance setup needed</Badge>
+								{/snippet}
 								<RadioCard
 									label={useSharedInstanceCreds
 										? 'Use the configured instance credentials'
 										: 'Use a client ID and secret'}
 									description={useSharedInstanceCreds
-										? "Runs server-to-server with this instance's credentials. No input needed."
-										: 'Runs server-to-server. Best for automation or service accounts.'}
+										? "Client credentials grant. Runs server-to-server with this instance's credentials. No input needed."
+										: 'Client credentials grant. Runs server-to-server. Best for automation or service accounts.'}
 									selected={useClientCredentials}
 									onSelect={() => enableClientCredentials()}
 								/>
@@ -1550,24 +1618,29 @@
 					</div>
 				{/if}
 
-				<div class="flex flex-col gap-1">
-					<h3 class="text-xs font-semibold text-emphasis flex gap-4"
-						>Scopes <button
-							onclick={() => {
-								editScopes = !editScopes
-							}}><Pen size={14} /></button
-						></h3
-					>
-
-					{#if editScopes}
-						<OauthScopes bind:scopes options={registryEntry()?.scope_options} />
-					{:else}
-						<div class="flex flex-col gap-1">
-							{#each scopes as scope}
-								<div class="py-0.5 pl-2 text-xs">- {scope}</div>
-							{/each}
+				{#if registryEntry()?.user_scopes && !useClientCredentials}
+					<div class="flex flex-col gap-1">
+						<h3 class="text-sm font-semibold text-emphasis mb-1">Connect as</h3>
+						<div class="flex flex-col gap-2" role="radiogroup" aria-label="Connect as">
+							<RadioCard
+								label="The app (bot token)"
+								description="Acts as the app's bot user, in the channels it is added to."
+								selected={!useUserToken}
+								onSelect={() => selectUserToken(false)}
+							/>
+							<RadioCard
+								label="Yourself (user token)"
+								description="Acts as you, with access to what you can see: history, DMs and search."
+								selected={useUserToken}
+								onSelect={() => selectUserToken(true)}
+							/>
 						</div>
-					{/if}
+					</div>
+				{/if}
+
+				<div class="flex flex-col gap-1">
+					<h3 class="text-xs font-semibold text-emphasis">Scopes</h3>
+					<OauthScopes bind:scopes options={scopeOptions} />
 				</div>
 			</div>
 		{/if}
@@ -1581,7 +1654,7 @@
 		<Label label="Path">
 			<Path
 				initialPath=""
-				namePlaceholder={resourceType}
+				namePlaceholder={defaultName}
 				bind:error={pathError}
 				bind:path
 				kind="resource"

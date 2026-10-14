@@ -3,8 +3,8 @@
 	import type { NativeServiceName, TriggerMode } from '$lib/gen/types.gen'
 	import type { ExtendedNativeTrigger } from './utils'
 	import { getServiceConfig } from './utils'
-	import { canWrite, sendUserToast } from '$lib/utils'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/utils'
+	import { useEditRights, useTriggerLock } from '$lib/operatorWriteRights'
 	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -16,6 +16,11 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import GoogleDriveIcon from '$lib/components/icons/GoogleDriveIcon.svelte'
 	import GoogleCalendarIcon from '$lib/components/icons/GoogleCalendarIcon.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	const triggerLock = useTriggerLock()
+	const editRights = useEditRights()
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	type TriggerW = ExtendedNativeTrigger & { marked?: any }
 
@@ -51,7 +56,7 @@
 		const enabled = mode === 'enabled'
 		try {
 			await NativeTriggerService.setNativeTriggerEnabled({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				serviceName: service,
 				externalId: trigger.external_id,
 				requestBody: { enabled }
@@ -76,7 +81,7 @@
 		isDeleting = true
 		try {
 			await NativeTriggerService.deleteNativeTrigger({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				serviceName: service,
 				externalId: triggerToDelete.external_id
 			})
@@ -106,6 +111,7 @@
 			{#each triggers as trigger (trigger.external_id)}
 				{@const isFlow = trigger.is_flow}
 				{@const href = `${isFlow ? '/flows/get' : '/scripts/get'}/${trigger.script_path}`}
+				{@const canEdit = editRights.canEditItem('trigger', trigger.script_path, {})}
 				<div
 					class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md flex flex-col"
 				>
@@ -158,7 +164,8 @@
 
 						<div class="flex gap-2 items-center justify-end">
 							<TriggerModeToggle
-								canWrite={canWrite(trigger.script_path, {}, $userStore)}
+								canWrite={canEdit}
+								title={$triggerLock}
 								triggerMode={trigger.enabled ? 'enabled' : 'disabled'}
 								onToggleMode={(mode) => onToggleMode(trigger, mode)}
 								hideToggleLabels
@@ -167,10 +174,10 @@
 							<Button
 								on:click={() => onEdit?.(trigger)}
 								unifiedSize="md"
-								startIcon={{ icon: Pen }}
+								startIcon={{ icon: canEdit ? Pen : Eye }}
 								variant="subtle"
 							>
-								Edit
+								{canEdit ? 'Edit' : 'View'}
 							</Button>
 							<Dropdown
 								size="md"
@@ -186,6 +193,8 @@
 										displayName: 'Delete',
 										type: 'delete' as const,
 										icon: Trash,
+										disabled: !canEdit,
+										tooltip: $triggerLock,
 										action: () => openDeleteConfirmation(trigger)
 									}
 								]}
@@ -201,6 +210,8 @@
 								size="xs"
 								variant="subtle"
 								startIcon={{ icon: RefreshCw }}
+								disabled={!!$triggerLock}
+								title={$triggerLock}
 								on:click={() => onRecreate?.(trigger)}
 							>
 								Recreate

@@ -12,11 +12,13 @@ use crate::scripts::ScriptHash;
 use crate::secret_backend::{get_secret_value, is_external_stored_value};
 use crate::utils::WarnAfterExt;
 use crate::worker::Connection;
+use crate::workspace_crypt::CipherFormat;
+pub use crate::workspace_crypt::WorkspaceCrypt;
 use crate::{worker::WORKER_GROUP, BASE_URL, DB};
 use chrono::{SecondsFormat, Utc};
-use magic_crypt::{MagicCrypt256, MagicCryptError, MagicCryptTrait};
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 lazy_static::lazy_static! {
     pub static ref SECRET_SALT: Option<String> = std::env::var("SECRET_SALT").ok();
@@ -211,7 +213,7 @@ pub struct CreateVariable {
     pub ws_specific: Option<bool>,
 }
 
-pub async fn build_crypt(db: &DB, w_id: &str) -> crate::error::Result<MagicCrypt256> {
+pub async fn build_crypt(db: &DB, w_id: &str) -> crate::error::Result<WorkspaceCrypt> {
     // Check cache first (300-second staleness)
     let cached_key_o = WORKSPACE_CRYPT_CACHE.get(w_id).and_then(|(ts, key)| {
         if ts > chrono::Utc::now().timestamp() - 300 {
@@ -235,7 +237,7 @@ pub async fn build_crypt(db: &DB, w_id: &str) -> crate::error::Result<MagicCrypt
         } else {
             key
         };
-        let ncrypt = magic_crypt::new_magic_crypt!(crypt_key, 256);
+        let ncrypt = WorkspaceCrypt::new(&crypt_key);
         WORKSPACE_CRYPT_CACHE.insert(
             w_id.to_string(),
             (chrono::Utc::now().timestamp(), ncrypt.clone()),
@@ -250,14 +252,19 @@ pub async fn build_crypt_with_key_suffix(
     db: &DB,
     w_id: &str,
     key_suffix: &str,
-) -> crate::error::Result<MagicCrypt256> {
+) -> crate::error::Result<WorkspaceCrypt> {
     let key = get_workspace_key(w_id, db).await?;
+    Ok(crypt_from_key_with_suffix(&key, key_suffix))
+}
+
+/// The cipher `build_crypt_with_key_suffix` builds, from a key string in hand.
+pub fn crypt_from_key_with_suffix(key: &str, key_suffix: &str) -> WorkspaceCrypt {
     let crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
         format!("{}{}{}", key, salt, key_suffix)
     } else {
         format!("{}{}", key, key_suffix)
     };
-    Ok(magic_crypt::new_magic_crypt!(crypt_key, 256))
+    WorkspaceCrypt::new(&crypt_key)
 }
 
 pub async fn get_workspace_key(w_id: &str, db: &DB) -> crate::error::Result<String> {
@@ -366,25 +373,244 @@ pub async fn get_secret_value_as_admin(
     Ok(r)
 }
 
-pub fn encrypt(mc: &MagicCrypt256, value: &str) -> String {
-    mc.encrypt_str_to_base64(value)
+pub fn encrypt(mc: &WorkspaceCrypt, value: &str) -> String {
+    mc.encrypt_str(value)
 }
 
-pub fn decrypt(mc: &MagicCrypt256, value: String) -> error::Result<String> {
-    mc.decrypt_base64_to_string(value).map_err(|e| match e {
-        MagicCryptError::DecryptError(_) => error::Error::internal_err(
-            "Could not decrypt value. The value may have been encrypted with a different key."
-                .to_string(),
-        ),
-        _ => error::Error::internal_err(e.to_string()),
+const DECRYPT_FAILED: &str =
+    "Could not decrypt value. The value may have been encrypted with a different key.";
+
+/// Every failure returns the same message so responses carry no signal about why decryption
+/// failed (authentication, padding, base64, UTF-8); the kind of failure is only logged.
+pub fn decrypt(mc: &WorkspaceCrypt, value: String) -> error::Result<String> {
+    mc.decrypt_str(&value).map_err(|e| {
+        tracing::warn!("decryption failed: {e}");
+        error::Error::internal_err(DECRYPT_FAILED.to_string())
     })
+}
+
+static LEGACY_SECRET_UPGRADE_DONE: AtomicBool = AtomicBool::new(false);
+static LEGACY_SECRET_UPGRADE_RUNNING: AtomicBool = AtomicBool::new(false);
+const LEGACY_SECRET_UPGRADE_BATCH: i64 = 200;
+
+/// Whether this process still has to run [`upgrade_legacy_secret_variables`]: once new values
+/// are written in v2, until one pass has gone through every workspace.
+pub fn legacy_secret_upgrade_pending() -> bool {
+    CipherFormat::current() == CipherFormat::V2
+        && !LEGACY_SECRET_UPGRADE_DONE.load(Ordering::Relaxed)
+}
+
+/// AES-256-GCM ciphertext is 32 bytes (magic, nonce, tag) longer than legacy CBC before base64,
+/// so the longest CBC value that fits 15000 chars is exactly 15040 chars once re-encrypted.
+const VARIABLE_VALUE_WIDTH: i32 = 15040;
+static VARIABLE_VALUE_WIDENED: AtomicBool = AtomicBool::new(false);
+
+/// Whether this process has seen `variable.value` wide enough for every v2 value. Only servers
+/// look, so it stays false in a worker.
+pub fn variable_value_widened() -> bool {
+    VARIABLE_VALUE_WIDENED.load(Ordering::Relaxed)
+}
+
+/// Whether `variable.value` may still have to be widened to fit v2 values.
+pub fn variable_value_widen_pending() -> bool {
+    CipherFormat::current() == CipherFormat::V2 && !VARIABLE_VALUE_WIDENED.load(Ordering::Relaxed)
+}
+
+/// Widen `variable.value` to [`VARIABLE_VALUE_WIDTH`], or `false` when it is too early to.
+/// Not a migration: changing a column's type, even its length, fails every statement a live
+/// process prepared on it until its connection closes. It waits for v2 writes, gated on a
+/// worker version that retires such connections on the first failure, so that no process too
+/// old to recover is still running.
+async fn widen_variable_value(db: &DB) -> error::Result<bool> {
+    if VARIABLE_VALUE_WIDENED.load(Ordering::Relaxed) {
+        return Ok(true);
+    }
+    // varchar's typmod is its length + 4, -1 when unbounded.
+    let typmod: i32 = sqlx::query_scalar(
+        "SELECT atttypmod FROM pg_attribute WHERE attrelid = 'variable'::regclass AND attname = 'value'",
+    )
+    .fetch_one(db)
+    .await?;
+    if typmod >= 0 && typmod - 4 < VARIABLE_VALUE_WIDTH {
+        if crate::db::process_uptime() < crate::db::PREVIOUS_RELEASE_ROLLOUT_UPTIME {
+            return Ok(false);
+        }
+        tracing::info!("widening variable.value to VARCHAR({VARIABLE_VALUE_WIDTH})");
+        let mut tx = db.begin().await?;
+        // Queued behind a long transaction, the ALTER would block every variable read meanwhile.
+        sqlx::query("SET LOCAL lock_timeout = '3s'")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(&format!(
+            "ALTER TABLE variable ALTER COLUMN value TYPE VARCHAR({VARIABLE_VALUE_WIDTH})"
+        ))
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        crate::db::retire_connections_opened_before_now();
+    }
+    VARIABLE_VALUE_WIDENED.store(true, Ordering::Relaxed);
+    Ok(true)
+}
+
+/// Widen `variable.value` for v2 values, then re-encrypt the secret variables still in the
+/// legacy format in v2, workspace by workspace.
+/// Idempotent, and emits no git-sync event: the plaintexts do not change.
+pub async fn upgrade_legacy_secret_variables(db: &DB) {
+    struct Running;
+    impl Drop for Running {
+        fn drop(&mut self) {
+            LEGACY_SECRET_UPGRADE_RUNNING.store(false, Ordering::Release);
+        }
+    }
+    if !(variable_value_widen_pending() || legacy_secret_upgrade_pending())
+        || LEGACY_SECRET_UPGRADE_RUNNING.swap(true, Ordering::AcqRel)
+    {
+        return;
+    }
+    // Cleared on drop, so a pass that panics does not stop every later one in this process.
+    let _running = Running;
+    match widen_variable_value(db).await {
+        Ok(true) => {}
+        Ok(false) => return,
+        Err(e) => {
+            tracing::warn!(
+                "secret encryption upgrade: widening variable.value failed, retrying later: {e:#}"
+            );
+            return;
+        }
+    }
+    if legacy_secret_upgrade_pending() {
+        upgrade_legacy_secret_variables_pass(db).await;
+    }
+}
+
+async fn upgrade_legacy_secret_variables_pass(db: &DB) {
+    let workspaces: Vec<String> = match sqlx::query_scalar("SELECT id FROM workspace ORDER BY id")
+        .fetch_all(db)
+        .await
+    {
+        Ok(w) => w,
+        Err(e) => {
+            tracing::error!("secret encryption upgrade: listing workspaces failed: {e:#}");
+            return;
+        }
+    };
+    tracing::info!(
+        "secret encryption upgrade: re-encrypting legacy secret variables of {} workspaces in AES-256-GCM",
+        workspaces.len()
+    );
+    let (mut upgraded, mut skipped, mut failed_workspaces) = (0, 0, 0);
+    for w_id in workspaces {
+        match upgrade_workspace_secret_variables(db, &w_id).await {
+            Ok((u, s)) => {
+                if u > 0 || s > 0 {
+                    tracing::info!(
+                        "secret encryption upgrade: workspace {w_id}: {u} re-encrypted, {s} skipped"
+                    );
+                }
+                upgraded += u;
+                skipped += s;
+            }
+            Err(e) => {
+                failed_workspaces += 1;
+                tracing::error!("secret encryption upgrade: workspace {w_id} failed: {e:#}");
+            }
+        }
+    }
+    tracing::info!(
+        "secret encryption upgrade: done, {upgraded} re-encrypted, {skipped} skipped, {failed_workspaces} workspaces failed"
+    );
+    if failed_workspaces == 0 {
+        LEGACY_SECRET_UPGRADE_DONE.store(true, Ordering::Relaxed);
+    }
+}
+
+/// The number of values re-encrypted and of values skipped as they do not decrypt.
+async fn upgrade_workspace_secret_variables(db: &DB, w_id: &str) -> error::Result<(usize, usize)> {
+    let (mut upgraded, mut skipped) = (0, 0);
+    let mut after = String::new();
+    loop {
+        let mut tx = db.begin().await?;
+        // Shared, so a rotation (which locks the key row for update and rewrites every secret)
+        // never interleaves with a batch, and the key read here is the one the values are under.
+        let key: Option<String> = sqlx::query_scalar(
+            "SELECT key FROM workspace_key WHERE workspace_id = $1 AND kind = 'cloud' FOR SHARE",
+        )
+        .bind(w_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(key) = key else {
+            return Ok((upgraded, skipped));
+        };
+        let mc = crypt_from_key_with_suffix(&key, "");
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT path, value FROM variable WHERE workspace_id = $1 AND is_secret AND path > $2 \
+             ORDER BY path LIMIT $3",
+        )
+        .bind(w_id)
+        .bind(&after)
+        .bind(LEGACY_SECRET_UPGRADE_BATCH)
+        .fetch_all(&mut *tx)
+        .await?;
+        let last_page = (rows.len() as i64) < LEGACY_SECRET_UPGRADE_BATCH;
+        for (path, value) in rows {
+            if value.is_empty() || is_external_stored_value(&value) || mc.is_v2(&value) {
+                after = path;
+                continue;
+            }
+            match mc.upgrade(&value) {
+                Some(new_value) => {
+                    // In a savepoint, so a value the update rejects (v2 is up to 44 chars longer
+                    // than CBC, which a column narrower than 15040 cannot hold) is skipped
+                    // without losing the batch.
+                    let mut sp = sqlx::Acquire::begin(&mut tx).await?;
+                    // Only over the value it was computed from, so a write racing it wins.
+                    match sqlx::query(
+                        "UPDATE variable SET value = $1 \
+                         WHERE workspace_id = $2 AND path = $3 AND value = $4",
+                    )
+                    .bind(new_value)
+                    .bind(w_id)
+                    .bind(&path)
+                    .bind(&value)
+                    .execute(&mut *sp)
+                    .await
+                    {
+                        Ok(r) => {
+                            sp.commit().await?;
+                            upgraded += r.rows_affected() as usize;
+                        }
+                        Err(e) => {
+                            sp.rollback().await?;
+                            tracing::warn!(
+                                "secret encryption upgrade: secret variable {path} of workspace {w_id} could not be stored re-encrypted, leaving it as is: {e}"
+                            );
+                            skipped += 1;
+                        }
+                    }
+                }
+                None => {
+                    tracing::warn!(
+                        "secret encryption upgrade: secret variable {path} of workspace {w_id} does not decrypt, leaving it as is"
+                    );
+                    skipped += 1;
+                }
+            }
+            after = path;
+        }
+        tx.commit().await?;
+        if last_page {
+            return Ok((upgraded, skipped));
+        }
+    }
 }
 
 pub const WM_SCHEDULED_FOR: &str = "WM_SCHEDULED_FOR";
 
 lazy_static::lazy_static! {
     pub static ref CUSTOM_ENVS_CACHE: Cache<String, (i64, Vec<(String, String)>)> = Cache::new(100);
-    pub static ref WORKSPACE_CRYPT_CACHE: Cache<String, (i64, MagicCrypt256)> = Cache::new(1000);
+    pub static ref WORKSPACE_CRYPT_CACHE: Cache<String, (i64, WorkspaceCrypt)> = Cache::new(1000);
 
 }
 
@@ -590,7 +816,7 @@ pub async fn get_reserved_variables(
     ContextualVariable {
         name: "WM_END_USER_EMAIL".to_string(),
         value: end_user_email.unwrap_or_else(|| "".to_string()),
-        description: "Email of the end user that executed the current script, propagated to flow steps. Only set when the run was triggered from an app (empty otherwise).".to_string(),
+        description: "Email of the end user that executed the current script, even when it runs on behalf of another identity, propagated to flow steps and child jobs. Set for app and API runs (for a webhook, the owner of the token it was called with), empty for runs fired by a schedule or by a trigger such as an HTTP route or Kafka.".to_string(),
         is_custom: false,
     },
     ContextualVariable {
@@ -741,7 +967,39 @@ pub async fn get_variable_or_self_as<T: Authable + Sync>(
 
 #[cfg(test)]
 mod tests {
-    use super::{can_bind_as_prologue_const, escape_js_single_quoted, is_valid_js_identifier};
+    use super::{
+        can_bind_as_prologue_const, decrypt, escape_js_single_quoted, is_valid_js_identifier,
+        DECRYPT_FAILED,
+    };
+    use crate::error::Error;
+    use crate::workspace_crypt::WorkspaceCrypt;
+    use base64::Engine;
+    use magic_crypt::MagicCryptTrait;
+
+    #[test]
+    fn decrypt_failures_all_return_the_same_message() {
+        let mc = WorkspaceCrypt::new("workspace-key");
+        let legacy = magic_crypt::new_magic_crypt!("workspace-key", 256);
+        let other = WorkspaceCrypt::new("another-key");
+        let b64 = base64::engine::general_purpose::STANDARD;
+        let v2 = mc.upgrade(&legacy.encrypt_str_to_base64("secret")).unwrap();
+        let mut tampered = b64.decode(v2).unwrap();
+        *tampered.last_mut().unwrap() ^= 1;
+        let failures = [
+            "not base64 at all!".to_string(),
+            legacy.encrypt_bytes_to_base64(&[0xff, 0xfe, 0xfd]),
+            other.encrypt_str_to_base64("secret"),
+            b64.encode(&tampered),
+        ];
+        for value in failures {
+            match decrypt(&mc, value.clone()) {
+                Err(Error::InternalErrLoc { message, .. }) => {
+                    assert_eq!(message, DECRYPT_FAILED, "for {value:?}")
+                }
+                other => panic!("expected the uniform decrypt error for {value:?}, got {other:?}"),
+            }
+        }
+    }
 
     #[test]
     fn is_valid_js_identifier_gates_prologue_injection() {

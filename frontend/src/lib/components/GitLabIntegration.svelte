@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { workspaceStore, userStore, enterpriseLicense } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import { GitSyncService, type GitlabProject } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Popover from './meltComponents/Popover.svelte'
@@ -8,6 +8,14 @@
 	import TextInput from './text_input/TextInput.svelte'
 	import Select from './select/Select.svelte'
 	import { GitBranch, Gitlab, Loader2 } from 'lucide-svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	interface Props {
 		resourceType: string
@@ -30,7 +38,7 @@
 		onArgsUpdate
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	let baseUrl = $state('https://gitlab.com')
 	let token = $state('')
@@ -50,7 +58,7 @@
 	let show = $derived(
 		resourceType === 'git_repository' &&
 			!!ws &&
-			($userStore?.is_admin || $userStore?.is_super_admin)
+			(actingUser?.is_admin || actingUser?.is_super_admin)
 	)
 	// The project listing is served by an enterprise-only route, so on a build
 	// without it the form's first request would 404. The button still shows,

@@ -15,7 +15,7 @@
 	contentClasses="p-4"
 >
 	{#snippet trigger()}
-		<Button variant="accent" size="xs" nonCaptureEvent={true} startIcon={{ icon: Clock }}>
+		<Button variant="default" unifiedSize="sm" nonCaptureEvent={true} startIcon={{ icon: Clock }}>
 			Cron builder
 		</Button>
 	{/snippet}

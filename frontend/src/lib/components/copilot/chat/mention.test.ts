@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { MENTION_RE, mentionTitle, formatMention } from './mention'
+import {
+	MENTION_RE,
+	mentionTitle,
+	formatMention,
+	hasMention,
+	mentionTitlesInText,
+	removeMentionFromText
+} from './mention'
 
 describe('formatMention', () => {
 	it('leaves a simple name bare', () => {
@@ -50,5 +57,85 @@ describe('MENTION_RE', () => {
 		const name = 'a <b> & c].txt'
 		const m = `x ${formatMention(name)} y`.match(MENTION_RE)!
 		expect(mentionTitle(m[0])).toBe(name)
+	})
+})
+
+describe('removeMentionFromText', () => {
+	it('removes a bare mention and keeps neighboring words separated', () => {
+		expect(removeMentionFromText('before @app.ts after', 'app.ts')).toBe('before after')
+	})
+
+	it('removes a bracketed mention', () => {
+		expect(removeMentionFromText('before @[my folder/a b.ts] after', 'my folder/a b.ts')).toBe(
+			'before after'
+		)
+	})
+
+	it('removes an escaped bracketed mention', () => {
+		expect(removeMentionFromText('before @[notes \\] draft.md] after', 'notes ] draft.md')).toBe(
+			'before after'
+		)
+	})
+
+	it('removes edge mentions without leaving extra whitespace', () => {
+		expect(removeMentionFromText('@app.ts after', 'app.ts')).toBe('after')
+		expect(removeMentionFromText('before @app.ts', 'app.ts')).toBe('before')
+	})
+
+	it('keeps embedded mention-like text intact', () => {
+		expect(removeMentionFromText('Contact owner@app.ts about @app.ts', 'app.ts')).toBe(
+			'Contact owner@app.ts about'
+		)
+	})
+
+	it('keeps Unicode-prefixed embedded mention-like text intact', () => {
+		expect(removeMentionFromText('Contact 用户@app.ts about @app.ts', 'app.ts')).toBe(
+			'Contact 用户@app.ts about'
+		)
+		expect(removeMentionFromText('Contact हिंदी@app.ts about @app.ts', 'app.ts')).toBe(
+			'Contact हिंदी@app.ts about'
+		)
+		expect(removeMentionFromText('Contact 𐐀@app.ts about @app.ts', 'app.ts')).toBe(
+			'Contact 𐐀@app.ts about'
+		)
+	})
+})
+
+describe('hasMention', () => {
+	it('does not treat embedded mention-like text as a selected context mention', () => {
+		expect(hasMention('Contact owner@app.ts', 'app.ts')).toBe(false)
+		expect(hasMention('Contact owner@app.ts about @app.ts', 'app.ts')).toBe(true)
+	})
+
+	it('does not treat Unicode-prefixed embedded text as a mention', () => {
+		expect(hasMention('Contact 用户@app.ts', 'app.ts')).toBe(false)
+		expect(hasMention('Contact हिंदी@app.ts', 'app.ts')).toBe(false)
+		expect(hasMention('Contact 𐐀@app.ts', 'app.ts')).toBe(false)
+	})
+
+	it('treats punctuation next to a mention as a boundary', () => {
+		expect(hasMention('use @app.ts, then compare', 'app.ts')).toBe(true)
+		expect(hasMention('open (@app.ts)', 'app.ts')).toBe(true)
+	})
+})
+
+describe('mentionTitlesInText', () => {
+	it('extracts only standalone mentions for context synchronization', () => {
+		expect([...mentionTitlesInText('Contact owner@app.ts about @app.ts')]).toEqual(['app.ts'])
+		expect([...mentionTitlesInText('Contact owner@app.ts')]).toEqual([])
+	})
+
+	it('ignores Unicode-prefixed embedded text for context synchronization', () => {
+		expect([...mentionTitlesInText('Contact 用户@app.ts')]).toEqual([])
+	})
+
+	it('keeps punctuation-adjacent mentions synchronized', () => {
+		expect([...mentionTitlesInText('use @app.ts, then compare')]).toEqual(['app.ts'])
+		expect([...mentionTitlesInText('open (@app.ts)')]).toEqual(['app.ts'])
+	})
+
+	it('ignores combining-mark and astral-letter embedded text', () => {
+		expect([...mentionTitlesInText('Contact हिंदी@app.ts')]).toEqual([])
+		expect([...mentionTitlesInText('Contact 𐐀@app.ts')]).toEqual([])
 	})
 })

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import type MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
@@ -7,11 +6,12 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { AppService, type ListableApp } from '$lib/gen'
 	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
-	import type { RowSelection } from './rowSelection'
+	import { selectMenuItems, type RowSelection } from './rowSelection'
 	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import Badge from '../badge/Badge.svelte'
 	import {
@@ -68,6 +68,7 @@
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
+	const operatorBuilderApps = useOperatorBuilderApps()
 
 	let appExport: { open: (path: string, rawApp?: boolean) => void } | undefined = $state(undefined)
 	let appDeploymentHistory: AppDeploymentHistory | undefined = $state(undefined)
@@ -106,8 +107,8 @@
 
 <Row
 	href={app.draft_only
-		? `${base}/apps${app.raw_app ? '_raw' : ''}/edit/${app.path}`
-		: `${base}/apps${app.raw_app ? '_raw' : ''}/get/${app.path}`}
+		? `/apps${app.raw_app ? '_raw' : ''}/edit/${app.path}`
+		: `/apps${app.raw_app ? '_raw' : ''}/get/${app.path}`}
 	kind="app"
 	{keyboardSelected}
 	{marked}
@@ -159,24 +160,22 @@
 	{/snippet}
 	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
-			{#if !$userStore?.operator}
-				{#if showEditButton && app.canWrite}
-					<div>
-						<Button
-							aiId={`edit-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
-							aiDescription={`Edits the app ${app.summary?.length > 0 ? app.summary : app.path}`}
-							variant="subtle"
-							wrapperClasses="w-20"
-							startIcon={{ icon: Pen }}
-							href="{base}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}"
-						>
-							Edit
-						</Button>
-					</div>
-				{/if}
-				{#if !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !app.canWrite)}
-					<EditInForkButton itemType={app.raw_app ? 'raw_app' : 'app'} path={app.path} />
-				{/if}
+			{#if showEditButton && app.canWrite}
+				<div>
+					<Button
+						aiId={`edit-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
+						aiDescription={`Edits the app ${app.summary?.length > 0 ? app.summary : app.path}`}
+						variant="subtle"
+						wrapperClasses="w-20"
+						startIcon={{ icon: Pen }}
+						href="/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}"
+					>
+						Edit
+					</Button>
+				</div>
+			{/if}
+			{#if !$userStore?.operator && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !app.canWrite)}
+				<EditInForkButton itemType={app.raw_app ? 'raw_app' : 'app'} path={app.path} />
 			{/if}
 		</span>
 		<Dropdown
@@ -188,6 +187,21 @@
 				const canEdit = canWrite && showEditButton
 				if (draft_only) {
 					return [
+						...selectMenuItems(rowSelection),
+						{
+							displayName: 'Move/Rename',
+							icon: FolderOpen,
+							action: () => {
+								// Addressed by the generated path its draft row sits at, but
+								// named by the path typed in the editor.
+								moveDrawer.openDrawer((app as any).draft_path ?? path, summary, 'app', {
+									storagePath: path,
+									rawApp: !!app.raw_app
+								})
+							},
+							disabled: !showEditButton,
+							hide: $userStore?.operator
+						},
 						{
 							displayName: 'Delete',
 							icon: Trash,
@@ -209,7 +223,7 @@
 							// list endpoint only surfaces own/legacy draft-only rows), so
 							// discarding it never requires write permission on the path.
 							disabled: !showEditButton,
-							hide: $userStore?.operator
+							hide: $userStore?.operator && !($operatorBuilderApps && app.raw_app)
 						},
 						{
 							displayName: $userStore?.operator ? 'View JSON' : 'View/Edit JSON',
@@ -221,10 +235,11 @@
 					]
 				}
 				return [
+					...selectMenuItems(rowSelection),
 					{
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
-						href: `${base}/apps${app.raw_app ? '_raw' : ''}/add?template=${path}`,
+						href: `/apps${app.raw_app ? '_raw' : ''}/add?template=${path}`,
 						disabled: !showEditButton,
 						hide: $userStore?.operator
 					},
@@ -271,7 +286,7 @@
 						displayName: 'Deployments',
 						icon: History,
 						action: () => appDeploymentHistory?.open(),
-						hide: $userStore?.operator
+						hide: $userStore?.operator && !($operatorBuilderApps && app.raw_app)
 					},
 					{
 						displayName: 'Permissions',
@@ -279,7 +294,7 @@
 						action: () => {
 							shareModal.openDrawer && shareModal.openDrawer(path, 'app')
 						},
-						hide: $userStore?.operator
+						hide: $userStore?.operator && !($operatorBuilderApps && app.raw_app)
 					},
 					{
 						displayName: 'Copy path',
@@ -325,7 +340,7 @@
 						},
 						type: 'delete',
 						disabled: !canEdit,
-						hide: $userStore?.operator
+						hide: $userStore?.operator && !($operatorBuilderApps && app.raw_app)
 					}
 				]
 			}}

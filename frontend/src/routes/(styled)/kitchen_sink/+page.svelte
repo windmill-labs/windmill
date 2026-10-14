@@ -1,0 +1,320 @@
+<script lang="ts">
+	import Button from '$lib/components/common/button/Button.svelte'
+	import Tab from '$lib/components/common/tabs/Tab.svelte'
+	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
+	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
+	import DarkModeToggle from '$lib/components/sidebar/DarkModeToggle.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
+	import AssistantMessage from '$lib/components/copilot/chat/AssistantMessage.svelte'
+	import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
+	import DraggableTabs, { type TabItem } from '$lib/components/common/tabs/DraggableTabs.svelte'
+	import { Globe } from 'lucide-svelte'
+	import { workspaceStore } from '$lib/stores'
+
+	let tab = $state('button')
+
+	// Enough tabs to overflow a narrow strip so the strip's own hover scrollbar is
+	// exercised: drag to reorder, hover to reveal the 4px thumb.
+	let draggableTabs = $state<TabItem[]>(
+		Array.from({ length: 14 }, (_, i) => ({ id: `t${i}`, label: `Preview tab ${i + 1}` }))
+	)
+	let activeDraggableTab = $state('t0')
+
+	const sampleMarkdown = `# Heading 1
+
+## Heading 2
+
+### Heading 3
+
+Body text with **bold**, *italic*, a [link](https://windmill.dev), and \`inline code\` that must stay readable in both themes.
+
+> A block quote should be legible too.
+
+- First bullet
+- Second bullet with \`code\`
+
+1. Ordered one
+2. Ordered two
+
+\`\`\`ts
+const block = 'code block'
+console.log(block)
+\`\`\`
+
+An unlabeled fence should render plain (no forced syntax colors):
+
+\`\`\`
+just some plain text
+no language, no coloring
+\`\`\`
+
+Raw sanitized HTML (via rehypeRaw) must keep its content, not render empty:
+
+<pre>raw pre content stays visible</pre>
+
+| Column A | Column B |
+| -------- | -------- |
+| one      | two      |
+| three    | four     |
+
+---
+`
+	let dropdownItems = [
+		{
+			label: 'Lorem ipsum',
+			onClick: () => {}
+		}
+	]
+
+	// Mirrors how the AI chat renders assistant answers: markdown flows through
+	// AssistantMessage, and fenced code blocks go through CodeDisplay →
+	// HighlightCode. Exercise several languages + prose so the code-block styling
+	// can be tuned against the real render path, not an approximation.
+	const chatSampleContent = `# Wiring up the trigger
+
+Here's how you'd wire up the trigger. First, some prose with \`inline code\`, a [link](https://windmill.dev), and **bold** text so we can see how code sits next to surrounding content.
+
+## The script
+
+### A subsection
+
+\`\`\`python
+def main(name: str = "world"):
+    # a short python snippet
+    greeting = f"hello, {name}!"
+    print(greeting)
+    return {"greeting": greeting}
+\`\`\`
+
+A one-liner in the middle of a sentence like \`SELECT * FROM users\` should stay inline. Now a TypeScript block:
+
+\`\`\`ts
+export async function main(count: number) {
+  const rows = await Promise.all(
+    Array.from({ length: count }, (_, i) => fetchRow(i))
+  )
+  return rows.filter((r) => r.active).map((r) => r.id)
+}
+\`\`\`
+
+A block with a very long line to check horizontal overflow behaviour:
+
+\`\`\`bash
+curl -sSL "https://app.windmill.dev/api/w/demo/jobs/run_wait_result/p/u/admin/very_long_script_path?token=abcdef0123456789&include_header=Authorization" | jq '.result.value'
+\`\`\`
+
+Some SQL:
+
+\`\`\`sql
+select id, name, created_at
+from users
+where active = true
+order by created_at desc
+limit 10;
+\`\`\`
+
+And a bulleted list where an item carries \`code\`:
+
+- First item with \`some_var\`
+- Second item
+- Third item
+
+\`\`\`rust
+fn main() {
+    let items = vec![1, 2, 3];
+    let sum: i32 = items.iter().sum();
+    println!("sum = {sum}");
+}
+\`\`\`
+
+That's the full round-trip.`
+
+	const chatMessage: DisplayMessage = {
+		role: 'assistant',
+		content: chatSampleContent
+	}
+
+	const toggleSizes = ['2xs', 'xs', 'sm', 'md'] as const
+	const toggleColors = ['blue', 'red', 'nord'] as const
+	// The knob's gap against the track border is thin enough that it only misreads once the
+	// track lands between device pixels, which needs a 1x screen. These offsets put one row of
+	// each size on every quarter-pixel so the worst case is on the page rather than left to
+	// whichever label widths a real view happens to have.
+	const subpixelOffsets = [0, 0.25, 0.5, 0.75]
+	let toggleChecked = $state(true)
+	let toggleDisabled = $state(false)
+</script>
+
+<DarkModeToggle forcedDarkMode={false} />
+
+<Tabs bind:selected={tab}>
+	<Tab value="button" label="Buttons" />
+	<Tab value="toggle" label="Toggles" />
+	<Tab value="markdown" label="Markdown" />
+	<Tab value="chat" label="AI Chat" />
+	<Tab value="scrollbar" label="Scrollbar" />
+
+	{#snippet content()}
+		<TabContent value="button" class="p-4 flex gap-4 flex-col ">
+			<div class="font-bold text-md">Contained buttons</div>
+			<div class="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-6">
+				<Button>Lorem</Button>
+				<Button disabled>Lorem</Button>
+
+				<Button variant="accent" loading>Lorem</Button>
+				<Button
+					color="gray"
+					startIcon={{
+						icon: Globe
+					}}
+				>
+					Lorem
+				</Button>
+				<Button color="green">Lorem</Button>
+				<Button color="light">Lorem</Button>
+				<Button color="none">Lorem</Button>
+				<Button color="red">Lorem</Button>
+			</div>
+			<div class="font-bold text-md">Border buttons</div>
+			<div class="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-6">
+				<Button variant="default">Lorem</Button>
+				<Button variant="default">Lorem</Button>
+				<Button variant="default">Lorem</Button>
+				<Button variant="default">Lorem</Button>
+				<Button variant="default">Lorem</Button>
+				<Button variant="default">Lorem</Button>
+				<Button variant="default">Lorem</Button>
+			</div>
+			<div class="font-bold text-md">Dropdown buttons</div>
+			<div class="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-6">
+				<Button {dropdownItems}>Lorem</Button>
+				<Button {dropdownItems} variant="accent">Lorem</Button>
+				<Button {dropdownItems} color="gray">Lorem</Button>
+				<Button {dropdownItems} color="green">Lorem</Button>
+				<Button {dropdownItems} color="light">Lorem</Button>
+				<Button {dropdownItems} color="none">Lorem</Button>
+				<Button {dropdownItems} color="red">Lorem</Button>
+			</div>
+			<div class="font-bold text-md">Dropdown buttons</div>
+			<div class="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-6">
+				<Button variant="default" {dropdownItems}>Lorem</Button>
+				<Button variant="default" {dropdownItems}>Lorem</Button>
+				<Button variant="default" {dropdownItems}>Lorem</Button>
+				<Button variant="default" {dropdownItems}>Lorem</Button>
+				<Button variant="default" {dropdownItems}>Lorem</Button>
+				<Button variant="default" {dropdownItems}>Lorem</Button>
+				<Button variant="default" {dropdownItems}>Lorem</Button>
+			</div>
+		</TabContent>
+		<TabContent value="toggle" class="p-4 flex gap-6 flex-col">
+			<div class="flex flex-row items-center gap-4">
+				<Toggle bind:checked={toggleChecked} options={{ right: 'Checked' }} size="xs" />
+				<Toggle bind:checked={toggleDisabled} options={{ right: 'Disabled' }} size="xs" />
+			</div>
+
+			<div>
+				<div class="font-bold text-md mb-2">Sizes</div>
+				<div class="flex flex-row items-center gap-6">
+					{#each toggleSizes as size}
+						<Toggle
+							{size}
+							checked={toggleChecked}
+							disabled={toggleDisabled}
+							options={{ right: size }}
+						/>
+					{/each}
+				</div>
+			</div>
+
+			<div>
+				<div class="font-bold text-md mb-2">Colors</div>
+				<div class="flex flex-row items-center gap-6">
+					{#each toggleColors as color}
+						<Toggle
+							{color}
+							checked={toggleChecked}
+							disabled={toggleDisabled}
+							options={{ right: color }}
+						/>
+					{/each}
+				</div>
+			</div>
+
+			<div>
+				<div class="font-bold text-md mb-2">Labels</div>
+				<div class="flex flex-row items-center gap-6">
+					<Toggle checked={toggleChecked} disabled={toggleDisabled} />
+					<Toggle
+						checked={toggleChecked}
+						disabled={toggleDisabled}
+						options={{ left: 'Left', right: 'Right' }}
+					/>
+					<Toggle
+						checked={toggleChecked}
+						disabled={toggleDisabled}
+						options={{ right: 'With a tooltip', rightTooltip: 'Tooltip body' }}
+					/>
+					<Toggle checked={toggleChecked} disabled eeOnly options={{ right: 'EE only' }} />
+				</div>
+			</div>
+
+			<div>
+				<div class="font-bold text-md mb-2">Quarter-pixel offsets</div>
+				<div class="text-xs text-tertiary mb-2">
+					Zoom a 1x screen in on these: the knob must keep a visible ring of track on every side in
+					both states. It reads as overflowing the track once that ring drops below a device pixel.
+				</div>
+				<div class="flex flex-col gap-2">
+					{#each toggleSizes as size}
+						<div class="flex flex-row items-center gap-6">
+							{#each subpixelOffsets as offset}
+								<div style="padding-left: {offset}px">
+									<Toggle {size} checked={toggleChecked} disabled={toggleDisabled} />
+								</div>
+							{/each}
+						</div>
+					{/each}
+				</div>
+			</div>
+		</TabContent>
+		<TabContent value="markdown" class="p-4">
+			<div class="text-xs text-tertiary mb-3">
+				The three <code>markdownProse</code> presets, same source. Each is sized for its own
+				surface: <code>xs</code> for group notes and chat reasoning, <code>sm</code> for chat
+				bubbles, sticky notes and markdown job results, <code>doc</code> for artifacts.
+			</div>
+			<div class="grid gap-4 md:grid-cols-3">
+				{#each ['xs', 'sm', 'doc'] as const as prose}
+					<div class="border border-border-light rounded-lg p-3 bg-surface min-w-0">
+						<div class="text-2xs text-tertiary font-mono mb-2">{prose}</div>
+						<GfmMarkdown md={sampleMarkdown} {prose} />
+					</div>
+				{/each}
+			</div>
+		</TabContent>
+		<TabContent value="chat" class="p-4">
+			<div class="text-xs text-tertiary mb-3">
+				Rendered through the real chat path (<code>AssistantMessage</code> →
+				<code>CodeDisplay</code> → <code>HighlightCode</code>), constrained to the chat panel width.
+			</div>
+			<div class="border border-border-light rounded-lg p-3 bg-surface" style="max-width: 420px;">
+				<AssistantMessage message={chatMessage} workspace={$workspaceStore} />
+			</div>
+		</TabContent>
+		<TabContent value="scrollbar" class="p-4">
+			<div class="text-xs text-tertiary mb-3">
+				DraggableTabs (draws its own 4px bar on the strip's bottom edge): hover to reveal the thumb,
+				drag to reorder.
+			</div>
+			<div class="border border-border-light rounded-md" style="max-width: 420px;">
+				<DraggableTabs
+					tabs={draggableTabs}
+					activeId={activeDraggableTab}
+					onSelect={(id) => (activeDraggableTab = id)}
+					onReorder={(next) => (draggableTabs = next)}
+				/>
+			</div>
+		</TabContent>
+	{/snippet}
+</Tabs>

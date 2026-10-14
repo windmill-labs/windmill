@@ -9,6 +9,7 @@
 	import { itemDisplayName } from './previewRouter'
 	import SessionItemNotFound from './SessionItemNotFound.svelte'
 	import { setEditorStoragePath } from '../editorStoragePathContext'
+	import { setOperatingWorkspace } from '../operatingWorkspace.svelte'
 
 	let {
 		runtime,
@@ -19,7 +20,9 @@
 		editor,
 		onNavigate,
 		isActiveSession = true,
-		isActiveTab = true
+		isActiveTab = true,
+		newRawApp = false,
+		isNew = undefined
 	}: {
 		runtime: SessionRuntime
 		kind: SessionTargetKind
@@ -42,6 +45,11 @@
 		 * tab must not, else chat actions resolve to the wrong item's path.
 		 */
 		isActiveTab?: boolean
+		/** A raw app the new-app builder just started: when nothing exists at `path` yet
+		 * the editor opens on the starter template. */
+		newRawApp?: boolean
+		/** Whether the item is still the template a new-item builder started it on. */
+		isNew?: () => boolean
 	} = $props()
 
 	// Mark this subtree as the session side panel: editors below detect the
@@ -51,6 +59,7 @@
 	// component instance keeps the first runtime's manager — so descendants may
 	// rely on its presence, not its identity.
 	setContext('aiChatManager', runtime.manager)
+	setOperatingWorkspace(() => workspaceId)
 
 	// This tab's storage path, for the editor below: several tabs are mounted at
 	// once and only this one knows which item each is open on.
@@ -69,7 +78,7 @@
 	function triggerLoad(): Promise<void> {
 		if (kind === 'flow') return runtime.loadFlow(workspaceId, path)
 		if (kind === 'script') return runtime.loadScript(workspaceId, path)
-		return runtime.loadRawApp(workspaceId, path)
+		return runtime.loadRawApp(workspaceId, path, false, false, newRawApp)
 	}
 
 	function buildCodec(): DraftSyncCodec<any> {
@@ -117,7 +126,8 @@
 			workspace: workspaceId,
 			itemKind: kind,
 			storagePath: path,
-			effectivePath: effectivePath()
+			effectivePath: effectivePath(),
+			isNew: isNew?.() ?? false
 		})
 		return () => UserDraft.clearLiveEditorDraft(kind, { workspace: workspaceId, storagePath: path })
 	})

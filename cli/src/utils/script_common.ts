@@ -45,7 +45,9 @@ export const workspaceDependenciesLanguages: WorkspaceDependenciesLanguage[] = [
 ] as const;
 
 export function workspaceDependenciesPathToLanguageAndFilename(path: string): { name: string | undefined, language: ScriptLanguage } | undefined {
-  const relativePath = path.replace("dependencies/", "");
+  // Sync paths carry the platform separator, while a set's name is always
+  // forward-slashed.
+  const relativePath = path.replaceAll("\\", "/").replace("dependencies/", "");
   for (const { filename, language } of workspaceDependenciesLanguages) {
     if (relativePath.endsWith(filename)) {
       return {
@@ -187,6 +189,8 @@ const LANG_ANNOTATIONS: Partial<Record<ScriptLanguage, string[]>> = {
     "py311",
     "py312",
     "py313",
+    "py314",
+    "py315",
     "sandbox",
   ],
   bun: ["npm", "nodejs", "native", "nobundling", "sandbox"],
@@ -206,7 +210,7 @@ const LANG_ANNOTATIONS: Partial<Record<ScriptLanguage, string[]>> = {
  *
  * `# py: <specifier>` is the exception the macro does not cover: the python
  * import parser reads it directly (`windmill-parser-py-imports`, alongside the
- * `py310`..`py313` flags) to pick the interpreter, which changes what resolves.
+ * `py310`..`py315` flags) to pick the interpreter, which changes what resolves.
  */
 export function hasLockAffectingAnnotation(
   scriptContent: string,

@@ -5,10 +5,11 @@
 	import Path from '$lib/components/Path.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import JobTokenScopesSetting from '$lib/components/JobTokenScopesSetting.svelte'
 	import { Alert, Button, SecondsInput } from '$lib/components/common'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
@@ -31,6 +32,14 @@
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
 	import { modulesWithRetryOrSleep, SAME_WORKER_INCOMPATIBLE_MSG } from '../utils.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	interface Props {
 		noEditor: boolean
@@ -52,8 +61,8 @@
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
-	let isDeployer = $derived($userStore?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
-	let canPreserve = $derived(!!$userStore?.is_admin || !!$userStore?.is_super_admin || isDeployer)
+	let isDeployer = $derived(actingUser?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
+	let canPreserve = $derived(!!actingUser?.is_admin || !!actingUser?.is_super_admin || isDeployer)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
 	let customOnBehalfOfEmail: string = $state('')
 	let myPermissionedAs = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)
@@ -84,8 +93,8 @@
 
 	let activeAdvancedOptions = $derived([
 		{
-			name: 'Fill flow inputs with AI',
-			active: typeof flowStore.val.schema?.prompt_for_ai == 'string'
+			name: 'AI prompt',
+			active: !!flowStore.val.schema?.prompt_for_ai
 		},
 		{
 			name: 'High Priority',
@@ -93,6 +102,7 @@
 		},
 		{ name: 'Error Handler Muted', active: Boolean(flowStore.val.ws_error_handler_muted) },
 		{ name: 'Invisible to Others', active: Boolean(flowStore.val.visible_to_runner_only) },
+		{ name: 'Restricted Job Token', active: flowStore.val.job_token_scopes != null },
 		{ name: 'Shared Directory', active: Boolean(flowStore.val.value.same_worker) },
 		{ name: 'Preserve Step Tags', active: Boolean(flowStore.val.value.preserve_step_tags) },
 		{ name: 'Cache Results', active: Boolean(flowStore.val.value.cache_ttl) },
@@ -475,7 +485,7 @@
 					/>
 					{#if flowStore.val.on_behalf_of_email && canPreserve}
 						&rarr; <OnBehalfOfSelector
-							targetWorkspace={opWorkspace?.() ?? $workspaceStore ?? ''}
+							targetWorkspace={opWorkspace?.() ?? $operatingWorkspace ?? ''}
 							targetValue={$savedOnBehalfOfEmail}
 							selected={onBehalfOfChoice}
 							onSelect={(choice, details) => {
@@ -636,11 +646,7 @@
 					{#snippet right()}
 						<input
 							type="number"
-							class={twMerge(
-								inputBaseClass,
-								inputBorderClass(),
-								'!w-16 text-xs ml-4 absolute left-52'
-							)}
+							class={twMerge(inputBaseClass, inputBorderClass(), '!w-16 text-xs ml-4')}
 							disabled={flowStore.val.value.priority === undefined}
 							bind:value={flowStore.val.value.priority}
 							onfocus={bubble('focus')}
@@ -720,6 +726,13 @@
 						type="flow"
 					/>
 				{/if}
+
+				<JobTokenScopesSetting
+					bind:value={flowStore.val.job_token_scopes}
+					kind="flow"
+					size="xs"
+					textClass="font-medium"
+				/>
 			</Section>
 		</div>
 	</FlowCard>

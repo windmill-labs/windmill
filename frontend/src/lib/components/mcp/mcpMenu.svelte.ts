@@ -1,4 +1,4 @@
-import { List, Plus } from 'lucide-svelte'
+import { List, Loader2, Plus } from 'lucide-svelte'
 import type { Component } from 'svelte'
 import { get } from 'svelte/store'
 import { ResourceService } from '$lib/gen'
@@ -8,6 +8,7 @@ import type { Item } from '$lib/utils'
 import type { AIChatManager } from '../copilot/chat/AIChatManager.svelte'
 import { isMcpEnabled, setMcpEnabled } from './enabledServers'
 import { cachedProviderKey, rememberProviderKey } from './iconCache'
+import { isOwnOrSharedMcpPath, MCP_LIST_PER_PAGE, mcpViewer } from './ownServers'
 import { loadProviderIcon } from './providerIcon'
 import McpServerIcon from './McpServerIcon.svelte'
 
@@ -26,6 +27,14 @@ const MAX_MENU_SERVERS = 8
 // menu nobody is reading that far down.
 const MAX_ICON_LOOKUPS = 20
 
+// Not `disabled`: melt stamps that on a row at mount and never clears it, and the
+// unkeyed submenu reuses this row for the first server once the load lands.
+const loadingItem: Item = {
+	displayName: 'Loading…',
+	icon: Loader2,
+	iconProps: { class: 'animate-spin shrink-0' }
+}
+
 /**
  * The chat "+" menu's MCP submenu: one row per connected server, checked when it
  * is on, then the way to manage them. Connecting and deleting live in the
@@ -37,7 +46,7 @@ export class McpMenu {
 	#seq = 0
 	/** Rows for the workspace named by `#rowsWorkspace`, and meaningless for any other. */
 	#rows = $state<Row[]>([])
-	#rowsWorkspace: string | undefined = undefined
+	#rowsWorkspace = $state<string | undefined>(undefined)
 
 	constructor(manager: AIChatManager, onManage: () => void) {
 		this.#manager = manager
@@ -56,17 +65,26 @@ export class McpMenu {
 	async #load(ws: string) {
 		const seq = ++this.#seq
 		try {
-			const resources = await ResourceService.listResource({
-				workspace: ws,
-				resourceType: 'mcp',
-				perPage: 100
-			})
+			const [resources, viewer] = await Promise.all([
+				ResourceService.listResource({
+					workspace: ws,
+					resourceType: 'mcp',
+					perPage: MCP_LIST_PER_PAGE
+				}),
+				mcpViewer(ws)
+			])
 			if (seq !== this.#seq) return
-			this.#rows = resources.map((r) => ({
-				path: r.path,
-				editedAt: r.edited_at,
-				enabled: isMcpEnabled(ws, r.path)
-			}))
+			this.#rows = resources
+				.filter((r) => isOwnOrSharedMcpPath(r.path, r.extra_perms, viewer))
+				.map((r) => ({
+					path: r.path,
+					editedAt: r.edited_at,
+					enabled: isMcpEnabled(ws, r.path)
+				}))
+				// Enabled first: those are the ones a quick visit is most likely about.
+				// Sorted here, once per load, not in `items()`: the open submenu re-derives
+				// from `items()`, so a toggle would move rows under the cursor.
+				.sort((a, b) => Number(b.enabled) - Number(a.enabled) || a.path.localeCompare(b.path))
 			this.#rowsWorkspace = ws
 			void this.#loadIcons(ws, seq)
 		} catch {
@@ -137,23 +155,22 @@ export class McpMenu {
 		await this.#manager.refreshMcpServers(ws)
 	}
 
-	/** Loaded on open so the checks are current. */
-	async items(closeMenu?: () => void): Promise<Item[]> {
+	/** Called on open so the checks are current; never awaited, see `items`. */
+	refresh() {
+		const ws = this.#ws
+		if (ws) void this.#load(ws)
+	}
+
+	/**
+	 * Built from the live rows, so call it from a getter: the submenu then fills in
+	 * when a load lands instead of the whole "+" menu waiting on the fetch. Rows for
+	 * another workspace are not shown — same path, different server.
+	 */
+	items(closeMenu?: () => void): Item[] {
 		const ws = this.#ws
 		if (!ws) return []
-		// The menu opens on what is already known and refreshes behind it: awaited
-		// inline it would stall the whole "+" menu, attachments included. Rows for
-		// another workspace are not "already known" — same path, different server.
-		if (this.#rowsWorkspace !== ws) {
-			this.#rows = []
-			await this.#load(ws)
-		} else {
-			void this.#load(ws)
-		}
-		// Enabled first: those are the ones a quick visit is most likely about.
-		const ordered = [...this.#rows].sort(
-			(a, b) => Number(b.enabled) - Number(a.enabled) || a.path.localeCompare(b.path)
-		)
+		if (this.#rowsWorkspace !== ws) return [loadingItem]
+		const ordered = this.#rows
 		const shown = ordered.slice(0, MAX_MENU_SERVERS)
 		const manage = () => {
 			closeMenu?.()

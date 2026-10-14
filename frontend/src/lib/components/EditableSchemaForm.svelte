@@ -4,7 +4,6 @@
 	const bubble = createBubbler()
 	import type { Schema } from '$lib/common'
 	import { VariableService, type ScriptLang } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { Button } from './common'
 	import ItemPicker from './ItemPicker.svelte'
 	import VariableEditor from './VariableEditor.svelte'
@@ -20,6 +19,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Label from './Label.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
 	import Toggle from './Toggle.svelte'
 	import {
 		DynamicInput,
@@ -36,6 +36,14 @@
 	import Section from '$lib/components/Section.svelte'
 	import Editor from './Editor.svelte'
 	import AddPropertyV2 from './schema/AddPropertyV2.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const operatorBuilderFlows = useOperatorBuilderFlows()
 
 	// export let openEditTab: () => void = () => {}
 	const dispatch = createEventDispatcher()
@@ -43,6 +51,8 @@
 	interface Props {
 		schema: Schema | any
 		hiddenArgs?: string[]
+		/** Fields another part of the app owns: shown, but not renameable, deletable or retypeable. */
+		lockedArgs?: string[]
 		args?: Record<string, any>
 		shouldHideNoInputs?: boolean
 		noVariablePicker?: boolean
@@ -84,11 +94,14 @@
 		schemaFormClassName?: string
 		onChange?: (args: Record<string, any>) => void
 		workspace?: string | undefined
+		/** The deployed flow an operator's dropdown previews read their options from. */
+		deployedFlowPath?: string
 	}
 
 	let {
 		schema = $bindable(),
 		hiddenArgs = [],
+		lockedArgs = [],
 		args = $bindable(undefined),
 		shouldHideNoInputs = false,
 		noVariablePicker = false,
@@ -122,10 +135,11 @@
 		extraTab,
 		schemaFormClassName = undefined,
 		onChange = undefined,
-		workspace = undefined
+		workspace = undefined,
+		deployedFlowPath = undefined
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	$effect.pre(() => {
 		if (args == undefined) {
@@ -464,11 +478,12 @@
 									order: e.detail
 								}
 							}}
-							helperScript={{
-								source: 'inline',
-								code: dynCode!,
-								lang: dynLang!
-							}}
+							helperScript={DynamicInput.flowHelperScript(
+								dynCode,
+								dynLang,
+								deployedFlowPath,
+								operatingUser.current?.operator
+							)}
 							prettifyHeader={isAppInput}
 							disabled={!!previewSchema}
 							{diff}
@@ -481,7 +496,7 @@
 
 						{@render runButton?.()}
 
-						{#if dynamicFunctions.length > 0}
+						{#if dynamicFunctions.length > 0 && !$operatorBuilderFlows}
 							<Section
 								label="Dynamic input functions"
 								collapsable={true}
@@ -587,6 +602,7 @@
 						>
 							{#if keys.length > 0}
 								{#each keys as argName, i (argName)}
+									{@const locked = lockedArgs.includes(argName)}
 									<div>
 										<!-- svelte-ignore a11y_click_events_have_key_events -->
 										<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -605,7 +621,7 @@
 										>
 											<div class="flex flex-row gap-2 text-sm">
 												{argName}
-												{#if !uiOnly}
+												{#if !uiOnly && !locked}
 													<div onclick={stopPropagation(preventDefault(bubble('click')))}>
 														<Popover placement="bottom-end" closeButton>
 															{#snippet trigger()}
@@ -654,7 +670,7 @@
 												<span class="text-red-500 text-xs"> Required </span>
 											{/if}
 
-											{#if !uiOnly}
+											{#if !uiOnly && !locked}
 												<button
 													class="delete-schema-field-button
 													rounded-full p-1 text-gray-500 bg-white
@@ -701,6 +717,7 @@
 																		<ToggleButtonGroup
 																			tabListClass="flex-wrap"
 																			class="h-auto"
+																			disabled={lockedArgs.includes(opened ?? '')}
 																			bind:selected={
 																				() => computeSelected(schema.properties[opened ?? '']),
 																				(v) => {
@@ -808,7 +825,7 @@
 																				{#each typeOptions as x}
 																					<ToggleButton value={x[1]} label={x[0]} {item} />
 																				{/each}
-																				{#if showDynOpt}
+																				{#if showDynOpt && !$operatorBuilderFlows}
 																					{#each DYNAMIC_OPTIONS as x}
 																						<ToggleButton value={x[1]} label={x[0]} {item} />
 																					{/each}

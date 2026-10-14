@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { base } from '$lib/base'
 
 	import { Button } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
@@ -23,8 +22,7 @@
 	async function importRaw() {
 		const parsed = importType === 'yaml' ? YAML.parse(pendingRaw) : JSON.parse(pendingRaw)
 		if (appKind === 'fullcode') {
-			// Navigation to /apps_raw/add triggers a full page reload (for cross-origin isolation),
-			// so the in-memory importStore would be lost. Use sessionStorage instead.
+			// The raw app editor reads the payload from sessionStorage on mount.
 			sessionStorage.setItem('rawAppImport', JSON.stringify(parsed))
 			await goto('/apps_raw/add')
 		} else {
@@ -40,12 +38,12 @@
 
 	function selectLowCode() {
 		appTypeModalOpen = false
-		goto(`${base}/apps/add`)
+		goto('/apps/add')
 	}
 
 	function selectFullCode() {
 		appTypeModalOpen = false
-		goto(`${base}/apps_raw/add`)
+		goto('/apps_raw/add')
 	}
 </script>
 

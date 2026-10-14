@@ -16,6 +16,10 @@
 
 	interface Props {
 		placement?: Placement
+		/** Inline style on the panel. A margin here shifts it after floating-ui has placed it,
+		 *  which is the only way to anchor it to a box wider than the trigger: melt's menubar
+		 *  menu ignores `positioning.offset`. */
+		contentStyle?: string
 		justifyEnd?: boolean
 		lightMode?: boolean
 		maxHeight?: number
@@ -45,6 +49,7 @@
 
 	let {
 		placement = 'right-start',
+		contentStyle = '',
 		justifyEnd = false,
 		lightMode = false,
 		maxHeight = 900,
@@ -176,6 +181,9 @@
 	}
 
 	async function getMenuElements(): Promise<HTMLElement[]> {
+		// Runs on every pointerdown anywhere, for every mounted menu. Skip the
+		// whole-document query when the outside handler below cannot act anyway.
+		if (!usePointerDownOutside || !open) return []
 		// Tooltip content counts as menu territory for the same reason as the
 		// onOutsideClick veto above.
 		return Array.from(
@@ -218,6 +226,7 @@
 			onmouseenter={cancelPendingClose}
 			onmouseleave={scheduleClose}
 			transition:placementFly={{ duration: 100, placement }}
+			style={contentStyle}
 			class={twMerge(
 				'z-[6000] border w-56 origin-top-right rounded-md shadow-md focus:outline-none',
 				// Default: scroll on the melt element. submenuSafe moves it to the inner

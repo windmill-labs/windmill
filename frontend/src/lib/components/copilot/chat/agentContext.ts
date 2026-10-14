@@ -12,6 +12,9 @@ export type ToolSummary = {
 	parameters: Record<string, any>
 }
 
+/** A capability the provider runs itself: no arguments schema, nothing dispatched here. */
+export type ProviderToolSummary = Pick<ToolSummary, 'name' | 'description'>
+
 /** Tool definitions as the modal lists them: name-sorted, so a list of dozens is
  * scannable and stays put as the set changes between turns. */
 export function summarizeTools(tools: readonly Tool<any>[]): ToolSummary[] {

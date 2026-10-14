@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { classNames } from '$lib/utils'
+	import { twMerge } from 'tailwind-merge'
 	import CloseButton from '../CloseButton.svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -30,6 +31,10 @@
 		 * the content hug it with tight top padding; new entities keep normal padding.
 		 */
 		bannerReserved?: boolean
+		/** For content rendered in place of a drawer, which has nothing to close. */
+		hideClose?: boolean
+		/** Merged over the title's classes, e.g. to shrink it. */
+		titleClass?: string
 		children?: import('svelte').Snippet
 	}
 
@@ -50,6 +55,8 @@
 		titleExtra,
 		banner,
 		bannerReserved = false,
+		hideClose = false,
+		titleClass = undefined,
 		children
 	}: Props = $props()
 
@@ -69,20 +76,27 @@
 	)}
 	{id}
 >
-	<div class="flex justify-between w-full items-center pl-2 pr-4 py-2 gap-2">
+	<div
+		class={classNames(
+			'relative flex justify-between w-full items-center pr-4 py-2 gap-2',
+			hideClose ? 'pl-4' : 'pl-2'
+		)}
+	>
 		<div class="flex items-center gap-2 w-full truncate">
-			<div
-				use:triggerableByAI={{
-					id: `close-${aiId}`,
-					description: `Close ${aiDescription}`,
-					callback: () => {
-						dispatch('close')
-					}
-				}}
-			>
-				<CloseButton on:close Icon={CloseIcon} id="{id}-close-btn" />
-			</div>
-			<span class="font-semibold text-emphasis truncate text-lg max-w-sm"
+			{#if !hideClose}
+				<div
+					use:triggerableByAI={{
+						id: `close-${aiId}`,
+						description: `Close ${aiDescription}`,
+						callback: () => {
+							dispatch('close')
+						}
+					}}
+				>
+					<CloseButton on:close Icon={CloseIcon} id="{id}-close-btn" />
+				</div>
+			{/if}
+			<span class={twMerge('font-semibold text-emphasis truncate text-lg max-w-sm', titleClass)}
 				>{title ?? ''}
 				{#if tooltip != '' || documentationLink}
 					<Tooltip {documentationLink}>{tooltip}</Tooltip>

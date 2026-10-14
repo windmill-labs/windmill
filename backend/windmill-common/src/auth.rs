@@ -19,10 +19,12 @@ use crate::{
 };
 
 /// Whether `label` denotes a user-created token rather than a system token
-/// (`session`, `guest_session`, `ephemeral*`, `debugger-token`, `mcp-oauth-*`). System-token
-/// labels are load-bearing — session cleanup, super_admin propagation, expiry
-/// notifications and username overrides all key off them — so they must not be
-/// user-editable. `None` (no label) is treated as a user token.
+/// (`session`, `guest_session`, `ephemeral*`, `debugger-token`, `mcp-oauth-*`,
+/// `embed_app:*`, `sdk_app:*`, `impersonation:*`, `cli-login:*`, `remote-deploy:*`).
+/// System-token labels are load-bearing —
+/// session cleanup, super_admin propagation, expiry notifications and username overrides
+/// all key off them — so they must not be user-editable. `None` (no label) is treated as
+/// a user token.
 ///
 /// This is the canonical copy. When updating it, also update its mirrors:
 /// - the `update_token_label` editability guard (SQL `WHERE`) in
@@ -40,15 +42,53 @@ pub fn is_user_token(label: Option<&str>) -> bool {
                 && !l.to_lowercase().starts_with("ephemeral")
                 && l != "debugger-token"
                 && !l.starts_with("mcp-oauth-")
+                // Short-lived tokens the server mints per app open or per service-account
+                // impersonation (EE `users_ee.rs`) and nobody manages, so an expiry warning
+                // for one is noise.
+                && !l.starts_with(APP_EMBED_TOKEN_LABEL_PREFIX)
+                && !l.starts_with(RAW_APP_SDK_TOKEN_LABEL_PREFIX)
+                && !l.starts_with("impersonation:")
+                && !l.starts_with(CLI_LOGIN_TOKEN_LABEL_PREFIX)
+                && !l.starts_with(REMOTE_DEPLOY_TOKEN_LABEL_PREFIX)
         }
     }
 }
 
+/// How far ahead of a user token's expiration its owner is warned (`check_expiring_tokens` in
+/// the monitor). A token whose whole lifetime fits in this window gets no warning at all: it
+/// would arrive minutes after creation, about a lifetime its creator just picked. Its
+/// "expired and deleted" notice still goes out.
+pub const TOKEN_EXPIRY_WARNING_DAYS: i32 = 7;
+
+/// Label prefix, followed by the app path, of the token an app viewer's sandboxed iframe
+/// runs with. Reserved in [`is_user_token`], whose SQL and frontend mirrors spell it out.
+pub const APP_EMBED_TOKEN_LABEL_PREFIX: &str = "embed_app:";
+
+/// Label prefix, followed by the app path, of the token a raw app's bundle uses for the
+/// frontend SDK. Reserved in [`is_user_token`], whose SQL and frontend mirrors spell it out.
+pub const RAW_APP_SDK_TOKEN_LABEL_PREFIX: &str = "sdk_app:";
+
+/// Label prefix, followed by the username, of the token the CLI authorization page mints for
+/// `wmill` logins. Reserved in [`is_user_token`], whose SQL and frontend mirrors spell it out:
+/// the CLI signs in again on its own once that token expires, so an expiry email for it asks
+/// the user to do nothing. Not in [`is_server_minted_label`], since the page mints it through
+/// `/users/tokens/create`.
+pub const CLI_LOGIN_TOKEN_LABEL_PREFIX: &str = "cli-login:";
+
+/// Label prefix, followed by the host of the instance deploying with it, of the token the
+/// `/user/remote_deploy_authorize` page mints for another Windmill instance. Reserved in
+/// [`is_user_token`], whose SQL and frontend mirrors spell it out: it is renewed by connecting
+/// again from the deploying instance, which reports this one rejecting it, so an expiry email or
+/// alert here points at the wrong place. Not in [`is_server_minted_label`], since the page mints it
+/// through `/users/tokens/create`.
+pub const REMOTE_DEPLOY_TOKEN_LABEL_PREFIX: &str = "remote-deploy:";
+
 /// Whether `label` belongs to a namespace only the server mints, and which therefore must be
 /// rejected by `create_token`. Narrower than [`is_user_token`], which also drives label
-/// editability and expiry notifications and can afford to reserve more: `Ephemeral lsp token`
-/// and `debugger-token` are minted by the editor and the debugger through that same handler,
-/// so reserving them would break those features.
+/// editability and expiry notifications and can afford to reserve more: `Ephemeral lsp token`,
+/// `debugger-token` and `ephemeral-test-connection: *` are minted by the editor, the debugger
+/// and object-storage connection tests through that same handler, so reserving them would
+/// break those features.
 ///
 /// `username_override_from_label` trusts a label to name the entity acting only if it is in
 /// here, so anything added must be unmintable by a member.
@@ -322,6 +362,14 @@ pub struct JobPerms {
     pub groups: Vec<String>,
     pub folders: Vec<serde_json::Value>,
     pub end_user_email: Option<String>,
+    /// The job's effective scopes, stored on its `job_perms` row at push and minted into its
+    /// token.
+    #[serde(default)]
+    pub job_token_scopes: Option<Vec<String>>,
+    /// Whether the job reads data as `end_user_email`: its data table connections that name no
+    /// role, and the object storage advanced permission rules it is checked against.
+    #[serde(default)]
+    pub viewer_data_access: bool,
 }
 
 impl From<JobPerms> for Authed {
@@ -459,14 +507,16 @@ async fn fetch_authed_from_permissioned_as_inner(
     // principal — a username freed and reassigned while its previous holder keeps a privileged
     // account — would mix one account's role with another's instance privileges.
     let member = match permissioned_as.split_once('/') {
-        Some(("u", name)) => sqlx::query!(
-            "SELECT is_admin, operator, email FROM usr where username = $1 AND \
+        Some(("u", name)) => {
+            sqlx::query!(
+                "SELECT is_admin, operator, email FROM usr where username = $1 AND \
                                          workspace_id = $2 AND disabled = false",
-            name,
-            &w_id
-        )
-        .fetch_optional(&mut *conn)
-        .await?,
+                name,
+                &w_id
+            )
+            .fetch_optional(&mut *conn)
+            .await?
+        }
         _ => None,
     };
     let resolved_email;
@@ -612,7 +662,9 @@ pub async fn get_job_perms<'a, E: sqlx::PgExecutor<'a>>(
 ) -> sqlx::Result<Option<JobPerms>> {
     sqlx::query_as!(
         JobPerms,
-        "SELECT email, username, is_admin, is_operator, groups, folders, end_user_email FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+        "SELECT email, username, is_admin, is_operator, groups, folders, end_user_email,
+            job_token_scopes, viewer_data_access
+        FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
         job_id,
         w_id
     )
@@ -703,17 +755,29 @@ pub async fn create_token_for_owner(
     } else {
         get_job_perms(db, job_id, w_id).await
     };
-    let job_authed = match job_perms {
-        Ok(Some(jp)) => jp.into(),
-        _ => {
+    let (job_authed, job_token_scopes) = match job_perms {
+        Ok(Some(mut jp)) => {
+            let scopes = jp.job_token_scopes.take();
+            (jp.into(), scopes)
+        }
+        // A failed read must not mint as if the job had no row: that would drop its restriction.
+        Err(e) => {
+            return Err(Error::internal_err(format!(
+                "Could not read permissions for job {job_id}: {e:#}"
+            )))
+        }
+        // Push writes a job's `job_perms` row and its scopes in one statement, so a job with no
+        // row was never restricted.
+        Ok(None) => {
             tracing::warn!("Could not get permissions for job {job_id} from job_perms table, getting permissions directly...");
-            fetch_authed_from_permissioned_as(owner, email, w_id, db)
+            let authed = fetch_authed_from_permissioned_as(owner, email, w_id, db)
                 .await
                 .map_err(|e| {
                     Error::internal_err(format!(
                         "Could not get permissions directly for job {job_id}: {e:#}"
                     ))
-                })?
+                })?;
+            (authed, None)
         }
     };
 
@@ -724,7 +788,7 @@ pub async fn create_token_for_owner(
         Some(*job_id),
         Some(label.to_string()),
         audit_span,
-        None,
+        crate::scopes::job_token_jwt_scopes(job_token_scopes),
     )
     .await
 }
@@ -961,6 +1025,11 @@ mod tests {
         assert!(!is_user_token(Some("Ephemeral lsp token")));
         assert!(!is_user_token(Some("debugger-token")));
         assert!(!is_user_token(Some("mcp-oauth-client")));
+        assert!(!is_user_token(Some("embed_app:f/team/dashboard")));
+        assert!(!is_user_token(Some("sdk_app:u/admin/raw app")));
+        assert!(!is_user_token(Some("impersonation:admin@windmill.dev")));
+        assert!(!is_user_token(Some("cli-login:admin")));
+        assert!(!is_user_token(Some("remote-deploy:windmill.example.com")));
     }
 
     #[test]

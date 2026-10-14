@@ -14,6 +14,7 @@ use axum::response::Response as AxumResponse;
 use hyper::Response;
 use tower_http::trace::{MakeSpan, OnFailure, OnResponse};
 use uuid::Uuid;
+use windmill_api_workspaces::remote_deploy::RedactedUri;
 use windmill_common::log_context::{with_log_context, LogContext};
 
 lazy_static::lazy_static! {
@@ -47,7 +48,9 @@ impl<B> OnResponse<B> for MyOnResponse {
             let status = response.status().as_u16();
             if response.status().is_success() || response.status().is_redirection() {
                 tracing::info!(latency = latency, status = status, "response")
-            } else if response.status().as_u16() == 404 {
+            } else if status == 404 || status == 409 {
+                // A refused turn is as expected as a miss: the flow chat takes the turn that
+                // refused it and sends its message after it.
                 tracing::warn!(latency = latency, status = status, "response")
             } else {
                 tracing::error!(latency = latency, status = status, "response")
@@ -86,7 +89,7 @@ impl<B> MakeSpan<B> for MyMakeSpan {
         tracing::error_span!(
             "request",
             method = %request.method(),
-            uri = %request.uri(),
+            uri = %RedactedUri(request.uri()),
             username = field::Empty,
             workspace_id = field::Empty,
             traceId = tracing_id,
@@ -113,7 +116,7 @@ pub async fn log_context_middleware(request: Request, next: Next) -> AxumRespons
 
     let ctx = LogContext {
         method: Some(request.method().to_string()),
-        uri: Some(request.uri().to_string()),
+        uri: Some(RedactedUri(request.uri()).to_string()),
         trace_id,
         ..Default::default()
     };

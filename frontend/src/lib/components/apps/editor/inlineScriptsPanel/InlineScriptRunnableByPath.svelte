@@ -3,7 +3,6 @@
 
 	const bubble = createBubbler()
 	import { Button, Drawer, DrawerContent } from '$lib/components/common'
-	import { base } from '$lib/base'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
@@ -19,7 +18,7 @@
 		CtxAppInput
 	} from '../../inputType'
 	import type { AppViewerContext } from '../../types'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
 	import { createEventDispatcher } from 'svelte'
 	import { deepEqual } from 'fast-equals'
 	import { computeFields } from './utils'
@@ -35,6 +34,10 @@
 	import FlowEditorDrawer from '$lib/components/flows/content/FlowEditorDrawer.svelte'
 	import { FlowService, ScriptService, type OpenFlow } from '$lib/gen'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
+	const operatorBuilderApps = useOperatorBuilderApps()
 
 	interface Props {
 		runnable: RunnableByPath
@@ -131,7 +134,7 @@
 				return
 			}
 
-			const loaded = await loadSchema($workspaceStore ?? '', runnable.path, 'flow')
+			const loaded = await loadSchema($operatingWorkspace ?? '', runnable.path, 'flow')
 			const schema = loaded?.schema ?? emptySchema()
 			if (!deepEqual(runnable.schema, schema)) {
 				runnable.schema = schema
@@ -167,7 +170,7 @@
 	async function openScriptEditor(path: string) {
 		try {
 			const script = await ScriptService.getScriptByPath({
-				workspace: $workspaceStore!,
+				workspace: $operatingWorkspace!,
 				path
 			})
 			scriptEditorDrawer?.openDrawer(script.hash, () => {
@@ -323,7 +326,7 @@
 					startIcon={{ icon: GitFork }}
 					endIcon={{ icon: ExternalLink }}
 					target="_blank"
-					href="{base}/flows/add?hub={hubFlowId}"
+					href="/flows/add?hub={hubFlowId}"
 				>
 					Fork
 				</Button>
@@ -344,7 +347,7 @@
 					startIcon={{ icon: Eye }}
 					endIcon={{ icon: ExternalLink }}
 					target="_blank"
-					href="{base}/flows/get/{runnable.path}?workspace={$workspaceStore}"
+					href="/flows/get/{runnable.path}?workspace={$operatingWorkspace}"
 				>
 					Details
 				</Button>
@@ -360,16 +363,18 @@
 			>
 				Edit
 			</Button>
-			<Button
-				size="xs"
-				variant="default"
-				startIcon={{ icon: GitFork }}
-				on:click={() => {
-					fork(runnable.path)
-				}}
-			>
-				Fork
-			</Button>
+			{#if !$operatorBuilderApps}
+				<Button
+					size="xs"
+					variant="default"
+					startIcon={{ icon: GitFork }}
+					on:click={() => {
+						fork(runnable.path)
+					}}
+				>
+					Fork
+				</Button>
+			{/if}
 		{/if}
 		<Popover
 			floatingConfig={{
@@ -425,7 +430,7 @@
 					{#if runnable.runType == 'flow' && isHubFlowPath(runnable.path)}
 						Hub flow not found at {runnable.path}
 					{:else}
-						{runnable.runType} not found at {runnable.path} in workspace {$workspaceStore}
+						{runnable.runType} not found at {runnable.path} in workspace {$operatingWorkspace}
 					{/if}
 				</div>
 			{:else if runnable.runType == 'script' || runnable.runType == 'hubscript'}

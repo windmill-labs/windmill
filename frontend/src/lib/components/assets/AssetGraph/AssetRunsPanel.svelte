@@ -8,7 +8,6 @@
 	// seconds so the user sees status transitions without refreshing —
 	// JobLoader handles streaming for the *selected* job.
 	import { JobService, type Job } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { onDestroy, untrack } from 'svelte'
 	import { displayDate } from '$lib/utils'
 	import { CheckCircle2, Clock, History, Loader2, XCircle, Ban } from 'lucide-svelte'
@@ -16,11 +15,13 @@
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
-	import { base } from '$lib/base'
 	import { Badge } from '$lib/components/common'
 	import { Popover } from '$lib/components/meltComponents'
 	import { twMerge } from 'tailwind-merge'
 	import DispatchEventsButton from '$lib/components/runs/DispatchEventsButton.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		// Producers of this asset. Each contributes its own listExtendedJobs
@@ -88,7 +89,7 @@
 		// Run only when the *content* of the producer set changes (string
 		// key) or when the parent explicitly bumps `refreshKey` after
 		// dispatching a new run. The producerKey debounce alone isn't
-		// enough: refresh() synchronously reads $workspaceStore and
+		// enough: refresh() synchronously reads $operatingWorkspace and
 		// runnableProducers before the first await, and Svelte 5 records
 		// those as deps of the surrounding $effect — which would then
 		// re-fire whenever the parent re-derives `producers` (i.e. on
@@ -174,11 +175,11 @@
 
 	async function refresh(): Promise<void> {
 		if (refreshInFlight) return refreshInFlight
-		if (!$workspaceStore || runnableProducers.length === 0) {
+		if (!$operatingWorkspace || runnableProducers.length === 0) {
 			jobs = []
 			return
 		}
-		const ws = $workspaceStore
+		const ws = $operatingWorkspace
 		// Capture the producer paths *now* — using runnableProducers
 		// directly inside the await would re-read after the array
 		// identity churned, defeating the in-flight guard.
@@ -286,12 +287,12 @@
 			</span>
 			<a
 				class="text-3xs text-blue-600 hover:underline shrink-0"
-				href={`${base}/run/${selectedJob.id}?workspace=${$workspaceStore}`}
+				href={`/run/${selectedJob.id}?workspace=${$operatingWorkspace}`}
 				target="_blank">Open ↗</a
 			>
-			{#if $workspaceStore}
+			{#if $operatingWorkspace}
 				<DispatchEventsButton
-					workspace={selectedJob.workspace_id ?? $workspaceStore}
+					workspace={selectedJob.workspace_id ?? $operatingWorkspace}
 					jobId={selectedJob.id}
 				/>
 			{/if}
@@ -397,7 +398,7 @@
 			<div class="flex flex-col gap-3 p-3">
 				<JobArgs
 					id={selectedJob.id}
-					workspace={selectedJob.workspace_id ?? $workspaceStore ?? ''}
+					workspace={selectedJob.workspace_id ?? $operatingWorkspace ?? ''}
 					args={selectedJob.args}
 				/>
 				<div class="flex flex-col gap-1">

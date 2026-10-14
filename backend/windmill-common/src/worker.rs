@@ -41,6 +41,8 @@ use crate::{
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct CustomTags {
     pub global: Vec<String>,
+    /// Keyed by the entry's name, which may hold placeholders like a global entry: only a name
+    /// without any can be looked up by the tag it admits, the others through [`custom_tag_matches`].
     pub specific: HashMap<String, SpecificTagData>,
 }
 
@@ -83,25 +85,90 @@ impl CustomTags {
         } else {
             self.specific
                 .iter()
-                .map(|(tag, tag_data)| {
-                    let separator = tag_data.tag_type.corresponding_separator();
-                    let mut workspaces = tag_data
-                        .workspaces
-                        .iter()
-                        .map(|w| w.to_string())
-                        .collect::<Vec<_>>()
-                        .join(&*separator.to_string());
-                    if tag_data.tag_type == SpecificTagType::AllExcluding {
-                        // the AllExcluding tag syntax has a leading separator
-                        workspaces.insert(0, separator);
-                    }
-                    format!("{}({})", tag, workspaces)
-                })
+                .map(|(tag, tag_data)| tag_data.authored(tag))
                 .collect::<Vec<String>>()
         };
         let all_tags = self.global.clone();
         all_tags.into_iter().chain(specific.into_iter()).collect()
     }
+}
+
+/// Whether a job whose tag resolved to `tag` falls under the custom tag `entry`. An entry holding
+/// placeholders is a pattern over resolved tags: `$args[...]` and `$flow_expr[...]` match any
+/// text, since whoever pushes the job picks their values, and `$workspace` matches
+/// `tag_workspace`, what the job's own `$workspace` resolves to. The text around them must match
+/// as written: it is what confines `gpu-$args[size]` to the `gpu-` tags.
+///
+/// Placeholders whose values are tied, a repeat or one reading inside another, make an entry no
+/// wildcard pattern describes (`t-$args[id]-$args[id]` never resolves to `t-a-b`). Such an entry
+/// matches nothing here: it admits only a job whose tag is written exactly as the entry is.
+pub fn custom_tag_matches(entry: &str, tag: &str, tag_workspace: &str) -> bool {
+    if !entry.contains('$') {
+        return entry == tag;
+    }
+    let dynamic: Vec<&str> = CUSTOM_TAG_PLACEHOLDER
+        .find_iter(entry)
+        .map(|m| m.as_str())
+        .filter(|p| *p != "$workspace")
+        .collect();
+    let tied = dynamic
+        .iter()
+        .enumerate()
+        .any(|(i, a)| dynamic[i + 1..].iter().any(|b| placeholders_tied(a, b)));
+    if tied {
+        return false;
+    }
+    // The literal runs between wildcards, with `$workspace` substituted.
+    let mut pieces = vec![];
+    let mut current = String::new();
+    let mut last_end = 0;
+    for m in CUSTOM_TAG_PLACEHOLDER.find_iter(entry) {
+        current.push_str(&entry[last_end..m.start()]);
+        if m.as_str() == "$workspace" {
+            current.push_str(tag_workspace);
+        } else {
+            pieces.push(std::mem::take(&mut current));
+        }
+        last_end = m.end();
+    }
+    current.push_str(&entry[last_end..]);
+    pieces.push(current);
+
+    let [first, rest @ ..] = pieces.as_slice() else {
+        return false;
+    };
+    let Some((last, middle)) = rest.split_last() else {
+        return tag == first;
+    };
+    let Some(mut inner) = tag
+        .strip_prefix(first.as_str())
+        .and_then(|t| t.strip_suffix(last.as_str()))
+    else {
+        return false;
+    };
+    for piece in middle {
+        match inner.find(piece.as_str()) {
+            Some(i) => inner = &inner[i + piece.len()..],
+            None => return false,
+        }
+    }
+    true
+}
+
+/// Whether two `$args[...]` / `$flow_expr[...]` placeholders read the same value, or one reads a
+/// value inside the other's.
+fn placeholders_tied(a: &str, b: &str) -> bool {
+    let (Some((kind_a, path_a)), Some((kind_b, path_b))) = (a.split_once('['), b.split_once('['))
+    else {
+        return false;
+    };
+    let (path_a, path_b) = (path_a.trim_end_matches(']'), path_b.trim_end_matches(']'));
+    let inside = |outer: &str, inner: &str| {
+        inner
+            .strip_prefix(outer)
+            .is_some_and(|rest| rest.starts_with('.'))
+    };
+    kind_a == kind_b && (path_a == path_b || inside(path_a, path_b) || inside(path_b, path_a))
 }
 
 /// Marker suffixed to a workspace id inside a custom tag's scope (`mytag(prod*)`) to extend the
@@ -182,6 +249,22 @@ impl SpecificTagData {
     /// lineage lookup for the (overwhelmingly common) fork-agnostic tag.
     pub fn is_fork_scoped(&self) -> bool {
         self.workspaces.iter().any(|w| w.include_forks)
+    }
+
+    /// The entry named `name` with this scope, as written in the custom tags: `tag(ws1+ws2)`.
+    pub fn authored(&self, name: &str) -> String {
+        let separator = self.tag_type.corresponding_separator();
+        let mut workspaces = self
+            .workspaces
+            .iter()
+            .map(|w| w.to_string())
+            .collect::<Vec<_>>()
+            .join(&*separator.to_string());
+        if self.tag_type == SpecificTagType::AllExcluding {
+            // the AllExcluding tag syntax has a leading separator
+            workspaces.insert(0, separator);
+        }
+        format!("{}({})", name, workspaces)
     }
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -367,6 +450,7 @@ lazy_static::lazy_static! {
     pub static ref DEFAULT_TAGS_WORKSPACES: arc_swap::ArcSwap<Option<Vec<String>>> = arc_swap::ArcSwap::from_pointee(None);
     pub static ref FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX: AtomicBool = AtomicBool::new(false);
     pub static ref PREVIEW_TAGS_OVERRIDE: AtomicBool = AtomicBool::new(false);
+    pub static ref DEPENDENCY_JOB_TAG: arc_swap::ArcSwap<Option<String>> = arc_swap::ArcSwap::from_pointee(None);
 
     pub static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
     .ok()
@@ -393,6 +477,7 @@ lazy_static::lazy_static! {
         env_vars: Default::default(),
         native_mode: false,
         object_store_cache_config: Default::default(),
+        paused: false,
     });
 
     pub static ref WORKER_PULL_QUERIES: arc_swap::ArcSwap<Vec<String>> = arc_swap::ArcSwap::from_pointee(vec![]);
@@ -464,7 +549,9 @@ lazy_static::lazy_static! {
 
 
 
-    //    ^([\w-]+)         # Group 1: tag name
+    //    ^(                # Group 1: tag name, a pattern when it holds placeholders
+    //      (?:[\w-]|\$workspace|\$(?:args|flow_expr)\[(?:\w+\.)*\w+\])+
+    //    )
     //    \(                # Literal '('
     //    (                 # Group 2: the full workspace list
     //      (?:[\w-]+\*?\+)*[\w-]+\*?   # NoneExcept pattern: ws1+ws2*
@@ -473,8 +560,12 @@ lazy_static::lazy_static! {
     //    )
     //    \)$               # Closing ')'
     //
-    // The optional `*` after each workspace id is the fork marker, see [`WorkspaceMatcher`].
-    static ref CUSTOM_TAG_REGEX: Regex = Regex::new(r"^([\w-]+)\(((?:[\w-]+\*?\+)*[\w-]+\*?|(?:\^[\w-]+\*?)+)\)$").unwrap();
+    // The placeholders are CUSTOM_TAG_PLACEHOLDER's. The optional `*` after each workspace id is
+    // the fork marker, see [`WorkspaceMatcher`].
+    static ref CUSTOM_TAG_REGEX: Regex = Regex::new(r"^((?:[\w-]|\$workspace|\$(?:args|flow_expr)\[(?:\w+\.)*\w+\])+)\(((?:[\w-]+\*?\+)*[\w-]+\*?|(?:\^[\w-]+\*?)+)\)$").unwrap();
+
+    // The placeholders a job's tag is resolved from when it is pushed, see [`custom_tag_matches`].
+    static ref CUSTOM_TAG_PLACEHOLDER: Regex = Regex::new(r"\$workspace|\$(?:args|flow_expr)\[(?:\w+\.)*\w+\]").unwrap();
 
     pub static ref DISABLE_BUNDLING: bool = std::env::var("DISABLE_BUNDLING")
     .ok()
@@ -721,9 +812,10 @@ fn format_pull_query(peek: String) -> String {
             j.same_worker, j.pre_run_error, j.visible_to_owner,
             j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job, j.root_job,
             j.timeout, j.flow_step_id, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
-            j.script_entrypoint_override, j.preprocessed, COALESCE(pj.runnable_path, j.args->>'_FLOW_PATH') as parent_runnable_path,
+            j.script_entrypoint_override, j.preprocessed, p.job_token_scopes, COALESCE(pj.runnable_path, j.args->>'_FLOW_PATH') as parent_runnable_path,
             COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
-            p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
+            p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email,
+            p.viewer_data_access
         FROM q, j
             LEFT JOIN v2_job_status f USING (id)
             LEFT JOIN job_perms p ON p.job_id = j.id
@@ -754,11 +846,14 @@ pub fn make_suspended_pull_query(tags: &[String]) -> String {
 }
 // pub async fn make_suspended
 pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
-    if wc.worker_tags.len() == 0 {
-        tracing::error!("Empty tags in worker tags, skipping");
-        return;
-    }
-    let query = make_suspended_pull_query(&wc.worker_tags);
+    // An empty tag list must clear the query: keeping the previous one would leave a reloaded
+    // worker pulling suspended jobs for tags it no longer listens to.
+    let query = if wc.worker_tags.is_empty() {
+        tracing::error!("Empty tags in worker tags, pulling no suspended jobs");
+        String::new()
+    } else {
+        make_suspended_pull_query(&wc.worker_tags)
+    };
     WORKER_SUSPENDED_PULL_QUERY.store(std::sync::Arc::new(query));
 }
 
@@ -773,6 +868,24 @@ pub fn make_pull_query(tags: &[String]) -> String {
         tags.iter().map(|x| format!("'{x}'")).join(", ")
     ));
     query
+}
+
+/// Claim a parent's tool jobs matching its worker tags. The caller must supply only child IDs
+/// it owns; this query is an internal scheduling primitive and does not authorize job access.
+pub fn make_tool_job_pull_query(job_ids: &[uuid::Uuid], tags: &[String]) -> String {
+    // pull() binds only the worker name. These literals come from typed UUIDs, never input SQL.
+    let ids = job_ids.iter().map(|id| format!("'{id}'::uuid")).join(", ");
+    let tags = tags
+        .iter()
+        .map(|tag| format!("'{}'", tag.replace('\'', "''")))
+        .join(", ");
+    format_pull_query(format!(
+        "SELECT id FROM v2_job_queue
+        WHERE running = false AND id = ANY(ARRAY[{ids}]::uuid[]) AND scheduled_for <= now()
+        AND tag = ANY(ARRAY[{tags}]::text[])
+        ORDER BY priority DESC NULLS LAST, scheduled_for
+        FOR UPDATE SKIP LOCKED LIMIT 1"
+    ))
 }
 
 // Variant of `make_pull_query` that additionally excludes jobs whose workspace_id is in the
@@ -812,6 +925,42 @@ pub async fn store_pull_query(wc: &WorkerConfig) {
     }
     WORKER_PULL_QUERIES.store(std::sync::Arc::new(queries));
     WORKER_PULL_QUERIES_FAIRNESS.store(std::sync::Arc::new(fairness_queries));
+}
+
+const WORKER_GROUP_PAUSED_CACHE_TTL: Duration = Duration::from_secs(10);
+
+lazy_static::lazy_static! {
+    static ref WORKER_GROUP_PAUSED_CACHE: quick_cache::sync::Cache<String, (bool, std::time::Instant)> =
+        quick_cache::sync::Cache::new(1000);
+}
+
+/// Whether the config of `worker_group` is paused, as the server sees it. A worker that reads
+/// its own config knows from `WORKER_CONFIG`; this is for the server deciding on behalf of
+/// workers that do not, and is cached since they ask on every pull.
+pub async fn is_worker_group_paused(db: &DB, worker_group: &str) -> bool {
+    if let Some((paused, at)) = WORKER_GROUP_PAUSED_CACHE.get(worker_group) {
+        if at.elapsed() < WORKER_GROUP_PAUSED_CACHE_TTL {
+            return paused;
+        }
+    }
+    let paused = match sqlx::query_scalar!(
+        "SELECT COALESCE(config->'paused' = 'true'::jsonb, false) FROM config WHERE name = $1",
+        format!("worker__{worker_group}")
+    )
+    .fetch_optional(db)
+    .await
+    {
+        Ok(paused) => paused.flatten().unwrap_or(false),
+        Err(e) => {
+            tracing::error!("Could not read whether worker group {worker_group} is paused: {e:#}");
+            return false;
+        }
+    };
+    WORKER_GROUP_PAUSED_CACHE.insert(
+        worker_group.to_string(),
+        (paused, std::time::Instant::now()),
+    );
+    paused
 }
 
 lazy_static::lazy_static! {
@@ -1053,6 +1202,8 @@ pub struct PythonAnnotations {
     pub py311: bool,
     pub py312: bool,
     pub py313: bool,
+    pub py314: bool,
+    pub py315: bool,
     pub sandbox: bool,
 }
 
@@ -1068,6 +1219,7 @@ pub struct TypeScriptAnnotations {
     pub native: bool,
     pub nobundling: bool,
     pub sandbox: bool,
+    pub no_network: bool,
 }
 
 #[annotations("--")]
@@ -1080,6 +1232,83 @@ pub struct SqlAnnotations {
     // `wmill datatable serve` to map Postgres results onto the wire protocol
     // without re-stringifying every JSON value.
     pub raw_output: bool,
+}
+
+impl SqlAnnotations {
+    /// The data table role a query declares as `-- role <name>`, if any. Only meaningful against a
+    /// `datatable://` database that is under roles; absent means the data table's default role.
+    ///
+    /// Hand-written rather than derived because the value matters, not just the presence, and
+    /// because the executor needs it before it knows the connection is a data table at all. Like
+    /// every annotation it lives in the leading comment block.
+    ///
+    /// A leading comment whose first word is `role` is an annotation *attempt*, and a malformed
+    /// one is an error. The alternative — ignoring what does not parse — resolves the query to the
+    /// data table's default role instead, so a typo silently runs it under a login the author did
+    /// not choose, which is the opposite of what naming a role is for. Only callers that already
+    /// know the target is a `datatable://` reference ever run this, so ordinary SQL keeps its
+    /// comments.
+    pub fn datatable_role(code: &str) -> error::Result<Option<String>> {
+        for line in code.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if !line.starts_with("--") {
+                break;
+            }
+            // The keyword may be followed by whitespace, `:` or `=` — `role x`, `role: x`,
+            // `role=x`, `Role = x` all open an attempt, while `rolexyz` does not. Each accepted
+            // separator is one spelling that would otherwise take the `continue` below and run the
+            // query as the data table's default role, which is the silence this exists to remove.
+            let body = line[2..].trim_start();
+            let Some(after) = body
+                .get(..4)
+                .filter(|kw| kw.eq_ignore_ascii_case("role"))
+                .map(|_| &body[4..])
+            else {
+                continue;
+            };
+            if !after.is_empty()
+                && !after.starts_with(char::is_whitespace)
+                && !after.starts_with([':', '='])
+            {
+                continue;
+            }
+
+            // Past this point the line is an attempt to name a role, so a malformed one is an
+            // error rather than a miss. Falling through would run the query as the data table's
+            // default role — quietly, and under a login the author did not choose.
+            let after = after.trim_start();
+            let after = after.strip_prefix([':', '=']).unwrap_or(after);
+            let mut tokens = after.split_whitespace();
+            let role = tokens
+                .next()
+                .map(|role| role.strip_suffix(';').unwrap_or(role));
+            let rest = tokens.next();
+            match (role, rest) {
+                (Some(role), None)
+                    if !role.is_empty()
+                        && role.len() <= 63
+                        && role
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') =>
+                {
+                    return Ok(Some(role.to_string()));
+                }
+                _ => {
+                    return Err(error::Error::BadRequest(format!(
+                        "Malformed data table role annotation: `{line}`. Write it as \
+                         `-- role <name>` on a line of its own, where <name> is letters, digits, \
+                         '_' or '-'. A comment in the leading block that starts with the word \
+                         'role' is read as this annotation; move it below the first statement if \
+                         it is prose."
+                    )));
+                }
+            }
+        }
+        Ok(None)
+    }
 }
 
 #[annotations("#")]
@@ -1557,6 +1786,76 @@ pub fn get_cpu_period() -> Option<i64> {
     Some(100000)
 }
 
+/// Bucket bounds in bytes, 16 MiB to 32 GiB, shared by the Prometheus and OTel job
+/// peak-memory histograms so the two exports stay comparable.
+pub const JOB_MEMORY_PEAK_BUCKETS: [f64; 12] = {
+    let mut buckets = [0.0; 12];
+    let mut i = 0;
+    while i < 12 {
+        buckets[i] = (16u64 << (20 + i)) as f64;
+        i += 1;
+    }
+    buckets
+};
+
+/// Cumulative CPU accounting of the worker's cgroup. The throttling fields stay at 0
+/// when the cgroup has no CPU controller, which is also what an unthrottled one reports.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct CpuStat {
+    pub usage_usec: u64,
+    pub nr_periods: u64,
+    pub nr_throttled: u64,
+    pub throttled_usec: u64,
+}
+
+#[cfg(not(windows))]
+fn cpu_stat_field(stat: &str, key: &str) -> Option<u64> {
+    stat.lines().find_map(|line| {
+        let (k, v) = line.split_once(' ')?;
+        (k == key).then(|| v.trim().parse().ok()).flatten()
+    })
+}
+
+#[cfg(not(windows))]
+fn parse_cgroup_v2_cpu_stat(stat: &str) -> Option<CpuStat> {
+    Some(CpuStat {
+        usage_usec: cpu_stat_field(stat, "usage_usec")?,
+        nr_periods: cpu_stat_field(stat, "nr_periods").unwrap_or(0),
+        nr_throttled: cpu_stat_field(stat, "nr_throttled").unwrap_or(0),
+        throttled_usec: cpu_stat_field(stat, "throttled_usec").unwrap_or(0),
+    })
+}
+
+/// cgroup v1 splits the same figures over two controllers and counts time in nanoseconds.
+#[cfg(not(windows))]
+fn parse_cgroup_v1_cpu_stat(cpuacct_usage: &str, stat: &str) -> Option<CpuStat> {
+    Some(CpuStat {
+        usage_usec: cpuacct_usage.trim().parse::<u64>().ok()? / 1000,
+        nr_periods: cpu_stat_field(stat, "nr_periods").unwrap_or(0),
+        nr_throttled: cpu_stat_field(stat, "nr_throttled").unwrap_or(0),
+        throttled_usec: cpu_stat_field(stat, "throttled_time").unwrap_or(0) / 1000,
+    })
+}
+
+#[cfg(not(windows))]
+pub fn get_cpu_stat() -> Option<CpuStat> {
+    const V1_USAGE: &str = "/sys/fs/cgroup/cpuacct/cpuacct.usage";
+    if Path::new(V1_USAGE).exists() {
+        parse_cgroup_v1_cpu_stat(
+            &std::fs::read_to_string(V1_USAGE).ok()?,
+            &std::fs::read_to_string("/sys/fs/cgroup/cpu/cpu.stat").unwrap_or_default(),
+        )
+    } else {
+        let cgroup_path = get_cgroupv2_path()?;
+        parse_cgroup_v2_cpu_stat(&std::fs::read_to_string(format!("{cgroup_path}/cpu.stat")).ok()?)
+    }
+}
+
+#[cfg(windows)]
+pub fn get_cpu_stat() -> Option<CpuStat> {
+    None
+}
+
 /// CPUs the process is allowed to run on, ignoring any bandwidth quota — the count
 /// Go's `NumCPU` reports. `available_parallelism` cannot stand in for it: that folds
 /// the quota in, so a fraction of a CPU makes it report a single-core machine.
@@ -1726,6 +2025,7 @@ pub enum PingType {
     MainLoop,
     Job,
     InitScript,
+    Draining,
 }
 #[derive(Serialize, Deserialize)]
 pub struct Ping {
@@ -1748,6 +2048,8 @@ pub struct Ping {
     pub occupancy_rate_30m: Option<f32>,
     pub job_isolation: Option<String>,
     pub native_mode: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draining: Option<bool>,
     pub ping_type: PingType,
 }
 pub async fn update_ping_http(
@@ -1773,6 +2075,9 @@ pub async fn update_ping_http(
                 insert_ping.occupancy_rate_30m,
                 insert_ping.native_mode.unwrap_or(false),
                 insert_ping.ip.as_deref(),
+                insert_ping
+                    .last_job_executed
+                    .zip(insert_ping.last_job_workspace_id.as_deref()),
                 db,
             )
             .await?
@@ -1797,6 +2102,7 @@ pub async fn update_ping_http(
                 insert_ping.memory,
                 insert_ping.job_isolation,
                 insert_ping.native_mode.unwrap_or(false),
+                insert_ping.draining,
                 db,
             )
             .await?;
@@ -1825,7 +2131,18 @@ pub async fn update_ping_http(
             )
             .await?
         }
+        PingType::Draining => set_worker_draining_query(worker_name, db).await?,
     }
+    Ok(())
+}
+
+pub async fn set_worker_draining_query(worker_name: &str, db: &DB) -> anyhow::Result<()> {
+    sqlx::query!(
+        "UPDATE worker_ping SET draining = true WHERE worker = $1",
+        worker_name
+    )
+    .execute(db)
+    .await?;
     Ok(())
 }
 
@@ -1927,6 +2244,9 @@ pub async fn fetch_raw_script_from_app_query(
 /// `started_at` and `jobs_executed` are the only two columns carried over, being the
 /// continuity itself — plus `ip` for as long as `ip` is `None`, which means the external IP
 /// lookup has not resolved yet and the predecessor's address is still the best guess.
+///
+/// `draining` is `Some(false)` from a worker starting up and `None` from one re-registering
+/// mid-life, which must leave alone a flag its own shutdown may have set in the meantime.
 pub async fn insert_ping_query(
     worker_instance: &str,
     worker_name: &str,
@@ -1940,6 +2260,7 @@ pub async fn insert_ping_query(
     memory: Option<i64>,
     job_isolation: Option<String>,
     native_mode: bool,
+    draining: Option<bool>,
     db: &DB,
 ) -> anyhow::Result<i32> {
     // A NULL `ip` means the external IP lookup is still in flight; a later ping fills it in, and
@@ -1947,8 +2268,8 @@ pub async fn insert_ping_query(
     // lookup that has failed reports `external_ip::UNRETRIEVABLE_IP`, which does overwrite it. The
     // literal below must stay equal to `external_ip::UNKNOWN_IP`.
     let previous_jobs_executed = sqlx::query_scalar!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode) VALUES ($1, $2, COALESCE($3, 'NO IP'), $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (worker)
-        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode, draining) VALUES ($1, $2, COALESCE($3, 'NO IP'), $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($13, false)) ON CONFLICT (worker)
+        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL, draining = COALESCE($13, worker_ping.draining)
         RETURNING jobs_executed",
         worker_instance,
         worker_name,
@@ -1962,6 +2283,7 @@ pub async fn insert_ping_query(
         memory,
         job_isolation.as_deref(),
         native_mode,
+        draining,
         )
         .fetch_one(db)
         .await?;
@@ -2054,12 +2376,15 @@ pub async fn update_worker_ping_main_loop_query(
     occupancy_rate_30m: Option<f32>,
     native_mode: bool,
     ip: Option<&str>,
+    last_job: Option<(Uuid, &str)>,
     db: &DB,
 ) -> anyhow::Result<()> {
+    let (last_job_id, last_job_workspace_id) = last_job.unzip();
     timeout(Duration::from_secs(10), sqlx::query!(
         "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
          occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
-         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12, ip = COALESCE($13, ip) WHERE worker = $6",
+         memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12, ip = COALESCE($13, ip),
+         current_job_id = COALESCE($14, current_job_id), current_job_workspace_id = COALESCE($15, current_job_workspace_id) WHERE worker = $6",
         jobs_executed,
         tags,
         occupancy_rate,
@@ -2073,6 +2398,8 @@ pub async fn update_worker_ping_main_loop_query(
         occupancy_rate_30m,
         native_mode,
         ip,
+        last_job_id,
+        last_job_workspace_id,
     )
         .execute(db))
     .await??;
@@ -2276,6 +2603,12 @@ pub async fn load_worker_config(
             .collect();
         priority_tags_sorted.push(PriorityTags { priority: 0, tags: Vec::from_iter(all_tags_set) }); // push the tags that were not listed as high priority with a priority = 0
         priority_tags_sorted.sort_by_key(|elt| Reverse(elt.priority)); // sort by priority DESC
+
+        // The buckets come out of hash maps: without a fixed order two loads of the same
+        // config compare unequal, and a reload reads that as a config change.
+        for bucket in priority_tags_sorted.iter_mut() {
+            bucket.tags.sort();
+        }
     } else {
         // if no priority is used, push all tags with a priority to 0
         priority_tags_sorted.push(PriorityTags { priority: 0, tags: worker_tags.clone() });
@@ -2345,6 +2678,7 @@ pub async fn load_worker_config(
         env_vars: resolved_env_vars,
         native_mode,
         object_store_cache_config: config.object_store_cache_config,
+        paused: config.paused.unwrap_or(false),
     })
 }
 
@@ -2435,6 +2769,7 @@ pub struct WorkerConfigOpt {
     pub env_vars_allowlist: Option<Vec<String>>,
     pub native_mode: Option<bool>,
     pub object_store_cache_config: Option<serde_json::Value>,
+    pub paused: Option<bool>,
 }
 
 impl Default for WorkerConfigOpt {
@@ -2454,6 +2789,7 @@ impl Default for WorkerConfigOpt {
             env_vars_allowlist: Default::default(),
             native_mode: Default::default(),
             object_store_cache_config: Default::default(),
+            paused: Default::default(),
         }
     }
 }
@@ -2476,12 +2812,15 @@ pub struct WorkerConfig {
     /// in the group config. Raw JSON: `windmill-common` cannot depend on the object store crate
     /// that parses it, and comparing the raw value is what tells a reload the store changed.
     pub object_store_cache_config: Option<serde_json::Value>,
+    /// The group pulls no job from the queue: its workers finish what they hold, keep pinging
+    /// and leave queued jobs for when it is resumed.
+    pub paused: bool,
 }
 
 impl std::fmt::Debug for WorkerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, native_mode: {:?}, object_store_cache_config: {} }}",
-        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.native_mode,
+        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, native_mode: {:?}, paused: {:?}, object_store_cache_config: {} }}",
+        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.native_mode, self.paused,
         // holds bucket credentials
         self.object_store_cache_config.as_ref().map(|_| "***").unwrap_or("None"))
     }
@@ -2553,9 +2892,14 @@ pub fn lockfile_line_has_continuation(line: &str) -> bool {
 pub enum PyVAlias {
     Py310 = 10,
     Py311,
+    // Frozen: what a lock with no `# py:` line runs on, and what the server writes into
+    // `instance_python_version` for an instance that never chose one. Raise `NEW_INSTANCE`
+    // instead, which existing instances never pick up.
     #[default]
     Py312,
     Py313,
+    Py314,
+    Py315,
 }
 
 impl Into<pep440_rs::Version> for PyVAlias {
@@ -2571,15 +2915,32 @@ impl Into<u32> for PyVAlias {
 }
 
 impl PyVAlias {
+    /// What the server writes into `instance_python_version` when it initializes an instance.
+    /// Raising it also means the images must keep preinstalling every earlier value, or
+    /// instances that started on one download their runtime on first use.
+    pub const NEW_INSTANCE: PyVAlias = PyVAlias::Py313;
+
     pub fn all<T: From<PyVAlias>>() -> Vec<T> {
         use PyVAlias::*;
-        vec![Py310.into(), Py311.into(), Py312.into(), Py313.into()]
+        vec![
+            Py310.into(),
+            Py311.into(),
+            Py312.into(),
+            Py313.into(),
+            Py314.into(),
+            Py315.into(),
+        ]
     }
+    /// `MAJOR.MINOR`, the form the instance settings store.
+    pub fn version_string(self) -> String {
+        format!("{}.{}", self.major(), self as u32)
+    }
+
     // Get MAJOR part of alias. (semver: MAJOR.MINOR.PATCH)
     fn major(&self) -> u32 {
         use PyVAlias::*;
         match self {
-            Py310 | Py311 | Py312 | Py313 => 3,
+            Py310 | Py311 | Py312 | Py313 | Py314 | Py315 => 3,
             // Py400 | Py401 => 4
         }
     }
@@ -2594,6 +2955,8 @@ impl PyVAlias {
             "311" => Some(Py311),
             "312" => Some(Py312),
             "313" => Some(Py313),
+            "314" => Some(Py314),
+            "315" => Some(Py315),
             _ => None,
         }
     }
@@ -2652,6 +3015,83 @@ pub fn try_parse_locked_python_version_from_requirements<S: AsRef<str>>(
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[cfg(not(windows))]
+    #[test]
+    fn cgroup_cpu_stat_is_normalized_to_microseconds() {
+        let v2 = "usage_usec 2500000\nuser_usec 2000000\nsystem_usec 500000\n\
+                  nr_periods 40\nnr_throttled 7\nthrottled_usec 350000\nnr_bursts 0\n";
+        let expected = CpuStat {
+            usage_usec: 2_500_000,
+            nr_periods: 40,
+            nr_throttled: 7,
+            throttled_usec: 350_000,
+        };
+        assert_eq!(parse_cgroup_v2_cpu_stat(v2), Some(expected));
+
+        let v1_stat = "nr_periods 40\nnr_throttled 7\nthrottled_time 350000000\n";
+        assert_eq!(
+            parse_cgroup_v1_cpu_stat("2500000000\n", v1_stat),
+            Some(expected)
+        );
+
+        // No CPU controller: usage is still reported, throttling reads as zero.
+        assert_eq!(
+            parse_cgroup_v2_cpu_stat("usage_usec 12\nuser_usec 8\nsystem_usec 4\n"),
+            Some(CpuStat { usage_usec: 12, ..Default::default() })
+        );
+        assert_eq!(parse_cgroup_v2_cpu_stat("nr_periods 40\n"), None);
+    }
+
+    #[test]
+    fn datatable_role_is_read_from_the_leading_comment_block() {
+        let role = |code| SqlAnnotations::datatable_role(code);
+        assert_eq!(
+            role("-- role analytics\nSELECT 1").unwrap(),
+            Some("analytics".to_string())
+        );
+        // Blank lines and other annotations before it are fine.
+        assert_eq!(
+            role("\n-- prepare\n-- role read_only\nSELECT 1").unwrap(),
+            Some("read_only".to_string())
+        );
+        // Past the first statement it is an ordinary comment, not an annotation.
+        assert_eq!(role("SELECT 1;\n-- role analytics").unwrap(), None);
+        assert_eq!(role("SELECT 1").unwrap(), None);
+
+        // Unambiguous intent is honoured: the keyword matches case-insensitively, a trailing
+        // semicolon is a habit carried over from SQL rather than a different role, and the colon
+        // spelling is the one most likely to be typed.
+        for accepted in [
+            "-- Role operator\nSELECT 1",
+            "-- role operator;\nSELECT 1",
+            "-- role: operator\nSELECT 1",
+            "-- role:operator\nSELECT 1",
+            "-- role=operator\nSELECT 1",
+            "-- Role = operator\nSELECT 1",
+        ] {
+            assert_eq!(
+                role(accepted).unwrap(),
+                Some("operator".to_string()),
+                "not honoured: {accepted}"
+            );
+        }
+
+        // Anything else opening with the word is refused rather than resolved to the default role:
+        // the whole point of naming one is to not run as something else.
+        for near_miss in [
+            "-- role operator -- why\nSELECT 1",
+            "-- role an;alytics\nSELECT 1",
+            "-- role\nSELECT 1",
+            "-- role:\nSELECT 1",
+            "-- role based access is handled below\nSELECT 1",
+        ] {
+            assert!(role(near_miss).is_err(), "silently ignored: {near_miss}");
+        }
+
+        // A word that merely starts with the keyword is not an attempt.
+        assert_eq!(role("-- rolebased notes\nSELECT 1").unwrap(), None);
+    }
 
     fn matcher(id: &str) -> WorkspaceMatcher {
         WorkspaceMatcher { id: id.to_string(), include_forks: false }
@@ -2941,6 +3381,92 @@ mod tests {
         let mut result = tags.to_string_vec(None);
         result.sort();
         assert_eq!(result, vec!["foo", "legacy(^ws1^ws2)", "urgent(ws1+ws2)"]);
+    }
+
+    #[test]
+    fn test_custom_tag_matches_resolved_tags() {
+        let matches = |entry, tag| custom_tag_matches(entry, tag, "ws1");
+
+        assert!(matches("gpu", "gpu"));
+        assert!(!matches("gpu", "gpu-large"));
+
+        // The text around a placeholder fences what its value can make of the tag.
+        assert!(matches("gpu-$args[size]", "gpu-large"));
+        assert!(matches("gpu-$flow_expr[results.a.size]", "gpu-"));
+        assert!(!matches("gpu-$args[size]", "prod"));
+        assert!(!matches("gpu-$args[size]", "xgpu-large"));
+        assert!(matches("$args[region]-gpu", "eu-gpu"));
+        assert!(!matches("$args[region]-gpu", "eu-gpu-x"));
+        assert!(matches("a-$args[x]-b-$args[y]-c", "a-1-b-2-c"));
+        assert!(!matches("a-$args[x]-b-$args[y]-c", "a-1-c"));
+        assert!(!matches("ab$args[x]ba", "aba"));
+
+        // A bare placeholder admits every tag.
+        assert!(matches("$flow_expr[results.a.tag]", "anything"));
+
+        // Tied placeholders are no pattern: their entry admits only its own text.
+        assert!(!matches("t-$args[id]-$args[id]", "t-a-a"));
+        assert!(!matches("t-$args[a]-$args[a.b]", "t-x-y"));
+        assert!(matches("t-$args[a.x]-$args[a.y]", "t-x-y"));
+        assert!(matches("t-$args[id]-$flow_expr[flow_input.id]", "t-x-y"));
+
+        // `$workspace` stands for the job's own workspace only.
+        assert!(matches("tag-$workspace", "tag-ws1"));
+        assert!(!matches("tag-$workspace", "tag-ws2"));
+        assert!(matches("$workspace-$args[size]", "ws1-large"));
+        assert!(!matches("$workspace-$args[size]", "ws2-large"));
+    }
+
+    #[test]
+    fn test_scoped_custom_tag_patterns_parse_and_round_trip() {
+        let input = vec![
+            "gpu-$args[size](ws1+ws2)".to_string(),
+            "cpu-$flow_expr[results.a.size](^ws1)".to_string(),
+            "$workspace-$args[x](prod*)".to_string(),
+            "t-$args[id]-$args[id](ws1)".to_string(),
+        ];
+        let tags = CustomTags::from(input.clone());
+
+        assert!(tags.global.is_empty());
+        assert_eq!(
+            tags.specific["gpu-$args[size]"],
+            SpecificTagData {
+                tag_type: SpecificTagType::NoneExcept,
+                workspaces: vec![matcher("ws1"), matcher("ws2")],
+            }
+        );
+        assert_eq!(
+            tags.specific["cpu-$flow_expr[results.a.size]"],
+            SpecificTagData {
+                tag_type: SpecificTagType::AllExcluding,
+                workspaces: vec![matcher("ws1")],
+            }
+        );
+        assert!(tags.specific["$workspace-$args[x]"].is_fork_scoped());
+        assert!(tags.specific.contains_key("t-$args[id]-$args[id]"));
+
+        let mut result = tags.to_string_vec(None);
+        result.sort();
+        let mut expected = input;
+        expected.sort();
+        assert_eq!(result, expected);
+
+        let mut for_ws1 = tags.to_string_vec(Some(&chain(&["ws1"])));
+        for_ws1.sort();
+        assert_eq!(for_ws1, vec!["gpu-$args[size]", "t-$args[id]-$args[id]"]);
+
+        // Only the placeholders a tag resolves from make a name a pattern: anything else is no
+        // scoped entry at all.
+        for literal in [
+            "gpu-$foo(ws1)",
+            "gpu-$args[](ws1)",
+            "gpu-$args[a.](ws1)",
+            "gpu.x(ws1)",
+        ] {
+            let tags = CustomTags::from(vec![literal.to_string()]);
+            assert_eq!(tags.global, vec![literal]);
+            assert!(tags.specific.is_empty());
+        }
     }
 
     #[test]

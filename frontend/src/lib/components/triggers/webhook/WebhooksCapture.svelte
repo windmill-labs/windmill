@@ -4,9 +4,11 @@
 	import { isObject } from '$lib/utils'
 	import CopyableCodeBlock from '../../details/CopyableCodeBlock.svelte'
 	import CaptureSection, { type CaptureInfo } from '../CaptureSection.svelte'
-	import { workspaceStore } from '$lib/stores'
 	import { Url } from '$lib/components/common'
 	import { fade } from 'svelte/transition'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		isFlow?: boolean
@@ -33,7 +35,7 @@
 	)
 
 	let captureUrl = $derived(
-		`${location.origin}/api/w/${$workspaceStore}/capture_u/webhook/${
+		`${location.origin}/api/w/${$operatingWorkspace}/capture_u/webhook/${
 			isFlow ? 'flow' : 'script'
 		}/${path}`
 	)

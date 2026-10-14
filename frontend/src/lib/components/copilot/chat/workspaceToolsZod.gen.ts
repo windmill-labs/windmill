@@ -28,9 +28,9 @@ export const scheduleRequestSchema = z.object({
 		"exponential": z.object({
 			"attempts": z.number().int().describe("Number of retry attempts").optional(),
 			"multiplier": z.number().int().describe("Multiplier for exponential backoff").optional(),
-			"seconds": z.number().int().gte(1).describe("Initial delay in seconds").optional(),
+			"seconds": z.number().int().gte(1).describe("Base of the exponential (seconds); the n-th retry waits multiplier \u00d7 seconds^n, where n counts constant retries too").optional(),
 			"random_factor": z.number().int().gte(0).lte(100).describe("Random jitter percentage (0-100) to avoid thundering herd").optional()
-		}).describe("Retry with exponential backoff (delay doubles each time)").optional(),
+		}).describe("Retry with exponential backoff: the n-th retry waits multiplier \u00d7 seconds^n").optional(),
 		"retry_if": z.object({
 			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
 		}).describe("Conditional retry based on error or result").optional()
@@ -69,6 +69,7 @@ export const httpTriggerRequestSchema = z.object({
 	"wrap_body": z.boolean().describe("If true, wraps the request body in a 'body' parameter").optional(),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
 	"raw_string": z.boolean().describe("If true, passes the request body as a raw string instead of parsing as JSON").optional(),
+	"allowed_origins": z.array(z.string()).describe("Origins allowed to call this route cross-origin, matched against the request's Origin header (ignoring case) and echoed back on a match. When set, the list governs both the preflight and the response, overriding any Access-Control-Allow-Origin the runnable returns via wm_headers. Use ['*'] to opt out of any restriction, including the http_route_default_allowed_origins instance setting. An empty list is not a configuration and resolves exactly as null does. When null, the instance setting applies, or Access-Control-Allow-Origin: * if it is unset. Ignored on a static website, which has no authentication of its own and so hands out public files: restricting which browsers may read them protects nothing while breaking cross-origin webfonts and fetches. A single-file static asset is not exempt, since it can carry an authentication_method.").nullable().optional(),
 	"error_handler_path": z.string().describe("Path to a script to run when the triggered job fails. A bare path, without the script/ or flow/ prefix a schedule error handler takes; it cannot be a flow.").optional(),
 	"error_handler_args": z.record(z.string(), z.any()).describe("Arguments to pass to the error handler").optional(),
 	"retry": z.object({
@@ -79,9 +80,9 @@ export const httpTriggerRequestSchema = z.object({
 		"exponential": z.object({
 			"attempts": z.number().int().describe("Number of retry attempts").optional(),
 			"multiplier": z.number().int().describe("Multiplier for exponential backoff").optional(),
-			"seconds": z.number().int().gte(1).describe("Initial delay in seconds").optional(),
+			"seconds": z.number().int().gte(1).describe("Base of the exponential (seconds); the n-th retry waits multiplier \u00d7 seconds^n, where n counts constant retries too").optional(),
 			"random_factor": z.number().int().gte(0).lte(100).describe("Random jitter percentage (0-100) to avoid thundering herd").optional()
-		}).describe("Retry with exponential backoff (delay doubles each time)").optional(),
+		}).describe("Retry with exponential backoff: the n-th retry waits multiplier \u00d7 seconds^n").optional(),
 		"retry_if": z.object({
 			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
 		}).describe("Conditional retry based on error or result").optional()
@@ -138,9 +139,9 @@ export const websocketTriggerRequestSchema = z.object({
 		"exponential": z.object({
 			"attempts": z.number().int().describe("Number of retry attempts").optional(),
 			"multiplier": z.number().int().describe("Multiplier for exponential backoff").optional(),
-			"seconds": z.number().int().gte(1).describe("Initial delay in seconds").optional(),
+			"seconds": z.number().int().gte(1).describe("Base of the exponential (seconds); the n-th retry waits multiplier \u00d7 seconds^n, where n counts constant retries too").optional(),
 			"random_factor": z.number().int().gte(0).lte(100).describe("Random jitter percentage (0-100) to avoid thundering herd").optional()
-		}).describe("Retry with exponential backoff (delay doubles each time)").optional(),
+		}).describe("Retry with exponential backoff: the n-th retry waits multiplier \u00d7 seconds^n").optional(),
 		"retry_if": z.object({
 			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
 		}).describe("Conditional retry based on error or result").optional()
@@ -184,9 +185,9 @@ export const kafkaTriggerRequestSchema = z.object({
 		"exponential": z.object({
 			"attempts": z.number().int().describe("Number of retry attempts").optional(),
 			"multiplier": z.number().int().describe("Multiplier for exponential backoff").optional(),
-			"seconds": z.number().int().gte(1).describe("Initial delay in seconds").optional(),
+			"seconds": z.number().int().gte(1).describe("Base of the exponential (seconds); the n-th retry waits multiplier \u00d7 seconds^n, where n counts constant retries too").optional(),
 			"random_factor": z.number().int().gte(0).lte(100).describe("Random jitter percentage (0-100) to avoid thundering herd").optional()
-		}).describe("Retry with exponential backoff (delay doubles each time)").optional(),
+		}).describe("Retry with exponential backoff: the n-th retry waits multiplier \u00d7 seconds^n").optional(),
 		"retry_if": z.object({
 			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
 		}).describe("Conditional retry based on error or result").optional()
@@ -216,9 +217,9 @@ export const natsTriggerRequestSchema = z.object({
 		"exponential": z.object({
 			"attempts": z.number().int().describe("Number of retry attempts").optional(),
 			"multiplier": z.number().int().describe("Multiplier for exponential backoff").optional(),
-			"seconds": z.number().int().gte(1).describe("Initial delay in seconds").optional(),
+			"seconds": z.number().int().gte(1).describe("Base of the exponential (seconds); the n-th retry waits multiplier \u00d7 seconds^n, where n counts constant retries too").optional(),
 			"random_factor": z.number().int().gte(0).lte(100).describe("Random jitter percentage (0-100) to avoid thundering herd").optional()
-		}).describe("Retry with exponential backoff (delay doubles each time)").optional(),
+		}).describe("Retry with exponential backoff: the n-th retry waits multiplier \u00d7 seconds^n").optional(),
 		"retry_if": z.object({
 			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
 		}).describe("Conditional retry based on error or result").optional()
@@ -257,9 +258,9 @@ export const postgresTriggerRequestSchema = z.object({
 		"exponential": z.object({
 			"attempts": z.number().int().describe("Number of retry attempts").optional(),
 			"multiplier": z.number().int().describe("Multiplier for exponential backoff").optional(),
-			"seconds": z.number().int().gte(1).describe("Initial delay in seconds").optional(),
+			"seconds": z.number().int().gte(1).describe("Base of the exponential (seconds); the n-th retry waits multiplier \u00d7 seconds^n, where n counts constant retries too").optional(),
 			"random_factor": z.number().int().gte(0).lte(100).describe("Random jitter percentage (0-100) to avoid thundering herd").optional()
-		}).describe("Retry with exponential backoff (delay doubles each time)").optional(),
+		}).describe("Retry with exponential backoff: the n-th retry waits multiplier \u00d7 seconds^n").optional(),
 		"retry_if": z.object({
 			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
 		}).describe("Conditional retry based on error or result").optional()
@@ -299,9 +300,9 @@ export const mqttTriggerRequestSchema = z.object({
 		"exponential": z.object({
 			"attempts": z.number().int().describe("Number of retry attempts").optional(),
 			"multiplier": z.number().int().describe("Multiplier for exponential backoff").optional(),
-			"seconds": z.number().int().gte(1).describe("Initial delay in seconds").optional(),
+			"seconds": z.number().int().gte(1).describe("Base of the exponential (seconds); the n-th retry waits multiplier \u00d7 seconds^n, where n counts constant retries too").optional(),
 			"random_factor": z.number().int().gte(0).lte(100).describe("Random jitter percentage (0-100) to avoid thundering herd").optional()
-		}).describe("Retry with exponential backoff (delay doubles each time)").optional(),
+		}).describe("Retry with exponential backoff: the n-th retry waits multiplier \u00d7 seconds^n").optional(),
 		"retry_if": z.object({
 			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
 		}).describe("Conditional retry based on error or result").optional()
@@ -336,9 +337,9 @@ export const amqpTriggerRequestSchema = z.object({
 		"exponential": z.object({
 			"attempts": z.number().int().describe("Number of retry attempts").optional(),
 			"multiplier": z.number().int().describe("Multiplier for exponential backoff").optional(),
-			"seconds": z.number().int().gte(1).describe("Initial delay in seconds").optional(),
+			"seconds": z.number().int().gte(1).describe("Base of the exponential (seconds); the n-th retry waits multiplier \u00d7 seconds^n, where n counts constant retries too").optional(),
 			"random_factor": z.number().int().gte(0).lte(100).describe("Random jitter percentage (0-100) to avoid thundering herd").optional()
-		}).describe("Retry with exponential backoff (delay doubles each time)").optional(),
+		}).describe("Retry with exponential backoff: the n-th retry waits multiplier \u00d7 seconds^n").optional(),
 		"retry_if": z.object({
 			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
 		}).describe("Conditional retry based on error or result").optional()
@@ -367,9 +368,9 @@ export const sqsTriggerRequestSchema = z.object({
 		"exponential": z.object({
 			"attempts": z.number().int().describe("Number of retry attempts").optional(),
 			"multiplier": z.number().int().describe("Multiplier for exponential backoff").optional(),
-			"seconds": z.number().int().gte(1).describe("Initial delay in seconds").optional(),
+			"seconds": z.number().int().gte(1).describe("Base of the exponential (seconds); the n-th retry waits multiplier \u00d7 seconds^n, where n counts constant retries too").optional(),
 			"random_factor": z.number().int().gte(0).lte(100).describe("Random jitter percentage (0-100) to avoid thundering herd").optional()
-		}).describe("Retry with exponential backoff (delay doubles each time)").optional(),
+		}).describe("Retry with exponential backoff: the n-th retry waits multiplier \u00d7 seconds^n").optional(),
 		"retry_if": z.object({
 			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
 		}).describe("Conditional retry based on error or result").optional()
@@ -407,9 +408,9 @@ export const gcpTriggerRequestSchema = z.object({
 		"exponential": z.object({
 			"attempts": z.number().int().describe("Number of retry attempts").optional(),
 			"multiplier": z.number().int().describe("Multiplier for exponential backoff").optional(),
-			"seconds": z.number().int().gte(1).describe("Initial delay in seconds").optional(),
+			"seconds": z.number().int().gte(1).describe("Base of the exponential (seconds); the n-th retry waits multiplier \u00d7 seconds^n, where n counts constant retries too").optional(),
 			"random_factor": z.number().int().gte(0).lte(100).describe("Random jitter percentage (0-100) to avoid thundering herd").optional()
-		}).describe("Retry with exponential backoff (delay doubles each time)").optional(),
+		}).describe("Retry with exponential backoff: the n-th retry waits multiplier \u00d7 seconds^n").optional(),
 		"retry_if": z.object({
 			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
 		}).describe("Conditional retry based on error or result").optional()
@@ -441,9 +442,9 @@ export const azureTriggerRequestSchema = z.object({
 		"exponential": z.object({
 			"attempts": z.number().int().describe("Number of retry attempts").optional(),
 			"multiplier": z.number().int().describe("Multiplier for exponential backoff").optional(),
-			"seconds": z.number().int().gte(1).describe("Initial delay in seconds").optional(),
+			"seconds": z.number().int().gte(1).describe("Base of the exponential (seconds); the n-th retry waits multiplier \u00d7 seconds^n, where n counts constant retries too").optional(),
 			"random_factor": z.number().int().gte(0).lte(100).describe("Random jitter percentage (0-100) to avoid thundering herd").optional()
-		}).describe("Retry with exponential backoff (delay doubles each time)").optional(),
+		}).describe("Retry with exponential backoff: the n-th retry waits multiplier \u00d7 seconds^n").optional(),
 		"retry_if": z.object({
 			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
 		}).describe("Conditional retry based on error or result").optional()
@@ -469,9 +470,9 @@ export const emailTriggerRequestSchema = z.object({
 		"exponential": z.object({
 			"attempts": z.number().int().describe("Number of retry attempts").optional(),
 			"multiplier": z.number().int().describe("Multiplier for exponential backoff").optional(),
-			"seconds": z.number().int().gte(1).describe("Initial delay in seconds").optional(),
+			"seconds": z.number().int().gte(1).describe("Base of the exponential (seconds); the n-th retry waits multiplier \u00d7 seconds^n, where n counts constant retries too").optional(),
 			"random_factor": z.number().int().gte(0).lte(100).describe("Random jitter percentage (0-100) to avoid thundering herd").optional()
-		}).describe("Retry with exponential backoff (delay doubles each time)").optional(),
+		}).describe("Retry with exponential backoff: the n-th retry waits multiplier \u00d7 seconds^n").optional(),
 		"retry_if": z.object({
 			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
 		}).describe("Conditional retry based on error or result").optional()

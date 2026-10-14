@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE usr SET created_at = created_at - interval '1 hour'\n         WHERE workspace_id = 'test-workspace' AND email = 'test2@windmill.dev'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "d305aed6172e25707492677b6cd3b8f3f6ea8f2c8f5bdc1a97736c8e52378ee9"
+}

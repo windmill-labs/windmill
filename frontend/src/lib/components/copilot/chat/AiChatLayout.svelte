@@ -1,17 +1,14 @@
 <script lang="ts">
 	import { classNames } from '$lib/utils'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import AiChat from './AIChat.svelte'
 	import SessionsBetaBanner from '$lib/components/sessions/SessionsBetaBanner.svelte'
 	import { zIndexes } from '$lib/zIndexes'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { chatState } from './sharedChatState.svelte'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import { copilotInfo } from '$lib/aiStore'
 	import { aiChatManager } from './AIChatManager.svelte'
 	import { onDestroy } from 'svelte'
-	import Button from '$lib/components/common/button/Button.svelte'
-	import { Menu } from 'lucide-svelte'
 	import CreatedResourceActionDrawers from './CreatedResourceActionDrawers.svelte'
 
 	interface Props {
@@ -21,7 +18,6 @@
 		transitionClass?: string
 		isMobile?: boolean
 		children: any
-		onMenuOpen?: () => void
 		disableAi?: boolean
 		// Whether this layout loads the workspace AI config. It gates far more than
 		// the docked pane (code completion, metadata generation, the "open in AI
@@ -41,15 +37,14 @@
 		transitionClass = 'transition-all ease-in-out duration-200',
 		isMobile = false,
 		children,
-		onMenuOpen,
 		disableAi,
 		loadAiConfig = true,
 		showSessionsBetaBanner = false
 	}: Props = $props()
 
 	// The desktop rail is fixed-positioned, so the content is offset by a matching
-	// left padding (in rem, matching the rail). Mobile/operator/borderless: no rail.
-	let contentPadLeft = $derived(noBorder || $userStore?.operator || isMobile ? 0 : sidebarWidth)
+	// left padding (in rem, matching the rail). Drawer (mobile or detached)/borderless: no rail.
+	let contentPadLeft = $derived(noBorder || isMobile ? 0 : sidebarWidth)
 
 	$effect(() => {
 		chatState.dockedChatAvailable = !disableAi
@@ -84,23 +79,6 @@
 	})
 </script>
 
-{#snippet burgerRow()}
-	<div
-		class={classNames(
-			'py-0.5 px-4 sm:px-4 shadow-sm max-w-7xl md:hidden justify-start flex',
-			noBorder || $userStore?.operator ? 'hidden' : ''
-		)}
-	>
-		<Button
-			variant="subtle"
-			unifiedSize="lg"
-			onClick={() => onMenuOpen?.()}
-			startIcon={{ icon: Menu }}
-			iconOnly
-		/>
-	</div>
-{/snippet}
-
 {#if !disableAi}
 	<CreatedResourceActionDrawers />
 	<Splitpanes horizontal={false} class="flex-1 min-h-0">
@@ -112,7 +90,6 @@
 			>
 				<main class="flex-1 flex flex-col min-h-0">
 					<div class="relative w-full flex-1 flex flex-col min-h-0">
-						{@render burgerRow()}
 						<div class="flex-1 min-h-0">
 							{@render children?.()}
 						</div>
@@ -127,21 +104,26 @@
 				class={`flex flex-col min-h-0 z-[${zIndexes.aiChat}]`}
 			>
 				<div class="flex-1 min-h-0">
-					<AiChat />
+					<!-- Dynamic: this layout wraps every workspace page, and the chat reaches ~100 modules. -->
+					{#await import('./AIChat.svelte') then AiChat}
+						<AiChat.default />
+					{/await}
 				</div>
 				{#if showSessionsBetaBanner}
-					<SessionsBetaBanner variant="legacy" />
+					<SessionsBetaBanner />
 				{/if}
 			</Pane>
 		{/if}
 	</Splitpanes>
 {:else}
+	<!-- The scroll lives here, below the page header, exactly as it does in the docked-chat layout
+	     above: a page taller than the window scrolls inside this box, so the band stays on screen
+	     instead of leaving with the content. -->
 	<div
 		id="content"
-		class={classNames('flex-1 min-h-0 flex flex-col', transitionClass)}
+		class={classNames('flex-1 min-h-0 flex flex-col overflow-y-auto', transitionClass)}
 		style:padding-left="{contentPadLeft}rem"
 	>
-		{@render burgerRow()}
 		<div class="flex-1 min-h-0 flex flex-col">
 			{@render children?.()}
 		</div>

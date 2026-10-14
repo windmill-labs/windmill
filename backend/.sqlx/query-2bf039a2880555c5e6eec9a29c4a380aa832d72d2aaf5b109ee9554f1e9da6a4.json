@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.id AS \"id!\", u.job_id AS \"job_id!\", u.created_seq AS \"user_seq!\"\n         FROM unnest($1::uuid[]) AS c(id)\n         CROSS JOIN LATERAL (\n             SELECT job_id, created_seq\n             FROM flow_conversation_message\n             WHERE conversation_id = c.id AND message_type = 'user'\n             ORDER BY created_seq DESC\n             LIMIT 1\n         ) u\n         WHERE u.job_id IS NOT NULL\n           AND EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = u.job_id)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "job_id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_seq!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      null,
+      true,
+      false
+    ]
+  },
+  "hash": "2bf039a2880555c5e6eec9a29c4a380aa832d72d2aaf5b109ee9554f1e9da6a4"
+}

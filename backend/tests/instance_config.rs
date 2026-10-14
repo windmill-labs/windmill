@@ -237,7 +237,7 @@ async fn test_diff_global_settings_empty_string_routes_to_delete(db: Pool<Postgr
         "empty-string value must route to deletes"
     );
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
     assert!(
         get_global_setting(&db, "npmrc").await.is_none(),
         "npmrc row must be deleted after apply"
@@ -319,7 +319,7 @@ async fn test_diff_global_settings_rejects_worker_configs_upsert(db: Pool<Postgr
         "worker_configs must never be written as a global setting"
     );
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
     assert!(
         get_global_setting(&db, "worker_configs").await.is_none(),
         "worker_configs row must not exist in global_settings after apply"
@@ -444,7 +444,7 @@ async fn test_apply_settings_diff_upserts_only(db: Pool<Postgres>) {
         ..Default::default()
     };
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     assert_eq!(
         get_global_setting(&db, "key_a").await,
@@ -468,7 +468,7 @@ async fn test_apply_settings_diff_deletes_only(db: Pool<Postgres>) {
         ..Default::default()
     };
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     assert!(get_global_setting(&db, "to_delete_1").await.is_none());
     assert!(get_global_setting(&db, "to_delete_2").await.is_none());
@@ -489,7 +489,7 @@ async fn test_apply_settings_diff_upserts_and_deletes(db: Pool<Postgres>) {
         ..Default::default()
     };
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     assert!(get_global_setting(&db, "old_key").await.is_none());
     assert_eq!(
@@ -503,7 +503,7 @@ async fn test_apply_settings_diff_empty_noop(db: Pool<Postgres>) {
     insert_global_setting(&db, "preexisting", serde_json::json!("value")).await;
 
     let diff = SettingsDiff::default();
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     assert_eq!(
         get_global_setting(&db, "preexisting").await,
@@ -525,7 +525,7 @@ async fn test_apply_settings_diff_upsert_overwrites(db: Pool<Postgres>) {
         ..Default::default()
     };
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     assert_eq!(
         get_global_setting(&db, "overwrite_me").await,
@@ -553,7 +553,7 @@ async fn test_apply_settings_diff_complex_json(db: Pool<Postgres>) {
         ..Default::default()
     };
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     let stored = get_global_setting(&db, "complex_setting").await.unwrap();
     assert_eq!(stored, complex_value);
@@ -568,7 +568,7 @@ async fn test_apply_settings_diff_delete_nonexistent_is_noop(db: Pool<Postgres>)
     };
 
     // Should not error
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 }
 
 // ========================================================================
@@ -589,7 +589,7 @@ async fn test_apply_configs_diff_upserts_with_prefix(db: Pool<Postgres>) {
         deletes: vec![],
     };
 
-    apply_configs_diff(&db, &diff).await.unwrap();
+    apply_configs_diff(&db, &diff, &()).await.unwrap();
 
     let stored = get_config(&db, "worker__mygroup").await.unwrap();
     assert_eq!(stored["init_bash"], "echo hi");
@@ -601,7 +601,7 @@ async fn test_apply_configs_diff_deletes_with_prefix(db: Pool<Postgres>) {
 
     let diff = ConfigsDiff { upserts: BTreeMap::new(), deletes: vec!["to_remove".to_string()] };
 
-    apply_configs_diff(&db, &diff).await.unwrap();
+    apply_configs_diff(&db, &diff, &()).await.unwrap();
 
     assert!(get_config(&db, "worker__to_remove").await.is_none());
 }
@@ -619,7 +619,7 @@ async fn test_apply_configs_diff_upsert_overwrites(db: Pool<Postgres>) {
         deletes: vec![],
     };
 
-    apply_configs_diff(&db, &diff).await.unwrap();
+    apply_configs_diff(&db, &diff, &()).await.unwrap();
 
     let stored = get_config(&db, "worker__grp").await.unwrap();
     assert_eq!(stored, serde_json::json!({"new": true}));
@@ -630,7 +630,7 @@ async fn test_apply_configs_diff_empty_noop(db: Pool<Postgres>) {
     insert_config(&db, "worker__keep", serde_json::json!({"keep": true})).await;
 
     let diff = ConfigsDiff::default();
-    apply_configs_diff(&db, &diff).await.unwrap();
+    apply_configs_diff(&db, &diff, &()).await.unwrap();
 
     assert!(get_config(&db, "worker__keep").await.is_some());
 }
@@ -641,7 +641,7 @@ async fn test_apply_configs_diff_does_not_touch_non_worker_configs(db: Pool<Post
 
     let diff = ConfigsDiff { upserts: BTreeMap::new(), deletes: vec!["server_config".to_string()] };
 
-    apply_configs_diff(&db, &diff).await.unwrap();
+    apply_configs_diff(&db, &diff, &()).await.unwrap();
 
     // The delete targets "worker__server_config", not "server_config"
     assert!(
@@ -692,7 +692,7 @@ async fn test_roundtrip_write_read_modify_apply(db: Pool<Postgres>) {
     assert!(diff.upserts.contains_key("expose_metrics"));
     assert!(diff.deletes.is_empty());
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     // Step 5: Read back and verify
     let config2 = InstanceConfig::from_db(&db).await.unwrap();
@@ -729,7 +729,7 @@ async fn test_roundtrip_replace_mode_deletes(db: Pool<Postgres>) {
     assert!(diff.deletes.contains(&"retention_period_secs".to_string()));
     assert!(diff.deletes.contains(&"expose_metrics".to_string()));
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     assert!(get_global_setting(&db, "retention_period_secs")
         .await
@@ -782,7 +782,7 @@ async fn test_roundtrip_worker_configs(db: Pool<Postgres>) {
     assert!(diff.upserts.contains_key("gpu")); // new
     assert_eq!(diff.deletes, vec!["legacy".to_string()]);
 
-    apply_configs_diff(&db, &diff).await.unwrap();
+    apply_configs_diff(&db, &diff, &()).await.unwrap();
 
     // Verify
     let config2 = InstanceConfig::from_db(&db).await.unwrap();
@@ -820,7 +820,7 @@ async fn test_roundtrip_to_settings_map_from_db_consistency(db: Pool<Postgres>) 
     let diff =
         SettingsDiff { upserts: map.into_iter().collect(), deletes: vec![], ..Default::default() };
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     let config = InstanceConfig::from_db(&db).await.unwrap();
     assert_eq!(config.global_settings.base_url, original.base_url);
@@ -868,8 +868,8 @@ async fn test_idempotent_apply(db: Pool<Postgres>) {
     };
 
     // Apply twice
-    apply_settings_diff(&db, &diff).await.unwrap();
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     assert_eq!(
         get_global_setting(&db, "idem_key").await,
@@ -1069,7 +1069,7 @@ async fn test_diff_apply_only_touches_changed_rows(db: Pool<Postgres>) {
     assert!(!diff.upserts.contains_key("unchanged_1"));
     assert!(!diff.upserts.contains_key("unchanged_2"));
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     // Verify all 4 settings present
     assert_eq!(count_global_settings(&db).await, 4);
@@ -1148,7 +1148,7 @@ async fn test_replace_mode_protects_settings_in_integration(db: Pool<Postgres>) 
     // But normal_setting should be deleted
     assert!(diff.deletes.contains(&"normal_setting".to_string()));
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     // Verify protected settings survived
     assert!(get_global_setting(&db, "ducklake_settings").await.is_some());
@@ -1196,7 +1196,7 @@ async fn test_jwt_secret_roundtrip_as_string_or_secret_ref(db: Pool<Postgres>) {
 
     let diff =
         SettingsDiff { upserts: map.into_iter().collect(), deletes: vec![], ..Default::default() };
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     // Read back from DB — jwt_secret should survive the roundtrip
     let config = InstanceConfig::from_db(&db).await.unwrap();
@@ -1239,7 +1239,7 @@ async fn test_rsa_keys_roundtrip_via_extra(db: Pool<Postgres>) {
     let map = settings.to_settings_map();
     let diff =
         SettingsDiff { upserts: map.into_iter().collect(), deletes: vec![], ..Default::default() };
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     // Read back from DB
     let config = InstanceConfig::from_db(&db).await.unwrap();
@@ -1296,7 +1296,7 @@ async fn test_replace_mode_protects_jwt_secret_and_rsa_keys(db: Pool<Postgres>) 
         "normal_setting should be deleted"
     );
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     // Both protected settings survive
     assert_eq!(
@@ -1371,7 +1371,7 @@ async fn test_alert_config_in_global_settings_roundtrip(db: Pool<Postgres>) {
         "alert_config change should be detected in diff"
     );
 
-    apply_settings_diff(&db, &diff).await.unwrap();
+    apply_settings_diff(&db, &diff, &()).await.unwrap();
 
     // Re-read and verify the update
     let config2 = InstanceConfig::from_db(&db).await.unwrap();
@@ -1442,7 +1442,10 @@ async fn declarative_sync_rejects_an_unusable_webhook_base_url(db: Pool<Postgres
     let before = count_global_settings(&db).await;
 
     let mut desired = BTreeMap::new();
-    desired.insert("base_url".to_string(), serde_json::json!("https://wm.example.com"));
+    desired.insert(
+        "base_url".to_string(),
+        serde_json::json!("https://wm.example.com"),
+    );
     desired.insert(
         "github_app_webhook_base_url".to_string(),
         serde_json::json!("httpss://hooks.example.com"),
@@ -1452,6 +1455,7 @@ async fn declarative_sync_rejects_an_unusable_webhook_base_url(db: Pool<Postgres
         &db,
         &BTreeMap::new(),
         &desired,
+        &(),
     )
     .await
     .expect_err("an invalid webhook base url must fail the sync");
@@ -1471,6 +1475,7 @@ async fn declarative_sync_rejects_an_unusable_webhook_base_url(db: Pool<Postgres
         &db,
         &BTreeMap::new(),
         &wrong_type,
+        &(),
     )
     .await
     .expect_err("a non-string webhook base url must fail the sync");
@@ -1508,6 +1513,7 @@ async fn declarative_sync_rejects_an_unusable_instance_banner(db: Pool<Postgres>
         &db,
         &BTreeMap::new(),
         &desired,
+        &(),
     )
     .await
     .expect_err("a javascript: banner link must fail the sync");
@@ -1524,5 +1530,270 @@ async fn declarative_sync_rejects_an_unusable_instance_banner(db: Pool<Postgres>
     assert!(
         get_global_setting(&db, "base_url").await.is_none(),
         "the other settings in the same apply must not have been written either"
+    );
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn declarative_sync_rejects_a_malformed_max_token_expiration(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+    let before = count_global_settings(&db).await;
+
+    let mut desired = BTreeMap::new();
+    desired.insert(
+        "max_token_expiration_days".to_string(),
+        serde_json::json!("7.0"),
+    );
+
+    let err = windmill_common::instance_config::sync_global_settings_declarative(
+        &db,
+        &BTreeMap::new(),
+        &desired,
+        &(),
+    )
+    .await
+    .expect_err("a ceiling the token routes cannot read must fail the sync");
+    assert!(
+        err.to_string().contains("max_token_expiration_days"),
+        "the error should name the offending setting, got: {err}"
+    );
+    assert_eq!(count_global_settings(&db).await, before);
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn declarative_sync_rejects_an_unusable_default_allowed_origins(db: Pool<Postgres>) {
+    // The declarative writers (the sync-config CLI, the operator's ConfigMap
+    // sync) do not run the HTTP layer's pre-write hook, so an origin list that
+    // cannot be parsed would persist here, be dropped at boot, and leave the
+    // instance with no restriction at all.
+    clear_settings_and_configs(&db).await;
+    let before = count_global_settings(&db).await;
+
+    for bad in [
+        serde_json::json!([""]),
+        serde_json::json!(["https://a.example,https://b.example"]),
+        serde_json::json!("null"),
+    ] {
+        let mut desired = BTreeMap::new();
+        desired.insert(
+            "http_route_default_allowed_origins".to_string(),
+            bad.clone(),
+        );
+        let err = windmill_common::instance_config::sync_global_settings_declarative(
+            &db,
+            &BTreeMap::new(),
+            &desired,
+            &(),
+        )
+        .await
+        .expect_err(&format!("{bad} must fail the sync"));
+        assert!(
+            err.to_string()
+                .contains("http_route_default_allowed_origins"),
+            "the error should name the offending setting, got: {err}"
+        );
+    }
+
+    assert_eq!(
+        count_global_settings(&db).await,
+        before,
+        "a rejected sync must not have persisted anything"
+    );
+
+    // A usable list still syncs.
+    let mut desired = BTreeMap::new();
+    desired.insert(
+        "http_route_default_allowed_origins".to_string(),
+        serde_json::json!(["https://app.example.com"]),
+    );
+    windmill_common::instance_config::sync_global_settings_declarative(
+        &db,
+        &BTreeMap::new(),
+        &desired,
+        &(),
+    )
+    .await
+    .expect("a valid origin list must sync");
+}
+
+/// While Windmill has databases on the external cluster, a sync may change its login but not
+/// point it at another cluster: the databases would be stranded there, and their registry and
+/// role passwords applied to a cluster that has neither.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+#[sqlx::test(fixtures("base"))]
+async fn declarative_sync_keeps_the_external_cluster_while_it_holds_databases(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+    let cluster = |host: &str, password: &str| serde_json::json!({ "host": host, "port": 5432, "user": "wm_admin", "password": password });
+    sqlx::query(
+        "INSERT INTO global_settings (name, value) VALUES
+             ('external_instance_pg', $1),
+             ('external_instance_pg_state', '{\"databases\": {\"dt_a\": {\"success\": true}}}')",
+    )
+    .bind(cluster("pg-a.internal", "one"))
+    .execute(&db)
+    .await
+    .unwrap();
+    let current = BTreeMap::from([(
+        "external_instance_pg".to_string(),
+        cluster("pg-a.internal", "one"),
+    )]);
+    let sync = |value: serde_json::Value| {
+        let desired = BTreeMap::from([("external_instance_pg".to_string(), value)]);
+        let (db, current) = (db.clone(), current.clone());
+        async move {
+            windmill_common::instance_config::sync_global_settings_declarative(
+                &db,
+                &current,
+                &desired,
+                &(),
+            )
+            .await
+        }
+    };
+
+    let err = sync(cluster("pg-b.internal", "one"))
+        .await
+        .expect_err("another host must be refused while dt_a is registered");
+    assert!(err.to_string().contains("dt_a"), "got: {err}");
+    assert_eq!(
+        get_global_setting(&db, "external_instance_pg").await,
+        Some(cluster("pg-a.internal", "one"))
+    );
+
+    sync(cluster("PG-A.internal ", "two"))
+        .await
+        .expect("a new login on the same cluster must sync");
+}
+
+/// The accent color is interpolated into a stylesheet every user loads, so the operator
+/// path must refuse anything but `#rrggbb` just like the settings API does.
+#[sqlx::test(fixtures("base"))]
+async fn declarative_sync_rejects_a_non_hex_accent_color(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+
+    let mut desired = BTreeMap::new();
+    desired.insert(
+        "accent_color".to_string(),
+        serde_json::json!("#000;}body{display:none"),
+    );
+    let err = windmill_common::instance_config::sync_global_settings_declarative(
+        &db,
+        &BTreeMap::new(),
+        &desired,
+        &(),
+    )
+    .await
+    .expect_err("a non-hex accent color must fail the sync");
+    assert!(err.to_string().contains("accent_color"), "got: {err}");
+    assert!(get_global_setting(&db, "accent_color").await.is_none());
+
+    desired.insert("accent_color".to_string(), serde_json::json!("#1f9d55"));
+    windmill_common::instance_config::sync_global_settings_declarative(
+        &db,
+        &BTreeMap::new(),
+        &desired,
+        &(),
+    )
+    .await
+    .expect("a hex accent color must sync");
+}
+
+/// A declarative sync has no user request behind it, so its observer is the only thing
+/// that audits it: one entry per setting or worker config it actually writes, values
+/// recorded under the API path's rule, and none for what it leaves as is.
+#[cfg(all(feature = "enterprise", feature = "private"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_declarative_sync_audits_only_what_it_writes(db: Pool<Postgres>) {
+    use windmill_audit::instance_config::{
+        declarative_sync_author, DeclarativeSource, InstanceConfigAuditor,
+    };
+
+    insert_global_setting(&db, "retention_period_secs", serde_json::json!(100)).await;
+    insert_global_setting(&db, "expose_metrics", serde_json::json!(true)).await;
+    insert_global_setting(&db, "scim_token", serde_json::json!("old-scim-secret")).await;
+    insert_global_setting(
+        &db,
+        "npm_config_registry",
+        serde_json::json!("https://u:p@npm"),
+    )
+    .await;
+    insert_config(
+        &db,
+        "worker__kept",
+        serde_json::json!({"worker_tags": ["a"]}),
+    )
+    .await;
+    insert_config(
+        &db,
+        "worker__dropped",
+        serde_json::json!({"worker_tags": ["b"]}),
+    )
+    .await;
+
+    let config: windmill_common::instance_config::InstanceConfig =
+        serde_json::from_value(serde_json::json!({
+            "global_settings": {
+                "retention_period_secs": 200,
+                "expose_metrics": true,
+                "scim_token": "new-scim-secret",
+            },
+            "worker_configs": {
+                "kept": {"worker_tags": ["a"]},
+                "added": {"init_bash": "export TOKEN=init-secret"},
+            },
+        }))
+        .unwrap();
+    let author = declarative_sync_author();
+    config
+        .sync_to_db(
+            &db,
+            &InstanceConfigAuditor {
+                db: &db,
+                author: &author,
+                source: Some(DeclarativeSource::SyncConfig),
+            },
+        )
+        .await
+        .unwrap();
+
+    let entries: Vec<(String, String, serde_json::Value)> = sqlx::query_as(
+        "SELECT operation, resource, parameters FROM audit_partitioned \
+         WHERE workspace_id = 'global' AND username = $1 AND resource = ANY($2) \
+         ORDER BY resource",
+    )
+    .bind(&author.username)
+    .bind(vec![
+        "retention_period_secs",
+        "expose_metrics",
+        "scim_token",
+        "npm_config_registry",
+        "worker__kept",
+        "worker__dropped",
+        "worker__added",
+    ])
+    .fetch_all(&db)
+    .await
+    .unwrap();
+
+    let source = serde_json::json!({"source": "sync-config"});
+    let entry = |operation: &str, resource: &str, parameters: &serde_json::Value| {
+        (
+            operation.to_string(),
+            resource.to_string(),
+            parameters.clone(),
+        )
+    };
+    assert_eq!(
+        entries,
+        vec![
+            entry("global_settings.delete", "npm_config_registry", &source),
+            entry(
+                "global_settings.update",
+                "retention_period_secs",
+                &serde_json::json!({"source": "sync-config", "value": "200"}),
+            ),
+            entry("global_settings.update", "scim_token", &source),
+            entry("worker_config.update", "worker__added", &source),
+            entry("worker_config.delete", "worker__dropped", &source),
+        ]
     );
 }

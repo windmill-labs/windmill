@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { base } from '$app/paths'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { WorkerService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { resource } from 'runed'
 	import { hasWorkerForTag } from './missingWorker'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		/** Worker tag the feature's jobs run on. */
@@ -17,7 +18,7 @@
 
 	let { tag, subject, workspace = undefined, class: className = '' }: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	// With per-workspace default tags, jobs run on a workspace-suffixed variant of
 	// `tag`, so probing the bare tag would warn about a tag nothing uses. The
@@ -41,7 +42,7 @@
 			{subject} run as Windmill jobs tagged <b>{tag}</b>, and no worker is currently listening to
 			that tag, so they stay queued until one is. If no worker group is meant to serve it, add
 			<b>{tag}</b>
-			to a group's worker tags on the <a href="{base}/workers">workers page</a>.
+			to a group's worker tags on the <a href="/workers">workers page</a>.
 		</Alert>
 	</div>
 {/if}

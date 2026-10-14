@@ -20,10 +20,13 @@ writes whichever of the two changed, including the tab that is not on screen.
 	import { userStore, type UserExt } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
-	import { base } from '$lib/base'
 	import { Building2, ExternalLink, User } from 'lucide-svelte'
 	import { untrack } from 'svelte'
 	import { getAiChatManager } from './aiChatManagerContext'
+	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	let {
 		ws,
@@ -46,7 +49,7 @@ writes whichever of the two changed, including the tab that is not on screen.
 	const aiChatManager = getAiChatManager()
 	// The section acts on `ws`, which in a session is not the nav workspace, so the link
 	// has to name it or it opens settings the user may not administer.
-	let aiSettingsHref = $derived(`${base}/workspace_settings?workspace=${ws}&tab=ai`)
+	let aiSettingsHref = $derived(`/workspace_settings?workspace=${ws}&tab=ai`)
 
 	let mode = $derived(aiChatManager.mode)
 	let tab = $state<'workspace' | 'user'>('workspace')
@@ -55,7 +58,7 @@ writes whichever of the two changed, including the tab that is not on screen.
 			? `Applies to everyone in ${ws}.`
 			: 'Stored in this browser and sent in every workspace, so they follow you rather than the workspace.'
 	)
-	// `$userStore.is_admin` is the role in the nav workspace, not necessarily in `ws`, so
+	// `actingUser?.is_admin` is the role in the nav workspace, not necessarily in `ws`, so
 	// the resolved role is keyed to the workspace it was read for, and an unresolved one
 	// reads as no admin: offering the field and taking it away on resolve would discard
 	// whatever was typed in between. Superadmin holds everywhere.
@@ -69,8 +72,8 @@ writes whichever of the two changed, including the tab that is not on screen.
 	let roleUnknown = $derived(roleRead !== undefined && !roleRead.user && !navIsTarget)
 	let isAdmin = $derived(
 		Boolean(
-			$userStore?.is_super_admin ||
-				(roleForTarget ? roleForTarget.is_admin : navIsTarget && $userStore?.is_admin)
+			actingUser?.is_super_admin ||
+				(roleForTarget ? roleForTarget.is_admin : navIsTarget && actingUser?.is_admin)
 		)
 	)
 

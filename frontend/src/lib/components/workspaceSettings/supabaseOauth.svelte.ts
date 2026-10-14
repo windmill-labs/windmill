@@ -1,9 +1,8 @@
 import { fromStore } from 'svelte/store'
-import { base } from '$lib/base'
 import { oauthStore } from '$lib/stores'
 
 const OAUTH_WINDOW = 'windmill_supabase_oauth'
-const CONNECT_URL = `${base}/api/oauth/connect/supabase_wizard`
+const CONNECT_URL = '/api/oauth/connect/supabase_wizard'
 
 /**
  * The Supabase authorization leg, driven from a popup.

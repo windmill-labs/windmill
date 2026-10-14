@@ -17,9 +17,10 @@
 		Newspaper,
 		Crown,
 		Gauge,
-		Trash2
+		Trash2,
+		KeyRound,
+		GraduationCap
 	} from 'lucide-svelte'
-	import { base } from '$app/paths'
 	import { goto } from '$lib/navigation'
 	import { type Item } from '$lib/utils'
 	import { logout } from '$lib/logoutKit'
@@ -35,7 +36,10 @@
 	import SideBarNotification from './SideBarNotification.svelte'
 	import { markChangelogsOpened, readRecentChangelogs } from './changelogs'
 	import { USER_SETTINGS_HASH, SUPERADMIN_SETTINGS_HASH } from './settings'
+	import { accountSetup } from './accountSetup.svelte'
 	import { EXECUTIONS_HINT } from './executionsHint'
+	import { sidebarPageAllowed } from './operatorRoutes'
+	import { TOUR_PARAM, TOUR_PARAM_VALUE } from '$lib/components/tutorials/operatorTour'
 	import {
 		userWorkspaces,
 		workspaceStore,
@@ -187,12 +191,12 @@
 								icon: Building,
 								// The `workspace` query param switches the app to the target
 								// workspace on arrival (full loads and client-side navs alike).
-								href: `${base}/workspace_settings?workspace=${workspaceSettingsTarget}`
+								href: `/workspace_settings?workspace=${workspaceSettingsTarget}`
 							}
 						: {
 								displayName: `${currentWs?.name ?? $workspaceStore ?? 'Workspace'} settings`,
 								icon: Building,
-								href: `${base}/workspace_settings`
+								href: '/workspace_settings'
 							}
 				]
 			: []),
@@ -206,6 +210,10 @@
 				]
 			: [])
 	])
+
+	// An account entered through an invite link that still has no credentials of its own;
+	// the entry (and the sidebar banner it echoes) disappears once it does.
+	let pendingSetup = $derived(accountSetup.pending)
 
 	const items = $derived<Item[]>([
 		{
@@ -226,11 +234,31 @@
 				: ($userStore?.email ?? 'User'),
 			icon: $userStore?.is_admin || $userStore?.non_member ? Crown : User,
 			submenuItems: [
+				...(pendingSetup
+					? [
+							{
+								displayName: 'Finish account setup',
+								icon: KeyRound,
+								// The dropdown closes on this click; the modal opens once it is gone so its own
+								// buttons don't compete with the menu's outside-click handling.
+								action: () => setTimeout(() => (accountSetup.open = true), 50)
+							}
+						]
+					: []),
 				{
 					displayName: 'Account settings',
 					icon: Settings,
 					action: () => goto(USER_SETTINGS_HASH)
 				},
+				...($userStore?.operator
+					? [
+							{
+								displayName: 'Take the tour',
+								icon: GraduationCap,
+								action: () => goto(`/?${TOUR_PARAM}=${TOUR_PARAM_VALUE}`)
+							}
+						]
+					: []),
 				...(cloudHosted && $isPremiumStore === false
 					? [
 							{
@@ -248,9 +276,9 @@
 	])
 
 	const logsItems = $derived<Item[]>([
-		{ displayName: 'Audit logs', icon: Eye, href: `${base}/audit_logs` },
+		{ displayName: 'Audit logs', icon: Eye, href: '/audit_logs' },
 		...($devopsRole
-			? [{ displayName: 'Service logs', icon: Logs, href: `${base}/service_logs` }]
+			? [{ displayName: 'Service logs', icon: Logs, href: '/service_logs' }]
 			: []),
 		...($enterpriseLicense
 			? [
@@ -288,8 +316,9 @@
 	<MenuLink
 		class="!text-xs"
 		label="Workers"
-		href="{base}/workers"
+		href="/workers"
 		icon={ServerCog}
+		disabled={!sidebarPageAllowed($userStore?.operator, currentWs, 'workers')}
 		{isCollapsed}
 		aiId="sidebar-menu-link-workers"
 		aiDescription="Button to navigate to workers"
@@ -333,9 +362,9 @@
 		<MenuLink
 			class="!text-xs"
 			label="Audit logs"
-			href="{base}/audit_logs"
+			href="/audit_logs"
 			icon={Eye}
-			disabled={$userStore?.operator}
+			disabled={!sidebarPageAllowed($userStore?.operator, currentWs, 'audit_logs')}
 			{isCollapsed}
 			aiId="sidebar-menu-link-audit-logs"
 			aiDescription="Button to navigate to audit logs"
@@ -379,8 +408,11 @@
 	{/snippet}
 </DropdownV2>
 
+<!-- `alwaysPortal`: the sidebar's mobile slide-in panel keeps a `transform` that would
+     otherwise confine the dialog to the panel's width. -->
 <ConfirmationModal
 	open={leaveWorkspaceModal}
+	alwaysPortal
 	title="Leave workspace"
 	confirmationText="Leave workspace"
 	on:canceled={() => {

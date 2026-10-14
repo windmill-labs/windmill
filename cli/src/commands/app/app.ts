@@ -32,6 +32,8 @@ export interface AppFile {
   guests?: boolean;
   value: any;
   public?: boolean;
+  sandbox?: boolean;
+  frontend_api?: string[];
   summary: string;
   policy: Policy;
   // Mirrors granular ACLs on the app path. Omitted from app.yaml when no
@@ -113,6 +115,14 @@ export function replaceInlineScripts(
   }
   return [];
 }
+/** `parent_version` is the editor's stale-draft base: a version id that changes on
+ * every deploy and means nothing in another workspace, so it is kept out of the
+ * tracked file and out of what a push deploys. */
+export function stripEditorState(app: any) {
+  if (app?.value && typeof app.value == "object") {
+    delete app.value.parent_version;
+  }
+}
 export function isExecutionModeAnonymous(app: any) {
   return app?.["policy"]?.["execution_mode"] == "anonymous";
 }
@@ -160,6 +170,100 @@ export function executionModeForPush(
   }
   return deployedPolicy?.execution_mode === "viewer" ? "viewer" : "publisher";
 }
+/** Mirrors `FRONTEND_SDK_ALLOWED_SCOPES` in the backend's `apps.rs`, which stays
+ * the authority: this copy only fails a push before it bundles. */
+export const FRONTEND_API_SCOPES = [
+  "jobs:run",
+  "jobs:read",
+  "users:read",
+  "resources:read",
+  "variables:read",
+  "flow_conversations:read",
+  "flow_conversations:write",
+];
+
+export type AppIsolation = { sandbox: boolean; frontendApi: string[] };
+
+/** Write `sandbox` and `frontend_api` on a pulled app, only when they are on, so
+ * an app using neither keeps the file it had. Scopes of an unsandboxed app are
+ * inert and stay out: a file stating them without `sandbox` does not push. */
+export function markIsolationFromPolicy(app: any, rawApp: boolean) {
+  if (app?.["policy"]?.["sandbox"] !== true) {
+    return;
+  }
+  app.sandbox = true;
+  const scopes = app.policy.frontend_sdk_scopes;
+  if (rawApp && Array.isArray(scopes) && scopes.length > 0) {
+    app.frontend_api = scopes;
+  }
+}
+
+/** The isolation the tracked file states, or `undefined` when it has no `sandbox`
+ * key and the deployed policy carries over. A file that has the key states both
+ * fields: `sandbox: false` turns isolation off, and a missing `frontend_api`
+ * means no scopes. */
+export function statedIsolation(
+  localApp: any,
+  rawApp: boolean,
+): AppIsolation | undefined {
+  const sandbox = localApp?.["sandbox"];
+  const scopes = localApp?.["frontend_api"] ?? [];
+  if (sandbox !== undefined && typeof sandbox !== "boolean") {
+    throw new Error("'sandbox' must be true or false");
+  }
+  if (
+    !Array.isArray(scopes) ||
+    scopes.some((s: unknown) => typeof s !== "string")
+  ) {
+    throw new Error("'frontend_api' must be a list of scopes");
+  }
+  if (scopes.length > 0 && !rawApp) {
+    throw new Error("'frontend_api' is only available to full-code apps");
+  }
+  const seen = new Set<string>();
+  for (const scope of scopes) {
+    if (!FRONTEND_API_SCOPES.includes(scope)) {
+      throw new Error(
+        `Invalid frontend_api scope '${scope}'. Allowed scopes: ${FRONTEND_API_SCOPES.join(", ")}`,
+      );
+    }
+    if (seen.has(scope)) {
+      throw new Error(`Duplicate frontend_api scope '${scope}'`);
+    }
+    seen.add(scope);
+  }
+  if (scopes.length > 0 && sandbox !== true) {
+    throw new Error(
+      "'frontend_api' requires 'sandbox: true': an unsandboxed app gets no frontend API token",
+    );
+  }
+  return sandbox === undefined ? undefined : { sandbox, frontendApi: scopes };
+}
+
+/** Whether the deployed policy already has the stated isolation. The file's two
+ * keys are kept out of the superset comparison against the deployed app, which
+ * could not see a key the file dropped. */
+export function isolationUpToDate(
+  isolation: AppIsolation | undefined,
+  deployedPolicy: Policy | undefined,
+  rawApp: boolean,
+): boolean {
+  if (!isolation) {
+    return true;
+  }
+  if ((deployedPolicy?.sandbox === true) !== isolation.sandbox) {
+    return false;
+  }
+  if (!rawApp) {
+    return true;
+  }
+  const deployed = deployedPolicy?.frontend_sdk_scopes ?? [];
+  return (
+    deployed.length === isolation.frontendApi.length &&
+    deployed.every((s, i) => s === isolation.frontendApi[i])
+  );
+}
+
 export async function pushApp(
   workspace: string,
   remotePath: string,
@@ -198,6 +302,8 @@ export async function pushApp(
   }
   const path = localPath + "app.yaml";
   const localApp = (await yamlParseFile(path)) as AppFile;
+  stripEditorState(localApp);
+  const isolation = statedIsolation(localApp, false);
 
   replaceInlineScripts(localApp.value, localPath, true);
   // On create the backend applies folder defaults, so there is nothing to preserve.
@@ -210,17 +316,26 @@ export async function pushApp(
     localApp,
     remotePath,
     executionModeForPush(localApp, deployedPolicy),
-    basePolicy(localApp, deployedPolicy, !!preserveFields.preserve_on_behalf_of)
+    basePolicy(localApp, deployedPolicy, !!preserveFields.preserve_on_behalf_of),
+    isolation
   );
 
   // extra_perms goes through /acls/* — strip from the body so a perms-only
   // edit never bumps the app version (see applyExtraPermsDiff for details).
-  const { extra_perms: localPerms, ...localAppBody } = localApp as AppFile & {
+  const {
+    extra_perms: localPerms,
+    sandbox: _sandbox,
+    frontend_api: _frontendApi,
+    ...localAppBody
+  } = localApp as AppFile & {
     extra_perms?: Record<string, boolean>;
   };
 
   if (app) {
-    if (isSuperset(localAppBody, app)) {
+    if (
+      isSuperset(localAppBody, app) &&
+      isolationUpToDate(isolation, deployedPolicy, false)
+    ) {
       log.info(colors.green(`App ${remotePath} is up to date`));
     } else {
       log.info(colors.bold.yellow(`Updating app ${remotePath}...`));
@@ -269,12 +384,13 @@ export async function generatingPolicy(
   app: any,
   path: string,
   executionMode: AppExecutionMode,
-  base: Policy | undefined
+  base: Policy | undefined,
+  isolation?: AppIsolation
 ) {
   log.info(colors.gray(`Generating fresh policy for app ${path}...`));
   try {
     app.policy = await windmillUtils.updatePolicy(app.value, base);
-    finalizeDerivedPolicy(app.policy, executionMode);
+    finalizeDerivedPolicy(app.policy, executionMode, isolation);
   } catch (e) {
     log.error(colors.red(`Error generating policy for app ${path}: ${e}`));
     throw e;
@@ -332,10 +448,21 @@ export function preserveOnBehalfOfFields(
  * deployed app would keep being able to run runnables this push removed. */
 export function finalizeDerivedPolicy(
   policy: Policy,
-  executionMode: AppExecutionMode
+  executionMode: AppExecutionMode,
+  isolation?: AppIsolation,
+  rawApp: boolean = false
 ) {
   policy.triggerables = undefined;
   policy.execution_mode = executionMode;
+  if (isolation) {
+    // `false` is sent rather than left out: the server reads an omitted value as
+    // "no opinion" and may sandbox the app anyway, hiding that the file was refused.
+    policy.sandbox = isolation.sandbox;
+    if (rawApp) {
+      policy.frontend_sdk_scopes =
+        isolation.frontendApi.length > 0 ? isolation.frontendApi : undefined;
+    }
+  }
 }
 
 async function list(opts: GlobalOptions & { includeDraftOnly?: boolean; json?: boolean }) {

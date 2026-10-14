@@ -4,7 +4,7 @@ const { getMcpToolsMock, callMcpToolMock, listResourceMock, session } = vi.hoist
 	getMcpToolsMock: vi.fn(),
 	callMcpToolMock: vi.fn(),
 	listResourceMock: vi.fn(),
-	session: { email: 'first@windmill.dev' }
+	session: { email: 'first@windmill.dev', workspace_id: 'test-ws', username: 'hugo', pgroups: [] }
 }))
 
 vi.mock('../shared', () => ({
@@ -125,6 +125,12 @@ describe('read/write split', () => {
 	it('asks for confirmation only on the write path', () => {
 		expect(getTool('call_mcp_read_tool').requiresConfirmation).toBeFalsy()
 		expect(getTool('call_mcp_write_tool').requiresConfirmation).toBe(true)
+	})
+
+	it('admits search and reads in plan mode, never writes', () => {
+		expect(getTool('search_mcp_tools').planModeSafe).toBe(true)
+		expect(getTool('call_mcp_read_tool').planModeSafe).toBe(true)
+		expect(getTool('call_mcp_write_tool').planModeSafe).toBeFalsy()
 	})
 
 	// The rejection sends the model to the write tool, which classifies from the

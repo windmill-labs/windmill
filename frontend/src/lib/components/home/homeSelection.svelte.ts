@@ -13,7 +13,7 @@ import type { UserExt } from '$lib/stores'
 /** A raw app is not a kind of its own here: the listing returns it as an `app`
  * row carrying `raw_app`, which every action addresses through `BulkItem.rawApp`
  * (only the draft overlay distinguishes the two). */
-export type BulkKind = 'script' | 'flow' | 'app'
+export type BulkKind = 'script' | 'flow' | 'app' | 'agent'
 
 /** The flattened row facts every bulk action needs, snapshotted at selection
  * time so an action still knows what it is acting on after the list reloads. */
@@ -32,6 +32,9 @@ export type BulkItem = {
 	draftOnly: boolean
 	/** The authed user has a draft at this path (the listing only flags their own). */
 	isDraft: boolean
+	/** A draft-only item whose draft is a legacy (owner-less) row, which only a
+	 * `legacy` delete reaches. */
+	legacyDraft: boolean
 	rawApp: boolean
 }
 
@@ -44,6 +47,7 @@ type RawItem = {
 	draft_only?: boolean | null
 	draft_path?: string | null
 	is_draft?: boolean
+	draft_users?: { username?: string | null }[] | null
 	raw_app?: boolean
 }
 
@@ -69,6 +73,8 @@ export function toBulkItem(
 		archived: item.archived ?? false,
 		draftOnly: !!item.draft_only,
 		isDraft: !!item.is_draft,
+		legacyDraft:
+			!!item.draft_only && item.draft_users?.length === 1 && item.draft_users[0]?.username == null,
 		rawApp: !!item.raw_app
 	}
 }
@@ -77,21 +83,16 @@ export class HomeSelection {
 	/** The page offers multi-selection at all (never to an operator, and not on
 	 * the embedded read-only variants of the list). */
 	available = $state(false)
-	/** Selection mode is on even with nothing selected yet — entered from the
-	 * toolbar, so every row reveals its checkbox before the first pick. */
-	private explicit = $state(false)
 	private selected = new SvelteMap<string, BulkItem>()
 	/** Every rendered selectable row, so a shift-click range can resolve the keys
 	 * between the anchor and the clicked row back to items. */
 	private registry = new SvelteMap<string, BulkItem>()
 	private anchor: string | undefined = undefined
 
+	/** Selection mode lasts exactly as long as something is selected: unticking
+	 * the last row drops back to the normal list. */
 	get active(): boolean {
-		return this.available && (this.explicit || this.selected.size > 0)
-	}
-
-	get size(): number {
-		return this.selected.size
+		return this.available && this.selected.size > 0
 	}
 
 	get items(): BulkItem[] {
@@ -133,12 +134,7 @@ export class HomeSelection {
 		this.registry.delete(key)
 	}
 
-	enter(): void {
-		this.explicit = true
-	}
-
 	exit(): void {
-		this.explicit = false
 		this.selected.clear()
 		this.anchor = undefined
 	}
@@ -155,13 +151,15 @@ export class HomeSelection {
 	}
 
 	toggle(item: BulkItem, range = false): void {
-		this.explicit = true
 		if (range && this.anchor != undefined && this.anchor !== item.key) {
 			if (this.selectRange(this.anchor, item.key)) return
 		}
 		if (this.selected.has(item.key)) this.selected.delete(item.key)
 		else this.selected.set(item.key, item)
-		this.anchor = item.key
+		// Unticking the last row ends selection mode, so the row it was on is not an
+		// anchor any more: the next shift-click would otherwise reach back and select
+		// everything between it and the row the user just started from.
+		this.anchor = this.selected.size === 0 ? undefined : item.key
 	}
 
 	/** Visual order is read back from the DOM: the tree nests rows and pages them

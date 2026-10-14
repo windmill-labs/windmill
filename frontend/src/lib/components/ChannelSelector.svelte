@@ -1,9 +1,11 @@
 <script lang="ts">
 	import Select from './select/Select.svelte'
 	import { WorkspaceService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { RefreshCcw } from 'lucide-svelte'
 	import { Button } from './common'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface ChannelItem {
 		channel_id?: string
@@ -21,8 +23,8 @@
 		showRefreshButton?: boolean
 		onError?: (error: Error) => void
 		onSelectedChannelChange?: (channel: ChannelItem | undefined) => void
-		/** Workspace to list Teams channels from; defaults to the nav
-		 * `$workspaceStore`. A forked session passes its acting workspace. */
+		/** Workspace to list Teams channels from; defaults to the operating workspace (see
+		 * `useOperatingWorkspace`). */
 		workspace?: string
 	}
 
@@ -40,7 +42,7 @@
 		workspace = undefined
 	}: Props = $props()
 
-	let effectiveWorkspace = $derived(workspace ?? $workspaceStore)
+	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace)
 
 	let isFetching = $state(false)
 	let loadedChannels = $state<ChannelItem[]>([])

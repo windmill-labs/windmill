@@ -16,15 +16,31 @@ export type OpenItemPreviewAction = {
 	label: string
 	previewKind: PreviewCardKind
 	path: string
+	/** Which side of the item to show. A card on a write-tool result means the
+	 * draft the tool just wrote, so it asks for the editor; a path the model
+	 * mentioned in prose means the item as it stands, so it asks for the
+	 * deployed page. Declared per call site because only the call site knows
+	 * which of the two it is. */
+	mode: 'edit' | 'view'
 }
 
 /** Build the action a preview card or path link dispatches from its (kind, path). */
-export function openItemPreviewAction(kind: PreviewCardKind, path: string): OpenItemPreviewAction {
+export function openItemPreviewAction(
+	kind: PreviewCardKind,
+	path: string,
+	mode: 'edit' | 'view' = 'edit'
+): OpenItemPreviewAction {
 	return {
-		id: `open-item-preview:${kind}:${path}`,
+		// The side is part of the identity: the same path can be offered both ways
+		// in one transcript, and a shared id would collapse them into one action.
+		id: `open-item-preview:${kind}:${mode}:${path}`,
 		type: 'open_item_preview',
-		label: `Open ${kind === 'raw_app' ? 'app' : kind} preview`,
+		label:
+			mode === 'view'
+				? `Open ${kind === 'raw_app' ? 'app' : kind}`
+				: `Open ${kind === 'raw_app' ? 'app' : kind} preview`,
 		previewKind: kind,
-		path
+		path,
+		mode
 	}
 }

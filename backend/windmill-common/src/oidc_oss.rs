@@ -64,6 +64,24 @@ pub struct JobClaim {
     pub fork_parent_workspace: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_user_email: Option<String>,
+    pub job_kind: String,
+    pub deployed: bool,
+    pub root_job_id: String,
+    pub root_path: Option<String>,
+    pub root_job_kind: String,
+    pub root_trigger_kind: Option<String>,
+    pub root_trigger: Option<String>,
+    pub latest: bool,
+    pub version: Option<String>,
+    pub root_version: Option<String>,
+    pub digest: Option<String>,
+    pub root_digest: Option<String>,
+    pub tag: String,
+    pub worker_group: Option<String>,
+    pub run_as_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_token_scopes: Option<Vec<String>>,
+    pub jti: String,
 }
 
 #[cfg(not(feature = "private"))]
@@ -72,12 +90,25 @@ lazy_static::lazy_static! {
 }
 
 #[cfg(not(feature = "private"))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum OidcCaller {
+    JobMint,
+    S3Instance,
+    S3Workspace,
+    Vault,
+    Sqs,
+    Bedrock,
+}
+
+#[cfg(not(feature = "private"))]
 pub async fn generate_id_token<T: AdditionalClaims>(
+    _caller: OidcCaller,
     _db: Option<&DB>,
     _claim: T,
     _audience: &str,
     _identifier: String,
     _email: Option<String>,
+    _expires_in: Option<i64>,
 ) -> Result<WindmillIdToken> {
     Err(Error::internal_err(
         "Not implemented in Windmill's Open Source repository".to_string(),

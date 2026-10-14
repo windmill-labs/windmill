@@ -10,6 +10,9 @@
 	import { fade } from 'svelte/transition'
 	import { zIndexes } from '$lib/zIndexes'
 	import { chatState } from '$lib/components/copilot/chat/sharedChatState.svelte'
+	import Disposable from '../drawer/Disposable.svelte'
+	import { overlayHostActive, setTopmostSurface } from '../overlayHost.svelte'
+	import { untrack } from 'svelte'
 
 	interface Props {
 		title: string
@@ -30,6 +33,9 @@
 		 * window, so a stacked pair would both close on one press; set it
 		 * false on the underlying modal while its child is up. */
 		closeOnEscape?: boolean
+		/** Blocks every way out — the header ✕, Escape and an outside click — for a dialog
+		 * holding work in flight that a dismissal would orphan. */
+		preventDismiss?: boolean
 		/** Wider side padding and a lighter title, for a dialog whose body is a form rather
 		 *  than a list. Opt-in: every other Modal2 keeps the padding and heading it had. */
 		formStyling?: boolean
@@ -51,10 +57,11 @@
 		contentClasses = '',
 		closeOnOutsideClick = true,
 		closeOnEscape = true,
+		preventDismiss = false,
 		formStyling = false,
 		headerLeft,
 		headerRight,
-		children
+		children: body
 	}: Props = $props()
 
 	const widthMap = {
@@ -84,8 +91,30 @@
 		isOpen = true
 	}
 
+	// Registered in the disposable stack so a drawer opened from inside the dialog (a
+	// resource picker's editor) stacks above it, and so Escape and outside clicks aimed
+	// at that drawer do not close the dialog underneath.
+	let disposable: Disposable | undefined = $state(undefined)
+	const hostActive = overlayHostActive()
+	setTopmostSurface(() => disposable?.isTopmost() ?? true)
+	$effect(() => {
+		isOpen
+		untrack(() => (isOpen ? disposable?.openDrawer() : disposable?.closeDrawer()))
+	})
+
+	/** Whether this dialog was the overlay on top when the interaction started. `clickOutside`
+	 * awaits its async `exclude` before reporting, and an overlay above closes itself in that
+	 * gap — by the time the report lands, the dialog looks topmost and would close with it. */
+	let topmostAtPress = true
+	function snapshotTopmost() {
+		topmostAtPress = disposable?.isTopmost() ?? true
+	}
+
 	function handleKeyDown(event: KeyboardEvent) {
-		if (!isOpen || !closeOnEscape) return
+		if (!isOpen || !closeOnEscape || preventDismiss) return
+		// Hidden hosts stay mounted and still receive window keys — see overlayHost.
+		if (!hostActive()) return
+		if (!(disposable?.isTopmost() ?? true)) return
 		if (event.key === 'Escape') {
 			event.preventDefault()
 			event.stopPropagation()
@@ -97,79 +126,94 @@
 		return fade(node, { duration: 200 })
 	}
 
-	// Elevate above the AI chat panel (zIndexes.aiChat) while chat is open so
-	// the dialog isn't hidden behind it; otherwise keep the default modal
-	// stacking just above disposables (zIndexes.disposables).
-	const overlayZIndex = $derived(
-		chatState.size > 0 ? zIndexes.aiChat + 1 : zIndexes.disposables + 10
-	)
+	// Elevate above the AI chat panel while chat is open so the dialog isn't hidden behind it.
+	const minZIndex = $derived(chatState.size > 0 ? zIndexes.aiChat + 1 : 0)
 </script>
 
-<svelte:window onkeydown={handleKeyDown} />
+<svelte:window
+	onkeydown={handleKeyDown}
+	onpointerdowncapture={snapshotTopmost}
+	onclickcapture={(e) => {
+		// A keyboard-activated control emits a click with no pointer event before it (`detail`
+		// 0), so the pointerdown snapshot would be whatever a previous interaction left.
+		if (e.detail === 0) snapshotTopmost()
+	}}
+/>
 
-{#if isOpen}
-	<Portal name="always-mounted" {target}>
-		<div
-			class={'fixed top-0 bottom-0 left-0 right-0 transition-all overflow-auto bg-black bg-opacity-60 w-full h-full'}
-			style="z-index: {overlayZIndex}"
-			transition:fadeFast|local
-		>
-			<div class="flex min-h-full items-center justify-center p-8">
+<Disposable bind:open={isOpen} bind:this={disposable} preventEscape {minZIndex}>
+	{#snippet children({ zIndex })}
+		{#if isOpen}
+			<Portal name="always-mounted" {target}>
 				<div
-					style={`width: ${widthMap[fixedWidth]}; ${
-						heightMap[fixedHeight] ? `height: ${heightMap[fixedHeight]}; ` : ''
-					}${css?.popup?.style || ''}`}
-					class={twMerge(
-						'max-h-screen-80 max-w-screen-80 rounded-lg relative bg-surface',
-						formStyling ? 'py-4 px-6' : 'p-4',
-						css?.popup?.class,
-						'wm-modal-form-popup'
-					)}
-					use:clickOutside={{
-						onClickOutside: () => closeOnOutsideClick && close()
-					}}
+					class={'fixed top-0 bottom-0 left-0 right-0 transition-all overflow-auto bg-black bg-opacity-60 w-full h-full'}
+					style="z-index: {zIndex}"
+					transition:fadeFast|local
 				>
-					<List gap="md">
-						<div class="flex w-full">
-							<List horizontal justify="between">
-								<h3 class={formStyling ? 'font-semibold' : undefined}>{title}</h3>
-								<div class="grow w-min-0">
+					<div class="flex min-h-full items-center justify-center p-8">
+						<div
+							style={`width: ${widthMap[fixedWidth]}; ${
+								heightMap[fixedHeight] ? `height: ${heightMap[fixedHeight]}; ` : ''
+							}${css?.popup?.style || ''}`}
+							class={twMerge(
+								'max-h-screen-80 max-w-screen-80 rounded-lg relative bg-surface',
+								formStyling ? 'py-4 px-6' : 'p-4',
+								css?.popup?.class,
+								'wm-modal-form-popup'
+							)}
+							use:clickOutside={{
+								onClickOutside: () =>
+									closeOnOutsideClick && !preventDismiss && topmostAtPress && close(),
+								// A dropdown opened from inside the dialog portals its menu out of it, so a
+								// click on one of its items lands outside this node and would close the
+								// dialog under the menu.
+								exclude: async () =>
+									Array.from(document.querySelectorAll('[data-menu]')) as HTMLElement[]
+							}}
+						>
+							<List gap="md">
+								<div class="flex w-full">
 									<List horizontal justify="between">
-										<div class="min-w-0 grow">
-											{@render headerLeft?.()}
-										</div>
-										<div class="min-w-0 grow-0 justify-end">
-											<List horizontal justify="end">
-												{@render headerRight?.()}
-												<div class="w-8">
-													<button
-														id="modal-close-button"
-														onclick={() => {
-															close()
-														}}
-														class="hover:bg-surface-hover rounded-full w-8 h-8 flex items-center justify-center transition-all"
-													>
-														<X class="text-primary " />
-													</button>
+										<h3 class={formStyling ? 'font-semibold' : undefined}>{title}</h3>
+										<div class="grow w-min-0">
+											<List horizontal justify="between">
+												<div class="min-w-0 grow">
+													{@render headerLeft?.()}
+												</div>
+												<div class="min-w-0 grow-0 justify-end">
+													<List horizontal justify="end">
+														{@render headerRight?.()}
+														<div class="w-8">
+															<button
+																id="modal-close-button"
+																disabled={preventDismiss}
+																onclick={() => {
+																	close()
+																}}
+																class="hover:bg-surface-hover rounded-full w-8 h-8 flex items-center justify-center transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+															>
+																<X class="text-primary " />
+															</button>
+														</div>
+													</List>
 												</div>
 											</List>
 										</div>
 									</List>
 								</div>
+
+								<!-- svelte-ignore a11y_click_events_have_key_events -->
+								<!-- svelte-ignore a11y_no_static_element_interactions -->
+								<div
+									class="w-full flex grow min-h-0 {contentClasses}"
+									onclick={stopPropagation(() => {})}
+								>
+									{@render body?.()}
+								</div>
 							</List>
 						</div>
-
-						<!-- svelte-ignore a11y_click_events_have_key_events -->
-						<!-- svelte-ignore a11y_no_static_element_interactions -->
-						<div
-							class="w-full flex grow min-h-0 {contentClasses}"
-							onclick={stopPropagation(() => {})}
-						>
-							{@render children?.()}
-						</div>
-					</List>
+					</div>
 				</div>
-			</div>
-		</div>
-	</Portal>
-{/if}
+			</Portal>
+		{/if}
+	{/snippet}
+</Disposable>

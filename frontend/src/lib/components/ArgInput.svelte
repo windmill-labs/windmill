@@ -8,6 +8,7 @@
 		debounce,
 		emptySchema,
 		emptyString,
+		escapeHtml,
 		getSchemaFromProperties,
 		type DynamicInput as DynamicInputTypes
 	} from '$lib/utils'
@@ -40,13 +41,15 @@
 	import MultiSelect from './select/MultiSelect.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
 	import S3ArgInput from './common/fileUpload/S3ArgInput.svelte'
-	import { base } from '$lib/base'
-	import { workspaceStore } from '$lib/stores'
 	import { getJsonSchemaFromResource } from './schema/jsonSchemaResource.svelte'
 	import AIProviderPicker from './AIProviderPicker.svelte'
+	import AiDecisionQuestionsEditor from './AiDecisionQuestionsEditor.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import FileInput from './common/fileInput/FileInput.svelte'
 	import { randomUUID } from '$lib/utils/uuid'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		label?: string
@@ -123,6 +126,8 @@
 		workspace?: string | undefined
 		s3StorageConfigured?: boolean
 		chatInputEnabled?: boolean
+		/** Why the oneOf variant is fixed. Set = the selector is disabled and says so. */
+		oneOfLockedReason?: string
 		actions?: import('svelte').Snippet
 		innerBottomSnippet?: import('svelte').Snippet
 		fieldHeaderActions?: import('svelte').Snippet
@@ -184,6 +189,7 @@
 		workspace = undefined,
 		s3StorageConfigured = true,
 		chatInputEnabled = false,
+		oneOfLockedReason = undefined,
 		actions,
 		innerBottomSnippet,
 		fieldHeaderActions,
@@ -206,6 +212,15 @@
 	let tagKey = $derived(
 		oneOf?.find((o) => Object.keys(o.properties ?? {})?.includes('kind')) ? 'kind' : 'label'
 	)
+	// `oneOfSelected` is resynced in an effect, one pass after the variants or the value change. A
+	// variant that just left the list while the selection still names it, as when a value moves
+	// off a legacy kind the list offered only for it, would render the nested form against nothing
+	// for that pass and let it rewrite the value. The value's own tag settles it at once.
+	let effectiveOneOfSelected = $derived.by(() => {
+		if (oneOf?.some((o) => o.title === oneOfSelected)) return oneOfSelected
+		const tag = value?.[tagKey]
+		return oneOf?.some((o) => o.title === tag) ? tag : oneOfSelected
+	})
 	async function updateOneOfSelected(oneOf: SchemaProperty[] | undefined) {
 		if (
 			oneOf &&
@@ -239,7 +254,11 @@
 
 	let ignoreValueUndefined = $state(false)
 	let error: string = $state('')
+	// Parse error of the JSON editor below, which already displays it. Text that does not parse
+	// never reaches `value`, so without this the field would stay valid on its last parsed value.
+	let jsonError: string = $state('')
 	let isListJson = $state(false)
+	let questionsInJson = $state(false)
 	let hasIsListJsonChanged = $state(false)
 
 	let el: HTMLTextAreaElement | undefined = $state(undefined)
@@ -403,9 +422,12 @@
 		'^(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))$'
 
 	function validateInput(pattern: string | undefined, v: any, required: boolean): void {
-		if (nullable && emptyString(v)) {
+		if (jsonError) {
 			error = ''
-			valid && (valid = true)
+			valid && (valid = false)
+		} else if (nullable && emptyString(v)) {
+			error = ''
+			!valid && (valid = true)
 		} else if (
 			typeof v === 'string' &&
 			(v.startsWith('$var:') || v.startsWith('$res:') || v.startsWith('$jsonvar:'))
@@ -549,6 +571,7 @@
 
 	$effect(() => {
 		extra?.['nonEmpty']
+		jsonError
 		let args = [pattern, value, required] as const
 		untrack(() => validateInput(...args))
 	})
@@ -585,7 +608,7 @@
 			{#if value && typeof value == 'string' && value?.startsWith('$res:')}
 				Linked to resource <a
 					target="_blank"
-					href="{base}/resources#/resource/{value.slice(5)}"
+					href="/resources#/resource/{value.slice(5)}"
 					class="text-blue-500 underline"
 					>{value.slice(5)} <span class="inline-block -mb-0.5"><ExternalLink size={14} /></span></a
 				>
@@ -677,7 +700,9 @@
 
 	{#if description}
 		<div class={twMerge('text-xs text-secondary', css?.description?.class)}>
-			<pre class="font-main whitespace-normal">{description}</pre>
+			<pre class="font-main whitespace-normal"
+				>{description}{#if inputCat == 'ai-decision-questions' && questionsInJson}{': { <name>: { type: choice | score | noul, instructions, criteria } }'}{/if}</pre
+			>
 		</div>
 	{/if}
 
@@ -811,7 +836,7 @@
 				/>
 			{/await}
 		{:else if inputCat == 'object' && format?.startsWith('jsonschema-')}
-			{#await getJsonSchemaFromResource(format.substring('jsonschema-'.length), workspace ?? $workspaceStore ?? '')}
+			{#await getJsonSchemaFromResource(format.substring('jsonschema-'.length), workspace ?? $operatingWorkspace ?? '')}
 				<Loader2 class="animate-spin" />
 			{:then schema}
 				{#if !schema || !schema.properties}
@@ -1104,11 +1129,15 @@
 		{:else if inputCat == 'object' || inputCat == 'resource-object' || isListJson}
 			{#if oneOf && oneOf.length >= 2}
 				<div class="flex flex-col gap-2 w-full border rounded-md p-4">
+					{#if oneOfLockedReason !== undefined}
+						<div class="text-2xs text-tertiary">{oneOfLockedReason}</div>
+					{/if}
 					{#if oneOf && oneOf.length >= 2}
 						<ToggleButtonGroup
-							selected={oneOfSelected}
+							selected={effectiveOneOfSelected}
 							wrap
 							class="mb-4"
+							disabled={disabled || oneOfLockedReason !== undefined}
 							on:selected={({ detail }) => {
 								oneOfSelected = detail
 								const selectedObjProperties =
@@ -1136,12 +1165,20 @@
 						>
 							{#snippet children({ item })}
 								{#each oneOf as obj}
-									<ToggleButton value={obj.title ?? ''} label={obj.title} {item} />
+									<ToggleButton
+										value={obj.title ?? ''}
+										label={extra?.['enumLabels']?.[obj.title ?? ''] ?? obj.title}
+										{item}
+									/>
 								{/each}
 							{/snippet}
 						</ToggleButtonGroup>
-						{#if oneOfSelected}
-							{@const objIdx = oneOf.findIndex((o) => o.title === oneOfSelected)}
+						{@const oneOfHint = extra?.['oneOfHints']?.[effectiveOneOfSelected ?? '']}
+						{#if oneOfHint}
+							<div class="-mt-4 mb-2 text-2xs text-hint">{oneOfHint}</div>
+						{/if}
+						{#if effectiveOneOfSelected}
+							{@const objIdx = oneOf.findIndex((o) => o.title === effectiveOneOfSelected)}
 							{@const obj = oneOf[objIdx]}
 							{#if obj && obj.properties && Object.keys(obj.properties).length > 0}
 								{#key redraw}
@@ -1156,10 +1193,10 @@
 											{workspace}
 											bind:schema={
 												() => ({
-													properties: obj.properties ?? {},
-													order: obj.order,
+													properties: obj?.properties ?? {},
+													order: obj?.order,
 													$schema: '',
-													required: obj.required ?? [],
+													required: obj?.required ?? [],
 													type: 'object'
 												}),
 												() => {
@@ -1193,16 +1230,16 @@
 											{workspace}
 											hiddenArgs={['label', 'kind']}
 											schema={{
-												properties: obj.properties,
-												order: obj.order,
+												properties: obj?.properties ?? {},
+												order: obj?.order,
 												$schema: '',
-												required: obj.required ?? [],
+												required: obj?.required ?? [],
 												type: 'object'
 											}}
 											bind:args={
 												() => value,
 												(v) => {
-													value = { ...v, [tagKey]: oneOfSelected }
+													value = { ...v, [tagKey]: effectiveOneOfSelected }
 												}
 											}
 											{shouldDispatchChanges}
@@ -1236,6 +1273,7 @@
 											dispatch('blur')
 										}}
 										code={rawValue}
+										bind:error={jsonError}
 										on:changeValue={(e) => {
 											setNewValueFromCode(e.detail)
 										}}
@@ -1258,6 +1296,7 @@
 									dispatch('blur')
 								}}
 								code={rawValue}
+								bind:error={jsonError}
 								on:change={(e) => {
 									value = e.detail
 								}}
@@ -1347,6 +1386,8 @@
 							dispatch('blur')
 						}}
 						code={rawValue}
+						placeholder={placeholder && escapeHtml(placeholder)}
+						bind:error={jsonError}
 						on:changeValue={(e) => {
 							setNewValueFromCode(e.detail)
 						}}
@@ -1448,7 +1489,19 @@
 				{showSchemaExplorer}
 			/>
 		{:else if inputCat == 'ai-provider'}
-			<AIProviderPicker bind:value {disabled} {actions} {workspace} />
+			<AIProviderPicker
+				bind:value
+				{disabled}
+				{actions}
+				{workspace}
+				decision={format === 'ai-decision-provider'}
+			/>
+		{:else if inputCat == 'ai-decision-questions'}
+			<AiDecisionQuestionsEditor
+				bind:value
+				{disabled}
+				onModeChange={(mode) => (questionsInJson = mode === 'json')}
+			/>
 		{:else if inputCat == 'email'}
 			<input
 				{autofocus}

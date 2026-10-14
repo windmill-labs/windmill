@@ -1,20 +1,24 @@
 use crate::{
     ai_google::{
-        gemini_event_to_openai_sse_chunks, gemini_response_to_openai, openai_messages_to_gemini,
-        openai_tools_to_gemini, parse_gemini_response, parse_gemini_sse_event,
-        sanitize_schema_for_google, GeminiFunctionDeclaration, GeminiGenerationConfig,
-        GeminiImageContent, GeminiImageRequest, GeminiImageResponse, GeminiInlineData, GeminiPart,
-        GeminiPredictContent, GeminiTextRequest, GeminiThinkingConfig, GeminiTool,
+        gemini_completion_tokens, gemini_event_to_openai_sse_chunks, gemini_prompt_tokens,
+        gemini_response_to_openai, openai_messages_to_gemini, openai_tools_to_gemini,
+        parse_gemini_response, parse_gemini_sse_event, sanitize_schema_for_google,
+        GeminiFunctionDeclaration, GeminiGenerationConfig, GeminiImageContent, GeminiImageRequest,
+        GeminiImageResponse, GeminiInlineData, GeminiPart, GeminiPredictContent, GeminiTextRequest,
+        GeminiThinkingConfig, GeminiTool, GeminiTurn,
     },
     image_handler::{download_and_encode_s3_image, prepare_messages_for_api},
     proxy::{ProxyBuildArgs, ProxyRequest},
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventSink},
+    retry::{
+        openai_stream_error_chunk, send_with_retries, transient_error, truncated_stream_error,
+    },
     sse::{GeminiSSEParser, SSEParser},
     types::*,
 };
 use async_trait::async_trait;
 use bytes::Bytes;
-use eventsource_stream::Eventsource;
+use eventsource_stream::{EventStreamError, Eventsource};
 use futures::{stream::BoxStream, StreamExt};
 use http::{header, HeaderMap, HeaderValue, Method, StatusCode};
 use serde::Deserialize;
@@ -335,9 +339,7 @@ pub async fn handle_google_ai_chat_proxy(
 ) -> Result<GoogleAIProxyResponse, Error> {
     let GoogleAIProxyRequest { request, model, stream } = build_google_ai_chat_proxy_request(args)?;
 
-    let response =
-        send_google_ai_proxy_request(client, request, "Failed to send request to Gemini API")
-            .await?;
+    let response = send_google_ai_proxy_request(client, request).await?;
 
     if stream {
         Ok(convert_streaming_response(response, &model))
@@ -355,8 +357,7 @@ pub async fn handle_google_ai_models_proxy(
     args: &ProxyBuildArgs<'_>,
 ) -> Result<GoogleAIProxyResponse, Error> {
     let request = build_google_ai_models_proxy_request(args);
-    let response =
-        send_google_ai_proxy_request(client, request, "Failed to fetch Gemini models").await?;
+    let response = send_google_ai_proxy_request(client, request).await?;
 
     let gemini_resp: GeminiModelsResponse = response.json().await.map_err(|e| {
         Error::internal_err(format!("Failed to parse Gemini models response: {}", e))
@@ -504,26 +505,13 @@ fn add_google_ai_auth_header(headers: &mut Vec<(String, String)>, api_key: &str,
 async fn send_google_ai_proxy_request(
     client: &reqwest::Client,
     proxy_request: ProxyRequest,
-    send_error_message: &str,
 ) -> Result<reqwest::Response, Error> {
     let mut request = client.request(proxy_request.method.clone(), &proxy_request.url);
     for (header_name, header_value) in &proxy_request.headers {
         request = request.header(header_name.as_str(), header_value.as_str());
     }
 
-    let response = request
-        .body(proxy_request.body)
-        .send()
-        .await
-        .map_err(|e| Error::internal_err(format!("{}: {}", send_error_message, e)))?;
-
-    if let Err(e) = response.error_for_status_ref() {
-        let status = e.status().map(|s| s.to_string()).unwrap_or_default();
-        let body = response.text().await.unwrap_or_default();
-        return Err(Error::AIError(format!("{}: {}", status, body)));
-    }
-
-    Ok(response)
+    send_with_retries(request.body(proxy_request.body)).await
 }
 
 fn convert_streaming_response(response: reqwest::Response, model: &str) -> GoogleAIProxyResponse {
@@ -534,10 +522,15 @@ fn convert_streaming_response(response: reqwest::Response, model: &str) -> Googl
     let openai_sse_stream = async_stream::stream! {
         tokio::pin!(gemini_sse_stream);
         let mut tool_call_index: usize = 0;
-        while let Some(event) = gemini_sse_stream.next().await {
+        let mut turn = GeminiTurn::default();
+        let failure = loop {
+            let Some(event) = gemini_sse_stream.next().await else {
+                break (!turn.complete_at_close()).then(truncated_stream_error);
+            };
             match event {
                 Ok(event) => match parse_gemini_sse_event(&event.data) {
                     Ok(Some(parsed)) => {
+                        turn.observe(&parsed);
                         for chunk in gemini_event_to_openai_sse_chunks(
                             &parsed, &id, &model, &mut tool_call_index,
                         ) {
@@ -545,12 +538,23 @@ fn convert_streaming_response(response: reqwest::Response, model: &str) -> Googl
                         }
                     }
                     Ok(None) => {}
-                    Err(e) => tracing::error!("Error parsing Gemini SSE event: {}", e),
+                    Err(e) => break Some(e),
                 },
+                Err(EventStreamError::Transport(_)) if turn.ended() => break None,
+                Err(EventStreamError::Transport(e)) => {
+                    break Some(transient_error(
+                        format!("The connection to Gemini broke off mid-response: {e}"),
+                        None,
+                    ));
+                }
                 Err(e) => tracing::error!("Error reading Gemini SSE stream: {}", e),
             }
-        }
-        yield Ok::<Bytes, reqwest::Error>(Bytes::from("data: [DONE]\n\n"));
+        };
+        let last = match failure {
+            Some(error) => openai_stream_error_chunk(&error),
+            None => "data: [DONE]\n\n".to_string(),
+        };
+        yield Ok::<Bytes, reqwest::Error>(Bytes::from(last));
     }
     .boxed();
 
@@ -666,6 +670,7 @@ impl QueryBuilder for GoogleAIQueryBuilder {
 
         let GeminiSSEParser {
             accumulated_content,
+            accumulated_reasoning,
             accumulated_tool_calls,
             mut events_str,
             stream_event_processor,
@@ -684,12 +689,32 @@ impl QueryBuilder for GoogleAIQueryBuilder {
             stream_event_processor.send(event, &mut events_str).await?;
         }
 
-        let usage = gemini_usage.map(|u| {
-            TokenUsage::new(
-                u.prompt_token_count,
-                u.candidates_token_count,
-                u.total_token_count,
-            )
+        // Through the shared helpers, which fold in the two counts Gemini reports beside
+        // the headline ones: tool-use prompt tokens, disjoint from `promptTokenCount` and
+        // present on every tool-using turn, and thinking tokens. Reading the headline
+        // fields alone under-reports the prompt of exactly the conversations compaction
+        // has to notice.
+        let usage = gemini_usage.and_then(|u| {
+            let has_prompt =
+                u.prompt_token_count.is_some() || u.tool_use_prompt_token_count.is_some();
+            let has_completion =
+                u.candidates_token_count.is_some() || u.thoughts_token_count.is_some();
+            if !has_prompt && !has_completion && u.total_token_count.is_none() {
+                // An endpoint that reported nothing has to stay `None`. A zeroed count
+                // reads downstream as an empty prompt, where absent means "fall back to
+                // estimating the conversation".
+                return None;
+            }
+            let prompt = has_prompt.then(|| gemini_prompt_tokens(&u));
+            let completion = has_completion.then(|| gemini_completion_tokens(&u));
+            Some(TokenUsage::new(
+                prompt,
+                completion,
+                u.total_token_count.or_else(|| match (prompt, completion) {
+                    (Some(p), Some(c)) => Some(p.saturating_add(c)),
+                    _ => None,
+                }),
+            ))
         });
 
         Ok(ParsedResponse::Text {
@@ -698,6 +723,7 @@ impl QueryBuilder for GoogleAIQueryBuilder {
             } else {
                 Some(accumulated_content)
             },
+            reasoning: (!accumulated_reasoning.is_empty()).then_some(accumulated_reasoning),
             tool_calls: accumulated_tool_calls.into_values().collect(),
             events_str: Some(events_str),
             annotations,
@@ -778,6 +804,7 @@ mod tests {
             aws_access_key_id: None,
             aws_secret_access_key: None,
             aws_session_token: None,
+            oidc_role_arn: None,
             platform,
             custom_headers: HashMap::new(),
         }
@@ -1010,5 +1037,23 @@ mod tests {
         assert!(request
             .headers
             .contains(&("x-goog-api-key".to_string(), "api-key".to_string())));
+    }
+
+    /// Gemini reports a tool-using turn's input across two disjoint fields. Reading only
+    /// the headline one hides the tool results from the agent step's usage — and from the
+    /// compaction trigger, which is what would notice them.
+    #[test]
+    fn gemini_agent_usage_counts_tool_use_and_thinking_tokens() {
+        let usage = crate::ai_google::GeminiUsageMetadata {
+            prompt_token_count: Some(17),
+            candidates_token_count: Some(17),
+            total_token_count: Some(146),
+            tool_use_prompt_token_count: Some(60),
+            thoughts_token_count: Some(52),
+            ..Default::default()
+        };
+
+        assert_eq!(gemini_prompt_tokens(&usage), 77);
+        assert_eq!(gemini_completion_tokens(&usage), 69);
     }
 }

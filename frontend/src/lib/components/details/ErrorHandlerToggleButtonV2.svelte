@@ -3,7 +3,9 @@
 
 	import { FlowService, ScriptService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { workspaceStore } from '$lib/stores'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		kind: 'script' | 'flow'
@@ -25,11 +27,11 @@
 
 	async function toggleErrorHandler(): Promise<void> {
 		toggleState = !toggleState
-		if ($workspaceStore !== undefined) {
+		if ($operatingWorkspace !== undefined) {
 			try {
 				if (kind === 'flow') {
 					await FlowService.toggleWorkspaceErrorHandlerForFlow({
-						workspace: $workspaceStore,
+						workspace: $operatingWorkspace,
 						path: scriptOrFlowPath,
 						requestBody: {
 							muted: !errorHandlerMuted
@@ -37,7 +39,7 @@
 					})
 				} else {
 					await ScriptService.toggleWorkspaceErrorHandlerForScript({
-						workspace: $workspaceStore,
+						workspace: $operatingWorkspace,
 						path: scriptOrFlowPath,
 						requestBody: {
 							muted: !errorHandlerMuted

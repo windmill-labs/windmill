@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings SET remote_deploy_target = $1::jsonb,\n             remote_deploy_target_changed_at = CASE\n                 WHEN remote_deploy_target IS DISTINCT FROM $1::jsonb THEN clock_timestamp()\n                 ELSE remote_deploy_target_changed_at END\n         WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9b61979cc78e8b7b63ffa6a59cf3d29ae8b924200c46da457a9346379c60fa9f"
+}

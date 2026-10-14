@@ -55,21 +55,46 @@ const p = {
       return replaceRelativeImports(code);
     });
 
-    build.onLoad({ filter: /.*\.url$/ }, async (args) => {
-      const url = readFileSync(args.path, "utf8");
-      const req = await fetch(url, {
-        method: "GET",
-        headers: {
-          Authorization: "Bearer " + token,
-        },
-      });
+    // A stalled fetch would otherwise hold the whole build for bun's own 5-minute
+    // default, with nothing naming the script it was waiting on.
+    const RELATIVE_IMPORT_FETCH_TIMEOUT_MS = 120000;
+
+    function relativeImportFetchError(url, e) {
+      const reason =
+        e?.name === "TimeoutError"
+          ? `no response within ${RELATIVE_IMPORT_FETCH_TIMEOUT_MS / 1000}s`
+          : String(e?.message ?? e);
+      return new Error(`Failed to fetch relative import at ${url}: ${reason}`);
+    }
+
+    async function fetchRelativeImport(url) {
+      let req;
+      try {
+        req = await fetch(url, {
+          method: "GET",
+          headers: {
+            Authorization: "Bearer " + token,
+          },
+          signal: AbortSignal.timeout(RELATIVE_IMPORT_FETCH_TIMEOUT_MS),
+        });
+      } catch (e) {
+        throw relativeImportFetchError(url, e);
+      }
       if (!req.ok) {
         throw new Error(
-          `Failed to find relative import at ${url}`,
-          req.statusText
+          `Failed to find relative import at ${url} (status ${req.status} ${req.statusText})`
         );
       }
-      const contents = await req.text();
+      try {
+        return await req.text();
+      } catch (e) {
+        throw relativeImportFetchError(url, e);
+      }
+    }
+
+    build.onLoad({ filter: /.*\.url$/ }, async (args) => {
+      const url = readFileSync(args.path, "utf8");
+      const contents = await fetchRelativeImport(url);
       return {
         contents: replaceRelativeImports(contents).contents,
         loader: "tsx",

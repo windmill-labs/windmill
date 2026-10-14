@@ -1,17 +1,19 @@
 <script lang="ts">
 	import type { Schema } from '$lib/common'
 	import { type InputTransform } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
 	import { allTrue, type DynamicInput as DynamicInputTypes } from '$lib/utils'
 	import { untrack } from 'svelte'
 	import StepInputsGen from './copilot/StepInputsGen.svelte'
 	import type { PickableProperties } from './flows/previousResults'
 	import InputTransformForm from './InputTransformForm.svelte'
 	import InputTransformPickers from './InputTransformPickers.svelte'
-	import { useS3StorageConfigured } from './inputTransformEnv.svelte'
+	import { useWorkspaceStorageConfigured } from './inputTransformEnv.svelte'
 	import type ItemPicker from './ItemPicker.svelte'
 	import type VariableEditor from './VariableEditor.svelte'
 	import ResizeTransitionWrapper from './common/ResizeTransitionWrapper.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		schema: Schema | { properties?: Record<string, any> }
@@ -54,7 +56,7 @@
 		workspace
 	}: Props = $props()
 
-	let ws = $derived(workspace ?? $workspaceStore)
+	let ws = $derived(workspace ?? $operatingWorkspace)
 
 	let inputCheck: { [id: string]: boolean } = $state({})
 
@@ -86,7 +88,7 @@
 	let itemPicker: ItemPicker | undefined = $state(undefined)
 	let variableEditor: VariableEditor | undefined = $state(undefined)
 
-	const s3Storage = useS3StorageConfigured(() => ws)
+	const s3Storage = useWorkspaceStorageConfigured(() => ws)
 
 	let keys: string[] = $state([])
 	$effect(() => {

@@ -11,6 +11,7 @@ import {
   UserService,
   KafkaTriggerService,
 } from "./services.gen";
+import type { Retry } from "./types.gen";
 import { OpenAPI } from "./core/OpenAPI";
 import { isSuspendSignal, stepErrorMarker, taskErrorFromMarker } from "./wacError";
 // import type { DenoS3LightClientSettings } from "./index";
@@ -420,12 +421,26 @@ export async function runScriptAsync(
   return _runScriptAsyncInternal(path, hash_, args, scheduledInSeconds, tag);
 }
 
+/** Options for {@link runScriptByPathAsync} and {@link runScriptByHashAsync}, passed in
+ *  place of `scheduledInSeconds`; a positional `tag` is then ignored. */
+export interface RunScriptAsyncOptions {
+  /** Schedule execution for a future time (in seconds) */
+  scheduledInSeconds?: number;
+  /** Override the worker tag the job runs on */
+  tag?: string;
+  /** Re-run the job when it fails, with the same policy a schedule takes, e.g.
+   *  `{ constant: { attempts: 3, seconds: 10 } }`. The returned id is the first
+   *  attempt's; each retry is a job of its own, recorded as a child of it. */
+  retry?: Retry;
+}
+
 async function _runScriptAsyncInternal(
   path: string | null = null,
   hash_: string | null = null,
   args: Record<string, any> | null = null,
   scheduledInSeconds: number | null = null,
-  tag: string | null = null
+  tag: string | null = null,
+  retry: Retry | null = null
 ): Promise<string> {
   // Create a script job and return its job id.
   args = args || {};
@@ -437,6 +452,10 @@ async function _runScriptAsyncInternal(
 
   if (tag) {
     params["tag"] = tag;
+  }
+
+  if (retry) {
+    params["retry"] = JSON.stringify(retry);
   }
 
   let parentJobId = getEnv("WM_JOB_ID");
@@ -475,34 +494,47 @@ async function _runScriptAsyncInternal(
  * Run a script asynchronously by its path
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
- * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds), or {@link RunScriptAsyncOptions}
+ *   `{ scheduledInSeconds?, tag?, retry? }`, e.g. `{ retry: { constant: { attempts: 3, seconds: 10 } } }`
  * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
 export async function runScriptByPathAsync(
   path: string,
   args: Record<string, any> | null = null,
-  scheduledInSeconds: number | null = null,
+  scheduledInSeconds: number | null | RunScriptAsyncOptions = null,
   tag: string | null = null
 ): Promise<string> {
-  return _runScriptAsyncInternal(path, null, args, scheduledInSeconds, tag);
+  const o = asyncRunOptions(scheduledInSeconds, tag);
+  return _runScriptAsyncInternal(path, null, args, o.scheduledInSeconds, o.tag, o.retry);
 }
 
 /**
  * Run a script asynchronously by its hash
  * @param hash_ - Script hash in Windmill
  * @param args - Arguments to pass to the script
- * @param scheduledInSeconds - Schedule execution for a future time (in seconds)
+ * @param scheduledInSeconds - Schedule execution for a future time (in seconds), or {@link RunScriptAsyncOptions}
+ *   `{ scheduledInSeconds?, tag?, retry? }`, e.g. `{ retry: { constant: { attempts: 3, seconds: 10 } } }`
  * @param tag - Override the worker tag the job runs on
  * @returns Job ID of the created job
  */
 export async function runScriptByHashAsync(
   hash_: string,
   args: Record<string, any> | null = null,
-  scheduledInSeconds: number | null = null,
+  scheduledInSeconds: number | null | RunScriptAsyncOptions = null,
   tag: string | null = null
 ): Promise<string> {
-  return _runScriptAsyncInternal(null, hash_, args, scheduledInSeconds, tag);
+  const o = asyncRunOptions(scheduledInSeconds, tag);
+  return _runScriptAsyncInternal(null, hash_, args, o.scheduledInSeconds, o.tag, o.retry);
+}
+
+function asyncRunOptions(
+  scheduledInSeconds: number | null | RunScriptAsyncOptions,
+  tag: string | null
+): RunScriptAsyncOptions {
+  return typeof scheduledInSeconds === "object" && scheduledInSeconds !== null
+    ? scheduledInSeconds
+    : { scheduledInSeconds: scheduledInSeconds ?? undefined, tag: tag ?? undefined };
 }
 
 /**
@@ -693,6 +725,19 @@ export async function getProgress(jobId?: any): Promise<number | null> {
 }
 
 /**
+ * Whether the worker running this job has received its shutdown signal.
+ * A draining worker waits for its current job to finish before exiting, so a
+ * long-running script can poll this and return early to let the worker be replaced.
+ * @param jobId? Job to check, defaults to the current job
+ */
+export async function workerIsDraining(jobId?: string): Promise<boolean> {
+  return await JobService.workerIsDraining({
+    id: jobId ?? getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
+    workspace: getWorkspace(),
+  });
+}
+
+/**
  * Set a flow user state
  * @param key key of the state
  * @param value value of the state
@@ -837,7 +882,10 @@ export async function setVariable(
  */
 export async function databaseUrlFromResource(path: string): Promise<string> {
   const resource = await getResource(path);
-  return `postgresql://${resource.user}:${resource.password}@${resource.host}:${resource.port}/${resource.dbname}?sslmode=${resource.sslmode}`;
+  const options = resource.options
+    ? `&options=${encodeURIComponent(resource.options)}`
+    : "";
+  return `postgresql://${resource.user}:${resource.password}@${resource.host}:${resource.port}/${resource.dbname}?sslmode=${resource.sslmode}${options}`;
 }
 
 // TODO(gb): need to investigate more how Polars and DuckDB work in TS
@@ -1712,6 +1760,13 @@ export interface TaskRetry {
 export interface TaskOptions {
   timeout?: number;
   tag?: string;
+  /** Seconds during which a previous result of this task is served instead of
+   *  running it again. A task written inline in the workflow is keyed on its
+   *  step key (its name and call order) and the workflow's input, not on the
+   *  arguments it is called with, so cache one only when whether it runs, and
+   *  what it receives, follow from the workflow's input alone. A `taskScript`
+   *  target is keyed on the arguments it is called with. It has no effect on a
+   *  `taskFlow` target, which keeps its flow's own cache policy. */
   cache_ttl?: number;
   priority?: number;
   concurrency_limit?: number;
@@ -1775,6 +1830,52 @@ export let _workflowCtx: WorkflowCtx | null = null;
 export function setWorkflowCtx(ctx: WorkflowCtx | null) {
   _workflowCtx = ctx;
   Reflect.set(globalThis, "__wmill_wf_ctx", ctx);
+}
+
+type TaskBodyScope = { run<R>(store: true, fn: () => R): R; getStore(): true | undefined };
+
+/** Marks the async context of a task body running in its child job. A flag on
+ *  the ctx cannot stand in: the workflow body keeps replaying beside the task
+ *  body (`Promise.all([a(), b()])`), and its calls must still park rather than
+ *  run a sibling task's body in this job. Kept on `globalThis`, like the ctx,
+ *  so a bundle holding two copies of this module shares one scope. Resolved
+ *  through `process.getBuiltinModule` because a `node:` import would break
+ *  browser bundles of this package. */
+function taskBodyScope(): TaskBodyScope | null {
+  const existing = Reflect.get(globalThis, "__wmill_wf_task_body");
+  if (existing !== undefined) return existing;
+  let scope: TaskBodyScope | null = null;
+  try {
+    const AsyncLocalStorage = (globalThis as any).process?.getBuiltinModule?.("node:async_hooks")?.AsyncLocalStorage;
+    if (AsyncLocalStorage) scope = new AsyncLocalStorage();
+  } catch {}
+  Reflect.set(globalThis, "__wmill_wf_task_body", scope);
+  return scope;
+}
+
+function runTaskBody<R>(fn: () => R): R {
+  const scope = taskBodyScope();
+  return scope ? scope.run(true, fn) : fn();
+}
+
+function insideTaskBody(): boolean {
+  return taskBodyScope()?.getStore() === true;
+}
+
+/** The ctx SDK calls dispatch through, or null where they run in place: outside
+ *  a workflow, and inside a task body, which is one job and has no rounds of its
+ *  own to dispatch or checkpoint a step in. */
+function dispatchCtx(): WorkflowCtx | null {
+  if (insideTaskBody()) return null;
+  return _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+}
+
+function assertNotInsideTaskBody(what: string): void {
+  if (insideTaskBody()) {
+    throw new Error(
+      `${what} cannot be called from inside a task: a task runs as a single job and cannot suspend or dispatch steps. Call it from the workflow() body instead.`,
+    );
+  }
 }
 
 
@@ -2249,11 +2350,11 @@ export class WorkflowCtx {
 }
 
 export async function sleep(seconds: number): Promise<void> {
-  const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+  const ctx = dispatchCtx();
   if (ctx) {
     return ctx._sleep(seconds) as Promise<void>;
   }
-  // Outside workflow context, just wait locally
+  // Outside a workflow, or inside a task body, just wait locally
   await new Promise((r) => setTimeout(r, seconds * 1000));
 }
 
@@ -2264,12 +2365,15 @@ export async function sleep(seconds: number): Promise<void> {
  * `fn`'s result is encoded as JSON and decoded back before it is returned, so
  * the round that runs the body sees the same types every replay sees: a `Date`
  * comes back as a string, a `Map` as `{}`. {@link Jsonified} is that shape.
+ *
+ * Called from inside a task body, `fn` runs in place and nothing is
+ * checkpointed: a task is a single job and is never replayed.
  */
 export async function step<T>(
   name: string,
   fn: () => T | Promise<T>,
 ): Promise<Jsonified<Awaited<T>>> {
-  const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+  const ctx = dispatchCtx();
   if (ctx) {
     return ctx._runInlineStep(name, fn) as Promise<Jsonified<Awaited<T>>>;
   }
@@ -2287,8 +2391,9 @@ export async function step<T>(
  * const call_api = task(fetchOrders, { retry: { attempts: 3, delay: 30, multiplier: 2 } });
  *
  * Inside a `workflow()`, calling a task dispatches it as a step.
- * Outside a workflow, the function body executes directly and
- * {@link TaskOptions} — retry included — does not apply.
+ * Outside a workflow, or called from inside another task, the function body
+ * executes directly and {@link TaskOptions} — retry included — does not apply:
+ * a task runs as a single job, so the tasks it calls run in that same job.
  *
  * A task runs as its own job, so its result is always encoded as JSON and
  * decoded back before the caller sees it: a `Date` comes back as a string, a
@@ -2322,7 +2427,7 @@ export function task<T extends (...args: any[]) => Promise<any>>(
   // .then() which throws StepSuspend and empties pending before the caller
   // can flush.
   const wrapper = function (...args: any[]) {
-    const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+    const ctx = dispatchCtx();
     if (ctx) {
       // Inside a workflow with checkpoint/replay context — dispatch as step
       const script = taskPath ?? taskName;
@@ -2342,7 +2447,7 @@ export function task<T extends (...args: any[]) => Promise<any>>(
         return (async () => {
           let result: any;
           try {
-            result = await fn(...args);
+            result = await runTaskBody(() => fn(...args));
           } catch (e) {
             if (isSuspendSignal(e, StepSuspend)) throw e;
             ctx._raiseStepFailure(e);
@@ -2351,7 +2456,7 @@ export function task<T extends (...args: any[]) => Promise<any>>(
         })();
       }
       return stepResult;
-    } else if (getEnv("WM_JOB_ID") && !getEnv("WM_FLOW_JOB_ID")) {
+    } else if (!insideTaskBody() && getEnv("WM_JOB_ID") && !getEnv("WM_FLOW_JOB_ID")) {
       // Inside a Windmill root job without checkpoint context — v1 HTTP dispatch
       // WM_FLOW_JOB_ID is set on child jobs, so we skip dispatch for those
       return (async () => {
@@ -2401,7 +2506,8 @@ export function taskScript(path: string, options?: TaskOptions): (...args: any[]
   assertUsableRetry(options?.retry);
   const name = path.split("/").pop() || path;
   const wrapper = function (...args: any[]) {
-    const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+    assertNotInsideTaskBody(`taskScript("${path}")`);
+    const ctx = dispatchCtx();
     if (ctx) {
       const kwargs = args.length === 1 && typeof args[0] === "object" && args[0] !== null
         ? args[0]
@@ -2427,7 +2533,8 @@ export function taskFlow(path: string, options?: TaskOptions): (...args: any[]) 
   assertUsableRetry(options?.retry);
   const name = path.split("/").pop() || path;
   const wrapper = function (...args: any[]) {
-    const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+    assertNotInsideTaskBody(`taskFlow("${path}")`);
+    const ctx = dispatchCtx();
     if (ctx) {
       const kwargs = args.length === 1 && typeof args[0] === "object" && args[0] !== null
         ? args[0]
@@ -2480,7 +2587,8 @@ export function waitForApproval(options?: {
   skin?: "detailed" | "minimal";
   description?: string | object;
 }): PromiseLike<{ value: any; approver: string; approved: boolean }> {
-  const ctx: WorkflowCtx | null = _workflowCtx ?? Reflect.get(globalThis, "__wmill_wf_ctx");
+  assertNotInsideTaskBody("waitForApproval()");
+  const ctx = dispatchCtx();
   if (!ctx) {
     throw new Error("waitForApproval can only be called inside a workflow()");
   }

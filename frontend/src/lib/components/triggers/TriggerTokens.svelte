@@ -2,13 +2,13 @@
 	import { run } from 'svelte/legacy'
 
 	import { FlowService, ScriptService, UserService, type TruncatedToken } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
-	import { getTriggerWorkspace } from '$lib/components/triggers/triggerWorkspace'
+	import { userStore } from '$lib/stores'
 	import { getContext } from 'svelte'
 	import { Skeleton } from '../common'
 	import Label from '../Label.svelte'
 	import type { TriggerContext } from '../triggers'
 	import { capitalize } from '$lib/utils'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	interface Props {
 		isFlow: boolean
@@ -17,8 +17,8 @@
 	}
 
 	let { isFlow, path, labelPrefix }: Props = $props()
-	const triggerWs = getTriggerWorkspace()
-	const wsId = $derived(triggerWs?.() ?? $workspaceStore)
+	const operatingWorkspace = useOperatingWorkspace()
+	const wsId = $derived($operatingWorkspace)
 
 	const { triggersCount } = getContext<TriggerContext>('TriggerContext')
 

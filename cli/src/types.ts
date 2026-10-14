@@ -391,7 +391,7 @@ export function getTypeStrFromPath(
   if (isSharedLockPath(p)) {
     return "shared_lock";
   }
-  if (p.startsWith("dependencies" + SEP)) {
+  if (isWorkspaceDependencies(p)) {
     return "workspace_dependencies";
   }
   if (isFileResource(p) || isFilesetResource(p)) {

@@ -7,7 +7,7 @@ import { logFeatureUsage } from '$lib/utils/featureUsage'
 // ever reaches here.
 
 /** The substrate a wizard run is pointed at. Mirrors the wizard's own `Provider`. */
-export type DatatableWizardProvider = 'supabase' | 'instance' | 'resource'
+export type DatatableWizardProvider = 'supabase' | 'instance' | 'external_instance' | 'resource'
 
 export type DatatableWizardEvent =
 	/** The wizard was opened, including a run resumed from the Supabase redirect. */

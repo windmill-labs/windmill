@@ -1,11 +1,13 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
 	import Label from '$lib/components/Label.svelte'
 	// import { page } from '$app/state'
 	import type { CaptureInfo } from '../CaptureSection.svelte'
 	import CaptureSection from '../CaptureSection.svelte'
 	import { fade } from 'svelte/transition'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+
+	const operatingWorkspace = useOperatingWorkspace()
 
 	interface Props {
 		local_part: string | undefined
@@ -27,7 +29,7 @@
 		captureLoading = false
 	}: Props = $props()
 
-	let captureEmail = $derived(`capture+${$workspaceStore}-${local_part}@${emailDomain}`)
+	let captureEmail = $derived(`capture+${$operatingWorkspace}-${local_part}@${emailDomain}`)
 </script>
 
 {#if captureInfo}

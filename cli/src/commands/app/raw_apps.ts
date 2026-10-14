@@ -20,13 +20,16 @@ import { deepEqual, readTextFile } from "../../utils/utils.ts";
 
 import {
   type AppExecutionMode,
+  type AppIsolation,
   basePolicy,
   executionModeForPush,
   finalizeDerivedPolicy,
+  isolationUpToDate,
   markAccessFromPolicy,
   preserveOnBehalfOfFields,
   replaceInlineScripts,
   repopulateFields,
+  statedIsolation,
 } from "./app.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 import { buildPermissionedAsContext } from "../../core/permissioned_as.ts";
@@ -49,12 +52,16 @@ export interface AppFile {
   runnables?: any;
   custom_path?: string;
   public?: boolean;
+  sandbox?: boolean;
+  frontend_api?: string[];
   summary: string;
   policy: Policy;
   data?: {
     tables?: string[];
     datatable?: string;
     schema?: string;
+    /** The role the app uses each data table through, by data table name. */
+    roles?: Record<string, string>;
   };
   // Mirrors granular ACLs on the raw_app path. Synced via /acls/* by
   // applyExtraPermsDiff — never through update_app_raw — so a perm-only
@@ -400,6 +407,7 @@ export async function pushRawApp(
   }
   const appFilePath = localPath + "raw_app.yaml";
   const localApp = (await yamlParseFile(appFilePath)) as AppFile;
+  const isolation = statedIsolation(localApp, true);
 
   // Load runnables from separate YAML files in the backend folder
   // Falls back to reading from raw_app.yaml if no separate files exist (backward compat)
@@ -452,6 +460,7 @@ export async function pushRawApp(
       deployedPolicy,
       !!preserveFields.preserve_on_behalf_of,
     ),
+    isolation,
   );
 
   const files = await collectAppFiles(localPath);
@@ -459,7 +468,7 @@ export async function pushRawApp(
     log.info(colors.yellow.bold(`Creating raw app ${remotePath} bundle...`));
     // Detect frameworks to determine entry point
     const frameworks = detectFrameworks(localPath);
-    const entryFile = frameworks.svelte || frameworks.vue
+    const entryFile = frameworks.svelte
       ? "index.ts"
       : "index.tsx";
     const entryPoint = localPath + entryFile;
@@ -483,14 +492,21 @@ export async function pushRawApp(
   // to `<path>.raw_app.json`, not `<path>.app.json`. The backend granular_acls
   // handler routes "raw_app" to the `app` table (where v2 raw apps actually
   // live) while still dispatching DeployedObject::RawApp for git-sync.
-  const { extra_perms: localPerms, ...localAppNoPerms } = localApp as AppFile & {
+  const {
+    extra_perms: localPerms,
+    sandbox: _sandbox,
+    frontend_api: _frontendApi,
+    ...localAppNoPerms
+  } = localApp as AppFile & {
     extra_perms?: Record<string, boolean>;
   };
 
   if (app) {
     // Check both metadata/runnables AND files for changes
     // Files need separate comparison because isSuperset only checks if local keys exist in remote
-    const metadataUpToDate = isSuperset({ ...localAppNoPerms, runnables }, app);
+    const metadataUpToDate =
+      isSuperset({ ...localAppNoPerms, runnables }, app) &&
+      isolationUpToDate(isolation, deployedPolicy, true);
     const filesUpToDate = deepEqual(files, app.value?.files);
     if (metadataUpToDate && filesUpToDate) {
       log.info(colors.green(`App ${remotePath} is up to date`));
@@ -553,16 +569,38 @@ export async function pushRawApp(
   );
 }
 
+/**
+ * `@windmill-labs/shared-utils` up to 1.0.13 derives the policy without `viewer_data_access`,
+ * which would silently deploy an inline runnable that asks to connect as its viewer as one
+ * connecting as the app. The server honors the flag on inline runnables only.
+ */
+export function carryViewerDataAccess(
+  runnables: Record<string, any> | undefined,
+  policy: Policy | undefined,
+) {
+  const triggerables = policy?.triggerables_v2 as Record<string, any> | undefined;
+  if (!runnables || !triggerables) return;
+  for (const [id, runnable] of Object.entries(runnables)) {
+    if (runnable?.viewer_data_access !== true) continue;
+    if (runnable.type !== "inline" && runnable.type !== "runnableByName") continue;
+    for (const [key, triggerable] of Object.entries(triggerables)) {
+      if (key.startsWith(`${id}:rawscript/`)) triggerable.viewer_data_access = true;
+    }
+  }
+}
+
 export async function generatingPolicy(
   app: any,
   path: string,
   executionMode: AppExecutionMode,
   base: Policy | undefined,
+  isolation?: AppIsolation,
 ) {
   log.info(colors.gray(`Generating fresh policy for app ${path}...`));
   try {
     app.policy = await windmillUtils.updateRawAppPolicy(app.runnables, base);
-    finalizeDerivedPolicy(app.policy, executionMode);
+    carryViewerDataAccess(app.runnables, app.policy);
+    finalizeDerivedPolicy(app.policy, executionMode, isolation, true);
   } catch (e) {
     log.error(colors.red(`Error generating policy for app ${path}: ${e}`));
     throw e;

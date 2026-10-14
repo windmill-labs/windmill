@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_runnable_dependencies (flow_path, runnable_path, runnable_is_flow, runnable_is_agent, workspace_id) VALUES ($1, $2, FALSE, TRUE, $3) ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fa8c36eda6d4cb64b4ac5979cc4eea76ab0226a514d25712a733e01add508b71"
+}

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO draft_move (workspace_id, typ, old_path, new_path, email)\n         SELECT $1, t::draft_kind, $3, $4, $5 FROM unnest($2::text[]) t",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "TextArray",
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3a015ab279785a15f89c89d8c4d155e85370d4c2b7ed14fbb510919e7624ca1c"
+}

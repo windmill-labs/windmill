@@ -13,9 +13,13 @@
 
 	let {
 		parentWorkspaceId,
+		displayName,
 		onUpdateCanDeploy = (value) => {}
 	}: {
 		parentWorkspaceId: string
+		/** How to name the target in the message, when its id is not what a reader would recognize
+		 * — a remote deploy target is addressed through a proxy path. */
+		displayName?: string
 		onUpdateCanDeploy?: (value: boolean) => void
 	} = $props()
 
@@ -73,7 +77,8 @@
 	<Alert type="info" title="Target workspace protection active" class="my-2">
 		<div class="flex flex-col gap-2">
 			<p>
-				The workspace {parentWorkspaceId} has a protection rule{activeDeployRulesets.length > 1
+				The workspace {displayName ?? parentWorkspaceId} has a protection rule{activeDeployRulesets.length >
+				1
 					? 's'
 					: ''}
 				<b>{activeDeployRulesets.map((r) => r.name).join(', ')}</b>

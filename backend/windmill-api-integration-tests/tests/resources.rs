@@ -443,6 +443,30 @@ async fn test_resource_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     let body = resp.json::<serde_json::Value>().await?;
     assert_eq!(body["description"], "Updated type desc");
 
+    // display_name: an update that omits it, as a push from a CLI predating the field does,
+    // keeps it; an explicit null clears it.
+    for (update, expected) in [
+        (
+            json!({"display_name": "New Test Type"}),
+            json!("New Test Type"),
+        ),
+        (
+            json!({"description": "Updated type desc"}),
+            json!("New Test Type"),
+        ),
+        (json!({"display_name": null}), serde_json::Value::Null),
+    ] {
+        let resp = authed(client().post(resource_url(port, "type/update", "new_test_type")))
+            .json(&update)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        let resp = authed_get(port, "type/get", "new_test_type").await;
+        let body = resp.json::<serde_json::Value>().await?;
+        assert_eq!(body["display_name"], expected);
+    }
+
     // type/delete
     let resp = authed(client().delete(resource_url(port, "type/delete", "new_test_type")))
         .send()
@@ -542,6 +566,113 @@ async fn test_resource_value_cache_is_identity_scoped(db: Pool<Postgres>) -> any
     Ok(())
 }
 
+/// A token scoped to one resource must not read, through the `$var:`/`$res:` references it
+/// writes into that resource, what its scopes would refuse to read directly.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_interpolated_references_need_the_token_scopes(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let resp = authed(client().post(format!("{base}/variables/create")))
+        .json(&json!({"path": "u/test-user/secret", "value": "CANARY", "is_secret": true, "description": ""}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201);
+    let resp = authed(client().post(format!("{base}/resources/create")))
+        .json(&json!({"path": "u/test-user/other", "value": {"pw": "OTHER"}, "resource_type": "object", "description": ""}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201);
+
+    let mint = |scopes: serde_json::Value| async move {
+        let resp =
+            authed(client().post(format!("http://localhost:{port}/api/users/tokens/create")))
+                .json(
+                    &json!({"label": "scoped", "scopes": scopes, "workspace_id": "test-workspace"}),
+                )
+                .send()
+                .await
+                .unwrap();
+        assert_eq!(resp.status(), 201);
+        resp.text().await.unwrap()
+    };
+    let probe_only = mint(json!(["resources:write:u/test-user/probe"])).await;
+    let with_var = mint(json!([
+        "resources:read:u/test-user/probe",
+        "variables:read:u/test-user/secret"
+    ]))
+    .await;
+
+    let read_probe = |value: serde_json::Value, token: String| {
+        let base = base.clone();
+        let probe_only = probe_only.clone();
+        async move {
+            let resp = client()
+                .post(format!("{base}/resources/create?update_if_exists=true"))
+                .bearer_auth(&probe_only)
+                .json(&json!({"path": "u/test-user/probe", "value": value, "resource_type": "object", "description": ""}))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), 201);
+            let resp = client()
+                .get(format!(
+                    "{base}/resources/get_value_interpolated/u/test-user/probe"
+                ))
+                .bearer_auth(&token)
+                .send()
+                .await
+                .unwrap();
+            (resp.status().as_u16(), resp.text().await.unwrap())
+        }
+    };
+
+    for value in [
+        json!({"v": "$var:u/test-user/secret"}),
+        json!({"v": "$jsonvar:u/test-user/secret"}),
+        json!({"v": ["$res:u/test-user/other"]}),
+    ] {
+        let (status, body) = read_probe(value.clone(), probe_only.clone()).await;
+        assert_eq!(status, 403, "{value}: {body}");
+        assert!(
+            !body.contains("CANARY") && !body.contains("OTHER"),
+            "{body}"
+        );
+    }
+
+    let (status, body) =
+        read_probe(json!({"v": "$var:u/test-user/secret"}), with_var.clone()).await;
+    assert_eq!((status, body.as_str()), (200, r#"{"v":"CANARY"}"#));
+
+    // The resource's own linked secrets (at its path, or `<path>_<field>`) are part of it.
+    for (path, value) in [
+        ("u/test-user/probe", "LINKED"),
+        ("u/test-user/probe_key", "KEY"),
+    ] {
+        let resp = authed(client().post(format!("{base}/variables/create")))
+            .json(&json!({"path": path, "value": value, "is_secret": true, "description": ""}))
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 201);
+    }
+    let (status, body) = read_probe(
+        json!({"pw": "$var:u/test-user/probe", "key": "$var:u/test-user/probe_key"}),
+        probe_only.clone(),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&body)?,
+        json!({"pw": "LINKED", "key": "KEY"})
+    );
+
+    Ok(())
+}
+
 /// A resource whose value contains a `$WM_*` contextual variable (e.g. `$WM_TOKEN`) is
 /// job-dependent and must NEVER be cached — even when first read WITHOUT a `job_id`, where the
 /// placeholder is left unresolved (caching that would serve a stale placeholder to a later job
@@ -616,6 +747,65 @@ async fn test_resource_cache_handles_job_context(db: Pool<Postgres>) -> anyhow::
         200,
         "resource with a $WM_* contextual variable must not be cached"
     );
+
+    Ok(())
+}
+
+/// Without an embeddings index the resource type search reads the table, so it has to apply the
+/// same scope as the index: the workspace's own types and the global ones in `admins`, never
+/// another workspace's.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_resource_type_search_without_embeddings(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::query("INSERT INTO workspace (id, name, owner) VALUES ('other-workspace', 'other-workspace', 'test-user')")
+        .execute(&db)
+        .await?;
+    for (workspace, name, description) in [
+        (
+            "test-workspace",
+            "c_acme_billing",
+            "Acme internal billing API",
+        ),
+        (
+            "other-workspace",
+            "c_other_billing",
+            "Another workspace's billing API",
+        ),
+    ] {
+        sqlx::query(
+            "INSERT INTO resource_type (workspace_id, name, schema, description, created_by) VALUES ($1, $2, '{}'::jsonb, $3, 'test-user')",
+        )
+        .bind(workspace)
+        .bind(name)
+        .bind(description)
+        .execute(&db)
+        .await?;
+    }
+
+    let search = |text: &str| {
+        let url = format!(
+            "http://localhost:{port}/api/w/test-workspace/embeddings/query_resource_types?text={text}"
+        );
+        async move {
+            let resp = authed(client().get(url)).send().await.unwrap();
+            assert_eq!(resp.status(), 200);
+            resp.json::<Vec<serde_json::Value>>()
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|rt| rt["name"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        }
+    };
+
+    let billing = search("billing").await;
+    assert_eq!(billing.first().map(String::as_str), Some("c_acme_billing"));
+    assert!(!billing.contains(&"c_other_billing".to_string()));
+    // `ai_skill` is seeded in `admins` by the migrations.
+    assert!(search("skill").await.contains(&"ai_skill".to_string()));
 
     Ok(())
 }

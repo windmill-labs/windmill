@@ -1,7 +1,20 @@
 use sqlx::{Pool, Postgres};
-use windmill_common::{external_ip::UNKNOWN_IP, worker::insert_ping_query};
+use uuid::Uuid;
+use windmill_common::{
+    external_ip::UNKNOWN_IP,
+    worker::{insert_ping_query, set_worker_draining_query, update_worker_ping_main_loop_query},
+};
 
 async fn insert_ping(db: &Pool<Postgres>, worker: &str, ip: Option<&str>) -> anyhow::Result<()> {
+    register(db, worker, ip, None).await
+}
+
+async fn register(
+    db: &Pool<Postgres>,
+    worker: &str,
+    ip: Option<&str>,
+    draining: Option<bool>,
+) -> anyhow::Result<()> {
     insert_ping_query(
         "test-instance",
         worker,
@@ -15,9 +28,30 @@ async fn insert_ping(db: &Pool<Postgres>, worker: &str, ip: Option<&str>) -> any
         None,
         None,
         false,
+        draining,
         db,
     )
     .await?;
+    Ok(())
+}
+
+/// A worker re-registers mid-life once its external IP resolves. That registration must not
+/// clear a draining flag the same process already published; only a worker starting up under
+/// a reclaimed name resets it.
+#[sqlx::test]
+async fn only_a_starting_worker_resets_draining(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let draining = || async {
+        sqlx::query_scalar::<_, bool>("SELECT draining FROM worker_ping WHERE worker = 'wk-drain'")
+            .fetch_one(&db)
+            .await
+    };
+    register(&db, "wk-drain", None, Some(false)).await?;
+    set_worker_draining_query("wk-drain", &db).await?;
+    register(&db, "wk-drain", Some("1.2.3.4"), None).await?;
+    assert!(draining().await?);
+
+    register(&db, "wk-drain", None, Some(false)).await?;
+    assert!(!draining().await?);
     Ok(())
 }
 
@@ -40,5 +74,49 @@ async fn unresolved_ip_keeps_the_reclaimed_rows_address(db: Pool<Postgres>) -> a
         .fetch_one(&db)
         .await?;
     assert_eq!(ip, UNKNOWN_IP);
+    Ok(())
+}
+
+async fn main_loop_ping(
+    db: &Pool<Postgres>,
+    worker: &str,
+    last_job: Option<(Uuid, &str)>,
+) -> anyhow::Result<()> {
+    update_worker_ping_main_loop_query(
+        worker,
+        &[],
+        None,
+        None,
+        Some(1),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        None,
+        last_job,
+        db,
+    )
+    .await
+}
+
+/// The main-loop ping sends a job only once, so most pings carry none. Those must keep the last
+/// job the row holds, whether this ping or the job poller wrote it.
+#[sqlx::test]
+async fn main_loop_ping_without_a_job_keeps_the_last_one(db: Pool<Postgres>) -> anyhow::Result<()> {
+    insert_ping(&db, "wk-last-job", None).await?;
+    let job_id = Uuid::new_v4();
+    main_loop_ping(&db, "wk-last-job", Some((job_id, "admins"))).await?;
+    main_loop_ping(&db, "wk-last-job", None).await?;
+    let (current_job_id, workspace_id): (Option<Uuid>, Option<String>) = sqlx::query_as(
+        "SELECT current_job_id, current_job_workspace_id FROM worker_ping WHERE worker = $1",
+    )
+    .bind("wk-last-job")
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(current_job_id, Some(job_id));
+    assert_eq!(workspace_id.as_deref(), Some("admins"));
     Ok(())
 }

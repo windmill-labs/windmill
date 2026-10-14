@@ -957,6 +957,7 @@ async fn test_job_labels_propagated_at_push_time(db: Pool<Postgres>) -> anyhow::
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         labels: Some(vec!["prod".to_string(), "deploy".to_string()]),
+        job_token_scopes: None,
     })
     .push(&db)
     .await;
@@ -1060,6 +1061,7 @@ async fn test_job_label_filter(db: Pool<Postgres>) -> anyhow::Result<()> {
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         labels: Some(vec!["prod".to_string()]),
+        job_token_scopes: None,
     })
     .push(&db)
     .await;
@@ -1077,6 +1079,7 @@ async fn test_job_label_filter(db: Pool<Postgres>) -> anyhow::Result<()> {
             .into(),
         debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
         labels: Some(vec!["staging".to_string()]),
+        job_token_scopes: None,
     })
     .push(&db)
     .await;
@@ -1196,6 +1199,66 @@ async fn test_wm_labels_from_result_merged_with_static_labels(
         "should contain runtime label from wm_labels in result, got: {:?}",
         labels
     );
+
+    Ok(())
+}
+
+/// `tag` lives only on `v2_job`, which count_jobs joins only when `tags` is set.
+#[sqlx::test(fixtures("base"))]
+async fn test_count_completed_jobs_tags_filter(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    for (ws, tag, status) in [
+        ("test-workspace", "deno", "success"),
+        ("test-workspace", "deno", "failure"),
+        ("test-workspace", "python3", "success"),
+        ("other-workspace", "deno", "success"),
+    ] {
+        let id = uuid::Uuid::new_v4();
+        sqlx::query("INSERT INTO v2_job (id, workspace_id, tag) VALUES ($1, $2, $3)")
+            .bind(id)
+            .bind(ws)
+            .bind(tag)
+            .execute(&db)
+            .await?;
+        sqlx::query(
+            "INSERT INTO v2_job_completed (id, workspace_id, status, duration_ms) VALUES ($1, $2, $3::job_status, 0)",
+        )
+        .bind(id)
+        .bind(ws)
+        .bind(status)
+        .execute(&db)
+        .await?;
+    }
+
+    for (query, expected) in [
+        ("", 3),
+        ("tags=deno", 2),
+        ("tags=deno&success=true", 1),
+        ("tags=deno,python3&completed_after_s_ago=3600", 3),
+    ] {
+        let response = client
+            .client()
+            .get(format!(
+                "{}/w/test-workspace/jobs/completed/count_jobs?{query}",
+                client.baseurl()
+            ))
+            .send()
+            .await?;
+        assert!(
+            response.status().is_success(),
+            "{query}: {}",
+            response.text().await?
+        );
+        assert_eq!(response.json::<i64>().await?, expected, "{query}");
+    }
 
     Ok(())
 }

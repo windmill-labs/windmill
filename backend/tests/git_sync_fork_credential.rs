@@ -12,8 +12,8 @@
 
 use sqlx::{Pool, Postgres};
 use windmill_common::git_sync_ee::{
-    create_repo_webhook, git_credential_for_url, repo_provider, repo_supports_managed_git_features,
-    set_git_credential, GitProvider,
+    create_repo_webhook, git_app_installations_for, git_credential_for_url, managed_pr_base_branch,
+    repo_provider, repo_supports_managed_git_features, set_git_credential, GitProvider,
 };
 use windmill_common::workspaces::GitCredentialProvider;
 
@@ -275,6 +275,102 @@ async fn an_unreachable_gitlab_host_is_the_reported_error(
     assert!(
         !err.to_string().contains("glpat-secret"),
         "the URL credential leaked into the error: {err}"
+    );
+    Ok(())
+}
+
+/// GitHub App installations are normally copied into a fork, but a workspace
+/// attached as a dev workspace, or forked before its parent connected the App,
+/// holds none, and neither does anything forked from it. The lookup reaches the
+/// nearest workspace up the chain that holds some, and the background App path
+/// (PR base resolution here) authenticates with that installation's token.
+#[sqlx::test(fixtures("git_sync_fork_credential"))]
+async fn app_installations_come_from_the_nearest_ancestor_holding_some(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    use axum::{routing::get, Router};
+    use std::sync::{Arc, Mutex};
+
+    // A stand-in GitHub API: one repository, and a record of who asked for it.
+    let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(vec![]));
+    let app = Router::new().route(
+        "/api/v3/repos/acme/repo",
+        get({
+            let seen = seen.clone();
+            move |headers: axum::http::HeaderMap| {
+                let seen = seen.clone();
+                async move {
+                    let auth = headers
+                        .get("authorization")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("")
+                        .to_string();
+                    seen.lock().unwrap().push(auth);
+                    axum::Json(serde_json::json!({ "default_branch": "trunk" }))
+                }
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let port = listener.local_addr()?.port();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let stub = format!("http://127.0.0.1:{port}");
+
+    // The root holds the installation, with a cached token so nothing is minted.
+    sqlx::query(
+        "UPDATE workspace_settings SET git_app_installations = $1::jsonb WHERE workspace_id = 'parent-ws'",
+    )
+    .bind(serde_json::json!([{
+        "installation_id": 42, "account_id": "acme", "jwt_token": "x",
+        "github_base_url": stub,
+        "installation_token": "root-token", "installation_token_expiration": 4102444800i64
+    }]))
+    .execute(&db)
+    .await?;
+    // The fork's copy of the resource names the App-backed repository.
+    sqlx::query("UPDATE resource SET value = $1::jsonb WHERE workspace_id = 'deep-fork-ws' AND path = 'u/admin/repo'")
+        .bind(serde_json::json!({ "url": format!("{stub}/acme/repo.git"), "is_github_app": true }))
+        .execute(&db)
+        .await?;
+
+    assert_eq!(
+        git_app_installations_for(&db, "deep-fork-ws").await?,
+        ("parent-ws".to_string(), vec![(42, Some(stub.clone()))]),
+        "two levels down, the root's installations are the ones to use"
+    );
+    assert_eq!(
+        git_app_installations_for(&db, "orphan-ws").await?,
+        ("orphan-ws".to_string(), vec![]),
+        "a workspace with nothing above it resolves nothing"
+    );
+    assert_eq!(
+        managed_pr_base_branch(&db, "deep-fork-ws", REPO)
+            .await?
+            .as_deref(),
+        Some("trunk"),
+        "the background App path reaches the repository through the root's installation"
+    );
+    let seen = seen.lock().unwrap().clone();
+    assert!(
+        !seen.is_empty() && seen.iter().all(|auth| auth == "Bearer root-token"),
+        "every call authenticated with the root's cached token: {seen:?}"
+    );
+
+    // A closer holder takes precedence over the root.
+    sqlx::query(
+        "UPDATE workspace_settings SET git_app_installations = $1::jsonb WHERE workspace_id = 'fork-ws'",
+    )
+    .bind(serde_json::json!([{
+        "installation_id": 7, "account_id": "acme", "jwt_token": "x",
+        "github_base_url": stub,
+        "installation_token": "mid-token", "installation_token_expiration": 4102444800i64
+    }]))
+    .execute(&db)
+    .await?;
+    assert_eq!(
+        git_app_installations_for(&db, "deep-fork-ws").await?.0,
+        "fork-ws",
+        "the nearest holder wins over the root"
     );
     Ok(())
 }

@@ -245,6 +245,9 @@ lazy_static::lazy_static! {
 /// Reject a path the `proper_id` constraint would reject anyway, so the caller
 /// gets a plain 400 instead of the raw Postgres constraint-violation string,
 /// which names the table and constraint and echoes the input back.
+///
+/// `app` and the trigger tables have no such constraint: for them this check is
+/// the only authority, so loosening it lets malformed paths be stored.
 pub fn check_proper_path(path: &str) -> Result<()> {
     // The column is varchar(255); without this an over-long but well-formed path
     // still reaches Postgres and leaks the same kind of message back.
@@ -278,6 +281,9 @@ pub fn sanitize_db_error(e: sqlx::Error) -> Error {
         return Error::from(e);
     };
     match db_err.code().as_deref() {
+        Some("23514") if db_err.constraint() == Some("variable_value_length") => {
+            Error::BadRequest("A field exceeds its maximum length".to_string())
+        }
         // check_violation — `proper_id` / `proper_name` and friends
         Some("23514") => Error::BadRequest(
             "Invalid path or name: it does not match the required format".to_string(),
@@ -476,6 +482,28 @@ pub fn paginate(pagination: Pagination) -> (usize, usize) {
         .max(1)
         .min(MAX_PER_PAGE);
     let offset = (pagination.page.unwrap_or(1).max(1) - 1) * per_page;
+    (per_page, offset)
+}
+
+/// [`paginate`] for a listing that answers whole unless a size is asked for: the deploy
+/// histories, which the history panels and the CLI read unpaged while the diff picker takes
+/// a page at a time. An asked-for size is still clamped, and the offset saturates rather
+/// than wrapping, so no caller can turn this into an unbounded scan or a negative bind.
+pub fn paginate_optional(pagination: Pagination) -> (i64, i64) {
+    // Naming neither parameter asks for the whole listing, the contract these endpoints
+    // have always answered on. Naming either makes it a page like any other listing's.
+    if pagination.page.is_none() && pagination.per_page.is_none() {
+        return (i64::MAX, 0);
+    }
+    let per_page = pagination
+        .per_page
+        .unwrap_or(DEFAULT_PER_PAGE)
+        .clamp(1, MAX_PER_PAGE) as i64;
+    // Bound before Postgres sees it: an unchecked cast of a caller-controlled page becomes
+    // a negative OFFSET, which is an error rather than an empty page.
+    let offset = i64::try_from(pagination.page.unwrap_or(1).max(1) - 1)
+        .unwrap_or(i64::MAX)
+        .saturating_mul(per_page);
     (per_page, offset)
 }
 
@@ -976,18 +1004,33 @@ fn six_fields_hint(schedule_str: &str, version: Option<&str>, seconds_required: 
 }
 
 impl ScheduleType {
+    /// `NotFound` means the expression has no run left (an expired year, an impossible
+    /// date), and schedule pushes disable the schedule on it. Every other error must stay
+    /// transient: croner fails across a DST jump longer than an hour (Antarctica/Troll)
+    /// and succeeds again once the jump has passed.
     pub fn find_next(
         &self,
         starting_from: &chrono::DateTime<chrono_tz::Tz>,
-    ) -> chrono::DateTime<chrono_tz::Tz> {
+    ) -> Result<chrono::DateTime<chrono_tz::Tz>> {
+        let no_run_left = || {
+            Error::NotFound(format!(
+                "cron: the schedule has no run left after {}",
+                starting_from.format("%Y-%m-%d %H:%M:%S %Z")
+            ))
+        };
         match self {
             ScheduleType::Croner(croner_schedule) => croner_schedule
                 .find_next_occurrence(starting_from, false)
-                .expect("cron: a schedule should have a next event"),
-            ScheduleType::Cron(schedule) => schedule
-                .after(starting_from)
-                .next()
-                .expect("cron: a schedule should have a next event"),
+                .map_err(|e| match e {
+                    croner::errors::CronError::TimeSearchLimitExceeded => no_run_left(),
+                    e => Error::internal_err(format!(
+                        "cron: could not compute the run after {}: {e}",
+                        starting_from.format("%Y-%m-%d %H:%M:%S %Z")
+                    )),
+                }),
+            ScheduleType::Cron(schedule) => {
+                schedule.after(starting_from).next().ok_or_else(no_run_left)
+            }
         }
     }
 
@@ -1125,19 +1168,35 @@ use tokio::time::{self, Duration, Sleep};
 
 use pin_project_lite::pin_project;
 
+/// What a [`WarnAfterFuture`] is timing, which decides how its warning reads.
+pub enum WarnSubject {
+    /// A database query, with the SQL when the caller has it.
+    Query(Option<String>),
+    /// Anything else (a child process, a cache transfer), named for the log line.
+    Step(String),
+}
+
 pub trait WarnAfterExt: Future + Sized {
     /// Warns if the future takes longer than the specified number of seconds to complete.
     #[track_caller]
     fn warn_after_seconds(self, seconds: u8) -> WarnAfterFuture<Self> {
         let caller = Location::caller();
-        self.build_from_caller(seconds, caller, None)
+        self.build_from_caller(seconds, caller, WarnSubject::Query(None))
+    }
+
+    /// Same, for a step that is not a database query (a child process, a cache transfer):
+    /// the warning names `step` instead of reporting a slow query.
+    #[track_caller]
+    fn warn_after_seconds_for(self, seconds: u8, step: &str) -> WarnAfterFuture<Self> {
+        let caller = Location::caller();
+        self.build_from_caller(seconds, caller, WarnSubject::Step(step.to_string()))
     }
 
     fn build_from_caller(
         self,
         seconds: u8,
         caller: &Location,
-        sql: Option<String>,
+        subject: WarnSubject,
     ) -> WarnAfterFuture<Self> {
         let location = format!("{}:{}", caller.file(), caller.line());
         WarnAfterFuture {
@@ -1147,13 +1206,13 @@ pub trait WarnAfterExt: Future + Sized {
             start_time: std::time::Instant::now(),
             location,
             seconds,
-            sql,
+            subject,
         }
     }
     #[track_caller]
     fn warn_after_seconds_with_sql(self, seconds: u8, sql: String) -> WarnAfterFuture<Self> {
         let caller = Location::caller();
-        self.build_from_caller(seconds, caller, Some(sql))
+        self.build_from_caller(seconds, caller, WarnSubject::Query(Some(sql)))
     }
 }
 
@@ -1171,7 +1230,7 @@ pin_project! {
         location: String,
         start_time: std::time::Instant,
         seconds: u8,
-        sql: Option<String>,
+        subject: WarnSubject,
     }
 }
 
@@ -1191,12 +1250,20 @@ impl<F: Future> Future for WarnAfterFuture<F> {
         // Poll the timeout future to check if it has elapsed.
         if !*this.warned {
             if this.timeout.poll(cx).is_ready() {
-                tracing::warn!(
-                    location = this.location,
-                    "SLOW_QUERY: query {} to db taking longer than expected (> {} seconds)",
-                    build_query_string(&this.location, this.sql.as_deref()),
-                    this.seconds,
-                );
+                match &*this.subject {
+                    WarnSubject::Step(step) => tracing::warn!(
+                        location = this.location,
+                        "SLOW_STEP: {step} at {} taking longer than expected (> {} seconds)",
+                        this.location,
+                        this.seconds,
+                    ),
+                    WarnSubject::Query(sql) => tracing::warn!(
+                        location = this.location,
+                        "SLOW_QUERY: query {} to db taking longer than expected (> {} seconds)",
+                        build_query_string(&this.location, sql.as_deref()),
+                        this.seconds,
+                    ),
+                }
                 *this.warned = true;
             }
         }
@@ -1206,12 +1273,20 @@ impl<F: Future> Future for WarnAfterFuture<F> {
             Poll::Ready(output) => {
                 if *this.warned {
                     let elapsed = this.start_time.elapsed();
-                    tracing::warn!(
-                        location = this.location,
-                        "SLOW_QUERY: completed query {} with total duration: {:.2?}",
-                        build_query_string(&this.location, this.sql.as_deref()),
-                        elapsed
-                    );
+                    match &*this.subject {
+                        WarnSubject::Step(step) => tracing::warn!(
+                            location = this.location,
+                            "SLOW_STEP: {step} at {} completed with total duration: {:.2?}",
+                            this.location,
+                            elapsed
+                        ),
+                        WarnSubject::Query(sql) => tracing::warn!(
+                            location = this.location,
+                            "SLOW_QUERY: completed query {} with total duration: {:.2?}",
+                            build_query_string(&this.location, sql.as_deref()),
+                            elapsed
+                        ),
+                    }
                 }
                 Poll::Ready(output)
             }
@@ -1625,6 +1700,31 @@ pub fn truncate_with_ellipsis(s: &str, max_chars: usize) -> String {
 mod tests {
     use super::*;
 
+    #[test]
+    fn test_paginate_optional_answers_whole_but_bounds_what_is_asked_for() {
+        // Nothing asked for: every row there can be, which is what the history panels and
+        // the CLI read.
+        assert_eq!(
+            paginate_optional(Pagination { page: None, per_page: None }),
+            (i64::MAX, 0)
+        );
+        assert_eq!(
+            paginate_optional(Pagination { page: Some(3), per_page: Some(20) }),
+            (20, 40)
+        );
+        // An asked-for size is still capped, so no caller turns this into an unbounded scan.
+        assert_eq!(
+            paginate_optional(Pagination { page: None, per_page: Some(usize::MAX) }),
+            (MAX_PER_PAGE as i64, 0)
+        );
+        // A page nobody could mean lands past the end rather than going negative, which
+        // Postgres would reject outright.
+        let (per_page, offset) =
+            paginate_optional(Pagination { page: Some(usize::MAX), per_page: Some(20) });
+        assert_eq!(per_page, 20);
+        assert_eq!(offset, i64::MAX);
+    }
+
     /// A 5-field crontab line is the most common way to get a schedule rejected, and both
     /// parsers report it in terms a crontab user cannot act on, so the seconds field and the
     /// equivalent expression must reach the caller for v1 and v2 alike.
@@ -1675,6 +1775,22 @@ mod tests {
             .expect("invalid cron must be rejected")
             .to_string();
         assert!(!err.contains("6 fields"), "{err}");
+    }
+
+    #[test]
+    fn find_next_reports_only_a_cron_with_no_run_left_as_not_found() {
+        use chrono::TimeZone;
+        let troll: chrono_tz::Tz = "Antarctica/Troll".parse().unwrap();
+        // Troll's clocks jump from 01:00 to 03:00 on the last Sunday of March.
+        let before_jump = troll.with_ymd_and_hms(2027, 3, 28, 0, 30, 0).unwrap();
+
+        let expired = ScheduleType::from_str("0 0 9 1 1 * 2026", Some("v1"), true).unwrap();
+        let err = expired.find_next(&before_jump).unwrap_err();
+        assert!(matches!(err, Error::NotFound(_)), "{err}");
+
+        let across_jump = ScheduleType::from_str("0 30 1 * * *", Some("v2"), true).unwrap();
+        let err = across_jump.find_next(&before_jump).unwrap_err();
+        assert!(!matches!(err, Error::NotFound(_)), "{err}");
     }
 
     /// A worker that restarts must land on the exact same name to reclaim its `worker_ping`
@@ -2093,11 +2209,30 @@ mod tests {
     }
 }
 
-/// Parse .npmrc content to extract the default registry URL and its auth token.
-/// Returns `Some((registry_url, Option<auth_token>))` if a default registry is found.
-pub fn parse_npmrc_registry(npmrc_content: &str) -> Option<(String, Option<String>)> {
+/// Credentials for a registry, as an `Authorization` header expects them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RegistryAuth {
+    Bearer(String),
+    /// Already base64 encoded `user:password`.
+    Basic(String),
+}
+
+/// Parse .npmrc content to extract the default registry URL and its credentials.
+/// Returns `Some((registry_url, Option<auth>))` if a default registry is found.
+///
+/// Credentials follow npm's precedence for a registry: `_authToken`, then `_auth`, then
+/// `username` with a base64 encoded `_password`.
+pub fn parse_npmrc_registry(npmrc_content: &str) -> Option<(String, Option<RegistryAuth>)> {
+    use base64::{
+        alphabet,
+        engine::{
+            general_purpose::STANDARD, DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig,
+        },
+        Engine,
+    };
+
     let mut registry_url: Option<String> = None;
-    let mut auth_tokens: Vec<(String, String)> = Vec::new();
+    let mut scoped_keys: Vec<(String, String, String)> = Vec::new();
 
     for line in npmrc_content.lines() {
         let line = line.trim();
@@ -2110,8 +2245,15 @@ pub fn parse_npmrc_registry(npmrc_content: &str) -> Option<(String, Option<Strin
         }
 
         if line.starts_with("//") {
-            if let Some((prefix, token)) = line.split_once(":_authToken=") {
-                auth_tokens.push((prefix.to_string(), token.to_string()));
+            if let Some((prefix, key, value)) = line
+                .split_once('=')
+                .and_then(|(lhs, value)| lhs.rsplit_once(':').map(|(p, k)| (p, k, value)))
+            {
+                scoped_keys.push((
+                    prefix.trim_end_matches('/').to_string(),
+                    key.trim().to_string(),
+                    value.trim().to_string(),
+                ));
             }
         }
     }
@@ -2120,20 +2262,65 @@ pub fn parse_npmrc_registry(npmrc_content: &str) -> Option<(String, Option<Strin
     let url_without_protocol = url.trim_start_matches("https:").trim_start_matches("http:");
     let url_prefix = url_without_protocol.trim_end_matches('/');
 
-    let token = auth_tokens
-        .iter()
-        .find(|(prefix, _)| {
-            let p = prefix.trim_end_matches('/');
-            p == url_prefix
-        })
-        .map(|(_, token)| token.clone());
+    // As in npm's config, the last assignment wins, and an empty one unsets the key.
+    let get = |prefix: &str, key: &str| {
+        scoped_keys
+            .iter()
+            .rev()
+            .find(|(p, k, _)| p == prefix && k == key)
+            .map(|(_, _, value)| value.clone())
+            .filter(|value| !value.is_empty())
+    };
+    let auth_at = |prefix: &str| {
+        if let Some(token) = get(prefix, "_authToken") {
+            Some(RegistryAuth::Bearer(token))
+        } else if let Some(auth) = get(prefix, "_auth") {
+            Some(RegistryAuth::Basic(auth))
+        } else if let (Some(username), Some(password)) =
+            (get(prefix, "username"), get(prefix, "_password"))
+        {
+            let lenient = GeneralPurpose::new(
+                &alphabet::STANDARD,
+                GeneralPurposeConfig::new()
+                    .with_decode_padding_mode(DecodePaddingMode::Indifferent),
+            );
+            match lenient
+                .decode(&password)
+                .ok()
+                .and_then(|p| String::from_utf8(p).ok())
+            {
+                Some(password) => Some(RegistryAuth::Basic(
+                    STANDARD.encode(format!("{username}:{password}")),
+                )),
+                None => {
+                    tracing::warn!("npmrc _password for {prefix} is not base64, ignoring it");
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    };
 
-    Some((url, token))
+    // Like npm, the deepest path of the registry URL that carries credentials supplies them,
+    // walking up to the bare host.
+    let mut prefix = url_prefix;
+    let auth = loop {
+        if let Some(auth) = auth_at(prefix) {
+            break Some(auth);
+        }
+        match prefix.rfind('/') {
+            Some(i) if i > 1 => prefix = &prefix[..i],
+            _ => break None,
+        }
+    };
+
+    Some((url, auth))
 }
 
 #[cfg(test)]
 mod npmrc_tests {
-    use super::parse_npmrc_registry;
+    use super::{parse_npmrc_registry, RegistryAuth};
 
     #[test]
     fn test_parse_simple_registry() {
@@ -2143,7 +2330,7 @@ mod npmrc_tests {
             result,
             Some((
                 "https://registry.mycompany.com/".to_string(),
-                Some("secret123".to_string())
+                Some(RegistryAuth::Bearer("secret123".to_string()))
             ))
         );
     }
@@ -2174,9 +2361,67 @@ mod npmrc_tests {
             result,
             Some((
                 "https://r.example.com/".to_string(),
-                Some("tok".to_string())
+                Some(RegistryAuth::Bearer("tok".to_string()))
             ))
         );
+    }
+
+    #[test]
+    fn test_parse_username_password() {
+        // "cGFzcw==" is base64("pass"); the header value is base64("user:pass")
+        let npmrc = "registry=https://pkgs.dev.azure.com/org/_packaging/feed/npm/registry/\n\
+            //pkgs.dev.azure.com/org/_packaging/feed/npm/registry/:username=user\n\
+            //pkgs.dev.azure.com/org/_packaging/feed/npm/registry/:_password=cGFzcw==\n\
+            //pkgs.dev.azure.com/org/_packaging/feed/npm/registry/:email=npm requires email\n";
+        let (_, auth) = parse_npmrc_registry(npmrc).unwrap();
+        assert_eq!(auth, Some(RegistryAuth::Basic("dXNlcjpwYXNz".to_string())));
+    }
+
+    #[test]
+    fn test_parse_auth_and_precedence() {
+        let base = "registry=https://r.example.com/\n";
+        let auth = "//r.example.com/:_auth=dXNlcjpwYXNz\n";
+        let user_pass = "//r.example.com/:username=other\n//r.example.com/:_password=eA==\n";
+        let token = "//r.example.com:_authToken=tok\n";
+
+        let parse = |s: String| parse_npmrc_registry(&s).unwrap().1;
+        assert_eq!(
+            parse(format!("{base}{auth}")),
+            Some(RegistryAuth::Basic("dXNlcjpwYXNz".to_string()))
+        );
+        assert_eq!(
+            parse(format!("{base}{user_pass}{auth}")),
+            Some(RegistryAuth::Basic("dXNlcjpwYXNz".to_string()))
+        );
+        assert_eq!(
+            parse(format!("{base}{auth}{user_pass}{token}")),
+            Some(RegistryAuth::Bearer("tok".to_string()))
+        );
+        // Credentials for another registry are not sent to the default one
+        assert_eq!(parse(format!("{base}//other.example.com/:_auth=x\n")), None);
+        // An empty value is unset, and a later line overrides an earlier one
+        assert_eq!(
+            parse(format!(
+                "{base}//r.example.com/:_authToken=\n{auth}//r.example.com/:_auth=y\n"
+            )),
+            Some(RegistryAuth::Basic("y".to_string()))
+        );
+        // An empty assignment clears an earlier value rather than being skipped
+        assert_eq!(
+            parse(format!("{base}{auth}//r.example.com/:_auth=\n{user_pass}")),
+            Some(RegistryAuth::Basic("b3RoZXI6eA==".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_parse_auth_from_parent_path() {
+        let npmrc = "registry=https://r.example.com:4873/npm/feed/\n\
+            //r.example.com:4873/:_authToken=host\n\
+            //r.example.com:4873/npm/:username=user\n\
+            //r.example.com:4873/npm/:_password=cGFzcw\n";
+        // The deepest path with credentials wins; the unpadded password still decodes
+        let (_, auth) = parse_npmrc_registry(npmrc).unwrap();
+        assert_eq!(auth, Some(RegistryAuth::Basic("dXNlcjpwYXNz".to_string())));
     }
 
     #[test]

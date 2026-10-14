@@ -84,6 +84,11 @@ export function instanceDbSteps(dbname: string, status: CustomInstanceDb | undef
 				(status?.logs.replication_user_error
 					? `\n\nError: ${status.logs.replication_user_error}`
 					: '')
+		},
+		{
+			title: 'Connect as custom_instance_user',
+			status: status?.logs.user_connect,
+			description: `The steps above run as the user in DATABASE_URL, but data tables and DuckLake catalogs on ${dbname} log in as custom_instance_user. This checks that login reaches the database too. A connection pooler that routes on the login name, such as Supabase's shared pooler, refuses it: use your own Postgres database instead, or point DATABASE_URL at the Postgres server directly.`
 		}
 	]
 }

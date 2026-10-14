@@ -86,7 +86,9 @@
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
 		onOpenOthersDrafts,
-		onRestore
+		onRestore,
+		onDeploy,
+		ownsPageHeader = false
 	}: AppEditorProps = $props()
 
 	migrateApp(untrack(() => app))
@@ -891,6 +893,7 @@
 	{#if $appStore}
 		<AppEditorHeader
 			bind:onBehalfOfEmail={pickedOnBehalfOfEmail}
+			{ownsPageHeader}
 			{newPath}
 			{newApp}
 			{labels}
@@ -900,6 +903,7 @@
 			{othersDraftsCount}
 			{onOpenOthersDrafts}
 			{onRestore}
+			{onDeploy}
 			{policy}
 			{fromHub}
 			bind:this={appEditorHeader}
@@ -919,7 +923,7 @@
 			onHideBottomPanel={() => hideBottomPanel()}
 		/>
 		{#if $mode === 'preview'}
-			<SplitPanesWrapper class="border-t">
+			<SplitPanesWrapper>
 				<div
 					class={twMerge(
 						'h-full w-full relative',
@@ -965,7 +969,7 @@
 				</div>
 			{/if}
 
-			<SplitPanesWrapper class="border-t">
+			<SplitPanesWrapper>
 				<Splitpanes id="o1" class="max-w-full overflow-hidden">
 					<Pane bind:size={leftPanelSize} minSize={5} maxSize={33}>
 						<div

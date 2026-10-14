@@ -12,13 +12,14 @@
 	import type { Schema } from '$lib/common'
 	import type { InputCat, DynamicInput as DynamicInputTypes } from '$lib/utils'
 	import { createEventDispatcher, getContext, onDestroy, untrack, type Snippet } from 'svelte'
-	import { computeShow } from '$lib/utils'
+	import { computeShow, quickjsSettled } from '$lib/utils/quickjsEval.svelte'
 
 	import ArgInput from './ArgInput.svelte'
 	import FieldHeader from './FieldHeader.svelte'
 	import DynamicInputHelpBox from './flows/content/DynamicInputHelpBox.svelte'
 	import type { PropPickerWrapperContext } from './flows/propPicker/PropPickerWrapper.svelte'
 	import { codeToStaticTemplate, getDefaultExpr } from './flows/utils.svelte'
+	import { keepsManagedMemory } from './flows/agentFormFields'
 	import SimpleEditor from './SimpleEditor.svelte'
 	import { Button, ButtonType } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -53,6 +54,8 @@
 		label?: string
 		/** Replaces the label header, so a setting's own toggle can name the field. */
 		header?: Snippet
+		/** Indent the input under the header's label, for a header that starts with a switch. */
+		indentUnderHeader?: boolean
 		/** Renders after the label: a button to unset the field, a badge. */
 		labelExtra?: Snippet
 		/** Drop the schema's description paragraph, for a form that carries it in a tooltip. */
@@ -119,6 +122,7 @@
 		argName = $bindable(),
 		label = undefined,
 		header = undefined,
+		indentUnderHeader = true,
 		labelExtra = undefined,
 		hideDescription = false,
 		subtleControls = false,
@@ -475,8 +479,9 @@
 				contextArgs[key] = otherArgValue
 			})
 
-			const shouldShow = computeShow(argName, schemaProperty.showExpr, contextArgs)
-			if (shouldShow || hasJavascript) {
+			const shouldShow = hasJavascript || computeShow(schemaProperty.showExpr, contextArgs)
+			if (shouldShow === undefined) return
+			if (shouldShow) {
 				hidden = false
 			} else if (!hidden) {
 				hidden = true
@@ -592,6 +597,7 @@
 		JSON.stringify(schema)
 		JSON.stringify(arg)
 		JSON.stringify(otherArgs)
+		quickjsSettled()
 
 		untrack(() => handleFieldVisibility(schema, arg, otherArgs))
 	})
@@ -863,7 +869,7 @@
 			<!-- A custom header means a setting's toggle owns this field, so the input is
 			     indented under the toggle's label: `xs` switch (w-7) plus its ml-2. -->
 			<div
-				class="relative w-full {header ? 'pl-9' : ''}"
+				class="relative w-full {header && indentUnderHeader ? 'pl-9' : ''}"
 				onkeyup={handleKeyUp}
 				transition:slideDynamic|global={{ duration: animateAppear ? 150 : 0 }}
 			>
@@ -999,6 +1005,11 @@
 									{helperScript}
 									{s3StorageConfigured}
 									{chatInputEnabled}
+									oneOfLockedReason={chatInputEnabled &&
+									arg?.type === 'static' &&
+									keepsManagedMemory(arg.value)
+										? schema.properties[argName]?.lockOneOfWhenChatEnabled
+										: undefined}
 									otherArgs={Object.fromEntries(
 										Object.entries(otherArgs).map(([key, transform]) => [
 											key,

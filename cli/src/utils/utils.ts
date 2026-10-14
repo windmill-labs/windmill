@@ -223,8 +223,9 @@ export function isRawAppFile(path: string): boolean {
   return isRawAppPath(path);
 }
 
+/** Sync paths carry the platform separator: `dependencies\x` on Windows. */
 export function isWorkspaceDependencies(path: string): boolean {
-  return path.startsWith("dependencies/");
+  return path.startsWith("dependencies/") || path.startsWith("dependencies\\");
 }
 
 export function printSync(input: string | Uint8Array) {
@@ -351,6 +352,23 @@ export function capitalize(str: string): string {
 
 export function formatTimestamp(ts: string): string {
   return new Date(ts).toISOString().replace("T", " ").substring(0, 19);
+}
+
+/**
+ * "<status text>: <body>" for an error thrown by the generated API client,
+ * undefined for anything else. Backend source references such as
+ * `(flows.rs:1400)` are stripped from the body.
+ */
+export function apiErrorMessage(e: unknown): string | undefined {
+  if (!(e && typeof e === "object" && "name" in e && e.name === "ApiError")) {
+    return undefined;
+  }
+  const { body, statusText } = e as { body?: unknown; statusText?: string };
+  const bodyStr =
+    typeof body === "object" && body !== null
+      ? JSON.stringify(body)
+      : String(body ?? "");
+  return statusText + ": " + bodyStr.replace(/\s*[@(]\w+\.rs:\d+[:\d]*\)?/g, "");
 }
 
 /**
