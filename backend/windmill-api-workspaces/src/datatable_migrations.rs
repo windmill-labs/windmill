@@ -509,6 +509,127 @@ async fn hold_migration_lock(
     }
 }
 
+/// The `_wm_migrations` rows of a database a schema-only copy is being made of, read with
+/// [`lock_migration_runs_on`] held so they describe the schema the dump captured.
+pub(crate) struct AppliedMigrations {
+    /// `None` when the source has no `_wm_migrations`.
+    schema: Option<String>,
+    datatables: Vec<String>,
+    versions: Vec<i64>,
+    installed_at: Vec<String>,
+}
+
+/// Hold the migration-run lock on database `pg`, for a copy whose schema has to agree with the
+/// `_wm_migrations` rows it carries. The lock is per database, whichever data table names it.
+pub(crate) async fn lock_migration_runs_on(
+    db: &DB,
+    pg: &PgDatabase,
+    label: &str,
+) -> Result<tokio_postgres::Client> {
+    let (client, connection) = pg.connect(Some(db)).await?;
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable connection error: {}", e);
+        }
+    });
+    hold_migration_lock(&client, label, MIGRATION_LOCK_WAIT_SECS).await?;
+    Ok(client)
+}
+
+/// Read every `_wm_migrations` row of the database `client` is connected to, along with the
+/// schema the table is in: the copy is written to by a connection whose `search_path` need not
+/// resolve the way this one does.
+pub(crate) async fn read_applied_migrations(
+    client: &tokio_postgres::Client,
+) -> Result<AppliedMigrations> {
+    let read_err = |e: tokio_postgres::Error| {
+        Error::internal_err(format!(
+            "Failed to read _wm_migrations: {}",
+            pg_error_message(&e)
+        ))
+    };
+    let schema: Option<String> = client
+        .query_one(
+            "SELECT n.nspname::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
+             RIGHT JOIN (SELECT to_regclass('_wm_migrations')::oid AS oid) t ON c.oid = t.oid",
+            &[],
+        )
+        .await
+        .map_err(read_err)?
+        .get(0);
+    let mut applied =
+        AppliedMigrations { schema, datatables: vec![], versions: vec![], installed_at: vec![] };
+    let Some(schema) = applied.schema.as_deref() else {
+        return Ok(applied);
+    };
+    let rows = client
+        .query(
+            &format!(
+                // ISO 8601 in UTC: `::text` follows the session's `DateStyle`, which the copy's
+                // session need not parse the same way.
+                "SELECT datatable, version, \
+                 to_char(installed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US') \
+                 FROM {}._wm_migrations",
+                render_db_quoted_identifier(schema, DbType::Postgresql)
+            ),
+            &[],
+        )
+        .await
+        .map_err(read_err)?;
+    for row in rows {
+        applied.datatables.push(row.get(0));
+        applied.versions.push(row.get(1));
+        applied.installed_at.push(row.get(2));
+    }
+    Ok(applied)
+}
+
+/// Write the rows [`read_applied_migrations`] read into a copy restored from a schema-only dump,
+/// which brings `_wm_migrations` over empty: without them the copy reports every migration its
+/// schema already holds as pending, and running them fails on objects that exist.
+pub(crate) async fn write_applied_migrations(
+    db: &DB,
+    target: &PgDatabase,
+    applied: &AppliedMigrations,
+) -> Result<()> {
+    let Some(schema) = applied.schema.as_deref() else {
+        return Ok(());
+    };
+    if applied.versions.is_empty() {
+        return Ok(());
+    }
+    let (client, connection) = target.connect(Some(db)).await?;
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable connection error: {}", e);
+        }
+    });
+    client
+        .execute(
+            &format!(
+                "INSERT INTO {}._wm_migrations (datatable, version, installed_at) \
+                 SELECT d, v, i::timestamp AT TIME ZONE 'UTC' \
+                 FROM unnest($1::text[], $2::bigint[], $3::text[]) AS t(d, v, i) \
+                 ON CONFLICT DO NOTHING",
+                render_db_quoted_identifier(schema, DbType::Postgresql)
+            ),
+            &[
+                &applied.datatables,
+                &applied.versions,
+                &applied.installed_at,
+            ],
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to copy _wm_migrations into '{}': {}",
+                target.dbname,
+                pg_error_message(&e)
+            ))
+        })?;
+    Ok(())
+}
+
 /// Whether `e` is the lock wait running out, as opposed to the database being unreachable.
 fn is_migration_lock_busy(e: &Error) -> bool {
     matches!(e, Error::Generic(StatusCode::CONFLICT, _))
