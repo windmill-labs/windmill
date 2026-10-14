@@ -20,6 +20,7 @@
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import LabelsInput from '$lib/components/LabelsInput.svelte'
+	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import OnBehalfOfSelector, {
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
@@ -157,10 +158,14 @@
 	let savedOnBehalfOfEmail = $derived(savedApp?.policy?.on_behalf_of_email)
 	let savedOnBehalfOf = $derived(savedApp?.policy?.on_behalf_of)
 	let pickedOnBehalfOf: OnBehalfOfChoice = $state(undefined)
-	// With no saved user to preserve, the deploy runs the app as the deployer, so show that
-	// rather than an empty pick. A saved user is left unpicked for the selector to preselect.
+	// The deploy runs the app as the deployer unless a saved user is preserved or the folder
+	// names one, so show "me" only then; the other two are left for the selector to preselect.
+	const folderDefault = useFolderDefaultPermissionedAs(
+		() => newEditedPath || appPath,
+		() => opWs
+	)
 	let onBehalfOfChoice: OnBehalfOfChoice = $derived(
-		pickedOnBehalfOf ?? (savedOnBehalfOfEmail ? undefined : 'me')
+		pickedOnBehalfOf ?? (savedOnBehalfOfEmail || folderDefault.value ? undefined : 'me')
 	)
 	let customOnBehalfOfEmail: string = $state('')
 	let dirtyCustomPath = $state(false)
@@ -351,6 +356,7 @@
 				isDeployment={false}
 				myPermissionedAs={actingUser?.username ? `u/${actingUser.username}` : undefined}
 				readOnlyWithoutPreserve
+				folderDefault={folderDefault.value}
 			/>
 			<div class="text-2xs text-secondary">
 				{#if canPreserve}
