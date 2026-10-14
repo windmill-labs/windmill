@@ -76,12 +76,14 @@ const REACHABLE_PROFILES = [
 			[false, true].flatMap((operator) =>
 				// `checkDeployRules` bypasses on admin, so an admin has only the one outcome.
 				(isAdmin ? [true] : [false, true]).flatMap((deployRulesPass) =>
-					// The operator rights a workspace can set: none, the builder right, both locks.
+					// The operator rights a workspace can set: none, either builder right or both, either lock, both locks.
 					[
 						undefined,
 						{ builder_flows: true },
 						{ builder_apps: true },
 						{ builder_flows: true, builder_apps: true },
+						{ manage_schedules: false },
+						{ manage_triggers: false },
 						{ manage_schedules: false, manage_triggers: false }
 					].map((operatorSettings) => {
 						const access = capabilitiesForRole({
@@ -311,9 +313,9 @@ describe('session tool policies', () => {
 				})
 			}).content as string
 
-		expect(prompt({})).toContain(
-			'Resources, variables, schedules, and triggers they can still edit'
-		)
+		// Schedules and triggers are not sent to the UI: the chat drafts them itself.
+		expect(prompt({})).toContain('Resources and variables they can still edit')
+		expect(prompt({})).toContain('lets them create and edit schedules and triggers')
 		expect(prompt({})).toContain('schedule a deployed script or flow themselves')
 		expect(prompt({ manage_schedules: false })).not.toContain('schedule a deployed script')
 	})

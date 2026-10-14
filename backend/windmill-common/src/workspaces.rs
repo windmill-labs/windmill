@@ -1365,6 +1365,24 @@ pub async fn operator_builder_rights(db: &DB, workspace_id: &str) -> Result<Oper
     Ok(operator_rights(db, workspace_id).await?.builder)
 }
 
+/// Whether operators of this workspace may save a draft of `kind`: one they could deploy. A flow
+/// or full-code app under its builder right, a schedule or trigger under the matching manage right,
+/// nothing else. `kind: None` asks whether they may draft any kind at all.
+pub async fn operator_can_draft(
+    db: &DB,
+    workspace_id: &str,
+    kind: Option<crate::user_drafts::UserDraftItemKind>,
+) -> Result<bool> {
+    use crate::user_drafts::UserDraftItemKind;
+    let rights = operator_rights(db, workspace_id).await?;
+    Ok(match kind {
+        None => rights.builder.any() || rights.manage.schedules || rights.manage.triggers,
+        Some(UserDraftItemKind::Flow) => rights.builder.has(BuilderKind::Flows),
+        Some(UserDraftItemKind::RawApp) => rights.builder.has(BuilderKind::Apps),
+        Some(kind) => kind.manage_kind().is_some_and(|m| rights.manage.has(m)),
+    })
+}
+
 /// Gate for a write only a workspace that granted the builder right covering `kind` lets operators
 /// perform. `action` completes "Operators cannot {action} for security reasons".
 pub async fn check_operator_can_build(

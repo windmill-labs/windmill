@@ -234,6 +234,8 @@ import {
 	WRITE_APP_DRAFT,
 	WRITE_DRAFT,
 	WRITE_FLOW_DRAFT,
+	WRITE_SCHEDULE_DRAFT,
+	WRITE_TRIGGER_DRAFT,
 	type SessionAccess,
 	type SessionTool,
 	type SessionToolPolicy
@@ -1473,12 +1475,28 @@ const buildGlobalSystemPrompt = (
 	const canWriteDraft = !access || access.has('write_draft')
 	const canWriteFlowDraft = !access || access.has('write_flow_draft')
 	const canWriteAppDraft = !access || access.has('write_app_draft')
+	const canDraftSchedules = !access || access.has('write_schedule_draft')
+	const canDraftTriggers = !access || access.has('write_trigger_draft')
 	// A builder operator: drafts of the kinds the workspace lets them compose, and nothing else.
 	// Blocks about drafting in general follow `canWriteAnyDraft`; blocks naming scripts or the
 	// other kinds keep `canWriteDraft`.
 	const buildsFlows = canWriteFlowDraft && !canWriteDraft
 	const buildsApps = canWriteAppDraft && !canWriteDraft
-	const canWriteAnyDraft = canWriteDraft || canWriteFlowDraft || canWriteAppDraft
+	const canWriteAnyDraft =
+		canWriteDraft || canWriteFlowDraft || canWriteAppDraft || canDraftSchedules || canDraftTriggers
+	// Both read only where `write_draft` is missing: it implies the two draft rights.
+	const draftedOperatorKinds = [canDraftSchedules && 'schedules', canDraftTriggers && 'triggers']
+		.filter((k): k is string => !!k)
+		.join(' and ')
+	const refusedKinds = [
+		!buildsFlows && 'flows',
+		'scripts',
+		!buildsApps && 'apps',
+		!canDraftSchedules && 'schedules',
+		!canDraftTriggers && 'triggers',
+		'resources',
+		'variables'
+	].filter((k): k is string => !!k)
 	const refusedCode = ['scripts', !buildsFlows && 'flows', !buildsApps && 'apps'].filter(
 		(k): k is string => !!k
 	)
@@ -1537,7 +1555,7 @@ The current user's workspace username is "${username}".${instanceLine}
 ${
 	canWriteDraft
 		? 'Use tools to inspect workspace items and create per-user drafts (saved server-side, visible only to this user — not deployed) for scripts, flows, schedules, triggers, resources, variables, and raw apps.'
-		: `Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit ${buildsFlows ? '' : 'flows, '}scripts, ${buildsApps ? '' : 'apps, '}schedules, triggers, resources or variables here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had. Their role is refused ${refusedCode.length > 1 ? `${refusedCode.slice(0, -1).join(', ')} and ${refusedCode.at(-1)}` : refusedCode[0]} outside this chat too, so for those suggest asking a workspace admin, who grants operators more in ${OPERATOR_SETTINGS_LOCATION}, rather than creating them in the editor. ${capitalize(listJoin(['resources', 'variables', canManageSchedules && 'schedules', canManageTriggers && 'triggers']))} they can still edit themselves on their pages, so when open_page lists that page, open it for them instead.${when(
+		: `Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit ${refusedKinds.slice(0, -1).join(', ')} or ${refusedKinds.at(-1)} here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had. Their role is refused ${refusedCode.length > 1 ? `${refusedCode.slice(0, -1).join(', ')} and ${refusedCode.at(-1)}` : refusedCode[0]} outside this chat too, so for those suggest asking a workspace admin, who grants operators more in ${OPERATOR_SETTINGS_LOCATION}, rather than creating them in the editor. ${capitalize(listJoin(['resources', 'variables', canManageSchedules && !canDraftSchedules && 'schedules', canManageTriggers && !canDraftTriggers && 'triggers']))} they can still edit themselves on their pages, so when open_page lists that page, open it for them instead.${when(
 				canManageSchedules,
 				' To make something recur, they can schedule a deployed script or flow themselves; only when none does the job is there something to ask an admin for, and it is that script.'
 			)} When you decline something, give the reason stated here and keep to it.${when(
@@ -1546,6 +1564,15 @@ ${
 			)}${when(
 				buildsApps,
 				`\n\nRaw apps are ${buildsFlows ? 'an exception too' : 'the exception'}: this workspace lets them build raw apps whose backend calls scripts and flows that are already deployed. Call get_instructions with subject "app" first, then write app drafts with init_app and the app file and runnable tools, making every backend runnable a path runnable to a deployed script or flow. The server refuses inline and hub runnables, so never write one; when the app needs logic no deployed script provides, say so and suggest asking a workspace admin for that script. An app this user deploys always runs sandboxed, and runs its runnables as the user who deployed it: turning the sandbox off or running them as the viewer is refused. If asked, say operators cannot, because the app's code would then run with the permissions of whoever opens it.`
+			)}${when(
+				!!draftedOperatorKinds,
+				`\n\nThis workspace lets them create and edit ${draftedOperatorKinds}: write them as drafts with ${[
+					canDraftSchedules && 'write_schedule',
+					canDraftTriggers &&
+						'write_trigger (call get_trigger_schema first: the config fields differ per kind)'
+				]
+					.filter(Boolean)
+					.join(' and ')}, then deploy them with deploy_workspace_item once the user asks.`
 			)}`
 }${when(
 		canWriteAnyDraft,
@@ -2719,7 +2746,9 @@ export function getSessionContextPromptSection(
 		!access ||
 		access.has('write_draft') ||
 		access.has('write_flow_draft') ||
-		access.has('write_app_draft')
+		access.has('write_app_draft') ||
+		access.has('write_schedule_draft') ||
+		access.has('write_trigger_draft')
 	const canRunPreview = !access || access.has('run_preview') || access.has('run_flow_preview')
 	// The kinds no deploy rule reaches, unless the workspace withdrew them from this user.
 	const unruledKinds = [
@@ -4028,7 +4057,7 @@ export const globalTools: SessionTool<{}>[] = [
 		}
 	},
 	{
-		requires: WRITE_DRAFT,
+		requires: WRITE_SCHEDULE_DRAFT,
 		def: createToolDef(
 			writeScheduleToolSchema,
 			'write_schedule',
@@ -4054,7 +4083,7 @@ export const globalTools: SessionTool<{}>[] = [
 		}
 	},
 	{
-		requires: WRITE_DRAFT,
+		requires: WRITE_TRIGGER_DRAFT,
 		def: createToolDef(
 			writeTriggerSchema,
 			'write_trigger',
@@ -4388,6 +4417,8 @@ export const globalTools: SessionTool<{}>[] = [
 			app: WRITE_APP_DRAFT,
 			resource: WRITE_DRAFT,
 			variable: WRITE_DRAFT,
+			// Not the schedule/trigger draft rights: `rebaseDraft` has no handler for these kinds,
+			// so an operator holding only those rights would be offered a tool that always throws.
 			schedule: WRITE_DRAFT,
 			trigger: WRITE_DRAFT
 		} satisfies Record<(typeof ITEM_TYPES)[number], SessionToolPolicy>,
