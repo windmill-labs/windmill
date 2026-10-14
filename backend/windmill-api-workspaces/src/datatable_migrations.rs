@@ -11,10 +11,11 @@
 //! to keep that file focused on core workspace configuration.
 
 use crate::datatable_migration_scope::{
-    blocked_by, is_annotatable_schema_name, make_schema_snapshot_replayable, order_schema_groups,
-    parse_migration_schemas, plan_run, snapshot_has_objects, with_schemas_annotation, ChainEntry,
-    RunSelection, CROSS_SCHEMA_DEPENDENCIES_SQL, SNAPSHOT_EXTENSIONS_SQL, SNAPSHOT_SCHEMAS_SQL,
-    UNSCHEMED_OBJECTS_SQL,
+    blocked_by, is_annotatable_schema_name, make_schema_snapshot_replayable,
+    order_referenced_first, parse_migration_schemas, plan_run, snapshot_has_objects,
+    snapshot_scope, with_schemas_annotation, ChainEntry, RunSelection,
+    CROSS_SCHEMA_DEPENDENCIES_SQL, EXTENSION_DEPENDENCIES_SQL, SNAPSHOT_EXTENSIONS_SQL,
+    SNAPSHOT_SCHEMAS_SQL, UNSCHEMED_OBJECTS_SQL,
 };
 use crate::workspaces::{
     managed_datatable_kind, pg_dump_database, strip_unreplayable_dump_lines, ItemComparison,
@@ -1854,35 +1855,45 @@ async fn per_schema_snapshots(
             schema_snapshot(pg_db, no_acl, &[]).await?,
         )]);
     }
-    let deps: Vec<(String, String)> = simple_rows(&client, CROSS_SCHEMA_DEPENDENCIES_SQL)
-        .await?
-        .iter()
-        .filter_map(|r| Some((r.get(0)?.to_string(), r.get(1)?.to_string())))
-        .collect();
-    let extensions: Vec<(String, String)> = simple_rows(&client, SNAPSHOT_EXTENSIONS_SQL)
-        .await?
-        .iter()
-        .filter_map(|r| Some((r.get(0)?.to_string(), r.get(1)?.to_string())))
-        .collect();
+    let pairs = |rows: Vec<tokio_postgres::SimpleQueryRow>| -> Vec<(String, String)> {
+        rows.iter()
+            .filter_map(|r| Some((r.get(0)?.to_string(), r.get(1)?.to_string())))
+            .collect()
+    };
+    // Only between snapshotted schemas: a reference into `pg_catalog` needs no ordering.
+    let deps: Vec<(String, String)> =
+        pairs(simple_rows(&client, CROSS_SCHEMA_DEPENDENCIES_SQL).await?)
+            .into_iter()
+            .filter(|(a, b)| schemas.contains(a) && schemas.contains(b))
+            .collect();
+    let extensions: HashMap<String, String> =
+        pairs(simple_rows(&client, SNAPSHOT_EXTENSIONS_SQL).await?)
+            .into_iter()
+            .collect();
+    let extension_deps = pairs(simple_rows(&client, EXTENSION_DEPENDENCIES_SQL).await?);
     drop(client);
 
     let mut snapshots = vec![];
     if !extensions.is_empty() {
         let q = |name: &str| render_db_quoted_identifier(name, DbType::Postgresql);
         let mut sql = String::new();
-        for (extension, schema) in &extensions {
-            if schema != "public" {
+        let names: Vec<String> = extensions.keys().cloned().collect();
+        for extension in order_referenced_first(&names, &extension_deps).concat() {
+            let schema = &extensions[&extension];
+            // `public` and the system schemas (procedural languages live in `pg_catalog`) exist
+            // everywhere, and a `pg_` schema cannot be created at all.
+            if schema != "public" && !schema.starts_with("pg_") {
                 sql.push_str(&format!("CREATE SCHEMA IF NOT EXISTS {};\n", q(schema)));
             }
             sql.push_str(&format!(
                 "CREATE EXTENSION IF NOT EXISTS {} WITH SCHEMA {};\n",
-                q(extension),
+                q(&extension),
                 q(schema)
             ));
         }
         snapshots.push(("initial_extensions".to_string(), sql));
     }
-    for group in order_schema_groups(&schemas, &deps) {
+    for group in order_referenced_first(&schemas, &deps) {
         let names: Vec<&str> = group.iter().map(String::as_str).collect();
         let dump = make_schema_snapshot_replayable(&schema_snapshot(pg_db, no_acl, &names).await?);
         if names == ["public"] && !snapshot_has_objects(&dump) {
@@ -1899,7 +1910,9 @@ async fn per_schema_snapshots(
             })
             .take(100)
             .collect();
-        snapshots.push((name, with_schemas_annotation(&dump, &names)));
+        let scope = snapshot_scope(&group, &deps);
+        let scope: Vec<&str> = scope.iter().map(String::as_str).collect();
+        snapshots.push((name, with_schemas_annotation(&dump, &scope)));
     }
     Ok(snapshots)
 }

@@ -209,15 +209,15 @@ pub(crate) fn blocked_by(chain: &[ChainEntry], applied: &HashSet<i64>, i: usize)
     }
 }
 
-/// Group a database's schemas for per-schema snapshots, in an order that replays: `deps` holds
-/// `(dependent, referenced)` schema pairs, and a schema comes after every schema it references.
-/// Schemas that reference each other, directly or through others, cannot be split and share one
-/// group, which becomes one migration declaring all of them.
-pub(crate) fn order_schema_groups(
-    schemas: &[String],
+/// Group `names` (schemas, or extensions) in an order that replays: `deps` holds
+/// `(dependent, referenced)` pairs, and a name comes after every name it references. Names that
+/// reference each other, directly or through others, cannot be split and share one group: for
+/// schemas, one migration declaring all of them.
+pub(crate) fn order_referenced_first(
+    names: &[String],
     deps: &[(String, String)],
 ) -> Vec<Vec<String>> {
-    let mut names: Vec<&String> = schemas.iter().collect();
+    let mut names: Vec<&String> = names.iter().collect();
     names.sort();
     names.dedup();
     let index: HashMap<&str, usize> = names
@@ -302,16 +302,40 @@ pub(crate) fn order_schema_groups(
         .collect()
 }
 
+/// The scope of the snapshot of `group`: its schemas and every schema they reference. Declaring
+/// the referenced ones is what keeps a run for one schema from replaying it ahead of the snapshot
+/// that creates what it references.
+pub(crate) fn snapshot_scope(group: &[String], deps: &[(String, String)]) -> Vec<String> {
+    let mut scope: Vec<String> = group.to_vec();
+    for (dependent, referenced) in deps {
+        if group.contains(dependent) && !scope.contains(referenced) {
+            scope.push(referenced.clone());
+        }
+    }
+    scope
+}
+
 /// Cross-schema dependencies between the objects of a database, as `(dependent, referenced)`
 /// schema names. Sub-objects (column defaults, view rules, triggers, policies) are attributed to
 /// their table's schema. Members of an extension are left out: the extensions snapshot creates
-/// them ahead of every schema.
+/// them ahead of every schema. Every catalog of schema-qualified objects is listed: one left out
+/// drops its dependencies from the join, and its snapshot then replays ahead of what it needs.
 pub(crate) const CROSS_SCHEMA_DEPENDENCIES_SQL: &str = "\
 WITH objs(classid, objid, nsp) AS (
     SELECT 'pg_class'::regclass::oid, oid, relnamespace FROM pg_class
     UNION ALL SELECT 'pg_type'::regclass::oid, oid, typnamespace FROM pg_type
     UNION ALL SELECT 'pg_proc'::regclass::oid, oid, pronamespace FROM pg_proc
     UNION ALL SELECT 'pg_constraint'::regclass::oid, oid, connamespace FROM pg_constraint
+    UNION ALL SELECT 'pg_collation'::regclass::oid, oid, collnamespace FROM pg_collation
+    UNION ALL SELECT 'pg_operator'::regclass::oid, oid, oprnamespace FROM pg_operator
+    UNION ALL SELECT 'pg_opclass'::regclass::oid, oid, opcnamespace FROM pg_opclass
+    UNION ALL SELECT 'pg_opfamily'::regclass::oid, oid, opfnamespace FROM pg_opfamily
+    UNION ALL SELECT 'pg_conversion'::regclass::oid, oid, connamespace FROM pg_conversion
+    UNION ALL SELECT 'pg_statistic_ext'::regclass::oid, oid, stxnamespace FROM pg_statistic_ext
+    UNION ALL SELECT 'pg_ts_config'::regclass::oid, oid, cfgnamespace FROM pg_ts_config
+    UNION ALL SELECT 'pg_ts_dict'::regclass::oid, oid, dictnamespace FROM pg_ts_dict
+    UNION ALL SELECT 'pg_ts_parser'::regclass::oid, oid, prsnamespace FROM pg_ts_parser
+    UNION ALL SELECT 'pg_ts_template'::regclass::oid, oid, tmplnamespace FROM pg_ts_template
     UNION ALL SELECT 'pg_rewrite'::regclass::oid, r.oid, c.relnamespace
         FROM pg_rewrite r JOIN pg_class c ON c.oid = r.ev_class
     UNION ALL SELECT 'pg_attrdef'::regclass::oid, a.oid, c.relnamespace
@@ -359,6 +383,14 @@ SELECT EXISTS (SELECT 1 FROM pg_publication)
                FROM pg_depend d WHERE d.classid = 'pg_language'::regclass AND d.objid = l.oid
                  AND d.deptype = 'e'))
     AS present";
+
+/// `(dependent, required)` extension pairs, so an extension is created after the ones its control
+/// file requires.
+pub(crate) const EXTENSION_DEPENDENCIES_SQL: &str = "\
+SELECT e.extname, r.extname FROM pg_depend d
+JOIN pg_extension e ON e.oid = d.objid
+JOIN pg_extension r ON r.oid = d.refobjid
+WHERE d.classid = 'pg_extension'::regclass AND d.refclassid = 'pg_extension'::regclass";
 
 pub(crate) const SNAPSHOT_EXTENSIONS_SQL: &str = "\
 SELECT e.extname, n.nspname FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
@@ -509,20 +541,28 @@ mod tests {
     fn schema_groups_come_referenced_first_and_merge_cycles() {
         let names = |v: &[&str]| v.iter().map(|n| n.to_string()).collect::<Vec<_>>();
         let dep = |a: &str, b: &str| (a.to_string(), b.to_string());
+        let deps = [
+            dep("public", "sales"),
+            dep("sales", "billing"),
+            dep("billing", "sales"),
+            dep("crm", "public"),
+        ];
         assert_eq!(
-            order_schema_groups(
-                &names(&["public", "sales", "billing", "audit"]),
-                &[
-                    dep("public", "sales"),
-                    dep("sales", "billing"),
-                    dep("billing", "sales")
-                ]
+            order_referenced_first(
+                &names(&["public", "sales", "billing", "audit", "crm"]),
+                &deps
             ),
             vec![
                 names(&["audit"]),
                 names(&["billing", "sales"]),
-                names(&["public"])
+                names(&["public"]),
+                names(&["crm"])
             ]
+        );
+        // A snapshot declares what it references, so a run for `crm` waits on `public`'s.
+        assert_eq!(
+            snapshot_scope(&names(&["crm"]), &deps),
+            names(&["crm", "public"])
         );
     }
 

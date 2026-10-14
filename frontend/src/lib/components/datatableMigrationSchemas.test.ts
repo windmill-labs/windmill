@@ -33,10 +33,14 @@ describe('suggestMigrationSchemas', () => {
 CREATE SCHEMA IF NOT EXISTS billing;
 CREATE TABLE IF NOT EXISTS "Sales"."orders" (id int REFERENCES crm.customers(id) ON UPDATE CASCADE);
 CREATE INDEX orders_idx ON sales.orders (id);
-SELECT * FROM sales.orders a JOIN crm.customers b ON a.id = b.id;
+SELECT * FROM sales.orders JOIN crm.customers USING (id);
 INSERT INTO pg_catalog.x VALUES ('audit.y');
 END;`
 		expect(suggestMigrationSchemas(sql)).toEqual(['billing', 'sales', 'crm'])
+		expect(suggestMigrationSchemas('ALTER SCHEMA "sales" RENAME TO "billing";')).toEqual([
+			'sales',
+			'billing'
+		])
 	})
 
 	test('suggests nothing once an unqualified object is touched: its schema is not in the SQL', () => {
@@ -44,7 +48,10 @@ END;`
 			'CREATE TABLE plain (id int);',
 			'ALTER TABLE ONLY plain ADD COLUMN x int;',
 			'CREATE INDEX ON plain (id);',
-			'CREATE TABLE sales.t (id int REFERENCES plain(id));'
+			'CREATE TABLE sales.t (id int REFERENCES plain(id));',
+			// Qualified, but in a position whose schema is not read as part of the scope.
+			'CREATE TABLE sales.t (status billing.order_status);',
+			'CREATE VIEW sales.v AS SELECT o.id FROM sales.orders o;'
 		]) {
 			expect(suggestMigrationSchemas(`CREATE TABLE sales.a (id int);\n${unqualified}`)).toEqual([])
 		}

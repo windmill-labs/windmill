@@ -134,7 +134,19 @@ export function suggestMigrationSchemas(sql: string): string[] {
 	for (const m of code.matchAll(unqualified)) {
 		if (!NOT_A_NAME.includes(unquote(m[1]).toLowerCase())) return []
 	}
-	return qualifiedSchemas(code)
+	const found = qualifiedSchemas(code)
+	// A qualified name anywhere else (a column's type, a default, a view's alias) is either a
+	// dependency the positions above do not cover or not a schema at all: neither can be told
+	// apart from the SQL, so the scope falls back to the whole database.
+	for (const m of code.matchAll(new RegExp(String.raw`(${IDENT})\s*\.\s*${IDENT}`, 'g'))) {
+		const qualifier = unquote(m[1]).toLowerCase()
+		if (!found.includes(qualifier) && !isSystemSchema(qualifier)) return []
+	}
+	return found
+}
+
+function isSystemSchema(name: string): boolean {
+	return SYSTEM_SCHEMAS.includes(name) || name.startsWith('pg_temp')
 }
 
 function stripLiteralsAndComments(sql: string): string {
@@ -149,17 +161,14 @@ function qualifiedSchemas(code: string): string[] {
 	const found: string[] = []
 	const add = (ident: string) => {
 		const name = unquote(ident).toLowerCase()
-		if (
-			isAnnotatableSchemaName(name) &&
-			!SYSTEM_SCHEMAS.includes(name) &&
-			!name.startsWith('pg_temp') &&
-			!found.includes(name)
-		) {
+		if (isAnnotatableSchemaName(name) && !isSystemSchema(name) && !found.includes(name)) {
 			found.push(name)
 		}
 	}
 	const patterns = [
 		new RegExp(String.raw`\bSCHEMA\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?(${IDENT})`, 'gi'),
+		// The schema a rename creates, and the one `SET SCHEMA` moves an object into.
+		new RegExp(String.raw`\bALTER\s+SCHEMA\s+${IDENT}\s+RENAME\s+TO\s+(${IDENT})`, 'gi'),
 		new RegExp(
 			String.raw`\b(?:TABLE|VIEW|SEQUENCE|TYPE|FUNCTION|PROCEDURE|DOMAIN|INDEX|TRIGGER|COLUMN|REFERENCES|INTO|UPDATE|FROM|JOIN|EXISTS|ONLY)\s+(${IDENT})\s*\.\s*${IDENT}`,
 			'gi'
