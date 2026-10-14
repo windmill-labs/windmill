@@ -4,7 +4,7 @@
 	import Badge from '$lib/components/Badge.svelte'
 	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
-	import { Loader2, UserCog } from 'lucide-svelte'
+	import { Loader2, User } from 'lucide-svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
@@ -156,7 +156,12 @@
 	let canPreserve = $derived(!!actingUser?.is_admin || !!actingUser?.is_super_admin || isDeployer)
 	let savedOnBehalfOfEmail = $derived(savedApp?.policy?.on_behalf_of_email)
 	let savedOnBehalfOf = $derived(savedApp?.policy?.on_behalf_of)
-	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
+	let pickedOnBehalfOf: OnBehalfOfChoice = $state(undefined)
+	// With no saved user to preserve, the deploy runs the app as the deployer, so show that
+	// rather than an empty pick. A saved user is left unpicked for the selector to preselect.
+	let onBehalfOfChoice: OnBehalfOfChoice = $derived(
+		pickedOnBehalfOf ?? (savedOnBehalfOfEmail ? undefined : 'me')
+	)
 	let customOnBehalfOfEmail: string = $state('')
 	let dirtyCustomPath = $state(false)
 	let path: Path | undefined = $state(undefined)
@@ -318,8 +323,8 @@
 	>
 		{#if !canPreserve}
 			<div class="flex flex-col items-start gap-1">
-				<span class="inline-flex items-center gap-1 text-xs">
-					<UserCog class="w-4 h-4 text-green-500" />
+				<span class="inline-flex items-center gap-1 text-xs text-secondary">
+					<User class="w-4 h-4" />
 					u/{actingUser?.username}
 				</span>
 				<div class="text-2xs text-secondary">
@@ -333,7 +338,7 @@
 					targetValue={savedOnBehalfOfEmail}
 					selected={onBehalfOfChoice}
 					onSelect={(choice, details) => {
-						onBehalfOfChoice = choice
+						pickedOnBehalfOf = choice
 						if (choice === 'me') {
 							policy.on_behalf_of_email = $userStore?.email
 							policy.on_behalf_of = `u/${$userStore?.username}`
