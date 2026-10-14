@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { Plus, X } from 'lucide-svelte'
+	import { Copy, Plus, X } from 'lucide-svelte'
+	import CollapseLink from '$lib/components/CollapseLink.svelte'
 	import { resource } from 'runed'
 	import { bash, markdown, typescript } from 'svelte-highlight/languages'
 	import { Alert, Button, CopyButton, Tab, TabContent, Tabs } from '$lib/components/common'
@@ -9,18 +10,21 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
 	import { SlackAgentsService, type SlackChannelAgent } from '$lib/gen'
 	import { userStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { generateRandomString } from '$lib/utils'
+	import { copyToClipboard, generateRandomString } from '$lib/utils'
 	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import {
 		curlExample,
 		fetchExample,
 		integrationPrompt,
 		runUrl,
-		sdkExample
+		sdkExample,
+		sdkReactExample
 	} from './agentApiExamples'
 
 	/**
@@ -160,10 +164,8 @@
 			2
 		)
 	)
-	let apiTab = $state<string | undefined>(undefined)
-	let shownApiTab = $derived(
-		apiTab === 'sdk' && !chat ? 'prompt' : (apiTab ?? 'prompt')
-	)
+	let apiTab = $state('prompt')
+	let tsFlavor = $state('react')
 </script>
 
 <UserSettings
@@ -357,51 +359,70 @@
 							</div>
 						</div>
 					</Label>
-					<Tabs bind:selected={() => shownApiTab, (t) => (apiTab = t)}>
-						<Tab value="prompt" label="AI prompt" />
-						{#if chat}
-							<Tab value="sdk" label="Chat SDK" />
-						{/if}
-						<Tab value="rest" label="REST" />
-						<Tab value="curl" label="Curl" />
-						<Tab value="fetch" label="Fetch" />
-						{#snippet content()}
-							<TabContent value="sdk" class="flex flex-col gap-2 mt-2">
-								<span class="text-xs text-secondary">
-									React with <code>@windmill-labs/chat-sdk</code>: streaming, tool calls and
-									conversations handled. It also plugs into the Vercel AI SDK and assistant-ui.
-								</span>
-								<CopyableCodeBlock code={sdkExample(target)} language={typescript} />
-							</TabContent>
-							<TabContent value="rest" class="flex flex-col gap-6 mt-2">
-								<Label label="Url">
-									<ClipboardPanel
-										content={runUrl(target) + (chat ? '?memory_id=<conversation id>' : '')}
+					<div class="flex flex-col">
+						<Tabs bind:selected={apiTab}>
+							<Tab value="prompt" label="AI prompt" />
+							<Tab value="ts" label="TypeScript" />
+							<Tab value="http" label="HTTP" />
+							{#snippet content()}
+								<TabContent value="ts" class="flex flex-col gap-2 mt-2">
+									{#if chat}
+										<ToggleButtonGroup bind:selected={tsFlavor} noWFull>
+											{#snippet children({ item })}
+												<ToggleButton value="react" label="React" {item} small />
+												<ToggleButton value="any" label="Any framework" {item} small />
+												<ToggleButton value="fetch" label="No SDK" {item} small />
+											{/snippet}
+										</ToggleButtonGroup>
+									{/if}
+									<CopyableCodeBlock
+										code={!chat || tsFlavor === 'fetch'
+											? fetchExample(target)
+											: tsFlavor === 'react'
+												? sdkReactExample(target)
+												: sdkExample(target)}
+										language={typescript}
 									/>
-								</Label>
-								<Label label="Body"><ClipboardPanel content={body} /></Label>
-								<Label label="Headers"><ClipboardPanel content={headers} /></Label>
-								<span class="text-xs text-secondary">
-									Then follow the run: the Fetch example streams it, the Curl one waits for the
-									answer.
-								</span>
-							</TabContent>
-							<TabContent value="curl" class="mt-2">
-								<CopyableCodeBlock code={curlExample(target)} language={bash} />
-							</TabContent>
-							<TabContent value="fetch" class="mt-2">
-								<CopyableCodeBlock code={fetchExample(target)} language={typescript} />
-							</TabContent>
-							<TabContent value="prompt" class="flex flex-col gap-2 mt-2">
-								<span class="text-xs text-secondary">
-									For your coding assistant to write the integration: the endpoints and streaming{chat
-										? ', conversations and the chat SDK'
-										: ''}. The token stays a placeholder.
-								</span>
-								<CopyableCodeBlock code={integrationPrompt(target)} language={markdown} wrap />
-							</TabContent>
-						{/snippet}
-					</Tabs>
+								</TabContent>
+								<TabContent value="http" class="flex flex-col gap-6 mt-2">
+									<Label label="Url">
+										<ClipboardPanel
+											content={runUrl(target) + (chat ? '?memory_id=<conversation id>' : '')}
+										/>
+									</Label>
+									<Label label="Body"><ClipboardPanel content={body} /></Label>
+									<Label label="Headers"><ClipboardPanel content={headers} /></Label>
+									<Label label="Curl">
+										<span class="text-xs text-secondary">
+											Runs the agent and waits for its answer. The TypeScript tab streams it
+											instead.
+										</span>
+										<CopyableCodeBlock code={curlExample(target)} language={bash} />
+									</Label>
+								</TabContent>
+								<TabContent value="prompt" class="flex flex-col gap-2 mt-2">
+									<span class="text-xs text-secondary">
+										For your coding assistant to write the integration: the endpoints and streaming{chat
+											? ', conversations and the chat SDK'
+											: ''}. The token stays a placeholder.
+									</span>
+									<div>
+										<Button
+											variant="default"
+											unifiedSize="sm"
+											startIcon={{ icon: Copy }}
+											onClick={() => copyToClipboard(integrationPrompt(target))}
+										>
+											Copy prompt
+										</Button>
+									</div>
+									<CollapseLink text="Show prompt">
+										<CopyableCodeBlock code={integrationPrompt(target)} language={markdown} wrap />
+									</CollapseLink>
+								</TabContent>
+							{/snippet}
+						</Tabs>
+					</div>
 				</TabContent>
 			</div>
 		{/snippet}

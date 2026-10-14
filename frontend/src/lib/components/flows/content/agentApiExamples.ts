@@ -102,35 +102,65 @@ async function ask(message${t.chat ? ', conversation' : ''}, onText) {
 }`
 }
 
-export function sdkExample(t: AgentApiTarget): string {
-	return `import { useWindmillChat } from '@windmill-labs/chat-sdk/react'
+function sdkOptions(t: AgentApiTarget, indent: string): string {
+	return `{
+  baseUrl: '${t.api.replace(/\/api\/w\/[^/]+$/, '')}',
+  workspace: '${t.api.split('/').pop()}',
+  token: TOKEN,
+  // What the agent's conversations are filed under. With a token, history stays in this
+  // browser; history: 'server' also needs the token's flow_conversations:write scope.
+  flowPath: '${t.agentPath}.chat',
+  // Runs the agent for each turn; the conversation id is its memory.
+  run: async (args, { conversationId, signal }) => {
+    const res = await fetch(\`\${API}/jobs/run/agent/${t.agentPath}?memory_id=\${conversationId}\`, {
+      method: 'POST',
+      headers: { Authorization: \`Bearer \${TOKEN}\`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(args),
+      signal
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return (await res.text()).trim()
+  }
+}`.replaceAll('\n', '\n' + indent)
+}
+
+export function sdkReactExample(t: AgentApiTarget): string {
+	return `import { useState } from 'react'
+// On the Vercel AI SDK or assistant-ui? Use @windmill-labs/chat-sdk/ai-sdk or /assistant-ui instead:
+// https://github.com/windmill-labs/windmill/tree/main/chat-sdk#readme
+import { useWindmillChat } from '@windmill-labs/chat-sdk/react'
 
 const API = '${t.api}'
 const TOKEN = '${t.token}'
 
 export function AgentChat() {
-  const chat = useWindmillChat({
-    baseUrl: '${t.api.replace(/\/api\/w\/[^/]+$/, '')}',
-    workspace: '${t.api.split('/').pop()}',
-    token: TOKEN,
-    // What the agent's conversations are filed under. With a token, history stays in this
-    // browser; history: 'server' also needs the token's flow_conversations:write scope.
-    flowPath: '${t.agentPath}.chat',
-    // Runs the agent for each turn; the conversation id is its memory.
-    run: async (args, { conversationId, signal }) => {
-      const res = await fetch(\`\${API}/jobs/run/agent/${t.agentPath}?memory_id=\${conversationId}\`, {
-        method: 'POST',
-        headers: { Authorization: \`Bearer \${TOKEN}\`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(args),
-        signal
-      })
-      if (!res.ok) throw new Error(await res.text())
-      return (await res.text()).trim()
-    }
-  })
-  // chat.messages (streamed as they are written), chat.status, chat.sendMessage(text), chat.stop(),
-  // and the conversations: chat.conversations, chat.selectConversation(id), chat.newConversation()
+  const chat = useWindmillChat(${sdkOptions(t, '  ')})
+  const [draft, setDraft] = useState('')
+  // Also chat.stop(), and the conversations: chat.conversations, chat.selectConversation(id), chat.newConversation()
+  return (
+    <div>
+      {chat.messages.map((m) => <p key={m.id}><b>{m.role}</b> {m.content}</p>)}
+      <form onSubmit={(e) => { e.preventDefault(); chat.sendMessage(draft); setDraft('') }}>
+        <input value={draft} onChange={(e) => setDraft(e.target.value)} disabled={chat.status === 'submitted' || chat.status === 'streaming'} />
+      </form>
+    </div>
+  )
 }`
+}
+
+export function sdkExample(t: AgentApiTarget): string {
+	return `import { createChat } from '@windmill-labs/chat-sdk'
+
+const API = '${t.api}'
+const TOKEN = '${t.token}'
+
+const chat = createChat(${sdkOptions(t, '')})
+
+// Called now and on every change: messages stream in as they are written. This is the Svelte
+// store contract, so in Svelte $chat works as is.
+chat.subscribe(({ messages, status }) => render(messages, status))
+await chat.sendMessage('Hello')
+// Also chat.stop(), and the conversations: chat.newConversation(), chat.selectConversation(id)`
 }
 
 /** A brief for a coding assistant asked to integrate the agent. The token stays a placeholder. */
@@ -151,9 +181,12 @@ Reading them back needs a token with the \`flow_conversations:read\` scope (\`:w
 - \`GET ${t.api}/flow_conversations/{id}/messages\`: its latest messages, oldest first.
 - \`DELETE ${t.api}/flow_conversations/delete/{id}\`.
 
-For a chat UI in React, the \`@windmill-labs/chat-sdk\` package (npm, source at https://github.com/windmill-labs/windmill/tree/main/chat-sdk)
-does all of this: \`useWindmillChat\` from \`@windmill-labs/chat-sdk/react\`, or the Vercel AI SDK transport
-(\`@windmill-labs/chat-sdk/ai-sdk\`) and assistant-ui runtime (\`@windmill-labs/chat-sdk/assistant-ui\`). Point it at the
+In TypeScript or JavaScript, prefer the \`@windmill-labs/chat-sdk\` package (npm, source at
+https://github.com/windmill-labs/windmill/tree/main/chat-sdk): it does all of this, streaming included.
+\`createChat\` from \`@windmill-labs/chat-sdk\` works with any framework (or none); use the adapter that
+matches the project when there is one: \`useWindmillChat\` from \`@windmill-labs/chat-sdk/react\`, the Vercel
+AI SDK transport (\`@windmill-labs/chat-sdk/ai-sdk\`) or the assistant-ui runtime
+(\`@windmill-labs/chat-sdk/assistant-ui\`). Point it at the
 agent with \`flowPath: '${t.agentPath}.chat'\` and a \`run(args, { conversationId, signal })\` option
 that POSTs \`args\` to the run endpoint with \`memory_id=conversationId\` and returns the job id.
 `
