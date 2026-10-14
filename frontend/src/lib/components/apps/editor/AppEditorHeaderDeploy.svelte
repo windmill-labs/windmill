@@ -394,8 +394,8 @@
 	<div class="text-xs text-secondary mt-1">
 		Controls what the app's browser-side code can reach in each viewer's browser — distinct from the
 		on-behalf-of model above (which sets who its runnables run as). On by default for new apps, it
-		confines the app to a narrowly-scoped token on every surface (public URL and in-workspace).
-		Turn it off to let the app's code use the viewer's own session, if the app needs full browser
+		confines the app to a narrowly-scoped token on every surface (public URL and in-workspace). Turn
+		it off to let the app's code use the viewer's own session, if the app needs full browser
 		features (IndexedDB, third-party auth/SDKs, OAuth redirects).
 	</div>
 	{#if newApp}

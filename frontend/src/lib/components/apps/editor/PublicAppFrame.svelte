@@ -194,21 +194,33 @@
 	// Top-level navigation relay (WIN-2006): in-app links to other apps (navbar
 	// "app" items) must navigate the top page — navigating inside the opaque
 	// iframe would load the SPA cookieless. Consumed by PublicApp via gotoFn.
-	setContext<EmbedNav | undefined>(
-		EMBED_NAV_CONTEXT_KEY,
-		isViewer
-			? {
-					navigateTop: (href: string) => {
-						try {
-							window.parent.postMessage(
-								{ type: 'wm_embed_navigate', href },
-								expectedEmbedderOrigin ?? '*'
-							)
-						} catch (_) {}
-					}
-				}
-			: undefined
-	)
+	function navigateTop(href: string) {
+		try {
+			window.parent.postMessage({ type: 'wm_embed_navigate', href }, expectedEmbedderOrigin ?? '*')
+		} catch (_) {}
+	}
+	setContext<EmbedNav | undefined>(EMBED_NAV_CONTEXT_KEY, isViewer ? { navigateTop } : undefined)
+
+	// Plain links (markdown, HTML components) would otherwise load inside the
+	// cookieless frame, or put an external site in it. Captured before SvelteKit's
+	// own link router. A link to this same page only changes ?query/#hash, which the
+	// hash relay mirrors, so it stays in the frame.
+	function relayLinkClick(e: MouseEvent) {
+		if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+		const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null
+		if (
+			!a ||
+			a.hasAttribute('download') ||
+			(a.target && !['_self', '_top', '_parent'].includes(a.target))
+		)
+			return
+		const url = new URL(a.href, window.location.href)
+		const sameOrigin = url.origin === window.location.origin
+		if (sameOrigin && url.pathname === window.location.pathname) return
+		e.preventDefault()
+		e.stopPropagation()
+		navigateTop(sameOrigin ? url.pathname + url.search + url.hash : url.href)
+	}
 	function installHashRelay() {
 		origPushState = history.pushState
 		origReplaceState = history.replaceState
@@ -568,6 +580,7 @@
 			loadAppPreview().catch(() => {})
 			window.addEventListener('message', handleViewerMessage)
 			installHashRelay()
+			window.addEventListener('click', relayLinkClick, true)
 			// Announce readiness so the embedder sends us the token.
 			window.parent.postMessage({ type: 'wm_embed_ready' }, expectedEmbedderOrigin ?? '*')
 			// This page is only ever loaded as the embedder's opaque iframe, which
@@ -589,7 +602,10 @@
 		if (!BROWSER) return
 		window.removeEventListener('message', handleViewerMessage)
 		window.removeEventListener('message', handleEmbedderMessage)
-		if (isViewer) uninstallHashRelay()
+		if (isViewer) {
+			uninstallHashRelay()
+			window.removeEventListener('click', relayLinkClick, true)
+		}
 	})
 </script>
 
