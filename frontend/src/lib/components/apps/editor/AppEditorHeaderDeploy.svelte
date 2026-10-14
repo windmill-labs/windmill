@@ -388,17 +388,16 @@
 			}}
 			disabled={!savedApp || $operatorBuilderApps}
 		/>
-		<div class="text-2xs text-secondary mt-1">
-			{#if $operatorBuilderApps}
-				Required for apps built by operators, and cannot be turned off.
-			{:else}
-				On by default for new apps. Turn it off if the app needs IndexedDB, third-party sign-in or
-				OAuth redirects.
-			{/if}
-			{#if newApp}
-				Takes effect when you first deploy this app.
-			{/if}
-		</div>
+		{#if $operatorBuilderApps || newApp}
+			<div class="text-2xs text-secondary mt-1">
+				{#if $operatorBuilderApps}
+					Required for apps built by operators, and cannot be turned off.
+				{/if}
+				{#if newApp}
+					Takes effect when you first deploy this app.
+				{/if}
+			</div>
+		{/if}
 		{#if !$operatorBuilderApps && policy.sandbox != true}
 			<div class="mt-3">
 				<Alert type="warning" title="Not isolated" size="xs">
