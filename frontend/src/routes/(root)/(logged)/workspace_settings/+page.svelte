@@ -98,6 +98,7 @@
 	import WorkspaceRulesets from '$lib/components/workspaceSettings/WorkspaceRulesets.svelte'
 	import SettingCard from '$lib/components/instanceSettings/SettingCard.svelte'
 	import WorkspaceSettingsYaml from '$lib/components/workspaceSettings/WorkspaceSettingsYaml.svelte'
+	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -424,7 +425,8 @@
 		await Promise.all([
 			loadSettings(),
 			loadSlackOAuthConfig(),
-			WorkspaceService.listUserWorkspaces().then((w) => usersWorkspaceStore.set(w))
+			WorkspaceService.listUserWorkspaces().then((w) => usersWorkspaceStore.set(w)),
+			loadCopilot($workspaceStore!)
 		])
 	}
 
