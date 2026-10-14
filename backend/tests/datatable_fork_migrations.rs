@@ -3,7 +3,8 @@
 //! A schema-only copy restores `_wm_migrations` without its rows, and no copy carries the source's
 //! `ALTER DATABASE ... SET search_path`, through which the bookkeeping table is found. Either one
 //! alone makes the fork list every applied migration as pending, and running them fails on
-//! objects that already exist.
+//! objects that already exist. The source's `DateStyle` differs from the copy's while the rows
+//! are written, so they must not travel in its text form.
 
 use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
@@ -52,8 +53,10 @@ async fn a_forked_copy_keeps_its_applied_migrations(db: Pool<Postgres>) -> anyho
              CREATE TABLE app.foo (id int); \
              CREATE TABLE app._wm_migrations (datatable TEXT NOT NULL, version BIGINT NOT NULL, \
                  installed_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (datatable, version)); \
-             INSERT INTO app._wm_migrations (datatable, version) VALUES ('main', 1); \
-             ALTER DATABASE {source} SET search_path = app;"
+             INSERT INTO app._wm_migrations (datatable, version, installed_at) \
+                 VALUES ('main', 1, '2026-01-31 10:00:00+00'); \
+             ALTER DATABASE {source} SET search_path = app; \
+             ALTER DATABASE {source} SET datestyle = 'SQL, DMY';"
         ))
         .execute(&source_pool)
         .await?;
@@ -106,6 +109,19 @@ async fn a_forked_copy_keeps_its_applied_migrations(db: Pool<Postgres>) -> anyho
         .json()
         .await?;
         anyhow::ensure!(status["migrations"][0]["status"] == "ran", "{status}");
+
+        let copied: Vec<String> = sqlx::query_scalar(
+            "SELECT unnest(setconfig) FROM pg_db_role_setting \
+             WHERE setrole = 0 AND setdatabase = (SELECT oid FROM pg_database WHERE datname = $1) \
+             ORDER BY 1",
+        )
+        .bind(&copy)
+        .fetch_all(&db)
+        .await?;
+        anyhow::ensure!(
+            copied == ["DateStyle=SQL, DMY", "search_path=app"],
+            "{copied:?}"
+        );
         anyhow::Ok(())
     }
     .await;

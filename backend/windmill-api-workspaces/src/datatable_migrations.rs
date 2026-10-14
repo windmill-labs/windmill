@@ -565,7 +565,11 @@ pub(crate) async fn read_applied_migrations(
     let rows = client
         .query(
             &format!(
-                "SELECT datatable, version, installed_at::text FROM {}._wm_migrations",
+                // ISO 8601 in UTC: `::text` follows the session's `DateStyle`, which the copy's
+                // session need not parse the same way.
+                "SELECT datatable, version, \
+                 to_char(installed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US') \
+                 FROM {}._wm_migrations",
                 render_db_quoted_identifier(schema, DbType::Postgresql)
             ),
             &[],
@@ -604,7 +608,8 @@ pub(crate) async fn write_applied_migrations(
         .execute(
             &format!(
                 "INSERT INTO {}._wm_migrations (datatable, version, installed_at) \
-                 SELECT * FROM unnest($1::text[], $2::bigint[], $3::text[]::timestamptz[]) \
+                 SELECT d, v, i::timestamp AT TIME ZONE 'UTC' \
+                 FROM unnest($1::text[], $2::bigint[], $3::text[]) AS t(d, v, i) \
                  ON CONFLICT DO NOTHING",
                 render_db_quoted_identifier(schema, DbType::Postgresql)
             ),

@@ -496,7 +496,6 @@ async fn fill(
     applied: Option<&AppliedMigrations>,
 ) -> Result<bool> {
     pg_import_dump(target, dump).await?;
-    copy_database_settings(db, source, target).await?;
     if let Some(applied) = applied {
         write_applied_migrations(db, target, applied).await?;
     }
@@ -568,6 +567,7 @@ async fn fill(
         })?;
     }
     tx.commit().await?;
+    copy_database_settings(db, source, target).await?;
     Ok(replayed)
 }
 

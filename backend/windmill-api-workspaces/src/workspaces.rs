@@ -3598,6 +3598,7 @@ pub(crate) async fn pg_import_dump(target_db: &PgDatabase, dump_file: &DumpFile)
 /// only emits them with `--create`, so a copy otherwise resolves unqualified names, its
 /// `_wm_migrations` included, through the server's default `search_path` rather than the source's.
 /// A setting the copy's connection may not set is skipped with a warning rather than failing it.
+/// Called once nothing else writes to the copy, which a copied read-only default would refuse.
 pub(crate) async fn copy_database_settings(
     db: &DB,
     source: &PgDatabase,
@@ -3631,7 +3632,7 @@ pub(crate) async fn copy_database_settings(
         return Ok(());
     }
 
-    let (client, connection) = target.connect(Some(db)).await?;
+    let (mut client, connection) = target.connect(Some(db)).await?;
     tokio::spawn(async move {
         if let Err(e) = connection.await {
             tracing::error!("Datatable connection error: {}", e);
@@ -3659,16 +3660,17 @@ pub(crate) async fn copy_database_settings(
             .collect::<Vec<_>>()
             .join(".");
         // `FROM CURRENT` takes the value in the stored text form, which `SET name TO value` would
-        // need re-quoted per setting type.
+        // need re-quoted per setting type. Set transaction-locally: a session-wide `role` or
+        // `default_transaction_read_only` would make every later `ALTER DATABASE` fail.
         let applied = async {
-            client
-                .execute("SELECT set_config($1, $2, false)", &[&name, &value])
+            let tx = client.transaction().await?;
+            tx.execute("SELECT set_config($1, $2, true)", &[&name, &value])
                 .await?;
-            client
-                .batch_execute(&format!(
-                    "ALTER DATABASE {quoted_db} SET {quoted_name} FROM CURRENT"
-                ))
-                .await
+            tx.batch_execute(&format!(
+                "ALTER DATABASE {quoted_db} SET {quoted_name} FROM CURRENT"
+            ))
+            .await?;
+            tx.commit().await
         }
         .await;
         if let Err(e) = applied {
@@ -3964,10 +3966,10 @@ async fn import_pg_database(
         None => None,
     };
     pg_import_dump(&target_pg, &dump_file).await?;
-    copy_database_settings(&db, &source_pg, &target_pg).await?;
     if let Some(applied) = applied {
         crate::datatable_migrations::write_applied_migrations(&db, &target_pg, &applied).await?;
     }
+    copy_database_settings(&db, &source_pg, &target_pg).await?;
     if let Some(tx) = fork_lock {
         tx.commit().await?;
     }
