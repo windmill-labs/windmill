@@ -448,7 +448,7 @@ const toolCallbacks: ToolCallbacks = {
 	removeToolStatus: vi.fn(),
 	// Every host that can run a script mounts the form, so the default answers it with what it
 	// opened with. A test meaning to exercise a host without one overrides this with undefined.
-	requestRunArgs: async (_toolId, form) => form.args
+	requestRunArgs: async (_toolId, form) => ({ kind: 'args', args: form.args })
 }
 
 function getGlobalTool(name: string): Tool<{}> {
@@ -5202,7 +5202,7 @@ describe('global AI tools', () => {
 						opened = form.args
 						kind = form.kind
 						helperSource = { code: form.code, lang: form.lang }
-						return { name: 'Grace' }
+						return { kind: 'args', args: { name: 'Grace' } }
 					}
 				}
 			)
@@ -5243,7 +5243,10 @@ describe('global AI tools', () => {
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce(script)
 
 		const statuses: any[] = []
-		const requestRunArgs = vi.fn(async (_toolId: string, form: any) => form.args)
+		const requestRunArgs = vi.fn(async (_toolId: string, form: any) => ({
+			kind: 'args',
+			args: form.args
+		}))
 		const yolo = {
 			...toolCallbacks,
 			setToolStatus: (_toolId: string, status: any) => statuses.push(status),
@@ -5301,7 +5304,7 @@ describe('global AI tools', () => {
 					...toolCallbacks,
 					setToolStatus: (_toolId: string, status: any) => statuses.push(status),
 					shouldAutoAcceptToolConfirmations: () => true,
-					requestRunArgs: async (_toolId: string, form: any) => form.args
+					requestRunArgs: async (_toolId: string, form: any) => ({ kind: 'args', args: form.args })
 				}
 			)
 		)
@@ -5332,7 +5335,7 @@ describe('global AI tools', () => {
 				{
 					...toolCallbacks,
 					shouldAutoAcceptToolConfirmations: () => true,
-					requestRunArgs: async (_toolId: string, form: any) => form.args
+					requestRunArgs: async (_toolId: string, form: any) => ({ kind: 'args', args: form.args })
 				}
 			)
 		)
@@ -5363,7 +5366,7 @@ describe('global AI tools', () => {
 				{
 					...toolCallbacks,
 					shouldAutoAcceptToolConfirmations: () => true,
-					requestRunArgs: async (_toolId: string, form: any) => form.args
+					requestRunArgs: async (_toolId: string, form: any) => ({ kind: 'args', args: form.args })
 				}
 			)
 		)
@@ -5394,6 +5397,124 @@ describe('global AI tools', () => {
 
 		expect(JobService.runScriptByPath).not.toHaveBeenCalled()
 		expect(refused).toContain('cannot show a run form')
+	})
+
+	// A surface that confirmed the run is waiting for the job it was promised, and a refused
+	// start is the one end it cannot see for itself: the call is neither pending nor cancelled,
+	// and nothing else tells it to stop offering a Run that would never reach a job.
+	it('run_script says the form is over when the job is refused', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
+			path: 'f/scripts/refused',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any)
+		vi.mocked(JobService.runScriptByPath).mockRejectedValueOnce(new Error('not permitted'))
+		const markRunFormEnded = vi.fn()
+
+		await expect(
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/refused', args: { name: 'Ada' } },
+				{ ...toolCallbacks, markRunFormEnded }
+			)
+		).rejects.toThrow('not permitted')
+
+		expect(markRunFormEnded).toHaveBeenCalledWith(expect.any(String))
+	})
+
+	// A chat-enabled flow's deployed page is a conversation with no run form, so it is opened
+	// to look at and the card keeps the run. The card reads this off the form rather than
+	// fetching the flow again.
+	it('run_flow marks a chat-enabled flow as conversational on its form', async () => {
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValue({
+			path: 'f/flows/chat',
+			schema: { properties: { user_message: { type: 'string' } } },
+			value: { modules: [], chat_input_enabled: true }
+		} as any)
+
+		const statuses: any[] = []
+		await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_flow',
+				{ path: 'f/flows/chat', args: { user_message: 'hi' } },
+				{ ...toolCallbacks, setToolStatus: (_id: string, s: any) => statuses.push(s) }
+			)
+		)
+
+		expect(statuses.find((s) => s.runForm)?.runForm?.conversational).toBe(true)
+	})
+
+	// A run confirmed on the item's own page answers with the job it started, so this tool
+	// never sees a submission: the card and the model would otherwise be left describing the
+	// proposal as what ran, which is wrong as soon as the reader edits a field.
+	it('run_script reports an adopted job with the arguments that page sent', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
+			path: 'f/scripts/adopted',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any)
+
+		const statuses: any[] = []
+		const result = await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/adopted', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					setToolStatus: (_id: string, s: any) => statuses.push(s),
+					requestRunArgs: async () => ({
+						kind: 'job',
+						jobId: 'job-123',
+						args: { name: 'Grace' },
+						schema: { properties: { name: { type: 'string' } } }
+					})
+				}
+			)
+		)
+
+		// Started by the page, so this tool must not start one of its own.
+		expect(JobService.runScriptByPath).not.toHaveBeenCalled()
+		expect(statuses.filter((s) => s.parameters).at(-1)?.parameters).toEqual({ name: 'Grace' })
+		expect(result).toContain('Grace')
+		expect(result).not.toContain('Ada')
+	})
+
+	// Redaction only visits the leaves the schema it is given declares, and the page runs the
+	// deployed version as it is now — which a deploy can have given an argument this call's
+	// schema never had. Redacting with ours would put the bytes in the persisted card and in
+	// the model's context.
+	it('run_script redacts an adopted job against the schema that page ran', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValue({
+			path: 'f/scripts/redeployed',
+			schema: { properties: { name: { type: 'string' } } }
+		} as any)
+
+		const statuses: any[] = []
+		const result = await withCompletedTestJob(() =>
+			callGlobalTool(
+				'run_script',
+				{ path: 'f/scripts/redeployed', args: { name: 'Ada' } },
+				{
+					...toolCallbacks,
+					setToolStatus: (_id: string, s: any) => statuses.push(s),
+					requestRunArgs: async () => ({
+						kind: 'job',
+						jobId: 'job-123',
+						args: { name: 'Grace', attachment: 'QUJDREVG' },
+						// The deployed version the page loaded declares a file this call never saw.
+						schema: {
+							properties: {
+								name: { type: 'string' },
+								attachment: { type: 'string', contentEncoding: 'base64' }
+							}
+						}
+					})
+				}
+			)
+		)
+
+		const parameters = statuses.filter((s) => s.parameters).at(-1)?.parameters
+		expect(parameters?.name).toBe('Grace')
+		expect(parameters?.attachment).not.toBe('QUJDREVG')
+		expect(result).not.toContain('QUJDREVG')
 	})
 
 	// The posture answers wherever it is set, form or no form: what it answers is consent, and a
@@ -5449,7 +5570,7 @@ describe('global AI tools', () => {
 					setToolStatus: (_toolId: string, status: any) => statuses.push(status),
 					// The user pastes into the field the model left small: the model's own
 					// proposal is bounded by what it can emit, this is not.
-					requestRunArgs: async () => ({ blob: huge })
+					requestRunArgs: async () => ({ kind: 'args', args: { blob: huge } })
 				}
 			)
 		)
@@ -5509,7 +5630,10 @@ describe('global AI tools', () => {
 			callGlobalTool(
 				'test_run_script',
 				{ path: 'f/scripts/noargs-test', args: { force_delete: true } },
-				{ ...toolCallbacks, requestRunArgs: async (_toolId, form) => form.args }
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => ({ kind: 'args', args: form.args })
+				}
 			)
 		)
 
@@ -5534,7 +5658,10 @@ describe('global AI tools', () => {
 			callGlobalTool(
 				'run_script',
 				{ path: 'f/scripts/host-literal', args: { token: 'hunter2' } },
-				{ ...toolCallbacks, requestRunArgs: async (_toolId, form) => form.args }
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => ({ kind: 'args', args: form.args })
+				}
 			)
 		)
 
@@ -5557,7 +5684,7 @@ describe('global AI tools', () => {
 				{
 					...toolCallbacks,
 					shouldAutoAcceptToolConfirmations: () => true,
-					requestRunArgs: async (_toolId: string, form: any) => form.args
+					requestRunArgs: async (_toolId: string, form: any) => ({ kind: 'args', args: form.args })
 				}
 			)
 		)
@@ -5661,7 +5788,10 @@ describe('global AI tools', () => {
 					path: 'u/admin/live_flow',
 					args: { name: 'Ada' }
 				},
-				{ ...toolCallbacks, requestRunArgs: async () => ({ name: 'Grace' }) },
+				{
+					...toolCallbacks,
+					requestRunArgs: async () => ({ kind: 'args', args: { name: 'Grace' } })
+				},
 				{ testActiveFlow }
 			)
 		)
@@ -5838,7 +5968,7 @@ describe('global AI tools', () => {
 					...toolCallbacks,
 					requestRunArgs: async (_toolId, f) => {
 						form = f
-						return { name: 'Grace' }
+						return { kind: 'args', args: { name: 'Grace' } }
 					}
 				}
 			)
@@ -5904,7 +6034,7 @@ describe('global AI tools', () => {
 							storagePath: 'u/admin/other_flow',
 							effectivePath: 'u/admin/other_flow'
 						})
-						return form.args
+						return { kind: 'args', args: form.args }
 					}
 				},
 				{ testActiveFlow }
@@ -6007,7 +6137,7 @@ describe('global AI tools', () => {
 					...toolCallbacks,
 					requestRunArgs: async (_toolId, f) => {
 						form = f
-						return { name: 'Grace' }
+						return { kind: 'args', args: { name: 'Grace' } }
 					}
 				},
 				{ testActiveFlow }
@@ -6239,7 +6369,7 @@ describe('global AI tools', () => {
 					...toolCallbacks,
 					requestRunArgs: async (_toolId, form) => {
 						opened = form
-						return form.args
+						return { kind: 'args', args: form.args }
 					}
 				}
 			)
@@ -6296,9 +6426,12 @@ describe('global AI tools', () => {
 			// string, a list as `[]`.
 			callbacks: {
 				requestRunArgs: async (_toolId: string, form: any) => ({
-					...form.args,
-					user_message: '',
-					enabled_tools: form.args.enabled_tools ?? []
+					kind: 'args' as const,
+					args: {
+						...form.args,
+						user_message: '',
+						enabled_tools: form.args.enabled_tools ?? []
+					}
 				})
 			}
 		},
@@ -6306,7 +6439,7 @@ describe('global AI tools', () => {
 			answer: 'the bypass posture',
 			callbacks: {
 				shouldAutoAcceptToolConfirmations: () => true,
-				requestRunArgs: async (_toolId: string, form: any) => form.args
+				requestRunArgs: async (_toolId: string, form: any) => ({ kind: 'args', args: form.args })
 			}
 		}
 	])(
@@ -6408,7 +6541,7 @@ describe('global AI tools', () => {
 					...toolCallbacks,
 					requestRunArgs: async (_toolId, form) => {
 						opened = form
-						return form.args
+						return { kind: 'args', args: form.args }
 					}
 				}
 			)
@@ -6453,7 +6586,7 @@ describe('global AI tools', () => {
 					...toolCallbacks,
 					requestRunArgs: async (_toolId, f) => {
 						form = f
-						return { name: 'Grace' }
+						return { kind: 'args', args: { name: 'Grace' } }
 					}
 				}
 			)
@@ -6499,7 +6632,10 @@ describe('global AI tools', () => {
 			callGlobalTool(
 				'test_run_step',
 				{ path: 'f/flows/drifted-step', stepId: 'call_script', args: { name: 'Ada' } },
-				{ ...toolCallbacks, requestRunArgs: async (_toolId, f) => ((form = f), f.args) }
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, f) => ((form = f), { kind: 'args', args: f.args })
+				}
 			)
 		)
 
@@ -6538,7 +6674,10 @@ describe('global AI tools', () => {
 			callGlobalTool(
 				'test_run_step',
 				{ path: 'f/flows/secretful-step', stepId: 'call_secretful', args: {} },
-				{ ...toolCallbacks, requestRunArgs: async (_toolId, f) => ((form = f), f.args) }
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, f) => ((form = f), { kind: 'args', args: f.args })
+				}
 			)
 		)
 
@@ -6567,7 +6706,10 @@ describe('global AI tools', () => {
 			callGlobalTool(
 				'test_run_step',
 				{ path: 'f/flows/preprocessed', stepId: 'preprocessor', args: { event: 'signup' } },
-				{ ...toolCallbacks, requestRunArgs: async (_toolId, f) => ((form = f), f.args) }
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, f) => ((form = f), { kind: 'args', args: f.args })
+				}
 			)
 		)
 
@@ -6651,7 +6793,10 @@ describe('global AI tools', () => {
 						reset = form.resetKeys
 						// What the user does with the form: attaches the file no model can produce,
 						// and names a variable for the secret it was not allowed to fill.
-						return { ...form.args, doc: bytes, token: '$var:u/ada/prod_api_key' }
+						return {
+							kind: 'args',
+							args: { ...form.args, doc: bytes, token: '$var:u/ada/prod_api_key' }
+						}
 					}
 				}
 			)
@@ -6714,7 +6859,7 @@ describe('global AI tools', () => {
 				isPlanModeActive: () => planning,
 				requestRunArgs: async (_toolId, form) => {
 					planning = true
-					return form.args
+					return { kind: 'args', args: form.args }
 				}
 			}
 		)
@@ -6744,7 +6889,7 @@ describe('global AI tools', () => {
 				isPlanModeActive: () => planning,
 				requestRunArgs: async (_toolId, form) => {
 					formOpened = true
-					return form.args
+					return { kind: 'args', args: form.args }
 				}
 			}
 		)
@@ -6764,7 +6909,10 @@ describe('global AI tools', () => {
 			callGlobalTool(
 				'run_script',
 				{ path: 'f/scripts/greet', args: { name: 'Ada' } },
-				{ ...toolCallbacks, requestRunArgs: async () => ({ name: 'Grace' }) }
+				{
+					...toolCallbacks,
+					requestRunArgs: async () => ({ kind: 'args', args: { name: 'Grace' } })
+				}
 			)
 		)
 
@@ -6791,7 +6939,10 @@ describe('global AI tools', () => {
 			callGlobalTool(
 				'run_script',
 				{ path: 'f/scripts/greet', args: { name: 'Ada' } },
-				{ ...toolCallbacks, requestRunArgs: async (_toolId, form) => form.args }
+				{
+					...toolCallbacks,
+					requestRunArgs: async (_toolId, form) => ({ kind: 'args', args: form.args })
+				}
 			)
 		)
 
