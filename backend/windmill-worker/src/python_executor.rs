@@ -367,7 +367,7 @@ pub async fn uv_pip_compile(
             args.extend(["--cert", cert_path]);
         }
         if *NATIVE_CERT {
-            args.extend(["--native-tls"]);
+            args.extend(["--system-certs"]);
         }
         if let Some(exclude_newer) = uv_exclude_newer.as_deref() {
             args.extend(["--exclude-newer", exclude_newer]);
@@ -2247,7 +2247,7 @@ async fn spawn_uv_install(
             vars.push(("TRUSTED_HOST", host));
         }
         if *NATIVE_CERT {
-            vars.push(("UV_NATIVE_TLS", "true"));
+            vars.push(("UV_SYSTEM_CERTS", "true"));
         }
         if let Some(timeout) = UV_HTTP_TIMEOUT.as_ref() {
             vars.push(("UV_HTTP_TIMEOUT", timeout.as_str()));
@@ -2371,7 +2371,7 @@ async fn spawn_uv_install(
             });
         }
         if *NATIVE_CERT {
-            command_args.extend(["--native-tls"]);
+            command_args.extend(["--system-certs"]);
         }
         // TODO:
         // Track https://github.com/astral-sh/uv/issues/6715

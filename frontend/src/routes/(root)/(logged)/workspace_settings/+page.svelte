@@ -10,13 +10,14 @@
 	import DeployToSetting from '$lib/components/DeployToSetting.svelte'
 	import RemoteDeployTargetSetting from '$lib/components/RemoteDeployTargetSetting.svelte'
 	import DevWorkspaceSetting from '$lib/components/DevWorkspaceSetting.svelte'
-	import ErrorOrRecoveryHandler, {
-		handlerFullPath
-	} from '$lib/components/ErrorOrRecoveryHandler.svelte'
-	import VariableExpirationHandler, {
-		getVariableExpirationHandlerType,
-		type VariableExpirationHandlerType
-	} from '$lib/components/VariableExpirationHandler.svelte'
+	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
+	import VariableExpirationHandler from '$lib/components/VariableExpirationHandler.svelte'
+	import {
+		cloneHandlerDraft,
+		handlerDraftFromStored,
+		handlerDraftToStored,
+		type HandlerDraft
+	} from '$lib/components/handlerDraft.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 
@@ -30,7 +31,6 @@
 		WorkspaceService,
 		SettingService,
 		type AIConfig,
-		type ErrorHandler,
 		type GetCopilotSettingsStateResponse,
 		type InstanceAISummary,
 		type GetSettingsResponse
@@ -72,7 +72,6 @@
 	import GitSyncSection from '$lib/components/git_sync/GitSyncSection.svelte'
 	import Trashbin from '$lib/components/settings/Trashbin.svelte'
 	import { untrack } from 'svelte'
-	import { getHandlerType } from '$lib/components/triggers/utils'
 	import DbtSettings, {
 		convertDbtSettingsFromBackend,
 		type DbtSettingsType
@@ -185,22 +184,22 @@
 	let plan: string | undefined = $state(undefined)
 	let customer_id: string | undefined = $state(undefined)
 	let webhook: string | undefined = $state(undefined)
-	let errorHandlerSelected: ErrorHandler = $state('slack')
-	let errorHandlerScriptPath: string | undefined = $state(undefined)
-	let errorHandlerItemKind: 'flow' | 'script' = $state('script')
-	let errorHandlerExtraArgs: Record<string, any> = $state({})
+	const noErrorHandler = handlerDraftFromStored(
+		'error',
+		undefined,
+		'script',
+		{},
+		{
+			emptySelected: 'slack'
+		}
+	)
+	let errorHandlerDraft: HandlerDraft = $state(cloneHandlerDraft(noErrorHandler))
 	let errorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
 	let errorHandlerMutedOnUserPath: boolean | undefined = $state(undefined)
 	let successHandlerScriptPath: string | undefined = $state(undefined)
-	let variableExpirationPath: string | undefined = $state(undefined)
-	let variableExpirationItemKind: 'flow' | 'script' = $state('script')
+	const noVariableExpirationHandler = handlerDraftFromStored('variableExpiration', undefined)
+	let variableExpirationDraft: HandlerDraft = $state(cloneHandlerDraft(noVariableExpirationHandler))
 	let variableExpirationMutedOnUserPath: boolean = $state(false)
-	let variableExpirationSelected: VariableExpirationHandlerType = $state('custom')
-	// The built-in destinations write `channel` here, and the API and CLI can set arbitrary
-	// fixed arguments the tab never renders. Both have to survive a save that keeps the
-	// handler, since the endpoint rebuilds the setting from the request and an omitted
-	// `extra_args` erases it. Only a save that clears the handler drops it.
-	let variableExpirationExtraArgs: Record<string, any> = $state({})
 	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let publicAppRateLimitPerMinute: number | undefined = $state(undefined)
@@ -263,10 +262,7 @@
 	let initialEditedWorkspaceEncryptionKey: string | undefined = $state(undefined)
 
 	// Track initial error handler settings for unsaved changes detection
-	let initialErrorHandlerSelected: ErrorHandler = $state('slack')
-	let initialErrorHandlerScriptPath: string | undefined = $state(undefined)
-	let initialErrorHandlerItemKind: 'flow' | 'script' = $state('script')
-	let initialErrorHandlerExtraArgs: Record<string, any> = $state({})
+	let initialErrorHandlerDraft: HandlerDraft = $state(cloneHandlerDraft(noErrorHandler))
 	let initialErrorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
 	let initialErrorHandlerMutedOnUserPath: boolean | undefined = $state(undefined)
 
@@ -274,10 +270,10 @@
 	let initialSuccessHandlerScriptPath: string | undefined = $state(undefined)
 
 	// Track initial variable expiration handler for unsaved changes detection
-	let initialVariableExpirationPath: string | undefined = $state(undefined)
-	let initialVariableExpirationItemKind: 'flow' | 'script' = $state('script')
+	let initialVariableExpirationDraft: HandlerDraft = $state(
+		cloneHandlerDraft(noVariableExpirationHandler)
+	)
 	let initialVariableExpirationMutedOnUserPath: boolean = $state(false)
-	let initialVariableExpirationExtraArgs: Record<string, any> = $state({})
 
 	let s3ResourceSettings: S3ResourceSettings = $state({
 		resourceType: 's3',
@@ -320,6 +316,13 @@
 		return hasUnsavedChanges(changes.savedValue, changes.modifiedValue)
 	})
 
+	let errorHandlerChannelMissing = $derived.by(() => {
+		const { selected } = errorHandlerDraft
+		if (selected !== 'slack' && selected !== 'teams') return false
+		const slot = errorHandlerDraft[selected]
+		return !!slot.path && emptyString(slot.args['channel'])
+	})
+
 	// Derived state for checking unsaved changes in success handler
 	let hasSuccessHandlerChanges = $derived.by(() => {
 		if (tab !== 'error_handler') return false
@@ -329,44 +332,24 @@
 		)
 	})
 
-	// The stored setting is a single prefixed path, so the kind only counts as a change
-	// while a path is selected — otherwise toggling script/flow on an empty picker reads
-	// as unsaved work that would save nothing.
-	function variableExpirationFullPath(kind: 'flow' | 'script', path: string | undefined) {
-		return path ? handlerFullPath(getVariableExpirationHandlerType(path), kind, path) : undefined
-	}
-
 	// The mute flag is stored inside the handler setting, so saving with no path selected
 	// clears the whole setting and drops it. Gating the toggle keeps the tab from offering
 	// a change it cannot persist.
-	let variableExpirationHasHandler = $derived(
-		!!variableExpirationFullPath(variableExpirationItemKind, variableExpirationPath)
-	)
+	let variableExpirationHasHandler = $derived(!!handlerDraftToStored(variableExpirationDraft).path)
 
-	// `handlerPath`, not `path`: `hasUnsavedChanges` blanks a key of that name, so a change
-	// of handler would never register as one.
+	// The stored handler is nested because `hasUnsavedChanges` drops a top-level `path`.
+	function variableExpirationSettingsValue(draft: HandlerDraft, mutedOnUserPath: boolean) {
+		return { handler: handlerDraftToStored(draft), mutedOnUserPath }
+	}
+
 	let hasVariableExpirationChanges = $derived.by(() => {
 		if (tab !== 'variable_expiration') return false
 		return hasUnsavedChanges(
-			{
-				handlerPath: variableExpirationFullPath(
-					initialVariableExpirationItemKind,
-					initialVariableExpirationPath
-				),
-				mutedOnUserPath: initialVariableExpirationMutedOnUserPath,
-				extraArgs: normalizeHandlerExtraArgs(
-					initialVariableExpirationExtraArgs,
-					getVariableExpirationHandlerType(initialVariableExpirationPath)
-				)
-			},
-			{
-				handlerPath: variableExpirationFullPath(variableExpirationItemKind, variableExpirationPath),
-				mutedOnUserPath: variableExpirationMutedOnUserPath,
-				extraArgs: normalizeHandlerExtraArgs(
-					variableExpirationExtraArgs,
-					variableExpirationSelected
-				)
-			}
+			variableExpirationSettingsValue(
+				initialVariableExpirationDraft,
+				initialVariableExpirationMutedOnUserPath
+			),
+			variableExpirationSettingsValue(variableExpirationDraft, variableExpirationMutedOnUserPath)
 		)
 	})
 
@@ -748,10 +731,6 @@
 			| { path?: string; extra_args?: any; muted_on_cancel?: boolean; muted_on_user_path?: boolean }
 			| undefined
 		const errorHandlerPath = errorHandler?.path ?? ''
-		errorHandlerItemKind = errorHandlerPath
-			? (errorHandlerPath.split('/')[0] as 'flow' | 'script')
-			: 'script'
-		errorHandlerScriptPath = errorHandlerPath.split('/').slice(1).join('/')
 		errorHandlerMutedOnCancel = errorHandler?.muted_on_cancel
 		errorHandlerMutedOnUserPath = errorHandler?.muted_on_user_path
 		criticalAlertUIMuted = settings.mute_critical_alerts
@@ -768,31 +747,37 @@
 		WorkspaceService.getGuestUsage({ workspace: $workspaceStore! })
 			.then((u) => (guestUsage = u))
 			.catch(() => (guestUsage = undefined))
-		if (emptyString($enterpriseLicense)) {
-			errorHandlerSelected = 'custom'
-		} else if (
+		const [errorHandlerKind, ...errorHandlerScriptPath] = errorHandlerPath.split('/')
+		errorHandlerDraft = handlerDraftFromStored(
+			'error',
+			errorHandlerScriptPath.join('/'),
+			errorHandlerKind === 'flow' ? 'flow' : 'script',
+			errorHandler?.extra_args,
+			{ asCustom: emptyString($enterpriseLicense) }
+		)
+		if (
+			!emptyString($enterpriseLicense) &&
 			canUseInstanceAlerts &&
 			!errorHandlerPath &&
 			settings.error_handler_fallback_to_instance_alerts
 		) {
-			errorHandlerSelected = 'instance_alerts'
-		} else {
-			errorHandlerSelected = getHandlerType(errorHandlerScriptPath)
+			errorHandlerDraft.selected = 'instance_alerts'
 		}
-		errorHandlerExtraArgs = errorHandler?.extra_args ?? {}
 		const successHandler = settings.success_handler as
 			| { path?: string; extra_args?: any }
 			| undefined
 		successHandlerScriptPath = (successHandler?.path ?? '').split('/').slice(1).join('/')
 		const variableExpirationHandler = settings.variable_expiration_handler
-		const variableExpirationHandlerPath = variableExpirationHandler?.path ?? ''
-		variableExpirationItemKind = variableExpirationHandlerPath
-			? (variableExpirationHandlerPath.split('/')[0] as 'flow' | 'script')
-			: 'script'
-		variableExpirationPath = variableExpirationHandlerPath.split('/').slice(1).join('/')
+		const [variableExpirationKind, ...variableExpirationPath] = (
+			variableExpirationHandler?.path ?? ''
+		).split('/')
+		variableExpirationDraft = handlerDraftFromStored(
+			'variableExpiration',
+			variableExpirationPath.join('/'),
+			variableExpirationKind === 'flow' ? 'flow' : 'script',
+			variableExpirationHandler?.extra_args
+		)
 		variableExpirationMutedOnUserPath = variableExpirationHandler?.muted_on_user_path ?? false
-		variableExpirationExtraArgs = variableExpirationHandler?.extra_args ?? {}
-		variableExpirationSelected = getVariableExpirationHandlerType(variableExpirationPath)
 		workspaceDefaultAppPath = settings.default_app
 		initialWorkspaceDefaultAppPath = settings.default_app
 
@@ -835,10 +820,7 @@
 		initialEditedWorkspaceEncryptionKey = editedWorkspaceEncryptionKey
 
 		// Store initial error handler state for unsaved changes detection
-		initialErrorHandlerSelected = errorHandlerSelected
-		initialErrorHandlerScriptPath = errorHandlerScriptPath
-		initialErrorHandlerItemKind = errorHandlerItemKind
-		initialErrorHandlerExtraArgs = clone(errorHandlerExtraArgs)
+		initialErrorHandlerDraft = cloneHandlerDraft(errorHandlerDraft)
 		initialErrorHandlerMutedOnCancel = errorHandlerMutedOnCancel
 		initialErrorHandlerMutedOnUserPath = errorHandlerMutedOnUserPath
 
@@ -846,10 +828,8 @@
 		initialSuccessHandlerScriptPath = successHandlerScriptPath
 
 		// Store initial variable expiration handler state for unsaved changes detection
-		initialVariableExpirationPath = variableExpirationPath
-		initialVariableExpirationItemKind = variableExpirationItemKind
+		initialVariableExpirationDraft = cloneHandlerDraft(variableExpirationDraft)
 		initialVariableExpirationMutedOnUserPath = variableExpirationMutedOnUserPath
-		initialVariableExpirationExtraArgs = clone(variableExpirationExtraArgs)
 
 		loadedSettings = true
 	}
@@ -981,18 +961,19 @@
 	})
 
 	async function editErrorHandler() {
-		if (errorHandlerScriptPath) {
+		const handler = handlerDraftToStored(errorHandlerDraft)
+		if (handler.path) {
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: handlerFullPath(errorHandlerSelected, errorHandlerItemKind, errorHandlerScriptPath),
-					extra_args: errorHandlerExtraArgs,
+					path: `${handler.kind}/${handler.path}`,
+					extra_args: handler.args,
 					muted_on_cancel: errorHandlerMutedOnCancel,
 					muted_on_user_path: errorHandlerMutedOnUserPath,
 					fallback_to_instance_alerts: false
 				}
 			})
-			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
+			sendUserToast(`workspace error handler set to ${handler.path}`)
 		} else {
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
@@ -1001,64 +982,64 @@
 					extra_args: undefined,
 					muted_on_cancel: undefined,
 					muted_on_user_path: undefined,
-					fallback_to_instance_alerts: errorHandlerSelected === 'instance_alerts'
+					fallback_to_instance_alerts: errorHandlerDraft.selected === 'instance_alerts'
 				}
 			})
 			sendUserToast(
-				errorHandlerSelected === 'instance_alerts'
+				errorHandlerDraft.selected === 'instance_alerts'
 					? `failed jobs will be reported to the instance critical alert channels`
-					: initialErrorHandlerScriptPath
+					: handlerDraftToStored(initialErrorHandlerDraft).path
 						? `workspace error handler removed`
 						: `error handler settings saved`
 			)
 		}
 
-		// Update initial values for dirty detection
-		initialErrorHandlerSelected = errorHandlerSelected
-		initialErrorHandlerScriptPath = errorHandlerScriptPath
-		initialErrorHandlerItemKind = errorHandlerItemKind
-		initialErrorHandlerExtraArgs = clone(errorHandlerExtraArgs)
+		// Rebuilt from what was stored, so Discard also drops the other tabs' unsaved edits.
+		initialErrorHandlerDraft = handlerDraftFromStored(
+			'error',
+			handler.path,
+			handler.kind,
+			handler.args,
+			{
+				emptySelected: errorHandlerDraft.selected
+			}
+		)
 		initialErrorHandlerMutedOnCancel = errorHandlerMutedOnCancel
 		initialErrorHandlerMutedOnUserPath = errorHandlerMutedOnUserPath
 	}
 
 	async function editVariableExpirationHandler() {
-		const path = variableExpirationFullPath(variableExpirationItemKind, variableExpirationPath)
-		// Saving with no path clears the whole setting server-side, `extra_args` included, so
-		// the in-memory copy has to go too: a handler picked afterwards without reloading the
-		// page would otherwise be persisted with the cleared one's arguments, including any the
-		// API or CLI set that this tab never renders.
-		if (!path) {
-			variableExpirationExtraArgs = {}
-		}
+		const handler = handlerDraftToStored(variableExpirationDraft)
 		await WorkspaceService.editVariableExpirationHandler({
 			workspace: $workspaceStore!,
 			requestBody: {
-				path,
-				extra_args: variableExpirationExtraArgs,
+				path: handler.path ? `${handler.kind}/${handler.path}` : undefined,
+				extra_args: handler.args,
 				muted_on_user_path: variableExpirationMutedOnUserPath
 			}
 		})
 		sendUserToast(
-			path
-				? `Variable expiration handler set to ${path}`
-				: initialVariableExpirationPath
+			handler.path
+				? `Variable expiration handler set to ${handler.path}`
+				: handlerDraftToStored(initialVariableExpirationDraft).path
 					? 'Variable expiration handler removed'
 					: 'Variable expiration settings saved'
 		)
 
-		initialVariableExpirationPath = variableExpirationPath
-		initialVariableExpirationItemKind = variableExpirationItemKind
+		// Rebuilt from what was stored, so Discard also drops the other tabs' unsaved edits.
+		initialVariableExpirationDraft = handlerDraftFromStored(
+			'variableExpiration',
+			handler.path,
+			handler.kind,
+			handler.args,
+			{ emptySelected: variableExpirationDraft.selected }
+		)
 		initialVariableExpirationMutedOnUserPath = variableExpirationMutedOnUserPath
-		initialVariableExpirationExtraArgs = clone(variableExpirationExtraArgs)
 	}
 
 	function discardVariableExpirationChanges() {
-		variableExpirationPath = initialVariableExpirationPath
-		variableExpirationItemKind = initialVariableExpirationItemKind
+		variableExpirationDraft = cloneHandlerDraft(initialVariableExpirationDraft)
 		variableExpirationMutedOnUserPath = initialVariableExpirationMutedOnUserPath
-		variableExpirationExtraArgs = clone(initialVariableExpirationExtraArgs)
-		variableExpirationSelected = getVariableExpirationHandlerType(variableExpirationPath)
 	}
 
 	async function editSuccessHandler() {
@@ -1248,50 +1229,40 @@
 		guestJwtKeyType = initialGuestJwtJwksUrl ? 'jwks' : 'pem'
 	}
 
-	// Strip keys from extraArgs that are auto-managed by child components:
-	// - 'slack' while the Slack built-in is selected: set by ErrorOrRecoveryHandler's $effect
-	// - 'channel_name': display metadata stripped by SchemaForm's removeExtraKey()
-	function normalizeHandlerExtraArgs(
-		args: Record<string, any>,
-		handlerSelected: ErrorHandler
-	): Record<string, any> {
-		const { channel_name: _, ...rest } = args
-		if (handlerSelected === 'slack') delete rest.slack
-		return rest
+	// Compares what Save would send, so visiting another tab and coming back is not a change.
+	// The stored handler is nested because `hasUnsavedChanges` drops a top-level `path`.
+	function errorHandlerSettingsValue(
+		draft: HandlerDraft,
+		mutedOnCancel: boolean | undefined,
+		mutedOnUserPath: boolean | undefined
+	) {
+		return {
+			errorHandler: handlerDraftToStored(draft),
+			fallbackToInstanceAlerts: draft.selected === 'instance_alerts',
+			errorHandlerMutedOnCancel: mutedOnCancel,
+			errorHandlerMutedOnUserPath: mutedOnUserPath
+		}
 	}
 
 	// Function to check if there are unsaved changes in error handler settings
 	function getErrorHandlerSettingsInitialAndModifiedValues() {
-		const savedValue = {
-			errorHandlerSelected: initialErrorHandlerSelected,
-			errorHandlerScriptPath: initialErrorHandlerScriptPath,
-			errorHandlerItemKind: initialErrorHandlerItemKind,
-			errorHandlerExtraArgs: normalizeHandlerExtraArgs(
-				initialErrorHandlerExtraArgs,
-				initialErrorHandlerSelected
+		return {
+			savedValue: errorHandlerSettingsValue(
+				initialErrorHandlerDraft,
+				initialErrorHandlerMutedOnCancel,
+				initialErrorHandlerMutedOnUserPath
 			),
-			errorHandlerMutedOnCancel: initialErrorHandlerMutedOnCancel,
-			errorHandlerMutedOnUserPath: initialErrorHandlerMutedOnUserPath
+			modifiedValue: errorHandlerSettingsValue(
+				errorHandlerDraft,
+				errorHandlerMutedOnCancel,
+				errorHandlerMutedOnUserPath
+			)
 		}
-
-		const modifiedValue = {
-			errorHandlerSelected: errorHandlerSelected,
-			errorHandlerScriptPath: errorHandlerScriptPath,
-			errorHandlerItemKind: errorHandlerItemKind,
-			errorHandlerExtraArgs: normalizeHandlerExtraArgs(errorHandlerExtraArgs, errorHandlerSelected),
-			errorHandlerMutedOnCancel: errorHandlerMutedOnCancel,
-			errorHandlerMutedOnUserPath: errorHandlerMutedOnUserPath
-		}
-
-		return { savedValue, modifiedValue }
 	}
 
 	// Function to discard unsaved error handler settings changes
 	function discardErrorHandlerSettingsChanges() {
-		errorHandlerSelected = initialErrorHandlerSelected
-		errorHandlerScriptPath = initialErrorHandlerScriptPath
-		errorHandlerItemKind = initialErrorHandlerItemKind
-		errorHandlerExtraArgs = clone(initialErrorHandlerExtraArgs)
+		errorHandlerDraft = cloneHandlerDraft(initialErrorHandlerDraft)
 		errorHandlerMutedOnCancel = initialErrorHandlerMutedOnCancel
 		errorHandlerMutedOnUserPath = initialErrorHandlerMutedOnUserPath
 	}
@@ -1334,28 +1305,14 @@
 			}
 			case 'variable_expiration':
 				return {
-					savedValue: {
-						handlerPath: variableExpirationFullPath(
-							initialVariableExpirationItemKind,
-							initialVariableExpirationPath
-						),
-						mutedOnUserPath: initialVariableExpirationMutedOnUserPath,
-						extraArgs: normalizeHandlerExtraArgs(
-							initialVariableExpirationExtraArgs,
-							getVariableExpirationHandlerType(initialVariableExpirationPath)
-						)
-					},
-					modifiedValue: {
-						handlerPath: variableExpirationFullPath(
-							variableExpirationItemKind,
-							variableExpirationPath
-						),
-						mutedOnUserPath: variableExpirationMutedOnUserPath,
-						extraArgs: normalizeHandlerExtraArgs(
-							variableExpirationExtraArgs,
-							variableExpirationSelected
-						)
-					}
+					savedValue: variableExpirationSettingsValue(
+						initialVariableExpirationDraft,
+						initialVariableExpirationMutedOnUserPath
+					),
+					modifiedValue: variableExpirationSettingsValue(
+						variableExpirationDraft,
+						variableExpirationMutedOnUserPath
+					)
 				}
 			case 'critical_alerts':
 				return {
@@ -2125,11 +2082,8 @@
 										isEditable={true}
 										errorOrRecovery="error"
 										showScriptHelpText={true}
-										bind:handlerSelected={errorHandlerSelected}
-										bind:handlerPath={errorHandlerScriptPath}
+										bind:draft={errorHandlerDraft}
 										customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
-										bind:customHandlerKind={errorHandlerItemKind}
-										bind:handlerExtraArgs={errorHandlerExtraArgs}
 										showInstanceAlerts={canUseInstanceAlerts}
 									>
 										{#snippet customTabTooltip()}
@@ -2160,21 +2114,15 @@
 										{/snippet}
 									</ErrorOrRecoveryHandler>
 
-									{#if errorHandlerSelected !== 'instance_alerts'}
+									{#if errorHandlerDraft.selected !== 'instance_alerts'}
 										<SettingCard class="gap-2">
 											<Toggle
-												disabled={!$enterpriseLicense ||
-													((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-														!emptyString(errorHandlerScriptPath) &&
-														emptyString(errorHandlerExtraArgs['channel']))}
+												disabled={!$enterpriseLicense || errorHandlerChannelMissing}
 												bind:checked={errorHandlerMutedOnCancel}
 												options={{ right: 'Do not run error handler for canceled jobs' }}
 											/>
 											<Toggle
-												disabled={!$enterpriseLicense ||
-													((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-														!emptyString(errorHandlerScriptPath) &&
-														emptyString(errorHandlerExtraArgs['channel']))}
+												disabled={!$enterpriseLicense || errorHandlerChannelMissing}
 												bind:checked={errorHandlerMutedOnUserPath}
 												options={{ right: 'Do not run error handler for u/ scripts and flows' }}
 											/>
@@ -2189,10 +2137,7 @@
 									onSave={editErrorHandler}
 									onDiscard={discardErrorHandlerSettingsChanges}
 									saveLabel="Save error handler"
-									disabled={!$enterpriseLicense ||
-										((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-											!emptyString(errorHandlerScriptPath) &&
-											emptyString(errorHandlerExtraArgs['channel']))}
+									disabled={!$enterpriseLicense || errorHandlerChannelMissing}
 								/>
 							</Section>
 
@@ -2278,7 +2223,7 @@ export async function main(
 								link="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
 							/>
 
-							{#if !$enterpriseLicense && variableExpirationSelected !== 'custom'}
+							{#if !$enterpriseLicense && variableExpirationDraft.selected !== 'custom'}
 								<Alert type="warning" title="Slack and Teams handlers are an EE feature">
 									Connecting a workspace to Slack or Teams is a Windmill EE feature.
 								</Alert>
@@ -2286,15 +2231,9 @@ export async function main(
 
 							<Section label="Handler">
 								<div class="flex flex-col gap-6">
-									<!-- Bound rather than seeded through `initialPath`: the picker keeps its own
-									copy of the selection, so a Discard that only reset the page state would leave
-									the reverted path invisible. -->
 									<VariableExpirationHandler
 										isEditable={true}
-										bind:handlerSelected={variableExpirationSelected}
-										bind:handlerPath={variableExpirationPath}
-										bind:handlerKind={variableExpirationItemKind}
-										bind:handlerExtraArgs={variableExpirationExtraArgs}
+										bind:draft={variableExpirationDraft}
 										customScriptTemplate={`/scripts/add?lang=bun#` +
 											encodeState({
 												path: 'f/variable_expiration_handler',
@@ -2347,7 +2286,7 @@ export async function main(
 									</SettingCard>
 
 									<Alert type="info" title="Runs as g/variable_expiration_handler">
-										{#if variableExpirationSelected === 'custom'}
+										{#if variableExpirationDraft.selected === 'custom'}
 											The handler is executed by the automatically created group
 											g/variable_expiration_handler. Rotating a variable means writing to it, so
 											grant that group write access to the variables it is meant to rotate. It
@@ -2358,7 +2297,7 @@ export async function main(
 											The handler is executed by the automatically created group
 											g/variable_expiration_handler. It only posts a message, so it needs no access
 											to your variables: it is given the path and the expiry date, never the value.
-											{#if variableExpirationSelected === 'slack'}
+											{#if variableExpirationDraft.selected === 'slack'}
 												Access to the Slack bot token is granted for you.
 											{/if}
 										{/if}

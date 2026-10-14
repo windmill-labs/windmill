@@ -4480,12 +4480,14 @@ pub async fn monitor_db(
 
     // Re-encrypt the legacy-format secret variables once new values are written in AES-256-GCM.
     // Every ~5 min until one pass has gone through every workspace; spawned so a large instance
-    // does not hold up the join below.
+    // does not hold up the join below. The column widening it starts with is tried every
+    // iteration: a v2 value too long for the narrow column fails to save until it is done.
     let legacy_secret_upgrade_f = async {
         if server_mode
             && iteration.is_some()
-            && iteration.as_ref().unwrap().should_run(30)
-            && windmill_common::variables::legacy_secret_upgrade_pending()
+            && (windmill_common::variables::variable_value_widen_pending()
+                || (iteration.as_ref().unwrap().should_run(30)
+                    && windmill_common::variables::legacy_secret_upgrade_pending()))
         {
             if let Some(db) = conn.as_sql() {
                 let db = db.clone();

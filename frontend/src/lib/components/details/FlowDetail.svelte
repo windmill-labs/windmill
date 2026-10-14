@@ -369,7 +369,7 @@
 			buttons.push({
 				label: 'Fork',
 				description: `Start a new flow from a copy of this one`,
-				narrow: { dropdownOf: 'Edit' },
+				placement: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: operatingHref(`/flows/add?template=${flow.path}`),
 					onClick: interceptNav(onNavigate, `/flows/add?template=${flow.path}`),
@@ -390,7 +390,7 @@
 			buttons.push({
 				label: editInForkLabel(workspace, $userWorkspaces),
 				description: editInForkDescription('flow', workspace, $userWorkspaces),
-				narrow: { dropdownOf: 'Edit' },
+				placement: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: buildForkEditUrl('flow', flow.path, workspace),
 					onClick: (e: Event | undefined) => editInFork(e, flow.path),
@@ -418,7 +418,7 @@
 
 		buttons.push({
 			label: `History`,
-			narrow: 'menu',
+			placement: 'menu',
 			buttonProps: {
 				onClick: () => flowHistory?.open(),
 				unifiedSize: 'md',
@@ -435,7 +435,8 @@
 		if (!actingUser?.operator) {
 			buttons.push({
 				label: 'Build app',
-				narrow: 'menu',
+				placement: 'menu',
+				alwaysPlaced: true,
 				buttonProps: {
 					onClick: async () => {
 						const app = createRawAppFromFlow(flow.path, flow.summary, flow.schema)
@@ -682,6 +683,12 @@
 					}
 				: undefined}
 		>
+			{#snippet name_marks()}
+				<!-- Favorites are the sidebar's, which lists the navigation workspace only. -->
+				{#if workspace && flow && workspace === $workspaceStore}
+					<Star kind="flow" path={flow.path} summary={flow.summary} />
+				{/if}
+			{/snippet}
 			{#snippet trigger_badges()}
 				<TriggersBadge
 					showOnlyWithCount={true}
@@ -698,12 +705,6 @@
 					small={false}
 				/>
 			{/snippet}
-			{#if workspace && flow}
-				<!-- Favorites are the sidebar's, which lists the navigation workspace only. -->
-				{#if workspace === $workspaceStore}
-					<Star kind="flow" path={flow.path} summary={flow.summary} />
-				{/if}
-			{/if}
 			<OnBehalfOfBadge
 				onBehalfOf={flow?.on_behalf_of}
 				onBehalfOfEmail={flow?.on_behalf_of_email}

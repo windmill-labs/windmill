@@ -1908,7 +1908,7 @@ async fn require_job_access(
     // are immutable after creation, and every mutable caller-side input
     // (is_admin / username / username_override / groups / folders) is folded into
     // the key — so a permission change yields a new key rather than a stale hit, and
-    // no TTL is needed (size-bounded LRU; mirrors apps' PERMIT_CACHE).
+    // no TTL is needed (size-bounded LRU).
     let cache_key = job_read_access_cache_key(authed, w_id, job_id);
     let visible = if let Some(visible) = JOB_READ_ACCESS_CACHE.get(&cache_key) {
         visible
@@ -9069,7 +9069,8 @@ async fn run_inline_preview_script(
     if let Some(job_id) = job_id {
         register_potential_assets_on_inline_execution(job_id, &w_id, &preview);
     }
-    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
+    let (end_user_email, viewer_data_access) =
+        run_inline_preview_end_user(&db, &w_id, &authed).await?;
     let utils = get_worker_internal_server_inline_utils()?;
     let result = utils.run_inline_preview_script.as_ref()(RunInlinePreviewScriptFnParams {
         content: preview.content,
@@ -9081,6 +9082,7 @@ async fn run_inline_preview_script(
         permissioned_as: username_to_permissioned_as(&authed.username),
         permissioned_as_email: authed.email.clone(),
         end_user_email,
+        viewer_data_access,
         lang: preview.language,
         job_dir: "".to_string(),
         worker_name: "".to_string(),

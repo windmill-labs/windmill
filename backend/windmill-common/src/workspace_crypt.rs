@@ -30,6 +30,10 @@ pub const V2_MAGIC: [u8; 4] = *b"wmA2";
 const NONCE_LEN: usize = 12;
 const TAG_LEN: usize = 16;
 const BLOCK: usize = 16;
+const NARROW_VARIABLE_VALUE_WIDTH: usize = 15000;
+
+/// The most `encrypt_bytes_in` adds to a plaintext, in either format.
+pub const MAX_BYTES_OVERHEAD: usize = V2_MAGIC.len() + NONCE_LEN + BLOCK + TAG_LEN;
 
 const AEAD_KEY_INFO: &[u8] = b"windmill workspace secret aes-256-gcm v1";
 
@@ -77,8 +81,8 @@ pub struct WorkspaceCrypt {
     aead: Aes256Gcm,
 }
 
-/// Code that drives `magic_crypt` directly on this cipher (app link secrets, AI session
-/// objects) keeps the legacy format it always had.
+/// Code that drives `magic_crypt` directly on this cipher (app link secrets) keeps the legacy
+/// format it always had.
 impl std::ops::Deref for WorkspaceCrypt {
     type Target = MagicCrypt256;
     fn deref(&self) -> &MagicCrypt256 {
@@ -102,7 +106,23 @@ impl WorkspaceCrypt {
     }
 
     pub fn encrypt_str(&self, plaintext: &str) -> String {
-        self.encrypt_str_in(plaintext, CipherFormat::current())
+        self.encrypt_str_fitting(
+            plaintext,
+            CipherFormat::current(),
+            crate::variables::variable_value_widened(),
+        )
+    }
+
+    /// A v2 value is up to 44 chars longer than CBC: until `variable.value` is known widened
+    /// for it, one past the narrow width is written in CBC, which fits.
+    fn encrypt_str_fitting(&self, plaintext: &str, format: CipherFormat, widened: bool) -> String {
+        if format == CipherFormat::V2 {
+            let v2 = self.encrypt_str_in(plaintext, CipherFormat::V2);
+            if widened || v2.len() <= NARROW_VARIABLE_VALUE_WIDTH {
+                return v2;
+            }
+        }
+        self.encrypt_str_in(plaintext, CipherFormat::LegacyCbc)
     }
 
     pub fn encrypt_str_in(&self, plaintext: &str, format: CipherFormat) -> String {
@@ -136,7 +156,14 @@ impl WorkspaceCrypt {
         (self.decrypt_str(&upgraded).ok()? == plaintext).then_some(upgraded)
     }
 
-    fn decrypt_bytes(&self, bytes: &[u8]) -> Result<Vec<u8>, DecryptFailure> {
+    pub fn encrypt_bytes_in(&self, plaintext: &[u8], format: CipherFormat) -> Vec<u8> {
+        match format {
+            CipherFormat::V2 => self.seal(plaintext),
+            CipherFormat::LegacyCbc => self.legacy.encrypt_bytes_to_bytes(plaintext),
+        }
+    }
+
+    pub fn decrypt_bytes(&self, bytes: &[u8]) -> Result<Vec<u8>, DecryptFailure> {
         match self.open(bytes) {
             Some(plaintext) => Ok(plaintext),
             // Also for a value with the magic: a CBC ciphertext starts with it one time in 2^32.
@@ -240,6 +267,32 @@ mod tests {
             WorkspaceCrypt::new(KEY).decrypt_bytes(&ciphertext).unwrap(),
             plaintext
         );
+    }
+
+    #[test]
+    fn bytes_round_trip_within_the_overhead_in_both_formats() {
+        let wc = WorkspaceCrypt::new(KEY);
+        for len in 0..64 {
+            let plain = vec![b'x'; len];
+            for format in [CipherFormat::V2, CipherFormat::LegacyCbc] {
+                let sealed = wc.encrypt_bytes_in(&plain, format);
+                assert_eq!(wc.open(&sealed).is_some(), format == CipherFormat::V2);
+                assert!(sealed.len() <= len + MAX_BYTES_OVERHEAD, "len {len}");
+                assert_eq!(wc.decrypt_bytes(&sealed).unwrap(), plain);
+            }
+        }
+    }
+
+    #[test]
+    fn v2_too_long_for_a_narrow_column_is_written_in_cbc() {
+        let wc = WorkspaceCrypt::new(KEY);
+        // The longest plaintext whose CBC value fits 15000 chars.
+        let long = "x".repeat(11231);
+        let narrow = wc.encrypt_str_fitting(&long, CipherFormat::V2, false);
+        assert!(!wc.is_v2(&narrow) && narrow.len() <= NARROW_VARIABLE_VALUE_WIDTH);
+        assert_eq!(wc.decrypt_str(&narrow).unwrap(), long);
+        assert!(wc.is_v2(&wc.encrypt_str_fitting(&long, CipherFormat::V2, true)));
+        assert!(wc.is_v2(&wc.encrypt_str_fitting("short", CipherFormat::V2, false)));
     }
 
     #[test]

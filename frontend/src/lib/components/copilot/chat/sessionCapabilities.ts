@@ -15,6 +15,8 @@ export type SessionCapability =
 	/** Passes `require_can_write_path` for a flow draft, which an operator also passes where the
 	 * workspace grants `builder_flows`. The server then refuses a draft carrying inline code. */
 	| 'write_flow_draft'
+	/** The same for a raw app draft, under `builder_apps`. */
+	| 'write_app_draft'
 	/** Passes the operator refusal jobs.rs `run_preview_*` makes before starting a job. */
 	| 'run_preview'
 	/** Passes `run_preview_flow`'s `check_operator_can_build_flows`: composed flows only, for an
@@ -22,12 +24,14 @@ export type SessionCapability =
 	| 'run_flow_preview'
 	/** Passes `check_deploy_rules`. */
 	| 'deploy'
-	/** Passes the operator refusal the script and app handlers make before creating or
+	/** Passes the operator refusal the script handlers make before creating or
 	 * deleting one. The same condition as `run_preview` today, but another handler family's
 	 * check, so each follows its own gate if the two ever diverge. */
 	| 'manage_code'
 	/** Passes the flow handlers' `check_operator_can_build_flows`. */
 	| 'manage_flows'
+	/** Passes the raw app handlers' `check_operator_can_build`, read from `builder_apps`. */
+	| 'manage_apps'
 	/** Passes `gate_operator_writes` on the schedule router: withheld only from an operator whose
 	 * workspace set `operator_settings.manage_schedules` to false. */
 	| 'manage_schedules'
@@ -50,6 +54,7 @@ export type SessionToolPolicy = readonly SessionCapability[]
 export const NONE: SessionToolPolicy = []
 export const WRITE_DRAFT: SessionToolPolicy = ['write_draft']
 export const WRITE_FLOW_DRAFT: SessionToolPolicy = ['write_flow_draft']
+export const WRITE_APP_DRAFT: SessionToolPolicy = ['write_app_draft']
 export const RUN_PREVIEW: SessionToolPolicy = ['run_preview']
 export const RUN_FLOW_PREVIEW: SessionToolPolicy = ['run_flow_preview']
 export const DEPLOY: SessionToolPolicy = ['deploy']
@@ -62,7 +67,9 @@ export type EditorKind = 'script' | 'flow' | 'raw_app' | 'pipeline'
  * resolved yet, or not a session) answers true, as the toolset filter does. */
 export function canOpenEditor(access: SessionAccess | undefined, kind: EditorKind): boolean {
 	if (!access) return true
-	return access.has(kind === 'flow' ? 'write_flow_draft' : 'write_draft')
+	return access.has(
+		kind === 'flow' ? 'write_flow_draft' : kind === 'raw_app' ? 'write_app_draft' : 'write_draft'
+	)
 }
 
 /**

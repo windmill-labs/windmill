@@ -37,6 +37,8 @@ export interface BackendRunnable {
 	inlineScript?: InlineScript
 	// For workspace scripts/flows and hub scripts
 	path?: string
+	// Inline only: data table connections naming no role hold the viewer's roles
+	viewerDataAccess?: boolean
 }
 
 export interface AppFiles {
@@ -327,6 +329,12 @@ const getSetBackendRunnableSchema = memo(() =>
 			.optional()
 			.describe(
 				'Required when type is "script", "flow", or "hubscript". The fully qualified path to the workspace script/flow or hub script.'
+			),
+		viewerDataAccess: z
+			.boolean()
+			.optional()
+			.describe(
+				"Inline only. When true, the runnable reads data as the person viewing the app instead of as the app's identity: data table connections that name no role hold the viewer's roles, and object storage permission rules are checked against the viewer, so row-level security and per-user storage paths answer per viewer. Resources and variables stay the app's. Anonymous viewers are refused. Omit to keep the current setting."
 			)
 	})
 )
@@ -710,7 +718,8 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 				...args,
 				staticInputs: args.staticInputs === null ? undefined : args.staticInputs,
 				inlineScript: args.inlineScript === null ? undefined : args.inlineScript,
-				path: args.path === null ? undefined : args.path
+				path: args.path === null ? undefined : args.path,
+				viewerDataAccess: args.viewerDataAccess === null ? undefined : args.viewerDataAccess
 			}
 
 			const parsedArgs = getSetBackendRunnableSchema().parse(cleanedArgs)
@@ -723,7 +732,10 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 				type: parsedArgs.type,
 				...(parsedArgs.staticInputs && { staticInputs: parsedArgs.staticInputs }),
 				...(parsedArgs.inlineScript && { inlineScript: parsedArgs.inlineScript }),
-				...(parsedArgs.path && { path: parsedArgs.path })
+				...(parsedArgs.path && { path: parsedArgs.path }),
+				...(parsedArgs.viewerDataAccess !== undefined && {
+					viewerDataAccess: parsedArgs.viewerDataAccess
+				})
 			}
 
 			toolCallbacks.setToolStatus(toolId, {

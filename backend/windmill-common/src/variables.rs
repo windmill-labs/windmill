@@ -407,7 +407,61 @@ pub fn legacy_secret_upgrade_pending() -> bool {
         && !LEGACY_SECRET_UPGRADE_DONE.load(Ordering::Relaxed)
 }
 
-/// Re-encrypt the secret variables still in the legacy format in v2, workspace by workspace.
+/// AES-256-GCM ciphertext is 32 bytes (magic, nonce, tag) longer than legacy CBC before base64,
+/// so the longest CBC value that fits 15000 chars is exactly 15040 chars once re-encrypted.
+const VARIABLE_VALUE_WIDTH: i32 = 15040;
+static VARIABLE_VALUE_WIDENED: AtomicBool = AtomicBool::new(false);
+
+/// Whether this process has seen `variable.value` wide enough for every v2 value. Only servers
+/// look, so it stays false in a worker.
+pub fn variable_value_widened() -> bool {
+    VARIABLE_VALUE_WIDENED.load(Ordering::Relaxed)
+}
+
+/// Whether `variable.value` may still have to be widened to fit v2 values.
+pub fn variable_value_widen_pending() -> bool {
+    CipherFormat::current() == CipherFormat::V2 && !VARIABLE_VALUE_WIDENED.load(Ordering::Relaxed)
+}
+
+/// Widen `variable.value` to [`VARIABLE_VALUE_WIDTH`], or `false` when it is too early to.
+/// Not a migration: changing a column's type, even its length, fails every statement a live
+/// process prepared on it until its connection closes. It waits for v2 writes, gated on a
+/// worker version that retires such connections on the first failure, so that no process too
+/// old to recover is still running.
+async fn widen_variable_value(db: &DB) -> error::Result<bool> {
+    if VARIABLE_VALUE_WIDENED.load(Ordering::Relaxed) {
+        return Ok(true);
+    }
+    // varchar's typmod is its length + 4, -1 when unbounded.
+    let typmod: i32 = sqlx::query_scalar(
+        "SELECT atttypmod FROM pg_attribute WHERE attrelid = 'variable'::regclass AND attname = 'value'",
+    )
+    .fetch_one(db)
+    .await?;
+    if typmod >= 0 && typmod - 4 < VARIABLE_VALUE_WIDTH {
+        if crate::db::process_uptime() < crate::db::PREVIOUS_RELEASE_ROLLOUT_UPTIME {
+            return Ok(false);
+        }
+        tracing::info!("widening variable.value to VARCHAR({VARIABLE_VALUE_WIDTH})");
+        let mut tx = db.begin().await?;
+        // Queued behind a long transaction, the ALTER would block every variable read meanwhile.
+        sqlx::query("SET LOCAL lock_timeout = '3s'")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(&format!(
+            "ALTER TABLE variable ALTER COLUMN value TYPE VARCHAR({VARIABLE_VALUE_WIDTH})"
+        ))
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        crate::db::retire_connections_opened_before_now();
+    }
+    VARIABLE_VALUE_WIDENED.store(true, Ordering::Relaxed);
+    Ok(true)
+}
+
+/// Widen `variable.value` for v2 values, then re-encrypt the secret variables still in the
+/// legacy format in v2, workspace by workspace.
 /// Idempotent, and emits no git-sync event: the plaintexts do not change.
 pub async fn upgrade_legacy_secret_variables(db: &DB) {
     struct Running;
@@ -416,14 +470,26 @@ pub async fn upgrade_legacy_secret_variables(db: &DB) {
             LEGACY_SECRET_UPGRADE_RUNNING.store(false, Ordering::Release);
         }
     }
-    if !legacy_secret_upgrade_pending()
+    if !(variable_value_widen_pending() || legacy_secret_upgrade_pending())
         || LEGACY_SECRET_UPGRADE_RUNNING.swap(true, Ordering::AcqRel)
     {
         return;
     }
     // Cleared on drop, so a pass that panics does not stop every later one in this process.
     let _running = Running;
-    upgrade_legacy_secret_variables_pass(db).await;
+    match widen_variable_value(db).await {
+        Ok(true) => {}
+        Ok(false) => return,
+        Err(e) => {
+            tracing::warn!(
+                "secret encryption upgrade: widening variable.value failed, retrying later: {e:#}"
+            );
+            return;
+        }
+    }
+    if legacy_secret_upgrade_pending() {
+        upgrade_legacy_secret_variables_pass(db).await;
+    }
 }
 
 async fn upgrade_legacy_secret_variables_pass(db: &DB) {
