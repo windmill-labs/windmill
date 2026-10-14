@@ -235,12 +235,13 @@
 		return [active, ...families].flatMap((f) => f.rows)
 	})
 
-	let listEl: HTMLDivElement | undefined = $state()
-
 	// With the search field shown, focus stays in it: the arrows move this highlight rather than
 	// melt's roving focus, which would take the keys away from the field. Until the user arrows or
 	// hovers, it rests on the best-ranked visible match (not the first row, which may only be a
-	// match's ancestor), so Enter's target is always the highlighted row.
+	// match's ancestor), so Enter's target is always the highlighted row. The highlight walks every
+	// element carrying `data-nav-id` — workspace rows, then the actions below them — in DOM order.
+	const ACTION_PREFIX = 'action:'
+	let rootEl: HTMLDivElement | undefined = $state()
 	let pickedId: string | undefined = $state()
 	const navIds = $derived(
 		familyWorkspaces.filter((h) => !h.workspace.disabled).map((h) => h.workspace.id)
@@ -248,28 +249,39 @@
 	const highlightedId = $derived(
 		!showSearch
 			? undefined
-			: pickedId && navIds.includes(pickedId)
+			: pickedId && (pickedId.startsWith(ACTION_PREFIX) || navIds.includes(pickedId))
 				? pickedId
 				: searching
 					? searchMatches?.find((w) => navIds.includes(w.id))?.id
 					: undefined
 	)
 
+	function actionNavId(action: string): string | undefined {
+		return showSearch ? ACTION_PREFIX + action : undefined
+	}
+
+	function actionClass(action: string): string {
+		return twMerge(itemClass, highlightedId === ACTION_PREFIX + action && 'bg-surface-hover')
+	}
+
+	function navElement(id: string): HTMLElement | null | undefined {
+		return rootEl?.querySelector<HTMLElement>(`[data-nav-id="${CSS.escape(id)}"]`)
+	}
+
 	function moveHighlight(step: 1 | -1) {
-		if (navIds.length === 0) return
-		const at = highlightedId ? navIds.indexOf(highlightedId) : -1
+		const order = [...(rootEl?.querySelectorAll('[data-nav-id]') ?? [])].map(
+			(el) => el.getAttribute('data-nav-id')!
+		)
+		if (order.length === 0) return
+		const at = highlightedId ? order.indexOf(highlightedId) : -1
 		const next =
 			at === -1
 				? step === 1
 					? 0
-					: navIds.length - 1
-				: Math.min(navIds.length - 1, Math.max(0, at + step))
-		pickedId = navIds[next]
-		void tick().then(() =>
-			listEl
-				?.querySelector(`[data-workspace-id="${CSS.escape(navIds[next])}"]`)
-				?.scrollIntoView({ block: 'nearest' })
-		)
+					: order.length - 1
+				: Math.min(order.length - 1, Math.max(0, at + step))
+		pickedId = order[next]
+		navElement(order[next])?.scrollIntoView({ block: 'nearest' })
 	}
 
 	function onSearchKeydown(e: KeyboardEvent) {
@@ -282,6 +294,10 @@
 			const target = highlightedId
 			if (!target) return
 			e.preventDefault()
+			if (target.startsWith(ACTION_PREFIX)) {
+				navElement(target)?.querySelector<HTMLElement>('[role="menuitem"]')?.click()
+				return
+			}
 			closeMenu?.()
 			void tick().then(() => toggleSwitchWorkspace(target))
 		} else {
@@ -297,9 +313,9 @@
 		e.stopPropagation()
 		if (e.type === 'pointermove') {
 			const id = (e.target as HTMLElement | null)
-				?.closest('[data-workspace-id]')
-				?.getAttribute('data-workspace-id')
-			if (id && navIds.includes(id)) pickedId = id
+				?.closest('[data-nav-id]')
+				?.getAttribute('data-nav-id')
+			if (id) pickedId = id
 		}
 	}
 
@@ -358,6 +374,7 @@
 <svelte:window onkeydowncapture={onExpandKeydown} />
 
 <div
+	bind:this={rootEl}
 	class="divide-y"
 	role="none"
 	onpointermovecapture={keepSearchFocus}
@@ -399,7 +416,7 @@
 	{/if}
 	<!-- The list scrolls internally so the sections below (+ Workspace,
 	     Workspace fork, All workspaces) stay visible however long it gets. -->
-	<div bind:this={listEl} class="py-1 overflow-y-auto max-h-[min(50vh,26rem)]">
+	<div class="py-1 overflow-y-auto max-h-[min(50vh,26rem)]">
 		{#if searching && familyWorkspaces.length === 0}
 			<div class="px-3 py-2 text-xs text-secondary">No workspaces match your search</div>
 		{/if}
@@ -430,6 +447,7 @@
 			     icon, not a background or text accent. -->
 			<div
 				data-workspace-id={workspace.id}
+				data-nav-id={showSearch && !workspace.disabled ? workspace.id : undefined}
 				class={twMerge(
 					'group flex items-center min-w-0 w-full',
 					workspace.disabled
@@ -533,22 +551,34 @@
 	{#if (isCloudHosted() || $superadmin || canForkHere) && !strictWorkspaceSelect}
 		<div class="py-1" role="none">
 			{#if isCloudHosted() || $superadmin}
-				<MenuItem href="/user/create_workspace" class={itemClass} {item}>
-					<Plus size={16} />
-					Workspace
-				</MenuItem>
+				<div role="none" data-nav-id={actionNavId('create')}>
+					<MenuItem href="/user/create_workspace" class={actionClass('create')} {item}>
+						<Plus size={16} />
+						Workspace
+					</MenuItem>
+				</div>
 			{/if}
 			{#if canForkHere}
-				<MenuItem class={itemClass} onClick={() => (globalForkModal.val = { opened: true })} {item}>
-					<Plus size={16} />
-					Workspace fork
-				</MenuItem>
+				<div role="none" data-nav-id={actionNavId('fork')}>
+					<MenuItem
+						class={actionClass('fork')}
+						onClick={() => (globalForkModal.val = { opened: true })}
+						{item}
+					>
+						<Plus size={16} />
+						Workspace fork
+					</MenuItem>
+				</div>
 			{/if}
 		</div>
 	{/if}
 	{#if canManageWorkspace && !strictWorkspaceSelect}
-		<div class="py-1" role="none">
-			<MenuItem href="/workspace_settings?workspace={$workspaceStore}" class={itemClass} {item}>
+		<div class="py-1" role="none" data-nav-id={actionNavId('settings')}>
+			<MenuItem
+				href="/workspace_settings?workspace={$workspaceStore}"
+				class={actionClass('settings')}
+				{item}
+			>
 				<Settings size={16} />
 				{(activeWorkspace && ambiguousNames.has(activeWorkspace.name)
 					? activeWorkspace.id
@@ -557,11 +587,11 @@
 		</div>
 	{/if}
 	{#if !strictWorkspaceSelect}
-		<div class="py-1" role="none">
+		<div class="py-1" role="none" data-nav-id={actionNavId('all')}>
 			<MenuItem
 				href="/user/workspaces"
 				onClick={() => clearWorkspaceFromStorage()}
-				class={itemClass}
+				class={actionClass('all')}
 				{item}
 			>
 				All workspaces
