@@ -8311,7 +8311,9 @@ write a secret you were not given: keep the placeholder.
 | \`ai_config\` | Providers, default and completion models, custom prompts, \`copilot_disabled\`. |
 | \`large_file_storage\` | Workspace object storage: \`{ type, s3_resource_path \\| azure_blob_resource_path \\| gcs_resource_path, public_resource?, secondary_storage?, advanced_permissions? }\`. |
 | \`git_sync\` | \`{ repositories: [...] }\`, each with \`git_repo_resource_path\`, \`script_path\` and \`settings\` (include/exclude paths and types). Server-owned fields (webhook secrets, sync state, credentials) are never read nor written. |
-| \`datatable\` | \`{ datatables: { <name>: { database: { resource_type, resource_path? } } } }\`. Role permissions live elsewhere. |
+| \`datatable\` | \`{ datatables: { <name>: { database: { resource_type, resource_path? } } } }\`. Role permissions are \`datatable_permissions\`. |
+| \`datatable_permissions\` | \`{ <data table>: { default_role, roles: { <role>: [tenants] } } }\`: who may connect to each data table as which role. Tenants are \`u/<user>\`, \`g/<group>\`, \`f/<folder>\` or \`*\`; \`admin\` is always a role, and \`default_role: null\` means no default. A data table the value omits is no longer under roles. Only a data table on a cluster Windmill manages can be. |
+| \`protection_rules\` | \`{ <rule name>: { rules: [...], bypass_groups: [...], bypass_users: [...] } }\`, rules among \`DisableDirectDeployment\`, \`DisableWorkspaceForking\`, \`RestrictDeployToDeployers\`, \`RestrictAnonymousAppDeployment\`, \`RestrictPublicRunSharing\`, \`RestrictGuestAppDeployment\`. A rule the value omits is deleted. The dev workspace lock is not listed and cannot be set here. |
 | \`ducklake\` | \`{ ducklakes: { <name>: { catalog, storage, ... } } }\`. |
 | \`dbt_warehouses\` | dbt warehouse connections. |
 | \`default_app\` | Path of the app shown as the workspace home. |
@@ -8344,6 +8346,9 @@ instance groups, and the keys \`ducklake\`, \`dbt_warehouses\`, \`deploy_ui\`, \
 \`public_app_execution_limit_per_minute\`, \`guest_access_enabled\`, \`guest_jwt_public_key\`,
 \`guest_jwt_jwks_url\`, \`error_handler_fallback_to_instance_alerts\` and
 \`add_admins_and_developers_to_forks\`, which are managed only when the file states them.
+\`datatable_permissions\` is pushed only with \`includeDatatablePermissions: true\` (or
+\`--include-datatable-permissions\`). A push ignores \`protection_rules\`: \`protection-rules.yaml\` and
+\`wmill protection-rules push\` sync them.
 `,
   "cli-commands": `---
 name: cli-commands
