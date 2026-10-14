@@ -39,6 +39,9 @@ export async function applySettings(
     });
 
   const plan = await apply(true);
+  for (const warning of plan.warnings ?? []) {
+    log.warn(warning);
+  }
   if (plan.changes.length === 0) {
     log.info(colors.green("Workspace settings are already up to date"));
     return;

@@ -110,6 +110,8 @@ pub(crate) fn redact_git_sync(git_sync: Option<Value>) -> Option<Value> {
     Some(git_sync)
 }
 
+/// Reads no permission itself: the caller must have checked that the requester is an admin of
+/// `w_id`, since `SecretMode::Plain` returns the workspace's secrets in plain text.
 pub async fn load_settings_document(
     conn: &mut PgConnection,
     db: &DB,
@@ -159,7 +161,11 @@ pub async fn load_settings_document(
         ("default_app", row.default_app.map(Value::String), false),
         ("default_scripts", row.default_scripts, false),
         ("name", Some(json!(row.name.unwrap_or_default())), true),
-        ("mute_critical_alerts", row.mute_critical_alerts.map(Value::Bool), false),
+        (
+            "mute_critical_alerts",
+            row.mute_critical_alerts.map(Value::Bool),
+            false,
+        ),
         ("color", row.color.map(Value::String), false),
         ("operator_settings", row.operator_settings, false),
         (
@@ -169,29 +175,61 @@ pub async fn load_settings_document(
         ),
         ("slack_team_id", row.slack_team_id.map(Value::String), false),
         ("slack_name", row.slack_name.map(Value::String), false),
-        ("slack_command_script", row.slack_command_script.map(Value::String), false),
-        ("slack_oauth_client_id", row.slack_oauth_client_id.map(Value::String), true),
-        ("slack_oauth_client_secret", slack_oauth_client_secret.map(Value::String), true),
+        (
+            "slack_command_script",
+            row.slack_command_script.map(Value::String),
+            false,
+        ),
+        (
+            "slack_oauth_client_id",
+            row.slack_oauth_client_id.map(Value::String),
+            true,
+        ),
+        (
+            "slack_oauth_client_secret",
+            slack_oauth_client_secret.map(Value::String),
+            true,
+        ),
         ("ducklake", row.ducklake, true),
         ("dbt_warehouses", row.dbt_warehouses, true),
         ("deploy_ui", row.deploy_ui, true),
-        ("teams_command_script", row.teams_command_script.map(Value::String), true),
+        (
+            "teams_command_script",
+            row.teams_command_script.map(Value::String),
+            true,
+        ),
         (
             "public_app_execution_limit_per_minute",
             row.public_app_execution_limit_per_minute.map(|n| json!(n)),
             true,
         ),
-        ("guest_access_enabled", Some(json!(row.guest_access_enabled.unwrap_or(false))), true),
-        ("guest_jwt_public_key", row.guest_jwt_public_key.map(Value::String), true),
-        ("guest_jwt_jwks_url", row.guest_jwt_jwks_url.map(Value::String), true),
+        (
+            "guest_access_enabled",
+            Some(json!(row.guest_access_enabled.unwrap_or(false))),
+            true,
+        ),
+        (
+            "guest_jwt_public_key",
+            row.guest_jwt_public_key.map(Value::String),
+            true,
+        ),
+        (
+            "guest_jwt_jwks_url",
+            row.guest_jwt_jwks_url.map(Value::String),
+            true,
+        ),
         (
             "error_handler_fallback_to_instance_alerts",
-            Some(json!(row.error_handler_fallback_to_instance_alerts.unwrap_or(false))),
+            Some(json!(row
+                .error_handler_fallback_to_instance_alerts
+                .unwrap_or(false))),
             true,
         ),
         (
             "add_admins_and_developers_to_forks",
-            Some(json!(row.add_admins_and_developers_to_forks.unwrap_or(false))),
+            Some(json!(row
+                .add_admins_and_developers_to_forks
+                .unwrap_or(false))),
             true,
         ),
     ];
@@ -480,11 +518,53 @@ fn plan_document(
         warnings.push(format!("Ignored unknown settings: {}", unknown.join(", ")));
     }
     for key in ["auto_invite", "error_handler", "success_handler"] {
-        if desired.get(key).is_some_and(|v| !v.is_null() && !v.is_object()) {
+        if desired
+            .get(key)
+            .is_some_and(|v| !v.is_null() && !v.is_object())
+        {
             return Err(Error::BadRequest(format!(
                 "{key} must be an object or null"
             )));
         }
+    }
+    // The bodies built below coerce a mistyped value to `false` or to a delete, so a wrong type
+    // must be refused here rather than reach an endpoint as a destructive write.
+    let typed = |key: &str, v: Option<&Value>, ok: fn(&Value) -> bool, ty: &str| match v {
+        Some(v) if !v.is_null() && !ok(v) => {
+            Err(Error::BadRequest(format!("{key} must be {ty} or null")))
+        }
+        _ => Ok(()),
+    };
+    for key in FALSE_WHEN_UNSET {
+        typed(key, desired.get(*key), Value::is_boolean, "a boolean")?;
+    }
+    for key in ["slack_oauth_client_id", "slack_oauth_client_secret"] {
+        typed(key, desired.get(key), Value::is_string, "a string")?;
+    }
+    for (parent, key, ok, ty) in [
+        (
+            "auto_invite",
+            "enabled",
+            Value::is_boolean as fn(&Value) -> bool,
+            "a boolean",
+        ),
+        ("auto_invite", "operator", Value::is_boolean, "a boolean"),
+        ("auto_invite", "mode", Value::is_string, "a string"),
+        (
+            "error_handler",
+            "muted_on_cancel",
+            Value::is_boolean,
+            "a boolean",
+        ),
+        (
+            "error_handler",
+            "muted_on_user_path",
+            Value::is_boolean,
+            "a boolean",
+        ),
+    ] {
+        let v = desired.get(parent).and_then(|p| p.get(key));
+        typed(&format!("{parent}.{key}"), v, ok, ty)?;
     }
     for key in SECRET_KEYS {
         if let Some(v) = desired.remove(*key) {
@@ -518,7 +598,11 @@ fn plan_document(
                     ));
                 }
             }
-            let mut after = if auto_invite.is_null() { Value::Null } else { desired_domain.clone() };
+            let mut after = if auto_invite.is_null() {
+                Value::Null
+            } else {
+                desired_domain.clone()
+            };
             if let (Some(after), Some(cur)) = (
                 after.as_object_mut(),
                 p.current.get("auto_invite").and_then(Value::as_object),
@@ -825,8 +909,12 @@ fn plan_document(
             }
         };
         let (public_key, jwks_url) = (
-            public_key.clone().unwrap_or_else(|| other(&jwks_url, "guest_jwt_public_key")),
-            jwks_url.clone().unwrap_or_else(|| other(&public_key, "guest_jwt_jwks_url")),
+            public_key
+                .clone()
+                .unwrap_or_else(|| other(&jwks_url, "guest_jwt_public_key")),
+            jwks_url
+                .clone()
+                .unwrap_or_else(|| other(&public_key, "guest_jwt_jwks_url")),
         );
         let key_changes = p.differs("guest_jwt_public_key", &public_key);
         let url_changes = p.differs("guest_jwt_jwks_url", &jwks_url);
@@ -936,7 +1024,8 @@ async fn execute(authed: &ApiAuthed, db: &DB, w_id: &str, write: Write) -> Resul
         }
         Target::AiConfig => {
             let body = serde_json::from_value(write.body).map_err(body_err)?;
-            let _ = crate::workspaces::edit_copilot_config(a, d, p, authed.clone(), Json(body)).await?;
+            let _ =
+                crate::workspaces::edit_copilot_config(a, d, p, authed.clone(), Json(body)).await?;
             Ok(Value::Null)
         }
         #[cfg(feature = "enterprise")]
@@ -987,17 +1076,13 @@ pub async fn apply_settings_document(
             if written.is_empty() {
                 return e;
             }
-            let applied = format!(
-                " (settings already applied before this error: {})",
-                written.join(", ")
-            );
-            match e {
-                Error::BadRequest(m) => Error::BadRequest(format!("{m}{applied}")),
-                Error::NotFound(m) => Error::NotFound(format!("{m}{applied}")),
-                Error::PermissionDenied(m) => Error::PermissionDenied(format!("{m}{applied}")),
-                Error::NotAuthorized(m) => Error::NotAuthorized(format!("{m}{applied}")),
-                e => Error::internal_err(format!("{e}{applied}")),
-            }
+            Error::Generic(
+                e.status_code(),
+                format!(
+                    "{e} (settings already applied before this error: {})",
+                    written.join(", ")
+                ),
+            )
         })?;
         if let Some(stranded) = response
             .get("stranded_references")
@@ -1016,7 +1101,7 @@ pub async fn apply_settings_document(
                 .collect::<Vec<_>>()
                 .join(", ");
             result.warnings.push(format!(
-                "Removed data tables governed data tables in other workspaces, which no longer resolve: {refs}. A superadmin can point them somewhere else."
+                "The removed data tables governed data tables in other workspaces, which no longer resolve: {refs}. A superadmin can point them somewhere else."
             ));
         }
         written.extend(keys);
@@ -1060,14 +1145,25 @@ mod tests {
 
         let changed = doc(json!({ "webhook": "https://b" }));
         let p = plan_document(current(), changed, true, &mc).unwrap();
-        assert_eq!(keys(&p), ["webhook", "large_file_storage", "slack_oauth_client_id", "slack_oauth_client_secret"]);
+        assert_eq!(
+            keys(&p),
+            [
+                "webhook",
+                "large_file_storage",
+                "slack_oauth_client_id",
+                "slack_oauth_client_secret"
+            ]
+        );
         assert!(!keys(&p).contains(&"public_app_execution_limit_per_minute"));
     }
 
     #[test]
     fn secrets_keep_their_value_for_the_placeholder_and_a_foreign_key() {
         let mc = WorkspaceCrypt::new("k");
-        let ours = format!("{ENCRYPTED_PREFIX}{}", mc.encrypt_str_deterministic("sekret"));
+        let ours = format!(
+            "{ENCRYPTED_PREFIX}{}",
+            mc.encrypt_str_deterministic("sekret")
+        );
         let theirs = format!(
             "{ENCRYPTED_PREFIX}{}",
             WorkspaceCrypt::new("other").encrypt_str_deterministic("x")
@@ -1089,7 +1185,10 @@ mod tests {
     fn unset_switches_compare_as_false() {
         let mc = WorkspaceCrypt::new("k");
         let d = doc(json!({ "mute_critical_alerts": false, "guest_access_enabled": null }));
-        assert!(plan_document(current(), d, false, &mc).unwrap().changes.is_empty());
+        assert!(plan_document(current(), d, false, &mc)
+            .unwrap()
+            .changes
+            .is_empty());
     }
 
     #[test]
@@ -1098,6 +1197,26 @@ mod tests {
         let d = doc(json!({ "guest_jwt_jwks_url": "https://jwks" }));
         let p = plan_document(current(), d, false, &mc).unwrap();
         assert_eq!(p.writes.len(), 1);
-        assert_eq!(p.writes[0].body, json!({ "public_key": null, "jwks_url": "https://jwks" }));
+        assert_eq!(
+            p.writes[0].body,
+            json!({ "public_key": null, "jwks_url": "https://jwks" })
+        );
+    }
+
+    #[test]
+    fn mistyped_values_are_refused_rather_than_coerced() {
+        let mc = WorkspaceCrypt::new("k");
+        for d in [
+            json!({ "guest_access_enabled": "true" }),
+            json!({ "add_admins_and_developers_to_forks": 1 }),
+            json!({ "slack_oauth_client_id": 123 }),
+            json!({ "error_handler": { "path": "f/x", "muted_on_cancel": "yes" } }),
+            json!({ "auto_invite": { "enabled": "true" } }),
+        ] {
+            assert!(
+                plan_document(current(), doc(d.clone()), false, &mc).is_err(),
+                "{d}"
+            );
+        }
     }
 }

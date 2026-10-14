@@ -1766,21 +1766,41 @@ async fn set_slack_oauth_config(
         ));
     }
     // A settings.yaml pulled by `wmill sync` holds the secret encrypted, and a CLI that
-    // predates the settings document pushes it here as it reads it.
+    // predates the settings document pushes it here as it reads it. One encrypted under another
+    // workspace's key keeps the stored secret, as the settings document does, so that CLI's push
+    // does not abort over it.
     let mut req = req;
     if let Some(ciphertext) = req
         .slack_oauth_client_secret
         .strip_prefix(windmill_common::variables::SETTINGS_ENCRYPTED_PREFIX)
     {
-        req.slack_oauth_client_secret = windmill_common::variables::build_crypt(&db, &w_id)
+        match windmill_common::variables::build_crypt(&db, &w_id)
             .await?
             .decrypt_str(ciphertext)
-            .map_err(|_| {
-                Error::BadRequest(
-                    "The Slack client secret is encrypted with a different workspace key"
-                        .to_string(),
+        {
+            Ok(plain) => req.slack_oauth_client_secret = plain,
+            Err(_) => {
+                let stored = sqlx::query_scalar!(
+                    "SELECT slack_oauth_client_secret FROM workspace_settings WHERE workspace_id = $1",
+                    &w_id
                 )
-            })?;
+                .fetch_optional(&db)
+                .await?
+                .flatten();
+                tracing::warn!(
+                    workspace_id = %w_id,
+                    "Slack client secret left unchanged: it is encrypted with another workspace's key"
+                );
+                match stored {
+                    Some(stored) => req.slack_oauth_client_secret = stored,
+                    None => {
+                        return Ok("Slack OAuth config left unchanged: the client secret is \
+                                   encrypted with another workspace's key"
+                            .to_string())
+                    }
+                }
+            }
+        }
     }
 
     let mut tx = db.begin().await?;
