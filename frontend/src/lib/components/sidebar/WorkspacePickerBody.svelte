@@ -13,9 +13,12 @@
 		workspaceUsageStore,
 		clearWorkspaceFromStorage,
 		globalForkModal,
-		enterpriseLicense
+		enterpriseLicense,
+		type UserWorkspace
 	} from '$lib/stores'
-	import { Check, ChevronDown, ChevronRight, Plus, Settings } from 'lucide-svelte'
+	import { Check, ChevronDown, ChevronRight, Plus, Search, Settings } from 'lucide-svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import SearchItems from '$lib/components/SearchItems.svelte'
 	import { forkAccentStyle } from '$lib/utils/forkColor'
 	import { SvelteSet } from 'svelte/reactivity'
 	import { CopyButton } from '$lib/components/common'
@@ -141,15 +144,16 @@
 	// Root ids with at least one fork — only they get the expand chevron.
 	// hierarchy is a DFS (parent before child), so a depth>0 row belongs to the
 	// last depth-0 row seen.
-	const familiesWithForks = $derived.by(() => {
+	function rootsWithForks(rows: typeof hierarchy): Set<string> {
 		const withForks = new Set<string>()
 		let rootId: string | undefined
-		for (const h of hierarchy) {
+		for (const h of rows) {
 			if (h.depth === 0) rootId = h.workspace.id
 			else if (rootId) withForks.add(rootId)
 		}
 		return withForks
-	})
+	}
+	const familiesWithForks = $derived(rootsWithForks(hierarchy))
 	// Gate for the "Workspace fork" entry pinned below the list (the global fork
 	// modal carries its own base-workspace picker). Hidden on non-premium cloud,
 	// in the admins workspace, or when forking is disabled.
@@ -167,16 +171,54 @@
 		return ancestors.at(-1) ?? $userWorkspaces?.find((w) => w.id === id)
 	})
 
+	const SEARCH_THRESHOLD = 8
+	const showSearch = $derived(($userWorkspaces?.length ?? 0) > SEARCH_THRESHOLD)
+	let searchFilter = $state('')
+	let searchMatches: (UserWorkspace & { marked?: string })[] | undefined = $state()
+	const searching = $derived(showSearch && searchFilter.trim() !== '')
+	const markedNames = $derived(
+		new Map(searching ? searchMatches?.map((w) => [w.id, w.marked]) : undefined)
+	)
+
+	// While searching, every family is open: a match is listed under the ancestors that lead to
+	// it, so a fork still reads as part of its family.
+	const searchedRows = $derived.by(() => {
+		const matched = new Set(searchMatches?.map((w) => w.id))
+		const keep = new Set<string>()
+		const path: string[] = []
+		for (const h of hierarchy) {
+			path.length = h.depth
+			path.push(h.workspace.id)
+			if (matched.has(h.workspace.id)) path.forEach((id) => keep.add(id))
+		}
+		return hierarchy.filter((h) => keep.has(h.workspace.id))
+	})
+
+	// A search opens every family that has a matching fork; the chevron can still close one. Kept
+	// apart from expandedFamilies so clearing the search restores the families as they were.
+	const collapsedInSearch = new SvelteSet<string>()
+	function isExpanded(rootId: string): boolean {
+		return searching ? !collapsedInSearch.has(rootId) : expandedFamilies.has(rootId)
+	}
+	function toggleFamily(rootId: string) {
+		const set = searching ? collapsedInSearch : expandedFamilies
+		if (set.has(rootId)) set.delete(rootId)
+		else set.add(rootId)
+	}
+	// Roots with at least one fork among the rows the list can show right now.
+	const expandableFamilies = $derived(searching ? rootsWithForks(searchedRows) : familiesWithForks)
+
 	const familyWorkspaces = $derived.by(() => {
 		let rootId: string | undefined
+		const rows = searching ? searchedRows : hierarchy
 		const visible = strictWorkspaceSelect
-			? hierarchy
-			: hierarchy.filter((h) => {
+			? rows
+			: rows.filter((h) => {
 					if (h.depth === 0) {
 						rootId = h.workspace.id
 						return true
 					}
-					return !!rootId && expandedFamilies.has(rootId)
+					return !!rootId && isExpanded(rootId)
 				})
 		// The family the user is standing in leads the list, its forks travelling with it: the
 		// workspace they are in is the one they look for first, and the one the tick is on.
@@ -193,12 +235,80 @@
 		return [active, ...families].flatMap((f) => f.rows)
 	})
 
+	let listEl: HTMLDivElement | undefined = $state()
+
+	// With the search field shown, focus stays in it: the arrows move this highlight rather than
+	// melt's roving focus, which would take the keys away from the field. Until the user arrows or
+	// hovers, it rests on the best-ranked visible match (not the first row, which may only be a
+	// match's ancestor), so Enter's target is always the highlighted row.
+	let pickedId: string | undefined = $state()
+	const navIds = $derived(
+		familyWorkspaces.filter((h) => !h.workspace.disabled).map((h) => h.workspace.id)
+	)
+	const highlightedId = $derived(
+		!showSearch
+			? undefined
+			: pickedId && navIds.includes(pickedId)
+				? pickedId
+				: searching
+					? searchMatches?.find((w) => navIds.includes(w.id))?.id
+					: undefined
+	)
+
+	function moveHighlight(step: 1 | -1) {
+		if (navIds.length === 0) return
+		const at = highlightedId ? navIds.indexOf(highlightedId) : -1
+		const next =
+			at === -1
+				? step === 1
+					? 0
+					: navIds.length - 1
+				: Math.min(navIds.length - 1, Math.max(0, at + step))
+		pickedId = navIds[next]
+		void tick().then(() =>
+			listEl
+				?.querySelector(`[data-workspace-id="${CSS.escape(navIds[next])}"]`)
+				?.scrollIntoView({ block: 'nearest' })
+		)
+	}
+
+	function onSearchKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape') return
+		e.stopPropagation()
+		if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+			e.preventDefault()
+			moveHighlight(e.key === 'ArrowDown' ? 1 : -1)
+		} else if (e.key === 'Enter') {
+			const target = highlightedId
+			if (!target) return
+			e.preventDefault()
+			closeMenu?.()
+			void tick().then(() => toggleSwitchWorkspace(target))
+		} else {
+			pickedId = undefined
+			collapsedInSearch.clear()
+		}
+	}
+
+	// melt focuses an item on pointermove and its menu on pointerleave; stopped here, before they
+	// reach the item, so hovering the list leaves focus in the search field.
+	function keepSearchFocus(e: PointerEvent) {
+		if (!showSearch) return
+		e.stopPropagation()
+		if (e.type === 'pointermove') {
+			const id = (e.target as HTMLElement | null)
+				?.closest('[data-workspace-id]')
+				?.getAttribute('data-workspace-id')
+			if (id && navIds.includes(id)) pickedId = id
+		}
+	}
+
 	// ArrowRight/ArrowLeft expand/collapse the keyboard-highlighted family (melt
 	// stamps data-highlighted on the item; the row wrapper carries the workspace
 	// id). Capture phase, so melt's menubar left/right (adjacent-menu switching)
 	// doesn't fire when the keypress means expansion here.
 	function onExpandKeydown(e: KeyboardEvent) {
-		if (strictWorkspaceSelect) return
+		if (strictWorkspaceSelect || e.target instanceof HTMLInputElement) return
 		if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return
 		// Scoped inside a row wrapper: the menubar trigger also carries
 		// data-highlighted while its menu is open.
@@ -234,15 +344,55 @@
 	// font-normal is explicit: href-less MenuItems render as <button>, which the
 	// global stylesheet makes semibold, unlike the <a> the href entries get.
 	const itemClass =
-		'text-primary font-normal w-full flex flex-row gap-2 px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+		'text-primary font-normal w-full flex flex-row gap-2 px-4 py-2 text-xs focus:outline-none hover:bg-surface-hover hover:text-primary data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 </script>
 
 <svelte:window onkeydowncapture={onExpandKeydown} />
 
-<div class="divide-y" role="none">
+<div
+	class="divide-y"
+	role="none"
+	onpointermovecapture={keepSearchFocus}
+	onpointerleavecapture={keepSearchFocus}
+>
+	{#if showSearch}
+		<SearchItems
+			filter={searchFilter}
+			items={$userWorkspaces}
+			bind:filteredItems={searchMatches}
+			f={(w) => w.name + ' (' + w.id + ')'}
+		/>
+		<!-- Keys typed here must not reach melt: its menu typeahead would focus the first item
+		     starting with the typed letter. A native listener, because Svelte delegates `onkeydown`
+		     to the root, which runs after melt's listener on the menu element. -->
+		<div
+			class="px-2 pt-1 pb-2"
+			role="none"
+			{@attach (el) => {
+				el.addEventListener('keydown', onSearchKeydown)
+				return () => el.removeEventListener('keydown', onSearchKeydown)
+			}}
+		>
+			<div class="relative">
+				<TextInput
+					bind:value={searchFilter}
+					size="sm"
+					inputProps={{ placeholder: 'Search workspaces...', autofocus: true }}
+					class="!pr-8"
+				/>
+				<Search
+					size={14}
+					class="text-secondary absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"
+				/>
+			</div>
+		</div>
+	{/if}
 	<!-- The list scrolls internally so the sections below (+ Workspace,
 	     Workspace fork, All workspaces) stay visible however long it gets. -->
-	<div class="py-1 overflow-y-auto max-h-[min(50vh,26rem)]">
+	<div bind:this={listEl} class="py-1 overflow-y-auto max-h-[min(50vh,26rem)]">
+		{#if searching && familyWorkspaces.length === 0}
+			<div class="px-3 py-2 text-xs text-secondary">No workspaces match your search</div>
+		{/if}
 		{#each familyWorkspaces as { workspace, depth, isForked, parentName }}
 			{@const isActive = $workspaceStore === workspace.id}
 			{@const forkAccent = isForked ? forkAccentStyle(workspace.color) : undefined}
@@ -255,9 +405,10 @@
 				(!strictWorkspaceSelect &&
 					depth === 0 &&
 					lineageRoot?.id === workspace.id &&
-					!expandedFamilies.has(workspace.id))}
+					!isExpanded(workspace.id) &&
+					(!searching || searchedRows.some((h) => h.workspace.id === $workspaceStore)))}
 			{@const expandable =
-				!strictWorkspaceSelect && depth === 0 && familiesWithForks.has(workspace.id)}
+				!strictWorkspaceSelect && depth === 0 && expandableFamilies.has(workspace.id)}
 			<!-- The expand chevron sits OUTSIDE the melt item: melt activates items
 			     via document-level handlers, so a nested button can't stop the row's
 			     navigate-and-close with stopPropagation. As a sibling it toggles the
@@ -273,12 +424,14 @@
 					'group flex items-center min-w-0 w-full',
 					workspace.disabled
 						? ''
-						: 'hover:bg-surface-hover [&:has([data-highlighted])]:bg-surface-hover'
+						: showSearch
+							? highlightedId === workspace.id && 'bg-surface-hover'
+							: 'hover:bg-surface-hover [&:has([data-highlighted])]:bg-surface-hover'
 				)}
 			>
 				<MenuItem
 					class={twMerge(
-						'text-xs min-w-0 flex-1 overflow-hidden flex flex-col py-1.5 px-3',
+						'text-xs min-w-0 flex-1 overflow-hidden flex flex-col py-1.5 px-3 focus:outline-none',
 						workspace.disabled && 'opacity-50 cursor-not-allowed',
 						isActive ? 'cursor-default' : workspace.disabled ? '' : 'cursor-pointer'
 					)}
@@ -305,7 +458,12 @@
 										style={forkAccent}
 										title={workspace.name}
 									>
-										{workspace.name}{workspace.disabled ? ' (user disabled)' : ''}
+										{#if markedNames.get(workspace.id)}
+											<!-- SearchItems escapes the text; only its <mark> tags are markup. -->
+											{@html markedNames.get(workspace.id)}
+										{:else}
+											{workspace.name}
+										{/if}{workspace.disabled ? ' (user disabled)' : ''}
 									</div>
 									{#if workspace.is_dev_workspace}
 										<DevWorkspaceBadge
@@ -337,16 +495,15 @@
 					<CopyButton value={workspace.id} title={`Copy id: ${workspace.id}`} />
 				</div>
 				{#if expandable}
-					{@const expanded = expandedFamilies.has(workspace.id)}
+					{@const expanded = isExpanded(workspace.id)}
+					<!-- mousedown is cancelled so the click leaves focus in the search field. -->
 					<button
 						type="button"
 						title={expanded ? 'Hide forks' : 'Show forks'}
 						aria-expanded={expanded}
 						class="shrink-0 mr-1 px-2 self-stretch flex items-center rounded text-tertiary hover:bg-surface-hover hover:text-primary"
-						onclick={() => {
-							if (expanded) expandedFamilies.delete(workspace.id)
-							else expandedFamilies.add(workspace.id)
-						}}
+						onmousedown={(e) => showSearch && e.preventDefault()}
+						onclick={() => toggleFamily(workspace.id)}
 					>
 						{#if expanded}
 							<ChevronDown size={14} />
@@ -381,11 +538,7 @@
 	{/if}
 	{#if canManageWorkspace && !strictWorkspaceSelect}
 		<div class="py-1" role="none">
-			<MenuItem
-				href="/workspace_settings?workspace={$workspaceStore}"
-				class={itemClass}
-				{item}
-			>
+			<MenuItem href="/workspace_settings?workspace={$workspaceStore}" class={itemClass} {item}>
 				<Settings size={16} />
 				{(activeWorkspace && ambiguousNames.has(activeWorkspace.name)
 					? activeWorkspace.id
@@ -427,7 +580,7 @@
 		{#if $userStore?.is_admin}
 			<MenuItem
 				class={twMerge(
-					'text-secondary block font-normal w-full text-left px-4 py-2 text-sm hover:bg-gray-100 hover:text-gray-900',
+					'text-secondary block font-normal w-full text-left px-4 py-2 text-sm focus:outline-none hover:bg-gray-100 hover:text-gray-900',
 					'data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900'
 				)}
 				onClick={() => {
