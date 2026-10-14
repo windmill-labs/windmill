@@ -1314,6 +1314,84 @@ pub fn render_nsjail_rlimit_as(env_override: Option<&str>, default_mb: u32) -> S
     }
 }
 
+/// Quote a string as a protobuf-text-format string literal for safe inclusion in
+/// an nsjail config. Every byte is emitted as a printable ASCII char or a valid
+/// protobuf escape (`\"`, `\\`, `\n`/`\r`/`\t`, or 3-digit octal `\NNN` for
+/// control/non-ASCII bytes), so a hostile value can neither break the literal nor
+/// inject further directives.
+///
+/// `{` and `}` are escaped too: profiles are rendered by substituting `{PLACEHOLDER}`
+/// tokens one after another, so a value that still contained braces could smuggle in a
+/// later placeholder's expansion — and `{ENVARS}` expands to unquoted directives.
+pub(crate) fn proto_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for &b in s.as_bytes() {
+        match b {
+            b'"' => out.push_str("\\\""),
+            b'\\' => out.push_str("\\\\"),
+            b'\n' => out.push_str("\\n"),
+            b'\r' => out.push_str("\\r"),
+            b'\t' => out.push_str("\\t"),
+            b'{' | b'}' => out.push_str(&format!("\\{b:03o}")),
+            0x20..=0x7e => out.push(b as char),
+            _ => out.push_str(&format!("\\{b:03o}")),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// Render env vars as nsjail `envar:` directives (one per line), the only way
+/// caller-controlled env may reach a jailed child. Set on the process that execs
+/// nsjail instead, `LD_PRELOAD`/`LD_LIBRARY_PATH`/`LD_AUDIT` would be honoured by
+/// the loader for nsjail itself, before any namespace or chroot exists.
+pub(crate) fn render_envars<'a>(env: impl IntoIterator<Item = (&'a str, &'a str)>) -> String {
+    env.into_iter()
+        .map(|(k, v)| format!("envar: {}", proto_str(&format!("{k}={v}"))))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The script's env vars as `envar:` directives for its nsjail run profile.
+///
+/// The profile sets `keep_env`, so the child also inherits the launcher's env, and
+/// an `envar:` overrides an inherited key. A key the launcher sets therefore keeps
+/// the launcher's value, as it did when both were set on the launcher with the
+/// script's env first, unless it is listed in `script_overrides` (see
+/// [`script_overrides`]).
+pub(crate) fn script_envars(
+    envs: &HashMap<String, String>,
+    launcher: &Command,
+    script_overrides: &[&str],
+) -> String {
+    let launcher_keys: HashSet<&std::ffi::OsStr> =
+        launcher.as_std().get_envs().map(|(k, _)| k).collect();
+    render_envars(
+        envs.iter()
+            .filter(|(k, _)| {
+                script_overrides.contains(&k.as_str())
+                    || !launcher_keys.contains(std::ffi::OsStr::new(k.as_str()))
+            })
+            .map(|(k, v)| (k.as_str(), v.as_str())),
+    )
+}
+
+/// The keys an executor sets on its nsjail launcher before the script's env, so the
+/// script's value wins, less those `reserved_variables` (applied after the script's env,
+/// and carrying worker-group env vars) sets again, so the worker's value wins.
+#[cfg(any(feature = "nu", feature = "java", feature = "ruby", feature = "rlang"))]
+pub(crate) fn script_overrides<'a>(
+    set_before: &[&'a str],
+    reserved_variables: &HashMap<String, String>,
+) -> Vec<&'a str> {
+    set_before
+        .iter()
+        .copied()
+        .filter(|k| !reserved_variables.contains_key(*k))
+        .collect()
+}
+
 /// Default size (in bytes) of the `/tmp` tmpfs mount inside nsjail sandboxes,
 /// used when the `nsjail_tmpfs_size_mb` instance setting is unset.
 pub const DEFAULT_NSJAIL_TMPFS_SIZE_BYTES: u64 = 800_000_000;
@@ -1726,20 +1804,26 @@ pub async fn cached_result_path(
         hasher.update(b"wac_step:");
         hasher.update(step_key.as_bytes());
     }
-    // What a run returns can depend on who it ran for (`WM_END_USER_EMAIL`, a data table used
-    // as the viewer), so a result cached for one viewer is never served to another. Read from
-    // `job_perms`: a flow job re-fetched between steps does not carry it.
-    let end_user: Option<Option<String>> = sqlx::query_scalar(
-        "SELECT end_user_email FROM job_perms WHERE job_id = $1 AND workspace_id = $2",
+    // What a run returns depends on whose roles its data table connections hold, its own
+    // identity's or its viewer's, and `WM_END_USER_EMAIL` names the viewer: a result cached for
+    // one of either, or in one of the two modes, is never served to another. The arguments follow
+    // undelimited, so every field here is fixed-width or length-prefixed and always present: an
+    // optional marker would read the same as an argument whose name starts with it.
+    hasher.update(b"permissioned_as:");
+    hasher.update((job.permissioned_as.len() as u64).to_le_bytes());
+    hasher.update(job.permissioned_as.as_bytes());
+    // Read from `job_perms`: a flow job re-fetched between steps does not carry them.
+    let perms: Option<(Option<String>, bool)> = sqlx::query_as(
+        "SELECT end_user_email, viewer_data_access FROM job_perms
+         WHERE job_id = $1 AND workspace_id = $2",
     )
     .bind(job.id)
     .bind(&job.workspace_id)
     .fetch_optional(db)
     .await?;
-    // Length-prefixed: the arguments follow undelimited, and the end of one viewer's address
-    // must not read as the start of another run's first argument name.
-    if let Some(end_user) = end_user.flatten() {
-        hasher.update(b"end_user:");
+    let (end_user, as_viewer) = perms.unwrap_or_default();
+    hasher.update([as_viewer as u8, end_user.is_some() as u8]);
+    if let Some(end_user) = end_user {
         hasher.update((end_user.len() as u64).to_le_bytes());
         hasher.update(end_user.as_bytes());
     }
@@ -2526,46 +2610,58 @@ mod tests {
             trigger_kind: None,
             visible_to_owner: false,
             permissioned_as_end_user_email: None,
+            viewer_data_access: None,
             runnable_settings_handle: None,
             job_token_scopes: None,
         }
     }
 
     // A cache hit returns before the job runs, so the key is all that keeps a result computed
-    // for one viewer (a data table used as the viewer, `WM_END_USER_EMAIL`) from another.
+    // for one identity or viewer (whose data table roles it read with, `WM_END_USER_EMAIL`)
+    // from another.
     #[sqlx::test(migrations = "../migrations")]
-    async fn a_cached_result_is_keyed_by_the_recorded_viewer(pool: sqlx::PgPool) {
+    async fn a_cached_result_is_keyed_by_the_identity_and_the_recorded_viewer(pool: sqlx::PgPool) {
         let client = test_client();
 
         // The last two differ only in where the viewer's address ends and the first argument
         // name starts.
         let mut paths = vec![];
-        for (viewer, arg) in [
-            (Some("a@windmill.dev"), "mode"),
-            (Some("a@windmill.dev"), "mode"),
-            (Some("b@windmill.dev"), "mode"),
-            (None, "mode"),
-            (Some("a@windmill.co"), "mode"),
-            (Some("a@windmill.com"), "ode"),
+        for (owner, viewer, as_viewer, arg) in [
+            ("u/publisher", Some("a@windmill.dev"), false, "mode"),
+            ("u/publisher", Some("a@windmill.dev"), false, "mode"),
+            ("u/publisher", Some("b@windmill.dev"), false, "mode"),
+            ("u/publisher", None, false, "mode"),
+            ("u/publisher", Some("a@windmill.co"), false, "mode"),
+            ("u/publisher", Some("a@windmill.com"), false, "ode"),
+            ("u/other", None, false, "mode"),
+            ("u/publisher", Some("a@windmill.dev"), true, "mode"),
+            ("u/publisher", None, false, "viewer_data_access;mode"),
+            ("u/publisher", None, true, "mode"),
         ] {
             let args = HashMap::from([(arg.to_string(), to_raw_value(&"all"))]);
             let job = MiniPulledJob {
                 id: uuid::Uuid::new_v4(),
                 args: Some(sqlx::types::Json(args)),
+                permissioned_as: owner.to_string(),
                 ..test_job()
             };
             sqlx::query(
                 "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator,
-                     workspace_id, groups, folders, end_user_email)
+                     workspace_id, groups, folders, end_user_email, viewer_data_access)
                  VALUES ($1, 'publisher@windmill.dev', 'publisher', false, false, 'test', '{}',
-                     '{}', $2)",
+                     '{}', $2, $3)",
             )
             .bind(job.id)
             .bind(viewer)
+            .bind(as_viewer)
             .execute(&pool)
             .await
             .unwrap();
-            paths.push(cached_result_path(&pool, &client, &job, None).await.unwrap());
+            paths.push(
+                cached_result_path(&pool, &client, &job, None)
+                    .await
+                    .unwrap(),
+            );
         }
         assert_eq!(
             paths[0], paths[1],
@@ -2574,7 +2670,19 @@ mod tests {
         assert_ne!(paths[0], paths[2], "two viewers share a cached result");
         assert_ne!(paths[0], paths[3]);
         assert_ne!(paths[2], paths[3]);
-        assert_ne!(paths[4], paths[5], "an address runs into the argument names");
+        assert_ne!(
+            paths[4], paths[5],
+            "an address runs into the argument names"
+        );
+        assert_ne!(paths[3], paths[6], "two owners share a cached result");
+        assert_ne!(
+            paths[0], paths[7],
+            "a result read with the app's roles is served once the runnable connects as its viewer"
+        );
+        assert_ne!(
+            paths[8], paths[9],
+            "an argument name reads as the mode of another run"
+        );
     }
 
     #[tokio::test]
@@ -2644,6 +2752,78 @@ mod tests {
         let result = transform_json_value("test", &client, "test", input, &job, &conn, 0).await;
 
         assert!(result.is_err());
+    }
+
+    // A profile that loses `{ENVARS}` silently drops the script's env, since a
+    // `replace` on a missing token does nothing. It must also precede every fixed
+    // `envar:`, which overrides it the way it overrode the launcher's env.
+    #[test]
+    fn script_profiles_take_envars_before_their_fixed_ones() {
+        for (name, profile) in [
+            ("go", include_str!("../nsjail/run.go.config.proto")),
+            ("rust", include_str!("../nsjail/run.rust.config.proto")),
+            ("bun", include_str!("../nsjail/run.bun.config.proto")),
+            ("nu", include_str!("../nsjail/run.nu.config.proto")),
+            ("php", include_str!("../nsjail/run.php.config.proto")),
+            ("csharp", include_str!("../nsjail/run.csharp.config.proto")),
+            ("java", include_str!("../nsjail/run.java.config.proto")),
+            ("ruby", include_str!("../nsjail/run.ruby.config.proto")),
+            ("r", include_str!("../nsjail/run.r.config.proto")),
+            (
+                "gem install",
+                include_str!("../nsjail/download.ruby.config.proto"),
+            ),
+        ] {
+            let at = profile
+                .find("\n{ENVARS}\n")
+                .unwrap_or_else(|| panic!("{name}: no {{ENVARS}}"));
+            assert!(
+                !profile[..at].contains("\nenvar:"),
+                "{name}: a fixed envar precedes {{ENVARS}}"
+            );
+        }
+    }
+
+    #[test]
+    fn script_envars_reach_the_jail_not_the_launcher() {
+        let envs = HashMap::from([
+            ("LD_PRELOAD".to_string(), "/tmp/evil.so".to_string()),
+            ("WM_TOKEN".to_string(), "forged".to_string()),
+            ("PATH".to_string(), "/custom/bin".to_string()),
+        ]);
+        let mut launcher = Command::new("nsjail");
+        launcher
+            .env_clear()
+            .env("PATH", "/usr/bin")
+            .env("WM_TOKEN", "real");
+
+        let out = script_envars(&envs, &launcher, &["PATH"]);
+        let mut lines = out.lines().collect::<Vec<_>>();
+        lines.sort();
+        // A launcher key keeps the launcher's value unless the executor lets the
+        // script override it.
+        assert_eq!(
+            lines,
+            vec![
+                "envar: \"LD_PRELOAD=/tmp/evil.so\"",
+                "envar: \"PATH=/custom/bin\"",
+            ]
+        );
+        assert!(launcher
+            .as_std()
+            .get_envs()
+            .all(|(k, _)| k != std::ffi::OsStr::new("LD_PRELOAD")));
+
+        let hostile = HashMap::from([(
+            "X".to_string(),
+            "v\"\nclone_newuser: false {JOB_DIR}".to_string(),
+        )]);
+        let line = script_envars(&hostile, &launcher, &[]);
+        assert_eq!(line.lines().count(), 1, "{line}");
+        assert!(
+            !line.contains('{') && !line.contains("\nclone_newuser"),
+            "{line}"
+        );
     }
 }
 

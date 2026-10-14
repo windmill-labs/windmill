@@ -10,6 +10,10 @@ rlimit_cpu: 1000
 rlimit_fsize: 1024
 rlimit_nofile: 64
 
+# The script's env vars, proto-escaped. Set here rather than on the process that
+# execs nsjail: the loader honours `LD_PRELOAD` before the jail exists.
+{ENVARS}
+
 envar: "HOME=/user"
 envar: "LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH"
 

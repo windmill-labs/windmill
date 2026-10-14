@@ -40,7 +40,7 @@
 	import { getContext, onDestroy, setContext, untrack, type Snippet } from 'svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
-	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button } from './common'
@@ -230,19 +230,14 @@
 	let pathSnapshot = $state<string | undefined>(undefined)
 
 	let topbarWidth = $state(0)
-	// In the page header the buttons share the row with the breadcrumb, so they collapse sooner:
-	// the trail and the summary take ~560px before either truncates, and the full group — the
-	// dropdown, Diff, the preview trio and Deploy — is ~610px.
-	const compactBelow = $derived(ownsPageHeader ? 1200 : 720)
-	const compactTopbar = $derived.by(() => {
-		const w = ownsPageHeader ? pageHeader.barWidth : topbarWidth
-		return w > 0 && w < compactBelow
-	})
-	// A phone's bar holds the trail and Deploy: the diff joins the menu and the preview buttons
-	// stand down, since there is no room to run a flow beside its own name.
-	const phoneTopbar = $derived(
-		ownsPageHeader && pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR
+	// In the page header the bar folds the buttons (`actionFolds` below), once its breadcrumb has
+	// given all it can; anywhere else this editor's own top bar is theirs alone.
+	const compactTopbar = $derived(
+		ownsPageHeader ? pageHeader.actionFold >= 1 : topbarWidth > 0 && topbarWidth < 720
 	)
+	// The second fold holds the trail and Deploy: the diff joins the menu and the preview buttons
+	// stand down, since there is no room to run a flow beside its own name.
+	const phoneTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 2)
 
 	const diffEnabled = $derived(customUi?.topBar?.diff != false)
 	// Nothing to compare against until a deployed version exists.
@@ -1588,6 +1583,7 @@
 						// Frozen while the rename popover is open so the trail holds still as the user types.
 						kind: 'flow',
 						path: pathSnapshot ?? $pathStore,
+						summary: flowStore.val.summary,
 						summaryContent: flowSummary,
 						// Gated like the summary's own editor: a host that allows neither field keeps the
 						// band's segment, which copies the path.
@@ -1597,6 +1593,7 @@
 								: undefined
 					}}
 					actions={flowHeaderActions}
+					actionFolds={2}
 					contexts={headerContexts}
 					separator="none"
 				/>

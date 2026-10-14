@@ -89,8 +89,10 @@ datatable related commands
 - `datatable migrate` - manage datatable migrations
   - `datatable migrate new <name:string>` - scaffold a new migration (.up.sql / .down.sql files)
     - `-d --datatable <datatable:string>` - Target datatable (default: main)
+    - `-s --schemas <schemas:string>` - Comma-separated schemas the migration changes, written as its `-- schemas` line. Without it the migration applies to the whole database and every later migration waits for it
   - `datatable migrate up` - apply all pending migrations to the main datatable (or one via --datatable)
     - `-d --datatable <datatable:string>` - Target datatable (default: main)
+    - `--schema <schema:string>` - Apply only the pending migrations that declare this schema; refused while an earlier overlapping migration is pending
   - `datatable migrate down` - roll back the most recent migration on the main datatable (or one via --datatable)
     - `-d --datatable <datatable:string>` - Target datatable (default: main)
   - `datatable migrate status` - show applied and pending migrations on the main datatable (or one via --datatable)
@@ -621,6 +623,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--include-users` - Include syncing users
   - `--include-groups` - Include syncing groups
   - `--include-settings` - Include syncing workspace settings
+  - `--include-datatable-permissions` - With --include-settings, also sync who may connect to each data table as which role
   - `--include-key` - Include workspace encryption key
   - `--keep-deleted` - Do not delete local files for items that no longer exist on the remote workspace. Only adds and updates.
   - `--skip-branch-validation` - Skip git branch validation and prompts
@@ -652,6 +655,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--include-users` - Include syncing users
   - `--include-groups` - Include syncing groups
   - `--include-settings` - Include syncing workspace settings
+  - `--include-datatable-permissions` - With --include-settings, also sync who may connect to each data table as which role
   - `--include-key` - Include workspace encryption key
   - `--skip-reencrypt-on-key-change` - When the pushed encryption key differs from the remote, do NOT re-encrypt existing remote secrets. Only safe if they are already encrypted with the new key (e.g. workspace/instance migration). Default is to re-encrypt.
   - `--keep-deleted` - Do not delete remote items that no longer exist locally. Only adds and updates.
@@ -845,6 +849,13 @@ Arguments (omit both to be prompted interactively):
   - `--team-id <team_id:string>` - Slack team id
   - `--team-name <team_name:string>` - Slack team name
 - `workspace disconnect-slack` - Clear slack_team_id / slack_name on the active workspace (marks the workspace as disconnected). Does NOT remove the bot token variable/resource/folder/group — delete those from the local sync folder and run 'wmill sync push' to tear them down. Does NOT remove the workspace-level OAuth override — set slack_oauth_client_id/_secret to '' in settings.yaml and push.
+- `workspace get-settings` - Print the active workspace's settings in the layout of the settings.yaml that 'wmill sync' writes. Secrets show as __SENSITIVE_AND_UNCHANGED__ unless --encrypted. Admin only.
+  - `--encrypted` - Write secrets encrypted with the workspace key, as 'wmill sync pull' does
+  - `--json` - Output as JSON
+- `workspace apply-settings <file:string>` - Apply a settings document (YAML or JSON, in the layout of settings.yaml) to the active workspace. Only the settings the file states are changed, unless --replace; a setting set to null is cleared. A secret left as __SENSITIVE_AND_UNCHANGED__ keeps its value. Shows the changes and asks before applying. Admin only.
+  - `--dry-run` - Only show the changes
+  - `--replace` - Also clear the settings the file omits, as 'wmill sync push' does
+  - `-y --yes` - Apply without asking
 
 
 

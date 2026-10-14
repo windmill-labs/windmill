@@ -33,7 +33,7 @@
 	import AiAgentStepInputs from './AiAgentStepInputs.svelte'
 	import AgentToolBindings from './AgentToolBindings.svelte'
 	import { getLinkedAgentTools, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
-	import { flowLocalAgentSchema } from '../agentResourceUtils'
+	import { linkedAgentStepSchema } from '../agentResourceUtils'
 	import { AI_AGENT_TOOL_AI_KEYS, AI_DECISION_TOOL_AI_KEYS } from '../agentToolUtils'
 	import { setAiDecisionStep } from '../aiDecisionBranching'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
@@ -309,7 +309,7 @@
 	let inputTransformSchemaForm: { setArgs: (nargs: Record<string, any>) => void } | undefined =
 		$state(undefined)
 	// The linked agent's memory, which decides which history inputs the step offers.
-	let linkedAgentMemory: { memory: unknown } | undefined = $state(undefined)
+	let linkedAgentConfig: { memory: unknown; provider?: unknown } | undefined = $state(undefined)
 
 	let reloadError: string | undefined = $state(undefined)
 	async function reload(flowModule: FlowModule) {
@@ -1180,7 +1180,7 @@
 														opWorkspace={opWs}
 														flowPath={$pathStore}
 														fromAgentEditor={agentEditorHost?.() != undefined}
-														bind:linkedMemory={linkedAgentMemory}
+														bind:linkedAgent={linkedAgentConfig}
 														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 														bind:agent={
 															() =>
@@ -1233,7 +1233,7 @@
 														bind:this={inputTransformSchemaForm}
 														pickableProperties={stepPropPicker.pickableProperties}
 														schema={agentLinked
-															? flowLocalAgentSchema(
+															? linkedAgentStepSchema(
 																	flowStateStore.val[flowModule.id]?.schema ?? {}
 																)
 															: (flowStateStore.val[flowModule.id]?.schema ?? {})}
@@ -1263,7 +1263,7 @@
 														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 														workspace={opWs}
 														visibilityKey={agentFieldsKey}
-														linkedMemory={agentLinked ? linkedAgentMemory : undefined}
+														linkedAgent={agentLinked ? linkedAgentConfig : undefined}
 														{agentLinked}
 														tools={agentLinked
 															? getLinkedAgentTools(
@@ -1367,7 +1367,7 @@
 											mod={flowModule}
 											{noEditor}
 											schema={agentLinked
-												? flowLocalAgentSchema(flowStateStore.val[flowModule.id]?.schema ?? {})
+												? linkedAgentStepSchema(flowStateStore.val[flowModule.id]?.schema ?? {})
 												: (flowStateStore.val[flowModule.id]?.schema ?? {})}
 											bind:testJob
 											bind:testIsLoading

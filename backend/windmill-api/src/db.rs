@@ -17,7 +17,9 @@ use tokio::task::JoinHandle;
 pub use windmill_common::db::DB;
 use windmill_common::{
     error::Error,
+    global_settings::INSTANCE_PYTHON_VERSION_SETTING,
     utils::{generate_lock_id, GIT_VERSION},
+    worker::PyVAlias,
 };
 
 #[allow(unused_imports)]
@@ -111,6 +113,15 @@ lazy_static::lazy_static! {
                     (20260909163047, include_str!(
                         "../../migrations/20260909163047_workspace_delete_cascade_indexes.up.sql"
                     ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY").replace("DROP INDEX", "DROP INDEX CONCURRENTLY")),
+                    (20261009173546, include_str!(
+                        "../../migrations/20261009173546_agent_owner_prefix_index.up.sql"
+                    ).replace("CREATE INDEX", "CREATE INDEX CONCURRENTLY")),
+                    // The widening fails every query the previous release's still-running
+                    // servers prepared on the column; `variables::widen_variable_value` does it
+                    // once they are gone.
+                    (20261012213357, include_str!(
+                        "../../migrations/20261012213357_widen_variable_value.up.sql"
+                    ).replace("ALTER TABLE variable ALTER COLUMN value TYPE VARCHAR(15040);", "")),
                     ].into_iter().collect();
 }
 
@@ -298,6 +309,12 @@ pub async fn migrate(
     let migrator = db.acquire().await?;
     let mut custom_migrator = CustomMigrator { inner: migrator };
 
+    let new_instance =
+        sqlx::query_scalar::<_, bool>("SELECT to_regclass('_sqlx_migrations') IS NULL")
+            .fetch_one(custom_migrator.connection())
+            .await
+            .unwrap_or(false);
+
     if let Err(err) = sqlx::query!(
         "DELETE FROM _sqlx_migrations WHERE
         version=20250131115248 OR version=20250902085503 OR version=20250201145630 OR
@@ -372,10 +389,53 @@ pub async fn migrate(
     }
 
     crate::live_migrations::custom_migrations(&mut custom_migrator).await?;
+    if let Err(e) = seed_instance_python_version(custom_migrator.connection(), new_instance).await {
+        tracing::error!("Could not record the instance python version: {e:#}");
+    }
     Ok(Some(crate::live_migrations::spawn_background_migrations(
         db.clone(),
         killpill_rx,
     )))
+}
+
+/// Gives `instance_python_version` a concrete value when the instance has none, so the version
+/// scripts resolve around is recorded per instance instead of following whatever a release
+/// compiles in. Only the process that created the schema knows the instance is new, so its value
+/// replaces what a server that started alongside it wrote; every other start fills in the frozen
+/// default, and only where no version was chosen (`default` is what the settings page stored
+/// for that).
+///
+/// Runs on the migration connection: a `DATABASE_CONNECTIONS=1` pool has no second one to give.
+async fn seed_instance_python_version(
+    conn: &mut PgConnection,
+    new_instance: bool,
+) -> Result<(), Error> {
+    let (version, on_conflict) = if new_instance {
+        (
+            PyVAlias::NEW_INSTANCE,
+            "DO UPDATE SET value = EXCLUDED.value",
+        )
+    } else {
+        (
+            PyVAlias::default(),
+            "DO UPDATE SET value = EXCLUDED.value WHERE global_settings.value = '\"default\"'::jsonb",
+        )
+    };
+    // The stored setting outranks the `INSTANCE_PYTHON_VERSION` environment variable, so an
+    // instance configured through it would otherwise be moved off its version by this write.
+    let version = std::env::var("INSTANCE_PYTHON_VERSION")
+        .ok()
+        .filter(|v| !v.is_empty() && v.split('.').all(|part| part.parse::<u32>().is_ok()))
+        .unwrap_or_else(|| version.version_string());
+    sqlx::query(&format!(
+        "INSERT INTO global_settings (name, value) VALUES ($1, to_jsonb($2::text))
+         ON CONFLICT (name) {on_conflict}"
+    ))
+    .bind(INSTANCE_PYTHON_VERSION_SETTING)
+    .bind(version)
+    .execute(conn)
+    .await?;
+    Ok(())
 }
 
 pub async fn wait_for_migrations(

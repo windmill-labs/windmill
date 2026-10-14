@@ -3732,6 +3732,9 @@ pub struct MiniPulledJob {
     pub trigger_kind: Option<TriggerKindLabel>,
     pub visible_to_owner: bool,
     pub permissioned_as_end_user_email: Option<String>,
+    /// `job_perms.viewer_data_access`: `None` where the job was read without it.
+    #[serde(default)]
+    pub viewer_data_access: Option<bool>,
     pub runnable_settings_handle: Option<i64>,
     /// The job's effective token scopes (`job_perms.job_token_scopes`), minted into its token.
     /// No `sqlx(default)`: a query that forgets the column must fail rather than mint an
@@ -3786,6 +3789,7 @@ impl MiniPulledJob {
             trigger_kind: None,
             visible_to_owner: false,
             permissioned_as_end_user_email: None,
+            viewer_data_access: None,
             runnable_settings_handle: None,
             concurrent_limit: None,
             concurrency_time_window_s: None,
@@ -4103,6 +4107,7 @@ impl PulledJob {
                 folders,
                 end_user_email: self.job.permissioned_as_end_user_email.clone(),
                 job_token_scopes: self.job.job_token_scopes.clone(),
+                viewer_data_access: self.job.viewer_data_access.unwrap_or(false),
             }),
             _ => None,
         };
@@ -4210,6 +4215,7 @@ pub async fn get_mini_pulled_job<'c>(
         trigger_kind as \"trigger_kind: TriggerKindLabel\",
         visible_to_owner,
         NULL as permissioned_as_end_user_email,
+        NULL::boolean as viewer_data_access,
         job_perms.job_token_scopes
         FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id
         LEFT JOIN job_perms ON job_perms.job_id = v2_job_queue.id WHERE v2_job_queue.id = $1",
@@ -8740,7 +8746,8 @@ pub async fn get_same_worker_job(
                     v2_job.raw_flow,
                     COALESCE(pj.runnable_path, v2_job.args->>'_FLOW_PATH') as parent_runnable_path,
                     p.email as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
-                    p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
+                    p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email,
+                    p.viewer_data_access
                     FROM v2_job_queue
                     INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
                     LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id

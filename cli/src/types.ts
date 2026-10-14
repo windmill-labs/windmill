@@ -187,6 +187,8 @@ export interface PushObjOptions {
   wsSpecific?: boolean;
   /** encryption_key push: non-interactive flag and explicit re-encryption choice */
   keyPushOpts?: PushWorkspaceKeyOptions;
+  /** settings push: whether settings.yaml manages the data tables' roles */
+  includeDatatablePermissions?: boolean;
   /** TypeScript runtime a bare `.ts` denotes, for raw-app runnables */
   defaultTs?: "bun" | "deno";
   /** schedule push into a fork: the file's `enabled` is the parent's */
@@ -218,6 +220,7 @@ export async function pushObj(
     permissionedAsContext,
     wsSpecific,
     keyPushOpts,
+    includeDatatablePermissions,
     defaultTs,
     enabledOwnedByParent,
   } = opts;
@@ -285,7 +288,9 @@ export async function pushObj(
   } else if (typeEnding === "workspace_dependencies") {
     await pushWorkspaceDependencies(workspace, p, befObj, newObj);
   } else if (typeEnding === "settings") {
-    await pushWorkspaceSettings(workspace, p, befObj, newObj);
+    await pushWorkspaceSettings(workspace, p, befObj, newObj, {
+      includeDatatablePermissions,
+    });
   } else if (typeEnding === "encryption_key") {
     await pushWorkspaceKey(workspace, p, befObj, newObj, keyPushOpts);
   } else {
