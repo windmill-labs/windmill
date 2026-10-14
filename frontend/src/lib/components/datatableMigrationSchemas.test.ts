@@ -31,12 +31,22 @@ describe('suggestMigrationSchemas', () => {
 	test('collects the schemas of qualified objects the SQL defines or writes', () => {
 		const sql = `BEGIN;
 CREATE SCHEMA IF NOT EXISTS billing;
-CREATE TABLE "Sales"."orders" (id int REFERENCES crm.customers(id));
-CREATE INDEX ON sales.orders (id);
-SELECT * FROM a JOIN b ON a.id = b.id;
-CREATE TABLE plain (id int);
+CREATE TABLE IF NOT EXISTS "Sales"."orders" (id int REFERENCES crm.customers(id) ON UPDATE CASCADE);
+CREATE INDEX orders_idx ON sales.orders (id);
+SELECT * FROM sales.orders a JOIN crm.customers b ON a.id = b.id;
 INSERT INTO pg_catalog.x VALUES ('audit.y');
 END;`
 		expect(suggestMigrationSchemas(sql)).toEqual(['billing', 'sales', 'crm'])
+	})
+
+	test('suggests nothing once an unqualified object is touched: its schema is not in the SQL', () => {
+		for (const unqualified of [
+			'CREATE TABLE plain (id int);',
+			'ALTER TABLE ONLY plain ADD COLUMN x int;',
+			'CREATE INDEX ON plain (id);',
+			'CREATE TABLE sales.t (id int REFERENCES plain(id));'
+		]) {
+			expect(suggestMigrationSchemas(`CREATE TABLE sales.a (id int);\n${unqualified}`)).toEqual([])
+		}
 	})
 })

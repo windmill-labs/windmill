@@ -100,18 +100,52 @@ function unquote(ident: string): string {
 	return ident.startsWith('"') ? ident.slice(1, -1).replaceAll('""', '"') : ident
 }
 
+// Words that can follow an object keyword without being the object's name.
+// `ON UPDATE CASCADE`, `FOR UPDATE SKIP LOCKED` and `JOIN LATERAL` among them.
+const NOT_A_NAME = [
+	'if',
+	'only',
+	'not',
+	'concurrently',
+	'exists',
+	'cascade',
+	'restrict',
+	'set',
+	'no',
+	'skip',
+	'nowait',
+	'of',
+	'lateral'
+]
+
 /**
  * The schemas `sql` names explicitly, as a suggested scope: those it creates, alters or grants on,
- * and the schema of every qualified object it defines or writes. Unqualified names resolve through
- * the search path, which the SQL does not show, so they suggest nothing. A suggestion for the author
- * to confirm, not a guarantee.
+ * and the schema of every qualified object it defines or writes. An unqualified name resolves
+ * through the search path, which the SQL does not show, so one anywhere makes the suggestion empty:
+ * declaring only the qualified schemas would let the migration run ahead of one it depends on.
+ * Callers write the suggestion without asking, so it must never be narrower than the SQL.
  */
 export function suggestMigrationSchemas(sql: string): string[] {
-	const code = sql
+	const code = stripLiteralsAndComments(sql)
+	const unqualified = new RegExp(
+		String.raw`\b(?:(?:CREATE|ALTER|DROP)\s+(?:OR\s+REPLACE\s+)?(?:TEMP(?:ORARY)?\s+|UNLOGGED\s+|MATERIALIZED\s+)?(?:TABLE|VIEW|SEQUENCE|TYPE|FUNCTION|PROCEDURE|DOMAIN)|REFERENCES|INSERT\s+INTO|UPDATE|DELETE\s+FROM|JOIN|INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(?:${IDENT}\s+)?ON)\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?(?:ONLY\s+)?(${IDENT})(?![A-Za-z0-9_$"]|\s*\.)`,
+		'gi'
+	)
+	for (const m of code.matchAll(unqualified)) {
+		if (!NOT_A_NAME.includes(unquote(m[1]).toLowerCase())) return []
+	}
+	return qualifiedSchemas(code)
+}
+
+function stripLiteralsAndComments(sql: string): string {
+	return sql
 		.replace(/\$([A-Za-z_]*)\$[\s\S]*?\$\1\$/g, ' ')
 		.replace(/'(?:[^']|'')*'/g, ' ')
 		.replace(/\/\*[\s\S]*?\*\//g, ' ')
 		.replace(/--[^\n]*/g, ' ')
+}
+
+function qualifiedSchemas(code: string): string[] {
 	const found: string[] = []
 	const add = (ident: string) => {
 		const name = unquote(ident).toLowerCase()

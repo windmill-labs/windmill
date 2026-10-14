@@ -343,6 +343,23 @@ WHERE n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
                     AND d.deptype = 'e')
 ORDER BY n.nspname";
 
+/// Whether the database holds objects that belong to no schema besides extensions: `pg_dump
+/// --schema` leaves those out, so a per-schema snapshot would drop them (and a foreign table could
+/// not replay without its server). Extension members are skipped, `CREATE EXTENSION` recreates them.
+pub(crate) const UNSCHEMED_OBJECTS_SQL: &str = "\
+SELECT EXISTS (SELECT 1 FROM pg_publication)
+    OR EXISTS (SELECT 1 FROM pg_event_trigger)
+    OR EXISTS (SELECT 1 FROM pg_foreign_server)
+    OR EXISTS (SELECT 1 FROM pg_foreign_data_wrapper w WHERE NOT EXISTS (SELECT 1 FROM pg_depend d
+               WHERE d.classid = 'pg_foreign_data_wrapper'::regclass AND d.objid = w.oid
+                 AND d.deptype = 'e'))
+    OR EXISTS (SELECT 1 FROM pg_cast c WHERE c.oid >= 16384 AND NOT EXISTS (SELECT 1 FROM pg_depend d
+               WHERE d.classid = 'pg_cast'::regclass AND d.objid = c.oid AND d.deptype = 'e'))
+    OR EXISTS (SELECT 1 FROM pg_language l WHERE l.oid >= 16384 AND NOT EXISTS (SELECT 1
+               FROM pg_depend d WHERE d.classid = 'pg_language'::regclass AND d.objid = l.oid
+                 AND d.deptype = 'e'))
+    AS present";
+
 pub(crate) const SNAPSHOT_EXTENSIONS_SQL: &str = "\
 SELECT e.extname, n.nspname FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
 WHERE e.extname <> 'plpgsql'

@@ -14,6 +14,7 @@ use crate::datatable_migration_scope::{
     blocked_by, is_annotatable_schema_name, make_schema_snapshot_replayable, order_schema_groups,
     parse_migration_schemas, plan_run, snapshot_has_objects, with_schemas_annotation, ChainEntry,
     RunSelection, CROSS_SCHEMA_DEPENDENCIES_SQL, SNAPSHOT_EXTENSIONS_SQL, SNAPSHOT_SCHEMAS_SQL,
+    UNSCHEMED_OBJECTS_SQL,
 };
 use crate::workspaces::{
     managed_datatable_kind, pg_dump_database, strip_unreplayable_dump_lines, ItemComparison,
@@ -1245,6 +1246,17 @@ pub(crate) fn validate_new_datatable_name(datatable: &str) -> Result<()> {
 /// into `workspace_diff` and shows up as a `datatable_migration` item in the
 /// workspace-merge diff. The diff path is `<datatable>/<timestamp>_<name>`,
 /// matching `parse_datatable_migration_diff_path`.
+/// A data table predating `validate_new_datatable_name` can carry a name no repo filter can match;
+/// say so once per change instead of letting the deploy vanish inside the path filter.
+fn warn_if_unsyncable_datatable_name(datatable: &str) {
+    if validate_new_datatable_name(datatable).is_err() {
+        tracing::warn!(
+            "Data table '{datatable}' has a name git sync cannot match, so its SQL migrations \
+             will not reach a linked repository. Rename it to letters, digits, '_', '-' and '.'."
+        );
+    }
+}
+
 async fn record_datatable_migration_deployment(
     authed: &ApiAuthed,
     db: &DB,
@@ -1253,15 +1265,7 @@ async fn record_datatable_migration_deployment(
     timestamp: i64,
     name: &str,
 ) -> Result<()> {
-    // A data table predating `validate_new_datatable_name` can carry a name no
-    // repo filter can match; say so once per change instead of letting the deploy
-    // vanish inside the path filter.
-    if validate_new_datatable_name(datatable).is_err() {
-        tracing::warn!(
-            "Data table '{datatable}' has a name git sync cannot match, so its SQL migrations \
-             will not reach a linked repository. Rename it to letters, digits, '_', '-' and '.'."
-        );
-    }
+    warn_if_unsyncable_datatable_name(datatable);
     handle_deployment_metadata(
         &authed.email,
         &authed.username,
@@ -1821,8 +1825,9 @@ async fn schema_snapshot(pg_db: &PgDatabase, no_acl: bool, schemas: &[&str]) -> 
 /// each after the schemas it references. Schemas that reference each other share one migration
 /// declaring all of them. An empty `public` is left out.
 ///
-/// A schema whose name a `-- schemas` annotation cannot carry turns the whole snapshot into one
-/// whole-database migration, which is what it was before it could be split.
+/// A schema whose name a `-- schemas` annotation cannot carry, or an object that belongs to no
+/// schema (see `UNSCHEMED_OBJECTS_SQL`), turns the whole snapshot into one whole-database
+/// migration, which is what it was before it could be split.
 async fn per_schema_snapshots(
     db: &DB,
     pg_db: &PgDatabase,
@@ -1839,7 +1844,11 @@ async fn per_schema_snapshots(
         .iter()
         .filter_map(|r| r.get(0).map(str::to_string))
         .collect();
-    if !schemas.iter().all(|s| is_annotatable_schema_name(s)) {
+    let unschemed = simple_rows(&client, UNSCHEMED_OBJECTS_SQL)
+        .await?
+        .first()
+        .is_some_and(|r| r.get(0) == Some("t"));
+    if unschemed || !schemas.iter().all(|s| is_annotatable_schema_name(s)) {
         return Ok(vec![(
             "initial".to_string(),
             schema_snapshot(pg_db, no_acl, &[]).await?,
@@ -2003,6 +2012,7 @@ async fn generate_initial_datatable_migration(
     )
     .await?;
 
+    warn_if_unsyncable_datatable_name(&datatable_name);
     handle_deployment_metadata_batch(
         &authed.email,
         &authed.username,
