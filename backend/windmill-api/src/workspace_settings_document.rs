@@ -716,6 +716,13 @@ fn normalize_datatable_permissions(v: &Value) -> Result<Value> {
         roles
             .entry(ADMIN_DATATABLE_ROLE.to_string())
             .or_insert(json!([]));
+        if let Some(role) = default_role.as_str() {
+            if !roles.contains_key(role) {
+                return Err(Error::BadRequest(format!(
+                    "The default role '{role}' of {what} is not among its roles"
+                )));
+            }
+        }
         out.insert(
             name.clone(),
             json!({ "default_role": default_role, "roles": roles }),
@@ -1307,8 +1314,8 @@ fn plan_datatable_permissions(p: &mut Plan, desired: Value, roles: &RoleNames) -
     let current = object_of(p.current.get("datatable_permissions"));
     // The data tables as they will be once the `datatable` write before this one has gone through.
     let entries = object_of(
-        p.desired
-            .get("datatable")
+        p.legacy("datatable")
+            .as_ref()
             .or(p.current.get("datatable"))
             .and_then(|d| d.get("datatables")),
     );
@@ -1733,7 +1740,20 @@ mod tests {
         );
 
         let d = doc(json!({ "datatable_permissions": { "main": { "roles": { "writers": [] } } } }));
-        assert!(plan_document(cur, d, false, &mc, &roles).is_err());
+        assert!(plan_document(cur.clone(), d, false, &mc, &roles).is_err());
+
+        let d = doc(json!({ "datatable_permissions": { "main": { "default_role": "readers" } } }));
+        assert!(plan_document(cur.clone(), d, false, &mc, &roles).is_err());
+
+        // Under replace an omitted `datatable` is cleared, taking its tables' roles with it.
+        let d = doc(json!({ "datatable_permissions": {} }));
+        let p = plan_document(cur.clone(), d, true, &mc, &roles).unwrap();
+        assert!(!p
+            .writes
+            .iter()
+            .any(|w| matches!(w.target, Target::Edit(SettingsEdit::DatatablePermissions))));
+        let d = doc(json!({ "datatable_permissions": { "main": {} } }));
+        assert!(plan_document(cur, d, true, &mc, &roles).is_err());
     }
 
     #[test]
