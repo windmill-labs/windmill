@@ -8236,10 +8236,11 @@ Writing a migration:
 
 - Wrap the statements in \`BEGIN; ... END;\` so it applies atomically. Leave the frame out only for a statement that cannot run in a transaction, such as \`CREATE INDEX CONCURRENTLY\`: such a migration can fail half applied.
 - Give it a \`down\` that undoes the \`up\` whenever the change is reversible. Without one it cannot be rolled back.
+- Declare the schemas it changes on a leading line of its \`up\`, \`-- schemas sales, billing\`, and qualify every name with its schema (\`sales.orders\`). A migration waits only on earlier migrations whose schemas overlap its own. One that declares none applies to the whole database and every later migration waits for it, so leave the line out only for a change that really spans the database, such as an extension.
 - Migrations apply oldest first. One that is applied is not edited: correct it with a new migration.
 - Row data is not schema. Insert, update and delete rows with plain SQL, migrations or not.
 
-\`wmill datatable migrate new <name>\` scaffolds \`migrations/datatable/<datatable>/<timestamp>_<name>.up.sql\` and \`.down.sql\`, \`wmill datatable migrate up\` pushes the local files and applies what is pending, \`wmill datatable migrate down\` rolls back the most recent one and \`wmill datatable migrate status\` lists them. All take \`-d <datatable>\` and default to \`main\`.
+\`wmill datatable migrate new <name>\` scaffolds \`migrations/datatable/<datatable>/<timestamp>_<name>.up.sql\` and \`.down.sql\`, \`wmill datatable migrate up\` pushes the local files and applies what is pending, \`wmill datatable migrate down\` rolls back the most recent one and \`wmill datatable migrate status\` lists them. All take \`-d <datatable>\` and default to \`main\`. \`migrate new --schemas sales,billing\` writes the \`-- schemas\` line, and \`migrate up --schema sales\` applies only the pending migrations declaring that schema.
 
 ## A migration is not a draft
 
@@ -8354,8 +8355,10 @@ datatable related commands
 - \`datatable migrate\` - manage datatable migrations
   - \`datatable migrate new <name:string>\` - scaffold a new migration (.up.sql / .down.sql files)
     - \`-d --datatable <datatable:string>\` - Target datatable (default: main)
+    - \`-s --schemas <schemas:string>\` - Comma-separated schemas the migration changes, written as its \`-- schemas\` line. Without it the migration applies to the whole database and every later migration waits for it
   - \`datatable migrate up\` - apply all pending migrations to the main datatable (or one via --datatable)
     - \`-d --datatable <datatable:string>\` - Target datatable (default: main)
+    - \`--schema <schema:string>\` - Apply only the pending migrations that declare this schema; refused while an earlier overlapping migration is pending
   - \`datatable migrate down\` - roll back the most recent migration on the main datatable (or one via --datatable)
     - \`-d --datatable <datatable:string>\` - Target datatable (default: main)
   - \`datatable migrate status\` - show applied and pending migrations on the main datatable (or one via --datatable)

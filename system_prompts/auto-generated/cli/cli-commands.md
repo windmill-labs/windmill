@@ -84,8 +84,10 @@ datatable related commands
 - `datatable migrate` - manage datatable migrations
   - `datatable migrate new <name:string>` - scaffold a new migration (.up.sql / .down.sql files)
     - `-d --datatable <datatable:string>` - Target datatable (default: main)
+    - `-s --schemas <schemas:string>` - Comma-separated schemas the migration changes, written as its `-- schemas` line. Without it the migration applies to the whole database and every later migration waits for it
   - `datatable migrate up` - apply all pending migrations to the main datatable (or one via --datatable)
     - `-d --datatable <datatable:string>` - Target datatable (default: main)
+    - `--schema <schema:string>` - Apply only the pending migrations that declare this schema; refused while an earlier overlapping migration is pending
   - `datatable migrate down` - roll back the most recent migration on the main datatable (or one via --datatable)
     - `-d --datatable <datatable:string>` - Target datatable (default: main)
   - `datatable migrate status` - show applied and pending migrations on the main datatable (or one via --datatable)

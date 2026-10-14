@@ -5967,6 +5967,12 @@ paths:
           schema:
             type: integer
             format: int64
+        - name: schema
+          in: query
+          required: false
+          description: apply only the pending migrations whose `-- schemas` annotation declares this schema
+          schema:
+            type: string
       responses:
         "200":
           description: applied migrations
@@ -37334,6 +37340,15 @@ components:
             - ran
             - not_run
             - unknown
+        schemas:
+          type: array
+          description: the schemas its `-- schemas` annotation declares; absent when it applies to the whole database
+          items:
+            type: string
+        blocked_by:
+          type: integer
+          format: int64
+          description: when not run, the earliest pending migration that must be applied first; when run, the latest applied migration that must be rolled back first
     DataTableSchema:
       type: object
       required: [datatable_name, schemas]
