@@ -722,12 +722,8 @@
 		slack_team_name = settings.slack_name
 		teams_team_id = settings.teams_team_id
 		teams_team_name = settings.teams_team_name
-		if (settings.slack_command_script) {
-			itemKind = settings.slack_command_script.split('/')[0] as 'flow' | 'script'
-		}
-		if (settings.teams_command_script) {
-			itemKind = settings.teams_command_script.split('/')[0] as 'flow' | 'script'
-		}
+		const commandScript = settings.teams_command_script || settings.slack_command_script
+		itemKind = commandScript ? (commandScript.split('/')[0] as 'flow' | 'script') : 'flow'
 		slackScriptPath = (settings.slack_command_script ?? '').split('/').slice(1).join('/')
 		teamsScriptPath = (settings.teams_command_script ?? '').split('/').slice(1).join('/')
 		slackInitialPath = slackScriptPath
@@ -810,6 +806,8 @@
 					triggers: (settings.deploy_ui.include_type?.indexOf('trigger') ?? -1) >= 0
 				}
 			}
+		} else {
+			deployUiSettings = defaultDeployUiSettings()
 		}
 
 		// Store initial deploy settings state for unsaved changes detection
@@ -913,7 +911,7 @@
 		}
 	}
 
-	let deployUiSettings: {
+	type DeployUiSettings = {
 		include_path: string[]
 		include_type: {
 			scripts: boolean
@@ -924,18 +922,22 @@
 			secrets: boolean
 			triggers: boolean
 		}
-	} = $state({
-		include_path: [],
-		include_type: {
-			scripts: true,
-			flows: true,
-			apps: true,
-			resources: true,
-			variables: true,
-			secrets: true,
-			triggers: true
+	}
+	function defaultDeployUiSettings(): DeployUiSettings {
+		return {
+			include_path: [],
+			include_type: {
+				scripts: true,
+				flows: true,
+				apps: true,
+				resources: true,
+				variables: true,
+				secrets: true,
+				triggers: true
+			}
 		}
-	})
+	}
+	let deployUiSettings: DeployUiSettings = $state(defaultDeployUiSettings())
 
 	$effect(() => {
 		// `canAdmin` is read as a dependency, not inside untrack: $userStore is repopulated
@@ -1284,6 +1286,10 @@
 
 	// Combined function to discard changes based on current tab
 	function discardAllChanges() {
+		if (showYaml) {
+			yamlEditor?.discard()
+			return
+		}
 		switch (tab) {
 			case 'ai':
 				aiSettingsComponent?.discard()

@@ -36,13 +36,33 @@
 	let applyError = $state('')
 	let warnings: string[] = $state([])
 
+	// The workspace the editor's document was loaded from. Requests go there rather than to the
+	// workspace selected at call time, so a document is never applied to another workspace.
+	let documentWorkspace: string | undefined = undefined
+	let pendingWorkspace: string | undefined = undefined
 	let pendingDocument: Record<string, unknown> | undefined = undefined
 	let pendingChanges: Change[] = $state([])
 	let confirmOpen = $state(false)
 	let applying = $state(false)
 
+	function clearPending() {
+		confirmOpen = false
+		pendingDocument = undefined
+		pendingWorkspace = undefined
+	}
+
 	async function load() {
 		const workspace = $workspaceStore!
+		if (workspace !== documentWorkspace) {
+			documentWorkspace = undefined
+			loadedKeys = []
+			code = ''
+			initialCode = ''
+			editor?.setCode('')
+			applyError = ''
+			warnings = []
+			clearPending()
+		}
 		loading = true
 		loadError = ''
 		let doc: Record<string, unknown> | undefined
@@ -51,14 +71,13 @@
 		} catch (e) {
 			if (workspace === $workspaceStore) loadError = errorMessage(e)
 		}
-		// A response for a workspace that is no longer selected must not become the saved document,
-		// or saving would send it to the current workspace.
 		if (workspace !== $workspaceStore) return
 		loadedKeys = doc ? Object.keys(doc) : []
 		code = doc ? YAML.stringify(doc) : ''
 		initialCode = code
 		editor?.setCode(code)
 		parseError = ''
+		documentWorkspace = workspace
 		loading = false
 	}
 
@@ -101,35 +120,44 @@
 	async function review(): Promise<boolean> {
 		applyError = ''
 		warnings = []
+		const workspace = documentWorkspace
+		if (!workspace) return false
 		const document = documentFromEditor()
 		if (!document) return false
 		try {
 			const res = await WorkspaceService.applyWorkspaceSettingsDocument({
-				workspace: $workspaceStore!,
+				workspace,
 				requestBody: { document, replace: false, dry_run: true }
 			})
+			if (workspace !== documentWorkspace) return false
 			warnings = res.warnings ?? []
 			if (res.changes.length === 0) {
 				sendUserToast('No setting would change')
 				return false
 			}
+			pendingWorkspace = workspace
 			pendingDocument = document
 			pendingChanges = res.changes
 			confirmOpen = true
 		} catch (e) {
-			applyError = errorMessage(e)
+			if (workspace === documentWorkspace) applyError = errorMessage(e)
 		}
 		return false
 	}
 
 	async function apply() {
-		if (!pendingDocument) return
+		const workspace = pendingWorkspace
+		const document = pendingDocument
+		if (!document || !workspace || workspace !== documentWorkspace) {
+			clearPending()
+			return
+		}
 		applying = true
 		let ok = false
 		try {
 			const res = await WorkspaceService.applyWorkspaceSettingsDocument({
-				workspace: $workspaceStore!,
-				requestBody: { document: pendingDocument, replace: false }
+				workspace,
+				requestBody: { document, replace: false }
 			})
 			warnings = res.warnings ?? []
 			ok = true
@@ -138,8 +166,7 @@
 			applyError = errorMessage(e)
 		} finally {
 			applying = false
-			confirmOpen = false
-			pendingDocument = undefined
+			clearPending()
 		}
 		// A failing write stops the apply but keeps the writes before it, so the form panes reload
 		// either way; the editor keeps the user's text on failure so it can be fixed and retried.
@@ -150,7 +177,7 @@
 		}
 	}
 
-	function discard() {
+	export function discard() {
 		code = initialCode
 		editor?.setCode(initialCode)
 		parseError = ''
@@ -236,10 +263,7 @@
 	type="info"
 	loading={applying}
 	onConfirmed={apply}
-	onCanceled={() => {
-		confirmOpen = false
-		pendingDocument = undefined
-	}}
+	onCanceled={clearPending}
 >
 	<div class="flex flex-col gap-2 max-h-96 overflow-auto">
 		{#each pendingChanges as change (change.key)}
