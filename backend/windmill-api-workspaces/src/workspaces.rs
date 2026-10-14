@@ -1765,6 +1765,43 @@ async fn set_slack_oauth_config(
             "Both client ID and client secret are required".to_string(),
         ));
     }
+    // A settings.yaml pulled by `wmill sync` holds the secret encrypted, and a CLI that
+    // predates the settings document pushes it here as it reads it. One encrypted under another
+    // workspace's key keeps the stored secret, as the settings document does, so that CLI's push
+    // does not abort over it.
+    let mut req = req;
+    if let Some(ciphertext) = req
+        .slack_oauth_client_secret
+        .strip_prefix(windmill_common::variables::SETTINGS_ENCRYPTED_PREFIX)
+    {
+        match windmill_common::variables::build_crypt(&db, &w_id)
+            .await?
+            .decrypt_str(ciphertext)
+        {
+            Ok(plain) => req.slack_oauth_client_secret = plain,
+            Err(_) => {
+                let stored = sqlx::query_scalar!(
+                    "SELECT slack_oauth_client_secret FROM workspace_settings WHERE workspace_id = $1",
+                    &w_id
+                )
+                .fetch_optional(&db)
+                .await?
+                .flatten();
+                tracing::warn!(
+                    workspace_id = %w_id,
+                    "Slack client secret left unchanged: it is encrypted with another workspace's key"
+                );
+                match stored {
+                    Some(stored) => req.slack_oauth_client_secret = stored,
+                    None => {
+                        return Ok("Slack OAuth config left unchanged: the client secret is \
+                                   encrypted with another workspace's key"
+                            .to_string())
+                    }
+                }
+            }
+        }
+    }
 
     let mut tx = db.begin().await?;
 
@@ -14851,4 +14888,155 @@ async fn set_ws_specific(
         "Set workspace-specific={} for {} {}",
         body.value, body.item_kind, body.path
     ))
+}
+
+/// A setting the workspace settings document writes, each through the endpoint that owns it,
+/// so applying a document validates, audits and has the side effects of the matching UI save.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsEdit {
+    Webhook,
+    AutoInvite,
+    InstanceGroups,
+    ErrorHandler,
+    SuccessHandler,
+    LargeFileStorage,
+    GitSync,
+    DefaultScripts,
+    DefaultApp,
+    Color,
+    OperatorSettings,
+    Datatable,
+    SlackCommand,
+    SetSlackOAuth,
+    DeleteSlackOAuth,
+    Ducklake,
+    DbtWarehouses,
+    DeployUi,
+    GuestAccess,
+    GuestJwtKey,
+    PublicAppRateLimit,
+    AddAdminsAndDevelopersToForks,
+    /// Body: `{ datatable, permissioned, default_role, roles: [{ id, tenants }] }`, role ids.
+    DatatablePermissions,
+    CreateProtectionRule,
+    /// Body: the update request plus `rule_name`, the rule it updates.
+    UpdateProtectionRule,
+    /// Body: `{ name }`.
+    DeleteProtectionRule,
+}
+
+fn settings_edit_body<T: serde::de::DeserializeOwned>(
+    edit: SettingsEdit,
+    body: serde_json::Value,
+) -> Result<Json<T>> {
+    serde_json::from_value(body)
+        .map(Json)
+        .map_err(|e| Error::BadRequest(format!("Invalid value for {edit:?}: {e}")))
+}
+
+/// Returns the endpoint's JSON response, or `null` for one that answers with prose.
+pub async fn apply_settings_edit(
+    authed: ApiAuthed,
+    db: DB,
+    w_id: String,
+    edit: SettingsEdit,
+    body: serde_json::Value,
+) -> Result<serde_json::Value> {
+    use SettingsEdit::*;
+    let a = authed.clone();
+    let (d, p) = (Extension(db), Path(w_id));
+    match edit {
+        Webhook => edit_webhook(a, d, p, authed, settings_edit_body(edit, body)?).await?,
+        AutoInvite => edit_auto_invite(a, d, p, settings_edit_body(edit, body)?).await?,
+        InstanceGroups => edit_instance_groups(a, d, p, settings_edit_body(edit, body)?).await?,
+        ErrorHandler => {
+            edit_error_handler(a, d, p, authed, settings_edit_body(edit, body)?).await?
+        }
+        SuccessHandler => edit_success_handler(a, d, p, settings_edit_body(edit, body)?).await?,
+        LargeFileStorage => {
+            edit_large_file_storage_config(a, d, p, authed, settings_edit_body(edit, body)?).await?
+        }
+        GitSync => edit_git_sync_config(a, d, p, authed, settings_edit_body(edit, body)?).await?,
+        DefaultScripts => {
+            edit_default_scripts(a, d, p, authed, settings_edit_body(edit, body)?).await?
+        }
+        #[cfg(feature = "enterprise")]
+        DefaultApp => edit_default_app(a, d, p, authed, settings_edit_body(edit, body)?).await?,
+        #[cfg(not(feature = "enterprise"))]
+        DefaultApp => edit_default_app(a, d, p, settings_edit_body(edit, body)?).await?,
+        Color => change_workspace_color(a, p, d, settings_edit_body(edit, body)?).await?,
+        OperatorSettings => {
+            update_operator_settings(a, p, d, settings_edit_body(edit, body)?).await?
+        }
+        Datatable => {
+            let Json(result) =
+                edit_datatable_config(a, d, p, authed, settings_edit_body(edit, body)?).await?;
+            return serde_json::to_value(result).map_err(|e| Error::internal_err(e.to_string()));
+        }
+        SlackCommand => {
+            edit_slack_command(a, d, p, authed, settings_edit_body(edit, body)?).await?
+        }
+        SetSlackOAuth => set_slack_oauth_config(a, d, p, settings_edit_body(edit, body)?).await?,
+        DeleteSlackOAuth => delete_slack_oauth_config(a, d, p).await?,
+        Ducklake => edit_ducklake_config(a, d, p, authed, settings_edit_body(edit, body)?).await?,
+        DbtWarehouses => {
+            edit_dbt_warehouses(a, d, p, authed, settings_edit_body(edit, body)?).await?
+        }
+        #[cfg(feature = "enterprise")]
+        DeployUi => edit_deploy_ui_config(a, d, p, authed, settings_edit_body(edit, body)?).await?,
+        #[cfg(not(feature = "enterprise"))]
+        DeployUi => edit_deploy_ui_config(a, d, p).await?,
+        GuestAccess => edit_guest_access(a, d, p, settings_edit_body(edit, body)?).await?,
+        GuestJwtKey => edit_guest_jwt_key(a, d, p, settings_edit_body(edit, body)?).await?,
+        PublicAppRateLimit => {
+            edit_public_app_rate_limit(d, p, a, settings_edit_body(edit, body)?).await?
+        }
+        AddAdminsAndDevelopersToForks => {
+            edit_add_admins_and_developers_to_forks(a, d, p, settings_edit_body(edit, body)?)
+                .await?
+        }
+        #[cfg(all(feature = "private", feature = "enterprise"))]
+        DatatablePermissions => {
+            #[derive(Deserialize)]
+            struct Body {
+                datatable: String,
+                #[serde(flatten)]
+                req: crate::datatable_permissions_ee::SetDatatablePermissions,
+            }
+            let Json(Body { datatable, req }) = settings_edit_body(edit, body)?;
+            crate::datatable_permissions_oss::set_datatable_permissions(
+                a,
+                d,
+                Path((p.0, datatable)),
+                Json(req),
+            )
+            .await?
+        }
+        #[cfg(not(all(feature = "private", feature = "enterprise")))]
+        DatatablePermissions => {
+            crate::datatable_permissions_oss::set_datatable_permissions(a).await?
+        }
+        CreateProtectionRule => {
+            create_protection_rule(a, d, p, settings_edit_body(edit, body)?).await?
+        }
+        UpdateProtectionRule => {
+            #[derive(Deserialize)]
+            struct Body {
+                rule_name: String,
+                #[serde(flatten)]
+                req: UpdateProtectionRuleRequest,
+            }
+            let Json(Body { rule_name, req }) = settings_edit_body(edit, body)?;
+            update_protection_rule(a, d, Path((p.0, rule_name)), Json(req)).await?
+        }
+        DeleteProtectionRule => {
+            #[derive(Deserialize)]
+            struct Body {
+                name: String,
+            }
+            let Json(Body { name }) = settings_edit_body(edit, body)?;
+            delete_protection_rule(a, d, Path((p.0, name))).await?
+        }
+    };
+    Ok(serde_json::Value::Null)
 }

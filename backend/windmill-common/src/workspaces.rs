@@ -144,6 +144,15 @@ impl From<&Vec<ProtectionRuleKind>> for ProtectionRules {
     }
 }
 
+impl ProtectionRules {
+    /// The rules set, in declaration order.
+    pub fn kinds(self) -> Vec<ProtectionRuleKind> {
+        <ProtectionRuleKind as strum::IntoEnumIterator>::iter()
+            .filter(|k| self.contains(k.flag()))
+            .collect()
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct WorkspaceGitSyncSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1547,9 +1556,10 @@ pub struct DataTable {
     /// which is how data tables behaved before roles existed. Only meaningful on a terminal entry;
     /// a pointer is governed by what it points at.
     ///
-    /// Never leaves the instance: stripped from the workspace export and ignored on import, since
-    /// tenants are workspace-scoped names and syncing them would make repo write access a second
-    /// door onto the access decision.
+    /// Stripped from the `datatable` setting wherever it is read or written as a whole. It leaves
+    /// the instance only as the settings document's `datatable_permissions`, which `wmill sync`
+    /// carries only when the repo opts in: tenants are workspace-scoped names, and syncing them
+    /// makes repo write access a second door onto the access decision.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permissions: Option<DataTablePermissions>,
 }
