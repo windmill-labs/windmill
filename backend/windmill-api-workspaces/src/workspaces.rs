@@ -3948,7 +3948,10 @@ async fn import_pg_database(
     // the ACLs are user intent (`REVOKE ... FROM PUBLIC`) and dropping them widens access.
     let no_acl = target_kind.is_some() || source_kind.is_some();
 
-    let migrations_lock = if schema_only {
+    // Only a database made to be a copy takes on the source's bookkeeping and settings: without an
+    // override the target is a data table's own live database, whose settings are its owner's.
+    let fresh_copy = req.target_dbname_override.is_some();
+    let migrations_lock = if schema_only && fresh_copy {
         Some(
             crate::datatable_migrations::lock_migration_runs_on(&db, &source_pg, &req.source)
                 .await?,
@@ -3969,7 +3972,9 @@ async fn import_pg_database(
     if let Some(applied) = applied {
         crate::datatable_migrations::write_applied_migrations(&db, &target_pg, &applied).await?;
     }
-    copy_database_settings(&db, &source_pg, &target_pg).await?;
+    if fresh_copy {
+        copy_database_settings(&db, &source_pg, &target_pg).await?;
+    }
     if let Some(tx) = fork_lock {
         tx.commit().await?;
     }
