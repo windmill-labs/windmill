@@ -26,11 +26,7 @@
 		outOfOrderRunMessage
 	} from './workspaceSettings/datatableMigrationUtils'
 	import Alert from './common/alert/Alert.svelte'
-	import {
-		parseMigrationSchemas,
-		suggestMigrationSchemas,
-		withMigrationSchemas
-	} from './datatableMigrationSchemas'
+	import { suggestMigrationSchemas, withMigrationSchemas } from './datatableMigrationSchemas'
 	import ResizeTransitionWrapper from './common/ResizeTransitionWrapper.svelte'
 
 	interface Props {
@@ -64,6 +60,7 @@
 	let drawerDiff: DatatableDiff | undefined = $state(undefined)
 	let drawerDirection: 'ahead' | 'behind' | undefined = $state(undefined)
 	let migrationSql = $state('')
+	let generatedSql = ''
 	let migrationRunning = $state(false)
 	let confirmDeployOpen = $state(false)
 	const outOfOrderModal = createAsyncConfirmationModal()
@@ -163,6 +160,7 @@
 		migrationSql =
 			'-- Migration is auto-generated on a best-effort basis. You can adjust it here \n\n' +
 			generateMigrationSql(change, sourceSchema)
+		generatedSql = migrationSql
 		drawerOpen = true
 	}
 
@@ -204,10 +202,10 @@
 			})
 
 			if (status.enabled) {
-				// The generated SQL qualifies the tables it changes, so its scope is read off it
-				// unless the SQL was edited to declare one.
+				// The scope is read off the SQL only as generated: it qualifies the tables it changes.
+				// Once edited, it is whatever the SQL declares, the whole database when nothing.
 				const codeUp =
-					parseMigrationSchemas(migrationSql).kind === 'none'
+					migrationSql === generatedSql
 						? withMigrationSchemas(migrationSql, suggestMigrationSchemas(migrationSql))
 						: migrationSql
 				// The merge migration gets the highest timestamp, so any still-pending

@@ -1800,7 +1800,12 @@ async fn simple_rows(
 /// replaying user owns none of this database's objects, and the grants Windmill plants in an
 /// instance database (`ALTER DEFAULT PRIVILEGES FOR ROLE ...`) fail even replaying onto the same
 /// server.
-async fn schema_snapshot(pg_db: &PgDatabase, no_acl: bool, schemas: &[&str]) -> Result<String> {
+async fn schema_snapshot(
+    pg_db: &PgDatabase,
+    no_acl: bool,
+    schemas: &[&str],
+    snapshot: Option<&str>,
+) -> Result<String> {
     let dump_file = pg_dump_database(
         pg_db,
         PgDumpOptions {
@@ -1809,6 +1814,7 @@ async fn schema_snapshot(pg_db: &PgDatabase, no_acl: bool, schemas: &[&str]) -> 
             no_owner: true,
             no_acl,
             schemas,
+            snapshot,
         },
     )
     .await?;
@@ -1837,6 +1843,20 @@ async fn per_schema_snapshots(
             tracing::error!("Datatable connection error: {}", e);
         }
     });
+    // Every catalog read and every `pg_dump` below sees the database as of one exported snapshot,
+    // held by this transaction until `client` drops: separate snapshots would let DDL committed
+    // in between produce a chain that never was one state of the database.
+    let snapshot_rows = simple_rows(
+        &client,
+        "BEGIN ISOLATION LEVEL REPEATABLE READ, READ ONLY; SELECT pg_export_snapshot()",
+    )
+    .await?;
+    let snapshot = snapshot_rows
+        .first()
+        .and_then(|r| r.get(0))
+        .map(str::to_string)
+        .ok_or_else(|| Error::internal_err("Failed to export a database snapshot".to_string()))?;
+    let snapshot = Some(snapshot.as_str());
     // A schema an extension created is still dumped: objects users added to it are not the
     // extension's, and `pg_dump` leaves the extension's own members out by itself.
     let schema_rows = simple_rows(&client, SNAPSHOT_SCHEMAS_SQL).await?;
@@ -1857,7 +1877,7 @@ async fn per_schema_snapshots(
     if unschemed || !schemas.iter().all(|s| is_annotatable_schema_name(s)) {
         return Ok(vec![(
             "initial".to_string(),
-            schema_snapshot(pg_db, no_acl, &[]).await?,
+            schema_snapshot(pg_db, no_acl, &[], snapshot).await?,
         )]);
     }
     let pairs = |rows: Vec<tokio_postgres::SimpleQueryRow>| -> Vec<(String, String)> {
@@ -1876,7 +1896,6 @@ async fn per_schema_snapshots(
             .into_iter()
             .collect();
     let extension_deps = pairs(simple_rows(&client, EXTENSION_DEPENDENCIES_SQL).await?);
-    drop(client);
 
     let mut snapshots = vec![];
     if !extensions.is_empty() {
@@ -1900,7 +1919,9 @@ async fn per_schema_snapshots(
     }
     for group in order_referenced_first(&schemas, &deps) {
         let names: Vec<&str> = group.iter().map(String::as_str).collect();
-        let dump = make_schema_snapshot_replayable(&schema_snapshot(pg_db, no_acl, &names).await?);
+        let dump = make_schema_snapshot_replayable(
+            &schema_snapshot(pg_db, no_acl, &names, snapshot).await?,
+        );
         // Every database has `public`, and `CREATE EXTENSION` makes the schema it owns.
         if !snapshot_has_objects(&dump)
             && group
@@ -1924,6 +1945,8 @@ async fn per_schema_snapshots(
         let scope: Vec<&str> = scope.iter().map(String::as_str).collect();
         snapshots.push((name, with_schemas_annotation(&dump, &scope)));
     }
+    // Only now: dropping it ends the transaction the dumps above read their snapshot from.
+    drop(client);
     Ok(snapshots)
 }
 
@@ -1978,7 +2001,7 @@ async fn generate_initial_datatable_migration(
     let snapshots = if query.whole_database {
         vec![(
             "initial".to_string(),
-            schema_snapshot(&pg_db, no_acl, &[]).await?,
+            schema_snapshot(&pg_db, no_acl, &[], None).await?,
         )]
     } else {
         per_schema_snapshots(&db, &pg_db, no_acl).await?

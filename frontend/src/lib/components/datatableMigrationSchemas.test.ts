@@ -74,7 +74,13 @@ END;`
 			'CREATE POLICY p ON sales.t FOR SELECT USING (true);',
 			'CREATE VIEW sales.v AS SELECT o.id FROM sales.orders o;',
 			// A cascade drops dependents wherever they are.
-			'DROP SCHEMA billing CASCADE;'
+			'DROP SCHEMA billing CASCADE;',
+			// Several targets, or a relation reached through another one.
+			'DROP SCHEMA sales, billing;',
+			'DROP TABLE sales.t, customers;',
+			'ALTER TABLE sales.t ATTACH PARTITION plain FOR VALUES IN (1);',
+			'ALTER TABLE sales.t INHERIT plain;',
+			'CREATE TABLE sales.t OF plain_type;'
 		]) {
 			expect(suggestMigrationSchemas(`CREATE TABLE sales.a (id int);\n${sql}`), sql).toEqual([])
 		}

@@ -110,7 +110,7 @@ const TRANSACTION_CONTROL = /^(?:BEGIN|COMMIT|END|START\s+TRANSACTION)$/i
 // or inherited definition, a sequence named in a string, and a cascade, which drops whatever
 // depends on the target wherever it lives. `ON DELETE CASCADE` is a foreign key's action.
 const OPAQUE_CLAUSE =
-	/\b(?:SELECT|FROM|LIKE|INHERITS|PARTITION\s+OF|EXECUTE|nextval)\b|::\s*regclass|(?<!\bON\s+(?:DELETE|UPDATE)\s+)\bCASCADE\b/i
+	/\b(?:SELECT|FROM|LIKE|INHERITS?|OF|ATTACH|DETACH|EXECUTE|nextval)\b|::\s*regclass|(?<!\bON\s+(?:DELETE|UPDATE)\s+)\bCASCADE\b/i
 // Words a definition puts before `(` that call nothing a search path resolves: clause keywords,
 // built-in types with a modifier, index methods, and `pg_catalog` functions.
 const PAREN_WORDS = new Set(
@@ -185,6 +185,8 @@ export function suggestMigrationSchemas(sql: string): string[] {
 		.filter((s) => s !== '' && !TRANSACTION_CONTROL.test(s))
 	if (statements.length === 0) return []
 	for (const s of statements) {
+		// `DROP TABLE a, b` and `DROP SCHEMA a, b` name several targets; the reader checks one.
+		if (/^DROP\b/i.test(s) && splitTopLevel(s).length > 1) return []
 		if (!STATEMENT_SHAPE.test(s) || !namesAreQualified(s)) return []
 	}
 	const found = qualifiedSchemas(code)

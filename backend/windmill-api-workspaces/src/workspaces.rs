@@ -3267,6 +3267,9 @@ pub(crate) struct PgDumpOptions<'a> {
     pub(crate) no_acl: bool,
     /// Dump only these schemas, matched by exact name. Empty dumps the whole database.
     pub(crate) schemas: &'a [&'a str],
+    /// Read the database as of this exported snapshot (`pg_export_snapshot`), whose transaction
+    /// must stay open until the dump returns.
+    pub(crate) snapshot: Option<&'a str>,
 }
 
 /// Run pg_dump against a PgDatabase, writing output to a temp file on disk.
@@ -3299,6 +3302,9 @@ pub(crate) async fn pg_dump_database(
     // `--schema` takes a pattern; double quotes make the name literal and case-sensitive.
     for schema in opts.schemas {
         cmd.arg(format!("--schema=\"{}\"", schema.replace('"', "\"\"")));
+    }
+    if let Some(snapshot) = opts.snapshot {
+        cmd.arg(format!("--snapshot={snapshot}"));
     }
     cmd.arg("--host")
         .arg(host)
