@@ -246,11 +246,15 @@
 	     Workspace fork, All workspaces) stay visible however long it gets. -->
 	<div class="py-1 overflow-y-auto max-h-[min(50vh,26rem)]">
 		{#each familyWorkspaces as { workspace, depth, isForked, parentName, separatorBefore } (workspace.id)}
-			{#if separatorBefore}
-				<div class="my-1 border-t border-border-light" role="separator"></div>
-			{/if}
 			{@const isActive = $workspaceStore === workspace.id}
 			{@const forkAccent = isForked ? forkAccentStyle(workspace.color) : undefined}
+			{#if separatorBefore}
+				<div
+					class="my-1 border-t border-border-light"
+					style:margin-left={`${(depth - 1) * 16}px`}
+					role="separator"
+				></div>
+			{/if}
 			<!-- Selection is a trailing tick (single-choice picker convention). A
 			     collapsed root carries the tick while one of its forks is active —
 			     the fork row is hidden and its family is the only trace of the

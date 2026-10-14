@@ -434,7 +434,11 @@
 					{@const forkIdx = (root ? 1 : 0) + fi}
 					{@const accentStyle = forkAccentStyle(f.color)}
 					{#if separatorBefore}
-						<div class="my-1 border-t border-border-light shrink-0" role="separator"></div>
+						<div
+							class="my-1 border-t border-border-light shrink-0"
+							style:margin-left={`${((familyDepths.get(f.id) ?? 1) - 1) * 16}px`}
+							role="separator"
+						></div>
 					{/if}
 					<div class="relative group shrink-0">
 						<button
