@@ -411,20 +411,20 @@ export function dbSchemaOpsWithPreviewScripts({
 			)
 			return
 		}
-		// The new migration gets the highest timestamp, so any still-pending
-		// migration is earlier: running only this one applies it out of order.
-		// Warn like the row-level Run action does (skipped if no confirm hook).
-		if (confirmRunOutOfOrder) {
-			const pending = pendingMigrations(status.migrations).length
-			if (pending > 0 && !(await confirmRunOutOfOrder(pending))) {
-				throw new MigrationRunCancelled()
-			}
-		}
 		// Wrapped before annotating: the annotation must lead, above `BEGIN;`.
 		const codeUp = withMigrationRole(
 			wrapMigration(await expandMarker(workspace, language, content)),
 			migrationRole
 		)
+		// The new migration gets the highest timestamp, so any still-pending
+		// migration is earlier: running only this one applies it out of order.
+		// Warn like the row-level Run action does (skipped if no confirm hook).
+		if (confirmRunOutOfOrder) {
+			const pending = pendingMigrations(status.migrations, codeUp).length
+			if (pending > 0 && !(await confirmRunOutOfOrder(pending))) {
+				throw new MigrationRunCancelled()
+			}
+		}
 		// Down migrations are only generated for Postgres for now.
 		let codeDown: string | undefined
 		if (downContent && dbType === 'postgresql') {

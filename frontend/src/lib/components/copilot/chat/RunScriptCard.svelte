@@ -223,14 +223,31 @@
 	const autoTab = $derived(hasOutcome ? 'outcome' : ran ? 'logs' : 'input')
 	const activeTab = $derived(steered && tabs.some((t) => t.value === steered) ? steered : autoTab)
 
+	// The panel mounts the chat's own form on this call, so the card must not mount a second
+	// one: two views binding the one draft would each reorder the schema SchemaForm edits in
+	// place. Only the form is exclusive. A run shows in both, and collapsing the row or
+	// closing the tab is the user's own way out of seeing it twice.
+	const formInPreview = $derived(
+		pending && (aiChatManager.isRunFormTabOpen?.(message.tool_call_id) ?? false)
+	)
+	// A deployed page holding the call builds its own form from a copy of the proposal, so it
+	// shares no draft and this card keeps a working one. The row folds instead, and expanding
+	// it is how the reader runs from the transcript without going to the page.
+	const carriedByPage = $derived(
+		pending && !formInPreview && (aiChatManager.isRunFormInPreview?.(message.tool_call_id) ?? false)
+	)
+
 	// Keyed by call id: a bare flag would carry one card's collapse onto the next message
 	// reusing this instance. Open by default, since the run is what was asked for —
 	// except for an inspection, which is usually a step in the reasoning rather than
 	// the answer, and which pays a fetch for being opened. A run cancelled before it started
-	// is closed too: the row already says Cancelled, and there is no run to show.
+	// is closed too: the row already says Cancelled, and there is no run to show. So is a call
+	// whose page is on screen, which is the copy the reader is looking at.
 	let toggled = $state<{ id: string; open: boolean } | undefined>(undefined)
 	const expanded = $derived(
-		toggled?.id === message.tool_call_id ? toggled.open : !inspected && (ran || !canceled)
+		toggled?.id === message.tool_call_id
+			? toggled.open
+			: !inspected && (ran || !canceled) && !carriedByPage
 	)
 
 	$effect(() => {
@@ -284,14 +301,6 @@
 			logsReq.cancel()
 		}
 	})
-
-	// The panel mounts the chat's own form on this call, so the card must not mount a second
-	// one: two views binding the one draft would each reorder the schema SchemaForm edits in
-	// place. Only the form is exclusive. A run shows in both, and collapsing the row or
-	// closing the tab is the user's own way out of seeing it twice.
-	const formInPreview = $derived(
-		pending && (aiChatManager.isRunFormInPreview?.(message.tool_call_id) ?? false)
-	)
 
 	// The three moments a run moves the card — a tab arrives, the selection follows it, the body
 	// changes under it — are staggered rather than landing in one frame, which is what makes the
@@ -420,27 +429,52 @@
 	// waiting on one, the run once a job exists. Neither, and there is nothing to open, so
 	// the button is not drawn at all — a form has nowhere to go outside a session, and a
 	// call cancelled before Run never became a run.
+	// A deployed run can be confirmed on the item's own page instead of on this card: the page
+	// takes over the call, so Run there is Run here. A test run has no deployed page — it
+	// executes the draft being written — so it keeps the chat's own form tab.
+	const asDeployedPage = $derived(
+		pending && runForm?.kind === 'run' && !!path && !!aiChatManager.openRunOnDeployedPage
+	)
 	const previewTarget = $derived(
 		pending
-			? aiChatManager.openRunForm
-				? ('form' as const)
-				: undefined
+			? asDeployedPage
+				? ('deployed' as const)
+				: aiChatManager.openRunForm
+					? ('form' as const)
+					: undefined
 			: job
 				? ('run' as const)
 				: undefined
 	)
+	// A conversational flow's page has no run form, so opening it is all it can offer: the
+	// run stays on this card, where there is one to confirm.
+	const carries = $derived(asDeployedPage && !runForm?.conversational)
 	const previewTitle = $derived(
 		previewTarget === 'form'
 			? `Open this form in the preview panel: ${path}`
-			: aiChatManager.openRunInPreview
-				? `Open this run in the preview panel: ${path || runnableName}`
-				: `Open this run in a new tab: ${path || runnableName}`
+			: previewTarget === 'deployed'
+				? carries
+					? `Open the deployed ${runnableKind === 'flow' ? 'flow' : 'script'} and confirm this run there: ${path}`
+					: `Open the deployed ${runnableKind === 'flow' ? 'flow' : 'script'}: ${path}`
+				: aiChatManager.openRunInPreview
+					? `Open this run in the preview panel: ${path || runnableName}`
+					: `Open this run in a new tab: ${path || runnableName}`
 	)
 
 	function openPreview() {
 		const label = runnableName
 		if (previewTarget === 'form') {
 			aiChatManager.openRunForm?.({ toolCallId: message.tool_call_id, label })
+			return
+		}
+		if (previewTarget === 'deployed') {
+			aiChatManager.openRunOnDeployedPage?.({
+				toolCallId: message.tool_call_id,
+				kind: runnableKind === 'flow' ? 'flow' : 'script',
+				path,
+				summary: label,
+				carries
+			})
 			return
 		}
 		if (!job) return
@@ -476,6 +510,7 @@
 		title={previewTitle}
 		onOpen={openPreview}
 		kindIcon={false}
+		mode={previewTarget === 'deployed' ? 'view' : 'edit'}
 	/>
 {/snippet}
 

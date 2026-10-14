@@ -136,7 +136,9 @@
 	// (standalone pages such as svix webhook creation), so
 	// there forks must stay directly selectable — list the full hierarchy
 	// unconditionally.
-	const hierarchy = $derived($userWorkspaces ? buildWorkspaceHierarchy($userWorkspaces) : [])
+	const hierarchy = $derived(
+		$userWorkspaces ? buildWorkspaceHierarchy($userWorkspaces, $userStore?.email) : []
+	)
 	const expandedFamilies = new SvelteSet<string>()
 	// Root ids with at least one fork — only they get the expand chevron.
 	// hierarchy is a DFS (parent before child), so a depth>0 row belongs to the
@@ -243,9 +245,16 @@
 	<!-- The list scrolls internally so the sections below (+ Workspace,
 	     Workspace fork, All workspaces) stay visible however long it gets. -->
 	<div class="py-1 overflow-y-auto max-h-[min(50vh,26rem)]">
-		{#each familyWorkspaces as { workspace, depth, isForked, parentName }}
+		{#each familyWorkspaces as { workspace, depth, isForked, parentName, separatorBefore } (workspace.id)}
 			{@const isActive = $workspaceStore === workspace.id}
 			{@const forkAccent = isForked ? forkAccentStyle(workspace.color) : undefined}
+			{#if separatorBefore}
+				<div
+					class="my-1 border-t border-border-light"
+					style:margin-left={`${(depth - 1) * 16}px`}
+					role="separator"
+				></div>
+			{/if}
 			<!-- Selection is a trailing tick (single-choice picker convention). A
 			     collapsed root carries the tick while one of its forks is active —
 			     the fork row is hidden and its family is the only trace of the
@@ -381,11 +390,7 @@
 	{/if}
 	{#if canManageWorkspace && !strictWorkspaceSelect}
 		<div class="py-1" role="none">
-			<MenuItem
-				href="/workspace_settings?workspace={$workspaceStore}"
-				class={itemClass}
-				{item}
-			>
+			<MenuItem href="/workspace_settings?workspace={$workspaceStore}" class={itemClass} {item}>
 				<Settings size={16} />
 				{(activeWorkspace && ambiguousNames.has(activeWorkspace.name)
 					? activeWorkspace.id

@@ -1,0 +1,893 @@
+[
+  {
+    "name": "ai_instruction",
+    "description": "Instructions for the AI chat that apply to every item under the folder this resource lives in, like an AGENTS.md: an ai_instruction at f/billing/AGENTS is given to the assistant whenever it works on something under f/billing/. The file body is the instructions it follows.",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "name": "ai_skill",
+    "description": "A reusable instruction set for the AI chat, in the SKILL.md format. The resource description is what the assistant sees when deciding whether the skill applies; the file body is the instructions it follows.",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  {
+    "name": "airtable",
+    "description": "Airtable API key or personal access token, sent as a bearer token to the Airtable REST API.",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [],
+      "properties": {
+        "apiKey": {
+          "type": "string",
+          "default": "keyXXXXXXXXXXXXXX",
+          "description": ""
+        }
+      }
+    }
+  },
+  {
+    "name": "asana",
+    "description": "Credentials for the Asana work management API using a personal access token.",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "token"
+      ],
+      "properties": {
+        "token": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        }
+      }
+    }
+  },
+  {
+    "name": "aws",
+    "description": "Amazon Web Services (AWS) credentials: access key ID, secret access key and default region.",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "awsAccessKeyId",
+        "awsSecretAccessKey"
+      ],
+      "properties": {
+        "region": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        },
+        "awsAccessKeyId": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        },
+        "awsSecretAccessKey": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        }
+      }
+    }
+  },
+  {
+    "name": "azure_blob",
+    "description": "Connection settings for a Microsoft Azure Blob Storage container: account name, container name, access key and endpoint.",
+    "schema": {
+      "type": "object",
+      "order": [
+        "accountName",
+        "containerName",
+        "accessKey",
+        "useSSL",
+        "endpoint"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "accountName",
+        "containerName",
+        "useSSL"
+      ],
+      "properties": {
+        "useSSL": {
+          "type": "boolean",
+          "default": true,
+          "description": ""
+        },
+        "endpoint": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        },
+        "accessKey": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        },
+        "accountName": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        },
+        "containerName": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        }
+      }
+    }
+  },
+  {
+    "name": "clickup",
+    "description": "Credentials for the ClickUp API v2 using a personal API token.",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "token"
+      ],
+      "properties": {
+        "token": {
+          "type": "string",
+          "description": "API token retrieved from the dashboard."
+        }
+      }
+    }
+  },
+  {
+    "name": "discord_webhook",
+    "description": "Discord incoming webhook URL for posting messages to a Discord channel.\n\nSee: <https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks>",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [],
+      "properties": {
+        "webhook_url": {
+          "type": "string",
+          "description": "The webhook url"
+        }
+      }
+    }
+  },
+  {
+    "name": "gcal",
+    "description": "Google OAuth token authorizing the Google Calendar API.",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "token"
+      ],
+      "properties": {
+        "token": {
+          "type": "string",
+          "description": "The OAuth token, refreshed if necessary"
+        }
+      }
+    }
+  },
+  {
+    "name": "gcp_service_account",
+    "description": "Google Cloud service account key (JSON) used to authenticate to Google Cloud APIs.",
+    "schema": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "auth_uri": {
+          "type": "string",
+          "format": "url"
+        },
+        "client_id": {
+          "type": "string"
+        },
+        "token_uri": {
+          "type": "string",
+          "format": "url"
+        },
+        "project_id": {
+          "type": "string"
+        },
+        "private_key": {
+          "type": "string"
+        },
+        "client_email": {
+          "type": "string",
+          "format": "email"
+        },
+        "private_key_id": {
+          "type": "string"
+        },
+        "client_x509_cert_url": {
+          "type": "string",
+          "format": "url"
+        },
+        "auth_provider_x509_cert_url": {
+          "type": "string",
+          "format": "url"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "github",
+    "description": "GitHub token (OAuth or personal access token) authorizing the GitHub REST API: repositories, issues and pull requests.",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "token"
+      ],
+      "properties": {
+        "token": {
+          "type": "string",
+          "description": ""
+        }
+      }
+    }
+  },
+  {
+    "name": "gitlab",
+    "description": "Credentials for the GitLab API v4 using a personal access token, with the base URL of the GitLab instance (self-hosted or gitlab.com).",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "token"
+      ],
+      "properties": {
+        "token": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        },
+        "baseUrl": {
+          "type": "string",
+          "default": "https://gitlab.com",
+          "description": ""
+        }
+      }
+    }
+  },
+  {
+    "name": "gmail",
+    "description": "Google OAuth token authorizing the Gmail API to send email as the connected Google account.",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "token"
+      ],
+      "properties": {
+        "token": {
+          "type": "string",
+          "description": ""
+        }
+      }
+    }
+  },
+  {
+    "name": "gsheets",
+    "description": "Google OAuth token authorizing the Google Sheets API for reading and writing spreadsheets.",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "token"
+      ],
+      "properties": {
+        "token": {
+          "type": "string",
+          "description": "The OAuth token, refreshed if necessary"
+        }
+      }
+    }
+  },
+  {
+    "name": "hubspot",
+    "description": "Credentials for the HubSpot CRM API using a private app access token.",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [],
+      "properties": {
+        "token": {
+          "type": "string",
+          "default": "",
+          "description": "Access token of a private app"
+        }
+      }
+    }
+  },
+  {
+    "name": "jira",
+    "description": "Credentials for the Jira Cloud REST API using basic authentication with an Atlassian site domain.",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "username",
+        "password",
+        "domain"
+      ],
+      "properties": {
+        "domain": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        },
+        "password": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        },
+        "username": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        }
+      }
+    }
+  },
+  {
+    "name": "linear",
+    "description": "Credentials for the Linear issue tracking API using a personal API key.",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "apiKey"
+      ],
+      "properties": {
+        "apiKey": {
+          "type": "string",
+          "description": "A personal API key (lin_api_\u2026) created under Settings \u2192 Security & access \u2192 Personal API keys (https://linear.app/settings/account/security)."
+        }
+      }
+    }
+  },
+  {
+    "name": "mailchimp",
+    "description": "API key and account data center prefix (e.g. us12) for the Mailchimp Marketing API.",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [],
+      "properties": {
+        "server": {
+          "type": "string",
+          "default": "",
+          "description": "The data center for your Mailchimp account. (For example: us12)"
+        },
+        "api_key": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        }
+      }
+    }
+  },
+  {
+    "name": "mongodb",
+    "description": "Connection settings for a MongoDB database: server host/port list, database name, TLS and SCRAM credentials.",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "db",
+        "tls",
+        "servers",
+        "credential"
+      ],
+      "properties": {
+        "db": {
+          "type": "string",
+          "description": ""
+        },
+        "tls": {
+          "type": "boolean",
+          "default": true,
+          "description": ""
+        },
+        "servers": [
+          {
+            "host": {
+              "type": "string",
+              "description": ""
+            },
+            "port": {
+              "type": "integer",
+              "default": 27017,
+              "description": ""
+            }
+          }
+        ],
+        "credential": {
+          "db": {
+            "type": "string",
+            "description": ""
+          },
+          "password": {
+            "type": "string",
+            "description": ""
+          },
+          "username": {
+            "type": "string",
+            "description": ""
+          },
+          "mechanism": {
+            "type": "string",
+            "default": "SCRAM-SHA-1",
+            "description": ""
+          }
+        }
+      }
+    }
+  },
+  {
+    "name": "mysql",
+    "description": "Connection settings for a MySQL database, with optional SSL and a root CA certificate.",
+    "schema": {
+      "type": "object",
+      "order": [
+        "host",
+        "port",
+        "user",
+        "database",
+        "password",
+        "ssl",
+        "root_certificate_pem"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "user",
+        "database",
+        "password"
+      ],
+      "properties": {
+        "ssl": {
+          "type": "boolean",
+          "default": false,
+          "description": "use ssl"
+        },
+        "host": {
+          "type": "string",
+          "default": "",
+          "description": "instance host"
+        },
+        "port": {
+          "type": "number",
+          "default": 3306,
+          "description": "instance port"
+        },
+        "user": {
+          "type": "string",
+          "default": "",
+          "description": "username"
+        },
+        "database": {
+          "type": "string",
+          "default": "",
+          "description": "database name"
+        },
+        "password": {
+          "type": "string",
+          "default": "",
+          "description": "user's password"
+        },
+        "root_certificate_pem": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        }
+      }
+    }
+  },
+  {
+    "name": "notion",
+    "description": "Notion API token: filled by Windmill's Notion OAuth connect, or an internal connection's API token / personal access token pasted in.",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "token"
+      ],
+      "properties": {
+        "token": {
+          "type": "string",
+          "default": "",
+          "description": "Filled automatically when you connect with OAuth. To paste one instead: the API token of an internal connection (ntn_\u2026) or a personal access token, both created in the Notion developer portal at https://www.notion.so/developers. A connection token only reaches the pages granted to it under Content access."
+        }
+      }
+    }
+  },
+  {
+    "name": "openai",
+    "description": "OpenAI secret API key, with optional organization ID and base URL override, for the OpenAI API.",
+    "schema": {
+      "type": "object",
+      "order": [
+        "api_key",
+        "organization_id",
+        "base_url"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "api_key"
+      ],
+      "properties": {
+        "api_key": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        },
+        "base_url": {
+          "type": "string",
+          "default": "",
+          "description": "Optional. Only needed to overwrite the default base URL."
+        },
+        "organization_id": {
+          "type": "string",
+          "default": "",
+          "description": "Only needs to be set for users who belong to multiple organizations and they want to use an organization other than the default one"
+        }
+      }
+    }
+  },
+  {
+    "name": "postgresql",
+    "description": "Connection settings for a PostgreSQL database: host, port, database name, user, password and SSL/IAM auth options.",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "dbname",
+        "user",
+        "password"
+      ],
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "The instance host"
+        },
+        "port": {
+          "type": "integer",
+          "description": "The instance port"
+        },
+        "user": {
+          "type": "string",
+          "description": "The postgres username"
+        },
+        "dbname": {
+          "type": "string",
+          "description": "The database name"
+        },
+        "region": {
+          "type": "string",
+          "description": "AWS region for IAM auth (e.g. us-east-1). Falls back to AWS_REGION env var if not set."
+        },
+        "options": {
+          "type": "string",
+          "description": "Startup options sent to the server (the libpq options parameter), such as endpoint=<endpoint-id> for a Neon pooled or private connection, or -c search_path=myschema"
+        },
+        "sslmode": {
+          "enum": [
+            "disable",
+            "allow",
+            "prefer",
+            "require",
+            "verify-ca",
+            "verify-full"
+          ],
+          "type": "string",
+          "description": "Most cloud databases (Heroku, AWS, Supabase, etc.) require SSL. Self-hosted databases typically don't."
+        },
+        "password": {
+          "type": "string",
+          "description": "The postgres users password"
+        },
+        "use_iam_auth": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use IAM authentication (AWS RDS/Aurora). When enabled, the password field is ignored and a short-lived IAM token is generated instead."
+        },
+        "accept_invalid_certs": {
+          "type": "boolean",
+          "default": false,
+          "showExpr": "fields.sslmode == 'verify-ca' || fields.sslmode == 'verify-full'",
+          "description": "Accept any certificate presented by the server, which disables TLS certificate verification and is not recommended. Only applies to verify-ca/verify-full."
+        },
+        "root_certificate_pem": {
+          "type": "string",
+          "default": "",
+          "description": "The root certificate in pe format"
+        }
+      }
+    }
+  },
+  {
+    "name": "s3",
+    "description": "Connection settings for an Amazon S3 (AWS) bucket: endpoint, region, bucket name and access keys.",
+    "schema": {
+      "type": "object",
+      "order": [
+        "endPoint",
+        "region",
+        "pathStyle",
+        "bucket",
+        "accessKey",
+        "secretKey",
+        "port",
+        "useSSL"
+      ],
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "bucket"
+      ],
+      "properties": {
+        "port": {
+          "type": "number",
+          "description": "Deprecated: pass in a complete URL to `endPoint` instead, including a port number if needed"
+        },
+        "bucket": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        },
+        "region": {
+          "type": "string",
+          "default": "",
+          "description": "AWS region (e.g. us-east-1). Used to auto-generate the S3 endpoint URL when endPoint is not specified"
+        },
+        "useSSL": {
+          "type": "boolean",
+          "default": true,
+          "description": "Deprecated: pass in a complete URL to `endPoint` instead, including 'https://' or 'http://'"
+        },
+        "endPoint": {
+          "type": "string",
+          "default": "",
+          "description": "The full URL of the S3 endpoint (e.g. https://s3.us-east-1.amazonaws.com)"
+        },
+        "accessKey": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        },
+        "pathStyle": {
+          "type": "boolean",
+          "default": true,
+          "description": "<host>/<bucket>/<path> instead of <bucket>.<host>/<path>"
+        },
+        "secretKey": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        }
+      }
+    }
+  },
+  {
+    "name": "salesforce",
+    "description": "Salesforce OAuth Authorization Code credential. The token is populated by Windmill's OAuth flow; instance_url pins every REST call to the org's data host, api_version selects the REST API version.",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "token",
+        "instance_url"
+      ],
+      "properties": {
+        "token": {
+          "type": "string",
+          "description": "OAuth access token. Populated by Windmill's OAuth flow."
+        },
+        "api_version": {
+          "type": "string",
+          "description": "Salesforce REST API version path segment, e.g. v60.0. Optional \u2014 scripts default to v60.0 when left blank."
+        },
+        "instance_url": {
+          "type": "string",
+          "description": "Org data host returned in the OAuth token response, e.g. https://acme.my.salesforce.com (production) or https://acme--sandbox.sandbox.my.salesforce.com (sandbox). Every REST call is made against this host, not login.salesforce.com."
+        }
+      }
+    }
+  },
+  {
+    "name": "sendgrid",
+    "description": "Twilio SendGrid API key for the SendGrid v3 API: transactional email, contacts, marketing lists and bounces.",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "token"
+      ],
+      "properties": {
+        "token": {
+          "type": "string",
+          "default": "",
+          "description": "API token"
+        }
+      }
+    }
+  },
+  {
+    "name": "shopify",
+    "description": "Credentials for the Shopify Admin API using a store name and access token.",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "store_name",
+        "token"
+      ],
+      "properties": {
+        "token": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        },
+        "store_name": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        }
+      }
+    }
+  },
+  {
+    "name": "slack",
+    "description": "Slack bot or user OAuth token authorizing the Slack Web API (messages, channels, users and files).",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [],
+      "properties": {
+        "token": {
+          "type": "string",
+          "description": "The slack token"
+        }
+      }
+    }
+  },
+  {
+    "name": "smtp",
+    "description": "Connection settings for an SMTP mail server used to send email.",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "host"
+      ],
+      "properties": {
+        "host": {
+          "type": "string",
+          "default": "mail.smtpbucket.com",
+          "description": "SMTP host address"
+        },
+        "port": {
+          "type": "integer",
+          "default": 8025,
+          "description": "port number on which to connect"
+        },
+        "user": {
+          "type": "string",
+          "description": ""
+        },
+        "password": {
+          "type": "string",
+          "description": ""
+        }
+      }
+    }
+  },
+  {
+    "name": "stripe",
+    "description": "Stripe secret API key for the Stripe payments API.",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [],
+      "properties": {
+        "token": {
+          "type": "string",
+          "description": ""
+        }
+      }
+    }
+  },
+  {
+    "name": "supabase",
+    "description": "Supabase project URL and API key for the Supabase REST, auth and storage APIs.\n\nRetrieve both values in \"Project Settings -> API\".",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [],
+      "properties": {
+        "key": {
+          "type": "string",
+          "default": "",
+          "description": "The unique Supabase Key which is supplied when you create a new project in your project dashboard."
+        },
+        "url": {
+          "type": "string",
+          "default": "",
+          "description": "The unique Supabase URL which is supplied when you create a new project in your project dashboard."
+        }
+      }
+    }
+  },
+  {
+    "name": "twilio",
+    "description": "Credentials for the Twilio messaging and voice API using an Account SID and auth token.",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "token",
+        "accountSid"
+      ],
+      "properties": {
+        "token": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        },
+        "accountSid": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        }
+      }
+    }
+  },
+  {
+    "name": "zendesk",
+    "description": "Zendesk API credentials: account subdomain plus email and password or API token, used with HTTP Basic auth.",
+    "schema": {
+      "type": "object",
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "required": [
+        "username",
+        "subdomain",
+        "password"
+      ],
+      "properties": {
+        "password": {
+          "type": "string",
+          "default": "",
+          "description": "password or api token"
+        },
+        "username": {
+          "type": "string",
+          "default": "",
+          "description": "email or \"{email}/token\" if using an api token"
+        },
+        "subdomain": {
+          "type": "string",
+          "default": "",
+          "description": ""
+        }
+      }
+    }
+  }
+]
