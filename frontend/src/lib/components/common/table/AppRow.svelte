@@ -249,10 +249,7 @@
 						// No `href`: the handler resolves the destination asynchronously, and a melt
 						// menu item's anchor navigates before a delegated onclick can preventDefault it.
 						action: (e) => onEditInForkClick(e, app.raw_app ? 'raw_app' : 'app', path),
-						hide:
-							$userStore?.operator ||
-							isCloudHosted() ||
-							!editInForkAllowed($workspaceStore, $userWorkspaces)
+						hide: isCloudHosted() || !editInForkAllowed($workspaceStore, $userWorkspaces)
 					},
 					{
 						displayName: 'Move/Rename',

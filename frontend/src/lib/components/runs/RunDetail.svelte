@@ -760,8 +760,7 @@
 	)
 	const canEditInFork = $derived(
 		(job?.job_kind === 'script' || job?.job_kind === 'flow') &&
-			!actingUser?.operator &&
-			!showEditButton &&
+			(!showEditButton || !!actingUser?.operator) &&
 			!isCloudHosted() &&
 			editInForkAllowed(workspaceId, $userWorkspaces)
 	)
@@ -1351,7 +1350,7 @@
 					{/if}
 				{/if}
 			{/if}
-			{#if (!showEditButton || actingUser?.operator) && !isCloudHosted() && editInForkAllowed(workspaceId, $userWorkspaces)}
+			{#if canEditInFork}
 				<Button
 					href={buildForkEditUrl(
 						isScriptJob ? 'script' : 'flow',
