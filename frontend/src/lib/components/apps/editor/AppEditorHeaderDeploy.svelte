@@ -316,12 +316,13 @@
 		label="Run on behalf of"
 		tooltip="A policy computed at deploy time lets the app call only the scripts and flows it refers to, on behalf of the publisher, with static parameters that viewers cannot override. Viewers can use the app as the publisher intended without reaching resources the app does not use."
 	>
-		<div class="text-xs text-secondary">
-			Viewers run the app's runnables on behalf of the publisher.
-		</div>
-		{#if canPreserve}
-			<div class="flex flex-wrap items-center gap-1 mt-2 text-xs text-secondary">
-				As an admin or a member of {WM_DEPLOYERS_GROUP}, you can change who it runs as:
+		{#if !canPreserve}
+			<div class="text-xs text-secondary">
+				Viewers run the app's runnables on behalf of you, the publisher. Only workspace admins and
+				members of {WM_DEPLOYERS_GROUP} can pick another user.
+			</div>
+		{:else}
+			<div class="flex flex-col items-start gap-1">
 				<OnBehalfOfSelector
 					targetWorkspace={opWs ?? ''}
 					targetValue={savedOnBehalfOfEmail}
@@ -350,6 +351,7 @@
 					customValue={customOnBehalfOfEmail}
 					isDeployment={false}
 				/>
+				<div class="text-2xs text-secondary">Viewers run the app's runnables as this user.</div>
 			</div>
 		{/if}
 	</Section>
