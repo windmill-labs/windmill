@@ -383,268 +383,272 @@
 
 <div
 	bind:this={rootEl}
-	class="divide-y"
 	role="none"
 	onpointermovecapture={keepSearchFocus}
 	onpointerleavecapture={keepSearchFocus}
 	onfocusincapture={returnFocusToSearch}
 >
-	{#if showSearch}
-		<SearchItems
-			filter={searchFilter}
-			items={$userWorkspaces}
-			bind:filteredItems={searchMatches}
-			f={(w) => w.name + ' (' + w.id + ')'}
-		/>
-		<!-- Keys typed here must not reach melt: its menu typeahead would focus the first item
+	<div class="divide-y" role="none">
+		{#if showSearch}
+			<SearchItems
+				filter={searchFilter}
+				items={$userWorkspaces}
+				bind:filteredItems={searchMatches}
+				f={(w) => w.name + ' (' + w.id + ')'}
+			/>
+			<!-- Keys typed here must not reach melt: its menu typeahead would focus the first item
 		     starting with the typed letter. A native listener, because Svelte delegates `onkeydown`
 		     to the root, which runs after melt's listener on the menu element. -->
-		<div
-			bind:this={searchWrapEl}
-			class="px-2 pt-1 pb-2"
-			role="none"
-			{@attach (el) => {
-				el.addEventListener('keydown', onSearchKeydown)
-				return () => el.removeEventListener('keydown', onSearchKeydown)
-			}}
-		>
-			<div class="relative">
-				<TextInput
-					bind:value={searchFilter}
-					size="sm"
-					inputProps={{
-						placeholder: 'Search workspaces...',
-						autofocus: true,
-						oninput: onSearchInput
-					}}
-					class="!pr-8"
-				/>
-				<Search
-					size={14}
-					class="text-secondary absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"
-				/>
+			<div
+				bind:this={searchWrapEl}
+				class="px-2 pt-1 pb-2"
+				role="none"
+				{@attach (el) => {
+					el.addEventListener('keydown', onSearchKeydown)
+					return () => el.removeEventListener('keydown', onSearchKeydown)
+				}}
+			>
+				<div class="relative">
+					<TextInput
+						bind:value={searchFilter}
+						size="sm"
+						inputProps={{
+							placeholder: 'Search workspaces...',
+							autofocus: true,
+							oninput: onSearchInput
+						}}
+						class="!pr-8"
+					/>
+					<Search
+						size={14}
+						class="text-secondary absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"
+					/>
+				</div>
 			</div>
-		</div>
-	{/if}
-	<!-- The list scrolls internally so the sections below (+ Workspace,
-	     Workspace fork, All workspaces) stay visible however long it gets. -->
-	<div class="py-1 overflow-y-auto max-h-[min(50vh,26rem)]">
-		{#if searching && familyWorkspaces.length === 0}
-			<div class="px-3 py-2 text-xs text-secondary">No workspaces match your search</div>
 		{/if}
-		{#each familyWorkspaces as { workspace, depth, isForked, parentName }}
-			{@const isActive = $workspaceStore === workspace.id}
-			{@const forkAccent = isForked ? forkAccentStyle(workspace.color) : undefined}
-			<!-- Selection is a trailing tick (single-choice picker convention). A
+		<!-- The list scrolls internally so the sections below (+ Workspace,
+	     Workspace fork, All workspaces) stay visible however long it gets. -->
+		<div class="py-1 overflow-y-auto max-h-[min(50vh,26rem)]">
+			{#if searching && familyWorkspaces.length === 0}
+				<div class="px-3 py-2 text-xs text-secondary">No workspaces match your search</div>
+			{/if}
+			{#each familyWorkspaces as { workspace, depth, isForked, parentName }}
+				{@const isActive = $workspaceStore === workspace.id}
+				{@const forkAccent = isForked ? forkAccentStyle(workspace.color) : undefined}
+				<!-- Selection is a trailing tick (single-choice picker convention). A
 			     collapsed root carries the tick while one of its forks is active —
 			     the fork row is hidden and its family is the only trace of the
 			     selection; expanding moves the tick to the fork itself. -->
-			{@const isSelected =
-				isActive ||
-				(!strictWorkspaceSelect &&
-					depth === 0 &&
-					lineageRoot?.id === workspace.id &&
-					!isExpanded(workspace.id) &&
-					(!searching || searchedRows.some((h) => h.workspace.id === $workspaceStore)))}
-			{@const expandable =
-				!strictWorkspaceSelect && depth === 0 && expandableFamilies.has(workspace.id)}
-			<!-- The expand chevron sits OUTSIDE the melt item: melt activates items
+				{@const isSelected =
+					isActive ||
+					(!strictWorkspaceSelect &&
+						depth === 0 &&
+						lineageRoot?.id === workspace.id &&
+						!isExpanded(workspace.id) &&
+						(!searching || searchedRows.some((h) => h.workspace.id === $workspaceStore)))}
+				{@const expandable =
+					!strictWorkspaceSelect && depth === 0 && expandableFamilies.has(workspace.id)}
+				<!-- The expand chevron sits OUTSIDE the melt item: melt activates items
 			     via document-level handlers, so a nested button can't stop the row's
 			     navigate-and-close with stopPropagation. As a sibling it toggles the
 			     family without selecting the row or closing the menu. -->
-			<!-- Hover/keyboard-highlight backgrounds live on the wrapper (the
+				<!-- Hover/keyboard-highlight backgrounds live on the wrapper (the
 			     highlight via :has(), since melt puts data-highlighted on the item) so
 			     they span the full row, chevron included; the chevron keeps only its
 			     own hover tint. The active workspace is marked by its row's check
 			     icon, not a background or text accent. -->
-			<div
-				data-workspace-id={workspace.id}
-				data-nav-id={showSearch && !workspace.disabled ? workspace.id : undefined}
-				class={twMerge(
-					'group flex items-center min-w-0 w-full',
-					workspace.disabled
-						? ''
-						: showSearch
-							? highlightedId === workspace.id && 'bg-surface-hover'
-							: 'hover:bg-surface-hover [&:has([data-highlighted])]:bg-surface-hover'
-				)}
-			>
-				<MenuItem
-					class={twMerge(
-						'text-xs min-w-0 flex-1 overflow-hidden flex flex-col py-1.5 px-3 focus:outline-none',
-						workspace.disabled && 'opacity-50 cursor-not-allowed',
-						isActive ? 'cursor-default' : workspace.disabled ? '' : 'cursor-pointer'
-					)}
-					href={workspace.disabled ? undefined : workspaceHref(workspace.id)}
-					onClick={(e) => onWorkspaceItemClick(e, workspace)}
-					{item}
-				>
-					<div class="flex items-center justify-between gap-2 min-w-0 w-full">
-						<div class="flex items-center gap-2 min-w-0" style:padding-left={`${depth * 16}px`}>
-							<WorkspaceIcon
-								workspaceColor={workspace.color}
-								{isForked}
-								isDevWorkspace={workspace.is_dev_workspace}
-								devWorkspaceLabel={workspace.dev_workspace_label}
-								{parentName}
-								padding="p-1"
-							/>
-							<div class="min-w-0 flex-1">
-								<div class="flex items-center gap-1 min-w-0">
-									<div
-										class="truncate text-left text-xs font-normal {forkAccent
-											? 'text-[color:var(--fork-accent-text)] dark:text-[color:var(--fork-accent-text-dark)]'
-											: 'text-primary'}"
-										style={forkAccent}
-										title={workspace.name}
-									>
-										{#if markedNames.get(workspace.id)}
-											<!-- SearchItems escapes the text; only its <mark> tags are markup. -->
-											{@html markedNames.get(workspace.id)}
-										{:else}
-											{workspace.name}
-										{/if}{workspace.disabled ? ' (user disabled)' : ''}
-									</div>
-									{#if workspace.is_dev_workspace}
-										<DevWorkspaceBadge
-											label={workspace.dev_workspace_label}
-											color={workspace.color}
-											fallbackClass="dark:bg-surface-accent-primary text-white dark:text-white"
-											class="text-3xs px-1 py-0"
-										/>
-									{/if}
-								</div>
-								{#if ambiguousNames.has(workspace.name) && !markedNames.has(workspace.id)}
-									<div class="truncate text-left text-2xs text-tertiary" title={workspace.id}>
-										{workspace.id}
-									</div>
-								{/if}
-							</div>
-						</div>
-						{#if isSelected}
-							<Check size={14} class="shrink-0 ml-2 text-accent" />
-						{/if}
-					</div>
-				</MenuItem>
-				<!-- Hover-revealed like the fork picker's rows; a flex sibling of the melt
-				     item (nested buttons are invalid HTML) that always occupies its slot so
-				     nothing shifts on hover. -->
 				<div
-					class="shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
+					data-workspace-id={workspace.id}
+					data-nav-id={showSearch && !workspace.disabled ? workspace.id : undefined}
+					class={twMerge(
+						'group flex items-center min-w-0 w-full',
+						workspace.disabled
+							? ''
+							: showSearch
+								? highlightedId === workspace.id && 'bg-surface-hover'
+								: 'hover:bg-surface-hover [&:has([data-highlighted])]:bg-surface-hover'
+					)}
 				>
-					<CopyButton value={workspace.id} title={`Copy id: ${workspace.id}`} />
-				</div>
-				{#if expandable}
-					{@const expanded = isExpanded(workspace.id)}
-					<!-- mousedown is cancelled so the click leaves focus in the search field. -->
-					<button
-						type="button"
-						title={expanded ? 'Hide forks' : 'Show forks'}
-						aria-expanded={expanded}
-						class="shrink-0 mr-1 px-2 self-stretch flex items-center rounded text-tertiary hover:bg-surface-hover hover:text-primary"
-						onmousedown={(e) => showSearch && e.preventDefault()}
-						onclick={() => toggleFamily(workspace.id)}
-					>
-						{#if expanded}
-							<ChevronDown size={14} />
-						{:else}
-							<ChevronRight size={14} />
-						{/if}
-					</button>
-				{:else}
-					<!-- Reserve the expand-chevron's slot on fork-less rows so the hover copy
-					     button lines up with the forked rows' and never sits flush against the
-					     menu's right edge. Matches the chevron's px-2 (30px) + mr-1. -->
-					<div class="shrink-0 mr-1 w-[30px]" aria-hidden="true"></div>
-				{/if}
-			</div>
-		{/each}
-	</div>
-	{#if (isCloudHosted() || $superadmin || canForkHere) && !strictWorkspaceSelect}
-		<div class="py-1" role="none">
-			{#if isCloudHosted() || $superadmin}
-				<div role="none" data-nav-id={actionNavId('create')}>
-					<MenuItem href="/user/create_workspace" class={actionClass('create')} {item}>
-						<Plus size={16} />
-						Workspace
-					</MenuItem>
-				</div>
-			{/if}
-			{#if canForkHere}
-				<div role="none" data-nav-id={actionNavId('fork')}>
 					<MenuItem
-						class={actionClass('fork')}
-						onClick={() => (globalForkModal.val = { opened: true })}
+						class={twMerge(
+							'text-xs min-w-0 flex-1 overflow-hidden flex flex-col py-1.5 px-3 focus:outline-none',
+							workspace.disabled && 'opacity-50 cursor-not-allowed',
+							isActive ? 'cursor-default' : workspace.disabled ? '' : 'cursor-pointer'
+						)}
+						href={workspace.disabled ? undefined : workspaceHref(workspace.id)}
+						onClick={(e) => onWorkspaceItemClick(e, workspace)}
 						{item}
 					>
-						<Plus size={16} />
-						Workspace fork
+						<div class="flex items-center justify-between gap-2 min-w-0 w-full">
+							<div class="flex items-center gap-2 min-w-0" style:padding-left={`${depth * 16}px`}>
+								<WorkspaceIcon
+									workspaceColor={workspace.color}
+									{isForked}
+									isDevWorkspace={workspace.is_dev_workspace}
+									devWorkspaceLabel={workspace.dev_workspace_label}
+									{parentName}
+									padding="p-1"
+								/>
+								<div class="min-w-0 flex-1">
+									<div class="flex items-center gap-1 min-w-0">
+										<div
+											class="truncate text-left text-xs font-normal {forkAccent
+												? 'text-[color:var(--fork-accent-text)] dark:text-[color:var(--fork-accent-text-dark)]'
+												: 'text-primary'}"
+											style={forkAccent}
+											title={workspace.name}
+										>
+											{#if markedNames.get(workspace.id)}
+												<!-- SearchItems escapes the text; only its <mark> tags are markup. -->
+												{@html markedNames.get(workspace.id)}
+											{:else}
+												{workspace.name}
+											{/if}{workspace.disabled ? ' (user disabled)' : ''}
+										</div>
+										{#if workspace.is_dev_workspace}
+											<DevWorkspaceBadge
+												label={workspace.dev_workspace_label}
+												color={workspace.color}
+												fallbackClass="dark:bg-surface-accent-primary text-white dark:text-white"
+												class="text-3xs px-1 py-0"
+											/>
+										{/if}
+									</div>
+									{#if ambiguousNames.has(workspace.name) && !markedNames.has(workspace.id)}
+										<div class="truncate text-left text-2xs text-tertiary" title={workspace.id}>
+											{workspace.id}
+										</div>
+									{/if}
+								</div>
+							</div>
+							{#if isSelected}
+								<Check size={14} class="shrink-0 ml-2 text-accent" />
+							{/if}
+						</div>
+					</MenuItem>
+					<!-- Hover-revealed like the fork picker's rows; a flex sibling of the melt
+				     item (nested buttons are invalid HTML) that always occupies its slot so
+				     nothing shifts on hover. -->
+					<div
+						class="shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity"
+					>
+						<CopyButton value={workspace.id} title={`Copy id: ${workspace.id}`} />
+					</div>
+					{#if expandable}
+						{@const expanded = isExpanded(workspace.id)}
+						<!-- mousedown is cancelled so the click leaves focus in the search field. -->
+						<button
+							type="button"
+							title={expanded ? 'Hide forks' : 'Show forks'}
+							aria-expanded={expanded}
+							class="shrink-0 mr-1 px-2 self-stretch flex items-center rounded text-tertiary hover:bg-surface-hover hover:text-primary"
+							onmousedown={(e) => showSearch && e.preventDefault()}
+							onclick={() => toggleFamily(workspace.id)}
+						>
+							{#if expanded}
+								<ChevronDown size={14} />
+							{:else}
+								<ChevronRight size={14} />
+							{/if}
+						</button>
+					{:else}
+						<!-- Reserve the expand-chevron's slot on fork-less rows so the hover copy
+					     button lines up with the forked rows' and never sits flush against the
+					     menu's right edge. Matches the chevron's px-2 (30px) + mr-1. -->
+						<div class="shrink-0 mr-1 w-[30px]" aria-hidden="true"></div>
+					{/if}
+				</div>
+			{/each}
+		</div>
+		{#if (isCloudHosted() || $superadmin || canForkHere) && !strictWorkspaceSelect}
+			<div class="py-1" role="none">
+				{#if isCloudHosted() || $superadmin}
+					<div role="none" data-nav-id={actionNavId('create')}>
+						<MenuItem href="/user/create_workspace" class={actionClass('create')} {item}>
+							<Plus size={16} />
+							Workspace
+						</MenuItem>
+					</div>
+				{/if}
+				{#if canForkHere}
+					<div role="none" data-nav-id={actionNavId('fork')}>
+						<MenuItem
+							class={actionClass('fork')}
+							onClick={() => (globalForkModal.val = { opened: true })}
+							{item}
+						>
+							<Plus size={16} />
+							Workspace fork
+						</MenuItem>
+					</div>
+				{/if}
+			</div>
+		{/if}
+		{#if canManageWorkspace && !strictWorkspaceSelect}
+			<div class="py-1" role="none" data-nav-id={actionNavId('settings')}>
+				<MenuItem
+					href="/workspace_settings?workspace={$workspaceStore}"
+					class={actionClass('settings')}
+					{item}
+				>
+					<Settings size={16} />
+					{(activeWorkspace && ambiguousNames.has(activeWorkspace.name)
+						? activeWorkspace.id
+						: activeWorkspace?.name) ?? $workspaceStore} settings
+				</MenuItem>
+			</div>
+		{/if}
+		{#if !strictWorkspaceSelect}
+			<div class="py-1" role="none" data-nav-id={actionNavId('all')}>
+				<MenuItem
+					href="/user/workspaces"
+					onClick={() => clearWorkspaceFromStorage()}
+					class={actionClass('all')}
+					{item}
+				>
+					All workspaces
+				</MenuItem>
+			</div>
+		{/if}
+	</div>
+	{#if isCloudHosted() && $isPremiumStore === false && !strictWorkspaceSelect}
+		<div class="py-1" role="none">
+			{#if $workspaceStore != 'demo'}
+				<span class="text-secondary block w-full text-left px-4 py-2 text-xs">
+					{$workspaceUsageStore ?? '—'}/1000 free workspace execs
+					<Tooltip small>
+						{#snippet text()}
+							{EXECUTIONS_HINT}
+						{/snippet}
+					</Tooltip>
+				</span>
+				<div class="w-full bg-gray-200 h-1">
+					<div
+						class="bg-blue-400 h-1"
+						style="width: {Math.min($workspaceUsageStore ?? 0, 1000) / 10}%"
+					></div>
+				</div>
+			{/if}
+			{#if $userStore?.is_admin}
+				<div role="none" data-nav-id={actionNavId('upgrade')}>
+					<MenuItem
+						class={twMerge(
+							'text-secondary block font-normal w-full text-left px-4 py-2 text-sm focus:outline-none hover:bg-gray-100 hover:text-gray-900',
+							'data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900',
+							highlightedId === ACTION_PREFIX + 'upgrade' && 'bg-gray-100 text-gray-900'
+						)}
+						onClick={() => {
+							goto('/workspace_settings?tab=premium')
+						}}
+						{item}
+					>
+						Upgrade
 					</MenuItem>
 				</div>
 			{/if}
-		</div>
-	{/if}
-	{#if canManageWorkspace && !strictWorkspaceSelect}
-		<div class="py-1" role="none" data-nav-id={actionNavId('settings')}>
-			<MenuItem
-				href="/workspace_settings?workspace={$workspaceStore}"
-				class={actionClass('settings')}
-				{item}
-			>
-				<Settings size={16} />
-				{(activeWorkspace && ambiguousNames.has(activeWorkspace.name)
-					? activeWorkspace.id
-					: activeWorkspace?.name) ?? $workspaceStore} settings
-			</MenuItem>
-		</div>
-	{/if}
-	{#if !strictWorkspaceSelect}
-		<div class="py-1" role="none" data-nav-id={actionNavId('all')}>
-			<MenuItem
-				href="/user/workspaces"
-				onClick={() => clearWorkspaceFromStorage()}
-				class={actionClass('all')}
-				{item}
-			>
-				All workspaces
-			</MenuItem>
 		</div>
 	{/if}
 </div>
-{#if isCloudHosted() && $isPremiumStore === false && !strictWorkspaceSelect}
-	<div class="py-1" role="none">
-		{#if $workspaceStore != 'demo'}
-			<span class="text-secondary block w-full text-left px-4 py-2 text-xs">
-				{$workspaceUsageStore ?? '—'}/1000 free workspace execs
-				<Tooltip small>
-					{#snippet text()}
-						{EXECUTIONS_HINT}
-					{/snippet}
-				</Tooltip>
-			</span>
-			<div class="w-full bg-gray-200 h-1">
-				<div
-					class="bg-blue-400 h-1"
-					style="width: {Math.min($workspaceUsageStore ?? 0, 1000) / 10}%"
-				></div>
-			</div>
-		{/if}
-		{#if $userStore?.is_admin}
-			<MenuItem
-				class={twMerge(
-					'text-secondary block font-normal w-full text-left px-4 py-2 text-sm focus:outline-none hover:bg-gray-100 hover:text-gray-900',
-					'data-[highlighted]:bg-gray-100 data-[highlighted]:text-gray-900'
-				)}
-				onClick={() => {
-					goto('/workspace_settings?tab=premium')
-				}}
-				{item}
-			>
-				Upgrade
-			</MenuItem>
-		{/if}
-	</div>
-{/if}
 {#if $enterpriseLicense && !strictWorkspaceSelect}
 	<MultiplayerMenu />
 {/if}
