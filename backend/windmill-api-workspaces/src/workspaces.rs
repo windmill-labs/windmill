@@ -3594,6 +3594,95 @@ pub(crate) async fn pg_import_dump(target_db: &PgDatabase, dump_file: &DumpFile)
     Ok(())
 }
 
+/// Carry the source database's own settings (`ALTER DATABASE ... SET`) over to a copy. `pg_dump`
+/// only emits them with `--create`, so a copy otherwise resolves unqualified names, its
+/// `_wm_migrations` included, through the server's default `search_path` rather than the source's.
+/// A setting the copy's connection may not set is skipped with a warning rather than failing it.
+pub(crate) async fn copy_database_settings(
+    db: &DB,
+    source: &PgDatabase,
+    target: &PgDatabase,
+) -> Result<()> {
+    let (source_client, connection) = source.connect(Some(db)).await?;
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable connection error: {}", e);
+        }
+    });
+    let settings: Vec<String> = source_client
+        .query(
+            "SELECT unnest(setconfig) FROM pg_db_role_setting WHERE setrole = 0 \
+             AND setdatabase = (SELECT oid FROM pg_database WHERE datname = current_database())",
+            &[],
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to read the settings of database '{}': {}",
+                source.dbname,
+                pg_error_message(&e)
+            ))
+        })?
+        .iter()
+        .map(|row| row.get(0))
+        .collect();
+    drop(source_client);
+    if settings.is_empty() {
+        return Ok(());
+    }
+
+    let (client, connection) = target.connect(Some(db)).await?;
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable connection error: {}", e);
+        }
+    });
+    let quoted_db = render_db_quoted_identifier(&target.dbname, DbType::Postgresql);
+    for setting in settings {
+        let Some((name, value)) = setting.split_once('=') else {
+            continue;
+        };
+        if name.is_empty()
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+        {
+            tracing::warn!(
+                "Not copying database setting '{name}' to '{}'",
+                target.dbname
+            );
+            continue;
+        }
+        let quoted_name = name
+            .split('.')
+            .map(|part| render_db_quoted_identifier(part, DbType::Postgresql))
+            .collect::<Vec<_>>()
+            .join(".");
+        // `FROM CURRENT` takes the value in the stored text form, which `SET name TO value` would
+        // need re-quoted per setting type.
+        let applied = async {
+            client
+                .execute("SELECT set_config($1, $2, false)", &[&name, &value])
+                .await?;
+            client
+                .batch_execute(&format!(
+                    "ALTER DATABASE {quoted_db} SET {quoted_name} FROM CURRENT"
+                ))
+                .await
+        }
+        .await;
+        if let Err(e) = applied {
+            tracing::warn!(
+                "Could not copy setting '{name}' of database '{}' to '{}': {}",
+                source.dbname,
+                target.dbname,
+                pg_error_message(&e)
+            );
+        }
+    }
+    Ok(())
+}
+
 #[derive(Deserialize)]
 struct CreatePgDatabaseRequest {
     /// The datatable source to determine connection info: 'datatable://name' or '$res:path'
@@ -3857,12 +3946,28 @@ async fn import_pg_database(
     // the ACLs are user intent (`REVOKE ... FROM PUBLIC`) and dropping them widens access.
     let no_acl = target_kind.is_some() || source_kind.is_some();
 
+    let migrations_lock = if schema_only {
+        Some(
+            crate::datatable_migrations::lock_migration_runs_on(&db, &source_pg, &req.source)
+                .await?,
+        )
+    } else {
+        None
+    };
     let dump_file = pg_dump_database(
         &source_pg,
         PgDumpOptions { schema_only, no_owner: true, no_acl, ..Default::default() },
     )
     .await?;
+    let applied = match migrations_lock {
+        Some(client) => Some(crate::datatable_migrations::read_applied_migrations(&client).await?),
+        None => None,
+    };
     pg_import_dump(&target_pg, &dump_file).await?;
+    copy_database_settings(&db, &source_pg, &target_pg).await?;
+    if let Some(applied) = applied {
+        crate::datatable_migrations::write_applied_migrations(&db, &target_pg, &applied).await?;
+    }
     if let Some(tx) = fork_lock {
         tx.commit().await?;
     }

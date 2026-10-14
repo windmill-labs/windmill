@@ -810,7 +810,7 @@ async fn a_data_table_under_roles_is_cloned_only_with_its_grants(
 
     // The copy an admin asks for goes ahead in an edition that replays grants, and is refused
     // before any database exists in one that does not. The fixture's database does not exist, so
-    // the dump fails either way — and leaves neither a database nor a fork behind.
+    // reading it fails either way — and leaves neither a database nor a fork behind.
     let resp = fork(
         "SECRET_TOKEN",
         json!({"name": "main", "new_dbname": target, "fork_behavior": "schema_only"}),
@@ -820,7 +820,7 @@ async fn a_data_table_under_roles_is_cloned_only_with_its_grants(
     assert_ne!(resp.status(), 200);
     let body = resp.text().await?;
     #[cfg(all(feature = "private", feature = "enterprise"))]
-    assert!(body.contains("pg_dump"), "{body}");
+    assert!(body.contains("\"dt_main\" does not exist"), "{body}");
     #[cfg(not(all(feature = "private", feature = "enterprise")))]
     assert!(body.contains("Enterprise Edition"), "{body}");
     assert!(!database_exists(&db, target).await?);
