@@ -118,27 +118,87 @@ pub(crate) fn redact_git_sync(git_sync: Option<Value>) -> Option<Value> {
     Some(git_sync)
 }
 
-/// Role names by catalog id, per cluster: the document names a data table role, the stored
+/// What `datatable_permissions` is resolved against. Role names by catalog id, per cluster: the
+/// document names a data table role, the stored
 /// permissions its catalog id, which differs from one instance to the next. `None` for a catalog
 /// that could not be read, as on an edition without data table roles.
 #[derive(Default)]
-struct RoleNames {
+struct DatatableNames {
     instance: Option<BTreeMap<String, String>>,
     external_instance: Option<BTreeMap<String, String>>,
+    /// The `u/`, `g/` and `f/` tenants of the desired document that name no user, group or folder
+    /// of the workspace. The endpoint stores such a tenant as a grant that matches nobody, so the
+    /// plan is where a typo in a pushed file gets caught.
+    unknown_tenants: std::collections::BTreeSet<String>,
 }
 
-impl RoleNames {
-    async fn load(db: &DB) -> Self {
+impl DatatableNames {
+    async fn load(db: &DB, w_id: &str, datatable_permissions: &Value) -> Result<Self> {
         let read = |cluster| async move {
             read_role_catalog(db, cluster)
                 .await
                 .ok()
                 .map(|c| c.into_iter().map(|(id, r)| (id, r.name)).collect())
         };
-        Self {
+        let tenants = datatable_permissions
+            .as_object()
+            .into_iter()
+            .flat_map(|m| m.values())
+            .filter_map(|entry| entry.get("roles")?.as_object())
+            .flat_map(|roles| roles.values())
+            .filter_map(Value::as_array)
+            .flatten()
+            .filter_map(Value::as_str);
+        let (mut users, mut groups, mut folders) = (vec![], vec![], vec![]);
+        for tenant in tenants {
+            match tenant.split_once('/') {
+                Some(("u", n)) => users.push(n.to_string()),
+                Some(("g", n)) => groups.push(n.to_string()),
+                Some(("f", n)) => folders.push(n.to_string()),
+                _ => {}
+            }
+        }
+        let mut unknown_tenants = std::collections::BTreeSet::new();
+        for (prefix, named, query) in [
+            (
+                "u",
+                users,
+                "SELECT username FROM usr WHERE workspace_id = $1 AND username = ANY($2)",
+            ),
+            (
+                "g",
+                groups,
+                "SELECT name FROM group_ WHERE workspace_id = $1 AND name = ANY($2)",
+            ),
+            (
+                "f",
+                folders,
+                "SELECT name FROM folder WHERE workspace_id = $1 AND name = ANY($2)",
+            ),
+        ] {
+            if named.is_empty() {
+                continue;
+            }
+            let existing: std::collections::HashSet<String> =
+                sqlx::query_scalar::<_, String>(query)
+                    .bind(w_id)
+                    .bind(&named)
+                    .fetch_all(db)
+                    .await?
+                    .into_iter()
+                    .collect();
+            unknown_tenants.extend(
+                named
+                    .into_iter()
+                    .filter(|n| !existing.contains(n))
+                    .map(|n| format!("{prefix}/{n}")),
+            );
+        }
+        Ok(Self {
             instance: read(DatatableRoleCluster::Instance).await,
             external_instance: read(DatatableRoleCluster::ExternalInstance).await,
-        }
+            unknown_tenants,
+        })
     }
 
     fn of(&self, cluster: DatatableRoleCluster) -> Option<&BTreeMap<String, String>> {
@@ -161,7 +221,7 @@ fn role_cluster_of(entry: &Value) -> Option<DatatableRoleCluster> {
 
 /// Each data table's stored `permissions`, with roles named rather than given by catalog id. A
 /// role the catalog no longer has keeps its id, so the document still shows it.
-fn datatable_permissions_document(datatable: Option<&Value>, roles: &RoleNames) -> Value {
+fn datatable_permissions_document(datatable: Option<&Value>, roles: &DatatableNames) -> Value {
     let mut doc = Map::new();
     let entries = datatable
         .and_then(|d| d.get("datatables"))
@@ -275,9 +335,9 @@ pub async fn load_settings_document(
                 .any(|e| e.get("permissions").is_some_and(|p| !p.is_null()))
         });
     let role_names = if has_permissions {
-        RoleNames::load(db).await
+        DatatableNames::load(db, w_id, &Value::Null).await?
     } else {
-        RoleNames::default()
+        DatatableNames::default()
     };
     let datatable_permissions = datatable_permissions_document(row.datatable.as_ref(), &role_names);
     let protection_rules = protection_rules_document(&mut *conn, w_id).await?;
@@ -656,8 +716,9 @@ fn string_list(v: Option<&Value>, what: &str) -> Result<Value> {
 
 /// `datatable_permissions` as the endpoint stores it: an omitted default role is `admin`, and
 /// `admin` is always one of the roles. A data table stated as null is not under roles, as an
-/// omitted one is.
-fn normalize_datatable_permissions(v: &Value) -> Result<Value> {
+/// omitted one is. A data table's error goes to `errors` and leaves it out of the result, so every
+/// data table is checked before the document is refused.
+fn normalize_datatable_permissions(v: &Value, errors: &mut Vec<String>) -> Result<Value> {
     let entries = match v {
         Value::Null => return Ok(json!({})),
         Value::Object(m) => m,
@@ -672,63 +733,88 @@ fn normalize_datatable_permissions(v: &Value) -> Result<Value> {
         if entry.is_null() {
             continue;
         }
-        let what = format!("datatable_permissions.{name}");
-        let entry = entry
-            .as_object()
-            .ok_or_else(|| Error::BadRequest(format!("{what} must be an object or null")))?;
-        let default_role = match entry.get("default_role") {
-            None => json!(ADMIN_DATATABLE_ROLE),
-            Some(r) if r.is_null() || r.is_string() => r.clone(),
-            Some(_) => {
-                return Err(Error::BadRequest(format!(
-                    "{what}.default_role must be a role name or null"
-                )))
+        match normalize_datatable_entry(name, entry) {
+            Ok(entry) => {
+                out.insert(name.clone(), entry);
             }
-        };
-        let mut roles = Map::new();
-        match entry.get("roles") {
-            None | Some(Value::Null) => {}
-            Some(Value::Object(r)) => {
-                for (role, tenants) in r {
-                    let tenants = string_list(Some(tenants), &format!("{what}.roles.{role}"))?;
-                    // The endpoint's own check, here so a dry run refuses it too.
-                    for tenant in tenants.as_array().into_iter().flatten() {
-                        let tenant = tenant.as_str().unwrap_or_default();
-                        let valid = tenant == DATATABLE_TENANT_WILDCARD
-                            || matches!(tenant.split_once('/'),
-                                Some(("u" | "g" | "f", rest)) if !rest.is_empty());
-                        if !valid {
-                            return Err(Error::BadRequest(format!(
-                                "Invalid tenant '{tenant}' in {what}.roles.{role}: expected \
-                                 'u/<user>', 'g/<group>', 'f/<folder>' or '*'"
-                            )));
-                        }
-                    }
-                    roles.insert(role.clone(), tenants);
-                }
-            }
-            Some(_) => {
-                return Err(Error::BadRequest(format!(
-                    "{what}.roles must map role names to their tenants"
-                )))
-            }
+            Err(e) => errors.push(error_message(e)),
         }
-        roles
-            .entry(ADMIN_DATATABLE_ROLE.to_string())
-            .or_insert(json!([]));
-        if let Some(role) = default_role.as_str() {
-            if !roles.contains_key(role) {
-                return Err(Error::BadRequest(format!(
-                    "The default role '{role}' of {what} is not among its roles"
-                )));
-            }
-        }
-        out.insert(
-            name.clone(),
-            json!({ "default_role": default_role, "roles": roles }),
-        );
     }
     Ok(Value::Object(out))
+}
+
+fn normalize_datatable_entry(name: &str, entry: &Value) -> Result<Value> {
+    let what = format!("datatable_permissions.{name}");
+    let entry = entry
+        .as_object()
+        .ok_or_else(|| Error::BadRequest(format!("{what} must be an object or null")))?;
+    let default_role = match entry.get("default_role") {
+        None => json!(ADMIN_DATATABLE_ROLE),
+        Some(r) if r.is_null() || r.is_string() => r.clone(),
+        Some(_) => {
+            return Err(Error::BadRequest(format!(
+                "{what}.default_role must be a role name or null"
+            )))
+        }
+    };
+    let mut roles = Map::new();
+    match entry.get("roles") {
+        None | Some(Value::Null) => {}
+        Some(Value::Object(r)) => {
+            for (role, tenants) in r {
+                let tenants = string_list(Some(tenants), &format!("{what}.roles.{role}"))?;
+                // The endpoint's own check, here so a dry run refuses it too.
+                for tenant in tenants.as_array().into_iter().flatten() {
+                    let tenant = tenant.as_str().unwrap_or_default();
+                    let valid = tenant == DATATABLE_TENANT_WILDCARD
+                        || matches!(tenant.split_once('/'),
+                                Some(("u" | "g" | "f", rest)) if !rest.is_empty());
+                    if !valid {
+                        return Err(Error::BadRequest(format!(
+                            "Invalid tenant '{tenant}' in {what}.roles.{role}: expected \
+                                 'u/<user>', 'g/<group>', 'f/<folder>' or '*'"
+                        )));
+                    }
+                }
+                roles.insert(role.clone(), tenants);
+            }
+        }
+        Some(_) => {
+            return Err(Error::BadRequest(format!(
+                "{what}.roles must map role names to their tenants"
+            )))
+        }
+    }
+    roles
+        .entry(ADMIN_DATATABLE_ROLE.to_string())
+        .or_insert(json!([]));
+    if let Some(role) = default_role.as_str() {
+        if !roles.contains_key(role) {
+            return Err(Error::BadRequest(format!(
+                "The default role '{role}' of {what} is not among its roles"
+            )));
+        }
+    }
+    Ok(json!({ "default_role": default_role, "roles": roles }))
+}
+
+fn error_message(e: Error) -> String {
+    match e {
+        Error::BadRequest(msg) => msg,
+        e => e.to_string(),
+    }
+}
+
+/// Refuses the document with every data table's error at once.
+fn datatable_permissions_errors(errors: Vec<String>) -> Result<()> {
+    match errors.len() {
+        0 => Ok(()),
+        1 => Err(Error::BadRequest(errors.into_iter().next().unwrap())),
+        _ => Err(Error::BadRequest(format!(
+            "Invalid datatable_permissions, nothing was applied:\n- {}",
+            errors.join("\n- ")
+        ))),
+    }
 }
 
 /// `protection_rules` as it is stored: rules in their fixed order, the bypass lists stated. The
@@ -779,15 +865,11 @@ async fn plan(db: &DB, w_id: &str, desired: Map<String, Value>, replace: bool) -
         load_settings_document(&mut conn, db, w_id, SecretMode::Plain).await?
     };
     let mc = build_crypt(db, w_id).await?;
-    let roles = if desired
-        .get("datatable_permissions")
-        .is_some_and(|v| !v.is_null())
-    {
-        RoleNames::load(db).await
-    } else {
-        RoleNames::default()
+    let names = match desired.get("datatable_permissions") {
+        Some(v) if !v.is_null() => DatatableNames::load(db, w_id, v).await?,
+        _ => DatatableNames::default(),
     };
-    plan_document(current, desired, replace, &mc, &roles)
+    plan_document(current, desired, replace, &mc, &names)
 }
 
 fn plan_document(
@@ -795,7 +877,7 @@ fn plan_document(
     mut desired: Map<String, Value>,
     replace: bool,
     mc: &windmill_common::variables::WorkspaceCrypt,
-    roles: &RoleNames,
+    names: &DatatableNames,
 ) -> Result<Plan> {
     let mut warnings = vec![];
     let unknown: Vec<&str> = desired
@@ -873,8 +955,9 @@ fn plan_document(
         let v = desired.get(parent).and_then(|p| p.get(key));
         typed(&format!("{parent}.{key}"), v, ok, ty)?;
     }
+    let mut datatable_errors = vec![];
     if let Some(v) = desired.get("datatable_permissions") {
-        let v = normalize_datatable_permissions(v)?;
+        let v = normalize_datatable_permissions(v, &mut datatable_errors)?;
         desired.insert("datatable_permissions".to_string(), v);
     }
     if let Some(v) = desired.get("protection_rules") {
@@ -1128,8 +1211,9 @@ fn plan_document(
     // Stated as a whole: a data table the map omits is not under roles, a rule it omits is
     // deleted.
     if let Some(desired) = p.managed("datatable_permissions") {
-        plan_datatable_permissions(&mut p, desired, roles)?;
+        plan_datatable_permissions(&mut p, desired, names, &mut datatable_errors);
     }
+    datatable_permissions_errors(datatable_errors)?;
     if let Some(desired) = p.managed("protection_rules") {
         plan_protection_rules(&mut p, desired);
     }
@@ -1309,7 +1393,12 @@ fn object_of(v: Option<&Value>) -> Map<String, Value> {
     v.and_then(Value::as_object).cloned().unwrap_or_default()
 }
 
-fn plan_datatable_permissions(p: &mut Plan, desired: Value, roles: &RoleNames) -> Result<()> {
+fn plan_datatable_permissions(
+    p: &mut Plan,
+    desired: Value,
+    names: &DatatableNames,
+    errors: &mut Vec<String>,
+) {
     let desired = object_of(Some(&desired));
     let current = object_of(p.current.get("datatable_permissions"));
     // The data tables as they will be once the `datatable` write before this one has gone through.
@@ -1319,8 +1408,9 @@ fn plan_datatable_permissions(p: &mut Plan, desired: Value, roles: &RoleNames) -
             .or(p.current.get("datatable"))
             .and_then(|d| d.get("datatables")),
     );
-    let names: std::collections::BTreeSet<&String> = desired.keys().chain(current.keys()).collect();
-    for name in names {
+    let tables: std::collections::BTreeSet<&String> =
+        desired.keys().chain(current.keys()).collect();
+    for name in tables {
         let (before, after) = (current.get(name), desired.get(name));
         if same(before, after) {
             continue;
@@ -1332,49 +1422,13 @@ fn plan_datatable_permissions(p: &mut Plan, desired: Value, roles: &RoleNames) -
         }
         let body = match after {
             None => json!({ "datatable": name, "permissioned": false }),
-            Some(after) => {
-                let cluster = entry.and_then(role_cluster_of).ok_or_else(|| {
-                    Error::BadRequest(format!(
-                        "Data table '{name}' cannot be put under roles: only a data table this \
-                         workspace governs, on a cluster Windmill manages, can"
-                    ))
-                })?;
-                let ids: BTreeMap<&str, &str> = roles
-                    .of(cluster)
-                    .ok_or_else(|| {
-                        Error::BadRequest(
-                            "Data table roles are unavailable on this instance".to_string(),
-                        )
-                    })?
-                    .iter()
-                    .map(|(id, name)| (name.as_str(), id.as_str()))
-                    .collect();
-                let id_of = |role: &str| -> Result<String> {
-                    if role == ADMIN_DATATABLE_ROLE {
-                        return Ok(role.to_string());
-                    }
-                    ids.get(role).map(|id| id.to_string()).ok_or_else(|| {
-                        Error::BadRequest(format!(
-                            "'{role}' is not a data table role of the {} cluster",
-                            cluster.as_str()
-                        ))
-                    })
-                };
-                let default_role = match after.get("default_role").and_then(Value::as_str) {
-                    None => NO_DEFAULT_DATATABLE_ROLE.to_string(),
-                    Some(role) => id_of(role)?,
-                };
-                let roles = object_of(after.get("roles"))
-                    .iter()
-                    .map(|(role, tenants)| Ok(json!({ "id": id_of(role)?, "tenants": tenants })))
-                    .collect::<Result<Vec<_>>>()?;
-                json!({
-                    "datatable": name,
-                    "permissioned": true,
-                    "default_role": default_role,
-                    "roles": roles,
-                })
-            }
+            Some(after) => match datatable_permissions_write(name, entry, before, after, names) {
+                Ok(body) => body,
+                Err(e) => {
+                    errors.extend(e);
+                    continue;
+                }
+            },
         };
         p.record_change(
             &format!("datatable_permissions.{name}"),
@@ -1383,7 +1437,84 @@ fn plan_datatable_permissions(p: &mut Plan, desired: Value, roles: &RoleNames) -
         );
         p.write(Target::Edit(SettingsEdit::DatatablePermissions), body);
     }
-    Ok(())
+}
+
+/// The endpoint body that puts `name` under the roles of `after`, or everything wrong with it.
+fn datatable_permissions_write(
+    name: &str,
+    entry: Option<&Value>,
+    before: Option<&Value>,
+    after: &Value,
+    names: &DatatableNames,
+) -> std::result::Result<Value, Vec<String>> {
+    let Some(cluster) = entry.and_then(role_cluster_of) else {
+        return Err(vec![format!(
+            "Data table '{name}' cannot be put under roles: only a data table this workspace \
+             governs, on a cluster Windmill manages, can"
+        )]);
+    };
+    let Some(catalog) = names.of(cluster) else {
+        return Err(vec![
+            "Data table roles are unavailable on this instance".to_string()
+        ]);
+    };
+    let ids: BTreeMap<&str, &str> = catalog
+        .iter()
+        .map(|(id, name)| (name.as_str(), id.as_str()))
+        .collect();
+    let mut errors = vec![];
+    let mut id_of = |role: &str| -> String {
+        if role == ADMIN_DATATABLE_ROLE {
+            return role.to_string();
+        }
+        ids.get(role).map(|id| id.to_string()).unwrap_or_else(|| {
+            errors.push(format!(
+                "Data table '{name}': '{role}' is not a data table role of the {} cluster",
+                cluster.as_str()
+            ));
+            String::new()
+        })
+    };
+    let default_role = match after.get("default_role").and_then(Value::as_str) {
+        None => NO_DEFAULT_DATATABLE_ROLE.to_string(),
+        Some(role) => id_of(role),
+    };
+    let roles: Vec<Value> = object_of(after.get("roles"))
+        .iter()
+        .map(|(role, tenants)| json!({ "id": id_of(role), "tenants": tenants }))
+        .collect();
+    // Only a tenant this change grants: one already stored that has since stopped naming anybody
+    // must not block every later push.
+    let granted = |v: Option<&Value>| -> std::collections::BTreeSet<String> {
+        object_of(v.and_then(|v| v.get("roles")))
+            .values()
+            .filter_map(Value::as_array)
+            .flatten()
+            .filter_map(|t| Some(t.as_str()?.to_string()))
+            .collect()
+    };
+    let already = granted(before);
+    for tenant in granted(Some(after)).difference(&already) {
+        if names.unknown_tenants.contains(tenant) {
+            let kind = match tenant.split_once('/') {
+                Some(("u", _)) => "user",
+                Some(("g", _)) => "group",
+                _ => "folder",
+            };
+            errors.push(format!(
+                "Data table '{name}': tenant '{tenant}' names no {kind} of this workspace"
+            ));
+        }
+    }
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+    Ok(json!({
+        "datatable": name,
+        "permissioned": true,
+        "default_role": default_role,
+        "roles": roles,
+    }))
 }
 
 fn plan_protection_rules(p: &mut Plan, desired: Value) {
@@ -1598,11 +1729,11 @@ mod tests {
     fn replace_clears_an_omitted_setting_only_when_a_stated_one_changes() {
         let mc = WorkspaceCrypt::new("k");
         let unchanged = doc(json!({ "name": "other", "webhook": "https://a" }));
-        let p = plan_document(current(), unchanged, true, &mc, &RoleNames::default()).unwrap();
+        let p = plan_document(current(), unchanged, true, &mc, &DatatableNames::default()).unwrap();
         assert!(p.writes.is_empty(), "{:?}", keys(&p));
 
         let changed = doc(json!({ "webhook": "https://b" }));
-        let p = plan_document(current(), changed, true, &mc, &RoleNames::default()).unwrap();
+        let p = plan_document(current(), changed, true, &mc, &DatatableNames::default()).unwrap();
         assert_eq!(
             keys(&p),
             [
@@ -1632,7 +1763,7 @@ mod tests {
                 doc(json!({ "slack_oauth_client_secret": secret })),
                 false,
                 &mc,
-                &RoleNames::default(),
+                &DatatableNames::default(),
             )
             .unwrap();
             assert!(p.changes.is_empty(), "{secret}: {:?}", keys(&p));
@@ -1645,7 +1776,7 @@ mod tests {
         let mc = WorkspaceCrypt::new("k");
         let d = doc(json!({ "mute_critical_alerts": false, "guest_access_enabled": null }));
         assert!(
-            plan_document(current(), d, false, &mc, &RoleNames::default())
+            plan_document(current(), d, false, &mc, &DatatableNames::default())
                 .unwrap()
                 .changes
                 .is_empty()
@@ -1656,7 +1787,7 @@ mod tests {
     fn stating_one_guest_key_clears_the_other() {
         let mc = WorkspaceCrypt::new("k");
         let d = doc(json!({ "guest_jwt_jwks_url": "https://jwks" }));
-        let p = plan_document(current(), d, false, &mc, &RoleNames::default()).unwrap();
+        let p = plan_document(current(), d, false, &mc, &DatatableNames::default()).unwrap();
         assert_eq!(p.writes.len(), 1);
         assert_eq!(
             p.writes[0].body,
@@ -1679,8 +1810,14 @@ mod tests {
             json!({ "public_app_execution_limit_per_minute": 2147483648i64 }),
         ] {
             assert!(
-                plan_document(current(), doc(d.clone()), false, &mc, &RoleNames::default())
-                    .is_err(),
+                plan_document(
+                    current(),
+                    doc(d.clone()),
+                    false,
+                    &mc,
+                    &DatatableNames::default()
+                )
+                .is_err(),
                 "{d}"
             );
         }
@@ -1695,11 +1832,11 @@ mod tests {
             json!({ "path": "f/x", "extra_args": {}, "muted_on_cancel": false, "muted_on_user_path": false }),
         );
         let d = doc(json!({ "error_handler": { "path": "f/x", "extra_args": { "input": null } } }));
-        let p = plan_document(cur.clone(), d, false, &mc, &RoleNames::default()).unwrap();
+        let p = plan_document(cur.clone(), d, false, &mc, &DatatableNames::default()).unwrap();
         assert_eq!(keys(&p), ["error_handler"]);
 
         let d = doc(json!({ "error_handler": { "path": "f/x", "extra_args": {} } }));
-        let p = plan_document(cur, d, false, &mc, &RoleNames::default()).unwrap();
+        let p = plan_document(cur, d, false, &mc, &DatatableNames::default()).unwrap();
         assert!(p.changes.is_empty(), "{:?}", keys(&p));
     }
 
@@ -1707,9 +1844,9 @@ mod tests {
     #[test]
     fn datatable_roles_are_named_in_the_document_and_written_by_id() {
         let mc = WorkspaceCrypt::new("k");
-        let roles = RoleNames {
+        let roles = DatatableNames {
             instance: Some([("r1".to_string(), "readers".to_string())].into()),
-            external_instance: None,
+            ..Default::default()
         };
         let mut cur = current();
         cur.insert(
@@ -1745,6 +1882,36 @@ mod tests {
         let d = doc(json!({ "datatable_permissions": { "main": { "default_role": "readers" } } }));
         assert!(plan_document(cur.clone(), d, false, &mc, &roles).is_err());
 
+        // A tenant that names nobody is refused when granted, not when already stored, and every
+        // data table's errors come back together.
+        let strict = DatatableNames {
+            instance: roles.instance.clone(),
+            unknown_tenants: ["g/x".to_string(), "u/bob".to_string()].into(),
+            ..Default::default()
+        };
+        let d = doc(
+            json!({ "datatable_permissions": { "main": { "default_role": "readers", "roles": { "readers": ["g/x"] } } } }),
+        );
+        assert_eq!(
+            keys(&plan_document(cur.clone(), d, false, &mc, &strict).unwrap()),
+            ["datatable_permissions.main"]
+        );
+        let d = doc(json!({ "datatable_permissions": {
+            "main": { "roles": { "readers": ["g/x", "u/bob"], "writers": [] } },
+            "other": { "roles": { "readers": ["x/y"] } },
+        } }));
+        let e = plan_document(cur.clone(), d, false, &mc, &strict)
+            .err()
+            .unwrap()
+            .to_string();
+        for part in [
+            "tenant 'u/bob' names no user",
+            "'writers' is not a data table role",
+            "Invalid tenant 'x/y'",
+        ] {
+            assert!(e.contains(part), "{e}");
+        }
+
         // Under replace an omitted `datatable` is cleared, taking its tables' roles with it.
         let d = doc(json!({ "datatable_permissions": {} }));
         let p = plan_document(cur.clone(), d, true, &mc, &roles).unwrap();
@@ -1768,7 +1935,7 @@ mod tests {
             "new": { "rules": ["RestrictPublicRunSharing", "DisableDirectDeployment"] },
             "dev_workspace_lock": { "rules": [] },
         } }));
-        let p = plan_document(cur, d, false, &mc, &RoleNames::default()).unwrap();
+        let p = plan_document(cur, d, false, &mc, &DatatableNames::default()).unwrap();
         assert_eq!(keys(&p), ["protection_rules.new", "protection_rules.old"]);
         assert_eq!(
             p.writes[0].body,
