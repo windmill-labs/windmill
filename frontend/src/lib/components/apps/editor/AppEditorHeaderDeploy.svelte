@@ -314,7 +314,7 @@
 
 	<Section
 		label="Run on behalf of"
-		tooltip="A policy computed at deploy time lets the app call only the scripts and flows it refers to, on behalf of the publisher, with static parameters that viewers cannot override. Viewers can use the app as the publisher intended without reaching resources the app does not use."
+		tooltip="The app's runnables run as this user whoever opens the app, so viewers need no access of their own to the scripts, flows and resources it uses. To keep that safe, the app can call only the runnables it was deployed with, and viewers cannot override their static inputs. A runnable reads the viewer's email from WM_END_USER_EMAIL."
 	>
 		{#if !canPreserve}
 			<div class="text-xs text-secondary">
