@@ -28,6 +28,7 @@
 		kind,
 		path,
 		version,
+		pendingRunId,
 		locationHash = '',
 		dbtRetryFrom,
 		workspaceId,
@@ -44,6 +45,8 @@
 		path: string
 		/** Deployed version this tab is pinned to, from its URL's `?version=`. */
 		version?: string
+		/** The chat tool call this tab was opened to answer, from its URL's `?pending_run=`. */
+		pendingRunId?: string
 		/** `#`-fragment of the tab's URL: the args a run's `Run again` prefills the form with. */
 		locationHash?: string
 		/** The failed dbt run that `Run again` offers to resume, from `?dbt_retry_from=`. */
@@ -82,6 +85,16 @@
 		reloadKey++
 	})
 
+	// The call waiting on this item's run form, when the reader chose to confirm it here
+	// rather than on the card. Read live from the runtime, so it disappears the moment the
+	// call settles — by Run, by Cancel, by a stopped turn or by this tab closing.
+	//
+	// Named by this tab's own url rather than looked up by item, so only the tab opened for
+	// the call carries it. A tab re-pointed anywhere — another version of this item included
+	// — loses the name and hands the call back to the card, which is where it can still be
+	// confirmed as proposed.
+	const pendingRun = $derived(pendingRunId ? runtime.pendingRunFor(pendingRunId) : undefined)
+
 	/** Refetch the deployed item. The host calls this for the reload signals that reach a
 	 * tab from outside it; nothing about becoming visible triggers it, so a form the reader
 	 * filled in survives switching tabs away and back. */
@@ -98,10 +111,12 @@
 			: undefined
 	)
 
-	// Remounts the detail page below, which loads on mount.
-	// The fragment is part of it: the detail pages seed their form from it once, on mount.
+	// Remounts the detail page below, which loads on mount. The fragment and the call are
+	// part of it because the detail pages read both once, as they build their form: from the
+	// fragment for a `Run again`, from the call for what the chat proposed. So a tab already
+	// on this item, re-pointed to either, has to build that form again.
 	const loadKey = $derived(
-		`${workspaceId}/${kind}/${path}/${version ?? ''}/${locationHash}/${reloadKey}`
+		`${workspaceId}/${kind}/${path}/${version ?? ''}/${locationHash}/${pendingRunId ?? ''}/${reloadKey}`
 	)
 	// Nothing deployed at this path. Stamped with the load it answers, so a refetch or a
 	// re-pointed tab is never answered from an earlier load's verdict.
@@ -234,6 +249,7 @@
 			{onNavigate}
 			{active}
 			embedded
+			{pendingRun}
 			onLoadState={setLoadState}
 		/>
 	{:else if kind === 'flow'}
@@ -245,6 +261,7 @@
 			{onNavigate}
 			{active}
 			embedded
+			{pendingRun}
 			onLoadState={setLoadState}
 		/>
 	{:else}

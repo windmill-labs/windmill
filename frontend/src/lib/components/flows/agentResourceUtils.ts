@@ -1,6 +1,11 @@
 import { deepEqual } from 'fast-equals'
 import type { InputTransform } from '$lib/gen'
-import { AGENT_FIELDS, describeMemoryPolicy } from './agentFormFields'
+import {
+	AGENT_FIELDS,
+	AGENT_OVERRIDE_KEYS,
+	describeMemoryPolicy,
+	type AgentOverrideKey
+} from './agentFormFields'
 
 // The brain fields stored flat in an `ai_agent` resource value. The flow-local inputs below are
 // intentionally excluded — they are supplied per-flow.
@@ -31,6 +36,13 @@ export const AGENT_FLOW_LOCAL_KEYS = [
 	'previous_messages'
 ] as const
 
+/** Every input a linked step holds itself: the flow-local ones, and its overrides of what the
+ *  agent saved inside `provider`. */
+export const AGENT_LINKED_STEP_KEYS: readonly string[] = [
+	...AGENT_FLOW_LOCAL_KEYS,
+	...AGENT_OVERRIDE_KEYS
+]
+
 export type AgentTool = Record<string, any>
 
 /**
@@ -59,7 +71,7 @@ export function nonStaticBrainKeys(
 }
 
 /**
- * Keep only the flow-local inputs on a step's input_transforms. Used when linking: the brain comes
+ * Keep only the inputs a linked step holds on a step's input_transforms. Used when linking: the brain comes
  * from the resource, so the step must not carry stale `provider`/`system_prompt`/… transforms — at
  * runtime they'd still be resolved (an unnecessary, possibly failing provider `$res:` fetch) yet
  * never used, since the linked branch takes the brain from the resource.
@@ -68,7 +80,7 @@ export function flowLocalInputs(
 	inputTransforms: Record<string, InputTransform> | undefined
 ): Record<string, InputTransform> {
 	const out: Record<string, InputTransform> = {}
-	for (const key of AGENT_FLOW_LOCAL_KEYS) {
+	for (const key of AGENT_LINKED_STEP_KEYS) {
 		if (inputTransforms?.[key]) {
 			out[key] = inputTransforms[key]
 		}
@@ -149,6 +161,74 @@ export function flowLocalAgentSchema(schema: any): any {
 	}
 }
 
+/**
+ * The schema of a step linked to a saved agent, in a flow: its flow-local inputs, plus the saved
+ * settings it may override.
+ */
+export function linkedAgentStepSchema(schema: any): any {
+	const local = flowLocalAgentSchema(schema)
+	if (!local?.properties) {
+		return local
+	}
+	return {
+		...local,
+		properties: {
+			...local.properties,
+			model: {
+				type: 'string',
+				description: "Replaces the model saved on the agent for this step's runs."
+			},
+			reasoning_effort: {
+				type: 'string',
+				description: "Replaces the reasoning effort saved on the agent for this step's runs."
+			}
+		},
+		order: [...local.order, ...AGENT_OVERRIDE_KEYS]
+	}
+}
+
+/**
+ * The `provider` of a step unlinked from its agent: the saved one with the step's overrides folded
+ * in, since an unlinked step sets model and effort nowhere else. Follows the worker's
+ * `override_provider_model`, so the step runs on what it ran on while linked.
+ */
+export function providerWithOverrides(
+	provider: any,
+	overrides: Partial<Record<AgentOverrideKey, InputTransform>> | undefined
+): InputTransform | undefined {
+	if (!provider || typeof provider !== 'object') return undefined
+	const authored = (key: AgentOverrideKey): any => {
+		const t = overrides?.[key] as any
+		return t?.type === 'static' || (t?.type === 'javascript' && t.expr) ? t : undefined
+	}
+	const text = (t: any): string => (typeof t.value === 'string' ? t.value.trim() : '')
+	const model = authored('model')
+	const effort = authored('reasoning_effort')
+	const { model: savedModel, reasoning_effort: savedEffort, ...rest } = provider
+
+	if (model?.type !== 'javascript' && effort?.type !== 'javascript') {
+		const runModel = (model && text(model)) || savedModel
+		const runEffort = effort ? text(effort) : runModel === savedModel ? savedEffort : undefined
+		return {
+			type: 'static',
+			value: { ...rest, model: runModel, ...(runEffort ? { reasoning_effort: runEffort } : {}) }
+		}
+	}
+	const literal = (value: unknown) => (value === undefined ? 'undefined' : JSON.stringify(value))
+	const source = (t: any) => (t.type === 'javascript' ? `(${t.expr})` : literal(text(t)))
+	// One object literal, the shape the flow's expression evaluator and the chat composer both read.
+	const runModel = model ? `(${source(model)} || ${literal(savedModel)})` : literal(savedModel)
+	const runEffort = effort
+		? `${source(effort)} || undefined`
+		: `${runModel} === ${literal(savedModel)} ? ${literal(savedEffort)} : undefined`
+	const fields = [
+		...Object.entries(rest).map(([key, value]) => `${JSON.stringify(key)}: ${literal(value)}`),
+		`model: ${runModel}`,
+		`reasoning_effort: ${runEffort}`
+	]
+	return { type: 'javascript', expr: `({ ${fields.join(', ')} })` }
+}
+
 /** Read off the form's own registry, so a linked agent's summary cannot name a field differently
  *  from the form that edits it. */
 export const AGENT_BRAIN_LABELS: Record<string, string> = Object.fromEntries(
@@ -182,7 +262,7 @@ export function summarizeAgentBrain(
 		if (v === undefined || v === null || v === '') continue
 		let value: string
 		if (key === 'provider') {
-			value = [v.kind, v.model].filter(Boolean).join(' · ') || 'configured'
+			value = [v.kind, v.model, v.reasoning_effort].filter(Boolean).join(' · ') || 'configured'
 		} else if (key === 'memory') {
 			value = typeof v === 'object' ? describeMemoryPolicy(v) : String(v)
 		} else if (key === 'output_schema') {
