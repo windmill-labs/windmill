@@ -10,6 +10,11 @@
 //! management, and the workspace-merge diff helper. Split out of `workspaces.rs`
 //! to keep that file focused on core workspace configuration.
 
+use crate::datatable_migration_scope::{
+    blocked_by, is_annotatable_schema_name, make_schema_snapshot_replayable, order_schema_groups,
+    parse_migration_schemas, plan_run, snapshot_has_objects, with_schemas_annotation, ChainEntry,
+    RunSelection, CROSS_SCHEMA_DEPENDENCIES_SQL, SNAPSHOT_EXTENSIONS_SQL, SNAPSHOT_SCHEMAS_SQL,
+};
 use crate::workspaces::{
     managed_datatable_kind, pg_dump_database, strip_unreplayable_dump_lines, ItemComparison,
     PgDumpOptions,
@@ -165,6 +170,19 @@ fn ensure_not_operator(authed: &ApiAuthed) -> Result<()> {
     Ok(())
 }
 
+/// Whether new migrations declare a scope, which the editors push for but do not require.
+fn log_migration_scope(scope: &crate::datatable_migration_scope::Scope) {
+    windmill_common::feature_usage::log_feature_usage(
+        "datatable",
+        "migration_scope",
+        if scope.is_some() {
+            "scoped"
+        } else {
+            "whole_database"
+        },
+    );
+}
+
 #[derive(Serialize)]
 struct AppliedMigration {
     version: i64,
@@ -182,8 +200,11 @@ struct RunDatatableMigrationsQuery {
     up_to: Option<i64>,
     /// When set, apply only this specific migration version (if not already
     /// applied), ignoring any other pending migrations. Takes precedence over
-    /// `up_to`.
+    /// `up_to` and `schema`.
     only: Option<i64>,
+    /// When set, apply only the pending migrations that declare this schema in their
+    /// `-- schemas` annotation. Takes precedence over `up_to`.
+    schema: Option<String>,
 }
 
 /// Build the `database` argument for a migration job. Both resource-backed and
@@ -541,7 +562,9 @@ async fn read_applied_versions_on_client(
 /// Each migration runs as a normal Windmill `postgresql` job (permissioned as
 /// the requester, labelled `datatable_migration`); applied versions are then
 /// recorded in the data table's own `_wm_migrations` table, so only migrations
-/// not recorded there are run, in ascending `timestamp` order.
+/// not recorded there are run, in ascending `timestamp` order. A run for one
+/// schema is refused while an earlier migration its selection overlaps is pending
+/// (see `datatable_migration_scope`).
 async fn run_datatable_migrations(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -587,30 +610,32 @@ async fn run_datatable_migrations(
 
     let applied_versions = read_applied_versions_on_client(&client, &datatable_name).await?;
 
+    let selection = if let Some(only) = query.only {
+        RunSelection::Only(only)
+    } else if let Some(schema) = query.schema.as_deref() {
+        RunSelection::Schema(schema.to_ascii_lowercase())
+    } else {
+        RunSelection::UpTo(query.up_to)
+    };
     // How the user scoped the run, for the counter emitted on the first migration
     // that lands below.
-    let scope = if query.only.is_some() {
-        "only"
-    } else if query.up_to.is_some() {
-        "up_to"
-    } else {
-        "all"
+    let scope = match selection {
+        RunSelection::Only(_) => "only",
+        RunSelection::Schema(_) => "schema",
+        RunSelection::UpTo(Some(_)) => "up_to",
+        RunSelection::UpTo(None) => "all",
     };
+    let chain: Vec<ChainEntry> = migrations
+        .iter()
+        .map(|m| ChainEntry::new(m.timestamp, m.name.clone(), &m.code_up))
+        .collect();
+    let plan = plan_run(&chain, &applied_versions, &selection)?;
 
     let mut applied = Vec::new();
-    for m in migrations {
-        if let Some(only) = query.only {
-            // Run a single specific migration, skipping every other one.
-            if m.timestamp != only {
-                continue;
-            }
-        } else if query.up_to.is_some_and(|up_to| m.timestamp > up_to) {
-            // Migrations are ordered ascending, so once we pass `up_to` we're done.
-            break;
-        }
-        if applied_versions.contains(&m.timestamp) {
-            continue;
-        }
+    for m in plan.into_iter().map(|i| &migrations[i]) {
+        parse_migration_schemas(&m.code_up).map_err(|e| {
+            Error::BadRequest(format!("Migration {} ({}): {e}", m.timestamp, m.name))
+        })?;
         ensure_migration_role_allowed(
             &db,
             &w_id,
@@ -642,7 +667,7 @@ async fn run_datatable_migrations(
                     pg_error_message(&e)
                 ))
             })?;
-        applied.push(AppliedMigration { version: m.timestamp, name: m.name });
+        applied.push(AppliedMigration { version: m.timestamp, name: m.name.clone() });
         // One event per run that moved the data table forward, emitted on the
         // first migration that lands rather than after the loop: a later one
         // failing returns early, and that run still advanced the data table. A
@@ -865,6 +890,13 @@ struct DatatableMigrationWithStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     code_down: Option<String>,
     status: DatatableMigrationRunStatus,
+    /// The schemas its `-- schemas` annotation declares; absent for the whole database.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    schemas: Option<Vec<String>>,
+    /// When not run: the earliest pending migration that has to be applied before it. When run:
+    /// the latest applied migration that has to be rolled back before it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    blocked_by: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -981,9 +1013,14 @@ async fn datatable_migrations_status(
         Err(e) => (None, Some(e.to_string())),
     };
 
+    let chain: Vec<ChainEntry> = defs
+        .iter()
+        .map(|m| ChainEntry::new(m.timestamp, m.name.clone(), &m.code_up))
+        .collect();
     let migrations = defs
         .into_iter()
-        .map(|m| {
+        .enumerate()
+        .map(|(i, m)| {
             let status = match &applied {
                 Some(set) if set.contains(&m.timestamp) => DatatableMigrationRunStatus::Ran,
                 Some(_) => DatatableMigrationRunStatus::NotRun,
@@ -995,6 +1032,11 @@ async fn datatable_migrations_status(
                 code_up: m.code_up,
                 code_down: m.code_down,
                 status,
+                schemas: chain[i].scope.clone(),
+                blocked_by: applied
+                    .as_ref()
+                    .and_then(|set| blocked_by(&chain, set, i))
+                    .map(|j| chain[j].timestamp),
             }
         })
         .collect();
@@ -1290,13 +1332,13 @@ async fn insert_datatable_migration_def(
     Ok(timestamp)
 }
 
-/// Mark a version as already installed in a data table's `_wm_migrations` table
+/// Mark versions as already installed in a data table's `_wm_migrations` table
 /// (ensuring the table exists first).
-async fn mark_datatable_version_installed(
+async fn mark_datatable_versions_installed(
     db: &DB,
     pg_db: &PgDatabase,
     datatable: &str,
-    version: i64,
+    versions: &[i64],
 ) -> Result<()> {
     let (client, connection) = pg_db.connect(Some(db)).await?;
     tokio::spawn(async move {
@@ -1307,14 +1349,15 @@ async fn mark_datatable_version_installed(
     ensure_wm_migrations_schema(&client).await?;
     client
         .execute(
-            "INSERT INTO _wm_migrations (datatable, version) VALUES ($1, $2) \
+            "INSERT INTO _wm_migrations (datatable, version) \
+             SELECT $1, unnest($2::bigint[]) \
              ON CONFLICT (datatable, version) DO NOTHING",
-            &[&datatable, &version],
+            &[&datatable, &versions],
         )
         .await
         .map_err(|e| {
             Error::internal_err(format!(
-                "Failed to mark initial migration installed: {}",
+                "Failed to mark initial migrations installed: {}",
                 pg_error_message(&e)
             ))
         })?;
@@ -1333,6 +1376,7 @@ async fn create_datatable_migration(
     ensure_not_operator(&authed)?;
     validate_datatable_path_segment(&datatable_name)?;
     validate_migration_name(&payload.name)?;
+    let scope = parse_migration_schemas(&payload.code_up)?;
     ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
     ensure_may_edit_migration(
         &db,
@@ -1379,6 +1423,7 @@ async fn create_datatable_migration(
     .await?;
 
     windmill_common::feature_usage::log_feature_usage("datatable", "migration_created", "manual");
+    log_migration_scope(&scope);
 
     Ok(Json(DatatableMigration {
         datatable: datatable_name,
@@ -1581,6 +1626,7 @@ async fn upsert_datatable_migration(
     if unchanged {
         return Ok(upserted_message);
     }
+    let scope = parse_migration_schemas(&payload.code_up)?;
     ensure_may_edit_migration(
         &db,
         &w_id,
@@ -1709,20 +1755,157 @@ async fn upsert_datatable_migration(
             "edited"
         },
     );
+    if existing.is_none() {
+        log_migration_scope(&scope);
+    }
 
     Ok(upserted_message)
 }
 
-/// Generate the first migration for a data table by snapshotting its current
-/// schema with `pg_dump`. The migration is recorded as already installed (the
-/// definition is written first, then its version is marked in the data table's
-/// `_wm_migrations`, so it ends up considered applied and is never re-run) and
-/// has no down migration.
+#[derive(Deserialize)]
+struct GenerateInitialDatatableMigrationQuery {
+    /// Snapshot the whole database as one migration declaring no scope, instead of one migration
+    /// per schema.
+    #[serde(default)]
+    whole_database: bool,
+}
+
+/// Run a parameterless catalog query through the simple protocol: a named prepared statement is
+/// what stalls behind a transaction-pooling proxy (see `pg_get_full_schema`).
+async fn simple_rows(
+    client: &tokio_postgres::Client,
+    sql: &str,
+) -> Result<Vec<tokio_postgres::SimpleQueryRow>> {
+    Ok(client
+        .simple_query(sql)
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to read the data table's catalog: {}",
+                pg_error_message(&e)
+            ))
+        })?
+        .into_iter()
+        .filter_map(|msg| match msg {
+            tokio_postgres::SimpleQueryMessage::Row(row) => Some(row),
+            _ => None,
+        })
+        .collect())
+}
+
+/// `pg_dump --schema-only` of the data table, made replayable: without `_wm_migrations`,
+/// Windmill's own bookkeeping table, and without what a replay elsewhere cannot run: the
+/// replaying user owns none of this database's objects, and the grants Windmill plants in an
+/// instance database (`ALTER DEFAULT PRIVILEGES FOR ROLE ...`) fail even replaying onto the same
+/// server.
+async fn schema_snapshot(pg_db: &PgDatabase, no_acl: bool, schemas: &[&str]) -> Result<String> {
+    let dump_file = pg_dump_database(
+        pg_db,
+        PgDumpOptions {
+            schema_only: true,
+            exclude_tables: &["_wm_migrations"],
+            no_owner: true,
+            no_acl,
+            schemas,
+        },
+    )
+    .await?;
+    let raw_dump = tokio::fs::read_to_string(&dump_file.path)
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to read schema dump: {}", e)))?;
+    Ok(strip_unreplayable_dump_lines(&raw_dump))
+}
+
+/// The initial migrations of a data table, as `(name, code_up)` in the order they replay: the
+/// extensions first, as a whole-database migration, then one migration per schema declaring it,
+/// each after the schemas it references. Schemas that reference each other share one migration
+/// declaring all of them. An empty `public` is left out.
+///
+/// A schema whose name a `-- schemas` annotation cannot carry turns the whole snapshot into one
+/// whole-database migration, which is what it was before it could be split.
+async fn per_schema_snapshots(
+    db: &DB,
+    pg_db: &PgDatabase,
+    no_acl: bool,
+) -> Result<Vec<(String, String)>> {
+    let (client, connection) = pg_db.connect(Some(db)).await?;
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable connection error: {}", e);
+        }
+    });
+    let schemas: Vec<String> = simple_rows(&client, SNAPSHOT_SCHEMAS_SQL)
+        .await?
+        .iter()
+        .filter_map(|r| r.get(0).map(str::to_string))
+        .collect();
+    if !schemas.iter().all(|s| is_annotatable_schema_name(s)) {
+        return Ok(vec![(
+            "initial".to_string(),
+            schema_snapshot(pg_db, no_acl, &[]).await?,
+        )]);
+    }
+    let deps: Vec<(String, String)> = simple_rows(&client, CROSS_SCHEMA_DEPENDENCIES_SQL)
+        .await?
+        .iter()
+        .filter_map(|r| Some((r.get(0)?.to_string(), r.get(1)?.to_string())))
+        .collect();
+    let extensions: Vec<(String, String)> = simple_rows(&client, SNAPSHOT_EXTENSIONS_SQL)
+        .await?
+        .iter()
+        .filter_map(|r| Some((r.get(0)?.to_string(), r.get(1)?.to_string())))
+        .collect();
+    drop(client);
+
+    let mut snapshots = vec![];
+    if !extensions.is_empty() {
+        let q = |name: &str| render_db_quoted_identifier(name, DbType::Postgresql);
+        let mut sql = String::new();
+        for (extension, schema) in &extensions {
+            if schema != "public" {
+                sql.push_str(&format!("CREATE SCHEMA IF NOT EXISTS {};\n", q(schema)));
+            }
+            sql.push_str(&format!(
+                "CREATE EXTENSION IF NOT EXISTS {} WITH SCHEMA {};\n",
+                q(extension),
+                q(schema)
+            ));
+        }
+        snapshots.push(("initial_extensions".to_string(), sql));
+    }
+    for group in order_schema_groups(&schemas, &deps) {
+        let names: Vec<&str> = group.iter().map(String::as_str).collect();
+        let dump = make_schema_snapshot_replayable(&schema_snapshot(pg_db, no_acl, &names).await?);
+        if names == ["public"] && !snapshot_has_objects(&dump) {
+            continue;
+        }
+        let name: String = format!("initial_{}", names.join("_"))
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .take(100)
+            .collect();
+        snapshots.push((name, with_schemas_annotation(&dump, &names)));
+    }
+    Ok(snapshots)
+}
+
+/// Generate the first migrations for a data table by snapshotting its current
+/// schema with `pg_dump`, one migration per schema unless `whole_database` is set.
+/// They are recorded as already installed (the definitions are written first, then
+/// their versions are marked in the data table's `_wm_migrations`, so they end up
+/// considered applied and are never re-run) and have no down migration.
 async fn generate_initial_datatable_migration(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, datatable_name)): Path<(String, String)>,
-) -> JsonResult<DatatableMigration> {
+    Query(query): Query<GenerateInitialDatatableMigrationQuery>,
+) -> JsonResult<Vec<DatatableMigration>> {
     ensure_not_operator(&authed)?;
     // Returns a `pg_dump` of the whole schema and writes into the data table's own bookkeeping, so
     // it answers to the workspace that governs it rather than to whoever is asking.
@@ -1757,47 +1940,52 @@ async fn generate_initial_datatable_migration(
     let pg_db: PgDatabase = serde_json::from_value(db_resource)
         .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
 
-    // Snapshot the schema without `_wm_migrations`, Windmill's own bookkeeping table, and
-    // without what a replay elsewhere cannot run: the replaying user owns none of this
-    // database's objects, and the grants Windmill plants in an instance database (`ALTER
-    // DEFAULT PRIVILEGES FOR ROLE ...`) fail even replaying onto the same server.
     let no_acl = managed_datatable_kind(&db, &w_id, &datatable_name)
         .await?
         .is_some();
-    let dump_file = pg_dump_database(
-        &pg_db,
-        PgDumpOptions {
-            schema_only: true,
-            exclude_tables: &["_wm_migrations"],
-            no_owner: true,
-            no_acl,
-        },
-    )
-    .await?;
-    let raw_dump = tokio::fs::read_to_string(&dump_file.path)
-        .await
-        .map_err(|e| Error::internal_err(format!("Failed to read schema dump: {}", e)))?;
-    let code_up = strip_unreplayable_dump_lines(&raw_dump);
+    let snapshots = if query.whole_database {
+        vec![(
+            "initial".to_string(),
+            schema_snapshot(&pg_db, no_acl, &[]).await?,
+        )]
+    } else {
+        per_schema_snapshots(&db, &pg_db, no_acl).await?
+    };
+    if snapshots.is_empty() {
+        return Ok(Json(vec![]));
+    }
 
-    // Record the definition first, then mark it installed. If marking fails we
-    // delete the definition, so a failure leaves no phantom "initial" (rather
+    // Record the definitions first, then mark them installed. If marking fails we
+    // delete the definitions, so a failure leaves no phantom "initial" (rather
     // than a `_wm_migrations` version with no definition that the UI can't
-    // clear). The narrow window where it briefly shows "not run" is benign:
-    // running it would just no-op/fail harmlessly against the existing schema.
+    // clear). The narrow window where they briefly show "not run" is benign:
+    // running them would just no-op/fail harmlessly against the existing schema.
+    // Versions are allocated in order, so the snapshots keep their replay order.
     let mut tx = db.begin().await?;
-    let timestamp =
-        insert_datatable_migration_def(&mut tx, &w_id, &datatable_name, "initial", &code_up, None)
-            .await?;
+    let mut created = vec![];
+    for (name, code_up) in snapshots {
+        let timestamp =
+            insert_datatable_migration_def(&mut tx, &w_id, &datatable_name, &name, &code_up, None)
+                .await?;
+        created.push(DatatableMigration {
+            datatable: datatable_name.clone(),
+            timestamp,
+            name,
+            code_up,
+            code_down: None,
+        });
+    }
     tx.commit().await?;
+    let versions: Vec<i64> = created.iter().map(|m| m.timestamp).collect();
 
-    if let Err(e) = mark_datatable_version_installed(&db, &pg_db, &datatable_name, timestamp).await
+    if let Err(e) = mark_datatable_versions_installed(&db, &pg_db, &datatable_name, &versions).await
     {
         let _ = sqlx::query!(
             "DELETE FROM datatable_migrations \
-             WHERE workspace_id = $1 AND datatable = $2 AND timestamp = $3",
+             WHERE workspace_id = $1 AND datatable = $2 AND timestamp = ANY($3)",
             &w_id,
             &datatable_name,
-            timestamp,
+            &versions,
         )
         .execute(&db)
         .await;
@@ -1815,29 +2003,32 @@ async fn generate_initial_datatable_migration(
     )
     .await?;
 
-    record_datatable_migration_deployment(
-        &authed,
+    handle_deployment_metadata_batch(
+        &authed.email,
+        &authed.username,
         &db,
         &w_id,
-        &datatable_name,
-        timestamp,
-        "initial",
+        created
+            .iter()
+            .map(|m| DeployedObject::DatatableMigration {
+                path: format!("{}/{}_{}", m.datatable, m.timestamp, m.name),
+            })
+            .collect(),
+        Some(format!("Initial data table migrations on {datatable_name}")),
     )
     .await?;
 
     windmill_common::feature_usage::log_feature_usage(
         "datatable",
         "migration_created",
-        "initial_snapshot",
+        if query.whole_database {
+            "initial_snapshot"
+        } else {
+            "initial_snapshot_per_schema"
+        },
     );
 
-    Ok(Json(DatatableMigration {
-        datatable: datatable_name,
-        timestamp,
-        name: "initial".to_string(),
-        code_up,
-        code_down: None,
-    }))
+    Ok(Json(created))
 }
 
 /// A datatable migration diff item has path `<datatable>/<timestamp>_<name>`.

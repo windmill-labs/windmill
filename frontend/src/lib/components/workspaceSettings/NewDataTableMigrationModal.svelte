@@ -17,6 +17,13 @@
 	import { fetchPendingMigrations, outOfOrderRunMessage } from './datatableMigrationUtils'
 	import Select from '../select/Select.svelte'
 	import { parseMigrationRole, withMigrationRole } from '../datatableMigrationRole'
+	import {
+		isAnnotatableSchemaName,
+		parseMigrationSchemas,
+		suggestMigrationSchemas,
+		withMigrationSchemas
+	} from '../datatableMigrationSchemas'
+	import MultiSelect from '../select/MultiSelect.svelte'
 	import { ADMIN_DATATABLE_ROLE } from '../dbTypes'
 	import { resource } from 'runed'
 
@@ -95,12 +102,57 @@
 	const roleOf = (d: typeof declaredUp) => (d.kind === 'role' ? d.role : undefined)
 	// A rollback runs as the role its own SQL names: under another role than the up migration it
 	// typically cannot touch what the up created.
+	// The scope lives in the SQL too, as its `-- schemas` annotation; the picker is a view onto it.
+	let declaredSchemas = $derived(parseMigrationSchemas(codeUp))
+	let selectedSchemas = $derived(declaredSchemas.kind === 'schemas' ? declaredSchemas.schemas : [])
+	let suggestedSchemas = $derived(suggestMigrationSchemas(codeUp))
+	// Schemas other migrations of this data table already declare, offered next to the suggestion.
+	const knownSchemas = resource(
+		() => [workspace, datatable] as const,
+		async ([ws, dt]) => {
+			try {
+				const { migrations } = await WorkspaceService.getDatatableMigrationsStatus({
+					workspace: ws,
+					datatableName: dt
+				})
+				return migrations.flatMap((m) => m.schemas ?? [])
+			} catch {
+				return []
+			}
+		}
+	)
+	let schemaItems = $derived(
+		[
+			...new Set([
+				...selectedSchemas,
+				...suggestedSchemas,
+				...(knownSchemas.current ?? []),
+				'public'
+			])
+		].map((s) => ({ value: s, label: s }))
+	)
+	let unsuggested = $derived(
+		suggestedSchemas.length > 0 &&
+			(selectedSchemas.length !== suggestedSchemas.length ||
+				suggestedSchemas.some((s) => !selectedSchemas.includes(s)))
+	)
+
+	function setSchemas(schemas: string[]) {
+		codeUp = withMigrationSchemas(
+			codeUp,
+			schemas.map((s) => s.trim().toLowerCase()).filter(isAnnotatableSchemaName)
+		)
+		upEditor?.setCode(codeUp)
+	}
+
 	let sqlProblem = $derived(
 		malformedLine !== undefined
 			? malformedMessage(malformedLine)
-			: declaredDown !== undefined && roleOf(declaredDown) !== roleOf(declaredUp)
-				? `The down migration runs as ${roleOf(declaredDown) ?? 'admin (no role)'} but the up migration as ${roleOf(declaredUp) ?? 'admin (no role)'}: make their role annotations match`
-				: undefined
+			: declaredSchemas.kind === 'malformed'
+				? `Malformed scope annotation \`${declaredSchemas.line}\`: write it as \`-- schemas <name>, <name>\`, or pick the schemas above`
+				: declaredDown !== undefined && roleOf(declaredDown) !== roleOf(declaredUp)
+					? `The down migration runs as ${roleOf(declaredDown) ?? 'admin (no role)'} but the up migration as ${roleOf(declaredUp) ?? 'admin (no role)'}: make their role annotations match`
+					: undefined
 	)
 	let selectedRole = $derived(declaredUp.kind === 'role' ? declaredUp.role : NO_ROLE)
 	let permissioned = $derived(!!usableRoles.current?.permissioned)
@@ -181,17 +233,29 @@
 		// Start from the transaction template; when prefilled from detected DDL,
 		// wrap that DDL in the same BEGIN; ... END; frame. A role the prefill declares is taken
 		// out first and put back on top: below `BEGIN;` it would not be read.
+		knownSchemas.refetch()
 		const prefillRole = prefill?.codeUp ? parseMigrationRole(prefill.codeUp) : undefined
 		if (prefill?.codeUp) {
+			// The scope is handled like the role, and when the prefill declares none it is read off
+			// the DDL, which qualifies what it touches.
+			const prefillSchemas = parseMigrationSchemas(prefill.codeUp)
 			const wrapped = wrapInTransaction(
-				ensureTrailingSemicolon(withMigrationRole(prefill.codeUp, undefined))
+				ensureTrailingSemicolon(
+					withMigrationSchemas(withMigrationRole(prefill.codeUp, undefined), [])
+				)
 			)
-			codeUp =
+			const withRole =
 				prefillRole?.kind === 'role'
 					? withMigrationRole(wrapped, prefillRole.role)
 					: prefillRole?.kind === 'malformed'
 						? `${prefillRole.line}\n${wrapped}`
 						: wrapped
+			codeUp =
+				prefillSchemas.kind === 'schemas'
+					? withMigrationSchemas(withRole, prefillSchemas.schemas)
+					: prefillSchemas.kind === 'malformed'
+						? `${prefillSchemas.line}\n${withRole}`
+						: withMigrationSchemas(withRole, suggestMigrationSchemas(wrapped))
 		} else {
 			codeUp = PLACEHOLDER
 		}
@@ -224,7 +288,7 @@
 			// status can't be fetched, fall through and let the run/rollback handle it.
 			let pending: Awaited<ReturnType<typeof fetchPendingMigrations>> = []
 			try {
-				pending = await fetchPendingMigrations(workspace, datatable)
+				pending = await fetchPendingMigrations(workspace, datatable, codeUp)
 			} catch {}
 			if (pending.length > 0) {
 				const confirmed = await confirmationModal.ask({
@@ -314,6 +378,35 @@
 					class="w-72"
 				/>
 			{/if}
+		</div>
+		<div class="flex flex-col gap-1">
+			<MultiSelect
+				items={schemaItems}
+				bind:value={() => selectedSchemas, (v) => setSchemas(v)}
+				placeholder="Schemas: whole database"
+				searchPlaceholder="Schema name"
+				createText="Declare schema"
+				onCreateItem={(s) => setSchemas([...selectedSchemas, s])}
+				reorderable={false}
+				size="sm"
+			/>
+			<div class="flex items-center gap-2 text-xs text-secondary">
+				{#if selectedSchemas.length === 0}
+					<span>
+						Declares no schemas, so it applies to the whole database and every later migration waits
+						for it. Declare the schemas it changes.
+					</span>
+				{:else}
+					<span>
+						Waits only on earlier migrations that touch {selectedSchemas.join(', ')} or the whole database.
+					</span>
+				{/if}
+				{#if unsuggested}
+					<Button variant="subtle" unifiedSize="xs" on:click={() => setSchemas(suggestedSchemas)}>
+						Use {suggestedSchemas.join(', ')}
+					</Button>
+				{/if}
+			</div>
 		</div>
 		{#if sqlProblem !== undefined}
 			<p class="text-xs text-red-500">{sqlProblem}</p>

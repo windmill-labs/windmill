@@ -1,6 +1,13 @@
 import { z } from 'zod'
 import { WorkspaceService } from '$lib/gen'
 import { withMigrationRole } from '$lib/components/datatableMigrationRole'
+import {
+	migrationScope,
+	parseMigrationSchemas,
+	scopesOverlap,
+	suggestMigrationSchemas,
+	withMigrationSchemas
+} from '$lib/components/datatableMigrationSchemas'
 import { createToolDef, type ToolCallbacks } from './shared'
 import { NONE, RUN_PREVIEW, type SessionTool } from './sessionCapabilities'
 
@@ -80,6 +87,12 @@ const getCreateMigrationSchema = memo(() =>
 			.optional()
 			.describe(
 				'The datatable role the migration runs as, on a datatable that has roles. Omit to run as admin, which only the datatable admins may do.'
+			),
+		schemas: z
+			.array(z.string().regex(/^[A-Za-z0-9_$-]{1,63}$/))
+			.optional()
+			.describe(
+				'The schemas the migration changes. A migration then waits only on earlier migrations touching those schemas. Omit to have them read off the schema-qualified names in `code_up`; pass [] only for a change that spans the whole database, which every later migration then waits for.'
 			),
 		version: z
 			.number()
@@ -182,7 +195,8 @@ export function getDatatableMigrationTools(): SessionTool<{}>[] {
 							migrations: status.migrations.map((m) => ({
 								version: m.timestamp,
 								name: m.name,
-								status: migrationStatus(m.status)
+								status: migrationStatus(m.status),
+								schemas: m.schemas ?? 'whole database'
 							})),
 							// Set when the database could not be read, which is why every status is unknown.
 							...(status.error && { error: status.error })
@@ -212,9 +226,16 @@ export function getDatatableMigrationTools(): SessionTool<{}>[] {
 				})
 				// The role is an annotation in the SQL, read from above everything else, and a rollback
 				// has to run as the role that created what it drops.
+				const declared = parseMigrationSchemas(parsed.code_up)
+				const scope =
+					parsed.schemas ??
+					(declared.kind === 'schemas' ? declared.schemas : suggestMigrationSchemas(parsed.code_up))
 				const definition = {
 					name: parsed.name,
-					code_up: withRole(parsed.code_up, parsed.role),
+					code_up: withMigrationSchemas(
+						withRole(parsed.code_up, parsed.role),
+						scope.map((s) => s.toLowerCase())
+					),
 					...(parsed.code_down !== undefined && {
 						code_down: withRole(parsed.code_down, parsed.role)
 					})
@@ -271,7 +292,10 @@ export function getDatatableMigrationTools(): SessionTool<{}>[] {
 						workspace,
 						datatableName
 					})
-					const earlier = status.migrations.filter((m) => m.timestamp < version)
+					const ownScope = migrationScope(definition.code_up)
+					const earlier = status.migrations.filter(
+						(m) => m.timestamp < version && scopesOverlap(m.schemas, ownScope)
+					)
 					// Unreadable is not pending: reporting it so would send the user to apply
 					// migrations that already ran.
 					if (status.error || earlier.some((m) => m.status === 'unknown')) {

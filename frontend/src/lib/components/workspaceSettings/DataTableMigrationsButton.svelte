@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Button } from '../common'
+	import { Badge, Button } from '../common'
 	import Modal2 from '../common/modal/Modal2.svelte'
 	import Tabs from '../common/tabs/Tabs.svelte'
 	import Tab from '../common/tabs/Tab.svelte'
@@ -228,17 +228,49 @@
 		}
 	}
 
-	// Run a single migration. Warn first if earlier migrations haven't run, since
-	// this one might depend on them.
+	async function runForSchema(schema: string) {
+		busy = true
+		try {
+			const res = await WorkspaceService.runDatatableMigrations({
+				workspace,
+				datatableName: datatable,
+				schema
+			})
+			sendUserToast(
+				res.applied.length > 0
+					? `Applied ${res.applied.length} migration(s) on ${schema}`
+					: `No pending migrations on ${schema}`
+			)
+			await loadMigrations()
+			if (res.applied.length > 0) onSchemaChanged?.()
+		} catch (e: any) {
+			sendUserToast(`Failed to run migrations: ${e?.body ?? e?.message ?? e}`, true)
+		} finally {
+			busy = false
+		}
+	}
+
+	// The schemas that have pending migrations declaring them, each runnable on its own.
+	const pendingSchemas = $derived([
+		...new Set(migrations.filter((m) => m.status !== 'ran').flatMap((m) => m.schemas ?? []))
+	])
+
+	// What makes two migrations depend on each other, for the out-of-order warnings.
+	function overlap(a: DatatableMigrationWithStatus, b: DatatableMigrationWithStatus): string {
+		if (!b.schemas) return `"${b.name}" applies to the whole database`
+		if (!a.schemas) return `"${a.name}" applies to the whole database`
+		return `both touch schema ${a.schemas.filter((s) => b.schemas?.includes(s)).join(', ')}`
+	}
+
+	// Run a single migration. Warn first if an earlier migration touching the same schemas hasn't
+	// run, since this one might depend on it.
 	async function runMigration(m: DatatableMigrationWithStatus) {
-		const earlierPending = migrations.filter(
-			(x) => x.timestamp < m.timestamp && x.status !== 'ran'
-		).length
-		if (earlierPending > 0) {
+		const blocker = migrations.find((x) => x.timestamp === m.blocked_by)
+		if (blocker) {
 			const confirmed = await confirmationModal.ask({
 				title: 'Run migration out of order',
 				confirmationText: 'Run anyway',
-				children: `${earlierPending} earlier migration(s) have not been run yet. "${m.name}" might depend on them. Run it anyway?`
+				children: `"${blocker.name}" has not been run yet and ${overlap(m, blocker)}, so "${m.name}" might depend on it. Run it anyway?`
 			})
 			if (!confirmed) return
 		}
@@ -267,38 +299,43 @@
 		}
 	}
 
-	// Revert a single migration. Warn first if later migrations have run, since
-	// they might depend on this one.
+	// Revert a single migration. Warn first if a later migration touching the same schemas has
+	// run, since it might depend on this one.
 	async function revertMigration(m: DatatableMigrationWithStatus) {
-		const laterApplied = migrations.filter(
-			(x) => x.timestamp > m.timestamp && x.status === 'ran'
-		).length
-		if (laterApplied > 0) {
+		const blocker = migrations.find((x) => x.timestamp === m.blocked_by)
+		if (blocker) {
 			const confirmed = await confirmationModal.ask({
 				title: 'Revert migration out of order',
 				confirmationText: 'Revert anyway',
-				children: `${laterApplied} later migration(s) have already been run and might depend on "${m.name}". Reverting it may break them. Revert anyway?`
+				children: `"${blocker.name}" has already been run and ${overlap(m, blocker)}, so it might depend on "${m.name}". Reverting it may break it. Revert anyway?`
 			})
 			if (!confirmed) return
 		}
 		await revertOnly(m.timestamp)
 	}
 
-	async function generateInitial() {
+	async function generateInitial(wholeDatabase = false) {
 		const confirmed = await confirmationModal.ask({
-			title: 'Generate initial migration',
+			title: 'Generate initial migrations',
 			confirmationText: 'Generate',
-			children: `This snapshots the current schema of "${datatable}" with pg_dump as an "initial" migration and marks it as already applied, so it is never re-run on this data table. It has no down migration. Use this to start tracking migrations on an existing data table.`
+			children: wholeDatabase
+				? `This snapshots the current schema of "${datatable}" with pg_dump as one "initial" migration for the whole database and marks it as already applied, so it is never re-run on this data table. It has no down migration.`
+				: `This snapshots the current schema of "${datatable}" with pg_dump as one initial migration per schema, declaring that schema, and marks them as already applied, so they are never re-run on this data table. They have no down migration. Use this to start tracking migrations on an existing data table.`
 		})
 		if (!confirmed) return
 		busy = true
 		generatingInitial = true
 		try {
-			await WorkspaceService.generateInitialDatatableMigration({
+			const created = await WorkspaceService.generateInitialDatatableMigration({
 				workspace,
-				datatableName: datatable
+				datatableName: datatable,
+				wholeDatabase
 			})
-			sendUserToast('Initial migration generated')
+			sendUserToast(
+				created.length > 0
+					? `Generated ${created.length} initial migration(s)`
+					: 'The data table has no schema yet, so there is nothing to snapshot'
+			)
 			await loadMigrations()
 		} catch (e: any) {
 			sendUserToast(`Failed to generate initial migration: ${e?.body ?? e?.message ?? e}`, true)
@@ -510,13 +547,19 @@
 						<span>{generatingInitial ? 'Snapshotting current schema…' : 'No migrations yet'}</span>
 						<Button
 							variant="subtle"
-							size="xs"
+							unifiedSize="xs"
 							startIcon={{ icon: Camera }}
 							disabled={busy}
 							loading={generatingInitial}
-							on:click={generateInitial}
+							on:click={() => generateInitial()}
+							dropdownItems={[
+								{
+									label: 'One migration for the whole database',
+									onClick: () => generateInitial(true)
+								}
+							]}
 						>
-							Generate initial migration
+							Generate initial migrations
 						</Button>
 					</div>
 				{:else}
@@ -535,6 +578,21 @@
 								<span class="text-sm text-primary truncate">{m.name}</span>
 								<span class="text-xs text-hint">{m.timestamp}</span>
 							</button>
+							<div class="flex flex-wrap justify-end gap-1 shrink-0 max-w-48">
+								{#if m.schemas}
+									{#each m.schemas as s (s)}
+										<Badge small>{s}</Badge>
+									{/each}
+								{:else}
+									<Badge
+										small
+										color="yellow"
+										title="Declares no schemas: every later migration waits for it"
+									>
+										whole database
+									</Badge>
+								{/if}
+							</div>
 							<Button
 								variant="subtle"
 								size="xs"
@@ -579,10 +637,16 @@
 				>
 				<Button
 					variant="accent"
-					size="sm"
+					unifiedSize="sm"
 					startIcon={{ icon: Play }}
 					disabled={busy || !hasPending}
 					on:click={() => runUpTo(undefined)}
+					dropdownItems={pendingSchemas.length > 0
+						? pendingSchemas.map((s) => ({
+								label: `Run pending on ${s} only`,
+								onClick: () => runForSchema(s)
+							}))
+						: undefined}
 				>
 					Run all
 				</Button>

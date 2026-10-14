@@ -10,6 +10,7 @@ import type { DBSchema, SQLSchema } from '$lib/stores'
 import { stringifySchema } from './copilot/lib'
 import { datatableReference, type DbInput, type DbType } from './dbTypes'
 import { withMigrationRole } from './datatableMigrationRole'
+import { suggestMigrationSchemas, withMigrationSchemas } from './datatableMigrationSchemas'
 import { assert } from '$lib/utils'
 import { WorkspaceService } from '$lib/gen'
 import { pendingMigrations } from './workspaceSettings/datatableMigrationUtils'
@@ -411,20 +412,22 @@ export function dbSchemaOpsWithPreviewScripts({
 			)
 			return
 		}
+		// Wrapped before annotating: the annotation must lead, above `BEGIN;`. The generated DDL
+		// qualifies what it touches, so its scope is read off it.
+		const expanded = wrapMigration(await expandMarker(workspace, language, content))
+		const codeUp = withMigrationSchemas(
+			withMigrationRole(expanded, migrationRole),
+			suggestMigrationSchemas(expanded)
+		)
 		// The new migration gets the highest timestamp, so any still-pending
-		// migration is earlier: running only this one applies it out of order.
-		// Warn like the row-level Run action does (skipped if no confirm hook).
+		// overlapping migration is earlier: running only this one applies it out of
+		// order. Warn like the row-level Run action does (skipped if no confirm hook).
 		if (confirmRunOutOfOrder) {
-			const pending = pendingMigrations(status.migrations).length
+			const pending = pendingMigrations(status.migrations, codeUp).length
 			if (pending > 0 && !(await confirmRunOutOfOrder(pending))) {
 				throw new MigrationRunCancelled()
 			}
 		}
-		// Wrapped before annotating: the annotation must lead, above `BEGIN;`.
-		const codeUp = withMigrationRole(
-			wrapMigration(await expandMarker(workspace, language, content)),
-			migrationRole
-		)
 		// Down migrations are only generated for Postgres for now.
 		let codeDown: string | undefined
 		if (downContent && dbType === 'postgresql') {

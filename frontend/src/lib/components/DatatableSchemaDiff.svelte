@@ -26,6 +26,11 @@
 		outOfOrderRunMessage
 	} from './workspaceSettings/datatableMigrationUtils'
 	import Alert from './common/alert/Alert.svelte'
+	import {
+		parseMigrationSchemas,
+		suggestMigrationSchemas,
+		withMigrationSchemas
+	} from './datatableMigrationSchemas'
 	import ResizeTransitionWrapper from './common/ResizeTransitionWrapper.svelte'
 
 	interface Props {
@@ -199,10 +204,16 @@
 			})
 
 			if (status.enabled) {
+				// The generated SQL qualifies the tables it changes, so its scope is read off it
+				// unless the SQL was edited to declare one.
+				const codeUp =
+					parseMigrationSchemas(migrationSql).kind === 'none'
+						? withMigrationSchemas(migrationSql, suggestMigrationSchemas(migrationSql))
+						: migrationSql
 				// The merge migration gets the highest timestamp, so any still-pending
-				// migration on the target is earlier: running only the merge applies it
-				// out of order. Warn like the row-level Run action does.
-				const pending = pendingMigrations(status.migrations)
+				// overlapping migration on the target is earlier: running only the merge
+				// applies it out of order. Warn like the row-level Run action does.
+				const pending = pendingMigrations(status.migrations, codeUp)
 				if (pending.length > 0) {
 					const confirmed = await outOfOrderModal.ask({
 						title: 'Run migration out of order',
@@ -220,7 +231,7 @@
 				const created = await WorkspaceService.createDatatableMigration({
 					workspace: targetWorkspace,
 					datatableName: dtName,
-					requestBody: { name: migName, code_up: migrationSql }
+					requestBody: { name: migName, code_up: codeUp }
 				})
 				try {
 					await WorkspaceService.runDatatableMigrations({

@@ -3265,6 +3265,8 @@ pub(crate) struct PgDumpOptions<'a> {
     pub(crate) no_owner: bool,
     /// Leave out `GRANT`, `REVOKE` and `ALTER DEFAULT PRIVILEGES`.
     pub(crate) no_acl: bool,
+    /// Dump only these schemas, matched by exact name. Empty dumps the whole database.
+    pub(crate) schemas: &'a [&'a str],
 }
 
 /// Run pg_dump against a PgDatabase, writing output to a temp file on disk.
@@ -3293,6 +3295,10 @@ pub(crate) async fn pg_dump_database(
     }
     for table in opts.exclude_tables {
         cmd.arg(format!("--exclude-table={table}"));
+    }
+    // `--schema` takes a pattern; double quotes make the name literal and case-sensitive.
+    for schema in opts.schemas {
+        cmd.arg(format!("--schema=\"{}\"", schema.replace('"', "\"\"")));
     }
     cmd.arg("--host")
         .arg(host)
