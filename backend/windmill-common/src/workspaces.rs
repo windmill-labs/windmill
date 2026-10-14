@@ -144,6 +144,15 @@ impl From<&Vec<ProtectionRuleKind>> for ProtectionRules {
     }
 }
 
+impl ProtectionRules {
+    /// The rules set, in declaration order.
+    pub fn kinds(self) -> Vec<ProtectionRuleKind> {
+        <ProtectionRuleKind as strum::IntoEnumIterator>::iter()
+            .filter(|k| self.contains(k.flag()))
+            .collect()
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct WorkspaceGitSyncSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1356,6 +1365,24 @@ pub async fn operator_builder_rights(db: &DB, workspace_id: &str) -> Result<Oper
     Ok(operator_rights(db, workspace_id).await?.builder)
 }
 
+/// Whether operators of this workspace may save a draft of `kind`: one they could deploy. A flow
+/// or full-code app under its builder right, a schedule or trigger under the matching manage right,
+/// nothing else. `kind: None` asks whether they may draft any kind at all.
+pub async fn operator_can_draft(
+    db: &DB,
+    workspace_id: &str,
+    kind: Option<crate::user_drafts::UserDraftItemKind>,
+) -> Result<bool> {
+    use crate::user_drafts::UserDraftItemKind;
+    let rights = operator_rights(db, workspace_id).await?;
+    Ok(match kind {
+        None => rights.builder.any() || rights.manage.schedules || rights.manage.triggers,
+        Some(UserDraftItemKind::Flow) => rights.builder.has(BuilderKind::Flows),
+        Some(UserDraftItemKind::RawApp) => rights.builder.has(BuilderKind::Apps),
+        Some(kind) => kind.manage_kind().is_some_and(|m| rights.manage.has(m)),
+    })
+}
+
 /// Gate for a write only a workspace that granted the builder right covering `kind` lets operators
 /// perform. `action` completes "Operators cannot {action} for security reasons".
 pub async fn check_operator_can_build(
@@ -1547,9 +1574,10 @@ pub struct DataTable {
     /// which is how data tables behaved before roles existed. Only meaningful on a terminal entry;
     /// a pointer is governed by what it points at.
     ///
-    /// Never leaves the instance: stripped from the workspace export and ignored on import, since
-    /// tenants are workspace-scoped names and syncing them would make repo write access a second
-    /// door onto the access decision.
+    /// Stripped from the `datatable` setting wherever it is read or written as a whole. It leaves
+    /// the instance only as the settings document's `datatable_permissions`, which `wmill sync`
+    /// carries only when the repo opts in: tenants are workspace-scoped names, and syncing them
+    /// makes repo write access a second door onto the access decision.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permissions: Option<DataTablePermissions>,
 }
@@ -1775,7 +1803,23 @@ pub async fn managed_database_uses(
     dbname: &str,
     exempt: Option<(&str, &str)>,
 ) -> Result<Vec<String>> {
-    let (exempt_workspace, exempt_name) = exempt.unzip();
+    match exempt {
+        Some((workspace_id, name)) => {
+            managed_database_uses_except(conn, kind, dbname, workspace_id, &[name]).await
+        }
+        None => managed_database_uses_except(conn, kind, dbname, "", &[]).await,
+    }
+}
+
+/// [`managed_database_uses`], exempting every entry of `workspace_id` in `names`: the data tables
+/// of a fork that share one copy stop using it together.
+pub async fn managed_database_uses_except(
+    conn: &mut sqlx::PgConnection,
+    kind: DataTableCatalogResourceType,
+    dbname: &str,
+    workspace_id: &str,
+    names: &[&str],
+) -> Result<Vec<String>> {
     Ok(sqlx::query_scalar::<_, String>(
         "WITH entries AS (
              SELECT ws.workspace_id::text AS workspace_id, dt.key AS name, dt.value
@@ -1789,7 +1833,7 @@ pub async fn managed_database_uses(
                AND value->'database'->>'resource_path' = $2
          )
          SELECT format('data table ''%s'' in workspace ''%s''', name, workspace_id) FROM naming
-         WHERE $3::text IS NULL OR NOT (workspace_id = $3 AND name = $4)
+         WHERE NOT (workspace_id = $3 AND name = ANY($4))
          UNION ALL
          SELECT format('data table ''%s'' in workspace ''%s'', which points at the one in ''%s''',
                        e.name, e.workspace_id, n.workspace_id)
@@ -1812,8 +1856,8 @@ pub async fn managed_database_uses(
     )
     .bind(kind.as_ref())
     .bind(dbname)
-    .bind(exempt_workspace)
-    .bind(exempt_name)
+    .bind(workspace_id)
+    .bind(names)
     .fetch_all(&mut *conn)
     .await?)
 }

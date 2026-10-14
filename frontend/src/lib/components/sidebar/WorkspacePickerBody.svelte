@@ -139,7 +139,9 @@
 	// (standalone pages such as svix webhook creation), so
 	// there forks must stay directly selectable — list the full hierarchy
 	// unconditionally.
-	const hierarchy = $derived($userWorkspaces ? buildWorkspaceHierarchy($userWorkspaces) : [])
+	const hierarchy = $derived(
+		$userWorkspaces ? buildWorkspaceHierarchy($userWorkspaces, $userStore?.email) : []
+	)
 	const expandedFamilies = new SvelteSet<string>()
 	// Root ids with at least one fork — only they get the expand chevron.
 	// hierarchy is a DFS (parent before child), so a depth>0 row belongs to the
@@ -432,9 +434,18 @@
 			{#if searching && familyWorkspaces.length === 0}
 				<div class="px-3 py-2 text-xs text-secondary">No workspaces match your search</div>
 			{/if}
-			{#each familyWorkspaces as { workspace, depth, isForked, parentName }}
+			{#each familyWorkspaces as { workspace, depth, isForked, parentName, separatorBefore } (workspace.id)}
 				{@const isActive = $workspaceStore === workspace.id}
 				{@const forkAccent = isForked ? forkAccentStyle(workspace.color) : undefined}
+				<!-- A search filters out sibling forks, so the divider between the user's own forks
+				     and the others would mark the wrong boundary. -->
+				{#if separatorBefore && !searching}
+					<div
+						class="my-1 border-t border-border-light"
+						style:margin-left={`${(depth - 1) * 16}px`}
+						role="separator"
+					></div>
+				{/if}
 				<!-- Selection is a trailing tick (single-choice picker convention). A
 			     collapsed root carries the tick while one of its forks is active —
 			     the fork row is hidden and its family is the only trace of the
