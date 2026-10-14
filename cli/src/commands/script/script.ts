@@ -1492,15 +1492,32 @@ async function run(
     await track_job(workspace.workspaceId, id);
   }
 
-  const { result, success } = await pollForJobResult(workspace.workspaceId, id);
-  if (!success) {
+  await pollForJobResult(workspace.workspaceId, id);
+  // getCompletedJob, not the poller's result: only it counts a skipped
+  // (debounced) job as a success.
+  const completedJob = await wmill.getCompletedJob({
+    workspace: workspace.workspaceId,
+    id,
+  });
+  if (completedJob.success === false) {
     process.exitCode = 1;
   }
+  const result = completedJob.result ?? {};
   if (opts.silent) {
-    console.log(JSON.stringify(result ?? {}));
+    console.log(JSON.stringify(result));
   } else {
-    log.info(JSON.stringify(result ?? {}, null, 2));
+    log.info(JSON.stringify(result, null, 2));
   }
+}
+
+function logJobCompleted(success: boolean | undefined) {
+  log.info("\n");
+  log.info(
+    success === false
+      ? colors.bold.underline.red("Job Completed")
+      : colors.bold.underline.green("Job Completed")
+  );
+  log.info("\n");
 }
 
 const JOB_UPDATES_POLL_INTERVAL_MS = 500;
@@ -1511,9 +1528,7 @@ export async function track_job(workspace: string, id: string) {
     const result = await wmill.getCompletedJob({ workspace, id });
 
     log.info(result.logs);
-    log.info("\n");
-    log.info(colors.bold.underline.green("Job Completed"));
-    log.info("\n");
+    logJobCompleted(result.success);
     return;
   } catch {
     /* ignore */
@@ -1569,10 +1584,12 @@ export async function track_job(workspace: string, id: string) {
     await sleep(JOB_UPDATES_POLL_INTERVAL_MS);
   }
 
-  const { success } = await pollForJobResult(workspace, id);
+  await pollForJobResult(workspace, id);
 
+  let success: boolean | undefined;
   try {
     const final_job = await wmill.getCompletedJob({ workspace, id });
+    success = final_job.success;
     const remaining = Array.from(final_job.logs ?? "")
       .slice(Math.max(logOffset - 1, 0))
       .join("");
@@ -1582,13 +1599,7 @@ export async function track_job(workspace: string, id: string) {
   } catch (e: any) {
     log.warn(`Could not retrieve the job's remaining logs: ${e?.message ?? e}`);
   }
-  log.info("\n");
-  if (success) {
-    log.info(colors.bold.underline.green("Job Completed"));
-  } else {
-    log.info(colors.bold.underline.red("Job Completed"));
-  }
-  log.info("\n");
+  logJobCompleted(success);
 }
 
 export async function pollForJobResult(
