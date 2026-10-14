@@ -7,7 +7,7 @@ function identity(id: string): FlowModule {
 }
 
 describe('earlyReturnCandidates', () => {
-	it('offers top-level nodes and nodes reached through branches, not loops', () => {
+	it('offers every step reached through branches, but not the steps inside loops', () => {
 		const modules: FlowModule[] = [
 			identity('a'),
 			{
@@ -65,7 +65,9 @@ describe('earlyReturnCandidates', () => {
 			{ id: 'd', deterministic: false },
 			{ id: 'e', deterministic: false },
 			{ id: 'f', deterministic: false },
+			{ id: 'g', deterministic: false },
 			{ id: 'h', deterministic: false },
+			{ id: 'i', deterministic: false },
 			{ id: 'k', deterministic: true },
 			{ id: 'l', deterministic: true },
 			{ id: 'm', deterministic: true }

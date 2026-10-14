@@ -5584,8 +5584,6 @@ pub async fn get_result_and_success_by_id_from_flow(
             },
         };
 
-    let mut completed = false;
-
     if job_result.is_none() {
         job_result =
             match get_result_by_id_from_original_flow_inner(db, w_id, flow_id, node_id).await {
@@ -5595,7 +5593,6 @@ pub async fn get_result_and_success_by_id_from_flow(
                     _ => return Err(err),
                 },
             };
-        completed = job_result.is_some();
     }
 
     let job_result = not_found_if_none(
@@ -5615,32 +5612,35 @@ pub async fn get_result_and_success_by_id_from_flow(
             .fetch_one(db)
             .await?
         }
-        JobResult::ListJob(_) => {
-            let query = format!(
-                r#"WITH modules AS (
-                    SELECT jsonb_array_elements(flow_status->'modules') AS module
-                    FROM {}
-                    WHERE id = $1
-                )
-                SELECT module->>'type' = 'Success'
-                FROM modules
-                WHERE module->>'id' = $2"#,
-                if completed {
-                    "v2_job_completed"
-                } else {
-                    "v2_job_status"
+        JobResult::ListJob(jobs) => {
+            // The step's status lives in the flow job that ran it, which is the root only for a
+            // top-level step: one nested in a branch is a module of that branch's job.
+            let holder = match jobs.first() {
+                Some(job) => {
+                    sqlx::query_scalar!("SELECT parent_job FROM v2_job WHERE id = $1", job)
+                        .fetch_optional(db)
+                        .await?
+                        .flatten()
                 }
-            );
-            sqlx::query_scalar(&query)
-                .bind(flow_id)
-                .bind(node_id)
-                .fetch_optional(db)
-                .await?
-                .ok_or_else(|| {
-                    error::Error::internal_err(format!(
-                        "Could not get success from flow job status"
-                    ))
-                })?
+                None => None,
+            }
+            .unwrap_or(*flow_id);
+            // That job can complete before the root does, so its status may be in either table.
+            sqlx::query_scalar(
+                r#"SELECT module->>'type' = 'Success'
+                FROM jsonb_array_elements(COALESCE(
+                    (SELECT flow_status FROM v2_job_completed WHERE id = $1),
+                    (SELECT flow_status FROM v2_job_status WHERE id = $1)
+                )->'modules') AS module
+                WHERE module->>'id' = $2"#,
+            )
+            .bind(holder)
+            .bind(node_id)
+            .fetch_optional(db)
+            .await?
+            .ok_or_else(|| {
+                error::Error::internal_err(format!("Could not get success from flow job status"))
+            })?
         }
     };
 

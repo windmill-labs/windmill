@@ -6,31 +6,23 @@ export type EarlyReturnCandidate = {
 	deterministic: boolean
 }
 
-// Nested in a branch, these return a list of jobs, and the sync wait loop only resolves the
-// success of a list from the top-level run's modules. A loop's inner steps run once per iteration
-// and so are not offered either.
-const NOT_NESTABLE = new Set(['branchall', 'forloopflow', 'whileloopflow'])
-
+// A loop's inner steps run once per iteration, so only the loop itself is offered.
 export function earlyReturnCandidates(modules: FlowModule[]): EarlyReturnCandidate[] {
-	return modules.flatMap((module) => [
-		{ id: module.id, deterministic: true },
-		...insideBranches(module, true)
-	])
+	return withinBranches(modules, true)
 }
 
-function insideBranches(module: FlowModule, deterministic: boolean): EarlyReturnCandidate[] {
-	const value = module.value
-	let children: FlowModule[]
-	if (value.type === 'branchone') {
-		children = [value.default, ...value.branches.map((b) => b.modules)].flat()
-		deterministic = false
-	} else if (value.type === 'branchall') {
-		children = value.branches.flatMap((b) => b.modules)
-	} else {
-		return []
-	}
-	return children.flatMap((child) => [
-		...(NOT_NESTABLE.has(child.value.type) ? [] : [{ id: child.id, deterministic }]),
-		...insideBranches(child, deterministic)
-	])
+function withinBranches(modules: FlowModule[], deterministic: boolean): EarlyReturnCandidate[] {
+	return modules.flatMap((module) => {
+		const value = module.value
+		const nested =
+			value.type === 'branchone'
+				? withinBranches([value.default, ...value.branches.map((b) => b.modules)].flat(), false)
+				: value.type === 'branchall'
+					? withinBranches(
+							value.branches.flatMap((b) => b.modules),
+							deterministic
+						)
+					: []
+		return [{ id: module.id, deterministic }, ...nested]
+	})
 }

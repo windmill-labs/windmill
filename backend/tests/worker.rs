@@ -4699,7 +4699,8 @@ async fn test_run_wait_result_early_return_with_failure_module(
 }
 
 /// An early-return node inside a branch to one resolves while the flow is still running when its
-/// branch is taken, and falls back to the flow's final result when it is not.
+/// branch is taken, and falls back to the flow's final result when it is not. A nested branch to
+/// all resolves to its list, though its status is not in the root flow's modules.
 #[cfg(all(feature = "deno_core", feature = "quickjs"))]
 #[sqlx::test(fixtures("base"))]
 async fn test_run_wait_result_early_return_inside_branch_one(
@@ -4725,32 +4726,43 @@ async fn test_run_wait_result_early_return_inside_branch_one(
                 "id": "a",
                 "value": {
                     "type": "branchone",
-                    "branches": [{ "expr": "flow_input.take", "modules": [{
-                        "id": "b",
-                        "value": {
-                            "type": "branchone",
-                            "branches": [],
-                            "default": [{ "id": "c", "value": returns("c", 0) }],
+                    "branches": [{ "expr": "flow_input.take", "modules": [
+                        {
+                            "id": "b",
+                            "value": {
+                                "type": "branchone",
+                                "branches": [],
+                                "default": [{ "id": "c", "value": returns("c", 0) }],
+                            },
                         },
-                    }] }],
+                        {
+                            "id": "e",
+                            "value": {
+                                "type": "branchall",
+                                "branches": [{ "modules": [{ "id": "f", "value": returns("f", 0) }] }],
+                            },
+                        },
+                    ] }],
                     "default": [],
                 },
             },
             { "id": "d", "value": returns("d", 3000) },
         ],
-        "early_return": "c",
     }))
     .unwrap();
 
-    for (take, expected) in [(true, "c"), (false, "d")] {
-        let id = RunJob::from(JobPayload::RawFlow {
-            value: flow.clone(),
-            path: None,
-            restarted_from: None,
-        })
-        .arg("take", json!(take))
-        .push(&db)
-        .await;
+    for (early_return, take, expected) in [
+        ("c", true, json!("c")),
+        ("c", false, json!("d")),
+        ("e", true, json!(["f"])),
+    ] {
+        let mut flow = flow.clone();
+        flow.early_return = Some(early_return.to_string());
+        let id =
+            RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+                .arg("take", json!(take))
+                .push(&db)
+                .await;
 
         // The completion check runs inside the worker's lifetime: the worker finishes `d` before
         // quitting, so checking afterwards would always see the flow completed.
@@ -4761,7 +4773,7 @@ async fn test_run_wait_result_early_return_inside_branch_one(
                     &db,
                     id,
                     "test-workspace",
-                    Some("c".to_string()),
+                    Some(early_return.to_string()),
                     false,
                     "test-user",
                 )
@@ -4780,11 +4792,11 @@ async fn test_run_wait_result_early_return_inside_branch_one(
         )
         .await;
         // Only the taken branch returns before `d` finishes sleeping.
-        assert_eq!(flow_completed, !take, "take = {take}");
+        assert_eq!(flow_completed, !take, "{early_return}, take = {take}");
 
         let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await?;
         let body: serde_json::Value = serde_json::from_slice(&bytes)?;
-        assert_eq!(json!(expected), body, "take = {take}");
+        assert_eq!(expected, body, "{early_return}, take = {take}");
     }
 
     Ok(())
