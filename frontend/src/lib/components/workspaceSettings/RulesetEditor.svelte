@@ -23,7 +23,7 @@
 		rule?: ProtectionRuleset
 		existingNames?: string[]
 		onUpdate?: () => void
-		onClose?: () => void
+		onClose: () => void
 	}
 
 	let { rule, existingNames = [], onUpdate, onClose }: Props = $props()
