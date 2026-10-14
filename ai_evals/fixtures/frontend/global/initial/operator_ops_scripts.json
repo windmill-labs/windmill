@@ -1,0 +1,57 @@
+{
+  "user": {
+    "username": "op",
+    "is_admin": false,
+    "folders": [],
+    "folders_read": ["ops"]
+  },
+  "workspace": {
+    "scripts": [
+      {
+        "path": "f/ops/list_open_orders",
+        "summary": "List open orders",
+        "description": "Returns every order that has not shipped yet, newest first.",
+        "language": "bun",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
+          "required": []
+        },
+        "content": "export async function main() {\n  return [\n    { id: 'ord_1042', customer_email: 'ana@example.com', total: 129.9, status: 'open' },\n    { id: 'ord_1041', customer_email: 'li@example.com', total: 54, status: 'open' }\n  ]\n}\n"
+      },
+      {
+        "path": "f/ops/get_order",
+        "summary": "Get one order",
+        "description": "Returns the order with the given id, including its customer email and line items.",
+        "language": "bun",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "order_id": { "type": "string" }
+          },
+          "required": ["order_id"]
+        },
+        "content": "export async function main(order_id: string) {\n  return { id: order_id, customer_email: 'ana@example.com', total: 129.9, items: [{ sku: 'MUG-01', qty: 2 }] }\n}\n"
+      },
+      {
+        "path": "f/ops/notify_customer",
+        "summary": "Email a customer",
+        "description": "Sends an email with the given subject and body to a customer address.",
+        "language": "bun",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "email": { "type": "string" },
+            "subject": { "type": "string" },
+            "body": { "type": "string" }
+          },
+          "required": ["email", "subject", "body"]
+        },
+        "content": "export async function main(email: string, subject: string, body: string) {\n  return { sent: true, email }\n}\n"
+      }
+    ]
+  }
+}

@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions.mjs";
-import type { AIProvider } from "$lib/gen/types.gen";
+import type { AIProvider, OperatorSettings } from "$lib/gen/types.gen";
 import {
   globalToolsFor,
   prepareGlobalSystemMessage,
@@ -13,6 +13,9 @@ import {
   getGlobalDraft,
   listGlobalDrafts,
 } from "../../../../../frontend/src/lib/components/copilot/chat/global/userDraftAdapter";
+import { capabilitiesForRole } from "../../../../../frontend/src/lib/components/copilot/chat/global/sessionAccess";
+import { filterSessionTools } from "../../../../../frontend/src/lib/components/copilot/chat/global/sessionToolset";
+import { usersWorkspaceStore } from "../../../../../frontend/src/lib/stores";
 import { resolveResourceTypeSync } from "../../../../../frontend/src/lib/components/copilot/chat/script/core";
 import { appendPlanModeInstructions } from "../../../../../frontend/src/lib/components/copilot/chat/planMode";
 import type { Tool as ProductionTool } from "../../../../../frontend/src/lib/components/copilot/chat/shared";
@@ -27,7 +30,7 @@ import {
   type EvalPreviewPanel,
   type EvalPreviewTabFixture,
 } from "./evalPreviewTabs";
-import type { ModeRunContext } from "../../../../core/types";
+import type { EvalCaseProfile, ModeRunContext } from "../../../../core/types";
 import type { GlobalDraftState } from "../../../../core/validators";
 import type { WindmillBackendSettings } from "../../../../core/windmillBackendSettings";
 import {
@@ -122,6 +125,8 @@ export interface GlobalEvalOptions {
   // Start in plan mode: the gate refuses every tool without `planModeSafe`, and the two plan
   // tools are offered. Needs sessionChat, which is what plan mode is gated on in production.
   planMode?: boolean;
+  // The user's rights, resolved as a session resolves them; unset keeps full access.
+  profile?: EvalCaseProfile;
   model?: string;
   maxIterations?: number;
   userAnswers?: string[];
@@ -150,6 +155,16 @@ export async function runGlobalEval(
     options.workspaceFixtures ?? {},
   );
   seedLiveEditorDrafts(workspaceRoot, options.liveEditorDrafts ?? []);
+  // No deploy rules in the mock workspace, so they always pass.
+  const access =
+    options.profile &&
+    capabilitiesForRole({
+      isAdmin: false,
+      operator: options.profile.operator,
+      deployRulesPass: true,
+      operatorSettings: options.profile.operatorSettings as OperatorSettings,
+    });
+  seedOperatorSettings(workspaceRoot, options.profile);
   // Declared out here only so `finally` can reach it; a malformed fixture throws while
   // building it, and everything seeded above still has to be torn down.
   let panel: EvalPreviewPanel | undefined;
@@ -161,6 +176,12 @@ export async function runGlobalEval(
     if (!options.sessionChat && options.previewTabs?.length) {
       throw new Error(
         "This fixture seeds previewTabs, which only a session chat has — set runtime.sessionChat: true on the case.",
+      );
+    }
+    // Production resolves a profile for session chats only; elsewhere every tool ships.
+    if (!options.sessionChat && access) {
+      throw new Error(
+        "This case sets runtime.profile, which only a session chat applies — set runtime.sessionChat: true on the case.",
       );
     }
     if (options.sessionChat) {
@@ -185,7 +206,13 @@ export async function runGlobalEval(
     const baseSystemMessage = prepareGlobalSystemMessage(undefined, {
       user: options.user,
       previewTools: options.sessionChat ?? false,
+      access,
     });
+    const helpers = {
+      ...evalArtifacts.helpers,
+      access,
+      ...(panel && { openArtifact: panel.openArtifact }),
+    };
     const rawResult = await runEval({
       userPrompt,
       systemMessage: baseSystemMessage,
@@ -206,12 +233,13 @@ export async function runGlobalEval(
         resourceTypeSync: await resolveResourceTypeSync(workspaceRoot, []),
       }),
       tools: [
-        ...getGlobalEvalTools(options.sessionChat ?? false),
+        ...filterSessionTools(
+          getGlobalEvalTools(options.sessionChat ?? false),
+          access,
+        ),
         ...(planMode?.tools ?? []),
       ],
-      helpers: panel
-        ? { ...evalArtifacts.helpers, openArtifact: panel.openArtifact }
-        : evalArtifacts.helpers,
+      helpers,
       apiKey,
       getOutput: async () => ({
         ...(await collectGlobalDraftState(workspaceRoot)),
@@ -249,6 +277,7 @@ export async function runGlobalEval(
     panel?.dispose();
     clearGlobalDrafts(workspaceRoot);
     clearLiveEditorDrafts(workspaceRoot, options.liveEditorDrafts ?? []);
+    seedOperatorSettings(workspaceRoot, undefined);
     unregisterBenchmarkWorkspaceRunnables(workspaceRoot);
     if (!options.workspaceRoot) {
       await rm(workspaceRoot, { recursive: true, force: true });
@@ -312,6 +341,35 @@ function clearLiveEditorDrafts(
     const storagePath = fixture.storagePath ?? fixture.effectivePath ?? "";
     UserDraft.clearLiveEditorDraft(itemKind, { workspace, storagePath });
   }
+}
+
+// The app tools read the builder right from the workspace list, not from the profile: init_app
+// for the starter it seeds, and every app draft save for the policy a builder's app is conformed
+// to. Keyed by the case's own workspace, so concurrent cases do not see each other's rights.
+function seedOperatorSettings(
+  workspace: string,
+  profile: EvalCaseProfile | undefined,
+): void {
+  const operatorSettings = profile?.operator && profile.operatorSettings;
+  usersWorkspaceStore.update((list) => {
+    const workspaces = (list?.workspaces ?? []).filter(
+      (w) => w.id !== workspace,
+    );
+    if (operatorSettings) {
+      workspaces.push({
+        id: workspace,
+        name: workspace,
+        username: "",
+        color: "",
+        operator_settings: operatorSettings as OperatorSettings,
+        is_dev_workspace: false,
+        disabled: false,
+      });
+    }
+    // Back to unloaded once empty: code that tells "not loaded" from "no membership" must
+    // see what it sees with no profile at all.
+    return workspaces.length ? { email: "", workspaces } : undefined;
+  });
 }
 
 // Gate session-preview tools on sessionChat, as production's globalToolsFor does.
