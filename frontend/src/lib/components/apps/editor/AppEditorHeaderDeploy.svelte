@@ -314,7 +314,7 @@
 
 	<Section
 		label="Run on behalf of"
-		tooltip="The app's runnables run as this user whoever opens the app, so viewers need no access of their own to the scripts, flows and resources it uses. To keep that safe, the app can call only the runnables it was deployed with, and viewers cannot override their static inputs. A runnable reads the viewer's email from WM_END_USER_EMAIL."
+		tooltip={`The app's runnables run as this user whoever opens the app, so viewers need no access of their own. To keep that safe, the app can call only the runnables it was deployed with, and viewers cannot override their static inputs. Runnables still get the viewer's email in WM_END_USER_EMAIL${rawApp ? ', and inline ones can be set to read data tables and object storage as the viewer' : ''}.`}
 	>
 		{#if !canPreserve}
 			<div class="text-xs text-secondary">
