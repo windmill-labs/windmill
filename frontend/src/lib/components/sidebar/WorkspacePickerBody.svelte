@@ -303,6 +303,14 @@
 		}
 	}
 
+	// melt still moves focus onto an item in other cases, the first one when the menu is opened from
+	// the keyboard among them; with the search shown, focus belongs to the field.
+	let searchWrapEl: HTMLDivElement | undefined = $state()
+	function returnFocusToSearch(e: FocusEvent) {
+		if (!showSearch || !(e.target as HTMLElement | null)?.closest('[role="menuitem"]')) return
+		searchWrapEl?.querySelector('input')?.focus()
+	}
+
 	// ArrowRight/ArrowLeft expand/collapse the keyboard-highlighted family (melt
 	// stamps data-highlighted on the item; the row wrapper carries the workspace
 	// id). Capture phase, so melt's menubar left/right (adjacent-menu switching)
@@ -354,6 +362,7 @@
 	role="none"
 	onpointermovecapture={keepSearchFocus}
 	onpointerleavecapture={keepSearchFocus}
+	onfocusincapture={returnFocusToSearch}
 >
 	{#if showSearch}
 		<SearchItems
@@ -366,6 +375,7 @@
 		     starting with the typed letter. A native listener, because Svelte delegates `onkeydown`
 		     to the root, which runs after melt's listener on the menu element. -->
 		<div
+			bind:this={searchWrapEl}
 			class="px-2 pt-1 pb-2"
 			role="none"
 			{@attach (el) => {
@@ -474,7 +484,7 @@
 										/>
 									{/if}
 								</div>
-								{#if ambiguousNames.has(workspace.name)}
+								{#if ambiguousNames.has(workspace.name) && !markedNames.has(workspace.id)}
 									<div class="truncate text-left text-2xs text-tertiary" title={workspace.id}>
 										{workspace.id}
 									</div>
