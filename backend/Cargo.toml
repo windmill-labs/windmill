@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.830.0"
+version = "1.833.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -88,7 +88,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal", "./parsers/windmill-parser-wasm"]
 
 [workspace.package]
-version = "1.830.0"
+version = "1.833.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -156,7 +156,7 @@ bedrock = ["windmill-ai/bedrock", "windmill-api/bedrock", "windmill-worker/bedro
 mqtt_trigger = ["windmill-api/mqtt_trigger"]
 amqp_trigger = ["windmill-api/amqp_trigger"]
 native_trigger = ["windmill-api/native_trigger"]
-sqs_trigger = ["windmill-api/sqs_trigger", "windmill-common/aws_auth", "windmill-api/openidconnect"]
+sqs_trigger = ["windmill-api/sqs_trigger", "windmill-common/aws_auth", "openidconnect"]
 gcp_trigger = ["windmill-api/gcp_trigger"]
 azure_trigger = ["windmill-api/azure_trigger"]
 smtp = ["windmill-api/smtp", "windmill-common/smtp", "windmill-queue/smtp"]
@@ -281,6 +281,7 @@ windmill-api = { workspace = true, default-features = false }
 windmill-api-agent-workers = { workspace = true, optional = true }
 windmill-api-scripts.workspace = true
 windmill-api-settings.workspace = true
+windmill-audit.workspace = true
 windmill-worker.workspace = true
 windmill-indexer = { workspace = true, optional = true }
 windmill-autoscaling = { workspace = true, optional = true }
@@ -594,9 +595,11 @@ const_format = { version = "0.2.35", features = ["rust_1_64", "rust_1_51"] }
 const-str = "0.5"
 constant_time_eq = "0.3.1"
 rsa = "^0"
+p256 = "0.13"
 spki = { version = "0.7", features = ["pem"] }
 pkcs1 = "0.7"
 aes-gcm = "0.10.3"
+hkdf = "0.12.4"
 async_zip = { version = "0.0.17", features = ["tokio", "tokio-fs", "deflate", "chrono"] }
 once_cell = "1.17.1"
 dashmap = "6.1.0"

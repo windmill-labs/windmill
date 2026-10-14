@@ -153,6 +153,9 @@ pub async fn connect(
         pool_options = pool_options.idle_timeout(Duration::from_secs(60));
     }
     pool_options
+        .before_acquire(|_, meta| {
+            Box::pin(async move { Ok(!windmill_common::db::connection_is_retired(meta.age)) })
+        })
         .after_connect(move |conn, _| {
             if worker_mode {
                 Box::pin(async move {

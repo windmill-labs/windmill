@@ -87,6 +87,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { navDetached } from '$lib/components/sidebar/navDetached.svelte'
 	import { navHandleSlot } from '$lib/components/sidebar/navHandlePlacement.svelte'
+	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 	import PageHeaderBar from '$lib/components/PageHeaderBar.svelte'
 	import { BAR_HEIGHT_PX, pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { sidebarPageAllowed } from '$lib/components/sidebar/operatorRoutes'
@@ -111,7 +112,7 @@
 	import { isGlobalAiEnabled, sessionsAllowedFor } from '$lib/components/copilot/chat/global/gate'
 	import { copilotInfo } from '$lib/aiStore'
 	import {
-		isPageItemListPath,
+		isPreviewListPath,
 		parsePreviewItemRoute,
 		barePath
 	} from '$lib/components/sessions/previewPaths'
@@ -468,7 +469,7 @@
 			}
 			// A list page mounts in process too, where its rows open as tabs of their own.
 			const listUrl = navigation.to?.url
-			if (listUrl && isPageItemListPath(barePath(listUrl.pathname))) {
+			if (listUrl && isPreviewListPath(barePath(listUrl.pathname))) {
 				navigation.cancel()
 				const u = new URL(listUrl.href)
 				u.searchParams.delete('nomenubar')
@@ -515,8 +516,11 @@
 	function pointerInMenu(): boolean {
 		return !!document.querySelector('[role="menu"]:hover')
 	}
+	// A click on the handle pins the card: it then outlives the pointer leaving. Only meaningful
+	// while open — every open from closed starts unpinned.
+	let menuPinned = $state(false)
 	const { debounced: schedulePeekClose, clearDebounce: cancelPeekClose } = debounce(() => {
-		if (!peeksOnHover) return
+		if (!peeksOnHover || menuPinned) return
 		if (pointerInMenu()) {
 			schedulePeekClose()
 			return
@@ -529,10 +533,56 @@
 	const floatBand = $derived(pageHeader.content?.barRightInset != null)
 
 	// The handle and the edge band both open the card this layout owns.
-	navHandleSlot.setOpener(() => (menuOpen = true), {
-		schedule: schedulePeekClose,
-		cancel: cancelPeekClose
-	})
+	navHandleSlot.setOpener(
+		() => {
+			if (!menuOpen) menuPinned = false
+			menuOpen = true
+		},
+		{ schedule: schedulePeekClose, cancel: cancelPeekClose },
+		{
+			isOpen: () => menuOpen,
+			isPinned: () => menuPinned,
+			pin: () => (menuPinned = true),
+			close: () => (menuOpen = false)
+		}
+	)
+
+	// The open card is dismissed by any press on the page, and that press still reaches its target:
+	// a layer that caught it would cost every dismissal a second click. Only presses inside the page
+	// column count — the card itself and the menus it portals to `body` sit outside it — and the
+	// handle toggles the card itself. Capture phase, so a target that stops propagation still closes it.
+	let pageColumn: HTMLElement | undefined = $state()
+	function closeCardOnPagePress(e: PointerEvent) {
+		if (!menuOpen || !useDrawer) return
+		const target = e.target
+		if (!(target instanceof Element) || !pageColumn?.contains(target)) return
+		if (target.closest('[data-nav-handle]')) return
+		menuOpen = false
+	}
+	// A press inside an iframe (a session's preview) never reaches this window; focus moving into one does.
+	function closeCardOnFrameFocus() {
+		if (!menuOpen || !useDrawer) return
+		setTimeout(() => {
+			if (document.activeElement instanceof HTMLIFrameElement) menuOpen = false
+		})
+	}
+
+	const viewportOverlays = overlayStack()
+	function onWindowKeydown(e: KeyboardEvent) {
+		onSearchShortcutBeforeLoad(e)
+		if (e.key !== 'Escape' || !menuOpen || !useDrawer) return
+		// Read now: the overlay this Esc closes is off the stack by the time the timeout runs.
+		if (viewportOverlays.val.length > 0) return
+		// This listener is attached before any drawer's or menu's, which mount later: wait for
+		// them, so an Esc that closes one of those leaves the card open.
+		setTimeout(() => {
+			if (e.defaultPrevented || document.querySelector('[role="menu"]:not([hidden])')) return
+			const focusInCard = !!document.activeElement?.closest('[data-nav-card]')
+			menuOpen = false
+			// The closed card is inert and would drop focus to `body`.
+			if (focusInCard) document.querySelector<HTMLElement>('[data-nav-handle] button')?.focus()
+		})
+	}
 
 	// Set once the user docks or detaches, so the rail that mounts from then on skips its
 	// app-entry animation (`wm-sidebar-in`) and only plays `railMorph`.
@@ -1053,7 +1103,12 @@
 	})
 </script>
 
-<svelte:window bind:innerWidth onkeydown={onSearchShortcutBeforeLoad} />
+<svelte:window
+	bind:innerWidth
+	onkeydown={onWindowKeydown}
+	onpointerdowncapture={closeCardOnPagePress}
+	onblur={closeCardOnFrameFocus}
+/>
 
 <!-- Home + Runs lifted to the top of the workspace nav, sitting with Favorites
      and Search as the primary quick-access cluster. Excluded from SidebarContent
@@ -1377,20 +1432,18 @@
 					inert={!menuOpen}
 					role="dialog"
 				>
-					<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 					<!-- The card floats over the page, inset and rounded. Over an app it is not: the app
 					     owns the window, and the sidebar revealed beside it reads as the panel the header
 					     sits on — flush to the left and bottom edges, square, with one border down its
 					     right side. -->
-					<!-- This outside-click catcher starts where the card does rather than at the top of
-					     the viewport: it would otherwise cover the header's toggle, whose hover opened the
-					     card, and swallow the click meant to put the sidebar back. -->
+					<!-- The frame spans the page only to position the card; it lets every press through
+					     (closeCardOnPagePress dismisses the card). -->
 					<div
-						class={classNames('fixed left-0 right-0 bottom-0 flex z-40', 'pl-1 pb-2')}
+						class={classNames(
+							'fixed left-0 right-0 bottom-0 flex z-40 pointer-events-none',
+							'pl-1 pb-2'
+						)}
 						style:top="{navHandleSlot.cardTop}px"
-						onclick={(e) => {
-							if (e.target === e.currentTarget) menuOpen = false
-						}}
 					>
 						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
@@ -1402,7 +1455,7 @@
 								schedulePeekClose()
 							}}
 							class={classNames(
-								'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-300 transform shadow-lg overflow-hidden rounded-lg border',
+								'pointer-events-auto relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-300 transform shadow-lg overflow-hidden rounded-lg border',
 								menuOpen ? 'translate-x-0' : '-translate-x-[calc(100%+0.5rem)]'
 							)}
 						>
@@ -1428,7 +1481,7 @@
 				</div>
 			{/if}
 		{/if}
-		<div class="flex flex-col h-full w-full relative">
+		<div bind:this={pageColumn} class="flex flex-col h-full w-full relative">
 			<!-- Not gated on `$enterpriseLicense`: it paints the cached accent before the license
 			     resolves, and checks the license itself. -->
 			<InstanceUiSync />

@@ -90,6 +90,7 @@ import ResendIcon from './ResendIcon.svelte'
 import PushoverIcon from './PushoverIcon.svelte'
 import QuickbooksIcon from './QuickbooksIcon.svelte'
 import MsTeamsIcon from './MSTeamsIcon.svelte'
+import OutlookIcon from './OutlookIcon.svelte'
 import MailgunIcon from './MailgunIcon.svelte'
 import IpinfoIcon from './IpinfoIcon.svelte'
 import GoogleCloudIcon from './GoogleCloudIcon.svelte'
@@ -445,6 +446,7 @@ export const APP_TO_ICON_COMPONENT = {
 	quickbooks: QuickbooksIcon,
 	ms_teams_webhook: MsTeamsIcon,
 	teams: MsTeamsIcon,
+	ms_outlook: OutlookIcon,
 	mailgun: MailgunIcon,
 	ipinfo: IpinfoIcon,
 	gworkspace: GoogleIcon,
@@ -776,6 +778,7 @@ export {
 	PushoverIcon,
 	QuickbooksIcon,
 	MsTeamsIcon,
+	OutlookIcon,
 	MailgunIcon,
 	IpinfoIcon,
 	GoogleCloudIcon,

@@ -1726,6 +1726,29 @@ pub async fn cached_result_path(
         hasher.update(b"wac_step:");
         hasher.update(step_key.as_bytes());
     }
+    // What a run returns depends on whose roles its data table connections hold, its own
+    // identity's or its viewer's, and `WM_END_USER_EMAIL` names the viewer: a result cached for
+    // one of either, or in one of the two modes, is never served to another. The arguments follow
+    // undelimited, so every field here is fixed-width or length-prefixed and always present: an
+    // optional marker would read the same as an argument whose name starts with it.
+    hasher.update(b"permissioned_as:");
+    hasher.update((job.permissioned_as.len() as u64).to_le_bytes());
+    hasher.update(job.permissioned_as.as_bytes());
+    // Read from `job_perms`: a flow job re-fetched between steps does not carry them.
+    let perms: Option<(Option<String>, bool)> = sqlx::query_as(
+        "SELECT end_user_email, viewer_data_access FROM job_perms
+         WHERE job_id = $1 AND workspace_id = $2",
+    )
+    .bind(job.id)
+    .bind(&job.workspace_id)
+    .fetch_optional(db)
+    .await?;
+    let (end_user, as_viewer) = perms.unwrap_or_default();
+    hasher.update([as_viewer as u8, end_user.is_some() as u8]);
+    if let Some(end_user) = end_user {
+        hasher.update((end_user.len() as u64).to_le_bytes());
+        hasher.update(end_user.as_bytes());
+    }
     hash_args(
         db,
         client,
@@ -2470,9 +2493,79 @@ mod tests {
             trigger_kind: None,
             visible_to_owner: false,
             permissioned_as_end_user_email: None,
+            viewer_data_access: None,
             runnable_settings_handle: None,
             job_token_scopes: None,
         }
+    }
+
+    // A cache hit returns before the job runs, so the key is all that keeps a result computed
+    // for one identity or viewer (whose data table roles it read with, `WM_END_USER_EMAIL`)
+    // from another.
+    #[sqlx::test(migrations = "../migrations")]
+    async fn a_cached_result_is_keyed_by_the_identity_and_the_recorded_viewer(pool: sqlx::PgPool) {
+        let client = test_client();
+
+        // The last two differ only in where the viewer's address ends and the first argument
+        // name starts.
+        let mut paths = vec![];
+        for (owner, viewer, as_viewer, arg) in [
+            ("u/publisher", Some("a@windmill.dev"), false, "mode"),
+            ("u/publisher", Some("a@windmill.dev"), false, "mode"),
+            ("u/publisher", Some("b@windmill.dev"), false, "mode"),
+            ("u/publisher", None, false, "mode"),
+            ("u/publisher", Some("a@windmill.co"), false, "mode"),
+            ("u/publisher", Some("a@windmill.com"), false, "ode"),
+            ("u/other", None, false, "mode"),
+            ("u/publisher", Some("a@windmill.dev"), true, "mode"),
+            ("u/publisher", None, false, "viewer_data_access;mode"),
+            ("u/publisher", None, true, "mode"),
+        ] {
+            let args = HashMap::from([(arg.to_string(), to_raw_value(&"all"))]);
+            let job = MiniPulledJob {
+                id: uuid::Uuid::new_v4(),
+                args: Some(sqlx::types::Json(args)),
+                permissioned_as: owner.to_string(),
+                ..test_job()
+            };
+            sqlx::query(
+                "INSERT INTO job_perms (job_id, email, username, is_admin, is_operator,
+                     workspace_id, groups, folders, end_user_email, viewer_data_access)
+                 VALUES ($1, 'publisher@windmill.dev', 'publisher', false, false, 'test', '{}',
+                     '{}', $2, $3)",
+            )
+            .bind(job.id)
+            .bind(viewer)
+            .bind(as_viewer)
+            .execute(&pool)
+            .await
+            .unwrap();
+            paths.push(
+                cached_result_path(&pool, &client, &job, None)
+                    .await
+                    .unwrap(),
+            );
+        }
+        assert_eq!(
+            paths[0], paths[1],
+            "one viewer shares their own cached result"
+        );
+        assert_ne!(paths[0], paths[2], "two viewers share a cached result");
+        assert_ne!(paths[0], paths[3]);
+        assert_ne!(paths[2], paths[3]);
+        assert_ne!(
+            paths[4], paths[5],
+            "an address runs into the argument names"
+        );
+        assert_ne!(paths[3], paths[6], "two owners share a cached result");
+        assert_ne!(
+            paths[0], paths[7],
+            "a result read with the app's roles is served once the runnable connects as its viewer"
+        );
+        assert_ne!(
+            paths[8], paths[9],
+            "an argument name reads as the mode of another run"
+        );
     }
 
     #[tokio::test]

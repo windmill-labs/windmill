@@ -1908,7 +1908,7 @@ async fn require_job_access(
     // are immutable after creation, and every mutable caller-side input
     // (is_admin / username / username_override / groups / folders) is folded into
     // the key — so a permission change yields a new key rather than a stale hit, and
-    // no TTL is needed (size-bounded LRU; mirrors apps' PERMIT_CACHE).
+    // no TTL is needed (size-bounded LRU).
     let cache_key = job_read_access_cache_key(authed, w_id, job_id);
     let visible = if let Some(visible) = JOB_READ_ACCESS_CACHE.get(&cache_key) {
         visible
@@ -8982,6 +8982,7 @@ async fn run_preview_script(
     check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let (uuid, tx) = push(
         &db,
         tx,
@@ -9029,7 +9030,7 @@ async fn run_preview_script(
         None,
         Some(&authed.clone().into()),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(None),
         None,
         scope_ceiling.as_deref(),
@@ -9068,6 +9069,8 @@ async fn run_inline_preview_script(
     if let Some(job_id) = job_id {
         register_potential_assets_on_inline_execution(job_id, &w_id, &preview);
     }
+    let (end_user_email, viewer_data_access) =
+        run_inline_preview_end_user(&db, &w_id, &authed).await?;
     let utils = get_worker_internal_server_inline_utils()?;
     let result = utils.run_inline_preview_script.as_ref()(RunInlinePreviewScriptFnParams {
         content: preview.content,
@@ -9078,6 +9081,8 @@ async fn run_inline_preview_script(
         created_by: authed.display_username().to_string(),
         permissioned_as: username_to_permissioned_as(&authed.username),
         permissioned_as_email: authed.email.clone(),
+        end_user_email,
+        viewer_data_access,
         lang: preview.language,
         job_dir: "".to_string(),
         worker_name: "".to_string(),
@@ -9217,6 +9222,7 @@ async fn run_inline_script_inner(
                 .to_string(),
         ));
     }
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let utils = get_worker_internal_server_inline_utils()?;
     let authed_owned: windmill_common::db::Authed = authed.clone().into();
     let result = utils.run_inline_script.as_ref()(RunInlineScriptFnParams {
@@ -9228,6 +9234,7 @@ async fn run_inline_script_inner(
         created_by: authed.display_username().to_string(),
         permissioned_as: username_to_permissioned_as(&authed.username),
         permissioned_as_email: authed.email.clone(),
+        end_user_email,
         job_dir: "".to_string(),
         worker_name: "".to_string(),
         worker_dir: "".to_string(),
@@ -9404,6 +9411,7 @@ async fn run_bundle_preview_script(
             // tracing::info!("is_tar 1: {is_tar}");
             // hmap.insert("")
             let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
+            let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
             let (uuid, ntx) = push(
                 &db,
                 ltx,
@@ -9447,7 +9455,7 @@ async fn run_bundle_preview_script(
                 None,
                 Some(&authed.clone().into()),
                 false,
-                None,
+                end_user_email,
                 authed.trigger_or_fallback(None),
                 None,
                 scope_ceiling.as_deref(),
@@ -10151,6 +10159,7 @@ async fn run_preview_flow_job(
         .await?;
 
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let (uuid, mut tx) = push(
         &db,
         tx,
@@ -10182,7 +10191,7 @@ async fn run_preview_flow_job(
         None,
         Some(&authed.clone().into()),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(None),
         None,
         scope_ceiling.as_deref(),
