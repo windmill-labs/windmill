@@ -14,8 +14,8 @@ use crate::datatable_migration_scope::{
     blocked_by, is_annotatable_schema_name, make_schema_snapshot_replayable,
     order_referenced_first, parse_migration_schemas, plan_run, snapshot_has_objects,
     snapshot_scope, with_schemas_annotation, ChainEntry, RunSelection,
-    CROSS_SCHEMA_DEPENDENCIES_SQL, EXTENSION_DEPENDENCIES_SQL, SNAPSHOT_EXTENSIONS_SQL,
-    SNAPSHOT_SCHEMAS_SQL, UNSCHEMED_OBJECTS_SQL,
+    CROSS_SCHEMA_DEPENDENCIES_SQL, DATABASE_DEFAULT_ACL_SQL, EXTENSION_DEPENDENCIES_SQL,
+    SNAPSHOT_EXTENSIONS_SQL, SNAPSHOT_SCHEMAS_SQL, UNSCHEMED_OBJECTS_SQL,
 };
 use crate::workspaces::{
     managed_datatable_kind, pg_dump_database, strip_unreplayable_dump_lines, ItemComparison,
@@ -635,9 +635,6 @@ async fn run_datatable_migrations(
 
     let mut applied = Vec::new();
     for m in plan.into_iter().map(|i| &migrations[i]) {
-        parse_migration_schemas(&m.code_up).map_err(|e| {
-            Error::BadRequest(format!("Migration {} ({}): {e}", m.timestamp, m.name))
-        })?;
         ensure_migration_role_allowed(
             &db,
             &w_id,
@@ -1824,7 +1821,7 @@ async fn schema_snapshot(pg_db: &PgDatabase, no_acl: bool, schemas: &[&str]) -> 
 /// The initial migrations of a data table, as `(name, code_up)` in the order they replay: the
 /// extensions first, as a whole-database migration, then one migration per schema declaring it,
 /// each after the schemas it references. Schemas that reference each other share one migration
-/// declaring all of them. An empty `public` is left out.
+/// declaring all of them. An empty `public`, or an empty schema an extension created, is left out.
 ///
 /// A schema whose name a `-- schemas` annotation cannot carry, or an object that belongs to no
 /// schema (see `UNSCHEMED_OBJECTS_SQL`), turns the whole snapshot into one whole-database
@@ -1840,15 +1837,23 @@ async fn per_schema_snapshots(
             tracing::error!("Datatable connection error: {}", e);
         }
     });
-    let schemas: Vec<String> = simple_rows(&client, SNAPSHOT_SCHEMAS_SQL)
-        .await?
+    // A schema an extension created is still dumped: objects users added to it are not the
+    // extension's, and `pg_dump` leaves the extension's own members out by itself.
+    let schema_rows = simple_rows(&client, SNAPSHOT_SCHEMAS_SQL).await?;
+    let schemas: Vec<String> = schema_rows
         .iter()
         .filter_map(|r| r.get(0).map(str::to_string))
         .collect();
-    let unschemed = simple_rows(&client, UNSCHEMED_OBJECTS_SQL)
-        .await?
-        .first()
-        .is_some_and(|r| r.get(0) == Some("t"));
+    let extension_owned: HashSet<String> = schema_rows
+        .iter()
+        .filter(|r| r.get(1) == Some("t"))
+        .filter_map(|r| r.get(0).map(str::to_string))
+        .collect();
+    let present = |rows: Vec<tokio_postgres::SimpleQueryRow>| {
+        rows.first().is_some_and(|r| r.get(0) == Some("t"))
+    };
+    let unschemed = present(simple_rows(&client, UNSCHEMED_OBJECTS_SQL).await?)
+        || (!no_acl && present(simple_rows(&client, DATABASE_DEFAULT_ACL_SQL).await?));
     if unschemed || !schemas.iter().all(|s| is_annotatable_schema_name(s)) {
         return Ok(vec![(
             "initial".to_string(),
@@ -1896,7 +1901,12 @@ async fn per_schema_snapshots(
     for group in order_referenced_first(&schemas, &deps) {
         let names: Vec<&str> = group.iter().map(String::as_str).collect();
         let dump = make_schema_snapshot_replayable(&schema_snapshot(pg_db, no_acl, &names).await?);
-        if names == ["public"] && !snapshot_has_objects(&dump) {
+        // Every database has `public`, and `CREATE EXTENSION` makes the schema it owns.
+        if !snapshot_has_objects(&dump)
+            && group
+                .iter()
+                .all(|s| s == "public" || extension_owned.contains(s))
+        {
             continue;
         }
         let name: String = format!("initial_{}", names.join("_"))

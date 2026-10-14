@@ -100,49 +100,172 @@ function unquote(ident: string): string {
 	return ident.startsWith('"') ? ident.slice(1, -1).replaceAll('""', '"') : ident
 }
 
-// Words that can follow an object keyword without being the object's name.
-// `ON UPDATE CASCADE`, `FOR UPDATE SKIP LOCKED` and `JOIN LATERAL` among them.
-const NOT_A_NAME = [
+// The statements a scope is read from: the table, index, schema, sequence and type DDL the
+// database manager and the schema diff generate. Anything else (a view, a function, a grant, data,
+// an extension) is outside the reader, and makes the scope the whole database.
+const STATEMENT_SHAPE =
+	/^(?:CREATE\s+(?:UNIQUE\s+)?INDEX|DROP\s+INDEX|(?:CREATE|ALTER|DROP)\s+(?:TABLE|SCHEMA|SEQUENCE|TYPE)|COMMENT\s+ON\s+(?:TABLE|COLUMN|SCHEMA))\b/i
+const TRANSACTION_CONTROL = /^(?:BEGIN|COMMIT|END|START\s+TRANSACTION)$/i
+// Clauses that reach another object without naming it where the reader looks: a query, a copied
+// or inherited definition, a sequence named in a string, and a cascade, which drops whatever
+// depends on the target wherever it lives. `ON DELETE CASCADE` is a foreign key's action.
+const OPAQUE_CLAUSE =
+	/\b(?:SELECT|FROM|LIKE|INHERITS|PARTITION\s+OF|EXECUTE|nextval)\b|::\s*regclass|(?<!\bON\s+(?:DELETE|UPDATE)\s+)\bCASCADE\b/i
+// Words a definition puts before `(` that call nothing a search path resolves: clause keywords,
+// built-in types with a modifier, index methods, and `pg_catalog` functions.
+const PAREN_WORDS = new Set(
+	(
+		'key unique check references foreign primary exclude constraint as with where include in any ' +
+		'and or not cast ' +
+		'all array identity generated enum default values filter over partition by ' +
+		'varchar char character varying numeric decimal timestamp timestamptz time timetz interval ' +
+		'bit varbit float double btree hash gist gin brin spgist ' +
+		'now gen_random_uuid uuidv4 uuidv7 clock_timestamp statement_timestamp transaction_timestamp ' +
+		'lower upper length char_length coalesce nullif greatest least abs round trunc md5 random ' +
+		'date_trunc to_char to_jsonb jsonb_build_object json_build_object array_length cardinality'
+	).split(' ')
+)
+// Built-in types: an unqualified type outside this list may be a user type resolved through the
+// search path.
+const BUILTIN_TYPES = new Set(
+	(
+		'int int2 int4 int8 integer smallint bigint serial serial2 serial4 serial8 smallserial ' +
+		'bigserial real float float4 float8 double numeric decimal money text varchar char character ' +
+		'bpchar name bytea boolean bool date time timetz timestamp timestamptz interval uuid json ' +
+		'jsonb xml inet cidr macaddr macaddr8 bit varbit tsvector tsquery point line lseg box path ' +
+		'polygon circle int4range int8range numrange tsrange tstzrange daterange int4multirange ' +
+		'int8multirange nummultirange tsmultirange tstzmultirange datemultirange oid'
+	).split(' ')
+)
+const BUILTIN_COLLATIONS = new Set(['c', 'posix', 'default', 'ucs_basic', 'unicode'])
+// Keywords that follow `ON`, `REFERENCES` or an object keyword where a name could: `ON DELETE`,
+// `COMMENT ON TABLE`, `ON COMMIT`, and the optional `IF [NOT] EXISTS` / `ONLY` a match can land
+// on when the name after them is qualified.
+const NOT_A_NAME = new Set([
 	'if',
-	'only',
 	'not',
-	'concurrently',
 	'exists',
-	'cascade',
-	'restrict',
-	'set',
-	'no',
-	'skip',
-	'nowait',
-	'of',
-	'lateral'
-]
+	'only',
+	'concurrently',
+	'delete',
+	'update',
+	'commit',
+	'table',
+	'column',
+	'schema',
+	'index',
+	'type',
+	'sequence',
+	'constraint'
+])
+// Words a column list puts first that open a table constraint rather than a column.
+const CONSTRAINT_WORDS = new Set([
+	'constraint',
+	'primary',
+	'foreign',
+	'unique',
+	'check',
+	'exclude',
+	'like'
+])
 
 /**
- * The schemas `sql` names explicitly, as a suggested scope: those it creates, alters or grants on,
- * and the schema of every qualified object it defines or writes. An unqualified name resolves
- * through the search path, which the SQL does not show, so one anywhere makes the suggestion empty:
- * declaring only the qualified schemas would let the migration run ahead of one it depends on.
- * Callers write the suggestion without asking, so it must never be narrower than the SQL.
+ * The scope `sql` declares by what it touches, read conservatively: every statement must be one of
+ * the DDL shapes above and name every object it reaches with its schema; otherwise this returns
+ * `[]`, the whole database. Callers write it without asking, so it may only ever be wider than the
+ * SQL, never narrower: a narrower scope lets a run for one schema apply the migration ahead of a
+ * pending one it depends on.
  */
 export function suggestMigrationSchemas(sql: string): string[] {
 	const code = stripLiteralsAndComments(sql)
-	const unqualified = new RegExp(
-		String.raw`\b(?:(?:CREATE|ALTER|DROP)\s+(?:OR\s+REPLACE\s+)?(?:TEMP(?:ORARY)?\s+|UNLOGGED\s+|MATERIALIZED\s+)?(?:TABLE|VIEW|SEQUENCE|TYPE|FUNCTION|PROCEDURE|DOMAIN)|REFERENCES|INSERT\s+INTO|UPDATE|DELETE\s+FROM|JOIN|INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(?:${IDENT}\s+)?ON)\s+(?:IF\s+(?:NOT\s+)?EXISTS\s+)?(?:ONLY\s+)?(${IDENT})(?![A-Za-z0-9_$"]|\s*\.)`,
-		'gi'
-	)
-	for (const m of code.matchAll(unqualified)) {
-		if (!NOT_A_NAME.includes(unquote(m[1]).toLowerCase())) return []
+	if (OPAQUE_CLAUSE.test(code)) return []
+	const statements = code
+		.split(';')
+		.map((s) => s.trim())
+		.filter((s) => s !== '' && !TRANSACTION_CONTROL.test(s))
+	if (statements.length === 0) return []
+	for (const s of statements) {
+		if (!STATEMENT_SHAPE.test(s) || !namesAreQualified(s)) return []
 	}
 	const found = qualifiedSchemas(code)
-	// A qualified name anywhere else (a column's type, a default, a view's alias) is either a
-	// dependency the positions above do not cover or not a schema at all: neither can be told
-	// apart from the SQL, so the scope falls back to the whole database.
+	// Every qualifier has to be a schema the scope declares: one that is not (an alias, a schema the
+	// reader has no position for) cannot be told apart from a dependency.
 	for (const m of code.matchAll(new RegExp(String.raw`(${IDENT})\s*\.\s*${IDENT}`, 'g'))) {
 		const qualifier = unquote(m[1]).toLowerCase()
 		if (!found.includes(qualifier) && !isSystemSchema(qualifier)) return []
 	}
 	return found
+}
+
+/** Whether a statement of an accepted shape reaches nothing through the search path. */
+function namesAreQualified(s: string): boolean {
+	const lower = (ident: string) => unquote(ident).toLowerCase()
+	const unqualifiedAfter = (prefix: string) =>
+		new RegExp(String.raw`${prefix}\s+(${IDENT})(?![A-Za-z0-9_$"]|\s*\.)`, 'gi')
+	// The object a statement creates, changes or drops, and the table an index or foreign key
+	// targets. `IF [NOT] EXISTS` and `ONLY` come before the name, not instead of it.
+	const relation = String.raw`(?:\s+IF\s+(?:NOT\s+)?EXISTS)?(?:\s+ONLY)?`
+	for (const re of [
+		unqualifiedAfter(
+			String.raw`\b(?:CREATE|ALTER|DROP)\s+(?:UNLOGGED\s+)?(?:TABLE|SEQUENCE|TYPE)${relation}`
+		),
+		unqualifiedAfter(String.raw`\bDROP\s+INDEX(?:\s+CONCURRENTLY)?${relation}`),
+		unqualifiedAfter(String.raw`\bON${relation}`),
+		unqualifiedAfter(String.raw`\bREFERENCES`),
+		unqualifiedAfter(String.raw`\bCOMMENT\s+ON\s+(?:TABLE|COLUMN)`)
+	]) {
+		for (const m of s.matchAll(re)) {
+			if (!NOT_A_NAME.has(lower(m[1]))) return false
+		}
+	}
+	for (const m of s.matchAll(new RegExp(String.raw`::\s*(${IDENT})(?!\s*\.)`, 'g'))) {
+		if (!BUILTIN_TYPES.has(lower(m[1]))) return false
+	}
+	// Calls: a word right before `(` that is not part of a qualified name.
+	for (const m of s.matchAll(new RegExp(String.raw`(?<![.\w$"])(${IDENT})\s*\(`, 'g'))) {
+		if (!PAREN_WORDS.has(lower(m[1]))) return false
+	}
+	for (const m of s.matchAll(new RegExp(String.raw`\bCOLLATE\s+(${IDENT})(?!\s*\.)`, 'gi'))) {
+		if (!BUILTIN_COLLATIONS.has(lower(m[1]))) return false
+	}
+	// Column types: in a table's column list, after `ADD [COLUMN]`, and after `TYPE`.
+	const types: string[] = []
+	const body = /^CREATE\s+(?:UNLOGGED\s+)?TABLE\b[^(]*\(([\s\S]*)\)/i.exec(s)?.[1]
+	if (body !== undefined) {
+		for (const element of splitTopLevel(body)) {
+			const m = new RegExp(String.raw`^(${IDENT})\s+(${IDENT})(?!\s*\.)`).exec(element.trim())
+			if (m && !CONSTRAINT_WORDS.has(lower(m[1]))) types.push(m[2])
+		}
+	}
+	for (const m of s.matchAll(
+		new RegExp(
+			String.raw`\bADD\s+(?:COLUMN\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(${IDENT})\s+(${IDENT})(?!\s*\.)`,
+			'gi'
+		)
+	)) {
+		if (!CONSTRAINT_WORDS.has(lower(m[1]))) types.push(m[2])
+	}
+	for (const m of s.matchAll(new RegExp(String.raw`\bTYPE\s+(${IDENT})(?!\s*\.)`, 'gi'))) {
+		types.push(m[1])
+	}
+	return types.every((t) => BUILTIN_TYPES.has(lower(t)))
+}
+
+/** `body` split on the commas outside parentheses. */
+function splitTopLevel(body: string): string[] {
+	const parts: string[] = []
+	let depth = 0
+	let start = 0
+	for (let i = 0; i < body.length; i++) {
+		if (body[i] === '(') depth++
+		else if (body[i] === ')') depth--
+		else if (body[i] === ',' && depth === 0) {
+			parts.push(body.slice(start, i))
+			start = i + 1
+		}
+	}
+	parts.push(body.slice(start))
+	return parts
 }
 
 function isSystemSchema(name: string): boolean {

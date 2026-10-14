@@ -106,8 +106,9 @@ pub(crate) fn scopes_overlap(a: &Scope, b: &Scope) -> bool {
 pub(crate) struct ChainEntry {
     pub(crate) timestamp: i64,
     pub(crate) name: String,
-    /// A malformed annotation counts as the whole database here, so it orders conservatively; the
-    /// run of that migration itself re-reads it and refuses.
+    /// A malformed annotation counts as the whole database, so it orders conservatively. It is
+    /// refused only when a migration is written: one stored before scopes existed may open with
+    /// prose that starts with the word, and must keep running as it always did.
     pub(crate) scope: Scope,
 }
 
@@ -360,11 +361,12 @@ WHERE a.nsp <> b.nsp
 
 /// The schemas a snapshot covers: everything but the system schemas and those an extension owns.
 pub(crate) const SNAPSHOT_SCHEMAS_SQL: &str = "\
-SELECT n.nspname FROM pg_namespace n
+SELECT n.nspname,
+       EXISTS (SELECT 1 FROM pg_depend d
+               WHERE d.classid = 'pg_namespace'::regclass AND d.objid = n.oid
+                 AND d.deptype = 'e') AS extension_owned
+FROM pg_namespace n
 WHERE n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'
-  AND NOT EXISTS (SELECT 1 FROM pg_depend d
-                  WHERE d.classid = 'pg_namespace'::regclass AND d.objid = n.oid
-                    AND d.deptype = 'e')
 ORDER BY n.nspname";
 
 /// Whether the database holds objects that belong to no schema besides extensions: `pg_dump
@@ -382,7 +384,20 @@ SELECT EXISTS (SELECT 1 FROM pg_publication)
     OR EXISTS (SELECT 1 FROM pg_language l WHERE l.oid >= 16384 AND NOT EXISTS (SELECT 1
                FROM pg_depend d WHERE d.classid = 'pg_language'::regclass AND d.objid = l.oid
                  AND d.deptype = 'e'))
+    OR EXISTS (SELECT 1 FROM pg_am a WHERE a.oid >= 16384 AND NOT EXISTS (SELECT 1
+               FROM pg_depend d WHERE d.classid = 'pg_am'::regclass AND d.objid = a.oid
+                 AND d.deptype = 'e'))
+    OR EXISTS (SELECT 1 FROM pg_transform t WHERE NOT EXISTS (SELECT 1
+               FROM pg_depend d WHERE d.classid = 'pg_transform'::regclass AND d.objid = t.oid
+                 AND d.deptype = 'e'))
+    OR EXISTS (SELECT 1 FROM pg_subscription s
+               WHERE s.subdbid = (SELECT oid FROM pg_database WHERE datname = current_database()))
     AS present";
+
+/// Default privileges set for the whole database rather than one schema, which `pg_dump --schema`
+/// leaves out too. Only checked when the snapshot keeps privileges at all.
+pub(crate) const DATABASE_DEFAULT_ACL_SQL: &str = "\
+SELECT EXISTS (SELECT 1 FROM pg_default_acl WHERE defaclnamespace = 0) AS present";
 
 /// `(dependent, required)` extension pairs, so an extension is created after the ones its control
 /// file requires.

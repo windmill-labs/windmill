@@ -236,8 +236,8 @@
 		knownSchemas.refetch()
 		const prefillRole = prefill?.codeUp ? parseMigrationRole(prefill.codeUp) : undefined
 		if (prefill?.codeUp) {
-			// The scope is handled like the role, and when the prefill declares none it is read off
-			// the DDL, which qualifies what it touches.
+			// The scope is handled like the role. One the prefill does not declare is offered as a
+			// suggestion for the author to accept, never written for them.
 			const prefillSchemas = parseMigrationSchemas(prefill.codeUp)
 			const wrapped = wrapInTransaction(
 				ensureTrailingSemicolon(
@@ -255,7 +255,7 @@
 					? withMigrationSchemas(withRole, prefillSchemas.schemas)
 					: prefillSchemas.kind === 'malformed'
 						? `${prefillSchemas.line}\n${withRole}`
-						: withMigrationSchemas(withRole, suggestMigrationSchemas(wrapped))
+						: withRole
 		} else {
 			codeUp = PLACEHOLDER
 		}

@@ -5,7 +5,6 @@ import {
 	migrationScope,
 	parseMigrationSchemas,
 	scopesOverlap,
-	suggestMigrationSchemas,
 	withMigrationSchemas
 } from '$lib/components/datatableMigrationSchemas'
 import { createToolDef, type ToolCallbacks } from './shared'
@@ -92,7 +91,7 @@ const getCreateMigrationSchema = memo(() =>
 			.array(z.string().regex(/^[A-Za-z0-9_$-]{1,63}$/))
 			.optional()
 			.describe(
-				'The schemas the migration changes. A migration then waits only on earlier migrations touching those schemas. Omit to have them read off the schema-qualified names in `code_up`; pass [] only for a change that spans the whole database, which every later migration then waits for.'
+				'Every schema the migration changes or depends on (including schemas of referenced tables, types and functions), with every name in `code_up` schema-qualified. A migration then waits only on earlier migrations touching those schemas. Omit only for a change that spans the whole database (an extension, a grant across schemas): every later migration then waits for it.'
 			),
 		version: z
 			.number()
@@ -226,10 +225,10 @@ export function getDatatableMigrationTools(): SessionTool<{}>[] {
 				})
 				// The role is an annotation in the SQL, read from above everything else, and a rollback
 				// has to run as the role that created what it drops.
+				// No inference here: the model reads the SQL it wrote better than a pattern does, so
+				// the scope is what it declares, and the whole database when it declares none.
 				const declared = parseMigrationSchemas(parsed.code_up)
-				const scope =
-					parsed.schemas ??
-					(declared.kind === 'schemas' ? declared.schemas : suggestMigrationSchemas(parsed.code_up))
+				const scope = parsed.schemas ?? (declared.kind === 'schemas' ? declared.schemas : [])
 				const definition = {
 					name: parsed.name,
 					code_up: withMigrationSchemas(
