@@ -19,8 +19,8 @@
 		normalizeAgentRef,
 		type LinkedAgentDraft
 	} from './flows/linkedAgentDrafts'
-	import { AGENT_FLOW_LOCAL_KEYS } from './flows/agentResourceUtils'
-	import { agentTestInputTransforms } from './flows/agentFormFields'
+	import { AGENT_LINKED_STEP_KEYS } from './flows/agentResourceUtils'
+	import { AGENT_OVERRIDE_KEYS, agentTestInputTransforms } from './flows/agentFormFields'
 	import { sendUserToast } from '$lib/toast'
 	import { quickjsReady } from '$lib/utils/quickjsEval.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
@@ -186,7 +186,13 @@
 			const inputTransforms = agentTestInputTransforms(
 				agentVal.agent ? {} : ((agentVal.input_transforms ?? {}) as Record<string, InputTransform>),
 				args,
-				draft ? AGENT_FLOW_LOCAL_KEYS : Object.keys(args)
+				// An override the step does not hold is left out: fed from the form it would arrive as an
+				// authored empty value, which clears the agent's saved effort.
+				(draft ? AGENT_LINKED_STEP_KEYS : Object.keys(args)).filter(
+					(key) =>
+						!(AGENT_OVERRIDE_KEYS as readonly string[]).includes(key) ||
+						val.input_transforms?.[key] != undefined
+				)
 			)
 
 			await jobLoader?.runFlowPreview(

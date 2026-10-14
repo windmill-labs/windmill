@@ -89,6 +89,9 @@ export interface SyncOptions {
   includeUsers?: boolean;
   includeGroups?: boolean;
   includeSettings?: boolean;
+  /** With includeSettings: settings.yaml also states who may connect to each data table as which
+   * role. Off by default, since tenants and roles are specific to a workspace and an instance. */
+  includeDatatablePermissions?: boolean;
   includeKey?: boolean;
   skipReencryptOnKeyChange?: boolean;
   skipBranchValidation?: boolean;
@@ -388,6 +391,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
       | "includeUsers"
       | "includeGroups"
       | "includeSettings"
+      | "includeDatatablePermissions"
       | "includeKey"
       | "nonDottedPaths"
       | "syncBehavior"
@@ -410,6 +414,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
   includeUsers: false,
   includeGroups: false,
   includeSettings: false,
+  includeDatatablePermissions: false,
   includeKey: false,
   skipWorkspaceDependencies: false,
   skipDatatableMigrations: false,

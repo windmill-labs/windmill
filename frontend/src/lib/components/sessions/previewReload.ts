@@ -49,6 +49,8 @@ export function toolReloadEffect(name: string, args: any): ToolReloadEffect {
 			return withItem(['/variables'], itemRef('variable', args))
 		case 'create_folder':
 			return { pages: ['/folders'], items: [], deployed: [] }
+		case 'create_resource_type':
+			return { pages: ['/resources'], items: [], deployed: [] }
 		// These two change what is deployed at a path, so a tab on that item's View side
 		// is showing a version that no longer exists.
 		case 'delete_workspace_item':

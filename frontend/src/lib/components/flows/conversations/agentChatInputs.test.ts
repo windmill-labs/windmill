@@ -6,6 +6,7 @@ import {
 	parseProviderTransform,
 	resolveAgentModelWiring,
 	showsModelButton,
+	wiredFieldValue,
 	withoutRejectedEffort
 } from './agentChatInputs'
 import type { FlowModule } from '$lib/gen'
@@ -496,6 +497,87 @@ describe('parseProviderTransform with comments', () => {
 	it('still refuses a second expression beside it', () => {
 		expect(
 			parseProviderTransform({ type: 'javascript', expr: 'flow_input.provider, 1' })
+		).toBeUndefined()
+	})
+})
+
+describe('a step linked to a saved agent', () => {
+	const saved = {
+		'u/a/agent': {
+			kind: 'anthropic',
+			resource: '$res:u/a/claude',
+			model: 'claude-sonnet-4-5',
+			reasoning_effort: 'high'
+		}
+	}
+	function linked(input_transforms: Record<string, unknown>): FlowModule {
+		return {
+			id: 'a',
+			value: { type: 'aiagent', agent: '$res:u/a/agent', tools: [], input_transforms }
+		} as unknown as FlowModule
+	}
+	const wired = linked({
+		model: { type: 'javascript', expr: 'flow_input.model' },
+		reasoning_effort: { type: 'javascript', expr: 'flow_input.effort' }
+	})
+
+	it('drives the overrides it wires, on the provider the agent saved', () => {
+		const wiring = resolveAgentModelWiring([wired], saved)
+		expect(wiring?.fields).toEqual({ model: 'model', reasoning_effort: 'effort' })
+		expect(wiring?.fixed).toEqual({ kind: 'anthropic', resource: '$res:u/a/claude' })
+		expect(agentModelWiringInputs(wiring).sort()).toEqual(['effort', 'model'])
+	})
+
+	it('shows the saved model for a model input left empty, and no effort for an empty effort', () => {
+		const wiring = resolveAgentModelWiring([wired], saved)!
+		expect(wiredFieldValue(wiring, {}, 'model')).toBe('claude-sonnet-4-5')
+		// Empty is how a model that reasons only on request is turned off.
+		expect(wiredFieldValue(wiring, { effort: '' }, 'reasoning_effort')).toBe('')
+	})
+
+	it('shows the saved effort where the step sets none, only on the saved model', () => {
+		const wiring = resolveAgentModelWiring(
+			[linked({ model: { type: 'javascript', expr: 'flow_input.model' } })],
+			saved
+		)!
+		expect(wiredFieldValue(wiring, {}, 'reasoning_effort')).toBe('high')
+		const none = resolveAgentModelWiring(
+			[linked({ reasoning_effort: { type: 'static', value: '' } })],
+			saved
+		)!
+		expect(wiredFieldValue(none, {}, 'reasoning_effort')).toBe('')
+		expect(
+			wiredFieldValue(wiring, { model: 'claude-haiku-4-5' }, 'reasoning_effort')
+		).toBeUndefined()
+	})
+
+	it('does not show the saved effort for steps that fix different ones', () => {
+		const effort = (value: string) =>
+			linked({
+				model: { type: 'javascript', expr: 'flow_input.model' },
+				reasoning_effort: { type: 'static', value }
+			})
+		const wiring = resolveAgentModelWiring([effort('low'), effort('medium')], saved)!
+		expect(wiredFieldValue(wiring, {}, 'reasoning_effort')).toBeUndefined()
+		expect(wiredFieldValue(wiring, {}, 'model')).toBe('claude-sonnet-4-5')
+
+		// Two agents that share a model and saved different efforts are in the same position.
+		const other = { ...wired, value: { ...wired.value, agent: '$res:u/a/other' } } as FlowModule
+		const two = resolveAgentModelWiring([wired, other], {
+			...saved,
+			'u/a/other': { ...saved['u/a/agent'], reasoning_effort: 'low' }
+		})!
+		expect(wiredFieldValue(two, {}, 'model')).toBe('claude-sonnet-4-5')
+		expect(two.saved?.reasoning_effort).toBeUndefined()
+	})
+
+	it('cannot be read until the agent has loaded, or with an expression it cannot place', () => {
+		expect(resolveAgentModelWiring([wired], {})).toBeUndefined()
+		expect(
+			resolveAgentModelWiring(
+				[linked({ model: { type: 'javascript', expr: 'pick(flow_input.model)' } })],
+				saved
+			)
 		).toBeUndefined()
 	})
 })

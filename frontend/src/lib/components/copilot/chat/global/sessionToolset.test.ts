@@ -76,12 +76,14 @@ const REACHABLE_PROFILES = [
 			[false, true].flatMap((operator) =>
 				// `checkDeployRules` bypasses on admin, so an admin has only the one outcome.
 				(isAdmin ? [true] : [false, true]).flatMap((deployRulesPass) =>
-					// The operator rights a workspace can set: none, the builder right, both locks.
+					// The operator rights a workspace can set: none, either builder right or both, either lock, both locks.
 					[
 						undefined,
 						{ builder_flows: true },
 						{ builder_apps: true },
 						{ builder_flows: true, builder_apps: true },
+						{ manage_schedules: false },
+						{ manage_triggers: false },
 						{ manage_schedules: false, manage_triggers: false }
 					].map((operatorSettings) => {
 						const access = capabilitiesForRole({
@@ -197,6 +199,15 @@ describe('session tool policies', () => {
 		expect((original.def.function.parameters as any).properties.type.enum).toContain('script')
 	})
 
+	it('offers the workspace settings tools to admins only', () => {
+		const settingsTools = ['get_workspace_settings', 'set_workspace_settings']
+		for (const [, access] of REACHABLE_PROFILES) {
+			const names = shippedSessionTools(access).map((t) => t.def.function.name)
+			const offered = settingsTools.filter((n) => names.includes(n))
+			expect(offered).toEqual(access.has('admin') ? settingsTools : [])
+		}
+	})
+
 	// Naming a tool the model was not given produces invented calls. Asserted over the
 	// ASSEMBLED message: the session-state, pipeline and plan-mode sections are each
 	// appended by a different caller, and each can name a withheld tool.
@@ -286,5 +297,26 @@ describe('session tool policies', () => {
 			}).content
 			expect(full).toBe(ungated)
 		}
+	})
+
+	// The operator's own rights outrun the chat's tools: what they schedule in the UI must not
+	// be sent to an admin.
+	it("sends an operator to the UI for what their role allows and the chat's tools do not", () => {
+		const prompt = (operatorSettings: { manage_schedules?: boolean }): string =>
+			prepareGlobalSystemMessage(undefined, {
+				user: { username: 'op' },
+				access: capabilitiesForRole({
+					isAdmin: false,
+					operator: true,
+					deployRulesPass: true,
+					operatorSettings
+				})
+			}).content as string
+
+		// Schedules and triggers are not sent to the UI: the chat drafts them itself.
+		expect(prompt({})).toContain('Resources and variables they can still edit')
+		expect(prompt({})).toContain('lets them create and edit schedules and triggers')
+		expect(prompt({})).toContain('schedule a deployed script or flow themselves')
+		expect(prompt({ manage_schedules: false })).not.toContain('schedule a deployed script')
 	})
 })

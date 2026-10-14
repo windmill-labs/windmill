@@ -10,7 +10,13 @@ The trigger sits in the composer next to the model pill; `open(section)` is for 
 callers that already know which section they mean, such as the "+" menu's Manage entries.
 -->
 <script lang="ts" module>
-	export type AssistantSettingsSection = 'tools' | 'skills' | 'instructions' | 'mcp' | 'files'
+	export type AssistantSettingsSection =
+		| 'tools'
+		| 'skills'
+		| 'instructions'
+		| 'mcp'
+		| 'files'
+		| 'permissions'
 </script>
 
 <script lang="ts">
@@ -21,6 +27,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 		Paperclip,
 		Plug,
 		ScrollText,
+		ShieldCheck,
 		SlidersHorizontal
 	} from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -35,6 +42,7 @@ callers that already know which section they mean, such as the "+" menu's Manage
 	import AssistantInstructionsSection from './AssistantInstructionsSection.svelte'
 	import AssistantMcpSection from './AssistantMcpSection.svelte'
 	import AssistantFilesSection from './AssistantFilesSection.svelte'
+	import AssistantPermissionsSection from './AssistantPermissionsSection.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	// Prefilled title marks the issue as AI Sessions feedback for triage.
@@ -71,7 +79,8 @@ callers that already know which section they mean, such as the "+" menu's Manage
 		skills: skillsBusy,
 		instructions: instructionsBusy,
 		mcp: mcpBusy,
-		files: filesBusy
+		files: filesBusy,
+		permissions: false
 	})
 	let blockingSection = $derived<AssistantSettingsSection | undefined>(
 		busyBySection[section]
@@ -121,7 +130,8 @@ callers that already know which section they mean, such as the "+" menu's Manage
 		{ id: 'mcp', label: 'MCP connections', icon: Plug, count: mcpCount },
 		// The count is what is readable rather than what is attached: a locked folder under
 		// a heading about what the assistant can use would say the opposite of the truth.
-		{ id: 'files', label: 'Files & folders', icon: Paperclip, count: fileCount }
+		{ id: 'files', label: 'Files & folders', icon: Paperclip, count: fileCount },
+		{ id: 'permissions', label: 'Permissions', icon: ShieldCheck }
 	])
 
 	/** Opens on `target`, or back on whichever section was last read. */
@@ -266,6 +276,11 @@ callers that already know which section they mean, such as the "+" menu's Manage
 			</div>
 			<div class="{section === 'files' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto pr-2">
 				<AssistantFilesSection bind:count={fileCount} bind:blocksClose={filesBusy} />
+			</div>
+			<div
+				class="{section === 'permissions' ? 'block' : 'hidden'} grow min-h-0 overflow-y-auto pr-2"
+			>
+				<AssistantPermissionsSection {ws} />
 			</div>
 		</div>
 	</div>

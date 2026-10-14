@@ -1,8 +1,8 @@
 <script lang="ts">
-	import { Section, Button, Badge } from '$lib/components/common'
+	import { Section, Button, DrawerContent } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Label from '$lib/components/Label.svelte'
-	import Select from '$lib/components/select/Select.svelte'
+	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import {
@@ -16,16 +16,17 @@
 	import { clone } from '$lib/utils'
 	import { DEV_WORKSPACE_LOCK_RULE_NAME } from '$lib/workspaceProtectionRules.svelte'
 	import { untrack } from 'svelte'
-	import { Save, X, Plus } from 'lucide-svelte'
+	import { Save } from 'lucide-svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 
 	interface Props {
 		rule?: ProtectionRuleset
 		existingNames?: string[]
 		onUpdate?: () => void
+		onClose?: () => void
 	}
 
-	let { rule, existingNames = [], onUpdate }: Props = $props()
+	let { rule, existingNames = [], onUpdate, onClose }: Props = $props()
 
 	// Create mode vs Edit mode
 	const isCreateMode = $derived(!rule)
@@ -74,9 +75,7 @@
 	let availableGroups = $state<string[]>([])
 	let availableUsers = $state<string[]>([])
 
-	// Temporary values for Select dropdowns
-	let selectedGroupToAdd = $state<string | undefined>(undefined)
-	let selectedUserToAdd = $state<string | undefined>(undefined)
+	let saving = $state(false)
 
 	// Load available groups and users
 	async function loadAvailableGroups() {
@@ -94,26 +93,6 @@
 			untrack(() => {
 				loadAvailableGroups()
 				loadAvailableUsers()
-			})
-		}
-	})
-
-	// Effect to add selected group
-	$effect(() => {
-		if (selectedGroupToAdd && !selectedGroups.includes(selectedGroupToAdd)) {
-			selectedGroups = [...selectedGroups, selectedGroupToAdd]
-			untrack(() => {
-				selectedGroupToAdd = undefined // Reset for next selection
-			})
-		}
-	})
-
-	// Effect to add selected user
-	$effect(() => {
-		if (selectedUserToAdd && !selectedUsers.includes(selectedUserToAdd)) {
-			selectedUsers = [...selectedUsers, selectedUserToAdd]
-			untrack(() => {
-				selectedUserToAdd = undefined // Reset for next selection
 			})
 		}
 	})
@@ -155,17 +134,10 @@
 
 	const canSave = $derived(!nameError && hasUnsavedChanges)
 
-	function removeGroup(group: string) {
-		selectedGroups = selectedGroups.filter((g) => g !== group)
-	}
-
-	function removeUser(user: string) {
-		selectedUsers = selectedUsers.filter((u) => u !== user)
-	}
-
 	async function create() {
 		if (!canSave || !$workspaceStore) return
 
+		saving = true
 		try {
 			await WorkspaceService.createProtectionRule({
 				workspace: $workspaceStore,
@@ -195,12 +167,15 @@
 		} catch (error) {
 			console.error('Failed to create protection rule:', error)
 			sendUserToast('Failed to create protection rule', true)
+		} finally {
+			saving = false
 		}
 	}
 
 	async function save() {
 		if (!canSave || !$workspaceStore) return
 
+		saving = true
 		try {
 			await WorkspaceService.updateProtectionRule({
 				workspace: $workspaceStore,
@@ -243,198 +218,132 @@
 		} catch (error) {
 			console.error('Failed to save protection rule:', error)
 			sendUserToast('Failed to save protection rule', true)
+		} finally {
+			saving = false
 		}
 	}
+
+	// The required marker already says an empty name is missing; only a clash needs words.
+	const shownNameError = $derived(name.trim() ? nameError : undefined)
 </script>
 
-<div class="flex flex-col gap-6 p-4">
-	<!-- Name Section -->
-	<span class="text-secondary text-sm">
-		Keep in mind that rulesets can take up to one minute to take effect
-	</span>
-	<Section label="Rule Name" class="space-y-2">
-		<TextInput
-			size="md"
-			bind:value={name}
-			error={nameError}
-			inputProps={{
-				placeholder: 'Enter rule name',
-				disabled: isNameLocked
-			}}
-		/>
-		{#if isNameLocked}
-			<div class="text-xs text-secondary">
-				Managed by the dev workspace pairing, which locates this rule by name. Its restrictions and
-				bypassers below can still be changed.
-			</div>
-		{:else if nameError}
-			<div class="text-xs text-red-600">{nameError}</div>
-		{/if}
-	</Section>
+<!-- `pl-11` lines the text up with the toggle's label: the `sm` track is 36px plus its 8px gap. -->
+{#snippet description(text: string)}
+	<p class="text-xs text-secondary pl-11">{text}</p>
+{/snippet}
 
-	<!-- Bypass Permissions Section -->
-	<Section
-		label="Bypass Permissions"
-		description="Select the groups and/or users who can bypass the restrictions defined in this rule. These users will be exempt from the rules configured below."
-		class="space-y-4"
-	>
-		<!-- Groups -->
-		<div class="flex flex-col gap-2">
-			<Label class="text-xs">Groups</Label>
-			<Select
-				bind:value={selectedGroupToAdd}
-				items={safeSelectItems(availableGroups.filter((g) => !selectedGroups.includes(g)))}
-				placeholder="Select groups..."
+<DrawerContent
+	title={rule ? `Protection rule ${rule.name}` : 'New protection rule'}
+	on:close={onClose}
+>
+	<div class="flex flex-col gap-6">
+		<p class="text-xs text-secondary">A rule can take up to one minute to take effect.</p>
+
+		<Label label="Name" required>
+			<TextInput
+				bind:value={name}
+				error={shownNameError}
+				inputProps={{
+					placeholder: 'Enter rule name',
+					disabled: isNameLocked
+				}}
 			/>
-			{#if selectedGroups.length > 0}
-				<div class="flex flex-wrap gap-2 mt-2">
-					{#each selectedGroups as group (group)}
-						<Badge color="blue" class="flex items-center gap-1">
-							{group}
-							<button
-								type="button"
-								onclick={() => removeGroup(group)}
-								class="ml-1 hover:text-red-600"
-							>
-								<X size={14} />
-							</button>
-						</Badge>
-					{/each}
-				</div>
+			{#if isNameLocked}
+				<p class="text-2xs text-hint">
+					Managed by the dev workspace pairing, which locates this rule by name. Its restrictions
+					and bypassers can still be changed.
+				</p>
+			{:else if shownNameError}
+				<p class="text-2xs text-red-500">{shownNameError}</p>
 			{/if}
-		</div>
+		</Label>
 
-		<!-- Users -->
-		<div class="flex flex-col gap-2">
-			<Label class="text-xs">Users</Label>
-			<Select
-				bind:value={selectedUserToAdd}
-				items={safeSelectItems(availableUsers.filter((u) => !selectedUsers.includes(u)))}
-				placeholder="Select users..."
-			/>
-			{#if selectedUsers.length > 0}
-				<div class="flex flex-wrap gap-2 mt-2">
-					{#each selectedUsers as user (user)}
-						<Badge color="indigo" class="flex items-center gap-1">
-							{user}
-							<button
-								type="button"
-								onclick={() => removeUser(user)}
-								class="ml-1 hover:text-red-600"
-							>
-								<X size={14} />
-							</button>
-						</Badge>
-					{/each}
-				</div>
-			{/if}
-		</div>
-	</Section>
+		<Section
+			label="Bypassers"
+			description="Groups and users who are exempt from the restrictions below."
+			class="flex flex-col gap-4"
+		>
+			<Label label="Groups">
+				<MultiSelect
+					bind:value={selectedGroups}
+					items={safeSelectItems(availableGroups)}
+					placeholder="Select groups"
+					reorderable={false}
+				/>
+			</Label>
+			<Label label="Users">
+				<MultiSelect
+					bind:value={selectedUsers}
+					items={safeSelectItems(availableUsers)}
+					placeholder="Select users"
+					reorderable={false}
+				/>
+			</Label>
+		</Section>
 
-	<!-- Protection Rules Section -->
-	<Section
-		label="Protection Rules"
-		description="Configure the rules that will be enforced"
-		class="space-y-4"
-	>
-		<div class="flex flex-col gap-4">
-			<!-- Disable Direct Deployment -->
-			<div class="flex flex-col gap-2">
+		<Section label="Restrictions" class="flex flex-col gap-4">
+			<div class="flex flex-col gap-1">
 				<Toggle
 					bind:checked={disableDirectDeployment}
-					options={{
-						right: 'Disable direct deployment'
-					}}
+					options={{ right: 'Disable direct deployment' }}
 				/>
-				<div class="text-xs text-secondary ml-6">
-					Users must use a fork or git branch to make changes. Direct edits are not allowed.
-				</div>
+				{@render description(
+					'Users must use a fork or git branch to make changes. Direct edits are not allowed.'
+				)}
 			</div>
-
-			<!-- Disable Fork -->
-			<div class="flex flex-col gap-2">
-				<Toggle
-					bind:checked={disableFork}
-					options={{
-						right: 'Disable workspace forking'
-					}}
-				/>
-				<div class="text-xs text-secondary ml-6">Users cannot create forks of this workspace.</div>
+			<div class="flex flex-col gap-1">
+				<Toggle bind:checked={disableFork} options={{ right: 'Disable workspace forking' }} />
+				{@render description('Users cannot create forks of this workspace.')}
 			</div>
-
-			<!-- Restrict deploy to deployers -->
-			<div class="flex flex-col gap-2">
+			<div class="flex flex-col gap-1">
 				<Toggle
 					bind:checked={restrictDeployToDeployers}
-					options={{
-						right: 'Restrict deployment to wm_deployers'
-					}}
+					options={{ right: 'Restrict deployment to wm_deployers' }}
 				/>
-				<div class="text-xs text-secondary ml-6">
-					Only workspace admins and members of <code>wm_deployers</code> can deploy to this workspace.
-					Non-deployers can still fork, browse, and request a review.
-				</div>
+				{@render description(
+					'Only workspace admins and members of wm_deployers can deploy to this workspace. Non-deployers can still fork, browse, and request a review.'
+				)}
 			</div>
-
-			<!-- Restrict anonymous app deployment -->
-			<div class="flex flex-col gap-2">
+			<div class="flex flex-col gap-1">
 				<Toggle
 					bind:checked={restrictAnonymousAppDeployment}
-					options={{
-						right: 'Restrict public app access'
-					}}
+					options={{ right: 'Restrict public app access' }}
 				/>
-				<div class="text-xs text-secondary ml-6">
-					Only workspace admins and bypass users can make an app publicly accessible without login
-					(anonymous execution mode). Apps that are already public can still be redeployed.
-				</div>
+				{@render description(
+					'Only workspace admins and bypassers can make an app publicly accessible without login (anonymous execution mode). Apps that are already public can still be redeployed.'
+				)}
 			</div>
-
-			<!-- Restrict guest app deployment -->
-			<div class="flex flex-col gap-2">
+			<div class="flex flex-col gap-1">
 				<Toggle
 					bind:checked={restrictGuestAppDeployment}
-					options={{
-						right: 'Restrict guest app access'
-					}}
+					options={{ right: 'Restrict guest app access' }}
 				/>
-				<div class="text-xs text-secondary ml-6">
-					Only workspace admins and bypass users can open an app to guests (anyone who signs in,
-					with no workspace membership and no seat). Apps that already admit guests can still be
-					redeployed.
-				</div>
+				{@render description(
+					'Only workspace admins and bypassers can open an app to guests (anyone who signs in, with no workspace membership and no seat). Apps that already admit guests can still be redeployed.'
+				)}
 			</div>
-
-			<!-- Restrict public run sharing -->
-			<div class="flex flex-col gap-2">
+			<div class="flex flex-col gap-1">
 				<Toggle
 					bind:checked={restrictPublicRunSharing}
-					options={{
-						right: 'Restrict public run sharing'
-					}}
+					options={{ right: 'Restrict public run sharing' }}
 				/>
-				<div class="text-xs text-secondary ml-6">
-					Only workspace admins and bypass users can mint a public link to a run (readable without
-					login). The read-only link for workspace members stays available to everyone.
-				</div>
+				{@render description(
+					'Only workspace admins and bypassers can mint a public link to a run (readable without login). The read-only link for workspace members stays available to everyone.'
+				)}
 			</div>
-		</div>
-	</Section>
+		</Section>
+	</div>
 
-	<!-- Actions -->
-	<div class="flex items-center gap-4 pt-4 border-t">
+	{#snippet actions()}
 		<Button
 			variant="accent"
 			unifiedSize="md"
 			disabled={!canSave}
+			loading={saving}
+			startIcon={{ icon: Save }}
 			on:click={isCreateMode ? create : save}
-			startIcon={{ icon: isCreateMode ? Plus : Save }}
 		>
-			{isCreateMode ? 'Create Rule' : 'Save Rule'}
+			{isCreateMode ? 'Create' : 'Save'}
 		</Button>
-
-		{#if hasUnsavedChanges && !isCreateMode}
-			<span class="text-xs text-secondary">You have unsaved changes</span>
-		{/if}
-	</div>
-</div>
+	{/snippet}
+</DrawerContent>
