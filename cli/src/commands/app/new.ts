@@ -593,6 +593,7 @@ CREATE SCHEMA IF NOT EXISTS ${schemaName};
   // Create raw_app.yaml with data configuration
   const rawAppConfig: Record<string, unknown> = {
     summary,
+    sandbox: true,
   };
 
   // Add data configuration if present

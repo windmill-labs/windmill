@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Alert } from '$lib/components/common'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
@@ -358,10 +357,7 @@
 
 <div class="mt-10"></div>
 
-<div class="flex items-center gap-2">
-	<h2>Sandbox isolation</h2>
-	<Badge color="yellow">Alpha</Badge>
-</div>
+<h2>Sandbox isolation</h2>
 <div class="my-6">
 	<Toggle
 		options={{ right: "Isolate the app from the viewer's browser session" }}
@@ -397,21 +393,13 @@
 	{/if}
 	<div class="text-xs text-secondary mt-1">
 		Controls what the app's browser-side code can reach in each viewer's browser — distinct from the
-		on-behalf-of model above (which sets who its runnables run as). Off by default, the app's code
-		uses the viewer's own session; enable it to confine the app to a narrowly-scoped token instead,
-		on every surface (public URL and in-workspace). Leave it off if the app needs full browser
+		on-behalf-of model above (which sets who its runnables run as). On by default for new apps, it
+		confines the app to a narrowly-scoped token on every surface (public URL and in-workspace).
+		Turn it off to let the app's code use the viewer's own session, if the app needs full browser
 		features (IndexedDB, third-party auth/SDKs, OAuth redirects).
 	</div>
 	{#if newApp}
 		<div class="text-xs text-tertiary mt-1">Takes effect when you first deploy this app.</div>
-	{/if}
-	{#if policy.sandbox == true}
-		<div class="mt-2">
-			<Alert type="warning" title="Alpha feature" size="xs">
-				Sandbox isolation is in alpha. After enabling, open the app from its public URL to confirm
-				it still works, and report any broken behavior.
-			</Alert>
-		</div>
 	{/if}
 </div>
 

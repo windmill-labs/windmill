@@ -1062,7 +1062,8 @@ function createRuntime(session: Session): SessionRuntime {
 						policy: {
 							on_behalf_of: user?.username.includes('@') ? user.username : `u/${user?.username}`,
 							on_behalf_of_email: user?.email,
-							execution_mode: 'publisher'
+							execution_mode: 'publisher',
+							sandbox: true
 						},
 						summary: '',
 						path,
