@@ -1074,20 +1074,14 @@ const App = () => {
           description="Windmill passes the workspace and the viewer to the app."
           code={${JSON.stringify(BUILDER_CONTEXT_CODE)}}
         >
-          {ctx.workspace ? (
-            <>
-              <div>
-                <span className="muted">Workspace </span>
-                <strong>{ctx.workspace}</strong>
-              </div>
-              <div>
-                <span className="muted">Viewer </span>
-                <strong>{viewer ? viewer.name || viewer.username : 'Anonymous visitor'}</strong>
-              </div>
-            </>
-          ) : (
-            <span className="muted">The editor preview has no viewer. Deploy the app to see yours here.</span>
-          )}
+          <div>
+            <span className="muted">Workspace </span>
+            <strong>{ctx.workspace}</strong>
+          </div>
+          <div>
+            <span className="muted">Viewer </span>
+            <strong>{viewer ? viewer.name || viewer.username : 'Anonymous visitor'}</strong>
+          </div>
         </Card>
       </div>
     </main>
@@ -1166,15 +1160,11 @@ const builderAppSvelte = `<script lang="ts">
     <section class="card">
       {@render header(steps.length + 1, 'Know who is viewing', 'Windmill passes the workspace and the viewer to the app.')}
       <div class="card-body">
-        {#if ctx.workspace}
-          <div><span class="muted">Workspace </span><strong>{ctx.workspace}</strong></div>
-          <div>
-            <span class="muted">Viewer </span>
-            <strong>{viewer ? viewer.name || viewer.username : 'Anonymous visitor'}</strong>
-          </div>
-        {:else}
-          <span class="muted">The editor preview has no viewer. Deploy the app to see yours here.</span>
-        {/if}
+        <div><span class="muted">Workspace </span><strong>{ctx.workspace}</strong></div>
+        <div>
+          <span class="muted">Viewer </span>
+          <strong>{viewer ? viewer.name || viewer.username : 'Anonymous visitor'}</strong>
+        </div>
       </div>
       <pre class="snippet"><code>{contextCode}</code></pre>
     </section>
