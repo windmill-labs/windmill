@@ -1492,17 +1492,23 @@ async function run(
     await track_job(workspace.workspaceId, id);
   }
 
-  await pollForJobResult(workspace.workspaceId, id);
-  // getCompletedJob, not the poller's result: only it counts a skipped
+  let { result, success } = await pollForJobResult(workspace.workspaceId, id);
+  // Prefer getCompletedJob: unlike the poller, it counts a skipped
   // (debounced) job as a success.
-  const completedJob = await wmill.getCompletedJob({
-    workspace: workspace.workspaceId,
-    id,
-  });
-  if (completedJob.success === false) {
+  try {
+    const completedJob = await wmill.getCompletedJob({
+      workspace: workspace.workspaceId,
+      id,
+    });
+    result = completedJob.result;
+    success = completedJob.success !== false;
+  } catch {
+    /* keep the poller's result */
+  }
+  if (!success) {
     process.exitCode = 1;
   }
-  const result = completedJob.result ?? {};
+  result = result ?? {};
   if (opts.silent) {
     console.log(JSON.stringify(result));
   } else {
