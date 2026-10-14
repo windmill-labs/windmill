@@ -1380,6 +1380,7 @@ pub(crate) fn script_envars(
 /// The keys an executor sets on its nsjail launcher before the script's env, so the
 /// script's value wins, less those `reserved_variables` (applied after the script's env,
 /// and carrying worker-group env vars) sets again, so the worker's value wins.
+#[cfg(any(feature = "nu", feature = "java", feature = "ruby", feature = "rlang"))]
 pub(crate) fn script_overrides<'a>(
     set_before: &[&'a str],
     reserved_variables: &HashMap<String, String>,
