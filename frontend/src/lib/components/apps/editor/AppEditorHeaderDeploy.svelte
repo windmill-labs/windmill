@@ -399,6 +399,14 @@
 				Takes effect when you first deploy this app.
 			{/if}
 		</div>
+		{#if !$operatorBuilderApps && policy.sandbox != true}
+			<div class="mt-3">
+				<Alert type="warning" title="Not isolated" size="xs">
+					The app's frontend code runs with each viewer's full Windmill permissions. A future
+					version will ask viewers to approve this. Keep isolation off only if the app needs it.
+				</Alert>
+			</div>
+		{/if}
 
 		{#if rawApp && policy.sandbox == true}
 			<div class="mt-6">
