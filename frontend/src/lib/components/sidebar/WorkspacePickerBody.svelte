@@ -271,7 +271,7 @@
 	}
 
 	function moveHighlight(step: 1 | -1) {
-		const order = [...(rootEl?.querySelectorAll('[data-nav-id]') ?? [])].map(
+		const order = Array.from(rootEl?.querySelectorAll('[data-nav-id]') ?? []).map(
 			(el) => el.getAttribute('data-nav-id')!
 		)
 		if (order.length === 0) return
