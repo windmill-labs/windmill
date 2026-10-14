@@ -2,8 +2,9 @@
 //!
 //! The run is built here from the stored agent rather than sent by the client, which is what lets
 //! anyone who can read the agent run it, operators included, the way a deployed flow runs by path:
-//! a preview takes arbitrary code, this takes only the run's inputs. It runs as the agent's
-//! `on_behalf_of`, which the server resolves on every write of the agent.
+//! a preview takes arbitrary code, this takes only the run's inputs. It runs as the caller, or as
+//! the agent's `on_behalf_of` when its `run_on_behalf_of` is set; the server resolves
+//! `on_behalf_of` on every write of the agent.
 
 use std::collections::HashMap;
 
@@ -20,13 +21,16 @@ use windmill_common::{
     jobs::JobPayload,
     users::username_to_permissioned_as,
     utils::{not_found_if_none, StripPath},
+    variables::arg_needs_interpolation,
 };
 use windmill_queue::{push, PushArgs, PushIsolationLevel};
 
 use crate::ai_evals::run::config_to_draft;
 use crate::ai_evals::subject::AgentDraft;
 use crate::db::{ApiAuthed, DB};
-use crate::jobs::{handle_chat_conversation_messages, set_flow_memory_id, RunJobQuery};
+use crate::jobs::{
+    handle_chat_conversation_messages, run_end_user_email, set_flow_memory_id, RunJobQuery,
+};
 
 /// The id the agent's step carries in the run, as the editor's chat names it. A token scoped to
 /// `jobs:run:agents:<path>` reads its runs back by it (`require_job_within_read_scope`).
@@ -64,10 +68,14 @@ pub(crate) async fn run_agent(
             "Agent {path} has no configuration"
         )));
     };
-    // Who the agent runs as, not one of its inputs.
-    let agent_obo = value
-        .as_object_mut()
-        .and_then(|o| o.remove("on_behalf_of"))
+    // Who the agent runs as, not one of its inputs: its identity when it opts in, as a deployed
+    // flow does.
+    let obj = value.as_object_mut();
+    let (agent_obo, run_obo) = obj
+        .map(|o| (o.remove("on_behalf_of"), o.remove("run_on_behalf_of")))
+        .unwrap_or_default();
+    let agent_obo = agent_obo
+        .filter(|_| run_obo.and_then(|v| v.as_bool()).unwrap_or(false))
         .and_then(|v| v.as_str().map(str::to_string));
     let config = config_to_draft(value)?;
 
@@ -109,8 +117,23 @@ pub(crate) async fn run_agent(
             PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
         )
     };
-
+    if let Some(obo) = on_behalf_of.as_ref() {
+        // The worker would interpolate such an input with the job's token, which is the
+        // identity's. Checked on the decoded value: the raw JSON can spell `$` as `\u0024`.
+        if args.values().any(|v| {
+            serde_json::from_str::<serde_json::Value>(v.get())
+                .is_ok_and(|v| arg_needs_interpolation(&v.to_string()))
+        }) {
+            return Err(Error::BadRequest(format!(
+                "Agent {path} runs on behalf of {}, so its inputs cannot reference variables or resources",
+                obo.permissioned_as
+            )));
+        }
+        #[cfg(all(feature = "parquet", feature = "private"))]
+        check_attachments_readable(&db, &authed, &w_id, &args).await?;
+    }
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let (uuid, mut tx) = push(
         &db,
         isolation,
@@ -142,7 +165,7 @@ pub(crate) async fn run_agent(
         None,
         push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(None),
         None,
         scope_ceiling.as_deref(),
@@ -171,6 +194,50 @@ pub(crate) async fn run_agent(
     tx.commit().await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+/// The step fetches the message's files with its job's token, so a run as the agent's identity
+/// would read any file that identity can: a caller attaches only what they could download
+/// themselves, checked as `sign_s3_objects` checks a key before signing it.
+#[cfg(all(feature = "parquet", feature = "private"))]
+async fn check_attachments_readable(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    args: &HashMap<String, Box<RawValue>>,
+) -> Result<()> {
+    use crate::job_helpers_oss::{
+        get_large_file_storage, get_workspace_s3_resource_and_check_paths,
+    };
+    use windmill_common::db::DbWithOptAuthed;
+    use windmill_types::s3::{S3Object, S3Permission};
+
+    let Some(raw) = args.get("user_attachments") else {
+        return Ok(());
+    };
+    let attachments: Option<Vec<S3Object>> = serde_json::from_str(raw.get())
+        .map_err(|e| Error::BadRequest(format!("invalid user_attachments: {e}")))?;
+    for attachment in attachments.iter().flatten().filter(|a| !a.s3.is_empty()) {
+        // The path check is skipped, not failed, when the storage does not resolve.
+        if get_large_file_storage(db, w_id, attachment.storage.clone())
+            .await?
+            .is_none()
+        {
+            return Err(windmill_object_store::workspace_storage_not_found(
+                attachment.storage.as_deref(),
+            ));
+        }
+        get_workspace_s3_resource_and_check_paths(
+            &DbWithOptAuthed::from_authed(authed, db.clone(), None),
+            Some(authed),
+            w_id,
+            attachment.storage.clone(),
+            &[(&attachment.s3, S3Permission::READ)],
+            None,
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 /// The agent as a one-step flow, validated by deserializing through `FlowValue` rather than
