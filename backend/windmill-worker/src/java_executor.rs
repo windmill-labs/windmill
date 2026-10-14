@@ -678,9 +678,13 @@ async fn compile<'a>(
                 .current_dir(job_dir.to_owned())
                 .env("PATH", PATH_ENV.as_str())
                 .env("HOME", &*JAVA_HOME_DIR)
-                .env("BASE_INTERNAL_URL", base_internal_url)
-                .envs(envs)
-                .envs(reserved_variables)
+                .env("BASE_INTERNAL_URL", base_internal_url);
+            // javac runs outside the jail even when sandboxing is on: script env
+            // (`LD_PRELOAD`, `JAVA_TOOL_OPTIONS`) would load code into it on the host.
+            if !is_sandboxing_enabled() {
+                cmd.envs(envs);
+            }
+            cmd.envs(reserved_variables)
                 .envs(PROXY_ENVS.clone())
                 .args(&[
                     "-classpath",
@@ -835,7 +839,14 @@ async fn run<'a>(
                 .replace("{TIMEOUT}", &nsjail_timeout)
                 .replace(
                     "{ENVARS}",
-                    &script_envars(&envs, &cmd, &script_overrides(&["PATH", "HOME", "BASE_INTERNAL_URL"], &reserved_variables)),
+                    &script_envars(
+                        &envs,
+                        &cmd,
+                        &script_overrides(
+                            &["PATH", "HOME", "BASE_INTERNAL_URL"],
+                            &reserved_variables,
+                        ),
+                    ),
                 ),
         )?;
         start_child_process(cmd, NSJAIL_PATH.as_str(), false).await?
