@@ -139,10 +139,7 @@ describe("resource-type commands", () => {
       );
 
       expect(result.code).toEqual(0);
-      // When empty, shows helpful message; when populated, shows table with Name header
-      const hasTable = result.stdout.includes("Name");
-      const hasEmptyMessage = result.stdout.includes("No custom resource types");
-      expect(hasTable || hasEmptyMessage).toBe(true);
+      expect(result.stdout).toContain("Name");
     });
   });
 

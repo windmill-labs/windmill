@@ -13,13 +13,18 @@
 		 * payload nobody has typed into tracks the schema instead of going stale. The first edit
 		 * hands the buffer to the user and later changes stop overwriting it. */
 		initialCode?: string
+		/** Show the payload without taking edits. For a caller that must keep this editor
+		 * mounted while refusing writes: swapping it for the fields instead would mount the
+		 * widgets, and a `password` field mints a variable from whatever literal it opens on. */
+		readOnly?: boolean
 	}
 
 	let {
 		updateOnBlur = true,
 		placeholder = 'Write a JSON payload. The input schema will be inferred.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}',
 		selected = false,
-		initialCode = ''
+		initialCode = '',
+		readOnly = false
 	}: Props = $props()
 
 	let pendingJson = $state(untrack(() => initialCode))
@@ -130,6 +135,7 @@
 			bind:code={pendingJson}
 			lang="json"
 			class="h-full json-inputs-editor"
+			{readOnly}
 			{placeholder}
 		/>
 	</div>

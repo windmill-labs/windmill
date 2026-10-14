@@ -46,7 +46,7 @@ import type {
 	ScriptLang
 } from '$lib/gen/types.gen'
 import { loadSchemaFromModule, memoryPropertyFor } from '$lib/components/flows/flowInfers'
-import { flowLocalAgentSchema } from '$lib/components/flows/agentResourceUtils'
+import { linkedAgentStepSchema } from '$lib/components/flows/agentResourceUtils'
 import { AGENT_FIELDS, initialVisibleAgentFields } from '$lib/components/flows/agentFormFields'
 import { withAgentDrafts } from '$lib/components/flows/linkedAgentDrafts'
 import { resolveLinkedAgentTools } from '$lib/components/flows/flowState'
@@ -109,7 +109,12 @@ import {
 	createInlineScriptSession,
 	findUnresolvedInlineScriptRefs
 } from '../flow/inlineScriptsUtils'
-import { searchNpmPackagesTool } from '../script/core'
+import {
+	resourceTypeSyncBlock,
+	searchNpmPackagesTool,
+	searchResourceTypes,
+	type ResourceTypeSync
+} from '../script/core'
 import type { McpServer } from './mcpTools'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { isSkillEnabled } from '../skills/enabledSkills'
@@ -152,6 +157,7 @@ import {
 	SPECIAL_MODULE_IDS,
 	type CreatedResourceTriggerKind,
 	type PreviewCardKind,
+	type RunFormAnswer,
 	type RunFormDisplay,
 	type ToolCallbacks,
 	type ToolCodeDiff,
@@ -204,6 +210,7 @@ import {
 } from '$lib/stores'
 import { getWorkspaceRole, type RoleLookup } from '$lib/user'
 import { refreshSuperadmin } from '$lib/refreshUser'
+import { resourceTypesStore } from '$lib/components/resourceTypesStore'
 import { get } from 'svelte/store'
 import {
 	canonicalDraftSideValue,
@@ -360,6 +367,8 @@ export type GlobalUserMessageOptions = {
 	/** Text files attached to this message; listed by reference below — the model
 	 * reads their content on demand via the file tools. */
 	files?: AttachedTextFile[]
+	/** From `resolveResourceTypeSync`; absent on a synced instance, which is told nothing. */
+	resourceTypeSync?: ResourceTypeSync
 }
 
 const itemTypeSchema = z.enum(ITEM_TYPES)
@@ -735,6 +744,20 @@ const searchResourceTypesSchema = z.object({
 		.describe('Max number of resource types to return. Defaults to 5.')
 })
 
+const createResourceTypeSchema = z.object({
+	name: z
+		.string()
+		.describe(
+			'Type name with the c_ prefix of custom types, e.g. c_acme_billing (added when missing): 1 to 50 letters, digits, "_" or "-". Resources and resource-typed parameters refer to it by this name.'
+		),
+	description: z.string().describe('What a resource of this type connects to.'),
+	schema: z
+		.record(z.string(), z.any())
+		.describe(
+			'JSON Schema of a resource value of this type: { "type": "object", "properties": {...}, "required": [...] }, with every connection field, secrets included (a resource fills those with "$var:" references).'
+		)
+})
+
 const getRunSchema = z.object({
 	id: z.string().describe('The UUID of the run (job) to inspect.'),
 	step: z
@@ -968,7 +991,7 @@ const runScriptSchema = z.object({
 const runScriptToolDef = createToolDef(
 	runScriptSchema,
 	'run_script',
-	'Run a DEPLOYED script for real, under the user\'s own permissions. Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call. A required file is the user\'s to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version ("the deployed X", "in production", "for real").',
+	'Run a DEPLOYED script for real, under the user\'s own permissions. Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs. In an AI session the user can open that form on the script\'s own deployed page instead; either way this call waits for them and runs what they confirm. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call. A required file is the user\'s to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version ("the deployed X", "in production", "for real").',
 	{ strict: false }
 )
 
@@ -1007,7 +1030,7 @@ const runFlowSchema = z.object({
 const runFlowToolDef = createToolDef(
 	runFlowSchema,
 	'run_flow',
-	'Run a DEPLOYED flow for real, under the user\'s own permissions. Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call. A required file is the user\'s to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version ("the deployed X", "in production", "for real").',
+	'Run a DEPLOYED flow for real, under the user\'s own permissions. Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs. In an AI session the user can open that form on the flow\'s own deployed page instead; either way this call waits for them and runs what they confirm. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call. A required file is the user\'s to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version ("the deployed X", "in production", "for real").',
 	{ strict: false }
 )
 
@@ -1459,8 +1482,10 @@ const buildGlobalSystemPrompt = (
 	const canRunPreview = !access || access.has('run_preview')
 	const canManageSchedules = !access || access.has('manage_schedules')
 	const canManageTriggers = !access || access.has('manage_triggers')
-	// The deploy tools take their kind as an argument, so `deploy` gates only the folder text.
+	// The deploy tools take their kind as an argument, so `deploy` gates only the folder and
+	// resource type text.
 	const canCreateFolder = !access || access.has('deploy')
+	const canCreateResourceType = !access || access.has('deploy')
 	// Each gated block carries its own leading newline, so dropping one leaves no blank
 	// line behind and a full-access prompt is byte-for-byte the ungated text.
 	const when = (cond: boolean, block: string) => (cond ? block : '')
@@ -1573,7 +1598,7 @@ Rules:${when(
 - Hub scripts are prebuilt, vetted integrations for third-party services, hosted outside the workspace under \`hub/<version>/<app>/<name>\` paths. Check search_hub_scripts before hand-writing code against a third-party API, even when the user never mentions the hub; read a result with read_workspace_item type "script" and its hub path to get its code, language, and input schema. Use what you find in whichever way fits: reference the hub path directly from a flow module or app runnable when a script already does the job, copy it into a workspace draft and adapt it when it is close (note the source hub path in a comment at the top of the code), or take it as a worked example and write your own. A script that does not do what the user asked is still worth reading when it is the only example of that integration: pass its \`integration\` back to search_hub_scripts to list that integration's other scripts with their descriptions, or use the \`suggested_integrations\` a search hands back when it finds nothing.
 - Before writing your own code against an integration the hub covers, call get_hub_integration with its slug: it returns the resource type to take, its auth fields and the integration's most-used scripts, which beats inferring them from script bodies. Call it for the integration you are about to write against, whichever it is. A search marks an integration \`documented\` when the hub additionally holds provider knowledge checked against the live API — pagination, enums, error codes and gotchas — so read that closely where it appears rather than trusting your own memory of the API.
 - If you have a web search tool and the hub does not cover a third-party API, search for the vendor's own API documentation rather than writing its endpoints and auth from memory, and link the page you relied on. Reserve it for external APIs: search_docs answers questions about Windmill itself.
-${when(canRunPreview, '- Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).\n')}- Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
+${when(canCreateResourceType, '- create_resource_type creates a resource type the workspace lacks. The user confirms the schema in the call itself, so that is where you propose it rather than asking first in chat.\n')}${when(!canCreateResourceType, '- This user cannot create a resource type here, in chat or on the Resources page, since the workspace refuses their direct deployment: when one is needed, give them its name and JSON Schema to pass to a workspace admin, who can add it.\n')}${when(canRunPreview, '- Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).\n')}- Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
 ${pipelineBullet}`
 	)}${when(
 		canRunPreview && canWriteDraft,
@@ -4130,6 +4155,8 @@ export const globalTools: SessionTool<{}>[] = [
 		// No requiresConfirmation, for the reason test_run_script carries.
 		bypassedByAutoAccept: true,
 		confirmationMessage: 'Run a deployed script',
+		// Both endings start the same way: the arguments are read, then either a form opens
+		// here or the script's own deployed page does.
 		streamingLabel: 'Preparing the run form...',
 		queuedLabel: (args) => `Run ${args?.path ?? 'a script'}`,
 		showDetails: true,
@@ -4486,31 +4513,72 @@ export const globalTools: SessionTool<{}>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Searching resource types for "${parsed.query}"...`
 			})
-			const results = await ResourceService.queryResourceTypes({
+			const { resourceTypes, note } = await searchResourceTypes(
+				parsed.query,
 				workspace,
-				text: parsed.query,
-				limit: parsed.limit ?? 5
-			})
+				parsed.limit ?? 5
+			)
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Found ${results.length} resource type(s) for "${parsed.query}"`
+				content: `Found ${resourceTypes.length} resource type(s) for "${parsed.query}"`
 			})
 			const listing = JSON.stringify(
-				results.map((rt) => ({
+				resourceTypes.map((rt) => ({
 					name: rt.name,
 					schema: rt.schema
 				})),
 				null,
 				2
 			)
+			// On an unsynced instance the dedicated type is only missing until a sync, so its note
+			// replaces the "no dedicated type" one, which would have the model create a duplicate.
+			if (note) {
+				return `${listing}\n\n${note}`
+			}
 			// The search is semantic and always returns its closest types, so a miss reads
 			// like a hit unless the absence is spelled out.
 			const words = (parsed.query.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter(
 				(w) => w.length >= 3
 			)
-			const named = results.some((rt) => words.some((w) => rt.name.toLowerCase().includes(w)))
+			const named = resourceTypes.some((rt) => words.some((w) => rt.name.toLowerCase().includes(w)))
 			return named || words.length === 0
 				? listing
 				: `${listing}\n\nNo resource type name contains "${parsed.query}": these are only the nearest matches, so no dedicated type exists. Searching again with synonyms will not find one — use a fitting generic type above, or create a custom c_<name> type.`
+		}
+	},
+	{
+		// Not a draft: resource types have no draft kind, so this writes the workspace once the
+		// user confirms, under the same right as a deploy.
+		requires: DEPLOY,
+		def: createToolDef(
+			createResourceTypeSchema,
+			'create_resource_type',
+			'Create a resource type in the workspace. Mutates the workspace once the user confirms the schema.',
+			{ strict: false }
+		),
+		showDetails: true,
+		requiresConfirmation: true,
+		confirmationMessage: 'Create resource type',
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
+			const parsed = createResourceTypeSchema.parse(args)
+			// The prefix the Add resource type form adds unless an admin turns it off: a hub type
+			// of the same name, synced later, would otherwise clash with this one.
+			const name = parsed.name.startsWith('c_') ? parsed.name : `c_${parsed.name}`
+			await ResourceService.createResourceType({
+				workspace,
+				requestBody: {
+					name,
+					description: parsed.description,
+					schema: parsed.schema
+				}
+			})
+			// Forms show a resource picker only for a type in this cached list, so a script
+			// written against the new type would otherwise get a plain object input.
+			resourceTypesStore.set(undefined)
+			toolCallbacks.setToolStatus(toolId, { content: `Created resource type ${name}` })
+			return JSON.stringify({
+				success: true,
+				message: `Created resource type ${name}. Refer to it by this name.`
+			})
 		}
 	},
 	createDbSchemaTool<{}>({
@@ -6201,9 +6269,9 @@ async function agentStepRunForm(
 ): Promise<{ schema: Record<string, any>; args: Record<string, any> }> {
 	const transforms = (module.value as { input_transforms?: Record<string, any> }).input_transforms
 	// A linked step's brain belongs to the resource rather than to this flow, so only the inputs
-	// this flow supplies are its to edit.
+	// this flow supplies, and its overrides, are its to edit.
 	const full = (await loadSchemaFromModule(module, workspace)).schema
-	const schema = (module.value as { agent?: string }).agent ? flowLocalAgentSchema(full) : full
+	const schema = (module.value as { agent?: string }).agent ? linkedAgentStepSchema(full) : full
 
 	const visible = initialVisibleAgentFields(transforms, schema.properties)
 	// What the model asked to set, shown even where the step configures nothing: this form has no
@@ -6348,6 +6416,8 @@ type FormRunSpec = {
 	label?: string
 	/** Whether the bypass posture may answer this form with what it opened with. */
 	autoAcceptable?: boolean
+	/** Whether this item's deployed page is a conversation rather than a run form. */
+	conversational?: boolean
 	background?: boolean
 	detachAfterMs?: number
 	startJob: (submitted: Record<string, any>) => Promise<string>
@@ -6431,6 +6501,7 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		summary: spec.summary || undefined,
 		kind: spec.kind,
 		runnableKind: spec.contextName,
+		conversational: spec.conversational || undefined,
 		schema: autoAccepted ? undefined : schema,
 		code: autoAccepted ? undefined : spec.code,
 		lang: autoAccepted ? undefined : spec.lang,
@@ -6457,10 +6528,10 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	})
 
 	// `form`, not `persisted`: a password field mints from what it opens with.
-	const submitted = toolCallbacks.requestRunArgs
+	const answer: RunFormAnswer | undefined = toolCallbacks.requestRunArgs
 		? await toolCallbacks.requestRunArgs(toolId, form, { autoAccepted })
-		: proposed
-	if (!submitted) {
+		: { kind: 'args', args: proposed }
+	if (!answer) {
 		toolCallbacks.setToolStatus(toolId, {
 			content: `Run of "${spec.path}" cancelled by user`,
 			isLoading: false,
@@ -6471,8 +6542,17 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		return runFormCancelled(spec.toolName, noun)
 	}
 
-	const blockedBeforeRun = blockedByPlanMode()
-	if (blockedBeforeRun) return blockedBeforeRun
+	// A run the reader started on the item's own page. It is already going, at that page's own
+	// version and with arguments its own form coerced and minted — so there is nothing here to
+	// gate or process, only a job to follow and its arguments to show.
+	const adopted = answer.kind === 'job' ? answer : undefined
+	const submitted = answer.args
+
+	const blockedBeforeRun = adopted ? undefined : blockedByPlanMode()
+	if (blockedBeforeRun) {
+		toolCallbacks.markRunFormEnded?.(toolId)
+		return blockedBeforeRun
+	}
 
 	// Every job leaves through here, so this is where a sensitive argument becomes a reference:
 	// the form mints as the user types and the bypass mints in its stead, but a host answering
@@ -6480,7 +6560,7 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	// the two that already minted pay a walk and no round trip.
 	let toRun: Record<string, any>
 	try {
-		toRun = await processSecretArgs(submitted, schema as any, workspace)
+		toRun = adopted ? submitted : await processSecretArgs(submitted, schema as any, workspace)
 	} catch (e) {
 		const message = `Failed to store the sensitive arguments of "${spec.path}": ${e}`
 		toolCallbacks.setToolStatus(toolId, {
@@ -6489,13 +6569,19 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 			isStreamingArguments: false,
 			error: message
 		})
+		toolCallbacks.markRunFormEnded?.(toolId)
 		return message
 	}
 
 	// The card's details pane must show what ran, not what was proposed. Bytes are marked by
 	// size because the card is persisted; everything else stands as the run page shows it for
 	// the same job.
-	const forCard = redactFileArgs(toRun, schema as any)
+	// The page's own, for an adopted run: a deploy between this call reading the schema and the
+	// reader pressing Run can have added arguments, and redaction only visits the leaves the
+	// schema it is given declares — so a file argument missing from ours would keep its bytes
+	// through both the persisted card and the model's result.
+	const ranAgainst = (adopted?.schema ?? schema) as any
+	const forCard = redactFileArgs(toRun, ranAgainst)
 	// The transcript is re-cloned into IndexedDB on every save and a form carries whatever was
 	// pasted into it, so past what the pane would render the card reads the arguments off the
 	// job instead. Only once there is a job to read them from: substituting the marker any
@@ -6503,11 +6589,26 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	const oversized = JSON.stringify(forCard).length > MAX_PERSISTED_ARGS_LENGTH
 	if (!oversized) {
 		toolCallbacks.setToolStatus(toolId, { parameters: forCard })
+	} else if (adopted) {
+		// Its job exists already, so the marker can stand in now rather than in `jobStarter`.
+		toolCallbacks.setToolStatus(toolId, { parameters: { reason: 'WINDMILL_TOO_BIG' } })
 	}
 
 	const outcome = await executeTestRun({
 		jobStarter: async () => {
-			const jobId = await spec.startJob(toRun)
+			if (adopted) {
+				toolCallbacks.markRunFormStarted?.(toolId)
+				return adopted.jobId
+			}
+			let jobId: string
+			try {
+				jobId = await spec.startJob(toRun)
+			} catch (e) {
+				// The ordinary refusal — gone, renamed, not permitted — and the surface that
+				// confirmed the run is still waiting for the job it was promised.
+				toolCallbacks.markRunFormEnded?.(toolId)
+				throw e
+			}
 			// The form's own submitted flag flips a round trip earlier, when the user presses
 			// Run; only from here is there a job for a stopped turn to say it left running.
 			toolCallbacks.markRunFormStarted?.(toolId)
@@ -6549,7 +6650,7 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 		: ''
 	// Redacted for the model alone: what it proposed is already in its own tool call, but a
 	// secret the user typed into the form would be entering its context here.
-	const redacted = redactFileArgs(redactSecretArgs(toRun, schema as any), schema as any)
+	const redacted = redactFileArgs(redactSecretArgs(toRun, ranAgainst), ranAgainst)
 	const submittedJson = JSON.stringify(redacted)
 	const shown =
 		submittedJson.length > MAX_SUBMITTED_ARGS_LENGTH
@@ -6561,6 +6662,11 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	const ran = deepEqual(redacted, proposed)
 		? 'Ran with the arguments the form opened with, unedited.'
 		: `Ran with arguments: ${shown}`
+	// The notes below say what THIS form did to the proposal, and an adopted run went through
+	// the page's form instead — so they describe a submission that never happened.
+	if (adopted) {
+		return `The user ran it on the ${spec.contextName}'s own page, at the version that page showed. ${ran}\n${outcome}`
+	}
 	return `${ran}${cleared}${reset}${stripped}${undeclared}\n${outcome}`
 }
 
@@ -6617,6 +6723,8 @@ async function runDeployedFlow(
 			schema: (flow.schema as Record<string, any>) ?? {},
 			summary: flow.summary,
 			kind: 'run',
+			// Its deployed page is a conversation with no run form, so the card keeps this run.
+			conversational: flow.value?.chat_input_enabled ?? false,
 			// No code/lang: the dynamic-option pickers come from the deployed flow, not an inline copy.
 			schemaNoun: 'deployed',
 			toolName: 'run_flow',
@@ -6631,6 +6739,11 @@ async function runDeployedFlow(
 					workspace,
 					path: args.path,
 					requestBody: submitted,
+					// A chat-enabled flow is refused without one, and it names a conversation rather
+					// than being a flow argument, so nothing in `args` could carry it. A fresh id:
+					// this run is its own conversation on the flow's page, not a turn appended to
+					// one someone is reading there.
+					memoryId: chatMemoryId(flow.value),
 					// As the flow's own run page does: the form fills the main input schema, and a
 					// preprocessor would take these arguments for a webhook body and hand the flow
 					// its own output instead.
@@ -9289,6 +9402,10 @@ export function prepareGlobalUserMessage(
 			content += `- ${ref} — ${lines} lines, ${f.content.length} chars\n`
 		}
 		content += '\n'
+	}
+
+	if (options.resourceTypeSync) {
+		content += resourceTypeSyncBlock(options.resourceTypeSync)
 	}
 
 	content += `## INSTRUCTIONS:\n${instructions}`

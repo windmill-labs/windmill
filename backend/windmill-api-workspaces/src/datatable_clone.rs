@@ -28,10 +28,13 @@ use windmill_common::workspaces::{
 use windmill_common::{PgDatabase, DB};
 
 use crate::datatable_acl::connect_with_notices;
+use crate::datatable_migrations::{
+    lock_migration_runs_on, read_applied_migrations, write_applied_migrations, AppliedMigrations,
+};
 use crate::datatable_permissions::ensure_reaches_governing_datatable;
 use crate::workspaces::{
-    create_database_on_server, ensure_datatable_is_clonable, pg_dump_database, pg_import_dump,
-    DumpFile, PgDumpOptions,
+    copy_database_settings, create_database_on_server, ensure_datatable_is_clonable,
+    pg_dump_database, pg_import_dump, DumpFile, PgDumpOptions,
 };
 
 /// A database this request created and filled for one data table of the fork.
@@ -336,8 +339,8 @@ async fn drop_copy(db: &DB, source_database: &DataTableDatabase, dbname: &str) -
             Ok(())
         }
         DataTableCatalogResourceType::Postgresql => {
-        // On a server of the workspace's own, where a resource edited meanwhile can already name it
-        // and nothing locks such an edit: dropping it could take someone's data.
+            // On a server of the workspace's own, where a resource edited meanwhile can already name it
+            // and nothing locks such an edit: dropping it could take someone's data.
             Err(Error::BadRequest(
                 "kept on its PostgreSQL server, where it may already be in use; drop it there once \
                  it is not, before forking the same data table under this id again"
@@ -392,20 +395,25 @@ async fn make_copy(
         (server, Some(snapshot))
     };
 
+    let schema_only = request.behavior == DataTableForkBehavior::SchemaOnly;
+    let migrations_lock = if schema_only {
+        Some(lock_migration_runs_on(db, &server, request.name).await?)
+    } else {
+        None
+    };
     // Dumped before the database exists, so a source that cannot be read leaves nothing behind.
     // Ownership never carries over: the restore runs as the target's connection user. Grants do,
     // except on a cluster Windmill manages, which plants its own and where the replay below is what
     // reproduces the roles'.
     let dump = pg_dump_database(
         &server,
-        PgDumpOptions {
-            schema_only: request.behavior == DataTableForkBehavior::SchemaOnly,
-            no_owner: true,
-            no_acl: managed,
-            ..Default::default()
-        },
+        PgDumpOptions { schema_only, no_owner: true, no_acl: managed, ..Default::default() },
     )
     .await?;
+    let applied = match migrations_lock {
+        Some(client) => Some(read_applied_migrations(&client).await?),
+        None => None,
+    };
 
     match source_database.resource_type {
         DataTableCatalogResourceType::Instance => {
@@ -444,6 +452,7 @@ async fn make_copy(
         &server,
         &target,
         &dump,
+        applied.as_ref(),
     )
     .await;
     match filled {
@@ -484,8 +493,12 @@ async fn fill(
     source: &PgDatabase,
     target: &PgDatabase,
     dump: &DumpFile,
+    applied: Option<&AppliedMigrations>,
 ) -> Result<bool> {
     pg_import_dump(target, dump).await?;
+    if let Some(applied) = applied {
+        write_applied_migrations(db, target, applied).await?;
+    }
 
     // Held until the replay commits: a role renamed or dropped meanwhile would change what the
     // replay names, and a settings save could move the source onto another database or put it under
@@ -554,6 +567,7 @@ async fn fill(
         })?;
     }
     tx.commit().await?;
+    copy_database_settings(db, source, target).await?;
     Ok(replayed)
 }
 
