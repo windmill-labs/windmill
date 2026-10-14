@@ -202,11 +202,13 @@
 	setContext<EmbedNav | undefined>(EMBED_NAV_CONTEXT_KEY, isViewer ? { navigateTop } : undefined)
 
 	// Plain links (markdown, HTML components) would otherwise load inside the
-	// cookieless frame, or put an external site in it. Captured before SvelteKit's
-	// own link router. A link to this same page only changes ?query/#hash, which the
-	// hash relay mirrors, so it stays in the frame.
+	// cookieless frame, or put an external site in it. Bound on <body> so the link's own
+	// handlers run first and can cancel it, and before SvelteKit's router on <html>,
+	// which skips a prevented click. A link to this same page only changes ?query/#hash,
+	// which the hash relay mirrors, so it stays in the frame.
 	function relayLinkClick(e: MouseEvent) {
-		if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+		if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)
+			return
 		const a = (e.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null
 		if (
 			!a ||
@@ -220,7 +222,6 @@
 		const sameOrigin = url.origin === window.location.origin
 		if (sameOrigin && url.pathname === window.location.pathname) return
 		e.preventDefault()
-		e.stopPropagation()
 		navigateTop(sameOrigin ? url.pathname + url.search + url.hash : url.href)
 	}
 	function installHashRelay() {
@@ -582,7 +583,7 @@
 			loadAppPreview().catch(() => {})
 			window.addEventListener('message', handleViewerMessage)
 			installHashRelay()
-			window.addEventListener('click', relayLinkClick, true)
+			document.body.addEventListener('click', relayLinkClick)
 			// Announce readiness so the embedder sends us the token.
 			window.parent.postMessage({ type: 'wm_embed_ready' }, expectedEmbedderOrigin ?? '*')
 			// This page is only ever loaded as the embedder's opaque iframe, which
@@ -606,7 +607,7 @@
 		window.removeEventListener('message', handleEmbedderMessage)
 		if (isViewer) {
 			uninstallHashRelay()
-			window.removeEventListener('click', relayLinkClick, true)
+			document.body.removeEventListener('click', relayLinkClick)
 		}
 	})
 </script>
