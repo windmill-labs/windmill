@@ -83,9 +83,11 @@ jobs:
           chmod +x "$HOME/.local/bin/wmill"
           echo "$HOME/.local/bin" >> $GITHUB_PATH
         working-directory: /
-      - name: Install PowerShell, mold and clang
+      - name: Install PowerShell, mold, clang and the latest pg_dump
+        # `postgresql-client` from the runner's PGDG repo is the newest major: the `postgres`
+        # service image floats, and pg_dump refuses a server newer than itself.
         run: |
-          sudo apt-get update && sudo apt-get install -y powershell mold clang libcurl4-openssl-dev
+          sudo apt-get update && sudo apt-get install -y powershell mold clang libcurl4-openssl-dev postgresql-client
         working-directory: /
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
