@@ -4,6 +4,7 @@ pub mod data_metrics;
 pub mod datatable_acl;
 pub mod datatable_acl_oss;
 pub mod datatable_clone;
+pub mod datatable_migration_scope;
 pub mod datatable_migrations;
 pub mod datatable_permissions;
 pub mod datatable_permissions_oss;

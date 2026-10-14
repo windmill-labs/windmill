@@ -289,9 +289,9 @@ pub fn error_source_chain(e: &dyn std::error::Error) -> String {
     msg
 }
 
-impl IntoResponse for Error {
-    fn into_response(self) -> axum::response::Response {
-        let status = match self {
+impl Error {
+    pub fn status_code(&self) -> axum::http::StatusCode {
+        match self {
             Self::NotFound(_) => axum::http::StatusCode::NOT_FOUND,
             Self::NotAuthorized(_) => axum::http::StatusCode::UNAUTHORIZED,
             Self::RequireAdmin(_) | Self::PermissionDenied(_) => axum::http::StatusCode::FORBIDDEN,
@@ -301,9 +301,15 @@ impl IntoResponse for Error {
             | Self::JsonErr(_)
             | Self::QuotaExceeded(_) => axum::http::StatusCode::BAD_REQUEST,
             Self::BadGateway(_) => axum::http::StatusCode::BAD_GATEWAY,
-            Self::Generic(status_code, _) => status_code,
+            Self::Generic(status_code, _) => *status_code,
             _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-        };
+        }
+    }
+}
+
+impl IntoResponse for Error {
+    fn into_response(self) -> axum::response::Response {
+        let status = self.status_code();
 
         let e = &self;
 

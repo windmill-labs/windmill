@@ -1765,6 +1765,43 @@ async fn set_slack_oauth_config(
             "Both client ID and client secret are required".to_string(),
         ));
     }
+    // A settings.yaml pulled by `wmill sync` holds the secret encrypted, and a CLI that
+    // predates the settings document pushes it here as it reads it. One encrypted under another
+    // workspace's key keeps the stored secret, as the settings document does, so that CLI's push
+    // does not abort over it.
+    let mut req = req;
+    if let Some(ciphertext) = req
+        .slack_oauth_client_secret
+        .strip_prefix(windmill_common::variables::SETTINGS_ENCRYPTED_PREFIX)
+    {
+        match windmill_common::variables::build_crypt(&db, &w_id)
+            .await?
+            .decrypt_str(ciphertext)
+        {
+            Ok(plain) => req.slack_oauth_client_secret = plain,
+            Err(_) => {
+                let stored = sqlx::query_scalar!(
+                    "SELECT slack_oauth_client_secret FROM workspace_settings WHERE workspace_id = $1",
+                    &w_id
+                )
+                .fetch_optional(&db)
+                .await?
+                .flatten();
+                tracing::warn!(
+                    workspace_id = %w_id,
+                    "Slack client secret left unchanged: it is encrypted with another workspace's key"
+                );
+                match stored {
+                    Some(stored) => req.slack_oauth_client_secret = stored,
+                    None => {
+                        return Ok("Slack OAuth config left unchanged: the client secret is \
+                                   encrypted with another workspace's key"
+                            .to_string())
+                    }
+                }
+            }
+        }
+    }
 
     let mut tx = db.begin().await?;
 
@@ -8928,11 +8965,12 @@ async fn apply_forked_datatable(
     fdt: &ForkedDatatableInfo,
     copy: &crate::datatable_clone::MadeCopy,
 ) -> Result<()> {
-    windmill_common::validate_dbname(&fdt.new_dbname)?;
-    if !fdt.new_dbname.starts_with("wm_fork_") {
+    // Not `fdt.new_dbname`: a data table sharing its database with an earlier one shares its copy.
+    let dbname = copy.dbname.as_str();
+    windmill_common::validate_dbname(dbname)?;
+    if !dbname.starts_with("wm_fork_") {
         return Err(Error::BadRequest(format!(
-            "Forked datatable database name '{}' must start with 'wm_fork_'",
-            fdt.new_dbname
+            "Forked datatable database name '{dbname}' must start with 'wm_fork_'"
         )));
     }
     // Held until the fork commits, as the permissions save holds them: the source moved onto
@@ -9021,27 +9059,27 @@ async fn apply_forked_datatable(
 
     if database.resource_type == DataTableCatalogResourceType::ExternalInstance {
         windmill_common::external_instance_pg::ensure_external_instance_database_registered(
-            tx,
-            &fdt.new_dbname,
+            tx, dbname,
         )
         .await?;
     }
     if database.resource_type.is_windmill_managed() {
         // Held until the fork commits, as every save newly naming a database takes it: none may
         // claim the copy between the check below and this fork's entry landing on it.
-        windmill_common::datatable_roles::lock_instance_databases_governance(
-            &mut **tx,
-            [fdt.new_dbname.as_str()],
-        )
-        .await?;
+        windmill_common::datatable_roles::lock_instance_databases_governance(&mut **tx, [dbname])
+            .await?;
     }
+    // The data tables after the first on a shared copy find it named by the first, and the
+    // resource it is reached through already pointed at it.
+    let first_on_copy = copy.names.first() == Some(&fdt.name);
     if database.resource_type.is_windmill_managed()
+        && first_on_copy
         && !windmill_api_auth::is_super_admin_authed(db, authed).await?
     {
         windmill_common::ensure_fork_database_available_to(
             &mut **tx,
             database.resource_type,
-            &fdt.new_dbname,
+            dbname,
             parent_w_id,
         )
         .await?;
@@ -9052,7 +9090,7 @@ async fn apply_forked_datatable(
         // on the same cluster as its source, so it keeps the source's kind.
         let new_database = serde_json::json!({
             "resource_type": database.resource_type,
-            "resource_path": &fdt.new_dbname,
+            "resource_path": dbname,
         });
         sqlx::query(
             r#"UPDATE workspace_settings
@@ -9066,7 +9104,7 @@ async fn apply_forked_datatable(
         .bind(new_database)
         .execute(&mut **tx)
         .await?;
-    } else {
+    } else if first_on_copy {
         // Resource: point it at the copy and mark it ws_specific. What the settings clone carried is
         // the source's resource and variables as they are now, which an edit made while the copy
         // was being made can have changed, and changed back: the clone has to be what the copy's
@@ -9089,7 +9127,7 @@ async fn apply_forked_datatable(
         )
         .bind(forked_w_id)
         .bind(resource_path)
-        .bind(&fdt.new_dbname)
+        .bind(dbname)
         .execute(&mut **tx)
         .await?;
 
@@ -10026,9 +10064,12 @@ async fn write_workspace_fork(
 
     // Update forked datatable settings to point to new databases
     for fdt in &nw.forked_datatables {
-        let copy = copies.iter().find(|c| c.name == fdt.name).ok_or_else(|| {
-            Error::internal_err(format!("No copy was made of data table '{}'", fdt.name))
-        })?;
+        let copy = copies
+            .iter()
+            .find(|c| c.names.contains(&fdt.name))
+            .ok_or_else(|| {
+                Error::internal_err(format!("No copy was made of data table '{}'", fdt.name))
+            })?;
         apply_forked_datatable(
             &db,
             &mut tx,
@@ -10102,7 +10143,7 @@ async fn write_workspace_fork(
         .map(|c| {
             format!(
                 "{} ({})",
-                c.name,
+                c.names.join(" + "),
                 match c.behavior {
                     DataTableForkBehavior::SchemaOnly => "schema_only",
                     _ => "schema_and_data",
@@ -14847,4 +14888,155 @@ async fn set_ws_specific(
         "Set workspace-specific={} for {} {}",
         body.value, body.item_kind, body.path
     ))
+}
+
+/// A setting the workspace settings document writes, each through the endpoint that owns it,
+/// so applying a document validates, audits and has the side effects of the matching UI save.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsEdit {
+    Webhook,
+    AutoInvite,
+    InstanceGroups,
+    ErrorHandler,
+    SuccessHandler,
+    LargeFileStorage,
+    GitSync,
+    DefaultScripts,
+    DefaultApp,
+    Color,
+    OperatorSettings,
+    Datatable,
+    SlackCommand,
+    SetSlackOAuth,
+    DeleteSlackOAuth,
+    Ducklake,
+    DbtWarehouses,
+    DeployUi,
+    GuestAccess,
+    GuestJwtKey,
+    PublicAppRateLimit,
+    AddAdminsAndDevelopersToForks,
+    /// Body: `{ datatable, permissioned, default_role, roles: [{ id, tenants }] }`, role ids.
+    DatatablePermissions,
+    CreateProtectionRule,
+    /// Body: the update request plus `rule_name`, the rule it updates.
+    UpdateProtectionRule,
+    /// Body: `{ name }`.
+    DeleteProtectionRule,
+}
+
+fn settings_edit_body<T: serde::de::DeserializeOwned>(
+    edit: SettingsEdit,
+    body: serde_json::Value,
+) -> Result<Json<T>> {
+    serde_json::from_value(body)
+        .map(Json)
+        .map_err(|e| Error::BadRequest(format!("Invalid value for {edit:?}: {e}")))
+}
+
+/// Returns the endpoint's JSON response, or `null` for one that answers with prose.
+pub async fn apply_settings_edit(
+    authed: ApiAuthed,
+    db: DB,
+    w_id: String,
+    edit: SettingsEdit,
+    body: serde_json::Value,
+) -> Result<serde_json::Value> {
+    use SettingsEdit::*;
+    let a = authed.clone();
+    let (d, p) = (Extension(db), Path(w_id));
+    match edit {
+        Webhook => edit_webhook(a, d, p, authed, settings_edit_body(edit, body)?).await?,
+        AutoInvite => edit_auto_invite(a, d, p, settings_edit_body(edit, body)?).await?,
+        InstanceGroups => edit_instance_groups(a, d, p, settings_edit_body(edit, body)?).await?,
+        ErrorHandler => {
+            edit_error_handler(a, d, p, authed, settings_edit_body(edit, body)?).await?
+        }
+        SuccessHandler => edit_success_handler(a, d, p, settings_edit_body(edit, body)?).await?,
+        LargeFileStorage => {
+            edit_large_file_storage_config(a, d, p, authed, settings_edit_body(edit, body)?).await?
+        }
+        GitSync => edit_git_sync_config(a, d, p, authed, settings_edit_body(edit, body)?).await?,
+        DefaultScripts => {
+            edit_default_scripts(a, d, p, authed, settings_edit_body(edit, body)?).await?
+        }
+        #[cfg(feature = "enterprise")]
+        DefaultApp => edit_default_app(a, d, p, authed, settings_edit_body(edit, body)?).await?,
+        #[cfg(not(feature = "enterprise"))]
+        DefaultApp => edit_default_app(a, d, p, settings_edit_body(edit, body)?).await?,
+        Color => change_workspace_color(a, p, d, settings_edit_body(edit, body)?).await?,
+        OperatorSettings => {
+            update_operator_settings(a, p, d, settings_edit_body(edit, body)?).await?
+        }
+        Datatable => {
+            let Json(result) =
+                edit_datatable_config(a, d, p, authed, settings_edit_body(edit, body)?).await?;
+            return serde_json::to_value(result).map_err(|e| Error::internal_err(e.to_string()));
+        }
+        SlackCommand => {
+            edit_slack_command(a, d, p, authed, settings_edit_body(edit, body)?).await?
+        }
+        SetSlackOAuth => set_slack_oauth_config(a, d, p, settings_edit_body(edit, body)?).await?,
+        DeleteSlackOAuth => delete_slack_oauth_config(a, d, p).await?,
+        Ducklake => edit_ducklake_config(a, d, p, authed, settings_edit_body(edit, body)?).await?,
+        DbtWarehouses => {
+            edit_dbt_warehouses(a, d, p, authed, settings_edit_body(edit, body)?).await?
+        }
+        #[cfg(feature = "enterprise")]
+        DeployUi => edit_deploy_ui_config(a, d, p, authed, settings_edit_body(edit, body)?).await?,
+        #[cfg(not(feature = "enterprise"))]
+        DeployUi => edit_deploy_ui_config(a, d, p).await?,
+        GuestAccess => edit_guest_access(a, d, p, settings_edit_body(edit, body)?).await?,
+        GuestJwtKey => edit_guest_jwt_key(a, d, p, settings_edit_body(edit, body)?).await?,
+        PublicAppRateLimit => {
+            edit_public_app_rate_limit(d, p, a, settings_edit_body(edit, body)?).await?
+        }
+        AddAdminsAndDevelopersToForks => {
+            edit_add_admins_and_developers_to_forks(a, d, p, settings_edit_body(edit, body)?)
+                .await?
+        }
+        #[cfg(all(feature = "private", feature = "enterprise"))]
+        DatatablePermissions => {
+            #[derive(Deserialize)]
+            struct Body {
+                datatable: String,
+                #[serde(flatten)]
+                req: crate::datatable_permissions_ee::SetDatatablePermissions,
+            }
+            let Json(Body { datatable, req }) = settings_edit_body(edit, body)?;
+            crate::datatable_permissions_oss::set_datatable_permissions(
+                a,
+                d,
+                Path((p.0, datatable)),
+                Json(req),
+            )
+            .await?
+        }
+        #[cfg(not(all(feature = "private", feature = "enterprise")))]
+        DatatablePermissions => {
+            crate::datatable_permissions_oss::set_datatable_permissions(a).await?
+        }
+        CreateProtectionRule => {
+            create_protection_rule(a, d, p, settings_edit_body(edit, body)?).await?
+        }
+        UpdateProtectionRule => {
+            #[derive(Deserialize)]
+            struct Body {
+                rule_name: String,
+                #[serde(flatten)]
+                req: UpdateProtectionRuleRequest,
+            }
+            let Json(Body { rule_name, req }) = settings_edit_body(edit, body)?;
+            update_protection_rule(a, d, Path((p.0, rule_name)), Json(req)).await?
+        }
+        DeleteProtectionRule => {
+            #[derive(Deserialize)]
+            struct Body {
+                name: String,
+            }
+            let Json(Body { name }) = settings_edit_body(edit, body)?;
+            delete_protection_rule(a, d, Path((p.0, name))).await?
+        }
+    };
+    Ok(serde_json::Value::Null)
 }

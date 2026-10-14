@@ -5184,6 +5184,98 @@ paths:
                   - has_instance_ai_config
                   - uses_instance_ai_config
 
+  /w/{workspace}/workspaces/settings_document:
+    get:
+      summary: get the workspace settings document
+      description: >-
+        The workspace's settings in the layout of the settings.yaml that `wmill sync` writes.
+        Admin only.
+      operationId: getWorkspaceSettingsDocument
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: secrets
+          description: >-
+            How secrets are written: `redacted` (the default) replaces each set secret with
+            `__SENSITIVE_AND_UNCHANGED__`; `encrypted` writes it encrypted with the workspace key,
+            prefixed with `$encrypted:`.
+          in: query
+          schema:
+            type: string
+            enum: [redacted, encrypted]
+      responses:
+        "200":
+          description: the settings document
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+    post:
+      summary: apply a workspace settings document
+      description: >-
+        Applies a settings document, each setting through the endpoint that owns it. Admin only.
+      operationId: applyWorkspaceSettingsDocument
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                document:
+                  description: >-
+                    The settings to apply, in the layout of the document. A secret given as
+                    `__SENSITIVE_AND_UNCHANGED__` keeps its stored value; one prefixed with
+                    `$encrypted:` is decrypted with the workspace key.
+                  type: object
+                  additionalProperties: true
+                replace:
+                  description: >-
+                    Clear the settings `wmill sync push` clears when settings.yaml omits them.
+                    Otherwise a setting the document omits is left as it is.
+                  type: boolean
+                dry_run:
+                  description: Only compute the changes, without applying them.
+                  type: boolean
+              required:
+                - document
+      responses:
+        "200":
+          description: the changes, applied unless dry_run
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  changes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key:
+                          type: string
+                        before: {}
+                        after: {}
+                      required:
+                        - key
+                        - before
+                        - after
+                  applied:
+                    type: boolean
+                  warnings:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - changes
+                  - applied
+
   /w/{workspace}/workspaces/get_copilot_settings_state:
     get:
       summary: get copilot settings state
@@ -5967,6 +6059,12 @@ paths:
           schema:
             type: integer
             format: int64
+        - name: schema
+          in: query
+          required: false
+          description: apply only the pending migrations whose `-- schemas` annotation declares this schema
+          schema:
+            type: string
       responses:
         "200":
           description: applied migrations
@@ -37334,6 +37432,15 @@ components:
             - ran
             - not_run
             - unknown
+        schemas:
+          type: array
+          description: the schemas its `-- schemas` annotation declares; absent when it applies to the whole database
+          items:
+            type: string
+        blocked_by:
+          type: integer
+          format: int64
+          description: when not run, the earliest pending migration that must be applied first; when run, the latest applied migration that must be rolled back first
     DataTableSchema:
       type: object
       required: [datatable_name, schemas]
