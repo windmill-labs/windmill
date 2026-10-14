@@ -111,5 +111,20 @@ async fn test_agent_run_is_its_identity_and_needs_read(db: Pool<Postgres>) -> an
     assert_eq!(permissioned_as, "u/test-user-3");
     assert_eq!(created_by, "test-user-2");
 
+    // The run takes its conversation outside the caller's row policy, so a reader must not
+    // continue another user's conversation; an admin still may, as the policy allows.
+    let chat = format!("{run}?memory_id=7d3f6a52-1c4e-4b8a-9f2d-0e5c6b7a8d91");
+    let msg = json!({ "user_message": "hi" });
+    let (status, body) = post(&base_url, "SECRET_TOKEN_3", &chat, msg.clone()).await?;
+    assert_eq!(status, 201, "the owner starts it: {body}");
+    let (status, body) = post(&base_url, "SECRET_TOKEN_2", &chat, msg.clone()).await?;
+    assert_eq!(status, 400, "another reader: {body}");
+    assert!(body.contains("another user"), "{body}");
+    let (status, body) = post(&base_url, "SECRET_TOKEN", &chat, msg).await?;
+    assert_eq!(
+        status, 409,
+        "an admin passes ownership, held only by the running turn: {body}"
+    );
+
     Ok(())
 }
