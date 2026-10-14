@@ -361,7 +361,7 @@
 			options={{
 				right: "Isolate the app from the viewer's browser session",
 				rightTooltip:
-					"Controls what the app's browser-side code can reach in each viewer's browser, separately from who its runnables run as. A sandboxed app gets a narrowly scoped token on every surface, public URL and in-workspace. With isolation off, the app's code uses the viewer's own session."
+					"Controls what the app's browser-side code can reach in each viewer's browser, separately from who its runnables run as. A sandboxed app gets a narrowly scoped token on every surface, public URL and in-workspace. On by default for new apps. Turn it off only if the app needs IndexedDB, third-party sign-in or OAuth redirects."
 			}}
 			checked={$operatorBuilderApps || policy.sandbox == true}
 			on:change={(e) => {
