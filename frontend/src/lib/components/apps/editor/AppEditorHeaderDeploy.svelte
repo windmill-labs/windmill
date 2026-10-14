@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Alert, Section } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import Badge from '$lib/components/Badge.svelte'
 	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
 	import { Loader2 } from 'lucide-svelte'
@@ -312,7 +313,7 @@
 	</div>
 
 	<Section
-		label="Runs as"
+		label="Run on behalf of"
 		tooltip="A policy computed at deploy time lets the app call only the scripts and flows it refers to, on behalf of the publisher, with static parameters that viewers cannot override. Viewers can use the app as the publisher intended without reaching resources the app does not use."
 	>
 		<div class="text-xs text-secondary">
@@ -407,11 +408,15 @@
 					tooltip="Each viewer approves these scopes before the app runs. The app's code, or an XSS bug in it, can use them as that viewer."
 				>
 					{#snippet badge()}
-						<span class="text-2xs text-secondary">
-							{policy.frontend_sdk_scopes?.length
-								? `${policy.frontend_sdk_scopes.length} enabled`
-								: 'None enabled'}
-						</span>
+						{#if policy.frontend_sdk_scopes?.length}
+							<div class="flex min-w-0 flex-wrap justify-end gap-1 ps-2">
+								{#each FRONTEND_SDK_SCOPES.filter( (s) => policy.frontend_sdk_scopes.includes(s.value) ) as scope (scope.value)}
+									<Badge twBgColor="bg-surface-sunken" twTextColor="text-primary"
+										>{scope.label}</Badge
+									>
+								{/each}
+							</div>
+						{/if}
 					{/snippet}
 					<div class="text-xs text-secondary mb-3">
 						Let the app's frontend call the Windmill API as <b>the viewer</b> through the
