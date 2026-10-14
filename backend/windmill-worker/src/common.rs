@@ -2079,6 +2079,7 @@ struct JobInfo {
     step: Option<i32>,
     len: Option<i32>,
     is_branch_one: Option<bool>,
+    is_branch: Option<bool>,
     next_parent: Option<Uuid>,
 }
 
@@ -2092,6 +2093,7 @@ async fn get_job_info(db: &DB, job_id: Uuid) -> error::Result<JobInfo> {
             (flow_status->'step')::integer as step,
             jsonb_array_length(flow_status->'modules') as len,
             runnable_path ~ '/branchone-\d+$' as is_branch_one,
+            runnable_path ~ '/branch(one|all)-\d+$' as is_branch,
             parent_job as next_parent
         FROM v2_job
             LEFT JOIN v2_job_status USING (id)
@@ -2162,7 +2164,7 @@ async fn check_if_early_return_or_last_in_early_return_parent(
         }
 
         if step == early_return_id && flow_scope == Some(root_job) {
-            return only_branch_one_up_to_root(db, parent_job, root_job).await;
+            return only_branches_up_to_root(db, parent_job, root_job).await;
         }
         if parent_job == root_job {
             return Ok(false);
@@ -2184,16 +2186,16 @@ async fn check_if_early_return_or_last_in_early_return_parent(
     }
 }
 
-// A step in a branch to all or in a loop shares the root flow's scope but does not hold the flow's
-// early-return result, so every container between it and the root must be a branch to one.
-async fn only_branch_one_up_to_root(db: &DB, mut job: Uuid, root_job: Uuid) -> error::Result<bool> {
+// A step in a loop shares the root flow's scope but runs once per iteration, so no single run
+// holds the flow's early-return result: every container between it and the root must be a branch.
+async fn only_branches_up_to_root(db: &DB, mut job: Uuid, root_job: Uuid) -> error::Result<bool> {
     let mut visited = HashSet::new();
     while job != root_job {
         if !visited.insert(job) {
             return Ok(false);
         }
         let info = get_job_info(db, job).await?;
-        if !info.is_branch_one.unwrap_or(false) {
+        if !info.is_branch.unwrap_or(false) {
             return Ok(false);
         }
         let Some(parent) = info.next_parent else {

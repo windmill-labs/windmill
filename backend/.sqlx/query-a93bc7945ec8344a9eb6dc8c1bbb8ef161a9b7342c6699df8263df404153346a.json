@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n            flow_step_id,\n            flow_innermost_root_job as flow_scope,\n            (flow_status->'step')::integer as step,\n            jsonb_array_length(flow_status->'modules') as len,\n            runnable_path ~ '/branchone-\\d+$' as is_branch_one,\n            parent_job as next_parent\n        FROM v2_job\n            LEFT JOIN v2_job_status USING (id)\n        WHERE v2_job.id = $1",
+  "query": "SELECT\n            flow_step_id,\n            flow_innermost_root_job as flow_scope,\n            (flow_status->'step')::integer as step,\n            jsonb_array_length(flow_status->'modules') as len,\n            runnable_path ~ '/branchone-\\d+$' as is_branch_one,\n            runnable_path ~ '/branch(one|all)-\\d+$' as is_branch,\n            parent_job as next_parent\n        FROM v2_job\n            LEFT JOIN v2_job_status USING (id)\n        WHERE v2_job.id = $1",
   "describe": {
     "columns": [
       {
@@ -30,6 +30,11 @@
       },
       {
         "ordinal": 5,
+        "name": "is_branch",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
         "name": "next_parent",
         "type_info": "Uuid"
       }
@@ -45,8 +50,9 @@
       null,
       null,
       null,
+      null,
       true
     ]
   },
-  "hash": "6384614bf3b1e38b6b0d44ac937d44e68bcb0b6c794f129b6faf0f75f9a37fb9"
+  "hash": "a93bc7945ec8344a9eb6dc8c1bbb8ef161a9b7342c6699df8263df404153346a"
 }
