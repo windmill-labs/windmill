@@ -54,7 +54,7 @@
 	import EditorHeader from '$lib/components/EditorHeader.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
-	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
 	import { editPathFor } from '$lib/components/workspacePicker'
 	import { invalidateWorkspacePaths } from '$lib/components/PathNameAutocomplete.svelte'
@@ -261,24 +261,16 @@
 
 	// Top-bar responsive collapse — container width, not viewport.
 	let topbarWidth = $state(0)
-	// In the page header the buttons share the row with the breadcrumb, so they shed the canvas
-	// toggles and fold Debug runs into the menu sooner: the whole group is ~840px and the trail
-	// with the summary takes ~430px of the same row.
-	// Measured on the band rather than estimated: with the canvas toggles shown the actions alone
-	// are 826-911px and the trail with the summary another ~500, so the row overflows the bar at
-	// every width up to about 1470 — 1350 was not high enough either. Below this the toggles stand
-	// down and the menu carries all three, which is what keeps them reachable rather than merely
-	// out of the way.
-	const compactBelow = $derived(ownsPageHeader ? 1500 : 720)
-	const compactTopbar = $derived.by(() => {
-		const w = ownsPageHeader ? pageHeader.barWidth : topbarWidth
-		return w > 0 && w < compactBelow
-	})
-	// A phone's bar holds the trail and Deploy. Which panels are open, the export and the
-	// editor/preview switch join the menu compact already shows.
-	const phoneTopbar = $derived(
-		ownsPageHeader && pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR
+	// In the page header the bar folds the buttons (`actionFolds` below), once its breadcrumb has
+	// given all it can; anywhere else this editor's own top bar is theirs alone. Folded, the canvas
+	// toggles stand down and the menu carries them and Debug runs, which keeps them reachable
+	// rather than merely out of the way.
+	const compactTopbar = $derived(
+		ownsPageHeader ? pageHeader.actionFold >= 1 : topbarWidth > 0 && topbarWidth < 720
 	)
+	// The second fold holds the trail and Deploy. Which panels are open, the export and the
+	// editor/preview switch join the menu compact already shows.
+	const phoneTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 2)
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
@@ -1010,10 +1002,12 @@
 			// Frozen while the rename popover is open so the trail holds still as the user types.
 			kind: 'app',
 			path: pathSnapshot ?? (newEditedPath || $appPath || newPath || undefined),
+			summary: $summary,
 			summaryContent: appSummary,
 			pathTrigger: appPathTrigger
 		}}
 		actions={appHeaderActions}
+		actionFolds={2}
 		contexts={headerContexts}
 		separator="always"
 	/>

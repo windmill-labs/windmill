@@ -476,6 +476,9 @@ pub struct RunInlinePreviewScriptFnParams {
     pub permissioned_as_email: String,
     /// The caller's recorded end user: `job_perms.end_user_email` of the calling job.
     pub end_user_email: Option<String>,
+    /// `job_perms.viewer_data_access` of the calling job: the code is the caller's own, so its
+    /// data table connections are made the way the caller's are.
+    pub viewer_data_access: bool,
     pub base_internal_url: String,
     pub worker_name: String,
     pub conn: crate::worker::Connection,

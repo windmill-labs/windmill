@@ -35,9 +35,8 @@
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
 	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
-	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { RUNS_PATH } from '$lib/components/sessions/previewPaths'
-	import { twMerge } from 'tailwind-merge'
 	import { computeJobKinds, useJobsLoader } from '$lib/components/runs/useJobsLoader.svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
 	import BatchLoadProgress from '$lib/components/BatchLoadProgress.svelte'
@@ -612,7 +611,12 @@
 		openedRunId = undefined
 	}
 	let resolutionNote = $state('')
-	const phone = $derived(!hosted && pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR)
+	// The bar folds this row (`actionFolds` below) once its breadcrumb has given all it can: first
+	// the counters, which are a glance and repeat the chart below; then the session button; then
+	// the filter field moves to a row of its own rather than shrinking past usable. Hosted, the row
+	// is the page's own and wraps instead.
+	const fold = $derived(hosted ? 0 : pageHeader.actionFold)
+	const filterBelow = $derived(fold >= 3)
 </script>
 
 {#snippet runsHint()}
@@ -624,18 +628,34 @@
 	</Tooltip>
 {/snippet}
 
+{#snippet runsFilter(cls: string)}
+	<FilterSearchbar
+		class={cls}
+		schema={runsFilterSearchbarSchema}
+		presets={buildRunsFilterPresets({
+			isSuperAdminOrDevops: !!$superadmin || !!$devopsRole,
+			isAdminsWorkspace: $operatingWorkspace === 'admins'
+		})}
+		bind:value={filters.val}
+		placeholder="Filter runs..."
+		size="sm"
+		autofocus={!hosted}
+	/>
+{/snippet}
+
+{#snippet filterRow()}
+	{@render runsFilter('relative w-full min-w-0')}
+{/snippet}
+
 {#snippet headerActions()}
 	<!-- The page's own row inside the band's actions box: these controls are denser than a page's
-	     two or three buttons, so they take a wider gap than the band's own. `flex-1 min-w-0` passes
-	     the band's flexibility down to the search field, the one control here that gives width
-	     back; the rest keep theirs or drop out of the row entirely at a width. -->
-	<div class="flex items-center gap-3 flex-1 min-w-0 {hosted ? 'flex-wrap justify-end' : ''}">
+	     two or three buttons, so they take a wider gap than the band's own. Every control keeps its
+	     width: the bar measures the row and folds it rather than squeezing it. -->
+	<div class="flex items-center gap-3 {hosted ? 'flex-wrap justify-end' : ''}">
 		<!-- Always the icon form: the bar has room for two counters, never for the two labelled
 		     blocks. pr-2 on top of the row's own gap because the counts hang outside their icons,
-		     so without it the badge butts against the first filter.
-		     A phone's bar has room for the filter field and the timeframe and nothing else: the
-		     counters are a glance, and the same numbers are on the chart below. -->
-		<div class="flex items-center pr-2 {phone ? 'hidden' : ''}">
+		     so without it the badge butts against the first filter. -->
+		<div class="flex items-center pr-2 {fold >= 1 ? 'hidden' : ''}">
 			<RunsQueue
 				success={filters.val.status ?? null}
 				{queue_count}
@@ -806,32 +826,10 @@
 			</div>
 		</div>
 
-		<!-- The one control in the band that gives way: everything else keeps the width it asked
-		     for, or drops out of the row at a width, and this takes what is left. -->
-		<FilterSearchbar
-			class={twMerge(
-				// A width of its own, and only ever less. As `flex-1` the field was whatever the row
-				// had left over, so a chip appearing or a filter committing resized it under the
-				// cursor and the last pixels came off the breadcrumb. 18rem is its width whenever the
-				// row fits, and it still shrinks when the row runs short, which is what keeps the row
-				// inside a box the bar lets shrink (`actionsFlexible`). `min-w-0` is what makes that
-				// shrink unconditional: a flex item's floor is its min-content width, which the chips
-				// inside the field raise, so without it a typed filter would push the field wider
-				// again exactly when the row has no room to give.
-				'relative w-[18rem] min-w-0 max-w-full',
-				// A phone's bar cannot spare that much before the timeframe beside it.
-				phone && 'w-[10rem]'
-			)}
-			schema={runsFilterSearchbarSchema}
-			presets={buildRunsFilterPresets({
-				isSuperAdminOrDevops: !!$superadmin || !!$devopsRole,
-				isAdminsWorkspace: $operatingWorkspace === 'admins'
-			})}
-			bind:value={filters.val}
-			placeholder="Filter runs..."
-			size="sm"
-			autofocus={!hosted}
-		/>
+		<!-- A width of its own, never what the row has left over: as `flex-1` a chip appearing or a
+		     filter committing resized it under the cursor. `shrink-0` keeps it at that width, which
+		     is the row's width the bar measures and folds. -->
+		{#if !filterBelow}{@render runsFilter('relative w-[18rem] shrink-0')}{/if}
 		<TimeframeSelect
 			unifiedSize="sm"
 			onClick={() => jobsLoader?.loadJobs(true)}
@@ -842,7 +840,7 @@
 		<!-- The filters are shallow-routed, so the search has to come off `window.location` at click
 		     time — `page.url` never sees them. Always the canonical `/runs`: only that is a recognized
 		     preview page, and the `/runs/<path>` route mirrors its path into `?path=` anyway. -->
-		<div class={phone || hosted ? 'hidden' : 'contents'}>
+		<div class={fold >= 2 || hosted ? 'hidden' : 'contents'}>
 			<OpenInSessionButton
 				source={{
 					page: () => RUNS_PATH + window.location.search,
@@ -923,14 +921,18 @@
 	</div>
 {:else}
 	<div class="w-full h-full flex flex-col" bind:clientWidth={innerWidth}>
-		<!-- `actionsFlexible`: the filter row holds a search field that can give width back, so the
-		     bar lets this box shrink on a phone instead of holding its content width. -->
 		{#if hosted}
 			<div class="flex px-4 pt-3 pb-2">
 				{@render headerActions()}
 			</div>
 		{:else}
-			<PageHeaderContent afterName={runsHint} actions={headerActions} actionsFlexible />
+			<PageHeaderContent
+				afterName={runsHint}
+				actions={headerActions}
+				actionFolds={3}
+				belowBar={filterRow}
+				belowBarFold={3}
+			/>
 		{/if}
 
 		<!-- Graph -->

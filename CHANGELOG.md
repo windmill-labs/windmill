@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.833.0](https://github.com/windmill-labs/windmill/compare/v1.832.0...v1.833.0) (2026-10-13)
+
+
+### Features
+
+* make the assistant aware of the user's role permissions ([#11722](https://github.com/windmill-labs/windmill/issues/11722)) ([633135b](https://github.com/windmill-labs/windmill/commit/633135bb917ce1be711a75991531c3e478d73463))
+* read data as the job's identity, viewer is opt-in per runnable ([#11744](https://github.com/windmill-labs/windmill/issues/11744)) ([b7b3306](https://github.com/windmill-labs/windmill/commit/b7b33061952fde247447fa652663ffd730990d5e))
+* show a raw app's document.title in the page tab ([#11747](https://github.com/windmill-labs/windmill/issues/11747)) ([5153a5e](https://github.com/windmill-labs/windmill/commit/5153a5e7b81e9d56ff860129be7c49f444c3c4e2))
+* shrink the page header in stages and fold page actions by measured width ([#11732](https://github.com/windmill-labs/windmill/issues/11732)) ([3857ce3](https://github.com/windmill-labs/windmill/commit/3857ce36931dff40322db2b765ab1e65763eac42))
+
+
+### Bug Fixes
+
+* encrypt ai session backups with aes-256-gcm ([#11734](https://github.com/windmill-labs/windmill/issues/11734)) ([c7ee201](https://github.com/windmill-labs/windmill/commit/c7ee2016559b8083c83c696c41d226d9ca04ed68))
+* error handler picker keeps no per-tab state ([#11742](https://github.com/windmill-labs/windmill/issues/11742)) ([2f9a111](https://github.com/windmill-labs/windmill/commit/2f9a111bbb14a40e1341879e1ef63c3457e7a08d))
+* show the email handler's SMTP status to non-superadmin admins ([#11745](https://github.com/windmill-labs/windmill/issues/11745)) ([130adfd](https://github.com/windmill-labs/windmill/commit/130adfdd20af0e30d87986cf77b61023a9732186))
+
+## [1.832.0](https://github.com/windmill-labs/windmill/compare/v1.831.0...v1.832.0) (2026-10-13)
+
+
+### Features
+
+* record each instance's python version and start new ones on 3.13 ([#11656](https://github.com/windmill-labs/windmill/issues/11656)) ([7558ce2](https://github.com/windmill-labs/windmill/commit/7558ce27a9736bef1a9b9db9b0799150dccb11a5))
+
+
+### Bug Fixes
+
+* badge the unavailable sign-in option in the oauth resource form ([#11728](https://github.com/windmill-labs/windmill/issues/11728)) ([9c44f5a](https://github.com/windmill-labs/windmill/commit/9c44f5a917fc628e870073c126bf9480c98c7f73))
+* serve s3 proxy objects with nosniff and a sandbox csp ([#11731](https://github.com/windmill-labs/windmill/issues/11731)) ([e29a0dc](https://github.com/windmill-labs/windmill/commit/e29a0dc5dfed4bb62b894e059c9506873d32a62c))
+* widen variable.value without breaking live servers' cached queries ([#11737](https://github.com/windmill-labs/windmill/issues/11737)) ([89e6bdb](https://github.com/windmill-labs/windmill/commit/89e6bdbcf50e065f6906e1ab93b3c4109aba3ab6))
+
 ## [1.831.0](https://github.com/windmill-labs/windmill/compare/v1.830.0...v1.831.0) (2026-10-13)
 
 

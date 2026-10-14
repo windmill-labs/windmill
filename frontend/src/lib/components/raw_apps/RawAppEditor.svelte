@@ -897,6 +897,7 @@ addEventListener('message', function (e) {
 					content: runnable.inlineScript.content ?? ''
 				}
 			}
+			if (runnable.viewer_data_access) backendRunnable.viewerDataAccess = true
 		} else if (isRunnableByPath(runnable)) {
 			// Determine type based on runType
 			if (runnable.runType === 'flow') {
@@ -1200,6 +1201,9 @@ addEventListener('message', function (e) {
 							content: runnable.inlineScript.content,
 							language: runnable.inlineScript.language
 						},
+						...((runnable.viewerDataAccess ?? runnables[key]?.viewer_data_access) && {
+							viewer_data_access: true
+						}),
 						fields: runnable.staticInputs
 							? Object.fromEntries(
 									Object.entries(runnable.staticInputs).map(([k, v]) => [
