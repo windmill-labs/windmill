@@ -37,10 +37,13 @@ use crate::workspaces::{
     pg_dump_database, pg_import_dump, DumpFile, PgDumpOptions,
 };
 
-/// A database this request created and filled for one data table of the fork.
+/// A database this request created and filled for the data tables of the fork on one source
+/// database.
 pub(crate) struct MadeCopy {
-    /// The data table's name, in the parent and in the fork.
-    pub(crate) name: String,
+    /// The data tables' names, in the parent and in the fork, the one it was made for first. Data
+    /// tables on one database share its copy: a resource-backed fork has one resource for them all
+    /// to be pointed through.
+    pub(crate) names: Vec<String>,
     pub(crate) dbname: String,
     pub(crate) behavior: DataTableForkBehavior,
     /// The database the source resolved to when it was copied.
@@ -240,6 +243,7 @@ pub(crate) async fn authorize_copies(
     parent_w_id: &str,
     requests: &[CopyRequest<'_>],
 ) -> Result<()> {
+    let mut sources: Vec<(&CopyRequest<'_>, GoverningDatatable)> = Vec::new();
     for request in requests {
         match request.behavior {
             DataTableForkBehavior::KeepOriginal => {
@@ -268,9 +272,50 @@ pub(crate) async fn authorize_copies(
         let governing = ensure_datatable_is_clonable(db, parent_w_id, request.name).await?;
         ensure_reaches_governing_datatable(db, parent_w_id, request.name, &governing, authed)
             .await?;
-        if governing.datatable.permissions.is_some() {
+        let under_roles = governing.datatable.permissions.is_some();
+        if under_roles {
             crate::datatable_replay_oss::ensure_replay()?;
         }
+        if let Some((first, first_governing)) = sources
+            .iter()
+            .find(|(_, earlier)| same_source(earlier, &governing))
+        {
+            ensure_shares_copy(first.name, first.behavior, request)?;
+            if first_governing.datatable.permissions.is_some() != under_roles {
+                return Err(Error::BadRequest(format!(
+                    "Data tables '{}' and '{}' use the same database, which the fork copies once, \
+                     but only one of them is under roles",
+                    first.name, request.name
+                )));
+            }
+        }
+        sources.push((request, governing));
+    }
+    Ok(())
+}
+
+/// Whether two data tables are on one database. A resource is the governing workspace's.
+fn same_source(a: &GoverningDatatable, b: &GoverningDatatable) -> bool {
+    same_database(&a.datatable.database, &b.datatable.database)
+        && (a.workspace_id == b.workspace_id
+            || a.datatable
+                .database
+                .as_ref()
+                .is_some_and(|d| d.resource_type.is_windmill_managed()))
+}
+
+/// Data tables on one database get one copy, made as the first of them asks.
+fn ensure_shares_copy(
+    first: &str,
+    behavior: DataTableForkBehavior,
+    request: &CopyRequest<'_>,
+) -> Result<()> {
+    if behavior != request.behavior {
+        return Err(Error::BadRequest(format!(
+            "Data tables '{}' and '{}' use the same database, which the fork copies once: fork \
+             them with the same behavior",
+            first, request.name
+        )));
     }
     Ok(())
 }
@@ -284,10 +329,28 @@ pub(crate) async fn make_copies(
     requests: &[CopyRequest<'_>],
 ) -> Result<Vec<MadeCopy>> {
     authorize_copies(db, authed, parent_w_id, requests).await?;
-    let mut copies = Vec::with_capacity(requests.len());
+    let mut copies: Vec<MadeCopy> = Vec::with_capacity(requests.len());
+    // What each copy was made from, by index.
+    let mut sources: Vec<GoverningDatatable> = Vec::with_capacity(requests.len());
     for request in requests {
+        // Checked again by the fork against the copy's `source_database`, under the locks.
+        let governing = match ensure_datatable_is_clonable(db, parent_w_id, request.name).await {
+            Ok(governing) => governing,
+            Err(e) => return Err(drop_copies_after(db, copies, e).await),
+        };
+        let shared = sources.iter().position(|s| same_source(s, &governing));
+        if let Some(c) = shared {
+            if let Err(e) = ensure_shares_copy(&copies[c].names[0], copies[c].behavior, request) {
+                return Err(drop_copies_after(db, copies, e).await);
+            }
+            copies[c].names.push(request.name.to_string());
+            continue;
+        }
         match make_copy(db, authed, parent_w_id, request).await {
-            Ok(copy) => copies.push(copy),
+            Ok(copy) => {
+                copies.push(copy);
+                sources.push(governing);
+            }
             Err(e) => return Err(drop_copies_after(db, copies, e).await),
         }
     }
@@ -457,7 +520,7 @@ async fn make_copy(
     .await;
     match filled {
         Ok(replayed) => Ok(MadeCopy {
-            name: request.name.to_string(),
+            names: vec![request.name.to_string()],
             dbname: request.dbname.to_string(),
             behavior: request.behavior,
             source_database,

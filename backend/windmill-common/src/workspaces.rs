@@ -1775,7 +1775,23 @@ pub async fn managed_database_uses(
     dbname: &str,
     exempt: Option<(&str, &str)>,
 ) -> Result<Vec<String>> {
-    let (exempt_workspace, exempt_name) = exempt.unzip();
+    match exempt {
+        Some((workspace_id, name)) => {
+            managed_database_uses_except(conn, kind, dbname, workspace_id, &[name]).await
+        }
+        None => managed_database_uses_except(conn, kind, dbname, "", &[]).await,
+    }
+}
+
+/// [`managed_database_uses`], exempting every entry of `workspace_id` in `names`: the data tables
+/// of a fork that share one copy stop using it together.
+pub async fn managed_database_uses_except(
+    conn: &mut sqlx::PgConnection,
+    kind: DataTableCatalogResourceType,
+    dbname: &str,
+    workspace_id: &str,
+    names: &[&str],
+) -> Result<Vec<String>> {
     Ok(sqlx::query_scalar::<_, String>(
         "WITH entries AS (
              SELECT ws.workspace_id::text AS workspace_id, dt.key AS name, dt.value
@@ -1789,7 +1805,7 @@ pub async fn managed_database_uses(
                AND value->'database'->>'resource_path' = $2
          )
          SELECT format('data table ''%s'' in workspace ''%s''', name, workspace_id) FROM naming
-         WHERE $3::text IS NULL OR NOT (workspace_id = $3 AND name = $4)
+         WHERE NOT (workspace_id = $3 AND name = ANY($4))
          UNION ALL
          SELECT format('data table ''%s'' in workspace ''%s'', which points at the one in ''%s''',
                        e.name, e.workspace_id, n.workspace_id)
@@ -1812,8 +1828,8 @@ pub async fn managed_database_uses(
     )
     .bind(kind.as_ref())
     .bind(dbname)
-    .bind(exempt_workspace)
-    .bind(exempt_name)
+    .bind(workspace_id)
+    .bind(names)
     .fetch_all(&mut *conn)
     .await?)
 }

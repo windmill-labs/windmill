@@ -8928,11 +8928,12 @@ async fn apply_forked_datatable(
     fdt: &ForkedDatatableInfo,
     copy: &crate::datatable_clone::MadeCopy,
 ) -> Result<()> {
-    windmill_common::validate_dbname(&fdt.new_dbname)?;
-    if !fdt.new_dbname.starts_with("wm_fork_") {
+    // Not `fdt.new_dbname`: a data table sharing its database with an earlier one shares its copy.
+    let dbname = copy.dbname.as_str();
+    windmill_common::validate_dbname(dbname)?;
+    if !dbname.starts_with("wm_fork_") {
         return Err(Error::BadRequest(format!(
-            "Forked datatable database name '{}' must start with 'wm_fork_'",
-            fdt.new_dbname
+            "Forked datatable database name '{dbname}' must start with 'wm_fork_'"
         )));
     }
     // Held until the fork commits, as the permissions save holds them: the source moved onto
@@ -9021,27 +9022,27 @@ async fn apply_forked_datatable(
 
     if database.resource_type == DataTableCatalogResourceType::ExternalInstance {
         windmill_common::external_instance_pg::ensure_external_instance_database_registered(
-            tx,
-            &fdt.new_dbname,
+            tx, dbname,
         )
         .await?;
     }
     if database.resource_type.is_windmill_managed() {
         // Held until the fork commits, as every save newly naming a database takes it: none may
         // claim the copy between the check below and this fork's entry landing on it.
-        windmill_common::datatable_roles::lock_instance_databases_governance(
-            &mut **tx,
-            [fdt.new_dbname.as_str()],
-        )
-        .await?;
+        windmill_common::datatable_roles::lock_instance_databases_governance(&mut **tx, [dbname])
+            .await?;
     }
+    // The data tables after the first on a shared copy find it named by the first, and the
+    // resource it is reached through already pointed at it.
+    let first_on_copy = copy.names.first() == Some(&fdt.name);
     if database.resource_type.is_windmill_managed()
+        && first_on_copy
         && !windmill_api_auth::is_super_admin_authed(db, authed).await?
     {
         windmill_common::ensure_fork_database_available_to(
             &mut **tx,
             database.resource_type,
-            &fdt.new_dbname,
+            dbname,
             parent_w_id,
         )
         .await?;
@@ -9052,7 +9053,7 @@ async fn apply_forked_datatable(
         // on the same cluster as its source, so it keeps the source's kind.
         let new_database = serde_json::json!({
             "resource_type": database.resource_type,
-            "resource_path": &fdt.new_dbname,
+            "resource_path": dbname,
         });
         sqlx::query(
             r#"UPDATE workspace_settings
@@ -9066,7 +9067,7 @@ async fn apply_forked_datatable(
         .bind(new_database)
         .execute(&mut **tx)
         .await?;
-    } else {
+    } else if first_on_copy {
         // Resource: point it at the copy and mark it ws_specific. What the settings clone carried is
         // the source's resource and variables as they are now, which an edit made while the copy
         // was being made can have changed, and changed back: the clone has to be what the copy's
@@ -9089,7 +9090,7 @@ async fn apply_forked_datatable(
         )
         .bind(forked_w_id)
         .bind(resource_path)
-        .bind(&fdt.new_dbname)
+        .bind(dbname)
         .execute(&mut **tx)
         .await?;
 
@@ -10026,9 +10027,12 @@ async fn write_workspace_fork(
 
     // Update forked datatable settings to point to new databases
     for fdt in &nw.forked_datatables {
-        let copy = copies.iter().find(|c| c.name == fdt.name).ok_or_else(|| {
-            Error::internal_err(format!("No copy was made of data table '{}'", fdt.name))
-        })?;
+        let copy = copies
+            .iter()
+            .find(|c| c.names.contains(&fdt.name))
+            .ok_or_else(|| {
+                Error::internal_err(format!("No copy was made of data table '{}'", fdt.name))
+            })?;
         apply_forked_datatable(
             &db,
             &mut tx,
@@ -10102,7 +10106,7 @@ async fn write_workspace_fork(
         .map(|c| {
             format!(
                 "{} ({})",
-                c.name,
+                c.names.join(" + "),
                 match c.behavior {
                     DataTableForkBehavior::SchemaOnly => "schema_only",
                     _ => "schema_and_data",
