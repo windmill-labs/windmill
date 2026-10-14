@@ -78,7 +78,11 @@
 
 	let currentValue = $derived(value ?? [])
 
-	$effect(() => searchInputEl?.focus())
+	// Keyed on `open` too: the closed list stays mounted for its 500ms collapse, so a reopen
+	// within it keeps the same input, and an input mounting during it must not take focus.
+	$effect(() => {
+		if (open) searchInputEl?.focus()
+	})
 
 	let processedItems: ProcessedItem<Value>[] = $derived.by(() => {
 		let args = { items, createText, filterText, groupBy, onCreateItem, sortBy }
@@ -91,6 +95,8 @@
 	$effect(() => {
 		open && untrack(() => onOpen?.())
 	})
+
+	let showSearch = $derived(processedItems.length - currentValue.length > 0 || !!onCreateItem)
 
 	let valueEntry = $derived(
 		currentValue.map(
@@ -108,15 +114,65 @@
 			if ((value?.length ?? 0) !== before) filterText = ''
 		} else {
 			value = [...currentValue, item.value]
+			// Picking the last option unmounts the search input that held focus.
+			if (!showSearch) wrapperEl?.focus()
 		}
 	}
 	function onRemoveValue(item: ProcessedItem<Value>) {
+		keepKeyboardFocus()
 		value = currentValue.filter((v) => v !== item.value)
 	}
 
 	function clearValue() {
+		keepKeyboardFocus()
 		filterText = ''
 		value = []
+	}
+
+	// The chip and clear buttons unmount once they have done their job, which would drop
+	// keyboard focus on <body>. Only a keyboard-focused button hands it back to the field, so
+	// a mouse click leaves nothing focused.
+	function keepKeyboardFocus() {
+		const active = document.activeElement
+		if (
+			active &&
+			active !== wrapperEl &&
+			wrapperEl?.contains(active) &&
+			active.matches(':focus-visible')
+		)
+			wrapperEl.focus()
+	}
+
+	function closeAndFocusField() {
+		open = false
+		wrapperEl?.focus()
+	}
+
+	function onFieldKeydown(e: KeyboardEvent) {
+		if (e.target !== wrapperEl) return
+		if (!open && (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown')) {
+			e.preventDefault()
+			open = true
+		} else if (open && e.key === 'Escape') {
+			// Consumed here so a drawer around the field stays open.
+			e.preventDefault()
+			e.stopPropagation()
+			open = false
+		} else if (open && e.key === 'Tab') {
+			open = false
+		}
+	}
+
+	function onSearchKeydown(e: KeyboardEvent) {
+		if (e.key === 'Escape') {
+			e.preventDefault()
+			e.stopPropagation()
+			closeAndFocusField()
+		} else if (e.key === 'Tab') {
+			// The list is portaled to the end of <body>: moving focus back to the field first lets
+			// Tab continue from the field rather than off the end of the page.
+			closeAndFocusField()
+		}
 	}
 
 	export function getFilteredInputText() {
@@ -124,9 +180,13 @@
 	}
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	bind:this={wrapperEl}
+	role="button"
+	aria-expanded={open && !disabled}
+	aria-haspopup="listbox"
+	aria-disabled={disabled}
+	tabindex={disabled ? undefined : 0}
 	class={twMerge(
 		'flex items-center flex-wrap relative',
 		inputBaseClass,
@@ -138,7 +198,12 @@
 		className
 	)}
 	{style}
-	onpointerup={() => (open = true)}
+	onpointerup={() => {
+		open = true
+		// Pressing the field focused it, out of an already open list's search input.
+		searchInputEl?.focus()
+	}}
+	onkeydown={onFieldKeydown}
 	use:clickOutside={{ onClickOutside: () => (open = false) }}
 	{id}
 >
@@ -194,13 +259,14 @@
 		ulClass="options"
 	>
 		{#snippet header()}
-			{#if processedItems.length - currentValue.length > 0 || onCreateItem}
+			{#if showSearch}
 				<div class="mx-2 mb-1 mt-2 flex items-center relative">
 					<TextInput
 						bind:this={searchInputEl}
 						bind:value={filterText}
 						inputProps={{
-							onblur: (e) => (e.preventDefault(), searchInputEl?.focus()),
+							onblur: (e) => open && e.relatedTarget !== wrapperEl && searchInputEl?.focus(),
+							onkeydown: onSearchKeydown,
 							placeholder: searchPlaceholder
 						}}
 						class="!pr-7 !bg-surface"
