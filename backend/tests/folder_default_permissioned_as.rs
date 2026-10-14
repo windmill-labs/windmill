@@ -628,10 +628,6 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
         policy["on_behalf_of"], "g/wm_deployers",
         "app policy.on_behalf_of gets folder default"
     );
-    assert_eq!(
-        policy["on_behalf_of_email"], "group-wm_deployers@windmill.dev",
-        "the stored address is derived from that principal"
-    );
 
     // 7b. Admin, non-matching path — acting user
     let resp = authed(client().post(format!("{base}/apps/create")), "SECRET_TOKEN")

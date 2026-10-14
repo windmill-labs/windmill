@@ -68,6 +68,7 @@
 		app,
 		path,
 		policy,
+		onBehalfOfEmail = undefined,
 		summary,
 		labels,
 		deployedBaseline = undefined,
@@ -91,6 +92,11 @@
 	}: AppEditorProps = $props()
 
 	migrateApp(untrack(() => app))
+
+	// What the deploy drawer's identity picker last chose, preferred over the address the read
+	// derived so the editor names who the app *will* run as. Undefined until something is picked.
+	let pickedOnBehalfOfEmail = $state<string | undefined>(undefined)
+	const shownOnBehalfOfEmail = $derived(pickedOnBehalfOfEmail ?? onBehalfOfEmail)
 
 	// Migrated clone of the deployed baseline for the autosave `discardIf`. The
 	// live `stateApp` is `migrateApp`'d on mount, so the baseline must be too or
@@ -191,7 +197,7 @@
 		workspace: $workspaceStore,
 		mode: 'editor',
 		summary: $summaryStore,
-		author: untrack(() => policy).on_behalf_of_email
+		author: untrack(() => shownOnBehalfOfEmail)
 	})
 	const darkMode: Writable<boolean> = writable(document.documentElement.classList.contains('dark'))
 
@@ -886,6 +892,7 @@
 {#if !$userStore?.operator}
 	{#if $appStore}
 		<AppEditorHeader
+			bind:onBehalfOfEmail={pickedOnBehalfOfEmail}
 			{ownsPageHeader}
 			{newPath}
 			{newApp}
@@ -932,6 +939,7 @@
 						appPath={path}
 						{breakpoint}
 						{policy}
+						onBehalfOfEmail={shownOnBehalfOfEmail}
 						isEditor
 						{context}
 						noBackend={false}
@@ -1136,7 +1144,7 @@
 												)}
 												use:initPanzoom
 											>
-												<GridEditor {policy} />
+												<GridEditor {policy} onBehalfOfEmail={shownOnBehalfOfEmail} />
 											</div>
 										{/if}
 										{#if !$appStore?.mobileViewOnSmallerScreens && $breakpoint === 'sm'}

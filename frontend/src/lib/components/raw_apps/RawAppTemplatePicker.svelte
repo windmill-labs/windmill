@@ -297,7 +297,6 @@
 			on_behalf_of: $userStore?.username.includes('@')
 				? $userStore?.username
 				: `u/${$userStore?.username}`,
-			on_behalf_of_email: $userStore?.email,
 			execution_mode: 'publisher'
 		}
 		if ($operatorBuilderApps) conformBuilderAppPolicy(policy, $userStore)

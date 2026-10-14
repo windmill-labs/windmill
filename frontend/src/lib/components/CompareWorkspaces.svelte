@@ -49,6 +49,7 @@
 		diffRemovesInTarget,
 		getItemValue,
 		getOnBehalfOf,
+		deployItemIdentityIsPrincipal,
 		type DeployPermission,
 		type DeployResult
 	} from '$lib/utils_workspace_deploy'
@@ -543,7 +544,9 @@
 			return { summary: flow.summary, onBehalfOf: flow.on_behalf_of_email }
 		} else if (kind === 'app' || kind === 'raw_app') {
 			const app = await AppService.getAppByPath({ workspace, path })
-			return { summary: app.summary, onBehalfOf: app.policy?.on_behalf_of_email }
+			// The principal, not the derived address: an app's identity travels as `u/`/`g/`
+			// (`deployItemIdentityIsPrincipal`), and a group has no address to travel as.
+			return { summary: app.summary, onBehalfOf: app.policy?.on_behalf_of }
 		} else if (kind === 'folder') {
 			const folder = await FolderService.getFolder({ workspace, name: path.replace(/^f\//, '') })
 			return { summary: folder.summary }
@@ -681,15 +684,15 @@
 
 	/**
 	 * Get the on_behalf_of value for deployment based on user's choice.
-	 * Returns an email for flows/scripts/apps, or permissioned_as (u/username, g/group) for triggers/schedules.
+	 * An email for flows/scripts, permissioned_as (u/username, g/group) for the kinds
+	 * `deployItemIdentityIsPrincipal` names.
 	 */
 	function getOnBehalfOfForDeploy(itemKey: string, kind: Kind): string | undefined {
 		const choice = onBehalfOfChoice[itemKey]
 		if (choice === 'target') return getTargetOnBehalfOf(itemKey)
 		if (choice === 'custom') {
 			const details = customOnBehalfOf[itemKey]
-			const wantsPermissionedAs = kind === 'trigger' || isTriggerOrScheduleKind(kind)
-			return wantsPermissionedAs ? details?.permissionedAs : details?.email
+			return deployItemIdentityIsPrincipal(kind) ? details?.permissionedAs : details?.email
 		}
 		// 'me' or undefined = don't pass, backend will use deploying user's identity
 		return undefined
@@ -701,7 +704,7 @@
 	 * returning undefined clears the source item's value rather than keeping it.
 	 */
 	function getOnBehalfOfPermissionedAsForDeploy(itemKey: string, kind: Kind): string | undefined {
-		if (kind === 'trigger' || isTriggerOrScheduleKind(kind)) return undefined
+		if (deployItemIdentityIsPrincipal(kind)) return undefined
 		if (onBehalfOfChoice[itemKey] !== 'custom') return undefined
 		return customOnBehalfOf[itemKey]?.permissionedAs
 	}

@@ -119,10 +119,14 @@
 		onDeploy?: (e: { version?: number; head?: number; headBy?: string; headAt?: string }) => void
 		/** True for the route's own editor: its top bar becomes the page header. */
 		ownsPageHeader?: boolean
+		/** Address of the identity selected in the deploy drawer; a display value the editor
+		 * shows, never part of what a deploy sends. */
+		onBehalfOfEmail?: string | undefined
 	}
 
 	let {
 		policy = $bindable(),
+		onBehalfOfEmail = $bindable(undefined),
 		fromHub = false,
 		diffDrawer = undefined,
 		savedApp = $bindable(undefined),
@@ -944,6 +948,7 @@
 			</div>
 		{/snippet}
 		<AppEditorHeaderDeploy
+			bind:onBehalfOfEmail
 			{newPath}
 			{newApp}
 			{policy}

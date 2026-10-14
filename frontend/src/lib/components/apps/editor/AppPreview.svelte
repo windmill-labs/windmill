@@ -30,6 +30,9 @@
 		appPath?: string
 		breakpoint?: Writable<EditorBreakpoint>
 		policy?: Policy
+		/** Address `policy.on_behalf_of` resolves to, derived by the app read. Beside the policy,
+		 * not in it, so a client echoing the policy back cannot send a server-authored value. */
+		onBehalfOfEmail?: string
 		summary?: string
 		workspace?: string
 		isEditor?: boolean
@@ -47,6 +50,7 @@
 		appPath = '',
 		breakpoint = writable('lg'),
 		policy = {},
+		onBehalfOfEmail = undefined,
 		summary = '',
 		workspace = $workspaceStore!,
 		isEditor = false,
@@ -78,7 +82,7 @@
 		workspace: untrack(() => workspace),
 		mode: 'viewer',
 		summary: untrack(() => summary),
-		author: untrack(() => policy).on_behalf_of_email,
+		author: untrack(() => onBehalfOfEmail),
 		app_path: untrack(() => appPath)
 	}
 
@@ -301,7 +305,7 @@
 					<h2 class="truncate">{summary}</h2>
 					<RecomputeAllComponents />
 					<div class="text-2xs text-secondary">
-						{policy.on_behalf_of ? `on behalf of ${policy.on_behalf_of_email}` : ''}
+						{policy.on_behalf_of ? `on behalf of ${onBehalfOfEmail ?? policy.on_behalf_of}` : ''}
 					</div>
 				</div>
 			</div>

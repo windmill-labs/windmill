@@ -11,6 +11,7 @@
 		createFolderIfAbsent,
 		deployItem,
 		getOnBehalfOfOrThrow,
+		deployItemIdentityIsPrincipal,
 		type DeployResult,
 		type DeployTargetAccess
 	} from '$lib/utils_workspace_deploy'
@@ -229,13 +230,14 @@
 				)
 				return
 			}
+			const identityIsPrincipal = deployItemIdentityIsPrincipal(req.itemType)
 			const deployed = await deployItem({
 				kind: req.itemType,
 				path: req.itemPath,
 				workspaceFrom: req.prodWorkspaceId,
 				workspaceTo: req.devWorkspaceId,
-				onBehalfOf: chosenIdentity?.email,
-				onBehalfOfPrincipal: chosenIdentity?.permissionedAs,
+				onBehalfOf: identityIsPrincipal ? chosenIdentity?.permissionedAs : chosenIdentity?.email,
+				onBehalfOfPrincipal: identityIsPrincipal ? undefined : chosenIdentity?.permissionedAs,
 				createOnly: true
 			})
 			if (deployed.conflict) {

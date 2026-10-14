@@ -117,7 +117,10 @@ async fn test_offboard_to_user(db: Pool<Postgres>) -> anyhow::Result<()> {
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        (obo.on_behalf_of.as_deref(), obo.on_behalf_of_email.as_deref()),
+        (
+            obo.on_behalf_of.as_deref(),
+            obo.on_behalf_of_email.as_deref()
+        ),
         (Some("u/test-user"), Some("test@windmill.dev")),
         "the reassignment moves the whole identity, not just the half this release reads"
     );
@@ -618,8 +621,7 @@ async fn test_offboard_group_prefixed_member_keeps_group_identities(
          INSERT INTO group_(workspace_id, name, summary) VALUES ('test-workspace', 'ops', '');
          INSERT INTO app(workspace_id, path, summary, policy, versions, extra_perms)
          VALUES ('test-workspace', 'f/shared/ops_app', '',
-                 '{\"execution_mode\": \"publisher\", \"on_behalf_of\": \"g/ops\",
-                   \"on_behalf_of_email\": \"group-ops@windmill.dev\"}', '{}', '{}');",
+                 '{\"execution_mode\": \"publisher\", \"on_behalf_of\": \"g/ops\"}', '{}', '{}');",
     )
     .execute(&db)
     .await?;
