@@ -3,6 +3,10 @@ import DbIcon from './DbIcon.svelte'
 import DiscordIcon from './DiscordIcon.svelte'
 import GcalIcon from './GcalIcon.svelte'
 import GdriveIcon from './GdriveIcon.svelte'
+import OnedriveIcon from './OnedriveIcon.svelte'
+import SharepointIcon from './SharepointIcon.svelte'
+import ExcelIcon from './ExcelIcon.svelte'
+import WordIcon from './WordIcon.svelte'
 import GithubIcon from './GithubIcon.svelte'
 import GitlabIcon from './GitlabIcon.svelte'
 import GmailIcon from './GmailIcon.svelte'
@@ -361,6 +365,10 @@ export const APP_TO_ICON_COMPONENT = {
 	gcloud: GoogleCloudIcon,
 	gcal: GcalIcon,
 	gdrive: GdriveIcon,
+	ms_onedrive: OnedriveIcon,
+	ms_sharepoint: SharepointIcon,
+	ms_excel: ExcelIcon,
+	ms_word: WordIcon,
 	airtable: AirtableIcon,
 	toggl: TogglIcon,
 	s3: S3Icon,
@@ -446,7 +454,7 @@ export const APP_TO_ICON_COMPONENT = {
 	quickbooks: QuickbooksIcon,
 	ms_teams_webhook: MsTeamsIcon,
 	teams: MsTeamsIcon,
-	outlook: OutlookIcon,
+	ms_outlook: OutlookIcon,
 	mailgun: MailgunIcon,
 	ipinfo: IpinfoIcon,
 	gworkspace: GoogleIcon,
@@ -694,6 +702,10 @@ export {
 	DiscordIcon,
 	GcalIcon,
 	GdriveIcon,
+	OnedriveIcon,
+	SharepointIcon,
+	ExcelIcon,
+	WordIcon,
 	GithubIcon,
 	GitlabIcon,
 	GmailIcon,

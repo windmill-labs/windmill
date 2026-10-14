@@ -60,7 +60,7 @@
 	import MenuButton, { sidebarClasses } from '$lib/components/sidebar/MenuButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
-	import { userWorkspaces, workspaceStore } from '$lib/stores'
+	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
@@ -220,7 +220,7 @@
 	// Workspace tree scoped to the current family (root + its forks), so the rail
 	// only shows the workspaces in the family we're in — not every workspace.
 	const workspaceTreeItems = $derived.by(() => {
-		const all = buildWorkspaceHierarchy($userWorkspaces)
+		const all = buildWorkspaceHierarchy($userWorkspaces, $userStore?.email)
 		const currentRoot = $currentWorkspaceRootId
 		if (!currentRoot) return all
 		return all.filter((i) => workspaceRootId(i.workspace.id, $userWorkspaces) === currentRoot)

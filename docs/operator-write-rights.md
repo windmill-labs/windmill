@@ -70,6 +70,10 @@ A secret variable draft is stored as an `$encrypted:` marker and decrypted by th
 and update routes on deploy. Those routes accept the marker from any caller, so a draft gives an
 operator nothing the direct route does not.
 
+The schedule, trigger, resource and variable list routes append an operator's draft-only rows
+under the same `operator_can_draft` check, so a saved draft shows on its list page exactly while
+the operator may still save it.
+
 Deploying a draft goes through the ordinary create and update routes, so the router gate is still
 what decides the write. The draft rule only has to agree with it: a draft the gate would refuse to
 deploy should not be saved in the first place. The frontend mirrors the rule in `roleCanDraft`

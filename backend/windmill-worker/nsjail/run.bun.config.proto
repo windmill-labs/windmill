@@ -20,6 +20,9 @@ clone_newcgroup: false
 skip_setsid: true
 keep_caps: false
 keep_env: true
+# The script's env vars, proto-escaped. Set here rather than on the process that
+# execs nsjail: the loader honours `LD_PRELOAD` before the jail exists.
+{ENVARS}
 
 mount {
     src: "/bin"

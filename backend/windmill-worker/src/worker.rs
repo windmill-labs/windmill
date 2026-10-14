@@ -7266,6 +7266,7 @@ pub fn init_worker_internal_server_inline_utils(
                 Some(params.lang),
             );
             job.permissioned_as_end_user_email = params.end_user_email;
+            job.viewer_data_access = Some(params.viewer_data_access);
             Box::pin(async move {
                 let mut mem_peak: i32 = -1;
                 let mut canceled_by: Option<CanceledBy> = None;

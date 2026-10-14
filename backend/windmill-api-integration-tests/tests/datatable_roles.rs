@@ -810,7 +810,7 @@ async fn a_data_table_under_roles_is_cloned_only_with_its_grants(
 
     // The copy an admin asks for goes ahead in an edition that replays grants, and is refused
     // before any database exists in one that does not. The fixture's database does not exist, so
-    // the dump fails either way — and leaves neither a database nor a fork behind.
+    // reading it fails either way — and leaves neither a database nor a fork behind.
     let resp = fork(
         "SECRET_TOKEN",
         json!({"name": "main", "new_dbname": target, "fork_behavior": "schema_only"}),
@@ -820,7 +820,7 @@ async fn a_data_table_under_roles_is_cloned_only_with_its_grants(
     assert_ne!(resp.status(), 200);
     let body = resp.text().await?;
     #[cfg(all(feature = "private", feature = "enterprise"))]
-    assert!(body.contains("pg_dump"), "{body}");
+    assert!(body.contains("\"dt_main\" does not exist"), "{body}");
     #[cfg(not(all(feature = "private", feature = "enterprise")))]
     assert!(body.contains("Enterprise Edition"), "{body}");
     assert!(!database_exists(&db, target).await?);
@@ -977,6 +977,104 @@ async fn a_data_table_under_roles_is_not_copied_without_its_grants(
     assert!(
         resp.text().await?.contains("under roles"),
         "the copy was refused for some other reason"
+    );
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn data_tables_on_one_database_are_copied_together(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let shared = json!({"database": {"resource_type": "instance", "resource_path": "dt_shared"}});
+    sqlx::query(
+        "UPDATE workspace_settings SET datatable = jsonb_set(jsonb_set(datatable,
+             '{datatables,a}', $1), '{datatables,b}', $1) WHERE workspace_id = 'test-workspace'",
+    )
+    .bind(&shared)
+    .execute(&db)
+    .await?;
+
+    // One copy is made for both, so it cannot be made two ways.
+    let resp = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/test-workspace/workspaces/create_fork"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(
+        &json!({"id": "wm-fork-pair", "name": "pair", "forked_datatables": [
+            {"name": "a", "new_dbname": "wm_fork_pair__a", "fork_behavior": "schema_only"},
+            {"name": "b", "new_dbname": "wm_fork_pair__b", "fork_behavior": "schema_and_data"}
+        ]}),
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 400);
+    assert!(resp.text().await?.contains("same database"));
+    assert!(!database_exists(&db, "wm_fork_pair__a").await?);
+
+    // A fork's entries sharing a copy each count as a use of it: dropped together, neither blocks
+    // the other.
+    let copy = json!({"database": {"resource_type": "instance", "resource_path": "wm_fork_dt__a"},
+                      "forked_from": {"schema": {}}});
+    sqlx::query(
+        "UPDATE workspace_settings SET datatable = jsonb_build_object('datatables',
+             jsonb_build_object('a', $1::jsonb, 'b', $1::jsonb)) WHERE workspace_id = 'wm-fork-dt'",
+    )
+    .bind(&copy)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "UPDATE global_settings SET value = jsonb_set(value, '{databases,wm_fork_dt__a}',
+             '{\"tag\": \"datatable\", \"workspace_id\": \"test-workspace\"}')
+         WHERE name = 'custom_instance_pg_databases'",
+    )
+    .execute(&db)
+    .await?;
+    let errors: Vec<String> = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/wm-fork-dt/workspaces/drop_forked_datatable_databases"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({"datatable_names": ["a", "b"]}))
+    .send()
+    .await?
+    .json()
+    .await?;
+    assert!(errors.is_empty(), "{errors:?}");
+    let left: Value = sqlx::query_scalar(
+        "SELECT datatable->'datatables' FROM workspace_settings WHERE workspace_id = 'wm-fork-dt'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(left, json!({}));
+
+    // Clones on one resource share its copy too: dropping it for one would take the other's data.
+    let copy = json!({"database": {"resource_type": "postgresql", "resource_path": "u/test-user/pg"},
+                      "forked_from": {"schema": {}}});
+    sqlx::query(
+        "UPDATE workspace_settings SET datatable = jsonb_build_object('datatables',
+             jsonb_build_object('a', $1::jsonb, 'b', $1::jsonb)) WHERE workspace_id = 'wm-fork-dt'",
+    )
+    .bind(&copy)
+    .execute(&db)
+    .await?;
+    let errors: Vec<String> = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/wm-fork-dt/workspaces/drop_forked_datatable_databases"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({"datatable_names": ["a"]}))
+    .send()
+    .await?
+    .json()
+    .await?;
+    assert!(
+        errors.len() == 1 && errors[0].contains("still used by data tables 'b'"),
+        "{errors:?}"
     );
     Ok(())
 }
@@ -1850,10 +1948,12 @@ async fn cleanup_waits_out_a_save_racing_it_for_an_instance_database(
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
 #[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
-async fn a_connection_naming_no_role_holds_the_default_one_and_the_viewers(
+async fn a_connection_naming_no_role_holds_the_default_one_and_its_identitys(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
-    use windmill_common::workspaces::{get_datatable_resource_from_db, DatatableAccess};
+    use windmill_common::workspaces::{
+        get_datatable_resource_from_db, DatatableAccess, DatatableConnectAs,
+    };
 
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
@@ -1869,19 +1969,24 @@ async fn a_connection_naming_no_role_holds_the_default_one_and_the_viewers(
          JOIN pg_roles r ON r.oid = am.roleid JOIN pg_roles m ON m.oid = am.member
          WHERE r.rolname = $1 AND m.rolname LIKE 'wm\\_set\\_%'";
 
-    // The job is the app publisher's in every case: only the viewer the server recorded differs.
-    let connect = |role: Option<&'static str>, viewer: Option<&'static str>| {
+    let connect_job = |owner: &'static str, role: Option<&'static str>, connect_as| {
+        let (permissioned_as, email) = match owner {
+            "test-user" => ("u/test-user", "test@windmill.dev"),
+            "test-user-2" => ("u/test-user-2", "test2@windmill.dev"),
+            _ => ("u/test-user-3", "test3@windmill.dev"),
+        };
         get_datatable_resource_from_db(
             &db,
             "test-workspace",
             "main",
             role,
-            DatatableAccess::PermissionedAs {
-                permissioned_as: "u/test-user",
-                email: "test@windmill.dev",
-                end_user_email: viewer,
-            },
+            DatatableAccess::PermissionedAs { permissioned_as, email, connect_as },
         )
+    };
+    // An app published by the workspace admin `test-user`, run by `viewer`, whose runnable
+    // connects as its viewer.
+    let connect = |role: Option<&'static str>, viewer: Option<&'static str>| {
+        connect_job("test-user", role, DatatableConnectAs::Viewer(viewer))
     };
     let set_permissions = |default_role: String, roles: Value| {
         sqlx::query(
@@ -1953,11 +2058,25 @@ async fn a_connection_naming_no_role_holds_the_default_one_and_the_viewers(
             expected
         );
 
-        // An admin may use every role, the one owning the tables included. As a viewer they add
-        // what names them, which here is nothing; nor does a job with no viewer recorded.
-        for viewer in [Some("test@windmill.dev"), None] {
-            assert_eq!(connect(None, viewer).await?["user"], names[0].as_str());
-        }
+        // A runnable that does not connect as its viewer holds its own identity's roles, whoever
+        // views it: here the publisher, an admin, who may use every role but adds only what
+        // names them, which is nothing.
+        assert_eq!(
+            connect_job("test-user", None, DatatableConnectAs::Job).await?["user"],
+            names[0].as_str(),
+            "the viewer's roles reached a job that does not connect as its viewer"
+        );
+        // A job with no viewer, a schedule say, holds its owner's roles.
+        assert_eq!(
+            connect_job("test-user-2", None, DatatableConnectAs::Job).await?,
+            all
+        );
+        assert_eq!(
+            connect(None, Some("test@windmill.dev")).await?["user"],
+            names[0].as_str()
+        );
+        // Connecting as a viewer it does not have is refused rather than made as the job.
+        assert!(connect(None, None).await.is_err());
         // A named role is that role alone, whoever is viewing.
         let named: &'static str = Box::leak(names[1].clone().into_boxed_str());
         assert_eq!(
@@ -1978,29 +2097,28 @@ async fn a_connection_naming_no_role_holds_the_default_one_and_the_viewers(
             two,
             "no default changes nothing for a viewer the roles name"
         );
+        assert_eq!(
+            connect_job("test-user-3", None, DatatableConnectAs::Job).await?,
+            two
+        );
+        assert_eq!(
+            connect_job("test-user", None, DatatableConnectAs::Job).await?["user"],
+            names[0].as_str(),
+            "the role open to everyone names the admin too"
+        );
         assert!(connect(None, None).await.is_err());
         // The same holds for a default the job's own identity is not a tenant of.
         let mut closed = roles.clone();
         closed[ids[0].as_str()] = json!({"tenants": []});
         set_permissions(ids[0].clone(), closed).await?;
-        let as_member = |viewer: Option<&'static str>| {
-            get_datatable_resource_from_db(
-                &db,
-                "test-workspace",
-                "main",
-                None,
-                DatatableAccess::PermissionedAs {
-                    permissioned_as: "u/test-user-3",
-                    email: "test3@windmill.dev",
-                    end_user_email: viewer,
-                },
-            )
-        };
         assert_eq!(
-            as_member(Some("test3@windmill.dev")).await?["user"],
+            connect_job("test-user-3", None, DatatableConnectAs::Job).await?["user"],
             names[1].as_str()
         );
-        assert!(as_member(None).await.is_err());
+        assert_eq!(
+            connect(None, Some("test3@windmill.dev")).await?["user"],
+            names[1].as_str()
+        );
         set_permissions(ids[0].clone(), roles).await?;
 
         // A set login nobody connects with any more is dropped, a recent one is kept, and a

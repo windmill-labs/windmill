@@ -144,6 +144,15 @@ impl From<&Vec<ProtectionRuleKind>> for ProtectionRules {
     }
 }
 
+impl ProtectionRules {
+    /// The rules set, in declaration order.
+    pub fn kinds(self) -> Vec<ProtectionRuleKind> {
+        <ProtectionRuleKind as strum::IntoEnumIterator>::iter()
+            .filter(|k| self.contains(k.flag()))
+            .collect()
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct WorkspaceGitSyncSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1570,9 +1579,10 @@ pub struct DataTable {
     /// which is how data tables behaved before roles existed. Only meaningful on a terminal entry;
     /// a pointer is governed by what it points at.
     ///
-    /// Never leaves the instance: stripped from the workspace export and ignored on import, since
-    /// tenants are workspace-scoped names and syncing them would make repo write access a second
-    /// door onto the access decision.
+    /// Stripped from the `datatable` setting wherever it is read or written as a whole. It leaves
+    /// the instance only as the settings document's `datatable_permissions`, which `wmill sync`
+    /// carries only when the repo opts in: tenants are workspace-scoped names, and syncing them
+    /// makes repo write access a second door onto the access decision.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permissions: Option<DataTablePermissions>,
 }
@@ -1798,7 +1808,23 @@ pub async fn managed_database_uses(
     dbname: &str,
     exempt: Option<(&str, &str)>,
 ) -> Result<Vec<String>> {
-    let (exempt_workspace, exempt_name) = exempt.unzip();
+    match exempt {
+        Some((workspace_id, name)) => {
+            managed_database_uses_except(conn, kind, dbname, workspace_id, &[name]).await
+        }
+        None => managed_database_uses_except(conn, kind, dbname, "", &[]).await,
+    }
+}
+
+/// [`managed_database_uses`], exempting every entry of `workspace_id` in `names`: the data tables
+/// of a fork that share one copy stop using it together.
+pub async fn managed_database_uses_except(
+    conn: &mut sqlx::PgConnection,
+    kind: DataTableCatalogResourceType,
+    dbname: &str,
+    workspace_id: &str,
+    names: &[&str],
+) -> Result<Vec<String>> {
     Ok(sqlx::query_scalar::<_, String>(
         "WITH entries AS (
              SELECT ws.workspace_id::text AS workspace_id, dt.key AS name, dt.value
@@ -1812,7 +1838,7 @@ pub async fn managed_database_uses(
                AND value->'database'->>'resource_path' = $2
          )
          SELECT format('data table ''%s'' in workspace ''%s''', name, workspace_id) FROM naming
-         WHERE $3::text IS NULL OR NOT (workspace_id = $3 AND name = $4)
+         WHERE NOT (workspace_id = $3 AND name = ANY($4))
          UNION ALL
          SELECT format('data table ''%s'' in workspace ''%s'', which points at the one in ''%s''',
                        e.name, e.workspace_id, n.workspace_id)
@@ -1835,8 +1861,8 @@ pub async fn managed_database_uses(
     )
     .bind(kind.as_ref())
     .bind(dbname)
-    .bind(exempt_workspace)
-    .bind(exempt_name)
+    .bind(workspace_id)
+    .bind(names)
     .fetch_all(&mut *conn)
     .await?)
 }
@@ -2185,17 +2211,36 @@ pub enum DatatableAccess<'a> {
     PermissionedAs {
         permissioned_as: &'a str,
         email: &'a str,
-        /// The job's viewer: MUST be what the server recorded in `job_perms.end_user_email`,
-        /// never an argument or anything else the job or its caller can set.
-        end_user_email: Option<&'a str>,
+        connect_as: DatatableConnectAs<'a>,
     },
-    /// A job identified by id; its owner is read from `v2_job` and its viewer from `job_perms`.
-    /// For agent workers and anything else that authenticates as infrastructure rather than as
-    /// the job's user.
+    /// A job identified by id; its owner is read from `v2_job` and how it connects from
+    /// `job_perms`. For agent workers and anything else that authenticates as infrastructure
+    /// rather than as the job's user.
     Job(uuid::Uuid),
     /// No identity established. Unpermissioned data tables resolve as before; permissioned ones
     /// are refused, so a caller predating this feature fails closed.
     NoIdentity,
+}
+
+/// Whose roles a job's connection that names no role holds.
+#[derive(Clone, Copy, Debug)]
+pub enum DatatableConnectAs<'a> {
+    /// The job's own identity, `permissioned_as`.
+    Job,
+    /// The job's viewer, for a job whose `job_perms.viewer_data_access` is set. MUST be what
+    /// the server recorded in `job_perms.end_user_email`, never anything the job or its caller
+    /// can set; `None` when it recorded none, which refuses the connection.
+    Viewer(Option<&'a str>),
+}
+
+impl<'a> DatatableConnectAs<'a> {
+    pub fn from_job_perms(as_viewer: bool, end_user_email: Option<&'a str>) -> Self {
+        if as_viewer {
+            Self::Viewer(end_user_email)
+        } else {
+            Self::Job
+        }
+    }
 }
 
 /// Does one tenant list cover this identity? Admins of the governing workspace pass everything —
@@ -2241,11 +2286,11 @@ pub async fn can_use_datatable_role_in_governing_workspace(
 /// back to admin.
 ///
 /// A default role other than `admin` is a floor rather than the whole connection: a resolution
-/// naming no role holds it when the job's own identity may use it, plus the roles whose tenant
-/// lists name the job's viewer, as one login that is a member of each. With no role at all it is
-/// refused. Being an admin adds none of the viewer's and `admin` is never among them, so a viewer
-/// cannot be handed the connection that owns the tables and bypasses row-level security. A named
-/// role is that role alone.
+/// naming no role holds it when its identity may use it, plus the roles whose tenant lists name
+/// that identity, as one login that is a member of each. The identity is the job's own unless
+/// it connects as its viewer ([`DatatableConnectAs`]). With no role at all it is refused. Being
+/// an admin adds no role and `admin` is never among them, so nobody is handed the connection that
+/// owns the tables and bypasses row-level security. A named role is that role alone.
 pub async fn get_datatable_resource_from_db(
     db: &DB,
     w_id: &str,
