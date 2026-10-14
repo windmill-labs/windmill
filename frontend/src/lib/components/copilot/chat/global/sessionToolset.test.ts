@@ -197,6 +197,15 @@ describe('session tool policies', () => {
 		expect((original.def.function.parameters as any).properties.type.enum).toContain('script')
 	})
 
+	it('offers the workspace settings tools to admins only', () => {
+		const settingsTools = ['get_workspace_settings', 'set_workspace_settings']
+		for (const [, access] of REACHABLE_PROFILES) {
+			const names = shippedSessionTools(access).map((t) => t.def.function.name)
+			const offered = settingsTools.filter((n) => names.includes(n))
+			expect(offered).toEqual(access.has('admin') ? settingsTools : [])
+		}
+	})
+
 	// Naming a tool the model was not given produces invented calls. Asserted over the
 	// ASSEMBLED message: the session-state, pipeline and plan-mode sections are each
 	// appended by a different caller, and each can name a withheld tool.

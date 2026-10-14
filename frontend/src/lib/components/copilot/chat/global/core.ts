@@ -128,6 +128,7 @@ import {
 import { MAX_SKILL_DESCRIPTION_LENGTH, MAX_SKILL_INSTRUCTIONS_LENGTH } from '../skills/skillMd'
 import {
 	getDatatablePrompt,
+	getWorkspaceSettingsPrompt,
 	getDatatableSdkReference,
 	getFlowPrompt,
 	getPipelinePrompt,
@@ -218,6 +219,7 @@ import {
 	getDraftDiffValues
 } from '$lib/utils_draft_deploy'
 import { changedLineIndices, draftDeployedPatch, windowPatch } from './draftDiff'
+import { workspaceSettingsTools } from './workspaceSettingsTools'
 import { getRun, summarizeRun } from './flowRunTree'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
@@ -318,7 +320,8 @@ const INSTRUCTION_SUBJECTS = [
 // datatable SDK reference (the wmill.datatable() runnable API) the same way.
 // `pipeline` likewise isn't an item type — a data pipeline is a set of
 // annotated scripts in a folder, so it gets authoring guidance, not a CRUD type.
-const INSTRUCTION_SUBJECTS_EXTRA = ['datatable', 'pipeline'] as const
+// `workspace_settings` is the settings document an admin reads and changes.
+const INSTRUCTION_SUBJECTS_EXTRA = ['datatable', 'pipeline', 'workspace_settings'] as const
 const ALL_INSTRUCTION_SUBJECTS = [...INSTRUCTION_SUBJECTS, ...INSTRUCTION_SUBJECTS_EXTRA] as const
 const MAX_LIST_LIMIT = 100
 type ActiveGlobalEditorType = Extract<WorkspaceItemType, 'script' | 'flow' | 'app'>
@@ -378,7 +381,7 @@ const scriptLangSchema = z.enum($ScriptLang.enum)
 
 const getInstructionsSchema = z.object({
 	subject: instructionSubjectSchema.describe(
-		'What to get authoring instructions for: a workspace item type (script, flow, resource, app), "pipeline" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or "datatable" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables. Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
+		'What to get authoring instructions for: a workspace item type (script, flow, resource, app), "pipeline" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or "datatable" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, or "workspace_settings" for the keys and rules of the workspace settings (admins only). Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
 	),
 	language: scriptLangSchema
 		.optional()
@@ -2670,6 +2673,8 @@ function getInstructions(
 			return getDatatableInstructions(language)
 		case 'pipeline':
 			return getPipelineInstructions()
+		case 'workspace_settings':
+			return getWorkspaceSettingsPrompt()
 	}
 }
 
@@ -3614,6 +3619,10 @@ export const globalTools: SessionTool<{}>[] = [
 			// Every subject is authoring guidance written around the draft tools by name, and a
 			// tool result is the one place the toolset filter cannot reach.
 			const access = (ctx.helpers as GlobalToolHelpers | undefined)?.access
+			if (parsed.subject === 'workspace_settings' && access && !access.has('admin')) {
+				toolCallbacks.setToolStatus(toolId, { content: 'No workspace settings guidance' })
+				return 'Only a workspace admin can read or change the workspace settings. Tell the user plainly that you cannot, and suggest asking a workspace admin.'
+			}
 			const canAuthor =
 				!access ||
 				access.has('write_draft') ||
@@ -4958,7 +4967,8 @@ export const globalTools: SessionTool<{}>[] = [
 	// Workspace DuckLake: pipeline storage prerequisite, and declared measures
 	...getDucklakeTools(),
 	// Read-only tools over files the user attached to the conversation
-	...fileTools
+	...fileTools,
+	...workspaceSettingsTools
 ]
 
 // Tools that only make sense inside an AI session (they drive the session's
