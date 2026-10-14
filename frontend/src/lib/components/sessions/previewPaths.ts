@@ -152,6 +152,7 @@ export function triggerLabelForPath(path: string): string | undefined {
 }
 
 export const pageKey = (path: string) => `page:${path}`
+export const isPageKey = (key: string) => key.startsWith('page:')
 
 /** Strip the query and hash from a preview path so it can be matched against
  * `PREVIEW_PAGES` / parsed as an item route. */
