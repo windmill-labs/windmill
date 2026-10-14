@@ -359,6 +359,9 @@ pub(crate) struct ArchiveQueryParams {
     include_users: Option<bool>,
     include_groups: Option<bool>,
     include_settings: Option<bool>,
+    /// Opt-in, with `settings_version=v2`: state the data tables' roles in settings.json. Their
+    /// tenants name this workspace's users and groups, and their roles this instance's catalog.
+    include_datatable_permissions: Option<bool>,
     include_key: Option<bool>,
     include_workspace_dependencies: Option<bool>,
     /// Default `false`: data table migrations ship in the tarball unless the repo
@@ -592,6 +595,7 @@ pub(crate) async fn tarball_workspace(
         include_users,
         include_groups,
         include_settings,
+        include_datatable_permissions,
         include_key,
         include_workspace_dependencies,
         skip_datatable_migrations,
@@ -1574,10 +1578,16 @@ pub(crate) async fn tarball_workspace(
             } else {
                 crate::workspace_settings_document::SecretMode::Encrypted
             };
-            let doc = crate::workspace_settings_document::load_settings_document(
+            let mut doc = crate::workspace_settings_document::load_settings_document(
                 &mut *tx, &db, &w_id, secrets,
             )
             .await?;
+            // A repo syncs its rules through protection-rules.yaml, so settings.yaml leaving
+            // them out keeps one writer for them.
+            doc.remove("protection_rules");
+            if !include_datatable_permissions.unwrap_or(false) {
+                doc.remove("datatable_permissions");
+            }
             serde_json::to_string_pretty(&doc).ok()
         } else {
             // V1 (legacy) format: convert JSONB to flat fields (matches main branch exactly)

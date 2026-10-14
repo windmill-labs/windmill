@@ -3852,6 +3852,7 @@ export async function pull(
     opts.skipDatatableMigrations,
     opts.defaultTs,
     opts.syncBehavior,
+    opts.includeDatatablePermissions,
   );
 
   const remote = ZipFSElement(
@@ -4955,6 +4956,7 @@ export async function push(
       opts.skipDatatableMigrations,
       opts.defaultTs,
       opts.syncBehavior,
+      opts.includeDatatablePermissions,
     ))!,
     !opts.json,
     opts.defaultTs ?? "bun",
@@ -6058,6 +6060,7 @@ export async function push(
                       (opts.yes ?? false) || !process.stdin.isTTY,
                     skipReencrypt: opts.skipReencryptOnKeyChange,
                   },
+                  includeDatatablePermissions: opts.includeDatatablePermissions,
                   defaultTs: opts.defaultTs,
                 },
               );
@@ -6196,6 +6199,7 @@ export async function push(
                       (opts.yes ?? false) || !process.stdin.isTTY,
                     skipReencrypt: opts.skipReencryptOnKeyChange,
                   },
+                  includeDatatablePermissions: opts.includeDatatablePermissions,
                   defaultTs: opts.defaultTs,
                 },
               );
@@ -6824,6 +6828,10 @@ const command = new Command()
   .option("--include-users", "Include syncing users")
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
+  .option(
+    "--include-datatable-permissions",
+    "With --include-settings, also sync who may connect to each data table as which role",
+  )
   .option("--include-key", "Include workspace encryption key")
   .option(
     "--keep-deleted",
@@ -6887,6 +6895,10 @@ const command = new Command()
   .option("--include-users", "Include syncing users")
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
+  .option(
+    "--include-datatable-permissions",
+    "With --include-settings, also sync who may connect to each data table as which role",
+  )
   .option("--include-key", "Include workspace encryption key")
   .option(
     "--skip-reencrypt-on-key-change",

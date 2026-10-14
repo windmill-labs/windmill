@@ -14800,6 +14800,13 @@ pub enum SettingsEdit {
     GuestJwtKey,
     PublicAppRateLimit,
     AddAdminsAndDevelopersToForks,
+    /// Body: `{ datatable, permissioned, default_role, roles: [{ id, tenants }] }`, role ids.
+    DatatablePermissions,
+    CreateProtectionRule,
+    /// Body: the update request plus `rule_name`, the rule it updates.
+    UpdateProtectionRule,
+    /// Body: `{ name }`.
+    DeleteProtectionRule,
 }
 
 fn settings_edit_body<T: serde::de::DeserializeOwned>(
@@ -14871,6 +14878,48 @@ pub async fn apply_settings_edit(
         AddAdminsAndDevelopersToForks => {
             edit_add_admins_and_developers_to_forks(a, d, p, settings_edit_body(edit, body)?)
                 .await?
+        }
+        #[cfg(all(feature = "private", feature = "enterprise"))]
+        DatatablePermissions => {
+            #[derive(Deserialize)]
+            struct Body {
+                datatable: String,
+                #[serde(flatten)]
+                req: crate::datatable_permissions_ee::SetDatatablePermissions,
+            }
+            let Json(Body { datatable, req }) = settings_edit_body(edit, body)?;
+            crate::datatable_permissions_oss::set_datatable_permissions(
+                a,
+                d,
+                Path((p.0, datatable)),
+                Json(req),
+            )
+            .await?
+        }
+        #[cfg(not(all(feature = "private", feature = "enterprise")))]
+        DatatablePermissions => {
+            crate::datatable_permissions_oss::set_datatable_permissions(a).await?
+        }
+        CreateProtectionRule => {
+            create_protection_rule(a, d, p, settings_edit_body(edit, body)?).await?
+        }
+        UpdateProtectionRule => {
+            #[derive(Deserialize)]
+            struct Body {
+                rule_name: String,
+                #[serde(flatten)]
+                req: UpdateProtectionRuleRequest,
+            }
+            let Json(Body { rule_name, req }) = settings_edit_body(edit, body)?;
+            update_protection_rule(a, d, Path((p.0, rule_name)), Json(req)).await?
+        }
+        DeleteProtectionRule => {
+            #[derive(Deserialize)]
+            struct Body {
+                name: String,
+            }
+            let Json(Body { name }) = settings_edit_body(edit, body)?;
+            delete_protection_rule(a, d, Path((p.0, name))).await?
         }
     };
     Ok(serde_json::Value::Null)

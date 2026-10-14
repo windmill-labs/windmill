@@ -68,11 +68,13 @@ export interface SimplifiedSettings {
   guest_jwt_jwks_url?: string | null;
   error_handler_fallback_to_instance_alerts?: boolean;
   add_admins_and_developers_to_forks?: boolean;
+  datatable_permissions?: Record<string, unknown> | null;
 }
 
 /** Settings the server manages only when settings.yaml states them: a file written before
  * they existed must neither clear them nor show as differing from the workspace. */
 export const SETTINGS_MANAGED_ONLY_WHEN_PRESENT = [
+  "datatable_permissions",
   "ducklake",
   "dbt_warehouses",
   "deploy_ui",
@@ -201,10 +203,19 @@ export async function pushWorkspaceSettings(
   workspace: string,
   _path: string,
   settings: SimplifiedSettings | undefined,
-  localSettings: SimplifiedSettings | any
+  localSettings: SimplifiedSettings | any,
+  opts: { includeDatatablePermissions?: boolean } = {},
 ) {
+  if (localSettings?.protection_rules !== undefined) {
+    log.warn(
+      "Ignoring protection_rules in settings.yaml: protection-rules.yaml syncs them (wmill protection-rules push)."
+    );
+  }
   // Migrate local settings from legacy format if needed
   localSettings = migrateToGroupedFormat(localSettings);
+  if (!opts.includeDatatablePermissions) {
+    delete localSettings.datatable_permissions;
+  }
 
   if (await applySettingsDocument(workspace, localSettings)) {
     return;

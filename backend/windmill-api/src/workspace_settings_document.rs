@@ -18,11 +18,19 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sqlx::PgConnection;
+use std::collections::BTreeMap;
 use windmill_api_workspaces::workspaces::{apply_settings_edit, SettingsEdit};
 use windmill_common::{
+    datatable_roles::{
+        read_role_catalog, DatatableRoleCluster, ADMIN_DATATABLE_ROLE, NO_DEFAULT_DATATABLE_ROLE,
+    },
     error::{Error, JsonResult, Result},
     utils::require_admin,
     variables::build_crypt,
+    workspaces::{
+        DataTable, DataTablePermissions, ProtectionRuleKind, ProtectionRules,
+        DATATABLE_TENANT_WILDCARD, DEV_WORKSPACE_LOCK_RULE_NAME,
+    },
     DB,
 };
 
@@ -110,6 +118,116 @@ pub(crate) fn redact_git_sync(git_sync: Option<Value>) -> Option<Value> {
     Some(git_sync)
 }
 
+/// Role names by catalog id, per cluster: the document names a data table role, the stored
+/// permissions its catalog id, which differs from one instance to the next. `None` for a catalog
+/// that could not be read, as on an edition without data table roles.
+#[derive(Default)]
+struct RoleNames {
+    instance: Option<BTreeMap<String, String>>,
+    external_instance: Option<BTreeMap<String, String>>,
+}
+
+impl RoleNames {
+    async fn load(db: &DB) -> Self {
+        let read = |cluster| async move {
+            read_role_catalog(db, cluster)
+                .await
+                .ok()
+                .map(|c| c.into_iter().map(|(id, r)| (id, r.name)).collect())
+        };
+        Self {
+            instance: read(DatatableRoleCluster::Instance).await,
+            external_instance: read(DatatableRoleCluster::ExternalInstance).await,
+        }
+    }
+
+    fn of(&self, cluster: DatatableRoleCluster) -> Option<&BTreeMap<String, String>> {
+        match cluster {
+            DatatableRoleCluster::Instance => self.instance.as_ref(),
+            DatatableRoleCluster::ExternalInstance => self.external_instance.as_ref(),
+        }
+    }
+}
+
+/// The cluster whose roles a data table entry can be put under: only an entry that owns a
+/// database on a cluster Windmill manages, and is not a clone, which its origin governs.
+fn role_cluster_of(entry: &Value) -> Option<DatatableRoleCluster> {
+    let entry: DataTable = serde_json::from_value(entry.clone()).ok()?;
+    if entry.governed_by.is_some() {
+        return None;
+    }
+    DatatableRoleCluster::of(entry.database?.resource_type)
+}
+
+/// Each data table's stored `permissions`, with roles named rather than given by catalog id. A
+/// role the catalog no longer has keeps its id, so the document still shows it.
+fn datatable_permissions_document(datatable: Option<&Value>, roles: &RoleNames) -> Value {
+    let mut doc = Map::new();
+    let entries = datatable
+        .and_then(|d| d.get("datatables"))
+        .and_then(Value::as_object);
+    for (name, entry) in entries.into_iter().flatten() {
+        let Some(permissions) = entry
+            .get("permissions")
+            .filter(|p| !p.is_null())
+            .and_then(|p| serde_json::from_value::<DataTablePermissions>(p.clone()).ok())
+        else {
+            continue;
+        };
+        let names = role_cluster_of(entry).and_then(|c| roles.of(c));
+        let name_of = |id: &str| {
+            names
+                .and_then(|n| n.get(id))
+                .cloned()
+                .unwrap_or_else(|| id.to_string())
+        };
+        let default_role = match permissions.default_role() {
+            NO_DEFAULT_DATATABLE_ROLE => Value::Null,
+            id => Value::String(name_of(id)),
+        };
+        let roles: Map<String, Value> = permissions
+            .roles
+            .iter()
+            .map(|(id, t)| (name_of(id), json!(t.tenants)))
+            .collect();
+        doc.insert(
+            name.clone(),
+            json!({ "default_role": default_role, "roles": roles }),
+        );
+    }
+    Value::Object(doc)
+}
+
+/// Protection rules by name, their rules in a fixed order so a reordered file is no change. The
+/// dev workspace lock is left out: the dev workspace setting creates and removes it.
+async fn protection_rules_document(conn: &mut PgConnection, w_id: &str) -> Result<Value> {
+    let rows = sqlx::query_as::<_, (String, i32, Vec<String>, Vec<String>)>(
+        "SELECT name, rules, bypass_groups, bypass_users FROM workspace_protection_rule
+         WHERE workspace_id = $1 AND name <> $2 ORDER BY name",
+    )
+    .bind(w_id)
+    .bind(DEV_WORKSPACE_LOCK_RULE_NAME)
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(Value::Object(
+        rows.into_iter()
+            .map(|(name, bits, bypass_groups, bypass_users)| {
+                let rules = ProtectionRules::from_bits_truncate(bits);
+                let rule = json!({
+                    "rules": rule_kinds(rules),
+                    "bypass_groups": bypass_groups,
+                    "bypass_users": bypass_users,
+                });
+                (name, rule)
+            })
+            .collect(),
+    ))
+}
+
+fn rule_kinds(rules: ProtectionRules) -> Value {
+    json!(rules.kinds())
+}
+
 /// Reads no permission itself: the caller must have checked that the requester is an admin of
 /// `w_id`, since `SecretMode::Plain` returns the workspace's secrets in plain text.
 pub async fn load_settings_document(
@@ -147,10 +265,27 @@ pub async fn load_settings_document(
         (s, _) => s,
     };
 
+    let has_permissions = row
+        .datatable
+        .as_ref()
+        .and_then(|d| d.get("datatables"))
+        .and_then(Value::as_object)
+        .is_some_and(|e| {
+            e.values()
+                .any(|e| e.get("permissions").is_some_and(|p| !p.is_null()))
+        });
+    let role_names = if has_permissions {
+        RoleNames::load(db).await
+    } else {
+        RoleNames::default()
+    };
+    let datatable_permissions = datatable_permissions_document(row.datatable.as_ref(), &role_names);
+    let protection_rules = protection_rules_document(&mut *conn, w_id).await?;
+
     // In the order `wmill sync pull` has always written settings.yaml. A key that predates the
     // document and is not marked `always` is written only when set, as it always was; a key
     // added since is always written, so a pulled file states it and from then on manages it.
-    let entries: [(&str, Option<Value>, bool); 29] = [
+    let entries: [(&str, Option<Value>, bool); 31] = [
         ("auto_invite", row.auto_invite, false),
         ("webhook", row.webhook.map(Value::String), false),
         ("error_handler", row.error_handler, true),
@@ -232,6 +367,8 @@ pub async fn load_settings_document(
                 .unwrap_or(false))),
             true,
         ),
+        ("datatable_permissions", Some(datatable_permissions), true),
+        ("protection_rules", Some(protection_rules), true),
     ];
     let mut doc = Map::new();
     for (key, value, always) in entries {
@@ -410,6 +547,10 @@ impl Plan {
 
     fn record(&mut self, key: &str, after: Value) {
         let before = self.current.get(key).cloned().unwrap_or(Value::Null);
+        self.record_change(key, before, after);
+    }
+
+    fn record_change(&mut self, key: &str, before: Value, after: Value) {
         self.changes.push(SettingsChange {
             key: key.to_string(),
             before: redact(key, before),
@@ -499,7 +640,131 @@ const KNOWN_KEYS: &[&str] = &[
     "guest_jwt_jwks_url",
     "error_handler_fallback_to_instance_alerts",
     "add_admins_and_developers_to_forks",
+    "datatable_permissions",
+    "protection_rules",
 ];
+
+fn string_list(v: Option<&Value>, what: &str) -> Result<Value> {
+    match v {
+        None | Some(Value::Null) => Ok(json!([])),
+        Some(Value::Array(a)) if a.iter().all(Value::is_string) => Ok(Value::Array(a.clone())),
+        _ => Err(Error::BadRequest(format!(
+            "{what} must be a list of strings"
+        ))),
+    }
+}
+
+/// `datatable_permissions` as the endpoint stores it: an omitted default role is `admin`, and
+/// `admin` is always one of the roles. A data table stated as null is not under roles, as an
+/// omitted one is.
+fn normalize_datatable_permissions(v: &Value) -> Result<Value> {
+    let entries = match v {
+        Value::Null => return Ok(json!({})),
+        Value::Object(m) => m,
+        _ => {
+            return Err(Error::BadRequest(
+                "datatable_permissions must map data tables to their roles".to_string(),
+            ))
+        }
+    };
+    let mut out = Map::new();
+    for (name, entry) in entries {
+        if entry.is_null() {
+            continue;
+        }
+        let what = format!("datatable_permissions.{name}");
+        let entry = entry
+            .as_object()
+            .ok_or_else(|| Error::BadRequest(format!("{what} must be an object or null")))?;
+        let default_role = match entry.get("default_role") {
+            None => json!(ADMIN_DATATABLE_ROLE),
+            Some(r) if r.is_null() || r.is_string() => r.clone(),
+            Some(_) => {
+                return Err(Error::BadRequest(format!(
+                    "{what}.default_role must be a role name or null"
+                )))
+            }
+        };
+        let mut roles = Map::new();
+        match entry.get("roles") {
+            None | Some(Value::Null) => {}
+            Some(Value::Object(r)) => {
+                for (role, tenants) in r {
+                    let tenants = string_list(Some(tenants), &format!("{what}.roles.{role}"))?;
+                    // The endpoint's own check, here so a dry run refuses it too.
+                    for tenant in tenants.as_array().into_iter().flatten() {
+                        let tenant = tenant.as_str().unwrap_or_default();
+                        let valid = tenant == DATATABLE_TENANT_WILDCARD
+                            || matches!(tenant.split_once('/'),
+                                Some(("u" | "g" | "f", rest)) if !rest.is_empty());
+                        if !valid {
+                            return Err(Error::BadRequest(format!(
+                                "Invalid tenant '{tenant}' in {what}.roles.{role}: expected \
+                                 'u/<user>', 'g/<group>', 'f/<folder>' or '*'"
+                            )));
+                        }
+                    }
+                    roles.insert(role.clone(), tenants);
+                }
+            }
+            Some(_) => {
+                return Err(Error::BadRequest(format!(
+                    "{what}.roles must map role names to their tenants"
+                )))
+            }
+        }
+        roles
+            .entry(ADMIN_DATATABLE_ROLE.to_string())
+            .or_insert(json!([]));
+        out.insert(
+            name.clone(),
+            json!({ "default_role": default_role, "roles": roles }),
+        );
+    }
+    Ok(Value::Object(out))
+}
+
+/// `protection_rules` as it is stored: rules in their fixed order, the bypass lists stated. The
+/// dev workspace lock is dropped with a warning, since the dev workspace setting owns it.
+fn normalize_protection_rules(v: &Value, warnings: &mut Vec<String>) -> Result<Value> {
+    let rules = match v {
+        Value::Null => return Ok(json!({})),
+        Value::Object(m) => m,
+        _ => {
+            return Err(Error::BadRequest(
+                "protection_rules must map rule names to rules".to_string(),
+            ))
+        }
+    };
+    let mut out = Map::new();
+    for (name, rule) in rules {
+        if name == DEV_WORKSPACE_LOCK_RULE_NAME {
+            warnings.push(format!(
+                "protection_rules.{name} was left unchanged: the dev workspace setting manages it"
+            ));
+            continue;
+        }
+        if rule.is_null() {
+            continue;
+        }
+        let what = format!("protection_rules.{name}");
+        let rule = rule
+            .as_object()
+            .ok_or_else(|| Error::BadRequest(format!("{what} must be an object or null")))?;
+        let kinds: Vec<ProtectionRuleKind> =
+            serde_json::from_value(rule.get("rules").cloned().unwrap_or(json!([])))
+                .map_err(|e| Error::BadRequest(format!("Invalid {what}.rules: {e}")))?;
+        out.insert(
+            name.clone(),
+            json!({
+                "rules": rule_kinds(ProtectionRules::from(&kinds)),
+                "bypass_groups": string_list(rule.get("bypass_groups"), &format!("{what}.bypass_groups"))?,
+                "bypass_users": string_list(rule.get("bypass_users"), &format!("{what}.bypass_users"))?,
+            }),
+        );
+    }
+    Ok(Value::Object(out))
+}
 
 async fn plan(db: &DB, w_id: &str, desired: Map<String, Value>, replace: bool) -> Result<Plan> {
     let current = {
@@ -507,7 +772,15 @@ async fn plan(db: &DB, w_id: &str, desired: Map<String, Value>, replace: bool) -
         load_settings_document(&mut conn, db, w_id, SecretMode::Plain).await?
     };
     let mc = build_crypt(db, w_id).await?;
-    plan_document(current, desired, replace, &mc)
+    let roles = if desired
+        .get("datatable_permissions")
+        .is_some_and(|v| !v.is_null())
+    {
+        RoleNames::load(db).await
+    } else {
+        RoleNames::default()
+    };
+    plan_document(current, desired, replace, &mc, &roles)
 }
 
 fn plan_document(
@@ -515,6 +788,7 @@ fn plan_document(
     mut desired: Map<String, Value>,
     replace: bool,
     mc: &windmill_common::variables::WorkspaceCrypt,
+    roles: &RoleNames,
 ) -> Result<Plan> {
     let mut warnings = vec![];
     let unknown: Vec<&str> = desired
@@ -591,6 +865,14 @@ fn plan_document(
     ] {
         let v = desired.get(parent).and_then(|p| p.get(key));
         typed(&format!("{parent}.{key}"), v, ok, ty)?;
+    }
+    if let Some(v) = desired.get("datatable_permissions") {
+        let v = normalize_datatable_permissions(v)?;
+        desired.insert("datatable_permissions".to_string(), v);
+    }
+    if let Some(v) = desired.get("protection_rules") {
+        let v = normalize_protection_rules(v, &mut warnings)?;
+        desired.insert("protection_rules".to_string(), v);
     }
     // The endpoint stores an omitted mute flag as `false`.
     if let Some(handler) = desired
@@ -836,6 +1118,15 @@ fn plan_document(
         |v| json!({ "settings": if v.is_null() { json!({ "datatables": {} }) } else { v } }),
     );
 
+    // Stated as a whole: a data table the map omits is not under roles, a rule it omits is
+    // deleted.
+    if let Some(desired) = p.managed("datatable_permissions") {
+        plan_datatable_permissions(&mut p, desired, roles)?;
+    }
+    if let Some(desired) = p.managed("protection_rules") {
+        plan_protection_rules(&mut p, desired);
+    }
+
     let slack_command = p.legacy("slack_command_script");
     p.simple(
         "slack_command_script",
@@ -1007,11 +1298,134 @@ fn plan_document(
     Ok(p)
 }
 
+fn object_of(v: Option<&Value>) -> Map<String, Value> {
+    v.and_then(Value::as_object).cloned().unwrap_or_default()
+}
+
+fn plan_datatable_permissions(p: &mut Plan, desired: Value, roles: &RoleNames) -> Result<()> {
+    let desired = object_of(Some(&desired));
+    let current = object_of(p.current.get("datatable_permissions"));
+    // The data tables as they will be once the `datatable` write before this one has gone through.
+    let entries = object_of(
+        p.desired
+            .get("datatable")
+            .or(p.current.get("datatable"))
+            .and_then(|d| d.get("datatables")),
+    );
+    let names: std::collections::BTreeSet<&String> = desired.keys().chain(current.keys()).collect();
+    for name in names {
+        let (before, after) = (current.get(name), desired.get(name));
+        if same(before, after) {
+            continue;
+        }
+        let entry = entries.get(name);
+        // A removed data table takes its roles with it.
+        if after.is_none() && entry.is_none() {
+            continue;
+        }
+        let body = match after {
+            None => json!({ "datatable": name, "permissioned": false }),
+            Some(after) => {
+                let cluster = entry.and_then(role_cluster_of).ok_or_else(|| {
+                    Error::BadRequest(format!(
+                        "Data table '{name}' cannot be put under roles: only a data table this \
+                         workspace governs, on a cluster Windmill manages, can"
+                    ))
+                })?;
+                let ids: BTreeMap<&str, &str> = roles
+                    .of(cluster)
+                    .ok_or_else(|| {
+                        Error::BadRequest(
+                            "Data table roles are unavailable on this instance".to_string(),
+                        )
+                    })?
+                    .iter()
+                    .map(|(id, name)| (name.as_str(), id.as_str()))
+                    .collect();
+                let id_of = |role: &str| -> Result<String> {
+                    if role == ADMIN_DATATABLE_ROLE {
+                        return Ok(role.to_string());
+                    }
+                    ids.get(role).map(|id| id.to_string()).ok_or_else(|| {
+                        Error::BadRequest(format!(
+                            "'{role}' is not a data table role of the {} cluster",
+                            cluster.as_str()
+                        ))
+                    })
+                };
+                let default_role = match after.get("default_role").and_then(Value::as_str) {
+                    None => NO_DEFAULT_DATATABLE_ROLE.to_string(),
+                    Some(role) => id_of(role)?,
+                };
+                let roles = object_of(after.get("roles"))
+                    .iter()
+                    .map(|(role, tenants)| Ok(json!({ "id": id_of(role)?, "tenants": tenants })))
+                    .collect::<Result<Vec<_>>>()?;
+                json!({
+                    "datatable": name,
+                    "permissioned": true,
+                    "default_role": default_role,
+                    "roles": roles,
+                })
+            }
+        };
+        p.record_change(
+            &format!("datatable_permissions.{name}"),
+            before.cloned().unwrap_or(Value::Null),
+            after.cloned().unwrap_or(Value::Null),
+        );
+        p.write(Target::Edit(SettingsEdit::DatatablePermissions), body);
+    }
+    Ok(())
+}
+
+fn plan_protection_rules(p: &mut Plan, desired: Value) {
+    let desired = object_of(Some(&desired));
+    let current = object_of(p.current.get("protection_rules"));
+    let names: std::collections::BTreeSet<&String> = desired.keys().chain(current.keys()).collect();
+    for name in names {
+        let (before, after) = (current.get(name), desired.get(name));
+        if same(before, after) {
+            continue;
+        }
+        p.record_change(
+            &format!("protection_rules.{name}"),
+            before.cloned().unwrap_or(Value::Null),
+            after.cloned().unwrap_or(Value::Null),
+        );
+        let rule = |r: &Value, name_key: &str| {
+            json!({
+                name_key: name,
+                "rules": r.get("rules"),
+                "bypass_groups": r.get("bypass_groups"),
+                "bypass_users": r.get("bypass_users"),
+            })
+        };
+        match (before, after) {
+            (None, Some(after)) => p.write(
+                Target::Edit(SettingsEdit::CreateProtectionRule),
+                rule(after, "name"),
+            ),
+            (Some(_), Some(after)) => p.write(
+                Target::Edit(SettingsEdit::UpdateProtectionRule),
+                rule(after, "rule_name"),
+            ),
+            _ => p.write(
+                Target::Edit(SettingsEdit::DeleteProtectionRule),
+                json!({ "name": name }),
+            ),
+        }
+    }
+}
+
 fn available_in_this_edition(target: &Target) -> bool {
     match target {
         Target::MuteCriticalAlerts
         | Target::Edit(SettingsEdit::DefaultApp)
         | Target::Edit(SettingsEdit::DeployUi) => cfg!(feature = "enterprise"),
+        Target::Edit(SettingsEdit::DatatablePermissions) => {
+            cfg!(all(feature = "private", feature = "enterprise"))
+        }
         Target::TeamsCommand | Target::Edit(SettingsEdit::InstanceGroups) => {
             cfg!(feature = "private")
         }
@@ -1177,11 +1591,11 @@ mod tests {
     fn replace_clears_an_omitted_setting_only_when_a_stated_one_changes() {
         let mc = WorkspaceCrypt::new("k");
         let unchanged = doc(json!({ "name": "other", "webhook": "https://a" }));
-        let p = plan_document(current(), unchanged, true, &mc).unwrap();
+        let p = plan_document(current(), unchanged, true, &mc, &RoleNames::default()).unwrap();
         assert!(p.writes.is_empty(), "{:?}", keys(&p));
 
         let changed = doc(json!({ "webhook": "https://b" }));
-        let p = plan_document(current(), changed, true, &mc).unwrap();
+        let p = plan_document(current(), changed, true, &mc, &RoleNames::default()).unwrap();
         assert_eq!(
             keys(&p),
             [
@@ -1211,6 +1625,7 @@ mod tests {
                 doc(json!({ "slack_oauth_client_secret": secret })),
                 false,
                 &mc,
+                &RoleNames::default(),
             )
             .unwrap();
             assert!(p.changes.is_empty(), "{secret}: {:?}", keys(&p));
@@ -1222,17 +1637,19 @@ mod tests {
     fn unset_switches_compare_as_false() {
         let mc = WorkspaceCrypt::new("k");
         let d = doc(json!({ "mute_critical_alerts": false, "guest_access_enabled": null }));
-        assert!(plan_document(current(), d, false, &mc)
-            .unwrap()
-            .changes
-            .is_empty());
+        assert!(
+            plan_document(current(), d, false, &mc, &RoleNames::default())
+                .unwrap()
+                .changes
+                .is_empty()
+        );
     }
 
     #[test]
     fn stating_one_guest_key_clears_the_other() {
         let mc = WorkspaceCrypt::new("k");
         let d = doc(json!({ "guest_jwt_jwks_url": "https://jwks" }));
-        let p = plan_document(current(), d, false, &mc).unwrap();
+        let p = plan_document(current(), d, false, &mc, &RoleNames::default()).unwrap();
         assert_eq!(p.writes.len(), 1);
         assert_eq!(
             p.writes[0].body,
@@ -1255,7 +1672,8 @@ mod tests {
             json!({ "public_app_execution_limit_per_minute": 2147483648i64 }),
         ] {
             assert!(
-                plan_document(current(), doc(d.clone()), false, &mc).is_err(),
+                plan_document(current(), doc(d.clone()), false, &mc, &RoleNames::default())
+                    .is_err(),
                 "{d}"
             );
         }
@@ -1270,11 +1688,77 @@ mod tests {
             json!({ "path": "f/x", "extra_args": {}, "muted_on_cancel": false, "muted_on_user_path": false }),
         );
         let d = doc(json!({ "error_handler": { "path": "f/x", "extra_args": { "input": null } } }));
-        let p = plan_document(cur.clone(), d, false, &mc).unwrap();
+        let p = plan_document(cur.clone(), d, false, &mc, &RoleNames::default()).unwrap();
         assert_eq!(keys(&p), ["error_handler"]);
 
         let d = doc(json!({ "error_handler": { "path": "f/x", "extra_args": {} } }));
-        let p = plan_document(cur, d, false, &mc).unwrap();
+        let p = plan_document(cur, d, false, &mc, &RoleNames::default()).unwrap();
         assert!(p.changes.is_empty(), "{:?}", keys(&p));
+    }
+
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    #[test]
+    fn datatable_roles_are_named_in_the_document_and_written_by_id() {
+        let mc = WorkspaceCrypt::new("k");
+        let roles = RoleNames {
+            instance: Some([("r1".to_string(), "readers".to_string())].into()),
+            external_instance: None,
+        };
+        let mut cur = current();
+        cur.insert(
+            "datatable".into(),
+            json!({ "datatables": { "main": { "database": { "resource_type": "instance", "resource_path": "main" } } } }),
+        );
+        cur.insert(
+            "datatable_permissions".into(),
+            json!({ "main": { "default_role": "admin", "roles": { "admin": [], "readers": ["g/x"] } } }),
+        );
+
+        let d = doc(
+            json!({ "datatable_permissions": { "main": { "default_role": "readers", "roles": { "readers": ["g/x", "u/bob"] } } } }),
+        );
+        let p = plan_document(cur.clone(), d, false, &mc, &roles).unwrap();
+        assert_eq!(keys(&p), ["datatable_permissions.main"]);
+        assert_eq!(
+            p.writes[0].body,
+            json!({ "datatable": "main", "permissioned": true, "default_role": "r1",
+                    "roles": [{ "id": "r1", "tenants": ["g/x", "u/bob"] }, { "id": "admin", "tenants": [] }] })
+        );
+
+        let d = doc(json!({ "datatable_permissions": {} }));
+        let p = plan_document(cur.clone(), d, false, &mc, &roles).unwrap();
+        assert_eq!(
+            p.writes[0].body,
+            json!({ "datatable": "main", "permissioned": false })
+        );
+
+        let d = doc(json!({ "datatable_permissions": { "main": { "roles": { "writers": [] } } } }));
+        assert!(plan_document(cur, d, false, &mc, &roles).is_err());
+    }
+
+    #[test]
+    fn protection_rules_are_diffed_by_name() {
+        let mc = WorkspaceCrypt::new("k");
+        let mut cur = current();
+        cur.insert(
+            "protection_rules".into(),
+            json!({ "old": { "rules": ["DisableWorkspaceForking"], "bypass_groups": [], "bypass_users": [] } }),
+        );
+        let d = doc(json!({ "protection_rules": {
+            "new": { "rules": ["RestrictPublicRunSharing", "DisableDirectDeployment"] },
+            "dev_workspace_lock": { "rules": [] },
+        } }));
+        let p = plan_document(cur, d, false, &mc, &RoleNames::default()).unwrap();
+        assert_eq!(keys(&p), ["protection_rules.new", "protection_rules.old"]);
+        assert_eq!(
+            p.writes[0].body,
+            json!({ "name": "new", "rules": ["DisableDirectDeployment", "RestrictPublicRunSharing"],
+                    "bypass_groups": [], "bypass_users": [] })
+        );
+        assert!(matches!(
+            p.writes[1].target,
+            Target::Edit(SettingsEdit::DeleteProtectionRule)
+        ));
+        assert_eq!(p.warnings.len(), 1);
     }
 }
