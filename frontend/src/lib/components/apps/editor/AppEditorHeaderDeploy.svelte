@@ -4,7 +4,7 @@
 	import Badge from '$lib/components/Badge.svelte'
 	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
-	import { Loader2, User } from 'lucide-svelte'
+	import { Loader2 } from 'lucide-svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
@@ -321,49 +321,45 @@
 		label="Run on behalf of"
 		tooltip={`The app's runnables run as this user whoever opens the app, so viewers need no access of their own. To keep that safe, the app can call only the runnables it was deployed with, and viewers cannot override their static inputs. Runnables still get the viewer's email in WM_END_USER_EMAIL${rawApp ? ', and inline ones can be set to read data tables and object storage as the viewer' : ''}.`}
 	>
-		{#if !canPreserve}
-			<div class="flex flex-col items-start gap-1">
-				<span class="inline-flex items-center gap-1 text-xs text-secondary">
-					<User class="w-4 h-4" />
-					u/{actingUser?.username}
-				</span>
-				<div class="text-2xs text-secondary">
+		<div class="flex flex-col items-start gap-1">
+			<OnBehalfOfSelector
+				targetWorkspace={opWs ?? ''}
+				targetValue={savedOnBehalfOfEmail}
+				selected={onBehalfOfChoice}
+				onSelect={(choice, details) => {
+					pickedOnBehalfOf = choice
+					if (choice === 'me') {
+						policy.on_behalf_of_email = $userStore?.email
+						policy.on_behalf_of = `u/${$userStore?.username}`
+						customOnBehalfOfEmail = ''
+						preserveOnBehalfOf = false
+					} else if (choice === 'target') {
+						policy.on_behalf_of_email = savedOnBehalfOfEmail
+						policy.on_behalf_of = savedOnBehalfOf
+						customOnBehalfOfEmail = ''
+						preserveOnBehalfOf = true
+					} else if (choice === 'custom' && details) {
+						policy.on_behalf_of_email = details.email
+						policy.on_behalf_of = details.permissionedAs
+						customOnBehalfOfEmail = details.email
+						preserveOnBehalfOf = true
+					}
+				}}
+				kind="app"
+				{canPreserve}
+				customValue={customOnBehalfOfEmail}
+				isDeployment={false}
+				myPermissionedAs={actingUser?.username ? `u/${actingUser.username}` : undefined}
+				readOnlyWithoutPreserve
+			/>
+			<div class="text-2xs text-secondary">
+				{#if canPreserve}
+					Viewers run the app's runnables as this user.
+				{:else}
 					Only workspace admins and members of {WM_DEPLOYERS_GROUP} can pick another user.
-				</div>
+				{/if}
 			</div>
-		{:else}
-			<div class="flex flex-col items-start gap-1">
-				<OnBehalfOfSelector
-					targetWorkspace={opWs ?? ''}
-					targetValue={savedOnBehalfOfEmail}
-					selected={onBehalfOfChoice}
-					onSelect={(choice, details) => {
-						pickedOnBehalfOf = choice
-						if (choice === 'me') {
-							policy.on_behalf_of_email = $userStore?.email
-							policy.on_behalf_of = `u/${$userStore?.username}`
-							customOnBehalfOfEmail = ''
-							preserveOnBehalfOf = false
-						} else if (choice === 'target') {
-							policy.on_behalf_of_email = savedOnBehalfOfEmail
-							policy.on_behalf_of = savedOnBehalfOf
-							customOnBehalfOfEmail = ''
-							preserveOnBehalfOf = true
-						} else if (choice === 'custom' && details) {
-							policy.on_behalf_of_email = details.email
-							policy.on_behalf_of = details.permissionedAs
-							customOnBehalfOfEmail = details.email
-							preserveOnBehalfOf = true
-						}
-					}}
-					kind="app"
-					{canPreserve}
-					customValue={customOnBehalfOfEmail}
-					isDeployment={false}
-				/>
-				<div class="text-2xs text-secondary">Viewers run the app's runnables as this user.</div>
-			</div>
-		{/if}
+		</div>
 	</Section>
 
 	<Section label="Sandbox isolation">
