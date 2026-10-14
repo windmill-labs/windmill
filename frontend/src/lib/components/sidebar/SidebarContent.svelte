@@ -340,7 +340,7 @@
 			label: config?.serviceDisplayName || service,
 			href: `/native_triggers/${service}`,
 			icon: icon,
-			disabled: $userStore?.operator,
+			disabled: !allows('triggers'),
 			kind: service,
 			aiId: `sidebar-menu-link-${service}`,
 			aiDescription: `Button to navigate to ${config?.serviceDisplayName || service} triggers`
