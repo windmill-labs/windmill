@@ -4802,6 +4802,120 @@ async fn test_run_wait_result_early_return_inside_branch_one(
     Ok(())
 }
 
+/// The step whose stream `run_and_stream` follows: the early-return step inside branches to one
+/// and to all, the last step when the early-return step's branch is not taken, and neither when
+/// the early-return step ran inside a loop. Only a deployed flow reads `early_return` here.
+#[cfg(all(feature = "deno_core", feature = "quickjs"))]
+#[sqlx::test(fixtures("base"))]
+async fn test_early_return_stream_job_inside_branches(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    let streams = |v: &str| {
+        json!({
+            "type": "rawscript",
+            "language": "deno",
+            "input_transforms": {},
+            "content": format!(
+                "export async function main() {{ console.log('WM_STREAM: {v}'); await new Promise((r) => setTimeout(r, 1000)); return '{v}' }}"
+            ),
+        })
+    };
+    let modules = json!([
+        {
+            "id": "a",
+            "value": {
+                "type": "branchone",
+                "branches": [{ "expr": "flow_input.take", "modules": [
+                    {
+                        "id": "b",
+                        "value": {
+                            "type": "branchall",
+                            "branches": [{ "modules": [{ "id": "c", "value": streams("c") }] }],
+                        },
+                    },
+                    {
+                        "id": "l",
+                        "value": {
+                            "type": "forloopflow",
+                            "iterator": { "type": "javascript", "expr": "[1]" },
+                            "skip_failures": false,
+                            // Two steps, so the loop body is not inlined into the iteration job.
+                            "modules": [
+                                { "id": "j", "value": streams("j") },
+                                { "id": "m", "value": { "type": "identity" } },
+                            ],
+                        },
+                    },
+                ] }],
+                "default": [],
+            },
+        },
+        { "id": "d", "value": streams("d") },
+    ]);
+
+    for (version, early_return, take, expected) in [
+        (1, "c", true, Some("c")),
+        (2, "c", false, Some("d")),
+        (3, "j", true, None),
+    ] {
+        let path = format!("f/system/early_return_stream_{version}");
+        let value = json!({ "modules": modules, "early_return": early_return });
+        sqlx::query(
+            "INSERT INTO flow(workspace_id, summary, description, path, versions, schema, value, edited_by) VALUES ('test-workspace', '', '', $1, ARRAY[$2]::bigint[], '{}'::jsonb, $3, 'system')",
+        )
+        .bind(&path)
+        .bind(version)
+        .bind(&value)
+        .execute(&db)
+        .await?;
+        sqlx::query(
+            "INSERT INTO flow_version(id, workspace_id, path, schema, value, created_by) VALUES ($1, 'test-workspace', $2, '{}'::jsonb, $3, 'system')",
+        )
+        .bind(version)
+        .bind(&path)
+        .bind(&value)
+        .execute(&db)
+        .await?;
+        RunJob::from(JobPayload::FlowDependencies {
+            path: path.clone(),
+            dedicated_worker: None,
+            version,
+            debouncing_settings: Default::default(),
+        })
+        .run_until_complete(&db, false, port)
+        .await;
+
+        let completed = RunJob::from(JobPayload::Flow {
+            path,
+            dedicated_worker: None,
+            apply_preprocessor: false,
+            labels: None,
+            version,
+            job_token_scopes: None,
+        })
+        .arg("take", json!(take))
+        .run_until_complete(&db, false, port)
+        .await;
+
+        let stream_step: Option<String> = sqlx::query_scalar(
+            "SELECT flow_step_id FROM v2_job
+            WHERE id = (SELECT (flow_status->>'stream_job')::uuid FROM v2_job_completed WHERE id = $1)",
+        )
+        .bind(completed.id)
+        .fetch_optional(&db)
+        .await?;
+        assert_eq!(
+            expected.map(String::from),
+            stream_step,
+            "{early_return}, take = {take}"
+        );
+    }
+
+    Ok(())
+}
+
 /// `recover: true` from the error handler of a step that fails inside a loop turns the flow
 /// green, as it does for a top-level step, without changing which steps run: a loop that
 /// stops at a failed iteration still stops there, one that skips failures still carries on.
