@@ -1487,7 +1487,8 @@ pub async fn drop_forked_datatable_databases(
 
     let mut errors: Vec<String> = Vec::new();
     // Data tables cloned from one database share its copy, which is dropped once for all of them.
-    let mut dropped_dbs: HashSet<String> = HashSet::new();
+    // Keyed by where the database lives too: copies on other clusters or servers can share a name.
+    let mut dropped_dbs: HashSet<(String, Option<u16>, String)> = HashSet::new();
     // Only a clone is droppable, and a clone is terminal by construction: a kept data table is a
     // pointer at the parent's database, which this fork does not own.
     let cloned_database = |name: &str| {
@@ -1504,7 +1505,8 @@ pub async fn drop_forked_datatable_databases(
 
         if database.resource_type.is_windmill_managed() {
             let db_to_drop = &database.resource_path;
-            if !dropped_dbs.insert(db_to_drop.clone()) {
+            let cluster = database.resource_type.as_ref().to_string();
+            if !dropped_dbs.insert((cluster, None, db_to_drop.clone())) {
                 continue;
             }
             let sharing: Vec<String> = req
@@ -1695,7 +1697,7 @@ pub async fn drop_forked_datatable_databases(
                 ));
                 continue;
             }
-            if !dropped_dbs.insert(db_to_drop.clone()) {
+            if !dropped_dbs.insert((parent_pg.host.clone(), parent_pg.port, db_to_drop.clone())) {
                 continue;
             }
 
