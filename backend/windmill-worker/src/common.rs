@@ -1314,6 +1314,84 @@ pub fn render_nsjail_rlimit_as(env_override: Option<&str>, default_mb: u32) -> S
     }
 }
 
+/// Quote a string as a protobuf-text-format string literal for safe inclusion in
+/// an nsjail config. Every byte is emitted as a printable ASCII char or a valid
+/// protobuf escape (`\"`, `\\`, `\n`/`\r`/`\t`, or 3-digit octal `\NNN` for
+/// control/non-ASCII bytes), so a hostile value can neither break the literal nor
+/// inject further directives.
+///
+/// `{` and `}` are escaped too: profiles are rendered by substituting `{PLACEHOLDER}`
+/// tokens one after another, so a value that still contained braces could smuggle in a
+/// later placeholder's expansion — and `{ENVARS}` expands to unquoted directives.
+pub(crate) fn proto_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for &b in s.as_bytes() {
+        match b {
+            b'"' => out.push_str("\\\""),
+            b'\\' => out.push_str("\\\\"),
+            b'\n' => out.push_str("\\n"),
+            b'\r' => out.push_str("\\r"),
+            b'\t' => out.push_str("\\t"),
+            b'{' | b'}' => out.push_str(&format!("\\{b:03o}")),
+            0x20..=0x7e => out.push(b as char),
+            _ => out.push_str(&format!("\\{b:03o}")),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// Render env vars as nsjail `envar:` directives (one per line), the only way
+/// caller-controlled env may reach a jailed child. Set on the process that execs
+/// nsjail instead, `LD_PRELOAD`/`LD_LIBRARY_PATH`/`LD_AUDIT` would be honoured by
+/// the loader for nsjail itself, before any namespace or chroot exists.
+pub(crate) fn render_envars<'a>(env: impl IntoIterator<Item = (&'a str, &'a str)>) -> String {
+    env.into_iter()
+        .map(|(k, v)| format!("envar: {}", proto_str(&format!("{k}={v}"))))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The script's env vars as `envar:` directives for its nsjail run profile.
+///
+/// The profile sets `keep_env`, so the child also inherits the launcher's env, and
+/// an `envar:` overrides an inherited key. A key the launcher sets therefore keeps
+/// the launcher's value, as it did when both were set on the launcher with the
+/// script's env first, unless it is listed in `script_overrides` (see
+/// [`script_overrides`]).
+pub(crate) fn script_envars(
+    envs: &HashMap<String, String>,
+    launcher: &Command,
+    script_overrides: &[&str],
+) -> String {
+    let launcher_keys: HashSet<&std::ffi::OsStr> =
+        launcher.as_std().get_envs().map(|(k, _)| k).collect();
+    render_envars(
+        envs.iter()
+            .filter(|(k, _)| {
+                script_overrides.contains(&k.as_str())
+                    || !launcher_keys.contains(std::ffi::OsStr::new(k.as_str()))
+            })
+            .map(|(k, v)| (k.as_str(), v.as_str())),
+    )
+}
+
+/// The keys an executor sets on its nsjail launcher before the script's env, so the
+/// script's value wins, less those `reserved_variables` (applied after the script's env,
+/// and carrying worker-group env vars) sets again, so the worker's value wins.
+#[cfg(any(feature = "nu", feature = "java", feature = "ruby", feature = "rlang"))]
+pub(crate) fn script_overrides<'a>(
+    set_before: &[&'a str],
+    reserved_variables: &HashMap<String, String>,
+) -> Vec<&'a str> {
+    set_before
+        .iter()
+        .copied()
+        .filter(|k| !reserved_variables.contains_key(*k))
+        .collect()
+}
+
 /// Default size (in bytes) of the `/tmp` tmpfs mount inside nsjail sandboxes,
 /// used when the `nsjail_tmpfs_size_mb` instance setting is unset.
 pub const DEFAULT_NSJAIL_TMPFS_SIZE_BYTES: u64 = 800_000_000;
@@ -2635,6 +2713,78 @@ mod tests {
         let result = transform_json_value("test", &client, "test", input, &job, &conn, 0).await;
 
         assert!(result.is_err());
+    }
+
+    // A profile that loses `{ENVARS}` silently drops the script's env, since a
+    // `replace` on a missing token does nothing. It must also precede every fixed
+    // `envar:`, which overrides it the way it overrode the launcher's env.
+    #[test]
+    fn script_profiles_take_envars_before_their_fixed_ones() {
+        for (name, profile) in [
+            ("go", include_str!("../nsjail/run.go.config.proto")),
+            ("rust", include_str!("../nsjail/run.rust.config.proto")),
+            ("bun", include_str!("../nsjail/run.bun.config.proto")),
+            ("nu", include_str!("../nsjail/run.nu.config.proto")),
+            ("php", include_str!("../nsjail/run.php.config.proto")),
+            ("csharp", include_str!("../nsjail/run.csharp.config.proto")),
+            ("java", include_str!("../nsjail/run.java.config.proto")),
+            ("ruby", include_str!("../nsjail/run.ruby.config.proto")),
+            ("r", include_str!("../nsjail/run.r.config.proto")),
+            (
+                "gem install",
+                include_str!("../nsjail/download.ruby.config.proto"),
+            ),
+        ] {
+            let at = profile
+                .find("\n{ENVARS}\n")
+                .unwrap_or_else(|| panic!("{name}: no {{ENVARS}}"));
+            assert!(
+                !profile[..at].contains("\nenvar:"),
+                "{name}: a fixed envar precedes {{ENVARS}}"
+            );
+        }
+    }
+
+    #[test]
+    fn script_envars_reach_the_jail_not_the_launcher() {
+        let envs = HashMap::from([
+            ("LD_PRELOAD".to_string(), "/tmp/evil.so".to_string()),
+            ("WM_TOKEN".to_string(), "forged".to_string()),
+            ("PATH".to_string(), "/custom/bin".to_string()),
+        ]);
+        let mut launcher = Command::new("nsjail");
+        launcher
+            .env_clear()
+            .env("PATH", "/usr/bin")
+            .env("WM_TOKEN", "real");
+
+        let out = script_envars(&envs, &launcher, &["PATH"]);
+        let mut lines = out.lines().collect::<Vec<_>>();
+        lines.sort();
+        // A launcher key keeps the launcher's value unless the executor lets the
+        // script override it.
+        assert_eq!(
+            lines,
+            vec![
+                "envar: \"LD_PRELOAD=/tmp/evil.so\"",
+                "envar: \"PATH=/custom/bin\"",
+            ]
+        );
+        assert!(launcher
+            .as_std()
+            .get_envs()
+            .all(|(k, _)| k != std::ffi::OsStr::new("LD_PRELOAD")));
+
+        let hostile = HashMap::from([(
+            "X".to_string(),
+            "v\"\nclone_newuser: false {JOB_DIR}".to_string(),
+        )]);
+        let line = script_envars(&hostile, &launcher, &[]);
+        assert_eq!(line.lines().count(), 1, "{line}");
+        assert!(
+            !line.contains('{') && !line.contains("\nclone_newuser"),
+            "{line}"
+        );
     }
 }
 
