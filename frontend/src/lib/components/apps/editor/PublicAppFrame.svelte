@@ -215,6 +215,8 @@
 		)
 			return
 		const url = new URL(a.href, window.location.href)
+		// The embedder only relays http(s); mailto:, tel: and the like work in the frame.
+		if (url.protocol !== 'http:' && url.protocol !== 'https:') return
 		const sameOrigin = url.origin === window.location.origin
 		if (sameOrigin && url.pathname === window.location.pathname) return
 		e.preventDefault()
