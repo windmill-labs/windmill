@@ -5612,19 +5612,18 @@ pub async fn get_result_and_success_by_id_from_flow(
             .fetch_one(db)
             .await?
         }
+        // A container with nothing to run has no job to find its status by, and is always
+        // recorded as a success.
+        JobResult::ListJob(jobs) if jobs.is_empty() => true,
         JobResult::ListJob(jobs) => {
             // The step's status lives in the flow job that ran it, which is the root only for a
             // top-level step: one nested in a branch is a module of that branch's job.
-            let holder = match jobs.first() {
-                Some(job) => {
-                    sqlx::query_scalar!("SELECT parent_job FROM v2_job WHERE id = $1", job)
-                        .fetch_optional(db)
-                        .await?
-                        .flatten()
-                }
-                None => None,
-            }
-            .unwrap_or(*flow_id);
+            let holder =
+                sqlx::query_scalar!("SELECT parent_job FROM v2_job WHERE id = $1", jobs[0])
+                    .fetch_optional(db)
+                    .await?
+                    .flatten()
+                    .unwrap_or(*flow_id);
             // That job can complete before the root does, so its status may be in either table.
             sqlx::query_scalar(
                 r#"SELECT module->>'type' = 'Success'
