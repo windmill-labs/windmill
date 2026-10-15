@@ -83,6 +83,8 @@
 	 * where the lite payload carries it; the flat field beside it is the apps *list* row's
 	 * spelling (ListableApp, which is what AppRow reads). */
 	let executionMode = $state<string | undefined>(undefined)
+	/** From the lite read too: a sandboxed low-code app never fills `app`. */
+	let summary = $state<string | undefined>(undefined)
 	let editHref = $derived(`/${isRawApp ? 'apps_raw' : 'apps'}/edit/${path}?nodraft=true`)
 	let refresh: (() => void) | undefined
 
@@ -174,8 +176,10 @@
 			appPerms = { path: lite?.path ?? path, extraPerms: lite?.extra_perms ?? {} }
 			isRawApp = !!lite?.raw_app
 			executionMode = lite?.policy?.execution_mode ?? lite?.execution_mode
+			summary = lite?.summary || undefined
 		} catch (_) {
 			appPerms = undefined
+			summary = undefined
 		}
 	}
 
@@ -265,7 +269,7 @@
      no item, and the breadcrumb would fall back to the section name "Apps". -->
 {#if ownsPageHeader}
 	<PageHeaderContent
-		item={{ kind: 'app', path }}
+		item={{ kind: 'app', path, summary }}
 		actions={showEdit && !menuHidden ? editAction : undefined}
 		separator="always"
 	/>
