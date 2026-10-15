@@ -50,6 +50,8 @@
 		runnable: Runnable
 		id: string
 		appPath: string
+		/** Identity the test runs as instead of the user (see `appPreviewOnBehalfOf`). */
+		previewOnBehalfOf?: string
 		lastDeployedCode?: string | undefined
 		/** Called when code is selected in the editor */
 		onSelectionChange?: (
@@ -63,7 +65,13 @@
 		) => void
 	}
 
-	let { runnable = $bindable(), id, appPath, onSelectionChange }: Props = $props()
+	let {
+		runnable = $bindable(),
+		id,
+		appPath,
+		previewOnBehalfOf,
+		onSelectionChange
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -179,7 +187,15 @@
 				runnable.inlineScript?.content ?? '',
 				runnable.inlineScript?.language,
 				args,
-				undefined
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				previewOnBehalfOf
 			)
 		} else if (isRunnableByPath(runnable)) {
 			if (jobLoader && isRunnableByPath(runnable)) {
@@ -189,7 +205,13 @@
 							sendUserToast('Hub flow preview is still loading', true)
 							return
 						}
-						await jobLoader.runFlowPreview(args, hubFlowPreview, undefined, runnable.path)
+						await jobLoader.runFlowPreview(
+							args,
+							hubFlowPreview,
+							undefined,
+							runnable.path,
+							previewOnBehalfOf
+						)
 					} else {
 						await jobLoader.runFlowByPath(runnable.path, args)
 					}

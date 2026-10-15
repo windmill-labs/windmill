@@ -4289,6 +4289,9 @@ pub struct ExecuteApp {
     /// inline-script (raw_code, preview) execution so `wmill app dev` resolves
     /// those imports from not-yet-deployed local content instead of deployed.
     pub temp_script_refs: Option<HashMap<String, String>>,
+    /// Preview mode only: run as this identity instead of the caller, as the deployed app
+    /// would in publisher mode. See `jobs::preview_on_behalf_of`.
+    pub on_behalf_of: Option<String>,
 }
 
 fn digest(code: &str) -> String {
@@ -4802,8 +4805,19 @@ async fn execute_component(
         }
     }
 
-    let (username, permissioned_as, email) =
+    let (username, mut permissioned_as, mut email) =
         get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed, &w_id, &db).await?;
+    let preview_obo = match opt_authed.as_ref().filter(|_| is_preview) {
+        Some(authed) => {
+            crate::jobs::preview_on_behalf_of(authed, payload.on_behalf_of.as_deref(), &w_id, &db)
+                .await?
+        }
+        None => None,
+    };
+    if let Some(obo) = preview_obo.as_ref() {
+        permissioned_as = obo.permissioned_as.clone();
+        email = obo.email.clone();
+    }
 
     let resolved_delete_secs =
         resolve_delete_after_secs(None, policy_triggerables.delete_after_secs);
@@ -4941,6 +4955,7 @@ async fn execute_component(
         Some(authed) => windmill_api_auth::caller_scope_ceiling(&db, authed).await?,
         None => None,
     };
+    let preview_obo_author = preview_obo.as_ref().and(opt_authed.clone());
     let (uuid, mut tx) = push(
         &db,
         tx,
@@ -4979,6 +4994,11 @@ async fn execute_component(
         scope_ceiling.as_deref(),
     )
     .await?;
+
+    if let (Some(obo), Some(authed)) = (preview_obo.as_ref(), preview_obo_author.as_ref()) {
+        crate::jobs::audit_preview_on_behalf_of(&mut tx, authed, &w_id, uuid, Some(path), obo)
+            .await?;
+    }
 
     if policy_triggerables.viewer_data_access && is_inline {
         sqlx::query!(

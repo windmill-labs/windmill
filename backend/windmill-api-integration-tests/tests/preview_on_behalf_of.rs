@@ -6,11 +6,10 @@ use sqlx::{Pool, Postgres};
 use uuid::Uuid;
 use windmill_test_utils::*;
 
+/// `route` is under `/api/w/test-workspace/`.
 async fn post(port: u16, token: &str, route: &str, body: serde_json::Value) -> (u16, String) {
     let resp = reqwest::Client::new()
-        .post(format!(
-            "http://localhost:{port}/api/w/test-workspace/jobs/run/{route}"
-        ))
+        .post(format!("http://localhost:{port}/api/w/test-workspace/{route}"))
         .header("Authorization", format!("Bearer {token}"))
         .json(&body)
         .send()
@@ -41,13 +40,25 @@ async fn test_preview_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
         })
     };
     let flow = |obo: &str| json!({ "value": {"modules": []}, "args": {}, "on_behalf_of": obo });
+    // The app editor's preview of an inline runnable.
+    let app = |obo: &str| {
+        json!({
+            "args": {},
+            "component": "c",
+            "raw_code": { "language": "deno", "content": "export function main() { return 1; }" },
+            "force_viewer_static_fields": {},
+            "on_behalf_of": obo,
+        })
+    };
+    let app_route = "apps_u/execute_component/u/test-user/app";
 
     for (route, body) in [
-        ("preview", script("test2@windmill.dev")),
-        ("preview_flow", flow("u/test-user-2")),
+        ("jobs/run/preview", script("test2@windmill.dev")),
+        ("jobs/run/preview_flow", flow("u/test-user-2")),
+        (app_route, app("u/test-user-2")),
     ] {
         let (status, id) = post(port, "SECRET_TOKEN", route, body).await;
-        assert_eq!(status, 201, "{route}: {id}");
+        assert!((200..300).contains(&status), "{route}: {status} {id}");
         assert_eq!(
             identity(&db, &id).await,
             (
@@ -59,14 +70,15 @@ async fn test_preview_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     }
 
     for (route, body) in [
-        ("preview", script("test@windmill.dev")),
-        ("preview_flow", flow("u/test-user")),
+        ("jobs/run/preview", script("test@windmill.dev")),
+        ("jobs/run/preview_flow", flow("u/test-user")),
+        (app_route, app("u/test-user")),
     ] {
         let (status, body) = post(port, "SECRET_TOKEN_2", route, body).await;
         assert_eq!(status, 403, "{route}: {body}");
     }
 
-    let (status, id) = post(port, "SECRET_TOKEN_2", "preview", script("u/test-user-2")).await;
+    let (status, id) = post(port, "SECRET_TOKEN_2", "jobs/run/preview", script("u/test-user-2")).await;
     assert_eq!(status, 201, "{id}");
     assert_eq!(identity(&db, &id).await.0, "u/test-user-2");
 

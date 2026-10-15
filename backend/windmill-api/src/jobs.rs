@@ -8944,7 +8944,7 @@ fn operator_preview_refusal(job_id: Option<Uuid>) -> error::Error {
 /// (admins and `wm_deployers`) may ask for it. Naming oneself is always allowed. Operators are
 /// refused even in `wm_deployers`: the datatable-query exemption lets them reach this route
 /// without being able to deploy anything.
-async fn preview_on_behalf_of(
+pub(crate) async fn preview_on_behalf_of(
     authed: &ApiAuthed,
     requested: Option<&str>,
     w_id: &str,
@@ -8976,7 +8976,7 @@ async fn preview_on_behalf_of(
     Ok(Some(OnBehalfOf { email, permissioned_as }))
 }
 
-async fn audit_preview_on_behalf_of(
+pub(crate) async fn audit_preview_on_behalf_of(
     tx: &mut Transaction<'_, Postgres>,
     authed: &ApiAuthed,
     w_id: &str,

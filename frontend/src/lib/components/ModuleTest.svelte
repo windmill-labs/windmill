@@ -23,7 +23,11 @@
 	import { AGENT_OVERRIDE_KEYS, agentTestInputTransforms } from './flows/agentFormFields'
 	import { sendUserToast } from '$lib/toast'
 	import { quickjsReady } from '$lib/utils/quickjsEval.svelte'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+	import { previewOnBehalfOf } from '$lib/utils/previewOnBehalfOf'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -57,6 +61,15 @@
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
 	let previewBase = $derived($pathStore ?? '')
+	const operatingUser = useOperatingUser()
+	// A step runs as the flow does, so its test does too.
+	let onBehalfOf = $derived(
+		previewOnBehalfOf(
+			operatingUser.current,
+			flowStore?.val?.on_behalf_of,
+			flowStore?.val?.on_behalf_of_email
+		)
+	)
 
 	// Acting workspace when the flow editor runs in an AI session; else the nav workspace.
 	let opWs = $derived(opWorkspace?.() ?? $operatingWorkspace)
@@ -126,7 +139,8 @@
 				previewBase,
 				undefined,
 				devTempScriptRefs?.(),
-				timeout
+				timeout,
+				onBehalfOf
 			)
 		} else if (val.type == 'script') {
 			const script = val.hash
@@ -144,7 +158,8 @@
 				previewBase,
 				undefined,
 				undefined,
-				timeout
+				timeout,
+				onBehalfOf
 			)
 		} else if (val.type == 'flow') {
 			await jobLoader?.runFlowByPath(val.path, args, callbacks)
@@ -219,7 +234,8 @@
 					schema
 				},
 				callbacks,
-				previewBase
+				previewBase,
+				onBehalfOf
 			)
 		} else if (val.type == 'aidecision') {
 			const { schema } = await loadSchemaFromModule(mod, opWs)
@@ -241,7 +257,8 @@
 					schema
 				},
 				callbacks,
-				previewBase
+				previewBase,
+				onBehalfOf
 			)
 		} else {
 			throw Error('Not supported module type')
