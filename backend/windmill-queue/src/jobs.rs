@@ -3410,6 +3410,13 @@ const PRESET_HANDLER_PATHS: [&str; 23] = [
     "hub/19795/workspace-or-error-handler-email",
 ];
 
+/// The built-in variable expiration handlers in `hubPaths.json`. Kept out of
+/// `PRESET_HANDLER_PATHS`, which would let a schedule pointed at them run as the error handler.
+pub const VARIABLE_EXPIRATION_PRESET_PATHS: [&str; 2] = [
+    "hub/28987/variable-expiration-handler-slack",
+    "hub/28988/variable-expiration-handler-teams",
+];
+
 /// The preset handler Windmill ships on the hub that `handler_path` names, `None` for user code.
 fn preset_handler(handler_path: &str) -> Option<&'static str> {
     let path = handler_path.strip_prefix("script/").unwrap_or(handler_path);
@@ -8931,7 +8938,7 @@ mod git_sync_concurrency_key_tests {
 
 #[cfg(test)]
 mod preset_handler_path_tests {
-    use super::is_preset_handler_path;
+    use super::{is_preset_handler_path, VARIABLE_EXPIRATION_PRESET_PATHS};
 
     #[test]
     fn only_pinned_hub_scripts_are_presets() {
@@ -8956,7 +8963,8 @@ mod preset_handler_path_tests {
         for (name, path) in hub_paths {
             if path.contains("-handler-") {
                 assert!(
-                    is_preset_handler_path(&path),
+                    is_preset_handler_path(&path)
+                        || VARIABLE_EXPIRATION_PRESET_PATHS.contains(&path.as_str()),
                     "{name}: {path} is not pinned"
                 );
             }
