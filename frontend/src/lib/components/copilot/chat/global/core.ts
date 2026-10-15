@@ -52,6 +52,7 @@ import { withAgentDrafts } from '$lib/components/flows/linkedAgentDrafts'
 import { resolveLinkedAgentTools } from '$lib/components/flows/flowState'
 import { enabledToolNames, type AgentTool } from '$lib/components/flows/agentToolUtils'
 import { evalValue } from '$lib/components/flows/utils.svelte'
+import { forEachFlowModule } from '$lib/components/flows/dfs'
 import { quickjsReady } from '$lib/utils/quickjsEval.svelte'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
 import {
@@ -5851,6 +5852,28 @@ type FlowDraftArgs = {
 
 const FLOW_STRUCTURAL_VALUE_KEYS = new Set<string>(EDITABLE_FLOW_STRUCTURAL_KEYS)
 
+// The worker reuses any inline step lock that is non-empty, so a step whose code changed must
+// lose its lock or it deploys against the old one. The flow editor clears it on edit; the chat
+// rebuilds modules from a compact view that carries every field but `content`.
+function dropStaleStepLocks(value: FlowValue, base: FlowValue | undefined): void {
+	const allModules = (v: FlowValue) =>
+		[...v.modules, v.preprocessor_module, v.failure_module].filter(
+			(m): m is FlowModule => m != null
+		)
+	const baseContent = new Map<string, unknown>()
+	if (base) {
+		forEachFlowModule(allModules(base), (m) =>
+			baseContent.set(m.id, (m.value as { content?: unknown }).content)
+		)
+	}
+	forEachFlowModule(allModules(value), (m) => {
+		const step = m.value as { content?: unknown; lock?: unknown }
+		if (step.lock != undefined && baseContent.get(m.id) !== step.content) {
+			delete step.lock
+		}
+	})
+}
+
 const FLOW_SPEC: WriteSpec<Flow, FlowDraftArgs> = {
 	probe: (workspace, path) => FlowService.existsFlowByPath({ workspace, path }),
 	fetchDeployed: (workspace, path) => FlowService.getFlowByPath({ workspace, path }),
@@ -5869,6 +5892,7 @@ const FLOW_SPEC: WriteSpec<Flow, FlowDraftArgs> = {
 				}
 			}
 		}
+		dropStaleStepLocks(value, base?.value)
 		return base
 			? {
 					...structuredClone(base),
