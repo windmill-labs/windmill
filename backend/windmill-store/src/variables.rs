@@ -1062,16 +1062,6 @@ async fn delete_variables_bulk(
     Ok(Json(deleted_paths))
 }
 
-/// Distinguishes an absent JSON field from an explicit `null`. A plain `Option<Option<T>>`
-/// cannot: the outer `Option`'s own impl already maps `null` to `None`.
-fn double_option<'de, T, D>(deserializer: D) -> std::result::Result<Option<Option<T>>, D::Error>
-where
-    T: Deserialize<'de>,
-    D: serde::Deserializer<'de>,
-{
-    Deserialize::deserialize(deserializer).map(Some)
-}
-
 #[derive(Deserialize)]
 struct EditVariable {
     path: Option<String>,
@@ -1083,7 +1073,10 @@ struct EditVariable {
     ws_specific: Option<bool>,
     /// Absent leaves the stored expiry alone; an explicit `null` clears it — a caller
     /// patching one field must not have its omissions read as "clear".
-    #[serde(default, deserialize_with = "double_option")]
+    #[serde(
+        default,
+        deserialize_with = "windmill_common::more_serde::double_option"
+    )]
     value_expires_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
 }
 

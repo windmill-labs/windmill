@@ -29,9 +29,9 @@ const VARIABLE_EXPIRATION_LEAD_TIME: &str = "1 hour";
 /// several passes rather than enqueuing every handler job at once.
 const VARIABLE_EXPIRATION_MAX_PER_PASS: i64 = 100;
 
-/// Advisory lock id ensuring only one server replica sweeps at a time (adjacent to
-/// `SCHEDULE_RECONCILE_LOCK_ID`).
-const VARIABLE_EXPIRATION_LOCK_ID: i64 = 737_483_923;
+/// Advisory lock id ensuring only one server replica sweeps at a time. Must not reuse one of
+/// the other monitor pass locks (737_483_920..=737_483_925): both sides try-lock and skip.
+const VARIABLE_EXPIRATION_LOCK_ID: i64 = 737_483_926;
 
 /// Consecutive passes a workspace's handler must fail before the failure is surfaced once as
 /// a critical alert. Most push failures are a transient blip; one that keeps failing has a
