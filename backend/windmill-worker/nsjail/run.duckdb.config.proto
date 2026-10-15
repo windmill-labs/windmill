@@ -6,8 +6,9 @@ log_level: ERROR
 # The executor's own job timeout kills the jail; nsjail adds none of its own.
 time_limit: 0
 
-# DuckDB bounds itself through memory_limit and max_temp_directory_size. rlimit_as would
-# break it: jemalloc reserves address space well past what it ever touches.
+# DuckDB bounds its memory through memory_limit, and the worker bounds its disk use (see the
+# work dir mount). rlimit_as would break it: jemalloc reserves address space well past what it
+# ever touches.
 disable_rl: true
 
 cwd: "/tmp"
@@ -105,11 +106,19 @@ mount {
 
 {TMP_MOUNT_BLOCK}
 
-# At its host path, so every path the worker wrote into the blocks (the spill directory,
-# Postgres root certificates) resolves unchanged.
+# At its host path, so every path the worker wrote into the blocks (Postgres root
+# certificates) resolves unchanged. Read-only: the one writable place on the host is the
+# runner's work dir below, which the worker caps at DUCKDB_MAX_TEMP_DIRECTORY_SIZE.
 mount {
     src: "{JOB_DIR}"
     dst: "{JOB_DIR}"
+    is_bind: true
+}
+
+# The spill directory and the result file.
+mount {
+    src: "{JOB_DIR}/duckdb"
+    dst: "{JOB_DIR}/duckdb"
     is_bind: true
     rw: true
 }

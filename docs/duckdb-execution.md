@@ -10,13 +10,13 @@ decides it per job:
 
 | worker isolates with | runner runs | what it can see |
 |---|---|---|
-| nsjail | inside `run.duckdb.config.proto` | read-only `/usr`, `/lib`, `/etc`; its own `/tmp`; its own job dir; a read-only extension cache |
+| nsjail | inside `run.duckdb.config.proto` | read-only `/usr`, `/lib`, `/etc`; its own `/tmp`; its job dir read-only, except `duckdb/` (spill + result); a read-only extension cache |
 | unshare | under `build_command_with_isolation` | the worker user's file system, its own PID namespace, a cleared environment |
 | nothing | as a plain child process | the worker user's file system, a cleared environment |
 
-There is no SQL-level policy on top. A script can read and write what the jail lets it, load
-any extension DuckDB will sign, and raise `max_temp_directory_size`, exactly as a Python job can
-read the same files, load native code and fill its job dir. Network egress is open in every
+There is no SQL-level policy on top. A script can read and write what the jail lets it and load
+any extension DuckDB will sign, as a Python job can read the same files and load native code.
+Under nsjail its disk use is capped from the worker (below). Network egress is open in every
 mode, as it is for the other languages: the S3 proxy, metadata endpoints and internal hosts are
 all reachable.
 
@@ -36,10 +36,12 @@ The environment is cleared except `PATH`, `HOME` (outside nsjail), `DUCKDB_MAX_T
 `GOOGLE_APPLICATION_CREDENTIALS` (BigQuery `ATTACH`, whose credentials file nsjail mounts) and the
 proxy variables. In particular a script cannot use the worker's own `AWS_*` credential chain.
 
-Under nsjail the job dir is mounted read-write at its host path, so every path the worker wrote
-into the blocks (the spill directory, Postgres root certificates) resolves unchanged.
+Under nsjail the job dir is mounted read-only at its host path, so every path the worker wrote
+into the blocks (Postgres root certificates) resolves unchanged. The one writable place on the
+host is `{job dir}/duckdb/`: the spill directory and the result file, which the worker opens
+without following symlinks, since the script can write there.
 
-The runner writes its answer to a file in the job dir: a first line with the last statement's
+The runner writes its answer to a file in that directory: a first line with the last statement's
 column order, then either the collected results or `ERROR <json-encoded message>`.
 `finish_run` / `finish_prepare` in `duckdb_executor.rs` turn that into the job result.
 
@@ -89,12 +91,26 @@ that outgrows `memory_limit`, and no combination of stock settings gives "spill,
 file access". Fencing the engine at the SQL level again would need a patched engine to keep
 spilling.
 
-## Bounding the spill
+## Bounding disk use
 
-`DUCKDB_MAX_TEMP_DIRECTORY_SIZE` sets `max_temp_directory_size` on every connection. Unset — the
-self-hosted default — leaves DuckDB's own default of 90% of the temp volume's free space. A
-script can raise it, so it is a default rather than a cap, like the disk use of any other job. The
-value is DuckDB's spelling, not Kubernetes': `KiB`/`MiB`/`GiB`/`TiB` for 1024-based units,
+The cap is `DUCKDB_MAX_TEMP_DIRECTORY_SIZE`, or `6GiB` on a `CLOUD_HOSTED` worker that does not
+set it. The cloud runs one worker per pod on nodes with no per-pod ephemeral-storage limit, and a
+worker pod already holds several GiB of runtime caches, so the cap is sized against a mostly full
+node; re-measure before raising it. Unset elsewhere, DuckDB's own default applies: 90% of the
+temp volume's free space.
+
+It is applied twice:
+
+- **DuckDB's `max_temp_directory_size`**, set on every connection, so an ordinary query that
+  outgrows it fails with the engine's `failed to offload data block … max_temp_directory_size`
+  error and cleans up its temp files.
+- **A worker-side watchdog**, under nsjail. A script can raise the engine setting, so on its own
+  it is only a default. The worker sums the allocated size of `{job dir}/duckdb/` once a second
+  and kills the runner when it passes the cap, whatever wrote the bytes: spill, `COPY … TO`, or
+  the result file. Enforcement lags by up to a second of writing. Outside nsjail the script can
+  write anywhere the worker user can, as other languages can, so there the cap stays a default.
+
+The value is DuckDB's spelling, not Kubernetes': `KiB`/`MiB`/`GiB`/`TiB` for 1024-based units,
 `KB`/`MB`/`GB`/`TB` for 1000-based. An unparseable value fails every DuckDB job on the worker
 rather than being ignored. `DUCKDB_MEMORY_LIMIT` is spelled the same way, and the two are set in
 separate statements so a parse error names the right variable.

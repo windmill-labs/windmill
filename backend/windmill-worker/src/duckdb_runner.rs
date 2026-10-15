@@ -8,8 +8,10 @@
 
 use std::{
     collections::HashSet,
+    path::{Path, PathBuf},
     process::Stdio,
     sync::{LazyLock, Mutex},
+    time::Duration,
 };
 
 use serde::Serialize;
@@ -238,17 +240,105 @@ fn unforce_installs(blocks: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// The only place a jailed runner can write on the host: its spill directory and its result
+/// file. The rest of the job dir is mounted read-only.
+fn work_dir(job_dir: &str) -> String {
+    format!("{job_dir}/duckdb")
+}
+
+/// DuckDB's spill cap, in DuckDB's spelling. The cloud runs one worker per pod on nodes with no
+/// per-pod ephemeral-storage limit, so it gets one even when nothing configured it.
+fn max_temp_directory_size() -> Option<String> {
+    match std::env::var("DUCKDB_MAX_TEMP_DIRECTORY_SIZE") {
+        Ok(v) if !v.trim().is_empty() => Some(v.trim().to_string()),
+        _ if *windmill_common::worker::CLOUD_HOSTED => Some("6GiB".to_string()),
+        _ => None,
+    }
+}
+
+/// Parses a DuckDB size (`6GiB`, `500 MB`, `1024`): 1024-based for `KiB`..`TiB`, 1000-based
+/// for `KB`..`TB`. `None` for anything else, which DuckDB then refuses on its own.
+fn parse_duckdb_size(s: &str) -> Option<u64> {
+    let s = s.trim();
+    let split = s
+        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .unwrap_or(s.len());
+    let (num, unit) = s.split_at(split);
+    let num: f64 = num.parse().ok()?;
+    let mult: f64 = match unit.trim().to_ascii_lowercase().as_str() {
+        "" | "b" | "byte" | "bytes" => 1.0,
+        "kb" => 1e3,
+        "mb" => 1e6,
+        "gb" => 1e9,
+        "tb" => 1e12,
+        "kib" => 1024.0,
+        "mib" => 1024.0 * 1024.0,
+        "gib" => 1024.0 * 1024.0 * 1024.0,
+        "tib" => 1024.0 * 1024.0 * 1024.0 * 1024.0,
+        _ => return None,
+    };
+    Some((num * mult) as u64)
+}
+
 pub(crate) async fn run(
     mode: RunnerMode,
     req: &RunnerRequest<'_>,
     job_dir: &str,
 ) -> Result<RunnerOutput> {
+    let spill_dir = format!("{}/spill", work_dir(job_dir));
+    tokio::fs::create_dir_all(&spill_dir).await?;
+    let req = RunnerRequest { temp_directory: &spill_dir, ..*req };
     if mode != RunnerMode::Jailed {
-        return spawn_runner(mode, req, job_dir).await;
+        return spawn_runner(mode, &req, job_dir).await;
     }
     install_missing_extensions(req.blocks, job_dir).await?;
     let blocks = unforce_installs(req.blocks);
-    spawn_runner(mode, &RunnerRequest { blocks: &blocks, ..*req }, job_dir).await
+    spawn_runner(mode, &RunnerRequest { blocks: &blocks, ..req }, job_dir).await
+}
+
+/// Disk the directory actually uses (allocated blocks, so sparse files count for what they
+/// hold), without following symlinks: the jailed script controls what is in there.
+fn disk_usage(dir: &Path) -> u64 {
+    let mut total = 0;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let Ok(meta) = entry.path().symlink_metadata() else {
+                continue;
+            };
+            #[cfg(unix)]
+            {
+                total += std::os::unix::fs::MetadataExt::blocks(&meta) * 512;
+            }
+            #[cfg(not(unix))]
+            {
+                total += meta.len();
+            }
+            if meta.is_dir() {
+                stack.push(entry.path());
+            }
+        }
+    }
+    total
+}
+
+/// Resolves once the runner's work dir holds more than `cap`. Inside the jail that dir is the
+/// only place the script can write to on the host, and the script can raise DuckDB's own
+/// `max_temp_directory_size`, so this is what makes the cap hold.
+async fn exceeds(dir: PathBuf, cap: u64) -> u64 {
+    loop {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let d = dir.clone();
+        let used = tokio::task::spawn_blocking(move || disk_usage(&d))
+            .await
+            .unwrap_or(0);
+        if used > cap {
+            return used;
+        }
+    }
 }
 
 /// Kills the runner's process group when the job future is dropped (cancellation, timeout)
@@ -275,7 +365,10 @@ async fn spawn_runner(
 ) -> Result<RunnerOutput> {
     let runner = runner_path()?;
     let call_id = uuid::Uuid::new_v4();
-    let result_path = format!("{job_dir}/duckdb_runner_{call_id}.out");
+    let work_dir = work_dir(job_dir);
+    tokio::fs::create_dir_all(&work_dir).await?;
+    let result_path = format!("{work_dir}/result_{call_id}.out");
+    let spill_cap = max_temp_directory_size();
 
     let mut cmd = match mode {
         RunnerMode::Jailed => {
@@ -338,8 +431,10 @@ async fn spawn_runner(
     if !crate::TZ_ENV.is_empty() {
         cmd.env("TZ", crate::TZ_ENV.as_str());
     }
+    if let Some(cap) = &spill_cap {
+        cmd.env("DUCKDB_MAX_TEMP_DIRECTORY_SIZE", cap);
+    }
     for var in [
-        "DUCKDB_MAX_TEMP_DIRECTORY_SIZE",
         "GOOGLE_APPLICATION_CREDENTIALS",
         "HTTP_PROXY",
         "HTTPS_PROXY",
@@ -388,11 +483,31 @@ async fn spawn_runner(
     };
     let stdout = child.stdout.take().expect("stdout is piped");
     let stderr = child.stderr.take().expect("stderr is piped");
-    let (write, status, stdout, stderr) =
-        tokio::join!(write, child.wait(), output_tail(stdout), output_tail(stderr));
+    let cap_bytes = spill_cap.as_deref().and_then(parse_duckdb_size);
+    let watchdog = async {
+        match cap_bytes {
+            Some(cap) if mode == RunnerMode::Jailed => exceeds(PathBuf::from(&work_dir), cap).await,
+            _ => std::future::pending().await,
+        }
+    };
+    let (write, status, stdout, stderr) = tokio::select! {
+        r = async { tokio::join!(write, child.wait(), output_tail(stdout), output_tail(stderr)) } => r,
+        // Returning drops the child, and with it `kill_on_drop` and `guard` end the runner.
+        used = watchdog => {
+            return Err(Error::ExecutionErr(format!(
+                "DuckDB: this job wrote {} MB to disk, past this worker's limit of {} \
+                 (DUCKDB_MAX_TEMP_DIRECTORY_SIZE), and was stopped. Raising \
+                 max_temp_directory_size from the script does not lift it. Spill less (fewer \
+                 threads, a narrower scan, aggregating before the join), or write large outputs \
+                 to S3 rather than local files.",
+                used / 1_000_000,
+                spill_cap.as_deref().unwrap_or_default()
+            )));
+        }
+    };
     let status = status?;
     guard.0 = None;
-    let read = tokio::fs::read_to_string(&result_path).await;
+    let read = read_result(&result_path).await;
     let _ = tokio::fs::remove_file(&result_path).await;
 
     if !status.success() || read.is_err() {
@@ -429,6 +544,18 @@ async fn spawn_runner(
     Ok(RunnerOutput { column_order: (!column_order.is_empty()).then_some(column_order), result })
 }
 
+/// The result file sits in a directory the jailed script can write to, so a symlink planted there
+/// must not make the worker read some other host file into the job result.
+async fn read_result(path: &str) -> std::io::Result<String> {
+    let mut opts = tokio::fs::OpenOptions::new();
+    opts.read(true);
+    #[cfg(unix)]
+    opts.custom_flags(nix::libc::O_NOFOLLOW);
+    let mut s = String::new();
+    opts.open(path).await?.read_to_string(&mut s).await?;
+    Ok(s)
+}
+
 /// Drains a runner pipe keeping only its last few KB. A script controls how much the engine
 /// prints (`CALL enable_logging(storage='stdout')`), so buffering it whole would let a jailed
 /// job grow the worker's memory without bound.
@@ -453,6 +580,17 @@ async fn output_tail(mut r: impl AsyncRead + Unpin) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn duckdb_sizes_parse_in_duckdb_units() {
+        assert_eq!(parse_duckdb_size("6GiB"), Some(6 * 1024 * 1024 * 1024));
+        assert_eq!(parse_duckdb_size("500 MB"), Some(500_000_000));
+        assert_eq!(parse_duckdb_size("1.5kib"), Some(1536));
+        assert_eq!(parse_duckdb_size("1024"), Some(1024));
+        // Kubernetes' spelling is not DuckDB's: the engine refuses it, so no cap is derived.
+        assert_eq!(parse_duckdb_size("6Gi"), None);
+        assert_eq!(parse_duckdb_size(""), None);
+    }
 
     fn strs(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
