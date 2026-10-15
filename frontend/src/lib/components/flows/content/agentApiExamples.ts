@@ -158,7 +158,7 @@ const chat = createChat(${sdkOptions(t, '')})
 
 // Called now and on every change: messages stream in as they are written. This is the Svelte
 // store contract, so in Svelte $chat works as is.
-chat.subscribe(({ messages, status }) => render(messages, status))
+chat.subscribe(({ messages, status }) => console.log(status, messages.at(-1)?.content)) // your UI here
 await chat.sendMessage('Hello')
 // Also chat.stop(), and the conversations: chat.newConversation(), chat.selectConversation(id)`
 }

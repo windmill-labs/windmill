@@ -246,7 +246,7 @@
 							</span>
 							<div class="flex items-center gap-2 mt-1">
 								<code class="text-xs bg-surface-secondary rounded px-2 py-1"
-									>{botName ? `@${botName} ` : ''}{handle} your question</code
+									>@{botName ?? '<Slack app name>'} {handle} your question</code
 								>
 								<CopyButton value={handle} title="Copy {handle}" />
 								<Tooltip>
@@ -332,11 +332,6 @@
 				</TabContent>
 
 				<TabContent value="api" class="flex flex-col gap-6 p-4">
-					<span class="text-xs text-secondary">
-						Each call runs the agent as the token's owner and returns the id of the run, whose
-						answer streams as it is written.{#if chat}{' '}Calls that share a
-							<code>memory_id</code>, any string you choose, are one conversation.{/if}
-					</span>
 					<Label label="Token">
 						<div class="flex flex-col gap-2">
 							<TextInput
@@ -402,10 +397,9 @@
 								</TabContent>
 								<TabContent value="prompt" class="flex flex-col gap-2 mt-2">
 									<span class="text-xs text-secondary">
-										For your coding assistant to write the integration: the endpoints and streaming{chat
-											? ', conversations and the chat SDK'
-											: ''}. Set your token as <code>WINDMILL_TOKEN</code> in the project's environment:
-										the prompt reads it from there.
+										Share this with your coding assistant. It assumes your token is in <code
+											>WINDMILL_TOKEN</code
+										>.
 									</span>
 									<div>
 										<Button
