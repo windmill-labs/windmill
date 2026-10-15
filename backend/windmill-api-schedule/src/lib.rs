@@ -916,7 +916,6 @@ async fn list_schedule(
 
     // Append the authed user's draft-only schedules; see scripts.rs.
     if lsq.include_draft_only.unwrap_or(false)
-        && !authed.is_operator
         && offset == 0
         && lsq.path.is_none()
         && lsq.is_flow.is_none()
@@ -927,6 +926,13 @@ async fn list_schedule(
         && lsq.summary.is_none()
         && lsq.broad_filter.is_none()
         && lsq.label.is_none()
+        && (!authed.is_operator
+            || windmill_common::workspaces::operator_can_draft(
+                &db,
+                &w_id,
+                Some(UserDraftItemKind::TriggerSchedule),
+            )
+            .await?)
     {
         let draft_only_rows = fetch_draft_only_list_rows(
             &db,
@@ -1492,7 +1498,8 @@ async fn set_default_error_handler(
     } else {
         windmill_api_settings::delete_global_setting(&db, key.as_str()).await?;
     }
-    windmill_api_settings::audit_setting_write(&db, &authed, &key, value.as_ref()).await?;
+    windmill_audit::instance_config::audit_setting_write(&db, &authed, &key, value.as_ref(), None)
+        .await?;
 
     if payload.override_existing {
         // The rewrite and its history rows go in one transaction: on separate

@@ -40,7 +40,7 @@
 	import { getContext, onDestroy, setContext, untrack, type Snippet } from 'svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
-	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { writable } from 'svelte/store'
 	import CenteredPage from './CenteredPage.svelte'
 	import { Button } from './common'
@@ -110,13 +110,14 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 	import { getEditorStoragePath, setEditorStoragePath } from './editorStoragePathContext'
-	import { useOperatorBuilderFlows, useTriggerLock } from '$lib/operatorWriteRights'
+	import { useEditRights, useOperatorBuilderFlows, useTriggerLock } from '$lib/operatorWriteRights'
 	import {
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 	const triggerLock = useTriggerLock()
 	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const editRights = useEditRights()
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
@@ -229,19 +230,14 @@
 	let pathSnapshot = $state<string | undefined>(undefined)
 
 	let topbarWidth = $state(0)
-	// In the page header the buttons share the row with the breadcrumb, so they collapse sooner:
-	// the trail and the summary take ~560px before either truncates, and the full group — the
-	// dropdown, Diff, the preview trio and Deploy — is ~610px.
-	const compactBelow = $derived(ownsPageHeader ? 1200 : 720)
-	const compactTopbar = $derived.by(() => {
-		const w = ownsPageHeader ? pageHeader.barWidth : topbarWidth
-		return w > 0 && w < compactBelow
-	})
-	// A phone's bar holds the trail and Deploy: the diff joins the menu and the preview buttons
-	// stand down, since there is no room to run a flow beside its own name.
-	const phoneTopbar = $derived(
-		ownsPageHeader && pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR
+	// In the page header the bar folds the buttons (`actionFolds` below), once its breadcrumb has
+	// given all it can; anywhere else this editor's own top bar is theirs alone.
+	const compactTopbar = $derived(
+		ownsPageHeader ? pageHeader.actionFold >= 1 : topbarWidth > 0 && topbarWidth < 720
 	)
+	// The second fold holds the trail and Deploy: the diff joins the menu and the preview buttons
+	// stand down, since there is no room to run a flow beside its own name.
+	const phoneTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 2)
 
 	const diffEnabled = $derived(customUi?.topBar?.diff != false)
 	// Nothing to compare against until a deployed version exists.
@@ -556,8 +552,14 @@
 				// flag that answer for it are per workspace, so the nav user would answer for the wrong
 				// membership when a session editor operates on another workspace.
 				const user = await getUserExt(opWorkspace ?? '').catch(() => undefined)
+				const operatorSettings = $userWorkspaces.find(
+					(w) => w.id === opWorkspace
+				)?.operator_settings
 				agentCanWrite = Object.fromEntries(
-					draftAgents.map((a) => [a.path, agentDraftCanWrite(a, user ?? $userStore ?? undefined)])
+					draftAgents.map((a) => [
+						a.path,
+						agentDraftCanWrite(a, user ?? $userStore ?? undefined, operatorSettings)
+					])
 				)
 				// The path is passed, so a draft that renames the agent is refused here too: a rename is
 				// the agent editor's to deploy, and this dialog lists the agent under the path the flow
@@ -1560,7 +1562,7 @@
 <AIChangesWarningModal bind:open={aiChangesWarningOpen} onConfirm={aiChangesConfirmCallback} />
 
 {#key renderCount}
-	{#if !actingUser?.operator || $operatorBuilderFlows}
+	{#if editRights.roleCanAuthor('flow')}
 		{#if $pathStore}
 			<FlowHistory bind:this={flowHistory} path={$pathStore} {onHistoryRestore} />
 		{/if}
@@ -1581,16 +1583,17 @@
 						// Frozen while the rename popover is open so the trail holds still as the user types.
 						kind: 'flow',
 						path: pathSnapshot ?? $pathStore,
+						summary: flowStore.val.summary,
 						summaryContent: flowSummary,
 						// Gated like the summary's own editor: a host that allows neither field keeps the
 						// band's segment, which copies the path.
 						pathTrigger:
-							customUi?.topBar?.editablePath != false ||
-							customUi?.topBar?.editableSummary != false
+							customUi?.topBar?.editablePath != false || customUi?.topBar?.editableSummary != false
 								? flowPathTrigger
 								: undefined
 					}}
 					actions={flowHeaderActions}
+					actionFolds={2}
 					contexts={headerContexts}
 					separator="none"
 				/>

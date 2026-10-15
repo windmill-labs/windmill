@@ -1,6 +1,6 @@
 import { SvelteMap } from 'svelte/reactivity'
+import type { PendingRun } from '$lib/components/details/pendingRun'
 import { get } from 'svelte/store'
-import { base } from '$lib/base'
 import { invalidate as invalidateWorkspaceItems } from '$lib/components/workspacePicker'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
@@ -31,7 +31,12 @@ type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
 import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
-import { react19Template, STARTER_RUNNABLES } from '$lib/components/raw_apps/templates'
+import {
+	BUILDER_FRAMEWORK_TEMPLATES,
+	react19Template,
+	STARTER_RUNNABLES
+} from '$lib/components/raw_apps/templates'
+import { operatorBuilderAppsIn, workspaceListLoaded } from '$lib/operatorWriteRights'
 import { random_adj } from '$lib/components/random_positive_adjetive'
 import { copilotWorkspace } from '$lib/aiStore'
 import { loadCopilot } from '$lib/components/copilot/loadCopilot'
@@ -73,6 +78,8 @@ import {
 	promptSafe,
 	parseRunFormRoute,
 	resolvePreviewTab,
+	pendingRunIdOf,
+	slotShowsPage,
 	type PreviewSlot
 } from './previewRouter'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
@@ -104,6 +111,7 @@ import {
 	type RawAppRunsProvider,
 	type RawAppScreenshotRequester
 } from '$lib/components/raw_apps/utils'
+import { resolveGlobalDraftStoragePathByKind } from '$lib/components/copilot/chat/global/userDraftAdapter'
 import type {
 	RawAppDomQuery,
 	RawAppDomRequester,
@@ -242,6 +250,8 @@ export interface SessionRuntime {
 	 * viewer refetches when this changes — it reads the deployed version from the
 	 * API, so nothing else tells it the editor beside it just published. */
 	deployedRevision(kind: SessionTargetKind, path: string): number
+	/** The chat tool call a viewer tab was opened to answer, named by that tab's own url. */
+	pendingRunFor(toolCallId: string): PendingRun | undefined
 	/** Record that a preview tab landed on `url`. Fires for a newly opened tab and
 	 * for an existing one switched to the other side of its item. */
 	logTabUsage(url: string): void
@@ -466,14 +476,7 @@ function createRuntime(session: Session): SessionRuntime {
 		// point those at a page the user cannot see.
 		const tab = owner?.displayedTab
 		if (!tab) return undefined
-		const slotKind = resolvePreviewTab(tab.url).kind
-		if (
-			slotKind !== 'iframe' &&
-			slotKind !== 'pageitem' &&
-			slotKind !== 'pagelist' &&
-			slotKind !== 'viewer'
-		)
-			return undefined
+		if (!slotShowsPage(resolvePreviewTab(tab.url).kind)) return undefined
 		return previewLocationContext(whereIs(tab))
 	}
 	// Pre-flight: materialise the (still-transient) session, then commit
@@ -589,17 +592,37 @@ function createRuntime(session: Session): SessionRuntime {
 			// Only persist a real width; undefined means "never resized" (defaults to 50).
 			if (snap.previewSize != null) setSessionPreviewSize(session.id, snap.previewSize)
 		},
+		// Closing a tab that carried a call is not a refusal: the card still has the form.
 		onTabsChanged: pruneEditorCells,
 		onTabOpened: logTabUsage
 	})
 
-	// Let the jobs tray open a run in this session's preview panel (as an iframe
-	// tab over the run page). The global side-panel chat leaves this unset and
+	/** The call a viewer tab was opened to answer, for the page that renders it. Built from
+	 * the id the tab carries rather than from state of our own, so there is nothing to keep in
+	 * step: the tab names the call, and the manager says whether it is still waiting. */
+	function pendingRunFor(toolCallId: string): PendingRun | undefined {
+		if (!manager.isRunFormPending(toolCallId)) return undefined
+		return {
+			toolCallId,
+			// Read here, so the page's `$derived` rebuilds when the posture changes under it.
+			planModeActive: manager.planModeActive,
+			// A getter, not a value: the page reads it once, when it builds the form, and this
+			// object is rebuilt on every keystroke of the card's draft otherwise.
+			get proposedArgs() {
+				return manager.pendingRunFormArgs(toolCallId) ?? {}
+			},
+			adopt: (jobId, args, schema) => manager.handleRunFormJob(toolCallId, jobId, args, schema),
+			decline: () => manager.handleRunFormCancel(toolCallId)
+		}
+	}
+
+	// Let the jobs tray open a run in this session's preview panel (as a tab on
+	// the run's page). The global side-panel chat leaves this unset and
 	// falls back to a new browser tab.
 	manager.openRunInPreview = ({ jobId, workspace, label }) => {
 		previewTabs.open({
 			type: 'page',
-			href: `${base}/run/${jobId}?workspace=${workspace}`,
+			href: `/run/${jobId}?workspace=${workspace}`,
 			label
 		})
 	}
@@ -610,15 +633,89 @@ function createRuntime(session: Session): SessionRuntime {
 	manager.openRunForm = ({ toolCallId, label }) => {
 		previewTabs.open({ type: 'runform', toolCallId, label })
 	}
-	manager.closeRunForm = (toolCallId) => previewTabs.closeRunForm(toolCallId)
-	manager.showRunInPlaceOfForm = ({ toolCallId, jobId, workspace }) => {
-		previewTabs.retargetRunForm(toolCallId, `${base}/run/${jobId}?workspace=${workspace}`)
+	// Show a deployed run on the item's own page. With `carries`, that page answers the call:
+	// the job its Run starts is the one the tool follows.
+	manager.openRunOnDeployedPage = ({
+		toolCallId,
+		kind,
+		path,
+		summary,
+		carries,
+		onlyIfAlreadyOpen
+	}) => {
+		// Through the shared adapter: a session target spells a code-based app `raw_app` and a
+		// workspace item spells it `app` with a flag, and one place should know that.
+		const target = previewTargetForSessionTarget(kind, path)
+		if (target?.type !== 'item') return false
+		const viewTarget = {
+			...target,
+			item: { ...target.item, summary },
+			mode: 'view' as const,
+			pendingRunId: carries ? toolCallId : undefined
+		}
+		// Re-pointed rather than focused: the url is what hands the tab the call, and
+		// rebuilding it also drops whatever version the reader had pinned.
+		const open = previewTabs.tabs.find((t) => {
+			const slot = resolvePreviewTab(t.url)
+			return slot.kind === 'viewer' && slot.viewerKind === kind && slot.path === path
+		})
+		if (open) {
+			// An unasked-for hand-off goes only to the page the reader already has in front of
+			// them. `navigate` below re-points the tab, which reloads it and rebuilds its url:
+			// on a tab they cannot see that silently drops whatever they had typed into its
+			// form and leaves the call on an off-screen page, and on a pinned one it moves them
+			// off the version they chose. Declining leaves the call on the card, which can run
+			// it. A reader who presses Preview is asking for all of that.
+			if (
+				onlyIfAlreadyOpen &&
+				(previewTabs.activeId !== open.id ||
+					previewTabs.collapsed ||
+					new URL(open.url, 'http://x').searchParams.get('version'))
+			) {
+				return false
+			}
+			previewTabs.navigate(viewTarget, open.id)
+			// `navigate` re-points a tab in place and nothing more, while the call is about to
+			// tell the reader the page is open. `open` would have brought it forward and shown
+			// the panel; this path has to do both itself.
+			previewTabs.select(open.id)
+			previewTabs.setCollapsed(false)
+		} else {
+			// Only the item's own page carries a form for this call, so a caller routing a call
+			// that was not asked to open anything gets a no rather than a new tab.
+			if (onlyIfAlreadyOpen) return false
+			previewTabs.open(viewTarget)
+		}
+		return true
 	}
-	// Read off the tab list rather than the slot's lifecycle: a tab the user has switched
-	// away from is unmounted but still open, and the card must keep its form hidden until it
-	// is closed. A resolver, like activePreviewResolver: the reader's own $derived subscribes
-	// to `tabs` through it, and the runtime is not inside an effect root to push from.
+	manager.closeRunForm = (toolCallId) => {
+		// A page carrying the call outlives it, and stops carrying it because the call stops
+		// being pending. Only the chat's own form tab, which is the call, goes with it.
+		previewTabs.closeRunForm(toolCallId)
+	}
+	manager.showRunInPlaceOfForm = ({ toolCallId, jobId, workspace }) => {
+		const runHref = `/run/${jobId}?workspace=${workspace}`
+		// Either surface the call was waiting on becomes the run it started, in place.
+		const carrying = previewTabs.tabs.find((t) => pendingRunIdOf(t.url) === toolCallId)
+		if (carrying) previewTabs.retargetById(carrying.id, runHref)
+		previewTabs.retargetRunForm(toolCallId, runHref)
+	}
+	// Both read off the tab list rather than the slot's lifecycle: a tab the user has switched
+	// away from is unmounted but still open. Resolvers, like activePreviewResolver: the
+	// reader's own $derived subscribes to `tabs` through them, and the runtime is not inside
+	// an effect root to push from. So a tab closed or re-pointed hands the card back whatever
+	// it had given up.
+	// Either surface — the chat's own form in a tab, or the item's page carrying the call.
 	manager.isRunFormInPreview = (toolCallId) =>
+		previewTabs.tabs.some(
+			(t) =>
+				parseRunFormRoute(t.url)?.toolCallId === toolCallId || pendingRunIdOf(t.url) === toolCallId
+		)
+	// The chat's own form alone. The card's form is exclusive with this one and no other:
+	// both bind the one draft, and SchemaForm reorders in place the schema it is handed, so a
+	// second mount reorders it again. A page builds its own form from a copy of the proposal
+	// and shares nothing, so the card keeps its form while a page carries the call.
+	manager.isRunFormTabOpen = (toolCallId) =>
 		previewTabs.tabs.some((t) => parseRunFormRoute(t.url)?.toolCallId === toolCallId)
 
 	manager.openArtifact = (id, name, version) => {
@@ -726,6 +823,7 @@ function createRuntime(session: Session): SessionRuntime {
 		flowCell,
 		loadedEditorPath,
 		deployedRevision,
+		pendingRunFor,
 		logTabUsage,
 
 		async loadFlow(workspace: string, path: string, force = false) {
@@ -1052,10 +1150,13 @@ function createRuntime(session: Session): SessionRuntime {
 			} catch (err) {
 				if (seedIfMissing && !deployedOnly && err instanceof ApiError && err.status === 404) {
 					const user = get(userStore)
+					// A builder can save no inline runnable, so the regular starter could never be saved.
+					await workspaceListLoaded()
+					const builder = operatorBuilderAppsIn(workspace)
 					saved.val = undefined
 					store.val = {
-						files: { ...react19Template },
-						runnables: structuredClone(STARTER_RUNNABLES),
+						files: { ...(builder ? BUILDER_FRAMEWORK_TEMPLATES.react19 : react19Template) },
+						runnables: builder ? {} : structuredClone(STARTER_RUNNABLES),
 						data: { ...DEFAULT_DATA },
 						policy: {
 							on_behalf_of: user?.username.includes('@') ? user.username : `u/${user?.username}`,
@@ -1121,7 +1222,7 @@ function createRuntime(session: Session): SessionRuntime {
 		},
 		async requestRuntimeLogs(limit, appPath) {
 			const path =
-				appPath ??
+				(appPath && draftStoragePath(session, 'raw_app', appPath)) ??
 				activeDomAppPath ??
 				(runtimeLogRequesters.size === 1 ? [...runtimeLogRequesters.keys()][0] : undefined)
 			if (path === undefined) {
@@ -1157,7 +1258,7 @@ function createRuntime(session: Session): SessionRuntime {
 			// its element's app even when another tab is now visible), else the
 			// active preview, else the only one open.
 			const path =
-				query.appPath ??
+				(query.appPath && draftStoragePath(session, 'raw_app', query.appPath)) ??
 				activeDomAppPath ??
 				(domRequesters.size === 1 ? [...domRequesters.keys()][0] : undefined)
 			if (path === undefined) return undefined
@@ -1373,6 +1474,18 @@ export function removeSession(sessionId: string): void {
 	deleteSessionState(sessionId)
 }
 
+// The chat calls a new item by its chosen name while its draft is stored at
+// `draft_<uuid>`; resolve the name the way the chat's write tools do.
+function draftStoragePath(
+	session: Session,
+	kind: 'script' | 'flow' | 'raw_app',
+	path: string
+): string {
+	return session.workspace_id
+		? resolveGlobalDraftStoragePathByKind(session.workspace_id, kind, path)
+		: path
+}
+
 // Register the global open_preview tool handler once at module load. It
 // dispatches to the *calling* session (sessionId threaded from the tool ctx),
 // falling back to the UI-active session only when none was passed — so a
@@ -1388,7 +1501,10 @@ setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path, mode }) =
 	if (!session) {
 		return 'Error: no active session to open the preview in.'
 	}
-	const target = previewTargetForSessionTarget(kind, path)
+	const target = previewTargetForSessionTarget(
+		kind,
+		mode === 'view' || kind === 'pipeline' ? path : draftStoragePath(session, kind, path)
+	)
 	if (!target) {
 		return `Error: ${kind} targets cannot be shown in the preview panel.`
 	}

@@ -1,5 +1,7 @@
 import { onboardingProfile, type StarterPrompt } from '$lib/onboardingProfile'
 import { useReducedMotion } from '$lib/svelte5Utils.svelte'
+import { userStore } from '$lib/stores'
+import { fromStore } from 'svelte/store'
 
 /** Example prompts: the short `label` is shown as a clickable tag under the composer,
  * the `prompt` is what rotates through the placeholder / gets dropped into the input. */
@@ -19,15 +21,37 @@ export const defaultStarterPrompts: StarterPrompt[] = [
 	}
 ]
 
-/** The stock examples, unless the invite that brought this person here wrote prompts for
- * them — those replace the set outright rather than joining it, since a prompt written
- * for someone's own stack next to "Ban Discord users" reads as the generic one. */
+/** An operator's session can run what is deployed, read runs and call MCP servers, but
+ * cannot author scripts or apps. It composes flows only where the workspace grants
+ * `operator_settings.builder_flows`, so none of these asks it to build anything. */
+export const operatorStarterPrompts: StarterPrompt[] = [
+	{
+		label: 'Run a flow',
+		prompt: 'Find the flow that onboards a new employee and run it for Jane Doe, starting Monday'
+	},
+	{
+		label: 'Rerun failed jobs',
+		prompt: 'List the jobs that failed today, tell me why, and rerun the ones that timed out'
+	},
+	{
+		label: 'Summarize GitHub issues',
+		prompt: "Read this week's open GitHub issues and summarize the ones that mention billing"
+	}
+]
+
+/** The stock examples for the reader's role, unless the invite that brought this person here
+ * wrote prompts for them — those replace the set outright rather than joining it, since a
+ * prompt written for someone's own stack next to "Ban Discord users" reads as the generic one. */
 export class StarterPrompts {
-	list = $state(defaultStarterPrompts)
+	#invite = $state<StarterPrompt[]>()
+	#user = fromStore(userStore)
+	readonly list = $derived(
+		this.#invite ?? (this.#user.current?.operator ? operatorStarterPrompts : defaultStarterPrompts)
+	)
 
 	constructor() {
 		void onboardingProfile().then((p) => {
-			if (p?.starter_prompts?.length) this.list = p.starter_prompts
+			if (p?.starter_prompts?.length) this.#invite = p.starter_prompts
 		})
 	}
 }

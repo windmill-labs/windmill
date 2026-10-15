@@ -10,10 +10,10 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import TriggerRunnablePicker from '$lib/components/triggers/TriggerRunnablePicker.svelte'
-	import { KafkaTriggerService, type ErrorHandler, type Retry, type TriggerMode } from '$lib/gen'
+	import { KafkaTriggerService, type Retry, type TriggerMode } from '$lib/gen'
 	import { usedTriggerKinds } from '$lib/stores'
-	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
-	import { useTriggerLock } from '$lib/operatorWriteRights'
+	import { capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, RotateCcw } from 'lucide-svelte'
@@ -23,7 +23,8 @@
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { saveKafkaTriggerFromCfg } from './utils'
-	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
+	import { handleConfigChange, type Trigger } from '../utils'
+	import { handlerDraftFromStored, handlerDraftToStored } from '../../handlerDraft.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
@@ -42,7 +43,7 @@
 		useOperatingWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
-	const triggerLock = useTriggerLock()
+	const editRights = useEditRights()
 
 	interface Props {
 		useDrawer?: boolean
@@ -108,8 +109,9 @@
 	// The acting user in the operating workspace arrives asynchronously, and an unknown user
 	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
 	const can_write = $derived(
-		(permsPath === undefined || canWrite(permsPath, permsForWrite ?? {}, actingUser)) &&
-			!$triggerLock
+		permsPath === undefined
+			? editRights.roleCanAuthor('trigger')
+			: editRights.canEditItem('trigger', permsPath, permsForWrite)
 	)
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
@@ -126,9 +128,10 @@
 	let preservePermissionedAs = $state(false)
 	let resetLoading = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
-	let errorHandlerSelected: ErrorHandler = $state('slack')
-	let error_handler_path: string | undefined = $state()
-	let error_handler_args: Record<string, any> = $state({})
+	let errorHandler = $state(handlerDraftFromStored('error', undefined))
+	const storedErrorHandler = $derived(handlerDraftToStored(errorHandler))
+	const error_handler_path = $derived(storedErrorHandler.path)
+	const error_handler_args = $derived(storedErrorHandler.args)
 	let retry: Retry | undefined = $state()
 	let filters: FilterNode[] = $state([])
 	let filterLogic = $state<'and' | 'or'>('and')
@@ -187,6 +190,7 @@
 		saveDraftHandler = undefined
 		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
 		operatingUser.forgetFailures()
+		editRights.forgetFailures()
 		let loadingTimeout = setTimeout(() => {
 			showLoading = true
 		}, 100) // Do not show loading spinner for the first 100ms
@@ -252,12 +256,15 @@
 			path = nDefaultValues?.path ?? ''
 			initialPath = ''
 			dirtyPath = false
-			error_handler_path = nDefaultValues?.error_handler_path ?? undefined
-			error_handler_args = nDefaultValues?.error_handler_args ?? {}
+			errorHandler = handlerDraftFromStored(
+				'error',
+				nDefaultValues?.error_handler_path,
+				'script',
+				nDefaultValues?.error_handler_args
+			)
 			retry = nDefaultValues?.retry ?? undefined
 			filters = nDefaultValues?.filters ?? []
 			filterLogic = 'and'
-			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			mode = nDefaultValues?.mode ?? 'enabled'
 			permissionedAs = undefined
 			selectedPermissionedAs = undefined
@@ -289,12 +296,15 @@
 		extra_perms = cfg?.extra_perms
 		permsPath = path
 		permsForWrite = cfg?.extra_perms
-		error_handler_path = cfg?.error_handler_path
-		error_handler_args = cfg?.error_handler_args ?? {}
+		errorHandler = handlerDraftFromStored(
+			'error',
+			cfg?.error_handler_path,
+			'script',
+			cfg?.error_handler_args
+		)
 		retry = cfg?.retry
 		filters = cfg?.filters ?? []
 		filterLogic = cfg?.filter_logic ?? 'and'
-		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		permissionedAs = cfg?.permissioned_as
 		selectedPermissionedAs = cfg?.permissioned_as
 		preservePermissionedAs = !!cfg?.permissioned_as
@@ -717,9 +727,7 @@
 								{optionTabSelected}
 								{itemKind}
 								{can_write}
-								bind:errorHandlerSelected
-								bind:error_handler_path
-								bind:error_handler_args
+								bind:errorHandler
 								bind:retry
 							/>
 						</div>

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import type { ListDispatchEventsResponse } from '$lib/gen'
 	import { ExternalLink, Check, Hourglass, MinusCircle } from 'lucide-svelte'
 
@@ -66,7 +65,7 @@
 					{#if ev.outcome === 'dispatched' && ev.child_job_id}
 						<a
 							class="inline-flex items-center gap-1"
-							href={`${base}/run/${ev.child_job_id}?workspace=${workspace}`}
+							href={`/run/${ev.child_job_id}?workspace=${workspace}`}
 							target="_blank"
 							rel="noopener noreferrer"
 						>

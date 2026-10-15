@@ -72,7 +72,6 @@
 		Tag,
 		X
 	} from 'lucide-svelte'
-	import { base } from '$lib/base'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { parsePipelineAnnotations } from './assets/AssetGraph/parsePipelineAnnotations'
 	import DropdownV2 from './DropdownV2.svelte'
@@ -97,7 +96,7 @@
 	import EditorHeader from './EditorHeader.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
-	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import ScriptSettingsBadges from './ScriptSettingsBadges.svelte'
 	import Badge from './common/badge/Badge.svelte'
 	import Modal from './common/modal/Modal.svelte'
@@ -128,8 +127,10 @@
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
-	import { useTriggerLock } from '$lib/operatorWriteRights'
+	import { useEditRights, useTriggerLock } from '$lib/operatorWriteRights'
+	import { previewOnBehalfOf } from '$lib/utils/previewOnBehalfOf'
 	const triggerLock = useTriggerLock()
+	const editRights = useEditRights()
 
 	let {
 		script = $bindable(),
@@ -206,19 +207,14 @@
 	let pathSnapshot = $state<string | undefined>(undefined)
 
 	let topbarWidth = $state(0)
-	// In the page header the buttons share the row with the breadcrumb, so they collapse sooner:
-	// the trail and the summary take ~560px before either truncates, and the full button group is
-	// ~515px — about 1100px between them, plus slack for a longer path than most.
-	const compactBelow = $derived(ownsPageHeader ? 1200 : 900)
-	const compactTopbar = $derived.by(() => {
-		const w = ownsPageHeader ? pageHeader.barWidth : topbarWidth
-		return w > 0 && w < compactBelow
-	})
-	// A phone's bar holds the trail and one button. Diff and Settings join the menu that compact
-	// already shows, and Deploy stays out: it is what this page is for.
-	const phoneTopbar = $derived(
-		ownsPageHeader && pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR
+	// In the page header the bar folds the buttons (`actionFolds` below), once its breadcrumb has
+	// given all it can; anywhere else this editor's own top bar is theirs alone.
+	const compactTopbar = $derived(
+		ownsPageHeader ? pageHeader.actionFold >= 1 : topbarWidth > 0 && topbarWidth < 900
 	)
+	// The second fold holds the trail and one button. Diff and Settings join the menu that compact
+	// already shows, and Deploy stays out: it is what this page is for.
+	const phoneTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 2)
 
 	// The workspace this editor operates on: deploy, save-draft, trigger loading
 	// and the AutosaveIndicator all target it. Falls back to the full-page
@@ -1385,7 +1381,7 @@
 	onCanceled={() => (perpetualRunsToConfirm = undefined)}
 />
 
-{#if !actingUser?.operator}
+{#if editRights.roleCanAuthor('script')}
 	<Drawer
 		placement="right"
 		bind:open={metadataOpen}
@@ -2316,6 +2312,7 @@
 					// route binds here and drops the `{#if}` around this editor in one flush, which
 					// invalidates the band before this component is torn down.
 					path: pathSnapshot ?? script?.path,
+					summary: script?.summary,
 					summaryContent: scriptSummary,
 					// Gated like the summary's own editor: a host that allows neither field keeps the
 					// band's segment, which copies the path.
@@ -2326,6 +2323,7 @@
 				}}
 				afterName={scriptMarks}
 				actions={scriptHeaderActions}
+				actionFolds={2}
 				separator="none"
 			/>
 		{:else}
@@ -2604,7 +2602,7 @@
 						-- materialize
 					</code>
 					to materialize its result, or build it in the
-					<a href="{base}/pipeline" class="text-blue-500 hover:underline">pipeline editor</a>.
+					<a href="/pipeline" class="text-blue-500 hover:underline">pipeline editor</a>.
 					<a
 						href="https://www.windmill.dev/docs/pipelines"
 						target="_blank"
@@ -2648,6 +2646,11 @@
 		{:else}
 			<ScriptEditor
 				{disableAi}
+				previewOnBehalfOf={previewOnBehalfOf(
+					actingUser,
+					script.on_behalf_of,
+					script.on_behalf_of_email
+				)}
 				workspaceOverride={opWorkspace}
 				sessionOpen={userDraftPath
 					? {

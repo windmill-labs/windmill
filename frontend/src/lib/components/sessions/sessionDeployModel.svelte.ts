@@ -1,6 +1,10 @@
 import { getDraftItems, type DraftItem } from '$lib/workspaceDrafts.svelte'
+import { get } from 'svelte/store'
+import { userWorkspaces } from '$lib/stores'
+import { roleCanAuthor } from '$lib/editRights'
 import {
 	checkDeployPermission,
+	checkDeployRules,
 	checkItemExists,
 	deployPermissionForKind,
 	getItemValue,
@@ -228,6 +232,9 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	// button disables with a reason instead of failing on click. `ok` defaults
 	// true while resolving (fail-open).
 	let deployPerm = $state<DeployPermission>({ ok: true })
+	// `checkDeployPermission` refuses every operator, but flows.rs and apps.rs let one with the
+	// workspace's matching builder right deploy that kind, under the rules alone.
+	let builder = $state<{ perm: DeployPermission; kinds: Kind[] } | undefined>(undefined)
 	let deployPermFetchedFor = ''
 	$effect(() => {
 		const ws = getArgs().workspaceId
@@ -237,11 +244,26 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 			// Reset to fail-open for the new workspace and drop a stale resolution
 			// (a slower fetch for the previous workspace must not gate this one).
 			deployPerm = { ok: true }
-			void checkDeployPermission(ws).then((perm) => {
-				if (deployPermFetchedFor === ws) deployPerm = perm
+			builder = undefined
+			void checkDeployPermission(ws).then(async (perm) => {
+				if (deployPermFetchedFor !== ws) return
+				deployPerm = perm
+				const settings = get(userWorkspaces).find((w) => w.id === ws)?.operator_settings
+				const kinds = (['flow', 'raw_app'] as const).filter((k) =>
+					roleCanAuthor(k, { operator: true }, settings)
+				)
+				if (perm.refusedBy === 'operator' && kinds.length) {
+					const rules = await checkDeployRules(ws)
+					if (deployPermFetchedFor === ws) builder = { perm: rules, kinds }
+				}
 			})
 		})
 	})
+
+	function permissionFor(kind: Kind): DeployPermission {
+		if (builder?.kinds.includes(kind)) return deployPermissionForKind(builder.perm, kind)
+		return deployPermissionForKind(deployPerm, kind)
+	}
 
 	// ── Deploy execution ─────────────────────────────────────────────────────
 	// Per-item transient deploy state (keyed by DeployItem.key): loading or
@@ -292,8 +314,7 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		// Don't attempt a deploy we know the user can't make (no write permission on
 		// the path, or refused by the preflight for this kind) — the UI disables it
 		// too; this is the guard behind that.
-		if (!discard && (!item.canWrite || !deployPermissionForKind(deployPerm, item.deployKind).ok))
-			return false
+		if (!discard && (!item.canWrite || !permissionFor(item.deployKind).ok)) return false
 		setStatus(item.key, { status: 'loading' })
 		deploying = true
 		try {
@@ -389,7 +410,7 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 		 * that kind stays deployable while a script row does not.
 		 */
 		deployPermissionForKind(kind: Kind): DeployPermission {
-			return deployPermissionForKind(deployPerm, kind)
+			return permissionFor(kind)
 		},
 		deployRow,
 		discardRow

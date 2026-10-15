@@ -16,6 +16,8 @@
 		jobsById?: Record<string, JobById>
 		editor: boolean
 		workspace: string
+		/** Editor only: identity the previewed runnables run as (see `appPreviewOnBehalfOf`). */
+		previewOnBehalfOf?: string
 		/**
 		 * Restrict waitJob/getJob/streamJob to job ids launched by this app
 		 * instance (WIN-2006): a SANDBOXED bundle must not read arbitrary
@@ -45,6 +47,7 @@
 		jobsById = $bindable({}),
 		editor,
 		workspace,
+		previewOnBehalfOf,
 		gateJobIds = true,
 		extraSourceWindow
 	}: Props = $props()
@@ -155,7 +158,9 @@
 									)
 								)
 							: undefined,
-						force_viewer_delete_after_secs: editor ? runnable?.delete_after_secs : undefined
+						force_viewer_delete_after_secs: editor ? runnable?.delete_after_secs : undefined,
+						on_behalf_of: editor ? previewOnBehalfOf : undefined,
+						viewer_data_access: editor ? runnable?.viewer_data_access || undefined : undefined
 					},
 					undefined
 				)

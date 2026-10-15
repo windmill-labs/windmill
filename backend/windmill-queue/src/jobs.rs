@@ -182,6 +182,15 @@ pub struct CanceledBy {
     pub reason: Option<String>,
 }
 
+/// What only the worker that ran a job knows about it, for the per-runnable rollup: an
+/// agent worker's completion is processed by the server, whose own worker group is not
+/// the one the job ran in.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JobResourceUsage {
+    pub worker_group: String,
+    pub cpu_time_ms: Option<i64>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct JobCompleted {
     pub job: MiniCompletedJob,
@@ -196,6 +205,8 @@ pub struct JobCompleted {
     pub duration: Option<i64>,
     pub has_stream: Option<bool>,
     pub from_cache: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resource_usage: Option<JobResourceUsage>,
     #[serde(skip)]
     pub flow_runners: Option<Arc<FlowRunners>>,
     #[serde(skip)]
@@ -3721,6 +3732,9 @@ pub struct MiniPulledJob {
     pub trigger_kind: Option<TriggerKindLabel>,
     pub visible_to_owner: bool,
     pub permissioned_as_end_user_email: Option<String>,
+    /// `job_perms.viewer_data_access`: `None` where the job was read without it.
+    #[serde(default)]
+    pub viewer_data_access: Option<bool>,
     pub runnable_settings_handle: Option<i64>,
     /// The job's effective token scopes (`job_perms.job_token_scopes`), minted into its token.
     /// No `sqlx(default)`: a query that forgets the column must fail rather than mint an
@@ -3775,6 +3789,7 @@ impl MiniPulledJob {
             trigger_kind: None,
             visible_to_owner: false,
             permissioned_as_end_user_email: None,
+            viewer_data_access: None,
             runnable_settings_handle: None,
             concurrent_limit: None,
             concurrency_time_window_s: None,
@@ -4092,6 +4107,7 @@ impl PulledJob {
                 folders,
                 end_user_email: self.job.permissioned_as_end_user_email.clone(),
                 job_token_scopes: self.job.job_token_scopes.clone(),
+                viewer_data_access: self.job.viewer_data_access.unwrap_or(false),
             }),
             _ => None,
         };
@@ -4199,6 +4215,7 @@ pub async fn get_mini_pulled_job<'c>(
         trigger_kind as \"trigger_kind: TriggerKindLabel\",
         visible_to_owner,
         NULL as permissioned_as_end_user_email,
+        NULL::boolean as viewer_data_access,
         job_perms.job_token_scopes
         FROM v2_job_queue INNER JOIN v2_job ON v2_job.id = v2_job_queue.id LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id
         LEFT JOIN job_perms ON job_perms.job_id = v2_job_queue.id WHERE v2_job_queue.id = $1",
@@ -4320,6 +4337,7 @@ impl PulledJobResult {
                     ))),
                     result_columns: None,
                     mem_peak: 0,
+                    resource_usage: None,
                     cached_res_path: None,
                     token: "".to_string(),
                     canceled_by: None,
@@ -4341,6 +4359,7 @@ impl PulledJobResult {
                     }))),
                     result_columns: None,
                     mem_peak: 0,
+                    resource_usage: None,
                     cached_res_path: None,
                     token: "".to_string(),
                     canceled_by: None,
@@ -5571,8 +5590,6 @@ pub async fn get_result_and_success_by_id_from_flow(
             },
         };
 
-    let mut completed = false;
-
     if job_result.is_none() {
         job_result =
             match get_result_by_id_from_original_flow_inner(db, w_id, flow_id, node_id).await {
@@ -5582,7 +5599,6 @@ pub async fn get_result_and_success_by_id_from_flow(
                     _ => return Err(err),
                 },
             };
-        completed = job_result.is_some();
     }
 
     let job_result = not_found_if_none(
@@ -5602,32 +5618,37 @@ pub async fn get_result_and_success_by_id_from_flow(
             .fetch_one(db)
             .await?
         }
-        JobResult::ListJob(_) => {
-            let query = format!(
-                r#"WITH modules AS (
-                    SELECT jsonb_array_elements(flow_status->'modules') AS module
-                    FROM {}
-                    WHERE id = $1
-                )
-                SELECT module->>'type' = 'Success'
-                FROM modules
-                WHERE module->>'id' = $2"#,
-                if completed {
-                    "v2_job_completed"
-                } else {
-                    "v2_job_status"
+        JobResult::ListJob(jobs) => {
+            // The step's status lives in the flow job that ran it, which is the root only for a
+            // top-level step: one nested in a branch is a module of that branch's job. An empty
+            // container has no job to start from, so only a top-level one resolves; a nested one
+            // falls back to the flow's final result.
+            let holder = match jobs.first() {
+                Some(job) => {
+                    sqlx::query_scalar!("SELECT parent_job FROM v2_job WHERE id = $1", job)
+                        .fetch_optional(db)
+                        .await?
+                        .flatten()
                 }
-            );
-            sqlx::query_scalar(&query)
-                .bind(flow_id)
-                .bind(node_id)
-                .fetch_optional(db)
-                .await?
-                .ok_or_else(|| {
-                    error::Error::internal_err(format!(
-                        "Could not get success from flow job status"
-                    ))
-                })?
+                None => None,
+            }
+            .unwrap_or(*flow_id);
+            // That job can complete before the root does, so its status may be in either table.
+            sqlx::query_scalar(
+                r#"SELECT module->>'type' = 'Success'
+                FROM jsonb_array_elements(COALESCE(
+                    (SELECT flow_status FROM v2_job_completed WHERE id = $1),
+                    (SELECT flow_status FROM v2_job_status WHERE id = $1)
+                )->'modules') AS module
+                WHERE module->>'id' = $2"#,
+            )
+            .bind(holder)
+            .bind(node_id)
+            .fetch_optional(db)
+            .await?
+            .ok_or_else(|| {
+                error::Error::internal_err(format!("Could not get success from flow job status"))
+            })?
         }
     };
 
@@ -8728,7 +8749,8 @@ pub async fn get_same_worker_job(
                     v2_job.raw_flow,
                     COALESCE(pj.runnable_path, v2_job.args->>'_FLOW_PATH') as parent_runnable_path,
                     p.email as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
-                    p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
+                    p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email,
+                    p.viewer_data_access
                     FROM v2_job_queue
                     INNER JOIN v2_job ON v2_job.id = v2_job_queue.id
                     LEFT JOIN v2_job_status ON v2_job_status.id = v2_job_queue.id

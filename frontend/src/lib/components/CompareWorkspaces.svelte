@@ -65,7 +65,6 @@
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
 	import DeploymentRequestPanel from './deploymentRequest/DeploymentRequestPanel.svelte'
 	import { userStore } from '$lib/stores'
-	import { base } from '$lib/base'
 	import CompareModeToggle, { type CompareMode } from './CompareModeToggle.svelte'
 	import CompareTargetPicker from './CompareTargetPicker.svelte'
 	import { displayDate } from '$lib/utils'
@@ -1461,7 +1460,7 @@
 									<span class="text-secondary">{test.test_script_path}</span>
 									{#if test.job_id}
 										<a
-											href="{base}/run/{test.job_id}?workspace={currentWorkspaceId}"
+											href="/run/{test.job_id}?workspace={currentWorkspaceId}"
 											class="text-tertiary hover:text-secondary text-2xs"
 										>
 											view run

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
@@ -14,6 +13,7 @@
 	import ChatFlowBadge from '$lib/components/flows/ChatFlowBadge.svelte'
 	import { keepsManagedMemory } from '$lib/components/flows/agentFormFields'
 	import { agentMenuItems, deleteAgent } from '$lib/components/flows/agentActions'
+	import AgentHistory from '$lib/components/flows/AgentHistory.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import Row from './Row.svelte'
 	import { selectMenuItems, type RowSelection } from './rowSelection'
@@ -52,10 +52,18 @@
 		if (await deleteAgent($workspaceStore!, path)) dispatch('change')
 	}
 
-	let editHref = $derived(`${base}/agents/edit/${agent.path}`)
+	let editHref = $derived(`/agents/edit/${agent.path}`)
 	// A draft-only agent has nothing deployed for its page to run, so it opens in the editor.
-	let rowHref = $derived(agent.draft_only ? editHref : `${base}/agents/get/${agent.path}`)
+	let rowHref = $derived(agent.draft_only ? editHref : `/agents/get/${agent.path}`)
+	let history: AgentHistory | undefined = $state(undefined)
 </script>
+
+<AgentHistory
+	bind:this={history}
+	path={agent.path}
+	canRestore={agent.canWrite}
+	onRestored={() => dispatch('change')}
+/>
 
 {#snippet chatBadge()}
 	<ChatFlowBadge title="Managed memory on: this agent opens as a conversation" />
@@ -70,7 +78,7 @@
 	path={agent.draft_path ?? agent.path}
 	summary={agent.description}
 	workspaceId={agent.workspace_id ?? $workspaceStore ?? ''}
-	canFavorite={false}
+	canFavorite={!agent.draft_only}
 	{depth}
 	{rowSelection}
 >
@@ -111,8 +119,10 @@
 					canWrite: agent.canWrite,
 					draftOnly: Boolean(agent.draft_only),
 					wsSpecific: agent.ws_specific,
+					operator: $userStore?.operator,
 					onPermissions: () => shareModal.openDrawer?.(agent.path, 'resource'),
 					onDeploy: () => deploymentDrawer.openDrawer(agent.path, 'resource'),
+					onHistory: () => history?.open(),
 					onDelete: (event) => {
 						const { path } = agent
 						if (event?.shiftKey) remove(path)

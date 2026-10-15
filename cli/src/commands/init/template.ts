@@ -77,8 +77,8 @@ const WORKSPACE_CONFIG_SCHEMA = {
  */
 export const CONFIG_REFERENCE: ConfigOption[] = [
   // ── Core ──────────────────────────────────────────────────────────────
-  { name: "defaultTs", type: "string", enum: ["bun", "deno"], default: "bun", description: "Default TypeScript runtime for new scripts",
-    inlineComment: "bun or deno" },
+  { name: "defaultTs", type: "string", enum: ["bun", "deno"], default: "bun", description: "TypeScript runtime of a plain .ts script (bun when absent)",
+    skipInTemplate: true },
   { name: "includes", type: "array", items: { type: "string" }, default: '["f/**"]', description: "Glob patterns for files to include in sync",
     templateValue: '\n  - "f/**"', inlineComment: 'use ** for all, f/** for folder-scoped' },
   { name: "extraIncludes", type: "array", items: { type: "string" }, default: "[]", description: "Additional glob patterns merged with includes (useful in workspace overrides)",
@@ -108,6 +108,9 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
   { name: "includeGroups", type: "boolean", default: "false", description: "Include workspace groups in sync",
     commented: true, templateValue: "true" },
   { name: "includeSettings", type: "boolean", default: "false", description: "Include workspace settings in sync",
+    commented: true, templateValue: "true" },
+  { name: "includeDatatablePermissions", type: "boolean", default: "false",
+    description: "With includeSettings, also sync each data table's roles and who may connect as them",
     commented: true, templateValue: "true" },
   { name: "includeKey", type: "boolean", default: "false", description: "Include encryption key in sync",
     commented: true, templateValue: "true" },

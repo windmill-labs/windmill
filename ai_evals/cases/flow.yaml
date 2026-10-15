@@ -16,6 +16,16 @@
     - "the main step is named `sum_numbers`"
     - the flow returns the sum of the two numbers
 
+# An in-house API has no hub resource type: the connection still comes in as one resource, not
+# a token input or a variable read inside the code.
+- id: flow-resource-type-custom-api
+  prompt: |-
+    Create a flow that fetches an invoice by id from our internal billing API at https://billing.acme.internal/api/v1. It authenticates with a bearer token.
+  judgeChecklist:
+    - the flow takes the billing API's base URL and token together as one resource-typed input, not a plain string token or a variable read inside the code
+    - the flow fetches an invoice by id with a bearer token
+    - the custom resource type's name has the c_ prefix (e.g. `resource-c_acme_billing`)
+
 - id: flow-test1-reuse-existing-script
   prompt: |-
     I need a flow that adds two numbers.

@@ -3,11 +3,13 @@
 //! This module provides functionality for connecting to external MCP servers
 //! and executing tools on them.
 
+mod redacting;
 mod types;
 
 pub use types::{McpResource, McpToolSource};
 
 use anyhow::{Context, Result};
+use redacting::UrlRedactingClient;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use rmcp::{
     model::{
@@ -70,7 +72,8 @@ impl McpClient {
                         headers.insert(name, value);
                     }
                     _ => {
-                        tracing::warn!("Invalid header: {}={}", key, value);
+                        // The value may be a resolved secret: keep it out of the logs.
+                        tracing::warn!("Invalid header: {}", key);
                     }
                 }
             }
@@ -96,7 +99,8 @@ impl McpClient {
 
         // Create the HTTP transport with custom client
         let config = StreamableHttpClientTransportConfig::with_uri(resource.url.as_str());
-        let transport = StreamableHttpClientTransport::with_client(reqwest_client, config);
+        let transport =
+            StreamableHttpClientTransport::with_client(UrlRedactingClient(reqwest_client), config);
 
         // Set up client info
         let client_info = ClientInfo::new(

@@ -15,12 +15,14 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import Tabs from '../common/tabs/Tabs.svelte'
 	import { Tab } from '../common'
+	import { SQL_LANGUAGES } from '$lib/infer'
 	import RawAppInputsSpecEditor from './RawAppInputsSpecEditor.svelte'
 	import SplitPanesWrapper from '../splitPanes/SplitPanesWrapper.svelte'
 	import SchemaForm from '../SchemaForm.svelte'
 	import RunnableJobPanelInner from '../apps/editor/RunnableJobPanelInner.svelte'
 	import JobLoader from '../JobLoader.svelte'
-	import type { Job, OpenFlow, ScriptLang } from '$lib/gen'
+	import { FlowService, type Job, type OpenFlow, type ScriptLang } from '$lib/gen'
+	import { getScriptByPath } from '$lib/scripts'
 	import { slide } from 'svelte/transition'
 	import { DebugToolbar, DebugPanel, debugState } from '$lib/components/debug'
 	import LogViewer from '$lib/components/LogViewer.svelte'
@@ -42,12 +44,15 @@
 	type RunnableWithInlineScript = RunnableWithFields & {
 		inlineScript?: InlineScript & { language: ScriptLang }
 		delete_after_secs?: number
+		viewer_data_access?: boolean
 	}
 	export type Runnable = RunnableWithInlineScript | undefined
 	interface Props {
 		runnable: Runnable
 		id: string
 		appPath: string
+		/** Identity the test runs as instead of the user (see `appPreviewOnBehalfOf`). */
+		previewOnBehalfOf?: string
 		lastDeployedCode?: string | undefined
 		/** Called when code is selected in the editor */
 		onSelectionChange?: (
@@ -61,7 +66,13 @@
 		) => void
 	}
 
-	let { runnable = $bindable(), id, appPath, onSelectionChange }: Props = $props()
+	let {
+		runnable = $bindable(),
+		id,
+		appPath,
+		previewOnBehalfOf,
+		onSelectionChange
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -79,6 +90,13 @@
 						fields: o.fields
 					}
 	}
+
+	// A SQL argument named after a viewer property is most often a per-viewer filter,
+	// which only a ctx field protects. `wmill app lint` warns on the same names.
+	const VIEWER_IDENTITY_ARGS = ['username', 'email', 'groups']
+	let isSql = $derived(
+		isRunnableByName(runnable) && SQL_LANGUAGES.includes(runnable.inlineScript?.language ?? '')
+	)
 
 	let selectedTab = $state('test')
 	let args = $state({})
@@ -170,7 +188,15 @@
 				runnable.inlineScript?.content ?? '',
 				runnable.inlineScript?.language,
 				args,
-				undefined
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ onBehalfOf: previewOnBehalfOf, viewerDataAccess: runnable.viewer_data_access }
 			)
 		} else if (isRunnableByPath(runnable)) {
 			if (jobLoader && isRunnableByPath(runnable)) {
@@ -180,12 +206,48 @@
 							sendUserToast('Hub flow preview is still loading', true)
 							return
 						}
-						await jobLoader.runFlowPreview(args, hubFlowPreview, undefined, runnable.path)
+						await jobLoader.runFlowPreview(
+							args,
+							hubFlowPreview,
+							undefined,
+							runnable.path,
+							previewOnBehalfOf
+						)
+					} else if (previewOnBehalfOf) {
+						// The deployed app runs a path runnable as the app's identity, which a run
+						// by path cannot ask for: preview the deployed definition instead.
+						const flow = await FlowService.getFlowByPath({ workspace: opWs!, path: runnable.path })
+						await jobLoader.runFlowPreview(
+							args,
+							flow,
+							undefined,
+							runnable.path,
+							previewOnBehalfOf
+						)
 					} else {
 						await jobLoader.runFlowByPath(runnable.path, args)
 					}
 				} else if (runnable.runType == 'script' || runnable.runType == 'hubscript') {
-					await jobLoader.runScriptByPath(runnable.path, args)
+					if (previewOnBehalfOf) {
+						const script = await getScriptByPath(runnable.path, opWs)
+						await jobLoader.runPreview(
+							runnable.path,
+							script.content,
+							script.language,
+							args,
+							script.tag,
+							script.lock,
+							script.hash,
+							undefined,
+							undefined,
+							undefined,
+							undefined,
+							undefined,
+							{ onBehalfOf: previewOnBehalfOf }
+						)
+					} else {
+						await jobLoader.runScriptByPath(runnable.path, args)
+					}
 				}
 			}
 		}
@@ -216,6 +278,7 @@
 					bind:name={runnable.name}
 					bind:fields={runnable.fields}
 					bind:delete_after_secs={runnable.delete_after_secs}
+					bind:viewer_data_access={runnable.viewer_data_access}
 					onRun={testPreview}
 					on:delete
 					path={appPath}
@@ -266,6 +329,7 @@
 										documentationLink={meta?.['documentationLink']}
 										allowTypeChange={meta?.['allowTypeChange']}
 										displayType
+										suggestCtx={isSql && VIEWER_IDENTITY_ARGS.includes(k)}
 									/>
 								{/each}
 							</div>

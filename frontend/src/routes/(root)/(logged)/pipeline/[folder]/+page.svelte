@@ -2,7 +2,6 @@
 	import pLimit from 'p-limit'
 	import { workspaceStore, userStore } from '$lib/stores'
 	import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
-	import { base } from '$lib/base'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { page } from '$app/state'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -309,7 +308,7 @@
 			panelHidden = false
 			focusPipelineNode(`script:${path}`)
 		} else {
-			window.open(`${base}/scripts/get/${path}`, '_blank')
+			window.open(`/scripts/get/${path}`, '_blank')
 		}
 	}
 
@@ -2687,7 +2686,7 @@
 			displayName: `f/${p.folder}`,
 			icon: Folder,
 			disabled: false,
-			action: () => goto(`${base}/pipeline/${encodeURIComponent(p.folder)}${modeQuery}`)
+			action: () => goto(`/pipeline/${encodeURIComponent(p.folder)}${modeQuery}`)
 		}))
 		items.push({
 			displayName: 'Choose another folder…',
@@ -2822,7 +2821,7 @@
 
 {#snippet pipelineCrumb()}
 	<a
-		href="{base}/pipeline"
+		href="/pipeline"
 		class="flex items-center gap-1 px-1 py-0.5 rounded text-xs text-primary hover:bg-surface-hover hover:text-emphasis transition-colors"
 	>
 		<NetworkIcon size={14} class="shrink-0 text-tertiary" />

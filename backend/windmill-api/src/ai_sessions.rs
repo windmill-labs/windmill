@@ -24,7 +24,6 @@ use axum::{
     Extension, Json, Router,
 };
 use futures::{StreamExt, TryStreamExt};
-use magic_crypt::{MagicCrypt256, MagicCryptTrait};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::sync::Arc;
@@ -33,9 +32,11 @@ use windmill_api_workspaces::ai_session_backups::{
     fallback_store, generation_prefix, primary_store, storage_id, MAX_OBJECT_BYTES,
 };
 use windmill_api_workspaces::workspaces::sessions_retention_days;
+use windmill_common::db::{process_uptime, PREVIOUS_RELEASE_ROLLOUT_UPTIME};
 use windmill_common::error::{Error, JsonResult, Result};
 use windmill_common::utils::calculate_hash;
-use windmill_common::variables::{crypt_from_key_with_suffix, get_workspace_key};
+use windmill_common::variables::{crypt_from_key_with_suffix, get_workspace_key, WorkspaceCrypt};
+use windmill_common::workspace_crypt::{CipherFormat, MAX_BYTES_OVERHEAD};
 use windmill_object_store::object_store_reexports::{
     ObjectStore, ObjectStoreError, Path as ObjectPath, PutPayload,
 };
@@ -47,9 +48,9 @@ const PULL_BODY_LIMIT: usize = 64 * 1024;
 /// A pull answer larger than this hands the remaining ids back as `deferred`.
 const PULL_RESPONSE_BUDGET: usize = 32 * 1024 * 1024;
 const MAX_HEAD_BYTES: usize = 1024 * 1024;
-/// What the cipher adds to a plaintext at most (a block of padding): an object stored at a
-/// cap is that much larger than the cap when read back.
-const CIPHER_PADDING: usize = 16;
+/// What the cipher adds to a plaintext at most: an object stored at a cap is that much larger
+/// than the cap when read back.
+const CIPHER_PADDING: usize = MAX_BYTES_OVERHEAD;
 /// The browser bounds an image to a 1568 px edge and re-encodes past 700 KB; this is
 /// well above what that produces.
 const MAX_IMAGE_BYTES: usize = 4 * 1024 * 1024;
@@ -120,6 +121,15 @@ pub fn workspaced_service() -> Router {
         )
 }
 
+fn backup_format(current: CipherFormat, uptime: std::time::Duration) -> CipherFormat {
+    // A previous-release server reads only CBC here: GCM waits for it to be rolled out.
+    if current == CipherFormat::V2 && uptime >= PREVIOUS_RELEASE_ROLLOUT_UPTIME {
+        CipherFormat::V2
+    } else {
+        CipherFormat::LegacyCbc
+    }
+}
+
 /// What reading an object yields. `Gone`: not there (deleted since the listing, or never
 /// pushed). `Grown`: larger than expected, so replaced since the listing (or planted), and
 /// left unread; a pull answers with a page ending before it rather than without it.
@@ -135,7 +145,7 @@ enum Read {
 /// The user's prefix in the workspace storage, plus what reads and writes it.
 struct Backend {
     store: Arc<dyn ObjectStore>,
-    mc: MagicCrypt256,
+    mc: WorkspaceCrypt,
     prefix: String,
     /// Name the storage and the generation the objects are under, for the browser's sync
     /// state: a row recorded against another storage or generation is stale, a removal is
@@ -214,7 +224,8 @@ impl Backend {
     }
 
     fn seal(&self, plaintext: &[u8]) -> Vec<u8> {
-        self.mc.encrypt_bytes_to_bytes(plaintext)
+        let format = backup_format(CipherFormat::current(), process_uptime());
+        self.mc.encrypt_bytes_in(plaintext, format)
     }
 
     /// Bytes written.
@@ -255,7 +266,7 @@ impl Backend {
         // apart beyond the cipher's padding check, which a wrong key passes now and then.
         match self
             .mc
-            .decrypt_bytes_to_bytes(&bytes)
+            .decrypt_bytes(&bytes)
             .ok()
             .and_then(|plaintext| String::from_utf8(plaintext).ok())
         {
@@ -1631,4 +1642,33 @@ async fn push(
         fallback: backend.fallback,
         results,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backups_are_written_in_gcm_only_once_the_previous_release_is_rolled_out() {
+        let just_short = PREVIOUS_RELEASE_ROLLOUT_UPTIME - std::time::Duration::from_secs(1);
+        for (current, uptime, expected) in [
+            (
+                CipherFormat::V2,
+                PREVIOUS_RELEASE_ROLLOUT_UPTIME,
+                CipherFormat::V2,
+            ),
+            (CipherFormat::V2, just_short, CipherFormat::LegacyCbc),
+            (
+                CipherFormat::LegacyCbc,
+                PREVIOUS_RELEASE_ROLLOUT_UPTIME * 4,
+                CipherFormat::LegacyCbc,
+            ),
+        ] {
+            assert_eq!(
+                backup_format(current, uptime),
+                expected,
+                "{current:?} {uptime:?}"
+            );
+        }
+    }
 }

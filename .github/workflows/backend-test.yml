@@ -50,7 +50,7 @@ jobs:
           dotnet-version: "9.0.x"
       - uses: denoland/setup-deno@v2
         with:
-          # Pin to the Deno version shipped in the runtime image (Dockerfile) so CI
+          # Pin to the Deno version shipped in the full runtime image (docker/DockerfileFull) so CI
           # tests what production runs, instead of floating on the latest v2.x.
           deno-version: 2.2.1
       - uses: actions/setup-go@v7
@@ -64,7 +64,7 @@ jobs:
           node-version: "24"
       - uses: astral-sh/setup-uv@v7
         with:
-          version: "0.11.24"
+          version: "0.13.0"
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
@@ -83,9 +83,16 @@ jobs:
           chmod +x "$HOME/.local/bin/wmill"
           echo "$HOME/.local/bin" >> $GITHUB_PATH
         working-directory: /
-      - name: Install PowerShell, mold and clang
+      - name: Install PowerShell, mold, clang and the latest pg_dump
+        # PGDG's `postgresql-client` is its newest major, Ubuntu's is not: the `postgres` service
+        # image floats, and pg_dump refuses a server newer than itself. `/usr/bin/pg_dump` picks
+        # the version of the runner's own preinstalled cluster, so the newest bin dir goes first.
         run: |
-          sudo apt-get update && sudo apt-get install -y powershell mold clang libcurl4-openssl-dev
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get update && sudo apt-get install -y powershell mold clang libcurl4-openssl-dev postgresql-client
+          PG_BIN="/usr/lib/postgresql/$(ls /usr/lib/postgresql | sort -n | tail -1)/bin"
+          echo "$PG_BIN" >> "$GITHUB_PATH"
+          "$PG_BIN/pg_dump" --version
         working-directory: /
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -295,4 +302,4 @@ jobs:
           # never reaches it. Pin the target dir (matching the cache step above) so
           # its own tests run off this compile rather than a second bundled build.
           (cd windmill-duckdb-ffi-internal && export CARGO_TARGET_DIR="$PWD/target" && ./build_dev.sh && cargo test --release -p windmill_duckdb_ffi_internal)
-          DENO_PATH=$(which deno) BUN_PATH=$(which bun) NODE_BIN_PATH=$(which node) GO_PATH=$(which go) UV_PATH=$(which uv) PHP_PATH=$(which php) COMPOSER_PATH=$(which composer) RUBY_PATH=$(which ruby) RUBY_BUNDLE_PATH=$(which bundle) RUBY_GEM_PATH=$(which gem) POWERSHELL_PATH=$(which pwsh) DOTNET_PATH=$(which dotnet) cargo test --features enterprise,deno_core,duckdb,license,python,rust,scoped_cache,parquet,private,private_registry_test,csharp,php,ruby,mysql,quickjs,mcp,run_inline,smtp,http_trigger --all -- --nocapture --test-threads=10
+          DENO_PATH=$(which deno) BUN_PATH=$(which bun) NODE_BIN_PATH=$(which node) GO_PATH=$(which go) UV_PATH=$(which uv) PHP_PATH=$(which php) COMPOSER_PATH=$(which composer) RUBY_PATH=$(which ruby) RUBY_BUNDLE_PATH=$(which bundle) RUBY_GEM_PATH=$(which gem) POWERSHELL_PATH=$(which pwsh) DOTNET_PATH=$(which dotnet) cargo test --features enterprise,deno_core,duckdb,license,python,rust,scoped_cache,parquet,private,private_registry_test,csharp,php,ruby,mysql,quickjs,mcp,run_inline,smtp,http_trigger,openidconnect --all -- --nocapture --test-threads=10

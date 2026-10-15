@@ -50,13 +50,19 @@ async function run(
 }
 
 function migrateNew(
-  opts: GlobalOptions & { datatable?: string },
+  opts: GlobalOptions & { datatable?: string; schemas?: string },
   name: string,
 ) {
-  createMigration(opts.datatable ?? DEFAULT_DATATABLE_NAME, name);
+  const schemas = (opts.schemas ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s !== "");
+  createMigration(opts.datatable ?? DEFAULT_DATATABLE_NAME, name, schemas);
 }
 
-async function migrateUp(opts: GlobalOptions & { datatable?: string }) {
+async function migrateUp(
+  opts: GlobalOptions & { datatable?: string; schema?: string },
+) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const dt = opts.datatable ?? DEFAULT_DATATABLE_NAME;
@@ -74,7 +80,7 @@ async function migrateUp(opts: GlobalOptions & { datatable?: string }) {
   // Push any locally-created/edited migration files first (without running
   // them), so `migrate up` works even before a `wmill sync push`.
   await pushLocalMigrations(workspace.workspaceId, dt);
-  await runMigrations(workspace.workspaceId, dt);
+  await runMigrations(workspace.workspaceId, dt, opts.schema);
 }
 
 async function migrateDown(opts: GlobalOptions & { datatable?: string }) {
@@ -97,7 +103,12 @@ async function migrateStatus(
   });
   // `migrate up` pushes local files before running, so they count as pending too.
   const remote = new Set(status.migrations.map((m) => m.timestamp));
-  const migrations: { timestamp: number; name: string; status: string }[] = [
+  const migrations: {
+    timestamp: number;
+    name: string;
+    status: string;
+    schemas?: string[];
+  }[] = [
     ...status.migrations,
     ...listLocalMigrations(dt)
       .filter((m) => !remote.has(m.timestamp))
@@ -124,7 +135,7 @@ async function migrateStatus(
     local: "pending (not pushed)",
   };
   new Table()
-    .header(["Timestamp", "Name", "Status"])
+    .header(["Timestamp", "Name", "Status", "Schemas"])
     .padding(2)
     .border(true)
     .body(
@@ -132,6 +143,9 @@ async function migrateStatus(
         String(m.timestamp),
         m.name,
         label[m.status] ?? m.status,
+        m.status === "local"
+          ? ""
+          : (m.schemas?.join(", ") ?? "whole database"),
       ]),
     )
     .render();
@@ -145,6 +159,10 @@ const migrateCommand = new Command()
     "-d --datatable <datatable:string>",
     "Target datatable (default: main)",
   )
+  .option(
+    "-s --schemas <schemas:string>",
+    "Comma-separated schemas the migration changes, written as its `-- schemas` line. Without it the migration applies to the whole database and every later migration waits for it",
+  )
   .action(migrateNew as any)
   .command(
     "up",
@@ -153,6 +171,10 @@ const migrateCommand = new Command()
   .option(
     "-d --datatable <datatable:string>",
     "Target datatable (default: main)",
+  )
+  .option(
+    "--schema <schema:string>",
+    "Apply only the pending migrations that declare this schema; refused while an earlier overlapping migration is pending",
   )
   .action(migrateUp as any)
   .command(

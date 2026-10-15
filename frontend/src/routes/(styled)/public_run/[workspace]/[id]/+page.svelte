@@ -2,7 +2,6 @@
 	import { page } from '$app/state'
 	import { onDestroy, untrack } from 'svelte'
 	import { ArrowRight, Globe } from 'lucide-svelte'
-	import { base } from '$lib/base'
 	import type { Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { setViewToken } from '$lib/viewToken'
@@ -117,7 +116,7 @@
 				unifiedSize="sm"
 				endIcon={{ icon: ArrowRight }}
 				wrapperClasses="ml-auto"
-				href={`${base}/run/${jobId}?workspace=${encodeURIComponent(workspace)}`}
+				href={`/run/${jobId}?workspace=${encodeURIComponent(workspace)}`}
 			>
 				Open full view
 			</Button>

@@ -9,8 +9,8 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import Path from '$lib/components/Path.svelte'
 	import { usedTriggerKinds } from '$lib/stores'
-	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
-	import { useTriggerLock } from '$lib/operatorWriteRights'
+	import { capitalize, emptyString, sendUserToast } from '$lib/utils'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -20,7 +20,6 @@
 		type PushConfig,
 		type SubscriptionMode,
 		type Retry,
-		type ErrorHandler,
 		type TriggerMode
 	} from '$lib/gen'
 	import Section from '$lib/components/Section.svelte'
@@ -30,14 +29,14 @@
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { saveGcpTriggerFromCfg } from './utils'
-	import { getHandlerType, handleConfigChange, type Trigger } from '../utils'
+	import { handleConfigChange, type Trigger } from '../utils'
+	import { handlerDraftFromStored, handlerDraftToStored } from '../../handlerDraft.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { useTriggerDraftSync } from '../useTriggerDraftSync.svelte'
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
 	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
-	import { base } from '$lib/base'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
@@ -49,7 +48,7 @@
 		useOperatingWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
-	const triggerLock = useTriggerLock()
+	const editRights = useEditRights()
 
 	let drawer: Drawer | undefined = $state(undefined)
 	let initialPath = $state('')
@@ -70,8 +69,9 @@
 	// The acting user in the operating workspace arrives asynchronously, and an unknown user
 	// refuses — so the editor stays read-only until the lookup lands, which is the safe answer.
 	const can_write = $derived(
-		(permsPath === undefined || canWrite(permsPath, permsForWrite ?? {}, actingUser)) &&
-			!$triggerLock
+		permsPath === undefined
+			? editRights.roleCanAuthor('trigger')
+			: editRights.canEditItem('trigger', permsPath, permsForWrite)
 	)
 	let drawerLoading = $state(true)
 	let topic_id: string = $state('')
@@ -93,9 +93,10 @@
 	let auto_acknowledge_msg = $state(true)
 	let ack_deadline: number | undefined = $state()
 	let optionTabSelected: 'settings' | 'error_handler' | 'retries' = $state('error_handler')
-	let errorHandlerSelected: ErrorHandler = $state('slack')
-	let error_handler_path: string | undefined = $state()
-	let error_handler_args: Record<string, any> = $state({})
+	let errorHandler = $state(handlerDraftFromStored('error', undefined))
+	const storedErrorHandler = $derived(handlerDraftToStored(errorHandler))
+	const error_handler_path = $derived(storedErrorHandler.path)
+	const error_handler_args = $derived(storedErrorHandler.args)
 	let retry: Retry | undefined = $state()
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
@@ -177,6 +178,7 @@
 		saveDraftHandler = undefined
 		// A `whoami` that failed earlier would otherwise pin this workspace to "unknown user".
 		operatingUser.forgetFailures()
+		editRights.forgetFailures()
 		drawerLoading = true
 		try {
 			drawer?.openDrawer()
@@ -246,12 +248,15 @@
 			edit = false
 			dirtyPath = false
 			mode = defaultValues?.mode ?? 'enabled'
-			error_handler_path = defaultValues?.error_handler_path ?? undefined
-			error_handler_args = defaultValues?.error_handler_args ?? {}
+			errorHandler = handlerDraftFromStored(
+				'error',
+				defaultValues?.error_handler_path,
+				'script',
+				defaultValues?.error_handler_args
+			)
 			retry = defaultValues?.retry ?? undefined
 			auto_acknowledge_msg = defaultValues?.auto_acknowledge_msg ?? true
 			ack_deadline = defaultValues?.ack_deadline
-			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			permissionedAs = undefined
 			selectedPermissionedAs = undefined
 			preservePermissionedAs = false
@@ -308,12 +313,15 @@
 		topic_id = cfg?.topic_id ?? ''
 		permsPath = cfg?.path
 		permsForWrite = cfg?.extra_perms
-		error_handler_path = cfg?.error_handler_path
-		error_handler_args = cfg?.error_handler_args ?? {}
+		errorHandler = handlerDraftFromStored(
+			'error',
+			cfg?.error_handler_path,
+			'script',
+			cfg?.error_handler_args
+		)
 		retry = cfg?.retry
 		auto_acknowledge_msg = cfg?.auto_acknowledge_msg ?? true
 		ack_deadline = cfg?.ack_deadline
-		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		permissionedAs = cfg?.permissioned_as
 		selectedPermissionedAs = cfg?.permissioned_as
 		preservePermissionedAs = !!cfg?.permissioned_as
@@ -379,7 +387,7 @@
 			delivery_config,
 			// The capture URL shown to the user stays on the browsing origin, so the
 			// endpoint registered for it must too.
-			base_endpoint: `${window.location.origin}${base}`,
+			base_endpoint: window.location.origin,
 			auto_acknowledge_msg,
 			ack_deadline,
 			topic_id,
@@ -700,9 +708,7 @@
 									{optionTabSelected}
 									{itemKind}
 									{can_write}
-									bind:errorHandlerSelected
-									bind:error_handler_path
-									bind:error_handler_args
+									bind:errorHandler
 									bind:retry
 								/>
 							{/if}

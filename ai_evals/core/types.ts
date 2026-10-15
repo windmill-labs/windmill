@@ -40,6 +40,19 @@ export interface EvalCaseRuntimeSpec {
   // Global session chats: start the case in plan mode, so the workspace-changing tools are
   // refused until the model hands over a plan with exit_plan_mode.
   planMode?: boolean;
+  // Global session chats: the user's rights in the workspace, as production resolves them for
+  // a session from a non-admin role. Unset means full access.
+  profile?: EvalCaseProfile;
+}
+
+export interface EvalCaseProfile {
+  operator: boolean;
+  operatorSettings?: {
+    builder_flows?: boolean;
+    builder_apps?: boolean;
+    manage_schedules?: boolean;
+    manage_triggers?: boolean;
+  };
 }
 
 export interface FlowValidationSpec {

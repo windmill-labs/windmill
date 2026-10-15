@@ -2,7 +2,6 @@
 	import { page } from '$app/state'
 	import { FlaskConical, FormInput, MessageSquare, Pen } from 'lucide-svelte'
 	import { resource } from 'runed'
-	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
 	import { copilotInfo } from '$lib/aiStore'
 	import AgentEvalsModal from '$lib/components/flows/content/AgentEvalsModal.svelte'
@@ -18,6 +17,7 @@
 	import { Alert } from '$lib/components/common'
 	import { keepsManagedMemory } from '$lib/components/flows/agentFormFields'
 	import { agentMenuItems, deleteAgent } from '$lib/components/flows/agentActions'
+	import AgentHistory from '$lib/components/flows/AgentHistory.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -41,6 +41,7 @@
 	let configModal: AgentConfigModal | undefined = $state(undefined)
 	let shareModal: ShareModal | undefined = $state(undefined)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state(undefined)
+	let history: AgentHistory | undefined = $state(undefined)
 	let deleteOpen = $state(false)
 	let evalsModal: AgentEvalsModal | undefined = $state(undefined)
 	let runForm: RunForm | undefined = $state(undefined)
@@ -60,7 +61,7 @@
 	}
 
 	async function remove() {
-		if (ws && (await deleteAgent(ws, path))) await goto(`${base}/?kind=agent`)
+		if (ws && (await deleteAgent(ws, path))) await goto('/?kind=agent')
 	}
 
 	// The workspace's, so a path change never waits on it and a menu never outlives its path.
@@ -78,6 +79,7 @@
 					deployUiSettings: deployUiSettings.current,
 					onPermissions: () => shareModal?.openDrawer?.(path, 'resource'),
 					onDeploy: () => deploymentDrawer?.openDrawer(path, 'resource'),
+					onHistory: () => history?.open(),
 					onDelete: () => (deleteOpen = true)
 				}).map((item) => ({
 					label: item.displayName,
@@ -92,6 +94,7 @@
 
 <ShareModal bind:this={shareModal} />
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
+<AgentHistory bind:this={history} {path} canRestore={canEdit} onRestored={() => reloaded++} />
 <ConfirmationModal
 	open={deleteOpen}
 	title="Delete agent"
@@ -122,7 +125,7 @@
 			? async (newPath) => {
 					// A rename moves the page; a summary saved in place has to be read again, since
 					// what is shown here came from the load this page keys on.
-					if (newPath !== path) await goto(`${base}/agents/get/${newPath}`)
+					if (newPath !== path) await goto(`/agents/get/${newPath}`)
 					else reloaded++
 				}
 			: undefined}
@@ -146,7 +149,7 @@
 								variant: 'accent',
 								unifiedSize: 'md',
 								startIcon: Pen,
-								href: `${base}/agents/edit/${path}`
+								href: `/agents/edit/${path}`
 							}
 						}
 					]

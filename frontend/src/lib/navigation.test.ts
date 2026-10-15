@@ -2,11 +2,10 @@ import { describe, it, expect, vi } from 'vitest'
 
 const goto = vi.hoisted(() => vi.fn(async (_path: string) => {}))
 vi.mock('$app/navigation', () => ({ goto: (path: string) => goto(path) }))
-vi.mock('$app/paths', () => ({ base: '' }))
 
 import { buildFilterUrl, setQuery } from './navigation'
 
-// Parse the (un-based) app path the builder returns against a dummy origin so we can
+// Parse the app path the builder returns against a dummy origin so we can
 // assert on pathname / searchParams / hash without caring about ordering.
 function parse(appPath: string): URL {
 	return new URL(appPath, 'http://x')

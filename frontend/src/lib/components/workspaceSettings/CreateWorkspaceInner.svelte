@@ -64,7 +64,6 @@
 	import TextInput from '../text_input/TextInput.svelte'
 	import { jobManager } from '$lib/services/JobManager'
 	import Alert from '../common/alert/Alert.svelte'
-	import { base } from '$lib/base'
 	import Label from '../Label.svelte'
 	import ForkDatatableSection from './ForkDatatableSection.svelte'
 	import Select from '../select/Select.svelte'
@@ -1106,7 +1105,7 @@
 				disabled={forkCreationLoading}
 				variant="default"
 				size="sm"
-				href="{base}/user/workspaces">&leftarrow; Back to workspaces</Button
+				href="/user/workspaces">&leftarrow; Back to workspaces</Button
 			>
 		{/if}
 		{#if !forkCreationLoading}

@@ -58,10 +58,10 @@ function conditionsFor(svelte: boolean): string[] {
 /**
  * Detects which frontend frameworks are present in package.json
  */
-export function detectFrameworks(appDir: string): { svelte: boolean; vue: boolean } {
+export function detectFrameworks(appDir: string): { svelte: boolean } {
   const packageJsonPath = path.join(appDir, "package.json");
   if (!fs.existsSync(packageJsonPath)) {
-    return { svelte: false, vue: false };
+    return { svelte: false };
   }
 
   try {
@@ -73,10 +73,9 @@ export function detectFrameworks(appDir: string): { svelte: boolean; vue: boolea
 
     return {
       svelte: "svelte" in allDeps,
-      vue: "vue" in allDeps,
     };
   } catch {
-    return { svelte: false, vue: false };
+    return { svelte: false };
   }
 }
 
@@ -256,17 +255,6 @@ export async function createFrameworkPlugins(appDir: string): Promise<any[]> {
     plugins.push(createSveltePlugin(appDir));
   }
 
-  if (frameworks.vue) {
-    log.info(colors.blue("🔧 Vue detected, adding vue plugin..."));
-    throw new Error("Vue plugin not supported yet");
-    // try {
-    //   const esbuildPluginVue = await import("esbuild-plugin-vue3");
-    //   plugins.push(esbuildPluginVue.default());
-    // } catch (error: any) {
-    //   log.warn(colors.yellow(`Failed to load vue plugin: ${error.message}`));
-    // }
-  }
-
   return plugins;
 }
 
@@ -313,7 +301,7 @@ export async function createBundle(
   // Use the entryPoint's directory if provided, otherwise fall back to cwd.
   const appDir = options.entryPoint ? path.dirname(options.entryPoint) : process.cwd();
   const frameworks = detectFrameworks(appDir);
-  const defaultEntry = (frameworks.svelte || frameworks.vue) ? "index.ts" : "index.tsx";
+  const defaultEntry = frameworks.svelte ? "index.ts" : "index.tsx";
 
   const entryPoint = options.entryPoint ?? defaultEntry;
   const outDir = options.outDir ?? "dist";
@@ -331,7 +319,7 @@ export async function createBundle(
   // Ensure node_modules exists in the app directory
   await ensureNodeModules(appDir);
 
-  // Load framework-specific plugins (svelte, vue) based on package.json
+  // Load framework-specific plugins (svelte) based on package.json
   const frameworkPlugins = await createFrameworkPlugins(appDir);
 
   // Ensure output directory exists

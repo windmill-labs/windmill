@@ -4,5 +4,7 @@ export declare function getFlowPrompt(): string;
 export declare function getResourcePrompt(): string;
 export declare function getRawAppPrompt(language?: string): string;
 export declare function getPipelinePrompt(): string;
+export declare function getDatatablePrompt(): string;
+export declare function getWorkspaceSettingsPrompt(): string;
 export declare function getDatatableSdkReference(language?: string): string;
 export declare function getWorkflowAsCodePrompt(language?: string): string;

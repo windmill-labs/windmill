@@ -14,6 +14,7 @@ import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import * as log from "../../core/log.ts";
+import { SETTINGS_MANAGED_ONLY_WHEN_PRESENT } from "../../core/settings.ts";
 import * as path from "node:path";
 import { sep as SEP } from "node:path";
 import {
@@ -149,7 +150,11 @@ import {
   extractCurrentMapping,
 } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
-import { markAccessFromPolicy } from "../app/app.ts";
+import {
+  markAccessFromPolicy,
+  markIsolationFromPolicy,
+  stripEditorState,
+} from "../app/app.ts";
 import {
   APP_BACKEND_FOLDER,
   generateAppLocksInternal,
@@ -1329,6 +1334,7 @@ export function ZipFSElement(
               log.error(`Failed to parse app.yaml at path: ${p}`);
               throw error;
             }
+            stripEditorState(app);
             let inlineScripts;
             try {
               inlineScripts = extractInlineScriptsForApps(
@@ -1359,6 +1365,7 @@ export function ZipFSElement(
             }
 
             markAccessFromPolicy(app);
+            markIsolationFromPolicy(app, false);
             app.policy = undefined;
             yield {
               isDirectory: false,
@@ -1377,6 +1384,7 @@ export function ZipFSElement(
               throw error;
             }
             markAccessFromPolicy(rawApp);
+            markIsolationFromPolicy(rawApp, true);
             // console.log("rawApp", rawApp);
             rawApp.policy = undefined;
             // custom_path is derived from the file path, don't store it
@@ -2569,6 +2577,14 @@ const isWorkspaceSettingsFile = (p: string) =>
 function stripUnappliedSettingsFields(local: any, remote: any) {
   delete local?.name;
   delete remote?.name;
+  for (const key of ["operator_settings", ...SETTINGS_MANAGED_ONLY_WHEN_PRESENT]) {
+    if (local?.[key] === undefined) delete remote?.[key];
+  }
+  // push clears an omitted mute_critical_alerts to false
+  if (local?.mute_critical_alerts == null && remote?.mute_critical_alerts === false) {
+    delete local?.mute_critical_alerts;
+    delete remote.mute_critical_alerts;
+  }
   if (local?.color == null) {
     delete local?.color;
     delete remote?.color;
@@ -2747,12 +2763,18 @@ export async function compareDynFSElement(
       }
       return o;
     } else {
+      let o: any;
       try {
-        return yamlParseContent(k, v);
+        o = yamlParseContent(k, v);
       } catch (error) {
         log.error(`Failed to parse YAML content at path: ${k}`);
         throw error;
       }
+      // A file tracked before the field was dropped still carries it.
+      if (path.basename(k) == "app.yaml") {
+        stripEditorState(o);
+      }
+      return o;
     }
   }
 
@@ -3830,6 +3852,7 @@ export async function pull(
     opts.skipDatatableMigrations,
     opts.defaultTs,
     opts.syncBehavior,
+    opts.includeDatatablePermissions,
   );
 
   const remote = ZipFSElement(
@@ -4933,6 +4956,7 @@ export async function push(
       opts.skipDatatableMigrations,
       opts.defaultTs,
       opts.syncBehavior,
+      opts.includeDatatablePermissions,
     ))!,
     !opts.json,
     opts.defaultTs ?? "bun",
@@ -6036,6 +6060,7 @@ export async function push(
                       (opts.yes ?? false) || !process.stdin.isTTY,
                     skipReencrypt: opts.skipReencryptOnKeyChange,
                   },
+                  includeDatatablePermissions: opts.includeDatatablePermissions,
                   defaultTs: opts.defaultTs,
                 },
               );
@@ -6174,6 +6199,7 @@ export async function push(
                       (opts.yes ?? false) || !process.stdin.isTTY,
                     skipReencrypt: opts.skipReencryptOnKeyChange,
                   },
+                  includeDatatablePermissions: opts.includeDatatablePermissions,
                   defaultTs: opts.defaultTs,
                 },
               );
@@ -6802,6 +6828,10 @@ const command = new Command()
   .option("--include-users", "Include syncing users")
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
+  .option(
+    "--include-datatable-permissions",
+    "With --include-settings, also sync who may connect to each data table as which role",
+  )
   .option("--include-key", "Include workspace encryption key")
   .option(
     "--keep-deleted",
@@ -6865,6 +6895,10 @@ const command = new Command()
   .option("--include-users", "Include syncing users")
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
+  .option(
+    "--include-datatable-permissions",
+    "With --include-settings, also sync who may connect to each data table as which role",
+  )
   .option("--include-key", "Include workspace encryption key")
   .option(
     "--skip-reencrypt-on-key-change",

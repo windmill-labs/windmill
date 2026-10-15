@@ -8,10 +8,12 @@
 	import TriggerAdvancedBadges from '../TriggerAdvancedBadges.svelte'
 	import ScheduleAdvancedOptions, {
 		emptyScheduleAdvanced,
-		getHandlerType,
 		loadDefaultScheduleAdvanced,
-		scheduleAdvancedCfg
+		scheduleAdvancedCfg,
+		scheduleHandlerDraft,
+		scheduleHandlerStored
 	} from './ScheduleAdvancedOptions.svelte'
+	import type { HandlerDraft } from '$lib/components/handlerDraft.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import CronInput from '$lib/components/CronInput.svelte'
@@ -30,12 +32,10 @@
 		ScriptService,
 		type Flow,
 		type Retry,
-		type Schedule,
-		type ErrorHandler
+		type Schedule
 	} from '$lib/gen'
-	import { canWrite, emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
-	import { useScheduleLock } from '$lib/operatorWriteRights'
-	import { base } from '$lib/base'
+	import { emptyString, formatCron, sendUserToast, cronV1toV2 } from '$lib/utils'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import Section from '$lib/components/Section.svelte'
 	import { List, Loader2, AlertTriangle } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
@@ -52,7 +52,7 @@
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
 	import { useActingUser } from '$lib/actingUser.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
-	const scheduleLock = useScheduleLock()
+	const editRights = useEditRights()
 
 	let {
 		useDrawer = true,
@@ -82,19 +82,11 @@
 	let paused_until: string | undefined = $state(undefined)
 	let itemKind: 'flow' | 'script' = $state('script')
 	let is_flow: boolean = $derived.by(() => itemKind === 'flow')
-	let errorHandleritemKind: 'flow' | 'script' = $state('script')
 	let wsErrorHandlerMuted: boolean = $state(false)
-	let errorHandlerPath: string | undefined = $state(undefined)
-	let errorHandlerSelected: ErrorHandler = $state('slack')
-	let errorHandlerExtraArgs: Record<string, any> = $state({})
-	let recoveryHandlerPath: string | undefined = $state(undefined)
-	let recoveryHandlerSelected: ErrorHandler = $state('slack')
-	let recoveryHandlerItemKind: 'flow' | 'script' = $state('script')
-	let recoveryHandlerExtraArgs: Record<string, any> = $state({})
-	let successHandlerPath: string | undefined = $state(undefined)
-	let successHandlerSelected: ErrorHandler = $state('slack')
-	let successHandlerItemKind: 'flow' | 'script' = $state('script')
-	let successHandlerExtraArgs: Record<string, any> = $state({})
+	let errorHandler: HandlerDraft = $state(scheduleHandlerDraft('error'))
+	let recoveryHandler: HandlerDraft = $state(scheduleHandlerDraft('recovery'))
+	let successHandler: HandlerDraft = $state(scheduleHandlerDraft('success'))
+	const errorHandlerPath = $derived(scheduleHandlerStored(errorHandler).path)
 	let failedTimes = $state(1)
 	let failedExact = $state(false)
 	let recoveredTimes = $state(1)
@@ -145,7 +137,9 @@
 	const acting = useActingUser(() => wsId)
 	const actingUser = $derived(acting.current)
 	const can_write = $derived(
-		(permsPath === undefined || canWrite(permsPath, extraPerms, actingUser)) && !$scheduleLock
+		permsPath === undefined
+			? editRights.roleCanAuthor('schedule')
+			: editRights.canEditItem('schedule', permsPath, extraPerms)
 	)
 	// Editing the runnable is closed to operators, and an unresolved acting user is no
 	// evidence that this one isn't.
@@ -154,9 +148,9 @@
 		!allowSchedule ||
 			pathError != '' ||
 			emptyString(script_path) ||
-			(errorHandlerSelected == 'slack' &&
-				!emptyString(errorHandlerPath) &&
-				emptyString(errorHandlerExtraArgs['channel'])) ||
+			(errorHandler.selected == 'slack' &&
+				!!errorHandler.slack.path &&
+				emptyString(errorHandler.slack.args['channel'])) ||
 			!can_write
 	)
 	const scheduleCfg = $derived.by(getScheduleCfg)
@@ -182,6 +176,7 @@
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
 		acting.forgetFailures()
+		editRights.forgetFailures()
 		saveDraftHandler = undefined
 		try {
 			drawer?.openDrawer()
@@ -207,68 +202,27 @@
 		}
 	}
 
+	function setScheduleHandlers(s: Partial<Schedule>) {
+		errorHandler = scheduleHandlerDraft('error', s.on_failure, s.on_failure_extra_args)
+		failedTimes = s.on_failure ? (s.on_failure_times ?? 1) : 1
+		failedExact = s.on_failure ? (s.on_failure_exact ?? false) : false
+		recoveryHandler = scheduleHandlerDraft('recovery', s.on_recovery, s.on_recovery_extra_args)
+		recoveredTimes = s.on_recovery ? (s.on_recovery_times ?? 1) : 1
+		successHandler = scheduleHandlerDraft('success', s.on_success, s.on_success_extra_args)
+	}
+
 	async function setScheduleHandler(s?: Schedule) {
 		if (s) {
-			if (s.on_failure) {
-				let splitted = s.on_failure.split('/')
-				errorHandleritemKind = splitted[0] as 'flow' | 'script'
-				errorHandlerPath = splitted.slice(1)?.join('/')
-				failedTimes = s.on_failure_times ?? 1
-				failedExact = s.on_failure_exact ?? false
-				errorHandlerExtraArgs = s.on_failure_extra_args ?? {}
-				errorHandlerSelected = getHandlerType('error', errorHandlerPath)
-			} else {
-				errorHandlerPath = undefined
-				errorHandleritemKind = 'script'
-				errorHandlerExtraArgs = {}
-				failedExact = false
-				failedTimes = 1
-				errorHandlerSelected = 'slack'
-			}
-			if (s.on_recovery) {
-				let splitted = s.on_recovery.split('/')
-				recoveryHandlerItemKind = splitted[0] as 'flow' | 'script'
-				recoveryHandlerPath = splitted.slice(1)?.join('/')
-				recoveredTimes = s.on_recovery_times ?? 1
-				recoveryHandlerExtraArgs = s.on_recovery_extra_args ?? {}
-				recoveryHandlerSelected = getHandlerType('recovery', recoveryHandlerPath)
-			} else {
-				recoveryHandlerPath = undefined
-				recoveryHandlerItemKind = 'script'
-				recoveredTimes = 1
-				recoveryHandlerSelected = 'slack'
-				recoveryHandlerExtraArgs = {}
-			}
-			if (s.on_success) {
-				let splitted = s.on_success.split('/')
-				successHandlerItemKind = splitted[0] as 'flow' | 'script'
-				successHandlerPath = splitted.slice(1)?.join('/')
-				successHandlerExtraArgs = s.on_success_extra_args ?? {}
-				successHandlerSelected = getHandlerType('success', successHandlerPath)
-			} else {
-				successHandlerPath = undefined
-				successHandlerItemKind = 'script'
-				successHandlerSelected = 'slack'
-				successHandlerExtraArgs = {}
-			}
+			setScheduleHandlers(s)
 		} else {
 			const d = wsId ? await loadDefaultScheduleAdvanced(wsId) : emptyScheduleAdvanced()
 			wsErrorHandlerMuted = d.wsErrorHandlerMuted
-			errorHandlerPath = d.errorHandlerPath
-			errorHandleritemKind = d.errorHandleritemKind
-			errorHandlerExtraArgs = d.errorHandlerExtraArgs
-			errorHandlerSelected = d.errorHandlerSelected
+			errorHandler = d.errorHandler
 			failedTimes = d.failedTimes
 			failedExact = d.failedExact
-			recoveryHandlerPath = d.recoveryHandlerPath
-			recoveryHandlerItemKind = d.recoveryHandlerItemKind
-			recoveryHandlerExtraArgs = d.recoveryHandlerExtraArgs
-			recoveryHandlerSelected = d.recoveryHandlerSelected
+			recoveryHandler = d.recoveryHandler
 			recoveredTimes = d.recoveredTimes
-			successHandlerPath = d.successHandlerPath
-			successHandlerItemKind = d.successHandlerItemKind
-			successHandlerExtraArgs = d.successHandlerExtraArgs
-			successHandlerSelected = d.successHandlerSelected
+			successHandler = d.successHandler
 		}
 	}
 
@@ -287,6 +241,7 @@
 		}, 100) // Do not show loading spinner for the first 100ms
 		drawerLoading = true
 		acting.forgetFailures()
+		editRights.forgetFailures()
 		try {
 			let s: Schedule | undefined
 			if (schedule_path) {
@@ -439,48 +394,7 @@
 		no_flow_overlap = cfg.no_flow_overlap ?? false
 		wsErrorHandlerMuted = cfg.ws_error_handler_muted ?? false
 		retry = cfg.retry
-		if (cfg.on_failure) {
-			let splitted = cfg.on_failure.split('/')
-			errorHandleritemKind = splitted[0] as 'flow' | 'script'
-			errorHandlerPath = splitted.slice(1)?.join('/')
-			failedTimes = cfg.on_failure_times ?? 1
-			failedExact = cfg.on_failure_exact ?? false
-			errorHandlerExtraArgs = cfg.on_failure_extra_args ?? {}
-			errorHandlerSelected = getHandlerType('error', errorHandlerPath ?? '')
-		} else {
-			errorHandlerPath = undefined
-			errorHandleritemKind = 'script'
-			errorHandlerExtraArgs = {}
-			failedExact = false
-			failedTimes = 1
-			errorHandlerSelected = 'slack'
-		}
-		if (cfg.on_recovery) {
-			let splitted = cfg.on_recovery.split('/')
-			recoveryHandlerItemKind = splitted[0] as 'flow' | 'script'
-			recoveryHandlerPath = splitted.slice(1)?.join('/')
-			recoveredTimes = cfg.on_recovery_times ?? 1
-			recoveryHandlerExtraArgs = cfg.on_recovery_extra_args ?? {}
-			recoveryHandlerSelected = getHandlerType('recovery', recoveryHandlerPath ?? '')
-		} else {
-			recoveryHandlerPath = undefined
-			recoveryHandlerItemKind = 'script'
-			recoveredTimes = 1
-			recoveryHandlerSelected = 'slack'
-			recoveryHandlerExtraArgs = {}
-		}
-		if (cfg.on_success) {
-			let splitted = cfg.on_success.split('/')
-			successHandlerItemKind = splitted[0] as 'flow' | 'script'
-			successHandlerPath = splitted.slice(1)?.join('/')
-			successHandlerExtraArgs = cfg.on_success_extra_args ?? {}
-			successHandlerSelected = getHandlerType('success', successHandlerPath ?? '')
-		} else {
-			successHandlerPath = undefined
-			successHandlerItemKind = 'script'
-			successHandlerSelected = 'slack'
-			successHandlerExtraArgs = {}
-		}
+		setScheduleHandlers(cfg)
 		dynamicSkipPath = cfg.dynamic_skip
 		args = cfg.args ?? {}
 		extraPerms = cfg.extra_perms ?? {}
@@ -510,7 +424,6 @@
 		}
 		deploymentLoading = false
 	}
-
 
 	let drawer: Drawer | undefined = $state()
 
@@ -547,22 +460,13 @@
 			args: args,
 			enabled: enabled,
 			...scheduleAdvancedCfg({
-				errorHandlerSelected,
-				errorHandlerPath,
-				errorHandleritemKind,
-				errorHandlerExtraArgs,
+				errorHandler,
 				wsErrorHandlerMuted,
 				failedTimes,
 				failedExact,
-				recoveryHandlerSelected,
-				recoveryHandlerPath,
-				recoveryHandlerItemKind,
-				recoveryHandlerExtraArgs,
+				recoveryHandler,
 				recoveredTimes,
-				successHandlerSelected,
-				successHandlerPath,
-				successHandlerItemKind,
-				successHandlerExtraArgs,
+				successHandler,
 				retry,
 				dynamicSkipPath,
 				tag
@@ -652,7 +556,7 @@
 							variant="default"
 							startIcon={{ icon: List }}
 							disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
-							href={`${base}/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
+							href={`/runs/?schedule_path=${path}&job_trigger_kind=schedule&show_future_jobs=true`}
 						>
 							View runs
 						</Button>
@@ -932,8 +836,8 @@
 						error_handler_path={errorHandlerPath}
 						{retry}
 						extraBadges={[
-							{ name: 'Recovery Handler', active: !!recoveryHandlerPath },
-							{ name: 'Success Handler', active: !!successHandlerPath },
+							{ name: 'Recovery Handler', active: !!scheduleHandlerStored(recoveryHandler).path },
+							{ name: 'Success Handler', active: !!scheduleHandlerStored(successHandler).path },
 							{ name: 'Dynamic Skip', active: !!dynamicSkipPath },
 							{ name: 'Custom Tag', active: !!tag }
 						]}
@@ -944,22 +848,13 @@
 					{itemKind}
 					canWrite={can_write}
 					{loading}
-					bind:errorHandlerSelected
-					bind:errorHandlerPath
-					bind:errorHandleritemKind
-					bind:errorHandlerExtraArgs
+					bind:errorHandler
 					bind:wsErrorHandlerMuted
 					bind:failedTimes
 					bind:failedExact
-					bind:recoveryHandlerSelected
-					bind:recoveryHandlerPath
-					bind:recoveryHandlerItemKind
-					bind:recoveryHandlerExtraArgs
+					bind:recoveryHandler
 					bind:recoveredTimes
-					bind:successHandlerSelected
-					bind:successHandlerPath
-					bind:successHandlerItemKind
-					bind:successHandlerExtraArgs
+					bind:successHandler
 					bind:retry
 					bind:dynamicSkipPath
 					bind:tag

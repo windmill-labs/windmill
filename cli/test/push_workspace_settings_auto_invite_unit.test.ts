@@ -21,6 +21,10 @@ const remoteAutoInvite = {
 // Every wmill.* call reachable from pushWorkspaceSettings is stubbed so the
 // function runs without a backend.
 mockServices({
+  // A server without the settings document, so the per-setting endpoints run.
+  applyWorkspaceSettingsDocument: async () => {
+    throw { status: 404 };
+  },
   getSettings: async () => ({ auto_invite: remoteAutoInvite }),
   getWorkspaceName: async () => "phoenix",
   changeWorkspaceName: async () => {},

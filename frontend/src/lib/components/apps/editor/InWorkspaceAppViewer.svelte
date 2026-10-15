@@ -9,7 +9,6 @@
 	 * untrusted markup/JS must not run with the member's full session — hence the
 	 * scoped embed token / opaque isolation.
 	 */
-	import { base } from '$lib/base'
 	import { sendUserToast } from '$lib/toast'
 	import PublicApp from '$lib/components/apps/editor/PublicApp.svelte'
 	import PublicAppFrame from '$lib/components/apps/editor/PublicAppFrame.svelte'
@@ -20,15 +19,12 @@
 	import { Button } from '$lib/components/common'
 	import { AppService, OpenAPI } from '$lib/gen'
 	import { userStore, type UserExt } from '$lib/stores'
-	import { canWrite } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import { ExternalLink, Pen } from 'lucide-svelte'
 	import { page } from '$app/state'
 	import { isMenuHidden } from '$lib/components/sessions/sessionMode.svelte'
-	import {
-		setOperatingWorkspace,
-		useOperatingUser
-	} from '$lib/components/operatingWorkspace.svelte'
+	import { setOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useEditRights } from '$lib/operatorWriteRights'
 
 	let {
 		workspace,
@@ -58,7 +54,6 @@
 	// The app, its permission check and everything this viewer renders belong to `workspace`,
 	// which on a session preview tab is the session's and not the one the nav points at.
 	setOperatingWorkspace(() => workspace)
-	const operatingUser = useOperatingUser()
 
 	/** This workspace's membership for the viewer, which is what the app's `ctx.username` /
 	 * `ctx.groups` must describe — they sit beside `ctx.workspace` in the same object. */
@@ -72,21 +67,23 @@
 	let appPerms = $state<{ path: string; extraPerms: Record<string, boolean> } | undefined>(
 		undefined
 	)
-	const canWriteApp = $derived(
-		!!appPerms && canWrite(appPerms.path, appPerms.extraPerms, operatingUser.current)
-	)
 	/** Raw vs low-code, read from the app itself rather than from the route:
 	 * both kinds render here and either route serves either kind (links to a raw
 	 * app point at /apps/get all over the app), so only the app can say which
 	 * editor the Edit button must open. */
 	let isRawApp = $state(false)
+	const editRights = useEditRights()
+	const canWriteApp = $derived(
+		!!appPerms &&
+			editRights.canEditItem(isRawApp ? 'raw_app' : 'app', appPerms.path, appPerms.extraPerms)
+	)
 	/** The app's execution mode, from the same lite read as the permissions and for the same
 	 * reason: a sandboxed low-code app loads inside the opaque iframe, so `app` here stays
 	 * undefined and cannot say whether the app answers at a public url. `policy.execution_mode` is
 	 * where the lite payload carries it; the flat field beside it is the apps *list* row's
 	 * spelling (ListableApp, which is what AppRow reads). */
 	let executionMode = $state<string | undefined>(undefined)
-	let editHref = $derived(`${base}/${isRawApp ? 'apps_raw' : 'apps'}/edit/${path}?nodraft=true`)
+	let editHref = $derived(`/${isRawApp ? 'apps_raw' : 'apps'}/edit/${path}?nodraft=true`)
 	let refresh: (() => void) | undefined
 
 	// The opaque iframe loads the dedicated cookieless, chrome-less viewer route.
@@ -96,7 +93,7 @@
 	// page's URL (wm_embed_hash relay), and re-deriving the iframe src from them
 	// would reload the app on its every navigation.
 	const initialSearchHash = page.url.search + page.url.hash
-	let viewerUrl = $derived(`${base}/app_embed/${workspace}/${path}${initialSearchHash}`)
+	let viewerUrl = $derived(`/app_embed/${workspace}/${path}${initialSearchHash}`)
 
 	const hideEditBtn = page.url.searchParams.get('hideEditBtn') === 'true'
 	const hideRefreshBar = page.url.searchParams.get('hideRefreshBar') === 'true'
@@ -202,7 +199,7 @@
 			}
 			// Built from this viewer's workspace rather than the navigation one, like everything
 			// else here: the two differ inside a session's preview panel.
-			const url = `${window.location.origin}${base}/public/${workspace}/${secret}`
+			const url = `${window.location.origin}/public/${workspace}/${secret}`
 			if (tab) tab.location.href = url
 			else sendUserToast('Allow pop-ups for this site to open the app’s public url', true)
 		} catch (e: any) {

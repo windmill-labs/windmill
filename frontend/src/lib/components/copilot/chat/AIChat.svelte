@@ -7,7 +7,6 @@
 	import { getAiChatManager } from './aiChatManagerContext'
 
 	const aiChatManager = getAiChatManager()
-	import { base } from '$lib/base'
 	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './script/core'
 	import { copilotInfo } from '$lib/aiStore'
@@ -76,7 +75,7 @@
 							: $aiUserDisabled
 								? 'Windmill AI is disabled in your account settings'
 								: isAdmin
-									? `Enable Windmill AI in your [workspace settings](${base}/workspace_settings?tab=ai) to use this chat`
+									? 'Enable Windmill AI in your [workspace settings](/workspace_settings?tab=ai) to use this chat'
 									: 'Ask an admin to enable Windmill AI in this workspace to use this chat'
 						: aiChatManager.mode === AIMode.SCRIPT &&
 							  aiChatManager.scriptEditorOptions?.lang &&
