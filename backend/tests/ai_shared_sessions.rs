@@ -5,6 +5,7 @@ use serde_json::{json, Value};
 use sqlx::{Pool, Postgres};
 use windmill_test_utils::*;
 
+const ADMIN: &str = "Bearer SECRET_TOKEN";
 const MEMBER: &str = "Bearer SECRET_TOKEN_2";
 const OTHER_MEMBER: &str = "Bearer SECRET_TOKEN_3";
 const OUTSIDER: &str = "Bearer OUTSIDER_TOKEN";
@@ -96,6 +97,24 @@ async fn private_share_is_for_members_and_public_share_for_anyone(
     let body: Value = resp.json().await?;
     assert_eq!(body["snapshot"]["messages"][0]["content"], "hi");
     assert_eq!(body["can_unshare"], false);
+
+    let delete = |token: &'static str| {
+        client
+            .delete(format!("{authed}/delete/{id}"))
+            .header("Authorization", token)
+            .send()
+    };
+    assert_eq!(
+        delete(OTHER_MEMBER).await?.status(),
+        404,
+        "a member who is neither the author nor an admin took the share down"
+    );
+    assert_eq!(
+        delete(ADMIN).await?.status(),
+        200,
+        "an admin could not take the share down"
+    );
+    assert_eq!(status(Some(OTHER_MEMBER)).await?, 404);
 
     Ok(())
 }

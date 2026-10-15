@@ -291,7 +291,6 @@ async fn get_shared_session(
     .fetch_optional(&db)
     .await?;
 
-    // A private share reads as absent to a stranger, so the link does not confirm it exists.
     let not_found = || {
         Error::NotFound(format!(
             "Shared session {id} not found: it may have been unshared, or be visible only to members of {w_id}"
@@ -302,6 +301,8 @@ async fn get_shared_session(
         .filter(|a| a.job_id.is_none() && is_effectively_unscoped(a.scopes.as_deref()));
     let row = match row {
         Some(row) if row.is_public || member.is_some() => row,
+        // A missing share and a private one answer a stranger alike, so the link does not
+        // confirm that a private share exists.
         _ if member.is_none() => {
             return Err(Error::NotAuthorized(format!(
                 "Shared session {id} is not public: sign in as a member of {w_id} to open it"

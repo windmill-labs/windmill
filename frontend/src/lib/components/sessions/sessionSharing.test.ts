@@ -46,6 +46,7 @@ describe('readSessionSnapshot', () => {
 			role: 'tool',
 			tool_call_id: 'shared-3',
 			content: 'Run',
+			showDetails: false,
 			blockedByPlanMode: false,
 			declinedByUser: false
 		})

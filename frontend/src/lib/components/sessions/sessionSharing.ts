@@ -144,6 +144,7 @@ function readMessage(m: Record<string, unknown>, index: number): DisplayMessage 
 				result: m.result,
 				logs: str(m.logs),
 				error: str(m.error),
+				showDetails: m.showDetails === true,
 				imageUrl: isInlineImage(m.imageUrl) ? m.imageUrl : undefined,
 				planArtifactId: str(m.planArtifactId),
 				planVersion: typeof m.planVersion === 'number' ? m.planVersion : undefined,

@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { Drawer, DrawerContent } from '$lib/components/common'
+	import { Button, Drawer, DrawerContent } from '$lib/components/common'
+	import { FileText } from 'lucide-svelte'
 	import AIChatMessage from '$lib/components/copilot/chat/AIChatMessage.svelte'
 	import ToolGroupDisplay from '$lib/components/copilot/chat/ToolGroupDisplay.svelte'
 	import ArtifactBody from '$lib/components/copilot/chat/artifacts/ArtifactBody.svelte'
@@ -32,12 +33,14 @@
 				createdAt: 0,
 				updatedAt: 0
 			})),
-			openArtifact: (id) => {
-				openArtifactId = id
-				drawer?.openDrawer()
-			}
+			openArtifact: (id) => showArtifact(id)
 		})
 	)
+
+	function showArtifact(id: string) {
+		openArtifactId = id
+		drawer?.openDrawer()
+	}
 
 	const messages = $derived(snapshot.messages)
 	const chatItems = $derived(groupToolRuns(messages))
@@ -75,6 +78,23 @@
 {#snippet groupRow(message: DisplayMessage, messageIndex: number)}
 	{@render messageRow(message, messageIndex, true)}
 {/snippet}
+
+{#if snapshot.artifacts.length > 0}
+	<!-- The transcript only links plan documents; every other artifact is reached from here. -->
+	<div class="mb-4 flex flex-wrap items-center gap-2 px-2">
+		<span class="text-xs font-semibold text-emphasis">Artifacts</span>
+		{#each snapshot.artifacts as artifact (artifact.id)}
+			<Button
+				unifiedSize="sm"
+				variant="default"
+				startIcon={{ icon: FileText }}
+				onClick={() => showArtifact(artifact.id)}
+			>
+				{artifact.name}
+			</Button>
+		{/each}
+	</div>
+{/if}
 
 <div class="flex flex-col pb-2">
 	{#each chatItems as item (chatItemKey(item))}
