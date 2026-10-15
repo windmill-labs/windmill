@@ -1,3 +1,15 @@
+<script lang="ts" module>
+	import type HomeSessionStarterComponent from '../sessions/HomeSessionStarter.svelte'
+
+	// The starter is a full AIChat, which reaches monaco, and the build refuses monaco in Home's
+	// static imports. Kept once loaded, so a return to Home renders it in its first frame: the
+	// AI Sessions → Home view transition snapshots that frame.
+	let loadedStarter: typeof HomeSessionStarterComponent | undefined
+	function loadStarter() {
+		return import('../sessions/HomeSessionStarter.svelte').then((m) => (loadedStarter = m.default))
+	}
+</script>
+
 <script lang="ts">
 	import { ExternalLink, Globe2, PlugZap, WandSparkles } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
@@ -8,7 +20,6 @@
 	import { hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
 	import { sessionState } from '../sessions/sessionState.svelte'
 	import { currentWorkspaceRootId } from '../sessions/sessionScope.svelte'
-	import HomeSessionStarter from '../sessions/HomeSessionStarter.svelte'
 	import { HOME_SHOW_HUB } from '$lib/consts'
 	import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import { isRuleActive, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
@@ -78,6 +89,9 @@
 	)
 	let shownForRoot = $state<string>()
 
+	let HomeSessionStarter = $state(loadedStarter)
+	if (!HomeSessionStarter) void loadStarter().then((c) => (HomeSessionStarter = c))
+
 	// Whether Home's own workspace hides the assistant, read for that workspace directly: the
 	// shared copilot config follows whichever workspace loaded last, and once the block shows
 	// that is the draft's, so a draft acting on a workspace that hides AI would otherwise take
@@ -122,7 +136,7 @@
 			<!-- The block is a session's chat, so it waits for the sessions it might reuse. Keyed on
 			     the workspace family, not the workspace: another family needs its own draft, but a
 			     fork shares its parent's, and remounting for it only flashes the block. -->
-			{#if sessionState.hydrated && (rulesReady || shownForRoot === $currentWorkspaceRootId)}
+			{#if HomeSessionStarter && sessionState.hydrated && (rulesReady || shownForRoot === $currentWorkspaceRootId)}
 				{#key $currentWorkspaceRootId}
 					<HomeSessionStarter onShown={() => (shownForRoot = $currentWorkspaceRootId)} />
 				{/key}
