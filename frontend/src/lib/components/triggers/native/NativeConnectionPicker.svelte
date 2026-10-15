@@ -154,11 +154,12 @@
 				<Button
 					unifiedSize="xs"
 					variant="subtle"
-					iconOnly
+					destructive
 					startIcon={{ icon: Unplug }}
-					title="Disconnect"
 					onclick={() => (close(), disconnect(connection.path))}
-				/>
+				>
+					Disconnect
+				</Button>
 			{/if}
 		{/snippet}
 		{#snippet bottomSnippet({ close })}
