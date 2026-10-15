@@ -48,7 +48,7 @@ alerts: id(int), alert_type(char), message(text), created_at(ts), acknowledged(b
 app: id(bigint), workspace_id(char), path(char), summary(char), policy(jsonb), versions(bigint[]), extra_perms(jsonb), draft_only(bool), custom_path(text), labels(text[])
   FK: (workspace_id) -> workspace(id)
 app_bundles: app_version_id(bigint), w_id(char), file_type(char), data(bytes)
-app_script: id(bigint), app(bigint), hash(char(64)), lock(text), code(text), code_sha256(char(64))
+app_script: id(bigint), app(bigint), hash(char(64)), lock(text), code(text), code_sha256(char(64)), modules(jsonb)
   FK: (app) -> app(id)
 app_version: id(bigint), app_id(bigint), value(json), created_by(char), created_at(ts), raw_app(bool)
   FK: (app_id) -> app(id)

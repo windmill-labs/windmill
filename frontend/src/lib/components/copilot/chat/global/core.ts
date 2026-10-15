@@ -6995,6 +6995,7 @@ async function initApp(
 		summary,
 		files: { ...(builder ? BUILDER_FRAMEWORK_TEMPLATES : FRAMEWORK_TEMPLATES)[framework] },
 		runnables: builder ? {} : structuredClone(STARTER_RUNNABLES),
+		policy: { sandbox: true },
 		...(data && {
 			data: {
 				tables: (data.tables ?? []).map((ref) => appTableRef(data.datatable, data.schema, ref)),
