@@ -464,7 +464,7 @@ addEventListener('message', function (e) {
     n.hidden = !e.data.text
   } else if (e.source === opener) frame.postMessage(e.data, '*')
 })
-<\/script></head><body><div id="n" hidden></div><iframe src="${window.location.origin}${sandboxedShellUrl}" sandbox="${RAW_APP_SANDBOX_FLAGS}" referrerpolicy="no-referrer"></iframe></body></html>`
+<\/script></head><body><div id="n" hidden></div><iframe src="${window.location.origin}${sandboxedShellUrl}" sandbox="${RAW_APP_SANDBOX_FLAGS}" allow="clipboard-read; clipboard-write; fullscreen" referrerpolicy="no-referrer"></iframe></body></html>`
 				],
 				{ type: 'text/html' }
 			)
@@ -2937,6 +2937,7 @@ addEventListener('message', function (e) {
 											title="App preview"
 											src={previewShellUrl}
 											sandbox={sandboxed ? RAW_APP_SANDBOX_FLAGS : undefined}
+											allow="clipboard-read; clipboard-write; fullscreen"
 											referrerpolicy={sandboxed ? 'no-referrer' : undefined}
 											class="w-full flex-1 block"
 										></iframe>
