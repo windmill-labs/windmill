@@ -36,6 +36,8 @@
 		moveSessionToWorkspace,
 		getSessionDraftPrompt,
 		setSessionDraftPrompt,
+		getSessionDraftAttachments,
+		setSessionDraftAttachments,
 		peekSessionAutoSend,
 		takeSessionAutoSend,
 		reconcileAfterWorkspaceChange,
@@ -473,6 +475,8 @@
 						wideLayout
 						initialInstructions={armedAtInit ? undefined : restoredDraftPrompt}
 						onDraftChange={(text) => setSessionDraftPrompt(sessionId, text)}
+						initialAttachments={armedAtInit ? undefined : getSessionDraftAttachments(sessionId)}
+						onAttachmentsChange={(a) => setSessionDraftAttachments(sessionId, a)}
 						forceDisabled={isUnavailable || !!session.archived}
 						forceDisabledMessage={isUnavailable
 							? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'

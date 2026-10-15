@@ -54,7 +54,7 @@
 		MAX_BLOB_BYTES,
 		type AttachedBlob
 	} from './blobUtils'
-	import { MessageDraft } from './messageDraft.svelte'
+	import { MessageDraft, type DraftAttachments } from './messageDraft.svelte'
 	import { useSessionPermissions } from '$lib/components/sessions/sessionPermissions.svelte'
 	import ExpandableImage, {
 		isImageViewerOpen
@@ -94,6 +94,11 @@
 		// `chatHost.instructions` only carries programmatic prompts). Used by
 		// sessions to persist the typed-but-unsent prompt with the session draft.
 		onDraftChange?: (text: string) => void
+		/** The rest of the draft — collapsed pastes, images, files — seeded and observed the
+		 * same way. The text alone is not the draft: a collapsed paste is a token in it whose
+		 * content lives here, so a composer remounted elsewhere needs both. */
+		initialAttachments?: DraftAttachments
+		onAttachmentsChange?: (attachments: DraftAttachments) => void
 		// tool_call_id of the askUserQuestion the turn is parked on, when it is. A
 		// plain-text draft sent from here answers it instead of queueing behind a
 		// turn that only the answer can resume.
@@ -131,6 +136,8 @@
 		loading,
 		onCancel,
 		onDraftChange = undefined,
+		initialAttachments = undefined,
+		onAttachmentsChange = undefined,
 		pendingQuestionToolCallId = undefined,
 		onSent = undefined,
 		toolbar = undefined,
@@ -228,9 +235,10 @@
 	const draft = new MessageDraft(
 		untrack(() => ({
 			text: initialInstructions,
-			pastes: initialPastes ?? [],
-			images: initialImages ?? [],
-			files: initialFiles ?? []
+			pastes: initialPastes ?? initialAttachments?.pastes ?? [],
+			images: initialImages ?? initialAttachments?.images ?? [],
+			files: initialFiles ?? initialAttachments?.files ?? [],
+			blobs: initialAttachments?.blobs ?? []
 		}))
 	)
 	// Report edits, never the mount-time value. The first run carries whatever the
@@ -247,6 +255,24 @@
 				return
 			}
 			onDraftChange?.(text)
+		})
+	})
+	// Same rule for the rest of the draft.
+	let attachmentsReported = false
+	$effect(() => {
+		// Copied, not passed: the paste lane is edited in place, and a copy reads every item.
+		const attachments = {
+			pastes: [...draft.pastes],
+			images: [...draft.images],
+			files: [...draft.files],
+			blobs: [...draft.blobs]
+		}
+		untrack(() => {
+			if (!attachmentsReported) {
+				attachmentsReported = true
+				return
+			}
+			onAttachmentsChange?.(attachments)
 		})
 	})
 

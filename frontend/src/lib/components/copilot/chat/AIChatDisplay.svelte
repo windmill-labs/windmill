@@ -70,8 +70,8 @@
 	import { copilotInfo } from '$lib/aiStore'
 	import SessionGreeting from './starter/SessionGreeting.svelte'
 	import StarterPromptChips from './starter/StarterPromptChips.svelte'
+	import type { DraftAttachments } from './messageDraft.svelte'
 	import { RotatingPlaceholder, type ChatStarter } from './starter/starterPrompts.svelte'
-	import { glideOnLayoutChange } from './composerGlide.svelte'
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
 	const chatHost = getChatViewHost()
@@ -117,6 +117,8 @@
 		footerSettings,
 		initialInstructions = undefined,
 		onDraftChange = undefined,
+		initialAttachments = undefined,
+		onAttachmentsChange = undefined,
 		placeholder = undefined,
 		scrollElement = $bindable(),
 		onTranscriptScroll = undefined
@@ -160,9 +162,11 @@
 		/** The settings control at the footer's right edge, where the copilot puts its
 		 * model picker. A host that configures its turn elsewhere replaces it here. */
 		footerSettings?: Snippet
-		// Seed / observe the main composer's draft text (see AIChatInput).
+		// Seed / observe the main composer's draft (see AIChatInput).
 		initialInstructions?: string
 		onDraftChange?: (text: string) => void
+		initialAttachments?: DraftAttachments
+		onAttachmentsChange?: (attachments: DraftAttachments) => void
 		/** Composer placeholder. Falls back to the per-AI-mode wording. */
 		placeholder?: string
 		/** The transcript's scroll container. A host that paginates older messages
@@ -577,11 +581,6 @@
 		() => (starter?.prompts ?? []).map((p) => p.prompt),
 		() => starterHero
 	)
-	let composerEl: HTMLDivElement | undefined = $state()
-	glideOnLayoutChange(
-		() => composerEl,
-		() => starterLayout
-	)
 
 	const columnClass = $derived(
 		wideLayout
@@ -933,7 +932,6 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 	<!-- Same horizontal padding as the transcript above: the composer's edges line up with
 	     the messages rather than sitting closer to the panel edge. -->
 	<div
-		bind:this={composerEl}
 		data-session-composer
 		class="relative {columnClass} pb-2"
 		style:view-transition-name={viewTransitionNames && starterLayout
@@ -995,6 +993,8 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				{placeholder}
 				{initialInstructions}
 				{onDraftChange}
+				{initialAttachments}
+				{onAttachmentsChange}
 				showContext={chatHost.mode !== AIMode.GLOBAL}
 				{disabled}
 				{pendingQuestionToolCallId}
@@ -1361,7 +1361,12 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			</div>
 		{/if}
 	</div>
-	{#if centreComposer}
-		<div class="flex-1 min-h-0"></div>
-	{/if}
+	<!-- Equal to the space above while the session is empty, so the composer sits centred.
+	     Always mounted and shrunk on the first message rather than removed: flex-grow
+	     transitions, so the composer slides down to the bottom instead of jumping. -->
+	<div
+		class="min-h-0 basis-0 transition-[flex-grow] duration-[var(--composer-glide-duration)] ease-[var(--composer-glide-easing)] motion-reduce:transition-none {centreComposer
+			? 'grow'
+			: 'grow-0'}"
+	></div>
 </div>

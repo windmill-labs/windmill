@@ -428,7 +428,8 @@ input[type='time']::-webkit-calendar-picker-indicator {
 }
 
 /* The composer's glide, defined once: the Home ↔ AI Sessions view transition below and the
-   in-page move on a session's first message (composerGlide.svelte.ts) both read it. */
+   in-page move on a session's first message (the spacer under AIChatDisplay's composer) both
+   read it. */
 :root {
 	--composer-glide-duration: 200ms;
 	--composer-glide-easing: cubic-bezier(0.2, 0, 0, 1);

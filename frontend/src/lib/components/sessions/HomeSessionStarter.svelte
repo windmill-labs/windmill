@@ -1,16 +1,20 @@
 <script lang="ts">
 	import { onMount, setContext } from 'svelte'
 	import AIChat from '$lib/components/copilot/chat/AIChat.svelte'
+	import type { DraftAttachments } from '$lib/components/copilot/chat/messageDraft.svelte'
 	import type { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import { StarterPrompts } from '$lib/components/copilot/chat/starter/starterPrompts.svelte'
 	import { goto } from '$lib/navigation'
 	import { getOrCreateRuntime } from './sessionRuntime.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
+	import { copilotWorkspaceRequested, loadCopilot } from '$lib/components/copilot/loadCopilot'
+	import { copilotWorkspace } from '$lib/aiStore'
 	import {
 		getEffectiveWorkspaceId,
+		getSessionDraftAttachments,
 		getSessionDraftPrompt,
 		homeStarterSession,
+		setSessionDraftAttachments,
 		selectSession,
 		sessionPageHref,
 		sessionState,
@@ -37,9 +41,12 @@
 
 	// The AI config (models, whether AI is hidden) of the workspace the draft acts on, as the
 	// session page loads it, so a fork picked here shows its own models and the session page
-	// can judge it at once on arrival instead of covering it while it asks.
+	// can judge it at once on arrival instead of covering it while it asks. The layout also
+	// loads Home's own workspace into the same shared config, and the last request wins, so
+	// this asks again whenever a later request named another workspace.
 	$effect(() => {
-		if (actingWorkspaceId) loadCopilot(actingWorkspaceId)
+		if (actingWorkspaceId && $copilotWorkspaceRequested !== actingWorkspaceId)
+			loadCopilot(actingWorkspaceId)
 	})
 
 	// The turn is already running on the session's manager; the page it belongs to takes over.
@@ -55,6 +62,11 @@
 		if (text.trim()) selectSession(sessionId)
 	}
 
+	function onAttachmentsChange(attachments: DraftAttachments) {
+		setSessionDraftAttachments(sessionId, attachments)
+		if (Object.values(attachments).some((lane) => lane.length > 0)) selectSession(sessionId)
+	}
+
 	let aiChat: AIChat | undefined = $state(undefined)
 	onMount(() => {
 		onShown?.()
@@ -68,7 +80,9 @@
 	{/if}
 {/snippet}
 
-{#if session}
+<!-- Until a config has loaded the chat reads "AI not configured" and would flash its disabled
+     state. Any loaded config will do, so a fork switch does not hide it while the fork's loads. -->
+{#if session && $copilotWorkspace !== undefined}
 	<AIChat
 		bind:this={aiChat}
 		hideHeader
@@ -76,6 +90,8 @@
 		wideLayout
 		initialInstructions={getSessionDraftPrompt(sessionId)}
 		{onDraftChange}
+		initialAttachments={getSessionDraftAttachments(sessionId)}
+		{onAttachmentsChange}
 		starter={{ where: 'home', prompts: starterPrompts.list, chips: starterPrompts.chipsOffered }}
 		viewTransitionNames
 		{onSent}

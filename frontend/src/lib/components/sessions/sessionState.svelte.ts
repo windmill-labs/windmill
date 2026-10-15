@@ -28,6 +28,7 @@ import { emailOfScopedKey, scopedKeyFor } from '$lib/userScopedStorage'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
 import { deleteArtifactsForSession } from '../copilot/chat/artifacts/artifactsDB'
 import { deleteSessionChats } from '../copilot/chat/HistoryManager.svelte'
+import type { DraftAttachments } from '../copilot/chat/messageDraft.svelte'
 import {
 	markSessionDirty,
 	markSessionRemoved,
@@ -385,6 +386,32 @@ export function getSessionDraftPrompt(sessionId: string): string | undefined {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
 	if (!s || s.workspace_id) return undefined
 	return s.draftPrompt
+}
+
+// The rest of an unsent draft (collapsed pastes, images, files), so a composer mounted again
+// for the same session, on Home or the session page, gets the draft whole: a collapsed paste
+// is a token in `draftPrompt` whose content lives here. In memory only, like the attachments
+// themselves before a send, so a reload drops them as it always has.
+const draftAttachments = new Map<string, DraftAttachments>()
+
+export function setSessionDraftAttachments(sessionId: string, attachments: DraftAttachments): void {
+	const empty = Object.values(attachments).every((lane) => lane.length === 0)
+	if (empty) {
+		draftAttachments.delete(sessionId)
+		return
+	}
+	const s = sessionState.sessions.find((x) => x.id === sessionId)
+	if (!s || s.workspace_id) return
+	draftAttachments.set(sessionId, attachments)
+	// Attaching is a touch, as typing is: a draft holding only an image would otherwise still
+	// read as a blank, be reused by the next hand-off with the image in it, or be dropped.
+	if (s.transient) persistTouched(s)
+}
+
+export function getSessionDraftAttachments(sessionId: string): DraftAttachments | undefined {
+	const s = sessionState.sessions.find((x) => x.id === sessionId)
+	if (!s || s.workspace_id) return undefined
+	return draftAttachments.get(sessionId)
 }
 
 // A hand-off arrives within a navigation; anything older than this is the debris
@@ -1494,6 +1521,7 @@ export function deleteSession(id: string) {
 	// a draft deleted inside the debounce window.
 	clearTimeout(draftPromptFlushHandles.get(id))
 	draftPromptFlushHandles.delete(id)
+	draftAttachments.delete(id)
 	sessionState.sessions = sessionState.sessions.filter((x) => x.id !== id)
 	if (sessionState.currentSessionId === id) {
 		sessionState.currentSessionId = sessionState.sessions[0]?.id

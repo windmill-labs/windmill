@@ -1,13 +1,3 @@
-<script lang="ts" module>
-	import { SvelteMap } from 'svelte/reactivity'
-
-	// AI-hidden verdicts already read, by workspace, for the whole page load: arriving from Home
-	// or switching back to a workspace is judged at once, while a fresh read still runs and
-	// replaces the verdict when it lands. Kept outside the page, which remounts on every
-	// arrival, so the switch from Home does not land on the full-page loader.
-	const knownAiHidden = new SvelteMap<string, boolean>()
-</script>
-
 <script lang="ts">
 	import { onDestroy, onMount, tick, untrack } from 'svelte'
 	import { SvelteSet } from 'svelte/reactivity'
@@ -355,7 +345,6 @@
 			}
 			// The generated client can't take an abort signal, so drop a superseded response here.
 			if (signal.aborted) throw new DOMException('superseded', 'AbortError')
-			knownAiHidden.set(workspace, hidden)
 			return { workspace, hidden }
 		}
 	)
@@ -364,17 +353,18 @@
 	const aiHiddenVerdict = $derived.by(() => {
 		const current = workspaceAiHidden.current
 		if (current && current.workspace === previewWorkspace) return current.hidden
-		if (!previewWorkspace) return undefined
-		const known = knownAiHidden.get(previewWorkspace)
-		if (known !== undefined) return known
 		// The AI config already loaded for this very workspace (by Home, on the way here) carries
 		// the same flag. Tagged with its workspace, so it is never another workspace's verdict.
-		return $copilotWorkspace === previewWorkspace ? $copilotInfo.workspaceDisabled : undefined
+		return previewWorkspace && $copilotWorkspace === previewWorkspace
+			? $copilotInfo.workspaceDisabled
+			: undefined
 	})
-	// The full loader is for the page load's first verdict only. Later, picking another workspace
-	// in "Acting on" leaves the session on screen, inert until its verdict lands: covering
-	// it for the length of a request reads as the whole page reloading.
-	const firstVerdictPending = $derived(aiHiddenVerdict === undefined && knownAiHidden.size === 0)
+	// The full loader is for the page's first verdict only. Later, picking another workspace in
+	// "Acting on" leaves the session on screen, inert until its verdict lands (the resource
+	// keeps the previous one meanwhile): covering it for a request reads as the page reloading.
+	const firstVerdictPending = $derived(
+		aiHiddenVerdict === undefined && workspaceAiHidden.current === undefined
+	)
 
 	// Lazy-mount gate: a tab's content only renders once its key lands here (on
 	// first activation) — so restoring a session with N saved tabs boots just

@@ -5,6 +5,7 @@ import {
 	createSession,
 	decideSessionLifecycle,
 	findEmptyLandingSession,
+	getSessionDraftAttachments,
 	homeStarterSession,
 	isForkSession,
 	isTearingDownOpenSession,
@@ -12,6 +13,7 @@ import {
 	setDraftsDiscardedHandler,
 	sessionInCurrentFamily,
 	setGeneratedSessionSummary,
+	setSessionDraftAttachments,
 	setSessionDraftPrompt,
 	sessionState,
 	withOpenSessionTeardown,
@@ -29,6 +31,10 @@ import {
 	type UserWorkspace
 } from '$lib/stores'
 import { WorkspaceService } from '$lib/gen'
+import type { DraftAttachments } from '$lib/components/copilot/chat/messageDraft.svelte'
+import type { PasteAttachment } from '$lib/components/copilot/chat/pasteTokens'
+
+const NO_ATTACHMENTS: DraftAttachments = { pastes: [], images: [], files: [], blobs: [] }
 
 // Force createWorkspaceFork to fail so we can pin commitSessionWorkspace's
 // failure contract (the invariant the beforeSend abort fix relies on).
@@ -448,6 +454,35 @@ describe('createSession — reuses an untouched draft, family-scoped', () => {
 			expect(sessionState.currentSessionId).toBe('untouched-same-family')
 		} finally {
 			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'untouched-same-family')
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
+	it('does not reuse a draft that holds only an attachment', () => {
+		const restore = withTwoFamilies('rootA')
+		const prevCurrent = sessionState.currentSessionId
+		const attached = session({
+			id: 'attachment-only',
+			name: 'session-904',
+			pending_workspace_id: 'forkA',
+			transient: true
+		})
+		sessionState.sessions.push(attached)
+		let createdId: string | undefined
+		try {
+			setSessionDraftAttachments('attachment-only', {
+				...NO_ATTACHMENTS,
+				pastes: [{} as PasteAttachment]
+			})
+			createdId = createSession().id
+			expect(createdId).not.toBe('attachment-only')
+			expect(getSessionDraftAttachments('attachment-only')).toBeDefined()
+		} finally {
+			setSessionDraftAttachments('attachment-only', NO_ATTACHMENTS)
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => s.id !== 'attachment-only' && s.id !== createdId
+			)
 			sessionState.currentSessionId = prevCurrent
 			restore()
 		}

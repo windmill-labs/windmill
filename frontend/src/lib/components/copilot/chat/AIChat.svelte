@@ -23,7 +23,9 @@
 		onSent = undefined,
 		inputPreface,
 		initialInstructions = undefined,
-		onDraftChange = undefined
+		onDraftChange = undefined,
+		initialAttachments = undefined,
+		onAttachmentsChange = undefined
 	}: {
 		hideHeader?: boolean
 		hideModeSelector?: boolean
@@ -42,9 +44,11 @@
 		viewTransitionNames?: boolean
 		onSent?: () => void
 		inputPreface?: import('svelte').Snippet
-		// Seed / observe the composer's draft text (forwarded to AIChatDisplay).
+		// Seed / observe the composer's draft (forwarded to AIChatDisplay).
 		initialInstructions?: string
 		onDraftChange?: (text: string) => void
+		initialAttachments?: import('./messageDraft.svelte').DraftAttachments
+		onAttachmentsChange?: (attachments: import('./messageDraft.svelte').DraftAttachments) => void
 	} = $props()
 
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
@@ -210,4 +214,6 @@
 	{inputPreface}
 	{initialInstructions}
 	{onDraftChange}
+	{initialAttachments}
+	{onAttachmentsChange}
 ></AIChatDisplay>

@@ -3,10 +3,8 @@
 	import Button from '../common/button/Button.svelte'
 	import CloseButton from '../common/CloseButton.svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
-	import { copilotWorkspace } from '$lib/aiStore'
 	import { WorkspaceService } from '$lib/gen'
 	import { resource } from 'runed'
-	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import { hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
 	import { sessionState } from '../sessions/sessionState.svelte'
 	import { currentWorkspaceRootId } from '../sessions/sessionScope.svelte'
@@ -80,16 +78,6 @@
 	)
 	let shownForRoot = $state<string>()
 
-	// In global-AI mode the layout's chat panel is disabled and never loads the copilot config,
-	// so Home loads it for its workspace until the block shows; from then on the block loads the
-	// config of the workspace its draft acts on, and loading Home's over it would show the
-	// draft another workspace's models.
-	$effect(() => {
-		if ($workspaceStore && shownForRoot !== $currentWorkspaceRootId) {
-			loadCopilot($workspaceStore)
-		}
-	})
-
 	// Whether Home's own workspace hides the assistant, read for that workspace directly: the
 	// shared copilot config follows whichever workspace loaded last, and once the block shows
 	// that is the draft's, so a draft acting on a workspace that hides AI would otherwise take
@@ -131,10 +119,7 @@
 			<!-- The block is a session's chat, so it waits for the sessions it might reuse. Keyed on
 			     the workspace family, not the workspace: another family needs its own draft, but a
 			     fork shares its parent's, and remounting for it only flashes the block. -->
-			<!-- It also waits for the first AI config to load: the chat reads "AI not configured"
-			     until then and would flash its disabled state. Any loaded config will do, so a
-			     later switch to a fork does not unmount it while the fork's config loads. -->
-			{#if sessionState.hydrated && $copilotWorkspace !== undefined && (rulesReady || shownForRoot === $currentWorkspaceRootId)}
+			{#if sessionState.hydrated && (rulesReady || shownForRoot === $currentWorkspaceRootId)}
 				{#key $currentWorkspaceRootId}
 					<HomeSessionStarter onShown={() => (shownForRoot = $currentWorkspaceRootId)} />
 				{/key}
