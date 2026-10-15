@@ -5,13 +5,11 @@
 	import CopyableCodeBlock from '$lib/components/details/CopyableCodeBlock.svelte'
 	import { Bot, ExternalLink, Terminal } from 'lucide-svelte'
 	import { shell } from 'svelte-highlight/languages'
-	import { mcpTokenUrlDisabled } from '$lib/mcpAuth'
 	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 
 	type ConnectTab = 'cli' | 'mcp'
 
 	let drawer: Drawer | undefined = $state()
-	let tokenUrlDisabled = $state(false)
 	let selectedTab: ConnectTab = $state('cli')
 	let openVersion = $state(0)
 
@@ -27,10 +25,6 @@ wmill sync pull`)
 	export function openDrawer(tab: ConnectTab = 'cli') {
 		selectedTab = tab
 		openVersion += 1
-		// Falls back like CreateToken below, which shows the bare URL when the read fails.
-		void mcpTokenUrlDisabled()
-			.then((v) => (tokenUrlDisabled = v))
-			.catch(() => (tokenUrlDisabled = true))
 		drawer?.openDrawer()
 	}
 
@@ -105,13 +99,9 @@ wmill sync pull`)
 									<div class="flex flex-col gap-4">
 										<div class="flex items-start justify-between gap-3 flex-wrap">
 											<div class="flex flex-col gap-1">
-												<h3 class="text-sm font-semibold text-emphasis">MCP URL</h3>
+												<h3 class="text-sm font-semibold text-emphasis">MCP</h3>
 												<p class="text-xs text-secondary max-w-xl">
-													Connect an AI client to the current workspace, to run your scripts and
-													flows or to build in Windmill.
-													{#if tokenUrlDisabled}
-														Your client signs in to Windmill to use it.
-													{/if}
+													Connect an AI client (Claude, ChatGPT, Cursor…) to Windmill.
 												</p>
 											</div>
 

@@ -467,8 +467,8 @@ impl McpBackend for WindmillBackend {
     }
 }
 
-/// The last segment of a workspace-less MCP URL, when it is not the tools server's
-/// `gateway`: each URL is its own OAuth protected resource.
+/// The path of a workspace-less MCP URL, when it is not the tools server's
+/// `/api/mcp/gateway`: each URL is its own OAuth protected resource.
 #[derive(Clone, Copy)]
 pub struct McpEndpoint(pub &'static str);
 
@@ -631,13 +631,13 @@ pub async fn add_www_authenticate_header_gateway(
     let endpoint = request
         .extensions()
         .get::<McpEndpoint>()
-        .map_or("gateway", |e| e.0);
+        .map_or("/api/mcp/gateway", |e| e.0);
 
     let response = next.run(request).await;
 
     if response.status() == StatusCode::UNAUTHORIZED {
         let base_url = BASE_URL.load();
-        let resource_url = format!("{}/api/mcp/{}", base_url, endpoint);
+        let resource_url = format!("{}{}", base_url, endpoint);
         let www_authenticate = format!("Bearer resource=\"{}\"", resource_url);
 
         let (mut parts, body) = response.into_parts();
@@ -695,7 +695,8 @@ pub async fn setup_mcp_server(
         StreamableHttpService::new(move || Ok(runner.clone()), session_manager, service_config);
 
     let router = Router::new().route_service("/", service);
-    let session_router = Router::new().route_service("/", session_service);
+    // At `/mcp` itself, beside the `/mcp/...` routes, so it is merged rather than nested.
+    let session_router = Router::new().route_service("/mcp", session_service);
     Ok((router, session_router, cancellation_token))
 }
 

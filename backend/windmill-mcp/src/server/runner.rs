@@ -578,7 +578,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
             parse_mcp_scopes(scopes).map_err(|e| ErrorData::internal_error(e, None))?;
 
         // v1 has no read-and-run access: such a token reads only.
-        let read_only = auth.read_only() || scope_config.read_run;
+        let read_only = auth.read_only() || scope_config.read_run || scope_config.read_only;
 
         match mode {
             McpMode::Single(workspace_id) => {
@@ -605,7 +605,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         let scopes = auth.scopes().unwrap_or(&[]);
         let scope_config =
             parse_mcp_scopes(scopes).map_err(|e| ErrorData::internal_error(e, None))?;
-        let read_only = auth.read_only() || scope_config.read_run;
+        let read_only = auth.read_only() || scope_config.read_run || scope_config.read_only;
 
         let args = request.arguments.map(Value::Object).unwrap_or(Value::Null);
         let mcp_request = McpRequest { headers: &headers, tool_name: request.name.as_ref() };

@@ -998,11 +998,11 @@ pub async fn gateway_protected_resource_metadata() -> Json<ProtectedResourceMeta
     ))
 }
 
-/// GET /.well-known/oauth-protected-resource/api/mcp/v2
+/// GET /.well-known/oauth-protected-resource/api/mcp
 pub async fn gateway_session_protected_resource_metadata() -> Json<ProtectedResourceMetadata> {
     let base_url = BASE_URL.load();
     Json(build_protected_resource_metadata(
-        "/api/mcp/v2",
+        "/api/mcp",
         "/api/mcp/gateway/oauth/server",
         &base_url,
     ))

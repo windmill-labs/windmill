@@ -8,6 +8,8 @@
 	import { Button } from '$lib/components/common'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import McpScopeSelector from '$lib/components/mcp/McpScopeSelector.svelte'
@@ -20,6 +22,21 @@
 	let clientName = page.url.searchParams.get('client_name') || 'Unknown Client'
 	let redirectUri = page.url.searchParams.get('redirect_uri') || ''
 	let scope = $state(page.url.searchParams.get('scope') || 'mcp:all')
+	// The server the client connects to: the full experience (`/api/mcp`) takes an access level
+	// rather than a selection of scripts and flows.
+	const isFullExperience = (() => {
+		try {
+			return new URL(page.url.searchParams.get('resource') ?? '').pathname === '/api/mcp'
+		} catch {
+			return false
+		}
+	})()
+	let access = $state<'read' | 'read_run' | 'full'>('full')
+	const ACCESS_SCOPES = {
+		read: 'mcp:all mcp:read_only',
+		read_run: 'mcp:all mcp:read_run',
+		full: 'mcp:all'
+	}
 	let oauthState = page.url.searchParams.get('state') || ''
 	let codeChallenge = page.url.searchParams.get('code_challenge') || ''
 	let codeChallengeMethod = page.url.searchParams.get('code_challenge_method') || ''
@@ -107,7 +124,7 @@
 			const body: Record<string, unknown> = {
 				client_id: clientId,
 				redirect_uri: redirectUri,
-				scope: scope,
+				scope: isFullExperience ? ACCESS_SCOPES[access] : scope,
 				state: oauthState,
 				code_challenge: codeChallenge,
 				code_challenge_method: codeChallengeMethod
@@ -214,7 +231,33 @@
 				</div>
 			{/if}
 
-			{#if scopeWorkspaceId}
+			{#if isFullExperience}
+				<div class="mb-6 flex flex-col gap-2">
+					<p class="text-xs font-semibold text-emphasis">What it may do:</p>
+					<ToggleButtonGroup bind:selected={access} allowEmpty={false}>
+						{#snippet children({ item })}
+							<ToggleButton
+								{item}
+								value="read"
+								label="Read only"
+								tooltip="Explore and read. Nothing is run or changed."
+							/>
+							<ToggleButton
+								{item}
+								value="read_run"
+								label="Read and run"
+								tooltip="Explore, and run deployed scripts and flows. Nothing is changed."
+							/>
+							<ToggleButton
+								{item}
+								value="full"
+								label="Full"
+								tooltip="Everything you can do yourself, writes included."
+							/>
+						{/snippet}
+					</ToggleButtonGroup>
+				</div>
+			{:else if scopeWorkspaceId}
 				<div class="mb-6">
 					<McpScopeSelector workspaceId={scopeWorkspaceId} bind:scope />
 				</div>

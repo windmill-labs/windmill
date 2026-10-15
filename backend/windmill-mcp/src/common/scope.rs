@@ -25,6 +25,9 @@ pub struct McpScopeConfig {
     pub workspaces: Option<Vec<String>>,
     /// `mcp:read_run`: reads, plus running deployed scripts and flows, and nothing else.
     pub read_run: bool,
+    /// `mcp:read_only`: reads alone, as the token's read-only flag does. An OAuth grant
+    /// carries scopes and no flag, so this is how a sign-in asks for read-only access.
+    pub read_only: bool,
 }
 
 impl McpScopeConfig {
@@ -85,7 +88,10 @@ impl McpScopeConfig {
                 _ => return false,
             }
         }
-        if self.read_run && !requested.read_run {
+        if self.read_only && !requested.read_only {
+            return false;
+        }
+        if self.read_run && !(requested.read_run || requested.read_only) {
             return false;
         }
         if self.all {
@@ -202,6 +208,11 @@ pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, String> {
 
         if scope == "mcp:read_run" {
             config.read_run = true;
+            continue;
+        }
+
+        if scope == "mcp:read_only" {
+            config.read_only = true;
             continue;
         }
 
@@ -461,5 +472,8 @@ mod tests {
         assert!(read_run.read_run && read_run.all);
         assert!(read_run.contains(&cfg(&["mcp:all", "mcp:read_run"])));
         assert!(!read_run.contains(&cfg(&["mcp:all"])));
+        assert!(read_run.contains(&cfg(&["mcp:all", "mcp:read_only"])));
+        let read_only = cfg(&["mcp:all", "mcp:read_only"]);
+        assert!(!read_only.contains(&cfg(&["mcp:all", "mcp:read_run"])));
     }
 }
