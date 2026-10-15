@@ -1,4 +1,4 @@
-//! The full Windmill experience MCP server's tools: an AI session's toolset, for a client
+//! The Windmill MCP server's toolset (`/api/mcp`, tokens with `mcp:all`): an AI session's toolset, for a client
 //! outside the Windmill UI.
 //!
 //! Everything a model reads here — tool names, descriptions, input schemas, the

@@ -1,6 +1,6 @@
-//! The full Windmill experience (`/api/mcp`): an AI session's toolset and guidance for an
-//! external client, served beside the tools server (`Runner`), which stays for tokens
-//! scoped to a selection of scripts, flows and endpoints.
+//! The Windmill MCP server's toolset: an AI session's tools and guidance for an external
+//! client. `/api/mcp` serves it to tokens with `mcp:all`, and the tools server (`Runner`)
+//! to tokens scoped to a selection of scripts and flows.
 //!
 //! Every tool takes the workspace it acts in, whether the token reaches one workspace or
 //! several, so a client's tool schemas do not change with the token it signed in with.
@@ -178,8 +178,8 @@ impl<B: McpBackend> SessionRunner<B> {
 impl<B: McpBackend> ServerHandler for SessionRunner<B> {
     /// Without instructions: those are built per caller, in `initialize` and `discover`.
     fn get_info(&self) -> ServerInfo {
-        let server_info = Implementation::new("windmill-full", env!("CARGO_PKG_VERSION"))
-            .with_title("Windmill full experience")
+        let server_info = Implementation::new("windmill", env!("CARGO_PKG_VERSION"))
+            .with_title("Windmill")
             .with_website_url("https://windmill.dev");
         InitializeResult::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(server_info)
