@@ -181,3 +181,36 @@ async fn test_agent_run_identity_and_needs_read(db: Pool<Postgres>) -> anyhow::R
 
     Ok(())
 }
+
+/// The identity is a username inside the value, so renaming the user has to move it there too.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_agent_identity_follows_user_rename(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let base_url = format!("http://localhost:{}/api", server.addr.port());
+
+    sqlx::query(
+        "INSERT INTO resource (workspace_id, path, value, resource_type, created_by)
+         VALUES ('test-workspace', $1, $2, 'ai_agent', 'test-user-3')",
+    )
+    .bind(AGENT)
+    .bind(json!({ "run_on_behalf_of": true, "on_behalf_of": "u/test-user-2" }))
+    .execute(&db)
+    .await?;
+    let email: String =
+        sqlx::query_scalar("SELECT email FROM usr WHERE username = 'test-user-2' LIMIT 1")
+            .fetch_one(&db)
+            .await?;
+
+    let resp = reqwest::Client::new()
+        .post(format!("{base_url}/users/rename/{email}"))
+        .header("Authorization", "Bearer SECRET_TOKEN")
+        .json(&json!({ "new_username": "renamed" }))
+        .send()
+        .await?;
+    let status = resp.status().as_u16();
+    assert_eq!(status, 200, "rename: {}", resp.text().await?);
+    assert_eq!(agent_identity(&db).await?.as_deref(), Some("u/renamed"));
+
+    Ok(())
+}
