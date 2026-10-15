@@ -52,6 +52,7 @@ import { withAgentDrafts } from '$lib/components/flows/linkedAgentDrafts'
 import { resolveLinkedAgentTools } from '$lib/components/flows/flowState'
 import { enabledToolNames, type AgentTool } from '$lib/components/flows/agentToolUtils'
 import { evalValue } from '$lib/components/flows/utils.svelte'
+import { dropStaleStepLocks } from '$lib/components/flows/staleStepLocks'
 import { quickjsReady } from '$lib/utils/quickjsEval.svelte'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
 import {
@@ -5804,7 +5805,12 @@ type ScriptDraftArgs = {
 const SCRIPT_SPEC: WriteSpec<NewScript, ScriptDraftArgs> = {
 	probe: (workspace, path) => ScriptService.existsScriptByPath({ workspace, path }),
 	fetchDeployed: async (workspace, path) => {
-		const existing = await ScriptService.getScriptByPath({ workspace, path })
+		// The deployed lock describes the deployed content, not the draft's; the deploy recomputes it.
+		const {
+			lock: _lock,
+			lock_error_logs: _lockErrorLogs,
+			...existing
+		} = await ScriptService.getScriptByPath({ workspace, path })
 		return { ...(existing as unknown as NewScript), parent_hash: existing.hash }
 	},
 	buildDraft: async (base, args, path) => {
@@ -5903,6 +5909,8 @@ const FLOW_SPEC: WriteSpec<Flow, FlowDraftArgs> = {
 				}
 			}
 		}
+		// Also checked at deploy; dropped here too because a test run of the draft reads the locks.
+		dropStaleStepLocks(value, base?.value)
 		return base
 			? {
 					...structuredClone(base),
