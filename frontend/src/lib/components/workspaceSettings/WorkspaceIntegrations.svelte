@@ -158,10 +158,12 @@
 
 		const displayName = supportedServices[serviceName]?.displayName ?? serviceName
 		if (path) {
+			const owner = connections[serviceName]?.find((c) => c.path === path)?.owner
+			const account = owner ? `this account, connected by ${owner}` : 'this account'
 			const confirmed = await confirmationModal.ask({
 				title: `Share ${path} with the workspace?`,
 				confirmationText: 'Share',
-				children: `Every member will be able to create and edit ${displayName} triggers that act as this account. They will not see its token. It replaces any connection shared before.`
+				children: `Every member will be able to create and edit ${displayName} triggers that act as ${account}. They will not see its token. It replaces any connection shared before.`
 			})
 			if (!confirmed) return
 		} else {
@@ -356,7 +358,6 @@
 							<NativeConnectionPicker
 								service={serviceName as NativeServiceName}
 								value={workspaceConnection}
-								ownOnly
 								autoSelect={false}
 								clearable
 								placeholder="No workspace connection"
