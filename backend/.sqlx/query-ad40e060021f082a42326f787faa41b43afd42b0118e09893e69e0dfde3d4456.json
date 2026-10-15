@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (\n                                SELECT 1 FROM app a\n                                JOIN app_version_lite l ON l.id = a.versions[array_upper(a.versions, 1)]\n                                WHERE a.path = $1 AND a.workspace_id = $2\n                                AND jsonb_path_exists(l.value, '$.**.inlineScript.id ? (@ == $id)',\n                                    jsonb_build_object('id', $3::bigint))\n                            ) as \"current!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "current!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ad40e060021f082a42326f787faa41b43afd42b0118e09893e69e0dfde3d4456"
+}

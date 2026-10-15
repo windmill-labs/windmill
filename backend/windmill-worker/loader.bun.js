@@ -123,12 +123,17 @@ const p = {
       // Check if the import resolves to a local module file (written by write_module_files).
       // Only check relative paths — absolute/bare specifiers should fall through to the
       // remote resolver, matching the Windows loader pattern.
-      if (args.path.startsWith(".")) {
+      // Only for local importers (main.ts or a module, both `.ts` in the job dir): a fetched
+      // workspace script (`.url`) resolves within its own workspace folder, where a module
+      // file of the same name would shadow its real neighbour.
+      const importer = args.importer ? resolve(args.importer) : "";
+      if (
+        args.path.startsWith(".") &&
+        importer.endsWith(".ts") &&
+        importer.startsWith(cdir + "/")
+      ) {
         // From the importing module's own folder: a module may sit in a subfolder (`lib/a.ts`).
-        const importer = args.importer ? resolve(args.importer) : "";
-        const fromDir =
-          importer.endsWith(".ts") && importer.startsWith(cdir + "/") ? dirname(importer) : cdir;
-        const localPath = resolve(fromDir, args.path);
+        const localPath = resolve(dirname(importer), args.path);
         try {
           readFileSync(localPath);
           return { path: localPath };

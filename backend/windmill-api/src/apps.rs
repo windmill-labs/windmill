@@ -4686,15 +4686,17 @@ async fn execute_component(
                 // the same entrypoint would run its own modules under this app's identity.
                 ExecuteApp { raw_code: Some(_), id: Some(id), .. } => {
                     lazy_static! {
-                        static ref APP_SCRIPT_KEY_CACHE: cache::Cache<(String, String, i64), Arc<String>> =
+                        static ref APP_SCRIPT_KEY_CACHE: cache::Cache<(String, String, i64), (Arc<String>, bool)> =
                             cache::Cache::new(10000);
                     }
                     let cache_key = (w_id.to_string(), path.to_string(), *id);
-                    app_script_key = match APP_SCRIPT_KEY_CACHE.get(&cache_key) {
-                        Some(key) => key,
+                    let has_modules;
+                    (app_script_key, has_modules) = match APP_SCRIPT_KEY_CACHE.get(&cache_key) {
+                        Some(hit) => hit,
                         None => {
-                            let key = sqlx::query_scalar!(
-                                "SELECT format('rawscript/%s', s.code_sha256) as \"path!: String\"
+                            let row = sqlx::query!(
+                                "SELECT format('rawscript/%s', s.code_sha256) as \"key!: String\",
+                                    s.modules IS NOT NULL as \"has_modules!\"
                                 FROM app_script s JOIN app a ON a.id = s.app
                                 WHERE s.id = $1 AND a.path = $2 AND a.workspace_id = $3",
                                 id,
@@ -4703,17 +4705,42 @@ async fn execute_component(
                             )
                             .fetch_optional(&db)
                             .await?
-                            .map(Arc::new)
                             .ok_or_else(|| {
                                 Error::NotAuthorized(format!(
                                     "App script {id} does not belong to app {path}"
                                 ))
                             })?;
-                            // A row never changes app, so a hit stays valid.
-                            APP_SCRIPT_KEY_CACHE.insert(cache_key, key.clone());
-                            key
+                            let hit = (Arc::new(row.key), row.has_modules);
+                            // A row never changes app or content, so a hit stays valid.
+                            APP_SCRIPT_KEY_CACHE.insert(cache_key, hit.clone());
+                            hit
                         }
                     };
+                    // The policy key also covers only the entrypoint: editing just an imported
+                    // runnable leaves it unchanged, so an older row of this same app would still
+                    // match it and run the helpers it shipped with. Hence the deployed version only,
+                    // checked on every run since a deploy moves it.
+                    if has_modules {
+                        let current = sqlx::query_scalar!(
+                            "SELECT EXISTS (
+                                SELECT 1 FROM app a
+                                JOIN app_version_lite l ON l.id = a.versions[array_upper(a.versions, 1)]
+                                WHERE a.path = $1 AND a.workspace_id = $2
+                                AND jsonb_path_exists(l.value, '$.**.inlineScript.id ? (@ == $id)',
+                                    jsonb_build_object('id', $3::bigint))
+                            ) as \"current!\"",
+                            path,
+                            &w_id,
+                            id,
+                        )
+                        .fetch_one(&db)
+                        .await?;
+                        if !current {
+                            return Err(Error::NotAuthorized(format!(
+                                "App script {id} is not part of the deployed version of app {path}, reload the app"
+                            )));
+                        }
+                    }
                     &**app_script_key
                 }
                 _ => unreachable!(),
