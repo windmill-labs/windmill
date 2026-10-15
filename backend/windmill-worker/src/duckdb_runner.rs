@@ -329,6 +329,15 @@ async fn spawn_runner(
     if mode != RunnerMode::Jailed {
         cmd.env("HOME", HOME_ENV.as_str());
     }
+    // Windows networking (Winsock) needs SystemRoot, so without these every extension install
+    // and S3 proxy request fails. Empty off Windows.
+    cmd.envs(crate::WIN_ENVS.iter().cloned());
+    #[cfg(windows)]
+    cmd.env("windir", crate::SYSTEM_ROOT.as_str());
+    // DuckDB's default TimeZone follows TZ, as it did in the worker's own environment.
+    if !crate::TZ_ENV.is_empty() {
+        cmd.env("TZ", crate::TZ_ENV.as_str());
+    }
     for var in [
         "DUCKDB_MAX_TEMP_DIRECTORY_SIZE",
         "GOOGLE_APPLICATION_CREDENTIALS",
