@@ -9,6 +9,7 @@ import {
   ZipFSElement,
 } from "../src/commands/sync/sync.ts";
 import { changedCustomPath } from "../src/commands/app/app.ts";
+import { isCustomPathFile } from "../src/core/specific_items.ts";
 
 // The differ also reads the working tree (shared lockfiles, dependency files);
 // an empty one keeps that out of the picture.
@@ -451,6 +452,15 @@ test("an app file named like a custom-path file is app content", async () => {
     "added f/test/myapp.raw_app/settings.prod.custom_path.json",
   );
   expect(await diffIn("prod", local(files), remote(), false)).toEqual([]);
+});
+
+test("a fileset child named like a custom-path file is resource content", async () => {
+  const child = "f/res/data.fileset/settings.prod.custom_path.json";
+  expect(isCustomPathFile(child)).toBe(false);
+  expect(isCustomPathFile("f/test/myapp.prod.custom_path.yaml")).toBe(true);
+  expect(
+    await diffIn("prod", local({ [child]: "{\"v\":2}" }), local({ [child]: "{\"v\":1}" }), false),
+  ).toEqual([`edited ${child}`]);
 });
 
 // A checkout from before custom paths had their own file keeps the value in

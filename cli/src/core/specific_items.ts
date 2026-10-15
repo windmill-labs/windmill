@@ -1,7 +1,10 @@
 import { minimatch } from "minimatch";
 import { getCurrentGitBranch, isGitRepository } from "../utils/git.ts";
 import { isFileResource, isFilesetResource } from "../utils/utils.ts";
-import { isFolderResourcePathAnyFormat } from "../utils/resource_folders.ts";
+import {
+  isFolderResourcePathAnyFormat,
+  isScriptModulePath,
+} from "../utils/resource_folders.ts";
 import {
   SyncOptions,
   findWorkspaceByGitBranch,
@@ -49,10 +52,18 @@ function getWorkspaceSpecificTypeKinds(): string[] {
  * instance, so one shared value can never be deployed to two workspaces.
  */
 export function isCustomPathFile(path: string): boolean {
-  // A file inside the app folder is app content, whatever its name.
+  const p = path.replaceAll('\\', '/');
+  const slash = p.lastIndexOf('/');
+  const parts = p.slice(slash + 1).split('.');
   return (
-    (path.endsWith('.custom_path.yaml') || path.endsWith('.custom_path.json')) &&
-    !isFolderResourcePathAnyFormat(path)
+    (parts.length == 3 || parts.length == 4) &&
+    parts[parts.length - 2] == 'custom_path' &&
+    (parts[parts.length - 1] == 'yaml' || parts[parts.length - 1] == 'json') &&
+    // It sits beside its app. A file inside an item's folder (app, flow,
+    // fileset, script module) is that item's content, whatever its name.
+    !p.slice(0, slash + 1).includes('.') &&
+    !isFolderResourcePathAnyFormat(p) &&
+    !isScriptModulePath(p)
   );
 }
 
