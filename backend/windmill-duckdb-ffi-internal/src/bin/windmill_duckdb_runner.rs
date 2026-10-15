@@ -8,7 +8,8 @@
 //! the two paths one implementation: argument binding, result-size guards and error text
 //! cannot drift apart.
 //!
-//! Anything printed on stdout/stderr is job log, not protocol.
+//! stdout/stderr are not protocol: the worker keeps only their tail, and reports it when the
+//! runner dies without writing a result.
 
 use std::{
     ffi::{c_char, CStr, CString},

