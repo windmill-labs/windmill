@@ -107,7 +107,9 @@ It is applied twice:
 - **A worker-side watchdog**, under nsjail. A script can raise the engine setting, so on its own
   it is only a default. The worker sums the allocated size of `{job dir}/duckdb/` once a second
   and kills the runner when it passes the cap, whatever wrote the bytes: spill, `COPY … TO`, or
-  the result file. Enforcement lags by up to a second of writing. Outside nsjail the script can
+  the result file. With a disk-backed jail `/tmp` (`NSJAIL_TMP_BACKING=disk`) that `/tmp` lives
+inside the same directory, so it counts too; a RAM-backed one is bounded by its tmpfs size.
+Enforcement lags by up to a second of writing. Outside nsjail the script can
   write anywhere the worker user can, as other languages can, so there the cap stays a default.
 
 The value is DuckDB's spelling, not Kubernetes': `KiB`/`MiB`/`GiB`/`TiB` for 1024-based units,

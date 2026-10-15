@@ -390,9 +390,12 @@ async fn spawn_runner(
                     .replace("{BIGQUERY_CREDENTIALS_MOUNT}", &bigquery_mount)
                     .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                     .replace("#{DEV}", DEV_CONF_NSJAIL)
+                    // Rooted at the work dir rather than the job dir: with a disk-backed /tmp
+                    // the jail's /tmp is a host directory, and inside the work dir the disk cap
+                    // covers it. A RAM-backed /tmp is bounded by its tmpfs size.
                     .replace(
                         "{TMP_MOUNT_BLOCK}",
-                        &resolve_nsjail_tmp_mount_block(job_dir).await,
+                        &resolve_nsjail_tmp_mount_block(&work_dir).await,
                     ),
             )
             .await?;
