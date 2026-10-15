@@ -4809,6 +4809,39 @@ describe('global AI tools', () => {
 		).resolves.toBe(code)
 	})
 
+	// The worker reuses a non-empty step lock, so an edited step keeping its lock deploys
+	// against the old dependencies.
+	it('set_flow_module_code drops the lock of the edited step only', async () => {
+		const step = (id: string) => ({
+			id,
+			value: {
+				type: 'rawscript',
+				language: 'python3',
+				content: 'import requests',
+				lock: 'requests==2.0',
+				input_transforms: {}
+			}
+		})
+		seedBackendDraft('flow', 'f/flows/locked', {
+			path: 'f/flows/locked',
+			summary: 'f',
+			description: '',
+			value: { modules: [step('edited'), step('untouched')] },
+			schema: {}
+		})
+
+		await callGlobalTool('set_flow_module_code', {
+			path: 'f/flows/locked',
+			module_id: 'edited',
+			code: 'import yaml'
+		})
+
+		const [edited, untouched] = getBackendDraft('flow', 'f/flows/locked').value.modules
+		expect(edited.value.content).toBe('import yaml')
+		expect(edited.value).not.toHaveProperty('lock')
+		expect(untouched.value.lock).toBe('requests==2.0')
+	})
+
 	it('warns about every empty rawscript body (top-level, nested, preprocessor, failure) and skips populated ones', async () => {
 		const result = JSON.parse(
 			await callGlobalTool('write_flow', {
