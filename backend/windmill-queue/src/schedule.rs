@@ -175,15 +175,19 @@ pub async fn push_scheduled_job<'c>(
     // Scheduled events must be stored in the database in UTC
     let next = next.with_timezone(&chrono::Utc);
     let already_exists: bool = sqlx::query_scalar!(
-        // Query plan:
-        // - use of the `ix_v2_job_root_by_path` index; hence the `parent_job IS NULL` clause.
-        // - select from `v2_job` first, then join with `v2_job_queue` to avoid a full table scan
-        //   on `scheduled_for = $3`.
+        // Must be driven by `v2_job_queue`, bounded by pending work, never by a `v2_job` path
+        // index, which walks the schedule's whole retained history (stats underestimate a
+        // single path's rows). The lateral reference forces the join order and `OFFSET 0`
+        // keeps the filters out of the subquery, so `v2_job` is only ever probed by primary key.
         "SELECT EXISTS (
-            SELECT 1 FROM v2_job j JOIN v2_job_queue USING (id)
-            WHERE j.workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2 AND runnable_path = $4
-                AND parent_job IS NULL
-                AND scheduled_for = $3
+            SELECT 1 FROM v2_job_queue q
+            CROSS JOIN LATERAL (
+                SELECT trigger_kind, trigger, runnable_path, parent_job
+                FROM v2_job WHERE id = q.id OFFSET 0
+            ) j
+            WHERE q.workspace_id = $1 AND q.scheduled_for = $3
+                AND j.trigger_kind = 'schedule' AND j.trigger = $2 AND j.runnable_path = $4
+                AND j.parent_job IS NULL
         )",
         &schedule.workspace_id,
         &schedule.path,
