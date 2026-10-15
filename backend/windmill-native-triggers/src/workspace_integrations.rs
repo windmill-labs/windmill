@@ -475,7 +475,39 @@ async fn delete_integration(
 
     let mut tx = user_db.begin(&authed).await?;
 
+    // Same serialization as a single disconnect: a trigger created meanwhile either committed
+    // before these locks, and is caught below, or waits and then finds its connection gone.
+    let mut paths = sqlx::query_scalar!(
+        "SELECT v.path FROM variable v
+         JOIN account a ON a.workspace_id = v.workspace_id AND a.id = v.account
+         WHERE v.workspace_id = $1 AND a.client = $2 AND a.is_workspace_integration = true",
+        workspace_id,
+        service_name.as_str(),
+    )
+    .fetch_all(&db)
+    .await?;
+    paths.sort();
+    for path in &paths {
+        lock_connection(&mut tx, &workspace_id, path).await?;
+    }
+
     cleanup_service_connections(&mut *tx, &workspace_id, service_name).await?;
+
+    let created_meanwhile = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM native_trigger WHERE workspace_id = $1 AND service_name = $2)",
+        workspace_id,
+        service_name as ServiceName,
+    )
+    .fetch_one(&mut *tx)
+    .await?
+    .unwrap_or(false);
+    if created_meanwhile {
+        tx.rollback().await?;
+        return Err(Error::BadRequest(format!(
+            "A {service_name} trigger was created while removing the integration, so it was kept. \
+             Remove it again."
+        )));
+    }
 
     let deleted = delete_workspace_integration(&mut *tx, &workspace_id, service_name).await?;
 
@@ -1089,26 +1121,22 @@ async fn set_workspace_connection(
 ) -> JsonResult<String> {
     require_admin(authed.is_admin, &workspace_id)?;
 
-    // Sharing lets everyone act as the account behind it, so only the one who connected it may.
     if let Some(path) = path.as_deref() {
-        let own = sqlx::query_scalar!(
+        let exists = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM variable v
              JOIN account a ON a.workspace_id = v.workspace_id AND a.id = v.account
-             JOIN resource r ON r.workspace_id = v.workspace_id AND r.path = v.path
              WHERE v.workspace_id = $1 AND v.path = $2 AND a.client = $3
-               AND a.is_workspace_integration = true AND r.created_by = $4)",
+               AND a.is_workspace_integration = true)",
             workspace_id,
             path,
             service_name.as_str(),
-            authed.username,
         )
         .fetch_one(&db)
         .await?
         .unwrap_or(false);
-        if !own {
+        if !exists {
             return Err(Error::BadRequest(format!(
-                "No {service_name} connection you made at {path}. You can only share an account \
-                 you connected yourself."
+                "No {service_name} connection at {path}"
             )));
         }
     }
@@ -1214,9 +1242,10 @@ async fn delete_connection(
     let account = cleanup_connection(&mut *tx, &workspace_id, &path).await?;
 
     // A trigger moved or created meanwhile was skipped above and still acts through this
-    // connection, so removing the connection would strand it. Checked after the delete: a create
-    // holds the connection's variable until it commits, so the delete waits for it and this
-    // check then sees its trigger.
+    // connection, so removing the connection would strand it. `lock_connection` is what makes
+    // this check sound: a create stores its trigger under the same lock, so it either committed
+    // before this transaction took the lock, and is seen here, or it waits and finds the
+    // connection gone.
     let still_used = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM native_trigger
          WHERE workspace_id = $1 AND service_name = $2 AND connection_path = $3)",
