@@ -7,6 +7,7 @@ import {
 	FlowService,
 	FolderService,
 	GcpTriggerService,
+	GroupService,
 	HttpTriggerService,
 	JobService,
 	KafkaTriggerService,
@@ -363,6 +364,14 @@ export type GlobalUserMessageOptions = {
 }
 
 const itemTypeSchema = z.enum(ITEM_TYPES)
+// Folders and groups only carry permissions, so they are readable but kept out of
+// `itemTypeSchema`, which the draft, deploy and delete tools share.
+const ACCESS_TYPES = ['folder', 'group'] as const
+type AccessType = (typeof ACCESS_TYPES)[number]
+const readableTypeSchema = z.enum([...ITEM_TYPES, ...ACCESS_TYPES])
+function isAccessType(type: string): type is AccessType {
+	return (ACCESS_TYPES as readonly string[]).includes(type)
+}
 const instructionSubjectSchema = z.enum(ALL_INSTRUCTION_SUBJECTS)
 const triggerKindSchema = z.enum(TRIGGER_KINDS)
 const scriptLangSchema = z.enum($ScriptLang.enum)
@@ -439,10 +448,10 @@ const listPipelinesSchema = z.object({})
 
 const listWorkspaceItemsSchema = z.object({
 	types: z
-		.array(itemTypeSchema)
+		.array(readableTypeSchema)
 		.optional()
 		.describe(
-			'Optional item types to list. Defaults to scripts and flows. Pass schedule or trigger explicitly when needed (listing triggers spans 9 kinds and is heavier).'
+			'Optional item types to list. Defaults to scripts and flows. Pass schedule or trigger explicitly when needed (listing triggers spans 9 kinds and is heavier). "folder" lists folders with their owners and extraPerms; "group" lists groups (read one for its members). path_prefix does not apply to these two.'
 		),
 	query: z.string().optional().describe('Optional case-insensitive path or summary search string.'),
 	path_prefix: z
@@ -469,11 +478,11 @@ const listWorkspaceItemsSchema = z.object({
 })
 
 const readWorkspaceItemSchema = z.object({
-	type: itemTypeSchema,
+	type: readableTypeSchema,
 	path: z
 		.string()
 		.describe(
-			'Workspace path of the item to read, or a hub/<version>/<app>/<name> path from search_hub_scripts to read a hub script.'
+			'Workspace path of the item to read, or a hub/<version>/<app>/<name> path from search_hub_scripts to read a hub script. For a folder or group, its name.'
 		),
 	trigger_kind: triggerKindSchema
 		.optional()
@@ -1370,16 +1379,19 @@ const createFolderSchema = z.object({
 
 // `folders`/`foldersRead` are undefined when the user's role in this workspace could not
 // be resolved.
-type FolderPromptContext = { folders?: string[]; foldersRead?: string[]; isAdmin: boolean }
+type FolderPromptContext = {
+	folders?: string[]
+	foldersRead?: string[]
+	groups?: string[]
+	isAdmin: boolean
+}
 
 // Renders the folders the current user can act on into the system prompt so the
-// model can pick an `f/<folder>/...` path without a discovery round-trip (there
-// is no folder-listing tool). For a non-admin, `folders` (from whoami) is exactly
-// the writable set, so read-only folders are listed separately as off-limits.
-// Admins bypass folder ACLs and can write anywhere, but `folders` only carries
-// their explicitly-permissioned subset, so for admins it is offered as a
-// non-exhaustive hint alongside permission-agnostic guidance (the complete set
-// needs a folder-listing tool — follow-up).
+// model can pick an `f/<folder>/...` path without a discovery round-trip. For a
+// non-admin, `folders` (from whoami) is exactly the writable set, so read-only
+// folders are listed separately as off-limits. Admins bypass folder ACLs and can
+// write anywhere, but `folders` only carries their explicitly-permissioned subset,
+// so for admins it is a non-exhaustive hint and list_workspace_items has the rest.
 // Capped so a folder-heavy workspace can't dominate the prompt.
 function buildFolderGuidance(
 	username: string,
@@ -1399,7 +1411,7 @@ function buildFolderGuidance(
 	if (ctx.isAdmin) {
 		const known =
 			writable.length > 0
-				? ` Folders here include ${fmt(writable)} (you can also write to others not listed).`
+				? ` Folders here include ${fmt(writable)} (you can also write to others not listed; list_workspace_items with type "folder" lists them all).`
 				: ''
 		return `- As a workspace admin you can write to any existing folder.${known} If the user names a folder, use it;${canCreateFolder ? ' if they explicitly ask for a new folder, create it with `create_folder`;' : ''} otherwise ask them which folder to use rather than guessing${canCreateFolder ? ' or creating one unprompted' : ''}.`
 	}
@@ -1466,6 +1478,13 @@ const buildGlobalSystemPrompt = (
 	const when = (cond: boolean, block: string) => (cond ? block : '')
 	const folderGuidance = buildFolderGuidance(username, folderCtx, canCreateFolder)
 	const folderGuidanceBlock = folderGuidance ? `\n${folderGuidance}` : ''
+	// A grant to `g/<group>` reaches the user only through membership, which no permission
+	// list shows. Outside the folder guidance, which a role that cannot draft never gets.
+	const memberOf = (folderCtx?.groups ?? []).filter((g) => g !== 'all')
+	const groupMembershipRule =
+		memberOf.length > 0
+			? `- The user is a member of ${memberOf.map((g) => `\`g/${g}\``).join(', ')}, so a grant to one of those groups is a grant to them.\n`
+			: ''
 	// `previewTools` doubles as "this is a session chat" — sessions are the only
 	// chats that get the preview tool set. The alpha heads-up only makes sense
 	// there, where the chat actively builds the pipeline on the canvas; the
@@ -1543,7 +1562,7 @@ Rules:${when(
 - Draft tools create or update drafts only; they do not deploy or mutate deployed workspace items.`
 	)}
 - Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
-- Listings and reads return only what this user can see: items in folders they cannot read are hidden from you both. When an item the user names is missing, say it is not among what they can see and may be in a folder they cannot read, where someone with access can run it — never state that it does not exist or is not deployed.
+${groupMembershipRule}- Listings and reads return only what this user can see: items in folders they cannot read are hidden from you both. When an item the user names is missing, say it is not among what they can see and may be in a folder they cannot read, where someone with access can run it — never state that it does not exist or is not deployed.
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".${activePreviewRule}${when(
 		canWriteAnyDraft,
 		`
@@ -1758,6 +1777,7 @@ function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
 			path: item.path,
 			summary: item.summary,
 			isSecret: item.isSecret,
+			extraPerms: item.extraPerms,
 			isDraft: item.isDraft
 		}
 	}
@@ -1775,6 +1795,7 @@ function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
 			value: summarizeAppValue(item.value as AppDraftValue),
 			rawApp: item.rawApp,
 			executionMode: item.executionMode,
+			extraPerms: item.extraPerms,
 			isDraft: item.isDraft
 		}
 	}
@@ -1788,6 +1809,7 @@ function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
 		path: item.path,
 		summary: item.summary,
 		value: editable,
+		extraPerms: item.extraPerms,
 		isDraft: item.isDraft
 	}
 }
@@ -2310,34 +2332,43 @@ async function readWorkspaceItem(
 				getDraft: !deployedOnly
 			})
 			const draft = deployedOnly ? undefined : (script.draft as Script | undefined)
-			return scriptToItem(draft ?? script, true)
+			return { ...scriptToItem(draft ?? script, true), extraPerms: script.extra_perms }
 		}
 		case 'flow': {
 			// Prefer the DB draft (newer than the deployed version) when one exists,
 			// unless the caller explicitly asked for the deployed state.
 			const flow = await FlowService.getFlowByPath({ workspace, path, getDraft: !deployedOnly })
 			const draft = deployedOnly ? undefined : (flow.draft as Flow | undefined)
-			return flowToItem(draft ?? flow, true)
+			return { ...flowToItem(draft ?? flow, true), extraPerms: flow.extra_perms }
 		}
-		case 'schedule':
-			return scheduleToItem(await ScheduleService.getSchedule({ workspace, path }), true)
-		case 'trigger':
+		case 'schedule': {
+			const schedule = await ScheduleService.getSchedule({ workspace, path })
+			return { ...scheduleToItem(schedule, true), extraPerms: schedule.extra_perms }
+		}
+		case 'trigger': {
 			if (!triggerKind) {
 				throw new Error('trigger_kind is required when type is trigger.')
 			}
-			return triggerToItem(
-				triggerKind,
-				await triggerServices[triggerKind].get({ workspace, path }),
-				true
-			)
-		case 'resource':
-			return resourceToItem(await ResourceService.getResource({ workspace, path }), true)
-		case 'variable':
+			const trigger = await triggerServices[triggerKind].get({ workspace, path })
+			return {
+				...triggerToItem(triggerKind, trigger, true),
+				extraPerms: (trigger as { extra_perms?: Record<string, boolean> }).extra_perms
+			}
+		}
+		case 'resource': {
+			const resource = await ResourceService.getResource({ workspace, path })
+			return { ...resourceToItem(resource, true), extraPerms: resource.extra_perms }
+		}
+		case 'variable': {
 			// Never expose the value, even when read directly. Pass decryptSecret=false
 			// to avoid materializing secret values server-side.
-			return variableToItem(
-				await VariableService.getVariable({ workspace, path, decryptSecret: false })
-			)
+			const variable = await VariableService.getVariable({
+				workspace,
+				path,
+				decryptSecret: false
+			})
+			return { ...variableToItem(variable), extraPerms: variable.extra_perms }
+		}
 		case 'app': {
 			// Returns lightweight metadata only — file/runnable contents come via read_app_file.
 			const app = await AppService.getAppByPath({ workspace, path })
@@ -2351,6 +2382,7 @@ async function readWorkspaceItem(
 					summary: app.summary,
 					rawApp: false,
 					executionMode,
+					extraPerms: app.extra_perms,
 					isDraft: false
 				}
 			}
@@ -2363,10 +2395,76 @@ async function readWorkspaceItem(
 				value: metadata as unknown as AppDraftValue,
 				rawApp: app.raw_app,
 				executionMode,
+				extraPerms: app.extra_perms,
 				isDraft: false
 			}
 		}
 	}
+}
+
+// Accepts the `f/<name>` / `g/<name>` form the model sees in extra_perms keys and paths.
+function accessEntityName(type: AccessType, path: string): string {
+	const prefix = type === 'folder' ? 'f/' : 'g/'
+	const name = path.startsWith(prefix) ? path.slice(prefix.length) : path
+	return name.replace(/\/+$/, '')
+}
+
+async function readAccessEntity(type: AccessType, path: string, workspace: string) {
+	const name = accessEntityName(type, path)
+	if (type === 'folder') {
+		const folder = await FolderService.getFolder({ workspace, name })
+		return {
+			type,
+			name: folder.name,
+			summary: folder.summary,
+			owners: folder.owners,
+			extraPerms: folder.extra_perms,
+			defaultPermissionedAs: folder.default_permissioned_as
+		}
+	}
+	const group = await GroupService.getGroup({ workspace, name })
+	return {
+		type,
+		name: group.name,
+		summary: group.summary,
+		members: group.members,
+		extraPerms: group.extra_perms
+	}
+}
+
+type AccessEntityRow = {
+	type: AccessType
+	path: string
+	summary?: string
+	owners?: string[]
+	extraPerms?: Record<string, boolean>
+}
+
+// Group rows omit members: the list endpoint does not return them.
+async function listAccessEntities(
+	types: AccessType[],
+	workspace: string,
+	perPage: number,
+	page?: number
+): Promise<AccessEntityRow[]> {
+	const rows: AccessEntityRow[] = []
+	if (types.includes('folder')) {
+		for (const f of await FolderService.listFolders({ workspace, perPage, page })) {
+			rows.push({
+				type: 'folder',
+				path: f.name,
+				summary: f.summary,
+				owners: f.owners,
+				extraPerms: f.extra_perms
+			})
+		}
+	}
+	if (types.includes('group')) {
+		for (const g of await GroupService.listGroups({ workspace, perPage, page })) {
+			rows.push({ type: 'group', path: g.name, summary: g.summary })
+		}
+	}
+	return rows
 }
 
 async function listWorkspaceItems(
@@ -2952,6 +3050,7 @@ export type GlobalPromptIdentity = {
 	is_admin?: boolean
 	folders?: string[]
 	folders_read?: string[]
+	groups?: string[]
 }
 
 // `userWorkspaces` carries the real per-workspace username for every membership at no
@@ -2974,7 +3073,8 @@ export async function resolveGlobalPromptIdentity(
 			username: u.username,
 			is_admin: u.is_admin,
 			folders: u.folders,
-			folders_read: u.folders_read
+			folders_read: u.folders_read,
+			groups: u.groups
 		}
 	}
 	// Headless callers (the eval harness) hold no workspace and pass their own identity.
@@ -3774,9 +3874,22 @@ export const globalTools: SessionTool<{}>[] = [
 		planModeSafe: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = listWorkspaceItemsSchema.parse(args)
-			const types = getRequestedTypes(parsed.types)
+			const accessTypes = (parsed.types ?? []).filter(isAccessType)
+			const itemTypes = (parsed.types ?? []).filter((t): t is WorkspaceItemType => !isAccessType(t))
+			// Asking only for folders or groups must not fall back to the default scripts and flows.
+			const types =
+				accessTypes.length > 0 && itemTypes.length === 0 ? [] : getRequestedTypes(itemTypes)
 			const limit = parsed.limit ?? 50
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing workspace items...' })
+
+			const accessRows = (
+				await listAccessEntities(
+					accessTypes,
+					workspace,
+					Math.min(limit, MAX_LIST_LIMIT),
+					parsed.page
+				)
+			).filter((row) => itemMatches(row, parsed.query))
 
 			const byKey = new Map<string, WorkspaceItem>()
 			const workspaceItems = await listWorkspaceItems(
@@ -3821,7 +3934,10 @@ export const globalTools: SessionTool<{}>[] = [
 			// No cross-type truncation: each type is already capped at `limit` rows by
 			// its own list call, and slicing the concatenation would silently drop the
 			// later types' rows while their next page skips past them.
-			const results = Array.from(byKey.values()).filter((item) => itemMatches(item, parsed.query))
+			const results = [
+				...Array.from(byKey.values()).filter((item) => itemMatches(item, parsed.query)),
+				...accessRows
+			]
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Listed ${results.length} workspace item(s)`
@@ -3851,12 +3967,19 @@ export const globalTools: SessionTool<{}>[] = [
 		def: createToolDef(
 			readWorkspaceItemSchema,
 			'read_workspace_item',
-			'Read one workspace item or draft. Prefers your draft when one exists; pass version: "deployed" to read the deployed state instead.'
+			'Read one workspace item or draft. Prefers your draft when one exists; pass version: "deployed" to read the deployed state instead. A deployed item carries extraPerms (a draft does not; pass version: "deployed" for it): who it is shared with beyond its owner, as u/<user> or g/<group> → true (write) or false (read-only). A folder returns its owners and extraPerms; a group returns its members and extraPerms (who may manage it). For a folder or group, path is its name. A g/<group> entry grants every member of that group (g/all is everyone), and workspace admins can read and write every folder and item whatever these lists say.'
 		),
 		planModeSafe: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = readWorkspaceItemSchema.parse(args)
-			if (parsed.type === 'trigger' && !parsed.trigger_kind) {
+			const { type } = parsed
+			if (isAccessType(type)) {
+				toolCallbacks.setToolStatus(toolId, { content: `Reading ${type} "${parsed.path}"...` })
+				const entity = await readAccessEntity(type, parsed.path, workspace)
+				toolCallbacks.setToolStatus(toolId, { content: `Read ${type} "${entity.name}"` })
+				return JSON.stringify(entity, null, 2)
+			}
+			if (type === 'trigger' && !parsed.trigger_kind) {
 				const message = 'trigger_kind is required when type is trigger.'
 				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
 				return JSON.stringify({ success: false, error: message })
@@ -3864,16 +3987,16 @@ export const globalTools: SessionTool<{}>[] = [
 			const draft =
 				parsed.version === 'deployed' || isHubPath(parsed.path)
 					? null
-					: await getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
+					: await getGlobalDraft(workspace, type, parsed.path, parsed.trigger_kind)
 			if (draft) {
 				toolCallbacks.setToolStatus(toolId, {
-					content: `Read draft ${parsed.type} "${parsed.path}"`
+					content: `Read draft ${type} "${parsed.path}"`
 				})
 				// The mode reported is the draft's, which is what deploying it will write. The
 				// deployed app's own mode is a different question, asked with version:
 				// "deployed", and must not be fetched here.
 				const executionMode =
-					parsed.type === 'app'
+					type === 'app'
 						? await describeAppExposure(
 								workspace,
 								(draft.value as AppDraftValue)?.policy?.execution_mode
@@ -3883,16 +4006,16 @@ export const globalTools: SessionTool<{}>[] = [
 			}
 
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Reading ${parsed.type} "${parsed.path}"...`
+				content: `Reading ${type} "${parsed.path}"...`
 			})
 			const item = await readWorkspaceItem(
-				parsed.type,
+				type,
 				parsed.path,
 				workspace,
 				parsed.trigger_kind,
 				parsed.version === 'deployed'
 			)
-			toolCallbacks.setToolStatus(toolId, { content: `Read ${parsed.type} "${parsed.path}"` })
+			toolCallbacks.setToolStatus(toolId, { content: `Read ${type} "${parsed.path}"` })
 			return JSON.stringify(serializeWorkspaceItemForRead(item), null, 2)
 		}
 	},
@@ -9166,6 +9289,7 @@ export function prepareGlobalSystemMessage(
 		? {
 				folders: user.folders,
 				foldersRead: user.folders_read ?? user.folders,
+				groups: user.groups,
 				isAdmin: user.is_admin ?? false
 			}
 		: undefined
