@@ -29,7 +29,12 @@
 			<ShieldQuestion size={14} />
 		</Badge>
 	{:else if job.canceled && 'success' in job}
-		<Badge color="gray" {roundedFull} baseClass={roundedFull ? '' : '!px-1.5'} title="Canceled">
+		<Badge
+			color="gray"
+			{roundedFull}
+			baseClass={roundedFull ? '' : '!px-1.5'}
+			title={job.resolved ? 'Canceled, marked as resolved' : 'Canceled'}
+		>
 			<Ban size={14} />
 		</Badge>
 	{:else if 'success' in job && job.success}

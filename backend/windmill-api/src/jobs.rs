@@ -7058,6 +7058,7 @@ async fn batch_rerun_handle_job(
             )
             .await;
             if let Ok((uuid, _, _, _)) = result {
+                resolve_batch_rerun_source(authed, user_db, w_id, job.id, uuid).await;
                 return Ok(uuid.to_string());
             }
         }
@@ -7091,6 +7092,7 @@ async fn batch_rerun_handle_job(
                 .map(|r| r.0)
             };
             if let Ok(uuid) = result {
+                resolve_batch_rerun_source(authed, user_db, w_id, job.id, uuid).await;
                 return Ok(uuid.to_string());
             }
         }
@@ -7099,6 +7101,67 @@ async fn batch_rerun_handle_job(
     Err(error::Error::ExecutionErr(
         format!("Couldn't re-run job {}", job.id).to_string(),
     ))
+}
+
+/// Marks a failed or canceled source of a batch re-run as handled, with the re-run as its note.
+/// This is the only moment the link exists (the re-run is pushed with no back-pointer), and it
+/// is what lets "hide resolved" exclude already re-run jobs from the next batch. Never fails the
+/// re-run, which is already queued: a source that cannot be resolved is logged and left as is.
+async fn resolve_batch_rerun_source(
+    authed: &ApiAuthed,
+    user_db: &UserDB,
+    w_id: &str,
+    source: Uuid,
+    rerun: Uuid,
+) {
+    if authed.is_operator {
+        return;
+    }
+    let result: error::Result<()> = async {
+        let mut tx = user_db.clone().begin(authed).await?;
+        let tags = get_scope_tags(authed);
+        let (resolved_by, _) = resolution_attribution(authed, None);
+        // Same authorization and eligibility as `resolve_completed_jobs`. DO NOTHING keeps a
+        // resolution someone already explained.
+        let resolved = sqlx::query_scalar!(
+            "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note, automatic)
+                SELECT c.id, c.workspace_id, $4, $5, false
+                    FROM v2_job_completed c
+                    JOIN v2_job j ON j.id = c.id
+                    WHERE c.id = $1
+                        AND c.workspace_id = $2
+                        AND ($3::TEXT[] IS NULL OR j.tag = ANY($3))
+                        AND c.status IN ('failure', 'canceled')
+                        AND j.flow_step_id IS NULL
+                ON CONFLICT (job_id) DO NOTHING
+                RETURNING job_id",
+            source,
+            w_id,
+            tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
+            resolved_by,
+            format!("Re-run as {rerun}"),
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if resolved.is_some() {
+            audit_log(
+                &mut *tx,
+                authed,
+                "jobs.resolve",
+                ActionKind::Update,
+                w_id,
+                Some(&source.to_string()),
+                None,
+            )
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+    .await;
+    if let Err(e) = result {
+        tracing::error!("Could not resolve job {source} after re-running it as {rerun}: {e}");
+    }
 }
 
 pub async fn run_flow_by_path(
@@ -12531,8 +12594,8 @@ fn check_resolution_request(
     Ok(())
 }
 
-/// Marks failed jobs as handled. Returns the ids actually affected: an id that is not
-/// visible to the caller, carries an out-of-scope tag, or did not fail is silently
+/// Marks failed or canceled jobs as handled. Returns the ids actually affected: an id that is
+/// not visible to the caller, carries an out-of-scope tag, or did not fail nor get canceled is silently
 /// absent rather than an error, so a bulk selection never fails as a whole.
 async fn resolve_completed_jobs(
     authed: ApiAuthed,
@@ -12547,7 +12610,7 @@ async fn resolve_completed_jobs(
     let system_note = req.superseded_by.map(|_| SUPERSEDED_NOTE);
     // The join on v2_job is what authorizes this write: v2_job_completed has RLS
     // disabled, so v2_job's policies are the only thing scoping rows to the caller.
-    // `status = 'failure'` keeps the invariant that only a failure can be resolved.
+    // Only a failed or canceled run can be resolved: a success has nothing to handle.
     let resolved = sqlx::query_scalar!(
         "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note, automatic)
             SELECT c.id, c.workspace_id, $4, COALESCE($5, $7), false
@@ -12556,7 +12619,7 @@ async fn resolve_completed_jobs(
                 WHERE c.id = ANY($1)
                     AND c.workspace_id = $2
                     AND ($3::TEXT[] IS NULL OR j.tag = ANY($3))
-                    AND c.status = 'failure'
+                    AND c.status IN ('failure', 'canceled')
                     -- Resolution is a top-level triage state: a step resolved on its own
                     -- would render orange inside a flow whose status is still red.
                     AND j.flow_step_id IS NULL

@@ -152,6 +152,7 @@
 				title: string
 				confirmBtnText: string
 				loading?: boolean
+				description?: string
 				preContent?: string
 				onConfirm?: (forceCancel: boolean) => void
 				type?: ConfirmationModal['$$prop_def']['type']
@@ -437,6 +438,7 @@
 
 	async function reRunJobs(jobIdsToReRun: string[], batchReRunOptions: BatchReRunOptions) {
 		if (!$operatingWorkspace) return
+		const batching = filterMatchedIds !== undefined
 
 		if (askingForConfirmation) {
 			askingForConfirmation.loading = true
@@ -486,7 +488,11 @@
 						}
 						if (reRanUuids.length !== jobIdsToReRun.length) {
 							sendUserToast(
-								`Failed to re-run ${jobIdsToReRun.length - reRanUuids.length} jobs. Check console for details`,
+								`Failed to re-run ${jobIdsToReRun.length - reRanUuids.length} jobs. Check console for details` +
+									// Only a re-run resolves its source, so these stay first in line.
+									(batching
+										? '. They stay unresolved and the next batch will try them again: resolve them to skip them'
+										: ''),
 								true
 							)
 							// We do not get explicit error from backend if the job script don't exist
@@ -509,13 +515,31 @@
 		jobsLoader?.loadJobs(true, true)
 	}
 
+	// Every failed or canceled job "Re-run all jobs matching filters" found, oldest first, so a
+	// batch limit takes the oldest ones. Re-running resolves them, so under "Hide resolved runs"
+	// the next click picks up where the previous batch stopped.
+	let filterMatchedIds: string[] | undefined = $state()
+	let rerunLimit: number | undefined = $state()
+	// The pane closes from several places, the table included; a stale match list would then
+	// offer its limit over a selection it no longer describes.
+	$effect(() => {
+		if (!batchRerunOptionsIsOpen) untrack(() => (filterMatchedIds = undefined))
+	})
+
+	function setRerunLimit(limit: number | undefined) {
+		if (!filterMatchedIds) return
+		rerunLimit = limit && limit > 0 ? limit : undefined
+		selectedIds = filterMatchedIds.slice(0, rerunLimit ?? filterMatchedIds.length)
+	}
+
 	async function onRerunAllJobsMatchingFilters() {
 		const selectedFilters = getSelectedFilters()
 		selectedIds = []
 
 		const loadingToast = sendUserToast('Loading job ids', 'info')
 
-		if (filters.val.job_kinds !== 'runs') {
+		// Selecting "runs" deletes the key, since it is the default.
+		if ((filters.val.job_kinds ?? 'runs') !== 'runs') {
 			sendUserToast('Batch re-run is only supported for scripts and flows', true)
 			loadingToast.destroy()
 			return
@@ -524,11 +548,21 @@
 		// workspace. started_at >= minTs implies completed_at >= minTs, so completedAfter adds a
 		// lossless indexed lower bound ((workspace_id, completed_at DESC)); started_at stays the
 		// exact recheck. (completedBefore is omitted: it would drop jobs that finish after maxTs.)
-		selectedIds = await JobService.listFilteredJobsUuids({
+		const ids = await JobService.listFilteredJobsUuids({
 			...selectedFilters,
 			completedAfter: selectedFilters.startedAfter,
-			jobKinds: 'script,flow'
+			orderDesc: false
 		})
+		// Batching needs both halves of its promise: only failed or canceled sources are resolved
+		// by a re-run, and only a status filter keeps the queue out of the lookup, whose union
+		// drops the ordering. Anything else re-runs every match, as one batch.
+		if (selectedFilters.status === 'failure' || selectedFilters.status === 'canceled') {
+			filterMatchedIds = ids
+			setRerunLimit(rerunLimit)
+		} else {
+			filterMatchedIds = undefined
+			selectedIds = ids
+		}
 		loadingToast.destroy()
 		batchRerunOptionsIsOpen = true
 	}
@@ -538,6 +572,10 @@
 		askingForConfirmation = {
 			title: `Confirm re-running the selected jobs`,
 			confirmBtnText: `Re-run ${jobIdsToReRun.length} jobs`,
+			// The server skips resolution for operators, who cannot resolve.
+			description: operatingUser.current?.operator
+				? undefined
+				: "Failed or canceled jobs among them will be marked resolved, with the new run's id as the note.",
 			type: 'reload',
 			onConfirm: async () => {
 				await reRunJobs(jobIdsToReRun, batchReRunOptions)
@@ -867,6 +905,9 @@
 		askingForConfirmation = undefined
 	}}
 >
+	{#if askingForConfirmation?.description}
+		<p class="text-xs text-secondary">{askingForConfirmation.description}</p>
+	{/if}
 	{#if askingForConfirmation?.preContent}
 		<pre>{askingForConfirmation.preContent}</pre>
 		<Toggle
@@ -1121,6 +1162,7 @@
 								action: () => {
 									manualSelectionMode = 'rerun'
 									selectedIds = []
+									filterMatchedIds = undefined
 									batchRerunOptionsIsOpen = true
 								}
 							},
@@ -1128,7 +1170,7 @@
 								? [
 										{
 											// Operators are rejected by the endpoint, so offering it would only 403.
-											displayName: 'Resolve failed jobs',
+											displayName: 'Resolve failed or canceled jobs',
 											action: () => (
 												(manualSelectionMode = 'resolve'),
 												(selectedIds = []),
@@ -1210,7 +1252,7 @@
 				class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex flex-col items-center justify-center gap-3 p-4"
 			>
 				<p class="text-xs text-secondary text-center max-w-xs">
-					Resolving keeps the run a failure but stops it showing as one in the runs list.
+					Resolving keeps the run's status but marks it as handled in the runs list.
 				</p>
 				<TextInput
 					bind:value={resolutionNote}
@@ -1303,15 +1345,59 @@
 {/snippet}
 
 {#snippet batchRerunOptions()}
-	{#await import('$lib/components/runs/BatchReRunOptionsPane.svelte') then BatchReRunOptionsPane}
-		<BatchReRunOptionsPane.default
-			{selectedIds}
-			onCancel={() => ((batchRerunOptionsIsOpen = false), (manualSelectionMode = undefined))}
-			onConfirm={async (options) => {
-				await onReRunSelectedJobs(options)
-			}}
-		/>
-	{/await}
+	<div class="flex flex-col h-full">
+		{#if filterMatchedIds}
+			<div class="flex flex-col gap-1 pb-2 text-xs text-secondary">
+				<div class="flex flex-row items-center gap-2">
+					<span>{filterMatchedIds.length} jobs match the filters, re-run at most</span>
+					<TextInput
+						inputProps={{ type: 'number', min: 1, placeholder: 'All' }}
+						size="sm"
+						class="w-24"
+						bind:value={
+							() => rerunLimit?.toString() ?? '',
+							(v) => setRerunLimit(v ? parseInt(v.toString()) : undefined)
+						}
+					/>
+				</div>
+				{#if filters.val.resolved === 'unresolved'}
+					<span class="text-hint">
+						Oldest first. Re-run jobs are marked resolved, so the next batch starts where this one
+						stops.
+					</span>
+				{:else}
+					<div class="flex flex-row items-center gap-2 text-orange-600 dark:text-orange-400">
+						<TriangleAlertIcon size={14} class="shrink-0" />
+						<span>
+							Resolved runs are included, so the next batch will pick these same jobs again.
+						</span>
+						<Button
+							variant="default"
+							unifiedSize="xs"
+							btnClasses="shrink-0"
+							onClick={() => {
+								filters.val.resolved = 'unresolved'
+								onRerunAllJobsMatchingFilters()
+							}}
+						>
+							Hide resolved runs
+						</Button>
+					</div>
+				{/if}
+			</div>
+		{/if}
+		<div class="flex-1 min-h-0 flex flex-col">
+			{#await import('$lib/components/runs/BatchReRunOptionsPane.svelte') then BatchReRunOptionsPane}
+				<BatchReRunOptionsPane.default
+					{selectedIds}
+					onCancel={() => ((batchRerunOptionsIsOpen = false), (manualSelectionMode = undefined))}
+					onConfirm={async (options) => {
+						await onReRunSelectedJobs(options)
+					}}
+				/>
+			{/await}
+		</div>
+	</div>
 {/snippet}
 
 {#snippet jobPreview(pending?: Snippet)}

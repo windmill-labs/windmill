@@ -16117,6 +16117,9 @@ paths:
   /w/{workspace}/jobs/run/batch_rerun_jobs:
     post:
       summary: re-run multiple jobs
+      description: >-
+        Re-runs each job and marks every failed or canceled original that was re-run as
+        resolved, with the new job's id in its note. Operators re-run without resolving.
       operationId: batchReRunJobs
       tags:
         - job
@@ -16878,6 +16881,7 @@ paths:
         - job
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/OrderDesc"
         - $ref: "#/components/parameters/CreatedBy"
         - $ref: "#/components/parameters/Label"
         - $ref: "#/components/parameters/Worker"
@@ -16910,8 +16914,8 @@ paths:
             type: boolean
         - name: resolved
           description: >-
-            filter on whether a failure has been marked as handled. true keeps only
-            resolved failures, false hides them
+            filter on whether a failed or canceled run has been marked as handled. true
+            keeps only resolved runs, false hides them
           in: query
           schema:
             type: boolean
@@ -17222,8 +17226,8 @@ paths:
             type: boolean
         - name: resolved
           description: >-
-            filter on whether a failure has been marked as handled. true keeps only
-            resolved failures, false hides them
+            filter on whether a failed or canceled run has been marked as handled. true
+            keeps only resolved runs, false hides them
           in: query
           schema:
             type: boolean
@@ -17409,8 +17413,8 @@ paths:
             type: boolean
         - name: resolved
           description: >-
-            filter on whether a failure has been marked as handled. true keeps only
-            resolved failures, false hides them
+            filter on whether a failed or canceled run has been marked as handled. true
+            keeps only resolved runs, false hides them
           in: query
           schema:
             type: boolean
@@ -18268,11 +18272,12 @@ paths:
 
   /w/{workspace}/jobs/completed/resolve:
     post:
-      summary: mark failed jobs as resolved
+      summary: mark failed or canceled jobs as resolved
       description: >-
-        Marks failed jobs as handled so triage surfaces stop showing them as failures.
-        The job status itself is unchanged. Returns the ids actually resolved: ids that
-        are not visible to the caller or did not fail are silently skipped.
+        Marks failed or canceled jobs as handled so triage surfaces stop showing them as
+        unhandled. The job status itself is unchanged. Returns the ids actually resolved: ids
+        that are not visible to the caller or neither failed nor were canceled are silently
+        skipped.
       operationId: resolveCompletedJobs
       tags:
         - job
@@ -26130,8 +26135,8 @@ paths:
             type: boolean
         - name: resolved
           description: >-
-            filter on whether a failure has been marked as handled. true keeps only
-            resolved failures, false hides them
+            filter on whether a failed or canceled run has been marked as handled. true
+            keeps only resolved runs, false hides them
           in: query
           schema:
             type: boolean
@@ -31052,7 +31057,7 @@ components:
           type: boolean
         resolved:
           type: boolean
-          description: whether this failure has been marked as handled
+          description: whether this failed or canceled run has been marked as handled
         resolved_by:
           type: string
           description: >-
