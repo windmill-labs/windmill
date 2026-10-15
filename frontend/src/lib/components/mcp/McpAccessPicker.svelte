@@ -96,7 +96,7 @@
 				<ToggleButton
 					{item}
 					value="selected"
-					label="Only selected scripts and flows"
+					label="Scripts and flows as tools"
 					tooltip="The scripts and flows you pick, each as its own tool, and nothing else. To share a few automations."
 				/>
 			{/snippet}
