@@ -41,7 +41,10 @@ const p = {
               imp.path.startsWith("/f/")) &&
             !imp.path.endsWith(".ts")
           ) {
-            code = code.replaceAll(imp.path, imp.path + ".ts");
+            // Whole quoted specifiers only: `./util` is also a substring of `../util_ws`.
+            for (const q of ['"', "'"]) {
+              code = code.replaceAll(q + imp.path + q, q + imp.path + ".ts" + q);
+            }
           }
         }
       }
@@ -128,10 +131,15 @@ const p = {
         } catch {}
       }
 
+      const importerRel = args.importer.replace(cdir + "/", "");
+      // A module file stands in the job dir for a script in the entrypoint's folder, so its
+      // own relative imports resolve from that folder's workspace path, not from the job dir.
       const file_path =
         args.importer == "./main.ts" || args.importer == resolve("./main.ts")
           ? current_path
-          : args.importer.replace(cdir + "/", "");
+          : importerRel.endsWith(".ts")
+          ? join(dirname(current_path), importerRel.replace(/\.ts$/, ""))
+          : importerRel;
 
       const isRelative = !args.path.startsWith("/");
       const endExt = args.path.endsWith(".ts") ? "" : ".ts";
