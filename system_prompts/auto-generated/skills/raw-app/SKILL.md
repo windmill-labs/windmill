@@ -475,7 +475,7 @@ A draft app is reachable by nobody; deploying is what exposes it, and its backen
 Either one lets those people run the app's backend runnables, so never open an app up unless the user asks.
 `public: true` in `raw_app.yaml` deploys the app for anonymous users, and `guests: true` for guests. Remove the line and the next push closes the app again.
 
-An app's custom URL is not in `raw_app.yaml`: each workspace has its own file next to the app folder, `<app path>.<workspace>.custom_path.yaml` (for example `f/sales/dashboard.prod.custom_path.yaml` holding `custom_path: dashboard`), where `<workspace>` is the workspace's name in `wmill.yaml`, or its id. A push applies only the target workspace's file and leaves the deployed custom URL alone when there is none; setting one takes a workspace admin.
+An app's custom URL is not in `raw_app.yaml`: each workspace has its own file next to the app folder, `<app path>.<workspace>.custom_path.yaml` (for example `f/sales/dashboard.prod.custom_path.yaml` holding `custom_path: dashboard`), where `<workspace>` is the workspace's name in `wmill.yaml`, or its id. A push applies only the target workspace's file and leaves the deployed custom URL alone when there is none, so deleting the file does not remove the URL: `custom_path: ''` does. Setting or clearing one takes a workspace admin.
 
 ## Sandbox isolation and frontend API access
 

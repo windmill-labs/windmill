@@ -432,6 +432,14 @@ test("a custom path is its own workspace-specific file", async () => {
   expect(await diffIn("prod", own, remoteRawApp(), true)).toEqual([
     "deleted f/test/myapp.custom_path.yaml",
   ]);
+  // `custom_path: ''` clears it on push, and is in sync once it is cleared.
+  const cleared = checkout({
+    "f/test/myapp.prod.custom_path.yaml": "custom_path: ''\n",
+  });
+  expect(await diffIn("prod", cleared, remoteRawApp("my-dashboard"), false)).toEqual([
+    "edited f/test/myapp.custom_path.yaml",
+  ]);
+  expect(await diffIn("prod", cleared, remoteRawApp(), false)).toEqual([]);
 });
 
 // A checkout from before custom paths had their own file keeps the value in

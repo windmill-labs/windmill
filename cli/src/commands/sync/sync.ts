@@ -2805,6 +2805,18 @@ export async function compareDynFSElement(
 
   if (isEls1Remote === false) {
     liftInFileCustomPaths(m1, json);
+    // `custom_path: ''` clears the deployed one, after which the export has
+    // no file to match it: an empty value with nothing deployed is in sync.
+    for (const [k, v] of Object.entries(m1)) {
+      if (!isCustomPathFile(k) || k in m2) continue;
+      let value: unknown;
+      try {
+        value = (json ? JSON.parse(v) : yamlParseContent(k, v))?.custom_path;
+      } catch {
+        continue;
+      }
+      if (!value) delete m1[k];
+    }
   }
 
   const changes: Change[] = [];
@@ -5837,8 +5849,12 @@ export async function push(
       // `alreadySynced`, and a push touching several files of one bundle then
       // deploys the script once per file: several versions in a row, of which
       // only the last is the one the asset graph ends up describing.
+      // An app's files and its custom-path file group under the app path in
+      // both folder layouts, so the custom path is applied after the app.
       const basePath =
         getScriptBasePathFromModulePath(change.path) ??
+        extractResourceName(change.path, "raw_app")?.replaceAll("/", SEP) ??
+        extractResourceName(change.path, "app")?.replaceAll("/", SEP) ??
         change.path.split(".")[0];
       if (!groupedChanges.has(basePath)) {
         groupedChanges.set(basePath, []);
@@ -5928,10 +5944,14 @@ export async function push(
               changes = [deleteRawApp];
             } else {
               // The app is one bundle, so a single change re-pushes all of it.
-              // That leaves the loop exactly one change: any skip it takes for
-              // a raw-app path drops the whole app from the push, and nothing
-              // downstream records that as a failure.
-              changes.splice(1, changes.length - 1);
+              // That leaves the loop exactly one raw-app change: any skip it
+              // takes for a raw-app path drops the whole app from the push, and
+              // nothing downstream records that as a failure. The custom path
+              // is not part of the bundle and is applied after it.
+              changes = [
+                changes[0],
+                ...changes.slice(1).filter((c) => isCustomPathFile(c.path)),
+              ];
             }
           }
 
