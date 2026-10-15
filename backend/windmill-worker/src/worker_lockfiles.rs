@@ -2793,6 +2793,7 @@ pub async fn handle_app_dependency_job(
         } else {
             components_to_relock
         };
+        let read_value = triggered_by_relative_import.then(|| value.clone());
         let value = lock_modules_app(
             value,
             &job,
@@ -2861,10 +2862,19 @@ pub async fn handle_app_dependency_job(
             .fetch_optional(&mut *tx)
             .await?
             .flatten();
-            if published != Some(id) {
+            // Every relock of the app, and the dependency job of the deploy that published it,
+            // writes this one row: one that wrote it since it was read would lose its locks.
+            let current = if published == Some(id) {
+                sqlx::query_scalar!("SELECT value FROM app_version WHERE id = $1 FOR UPDATE", id)
+                    .fetch_optional(&mut *tx)
+                    .await?
+            } else {
+                None
+            };
+            if published != Some(id) || current != read_value {
                 drop(tx);
                 let log_msg = format!(
-                    "\nApp version {published:?} was deployed while version {id} was relocked; discarding the relock and queueing one of the published version"
+                    "\nApp version {id} was rewritten or superseded (published: {published:?}) while it was relocked; discarding the relock and queueing one of the published version"
                 );
                 tracing::info!(workspace_id = %job.workspace_id, job_id = %job.id, "{log_msg}");
                 append_logs(&job.id, &job.workspace_id, log_msg, &db.into()).await;
