@@ -7,9 +7,34 @@ import {
 	formatRuntimeLogsForChat,
 	genWmillTs,
 	normalizeRawAppRuntimeLogs,
+	rawAppPreviewModules,
 	stripRawAppDiffNoise,
 	type Runnable
 } from './utils'
+
+describe('rawAppPreviewModules', () => {
+	const inline = (language: 'bun' | 'python3', content: string) =>
+		({ type: 'inline', inlineScript: { language, content } }) as unknown as Runnable
+
+	it('ships only the same-language runnables reached through imports', () => {
+		const runnables = {
+			get: inline('bun', "import { a } from './a'\nimport { p } from './py'"),
+			a: inline('bun', 'import { b } from "./b.ts"'),
+			b: inline('bun', 'export const b = 1'),
+			unused: inline('bun', 'export const u = 1'),
+			main: inline('bun', 'export const m = 1'),
+			py: inline('python3', 'from .helpers import x')
+		}
+		expect(Object.keys(rawAppPreviewModules(runnables, 'get') ?? {}).sort()).toEqual([
+			'a.ts',
+			'b.ts'
+		])
+		expect(rawAppPreviewModules(runnables, 'unused')).toBeUndefined()
+		expect(
+			rawAppPreviewModules({ ...runnables, helpers: inline('python3', 'x = 1') }, 'py')
+		).toEqual({ 'helpers.py': { language: 'python3', content: 'x = 1' } })
+	})
+})
 
 const flowSchema = {
 	$schema: 'https://json-schema.org/draft/2020-12/schema',

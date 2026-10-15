@@ -2320,7 +2320,10 @@ impl RawAppRunnables {
                     .get("language")
                     .and_then(|l| from_value::<ScriptLang>(l.clone()).ok());
                 if let (Some(content), Some(language)) = (content, language) {
-                    if module_extension(language).is_some() {
+                    // `main.ts` is the Bun entrypoint's own file in the job dir, so a
+                    // runnable with that id cannot ship as a module next to it.
+                    let ext = module_extension(language);
+                    if ext.is_some() && !(ext == Some("ts") && id == "main") {
                         runnables.insert(
                             format!("{app_path}/{id}"),
                             (id.clone(), language, content.to_string()),

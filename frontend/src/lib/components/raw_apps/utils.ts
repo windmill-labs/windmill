@@ -24,27 +24,38 @@ function moduleExtension(language: ScriptLang | undefined): string | undefined {
 	return undefined
 }
 
+/** Ids of the sibling runnables `content` imports as `./<id>` (TS) or `.<id>` (Python). */
+function siblingImports(content: string, ext: string): string[] {
+	const pattern =
+		ext === 'ts'
+			? /(?:from|import)\s*['"]\.\/([\w-]+)(?:\.ts)?['"]/g
+			: /^\s*from\s+\.([A-Za-z_]\w*)\s+import\b/gm
+	return Array.from(content.matchAll(pattern), (m) => m[1])
+}
+
 /**
- * The app's other inline runnables, as modules a preview of runnable `id` ships with,
- * so `./<id>` imports resolve to the editor's code. A deployed runnable carries only
- * the ones it imports, stored at deploy time.
+ * The app's other inline runnables that runnable `id` imports, directly or through one
+ * another, as the modules its preview ships with so those imports resolve to the
+ * editor's code. Deploy stores the same set on the runnable.
  */
 export function rawAppPreviewModules(
 	runnables: Record<string, Runnable>,
 	id: string
 ): Record<string, ScriptModule> | undefined {
-	const ext = moduleExtension(runnables[id]?.inlineScript?.language)
-	if (!ext) return undefined
+	const own = runnables[id]?.inlineScript
+	const ext = moduleExtension(own?.language)
+	if (!own || !ext) return undefined
 	const modules: Record<string, ScriptModule> = {}
-	for (const [otherId, runnable] of Object.entries(runnables)) {
-		const inlineScript = runnable?.inlineScript
-		if (otherId === id || !inlineScript || moduleExtension(inlineScript.language) !== ext) {
-			continue
-		}
-		modules[`${otherId}.${ext}`] = {
-			content: inlineScript.content,
-			language: inlineScript.language
-		}
+	const queue = siblingImports(own.content, ext)
+	while (queue.length > 0) {
+		const siblingId = queue.pop()!
+		const key = `${siblingId}.${ext}`
+		const inlineScript = runnables[siblingId]?.inlineScript
+		// `main.ts` is the Bun entrypoint's own file, so no module may take that name.
+		if (siblingId === id || key in modules || key === 'main.ts') continue
+		if (!inlineScript || moduleExtension(inlineScript.language) !== ext) continue
+		modules[key] = { content: inlineScript.content, language: inlineScript.language }
+		queue.push(...siblingImports(inlineScript.content, ext))
 	}
 	return Object.keys(modules).length > 0 ? modules : undefined
 }
@@ -226,8 +237,7 @@ export function formatRuntimeLogsForChat(entries: RawAppRuntimeLogEntry[]): stri
 const BUILD_LOG_TAIL_LINES = 40
 const BUILD_LOG_TAIL_CHARS = 6000
 // Per-package install progress: dozens of lines per build that would crowd the errors out of the tail.
-const ROUTINE_INSTALL_LOG_LINE =
-	/^\s*(Using cached resolution|Using idb cache|Resolved \S+@|Extract(ing|ed) )/
+const ROUTINE_INSTALL_LOG_LINE = /^\s*(Using cached resolution|Using idb cache|Resolved \S+@|Extract(ing|ed) )/
 
 export function formatBuildLogTailForChat(buildLogs: string): string {
 	// The bundler log accumulates every install and build since the editor opened.

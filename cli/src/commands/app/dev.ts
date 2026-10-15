@@ -1821,10 +1821,18 @@ function moduleExtension(language: string | undefined): string | undefined {
   return undefined;
 }
 
+/** Ids of the sibling runnables `content` imports as `./<id>` (TS) or `.<id>` (Python). */
+function siblingImports(content: string, ext: string): string[] {
+  const pattern = ext === "ts"
+    ? /(?:from|import)\s*['"]\.\/([\w-]+)(?:\.ts)?['"]/g
+    : /^\s*from\s+\.([A-Za-z_]\w*)\s+import\b/gm;
+  return Array.from(content.matchAll(pattern), (m) => m[1]);
+}
+
 /**
- * The app's other inline runnables, as modules a preview of `runnableId` ships with so
- * `./<id>` imports resolve to the local files. A deployed runnable carries only the ones
- * it imports, stored at deploy time.
+ * The app's other inline runnables that `runnableId` imports, directly or through one
+ * another, as the modules its preview ships with so those imports resolve to the local
+ * files. Deploy stores the same set on the runnable.
  */
 function previewModules(
   runnables: Record<string, Runnable>,
@@ -1832,22 +1840,25 @@ function previewModules(
 ): Record<string, { content: string; language: string }> | undefined {
   const inlineScriptOf = (r: Runnable | undefined) =>
     r && "inlineScript" in r ? r.inlineScript : undefined;
-  const ext = moduleExtension(inlineScriptOf(runnables[runnableId])?.language);
-  if (!ext) return undefined;
+  const own = inlineScriptOf(runnables[runnableId]);
+  const ext = moduleExtension(own?.language);
+  if (!own || !ext) return undefined;
   const modules: Record<string, { content: string; language: string }> = {};
-  for (const [id, runnable] of Object.entries(runnables)) {
-    const inlineScript = inlineScriptOf(runnable);
-    if (
-      id === runnableId ||
-      !inlineScript ||
-      moduleExtension(inlineScript.language) !== ext
-    ) {
+  const queue = siblingImports(own.content, ext);
+  while (queue.length > 0) {
+    const id = queue.pop()!;
+    const key = `${id}.${ext}`;
+    const inlineScript = inlineScriptOf(runnables[id]);
+    // `main.ts` is the Bun entrypoint's own file, so no module may take that name.
+    if (id === runnableId || key in modules || key === "main.ts") continue;
+    if (!inlineScript || moduleExtension(inlineScript.language) !== ext) {
       continue;
     }
-    modules[`${id}.${ext}`] = {
+    modules[key] = {
       content: inlineScript.content,
       language: inlineScript.language,
     };
+    queue.push(...siblingImports(inlineScript.content, ext));
   }
   return Object.keys(modules).length > 0 ? modules : undefined;
 }
