@@ -1054,11 +1054,12 @@ async fn check_instance_sharing_available(
 #[cfg(feature = "native_trigger")]
 async fn list_connections(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((workspace_id, service_name)): Path<(String, ServiceName)>,
 ) -> JsonResult<Vec<Connection>> {
     let mut tx = user_db.begin(&authed).await?;
-    let connections = list_usable_connections(&mut tx, &workspace_id, service_name).await?;
+    let connections = list_usable_connections(&db, &mut tx, &workspace_id, service_name).await?;
     tx.commit().await?;
     Ok(Json(connections))
 }
@@ -1067,6 +1068,83 @@ async fn list_connections(
 #[derive(Debug, Deserialize)]
 struct ConnectionPathQuery {
     path: String,
+}
+
+#[cfg(feature = "native_trigger")]
+#[derive(Debug, Deserialize)]
+struct WorkspaceConnectionBody {
+    /// The connection to share with every member, or none to stop sharing.
+    path: Option<String>,
+}
+
+/// Share one connection with the whole workspace: every member may then create and edit triggers
+/// through it, without being able to read its token.
+#[cfg(feature = "native_trigger")]
+async fn set_workspace_connection(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((workspace_id, service_name)): Path<(String, ServiceName)>,
+    Json(WorkspaceConnectionBody { path }): Json<WorkspaceConnectionBody>,
+) -> JsonResult<String> {
+    require_admin(authed.is_admin, &workspace_id)?;
+
+    // Sharing lets everyone act as the account behind it, so only the one who connected it may.
+    if let Some(path) = path.as_deref() {
+        let own = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM variable v
+             JOIN account a ON a.workspace_id = v.workspace_id AND a.id = v.account
+             JOIN resource r ON r.workspace_id = v.workspace_id AND r.path = v.path
+             WHERE v.workspace_id = $1 AND v.path = $2 AND a.client = $3
+               AND a.is_workspace_integration = true AND r.created_by = $4)",
+            workspace_id,
+            path,
+            service_name.as_str(),
+            authed.username,
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(false);
+        if !own {
+            return Err(Error::BadRequest(format!(
+                "No {service_name} connection you made at {path}. You can only share an account \
+                 you connected yourself."
+            )));
+        }
+    }
+
+    let mut tx = db.begin().await?;
+    let updated = sqlx::query!(
+        "UPDATE workspace_integrations SET resource_path = $3, updated_at = now()
+         WHERE workspace_id = $1 AND service_name = $2",
+        workspace_id,
+        service_name as ServiceName,
+        path,
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if updated == 0 {
+        return Err(Error::NotFound(format!(
+            "{service_name} is not set up in this workspace"
+        )));
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        &format!("workspace_integrations.{}.share", service_name),
+        ActionKind::Update,
+        &workspace_id,
+        Some(path.as_deref().unwrap_or("none")),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(Json(match path {
+        Some(path) => format!("{path} is now the workspace connection"),
+        None => "No workspace connection".to_string(),
+    }))
 }
 
 /// Disconnect one account: its triggers are deleted with it, since nothing else can act on
@@ -1091,7 +1169,7 @@ async fn delete_connection(
     .await?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
-    let usable = list_usable_connections(&mut tx, &workspace_id, service_name).await?;
+    let usable = list_usable_connections(&db, &mut tx, &workspace_id, service_name).await?;
     tx.commit().await?;
     if !usable.iter().any(|c| c.path == path) {
         return Err(Error::NotFound(format!(
@@ -1156,6 +1234,17 @@ async fn delete_connection(
         )));
     }
 
+    // A connection made later at this path must not inherit the sharing.
+    sqlx::query!(
+        "UPDATE workspace_integrations SET resource_path = NULL
+         WHERE workspace_id = $1 AND service_name = $2 AND resource_path = $3",
+        workspace_id,
+        service_name as ServiceName,
+        path,
+    )
+    .execute(&mut *tx)
+    .await?;
+
     audit_log(
         &mut *tx,
         &authed,
@@ -1191,6 +1280,10 @@ pub fn workspaced_service() -> Router {
         .route(
             "/{service_name}/connections/delete",
             delete(delete_connection),
+        )
+        .route(
+            "/{service_name}/workspace_connection",
+            post(set_workspace_connection),
         )
         .route("/{service_name}/delete", delete(delete_integration))
         .route("/{service_name}/callback", post(oauth_callback));

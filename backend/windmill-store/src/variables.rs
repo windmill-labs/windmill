@@ -1308,6 +1308,15 @@ async fn update_variable(
             .await?;
 
             sqlx::query!(
+                "UPDATE workspace_integrations SET resource_path = $1 WHERE workspace_id = $2 AND resource_path = $3",
+                npath,
+                w_id,
+                path
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query!(
                 "UPDATE ws_specific SET path = $1 WHERE workspace_id = $2 AND item_kind = 'variable' AND path = $3",
                 npath,
                 w_id,

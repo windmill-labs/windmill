@@ -189,6 +189,7 @@ async fn create_native_trigger<T: External>(
     .await?;
 
     let connection_path = resolve_usable_connection(
+        &db,
         &mut tx,
         &workspace_id,
         service_name.integration_service(),
@@ -245,12 +246,13 @@ async fn create_native_trigger<T: External>(
     };
 
     lock_connection(&mut tx, &workspace_id, &connection_path).await?;
+    // Through `db`: a member using the workspace connection cannot read its variable.
     let still_connected = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM variable WHERE workspace_id = $1 AND path = $2)",
         workspace_id,
         connection_path,
     )
-    .fetch_one(&mut *tx)
+    .fetch_one(&db)
     .await?
     .unwrap_or(false);
     if !still_connected {
@@ -323,7 +325,8 @@ async fn update_native_trigger_handler<T: External>(
     // to act as it, not just to write the runnable.
     let integration_service = service_name.integration_service();
     if let Some(path) = existing.connection_path.as_deref() {
-        resolve_usable_connection(&mut tx, &workspace_id, integration_service, Some(path)).await?;
+        resolve_usable_connection(&db, &mut tx, &workspace_id, integration_service, Some(path))
+            .await?;
     }
     let oauth_data: T::OAuthData = decrypt_oauth_data(
         &db,
@@ -487,12 +490,15 @@ async fn get_native_trigger_handler<T: External>(
 
     // Reading the registration acts as the connection's account, like saving does.
     let usable = match windmill_trigger.connection_path.as_deref() {
-        Some(path) => {
-            list_usable_connections(&mut tx, &workspace_id, service_name.integration_service())
-                .await?
-                .iter()
-                .any(|c| c.path == path)
-        }
+        Some(path) => list_usable_connections(
+            &db,
+            &mut tx,
+            &workspace_id,
+            service_name.integration_service(),
+        )
+        .await?
+        .iter()
+        .any(|c| c.path == path),
         None => false,
     };
     if !usable {

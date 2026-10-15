@@ -20735,6 +20735,38 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/native_triggers/integrations/{service_name}/workspace_connection:
+    post:
+      summary: share one of your connections with every member of the workspace, or stop sharing
+      operationId: setNativeTriggerWorkspaceConnection
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                  nullable: true
+                  description: The connection to share, or null to stop sharing
+      responses:
+        "200":
+          description: workspace connection updated
+          content:
+            application/json:
+              schema:
+                type: string
+
   /w/{workspace}/native_triggers/integrations/{service_name}/delete:
     delete:
       summary: delete native trigger service
@@ -39317,8 +39349,12 @@ components:
           type: string
           nullable: true
           description: Username of whoever connected the account, when the caller can read its resource
+        workspace:
+          type: boolean
+          description: Whether this is the workspace connection, which every member may use
       required:
         - path
+        - workspace
 
     CreateTriggerResponse:
       type: object

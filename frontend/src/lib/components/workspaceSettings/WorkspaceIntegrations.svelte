@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
-	import { Button, Alert } from '$lib/components/common'
+	import { Button, Alert, Badge } from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
 	import { X, ExternalLink, Cog, Plug } from 'lucide-svelte'
@@ -185,6 +185,32 @@
 		}
 	}
 
+	async function setWorkspaceConnection(serviceName: string, path: string | null) {
+		if (!$workspaceStore) return
+
+		const displayName = supportedServices[serviceName]?.displayName ?? serviceName
+		if (path) {
+			const confirmed = await confirmationModal.ask({
+				title: `Share ${path} with the workspace?`,
+				confirmationText: 'Share',
+				children: `Every member will be able to create and edit ${displayName} triggers that act as this account. They will not see its token. It replaces any connection shared before.`
+			})
+			if (!confirmed) return
+		}
+
+		try {
+			await WorkspaceIntegrationService.setNativeTriggerWorkspaceConnection({
+				workspace: $workspaceStore,
+				serviceName: serviceName as NativeServiceName,
+				requestBody: { path }
+			})
+			sendUserToast(path ? `${path} is now the workspace connection` : 'Stopped sharing')
+			await loadConnections(serviceName)
+		} catch (err: any) {
+			sendUserToast(`Failed to update the workspace connection: ${err.body ?? err.message}`, true)
+		}
+	}
+
 	async function connect(serviceName: string) {
 		if (!$workspaceStore) return
 
@@ -286,7 +312,7 @@
 <div class="flex flex-col">
 	<SettingsPageHeader
 		title="Native Triggers"
-		description="Configure the OAuth app of each service. Members then connect their own account, or one shared through a folder, and each trigger acts as the account it was created with."
+		description="Configure the OAuth app of each service. Members then connect their own account, or use one shared through a folder or as the workspace connection, and each trigger acts as the account it was created with."
 		link="https://www.windmill.dev/docs/core_concepts/native_triggers"
 	/>
 
@@ -415,10 +441,32 @@
 							<div class="text-xs font-semibold text-emphasis mb-1">Connected accounts</div>
 							{#each serviceConnections as connection (connection.path)}
 								<div class="flex items-center justify-between gap-2 text-xs">
-									<span class="font-mono truncate">{connection.path}</span>
+									<div class="flex items-center gap-2 min-w-0">
+										<span class="font-mono truncate">{connection.path}</span>
+										{#if connection.workspace}
+											<Badge color="blue" small>Workspace connection</Badge>
+										{/if}
+									</div>
 									<div class="flex items-center gap-2 shrink-0">
 										{#if connection.owner}
 											<span class="text-secondary">connected by {connection.owner}</span>
+										{/if}
+										{#if connection.workspace}
+											<Button
+												unifiedSize="xs"
+												variant="subtle"
+												onclick={() => setWorkspaceConnection(serviceName, null)}
+											>
+												Stop sharing
+											</Button>
+										{:else if connection.owner === $userStore?.username}
+											<Button
+												unifiedSize="xs"
+												variant="subtle"
+												onclick={() => setWorkspaceConnection(serviceName, connection.path)}
+											>
+												Share with workspace
+											</Button>
 										{/if}
 										<Button
 											unifiedSize="xs"
