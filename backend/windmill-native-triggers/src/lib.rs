@@ -1189,6 +1189,8 @@ pub async fn delete_token_by_hash<'c, E: sqlx::Executor<'c, Database = Postgres>
     Ok(deleted > 0)
 }
 
+/// Callers must hold [`lock_connection`] on `connection_path` in the same transaction and check
+/// the connection still exists, or a concurrent disconnect can leave this trigger stranded.
 pub async fn store_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>, C: Serialize>(
     db: E,
     workspace_id: &str,

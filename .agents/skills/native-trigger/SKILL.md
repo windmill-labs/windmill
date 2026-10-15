@@ -131,7 +131,7 @@ accounts) are many per service. Each trigger acts through one connection, named 
 A user may use a connection when they can read its variable (checked with a user transaction,
 so the variable's row-level security decides): `resolve_usable_connection` /
 `list_usable_connections` in `lib.rs`. The exception is the **workspace connection**: an admin
-may share one connection they made per service (`workspace_integrations.resource_path`, set by
+may share one connection per service (`workspace_integrations.resource_path`, set by
 `POST .../workspace_connection`), and every member may then use it without reading its token.
 Renames carry the marker along; disconnecting clears it. Background work (sync, renewal, rename re-registration,
 webhook handling) uses the stored `connection_path` directly.

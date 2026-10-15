@@ -18,8 +18,6 @@
 		/** An existing trigger keeps the connection its webhook was registered under. */
 		locked?: boolean
 		disabled?: boolean
-		/** Only offer the caller's own connections. */
-		ownOnly?: boolean
 		/** Select the first connection when none is chosen yet. */
 		autoSelect?: boolean
 		clearable?: boolean
@@ -35,7 +33,6 @@
 		value = $bindable(),
 		locked = false,
 		disabled = false,
-		ownOnly = false,
 		autoSelect = true,
 		clearable = false,
 		placeholder,
@@ -60,8 +57,8 @@
 			connections = []
 			sendUserToast(`Failed to load ${displayName} connections: ${err.body ?? err.message}`, true)
 		}
-		if (autoSelect && !locked && value === undefined && offered.length > 0) {
-			select(offered[0].path)
+		if (autoSelect && !locked && value === undefined && connections.length > 0) {
+			select(connections[0].path)
 		}
 	}
 
@@ -119,12 +116,9 @@
 		return !c.workspace && !!c.owner && c.owner === $userStore?.username
 	}
 
-	const offered = $derived(
-		(connections ?? []).filter((c) => !ownOnly || c.owner === $userStore?.username)
-	)
 	const items = $derived.by(() => {
-		const list = offered.map((c) => ({
-			label: c.workspace && !ownOnly ? `${c.path} (workspace connection)` : c.path,
+		const list = (connections ?? []).map((c) => ({
+			label: c.workspace ? `${c.path} (workspace connection)` : c.path,
 			value: c.path
 		}))
 		if (value && !list.some((i) => i.value === value)) {
@@ -133,7 +127,7 @@
 		return list
 	})
 	const unusable = $derived(
-		!ownOnly && connections !== undefined && !!value && !connections.some((c) => c.path === value)
+		connections !== undefined && !!value && !connections.some((c) => c.path === value)
 	)
 </script>
 
