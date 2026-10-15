@@ -509,9 +509,9 @@
 		jobsLoader?.loadJobs(true, true)
 	}
 
-	// Every job "Re-run all jobs matching filters" found, oldest first, so a batch limit takes the
-	// oldest ones. Re-running resolves the originals, so under "Hide resolved runs" the next
-	// click picks up where the previous batch stopped.
+	// Every failed or canceled job "Re-run all jobs matching filters" found, oldest first, so a
+	// batch limit takes the oldest ones. Re-running resolves them, so under "Hide resolved runs"
+	// the next click picks up where the previous batch stopped.
 	let filterMatchedIds: string[] | undefined = $state()
 	let rerunLimit: number | undefined = $state()
 	// The pane closes from several places, the table included; a stale match list would then
@@ -542,12 +542,21 @@
 		// workspace. started_at >= minTs implies completed_at >= minTs, so completedAfter adds a
 		// lossless indexed lower bound ((workspace_id, completed_at DESC)); started_at stays the
 		// exact recheck. (completedBefore is omitted: it would drop jobs that finish after maxTs.)
-		filterMatchedIds = await JobService.listFilteredJobsUuids({
+		const ids = await JobService.listFilteredJobsUuids({
 			...selectedFilters,
 			completedAfter: selectedFilters.startedAfter,
 			orderDesc: false
 		})
-		setRerunLimit(rerunLimit)
+		// Batching needs both halves of its promise: only failed or canceled sources are resolved
+		// by a re-run, and only a status filter keeps the queue out of the lookup, whose union
+		// drops the ordering. Anything else re-runs every match, as one batch.
+		if (selectedFilters.status === 'failure' || selectedFilters.status === 'canceled') {
+			filterMatchedIds = ids
+			setRerunLimit(rerunLimit)
+		} else {
+			filterMatchedIds = undefined
+			selectedIds = ids
+		}
 		loadingToast.destroy()
 		batchRerunOptionsIsOpen = true
 	}
