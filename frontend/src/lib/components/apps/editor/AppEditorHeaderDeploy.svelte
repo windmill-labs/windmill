@@ -167,7 +167,7 @@
 	let onBehalfOfChoice: OnBehalfOfChoice = $derived(
 		pickedOnBehalfOf ?? (savedOnBehalfOfEmail || folderDefault.value ? undefined : 'me')
 	)
-	let customOnBehalfOfEmail: string = $state('')
+	let customOnBehalfOf: string = $state('')
 	let dirtyCustomPath = $state(false)
 	let path: Path | undefined = $state(undefined)
 
@@ -336,23 +336,25 @@
 					if (choice === 'me') {
 						policy.on_behalf_of_email = $userStore?.email
 						policy.on_behalf_of = `u/${$userStore?.username}`
-						customOnBehalfOfEmail = ''
+						customOnBehalfOf = ''
 						preserveOnBehalfOf = false
 					} else if (choice === 'target') {
 						policy.on_behalf_of_email = savedOnBehalfOfEmail
 						policy.on_behalf_of = savedOnBehalfOf
-						customOnBehalfOfEmail = ''
+						customOnBehalfOf = ''
 						preserveOnBehalfOf = true
 					} else if (choice === 'custom' && details) {
-						policy.on_behalf_of_email = details.email
+						// A group folder default comes back with its `g/` name as `email`; the backend
+						// rejects a pair that disagrees and fills the email in from the principal.
+						policy.on_behalf_of_email = details.email.includes('@') ? details.email : undefined
 						policy.on_behalf_of = details.permissionedAs
-						customOnBehalfOfEmail = details.email
+						customOnBehalfOf = details.permissionedAs
 						preserveOnBehalfOf = true
 					}
 				}}
 				kind="app"
 				{canPreserve}
-				customValue={customOnBehalfOfEmail}
+				customValue={customOnBehalfOf}
 				isDeployment={false}
 				myPermissionedAs={actingUser?.username ? `u/${actingUser.username}` : undefined}
 				readOnlyWithoutPreserve
