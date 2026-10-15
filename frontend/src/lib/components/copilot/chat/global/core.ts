@@ -5765,7 +5765,13 @@ type ScriptDraftArgs = {
 const SCRIPT_SPEC: WriteSpec<NewScript, ScriptDraftArgs> = {
 	probe: (workspace, path) => ScriptService.existsScriptByPath({ workspace, path }),
 	fetchDeployed: async (workspace, path) => {
-		const existing = await ScriptService.getScriptByPath({ workspace, path })
+		// The deployed lock describes the deployed content, not the draft's: a draft carrying it
+		// would deploy with the dependency job skipped.
+		const {
+			lock: _lock,
+			lock_error_logs: _lockErrorLogs,
+			...existing
+		} = await ScriptService.getScriptByPath({ workspace, path })
 		return { ...(existing as unknown as NewScript), parent_hash: existing.hash }
 	},
 	buildDraft: async (base, args, path) => {

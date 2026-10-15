@@ -469,7 +469,15 @@ export async function deployDraft(
 			const r = (await ScriptService.getScriptByPath({ workspace, path, getDraft: true })) as any
 			const d = r.draft ?? r
 			// Drop editor-only / server-managed keys; deploy as a real (non-draft) version.
-			const { draft_triggers: draftTriggers, draft_only: _o, ...rest } = d
+			// A draft seeded from the deployed script carries its `lock`, and the backend skips
+			// the dependency job whenever `lock` is set, so the new content would keep the old lock.
+			const {
+				draft_triggers: draftTriggers,
+				draft_only: _o,
+				lock: _lock,
+				lock_error_logs: _lockErrorLogs,
+				...rest
+			} = d
 			const scriptPath = d.path ?? path
 			// Deploy at the draft's path so a rename in the draft is honored (same as
 			// the editor: createScript at the new path with parent_hash links lineage).
