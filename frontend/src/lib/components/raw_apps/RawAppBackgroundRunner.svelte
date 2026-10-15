@@ -5,7 +5,7 @@
 	import type { JobById } from '../apps/types'
 	import { JobService } from '$lib/gen'
 	import type { Runnable } from './rawAppPolicy'
-	import { RAW_APP_PREVIEW_RELAY } from './utils'
+	import { RAW_APP_PREVIEW_RELAY, rawAppPreviewModules } from './utils'
 	import { undefinedIfEmpty } from '$lib/utils'
 
 	interface Props {
@@ -162,7 +162,9 @@
 						on_behalf_of: editor ? previewOnBehalfOf : undefined,
 						viewer_data_access: editor ? runnable?.viewer_data_access || undefined : undefined
 					},
-					undefined
+					undefined,
+					undefined,
+					editor ? rawAppPreviewModules(runnables, runnable_id) : undefined
 				)
 				launchedJobs.add(uuid)
 				let job: JobById = { component: runnable_id, created_at: Date.now(), job: uuid }

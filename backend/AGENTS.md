@@ -6,17 +6,17 @@
 - **DB schema**: `backend/summarized_schema.txt`
 - **API routes entry point**: `windmill-api/src/lib.rs`
 - **OpenAPI spec**: `windmill-api/openapi.yaml`
-- **DuckDB local jobs**: build the dynamic FFI library before running DuckDB scripts locally:
+- **DuckDB local jobs**: build the DuckDB runner before running DuckDB scripts locally:
   ```bash
   cd backend/windmill-duckdb-ffi-internal && ./build_dev.sh
   ```
-  Re-run after clean builds or when `target/debug/libwindmill_duckdb_ffi_internal.*` is missing.
+  Re-run after clean builds or when `target/debug/windmill_duckdb_runner` is missing.
   The bundled DuckDB compile (~2min) is cached in a per-user dir shared across
   worktrees (keyed by the crate's `Cargo.lock`), so a fresh worktree reuses it and
   the build is near-instant — you don't pay the full compile per worktree. Editing
-  the FFI crate's own source falls back to an isolated per-worktree `./target`.
-  The engine is a **patched fork** of duckdb-rs, not the crates.io crate — read
-  `docs/duckdb-isolation.md` before bumping it or touching the isolation transform.
+  the crate's own source falls back to an isolated per-worktree `./target`.
+  Jobs run in that binary, out of the worker's process, under the worker's job isolation —
+  read `docs/duckdb-execution.md` before changing how it is spawned or what crosses to it.
 - **Running data pipelines (DuckLake) from source**: see the section below — a plain build
   advertises the `duckdb` tag but cannot execute DuckDB scripts and has no working S3 proxy.
 
@@ -120,7 +120,7 @@ only what you need — build time scales with the set.
 | `enterprise` | EE business logic (autoscaling, SAML hooks, advanced S3 rule **enforcement**, WAP, forks, …). Pulls in `license`. | Running EE features. Advanced S3 permission rules only take effect with this. |
 | `license` | License-key/plan plumbing (`LICENSE_KEY`). Pulled in by `enterprise`. Having the feature compiled does **not** require a license *key* at runtime — CE defaults to a free plan and most EE paths still run keyless. | License-gated behavior. |
 | `parquet` | S3/object-storage support: the `job_helpers/*` and `apps_u/*` S3 endpoints, parquet/CSV preview, workspace large-file storage. Without it those routes return `"requires parquet"`. | Anything touching S3/object storage or datasets. |
-| `duckdb` | DuckDB script executor (also needs the FFI dylib — see above). | DuckDB scripts, DuckLake. |
+| `duckdb` | DuckDB script executor (also needs the runner binary — see above). | DuckDB scripts, DuckLake. |
 | `python` `rust` `php` `java` `ruby` `csharp` `nu` `deno_core` `mysql` `mssql` `bigquery` `snowflake` `oracledb` `rlang` | Each enables that language/DB runtime for job execution. | Running jobs in that language. |
 | `mcp` | MCP gateway routes (baseline `quickjs` does NOT include it → MCP routes 404). | MCP work. |
 | `websocket` `http_trigger` `kafka` `nats` `mqtt_trigger` `sqs_trigger` `gcp_trigger` `azure_trigger` `postgres_trigger` `native_trigger` | Each native trigger kind; none on by default (creating one 404s without its feature). | Working on / exercising that trigger. |
@@ -136,7 +136,7 @@ minimal explicit set for dev.
 | Plain dev baseline (JS eval only) | `quickjs` |
 | S3 / object storage / datasets (CE) | `quickjs,private,parquet` |
 | S3 + EE (advanced S3 rules, on-behalf app reads, WAP, forks) | `quickjs,enterprise,private,parquet` |
-| DuckLake / DuckDB (CE) | `quickjs,duckdb,parquet,private` (+ build the FFI) |
+| DuckLake / DuckDB (CE) | `quickjs,duckdb,parquet,private` (+ build the runner) |
 | + Python jobs | append `,python` |
 
 ## Workspace object storage in dev — use the local filesystem
@@ -163,7 +163,7 @@ in DuckDB"`) — DuckLake/datatable go through the S3 proxy instead, which works
 
 ## Running data pipelines (DuckLake) from source
 
-DuckLake pipelines need **both** the right cargo features **and** the prebuilt DuckDB FFI. A
+DuckLake pipelines need **both** the right cargo features **and** the DuckDB runner binary. A
 plain `cargo run` (or `cargo run --features quickjs`) does **not** suffice, and the failure modes
 are silent-ish, so agents lose time. Verify feature names against `backend/Cargo.toml` `[features]`.
 
@@ -178,7 +178,7 @@ are silent-ish, so agents lose time. Verify feature names against `backend/Cargo
 `enterprise` already pulls in `license`, but list both when you want the license-gated paths.
 `quickjs` is for JS eval, not DuckLake per se — keep it if your baseline build had it.
 
-**Before running any DuckDB script**, build the FFI (see the bullet above):
+**Before running any DuckDB script**, build the runner (see the bullet above):
 `cd backend/windmill-duckdb-ffi-internal && ./build_dev.sh`.
 
 **Two gotchas that a wrong feature set produces:**

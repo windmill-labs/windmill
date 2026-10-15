@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (\n            SELECT 1 FROM v2_job_queue q\n            CROSS JOIN LATERAL (\n                SELECT trigger_kind, trigger, runnable_path, parent_job\n                FROM v2_job WHERE id = q.id OFFSET 0\n            ) j\n            WHERE q.workspace_id = $1 AND q.scheduled_for = $3\n                AND j.trigger_kind = 'schedule' AND j.trigger = $2 AND j.runnable_path = $4\n                AND j.parent_job IS NULL\n        )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "250ac2b81a8d9a6900d8b54322fe21ef62eddd307717b24aa4fc03c0297e8f59"
+}

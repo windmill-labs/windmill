@@ -72,8 +72,8 @@ jobs:
           files: |
             ./backend/target/release/windmill-ee.exe
 
-      - name: Attach dynamic libraries to release
+      - name: Attach the DuckDB runner to release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ./backend/windmill-duckdb-ffi-internal/target/release/windmill_duckdb_ffi_internal.dll
+            ./backend/windmill-duckdb-ffi-internal/target/release/windmill_duckdb_runner.exe

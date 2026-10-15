@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	applyReasoningToConfig,
 	completionsRejectsToolsWithReasoning,
+	usesOpenAIResponsesApi,
 	explicitOffToken,
 	getReasoningCapability,
 	REASONING_OFF,
@@ -299,6 +300,12 @@ describe('supportsReasoning (static registry)', () => {
 		}
 		for (const model of ['gpt-5', 'gpt-5.1', 'gpt-35-turbo', 'o3']) {
 			expect(completionsRejectsToolsWithReasoning('azure_openai', model), model).toBe(false)
+		}
+	})
+	it('sends Foundry gpt models that refuse tools on Chat Completions to the Responses API', () => {
+		expect(usesOpenAIResponsesApi('azure_foundry', 'gpt-6.1-sol')).toBe(true)
+		for (const model of ['gpt-4o', 'DeepSeek-V4-Pro', 'claude-sonnet-5']) {
+			expect(usesOpenAIResponsesApi('azure_foundry', model), model).toBe(false)
 		}
 	})
 	it('forwards an explicit off as effort none through OpenRouter', () => {

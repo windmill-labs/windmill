@@ -1542,6 +1542,26 @@ pub async fn compute_bundle_local_and_remote_path(
             input_src.push_str(&path);
             input_src.push_str(&hash.to_string());
         }
+        // Modules are inlined too, and so is every deployed script they import: those are
+        // reached through the module files, never through the entrypoint's own imports.
+        let dir = script_path
+            .rsplit_once('/')
+            .map(|(dir, _)| dir)
+            .unwrap_or("");
+        let mut module_entries = modules.into_iter().flatten().collect_vec();
+        module_entries.sort_by(|a, b| a.0.cmp(b.0));
+        for (key, module) in module_entries {
+            let Some(stem) = key.strip_suffix(".ts") else {
+                continue;
+            };
+            let module_path = format!("{dir}/{stem}");
+            for (path, hash) in
+                collect_transitive_import_versions(db, w_id, &module_path, &module.content).await
+            {
+                input_src.push_str(&path);
+                input_src.push_str(&hash.to_string());
+            }
+        }
     };
 
     // Keep temp-script-ref (preview) bundles in a distinct cache slot: their

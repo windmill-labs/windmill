@@ -2,6 +2,7 @@
 	import { ExternalLink, Globe2, PlugZap, WandSparkles } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import CloseButton from '../common/CloseButton.svelte'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { copilotWorkspace } from '$lib/aiStore'
 	import { WorkspaceService } from '$lib/gen'
 	import { resource } from 'runed'
@@ -54,6 +55,7 @@
 	let pulseEndTimer: ReturnType<typeof setTimeout> | undefined
 
 	function removeComposer() {
+		logFeatureUsage('home', 'ai_hero_remove', { key: 'close' })
 		setCollapsed(true)
 		if (reducedMotion.val) return
 		clearTimeout(pulseEndTimer)
@@ -210,7 +212,10 @@
 									{
 										displayName: 'Pin session hero to homepage',
 										icon: WandSparkles,
-										action: () => setCollapsed(false)
+										action: () => {
+											logFeatureUsage('home', 'ai_hero_pin')
+											setCollapsed(false)
+										}
 									}
 								]
 							: []),

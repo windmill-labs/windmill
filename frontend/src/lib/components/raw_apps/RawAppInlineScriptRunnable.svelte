@@ -31,6 +31,7 @@
 	import { userStore } from '$lib/stores'
 	import { isHubFlowPath } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
+	import { rawAppPreviewModules } from './utils'
 	import {
 		useOperatingUser,
 		useOperatingWorkspace
@@ -51,6 +52,8 @@
 		runnable: Runnable
 		id: string
 		appPath: string
+		/** All of the app's runnables, which a test run ships as modules for `./<id>` imports */
+		runnables?: Record<string, Runnable>
 		/** Identity the test runs as instead of the user (see `appPreviewOnBehalfOf`). */
 		previewOnBehalfOf?: string
 		lastDeployedCode?: string | undefined
@@ -70,6 +73,7 @@
 		runnable = $bindable(),
 		id,
 		appPath,
+		runnables,
 		previewOnBehalfOf,
 		onSelectionChange
 	}: Props = $props()
@@ -193,7 +197,7 @@
 				undefined,
 				undefined,
 				undefined,
-				undefined,
+				runnables ? rawAppPreviewModules(runnables, id) : undefined,
 				undefined,
 				undefined,
 				{ onBehalfOf: previewOnBehalfOf, viewerDataAccess: runnable.viewer_data_access }
@@ -217,13 +221,7 @@
 						// The deployed app runs a path runnable as the app's identity, which a run
 						// by path cannot ask for: preview the deployed definition instead.
 						const flow = await FlowService.getFlowByPath({ workspace: opWs!, path: runnable.path })
-						await jobLoader.runFlowPreview(
-							args,
-							flow,
-							undefined,
-							runnable.path,
-							previewOnBehalfOf
-						)
+						await jobLoader.runFlowPreview(args, flow, undefined, runnable.path, previewOnBehalfOf)
 					} else {
 						await jobLoader.runFlowByPath(runnable.path, args)
 					}

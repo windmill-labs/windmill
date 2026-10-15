@@ -704,7 +704,7 @@ async fn list_triggers<T: TriggerCrud>(
             || windmill_common::workspaces::operator_can_draft(
                 &db,
                 &workspace_id,
-                Some(T::user_draft_item_kind()),
+                T::user_draft_item_kind(),
             )
             .await?)
     {

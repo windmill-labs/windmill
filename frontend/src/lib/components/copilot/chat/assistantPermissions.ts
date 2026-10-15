@@ -11,8 +11,7 @@ export const OPERATOR_SETTINGS_LOCATION = 'Workspace settings → Users → Oper
 type PermissionRow = {
 	kind: EditKind
 	label: string
-	/** The draft capability the kind's write tool declares in `requires`, plus the schedule or
-	 * trigger write gate where the kind has one. */
+	/** The draft capability the kind's write tool declares in `requires`. */
 	assistant: (access: SessionAccess) => boolean
 }
 
@@ -20,18 +19,10 @@ const ROWS: PermissionRow[] = [
 	{ kind: 'script', label: 'Scripts', assistant: (a) => a.has('write_draft') },
 	{ kind: 'flow', label: 'Flows', assistant: (a) => a.has('write_flow_draft') },
 	{ kind: 'raw_app', label: 'Apps', assistant: (a) => a.has('write_app_draft') },
-	{
-		kind: 'schedule',
-		label: 'Schedules',
-		assistant: (a) => a.has('write_draft') && a.has('manage_schedules')
-	},
-	{
-		kind: 'trigger',
-		label: 'Triggers',
-		assistant: (a) => a.has('write_draft') && a.has('manage_triggers')
-	},
-	{ kind: 'resource', label: 'Resources', assistant: (a) => a.has('write_draft') },
-	{ kind: 'variable', label: 'Variables', assistant: (a) => a.has('write_draft') }
+	{ kind: 'schedule', label: 'Schedules', assistant: (a) => a.has('write_schedule_draft') },
+	{ kind: 'trigger', label: 'Triggers', assistant: (a) => a.has('write_trigger_draft') },
+	{ kind: 'resource', label: 'Resources', assistant: (a) => a.has('write_resource_draft') },
+	{ kind: 'variable', label: 'Variables', assistant: (a) => a.has('write_variable_draft') }
 ]
 
 export type RoleName = 'admin' | 'developer' | 'operator'

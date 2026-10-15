@@ -57,7 +57,7 @@ import {
 } from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
-import { workspaceAIClients, getStreamedCompletionText } from '../lib'
+import { AI_PROVIDERS, workspaceAIClients, getStreamedCompletionText } from '../lib'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { modelSupportsVision } from '../modelConfig'
 import { getEffectiveModelContextWindow } from '../modelConfig'
@@ -251,12 +251,12 @@ const WEB_SEARCH_ERROR_HINT =
 const REASONING_SUMMARY_WARNED_STORAGE_KEY = 'ai-chat-reasoning-summary-unverified-warned'
 
 function providerDisplayName(provider: string): string {
-	return provider === 'azure_openai' ? 'Azure OpenAI' : 'OpenAI'
+	return AI_PROVIDERS[provider as keyof typeof AI_PROVIDERS]?.label ?? 'OpenAI'
 }
 
 function reasoningSummaryUnavailableMessage(provider: string): string {
 	const verifyHint =
-		provider === 'azure_openai'
+		provider === 'azure_openai' || provider === 'azure_foundry'
 			? 'To display it, verify your organization with your provider, then reload this page.'
 			: 'To display it, verify your organization in the OpenAI platform settings (Settings > General), then reload this page.'
 	return `This model is reasoning, but your ${providerDisplayName(provider)} organization is not verified to generate reasoning summaries, so its thinking stays hidden. ${verifyHint}`

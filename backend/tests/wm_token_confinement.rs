@@ -381,6 +381,22 @@ async fn test_wm_token_is_confined_to_its_workspace(db: Pool<Postgres>) -> anyho
         "WM_TOKEN must still record its own tutorial progress: {}",
         resp.text().await?
     );
+    //    Every Teams notification a job sends posts here. An empty body is a 422 from the
+    //    handler's extractor, so a 403 means confinement refused it. The real route is only
+    //    mounted in an EE build.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    {
+        let resp = authed(client().post(format!("{api}/teams/activities")), &user_wm)
+            .json(&json!({}))
+            .send()
+            .await?;
+        assert_eq!(
+            resp.status(),
+            422,
+            "WM_TOKEN must still reach the Teams message route: {}",
+            resp.text().await?
+        );
+    }
 
     // 11. ...and the caller-scoped reads deliberately left out of it, each because it
     //     names another workspace or the identity's credentials.

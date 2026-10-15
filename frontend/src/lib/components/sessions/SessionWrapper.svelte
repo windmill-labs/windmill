@@ -450,7 +450,11 @@
 		     breadcrumb's own workspace part, the way every other route names it — a session in a
 		     fork reads like anything else in that fork. -->
 		<PageHeaderContent
-			section={{ label: session.summary ?? 'Untitled session', content: sessionHeader }}
+			section={{
+				label: session.summary ?? 'Untitled session',
+				content: sessionHeader,
+				noNavPicker: true
+			}}
 			{actingWorkspaceId}
 		/>
 	{/if}
