@@ -4006,6 +4006,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Create a new shared folder (addressable as f/<name>/) in the workspace. The current user is added as an owner.'
 		),
 		requiresConfirmation: true,
+		confirmAction: 'create',
 		confirmationMessage: 'Create folder',
 		showDetails: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
@@ -4440,6 +4441,7 @@ export const globalTools: SessionTool<{}>[] = [
 		showDetails: true,
 		showFade: true,
 		requiresConfirmation: true,
+		confirmAction: 'deploy',
 		confirmationMessage: 'Deploy draft to workspace',
 		fn: async (ctx) => {
 			const parsed = deployWorkspaceItemSchema.parse(ctx.args)
@@ -4522,6 +4524,7 @@ export const globalTools: SessionTool<{}>[] = [
 		showDetails: true,
 		showFade: true,
 		requiresConfirmation: true,
+		confirmAction: 'delete',
 		confirmationMessage: 'Delete workspace item',
 		validateBeforeConfirmation: validateDeleteWorkspaceItemTarget,
 		fn: async (ctx) => {
@@ -4541,6 +4544,7 @@ export const globalTools: SessionTool<{}>[] = [
 		showDetails: true,
 		showFade: true,
 		requiresConfirmation: true,
+		confirmAction: 'discard',
 		confirmationMessage: 'Discard draft',
 		fn: async (ctx) => {
 			const parsed = discardLocalDraftSchema.parse(ctx.args)
@@ -4636,6 +4640,7 @@ export const globalTools: SessionTool<{}>[] = [
 		),
 		showDetails: true,
 		requiresConfirmation: true,
+		confirmAction: 'create',
 		confirmationMessage: 'Create resource type',
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = createResourceTypeSchema.parse(args)
@@ -4816,6 +4821,7 @@ export const globalTools: SessionTool<{}>[] = [
 			return testRunAppRunnable(parsed, ctx)
 		},
 		requiresConfirmation: true,
+		confirmAction: 'run',
 		confirmationMessage: (args) =>
 			`Run the backend runnable "${args?.key ?? ''}" of ${pathLeaf(args?.path, 'the app')}`,
 		queuedLabel: (args) => `Test runnable "${args?.key ?? ''}" of ${args?.path ?? 'the app'}`,
