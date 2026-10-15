@@ -1,35 +1,40 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT app, hash, lock, code, code_sha256, modules\n         FROM app_script\n         WHERE app = ANY(SELECT id FROM app WHERE workspace_id = $1)",
+  "query": "SELECT id, app, hash, lock, code, code_sha256, modules\n         FROM app_script\n         WHERE app = ANY(SELECT id FROM app WHERE workspace_id = $1)",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "app",
+        "name": "id",
         "type_info": "Int8"
       },
       {
         "ordinal": 1,
+        "name": "app",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
         "name": "hash",
         "type_info": "Bpchar"
       },
       {
-        "ordinal": 2,
+        "ordinal": 3,
         "name": "lock",
         "type_info": "Text"
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "code",
         "type_info": "Text"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "code_sha256",
         "type_info": "Bpchar"
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "modules",
         "type_info": "Jsonb"
       }
@@ -42,11 +47,12 @@
     "nullable": [
       false,
       false,
+      false,
       true,
       false,
       false,
       true
     ]
   },
-  "hash": "c1fda527df5599efdab18aaee966679f8c3d647788716da23e9f0e3ddc8f2ac7"
+  "hash": "a3582b2b9089d85d8fa273aed5348394cb91064948c1c3fbb21f9461b9869af0"
 }

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO app_version_lite (id, value)\n         SELECT * FROM UNNEST($1::bigint[], $2::jsonb[])\n         ON CONFLICT (id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array",
+        "JsonbArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9f6bb810ebe383c848d8256f594fe701ee064dd9c880ad4df89ec47279aff7de"
+}
