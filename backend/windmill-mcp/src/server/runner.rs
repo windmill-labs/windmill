@@ -10,7 +10,8 @@ use crate::common::transform::{
     reverse_transform, reverse_transform_key,
 };
 use crate::common::types::{
-    McpToken, MultiWorkspaceMcp, ResourceInfo, SchemaType, ToolableItem, WorkspaceId,
+    McpToken, MultiWorkspaceMcp, NoEndpointTools, ResourceInfo, SchemaType, ToolableItem,
+    WorkspaceId,
 };
 use crate::server::backend::{McpAuth, McpBackend, McpRequest, PathFilter};
 use crate::server::endpoints::{
@@ -117,6 +118,8 @@ pub(super) struct McpContext<A> {
     pub(super) auth: A,
     pub(super) mode: McpMode,
     pub(super) headers: http::HeaderMap,
+    /// See `McpScopeConfig::no_endpoints`.
+    pub(super) no_endpoints: bool,
 }
 
 impl<B: McpBackend> Runner<B> {
@@ -173,7 +176,12 @@ impl<B: McpBackend> Runner<B> {
             McpMode::Single(workspace_id)
         };
 
-        Ok(McpContext { auth: auth.clone(), mode, headers: http_parts.headers.clone() })
+        Ok(McpContext {
+            auth: auth.clone(),
+            mode,
+            headers: http_parts.headers.clone(),
+            no_endpoints: http_parts.extensions.get::<NoEndpointTools>().is_some(),
+        })
     }
 }
 
@@ -313,6 +321,9 @@ fn endpoint_tool_in_scope(
     scope_config: &crate::common::scope::McpScopeConfig,
     endpoint_tool: &EndpointTool,
 ) -> bool {
+    if scope_config.no_endpoints {
+        return false;
+    }
     let endpoint_allowed =
         !scope_config.granular || scope_config.is_allowed("endpoint", &endpoint_tool.name);
     match endpoint_path_policy(&endpoint_tool.name) {
@@ -339,6 +350,15 @@ fn authorize_endpoint_call(
     args: &mut Value,
     read_only: bool,
 ) -> Result<(), ErrorData> {
+    if scope_config.no_endpoints {
+        return Err(ErrorData::invalid_params(
+            format!(
+                "Tool '{}' is not available to this token",
+                endpoint_tool.name
+            ),
+            None,
+        ));
+    }
     // A destination the caller omitted, or left empty because it had to fill in every
     // argument, means "leave the item where it is". Resolved to the path the item is
     // already at, so the endpoint receives a body naming its own path rather than one
@@ -570,12 +590,13 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         _request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let McpContext { auth, mode, .. } = Self::extract_context(&context)?;
+        let McpContext { auth, mode, no_endpoints, .. } = Self::extract_context(&context)?;
 
         // Parse MCP scopes to determine what to expose
         let scopes = auth.scopes().unwrap_or(&[]);
-        let scope_config =
+        let mut scope_config =
             parse_mcp_scopes(scopes).map_err(|e| ErrorData::internal_error(e, None))?;
+        scope_config.no_endpoints = no_endpoints;
 
         // v1 has no read-and-run access: such a token reads only.
         let read_only = auth.read_only() || scope_config.read_run || scope_config.read_only;
@@ -599,12 +620,13 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        let McpContext { auth, mode, headers } = Self::extract_context(&context)?;
+        let McpContext { auth, mode, headers, no_endpoints } = Self::extract_context(&context)?;
 
         // Parse MCP scopes for authorization
         let scopes = auth.scopes().unwrap_or(&[]);
-        let scope_config =
+        let mut scope_config =
             parse_mcp_scopes(scopes).map_err(|e| ErrorData::internal_error(e, None))?;
+        scope_config.no_endpoints = no_endpoints;
         let read_only = auth.read_only() || scope_config.read_run || scope_config.read_only;
 
         let args = request.arguments.map(Value::Object).unwrap_or(Value::Null);
@@ -1212,6 +1234,17 @@ mod tests {
         // mcp:all (non-granular) allows any endpoint.
         assert!(
             authorize_endpoint_call(&cfg(&["mcp:all"]), &get_var, &mut json!({}), false).is_ok()
+        );
+    }
+
+    #[test]
+    fn a_selection_without_endpoints_gets_none() {
+        let mut selection = cfg(&["mcp:favorites", "mcp:endpoints:*"]);
+        selection.no_endpoints = true;
+        assert!(!endpoint_tool_in_scope(&selection, &ep("listJobs", "GET")));
+        assert!(
+            authorize_endpoint_call(&selection, &ep("listJobs", "GET"), &mut json!({}), false)
+                .is_err()
         );
     }
 

@@ -71,14 +71,14 @@
 				<ToggleButton
 					{item}
 					value="full"
-					label="Full"
-					tooltip="Everything you can do yourself: build, test, deploy and run."
+					label="Read, run and build"
+					tooltip="Everything you can do yourself: write, test and deploy drafts, run, and explore."
 				/>
 				<ToggleButton
 					{item}
 					value="selected"
-					label="Selected tools"
-					tooltip="Only the scripts, flows and endpoints you pick, each as its own tool. To share a few automations."
+					label="Run selected scripts and flows"
+					tooltip="Only the scripts and flows you pick, each as its own tool, and nothing else. To share a few automations."
 				/>
 			{/snippet}
 		</ToggleButtonGroup>
@@ -88,7 +88,7 @@
 			{workspaceId}
 			bind:scope={selection}
 			initialScope={initialSelection}
-			hideAll
+			runnablesOnly
 		/>
 	{/if}
 </div>

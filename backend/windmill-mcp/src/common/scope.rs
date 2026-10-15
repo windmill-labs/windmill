@@ -28,6 +28,9 @@ pub struct McpScopeConfig {
     /// `mcp:read_only`: reads alone, as the token's read-only flag does. An OAuth grant
     /// carries scopes and no flag, so this is how a sign-in asks for read-only access.
     pub read_only: bool,
+    /// Set by the server, not by a scope: on `/api/mcp` a selection is its scripts and flows
+    /// as tools and nothing else, the API being the full toolset's job there.
+    pub no_endpoints: bool,
 }
 
 impl McpScopeConfig {

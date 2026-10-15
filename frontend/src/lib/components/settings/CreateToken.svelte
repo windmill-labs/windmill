@@ -259,7 +259,7 @@
 	// publishes for this URL is built from `base_url`, and a client rejects a mismatch.
 	// One URL whatever the access: the token's scopes decide which tools it gets.
 	const mcpUrl = `${window.location.origin}/api/mcp`
-	// Selected tools are listed per workspace: across several, the same path could be two.
+	// Selected scripts and flows are listed per workspace: across several, a path could be two.
 	const selectionNeedsOneWorkspace = $derived(
 		mcpAccess === 'selected' && (mcpAllWorkspaces || mcpWorkspaces.length !== 1)
 	)
@@ -296,7 +296,9 @@
 		{#if !lockWorkspace}
 			{@render mcpWorkspacePicker()}
 			{#if selectionNeedsOneWorkspace}
-				<p class="text-2xs text-secondary">Selected tools work in one workspace: pick one.</p>
+				<p class="text-2xs text-secondary">
+					Selected scripts and flows come from one workspace: pick one.
+				</p>
 			{/if}
 		{/if}
 		{#if !mcpOnly}

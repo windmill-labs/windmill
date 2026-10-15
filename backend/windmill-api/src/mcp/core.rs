@@ -36,7 +36,7 @@ use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
 use windmill_mcp::server::{
-    LocalSessionManager, McpToken, MultiWorkspaceMcp, Runner, SessionRunner,
+    LocalSessionManager, McpToken, MultiWorkspaceMcp, NoEndpointTools, Runner, SessionRunner,
     StreamableHttpServerConfig, StreamableHttpService,
 };
 use windmill_mcp::WorkspaceId;
@@ -716,11 +716,12 @@ pub async fn setup_mcp_server(
     // beside the `/mcp/...` routes, so it is merged rather than nested.
     let session_router = Router::new().route(
         "/mcp",
-        axum::routing::any(move |request: Request<axum::body::Body>| {
+        axum::routing::any(move |mut request: Request<axum::body::Body>| {
             let (service, session_service) = (service.clone(), session_service.clone());
             async move {
                 use tower::ServiceExt;
                 let response = if request.extensions().get::<McpSelection>().is_some() {
+                    request.extensions_mut().insert(NoEndpointTools);
                     service.oneshot(request).await
                 } else {
                     session_service.oneshot(request).await

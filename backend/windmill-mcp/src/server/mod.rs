@@ -13,7 +13,7 @@ mod session;
 pub mod tools;
 
 // Re-export main types
-pub use crate::common::types::{McpToken, MultiWorkspaceMcp, WorkspaceInfo};
+pub use crate::common::types::{McpToken, MultiWorkspaceMcp, NoEndpointTools, WorkspaceInfo};
 pub use backend::{BackendResult, McpAuth, McpBackend, McpRequest, PathFilter, SessionAccess};
 pub use endpoints::{
     endpoint_tool_to_mcp_tool, endpoint_tool_to_mcp_tool_multi, is_endpoint_read_only,

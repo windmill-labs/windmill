@@ -54,7 +54,7 @@
 	let allWorkspaces = $state(false)
 	let loadingWorkspaces = $state(false)
 	const grantsWorkspace = $derived(!isGateway || allWorkspaces || pickedWorkspaces.length > 0)
-	// Selected tools are listed per workspace: across several, the same path could be two.
+	// Selected scripts and flows are listed per workspace: across several, a path could be two.
 	const selectionNeedsOneWorkspace = $derived(
 		isGateway && access === 'selected' && (allWorkspaces || pickedWorkspaces.length !== 1)
 	)
@@ -231,7 +231,9 @@
 					bind:access
 				/>
 				{#if selectionNeedsOneWorkspace}
-					<p class="text-2xs text-secondary">Selected tools work in one workspace: pick one.</p>
+					<p class="text-2xs text-secondary">
+						Selected scripts and flows come from one workspace: pick one.
+					</p>
 				{/if}
 			</div>
 
