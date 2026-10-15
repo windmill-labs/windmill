@@ -29,7 +29,9 @@ use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, WorkspaceDependenciesPrefetched,
 };
 use windmill_dep_map::scoped_dependency_map::{DependencyDependent, ScopedDependencyMap};
-use windmill_dep_map::trigger_dependents::trigger_dependents_to_recompute_dependencies;
+use windmill_dep_map::trigger_dependents::{
+    trigger_dependents_to_recompute_dependencies, RELOCK_ALL_APP_COMPONENTS,
+};
 #[cfg(feature = "python")]
 use windmill_parser_yaml::AnsibleRequirements;
 
@@ -892,28 +894,6 @@ async fn published_app_version(db: &DB, w_id: &str, app_path: &str) -> error::Re
     .fetch_optional(db)
     .await?
     .flatten())
-}
-
-/// The dependency-map node id of every inline script of the version `app_path` is served from,
-/// `None` when it serves none.
-async fn published_app_component_ids(
-    db: &DB,
-    w_id: &str,
-    app_path: &str,
-) -> error::Result<Option<Vec<String>>> {
-    let Some(value) = sqlx::query_scalar!(
-        "SELECT app_version.value FROM app
-         JOIN app_version ON app_version.id = app.versions[array_upper(app.versions, 1)]
-         WHERE app.path = $1 AND app.workspace_id = $2",
-        app_path,
-        w_id
-    )
-    .fetch_optional(db)
-    .await?
-    else {
-        return Ok(None);
-    };
-    app_component_ids(&value).map(Some)
 }
 
 /// The dependency-map node id of every inline script of an app version's `value`.
@@ -2834,7 +2814,13 @@ pub async fn handle_app_dependency_job(
     if let Some((app_id, value, is_raw_app)) = record {
         // The components to relock were picked in the version the job was queued for, and the
         // one published since may name them differently and carry its editor's stale locks.
-        let components_to_relock = if version_switched {
+        // Every selection that can outlive its version is resolved here, against the value
+        // this job writes.
+        let relock_all = version_switched
+            || components_to_relock
+                .as_ref()
+                .is_some_and(|c| c.iter().any(|c| c == RELOCK_ALL_APP_COMPONENTS));
+        let components_to_relock = if relock_all {
             Some(app_component_ids(&value)?)
         } else if is_raw_app {
             expand_legacy_raw_app_components(components_to_relock, &value)
@@ -2933,12 +2919,7 @@ pub async fn handle_app_dependency_job(
             tracing::info!(workspace_id = %job.workspace_id, job_id = %job.id, "{log_msg}");
             append_logs(&job.id, &job.workspace_id, log_msg, &db.into()).await;
             tally_unfinished_dependency_deploy(db, &job, deployment_tallied).await;
-            // The version now published may name its components differently than the one these
-            // locks were generated for, and may carry its editor's stale locks, so the queued
-            // relock regenerates every one of them.
-            let published_components =
-                published_app_component_ids(db, &job.workspace_id, &job_path).await?;
-            if let Some(components) = published_components {
+            if current.is_some() {
                 // This job already recorded the imports' current lock hashes, which would let
                 // the queued relock skip regenerating the locks it discarded.
                 sqlx::query!(
@@ -2949,10 +2930,12 @@ pub async fn handle_app_dependency_job(
                 )
                 .execute(db)
                 .await?;
+                // The version published when the queued relock runs may name its components
+                // differently than this one, and carry its editor's stale locks.
                 let dependent = DependencyDependent {
                     importer_path: job_path,
                     importer_kind: "app".to_string(),
-                    importer_node_ids: Some(components),
+                    importer_node_ids: Some(vec![RELOCK_ALL_APP_COMPONENTS.to_string()]),
                 };
                 requeue_relock(db, &job, dependent, deployment_message, parent_path).await?;
             }
