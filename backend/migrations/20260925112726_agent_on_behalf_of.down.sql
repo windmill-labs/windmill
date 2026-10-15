@@ -1,5 +1,1 @@
-ALTER TABLE resource DISABLE TRIGGER record_resource_version_update_trigger;
-UPDATE resource SET value = value - 'on_behalf_of' - 'run_on_behalf_of'
- WHERE resource_type = 'ai_agent' AND jsonb_typeof(value) = 'object'
-   AND (value ? 'on_behalf_of' OR value ? 'run_on_behalf_of');
-ALTER TABLE resource ENABLE TRIGGER record_resource_version_update_trigger;
+-- Nothing to undo: older versions ignore both keys, and clearing them would drop toggles set since.
