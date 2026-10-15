@@ -28,7 +28,7 @@ function moduleExtension(language: ScriptLang | undefined): string | undefined {
 function siblingImports(content: string, ext: string): string[] {
 	const pattern =
 		ext === 'ts'
-			? /(?:from|import)\s*['"]\.\/([\w-]+)(?:\.ts)?['"]/g
+			? /(?:from|import)\s*['"]\.\/([^'"/]+?)(?:\.ts)?['"]/g
 			: /^\s*from\s+\.([A-Za-z_]\w*)\s+import\b/gm
 	return Array.from(content.matchAll(pattern), (m) => m[1])
 }
@@ -51,8 +51,9 @@ export function rawAppPreviewModules(
 		const siblingId = queue.pop()!
 		const key = `${siblingId}.${ext}`
 		const inlineScript = runnables[siblingId]?.inlineScript
-		// `main.ts` is the Bun entrypoint's own file, so no module may take that name.
-		if (siblingId === id || key in modules || key === 'main.ts') continue
+		// `main.ts` is the Bun entrypoint's own file, so no module may take that name. The
+		// runnable itself is kept when a cycle reaches it: the entrypoint is not under its id.
+		if (key in modules || key === 'main.ts') continue
 		if (!inlineScript || moduleExtension(inlineScript.language) !== ext) continue
 		modules[key] = { content: inlineScript.content, language: inlineScript.language }
 		queue.push(...siblingImports(inlineScript.content, ext))

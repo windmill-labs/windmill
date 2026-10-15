@@ -20,14 +20,16 @@ describe('rawAppPreviewModules', () => {
 		const runnables = {
 			get: inline('bun', "import { a } from './a'\nimport { p } from './py'"),
 			a: inline('bun', 'import { b } from "./b.ts"'),
-			b: inline('bun', 'export const b = 1'),
+			b: inline('bun', "import { g } from './get'\nexport const b = 1"),
 			unused: inline('bun', 'export const u = 1'),
 			main: inline('bun', 'export const m = 1'),
 			py: inline('python3', 'from .helpers import x')
 		}
+		// `get` itself ships too once the cycle through `b` reaches it, as deploy does.
 		expect(Object.keys(rawAppPreviewModules(runnables, 'get') ?? {}).sort()).toEqual([
 			'a.ts',
-			'b.ts'
+			'b.ts',
+			'get.ts'
 		])
 		expect(rawAppPreviewModules(runnables, 'unused')).toBeUndefined()
 		expect(

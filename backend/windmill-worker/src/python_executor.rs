@@ -1967,6 +1967,7 @@ pub(crate) fn python_module_sources(
     (!sources.is_empty()).then_some(sources)
 }
 
+#[cfg(feature = "private")]
 pub(crate) async fn handle_python_deps(
     job_dir: &str,
     requirements_o: Option<&String>,

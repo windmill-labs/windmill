@@ -1824,7 +1824,7 @@ function moduleExtension(language: string | undefined): string | undefined {
 /** Ids of the sibling runnables `content` imports as `./<id>` (TS) or `.<id>` (Python). */
 function siblingImports(content: string, ext: string): string[] {
   const pattern = ext === "ts"
-    ? /(?:from|import)\s*['"]\.\/([\w-]+)(?:\.ts)?['"]/g
+    ? /(?:from|import)\s*['"]\.\/([^'"/]+?)(?:\.ts)?['"]/g
     : /^\s*from\s+\.([A-Za-z_]\w*)\s+import\b/gm;
   return Array.from(content.matchAll(pattern), (m) => m[1]);
 }
@@ -1849,8 +1849,9 @@ function previewModules(
     const id = queue.pop()!;
     const key = `${id}.${ext}`;
     const inlineScript = inlineScriptOf(runnables[id]);
-    // `main.ts` is the Bun entrypoint's own file, so no module may take that name.
-    if (id === runnableId || key in modules || key === "main.ts") continue;
+    // `main.ts` is the Bun entrypoint's own file, so no module may take that name. The
+    // runnable itself is kept when a cycle reaches it: the entrypoint is not under its id.
+    if (key in modules || key === "main.ts") continue;
     if (!inlineScript || moduleExtension(inlineScript.language) !== ext) {
       continue;
     }

@@ -61,7 +61,7 @@ use windmill_common::{
         APP_WORKSPACED_ROUTE,
     },
     auth::{APP_EMBED_TOKEN_LABEL_PREFIX, RAW_APP_SDK_TOKEN_LABEL_PREFIX, TOKEN_PREFIX_LEN},
-    cache::{self, future::FutureCachedExt},
+    cache,
     db::{DbWithOptAuthed, UserDB},
     error::{to_anyhow, Error, JsonResult, Result},
     jobs::{
@@ -4675,25 +4675,47 @@ async fn execute_component(
             // - flow: `flow/<payload.path>`
             // - script: `script/<payload.path>`
             // - inline script: `rawscript/<sha256(raw_code.content)>`
+            let app_script_key: Arc<String>;
             let path = match &payload {
                 // flow or script: just use the `payload.path`.
                 ExecuteApp { path: Some(path), .. } => path,
                 // inline script: without entry in the `app_script` table.
                 ExecuteApp { raw_code: Some(raw_code), id: None, .. } => &digest(&raw_code.content),
                 // inline script: with an entry in the `app_script` table.
+                // Scoped to this app: the policy key covers only the entrypoint's code, while the
+                // row also carries the modules (and lock) the job runs, so another app's row with
+                // the same entrypoint would run its own modules under this app's identity.
                 ExecuteApp { raw_code: Some(_), id: Some(id), .. } => {
-                    let cache = cache::anon!({ u64 => Arc<String> } in "appscriptpath" <= 10000);
-                    // `id` is unique, cache the result.
-                    &*sqlx::query_scalar!(
-                        "SELECT format('rawscript/%s', code_sha256) as \"path!: String\"
-                        FROM app_script WHERE id = $1 LIMIT 1",
-                        id
-                    )
-                    .fetch_one(&db)
-                    .map_err(Into::<Error>::into)
-                    .map_ok(Arc::new)
-                    .cached(cache, *id as u64)
-                    .await?
+                    lazy_static! {
+                        static ref APP_SCRIPT_KEY_CACHE: cache::Cache<(String, String, i64), Arc<String>> =
+                            cache::Cache::new(10000);
+                    }
+                    let cache_key = (w_id.to_string(), path.to_string(), *id);
+                    app_script_key = match APP_SCRIPT_KEY_CACHE.get(&cache_key) {
+                        Some(key) => key,
+                        None => {
+                            let key = sqlx::query_scalar!(
+                                "SELECT format('rawscript/%s', s.code_sha256) as \"path!: String\"
+                                FROM app_script s JOIN app a ON a.id = s.app
+                                WHERE s.id = $1 AND a.path = $2 AND a.workspace_id = $3",
+                                id,
+                                path,
+                                &w_id,
+                            )
+                            .fetch_optional(&db)
+                            .await?
+                            .map(Arc::new)
+                            .ok_or_else(|| {
+                                Error::NotAuthorized(format!(
+                                    "App script {id} does not belong to app {path}"
+                                ))
+                            })?;
+                            // A row never changes app, so a hit stays valid.
+                            APP_SCRIPT_KEY_CACHE.insert(cache_key, key.clone());
+                            key
+                        }
+                    };
+                    &**app_script_key
                 }
                 _ => unreachable!(),
             };
