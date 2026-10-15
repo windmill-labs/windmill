@@ -405,7 +405,6 @@
 
 					<OAuthClientConfig
 						bind:open={configOpen[serviceName]}
-						}
 						{serviceName}
 						redirectUri={nativeOAuthRedirectUri(serviceName as NativeServiceName)}
 						serviceDisplayName={config.displayName}
