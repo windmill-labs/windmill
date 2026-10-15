@@ -1352,10 +1352,30 @@
 						}
 					/>
 				</div>
-				<span class="text-hint">
-					Oldest first. Re-run jobs are marked resolved, so with "Hide resolved runs" the next batch
-					starts where this one stops.
-				</span>
+				{#if filters.val.resolved === 'unresolved'}
+					<span class="text-hint">
+						Oldest first. Re-run jobs are marked resolved, so the next batch starts where this one
+						stops.
+					</span>
+				{:else}
+					<div class="flex flex-row items-center gap-2 text-orange-600 dark:text-orange-400">
+						<TriangleAlertIcon size={14} class="shrink-0" />
+						<span>
+							Resolved runs are included, so the next batch will pick these same jobs again.
+						</span>
+						<Button
+							variant="default"
+							unifiedSize="xs"
+							btnClasses="shrink-0"
+							onClick={() => {
+								filters.val.resolved = 'unresolved'
+								onRerunAllJobsMatchingFilters()
+							}}
+						>
+							Hide resolved runs
+						</Button>
+					</div>
+				{/if}
 			</div>
 		{/if}
 		<div class="flex-1 min-h-0 flex flex-col">
