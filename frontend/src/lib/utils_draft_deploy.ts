@@ -500,7 +500,8 @@ export async function deployDraft(
 			const r = (await FlowService.getFlowByPath({ workspace, path, getDraft: true })) as any
 			const d = r.draft ?? r
 			const value = d.value ? structuredClone(d.value) : d.value
-			if (value) dropStaleStepLocks(value, draftOnly ? undefined : r.value)
+			// With nothing deployed the server fills `r.value` from the draft itself.
+			if (value) dropStaleStepLocks(value, draftOnly || r.no_deployed ? undefined : r.value)
 			const requestBody = {
 				// Deploy at the draft's intended path: flow/app/raw-app drafts keep the
 				// user-typed path in `draft_path` (a never-deployed item is parked at a

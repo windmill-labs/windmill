@@ -165,6 +165,21 @@ describe('deployDraft: script lock', () => {
 		expect(edited.value).not.toHaveProperty('lock')
 		expect(kept.value.lock).toBe('requests==2.0')
 	})
+
+	// A never-deployed flow is often a copy or an import, whose locks match its code.
+	it('flow: keeps every lock when nothing is deployed to compare against', async () => {
+		const step = { id: 'copied', value: { type: 'rawscript', content: 'x', lock: 'requests==2.0' } }
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
+			no_deployed: true,
+			value: { modules: [step] },
+			draft: { path: 'f/admin/copy', value: { modules: [step] } }
+		} as any)
+
+		await deployDraft('flow', 'f/admin/copy', 'ws', { draftOnly: true })
+		const [copied] = vi.mocked(FlowService.createFlow).mock.calls[0][0].requestBody.value
+			.modules as any[]
+		expect(copied.value.lock).toBe('requests==2.0')
+	})
 })
 
 // The resource branch reads the item again when the deploy lands, and falls back to the deployed

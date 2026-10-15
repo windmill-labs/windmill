@@ -629,13 +629,14 @@
 			}
 
 			// The editor clears a step's lock when its code is edited, but a draft written elsewhere
-			// can hold a step whose code changed and whose lock did not.
-			dropStaleStepLocks(
-				flow.value,
-				isNewFlow
-					? undefined
-					: (await FlowService.getFlowByPath({ workspace: opWorkspace!, path: initialPath })).value
-			)
+			// can hold a step whose code changed and whose lock did not. A failed lookup skips the
+			// check rather than blocking the deploy.
+			const liveFlowValue = isNewFlow
+				? undefined
+				: await FlowService.getFlowByPath({ workspace: opWorkspace!, path: initialPath })
+						.then((f) => f.value)
+						.catch(() => undefined)
+			dropStaleStepLocks(flow.value, liveFlowValue)
 
 			if (isNewFlow) {
 				await FlowService.createFlow({
