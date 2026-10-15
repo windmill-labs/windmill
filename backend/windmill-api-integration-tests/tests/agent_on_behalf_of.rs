@@ -41,13 +41,15 @@ async fn job_identity(db: &Pool<Postgres>, id: &str) -> anyhow::Result<(String, 
 
 /// The identity an agent runs as is in its value, which anyone who can write the agent writes: it
 /// is kept only for an admin asking to keep it, and every other write makes it the writer's own,
-/// so a writer cannot change what runs while it keeps running as someone else.
+/// so a writer cannot change what runs while it keeps running as someone else. It exists only
+/// while the agent opts into running as it.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_agent_write_resets_identity(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let base_url = format!("http://localhost:{}/api", server.addr.port());
-    let value = json!({ "system_prompt": "hi", "on_behalf_of": "u/test-user-2" });
+    let value = json!({ "system_prompt": "hi", "on_behalf_of": "u/test-user-2",
+                        "run_on_behalf_of": true });
 
     let (status, body) = post(
         &base_url,
@@ -70,6 +72,18 @@ async fn test_agent_write_resets_identity(db: Pool<Postgres>) -> anyhow::Result<
     .await?;
     assert!((200..300).contains(&status), "update: {status} {body}");
     assert_eq!(agent_identity(&db).await?.as_deref(), Some("u/test-user-3"));
+
+    let mut off = value.clone();
+    off["run_on_behalf_of"] = json!(false);
+    let (status, body) = post(
+        &base_url,
+        "SECRET_TOKEN",
+        &format!("resources/update/{AGENT}"),
+        json!({ "value": off, "preserve_on_behalf_of": true }),
+    )
+    .await?;
+    assert!((200..300).contains(&status), "toggle off: {status} {body}");
+    assert_eq!(agent_identity(&db).await?, None);
 
     Ok(())
 }
@@ -134,6 +148,16 @@ async fn test_agent_run_identity_and_needs_read(db: Pool<Postgres>) -> anyhow::R
         job_identity(&db, &body).await?,
         ("u/test-user-3".into(), "test-user-2".into())
     );
+
+    // The worker would resolve it with the identity's token.
+    let (status, body) = post(
+        &base_url,
+        "SECRET_TOKEN_2",
+        &run,
+        json!({ "user_message": "$var:u/test-user-3/secret" }),
+    )
+    .await?;
+    assert_eq!(status, 400, "a reference in the caller's input: {body}");
 
     // The run takes its conversation outside the caller's row policy, so a reader must not
     // continue another user's conversation; an admin still may, as the policy allows.

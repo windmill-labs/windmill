@@ -187,8 +187,9 @@ export async function pushResource(
 }
 
 /**
- * An agent runs as the identity in its value's `on_behalf_of`, which the backend
- * sets to whoever writes the agent. Like an app's, it is never taken from the
+ * An agent with `run_on_behalf_of` runs as the identity in its value's
+ * `on_behalf_of`, which the backend sets to whoever writes the agent and clears
+ * while the toggle is off. Like an app's, it is never taken from the
  * tracked file, which the pull leaves it out of: the deployed one is claimed
  * back only by a pusher the backend lets keep it, an admin or a `wm_deployers`
  * member. Strips the key from `localResource` (and from the deployed value, so

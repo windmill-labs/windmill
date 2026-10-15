@@ -16618,7 +16618,9 @@ paths:
       summary: run a saved AI agent
       description: |
         Runs the `ai_agent` resource at `path` as stored, for any caller who can read it
-        (operators included), as the agent's `on_behalf_of`. With `memory_id`, the run is a turn
+        (operators included). The run is the caller's, or the agent's `on_behalf_of` when its
+        `run_on_behalf_of` is set; the caller's inputs may then not reference variables or
+        resources. With `memory_id`, the run is a turn
         of the caller's conversation with the agent; without, a single run.
       operationId: runAgent
       tags:

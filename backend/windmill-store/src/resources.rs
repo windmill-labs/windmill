@@ -2219,6 +2219,7 @@ async fn update_resource(
         }
     }
 
+    lock_resource_row(&mut tx, &w_id, path).await?;
     let current = sqlx::query!(
         "SELECT resource_type, value AS \"value: sqlx::types::Json<Box<RawValue>>\"
          FROM resource WHERE workspace_id = $1 AND path = $2",
@@ -2431,9 +2432,10 @@ async fn update_resource_value(
 }
 
 /// Rewrites the identity an `ai_agent` runs as (`value.on_behalf_of`), resolved on every write of
-/// it as a flow's `on_behalf_of` is on every deploy: the writer's own, unless one allowed to keep
-/// the one the value names asks to, and a folder's default for a new agent. The value is written
-/// by anyone who can write the agent, so the key it arrives with is only a request.
+/// it as a flow's `on_behalf_of` is on every deploy. It exists only while the agent's
+/// `run_on_behalf_of` is set: then the writer's own, unless one allowed to keep the one the value
+/// names asks to, and a folder's default for a new agent. The value is written by anyone who can
+/// write the agent, so the key it arrives with is only a request.
 async fn resolve_agent_on_behalf_of(
     tx: &mut Transaction<'_, Postgres>,
     authed: &ApiAuthed,
@@ -2450,6 +2452,9 @@ async fn resolve_agent_on_behalf_of(
     let mut requested = obj
         .remove("on_behalf_of")
         .and_then(|v| v.as_str().map(str::to_string));
+    if obj.get("run_on_behalf_of").and_then(|v| v.as_bool()) != Some(true) {
+        return Ok(());
+    }
     let mut preserve = preserve;
     let explicit =
         requested.is_some() && preserve && windmill_common::can_preserve_on_behalf_of(authed);
@@ -2462,7 +2467,7 @@ async fn resolve_agent_on_behalf_of(
         }
     }
     let own = windmill_common::users::username_to_permissioned_as(&authed.username);
-    // Always an identity: nothing requested is the writer's own.
+    // Nothing requested is the writer's own.
     let resolved = windmill_common::resolve_on_behalf_of(
         None,
         Some(requested.as_deref().unwrap_or(&own)),
@@ -2496,6 +2501,21 @@ async fn resolve_agent_on_behalf_of(
         )
         .await?;
     }
+    Ok(())
+}
+
+/// Held until the write commits: whether a value is resolved as an agent's depends on the type
+/// read after this, and a concurrent retype into an agent must not land between the two.
+async fn lock_resource_row(
+    tx: &mut Transaction<'_, Postgres>,
+    w_id: &str,
+    path: &str,
+) -> Result<()> {
+    sqlx::query("SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2 FOR UPDATE")
+        .bind(w_id)
+        .bind(path)
+        .execute(&mut **tx)
+        .await?;
     Ok(())
 }
 
@@ -2545,6 +2565,7 @@ async fn set_resource_value(
 
     let mut value = value;
     if let Some(v) = value.as_mut() {
+        lock_resource_row(&mut tx, w_id, path).await?;
         let resource_type = sqlx::query_scalar!(
             "SELECT resource_type FROM resource WHERE workspace_id = $1 AND path = $2",
             w_id,

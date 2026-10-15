@@ -67,12 +67,12 @@
 		{:else}
 			<LabelsInput bind:labels={draft.state.labels} {workspace} class="-mt-4" />
 		{/if}
-		<!-- Every deployed agent has an identity, resolved on deploy as a flow's on-behalf-of identity
-		     is; it is shown only while runs from the agent's page use it. -->
+		<!-- The identity exists only while the toggle is on, resolved on deploy as a flow's
+		     on-behalf-of identity is. -->
 		<div class="flex flex-col gap-2">
 			<Label
 				label="Run on behalf of"
-				tooltip="Runs from the agent's page and the API take the permissions of the identity below. Otherwise they take the caller's."
+				tooltip="Runs from the agent's page and the API take the permissions of whoever deploys it, or of the user an admin picks. Otherwise they take the caller's."
 			>
 				<Toggle
 					bind:checked={

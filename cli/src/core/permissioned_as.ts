@@ -251,8 +251,11 @@ export async function preCheckPermissionedAs(
         currentOwner = match[1];
       }
     } else if (typeStr === "resource") {
-      // An agent always runs as someone, and the file never says who.
-      if (/["']?resource_type["']?\s*:\s*["']?ai_agent\b/.test(beforeContent)) {
+      // An agent with `run_on_behalf_of` runs as someone, and the file never says who.
+      if (
+        /["']?resource_type["']?\s*:\s*["']?ai_agent\b/.test(beforeContent) &&
+        /["']?run_on_behalf_of["']?\s*:\s*true\b/.test(beforeContent)
+      ) {
         wouldChangeItems.push({
           path: change.path,
           currentOwner: "(agent owner)",
