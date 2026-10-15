@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT app_version.value FROM app\n         JOIN app_version ON app_version.id = app.versions[array_upper(app.versions, 1)]\n         WHERE app.path = $1 AND app.workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4c3d64ef3fadea19917db0624048262e151521c21221653a37ba5cb72e2a4fe0"
+}

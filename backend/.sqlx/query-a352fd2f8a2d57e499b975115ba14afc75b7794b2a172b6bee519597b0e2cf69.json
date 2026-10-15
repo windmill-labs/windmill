@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT versions[array_upper(versions, 1)] FROM app WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
+  "query": "SELECT versions[array_upper(versions, 1)] FROM app WHERE path = $1 AND workspace_id = $2 FOR NO KEY UPDATE",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       null
     ]
   },
-  "hash": "8e3690d63227020f39ed0f989c33e03256c34bb671a09dba5a5a340a70155e3f"
+  "hash": "a352fd2f8a2d57e499b975115ba14afc75b7794b2a172b6bee519597b0e2cf69"
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT value FROM app_version WHERE id = $1 FOR UPDATE",
+  "query": "SELECT value FROM app_version WHERE id = $1 FOR NO KEY UPDATE",
   "describe": {
     "columns": [
       {
@@ -18,5 +18,5 @@
       false
     ]
   },
-  "hash": "73fdb0e75fbf44ca481a4f36bd0b672a4352ab94828e2e472f77dea77561ed8b"
+  "hash": "c3bfc89762258b83bf7494ea40e097cb3bd140e3986780d35706584a368ea215"
 }
