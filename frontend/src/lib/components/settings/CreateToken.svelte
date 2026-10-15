@@ -8,13 +8,12 @@
 	import { mcpTokenUrlDisabled } from '$lib/mcpAuth'
 	import TokenDisplay from './TokenDisplay.svelte'
 	import ScopesPicker from './ScopesPicker.svelte'
-	import CopyableCodeBlock from '../details/CopyableCodeBlock.svelte'
-	import { shell } from 'svelte-highlight/languages'
 	import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
 
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
-	import CollapseLink from '../CollapseLink.svelte'
+	import Section from '../Section.svelte'
+	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import MultiSelect from '../select/MultiSelect.svelte'
@@ -305,7 +304,7 @@
 </script>
 
 {#snippet mcpTokenForm(server: McpServer)}
-	<div class="flex flex-col gap-3 pl-3 border-l">
+	<div class="flex flex-col gap-3">
 		{#if server === 'selected'}
 			<ScopesPicker
 				mode="mcp"
@@ -371,8 +370,8 @@
 			<Button
 				onclick={() => createToken(server)}
 				disabled={!mcpReachesWorkspaces || (server === 'selected' && !pickedScopes)}
-				variant="accent"
-				unifiedSize="md"
+				variant="default"
+				unifiedSize="sm"
 			>
 				Generate URL with token
 			</Button>
@@ -443,47 +442,42 @@
 		{#if mcpCreationMode && mcpUrlPolicy === 'loading'}
 			<Skeleton layout={[[2], 0.5, [1]]} />
 		{:else if mcpCreationMode}
-			<div class="flex flex-col gap-4">
+			<div class="flex flex-col gap-6">
 				<div class="flex flex-col gap-1">
-					<span class="text-emphasis text-sm font-semibold">Full Windmill experience</span>
-					<p class="text-xs text-secondary">
-						The AI chat's toolset on your workspaces: explore them, run scripts and flows, and
-						write, test and deploy drafts.
+					<span class="text-xs font-semibold text-emphasis">MCP URL</span>
+					<ClipboardPanel content={mcpFullUrl} size="sm" />
+					<p class="text-2xs text-secondary">
+						Add it to your client as a remote MCP server. Your client opens a Windmill page to sign
+						in, where you pick the workspaces and what the client may do. It gets the AI chat's
+						tools: explore, run, write, test and deploy.
 					</p>
-					<CopyableCodeBlock code={mcpFullUrl} language={shell} wrap />
-					<p class="text-xs text-secondary">
-						Paste it in your client (Claude, ChatGPT, Cursor…). It opens a Windmill page where you
-						sign in and pick the workspaces and the access it gets.
-					</p>
-					{#if mcpUrlPolicy === 'token'}
-						<div class="mt-2">
-							<CollapseLink text="Your client cannot sign in? Use a token">
-								{@render mcpTokenForm('full')}
-							</CollapseLink>
-						</div>
-					{/if}
 				</div>
 
-				<CollapseLink text="Advanced: select specific scripts, flows or endpoints">
+				{#if mcpUrlPolicy === 'token'}
+					<Section label="Client without sign-in: use a token" small collapsable collapsed>
+						{@render mcpTokenForm('full')}
+					</Section>
+				{/if}
+
+				<Section label="Specific scripts, flows or endpoints" small collapsable collapsed>
 					<div class="flex flex-col gap-1">
 						<p class="text-xs text-secondary">
-							A server where you pick what the client gets: each selected script or flow becomes its
-							own tool, next to the API endpoints you choose. Use it to share a few automations
-							without opening up your workspace.
+							Each selected script or flow becomes its own tool, next to the API endpoints you
+							choose, and the client reaches nothing else. Use it to share a few automations.
 						</p>
-						<CopyableCodeBlock code={mcpSelectedUrl} language={shell} wrap />
-						<p class="text-xs text-secondary">
-							When your client signs in, you pick the scripts, flows and endpoints it gets.
+						<ClipboardPanel content={mcpSelectedUrl} size="sm" />
+						<p class="text-2xs text-secondary">
+							You pick the scripts, flows and endpoints when your client signs in.
 						</p>
 						{#if mcpUrlPolicy === 'token'}
-							<div class="mt-2">
-								<CollapseLink text="Use a token instead">
+							<div class="mt-4">
+								<Section label="Use a token" small collapsable collapsed>
 									{@render mcpTokenForm('selected')}
-								</CollapseLink>
+								</Section>
 							</div>
 						{/if}
 					</div>
-				</CollapseLink>
+				</Section>
 
 				{#if !mcpOnly}
 					<div class="flex justify-end">
