@@ -31,6 +31,9 @@ export type PageHeaderSection = {
 	content?: Snippet
 	/** Scopes the segment's picker, when the section maps to a kind of item. */
 	kind?: WorkspaceItemKind
+	/** No chevron after the name: the page's siblings are not the workspace's pages and items,
+	 *  which is all that picker offers. A session is one. */
+	noNavPicker?: boolean
 }
 
 export type PageHeaderContent = {

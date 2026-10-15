@@ -966,7 +966,9 @@
      so from then on the name comes from there, with its pen and its menu. -->
 <PageHeaderContent
 	barRightInset={bandInset}
-	section={fullscreen ? { label: activeSession?.summary ?? 'Untitled session' } : undefined}
+	section={fullscreen
+		? { label: activeSession?.summary ?? 'Untitled session', noNavPicker: true }
+		: undefined}
 	actions={fullscreen ? fullscreenBand : sessionPageActions}
 	actionsFill={fullscreen}
 	separator={fullscreen ? 'always' : 'none'}
