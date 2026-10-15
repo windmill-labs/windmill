@@ -1595,6 +1595,15 @@ async fn mint_raw_app_sdk_token(
     // only — the sentinel grants nothing and exists to *narrow* the token.
     ensure_scopes_within_caller(authed, Some(scopes))?;
     let mut scopes = scopes.to_vec();
+    // Whoami returns what the bundle already has in `window.ctx`, so every token
+    // gets it unasked — but never beyond what a scope-restricted caller holds. It
+    // stays in the allowlist so policies that still declare it keep validating.
+    let implicit = "users:read".to_string();
+    if !scopes.contains(&implicit)
+        && ensure_scopes_within_caller(authed, Some(std::slice::from_ref(&implicit))).is_ok()
+    {
+        scopes.push(implicit);
+    }
     scopes.push(windmill_api_auth::scopes::RAW_APP_SDK_SENTINEL.to_string());
     let requested_exp =
         chrono::Utc::now() + chrono::Duration::hours(APP_EMBED_TOKEN_VALIDITY_HOURS);
@@ -6779,8 +6788,8 @@ mod embed_token_tests {
                 "POST",
             ),
             ("/api/w/test/jobs/restart/f/some-uuid", "POST"),
-            // `users:read` is presented to the viewer as "read your identity", so
-            // the workspace member directory must stay out of reach.
+            // `users:read` is granted without consent, so the workspace member
+            // directory must stay out of reach.
             ("/api/w/test/users/list", "GET"),
             ("/api/w/test/users/list_usage", "GET"),
             ("/api/w/test/users/username_to_email/admin", "GET"),
