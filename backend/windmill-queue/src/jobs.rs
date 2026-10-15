@@ -3699,8 +3699,9 @@ pub(crate) async fn push_variable_expiration_handler<'c>(
 /// `g/variable_expiration_handler` can read what it needs, under the same identity and the
 /// same argument shape a real expiry would use.
 ///
-/// Callers MUST verify the requester is a workspace admin: this runs any runnable they name
-/// as `g/variable_expiration_handler`, which may hold write access to the variables it rotates.
+/// Callers MUST verify the requester is a workspace admin and restrict `handler_path` to the
+/// built-ins: this runs it as `g/variable_expiration_handler`, which may hold write access to
+/// the variables it rotates.
 pub async fn push_variable_expiration_test_handler(
     db: &Pool<Postgres>,
     w_id: &str,

@@ -1746,6 +1746,18 @@ async fn run_variable_expiration_test_job(
 ) -> JsonResult<RunSlackMessageTestJobResponse> {
     require_admin(authed.is_admin, &authed.username)?;
 
+    // Pinned like `is_preset_handler_path`, so bump with `hubPaths.json`: the handler group is
+    // exempt from the per-user cloud quotas, so an open path would be an unmetered runner.
+    if !matches!(
+        req.handler_path.as_str(),
+        "script/hub/28987/variable-expiration-handler-slack"
+            | "script/hub/28988/variable-expiration-handler-teams"
+    ) {
+        return Err(Error::BadRequest(
+            "Only the built-in Slack or Teams handler can be tested".to_string(),
+        ));
+    }
+
     if let Some(extra_args) = req.extra_args.as_ref() {
         if !extra_args.is_object() {
             return Err(Error::BadRequest(

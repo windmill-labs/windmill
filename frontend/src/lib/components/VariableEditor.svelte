@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { VariableService, WorkspaceService } from '$lib/gen'
+	import { VariableService, WorkspaceService, type ListableVariable } from '$lib/gen'
 	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { Button } from './common'
 	import Drawer from './common/drawer/Drawer.svelte'
@@ -43,6 +43,22 @@
 		labels: string[] | undefined
 		wsSpecific: boolean
 		value_expires_at?: string
+	}
+
+	// The deployed baseline every dirty check and save diff runs against: a field it
+	// leaves out reads as unchanged, so its edits are never sent.
+	function deployedVariableState(v: ListableVariable): VariableState {
+		return {
+			path: v.path,
+			variable: {
+				value: v.value ?? '',
+				is_secret: v.is_secret,
+				description: v.description ?? ''
+			},
+			labels: v.labels ?? undefined,
+			wsSpecific: v.ws_specific ?? false,
+			value_expires_at: v.value_expires_at ?? undefined
+		}
 	}
 
 	// The "current" workspace this editor defaults New/Edit actions to. Session
@@ -223,16 +239,7 @@
 				decryptSecret: false,
 				getDraft: true
 			})
-			const deployedState: VariableState = {
-				path: v.path,
-				variable: {
-					value: v.value ?? '',
-					is_secret: v.is_secret,
-					description: v.description ?? ''
-				},
-				labels: v.labels ?? undefined,
-				wsSpecific: v.ws_specific ?? false
-			}
+			const deployedState = deployedVariableState(v)
 			// Everything below writes shared editor state, so first make sure it is still this
 			// variable's: the drawer stays closable while the read is out, and another variable
 			// opened meanwhile would otherwise get this one's baseline — and with it this one's
@@ -331,17 +338,7 @@
 				const savedDraftState = (v as any).draft as VariableState | undefined
 				// Deployed baseline as the dirty-check reference, so the banner
 				// compares draft-vs-deployed and fires immediately when a draft exists.
-				const deployedState: VariableState = {
-					path: v.path,
-					variable: {
-						value: v.value ?? '',
-						is_secret: v.is_secret,
-						description: v.description ?? ''
-					},
-					labels: v.labels ?? undefined,
-					wsSpecific: v.ws_specific ?? false,
-					value_expires_at: v.value_expires_at ?? undefined
-				}
+				const deployedState = deployedVariableState(v)
 				// A refused save leaves this tab's own version parked. `.draft` is the version
 				// that refused it, so opening on that would quietly drop the edit the alert is
 				// about and leave "Keep mine" offering to keep the other one.
