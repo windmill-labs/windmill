@@ -6,6 +6,7 @@
 	import Modal from '../common/modal/Modal.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import ScopesPicker from './ScopesPicker.svelte'
+	import McpAccessPicker from '../mcp/McpAccessPicker.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -41,20 +42,14 @@
 
 	let labelValue = $state('')
 	let pickedScopes = $state<string[] | null>(null)
+	let mcpScopes = $state<string[]>([])
 	let saving = $state(false)
 
-	// The picker rebuilds the MCP scopes from its own modes and knows nothing of the workspace
-	// list or of read-and-run, so they are carried over as is: dropping either would widen the
-	// token, to every workspace or to writes.
-	const isNarrowing = (s: string) =>
-		s.startsWith('mcp:workspaces:') || s === 'mcp:read_run' || s === 'mcp:read_only'
+	// The access picker knows nothing of the workspace list, so it is carried over as is:
+	// dropping it would widen the token to every workspace.
+	const isWorkspaceList = (s: string) => s.startsWith('mcp:workspaces:')
 	const scopesToSave = $derived(
-		isMcp && pickedScopes
-			? [
-					...pickedScopes.filter((s) => !isNarrowing(s)),
-					...(initialScopes ?? []).filter(isNarrowing)
-				]
-			: pickedScopes
+		isMcp ? [...mcpScopes, ...(initialScopes ?? []).filter(isWorkspaceList)] : pickedScopes
 	)
 
 	// Seed the label field from the token whenever the modal opens or the token
@@ -109,7 +104,7 @@
 		}
 	}
 
-	const saveDisabled = $derived(saving || !tokenPrefix || (isMcp && !pickedScopes))
+	const saveDisabled = $derived(saving || !tokenPrefix || (isMcp && mcpScopes.length === 0))
 </script>
 
 <Modal bind:open title="Edit token" class="!max-w-3xl">
@@ -131,14 +126,24 @@
 		</div>
 
 		<div class="flex flex-col gap-1">
-			<span class="text-xs font-semibold text-emphasis">Scopes</span>
+			{#if !isMcp}
+				<span class="text-xs font-semibold text-emphasis">Scopes</span>
+			{/if}
 			{#key tokenPrefix}
-				<ScopesPicker
-					mode={isMcp ? 'mcp' : 'standard'}
-					workspaceId={mcpWorkspaceId}
-					{initialScopes}
-					bind:value={pickedScopes}
-				/>
+				{#if isMcp}
+					<McpAccessPicker
+						workspaceId={mcpWorkspaceId}
+						initialScopes={(initialScopes ?? []).filter((s) => !isWorkspaceList(s))}
+						bind:scopes={mcpScopes}
+					/>
+				{:else}
+					<ScopesPicker
+						mode="standard"
+						workspaceId={mcpWorkspaceId}
+						{initialScopes}
+						bind:value={pickedScopes}
+					/>
+				{/if}
 			{/key}
 		</div>
 	</div>

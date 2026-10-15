@@ -14,8 +14,6 @@
 		 *  endpoints/runnables. Two-way bound so the inline toggle below the
 		 *  "Limit token permissions" switch (and the MCP variant) writes back. */
 		readOnly?: boolean
-		/** Leave the MCP read-only toggle out, for a caller that asks for the access itself. */
-		hideMcpReadOnly?: boolean
 	}
 
 	let {
@@ -23,8 +21,7 @@
 		workspaceId = '',
 		initialScopes,
 		value = $bindable(),
-		readOnly = $bindable(false),
-		hideMcpReadOnly = false
+		readOnly = $bindable(false)
 	}: Props = $props()
 
 	// In standard mode, only meaningful when the user has turned "Limit token
@@ -92,19 +89,17 @@
 	</div>
 {:else}
 	<div class="flex flex-col gap-2">
-		{#if !hideMcpReadOnly}
-			<div class="text-tertiary">
-				<Toggle
-					bind:checked={readOnly}
-					options={{
-						right: 'Read-only',
-						rightTooltip:
-							'Restricts this MCP URL to read-only endpoints. The LLM will only see read tools — script and flow runs will be hidden.'
-					}}
-					size="2xs"
-				/>
-			</div>
-		{/if}
+		<div class="text-tertiary">
+			<Toggle
+				bind:checked={readOnly}
+				options={{
+					right: 'Read-only',
+					rightTooltip:
+						'Restricts this MCP URL to read-only endpoints. The LLM will only see read tools — script and flow runs will be hidden.'
+				}}
+				size="2xs"
+			/>
+		</div>
 		<McpScopeSelector
 			{workspaceId}
 			bind:scope={mcpScope}

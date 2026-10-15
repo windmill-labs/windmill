@@ -8,11 +8,9 @@
 	import { Button } from '$lib/components/common'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
+	import McpAccessPicker, { type McpAccess } from '$lib/components/mcp/McpAccessPicker.svelte'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import McpScopeSelector from '$lib/components/mcp/McpScopeSelector.svelte'
 	import Check from 'lucide-svelte/icons/check'
 
 	// Get OAuth params from URL
@@ -21,22 +19,12 @@
 	let clientId = page.url.searchParams.get('client_id') || ''
 	let clientName = page.url.searchParams.get('client_name') || 'Unknown Client'
 	let redirectUri = page.url.searchParams.get('redirect_uri') || ''
-	let scope = $state(page.url.searchParams.get('scope') || 'mcp:all')
-	// The server the client connects to: the full experience (`/api/mcp`) takes an access level
-	// rather than a selection of scripts and flows.
-	const isFullExperience = (() => {
-		try {
-			return new URL(page.url.searchParams.get('resource') ?? '').pathname === '/api/mcp'
-		} catch {
-			return false
-		}
-	})()
-	let access = $state<'read' | 'read_run' | 'full'>('full')
-	const ACCESS_SCOPES = {
-		read: 'mcp:all mcp:read_only',
-		read_run: 'mcp:all mcp:read_run',
-		full: 'mcp:all'
-	}
+	// What the client asked for seeds the access picker; what is approved is the picker's.
+	const requestedScopes = (page.url.searchParams.get('scope') || 'mcp:all')
+		.split(' ')
+		.filter((s) => s.startsWith('mcp:'))
+	let scopes = $state<string[]>([])
+	let access = $state<McpAccess>()
 	let oauthState = page.url.searchParams.get('state') || ''
 	let codeChallenge = page.url.searchParams.get('code_challenge') || ''
 	let codeChallengeMethod = page.url.searchParams.get('code_challenge_method') || ''
@@ -66,6 +54,10 @@
 	let allWorkspaces = $state(false)
 	let loadingWorkspaces = $state(false)
 	const grantsWorkspace = $derived(!isGateway || allWorkspaces || pickedWorkspaces.length > 0)
+	// Selected tools are listed per workspace: across several, the same path could be two.
+	const selectionNeedsOneWorkspace = $derived(
+		isGateway && access === 'selected' && (allWorkspaces || pickedWorkspaces.length !== 1)
+	)
 	// The workspace the scope picker browses scripts and flows in.
 	const scopeWorkspaceId = $derived(
 		isGateway ? (pickedWorkspaces[0] ?? (allWorkspaces ? workspaces[0]?.value : '')) : workspaceId
@@ -124,7 +116,7 @@
 			const body: Record<string, unknown> = {
 				client_id: clientId,
 				redirect_uri: redirectUri,
-				scope: isFullExperience ? ACCESS_SCOPES[access] : scope,
+				scope: scopes.join(' '),
 				state: oauthState,
 				code_challenge: codeChallenge,
 				code_challenge_method: codeChallengeMethod
@@ -231,44 +223,27 @@
 				</div>
 			{/if}
 
-			{#if isFullExperience}
-				<div class="mb-6 flex flex-col gap-2">
-					<p class="text-xs font-semibold text-emphasis">What it may do:</p>
-					<ToggleButtonGroup bind:selected={access} allowEmpty={false}>
-						{#snippet children({ item })}
-							<ToggleButton
-								{item}
-								value="read"
-								label="Read only"
-								tooltip="Explore and read. Nothing is run or changed."
-							/>
-							<ToggleButton
-								{item}
-								value="read_run"
-								label="Read and run"
-								tooltip="Explore, and run deployed scripts and flows. Nothing is changed."
-							/>
-							<ToggleButton
-								{item}
-								value="full"
-								label="Full"
-								tooltip="Everything you can do yourself, writes included."
-							/>
-						{/snippet}
-					</ToggleButtonGroup>
-				</div>
-			{:else if scopeWorkspaceId}
-				<div class="mb-6">
-					<McpScopeSelector workspaceId={scopeWorkspaceId} bind:scope />
-				</div>
-			{/if}
+			<div class="mb-6 flex flex-col gap-1">
+				<McpAccessPicker
+					workspaceId={scopeWorkspaceId ?? ''}
+					initialScopes={requestedScopes}
+					bind:scopes
+					bind:access
+				/>
+				{#if selectionNeedsOneWorkspace}
+					<p class="text-2xs text-secondary">Selected tools work in one workspace: pick one.</p>
+				{/if}
+			</div>
 
 			<div class="flex flex-row justify-around gap-x-4">
 				<Button variant="border" size="lg" disabled={loading} onClick={onDeny}>Deny</Button>
 				<Button
 					variant="accent"
 					size="lg"
-					disabled={loading || !grantsWorkspace}
+					disabled={loading ||
+						!grantsWorkspace ||
+						selectionNeedsOneWorkspace ||
+						scopes.length === 0}
 					{loading}
 					onClick={onApprove}>Approve</Button
 				>

@@ -14,8 +14,7 @@
 	import Select from '../select/Select.svelte'
 	import Section from '../Section.svelte'
 	import ClipboardPanel from '../details/ClipboardPanel.svelte'
-	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import McpAccessPicker, { type McpAccess } from '../mcp/McpAccessPicker.svelte'
 	import MultiSelect from '../select/MultiSelect.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -50,13 +49,9 @@
 	let newToken = $state<string | undefined>(undefined)
 	let newMcpToken = $state<string | undefined>(undefined)
 	let newMcpTokenUrl = $state('')
-	// Which MCP server a token is for: the full experience (the AI chat's toolset, which takes
-	// `mcp:all` and nothing narrower), or the selective server (picked scripts, flows and
-	// endpoints, each as its own tool).
-	type McpServer = 'full' | 'selected'
-	type McpAccess = 'read' | 'read_run' | 'full'
-	// What the client may do, per server: read-and-run exists on the full experience alone.
-	let mcpAccess = $state<Record<McpServer, McpAccess>>({ full: 'full', selected: 'full' })
+	// What an MCP token may do, as the access picker sets it.
+	let mcpAccess = $state<McpAccess>('full')
+	let mcpScopes = $state<string[]>(['mcp:all'])
 	// What the user picked; `newTokenExpiration` is that pick held within the ceiling.
 	let pickedExpiration = $state<number | undefined>(undefined)
 	let newTokenWorkspace = $state<string | undefined>(untrack(() => defaultNewTokenWorkspace))
@@ -152,7 +147,6 @@
 		mcpAllWorkspaces = false
 		newToken = undefined
 		newMcpToken = undefined
-		mcpAccess = { full: 'full', selected: 'full' }
 		if (!newTokenLabel) {
 			newTokenLabel = 'MCP token'
 			mcpLabelAutofilled = true
@@ -173,23 +167,14 @@
 		mcpLabelAutofilled = false
 	}
 
-	/** `server` is set for an MCP token, and says which server it is for. */
-	async function createToken(server?: McpServer): Promise<void> {
+	async function createToken(mcpMode: boolean = false): Promise<void> {
 		try {
 			let date: Date | undefined
 			if (newTokenExpiration) {
 				date = new Date(new Date().getTime() + newTokenExpiration * 1000)
 			}
 
-			const access = server ? mcpAccess[server] : undefined
-			const pickedOrFixed =
-				scopes ??
-				(server === 'full'
-					? access === 'read_run'
-						? ['mcp:all', 'mcp:read_run']
-						: ['mcp:all']
-					: pickedScopes) ??
-				undefined
+			const pickedOrFixed = scopes ?? (mcpMode ? mcpScopes : pickedScopes) ?? undefined
 			const tokenScopes =
 				pickedOrFixed && workspacesScope ? [...pickedOrFixed, workspacesScope] : pickedOrFixed
 
@@ -199,14 +184,14 @@
 					expiration: date?.toISOString(),
 					scopes: tokenScopes,
 					workspace_id: tokenWorkspaceId,
-					read_only: server ? access === 'read' : readOnly
+					read_only: mcpMode ? false : readOnly
 				} as NewToken
 			})
 
-			if (server) {
+			if (mcpMode) {
 				newToken = undefined
 				newMcpToken = `${createdToken}`
-				newMcpTokenUrl = `${server === 'full' ? mcpFullUrl : mcpSelectedUrl}?token=${createdToken}`
+				newMcpTokenUrl = `${mcpUrl}?token=${createdToken}`
 			} else {
 				newMcpToken = undefined
 				newToken = `${createdToken}`
@@ -271,14 +256,12 @@
 			''
 	)
 	// On the browsing origin, not the API base url: the OAuth metadata the server
-	// publishes for these URLs is built from `base_url`, and a client rejects a mismatch.
-	// The full experience has one URL: its tools name their workspace.
-	const mcpFullUrl = `${window.location.origin}/api/mcp`
-	// The selective server's per-workspace URL preselects the workspace at sign-in.
-	const mcpSelectedUrl = $derived(
-		mcpBoundWorkspace
-			? `${window.location.origin}/api/mcp/w/${mcpBoundWorkspace}/mcp`
-			: `${window.location.origin}/api/mcp/gateway`
+	// publishes for this URL is built from `base_url`, and a client rejects a mismatch.
+	// One URL whatever the access: the token's scopes decide which tools it gets.
+	const mcpUrl = `${window.location.origin}/api/mcp`
+	// Selected tools are listed per workspace: across several, the same path could be two.
+	const selectionNeedsOneWorkspace = $derived(
+		mcpAccess === 'selected' && (mcpAllWorkspaces || mcpWorkspaces.length !== 1)
 	)
 
 	$effect(() => {
@@ -303,46 +286,18 @@
 	})
 </script>
 
-{#snippet mcpTokenForm(server: McpServer)}
+{#snippet mcpTokenForm()}
 	<div class="flex flex-col gap-3">
-		{#if server === 'selected'}
-			<ScopesPicker
-				mode="mcp"
-				workspaceId={scopeWorkspaceId}
-				bind:value={pickedScopes}
-				readOnly={mcpAccess.selected === 'read'}
-				hideMcpReadOnly
-			/>
-		{/if}
-		<div>
-			<span class="block mb-1 text-emphasis text-xs font-semibold">Access</span>
-			<ToggleButtonGroup bind:selected={mcpAccess[server]} allowEmpty={false}>
-				{#snippet children({ item })}
-					<ToggleButton
-						{item}
-						value="read"
-						label="Read only"
-						tooltip="Explore and read. Nothing is run or changed."
-					/>
-					{#if server === 'full'}
-						<ToggleButton
-							{item}
-							value="read_run"
-							label="Read and run"
-							tooltip="Explore, and run deployed scripts and flows. Nothing is changed."
-						/>
-					{/if}
-					<ToggleButton
-						{item}
-						value="full"
-						label="Full"
-						tooltip="Everything you can do yourself, writes included."
-					/>
-				{/snippet}
-			</ToggleButtonGroup>
-		</div>
+		<McpAccessPicker
+			workspaceId={scopeWorkspaceId}
+			bind:scopes={mcpScopes}
+			bind:access={mcpAccess}
+		/>
 		{#if !lockWorkspace}
 			{@render mcpWorkspacePicker()}
+			{#if selectionNeedsOneWorkspace}
+				<p class="text-2xs text-secondary">Selected tools work in one workspace: pick one.</p>
+			{/if}
 		{/if}
 		{#if !mcpOnly}
 			<div>
@@ -368,8 +323,8 @@
 		{/if}
 		<div class="flex">
 			<Button
-				onclick={() => createToken(server)}
-				disabled={!mcpReachesWorkspaces || (server === 'selected' && !pickedScopes)}
+				onclick={() => createToken(true)}
+				disabled={!mcpReachesWorkspaces || selectionNeedsOneWorkspace || mcpScopes.length === 0}
 				variant="default"
 				unifiedSize="sm"
 			>
@@ -406,7 +361,7 @@
 <div>
 	<!-- Stays bounded by the panel width: a content-driven width (min-w-min) would let a long
 	     scope chip stretch this card and push the rest of the form out of view. -->
-	<div class="p-4 rounded-md mb-6 bg-surface-tertiary">
+	<div class="p-4 rounded-md bg-surface-tertiary {!mcpOnly || newMcpToken ? 'mb-6' : ''}">
 		{#if !mcpOnly}
 			<h3 class="pb-2 font-semibold text-emphasis text-sm">{title}</h3>
 		{/if}
@@ -445,39 +400,19 @@
 			<div class="flex flex-col gap-6">
 				<div class="flex flex-col gap-1">
 					<span class="text-xs font-semibold text-emphasis">MCP URL</span>
-					<ClipboardPanel content={mcpFullUrl} size="sm" />
+					<ClipboardPanel content={mcpUrl} size="sm" />
 					<p class="text-2xs text-secondary">
-						Add it to your client as a remote MCP server. Your client opens a Windmill page to sign
-						in, where you pick the workspaces and what the client may do. It gets the AI chat's
-						tools: explore, run, write, test and deploy.
+						Add it to your client as a remote MCP server. It opens a Windmill page where you sign in
+						and choose the workspaces and what the client may do: read only, read and run, full, or
+						only the scripts, flows and endpoints you pick.
 					</p>
 				</div>
 
 				{#if mcpUrlPolicy === 'token'}
-					<Section label="Client without sign-in: use a token" small collapsable collapsed>
-						{@render mcpTokenForm('full')}
+					<Section label="Use a token instead of signing in" small collapsable collapsed>
+						{@render mcpTokenForm()}
 					</Section>
 				{/if}
-
-				<Section label="Specific scripts, flows or endpoints" small collapsable collapsed>
-					<div class="flex flex-col gap-1">
-						<p class="text-xs text-secondary">
-							Each selected script or flow becomes its own tool, next to the API endpoints you
-							choose, and the client reaches nothing else. Use it to share a few automations.
-						</p>
-						<ClipboardPanel content={mcpSelectedUrl} size="sm" />
-						<p class="text-2xs text-secondary">
-							You pick the scripts, flows and endpoints when your client signs in.
-						</p>
-						{#if mcpUrlPolicy === 'token'}
-							<div class="mt-4">
-								<Section label="Use a token" small collapsable collapsed>
-									{@render mcpTokenForm('selected')}
-								</Section>
-							</div>
-						{/if}
-					</div>
-				</Section>
 
 				{#if !mcpOnly}
 					<div class="flex justify-end">

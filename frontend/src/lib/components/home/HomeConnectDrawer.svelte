@@ -99,9 +99,12 @@ wmill sync pull`)
 									<div class="flex flex-col gap-4">
 										<div class="flex items-start justify-between gap-3 flex-wrap">
 											<div class="flex flex-col gap-1">
-												<h3 class="text-sm font-semibold text-emphasis">MCP</h3>
+												<h3 class="text-sm font-semibold text-emphasis"
+													>Build and run from your AI client</h3
+												>
 												<p class="text-xs text-secondary max-w-xl">
-													Connect an AI client (Claude, ChatGPT, Cursor…) to Windmill.
+													Connect Claude, ChatGPT or Cursor to Windmill: build scripts, flows and
+													apps, run your automations and check their runs, from your chat.
 												</p>
 											</div>
 

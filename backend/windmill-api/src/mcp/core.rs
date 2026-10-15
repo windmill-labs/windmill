@@ -467,6 +467,17 @@ impl McpBackend for WindmillBackend {
     }
 }
 
+/// Set on a request whose token is scoped to a selection of scripts, flows and endpoints
+/// rather than `mcp:all`: on `/api/mcp`, the tools server answers it.
+#[derive(Clone, Copy)]
+pub struct McpSelection;
+
+/// MCP scopes without `mcp:all`: favorites, chosen scripts, flows, endpoints or hub apps.
+fn scoped_to_selection(scopes: &[String]) -> bool {
+    let mut mcp = scopes.iter().filter(|scope| scope.starts_with("mcp:"));
+    mcp.clone().next().is_some() && !mcp.any(|scope| scope == "mcp:all")
+}
+
 /// The path of a workspace-less MCP URL, when it is not the tools server's
 /// `/api/mcp/gateway`: each URL is its own OAuth protected resource.
 #[derive(Clone, Copy)]
@@ -589,27 +600,32 @@ pub async fn extract_workspace_from_token(
         .fetch_optional(&db)
         .await
         {
-            Ok(Some(row)) => match row.workspace_id {
-                Some(workspace_id) => {
-                    request
-                        .extensions_mut()
-                        .insert(GatewayWorkspaceId(workspace_id.clone()));
-                    request.extensions_mut().insert(WorkspaceId(workspace_id));
+            Ok(Some(row)) => {
+                if scoped_to_selection(row.scopes.as_deref().unwrap_or_default()) {
+                    request.extensions_mut().insert(McpSelection);
                 }
-                None => {
-                    // Only enter multi-workspace mode for genuine MCP tokens; a
-                    // full-privilege global token without mcp scope is rejected
-                    // by the runner's mcp-scope check anyway.
-                    let is_mcp = row
-                        .scopes
-                        .as_deref()
-                        .is_some_and(|s| s.iter().any(|scope| scope.starts_with("mcp:")));
-                    if is_mcp {
-                        request.extensions_mut().insert(MultiWorkspaceMcp);
-                        request.extensions_mut().insert(McpToken(token));
+                match row.workspace_id {
+                    Some(workspace_id) => {
+                        request
+                            .extensions_mut()
+                            .insert(GatewayWorkspaceId(workspace_id.clone()));
+                        request.extensions_mut().insert(WorkspaceId(workspace_id));
+                    }
+                    None => {
+                        // Only enter multi-workspace mode for genuine MCP tokens; a
+                        // full-privilege global token without mcp scope is rejected
+                        // by the runner's mcp-scope check anyway.
+                        let is_mcp = row
+                            .scopes
+                            .as_deref()
+                            .is_some_and(|s| s.iter().any(|scope| scope.starts_with("mcp:")));
+                        if is_mcp {
+                            request.extensions_mut().insert(MultiWorkspaceMcp);
+                            request.extensions_mut().insert(McpToken(token));
+                        }
                     }
                 }
-            },
+            }
             Ok(None) => {}
             Err(e) => {
                 tracing::error!("Gateway token workspace lookup failed: {}", e);
@@ -694,9 +710,28 @@ pub async fn setup_mcp_server(
     let service =
         StreamableHttpService::new(move || Ok(runner.clone()), session_manager, service_config);
 
-    let router = Router::new().route_service("/", service);
-    // At `/mcp` itself, beside the `/mcp/...` routes, so it is merged rather than nested.
-    let session_router = Router::new().route_service("/mcp", session_service);
+    let router = Router::new().route_service("/", service.clone());
+    // `/api/mcp` serves both servers: a token scoped to a selection of scripts, flows and
+    // endpoints gets the tools server, any other the session's toolset. At `/mcp` itself,
+    // beside the `/mcp/...` routes, so it is merged rather than nested.
+    let session_router = Router::new().route(
+        "/mcp",
+        axum::routing::any(move |request: Request<axum::body::Body>| {
+            let (service, session_service) = (service.clone(), session_service.clone());
+            async move {
+                use tower::ServiceExt;
+                let response = if request.extensions().get::<McpSelection>().is_some() {
+                    service.oneshot(request).await
+                } else {
+                    session_service.oneshot(request).await
+                };
+                match response {
+                    Ok(response) => response.into_response(),
+                    Err(never) => match never {},
+                }
+            }
+        }),
+    );
     Ok((router, session_router, cancellation_token))
 }
 
@@ -709,4 +744,27 @@ async fn list_mcp_tools_handler() -> JsonResult<Vec<EndpointTool>> {
 /// Creates a router service for listing MCP tools
 pub fn list_tools_service() -> Router {
     Router::new().route("/", get(list_mcp_tools_handler))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::scoped_to_selection;
+
+    #[test]
+    fn only_a_token_without_mcp_all_is_a_selection() {
+        let selection = |scopes: &[&str]| {
+            scoped_to_selection(&scopes.iter().map(|s| s.to_string()).collect::<Vec<_>>())
+        };
+        assert!(selection(&["mcp:favorites"]));
+        assert!(selection(&["mcp:scripts:f/x/*", "mcp:endpoints:listJobs"]));
+        assert!(selection(&["mcp:all:f/x/*"]));
+        assert!(!selection(&["mcp:all"]));
+        assert!(!selection(&[
+            "mcp:all",
+            "mcp:read_run",
+            "mcp:workspaces:a,b"
+        ]));
+        assert!(!selection(&[]));
+        assert!(!selection(&["variables:read"]));
+    }
 }

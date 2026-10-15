@@ -25,9 +25,17 @@
 		scope: string
 		initialScope?: string
 		readOnly?: boolean
+		/** Leave out "All scripts/flows": where `mcp:all` means the full toolset instead. */
+		hideAll?: boolean
 	}
 
-	let { workspaceId, scope = $bindable(), initialScope, readOnly = false }: Props = $props()
+	let {
+		workspaceId,
+		scope = $bindable(),
+		initialScope,
+		readOnly = false,
+		hideAll = false
+	}: Props = $props()
 
 	// Mirrors ITEMS_FETCH_MAX_LIMIT in backend/windmill-api/src/mcp/utils.rs: the
 	// server exposes at most this many scripts and this many flows (per type) as
@@ -451,7 +459,9 @@
 		selectedMode === 'all'
 			? 'Create your first scripts or flows to make them available via MCP.'
 			: selectedMode === 'favorites'
-				? `You do not have any favorite scripts or flows. You can favorite some scripts and flows to include them, or change the scope to "All scripts/flows" to include all your scripts and flows.`
+				? hideAll
+					? 'You do not have any favorite scripts or flows. Favorite some to include them, or pick them under Folders or Custom.'
+					: `You do not have any favorite scripts or flows. You can favorite some scripts and flows to include them, or change the scope to "All scripts/flows" to include all your scripts and flows.`
 				: `You do not have any scripts or flows in the selected folder(s).`
 	)
 
@@ -550,12 +560,14 @@
 					label="Favorites only"
 					tooltip="Make only your favorite scripts and flows available as tools"
 				/>
-				<ToggleButton
-					{item}
-					value="all"
-					label="All scripts/flows"
-					tooltip="Make all your scripts and flows available as tools"
-				/>
+				{#if !hideAll}
+					<ToggleButton
+						{item}
+						value="all"
+						label="All scripts/flows"
+						tooltip="Make all your scripts and flows available as tools"
+					/>
+				{/if}
 				<ToggleButton
 					{item}
 					value="folder"
