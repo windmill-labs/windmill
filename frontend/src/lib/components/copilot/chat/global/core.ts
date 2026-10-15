@@ -740,7 +740,7 @@ const writeVariableSchema = variableRequestSchema.extend({
 		.nullable()
 		.optional()
 		.describe(
-			"When the value stored in this variable stops working. Triggers the workspace's variable expiration handler one hour before it is reached; never causes the variable to be deleted. Omit it to keep the current expiry, or pass null to clear one — for instance once the value has been rotated."
+			"When the value stored in this variable stops working. Triggers the workspace's variable expiration handler ahead of it (1 day by default, set on the handler); never causes the variable to be deleted. Omit it to keep the current expiry, or pass null to clear one — for instance once the value has been rotated."
 		),
 	override: draftOverrideField
 })

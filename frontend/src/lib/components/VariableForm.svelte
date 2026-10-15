@@ -254,7 +254,7 @@ stretch the hit area over the whole row and the alert. The toggle carries its na
 <Section label="Advanced" small collapsable initiallyCollapsed={!valueExpiresAt}>
 	<Label
 		label="Value expiration"
-		tooltip="When the value stored here stops working, such as the expiry date of an API key. An hour before it, Windmill runs the workspace's variable expiration handler if one is set, so the value can be rotated. The variable itself is never deleted."
+		tooltip="When the value stored here stops working, such as the expiry date of an API key. Ahead of it (1 day by default), Windmill runs the workspace's variable expiration handler if one is set, so the value can be rotated. The variable itself is never deleted."
 	>
 		<Toggle
 			size="sm"
@@ -282,7 +282,7 @@ stretch the hit area over the whole row and the alert. The toggle carries its na
 					Runs the workspace's <a href="/workspace_settings?tab=variable_expiration&workspace={ws}"
 						>variable expiration handler</a
 					>
-					an hour before this date, if the workspace has one{path.startsWith('u/')
+					ahead of this date, if the workspace has one{path.startsWith('u/')
 						? ' and does not skip u/ paths'
 						: ''}.
 				{/if}

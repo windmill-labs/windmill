@@ -4347,8 +4347,8 @@ pub async fn monitor_db(
         }
     };
 
-    // Run every 5 minutes (10 iterations * 30s). The lead time is an hour, so a variable is
-    // picked up comfortably inside its window without polling hot.
+    // Run every 5 minutes (10 iterations * 30s): a notice runs ahead of the expiry by the
+    // handler's `notify_before_secs`, so a few minutes' delay costs nothing.
     let dispatch_expiring_variables_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
             if let Some(db) = conn.as_sql() {

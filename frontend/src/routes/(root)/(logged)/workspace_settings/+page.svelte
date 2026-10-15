@@ -3,7 +3,7 @@
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Button, Section, Skeleton, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Button, SecondsInput, Section, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
@@ -202,6 +202,9 @@
 	const noVariableExpirationHandler = handlerDraftFromStored('variableExpiration', undefined)
 	let variableExpirationDraft: HandlerDraft = $state(cloneHandlerDraft(noVariableExpirationHandler))
 	let variableExpirationMutedOnUserPath: boolean = $state(false)
+	// The sweep's default when the stored handler has no `notify_before_secs`.
+	const defaultNotifyBeforeSecs = 24 * 3600
+	let variableExpirationNotifyBeforeSecs: number = $state(defaultNotifyBeforeSecs)
 	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let publicAppRateLimitPerMinute: number | undefined = $state(undefined)
@@ -276,6 +279,7 @@
 		cloneHandlerDraft(noVariableExpirationHandler)
 	)
 	let initialVariableExpirationMutedOnUserPath: boolean = $state(false)
+	let initialVariableExpirationNotifyBeforeSecs: number = $state(defaultNotifyBeforeSecs)
 
 	let s3ResourceSettings: S3ResourceSettings = $state({
 		resourceType: 's3',
@@ -340,8 +344,12 @@
 	let variableExpirationHasHandler = $derived(!!handlerDraftToStored(variableExpirationDraft).path)
 
 	// The stored handler is nested because `hasUnsavedChanges` drops a top-level `path`.
-	function variableExpirationSettingsValue(draft: HandlerDraft, mutedOnUserPath: boolean) {
-		return { handler: handlerDraftToStored(draft), mutedOnUserPath }
+	function variableExpirationSettingsValue(
+		draft: HandlerDraft,
+		mutedOnUserPath: boolean,
+		notifyBeforeSecs: number
+	) {
+		return { handler: handlerDraftToStored(draft), mutedOnUserPath, notifyBeforeSecs }
 	}
 
 	let hasVariableExpirationChanges = $derived.by(() => {
@@ -349,9 +357,14 @@
 		return hasUnsavedChanges(
 			variableExpirationSettingsValue(
 				initialVariableExpirationDraft,
-				initialVariableExpirationMutedOnUserPath
+				initialVariableExpirationMutedOnUserPath,
+				initialVariableExpirationNotifyBeforeSecs
 			),
-			variableExpirationSettingsValue(variableExpirationDraft, variableExpirationMutedOnUserPath)
+			variableExpirationSettingsValue(
+				variableExpirationDraft,
+				variableExpirationMutedOnUserPath,
+				variableExpirationNotifyBeforeSecs
+			)
 		)
 	})
 
@@ -820,6 +833,8 @@
 			variableExpirationHandler?.extra_args
 		)
 		variableExpirationMutedOnUserPath = variableExpirationHandler?.muted_on_user_path ?? false
+		variableExpirationNotifyBeforeSecs =
+			variableExpirationHandler?.notify_before_secs ?? defaultNotifyBeforeSecs
 		workspaceDefaultAppPath = settings.default_app
 		initialWorkspaceDefaultAppPath = settings.default_app
 
@@ -874,6 +889,7 @@
 		// Store initial variable expiration handler state for unsaved changes detection
 		initialVariableExpirationDraft = cloneHandlerDraft(variableExpirationDraft)
 		initialVariableExpirationMutedOnUserPath = variableExpirationMutedOnUserPath
+		initialVariableExpirationNotifyBeforeSecs = variableExpirationNotifyBeforeSecs
 
 		loadedSettings = true
 	}
@@ -1063,7 +1079,8 @@
 			requestBody: {
 				path: handler.path ? `${handler.kind}/${handler.path}` : undefined,
 				extra_args: handler.args,
-				muted_on_user_path: variableExpirationMutedOnUserPath
+				muted_on_user_path: variableExpirationMutedOnUserPath,
+				notify_before_secs: variableExpirationNotifyBeforeSecs
 			}
 		})
 		sendUserToast(
@@ -1083,11 +1100,13 @@
 			{ emptySelected: variableExpirationDraft.selected }
 		)
 		initialVariableExpirationMutedOnUserPath = variableExpirationMutedOnUserPath
+		initialVariableExpirationNotifyBeforeSecs = variableExpirationNotifyBeforeSecs
 	}
 
 	function discardVariableExpirationChanges() {
 		variableExpirationDraft = cloneHandlerDraft(initialVariableExpirationDraft)
 		variableExpirationMutedOnUserPath = initialVariableExpirationMutedOnUserPath
+		variableExpirationNotifyBeforeSecs = initialVariableExpirationNotifyBeforeSecs
 	}
 
 	async function editSuccessHandler() {
@@ -1358,11 +1377,13 @@
 				return {
 					savedValue: variableExpirationSettingsValue(
 						initialVariableExpirationDraft,
-						initialVariableExpirationMutedOnUserPath
+						initialVariableExpirationMutedOnUserPath,
+						initialVariableExpirationNotifyBeforeSecs
 					),
 					modifiedValue: variableExpirationSettingsValue(
 						variableExpirationDraft,
-						variableExpirationMutedOnUserPath
+						variableExpirationMutedOnUserPath,
+						variableExpirationNotifyBeforeSecs
 					)
 				}
 			case 'critical_alerts':
@@ -2282,7 +2303,7 @@ export async function main(
 						{:else if tab == 'variable_expiration'}
 							<SettingsPageHeader
 								title="Variable expiration handler"
-								description="Run a script or flow an hour before the value of a workspace variable expires, so it can be rotated before it stops working."
+								description="Run a script or flow ahead of the date the value of a workspace variable expires, so it can be rotated before it stops working."
 								link="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
 							/>
 
@@ -2302,9 +2323,9 @@ export async function main(
 												path: 'f/variable_expiration_handler',
 												summary: 'Workspace Variable Expiration Handler',
 												description:
-													'Called an hour before the value of a variable in this workspace expires',
+													'Called ahead of the date the value of a variable in this workspace expires',
 												content: `// Workspace Variable Expiration Handler
-// Called an hour before the value of a variable in this workspace expires, and
+// Called ahead of the date the value of a variable in this workspace expires, and
 // again whenever that date is moved to a new one.
 //
 // The value itself is never passed in: job arguments and results are stored in
@@ -2346,6 +2367,16 @@ export async function main(
 												Select a handler first
 											{/snippet}
 										</Popover>
+										<div class="flex flex-col gap-1 mt-2">
+											<span class="text-xs font-semibold text-emphasis">Notify before expiry</span>
+											<span class="text-2xs text-hint">
+												How long before a variable's value expires the handler runs
+											</span>
+											<SecondsInput
+												bind:seconds={variableExpirationNotifyBeforeSecs}
+												disabled={!variableExpirationHasHandler}
+											/>
+										</div>
 									</SettingCard>
 
 									<Alert type="info" title="Runs as g/variable_expiration_handler">

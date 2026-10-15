@@ -115,6 +115,31 @@ async fn test_dispatch_within_lead_time_once(db: Pool<Postgres>) -> anyhow::Resu
     Ok(())
 }
 
+/// `notify_before_secs` on the handler replaces the default window.
+#[sqlx::test(fixtures("base"))]
+async fn test_notify_before_sets_the_window(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    seed_handler_script(&db, "u/test-user/expiry_handler").await?;
+    configure_handler(
+        &db,
+        r#"{"path": "script/u/test-user/expiry_handler", "notify_before_secs": 1200}"#,
+    )
+    .await?;
+
+    seed_variable(&db, "u/test-user/inside", "10 minutes").await?;
+    seed_variable(&db, "u/test-user/outside", "30 minutes").await?;
+
+    dispatch_expiring_variables(&db).await;
+
+    let paths: Vec<String> =
+        sqlx::query_scalar("SELECT args->>'variable_path' FROM v2_job WHERE runnable_path = $1")
+            .bind("u/test-user/expiry_handler")
+            .fetch_all(&db)
+            .await?;
+    assert_eq!(paths, vec!["u/test-user/inside".to_string()]);
+    Ok(())
+}
+
 /// Moving `value_expires_at` re-arms the variable; re-writing the same date does not.
 #[sqlx::test(fixtures("base"))]
 async fn test_rearm_on_date_change(db: Pool<Postgres>) -> anyhow::Result<()> {

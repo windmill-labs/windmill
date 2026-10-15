@@ -189,7 +189,7 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 },
                 "value_expires_at": {
                         "type": "string",
-                        "description": "When the value stored in this variable stops working. Triggers the workspace's variable expiration handler one hour before it is reached; never causes the variable to be deleted.\n",
+                        "description": "When the value stored in this variable stops working. Triggers the workspace's variable expiration handler ahead of it, by the handler's `notify_before_secs` (1 day by default); never causes the variable to be deleted.\n",
                         "format": "date-time"
                 },
                 "labels": {

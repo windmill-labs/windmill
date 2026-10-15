@@ -38,6 +38,7 @@ export interface VariableExpirationHandlerConfig {
   path?: string;
   extra_args?: any;
   muted_on_user_path?: boolean;
+  notify_before_secs?: number;
 }
 
 export interface SimplifiedSettings {

@@ -22,8 +22,9 @@ use windmill_common::DB;
 
 use crate::jobs::{push_variable_expiration_handler, ExpiringVariable};
 
-/// How far ahead of a variable's `value_expires_at` its handler runs.
-const VARIABLE_EXPIRATION_LEAD_TIME: &str = "1 hour";
+/// How far ahead of a variable's `value_expires_at` its handler runs when the handler setting
+/// has no `notify_before_secs`.
+const VARIABLE_EXPIRATION_DEFAULT_NOTIFY_BEFORE_SECS: i64 = 24 * 3600;
 
 /// Cap on variables dispatched per pass, so a large first-pass backlog is drained over
 /// several passes rather than enqueuing every handler job at once.
@@ -120,9 +121,10 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
            WHERE NOT w.deleted
              AND v.value_expires_at IS NOT NULL
              AND v.value_expires_at IS DISTINCT FROM v.expiration_dispatched_for
-             AND v.value_expires_at <= now() + ($1::text)::interval
+             AND v.value_expires_at <= now() + make_interval(secs =>
+                 COALESCE((ws.variable_expiration_handler->>'notify_before_secs')::bigint, $1))
              AND ws.variable_expiration_handler->>'path' IS NOT NULL"#,
-        VARIABLE_EXPIRATION_LEAD_TIME,
+        VARIABLE_EXPIRATION_DEFAULT_NOTIFY_BEFORE_SECS,
     )
     .fetch_all(db)
     .await;
@@ -184,13 +186,14 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
              AND v.workspace_id <> ALL($3)
              AND v.value_expires_at IS NOT NULL
              AND v.value_expires_at IS DISTINCT FROM v.expiration_dispatched_for
-             AND v.value_expires_at <= now() + ($1::text)::interval
+             AND v.value_expires_at <= now() + make_interval(secs =>
+                 COALESCE((ws.variable_expiration_handler->>'notify_before_secs')::bigint, $1))
              AND ws.variable_expiration_handler->>'path' IS NOT NULL
              AND (NOT COALESCE((ws.variable_expiration_handler->>'muted_on_user_path')::boolean, false)
                   OR v.path NOT LIKE 'u/%')
            ORDER BY v.value_expires_at
            LIMIT $2"#,
-        VARIABLE_EXPIRATION_LEAD_TIME,
+        VARIABLE_EXPIRATION_DEFAULT_NOTIFY_BEFORE_SECS,
         VARIABLE_EXPIRATION_MAX_PER_PASS,
         &cooling_down,
     )
