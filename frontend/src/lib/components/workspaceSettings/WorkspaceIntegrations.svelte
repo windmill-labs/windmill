@@ -329,25 +329,42 @@
 					<div class="border-t border-light pt-4 flex flex-col gap-1">
 						<div class="flex items-center justify-between gap-4">
 							<div class="flex flex-col gap-1">
-								<div class="text-xs font-semibold text-emphasis">OAuth app</div>
-								<div class="text-xs text-secondary">
+								<div class="text-xs font-semibold text-emphasis">
 									{#if workspaceApp}
-										This workspace's own {config.displayName} app.
+										Workspace OAuth app
 									{:else if usesInstanceApp}
-										Shared by your instance admin. Configure one to use your own
-										{config.displayName} app instead.
+										Shared by your instance admin
 									{:else}
-										None yet. Members can connect {config.displayName} accounts once one is configured.
+										No OAuth app yet
 									{/if}
 								</div>
+								<div class="text-xs text-secondary">
+									{#if workspaceApp}
+										Members connect through this workspace's own {config.displayName} app.
+									{:else if usesInstanceApp}
+										Members connect through the instance's {config.displayName} OAuth app.
+									{:else}
+										Members can connect {config.displayName} accounts once one is set up.
+									{/if}
+								</div>
+								{#if workspaceApp || usesInstanceApp}
+									<button
+										class="text-xs font-normal text-accent hover:underline w-fit"
+										onclick={() => openConfig(serviceName, usesInstanceApp)}
+									>
+										{workspaceApp ? 'Edit the OAuth app' : 'Use a workspace OAuth app instead'}
+									</button>
+								{/if}
 							</div>
-							<Button
-								unifiedSize="sm"
-								variant="default"
-								onclick={() => openConfig(serviceName, usesInstanceApp)}
-							>
-								Configure
-							</Button>
+							{#if !workspaceApp && !usesInstanceApp}
+								<Button
+									unifiedSize="sm"
+									variant="default"
+									onclick={() => openConfig(serviceName, false)}
+								>
+									Set up OAuth app
+								</Button>
+							{/if}
 						</div>
 						{#if usesInstanceApp && serviceName === 'google'}
 							<div class="text-2xs text-hint">
