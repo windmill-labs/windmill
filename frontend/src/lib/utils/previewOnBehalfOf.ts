@@ -1,10 +1,12 @@
-type ActingUser = { is_admin?: boolean; is_super_admin?: boolean; groups?: string[] } | undefined
+type ActingUser =
+	| { is_admin?: boolean; is_super_admin?: boolean; operator?: boolean; groups?: string[] }
+	| undefined
 
 /**
  * The identity an editor preview should run as: the runnable's configured run-as identity, so a
- * test behaves like the deployed run. Only admins and `wm_deployers` may preview as someone else
- * (the server refuses anyone else), and for them a save keeps that identity too; anyone else
- * previews as themselves, which is also what their own save would record.
+ * test behaves like the current deployed run. Only admins and `wm_deployers` may preview as
+ * someone else, and never operators (the server refuses everyone else); anyone else previews as
+ * themselves, which is also what their own save would record.
  */
 export function previewOnBehalfOf(
 	user: ActingUser,
@@ -12,7 +14,8 @@ export function previewOnBehalfOf(
 	onBehalfOfEmail?: string | null
 ): string | undefined {
 	const canPreserve =
-		!!user?.is_admin || !!user?.is_super_admin || !!user?.groups?.includes('wm_deployers')
+		!user?.operator &&
+		(!!user?.is_admin || !!user?.is_super_admin || !!user?.groups?.includes('wm_deployers'))
 	if (!canPreserve) return undefined
 	return onBehalfOf || onBehalfOfEmail || undefined
 }

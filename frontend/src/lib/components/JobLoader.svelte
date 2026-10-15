@@ -339,7 +339,7 @@
 		modules?: Record<string, import('$lib/gen').ScriptModule> | null,
 		tempScriptRefs?: Record<string, string>,
 		timeout?: number,
-		onBehalfOf?: string
+		previewAs?: { onBehalfOf?: string; viewerDataAccess?: boolean }
 	): Promise<string> {
 		return abstractRun(
 			() =>
@@ -357,7 +357,8 @@
 						flow_path: flowPath,
 						modules: modules ?? undefined,
 						temp_script_refs: tempScriptRefs,
-						on_behalf_of: onBehalfOf
+						on_behalf_of: previewAs?.onBehalfOf,
+						viewer_data_access: previewAs?.viewerDataAccess || undefined
 					}
 				}),
 			callbacks

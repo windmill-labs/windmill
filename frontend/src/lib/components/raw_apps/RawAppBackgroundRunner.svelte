@@ -159,7 +159,8 @@
 								)
 							: undefined,
 						force_viewer_delete_after_secs: editor ? runnable?.delete_after_secs : undefined,
-						on_behalf_of: editor ? previewOnBehalfOf : undefined
+						on_behalf_of: editor ? previewOnBehalfOf : undefined,
+						viewer_data_access: editor ? runnable?.viewer_data_access || undefined : undefined
 					},
 					undefined
 				)

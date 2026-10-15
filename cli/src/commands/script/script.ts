@@ -1617,32 +1617,27 @@ export async function pollForJobResult(
 
 /**
  * A server that predates preview `on_behalf_of` drops the field and runs the preview as the
- * caller, which would pass for a reproduction of the other identity's run. Refuse that instead.
+ * caller, which would pass for a reproduction of the other identity's run. Probe it with an
+ * `identity` preview, which runs no code, before submitting any.
  */
-export async function assertPreviewRunsAs(
+export async function ensurePreviewOnBehalfOfSupported(
   workspace: string,
-  jobId: string,
   onBehalfOf: string | undefined,
 ) {
   if (!onBehalfOf) return;
-  const job = await wmill.getJob({ workspace, id: jobId });
+  const probeId = await wmill.runScriptPreview({
+    workspace,
+    requestBody: { kind: "identity", args: {}, on_behalf_of: onBehalfOf },
+  });
+  const job = await wmill.getJob({ workspace, id: probeId });
   if (
     job.permissioned_as === onBehalfOf ||
     job.email?.toLowerCase() === onBehalfOf.toLowerCase()
   ) {
     return;
   }
-  try {
-    await wmill.cancelQueuedJob({
-      workspace,
-      id: jobId,
-      requestBody: { reason: "--on-behalf-of was not applied by the server" },
-    });
-  } catch {
-    // Already started or finished: it ran as the caller, which is reported below either way.
-  }
   throw new Error(
-    `The server ran preview ${jobId} as ${job.permissioned_as}, not ${onBehalfOf}: it does not support --on-behalf-of. Upgrade the Windmill instance.`
+    `The server does not support --on-behalf-of: it would run the preview as ${job.permissioned_as}, not ${onBehalfOf}. Upgrade the Windmill instance.`
   );
 }
 
@@ -1921,6 +1916,7 @@ async function preview(
   opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+  await ensurePreviewOnBehalfOfSupported(workspace.workspaceId, opts.onBehalfOf);
 
   const argPath = filePath;
   filePath = toSyncRootRelativePath(filePath, cwdBeforeConfig);
@@ -2125,7 +2121,6 @@ async function preview(
     }
 
     const jobId = await response.text();
-    await assertPreviewRunsAs(workspace.workspaceId, jobId, opts.onBehalfOf);
     if (!opts.silent) {
       await track_job(workspace.workspaceId, jobId);
     }
@@ -2164,7 +2159,6 @@ async function preview(
         on_behalf_of: opts.onBehalfOf,
       },
     });
-    await assertPreviewRunsAs(workspace.workspaceId, jobId, opts.onBehalfOf);
 
     const { result, success } = await pollForJobResult(workspace.workspaceId, jobId);
 

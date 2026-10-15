@@ -4292,6 +4292,9 @@ pub struct ExecuteApp {
     /// Preview mode only: run as this identity instead of the caller, as the deployed app
     /// would in publisher mode. See `jobs::preview_on_behalf_of`.
     pub on_behalf_of: Option<String>,
+    /// Preview mode only: the inline runnable's `viewer_data_access` policy setting, which run
+    /// mode reads from the deployed policy instead.
+    pub viewer_data_access: Option<bool>,
 }
 
 fn digest(code: &str) -> String {
@@ -4605,6 +4608,7 @@ async fn execute_component(
             force_viewer_allow_user_resources,
             force_viewer_sensitive_inputs,
             force_viewer_delete_after_secs,
+            viewer_data_access,
             ..
         } => (
             &Policy { stated_execution_mode: Some(ExecutionMode::Viewer), ..Default::default() },
@@ -4615,8 +4619,7 @@ async fn execute_component(
                 delete_after_secs: force_viewer_delete_after_secs,
                 sensitive_inputs: force_viewer_sensitive_inputs.unwrap_or_default(),
                 tag: None,
-                // A preview runs as the caller, whose roles these are either way.
-                viewer_data_access: false,
+                viewer_data_access: viewer_data_access.unwrap_or(false),
             },
             None,
         ),
@@ -4928,16 +4931,16 @@ async fn execute_component(
                 .await?;
         }
     }
-    // Identity is already resolved to the requesting user in preview mode (the
-    // policy is forced to `ExecutionMode::Viewer`, so the job runs as the
-    // caller). The enqueue stays root-isolated as before — switching the insert
-    // to user-RLS is not what contains the bypass (the auth guards above are)
-    // and would add unnecessary breakage risk to the legitimate editor flow.
+    // In preview mode the identity is the caller (the policy is forced to
+    // `ExecutionMode::Viewer`), or the gated `on_behalf_of` resolved above. The
+    // enqueue stays root-isolated — switching the insert to user-RLS is not what
+    // contains the bypass (the auth guards above are) and would add unnecessary
+    // breakage risk to the legitimate editor flow.
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
 
     // An app component runs on-behalf of the APP identity (resolved above), never
     // the referenced runnable's own `on_behalf_of` — else a Viewer-mode app could
-    // execute as that identity and a preview would run as it, not the caller.
+    // execute as that identity and a preview would run as it, not as the editor chose.
     // (Direct `/jobs/run` still honors a runnable's `on_behalf_of`.)
     let (email, permissioned_as) = (email.as_str(), permissioned_as);
 
@@ -4946,8 +4949,8 @@ async fn execute_component(
 
     // Stamp app-origination (trigger_kind='app' + trigger=<app path>), the signal
     // the deployed-app S3 provenance gate trusts (unforgeable via `/jobs/run`).
-    // Deployed runs only: a preview runs as the caller and is read back as the caller
-    // (viewer-scoped), so it must never be app-provenanced (else it could forge one).
+    // Deployed runs only: a preview runs request-supplied code and is read back as the
+    // caller (viewer-scoped), so it must never be app-provenanced (else it could forge one).
     let app_trigger =
         (!is_preview).then(|| TriggerMetadata::new(Some(path.to_string()), JobTriggerKind::App));
 

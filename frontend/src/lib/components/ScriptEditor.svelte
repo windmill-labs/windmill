@@ -998,7 +998,7 @@
 			onModule ? undefined : modules,
 			undefined,
 			timeout,
-			previewOnBehalfOf
+			{ onBehalfOf: previewOnBehalfOf }
 		)
 		if (job) {
 			onTestJob?.({ jobId: job })

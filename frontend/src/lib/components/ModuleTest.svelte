@@ -62,7 +62,8 @@
 
 	let previewBase = $derived($pathStore ?? '')
 	const operatingUser = useOperatingUser()
-	// A step runs as the flow does, so its test does too.
+	// A step runs as the flow does, so its test does too; a workspace script with its own
+	// `on_behalf_of` runs as that instead, in the flow as here.
 	let onBehalfOf = $derived(
 		previewOnBehalfOf(
 			operatingUser.current,
@@ -140,7 +141,7 @@
 				undefined,
 				devTempScriptRefs?.(),
 				timeout,
-				onBehalfOf
+				{ onBehalfOf }
 			)
 		} else if (val.type == 'script') {
 			const script = val.hash
@@ -159,7 +160,14 @@
 				undefined,
 				undefined,
 				timeout,
-				onBehalfOf
+				{
+					onBehalfOf:
+						previewOnBehalfOf(
+							operatingUser.current,
+							script.on_behalf_of,
+							script.on_behalf_of_email
+						) ?? onBehalfOf
+				}
 			)
 		} else if (val.type == 'flow') {
 			await jobLoader?.runFlowByPath(val.path, args, callbacks)

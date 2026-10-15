@@ -19,7 +19,7 @@ import {
   toSyncRootRelativePath,
   validatePath,
 } from "../../core/context.ts";
-import { resolve, track_job, pollForJobResult, assertPreviewRunsAs } from "../script/script.ts";
+import { resolve, track_job, pollForJobResult, ensurePreviewOnBehalfOfSupported } from "../script/script.ts";
 import { defaultFlowDefinition } from "../../../bootstrap/flow_bootstrap.ts";
 import {
   SyncOptions,
@@ -654,6 +654,7 @@ async function preview(
   }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+  await ensurePreviewOnBehalfOfSupported(workspace.workspaceId, opts.onBehalfOf);
   const codebases = useLocalPathScripts ? listSyncCodebases(opts) : [];
 
   const argPath = flowPath;
@@ -779,7 +780,6 @@ async function preview(
       on_behalf_of: opts.onBehalfOf,
     },
   });
-  await assertPreviewRunsAs(workspace.workspaceId, jobId, opts.onBehalfOf);
 
   const { result, success } = await pollForJobResult(workspace.workspaceId, jobId);
 
@@ -894,7 +894,6 @@ async function previewStep(
       `Cannot preview step of type '${moduleValue?.type ?? "unknown"}'. Supported types: rawscript, script, flow.`
     );
   }
-  await assertPreviewRunsAs(workspace.workspaceId, jobId, onBehalfOf);
 
   const { result, success } = await pollForJobResult(workspace.workspaceId, jobId);
 

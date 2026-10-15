@@ -6741,6 +6741,9 @@ struct Preview {
     /// Run the preview as this identity (an email or a `u/`/`g/` principal) instead of the
     /// caller. See `preview_on_behalf_of`.
     on_behalf_of: Option<String>,
+    /// Data table and object storage access as the caller rather than as the job's identity,
+    /// as a full-code app's inline runnable flagged `viewer_data_access` does for its viewer.
+    viewer_data_access: Option<bool>,
 }
 
 #[cfg(feature = "run_inline")]
@@ -9068,6 +9071,7 @@ async fn run_preview_script(
     let (email, permissioned_as, push_authed, tx) =
         preview_push_identity(&authed, &user_db, &db, obo.as_ref());
     let audited_path = preview.path.clone();
+    let viewer_data_access = preview.viewer_data_access.unwrap_or(false);
 
     let preview_args = preview.args.unwrap_or_default();
     let mut extra = HashMap::new();
@@ -9143,6 +9147,14 @@ async fn run_preview_script(
     if let Some(obo) = obo.as_ref() {
         audit_preview_on_behalf_of(&mut tx, &authed, &w_id, uuid, audited_path.as_deref(), obo)
             .await?;
+    }
+    if viewer_data_access {
+        sqlx::query!(
+            "UPDATE job_perms SET viewer_data_access = true WHERE job_id = $1",
+            uuid
+        )
+        .execute(&mut *tx)
+        .await?;
     }
     tx.commit().await?;
 
