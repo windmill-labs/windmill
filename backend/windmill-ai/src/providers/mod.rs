@@ -30,6 +30,11 @@ pub fn effective_reasoning_effort<'a>(model: &str, effort: Option<&'a str>) -> O
     }
 }
 
+/// Whether Chat Completions refuses function tools while this model reasons.
+pub(crate) fn completions_rejects_tools_with_reasoning(model: &str) -> bool {
+    reasoning_rule(model).is_some_and(|rule| rule.completions_tools_need_off)
+}
+
 /// Whether a request with function tools must send the off sentinel on Chat Completions:
 /// the model refuses tools there while it reasons, and does accept being turned off.
 pub(crate) fn completions_tools_need_reasoning_off(model: &str) -> bool {
@@ -208,6 +213,12 @@ pub fn create_query_builder(
         AIProvider::AzureFoundry if AIProvider::is_anthropic_model(model) => Box::new(
             AnthropicQueryBuilder::new(AIProvider::AzureFoundry, AIPlatform::Standard),
         ),
+        // Foundry serves its OpenAI models on `/openai/v1/responses` too. `/chat/completions`
+        // takes function tools from these only with reasoning off, which gpt-6.1-sol and
+        // gpt-6-astra cannot do at all.
+        AIProvider::AzureFoundry if completions_rejects_tools_with_reasoning(model) => {
+            Box::new(OpenAIQueryBuilder::new(AIProvider::AzureFoundry))
+        }
         // Only for forwarding through the API proxy, which is bearer auth on `<base>/<path>` as
         // TypeSafe and Cloudflare expect. Neither serves a chat route for its decision models, and
         // `run_agent` refuses both before a chat request could be built.
@@ -407,6 +418,12 @@ mod parity_tests {
                 "https://example.services.ai.azure.com",
                 "claude-sonnet-5",
                 "v1/messages",
+            ),
+            case(
+                AIProvider::AzureFoundry,
+                "https://example.services.ai.azure.com",
+                "gpt-6.1-sol",
+                "responses",
             ),
             case(
                 AIProvider::AzureOpenAI,
