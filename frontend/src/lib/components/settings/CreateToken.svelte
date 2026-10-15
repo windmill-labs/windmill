@@ -49,10 +49,10 @@
 	let newToken = $state<string | undefined>(undefined)
 	let newMcpToken = $state<string | undefined>(undefined)
 	let newMcpTokenUrl = $state('')
-	// Which MCP server the URL is for: the tools server (your scripts and flows as tools) or the
-	// workspace server (the AI chat's toolset), which takes `mcp:all` and nothing narrower.
-	let mcpServer = $state<'tools' | 'build'>('tools')
-	const BUILD_SCOPES = ['mcp:all']
+	// Which MCP server the URL is for: v2 (the AI chat's toolset), which takes `mcp:all` and
+	// nothing narrower, or v1 (a selection of scripts and flows, each as its own tool).
+	let mcpServer = $state<'v1' | 'v2'>('v2')
+	const V2_SCOPES = ['mcp:all']
 	// What the user picked; `newTokenExpiration` is that pick held within the ceiling.
 	let pickedExpiration = $state<number | undefined>(undefined)
 	let newTokenWorkspace = $state<string | undefined>(untrack(() => defaultNewTokenWorkspace))
@@ -177,7 +177,7 @@
 			}
 
 			const pickedOrFixed =
-				scopes ?? (mcpMode && mcpServer === 'build' ? BUILD_SCOPES : pickedScopes) ?? undefined
+				scopes ?? (mcpMode && mcpServer === 'v2' ? V2_SCOPES : pickedScopes) ?? undefined
 			const tokenScopes =
 				pickedOrFixed && workspacesScope ? [...pickedOrFixed, workspacesScope] : pickedOrFixed
 
@@ -269,11 +269,11 @@
 				? `${window.location.origin}/api/mcp/gateway`
 				: undefined
 	)
-	// The workspace server (the AI-session toolset) has one URL: its tools name their workspace.
-	const mcpWorkspaceUrl = $derived(
-		mcpReachesWorkspaces ? `${window.location.origin}/api/mcp/windmill` : undefined
+	// v2 has one URL: its tools name their workspace.
+	const mcpV2Url = $derived(
+		mcpReachesWorkspaces ? `${window.location.origin}/api/mcp/v2` : undefined
 	)
-	const chosenMcpUrl = $derived(mcpServer === 'build' ? mcpWorkspaceUrl : mcpUrl)
+	const chosenMcpUrl = $derived(mcpServer === 'v2' ? mcpV2Url : mcpUrl)
 
 	$effect(() => {
 		const requestedMcpMode = mcpOnly || openWithMcpMode
@@ -302,16 +302,16 @@
 	     ("2 of 2") inside a named group. -->
 	<div class="mb-4 flex flex-col gap-2" role="radiogroup" aria-label="What the client does">
 		<RadioCard
-			label="Use your scripts and flows"
-			description="Your scripts, flows and the Windmill API as tools, to run your automations from a chat."
-			selected={mcpServer === 'tools'}
-			onSelect={() => (mcpServer = 'tools')}
+			label="Windmill MCP v2"
+			description="The AI chat's toolset on your whole workspace: explore it, run scripts and flows, and write, test and deploy drafts."
+			selected={mcpServer === 'v2'}
+			onSelect={() => (mcpServer = 'v2')}
 		/>
 		<RadioCard
-			label="Build in Windmill"
-			description="The AI chat's toolset: the assistant writes scripts, flows and apps as drafts, tests them and deploys them."
-			selected={mcpServer === 'build'}
-			onSelect={() => (mcpServer = 'build')}
+			label="Selected scripts and flows (v1)"
+			description="Pick which scripts, flows and API calls a client can use. Each becomes its own tool."
+			selected={mcpServer === 'v1'}
+			onSelect={() => (mcpServer = 'v1')}
 		/>
 	</div>
 {/snippet}
@@ -388,7 +388,7 @@
 
 			{#if chosenMcpUrl}
 				<CopyableCodeBlock code={chosenMcpUrl} language={shell} wrap />
-				{#if mcpServer === 'build'}
+				{#if mcpServer === 'v2'}
 					<p class="mt-1 text-xs text-secondary">
 						When your client signs in, pick the workspaces it may work in and the "All
 						scripts/flows" scope.
@@ -414,14 +414,14 @@
 			{#if mcpCreationMode}
 				{@render mcpServerChoice()}
 			{/if}
-			{#if mcpCreationMode && mcpServer === 'build'}
+			{#if mcpCreationMode && mcpServer === 'v2'}
 				<div class="mb-4 text-tertiary">
 					<Toggle
 						bind:checked={readOnly}
 						options={{
 							right: 'Read-only',
 							rightTooltip:
-								'The assistant can read the workspace, its runs and its drafts, but cannot write, run or deploy anything.'
+								'The client can explore the workspace, its runs and its drafts, but cannot write, run or deploy anything.'
 						}}
 						size="2xs"
 					/>
@@ -446,7 +446,7 @@
 				</div>
 			{/if}
 
-			{#if (!scopes || scopes.length === 0) && !(mcpCreationMode && mcpServer === 'build')}
+			{#if (!scopes || scopes.length === 0) && !(mcpCreationMode && mcpServer === 'v2')}
 				<ScopesPicker
 					mode={mcpCreationMode ? 'mcp' : 'standard'}
 					workspaceId={scopeWorkspaceId}
@@ -508,7 +508,7 @@
 				<Button
 					on:click={() => createToken(mcpCreationMode)}
 					disabled={mcpCreationMode &&
-						(!mcpReachesWorkspaces || (mcpServer === 'tools' && !pickedScopes))}
+						(!mcpReachesWorkspaces || (mcpServer === 'v1' && !pickedScopes))}
 					variant="accent"
 				>
 					{mcpCreationMode ? 'Generate MCP URL' : 'New token'}

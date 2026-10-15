@@ -603,7 +603,7 @@ pub async fn run_server(
                 .layer(axum::middleware::from_fn(
                     add_www_authenticate_header_gateway,
                 ))
-                .layer(Extension(mcp::McpEndpoint("windmill")));
+                .layer(Extension(mcp::McpEndpoint("v2")));
             (
                 workspaced_mcp_router,
                 gateway_mcp_router,
@@ -949,10 +949,7 @@ pub async fn run_server(
                     mcp_router.clone().layer(mcp_cors.clone()),
                 )
                 .nest("/mcp/gateway", gateway_mcp_router.layer(mcp_cors.clone()))
-                .nest(
-                    "/mcp/windmill",
-                    gateway_session_router.layer(mcp_cors.clone()),
-                )
+                .nest("/mcp/v2", gateway_session_router.layer(mcp_cors.clone()))
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
                     {
@@ -1190,7 +1187,7 @@ pub async fn run_server(
                 get(|| async { axum::http::StatusCode::NOT_FOUND })
             }
         })
-        .route("/.well-known/oauth-protected-resource/api/mcp/windmill", {
+        .route("/.well-known/oauth-protected-resource/api/mcp/v2", {
             #[cfg(feature = "mcp")]
             {
                 get(mcp::oauth_server::gateway_session_protected_resource_metadata)

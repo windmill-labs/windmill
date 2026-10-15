@@ -1,4 +1,4 @@
-//! The "Windmill workspace" MCP server's tools: an AI session's toolset, for a client
+//! Windmill MCP v2's tools: an AI session's toolset, for a client
 //! outside the Windmill UI.
 //!
 //! Everything a model reads here — tool names, descriptions, input schemas, the

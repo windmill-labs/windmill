@@ -1,5 +1,5 @@
 /**
- * Generates what the "Windmill workspace" MCP server (backend/windmill-api/src/mcp/session)
+ * Generates what Windmill MCP v2 (backend/windmill-api/src/mcp/session)
  * shows a model, from the same definitions an AI session uses: tool names, descriptions and
  * input schemas, the system prompt, and the `get_instructions` texts. The server implements
  * the tools in Rust; everything the model reads comes from here, so the two cannot drift

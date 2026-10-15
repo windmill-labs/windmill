@@ -1,6 +1,6 @@
-//! The "Windmill workspace" MCP server: an AI session's toolset and guidance for an
-//! external client, served beside the tools server (`Runner`) on its own URL so a
-//! client that only wants to run a script does not load builder guidance.
+//! Windmill MCP v2 (`/api/mcp/v2`): an AI session's toolset and guidance for an external
+//! client, served beside the v1 tools server (`Runner`), which stays for tokens scoped to
+//! a selection of scripts and flows.
 //!
 //! Every tool takes the workspace it acts in, whether the token reaches one workspace or
 //! several, so a client's tool schemas do not change with the token it signed in with.
@@ -168,8 +168,8 @@ impl<B: McpBackend> SessionRunner<B> {
 impl<B: McpBackend> ServerHandler for SessionRunner<B> {
     /// Without instructions: those are built per caller, in `initialize` and `discover`.
     fn get_info(&self) -> ServerInfo {
-        let server_info = Implementation::new("windmill-workspace", env!("CARGO_PKG_VERSION"))
-            .with_title("Windmill workspace")
+        let server_info = Implementation::new("windmill-v2", env!("CARGO_PKG_VERSION"))
+            .with_title("Windmill MCP v2")
             .with_website_url("https://windmill.dev");
         InitializeResult::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(server_info)

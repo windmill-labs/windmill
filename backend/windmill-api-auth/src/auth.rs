@@ -1192,7 +1192,7 @@ pub async fn resolve_opt_job_authed(
                     // could approve an OAuth flow that mints a new non-read-only
                     // token.
                     let is_mcp_transport = path == "/api/mcp/gateway"
-                        || path == "/api/mcp/windmill"
+                        || path == "/api/mcp/v2"
                         || (path.starts_with("/api/mcp/w/")
                             && (path.ends_with("/mcp")
                                 || path.ends_with("/sse")
