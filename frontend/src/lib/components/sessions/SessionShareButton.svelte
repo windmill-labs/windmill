@@ -133,11 +133,14 @@
 	triggerAttrs={{ 'aria-label': 'Share session', 'aria-haspopup': 'dialog' }}
 >
 	{#snippet trigger()}
+		<!-- Icon only, like the session menu beside it: tinted once a link exists. -->
 		<Button
-			unifiedSize="sm"
+			unifiedSize="xs"
 			variant="subtle"
+			iconOnly
 			nonCaptureEvent
 			disabled={!workspace || messageCount === 0}
+			btnClasses={share ? '!text-accent' : 'text-tertiary'}
 			startIcon={{ icon: share ? (share.is_public ? Globe : Link) : Share2 }}
 			title={!workspace || messageCount === 0
 				? 'Send a first message to share this session'
@@ -146,9 +149,7 @@
 						? 'Shared publicly'
 						: 'Shared with the workspace'
 					: 'Share session'}
-		>
-			{share ? 'Shared' : 'Share'}
-		</Button>
+		/>
 	{/snippet}
 	{#snippet content()}
 		<div class="flex w-80 flex-col gap-3 p-3 text-xs">
