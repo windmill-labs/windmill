@@ -346,11 +346,12 @@
 					{/if}
 
 					{#if workspaceApp || usesInstanceApp}
-						<div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex flex-col gap-1">
+						<div
+							class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex flex-col gap-1"
+						>
 							<div class="text-xs font-semibold text-emphasis">Workspace connection</div>
 							<div class="text-xs text-secondary mb-1">
 								Members can create triggers that act as this account, without access to its token.
-								Only an account you connected yourself can be shared.
 							</div>
 							<NativeConnectionPicker
 								service={serviceName as NativeServiceName}
