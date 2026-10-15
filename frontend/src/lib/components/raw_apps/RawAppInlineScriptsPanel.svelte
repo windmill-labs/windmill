@@ -10,6 +10,7 @@
 		runnables: Record<string, Runnable>
 		selectedRunnable: string | undefined
 		appPath: string
+		previewOnBehalfOf?: string
 		/** Called when code is selected in the editor */
 		onSelectionChange?: (
 			selection: {
@@ -26,6 +27,7 @@
 		runnables = $bindable(),
 		selectedRunnable = $bindable(),
 		appPath,
+		previewOnBehalfOf,
 		onSelectionChange
 	}: Props = $props()
 </script>
@@ -39,6 +41,7 @@
 		<RawAppInlineScripRunnable
 			{appPath}
 			{runnables}
+			{previewOnBehalfOf}
 			on:createScriptFromInlineScript={(e) => {
 				createScriptFromInlineScript(selectedRunnable ?? '', e.detail, opWs ?? '', appPath)
 			}}

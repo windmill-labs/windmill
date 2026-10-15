@@ -1615,6 +1615,32 @@ export async function pollForJobResult(
   return await pollJobWithQueueLogging(workspace, jobId);
 }
 
+/**
+ * A server that predates preview `on_behalf_of` drops the field and runs the preview as the
+ * caller, which would pass for a reproduction of the other identity's run. Probe it with an
+ * `identity` preview, which runs no code, before submitting any.
+ */
+export async function ensurePreviewOnBehalfOfSupported(
+  workspace: string,
+  onBehalfOf: string | undefined,
+) {
+  if (!onBehalfOf) return;
+  const probeId = await wmill.runScriptPreview({
+    workspace,
+    requestBody: { kind: "identity", args: {}, on_behalf_of: onBehalfOf },
+  });
+  const job = await wmill.getJob({ workspace, id: probeId });
+  if (
+    job.permissioned_as === onBehalfOf ||
+    job.email?.toLowerCase() === onBehalfOf.toLowerCase()
+  ) {
+    return;
+  }
+  throw new Error(
+    `The server does not support --on-behalf-of: it would run the preview as ${job.permissioned_as}, not ${onBehalfOf}. Upgrade the Windmill instance.`
+  );
+}
+
 async function show(opts: GlobalOptions, path: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
@@ -1878,6 +1904,7 @@ async function preview(
     data?: string;
     silent: boolean;
     tag?: string;
+    onBehalfOf?: string;
   } & SyncOptions,
   filePath: string
 ) {
@@ -1889,6 +1916,7 @@ async function preview(
   opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+  await ensurePreviewOnBehalfOfSupported(workspace.workspaceId, opts.onBehalfOf);
 
   const argPath = filePath;
   filePath = toSyncRootRelativePath(filePath, cwdBeforeConfig);
@@ -2058,6 +2086,7 @@ async function preview(
       kind: isTar ? "tarbundle" : "bundle",
       format: codebase?.format ?? "cjs",
       temp_script_refs: tempScriptRefs,
+      on_behalf_of: opts.onBehalfOf,
     };
     form.append("preview", JSON.stringify(previewPayload));
     form.append(
@@ -2127,6 +2156,7 @@ async function preview(
         tag: opts.tag,
         modules: modules ?? undefined,
         temp_script_refs: tempScriptRefs,
+        on_behalf_of: opts.onBehalfOf,
       },
     });
 
@@ -2276,6 +2306,10 @@ const command = new Command()
   .option(
     "--tag <tag:string>",
     "Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the script's default tag)."
+  )
+  .option(
+    "--on-behalf-of <identity:string>",
+    "Run the preview as this user or group (an email, u/<username> or g/<group>) instead of yourself, e.g. to reproduce a run_on_behalf_of identity. Requires being an admin or a member of wm_deployers."
   )
   .action(preview as any)
   .command("new", "create a new script")

@@ -53,6 +53,7 @@
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas, userStore } from '$lib/stores'
 	import { useActingUser } from '$lib/actingUser.svelte'
+	import { appPreviewOnBehalfOf } from '$lib/utils/previewOnBehalfOf'
 	import RawAppSdkConsent from './RawAppSdkConsent.svelte'
 	import {
 		hasStoredSdkConsent,
@@ -260,6 +261,7 @@
 	// Everything under the editor acts on it too (see operatingWorkspace.svelte.ts).
 	setOperatingWorkspace(() => opWorkspace)
 	const operatingUser = useActingUser(() => opWorkspace)
+	let previewOnBehalfOf = $derived(appPreviewOnBehalfOf(operatingUser.current, policy))
 
 	// The path autosaves land on, which is what the session preview loads the app by.
 	const draftStoragePath = $derived(autosavePath ?? liveEditorDraftStoragePath)
@@ -2599,6 +2601,7 @@ addEventListener('message', function (e) {
 	bind:jobsById
 	{runnables}
 	{path}
+	{previewOnBehalfOf}
 	gateJobIds={sandboxed}
 	extraSourceWindow={() => externalPreviewWindow}
 />
@@ -2806,6 +2809,7 @@ addEventListener('message', function (e) {
 											{#if selectedRunnable !== undefined}
 												<RawAppInlineScriptsPanel
 													appPath={path}
+													{previewOnBehalfOf}
 													{selectedRunnable}
 													bind:runnables
 													onSelectionChange={(selection) => {

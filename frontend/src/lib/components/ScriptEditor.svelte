@@ -139,6 +139,8 @@
 		code: string
 		path: string | undefined
 		lang: Preview['language']
+		/** Identity the test runs as instead of the user (see `previewOnBehalfOf`). */
+		previewOnBehalfOf?: string
 		kind?: string | undefined
 		autoKind?: string | undefined
 		template?:
@@ -240,6 +242,7 @@
 		code = $bindable(),
 		path,
 		lang,
+		previewOnBehalfOf,
 		kind = undefined,
 		autoKind = undefined,
 		template = 'script',
@@ -994,7 +997,8 @@
 			// A `__mod` helper is tested alone, so its siblings are left out.
 			onModule ? undefined : modules,
 			undefined,
-			timeout
+			timeout,
+			{ onBehalfOf: previewOnBehalfOf }
 		)
 		if (job) {
 			onTestJob?.({ jobId: job })
