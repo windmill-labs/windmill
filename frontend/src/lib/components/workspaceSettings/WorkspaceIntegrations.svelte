@@ -326,7 +326,7 @@
 						{/if}
 					</div>
 
-					<div class="border-t border-light pt-4 flex flex-col gap-1">
+					<div class="border-t border-light pt-4 flex flex-col gap-4">
 						<div class="flex items-center justify-between gap-4">
 							<div class="flex flex-col gap-1">
 								<div class="text-xs font-semibold text-emphasis">
@@ -338,87 +338,78 @@
 										No OAuth app yet
 									{/if}
 								</div>
-								<div class="text-xs text-secondary">
-									{#if workspaceApp}
-										Members connect through this workspace's own {config.displayName} app.
-									{:else if usesInstanceApp}
-										Members connect through the instance's {config.displayName} OAuth app.
-									{:else}
-										Members can connect {config.displayName} accounts once one is set up.
-									{/if}
-								</div>
-								{#if workspaceApp || usesInstanceApp}
+								{#if usesInstanceApp}
 									<button
 										class="text-xs font-normal text-accent hover:underline w-fit"
-										onclick={() => openConfig(serviceName, usesInstanceApp)}
+										onclick={() => openConfig(serviceName, true)}
 									>
-										{workspaceApp ? 'Edit the OAuth app' : 'Use a workspace OAuth app instead'}
+										Use a workspace OAuth app instead
 									</button>
 								{/if}
 							</div>
-							{#if !workspaceApp && !usesInstanceApp}
-								<Button
-									unifiedSize="sm"
-									variant="default"
-									onclick={() => openConfig(serviceName, false)}
-								>
-									Set up OAuth app
-								</Button>
-							{/if}
-						</div>
-						{#if usesInstanceApp && serviceName === 'google'}
-							<div class="text-2xs text-hint">
-								The instance app must list this redirect URI in the
-								<a
-									href="https://console.cloud.google.com/apis/credentials"
-									target="_blank"
-									rel="noopener noreferrer"
-									class="underline">Google Cloud Console</a
-								>
+							<div class="flex items-center gap-2 shrink-0">
+								{#if workspaceApp}
+									<Button
+										unifiedSize="sm"
+										variant="default"
+										onclick={() => openConfig(serviceName, false)}
+									>
+										Edit
+									</Button>
+									<Button
+										unifiedSize="sm"
+										variant="default"
+										destructive
+										onclick={() => deleteIntegration(serviceName)}
+									>
+										Remove
+									</Button>
+								{:else if !usesInstanceApp}
+									<Button
+										unifiedSize="sm"
+										variant="default"
+										onclick={() => openConfig(serviceName, false)}
+									>
+										Set up OAuth app
+									</Button>
+								{/if}
 							</div>
-							<ClipboardPanel content={nativeOAuthRedirectUri('google')} size="sm" />
+						</div>
+
+						{#if usesInstanceApp && serviceName === 'google'}
+							<div class="flex flex-col gap-1">
+								<div class="text-2xs text-hint">
+									The instance app must list this redirect URI in the
+									<a
+										href="https://console.cloud.google.com/apis/credentials"
+										target="_blank"
+										rel="noopener noreferrer"
+										class="underline">Google Cloud Console</a
+									>
+								</div>
+								<ClipboardPanel content={nativeOAuthRedirectUri('google')} size="sm" />
+							</div>
+						{/if}
+
+						{#if workspaceApp || usesInstanceApp}
+							<div class="flex flex-col gap-1">
+								<div class="text-xs font-semibold text-emphasis">Workspace connection</div>
+								<div class="text-xs text-secondary">
+									Members can create triggers as this account without seeing its token.
+								</div>
+								<NativeConnectionPicker
+									service={serviceName as NativeServiceName}
+									value={workspaceConnection}
+									autoSelect={false}
+									clearable
+									labelWorkspace={false}
+									placeholder="No workspace connection"
+									onSelect={(path) => setWorkspaceConnection(serviceName, path)}
+									onConnectionsChange={() => loadConnections(serviceName)}
+								/>
+							</div>
 						{/if}
 					</div>
-
-					{#if workspaceApp || usesInstanceApp}
-						<div class="border-t border-light pt-4 flex flex-col gap-1">
-							<div class="text-xs font-semibold text-emphasis">Workspace connection</div>
-							<div class="text-xs text-secondary">
-								Members can create triggers that act as this account, without access to its token.
-							</div>
-							<NativeConnectionPicker
-								service={serviceName as NativeServiceName}
-								value={workspaceConnection}
-								autoSelect={false}
-								clearable
-								labelWorkspace={false}
-								placeholder="No workspace connection"
-								onSelect={(path) => setWorkspaceConnection(serviceName, path)}
-								onConnectionsChange={() => loadConnections(serviceName)}
-							/>
-						</div>
-					{/if}
-
-					{#if workspaceApp}
-						<div class="border-t border-light pt-4 flex items-center justify-between gap-4">
-							<div class="flex flex-col gap-1">
-								<div class="text-xs font-semibold text-emphasis">
-									Remove {config.displayName} from this workspace
-								</div>
-								<div class="text-xs text-secondary">
-									Deletes the OAuth app, every connected account and all {config.displayName} triggers.
-								</div>
-							</div>
-							<Button
-								unifiedSize="sm"
-								variant="default"
-								destructive
-								onclick={() => deleteIntegration(serviceName)}
-							>
-								Remove
-							</Button>
-						</div>
-					{/if}
 
 					<OAuthClientConfig
 						bind:open={configOpen[serviceName]}
