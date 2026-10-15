@@ -1502,8 +1502,9 @@ async fn get_public_app_by_secret(
 /// - `users:read`    → `users/whoami` only.
 /// - `folders:read`  → `folders/listnames` only.
 /// Plus two path-scoped scopes minted per app (see `mint_app_embed_token`):
-/// - `apps:read:<path>` → the app's own definition (`apps/get/p/<path>`); no
-///                      `apps:write`, so management routes are unreachable.
+/// - `apps:read:<path>` → the app's own definition (`apps/get/p/<path>` and
+///                      `apps/get/lite/<path>`); no `apps:write`, so management
+///                      routes are unreachable.
 /// - `apps:run:<path>`  → run THIS app's components (`execute_component`, which
 ///                      re-checks the path); `apps_u/*` public-serving routes.
 pub const APP_EMBED_SCOPES: [&str; 5] = [
