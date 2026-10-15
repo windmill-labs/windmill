@@ -57,8 +57,16 @@
 		}
 	})
 
+	const baseUrlValid = $derived.by(() => {
+		try {
+			return ['http:', 'https:'].includes(new URL(baseUrl.trim()).protocol)
+		} catch {
+			return false
+		}
+	})
+
 	const canSave = $derived(
-		!saving && !!clientId.trim() && !!clientSecret.trim() && (!requiresBaseUrl || !!baseUrl.trim())
+		!saving && !!clientId.trim() && !!clientSecret.trim() && (!requiresBaseUrl || baseUrlValid)
 	)
 
 	async function save() {
@@ -104,9 +112,13 @@
 				<div class="text-xs text-secondary">The address of your {serviceDisplayName} server</div>
 				<TextInput
 					bind:value={baseUrl}
+					error={!!baseUrl.trim() && !baseUrlValid}
 					inputProps={{ type: 'url', placeholder: baseUrlPlaceholder, disabled: saving }}
 				/>
-				{#if baseUrl && baseUrlSettingsPath}
+				{#if baseUrl.trim() && !baseUrlValid}
+					<div class="text-2xs text-red-500">Enter a full address, starting with https://</div>
+				{/if}
+				{#if baseUrlValid && baseUrlSettingsPath}
 					<div class="flex">
 						<Button
 							unifiedSize="sm"

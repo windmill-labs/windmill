@@ -118,16 +118,14 @@
 			{#if eventsError}
 				<div class="break-words">Could not load the available events: {eventsError}</div>
 			{:else}
-				<div
-					>No events available. Please ensure your workspace has a connected Nextcloud integration.</div
-				>
+				<div>No events available. Check that the selected Nextcloud account can reach the server.</div>
 			{/if}
 			<div class="flex gap-2">
 				<Button variant="default" on:click={loadAvailableEvents} {disabled}>
 					Retry loading events
 				</Button>
-				<Button variant="subtle" href="/workspace_settings?tab=integrations" target="_blank">
-					Manage integrations
+				<Button variant="subtle" href="/workspace_settings?tab=native_triggers" target="_blank">
+					Native trigger settings
 				</Button>
 			</div>
 		</div>
@@ -142,8 +140,7 @@
 		/>
 	{:else}
 		<div class="text-secondary text-xs">
-			Please ensure Nextcloud workspace integration is connected to load available configuration
-			options.
+			Select a Nextcloud account to load the available configuration options.
 		</div>
 	{/if}
 </Section>

@@ -110,7 +110,7 @@
 			serviceAvailable = await isServiceAvailable(serviceName, $workspaceStore)
 			if (!serviceAvailable) {
 				sendUserToast(
-					`${serviceName} integration not available, set it in the workspace settings`,
+					`${serviceConfig.serviceDisplayName} isn't configured in this workspace`,
 					true
 				)
 			}
@@ -145,7 +145,10 @@
 		}
 
 		if (!serviceAvailable) {
-			sendUserToast('Cannot sync triggers: workspace integration not connected', true)
+			sendUserToast(
+				`Cannot sync: ${serviceConfig.serviceDisplayName} isn't configured in this workspace`,
+				true
+			)
 			return
 		}
 
@@ -159,17 +162,7 @@
 			loadTriggers()
 		} catch (err: any) {
 			const errorMessage = err.body || err.message
-			if (
-				errorMessage.includes('workspace integration') ||
-				errorMessage.includes('not connected')
-			) {
-				sendUserToast(
-					`Cannot sync: ${serviceConfig.serviceDisplayName} workspace integration not connected. Please connect it in workspace settings.`,
-					true
-				)
-			} else {
-				sendUserToast(`Failed to sync triggers: ${errorMessage}`, true)
-			}
+			sendUserToast(`Failed to sync triggers: ${errorMessage}`, true)
 		}
 	}
 
@@ -237,8 +230,7 @@
 				type="warning"
 			>
 				<div class="flex flex-col gap-2 mt-2">
-					The workspace doesn't have a {serviceConfig?.serviceDisplayName || serviceName} integration
-					connected
+					{serviceConfig?.serviceDisplayName || serviceName} isn't configured in this workspace yet.
 					<div class="flex gap-2">
 						<Button variant="accent" href="/workspace_settings?tab=native_triggers">
 							Manage native triggers
