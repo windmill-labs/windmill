@@ -45,7 +45,9 @@ mkdir -p ../target/debug/
 # Install through a rename rather than writing over the destination: a running worker
 # has the cdylib mapped, and rewriting those pages under it kills the process with
 # SIGBUS. A rename swaps the directory entry and leaves the old inode alone.
-for artifact in "$CARGO_TARGET_DIR/release/"libwindmill_duckdb_ffi_internal.*; do
+for artifact in "$CARGO_TARGET_DIR/release/"libwindmill_duckdb_ffi_internal.{so,dylib} \
+  "$CARGO_TARGET_DIR/release/windmill_duckdb_runner"; do
+  [ -e "$artifact" ] || continue
   dest="../target/debug/$(basename "$artifact")"
   cp "$artifact" "$dest.tmp"
   mv -f "$dest.tmp" "$dest"

@@ -1,0 +1,12 @@
+select_1: inproc: 25.0/26.0ms ok=30 | proc: 32.0/33.0ms ok=30 | jail: 38.0/39.55ms ok=30 | nofence: 25.0/27.0ms ok=30
+httpfs_parquet_count: inproc: 275.0/322.75ms ok=10 | proc: 289.5/378.9ms ok=10 | jail: 296.0/374.75ms ok=10 | nofence: 306.0/461.09999999999997ms ok=10
+httpfs_parquet_scan: inproc: 1252.0/1302.6ms ok=5 | proc: 1112.0/1724.0ms ok=5 | jail: 1102.0/1188.0ms ok=5 | nofence: 1098.0/1240.6ms ok=5
+ducklake_read: inproc: 84.5/88.55ms ok=10 | proc: 98.0/99.0ms ok=10 | jail: 106.0/110.1ms ok=10 | nofence: 98.0/101.0ms ok=10
+ducklake_write_100k: inproc: 105.0/109.4ms ok=5 | proc: 119.0/121.8ms ok=5 | jail: 127.0/130.4ms ok=5 | nofence: 119.0/122.8ms ok=5
+postgres_attach: inproc: 50.0/51.55ms ok=10 | proc: 60.0/62.0ms ok=10 | jail: 66.0/67.55ms ok=10 | nofence: 53.5/54.55ms ok=10
+agg_10m_in_memory: inproc: 311.0/327.59999999999997ms ok=10 | proc: 322.0/330.65ms ok=10 | jail: 330.5/335.1ms ok=10 | nofence: 316.0/323.1ms ok=10
+spill_15m_sort_256mb: inproc: 5177.0/5292.8ms ok=5 | proc: 5241.0/5339.4ms ok=5 | jail: 5276.0/5345.2ms ok=5 | nofence: 5242.0/5366.0ms ok=5
+result_1k_rows: inproc: 26.0/27.0ms ok=20 | proc: 33.0/35.0ms ok=20 | jail: 39.0/41.0ms ok=20 | nofence: 27.0/28.05ms ok=20
+result_100k_rows: inproc: 72.5/76.1ms ok=10 | proc: 81.0/83.1ms ok=10 | jail: 89.5/93.64999999999999ms ok=10 | nofence: 77.5/79.55ms ok=10
+result_1m_rows: inproc: 534.0/544.4ms ok=5 | proc: 557.0/568.0ms ok=5 | jail: 567.0/570.8ms ok=5 | nofence: 556.0/575.2ms ok=5
+result_over_guard_10m_rows: inproc: 1219.0/1226.2ms ok=0 | proc: 1212.0/1214.7ms ok=0 | jail: 1214.0/1216.7ms ok=0 | nofence: 1199.0/1201.7ms ok=0

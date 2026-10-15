@@ -1,0 +1,5 @@
+nsjail + /bin/true                 p50    4.5 ms  p95    5.8 ms
+runner SELECT 1 (unjailed)         p50   17.9 ms  p95   19.8 ms
+runner SELECT 1 (nsjail)           p50   22.9 ms  p95   24.2 ms
+runner fenced SELECT 1 (unjailed)  p50   29.7 ms  p95   31.4 ms
+runner fenced SELECT 1 (nsjail)    p50   35.6 ms  p95   37.1 ms

@@ -1,0 +1,458 @@
+{
+ "select_1": {
+  "bench_inproc": {
+   "n": 30,
+   "ok": 30,
+   "wall_p50": 104.16772705502808,
+   "wall_p95": 107.712964550592,
+   "exec_p50": 25.0,
+   "exec_p95": 26.0,
+   "first_error": null
+  },
+  "bench_proc": {
+   "n": 30,
+   "ok": 30,
+   "wall_p50": 104.65182596817613,
+   "wall_p95": 108.02254597656429,
+   "exec_p50": 32.0,
+   "exec_p95": 33.0,
+   "first_error": null
+  },
+  "bench_jail": {
+   "n": 30,
+   "ok": 30,
+   "wall_p50": 105.0614423584193,
+   "wall_p95": 108.19756814744323,
+   "exec_p50": 38.0,
+   "exec_p95": 39.55,
+   "first_error": null
+  },
+  "bench_nofence": {
+   "n": 30,
+   "ok": 30,
+   "wall_p50": 54.12077927030623,
+   "wall_p95": 106.75831330008805,
+   "exec_p50": 25.0,
+   "exec_p95": 27.0,
+   "first_error": null
+  }
+ },
+ "httpfs_parquet_count": {
+  "bench_inproc": {
+   "n": 10,
+   "ok": 10,
+   "wall_p50": 311.3222955726087,
+   "wall_p95": 389.48689003009343,
+   "exec_p50": 275.0,
+   "exec_p95": 322.75,
+   "first_error": null
+  },
+  "bench_proc": {
+   "n": 10,
+   "ok": 10,
+   "wall_p50": 336.2279462162405,
+   "wall_p95": 441.7470473097637,
+   "exec_p50": 289.5,
+   "exec_p95": 378.9,
+   "first_error": null
+  },
+  "bench_jail": {
+   "n": 10,
+   "ok": 10,
+   "wall_p50": 361.8356434162706,
+   "wall_p95": 440.8433216856792,
+   "exec_p50": 296.0,
+   "exec_p95": 374.75,
+   "first_error": null
+  },
+  "bench_nofence": {
+   "n": 10,
+   "ok": 10,
+   "wall_p50": 361.7280831094831,
+   "wall_p95": 516.7065987829119,
+   "exec_p50": 306.0,
+   "exec_p95": 461.09999999999997,
+   "first_error": null
+  }
+ },
+ "httpfs_parquet_scan": {
+  "bench_inproc": {
+   "n": 5,
+   "ok": 5,
+   "wall_p50": 1286.3223031163216,
+   "wall_p95": 1385.3963661938906,
+   "exec_p50": 1252.0,
+   "exec_p95": 1302.6,
+   "first_error": null
+  },
+  "bench_proc": {
+   "n": 5,
+   "ok": 5,
+   "wall_p50": 1183.8861261494458,
+   "wall_p95": 1767.3501532524824,
+   "exec_p50": 1112.0,
+   "exec_p95": 1724.0,
+   "first_error": null
+  },
+  "bench_jail": {
+   "n": 5,
+   "ok": 5,
+   "wall_p50": 1183.0214257352054,
+   "wall_p95": 1234.4041952863336,
+   "exec_p50": 1102.0,
+   "exec_p95": 1188.0,
+   "first_error": null
+  },
+  "bench_nofence": {
+   "n": 5,
+   "ok": 5,
+   "wall_p50": 1182.351777330041,
+   "wall_p95": 1276.941660232842,
+   "exec_p50": 1098.0,
+   "exec_p95": 1240.6,
+   "first_error": null
+  }
+ },
+ "ducklake_read": {
+  "bench_inproc": {
+   "n": 10,
+   "ok": 10,
+   "wall_p50": 155.82372434437275,
+   "wall_p95": 157.56066802423447,
+   "exec_p50": 84.5,
+   "exec_p95": 88.55,
+   "first_error": null
+  },
+  "bench_proc": {
+   "n": 10,
+   "ok": 10,
+   "wall_p50": 156.70436108484864,
+   "wall_p95": 157.2807817487046,
+   "exec_p50": 98.0,
+   "exec_p95": 99.0,
+   "first_error": null
+  },
+  "bench_jail": {
+   "n": 10,
+   "ok": 10,
+   "wall_p50": 157.99140790477395,
+   "wall_p95": 208.9933642419055,
+   "exec_p50": 106.0,
+   "exec_p95": 110.1,
+   "first_error": null
+  },
+  "bench_nofence": {
+   "n": 10,
+   "ok": 10,
+   "wall_p50": 156.70713153667748,
+   "wall_p95": 156.81578449439257,
+   "exec_p50": 98.0,
+   "exec_p95": 101.0,
+   "first_error": null
+  }
+ },
+ "ducklake_write_100k": {
+  "bench_inproc": {
+   "n": 5,
+   "ok": 5,
+   "wall_p50": 155.80531023442745,
+   "wall_p95": 158.06319806724787,
+   "exec_p50": 105.0,
+   "exec_p95": 109.4,
+   "first_error": null
+  },
+  "bench_proc": {
+   "n": 5,
+   "ok": 5,
+   "wall_p50": 158.5664409212768,
+   "wall_p95": 208.0190938897431,
+   "exec_p50": 119.0,
+   "exec_p95": 121.8,
+   "first_error": null
+  },
+  "bench_jail": {
+   "n": 5,
+   "ok": 5,
+   "wall_p50": 206.88053406774998,
+   "wall_p95": 209.0967295691371,
+   "exec_p50": 127.0,
+   "exec_p95": 130.4,
+   "first_error": null
+  },
+  "bench_nofence": {
+   "n": 5,
+   "ok": 5,
+   "wall_p50": 156.44942922517657,
+   "wall_p95": 198.47583575174212,
+   "exec_p50": 119.0,
+   "exec_p95": 122.8,
+   "first_error": null
+  }
+ },
+ "postgres_attach": {
+  "bench_inproc": {
+   "n": 10,
+   "ok": 10,
+   "wall_p50": 105.93757010065019,
+   "wall_p95": 133.83563540410245,
+   "exec_p50": 50.0,
+   "exec_p95": 51.55,
+   "first_error": null
+  },
+  "bench_proc": {
+   "n": 10,
+   "ok": 10,
+   "wall_p50": 105.77304055914283,
+   "wall_p95": 156.6671191714704,
+   "exec_p50": 60.0,
+   "exec_p95": 62.0,
+   "first_error": null
+  },
+  "bench_jail": {
+   "n": 10,
+   "ok": 10,
+   "wall_p50": 105.81798641942441,
+   "wall_p95": 156.1999602476135,
+   "exec_p50": 66.0,
+   "exec_p95": 67.55,
+   "first_error": null
+  },
+  "bench_nofence": {
+   "n": 10,
+   "ok": 10,
+   "wall_p50": 105.14998086728156,
+   "wall_p95": 133.9145503705367,
+   "exec_p50": 53.5,
+   "exec_p95": 54.55,
+   "first_error": null
+  }
+ },
+ "agg_10m_in_memory": {
+  "bench_inproc": {
+   "n": 10,
+   "ok": 10,
+   "wall_p50": 363.76327998004854,
+   "wall_p95": 412.93092963751405,
+   "exec_p50": 311.0,
+   "exec_p95": 327.59999999999997,
+   "first_error": null
+  },
+  "bench_proc": {
+   "n": 10,
+   "ok": 10,
+   "wall_p50": 363.9601767063141,
+   "wall_p95": 413.4315255098045,
+   "exec_p50": 322.0,
+   "exec_p95": 330.65,
+   "first_error": null
+  },
+  "bench_jail": {
+   "n": 10,
+   "ok": 10,
+   "wall_p50": 362.7659564372152,
+   "wall_p95": 414.37366732861847,
+   "exec_p50": 330.5,
+   "exec_p95": 335.1,
+   "first_error": null
+  },
+  "bench_nofence": {
+   "n": 10,
+   "ok": 10,
+   "wall_p50": 362.1903930325061,
+   "wall_p95": 414.3633580300957,
+   "exec_p50": 316.0,
+   "exec_p95": 323.1,
+   "first_error": null
+  }
+ },
+ "spill_15m_sort_256mb": {
+  "bench_inproc": {
+   "n": 5,
+   "ok": 5,
+   "wall_p50": 5332.04885199666,
+   "wall_p95": 5487.618537899107,
+   "exec_p50": 5177.0,
+   "exec_p95": 5292.8,
+   "first_error": null
+  },
+  "bench_proc": {
+   "n": 5,
+   "ok": 5,
+   "wall_p50": 5329.803973902017,
+   "wall_p95": 5534.761293977499,
+   "exec_p50": 5241.0,
+   "exec_p95": 5339.4,
+   "first_error": null
+  },
+  "bench_jail": {
+   "n": 5,
+   "ok": 5,
+   "wall_p50": 5331.3329690136015,
+   "wall_p95": 5535.460361931473,
+   "exec_p50": 5276.0,
+   "exec_p95": 5345.2,
+   "first_error": null
+  },
+  "bench_nofence": {
+   "n": 5,
+   "ok": 5,
+   "wall_p50": 5334.255237132311,
+   "wall_p95": 5530.124068073928,
+   "exec_p50": 5242.0,
+   "exec_p95": 5366.0,
+   "first_error": null
+  }
+ },
+ "result_1k_rows": {
+  "bench_inproc": {
+   "n": 20,
+   "ok": 20,
+   "wall_p50": 104.45027379319072,
+   "wall_p95": 106.49996236898005,
+   "exec_p50": 26.0,
+   "exec_p95": 27.0,
+   "first_error": null
+  },
+  "bench_proc": {
+   "n": 20,
+   "ok": 20,
+   "wall_p50": 104.7265063971281,
+   "wall_p95": 106.43339520320296,
+   "exec_p50": 33.0,
+   "exec_p95": 35.0,
+   "first_error": null
+  },
+  "bench_jail": {
+   "n": 20,
+   "ok": 20,
+   "wall_p50": 105.22393090650439,
+   "wall_p95": 106.13335866946727,
+   "exec_p50": 39.0,
+   "exec_p95": 41.0,
+   "first_error": null
+  },
+  "bench_nofence": {
+   "n": 20,
+   "ok": 20,
+   "wall_p50": 104.51349429786205,
+   "wall_p95": 105.82029595971107,
+   "exec_p50": 27.0,
+   "exec_p95": 28.05,
+   "first_error": null
+  }
+ },
+ "result_100k_rows": {
+  "bench_inproc": {
+   "n": 10,
+   "ok": 10,
+   "wall_p50": 236.52195814065635,
+   "wall_p95": 238.66938562132418,
+   "exec_p50": 72.5,
+   "exec_p95": 76.1,
+   "first_error": null
+  },
+  "bench_proc": {
+   "n": 10,
+   "ok": 10,
+   "wall_p50": 236.3440478220582,
+   "wall_p95": 289.0543719055131,
+   "exec_p50": 81.0,
+   "exec_p95": 83.1,
+   "first_error": null
+  },
+  "bench_jail": {
+   "n": 10,
+   "ok": 10,
+   "wall_p50": 237.36631451174617,
+   "wall_p95": 288.69349947199225,
+   "exec_p50": 89.5,
+   "exec_p95": 93.64999999999999,
+   "first_error": null
+  },
+  "bench_nofence": {
+   "n": 10,
+   "ok": 10,
+   "wall_p50": 236.6444563958794,
+   "wall_p95": 287.5196911627427,
+   "exec_p50": 77.5,
+   "exec_p95": 79.55,
+   "first_error": null
+  }
+ },
+ "result_1m_rows": {
+  "bench_inproc": {
+   "n": 5,
+   "ok": 5,
+   "wall_p50": 1708.3128169178963,
+   "wall_p95": 1794.56059159711,
+   "exec_p50": 534.0,
+   "exec_p95": 544.4,
+   "first_error": null
+  },
+  "bench_proc": {
+   "n": 5,
+   "ok": 5,
+   "wall_p50": 1689.1334131360054,
+   "wall_p95": 1848.6992195248604,
+   "exec_p50": 557.0,
+   "exec_p95": 568.0,
+   "first_error": null
+  },
+  "bench_jail": {
+   "n": 5,
+   "ok": 5,
+   "wall_p50": 1702.1777350455523,
+   "wall_p95": 1821.4314019307494,
+   "exec_p50": 567.0,
+   "exec_p95": 570.8,
+   "first_error": null
+  },
+  "bench_nofence": {
+   "n": 5,
+   "ok": 5,
+   "wall_p50": 1711.659146938473,
+   "wall_p95": 2385.890316031873,
+   "exec_p50": 556.0,
+   "exec_p95": 575.2,
+   "first_error": null
+  }
+ },
+ "result_over_guard_10m_rows": {
+  "bench_inproc": {
+   "n": 3,
+   "ok": 0,
+   "wall_p50": 1285.8271170407534,
+   "wall_p95": 1286.1029994208366,
+   "exec_p50": 1219.0,
+   "exec_p95": 1226.2,
+   "first_error": "{\"error\": {\"name\": \"ExecutionErr\", \"message\": \"execution error:\\nQuery result too large: collecting it passed the 256MB limit.\\nWrite the rows out from the query instead of returning them:\\n  COPY (<your query>) TO 's3://<bucket>/<file>.parquet' (FORMAT PARQUET);\\nOr return fewer rows \u2014 aggregate, o"
+  },
+  "bench_proc": {
+   "n": 3,
+   "ok": 0,
+   "wall_p50": 1284.7361359745264,
+   "wall_p95": 1285.113964928314,
+   "exec_p50": 1212.0,
+   "exec_p95": 1214.7,
+   "first_error": "{\"error\": {\"name\": \"ExecutionErr\", \"message\": \"execution error:\\nQuery result too large: collecting it passed the 256MB limit.\\nWrite the rows out from the query instead of returning them:\\n  COPY (<your query>) TO 's3://<bucket>/<file>.parquet' (FORMAT PARQUET);\\nOr return fewer rows \u2014 aggregate, o"
+  },
+  "bench_jail": {
+   "n": 3,
+   "ok": 0,
+   "wall_p50": 1284.744551870972,
+   "wall_p95": 1285.0737150758505,
+   "exec_p50": 1214.0,
+   "exec_p95": 1216.7,
+   "first_error": "{\"error\": {\"name\": \"ExecutionErr\", \"message\": \"execution error:\\nQuery result too large: collecting it passed the 256MB limit.\\nWrite the rows out from the query instead of returning them:\\n  COPY (<your query>) TO 's3://<bucket>/<file>.parquet' (FORMAT PARQUET);\\nOr return fewer rows \u2014 aggregate, o"
+  },
+  "bench_nofence": {
+   "n": 3,
+   "ok": 0,
+   "wall_p50": 1237.6651358790696,
+   "wall_p95": 1281.2419229187071,
+   "exec_p50": 1199.0,
+   "exec_p95": 1201.7,
+   "first_error": "{\"error\": {\"name\": \"ExecutionErr\", \"message\": \"execution error:\\nQuery result too large: collecting it passed the 256MB limit.\\nWrite the rows out from the query instead of returning them:\\n  COPY (<your query>) TO 's3://<bucket>/<file>.parquet' (FORMAT PARQUET);\\nOr return fewer rows \u2014 aggregate, o"
+  }
+ }
+}

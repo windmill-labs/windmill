@@ -47,6 +47,8 @@ mod docker_v2;
 mod duckdb_executor;
 #[cfg(all(feature = "duckdb", feature = "private"))]
 mod duckdb_isolation_ee;
+#[cfg(feature = "duckdb")]
+mod duckdb_jailed_runner;
 mod global_cache;
 mod go_executor;
 mod graphql_executor;

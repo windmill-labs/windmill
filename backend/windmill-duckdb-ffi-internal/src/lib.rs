@@ -2,7 +2,10 @@ use std::{
     collections::HashMap,
     ffi::{c_char, c_uint, CStr, CString},
     ptr::null_mut,
-    sync::LazyLock,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        LazyLock,
+    },
 };
 
 use duckdb::{core::LogicalTypeId, params_from_iter, types::TimeUnit, Row};
@@ -249,6 +252,12 @@ impl ResourceLimits {
     }
 }
 
+/// Cleared only by the out-of-process runner, when its jail rather than the engine confines
+/// the local file system: there `SET lock_temp_directory` has nothing left to protect, and
+/// leaving it out is what lets the runner run on a stock engine. The in-process cdylib never
+/// clears it, so a worker-loaded engine always takes the lock.
+pub static LOCK_TEMP_DIRECTORY: AtomicBool = AtomicBool::new(true);
+
 fn sql_single_quote(s: &str) -> String {
     s.replace('\'', "''")
 }
@@ -305,7 +314,10 @@ fn configure_duckdb_resource_limits(
     // `~TemporaryDirectoryHandle` throw out of a `noexcept` destructor — `std::terminate`,
     // taking this in-process worker and every job on it down, uncatchable from Rust — and a
     // cap a script can raise bounds nothing.
-    run("SET lock_temp_directory=true;\n")
+    if LOCK_TEMP_DIRECTORY.load(Ordering::Relaxed) {
+        run("SET lock_temp_directory=true;\n")?;
+    }
+    Ok(())
 }
 
 fn setup_duckdb_connection(

@@ -26,4 +26,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "^1.0.151", features = ["preserve_order", "raw_value"] }
 
 [lib]
-crate-type = ["cdylib"]
+# `rlib` so the out-of-process runner below links the same entry points the worker dlopens.
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "windmill_duckdb_runner"
+path = "src/bin/windmill_duckdb_runner.rs"

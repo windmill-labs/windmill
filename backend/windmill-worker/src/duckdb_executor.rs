@@ -14,7 +14,8 @@ use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{get_memory, to_raw_value, Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{
     get_datatable_resource_from_db, get_ducklake_from_db_unchecked,
-    strip_fork_reserved_attach_args, DatatableAccess, DatatableConnectAs, DucklakeCatalogResourceType,
+    strip_fork_reserved_attach_args, DatatableAccess, DatatableConnectAs,
+    DucklakeCatalogResourceType,
 };
 use windmill_common::PgDatabase;
 use windmill_object_store::S3_PROXY_LAST_ERRORS_CACHE;
@@ -24,6 +25,7 @@ use windmill_types::s3::S3Object;
 
 use crate::agent_workers::{get_datatable_resource_from_agent_http, get_ducklake_from_agent_http};
 use crate::common::{build_args_values, get_reserved_variables, OccupancyMetrics};
+use crate::duckdb_jailed_runner::{RequestMode, RunnerMode, RunnerRequest};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 #[cfg(feature = "mysql")]
 use crate::mysql_executor::MysqlDatabase;
@@ -405,23 +407,19 @@ async fn compute_sync_alter_ddl(
     base_internal_url: String,
     w_id: String,
     job_dir: String,
+    runner: Option<RunnerMode>,
 ) -> Result<String> {
-    let n = probe_blocks.len();
-    let (result, _) = tokio::task::spawn_blocking(move || {
-        run_duckdb_ffi_safe(
-            probe_blocks.iter().map(String::as_str),
-            n,
-            job_args,
-            &token,
-            &base_internal_url,
-            &w_id,
-            &job_dir,
-            SqlResultCollectionStrategy::LastStatementAllRows,
-        )
-    })
+    let (result, _) = run_duckdb(
+        runner,
+        probe_blocks,
+        job_args,
+        token,
+        base_internal_url,
+        w_id,
+        job_dir,
+        SqlResultCollectionStrategy::LastStatementAllRows,
+    )
     .await
-    .map_err(|e| Error::from(to_anyhow(e)))
-    .and_then(|r| r)
     .map_err(|e| {
         Error::ExecutionErr(format!(
             "on_schema_change=sync: the schema pre-pass probe failed ({e}); refusing to write"
@@ -1328,6 +1326,7 @@ pub async fn do_duckdb(
 
     let token = client.token.clone();
     let hidden_passwords = Arc::new(Mutex::new(Vec::<String>::new()));
+    let runner = crate::duckdb_jailed_runner::runner_mode();
 
     let result_f = async {
         let mut hidden_passwords = hidden_passwords.clone();
@@ -1525,7 +1524,11 @@ pub async fn do_duckdb(
             // The probe opens its own DuckDB connection, so it needs the same
             // connection policy as the main query below.
             #[cfg(feature = "private")]
-            let probe_blocks = crate::duckdb_isolation_ee::apply_duckdb_isolation(probe_blocks)?;
+            let probe_blocks = if crate::duckdb_jailed_runner::keeps_fence(runner) {
+                crate::duckdb_isolation_ee::apply_duckdb_isolation(probe_blocks)?
+            } else {
+                probe_blocks
+            };
             let alter_ddl = compute_sync_alter_ddl(
                 probe_blocks,
                 job_args.clone(),
@@ -1534,6 +1537,7 @@ pub async fn do_duckdb(
                 client.base_internal_url.clone(),
                 job.workspace_id.clone(),
                 job_dir.to_string(),
+                runner,
             )
             .await?;
             query = query.replace(
@@ -1611,45 +1615,39 @@ pub async fn do_duckdb(
         .await?;
 
         #[cfg(feature = "private")]
-        let query_block_list =
-            crate::duckdb_isolation_ee::apply_duckdb_isolation(query_block_list)?;
+        let query_block_list = if crate::duckdb_jailed_runner::keeps_fence(runner) {
+            crate::duckdb_isolation_ee::apply_duckdb_isolation(query_block_list)?
+        } else {
+            query_block_list
+        };
 
         let base_internal_url = client.base_internal_url.clone();
         let w_id = job.workspace_id.clone();
         let job_dir = job_dir.to_string();
 
         if annotations.prepare {
-            let result = tokio::task::spawn_blocking(move || {
-                prepare_duckdb_ffi_safe(
-                    query_block_list.iter().map(String::as_str),
-                    &token,
-                    &base_internal_url,
-                    &w_id,
-                    &job_dir,
-                )
-            })
-            .await
-            .map_err(|e| Error::from(to_anyhow(e)))
-            .and_then(|r| r)?;
-
-            return Ok(result);
+            return prepare_duckdb(
+                runner,
+                query_block_list,
+                token.clone(),
+                base_internal_url,
+                w_id,
+                job_dir,
+            )
+            .await;
         }
 
-        let result = tokio::task::spawn_blocking(move || {
-            run_duckdb_ffi_safe(
-                query_block_list.iter().map(String::as_str),
-                query_block_list.len(),
-                job_args,
-                &token,
-                &base_internal_url,
-                &w_id,
-                &job_dir,
-                collection_strategy,
-            )
-        })
-        .await
-        .map_err(|e| Error::from(to_anyhow(e)))
-        .and_then(|r| r);
+        let result = run_duckdb(
+            runner,
+            query_block_list,
+            job_args,
+            token.clone(),
+            base_internal_url,
+            w_id,
+            job_dir,
+            collection_strategy,
+        )
+        .await;
 
         let (result, column_order) = match result {
             Ok(r) => r,
@@ -2145,15 +2143,37 @@ fn run_duckdb_ffi_safe<'a>(
         str
     };
 
-    let column_order = if column_order.is_null()
-        || !collection_strategy.collect_last_statement_only(query_block_list_count)
-        || collection_strategy.collect_scalar()
-    {
+    let column_order = if column_order.is_null() {
         None
     } else {
         let str = unsafe { CStr::from_ptr(column_order).to_string_lossy().to_string() };
         unsafe { free_cstr(column_order) };
-        Some(serde_json::from_str::<Vec<String>>(&str)?)
+        Some(str)
+    };
+    finish_run(
+        result_str,
+        column_order,
+        query_block_list_count,
+        collection_strategy,
+    )
+}
+
+/// Turns what `run_duckdb_ffi` returned, in-process or from the out-of-process runner, into
+/// the job result.
+fn finish_run(
+    result_str: String,
+    column_order: Option<String>,
+    query_block_list_count: usize,
+    collection_strategy: SqlResultCollectionStrategy,
+) -> Result<(Box<RawValue>, Option<Vec<String>>)> {
+    let column_order = match column_order {
+        Some(str)
+            if collection_strategy.collect_last_statement_only(query_block_list_count)
+                && !collection_strategy.collect_scalar() =>
+        {
+            Some(serde_json::from_str::<Vec<String>>(&str)?)
+        }
+        _ => None,
     };
 
     if result_str.starts_with("ERROR") {
@@ -2219,12 +2239,111 @@ fn prepare_duckdb_ffi_safe<'a>(
         free_cstr(ptr);
         str
     };
+    finish_prepare(result_str)
+}
 
+fn finish_prepare(result_str: String) -> Result<Box<RawValue>> {
     if result_str.starts_with("ERROR") {
         Err(Error::ExecutionErr(decode_ffi_error(&result_str)))
     } else {
         Ok(serde_json::value::RawValue::from_string(result_str).map_err(to_anyhow)?)
     }
+}
+
+/// Runs the blocks in-process, or through the out-of-process runner when `runner` is set.
+async fn run_duckdb(
+    runner: Option<RunnerMode>,
+    query_block_list: Vec<String>,
+    job_args: Vec<Arg>,
+    token: String,
+    base_internal_url: String,
+    w_id: String,
+    job_dir: String,
+    collection_strategy: SqlResultCollectionStrategy,
+) -> Result<(Box<RawValue>, Option<Vec<String>>)> {
+    let n = query_block_list.len();
+    let Some(mode) = runner else {
+        return tokio::task::spawn_blocking(move || {
+            run_duckdb_ffi_safe(
+                query_block_list.iter().map(String::as_str),
+                n,
+                job_args,
+                &token,
+                &base_internal_url,
+                &w_id,
+                &job_dir,
+                collection_strategy,
+            )
+        })
+        .await
+        .map_err(|e| Error::from(to_anyhow(e)))
+        .and_then(|r| r);
+    };
+    let job_args = serde_json::value::to_raw_value(&job_args).map_err(to_anyhow)?;
+    let memory_limit = resolve_duckdb_memory_limit().unwrap_or_default();
+    let out = crate::duckdb_jailed_runner::run(
+        mode,
+        &RunnerRequest {
+            mode: RequestMode::Run,
+            blocks: &query_block_list,
+            job_args: Some(&job_args),
+            token: &token,
+            base_internal_url: &base_internal_url,
+            w_id: &w_id,
+            memory_limit: &memory_limit,
+            temp_directory: &job_dir,
+            max_result_size: *MAX_SQL_RESULT_SIZE,
+            collect_last_only: collection_strategy.collect_last_statement_only(n),
+            collect_first_row_only: collection_strategy.collect_first_row_only(),
+        },
+        &job_dir,
+    )
+    .await?;
+    finish_run(out.result, out.column_order, n, collection_strategy)
+}
+
+async fn prepare_duckdb(
+    runner: Option<RunnerMode>,
+    query_block_list: Vec<String>,
+    token: String,
+    base_internal_url: String,
+    w_id: String,
+    job_dir: String,
+) -> Result<Box<RawValue>> {
+    let Some(mode) = runner else {
+        return tokio::task::spawn_blocking(move || {
+            prepare_duckdb_ffi_safe(
+                query_block_list.iter().map(String::as_str),
+                &token,
+                &base_internal_url,
+                &w_id,
+                &job_dir,
+            )
+        })
+        .await
+        .map_err(|e| Error::from(to_anyhow(e)))
+        .and_then(|r| r);
+    };
+    let memory_limit = resolve_duckdb_memory_limit().unwrap_or_default();
+    let out = crate::duckdb_jailed_runner::run(
+        mode,
+        &RunnerRequest {
+            mode: RequestMode::Prepare,
+            blocks: &query_block_list,
+            job_args: None,
+            token: &token,
+            base_internal_url: &base_internal_url,
+            w_id: &w_id,
+            memory_limit: &memory_limit,
+            temp_directory: &job_dir,
+            max_result_size: 0,
+            collect_last_only: false,
+            collect_first_row_only: false,
+        },
+        &job_dir,
+    )
+    .await?;
+    finish_prepare(out.result)
 }
 
 struct ParsedAttachDbResource<'a> {
