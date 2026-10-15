@@ -279,7 +279,7 @@ stretch the hit area over the whole row and the alert. The toggle carries its na
 				{#if new Date(valueExpiresAt).getTime() <= Date.now()}
 					This date has passed. Set a new one once the value is rotated.
 				{:else}
-					Runs the workspace's <a href="/workspace_settings?tab=variable_expiration"
+					Runs the workspace's <a href="/workspace_settings?tab=variable_expiration&workspace={ws}"
 						>variable expiration handler</a
 					>
 					an hour before this date, if the workspace has one{path.startsWith('u/')

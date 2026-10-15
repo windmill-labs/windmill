@@ -450,7 +450,6 @@ struct RunSlackMessageTestJobResponse {
 
 #[derive(Deserialize)]
 struct RunVariableExpirationTestJobRequest {
-    /// Prefixed with `script/` or `flow/`, like the stored setting.
     handler_path: String,
     extra_args: Option<serde_json::Value>,
 }

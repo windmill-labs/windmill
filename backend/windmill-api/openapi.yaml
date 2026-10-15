@@ -5296,7 +5296,9 @@ paths:
               properties:
                 handler_path:
                   type: string
-                  description: prefixed with `script/` or `flow/`, like the stored setting
+                  description: >-
+                    one of the built-in handlers, `script/hub/28987/variable-expiration-handler-slack`
+                    or `script/hub/28988/variable-expiration-handler-teams`; any other path is refused
                 extra_args:
                   $ref: "#/components/schemas/ScriptArgs"
       responses:
