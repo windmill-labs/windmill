@@ -37,8 +37,18 @@ function getWorkspaceSpecificTypeKinds(): string[] {
     'variable',
     'resource',
     'schedule',
+    'custom_path',
     ...TRIGGER_TYPES.map(t => `${t}_trigger`),
   ];
+}
+
+/**
+ * An app's custom path is always workspace-specific, with or without
+ * specificItems: unless routes are workspace-prefixed it is unique across the
+ * instance, so one shared value can never be deployed to two workspaces.
+ */
+export function isCustomPathFile(path: string): boolean {
+  return path.endsWith('.custom_path.yaml') || path.endsWith('.custom_path.json');
 }
 
 /**
@@ -80,7 +90,7 @@ function getFileTypeSuffix(path: string): string | null {
  * Build regex pattern for all supported item-kind file types
  */
 function buildItemTypePattern(): string {
-  const basicTypes = ['variable', 'resource', 'schedule'];
+  const basicTypes = ['variable', 'resource', 'schedule', 'custom_path'];
   const triggerTypes = TRIGGER_TYPES.map(t => `${t}_trigger`);
   return `((${basicTypes.join('|')})|(${triggerTypes.join('|')}))`;
 }
@@ -190,6 +200,9 @@ function normalizeJsonToYaml(path: string): string {
  * Used to determine if workspace-specific files should be used for this type.
  */
 export function isItemTypeConfigured(path: string, specificItems: SpecificItemsConfig | undefined): boolean {
+  if (isCustomPathFile(path)) {
+    return true;
+  }
   if (!specificItems) {
     return false;
   }
@@ -231,6 +244,9 @@ export function isItemTypeConfigured(path: string, specificItems: SpecificItemsC
  * Check if a file path should be treated as workspace-specific
  */
 export function isSpecificItem(path: string, specificItems: SpecificItemsConfig | undefined): boolean {
+  if (isCustomPathFile(path)) {
+    return true;
+  }
   if (!specificItems) {
     return false;
   }
@@ -399,7 +415,7 @@ export function getWorkspaceSpecificPath(
   specificItems: SpecificItemsConfig | undefined,
   workspaceNameOverride?: string
 ): string | undefined {
-  if (!specificItems) {
+  if (!specificItems && !isCustomPathFile(basePath)) {
     return undefined;
   }
 

@@ -240,6 +240,10 @@ Either one lets those people run the app's backend runnables, so never open an a
 <!-- chat-only -->
 When a deploy widens who may open the app, tell the user in plain words.
 <!-- /chat-only -->
+<!-- cli-only -->
+
+An app's custom URL is not in `raw_app.yaml`: each workspace has its own file next to the app folder, `<app path>.<workspace>.custom_path.yaml` (for example `f/sales/dashboard.prod.custom_path.yaml` holding `custom_path: dashboard`), where `<workspace>` is the workspace's name in `wmill.yaml`, or its id. A push applies only the target workspace's file and leaves the deployed custom URL alone when there is none; setting one takes a workspace admin.
+<!-- /cli-only -->
 
 ## Sandbox isolation and frontend API access
 

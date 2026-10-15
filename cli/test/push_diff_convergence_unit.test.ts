@@ -348,19 +348,22 @@ test("push: settings.yaml without instance_groups is not a change", async () => 
   expect(await diff(otherGroups, remote, skips)).toEqual(["edited settings.yaml"]);
 });
 
-test("pull: a raw app keeps its custom_path", async () => {
+function remoteRawApp(customPath?: string) {
   const zip = new JSZip();
   zip.file(
     "f/test/myapp.raw_app.json",
     JSON.stringify({
       summary: "My app",
       policy: { execution_mode: "publisher" },
-      custom_path: "my-dashboard",
+      ...(customPath ? { custom_path: customPath } : {}),
       value: { files: {}, runnables: {} },
     }),
     { createFolders: false },
   );
-  const remote = ZipFSElement(zip, true, "bun", {}, {}, false, true) as any;
+  return ZipFSElement(zip, true, "bun", {}, {}, false, true) as any;
+}
+
+async function rendered(el: Mock): Promise<Record<string, string>> {
   const files: Record<string, string> = {};
   const walk = async (el: Mock) => {
     for await (const child of el.getChildren()) {
@@ -368,11 +371,89 @@ test("pull: a raw app keeps its custom_path", async () => {
       else files[slashPath(child.path)] = await child.getContentText();
     }
   };
-  await walk(remote);
-  const rawAppYaml = Object.entries(files).find(([p]) =>
-    p.endsWith("/raw_app.yaml"),
+  await walk(el);
+  return files;
+}
+
+// Workspace-named as push and pull name it, without any specificItems.
+async function diffIn(ws: string, localEl: Mock, remoteEl: Mock, pull: boolean) {
+  const { changes } = await compareDynFSElement(
+    (pull ? remoteEl : localEl) as any,
+    (pull ? localEl : remoteEl) as any,
+    noIgnore,
+    false,
+    {} as any,
+    !pull,
+    [],
+    pull,
+    undefined,
+    ws,
+    pull,
+    false,
   );
-  expect(rawAppYaml?.[1]).toContain("custom_path: my-dashboard");
+  return changes.map((c) => `${c.name} ${slashPath(c.path)}`);
+}
+
+test("a custom path is its own workspace-specific file", async () => {
+  const files = await rendered(remoteRawApp("my-dashboard"));
+  expect(files["f/test/myapp.custom_path.yaml"]).toBe(
+    "custom_path: my-dashboard\n",
+  );
+  const rawAppYaml = files["f/test/myapp.raw_app/raw_app.yaml"];
+  expect(rawAppYaml).toBeDefined();
+  expect(rawAppYaml).not.toContain("custom_path");
+
+  const { "f/test/myapp.custom_path.yaml": _, ...appFiles } = files;
+  const checkout = (extra: Record<string, string>) =>
+    local({ ...appFiles, ...extra });
+
+  // The workspace's own file is the one compared; another's is ignored.
+  const own = checkout({
+    "f/test/myapp.prod.custom_path.yaml": "custom_path: my-dashboard\n",
+    "f/test/myapp.staging.custom_path.yaml": "custom_path: staging-dash\n",
+  });
+  for (const pull of [true, false]) {
+    expect(await diffIn("prod", own, remoteRawApp("my-dashboard"), pull)).toEqual([]);
+  }
+  expect(
+    await diffIn("staging", own, remoteRawApp("my-dashboard"), false),
+  ).toEqual(["edited f/test/myapp.custom_path.yaml"]);
+
+  // Promotion: a checkout without the target's file leaves its path alone on
+  // push, and a pull brings it in as the target's file.
+  const promoted = checkout({
+    "f/test/myapp.staging.custom_path.yaml": "custom_path: staging-dash\n",
+  });
+  expect(await diffIn("prod", promoted, remoteRawApp("my-dashboard"), false)).toEqual([]);
+  expect(await diffIn("prod", promoted, remoteRawApp("my-dashboard"), true)).toEqual([
+    "added f/test/myapp.custom_path.yaml",
+  ]);
+  // A pull mirrors a cleared custom path by deleting the workspace's file.
+  expect(await diffIn("prod", own, remoteRawApp(), true)).toEqual([
+    "deleted f/test/myapp.custom_path.yaml",
+  ]);
+});
+
+// A checkout from before custom paths had their own file keeps the value in
+// raw_app.yaml: a push must converge on it, and a pull moves it out.
+test("an in-file custom path converges on push", async () => {
+  const files = await rendered(remoteRawApp("my-dashboard"));
+  const { "f/test/myapp.custom_path.yaml": _, ...appFiles } = files;
+  const inFile = (value: string) =>
+    local({
+      ...appFiles,
+      "f/test/myapp.raw_app/raw_app.yaml":
+        files["f/test/myapp.raw_app/raw_app.yaml"] + `custom_path: ${value}\n`,
+    });
+
+  expect(await diffIn("prod", inFile("my-dashboard"), remoteRawApp("my-dashboard"), false)).toEqual([]);
+  expect(await diffIn("prod", inFile("other"), remoteRawApp("my-dashboard"), false)).toEqual([
+    "edited f/test/myapp.custom_path.yaml",
+  ]);
+  expect(await diffIn("prod", inFile("my-dashboard"), remoteRawApp("my-dashboard"), true)).toEqual([
+    "edited f/test/myapp.raw_app/raw_app.yaml",
+    "added f/test/myapp.custom_path.yaml",
+  ]);
 });
 
 // The backend requires admin for any update carrying custom_path, so the

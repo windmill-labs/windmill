@@ -377,6 +377,7 @@ export async function pushRawApp(
   message?: string,
   defaultTs: "bun" | "deno" = "bun",
   permissionedAsContext?: PermissionedAsContext,
+  customPathFromFile = true,
 ): Promise<void> {
   if (alreadySynced.includes(localPath)) {
     return;
@@ -497,16 +498,19 @@ export async function pushRawApp(
     extra_perms: localPerms,
     sandbox: _sandbox,
     frontend_api: _frontendApi,
+    custom_path: localCustomPath,
     ...localAppNoPerms
   } = localApp as AppFile & {
     extra_perms?: Record<string, boolean>;
   };
+  const customPath = customPathFromFile ? localCustomPath : undefined;
 
   if (app) {
     // Check both metadata/runnables AND files for changes
     // Files need separate comparison because isSuperset only checks if local keys exist in remote
     const metadataUpToDate =
       isSuperset({ ...localAppNoPerms, runnables }, app) &&
+      changedCustomPath(customPath, app) === undefined &&
       isolationUpToDate(isolation, deployedPolicy, true);
     const filesUpToDate = deepEqual(files, app.value?.files);
     if (metadataUpToDate && filesUpToDate) {
@@ -527,7 +531,7 @@ export async function pushRawApp(
             deployment_message: message,
             // Preserve any user draft at this path (see backend skip_draft_deletion).
             skip_draft_deletion: true,
-            custom_path: changedCustomPath(localApp.custom_path, app),
+            custom_path: changedCustomPath(customPath, app),
           },
           js,
           css,
@@ -547,9 +551,7 @@ export async function pushRawApp(
           deployment_message: message,
           // Preserve any user draft at this path (see backend skip_draft_deletion).
           skip_draft_deletion: true,
-          ...(localApp.custom_path
-            ? { custom_path: localApp.custom_path }
-            : {}),
+          ...(customPath ? { custom_path: customPath } : {}),
         },
         js,
         css,
