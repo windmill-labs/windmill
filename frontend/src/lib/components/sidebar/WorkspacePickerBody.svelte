@@ -39,7 +39,11 @@
 		findWorkspaceAncestors,
 		isForkOwner
 	} from '$lib/utils/workspaceHierarchy'
-	import { canCreateFork } from '$lib/utils/editInFork'
+	import {
+		canCreateFork,
+		OPERATOR_FORK_BLOCKED_REASON,
+		operatorForkBlocked
+	} from '$lib/utils/editInFork'
 	import { workspaceRootId } from '$lib/components/sessions/sessionScope.svelte'
 	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
 
@@ -161,6 +165,13 @@
 	// in the admins workspace, or when forking is disabled.
 	const canForkHere = $derived(
 		(!isCloudHosted() || $maybePremium) && $workspaceStore !== 'admins' && canCreateFork($userStore)
+	)
+	// Rulesets are EE-only, so on CE the reason would point at a setting no admin can reach.
+	const forkBlockedHere = $derived(
+		!!$enterpriseLicense &&
+			(!isCloudHosted() || $maybePremium) &&
+			$workspaceStore !== 'admins' &&
+			operatorForkBlocked($userStore)
 	)
 	// The row mechanics below — which family to expand, which collapsed row carries the tick — key on
 	// a depth-0 row of the list, which `buildWorkspaceHierarchy` puts at the highest workspace the
@@ -571,7 +582,7 @@
 				</div>
 			{/each}
 		</div>
-		{#if (isCloudHosted() || $superadmin || canForkHere) && !strictWorkspaceSelect}
+		{#if (isCloudHosted() || $superadmin || canForkHere || forkBlockedHere) && !strictWorkspaceSelect}
 			<div class="py-1" role="none">
 				{#if isCloudHosted() || $superadmin}
 					<div role="none" data-nav-id={actionNavId('create')}>
@@ -592,6 +603,19 @@
 							Workspace fork
 						</MenuItem>
 					</div>
+				{:else if forkBlockedHere}
+					<Tooltip class="block w-full" placement="right" openDelay={200}>
+						<div
+							class="{itemClass} opacity-60 cursor-not-allowed hover:bg-transparent"
+							aria-disabled="true"
+						>
+							<Plus size={16} />
+							Workspace fork
+						</div>
+						{#snippet text()}
+							<span class="block max-w-64 text-xs">{OPERATOR_FORK_BLOCKED_REASON}</span>
+						{/snippet}
+					</Tooltip>
 				{/if}
 			</div>
 		{/if}

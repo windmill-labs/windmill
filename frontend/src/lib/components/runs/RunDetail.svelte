@@ -760,8 +760,7 @@
 	)
 	const canEditInFork = $derived(
 		(job?.job_kind === 'script' || job?.job_kind === 'flow') &&
-			!actingUser?.operator &&
-			!showEditButton &&
+			(!showEditButton || !!actingUser?.operator) &&
 			!isCloudHosted() &&
 			editInForkAllowed(workspaceId, $userWorkspaces)
 	)
@@ -1350,21 +1349,21 @@
 						/>
 					{/if}
 				{/if}
-				{#if !showEditButton && !isCloudHosted() && editInForkAllowed(workspaceId, $userWorkspaces)}
-					<Button
-						href={buildForkEditUrl(
-							isScriptJob ? 'script' : 'flow',
-							job?.script_path ?? '',
-							workspaceId
-						)}
-						onClick={(e) => editInFork(e, isScriptJob ? 'script' : 'flow', job?.script_path ?? '')}
-						unifiedSize="sm"
-						variant="default"
-						iconOnly={compactBar}
-						title={editInForkLabel(workspaceId, $userWorkspaces)}
-						startIcon={{ icon: Pen }}>{editInForkLabel(workspaceId, $userWorkspaces)}</Button
-					>
-				{/if}
+			{/if}
+			{#if canEditInFork}
+				<Button
+					href={buildForkEditUrl(
+						isScriptJob ? 'script' : 'flow',
+						job?.script_path ?? '',
+						workspaceId
+					)}
+					onClick={(e) => editInFork(e, isScriptJob ? 'script' : 'flow', job?.script_path ?? '')}
+					unifiedSize="sm"
+					variant="default"
+					iconOnly={compactBar}
+					title={editInForkLabel(workspaceId, $userWorkspaces)}
+					startIcon={{ icon: Pen }}>{editInForkLabel(workspaceId, $userWorkspaces)}</Button
+				>
 			{/if}
 		{/if}
 		{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}

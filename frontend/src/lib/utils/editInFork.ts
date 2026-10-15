@@ -19,16 +19,18 @@ export type ItemType = 'script' | 'flow' | 'app' | 'raw_app'
  * Whether to show the "edit in fork / dev workspace" affordance. Allowed when the user may create a
  * fork, OR when the current workspace has a canonical dev to route to — routing into an existing dev
  * workspace creates no fork, so it survives a locked prod that has `DisableWorkspaceForking` set.
- * Never for an operator, who has nothing to edit at the other end either way. User identity is read
- * non-reactively (it's stable within a session); reactivity comes from the workspace args.
+ * An operator gets it only when they may fork and there is no canonical dev: a new fork makes them a
+ * developer, but in an existing dev workspace they keep whatever role they have there. User identity
+ * is read non-reactively (it's stable within a session); reactivity comes from the workspace args.
  */
 export function editInForkAllowed(
 	currentWorkspaceId: string | undefined,
 	allWorkspaces: UserWorkspace[]
 ): boolean {
 	const user = get(userStore)
-	if (user?.operator) return false
-	return canCreateFork(user) || !!findCanonicalDevWorkspace(currentWorkspaceId, allWorkspaces)
+	const dev = findCanonicalDevWorkspace(currentWorkspaceId, allWorkspaces)
+	if (user?.operator) return canCreateFork(user) && !dev
+	return canCreateFork(user) || !!dev
 }
 
 /** Label for the affordance: "Edit in <dev name>" when routed to a canonical dev, else "Edit in fork". */
@@ -54,21 +56,36 @@ export function editInForkDescription(
 }
 
 /**
- * Whether the user may CREATE a new fork of the current workspace: not an operator, and either
- * forking isn't disabled or they can bypass the rule (workspace admins). Keeps the "Fork workspace"
- * entry available to admins as the last-resort escape hatch on a locked prod.
- *
- * An operator is refused because a fork does not carry the role: the server writes the forker's
- * membership row from the parent's `is_admin` and lets `operator` fall to its `false` default, so
- * forking would hand an operator a full-rights copy of the workspace. The server does not refuse it
- * — this hides the affordance, it does not enforce the rule.
+ * Whether the user may CREATE a new fork of the current workspace: forking not disabled, or the user
+ * can bypass the rule (workspace admins). Keeps the "Fork workspace" entry available to admins as the
+ * last-resort escape hatch on a locked prod. Operators additionally need a ruleset carrying
+ * `AllowOperatorForking`, which grants rather than restricts, so its bypass lists don't apply.
  */
 export function canCreateFork(user: UserExt | undefined): boolean {
-	if (user?.operator) return false
+	if (
+		user?.operator &&
+		!user.is_admin &&
+		!user.is_super_admin &&
+		!isRuleActive('AllowOperatorForking')
+	) {
+		return false
+	}
 	return (
 		!isRuleActive('DisableWorkspaceForking') ||
 		canUserBypassRuleKind('DisableWorkspaceForking', user)
 	)
+}
+
+export const OPERATOR_FORK_BLOCKED_REASON =
+	'Operators cannot fork this workspace. A workspace admin can allow it by turning on "Allow operators to fork" in a ruleset, under Workspace settings > Rulesets.'
+
+/**
+ * Whether the only thing refusing this user a fork is the missing `AllowOperatorForking`. The fork
+ * entries then stay visible, disabled, so the operator learns an admin can turn it on; when forking
+ * is disabled for everyone they stay hidden, as they are for developers.
+ */
+export function operatorForkBlocked(user: UserExt | undefined): boolean {
+	return !!user?.operator && !canCreateFork(user) && !isRuleActive('DisableWorkspaceForking')
 }
 
 function editPathFor(itemType: ItemType, itemPath: string): string {

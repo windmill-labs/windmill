@@ -1,14 +1,23 @@
 <script lang="ts">
 	import CreateWorkspace from '$lib/components/workspaceSettings/CreateWorkspace.svelte'
 	import { Alert } from '$lib/components/common'
-	import { userStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
+	import { canCreateFork } from '$lib/utils/editInFork'
+	import { loadProtectionRules, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
+
+	// This route's layout resets to the root one, so the logged layout that loads the rulesets
+	// never mounts on a direct visit, and `AllowOperatorForking` would read as off.
+	if ($workspaceStore && protectionRulesState.workspace !== $workspaceStore) {
+		loadProtectionRules($workspaceStore)
+	}
 </script>
 
-<!-- The form is reachable by URL whatever the pickers show, and forking is what turns an operator
-     into a full member of the copy (the fork's membership row carries `is_admin` but not
-     `operator`). The server still accepts the call — this refuses the page, it does not enforce
-     the rule; see docs/operator-write-rights.md. -->
-{#if $userStore?.operator}
+<!-- The form is reachable by URL whatever the pickers show. Only operators are refused here: the
+     server refuses their fork unless a ruleset carries `AllowOperatorForking`, and a developer
+     blocked by `DisableWorkspaceForking` gets the server's ruleset message instead. -->
+{#if $userStore?.operator && !protectionRulesState.rulesets}
+	<!-- Until the rulesets arrive, `AllowOperatorForking` reads as off. -->
+{:else if $userStore?.operator && !canCreateFork($userStore)}
 	<div class="p-4 mt-12">
 		<Alert type="error" title="Unauthorized">Page not available for operators</Alert>
 	</div>

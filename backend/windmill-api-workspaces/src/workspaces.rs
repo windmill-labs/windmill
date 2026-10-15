@@ -46,12 +46,13 @@ use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
-    check_deploy_rules, check_user_against_rule, get_datatable_resource_from_db,
-    get_datatable_resource_from_db_unchecked, parse_datatable_ref_for, resolve_governing_datatable,
-    validate_dev_workspace_id, validate_fork_workspace_id, validate_workspace_name, DataTable,
-    DataTableCatalogResourceType, DataTableForkBehavior, DatatableAccess, GoverningDatatable,
-    ProtectionRuleKind, ProtectionRules, ProtectionRuleset, RuleCheckResult,
-    WorkspaceGitSyncSettings, DEV_WORKSPACE_LOCK_RULE_NAME,
+    check_deploy_rules, check_operator_can_fork, check_user_against_rule,
+    get_datatable_resource_from_db, get_datatable_resource_from_db_unchecked,
+    parse_datatable_ref_for, resolve_governing_datatable, validate_dev_workspace_id,
+    validate_fork_workspace_id, validate_workspace_name, DataTable, DataTableCatalogResourceType,
+    DataTableForkBehavior, DatatableAccess, GoverningDatatable, ProtectionRuleKind,
+    ProtectionRules, ProtectionRuleset, RuleCheckResult, WorkspaceGitSyncSettings,
+    DEV_WORKSPACE_LOCK_RULE_NAME,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -8796,6 +8797,29 @@ async fn deprecated_create_workspace_fork(_authed: ApiAuthed) -> Result<String> 
     return Err(Error::BadRequest("This API endpoint has been relocated. Your Windmill CLI version is outdated and needs to be updated.".to_string()));
 }
 
+async fn check_can_fork(db: &DB, authed: &ApiAuthed, w_id: &str) -> Result<()> {
+    if *DISABLE_WORKSPACE_FORK {
+        require_super_admin(db, authed).await?;
+    }
+    for res in [
+        check_user_against_rule(
+            w_id,
+            &ProtectionRuleKind::DisableWorkspaceForking,
+            AuditAuthorable::username(authed),
+            &authed.groups,
+            authed.is_admin,
+            db,
+        )
+        .await?,
+        check_operator_can_fork(w_id, authed.is_operator, authed.is_admin, db).await?,
+    ] {
+        if let RuleCheckResult::Blocked(msg) = res {
+            return Err(Error::PermissionDenied(msg));
+        }
+    }
+    Ok(())
+}
+
 /// Return the uuids of the git sync jobs to create the branch before creating the fork
 async fn create_workspace_fork_branch(
     authed: ApiAuthed,
@@ -8811,21 +8835,7 @@ async fn create_workspace_fork_branch(
         enforce_cloud_fork_cap(&db, &w_id).await?;
     }
 
-    if *DISABLE_WORKSPACE_FORK {
-        require_super_admin(&db, &authed).await?;
-    }
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
-        &w_id,
-        &ProtectionRuleKind::DisableWorkspaceForking,
-        AuditAuthorable::username(&authed),
-        &authed.groups,
-        authed.is_admin,
-        &db,
-    )
-    .await?
-    {
-        return Err(Error::PermissionDenied(msg));
-    }
+    check_can_fork(&db, &authed, &w_id).await?;
 
     // Two-phase create for git-synced workspaces: this endpoint only creates the git branch(es) and
     // validates up front; it does NOT create the workspace row. The caller follows up with
@@ -9542,21 +9552,7 @@ async fn create_workspace_fork(
     #[cfg(not(feature = "enterprise"))]
     _check_nb_of_workspaces(&db).await?;
 
-    if *DISABLE_WORKSPACE_FORK {
-        require_super_admin(&db, &authed).await?;
-    }
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
-        &parent_workspace_id,
-        &ProtectionRuleKind::DisableWorkspaceForking,
-        AuditAuthorable::username(&authed),
-        &authed.groups,
-        authed.is_admin,
-        &db,
-    )
-    .await?
-    {
-        return Err(Error::PermissionDenied(msg));
-    }
+    check_can_fork(&db, &authed, &parent_workspace_id).await?;
 
     if nw.is_dev_workspace {
         ensure_dev_parent_can_host_dev(&db, &parent_workspace_id).await?;
@@ -9806,6 +9802,7 @@ async fn make_workspace_fork(
         .filter(|c| c.replayed)
         .map(|c| c.behavior)
         .collect();
+    let operator_fork = authed.is_operator && !authed.is_admin;
     match write_workspace_fork(
         db.clone(),
         authed,
@@ -9827,6 +9824,9 @@ async fn make_workspace_fork(
                         _ => "schema_and_data",
                     },
                 );
+            }
+            if operator_fork {
+                windmill_common::feature_usage::log_feature_usage("operator_fork", "forked", "");
             }
             Ok(message)
         }
@@ -10018,7 +10018,10 @@ async fn write_workspace_fork(
     }
 
     // Ensure the creator is a member of the fork even without copy_members (or if they aren't a parent
-    // member). No-op when copy_members already brought their full row.
+    // member). No-op when copy_members already brought their full row. `operator` is left at its
+    // false default on purpose: an operator allowed by `AllowOperatorForking` develops in the fork.
+    // That includes writing the parent's kept data tables and shared ducklakes, which the fork
+    // reaches directly; only item deploys back run with their parent role and are refused.
     sqlx::query!(
         "INSERT INTO usr
            (workspace_id, email, username, is_admin)
@@ -12373,6 +12376,8 @@ async fn create_protection_rule(
         )));
     }
 
+    let rules = ProtectionRules::from(&req.rules);
+
     // Insert the new rule
     sqlx::query!(
         r#"
@@ -12381,7 +12386,7 @@ async fn create_protection_rule(
         "#,
         &w_id,
         &req.name,
-        ProtectionRules::from(&req.rules).bits(),
+        rules.bits(),
         &req.bypass_groups,
         &req.bypass_users,
     )
@@ -12403,6 +12408,14 @@ async fn create_protection_rule(
 
     // Invalidate cache
     windmill_common::workspaces::invalidate_protection_rules_cache(&w_id);
+
+    if rules.contains(ProtectionRules::ALLOW_OPERATOR_FORKING) {
+        windmill_common::feature_usage::log_feature_usage(
+            "operator_fork",
+            "rule_enabled",
+            "create",
+        );
+    }
 
     handle_deployment_metadata(
         &authed.email,
@@ -12452,22 +12465,19 @@ async fn update_protection_rule(
 
     let mut tx = db.begin().await?;
 
-    // Check if rule exists
-    let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2)",
+    let Some(previous_rules) = sqlx::query_scalar!(
+        "SELECT rules FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2",
         &w_id,
         &rule_name
     )
-    .fetch_one(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?
-    .unwrap_or(false);
-
-    if !exists {
+    else {
         return Err(Error::NotFound(format!(
             "Protection rule '{}' not found",
             rule_name
         )));
-    }
+    };
 
     if let Some(new_name) = new_name {
         let taken = sqlx::query_scalar!(
@@ -12487,6 +12497,7 @@ async fn update_protection_rule(
     }
 
     let final_name = new_name.unwrap_or(&rule_name);
+    let rules = ProtectionRules::from(&req.rules);
 
     // Update the rule
     sqlx::query!(
@@ -12496,7 +12507,7 @@ async fn update_protection_rule(
             WHERE workspace_id = $5 AND name = $6
         "#,
         final_name,
-        ProtectionRules::from(&req.rules).bits(),
+        rules.bits(),
         &req.bypass_groups,
         &req.bypass_users,
         &w_id,
@@ -12524,6 +12535,17 @@ async fn update_protection_rule(
 
     // Invalidate cache
     windmill_common::workspaces::invalidate_protection_rules_cache(&w_id);
+
+    if rules.contains(ProtectionRules::ALLOW_OPERATOR_FORKING)
+        && !ProtectionRules::from_bits_truncate(previous_rules)
+            .contains(ProtectionRules::ALLOW_OPERATOR_FORKING)
+    {
+        windmill_common::feature_usage::log_feature_usage(
+            "operator_fork",
+            "rule_enabled",
+            "update",
+        );
+    }
 
     handle_deployment_metadata(
         &authed.email,

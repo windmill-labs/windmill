@@ -45,6 +45,7 @@
 	let restrictAnonymousAppDeployment = $state(hasRule('RestrictAnonymousAppDeployment'))
 	let restrictPublicRunSharing = $state(hasRule('RestrictPublicRunSharing'))
 	let restrictGuestAppDeployment = $state(hasRule('RestrictGuestAppDeployment'))
+	let allowOperatorForking = $state(hasRule('AllowOperatorForking'))
 	let selectedGroups = $state<string[]>(
 		untrack(() => rule)?.bypass_groups?.map((g) => g.replace('g/', '')) ?? []
 	)
@@ -60,6 +61,7 @@
 	let initialRestrictAnonymousAppDeployment = $state(hasRule('RestrictAnonymousAppDeployment'))
 	let initialRestrictPublicRunSharing = $state(hasRule('RestrictPublicRunSharing'))
 	let initialRestrictGuestAppDeployment = $state(hasRule('RestrictGuestAppDeployment'))
+	let initialAllowOperatorForking = $state(hasRule('AllowOperatorForking'))
 	let initialSelectedGroups = $state<string[]>(
 		untrack(() => rule)?.bypass_groups
 			? untrack(() => rule)!.bypass_groups.map((g) => g.replace('g/', ''))
@@ -107,6 +109,7 @@
 					restrictAnonymousAppDeployment ||
 					restrictPublicRunSharing ||
 					restrictGuestAppDeployment ||
+					allowOperatorForking ||
 					selectedGroups.length > 0 ||
 					selectedUsers.length > 0
 			: name !== initialName ||
@@ -116,6 +119,7 @@
 					restrictAnonymousAppDeployment !== initialRestrictAnonymousAppDeployment ||
 					restrictPublicRunSharing !== initialRestrictPublicRunSharing ||
 					restrictGuestAppDeployment !== initialRestrictGuestAppDeployment ||
+					allowOperatorForking !== initialAllowOperatorForking ||
 					JSON.stringify([...selectedGroups].sort()) !==
 						JSON.stringify([...initialSelectedGroups].sort()) ||
 					JSON.stringify([...selectedUsers].sort()) !==
@@ -155,7 +159,8 @@
 						...(restrictPublicRunSharing ? ['RestrictPublicRunSharing' as ProtectionRuleKind] : []),
 						...(restrictGuestAppDeployment
 							? ['RestrictGuestAppDeployment' as ProtectionRuleKind]
-							: [])
+							: []),
+						...(allowOperatorForking ? ['AllowOperatorForking' as ProtectionRuleKind] : [])
 					],
 					bypass_groups: selectedGroups,
 					bypass_users: selectedUsers
@@ -194,7 +199,8 @@
 						...(restrictPublicRunSharing ? ['RestrictPublicRunSharing' as ProtectionRuleKind] : []),
 						...(restrictGuestAppDeployment
 							? ['RestrictGuestAppDeployment' as ProtectionRuleKind]
-							: [])
+							: []),
+						...(allowOperatorForking ? ['AllowOperatorForking' as ProtectionRuleKind] : [])
 					],
 					bypass_groups: selectedGroups,
 					bypass_users: selectedUsers
@@ -211,6 +217,7 @@
 			initialRestrictAnonymousAppDeployment = restrictAnonymousAppDeployment
 			initialRestrictPublicRunSharing = restrictPublicRunSharing
 			initialRestrictGuestAppDeployment = restrictGuestAppDeployment
+			initialAllowOperatorForking = allowOperatorForking
 			initialSelectedGroups = clone(selectedGroups)
 			initialSelectedUsers = clone(selectedUsers)
 
@@ -294,6 +301,15 @@
 			<div class="flex flex-col gap-1">
 				<Toggle bind:checked={disableFork} options={{ right: 'Disable workspace forking' }} />
 				{@render description('Users cannot create forks of this workspace.')}
+			</div>
+			<div class="flex flex-col gap-1">
+				<Toggle
+					bind:checked={allowOperatorForking}
+					options={{ right: 'Allow operators to fork' }}
+				/>
+				{@render description(
+					"Operators cannot fork a workspace unless a ruleset turns this on. It applies to every operator, whatever the bypass list says. An operator who forks is a developer in the fork and counts as a developer seat. There they can run any code, including against this workspace's data tables and shared ducklakes, which the fork uses directly. They still cannot deploy scripts, flows or apps back to this workspace."
+				)}
 			</div>
 			<div class="flex flex-col gap-1">
 				<Toggle
