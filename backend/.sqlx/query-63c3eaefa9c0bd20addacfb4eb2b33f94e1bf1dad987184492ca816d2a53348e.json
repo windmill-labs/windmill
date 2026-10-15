@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO variable (workspace_id, path, value, is_secret, description, value_expires_at)\n         VALUES ('test-workspace', 'u/admin/expiring', 'v', false, 'same', '2027-01-01T00:00:00Z')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "63c3eaefa9c0bd20addacfb4eb2b33f94e1bf1dad987184492ca816d2a53348e"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE variable SET value_expires_at = '2029-12-31T00:00:00Z'\n         WHERE workspace_id = 'wm-fork-expiry' AND path = 'u/admin/expiring'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "eb3875d80f559fa45df82010bd2bff830a4f95f58372fd63ebae26297e644c40"
+}

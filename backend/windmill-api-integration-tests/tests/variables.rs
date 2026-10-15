@@ -338,3 +338,43 @@ async fn test_variables_are_cached(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// A draft-only row is synthesized field by field from the editor's `VariableState`,
+/// so a field the editor stores but the synthesis forgets is dropped silently.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_draft_only_row_carries_value_expires_at(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    authed(client().post(format!(
+        "http://localhost:{port}/api/w/test-workspace/drafts/update/variable/u/test-user/draft_var"
+    )))
+    .json(&json!({
+        "value": {
+            "path": "u/test-user/draft_var",
+            "variable": { "value": "x", "is_secret": true, "description": "" },
+            "wsSpecific": false,
+            "value_expires_at": "2027-03-15T08:00:00Z"
+        }
+    }))
+    .send()
+    .await?;
+
+    let resp = authed(client().get(format!(
+        "http://localhost:{port}/api/w/test-workspace/variables/list?include_draft_only=true"
+    )))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200);
+    let rows = resp.json::<Vec<serde_json::Value>>().await?;
+
+    let row = rows
+        .iter()
+        .find(|v| v["path"] == "u/test-user/draft_var")
+        .expect("draft-only row is listed");
+    assert_eq!(row["draft_only"], true);
+    assert_eq!(row["value_expires_at"], "2027-03-15T08:00:00Z");
+
+    Ok(())
+}

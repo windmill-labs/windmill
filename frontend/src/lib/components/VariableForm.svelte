@@ -3,7 +3,7 @@
 	import LabelsInput from './LabelsInput.svelte'
 	import Toggle from './Toggle.svelte'
 	import Alert from './common/alert/Alert.svelte'
-	import { Button } from './common'
+	import { Button, Section } from './common'
 	import Tooltip from './Tooltip.svelte'
 	import Label from './Label.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -14,6 +14,7 @@
 	import { isOwner } from '$lib/utils'
 	import { isEncryptedDraftValue } from '$lib/encryptedDraft'
 	import EncryptedDraftField from './EncryptedDraftField.svelte'
+	import DateTimeInput from './DateTimeInput.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -31,6 +32,7 @@
 		variable: Variable
 		labels: string[] | undefined
 		wsSpecific: boolean
+		valueExpiresAt: string | undefined
 		deployTo: string | undefined
 		can_write: boolean
 		edit: boolean
@@ -55,6 +57,7 @@
 		variable = $bindable(),
 		labels = $bindable(),
 		wsSpecific = $bindable(),
+		valueExpiresAt = $bindable(),
 		deployTo,
 		can_write,
 		edit,
@@ -66,6 +69,17 @@
 	}: Props = $props()
 
 	let ws = $derived(workspace ?? $operatingWorkspace)
+
+	// Enabling seeds a date rather than revealing an empty picker, mirroring how
+	// `ScriptAdvancedSettings` seeds a timeout of 300s. An empty DateTimeInput renders a time
+	// of 12:00 beside its buttons, which reads as a date already configured.
+	const DEFAULT_EXPIRY_DAYS = 90
+
+	function defaultValueExpiry(): string {
+		const d = new Date()
+		d.setDate(d.getDate() + DEFAULT_EXPIRY_DAYS)
+		return d.toISOString()
+	}
 
 	// Loading the deployed secret overwrites the draft row this form shares with the AI
 	// chat, so every path that would trigger it has to be blocked while that row stages a
@@ -236,3 +250,43 @@ stretch the hit area over the whole row and the alert. The toggle carries its na
 	<textarea rows="4" use:autosize bind:value={variable.description} placeholder="Used for X"
 	></textarea>
 </label>
+
+<Section label="Advanced" small collapsable initiallyCollapsed={!valueExpiresAt}>
+	<Label
+		label="Value expiration"
+		tooltip="When the value stored here stops working, such as the expiry date of an API key. Ahead of it (1 day by default), Windmill runs the workspace's variable expiration handler if one is set, so the value can be rotated. The variable itself is never deleted."
+	>
+		<Toggle
+			size="sm"
+			checked={Boolean(valueExpiresAt)}
+			disabled={!can_write}
+			on:change={() => (valueExpiresAt = valueExpiresAt ? undefined : defaultValueExpiry())}
+			options={{ right: 'Set a date on which this value expires' }}
+		/>
+		{#if valueExpiresAt}
+			<span class="text-xs font-semibold text-emphasis leading-none mt-2">Expires on</span>
+			<!-- Unbound: DateTimeInput writes `null` when its date is emptied, and a `null` where
+			the deployed baseline has nothing reads as an edit, so every empty state has to
+			normalize to `undefined` before it reaches the draft row. Not `clearable`: the toggle
+			above is the one way to mean "no expiry". -->
+			<DateTimeInput
+				value={valueExpiresAt}
+				useDropdown
+				disabled={!can_write}
+				on:change={(e) => (valueExpiresAt = e.detail ?? undefined)}
+			/>
+			<span class="text-2xs font-normal text-hint">
+				{#if new Date(valueExpiresAt).getTime() <= Date.now()}
+					This date has passed. Set a new one once the value is rotated.
+				{:else}
+					Runs the workspace's <a href="/workspace_settings?tab=variable_expiration&workspace={ws}"
+						>variable expiration handler</a
+					>
+					ahead of this date, if the workspace has one{path.startsWith('u/')
+						? ' and does not skip u/ paths'
+						: ''}.
+				{/if}
+			</span>
+		{/if}
+	</Label>
+</Section>

@@ -4320,6 +4320,8 @@ paths:
                     $ref: "#/components/schemas/ErrorHandlerConfig"
                   success_handler:
                     $ref: "#/components/schemas/SuccessHandlerConfig"
+                  variable_expiration_handler:
+                    $ref: "#/components/schemas/VariableExpirationHandlerConfig"
                   large_file_storage:
                     $ref: "#/components/schemas/LargeFileStorage"
                   ducklake:
@@ -5351,6 +5353,65 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/workspaces/edit_variable_expiration_handler:
+    post:
+      summary: edit variable expiration handler
+      operationId: editVariableExpirationHandler
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: WorkspaceVariableExpirationHandler
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditVariableExpirationHandler"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/run_variable_expiration_test_job:
+    post:
+      summary: run the variable expiration handler against a placeholder variable
+      operationId: runVariableExpirationTestJob
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: handler to run and the extra args to pass it
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - handler_path
+              properties:
+                handler_path:
+                  type: string
+                  description: >-
+                    one of the built-in handlers, `script/hub/28987/variable-expiration-handler-slack`
+                    or `script/hub/28988/variable-expiration-handler-teams`; any other path is refused
+                extra_args:
+                  $ref: "#/components/schemas/ScriptArgs"
+      responses:
+        "200":
+          description: status
+          content:
+            text/json:
+              schema:
+                type: object
+                properties:
+                  job_uuid:
+                    type: string
 
   /w/{workspace}/workspaces/edit_success_handler:
     post:
@@ -29355,6 +29416,39 @@ components:
           type: boolean
           default: false
 
+    EditVariableExpirationHandler:
+      type: object
+      description: >
+        Request body for editing the workspace variable expiration handler. Omit
+        `path` (or send null) to unset the handler.
+      properties:
+        path:
+          type: string
+          nullable: true
+          description: Path to the variable expiration handler script or flow
+        extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        muted_on_user_path:
+          type: boolean
+          description: Do not run the handler for variables on a personal (u/) path
+        notify_before_secs:
+          type: integer
+          minimum: 0
+          description: How long before a variable's value expires the handler runs. 1 day when omitted.
+
+    VariableExpirationHandlerConfig:
+      type: object
+      description: Workspace variable expiration handler configuration
+      properties:
+        path:
+          type: string
+        extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        muted_on_user_path:
+          type: boolean
+        notify_before_secs:
+          type: integer
+
     EditSuccessHandler:
       description: Request body for editing the workspace success handler. Accepts both new grouped format and legacy flat format for backward compatibility.
       oneOf:
@@ -32114,6 +32208,10 @@ components:
         expires_at:
           type: string
           format: date-time
+        value_expires_at:
+          type: string
+          nullable: true
+          format: date-time
         labels:
           type: array
           items:
@@ -32189,7 +32287,18 @@ components:
           description: Whether the variable is an OAuth variable
         expires_at:
           type: string
-          description: The expiration date of the variable
+          description: >
+            When to garbage-collect the variable. Used for ephemeral secrets;
+            the variable is deleted once this is reached. Not the value's expiry
+            — see value_expires_at.
+          format: date-time
+        value_expires_at:
+          type: string
+          description: >
+            When the value stored in this variable stops working. Triggers the
+            workspace's variable expiration handler ahead of it, by the handler's
+            `notify_before_secs` (1 day by default); never causes the variable
+            to be deleted.
           format: date-time
         labels:
           type: array
@@ -32218,6 +32327,14 @@ components:
         description:
           type: string
           description: The new description of the variable
+        value_expires_at:
+          type: string
+          nullable: true
+          description: >
+            When the value stored in this variable stops working. Omit to leave
+            it unchanged; send null to clear it. Changing it re-arms the
+            workspace's variable expiration handler.
+          format: date-time
         labels:
           type: array
           items:
@@ -32325,6 +32442,7 @@ components:
             - "workspaces.edit_webhook"
             - "workspaces.edit_copilot_config"
             - "workspaces.edit_error_handler"
+            - "workspaces.edit_variable_expiration_handler"
             - "workspaces.create"
             - "workspaces.update"
             - "workspaces.archive"

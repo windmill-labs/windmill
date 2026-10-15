@@ -60,6 +60,7 @@ struct SettingsRow {
     webhook: Option<String>,
     error_handler: Option<Value>,
     success_handler: Option<Value>,
+    variable_expiration_handler: Option<Value>,
     ai_config: Option<Value>,
     large_file_storage: Option<Value>,
     git_sync: Option<Value>,
@@ -298,7 +299,8 @@ pub async fn load_settings_document(
 ) -> Result<Map<String, Value>> {
     let row = sqlx::query_as::<_, SettingsRow>(
         r#"SELECT
-             auto_invite, webhook, error_handler, success_handler, ai_config, large_file_storage,
+             auto_invite, webhook, error_handler, success_handler, variable_expiration_handler,
+             ai_config, large_file_storage,
              git_sync, default_app, default_scripts, workspace.name AS name, mute_critical_alerts,
              color, operator_settings, datatable, slack_team_id, slack_name, slack_command_script,
              slack_oauth_client_id, slack_oauth_client_secret, ducklake, dbt_warehouses, deploy_ui,
@@ -345,11 +347,16 @@ pub async fn load_settings_document(
     // In the order `wmill sync pull` has always written settings.yaml. A key that predates the
     // document and is not marked `always` is written only when set, as it always was; a key
     // added since is always written, so a pulled file states it and from then on manages it.
-    let entries: [(&str, Option<Value>, bool); 31] = [
+    let entries: [(&str, Option<Value>, bool); 32] = [
         ("auto_invite", row.auto_invite, false),
         ("webhook", row.webhook.map(Value::String), false),
         ("error_handler", row.error_handler, true),
         ("success_handler", row.success_handler, true),
+        (
+            "variable_expiration_handler",
+            row.variable_expiration_handler,
+            true,
+        ),
         ("ai_config", row.ai_config, false),
         ("large_file_storage", row.large_file_storage, false),
         ("git_sync", redact_git_sync(row.git_sync), false),
@@ -675,6 +682,7 @@ const KNOWN_KEYS: &[&str] = &[
     "webhook",
     "error_handler",
     "success_handler",
+    "variable_expiration_handler",
     "ai_config",
     "large_file_storage",
     "git_sync",
@@ -888,7 +896,12 @@ fn plan_document(
     if !unknown.is_empty() {
         warnings.push(format!("Ignored unknown settings: {}", unknown.join(", ")));
     }
-    for key in ["auto_invite", "error_handler", "success_handler"] {
+    for key in [
+        "auto_invite",
+        "error_handler",
+        "success_handler",
+        "variable_expiration_handler",
+    ] {
         if desired
             .get(key)
             .is_some_and(|v| !v.is_null() && !v.is_object())
@@ -951,6 +964,18 @@ fn plan_document(
             Value::is_boolean,
             "a boolean",
         ),
+        (
+            "variable_expiration_handler",
+            "muted_on_user_path",
+            Value::is_boolean,
+            "a boolean",
+        ),
+        (
+            "variable_expiration_handler",
+            "notify_before_secs",
+            |v: &Value| v.as_u64().is_some_and(|n| n <= u32::MAX as u64),
+            "a non-negative number of seconds",
+        ),
     ] {
         let v = desired.get(parent).and_then(|p| p.get(key));
         typed(&format!("{parent}.{key}"), v, ok, ty)?;
@@ -964,14 +989,19 @@ fn plan_document(
         let v = normalize_protection_rules(v, &mut warnings)?;
         desired.insert("protection_rules".to_string(), v);
     }
-    // The endpoint stores an omitted mute flag as `false`.
-    if let Some(handler) = desired
-        .get_mut("error_handler")
-        .and_then(Value::as_object_mut)
-    {
-        for key in ["muted_on_cancel", "muted_on_user_path"] {
-            if is_null(handler.get(key)) {
-                handler.insert(key.to_string(), Value::Bool(false));
+    // The endpoints store an omitted mute flag as `false`.
+    for (handler, keys) in [
+        (
+            "error_handler",
+            &["muted_on_cancel", "muted_on_user_path"][..],
+        ),
+        ("variable_expiration_handler", &["muted_on_user_path"][..]),
+    ] {
+        if let Some(handler) = desired.get_mut(handler).and_then(Value::as_object_mut) {
+            for key in keys {
+                if is_null(handler.get(*key)) {
+                    handler.insert(key.to_string(), Value::Bool(false));
+                }
             }
         }
     }
@@ -1116,6 +1146,22 @@ fn plan_document(
         success_handler,
         Target::Edit(SettingsEdit::SuccessHandler),
         |v| json!({ "path": v.get("path"), "extra_args": v.get("extra_args") }),
+    );
+
+    // Managed only when stated, like every key added after the document.
+    let variable_expiration_handler = p.managed("variable_expiration_handler");
+    p.simple(
+        "variable_expiration_handler",
+        variable_expiration_handler,
+        Target::Edit(SettingsEdit::VariableExpirationHandler),
+        |v| {
+            json!({
+                "path": v.get("path"),
+                "extra_args": v.get("extra_args"),
+                "muted_on_user_path": v.get("muted_on_user_path").and_then(Value::as_bool).unwrap_or(false),
+                "notify_before_secs": v.get("notify_before_secs"),
+            })
+        },
     );
 
     let lfs = p.legacy("large_file_storage");
@@ -1838,6 +1884,29 @@ mod tests {
         let d = doc(json!({ "error_handler": { "path": "f/x", "extra_args": {} } }));
         let p = plan_document(cur, d, false, &mc, &DatatableNames::default()).unwrap();
         assert!(p.changes.is_empty(), "{:?}", keys(&p));
+    }
+
+    #[test]
+    fn variable_expiration_handler_is_managed_only_when_stated() {
+        let mc = WorkspaceCrypt::new("k");
+        let names = DatatableNames::default();
+        let mut cur = current();
+        cur.insert(
+            "variable_expiration_handler".into(),
+            json!({ "path": "script/f/x", "muted_on_user_path": false }),
+        );
+        let omitted = doc(json!({ "webhook": "https://b" }));
+        let p = plan_document(cur.clone(), omitted, true, &mc, &names).unwrap();
+        assert!(!keys(&p).contains(&"variable_expiration_handler"));
+
+        let same = doc(json!({ "variable_expiration_handler": { "path": "script/f/x" } }));
+        let p = plan_document(cur.clone(), same, false, &mc, &names).unwrap();
+        assert!(p.changes.is_empty(), "{:?}", keys(&p));
+
+        let cleared = doc(json!({ "variable_expiration_handler": null }));
+        let p = plan_document(cur, cleared, false, &mc, &names).unwrap();
+        assert_eq!(keys(&p), ["variable_expiration_handler"]);
+        assert_eq!(p.writes[0].body["path"], Value::Null);
     }
 
     #[cfg(all(feature = "private", feature = "enterprise"))]

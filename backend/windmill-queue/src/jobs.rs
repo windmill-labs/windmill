@@ -169,12 +169,15 @@ const ERROR_HANDLER_USERNAME: &str = "error_handler";
 pub const SCHEDULE_ERROR_HANDLER_USERNAME: &str = "schedule_error_handler";
 const GLOBAL_ERROR_HANDLER_USERNAME: &str = "global";
 const SUCCESS_HANDLER_USERNAME: &str = "success_handler";
+const VARIABLE_EXPIRATION_HANDLER_USERNAME: &str = "variable_expiration_handler";
 
 pub const ERROR_HANDLER_USER_GROUP: &str = "g/error_handler";
 pub const ERROR_HANDLER_USER_EMAIL: &str = "error_handler@windmill.dev";
 pub const SCHEDULE_ERROR_HANDLER_USER_EMAIL: &str = "schedule_error_handler@windmill.dev";
 pub const SUCCESS_HANDLER_USER_GROUP: &str = "g/success_handler";
 pub const SUCCESS_HANDLER_USER_EMAIL: &str = "success_handler@windmill.dev";
+pub const VARIABLE_EXPIRATION_HANDLER_USER_GROUP: &str = "g/variable_expiration_handler";
+pub const VARIABLE_EXPIRATION_HANDLER_USER_EMAIL: &str = "variable_expiration_handler@windmill.dev";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CanceledBy {
@@ -3407,6 +3410,13 @@ const PRESET_HANDLER_PATHS: [&str; 23] = [
     "hub/19795/workspace-or-error-handler-email",
 ];
 
+/// The built-in variable expiration handlers in `hubPaths.json`. Kept out of
+/// `PRESET_HANDLER_PATHS`, which would let a schedule pointed at them run as the error handler.
+pub const VARIABLE_EXPIRATION_PRESET_PATHS: [&str; 2] = [
+    "hub/28987/variable-expiration-handler-slack",
+    "hub/28988/variable-expiration-handler-teams",
+];
+
 /// The preset handler Windmill ships on the hub that `handler_path` names, `None` for user code.
 fn preset_handler(handler_path: &str) -> Option<&'static str> {
     let path = handler_path.strip_prefix("script/").unwrap_or(handler_path);
@@ -3589,6 +3599,128 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
     .await?;
     tx.commit().await?;
     return Ok(uuid);
+}
+
+/// Metadata handed to a variable expiration handler. These field names are wire format for
+/// handler scripts: `variable_path` rather than `path`, which already means the failing
+/// runnable in the error handler contract.
+///
+/// The variable's value is deliberately absent: job results are stored in cleartext and shown
+/// in Runs, so a handler must never receive or return one.
+#[derive(Serialize)]
+pub struct ExpiringVariable {
+    pub workspace_id: String,
+    pub variable_path: String,
+    pub description: String,
+    pub value_expires_at: DateTime<Utc>,
+    pub is_secret: bool,
+}
+
+/// Enqueue the workspace's variable expiration handler for one expiring variable.
+///
+/// Takes and returns the caller's transaction so the claim on the variable and the push
+/// commit together.
+pub(crate) async fn push_variable_expiration_handler<'c>(
+    db: &Pool<Postgres>,
+    tx: Transaction<'c, Postgres>,
+    w_id: &str,
+    handler_path: &str,
+    expiring: &ExpiringVariable,
+    extra_args: Option<Json<Box<RawValue>>>,
+) -> windmill_common::error::Result<(Uuid, Transaction<'c, Postgres>)> {
+    let (payload, tag, on_behalf_of) =
+        get_payload_tag_from_prefixed_path(handler_path, db, w_id).await?;
+
+    // Built by serializing the struct rather than field by field, so a field added to
+    // `ExpiringVariable` reaches handlers instead of being silently dropped.
+    let mut extra: HashMap<String, Box<RawValue>> =
+        serde_json::from_value(serde_json::to_value(expiring)?)?;
+
+    if let Some(args_v) = extra_args {
+        if let Ok(args_m) = serde_json::from_str::<HashMap<String, Box<RawValue>>>(args_v.get()) {
+            extra.extend(args_m);
+        } else {
+            return Err(error::Error::ExecutionErr(
+                "args of scripts needs to be dict".to_string(),
+            ));
+        }
+    }
+
+    let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of.as_ref() {
+        (
+            on_behalf_of.email.as_str(),
+            on_behalf_of.permissioned_as.clone(),
+        )
+    } else {
+        (
+            VARIABLE_EXPIRATION_HANDLER_USER_EMAIL,
+            VARIABLE_EXPIRATION_HANDLER_USER_GROUP.to_string(),
+        )
+    };
+
+    let empty: HashMap<String, Box<RawValue>> = HashMap::new();
+    let args = PushArgs { extra: Some(extra), args: &empty };
+    push(
+        db,
+        PushIsolationLevel::Transaction(tx),
+        w_id,
+        payload,
+        args,
+        VARIABLE_EXPIRATION_HANDLER_USERNAME,
+        email,
+        permissioned_as,
+        Some(&format!(
+            "variable.expiration.{}",
+            expiring.variable_path.replace('/', ".")
+        )),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        tag,
+        None,
+        None,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+}
+
+/// Dispatch the variable expiration handler once, on demand, for a variable the caller
+/// names rather than one the sweep found due.
+///
+/// Goes through `push_variable_expiration_handler` rather than reimplementing the push so a
+/// test run proves the thing that actually matters: that the handler resolves and that
+/// `g/variable_expiration_handler` can read what it needs, under the same identity and the
+/// same argument shape a real expiry would use.
+///
+/// Callers MUST verify the requester is a workspace admin and restrict `handler_path` to the
+/// built-ins: this runs it as `g/variable_expiration_handler`, which may hold write access to
+/// the variables it rotates.
+pub async fn push_variable_expiration_test_handler(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    handler_path: &str,
+    expiring: &ExpiringVariable,
+    extra_args: Option<Json<Box<RawValue>>>,
+) -> windmill_common::error::Result<Uuid> {
+    let tx = db.begin().await?;
+    let (uuid, tx) =
+        push_variable_expiration_handler(db, tx, w_id, handler_path, expiring, extra_args).await?;
+    tx.commit().await?;
+    Ok(uuid)
 }
 
 pub async fn push_success_handler<'a, 'c, T: Serialize + Send + Sync>(
@@ -6308,6 +6440,7 @@ async fn push_inner<'c, 'd>(
                 if !team_plan_status.premium
                     && email != ERROR_HANDLER_USER_EMAIL
                     && email != SCHEDULE_ERROR_HANDLER_USER_EMAIL
+                    && email != VARIABLE_EXPIRATION_HANDLER_USER_EMAIL
                     && email != recovery_email
                     && email != "worker@windmill.dev"
                     && email != SUPERADMIN_SECRET_EMAIL
@@ -8795,7 +8928,7 @@ mod git_sync_concurrency_key_tests {
 
 #[cfg(test)]
 mod preset_handler_path_tests {
-    use super::is_preset_handler_path;
+    use super::{is_preset_handler_path, VARIABLE_EXPIRATION_PRESET_PATHS};
 
     #[test]
     fn only_pinned_hub_scripts_are_presets() {
@@ -8820,7 +8953,8 @@ mod preset_handler_path_tests {
         for (name, path) in hub_paths {
             if path.contains("-handler-") {
                 assert!(
-                    is_preset_handler_path(&path),
+                    is_preset_handler_path(&path)
+                        || VARIABLE_EXPIRATION_PRESET_PATHS.contains(&path.as_str()),
                     "{name}: {path} is not pinned"
                 );
             }
