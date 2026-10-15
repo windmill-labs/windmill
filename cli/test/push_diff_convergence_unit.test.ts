@@ -456,8 +456,6 @@ test("an in-file custom path converges on push", async () => {
   ]);
 });
 
-// The backend requires admin for any update carrying custom_path, so the
-// pulled, unchanged value must stay out of a non-admin's push.
 test("push: an unchanged custom_path is not sent", () => {
   expect(
     changedCustomPath("my-dashboard", { custom_path: "my-dashboard" }),
