@@ -346,3 +346,30 @@ test("push: settings.yaml without instance_groups is not a change", async () => 
   });
   expect(await diff(otherGroups, remote, skips)).toEqual(["edited settings.yaml"]);
 });
+
+test("pull: a raw app keeps its custom_path", async () => {
+  const zip = new JSZip();
+  zip.file(
+    "f/test/myapp.raw_app.json",
+    JSON.stringify({
+      summary: "My app",
+      policy: { execution_mode: "publisher" },
+      custom_path: "my-dashboard",
+      value: { files: {}, runnables: {} },
+    }),
+    { createFolders: false },
+  );
+  const remote = ZipFSElement(zip, true, "bun", {}, {}, false, true) as any;
+  const files: Record<string, string> = {};
+  const walk = async (el: Mock) => {
+    for await (const child of el.getChildren()) {
+      if (child.isDirectory) await walk(child);
+      else files[slashPath(child.path)] = await child.getContentText();
+    }
+  };
+  await walk(remote);
+  const rawAppYaml = Object.entries(files).find(([p]) =>
+    p.endsWith("/raw_app.yaml"),
+  );
+  expect(rawAppYaml?.[1]).toContain("custom_path: my-dashboard");
+});
