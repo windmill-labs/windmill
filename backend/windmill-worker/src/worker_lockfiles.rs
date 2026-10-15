@@ -913,14 +913,19 @@ async fn published_app_component_ids(
     else {
         return Ok(None);
     };
+    app_component_ids(&value).map(Some)
+}
+
+/// The dependency-map node id of every inline script of an app version's `value`.
+fn app_component_ids(value: &Value) -> error::Result<Vec<String>> {
     let mut ids = vec![];
-    windmill_common::apps::traverse_app_inline_scripts(&value, None, &mut |_, id| {
+    windmill_common::apps::traverse_app_inline_scripts(value, None, &mut |_, id| {
         ids.push(id.unwrap_or_default());
         Ok(())
     })?;
     ids.sort();
     ids.dedup();
-    Ok(Some(ids))
+    Ok(ids)
 }
 
 /// A raw app's runnables are recorded in the dependency map under their name in `runnables`.
@@ -2782,7 +2787,7 @@ pub async fn handle_app_dependency_job(
 
     // The version captured at job creation can be stale (the app may have been redeployed
     // since): relock the one published now.
-    let id = if triggered_by_relative_import {
+    let (id, version_switched) = if triggered_by_relative_import {
         match published_app_version(db, &job.workspace_id, &job_path).await? {
             Some(published) if published != id => {
                 tracing::info!(
@@ -2790,12 +2795,12 @@ pub async fn handle_app_dependency_job(
                     id,
                     published
                 );
-                published
+                (published, true)
             }
-            _ => id,
+            _ => (id, false),
         }
     } else {
-        id
+        (id, false)
     };
 
     sqlx::query!(
@@ -2827,7 +2832,11 @@ pub async fn handle_app_dependency_job(
 
     // TODO: Use transaction for entire segment?
     if let Some((app_id, value, is_raw_app)) = record {
-        let components_to_relock = if is_raw_app {
+        // The components to relock were picked in the version the job was queued for, and the
+        // one published since may name them differently and carry its editor's stale locks.
+        let components_to_relock = if version_switched {
+            Some(app_component_ids(&value)?)
+        } else if is_raw_app {
             expand_legacy_raw_app_components(components_to_relock, &value)
         } else {
             components_to_relock

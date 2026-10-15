@@ -920,3 +920,112 @@ async fn superseded_app_relock_relocks_the_renamed_component(
 
     Ok(())
 }
+
+/// A relock queued before a deploy runs on the version that deploy published, every component
+/// of it: the deploy may rename the component the relock was queued for, keeping its stale lock.
+#[sqlx::test(fixtures("base"))]
+async fn app_relock_queued_before_a_deploy_relocks_the_renamed_component(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    std::env::set_var("DEPENDENCY_JOB_DEBOUNCE_DELAY", "0");
+    let (client, port, _s) = init_client(db.clone()).await;
+    let mut completed = listen_for_completed_jobs(&db).await;
+    let queued_for = plant_raw_app(&db).await?;
+
+    in_test_worker(
+        &db,
+        async {
+            client
+                .create_script(W, &py_script("f/rel/a", A_WITH_TINY, None))
+                .await
+                .unwrap();
+            wait_for_jobs(&db, &mut completed, 1).await;
+
+            let renamed: i64 = sqlx::query_scalar(
+                "INSERT INTO app_version (app_id, value, created_by, raw_app)
+                 SELECT app_id, $2, created_by, true FROM app_version WHERE id = $1
+                 RETURNING id",
+            )
+            .bind(queued_for)
+            .bind(
+                serde_json::json!({ "runnables": { "c": { "type": "inline", "inlineScript": {
+                    "content": B, "language": "python3", "lock": "# py: 3.12\n"
+                }}}}),
+            )
+            .fetch_one(&db)
+            .await
+            .unwrap();
+            sqlx::query(
+                "UPDATE app SET versions = array_append(versions, $2)
+                 WHERE workspace_id = $1 AND path = 'f/rel/app'",
+            )
+            .bind(W)
+            .bind(renamed)
+            .execute(&db)
+            .await
+            .unwrap();
+
+            let payload = windmill_common::jobs::JobPayload::AppDependencies {
+                path: "f/rel/app".to_string(),
+                version: queued_for,
+                debouncing_settings: Default::default(),
+            };
+            let args = std::collections::HashMap::from([
+                (
+                    "triggered_by_relative_import".to_string(),
+                    serde_json::value::to_raw_value(&true).unwrap(),
+                ),
+                (
+                    "components_to_relock".to_string(),
+                    serde_json::value::to_raw_value(&["a"]).unwrap(),
+                ),
+            ]);
+            let (_, tx) = windmill_queue::push(
+                &db,
+                windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone()),
+                W,
+                payload,
+                windmill_queue::PushArgs { args: &args, extra: None },
+                "test-user",
+                "test@windmill.dev",
+                "u/test-user".to_string(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                false,
+                None,
+                true,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+            tx.commit().await.unwrap();
+            wait_for_jobs(&db, &mut completed, 1).await;
+
+            let lock = runnable_lock(&db, renamed, "c").await;
+            assert!(
+                lock.as_deref().unwrap_or("").contains("tiny"),
+                "the renamed component carries the new lock: {lock:?}"
+            );
+        },
+        port,
+    )
+    .await;
+
+    Ok(())
+}
