@@ -287,7 +287,7 @@
 			</div>
 			<!-- Collapsed: the buttons stand on their own rather than boxing empty space. -->
 		{:else if message.needsConfirmation}
-			{@render confirmFooter('py-1 font-main')}
+			{@render confirmFooter('py-1')}
 		{/if}
 	</div>
 {:else}
