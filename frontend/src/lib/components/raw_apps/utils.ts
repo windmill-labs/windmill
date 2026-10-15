@@ -1,4 +1,4 @@
-import type { ScriptLang } from '../../gen/types.gen'
+import type { ScriptLang, ScriptModule } from '../../gen/types.gen'
 import type { Schema } from '../../common'
 import { schemaToTsType } from '../../schema'
 import { isRunnableByName, isRunnableByPath, type RunnableWithFields } from '../apps/inputType'
@@ -16,6 +16,37 @@ export type Runnable = RunnableWithInlineScript | undefined
 
 export type RawApp = {
 	files: string[]
+}
+
+function moduleExtension(language: ScriptLang | undefined): string | undefined {
+	if (language === 'bun' || language === 'bunnative') return 'ts'
+	if (language === 'python3') return 'py'
+	return undefined
+}
+
+/**
+ * The app's other inline runnables, as modules a preview of runnable `id` ships with,
+ * so `./<id>` imports resolve to the editor's code. A deployed runnable carries only
+ * the ones it imports, stored at deploy time.
+ */
+export function rawAppPreviewModules(
+	runnables: Record<string, Runnable>,
+	id: string
+): Record<string, ScriptModule> | undefined {
+	const ext = moduleExtension(runnables[id]?.inlineScript?.language)
+	if (!ext) return undefined
+	const modules: Record<string, ScriptModule> = {}
+	for (const [otherId, runnable] of Object.entries(runnables)) {
+		const inlineScript = runnable?.inlineScript
+		if (otherId === id || !inlineScript || moduleExtension(inlineScript.language) !== ext) {
+			continue
+		}
+		modules[`${otherId}.${ext}`] = {
+			content: inlineScript.content,
+			language: inlineScript.language
+		}
+	}
+	return Object.keys(modules).length > 0 ? modules : undefined
 }
 
 // Server-managed columns the deployed app row (getAppByPath) carries but the
@@ -195,7 +226,8 @@ export function formatRuntimeLogsForChat(entries: RawAppRuntimeLogEntry[]): stri
 const BUILD_LOG_TAIL_LINES = 40
 const BUILD_LOG_TAIL_CHARS = 6000
 // Per-package install progress: dozens of lines per build that would crowd the errors out of the tail.
-const ROUTINE_INSTALL_LOG_LINE = /^\s*(Using cached resolution|Using idb cache|Resolved \S+@|Extract(ing|ed) )/
+const ROUTINE_INSTALL_LOG_LINE =
+	/^\s*(Using cached resolution|Using idb cache|Resolved \S+@|Extract(ing|ed) )/
 
 export function formatBuildLogTailForChat(buildLogs: string): string {
 	// The bundler log accumulates every install and build since the editor opened.

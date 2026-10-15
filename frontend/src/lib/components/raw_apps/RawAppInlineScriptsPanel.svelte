@@ -38,6 +38,7 @@
 	{#key selectedRunnable}
 		<RawAppInlineScripRunnable
 			{appPath}
+			{runnables}
 			on:createScriptFromInlineScript={(e) => {
 				createScriptFromInlineScript(selectedRunnable ?? '', e.detail, opWs ?? '', appPath)
 			}}

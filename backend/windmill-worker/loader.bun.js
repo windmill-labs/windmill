@@ -55,6 +55,17 @@ const p = {
       return replaceRelativeImports(code);
     });
 
+    // Module files (written by write_module_files next to main.ts) need the same `.ts`
+    // rewrite: an extensionless relative import misses the resolve filter below, and the
+    // lockfile builder then treats it as an external package named ".".
+    const filterLoadModule = new RegExp(
+      `^${cdir}\/(?!node_modules\/)(?!_wm_)(?!main\\.ts$).*\\.ts$`
+    );
+    build.onLoad({ filter: filterLoadModule }, async (args) => {
+      const code = readFileSync(args.path, "utf8");
+      return replaceRelativeImports(code);
+    });
+
     // A stalled fetch would otherwise hold the whole build for bun's own 5-minute
     // default, with nothing naming the script it was waiting on.
     const RELATIVE_IMPORT_FETCH_TIMEOUT_MS = 120000;

@@ -1181,6 +1181,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
             runnableId,
             args,
             appTempRefs,
+            previewModules(runnables, runnableId),
           );
           log.info(colors.gray(`[backend] Job started: ${uuid}`));
 
@@ -1228,6 +1229,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
                 runnable_id,
                 v,
                 appTempRefs,
+                previewModules(runnables, runnable_id),
               );
               log.info(colors.gray(`[backendAsync] Job started: ${uuid}`));
 
@@ -1813,6 +1815,43 @@ async function loadRunnables(): Promise<Record<string, Runnable>> {
   }
 }
 
+function moduleExtension(language: string | undefined): string | undefined {
+  if (language === "bun" || language === "bunnative") return "ts";
+  if (language === "python3") return "py";
+  return undefined;
+}
+
+/**
+ * The app's other inline runnables, as modules a preview of `runnableId` ships with so
+ * `./<id>` imports resolve to the local files. A deployed runnable carries only the ones
+ * it imports, stored at deploy time.
+ */
+function previewModules(
+  runnables: Record<string, Runnable>,
+  runnableId: string,
+): Record<string, { content: string; language: string }> | undefined {
+  const inlineScriptOf = (r: Runnable | undefined) =>
+    r && "inlineScript" in r ? r.inlineScript : undefined;
+  const ext = moduleExtension(inlineScriptOf(runnables[runnableId])?.language);
+  if (!ext) return undefined;
+  const modules: Record<string, { content: string; language: string }> = {};
+  for (const [id, runnable] of Object.entries(runnables)) {
+    const inlineScript = inlineScriptOf(runnable);
+    if (
+      id === runnableId ||
+      !inlineScript ||
+      moduleExtension(inlineScript.language) !== ext
+    ) {
+      continue;
+    }
+    modules[`${id}.${ext}`] = {
+      content: inlineScript.content,
+      language: inlineScript.language,
+    };
+  }
+  return Object.keys(modules).length > 0 ? modules : undefined;
+}
+
 async function executeRunnable(
   runnable: Runnable,
   workspace: string,
@@ -1820,6 +1859,7 @@ async function executeRunnable(
   runnableId: string,
   args: any,
   tempScriptRefs?: Record<string, string>,
+  modules?: Record<string, { content: string; language: string }>,
 ): Promise<string> {
   const requestBody: any = {
     component: runnableId,
@@ -1852,12 +1892,18 @@ async function executeRunnable(
     if (inlineScript.id !== undefined) {
       requestBody.id = inlineScript.id;
     }
+    // A lock is not regenerated when only an imported runnable is edited, so with
+    // modules the preview resolves dependencies afresh.
+    const previewMods = inlineScript.id === undefined ? modules : undefined;
     requestBody.raw_code = {
       content: inlineScript.id === undefined ? inlineScript.content : "",
       language: inlineScript.language ?? "",
       path: `${appPath}/${runnableId}`,
-      lock: inlineScript.id === undefined ? inlineScript.lock : undefined,
+      lock: inlineScript.id === undefined && !previewMods
+        ? inlineScript.lock
+        : undefined,
       cache_ttl: inlineScript.cache_ttl,
+      ...(previewMods ? { modules: previewMods } : {}),
     };
     if (inlineScript.id === undefined && tempScriptRefs) {
       requestBody.temp_script_refs = tempScriptRefs;

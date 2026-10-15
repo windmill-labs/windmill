@@ -8547,7 +8547,7 @@ async fn clone_apps(
 
     // Clone app scripts with recomputed hashes
     let app_scripts = sqlx::query!(
-        "SELECT app, hash, lock, code, code_sha256
+        "SELECT app, hash, lock, code, code_sha256, modules
          FROM app_script
          WHERE app = ANY(SELECT id FROM app WHERE workspace_id = $1)",
         source_workspace_id
@@ -8557,23 +8557,27 @@ async fn clone_apps(
 
     for app_script in app_scripts {
         if let Some(&new_app_id) = app_id_mapping.get(&app_script.app) {
-            // Recompute hash using app_id, code_sha256, and lock
+            // Recompute hash using app_id, code_sha256, lock and modules
             let mut hasher = Sha256::new();
             hasher.update(new_app_id.to_be_bytes());
             hasher.update(hex::decode(&app_script.code_sha256)?);
             if let Some(lock) = &app_script.lock {
                 hasher.update(lock.as_bytes());
             }
+            if let Some(modules) = &app_script.modules {
+                hasher.update(modules.to_string());
+            }
             let new_hash = hex::encode(hasher.finalize());
 
             sqlx::query!(
-                "INSERT INTO app_script (app, hash, lock, code, code_sha256)
-                 VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
+                "INSERT INTO app_script (app, hash, lock, code, code_sha256, modules)
+                 VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING",
                 new_app_id,
                 new_hash,
                 app_script.lock,
                 app_script.code,
                 app_script.code_sha256,
+                app_script.modules,
             )
             .execute(&mut **tx)
             .await?;

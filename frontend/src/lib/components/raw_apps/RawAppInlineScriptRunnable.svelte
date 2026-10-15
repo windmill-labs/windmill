@@ -30,6 +30,7 @@
 	import { userStore } from '$lib/stores'
 	import { isHubFlowPath } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
+	import { rawAppPreviewModules } from './utils'
 	import {
 		useOperatingUser,
 		useOperatingWorkspace
@@ -50,6 +51,8 @@
 		runnable: Runnable
 		id: string
 		appPath: string
+		/** All of the app's runnables, which a test run ships as modules for `./<id>` imports */
+		runnables?: Record<string, Runnable>
 		lastDeployedCode?: string | undefined
 		/** Called when code is selected in the editor */
 		onSelectionChange?: (
@@ -63,7 +66,7 @@
 		) => void
 	}
 
-	let { runnable = $bindable(), id, appPath, onSelectionChange }: Props = $props()
+	let { runnable = $bindable(), id, appPath, runnables, onSelectionChange }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -179,7 +182,12 @@
 				runnable.inlineScript?.content ?? '',
 				runnable.inlineScript?.language,
 				args,
-				undefined
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				runnables ? rawAppPreviewModules(runnables, id) : undefined
 			)
 		} else if (isRunnableByPath(runnable)) {
 			if (jobLoader && isRunnableByPath(runnable)) {

@@ -791,7 +791,8 @@ pub async fn handle_python_job(
         None
     };
 
-    let (py_version, mut additional_python_paths) = handle_python_deps(
+    let module_sources = python_module_sources(&script_path, modules.as_ref());
+    let (py_version, mut additional_python_paths) = handle_python_deps_with_modules(
         job_dir,
         requirements_o,
         inner_content,
@@ -807,6 +808,7 @@ pub async fn handle_python_job(
         precomputed_agent_info,
         annotations.clone(),
         &temp_script_refs,
+        module_sources.as_ref(),
     )
     .await?;
 
@@ -1939,6 +1941,32 @@ async fn replace_pip_secret(
     }
 }
 
+/// Content of a runnable's Python modules, keyed by the path a relative import of each
+/// resolves to from `script_path` (`shared.py` next to `u/a/app/main` is `u/a/app/shared`),
+/// for the import parser to read in place of a deployed script.
+pub(crate) fn python_module_sources(
+    script_path: &str,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
+) -> Option<HashMap<String, String>> {
+    let dir = script_path
+        .rsplit_once('/')
+        .map(|(dir, _)| dir)
+        .unwrap_or("");
+    let sources: HashMap<String, String> = modules?
+        .iter()
+        .filter_map(|(key, module)| {
+            let stem = key.strip_suffix(".py")?;
+            let path = if dir.is_empty() {
+                stem.to_string()
+            } else {
+                format!("{dir}/{stem}")
+            };
+            Some((path, module.content.clone()))
+        })
+        .collect();
+    (!sources.is_empty()).then_some(sources)
+}
+
 pub(crate) async fn handle_python_deps(
     job_dir: &str,
     requirements_o: Option<&String>,
@@ -1955,6 +1983,45 @@ pub(crate) async fn handle_python_deps(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     annotations: PythonAnnotations,
     temp_script_refs: &Option<HashMap<String, String>>,
+) -> error::Result<(PyV, Vec<String>)> {
+    handle_python_deps_with_modules(
+        job_dir,
+        requirements_o,
+        inner_content,
+        w_id,
+        script_path,
+        job_id,
+        conn,
+        worker_name,
+        worker_dir,
+        mem_peak,
+        canceled_by,
+        occupancy_metrics,
+        precomputed_agent_info,
+        annotations,
+        temp_script_refs,
+        None,
+    )
+    .await
+}
+
+async fn handle_python_deps_with_modules(
+    job_dir: &str,
+    requirements_o: Option<&String>,
+    inner_content: &str,
+    w_id: &str,
+    script_path: &str,
+    job_id: &Uuid,
+    conn: &Connection,
+    worker_name: &str,
+    worker_dir: &str,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    precomputed_agent_info: Option<PrecomputedAgentInfo>,
+    annotations: PythonAnnotations,
+    temp_script_refs: &Option<HashMap<String, String>>,
+    module_sources: Option<&HashMap<String, String>>,
 ) -> error::Result<(PyV, Vec<String>)> {
     create_dependencies_dir(job_dir).await;
 
@@ -1984,6 +2051,7 @@ pub(crate) async fn handle_python_deps(
                         &mut locked_v,
                         &None,
                         temp_script_refs,
+                        module_sources,
                     ))
                     .await?;
 
