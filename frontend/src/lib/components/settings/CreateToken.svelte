@@ -14,6 +14,7 @@
 
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
+	import RadioCard from '../common/radioCard/RadioCard.svelte'
 	import MultiSelect from '../select/MultiSelect.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -47,7 +48,11 @@
 
 	let newToken = $state<string | undefined>(undefined)
 	let newMcpToken = $state<string | undefined>(undefined)
-	let newMcpTokenReachesWorkspaceServer = $state(false)
+	let newMcpTokenUrl = $state('')
+	// Which MCP server the URL is for: the tools server (your scripts and flows as tools) or the
+	// workspace server (the AI chat's toolset), which takes `mcp:all` and nothing narrower.
+	let mcpServer = $state<'tools' | 'build'>('tools')
+	const BUILD_SCOPES = ['mcp:all']
 	// What the user picked; `newTokenExpiration` is that pick held within the ceiling.
 	let pickedExpiration = $state<number | undefined>(undefined)
 	let newTokenWorkspace = $state<string | undefined>(untrack(() => defaultNewTokenWorkspace))
@@ -171,7 +176,8 @@
 				date = new Date(new Date().getTime() + newTokenExpiration * 1000)
 			}
 
-			const pickedOrFixed = scopes ?? pickedScopes ?? undefined
+			const pickedOrFixed =
+				scopes ?? (mcpMode && mcpServer === 'build' ? BUILD_SCOPES : pickedScopes) ?? undefined
 			const tokenScopes =
 				pickedOrFixed && workspacesScope ? [...pickedOrFixed, workspacesScope] : pickedOrFixed
 
@@ -188,7 +194,7 @@
 			if (mcpMode) {
 				newToken = undefined
 				newMcpToken = `${createdToken}`
-				newMcpTokenReachesWorkspaceServer = !!tokenScopes?.includes('mcp:all')
+				newMcpTokenUrl = `${chosenMcpUrl}?token=${createdToken}`
 			} else {
 				newMcpToken = undefined
 				newToken = `${createdToken}`
@@ -263,11 +269,11 @@
 				? `${window.location.origin}/api/mcp/gateway`
 				: undefined
 	)
-	const mcpBaseUrl = $derived(`${mcpUrl ?? ''}?token=`)
 	// The workspace server (the AI-session toolset) has one URL: its tools name their workspace.
 	const mcpWorkspaceUrl = $derived(
 		mcpReachesWorkspaces ? `${window.location.origin}/api/mcp/windmill` : undefined
 	)
+	const chosenMcpUrl = $derived(mcpServer === 'build' ? mcpWorkspaceUrl : mcpUrl)
 
 	$effect(() => {
 		const requestedMcpMode = mcpOnly || openWithMcpMode
@@ -290,6 +296,25 @@
 		}
 	})
 </script>
+
+{#snippet mcpServerChoice()}
+	<!-- role=radiogroup: the cards carry `role="radio"`, which a screen reader can only place
+	     ("2 of 2") inside a named group. -->
+	<div class="mb-4 flex flex-col gap-2" role="radiogroup" aria-label="What the client does">
+		<RadioCard
+			label="Use your scripts and flows"
+			description="Your scripts, flows and the Windmill API as tools, to run your automations from a chat."
+			selected={mcpServer === 'tools'}
+			onSelect={() => (mcpServer = 'tools')}
+		/>
+		<RadioCard
+			label="Build in Windmill"
+			description="The AI chat's toolset: the assistant writes scripts, flows and apps as drafts, tests them and deploys them."
+			selected={mcpServer === 'build'}
+			onSelect={() => (mcpServer = 'build')}
+		/>
+	</div>
+{/snippet}
 
 {#snippet mcpWorkspacePicker()}
 	<div class="flex flex-col gap-1">
@@ -354,28 +379,20 @@
 		{#if mcpCreationMode && mcpUrlPolicy === 'loading'}
 			<Skeleton layout={[[2], 0.5, [1]]} />
 		{:else if mcpCreationMode && mcpUrlPolicy === 'oauth'}
+			{@render mcpServerChoice()}
 			{#if !lockWorkspace}
 				<div class="mb-4 max-w-md">
 					{@render mcpWorkspacePicker()}
 				</div>
 			{/if}
 
-			{#if mcpUrl}
-				<span class="block text-emphasis text-xs font-semibold">Use your scripts and flows</span>
-				<p class="mb-1 text-xs text-secondary">
-					Your scripts, flows and the Windmill API as tools, to run your automations from a chat.
-				</p>
-				<CopyableCodeBlock code={mcpUrl} language={shell} wrap />
-				{#if mcpWorkspaceUrl}
-					<span class="block mt-3 text-emphasis text-xs font-semibold"
-						>Build in Windmill (write, test, deploy)</span
-					>
-					<p class="mb-1 text-xs text-secondary">
-						The AI chat's toolset: the assistant writes scripts, flows and apps as drafts, tests
-						them and deploys them. When your client signs in, pick the workspaces it may work in and
-						the "All scripts/flows" scope.
+			{#if chosenMcpUrl}
+				<CopyableCodeBlock code={chosenMcpUrl} language={shell} wrap />
+				{#if mcpServer === 'build'}
+					<p class="mt-1 text-xs text-secondary">
+						When your client signs in, pick the workspaces it may work in and the "All
+						scripts/flows" scope.
 					</p>
-					<CopyableCodeBlock code={mcpWorkspaceUrl} language={shell} wrap />
 				{/if}
 
 				<div class="mt-2">
@@ -385,7 +402,7 @@
 					</Alert>
 				</div>
 			{:else}
-				<p class="text-xs text-tertiary">Pick a workspace to get the MCP URLs.</p>
+				<p class="text-xs text-tertiary">Pick a workspace to get the MCP URL.</p>
 			{/if}
 
 			{#if !mcpOnly}
@@ -394,7 +411,22 @@
 				</div>
 			{/if}
 		{:else}
-			{#if scopes != undefined}
+			{#if mcpCreationMode}
+				{@render mcpServerChoice()}
+			{/if}
+			{#if mcpCreationMode && mcpServer === 'build'}
+				<div class="mb-4 text-tertiary">
+					<Toggle
+						bind:checked={readOnly}
+						options={{
+							right: 'Read-only',
+							rightTooltip:
+								'The assistant can read the workspace, its runs and its drafts, but cannot write, run or deploy anything.'
+						}}
+						size="2xs"
+					/>
+				</div>
+			{:else if scopes != undefined}
 				<div class="mb-4">
 					<span class="block mb-1 text-emphasis text-xs font-semibold">Scope</span>
 					{#each scopes as scope (scope)}
@@ -414,7 +446,7 @@
 				</div>
 			{/if}
 
-			{#if !scopes || scopes.length === 0}
+			{#if (!scopes || scopes.length === 0) && !(mcpCreationMode && mcpServer === 'build')}
 				<ScopesPicker
 					mode={mcpCreationMode ? 'mcp' : 'standard'}
 					workspaceId={scopeWorkspaceId}
@@ -475,7 +507,8 @@
 				{/if}
 				<Button
 					on:click={() => createToken(mcpCreationMode)}
-					disabled={mcpCreationMode && (!mcpReachesWorkspaces || !pickedScopes)}
+					disabled={mcpCreationMode &&
+						(!mcpReachesWorkspaces || (mcpServer === 'tools' && !pickedScopes))}
 					variant="accent"
 				>
 					{mcpCreationMode ? 'Generate MCP URL' : 'New token'}
@@ -489,13 +522,6 @@
 	{/if}
 
 	{#if newMcpToken && displayCreateToken}
-		<TokenDisplay
-			token={newMcpToken}
-			mcpUrl={`${mcpBaseUrl}${newMcpToken}`}
-			mcpWorkspaceUrl={mcpWorkspaceUrl && newMcpTokenReachesWorkspaceServer
-				? `${mcpWorkspaceUrl}?token=${newMcpToken}`
-				: undefined}
-			mcpWorkspaceNeedsFullScope={!!mcpWorkspaceUrl && !newMcpTokenReachesWorkspaceServer}
-		/>
+		<TokenDisplay token={newMcpToken} mcpUrl={newMcpTokenUrl} />
 	{/if}
 </div>

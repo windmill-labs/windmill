@@ -107,12 +107,10 @@ wmill sync pull`)
 											<div class="flex flex-col gap-1">
 												<h3 class="text-sm font-semibold text-emphasis">MCP URL</h3>
 												<p class="text-xs text-secondary max-w-xl">
+													Connect an AI client to the current workspace, to run your scripts and
+													flows or to build in Windmill.
 													{#if tokenUrlDisabled}
-														The MCP server URL for the current workspace. Your client signs in to
-														Windmill to use it.
-													{:else}
-														Generate an MCP server URL for the current workspace and choose which
-														scripts, flows, and endpoints the client can access.
+														Your client signs in to Windmill to use it.
 													{/if}
 												</p>
 											</div>
