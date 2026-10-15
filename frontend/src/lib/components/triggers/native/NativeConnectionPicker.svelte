@@ -21,6 +21,8 @@
 		/** Select the first connection when none is chosen yet. */
 		autoSelect?: boolean
 		clearable?: boolean
+		/** Suffix the workspace connection's label, where it sits among personal ones. */
+		labelWorkspace?: boolean
 		placeholder?: string
 		/** Called instead of setting `value` directly when the user picks or clears a connection. */
 		onSelect?: (path: string | undefined) => void
@@ -35,6 +37,7 @@
 		disabled = false,
 		autoSelect = true,
 		clearable = false,
+		labelWorkspace = true,
 		placeholder,
 		onSelect,
 		onConnectionsChange
@@ -118,7 +121,7 @@
 
 	const items = $derived.by(() => {
 		const list = (connections ?? []).map((c) => ({
-			label: c.workspace ? `${c.path} (workspace connection)` : c.path,
+			label: c.workspace && labelWorkspace ? `${c.path} (workspace connection)` : c.path,
 			value: c.path
 		}))
 		if (value && !list.some((i) => i.value === value)) {

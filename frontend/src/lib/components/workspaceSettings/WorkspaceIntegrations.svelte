@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
-	import { Button, Alert } from '$lib/components/common'
+	import { Button, Alert, Badge } from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
-	import { X, ExternalLink, Cog } from 'lucide-svelte'
+	import { ExternalLink } from 'lucide-svelte'
 	import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
 	import GithubIcon from '$lib/components/icons/GithubIcon.svelte'
 	import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
@@ -188,13 +188,30 @@
 		}
 	}
 
+	async function openConfig(serviceName: string, leavingInstanceApp: boolean) {
+		const displayName = supportedServices[serviceName]?.displayName ?? serviceName
+		// A refresh token only works with the OAuth app that issued it.
+		if (leavingInstanceApp && (connections[serviceName]?.length ?? 0) > 0) {
+			const confirmed = await confirmationModal.ask({
+				title: `Use your own ${displayName} OAuth app?`,
+				confirmationText: 'Continue',
+				children: `Accounts connected with the instance app will have to be connected again, at the same path, before their triggers work again.`
+			})
+			if (!confirmed) return
+		}
+		showingConfig = serviceName
+	}
+
 	async function createOrUpdateIntegration(serviceName: string, oauthData: any) {
 		if (!$workspaceStore) return
 
 		const displayName = supportedServices[serviceName]?.displayName ?? serviceName
 		const current = getIntegrationByService(serviceName)?.oauth_data
+		// Leaving the instance app is confirmed when the form opens; this covers editing our own app.
 		const clientChanges =
-			current?.instance_shared || (current?.client_id ?? '') !== (oauthData.client_id ?? '')
+			!!current?.client_id &&
+			!current.instance_shared &&
+			current.client_id !== (oauthData.client_id ?? '')
 		// A refresh token only works with the OAuth app that issued it.
 		if (clientChanges && (connections[serviceName]?.length ?? 0) > 0) {
 			const confirmed = await confirmationModal.ask({
@@ -295,82 +312,67 @@
 								<div class="text-xs font-normal text-primary">{config.description}</div>
 							</div>
 						</div>
-
-						<div class="flex flex-wrap items-center justify-end gap-2">
-							<Button
-								variant="default"
-								onclick={() => (showingConfig = showingConfig === serviceName ? null : serviceName)}
-								startIcon={{ icon: Cog }}
-							>
-								Configure OAuth
-							</Button>
-							{#if integration?.oauth_data}
-								<Button
-									variant="default"
-									destructive
-									onclick={() => deleteIntegration(serviceName)}
-									startIcon={{ icon: X }}
-								>
-									Remove
-								</Button>
+						<div class="flex items-center gap-2 shrink-0">
+							{#if workspaceApp}
+								<Badge color="green" small>Workspace OAuth app</Badge>
+							{:else if usesInstanceApp}
+								<Badge color="blue" small>Instance OAuth app</Badge>
+							{:else}
+								<Badge color="gray" small>Not set up</Badge>
 							{/if}
 							{#if config.docsUrl}
-								<Button href={config.docsUrl} target="_blank" startIcon={{ icon: ExternalLink }}>
+								<Button
+									unifiedSize="sm"
+									variant="subtle"
+									href={config.docsUrl}
+									target="_blank"
+									startIcon={{ icon: ExternalLink }}
+								>
 									Docs
 								</Button>
 							{/if}
 						</div>
 					</div>
 
-					{#if usesInstanceApp}
-						<div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-							{#if serviceName === 'google'}
-								<Alert type="info" title="Uses the instance OAuth app">
-									<p class="text-sm mb-2">
-										Your instance admin shares a Google OAuth app. Before connecting, ensure the
-										following redirect URI has been added to it in the
-										<a
-											href="https://console.cloud.google.com/apis/credentials"
-											target="_blank"
-											rel="noopener noreferrer"
-											class="underline">Google Cloud Console</a
-										>:
-									</p>
-									<ClipboardPanel content={nativeOAuthRedirectUri('google')} size="sm" />
-								</Alert>
-							{:else}
-								<Alert type="info" title="Uses the instance OAuth app">
-									Your instance admin shares a {config.displayName} OAuth app, so members can connect
-									their accounts without further setup.
-								</Alert>
+					<div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex flex-col gap-2">
+						<div class="flex items-center justify-between gap-4">
+							<div class="flex flex-col gap-0.5">
+								<div class="text-xs font-semibold text-emphasis">OAuth app</div>
+								<div class="text-xs text-secondary">
+									{#if workspaceApp}
+										Uses this workspace's {config.displayName} app.
+									{:else if usesInstanceApp}
+										Uses the {config.displayName} app your instance admin shares.
+									{:else}
+										Members cannot connect a {config.displayName} account until an OAuth app is set up.
+									{/if}
+								</div>
+							</div>
+							{#if showingConfig !== serviceName}
+								<Button
+									unifiedSize="sm"
+									variant="default"
+									onclick={() => openConfig(serviceName, usesInstanceApp)}
+								>
+									{workspaceApp ? 'Edit' : usesInstanceApp ? 'Use your own app' : 'Set up'}
+								</Button>
 							{/if}
 						</div>
-					{/if}
-
-					{#if workspaceApp || usesInstanceApp}
-						<div
-							class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex flex-col gap-1"
-						>
-							<div class="text-xs font-semibold text-emphasis">Workspace connection</div>
-							<div class="text-xs text-secondary mb-1">
-								Members can create triggers that act as this account, without access to its token.
+						{#if usesInstanceApp && serviceName === 'google' && showingConfig !== serviceName}
+							<div class="text-xs text-secondary">
+								The instance app must list this redirect URI in the
+								<a
+									href="https://console.cloud.google.com/apis/credentials"
+									target="_blank"
+									rel="noopener noreferrer"
+									class="underline">Google Cloud Console</a
+								>:
 							</div>
-							<NativeConnectionPicker
-								service={serviceName as NativeServiceName}
-								value={workspaceConnection}
-								autoSelect={false}
-								clearable
-								placeholder="No workspace connection"
-								onSelect={(path) => setWorkspaceConnection(serviceName, path)}
-								onConnectionsChange={() => loadConnections(serviceName)}
-							/>
-						</div>
-					{/if}
-
-					{#if showingConfig === serviceName}
-						<div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+							<ClipboardPanel content={nativeOAuthRedirectUri('google')} size="sm" />
+						{/if}
+						{#if showingConfig === serviceName}
 							{#if serviceName === 'nextcloud'}
-								<Alert type="info" title="Requirements" class="mb-4">
+								<Alert type="info" title="Requirements">
 									<p>Nextcloud integration requires:</p>
 									<ul class="list-disc pl-4 mt-2 space-y-1">
 										<li>Nextcloud 33 or later.</li>
@@ -412,6 +414,53 @@
 									showingConfig = null
 								}}
 							/>
+							<div>
+								<Button unifiedSize="sm" variant="subtle" onclick={() => (showingConfig = null)}>
+									Cancel
+								</Button>
+							</div>
+						{/if}
+					</div>
+
+					{#if workspaceApp || usesInstanceApp}
+						<div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex flex-col gap-1">
+							<div class="text-xs font-semibold text-emphasis">Workspace connection</div>
+							<div class="text-xs text-secondary mb-1">
+								Members can create triggers that act as this account, without access to its token.
+							</div>
+							<NativeConnectionPicker
+								service={serviceName as NativeServiceName}
+								value={workspaceConnection}
+								autoSelect={false}
+								clearable
+								labelWorkspace={false}
+								placeholder="No workspace connection"
+								onSelect={(path) => setWorkspaceConnection(serviceName, path)}
+								onConnectionsChange={() => loadConnections(serviceName)}
+							/>
+						</div>
+					{/if}
+
+					{#if workspaceApp}
+						<div
+							class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between gap-4"
+						>
+							<div class="flex flex-col gap-0.5">
+								<div class="text-xs font-semibold text-emphasis">
+									Remove {config.displayName} from this workspace
+								</div>
+								<div class="text-xs text-secondary">
+									Deletes the OAuth app, every connected account and all {config.displayName} triggers.
+								</div>
+							</div>
+							<Button
+								unifiedSize="sm"
+								variant="default"
+								destructive
+								onclick={() => deleteIntegration(serviceName)}
+							>
+								Remove
+							</Button>
 						</div>
 					{/if}
 				</div>
