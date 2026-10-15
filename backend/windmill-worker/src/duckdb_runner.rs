@@ -1,9 +1,10 @@
-//! Out-of-process DuckDB: runs a job's blocks in `windmill_duckdb_runner` instead of the
-//! worker's own process, inside nsjail when the worker jails jobs. Off unless
-//! `DUCKDB_JAILED_RUNNER` is set; prototype, see the PR description for the measurements.
+//! DuckDB jobs run in `windmill_duckdb_runner`, a process of their own, under the same job
+//! isolation as every other language: inside nsjail when the worker jails jobs, under
+//! `unshare` when it isolates that way, and as a plain child process otherwise. An engine
+//! crash or a cancellation then ends the runner, never the worker.
 //!
-//! The runner calls the same FFI entry points the worker dlopens, and hands back the exact
-//! string they return, so result collection and error decoding stay in `duckdb_executor`.
+//! The runner hands back the string the engine call produced, so result collection and error
+//! decoding stay in `duckdb_executor`.
 
 use std::{
     collections::HashSet,
@@ -19,99 +20,34 @@ use tokio::{
 use windmill_common::error::{Error, Result};
 
 use crate::{
-    common::{resolve_nsjail_tmp_mount_block, DEV_CONF_NSJAIL},
-    is_sandboxing_enabled, DISABLE_NUSER, HOME_ENV, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV,
+    common::{build_command_with_isolation, resolve_nsjail_tmp_mount_block, DEV_CONF_NSJAIL},
+    is_sandboxing_enabled, is_unshare_enabled, DISABLE_NUSER, HOME_ENV, NSJAIL_AVAILABLE,
+    NSJAIL_PATH, PATH_ENV,
 };
 
 const NSJAIL_CONFIG_RUN_DUCKDB_CONTENT: &str = include_str!("../nsjail/run.duckdb.config.proto");
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Requested {
-    Off,
-    /// Inside nsjail. Falls back to in-process when the worker does not jail jobs.
-    Jailed,
-    /// A plain child process with no jail: separates the cost of the process from the cost of
-    /// the jail in benchmarks. Never a deployment setting.
-    Process,
-}
-
-static REQUESTED: LazyLock<Requested> = LazyLock::new(|| {
-    match std::env::var("DUCKDB_JAILED_RUNNER")
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "true" | "1" | "nsjail" => Requested::Jailed,
-        "process" => Requested::Process,
-        _ => Requested::Off,
-    }
-});
-
-/// How much of the SQL-level policy (`duckdb_isolation_ee`) a connection keeps.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum Fence {
-    /// The whole fence: extension allowlist, `disabled_filesystems`, `lock_temp_directory`.
-    Full,
-    /// Inside nsjail only: the allowlist and `lock_temp_directory`, without
-    /// `disabled_filesystems` and the preloads it forces. The jail confines the file system.
-    Allowlist,
-    /// Inside nsjail only: nothing, and no `lock_temp_directory` either, so a script can raise
-    /// the spill cap.
-    Off,
-}
-
-/// `DUCKDB_JAILED_RUNNER_FENCE` = `full` (default) | `allowlist` | `off`. Outside nsjail the
-/// fence is always full.
-static FENCE_IN_JAIL: LazyLock<Fence> = LazyLock::new(|| {
-    match std::env::var("DUCKDB_JAILED_RUNNER_FENCE")
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "allowlist" => Fence::Allowlist,
-        "off" | "false" | "0" => Fence::Off,
-        _ => Fence::Full,
-    }
-});
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum RunnerMode {
+    /// Inside nsjail: the jail confines the file system.
     Jailed,
-    Process,
+    /// Under `unshare`, as other languages are on such a worker: its own PID namespace and a
+    /// cleared environment, with the worker user's view of the file system.
+    Unshare,
+    /// A plain child process, on a worker that does not isolate jobs.
+    Plain,
 }
 
 /// Decided once per job, so every connection a job opens runs the same way.
-pub(crate) fn runner_mode() -> Option<RunnerMode> {
-    match *REQUESTED {
-        Requested::Off => None,
-        Requested::Process => Some(RunnerMode::Process),
-        Requested::Jailed
-            if cfg!(unix) && is_sandboxing_enabled() && NSJAIL_AVAILABLE.is_some() =>
-        {
-            Some(RunnerMode::Jailed)
-        }
-        Requested::Jailed => {
-            static WARNED: std::sync::Once = std::sync::Once::new();
-            WARNED.call_once(|| {
-                tracing::warn!(
-                    "DUCKDB_JAILED_RUNNER is set but this worker does not run jobs under \
-                     nsjail; DuckDB jobs keep running in-process. Unshare isolation only \
-                     separates PIDs, so it would not confine the engine's file access."
-                )
-            });
-            None
-        }
-    }
-}
-
-/// The SQL-level policy a job running in `mode` gets.
-pub(crate) fn fence(mode: Option<RunnerMode>) -> Fence {
-    if mode == Some(RunnerMode::Jailed) {
-        *FENCE_IN_JAIL
+pub(crate) fn runner_mode() -> RunnerMode {
+    if cfg!(unix) && is_sandboxing_enabled() && NSJAIL_AVAILABLE.is_some() {
+        RunnerMode::Jailed
+    } else if is_unshare_enabled() {
+        // `build_command_with_isolation` logs and runs unisolated when `unshare` is missing,
+        // as it does for every other language.
+        RunnerMode::Unshare
     } else {
-        Fence::Full
+        RunnerMode::Plain
     }
 }
 
@@ -139,8 +75,7 @@ pub(crate) struct RunnerRequest<'a> {
     pub collect_first_row_only: bool,
 }
 
-/// What the in-process FFI call would have returned: the result string (`ERROR <json>` on
-/// failure) and the column order.
+/// The runner's answer: the result string (`ERROR <json>` on failure) and the column order.
 pub(crate) struct RunnerOutput {
     pub result: String,
     pub column_order: Option<String>,
@@ -152,21 +87,32 @@ fn runner_path() -> Result<String> {
     }
     let exe = std::env::current_exe()
         .map_err(|e| Error::InternalErr(format!("Could not locate the worker binary: {e}")))?;
-    let path = exe.with_file_name("windmill_duckdb_runner");
+    let name = format!("windmill_duckdb_runner{}", std::env::consts::EXE_SUFFIX);
+    let path = exe.with_file_name(&name);
+    // Cargo runs test binaries from `target/<profile>/deps`, one level below where the
+    // worker binary and `build_dev.sh`'s runner sit.
+    let in_target_dir = exe
+        .parent()
+        .filter(|d| d.ends_with("deps"))
+        .and_then(|d| d.parent())
+        .map(|d| d.join(&name));
+    let path = match in_target_dir {
+        Some(p) if !path.exists() && p.exists() => p,
+        _ => path,
+    };
     if !path.exists() {
         return Err(Error::InternalErr(format!(
-            "DUCKDB_JAILED_RUNNER is set but {} does not exist. Build it with \
-             windmill-duckdb-ffi-internal/build_dev.sh or set DUCKDB_RUNNER_PATH.",
+            "DuckDB jobs need {}, alongside the worker binary. Build it with \
+             windmill-duckdb-ffi-internal/build_dev.sh, or point DUCKDB_RUNNER_PATH at it.",
             path.display()
         )));
     }
     Ok(path.to_string_lossy().into_owned())
 }
 
-/// The jail's own extension cache, separate from the one the in-process engine shares. Only
-/// [`install_missing_extensions`] writes to it, and it only sees names the SQL policy let
-/// through, so with the allowlist in force what is in this directory is the allowlist: an
-/// extension DuckDB autoloads without the script naming it is found here or not at all.
+/// The jail's own extension cache, separate from the worker user's `~/.duckdb` and mounted
+/// read-only. Only [`install_missing_extensions`] writes to it, so a job can neither add to
+/// nor replace what the next job loads from it.
 fn extension_dir() -> String {
     format!("{}/.duckdb/windmill_jail_extensions", HOME_ENV.as_str())
 }
@@ -241,7 +187,7 @@ async fn install_missing_extensions(blocks: &[String], job_dir: &str) -> Result<
     .chain(missing.iter().cloned())
     .collect();
     let out = spawn_runner(
-        RunnerMode::Process,
+        RunnerMode::Plain,
         &RunnerRequest {
             mode: RequestMode::Install,
             blocks: &blocks,
@@ -256,7 +202,6 @@ async fn install_missing_extensions(blocks: &[String], job_dir: &str) -> Result<
             collect_first_row_only: false,
         },
         job_dir,
-        true,
     )
     .await?;
     if let Some(raw) = out.result.strip_prefix("ERROR ") {
@@ -299,25 +244,34 @@ pub(crate) async fn run(
     job_dir: &str,
 ) -> Result<RunnerOutput> {
     if mode != RunnerMode::Jailed {
-        return spawn_runner(mode, req, job_dir, true).await;
+        return spawn_runner(mode, req, job_dir).await;
     }
     install_missing_extensions(req.blocks, job_dir).await?;
     let blocks = unforce_installs(req.blocks);
-    let lock_temp_directory = fence(Some(mode)) != Fence::Off;
-    spawn_runner(
-        mode,
-        &RunnerRequest { blocks: &blocks, ..*req },
-        job_dir,
-        lock_temp_directory,
-    )
-    .await
+    spawn_runner(mode, &RunnerRequest { blocks: &blocks, ..*req }, job_dir).await
+}
+
+/// Kills the runner's process group when the job future is dropped (cancellation, timeout)
+/// before the runner exits. Killing the spawned process alone is not enough: `unshare --fork`
+/// leaves its child running.
+struct KillGroupOnDrop(Option<i32>);
+
+impl Drop for KillGroupOnDrop {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        if let Some(pgid) = self.0 {
+            let _ = nix::sys::signal::killpg(
+                nix::unistd::Pid::from_raw(pgid),
+                nix::sys::signal::Signal::SIGKILL,
+            );
+        }
+    }
 }
 
 async fn spawn_runner(
     mode: RunnerMode,
     req: &RunnerRequest<'_>,
     job_dir: &str,
-    lock_temp_directory: bool,
 ) -> Result<RunnerOutput> {
     let runner = runner_path()?;
     let call_id = uuid::Uuid::new_v4();
@@ -358,7 +312,8 @@ async fn spawn_runner(
             ]);
             cmd
         }
-        RunnerMode::Process => Command::new(&runner),
+        RunnerMode::Unshare => build_command_with_isolation(&runner, &[]),
+        RunnerMode::Plain => Command::new(&runner),
     };
 
     cmd.current_dir(job_dir)
@@ -367,11 +322,11 @@ async fn spawn_runner(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        // Cancellation and timeouts drop the job future. nsjail's child dies with nsjail, so
-        // killing the process we spawned is enough in both modes.
         .kill_on_drop(true);
+    #[cfg(unix)]
+    cmd.process_group(0);
     // The jail sets its own HOME, over the read-only extension cache.
-    if mode == RunnerMode::Process {
+    if mode != RunnerMode::Jailed {
         cmd.env("HOME", HOME_ENV.as_str());
     }
     for var in [
@@ -393,12 +348,11 @@ async fn spawn_runner(
 
     let mut payload = serde_json::to_value(req).map_err(|e| Error::InternalErr(e.to_string()))?;
     payload["result_path"] = serde_json::Value::String(result_path.clone());
-    payload["lock_temp_directory"] = serde_json::Value::Bool(lock_temp_directory);
     let payload = serde_json::to_vec(&payload).map_err(|e| Error::InternalErr(e.to_string()))?;
 
     // The engine's memory lives outside the worker, so a native OOM can take the job alone, as
-    // long as the kernel picks the runner first. Set before exec so nsjail, and the runner it
-    // clones, inherit it: written after spawn it races the clone, and the jail's /proc is
+    // long as the kernel picks the runner first. Set before exec so nsjail or unshare, and the
+    // runner they start, inherit it: written after spawn it races that, and the jail's /proc is
     // read-only. Only raw syscalls here, between fork and exec.
     #[cfg(target_os = "linux")]
     {
@@ -417,6 +371,7 @@ async fn spawn_runner(
     let mut child = cmd.spawn().map_err(|e| {
         Error::InternalErr(format!("Could not start the DuckDB runner ({mode:?}): {e}"))
     })?;
+    let mut guard = KillGroupOnDrop(child.id().map(|p| p as i32));
     let mut stdin = child.stdin.take().expect("stdin is piped");
     let write = async move {
         stdin.write_all(&payload).await?;
@@ -427,6 +382,7 @@ async fn spawn_runner(
     let (write, status, stdout, stderr) =
         tokio::join!(write, child.wait(), output_tail(stdout), output_tail(stderr));
     let status = status?;
+    guard.0 = None;
     let read = tokio::fs::read_to_string(&result_path).await;
     let _ = tokio::fs::remove_file(&result_path).await;
 

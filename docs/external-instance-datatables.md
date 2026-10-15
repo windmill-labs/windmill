@@ -83,6 +83,6 @@ Worth knowing while testing:
 
 - A worker needs the `postgresql` and `duckdb` tags for those jobs
   (`update config set config = jsonb_set(config, '{worker_tags}', …) where name = 'worker__default'`).
-- DuckDB jobs load `libwindmill_duckdb_ffi_internal.so` by name, so a binary built into its own
-  `CARGO_TARGET_DIR` needs that library on `LD_LIBRARY_PATH`.
+- DuckDB jobs run `windmill_duckdb_runner` from next to the worker binary, so a binary built
+  into its own `CARGO_TARGET_DIR` needs `DUCKDB_RUNNER_PATH` pointed at the runner.
 - Setup holds the lifecycle lock for its whole run, so a settings save during it waits.

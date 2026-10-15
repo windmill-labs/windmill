@@ -17465,7 +17465,6 @@ dependencies = [
  "jsonwebtoken 10.4.0",
  "lazy_static",
  "libffi-sys",
- "libloading",
  "mappable-rc",
  "mime_guess",
  "mysql_async",

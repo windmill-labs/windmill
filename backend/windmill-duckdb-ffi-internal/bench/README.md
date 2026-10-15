@@ -1,36 +1,34 @@
-# In-process vs jailed DuckDB: benchmark harness
+# DuckDB in-process vs runner: benchmark harness
 
-The scripts behind the numbers in the PR that added `windmill_duckdb_runner`. These are prototype
-scaffolding, not tests. Every measurement runs real preview jobs through release-built workers.
-Each worker has exactly one tag, which names the variant:
+The scripts behind the numbers in the PR that moved DuckDB jobs into `windmill_duckdb_runner`.
+They are scaffolding, not tests. Every measurement runs real preview jobs through release-built
+workers, and each worker has exactly one tag, naming the build and the isolation level:
 
-| tag | worker env | what runs |
+| tag | build | worker env |
 |---|---|---|
-| `bench_inproc` | `DISABLE_NSJAIL=false` | today's isolating worker: in-process FFI + SQL fence |
-| `bench_proc` | `+ DUCKDB_JAILED_RUNNER=process` | runner as a plain child process, fence kept (process cost alone) |
-| `bench_jail` | `+ DUCKDB_JAILED_RUNNER=true` | runner inside nsjail, fence kept (defense in depth) |
-| `bench_nofence` | `+ DUCKDB_JAILED_RUNNER_FENCE=false` | runner inside nsjail, no fence, no `lock_temp_directory` |
-| `bench_allow` | `+ DUCKDB_JAILED_RUNNER_FENCE=allowlist` | runner inside nsjail, extension allowlist + `lock_temp_directory`, no `disabled_filesystems` |
-| `bench_inproc_nofence` | `DISABLE_DUCKDB_FS_SANDBOX=true` | in-process with no fence (a non-isolating worker's cost) |
+| `old_nsjail` | main: in-process FFI + SQL fence | `DISABLE_NSJAIL=false` |
+| `old_unshare` | main | `DISABLE_NSJAIL=true ENABLE_UNSHARE_PID=true` |
+| `old_none` | main: in-process, no fence | `DISABLE_NSJAIL=true` |
+| `new_nsjail` | this branch: runner inside nsjail | `DISABLE_NSJAIL=false` |
+| `new_unshare` | this branch: runner under unshare | `DISABLE_NSJAIL=true ENABLE_UNSHARE_PID=true` |
+| `new_none` | this branch: runner as a plain child | `DISABLE_NSJAIL=true` |
 
 ## Setup
 
 ```bash
-# 1. binaries: the FFI cdylib + runner, and a release windmill with DuckDB + EE isolation
-(cd backend/windmill-duckdb-ffi-internal && CARGO_TARGET_DIR=$PWD/target ./build_dev.sh)
+# 1. two release builds with DuckDB + EE: main (OLD, with its libwindmill_duckdb_ffi_internal.so
+#    next to `windmill`) and this branch (NEW, with windmill_duckdb_runner next to `windmill`)
 (cd backend && RUSTUP_TOOLCHAIN=1.97 cargo build --release \
    --features quickjs,duckdb,enterprise,private,license,parquet)
-BIN=~/wm-bench-bin && mkdir -p $BIN
-cp backend/target/release/windmill $BIN/
-cp backend/target/debug/{libwindmill_duckdb_ffi_internal.so,windmill_duckdb_runner} $BIN/
+(cd backend/windmill-duckdb-ffi-internal && CARGO_TARGET_DIR=$PWD/target ./build_dev.sh)
 
 # 2. a release API server for the harness to talk to, so it is not restarted under the run
 export DATABASE_URL=postgres://...  WM_BASE=http://localhost:8170  WM_TOKEN=<admin token>
-MODE=server PORT=8170 LD_LIBRARY_PATH=$BIN $BIN/windmill &
+MODE=server PORT=8170 LD_LIBRARY_PATH=$NEW $NEW/windmill &
 
 # 3. workers (MAX_SQL_RESULT_SIZE=256MB, so the guard row has a fixed limit)
-bash start_workers.sh $BIN 1                  # 1 worker per variant
-bash worker.sh $BIN flow 8199 &               # release flow worker for flow.py
+bash start_old_vs_new.sh $OLD $NEW 1           # 1 worker per tag
+bash worker.sh $NEW flow 8199 &                 # release flow worker for flow.py
 ```
 
 DuckLake rows need a workspace ducklake named `main` (Postgres catalog, S3 storage; MinIO works.
@@ -40,16 +38,17 @@ Release builds refuse FilesystemStorage). They also need `dl.bench`, created by 
 ## Commands
 
 ```bash
-python3 bench.py results_seq.json                       # sequential matrix, all variants interleaved
-VARIANTS=bench_inproc_nofence python3 bench.py results_baseline.json select_1 ...
-bash micro.sh $BIN 30                                   # cost decomposition, no worker involved
-for t in bench_inproc bench_proc bench_jail bench_nofence; do python3 throughput.py $t 200; done
-bash start_workers.sh $BIN 4                            # then the same with 400 jobs
-VARIANTS=bench_inproc,bench_jail,bench_nofence python3 flow.py 10
-bash firstjob.sh $BIN
-python3 cancel.py <tag> <worker pid>                    # cancel latency + CPU left burning
-python3 memwatch.py <tag> <worker pid> sql/memhog.sql   # worker vs runner RSS
+VARIANTS=old_nsjail,new_nsjail,old_unshare,new_unshare,old_none,new_none \
+  python3 bench.py results_final.json select_1 postgres_attach ducklake_read agg_10m_in_memory \
+  result_1k_rows result_100k_rows result_1m_rows spill_15m_sort_256mb
+bash start_old_vs_new.sh $OLD $NEW 4            # then, one tag at a time:
+python3 throughput.py <tag> 400
+python3 cancel.py <tag> <worker pid>             # cancel latency + CPU left burning
+python3 memwatch.py <tag> <worker pid> sql/memhog.sql
 ```
 
-`results/` holds the raw output of the run reported in the PR (one machine: 24 cores, 60 GB,
-Linux 7.1, DuckDB 1.5.5).
+`results/` holds the raw output of the final run (one machine: 24 cores, 60 GB, Linux 7.1,
+DuckDB 1.5.5, load average under 4 during the sequential run). `results/prototype/` holds the
+earlier runs of the opt-in prototype (`DUCKDB_JAILED_RUNNER`, fence on/off/allowlist), whose
+switches no longer exist. `micro.sh` decomposes the runner's cost outside any worker; its
+"fenced" case sets `lock_temp_directory`, which only the old patched engine accepts.
