@@ -84,14 +84,17 @@
 	// the whole block, and the picker that could undo it, off Home.
 	const homeAiHidden = resource(
 		() => $workspaceStore ?? undefined,
-		async (workspace) => {
+		async (workspace, _, { signal }) => {
 			if (!workspace) return false
+			let hidden = false
 			try {
-				return (await WorkspaceService.getCopilotInfo({ workspace })).copilot_disabled === true
+				hidden = (await WorkspaceService.getCopilotInfo({ workspace })).copilot_disabled === true
 			} catch (e) {
 				console.error(`Failed to read the AI config of workspace ${workspace}:`, e)
-				return false
 			}
+			// runed keeps a superseded fetch's result, and the generated client takes no signal.
+			if (signal.aborted) throw new DOMException('superseded', 'AbortError')
+			return hidden
 		}
 	)
 
