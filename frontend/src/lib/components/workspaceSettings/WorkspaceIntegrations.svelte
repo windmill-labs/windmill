@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
-	import { Button, Alert, Badge } from '$lib/components/common'
+	import { Button, Alert } from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
 	import { ExternalLink } from 'lucide-svelte'
@@ -93,7 +93,10 @@
 	let integrations = $state<WorkspaceIntegration[]>([])
 	let connections = $state<Record<string, NativeTriggerConnection[]>>({})
 	let loading = $state(false)
-	let showingConfig = $state<string | null>(null)
+	// The service whose OAuth app dialog is open.
+	let configOpen = $state<Record<string, boolean>>(
+		Object.fromEntries(Object.keys(supportedServices).map((s) => [s, false]))
+	)
 	let instanceSharingAvailable = $state<Record<string, boolean>>({})
 	let confirmationModal = createAsyncConfirmationModal()
 
@@ -199,7 +202,7 @@
 			})
 			if (!confirmed) return
 		}
-		showingConfig = serviceName
+		configOpen[serviceName] = true
 	}
 
 	async function createOrUpdateIntegration(serviceName: string, oauthData: any) {
@@ -301,131 +304,69 @@
 				{@const usesInstanceApp = !workspaceApp && instanceSharingAvailable[serviceName]}
 				{@const workspaceConnection = connections[serviceName]?.find((c) => c.workspace)?.path}
 
-				<div class="border border-gray-200 dark:border-gray-700 rounded-md p-4 bg-surface-tertiary">
+				<div class="border border-light rounded-md p-4 bg-surface-tertiary flex flex-col gap-4">
 					<div class="flex items-center justify-between gap-4">
 						<div class="flex items-center gap-3">
-							<div class="w-8 h-8 flex items-center justify-center">
-								<config.icon class="w-6 h-6" />
-							</div>
+							<config.icon class="w-6 h-6 shrink-0" />
 							<div class="flex flex-col">
 								<div class="text-sm font-semibold text-emphasis">{config.displayName}</div>
-								<div class="text-xs font-normal text-primary">{config.description}</div>
+								<div class="text-xs text-secondary">{config.description}</div>
 							</div>
 						</div>
-						<div class="flex items-center gap-2 shrink-0">
-							{#if workspaceApp}
-								<Badge color="green" small>Workspace OAuth app</Badge>
-							{:else if usesInstanceApp}
-								<Badge color="blue" small>Instance OAuth app</Badge>
-							{:else}
-								<Badge color="gray" small>Not set up</Badge>
-							{/if}
-							{#if config.docsUrl}
-								<Button
-									unifiedSize="sm"
-									variant="subtle"
-									href={config.docsUrl}
-									target="_blank"
-									startIcon={{ icon: ExternalLink }}
-								>
-									Docs
-								</Button>
-							{/if}
-						</div>
+						{#if config.docsUrl}
+							<Button
+								unifiedSize="sm"
+								variant="subtle"
+								href={config.docsUrl}
+								target="_blank"
+								startIcon={{ icon: ExternalLink }}
+							>
+								Docs
+							</Button>
+						{/if}
 					</div>
 
-					<div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex flex-col gap-2">
+					<div class="border-t border-light pt-4 flex flex-col gap-1">
 						<div class="flex items-center justify-between gap-4">
-							<div class="flex flex-col gap-0.5">
+							<div class="flex flex-col gap-1">
 								<div class="text-xs font-semibold text-emphasis">OAuth app</div>
 								<div class="text-xs text-secondary">
 									{#if workspaceApp}
-										Uses this workspace's {config.displayName} app.
+										This workspace's own {config.displayName} app.
 									{:else if usesInstanceApp}
-										Uses the {config.displayName} app your instance admin shares.
+										Shared by your instance admin. Configure one to use your own
+										{config.displayName} app instead.
 									{:else}
-										Members cannot connect a {config.displayName} account until an OAuth app is set up.
+										None yet. Members can connect {config.displayName} accounts once one is configured.
 									{/if}
 								</div>
 							</div>
-							{#if showingConfig !== serviceName}
-								<Button
-									unifiedSize="sm"
-									variant="default"
-									onclick={() => openConfig(serviceName, usesInstanceApp)}
-								>
-									{workspaceApp ? 'Edit' : usesInstanceApp ? 'Use your own app' : 'Set up'}
-								</Button>
-							{/if}
+							<Button
+								unifiedSize="sm"
+								variant="default"
+								onclick={() => openConfig(serviceName, usesInstanceApp)}
+							>
+								Configure
+							</Button>
 						</div>
-						{#if usesInstanceApp && serviceName === 'google' && showingConfig !== serviceName}
-							<div class="text-xs text-secondary">
+						{#if usesInstanceApp && serviceName === 'google'}
+							<div class="text-2xs text-hint">
 								The instance app must list this redirect URI in the
 								<a
 									href="https://console.cloud.google.com/apis/credentials"
 									target="_blank"
 									rel="noopener noreferrer"
 									class="underline">Google Cloud Console</a
-								>:
+								>
 							</div>
 							<ClipboardPanel content={nativeOAuthRedirectUri('google')} size="sm" />
-						{/if}
-						{#if showingConfig === serviceName}
-							{#if serviceName === 'nextcloud'}
-								<Alert type="info" title="Requirements">
-									<p>Nextcloud integration requires:</p>
-									<ul class="list-disc pl-4 mt-2 space-y-1">
-										<li>Nextcloud 33 or later.</li>
-										<li>
-											The <a
-												href="https://apps.nextcloud.com/apps/integration_windmill"
-												target="_blank"
-												rel="noopener noreferrer"
-												class="underline hover:text-blue-600"
-											>
-												Windmill integration app
-											</a> to be installed on your Nextcloud instance.
-										</li>
-										<li>
-											<a
-												href="https://docs.nextcloud.com/server/latest/admin_manual/installation/source_installation.html#pretty-urls"
-												target="_blank"
-												rel="noopener noreferrer"
-												class="underline hover:text-blue-600"
-											>
-												Pretty URLs
-											</a>
-											to be enabled on your Nextcloud instance.
-										</li>
-									</ul>
-								</Alert>
-							{/if}
-							<OAuthClientConfig
-								{serviceName}
-								redirectUri={nativeOAuthRedirectUri(serviceName as NativeServiceName)}
-								serviceDisplayName={config.displayName}
-								existingConfig={workspaceApp ? integration?.oauth_data : null}
-								requiresBaseUrl={config.requiresBaseUrl !== false}
-								clientIdPlaceholder={config.clientIdPlaceholder}
-								clientSecretPlaceholder={config.clientSecretPlaceholder}
-								setupInstructions={config.setupInstructions}
-								onConfigSaved={async (oauthData) => {
-									await createOrUpdateIntegration(serviceName, oauthData)
-									showingConfig = null
-								}}
-							/>
-							<div>
-								<Button unifiedSize="sm" variant="subtle" onclick={() => (showingConfig = null)}>
-									Cancel
-								</Button>
-							</div>
 						{/if}
 					</div>
 
 					{#if workspaceApp || usesInstanceApp}
-						<div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex flex-col gap-1">
+						<div class="border-t border-light pt-4 flex flex-col gap-1">
 							<div class="text-xs font-semibold text-emphasis">Workspace connection</div>
-							<div class="text-xs text-secondary mb-1">
+							<div class="text-xs text-secondary">
 								Members can create triggers that act as this account, without access to its token.
 							</div>
 							<NativeConnectionPicker
@@ -442,10 +383,8 @@
 					{/if}
 
 					{#if workspaceApp}
-						<div
-							class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between gap-4"
-						>
-							<div class="flex flex-col gap-0.5">
+						<div class="border-t border-light pt-4 flex items-center justify-between gap-4">
+							<div class="flex flex-col gap-1">
 								<div class="text-xs font-semibold text-emphasis">
 									Remove {config.displayName} from this workspace
 								</div>
@@ -463,6 +402,49 @@
 							</Button>
 						</div>
 					{/if}
+
+					<OAuthClientConfig
+						bind:open={configOpen[serviceName]}
+						}
+						{serviceName}
+						redirectUri={nativeOAuthRedirectUri(serviceName as NativeServiceName)}
+						serviceDisplayName={config.displayName}
+						existingConfig={workspaceApp ? integration?.oauth_data : null}
+						requiresBaseUrl={config.requiresBaseUrl !== false}
+						clientIdPlaceholder={config.clientIdPlaceholder}
+						clientSecretPlaceholder={config.clientSecretPlaceholder}
+						setupInstructions={config.setupInstructions}
+						onConfigSaved={async (oauthData) => {
+							await createOrUpdateIntegration(serviceName, oauthData)
+							configOpen[serviceName] = false
+						}}
+					>
+						{#snippet requirements()}
+							{#if serviceName === 'nextcloud'}
+								<Alert type="info" title="Nextcloud requirements">
+									<ul class="list-disc pl-4 flex flex-col gap-1">
+										<li>Nextcloud 33 or later.</li>
+										<li>
+											The <a
+												href="https://apps.nextcloud.com/apps/integration_windmill"
+												target="_blank"
+												rel="noopener noreferrer"
+												class="underline">Windmill integration app</a
+											> installed.
+										</li>
+										<li>
+											<a
+												href="https://docs.nextcloud.com/server/latest/admin_manual/installation/source_installation.html#pretty-urls"
+												target="_blank"
+												rel="noopener noreferrer"
+												class="underline">Pretty URLs</a
+											> enabled.
+										</li>
+									</ul>
+								</Alert>
+							{/if}
+						{/snippet}
+					</OAuthClientConfig>
 				</div>
 			{/each}
 		</div>
