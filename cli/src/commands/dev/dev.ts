@@ -407,8 +407,7 @@ export async function dev(opts: GlobalOptions & SyncOptions & DevOpts) {
         log.info("Updated " + wmFlowPath);
         broadcastChanges(currentLastEdit);
       } else if (typ == "script") {
-        const splitted = cpath.split(".");
-        const wmPath = splitted[0];
+        const wmPath = removeExtensionToPath(cpath);
         const content = await readTextFile(cpath);
         const lang = inferContentTypeFromFilePath(cpath, opts.defaultTs);
         const typed =
