@@ -437,3 +437,104 @@ async fn multi_file_importer_relock_is_a_no_op_too(db: Pool<Postgres>) -> anyhow
 
     Ok(())
 }
+
+/// A raw app runnable importing a script is relocked when that script's dependencies change,
+/// and the relock lands in the version the app is served from rather than in a new one: a raw
+/// app's bundle is stored under its version id. The app starts as a version deployed before
+/// runnables were keyed by name, recorded under the empty node id and holding a lock already.
+#[sqlx::test(fixtures("base"))]
+async fn raw_app_relock_rewrites_the_published_version(db: Pool<Postgres>) -> anyhow::Result<()> {
+    std::env::set_var("DEPENDENCY_JOB_DEBOUNCE_DELAY", "0");
+    let (client, port, _s) = init_client(db.clone()).await;
+    let mut completed = listen_for_completed_jobs(&db).await;
+
+    let app_id: i64 = sqlx::query_scalar(
+        "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms)
+         VALUES ($1, 'f/rel/app', '', '{}'::jsonb, '{}', '{}'::jsonb) RETURNING id",
+    )
+    .bind(W)
+    .fetch_one(&db)
+    .await?;
+    let published: i64 = sqlx::query_scalar(
+        "INSERT INTO app_version (app_id, value, created_by, raw_app)
+         VALUES ($1, $2, 'test-user', true) RETURNING id",
+    )
+    .bind(app_id)
+    .bind(
+        serde_json::json!({ "runnables": { "a": { "type": "inline", "inlineScript": {
+            "content": B, "language": "python3", "lock": "# py: 3.12\n"
+        }}}}),
+    )
+    .fetch_one(&db)
+    .await?;
+    sqlx::query("UPDATE app SET versions = ARRAY[$1::bigint] WHERE id = $2")
+        .bind(published)
+        .bind(app_id)
+        .execute(&db)
+        .await?;
+    sqlx::query(
+        "INSERT INTO dependency_map (workspace_id, importer_path, importer_kind, imported_path, importer_node_id)
+         VALUES ($1, 'f/rel/app', 'app', 'f/rel/a', '')",
+    )
+    .bind(W)
+    .execute(&db)
+    .await?;
+
+    in_test_worker(
+        &db,
+        async {
+            client
+                .create_script(W, &py_script("f/rel/a", A, None))
+                .await
+                .unwrap();
+            wait_for_jobs(&db, &mut completed, 1).await;
+
+            let a_hash = live(&versions(&db, "f/rel/a").await).hash;
+            client
+                .create_script(
+                    W,
+                    &py_script("f/rel/a", A_WITH_TINY, Some(format!("{a_hash:016x}"))),
+                )
+                .await
+                .unwrap();
+            wait_for_jobs(&db, &mut completed, 2).await;
+
+            let (versions, version_rows): (Vec<i64>, i64) = sqlx::query_as(
+                "SELECT versions, (SELECT count(*) FROM app_version WHERE app_id = app.id)
+                 FROM app WHERE workspace_id = $1 AND path = 'f/rel/app'",
+            )
+            .bind(W)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+            assert_eq!(versions, [published], "the relock publishes no other version");
+            assert_eq!(version_rows, 1, "the relock mints no version");
+
+            let lock: Option<String> = sqlx::query_scalar(
+                "SELECT value->'runnables'->'a'->'inlineScript'->>'lock' FROM app_version WHERE id = $1",
+            )
+            .bind(published)
+            .fetch_one(&db)
+            .await
+            .unwrap();
+            assert!(
+                lock.as_deref().unwrap_or("").contains("tiny"),
+                "the published version carries the new lock: {lock:?}"
+            );
+
+            let node_ids: Vec<String> = sqlx::query_scalar(
+                "SELECT importer_node_id FROM dependency_map
+                 WHERE workspace_id = $1 AND importer_path = 'f/rel/app' AND imported_path = 'f/rel/a'",
+            )
+            .bind(W)
+            .fetch_all(&db)
+            .await
+            .unwrap();
+            assert_eq!(node_ids, ["a"], "the runnable is recorded under its name");
+        },
+        port,
+    )
+    .await;
+
+    Ok(())
+}

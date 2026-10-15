@@ -71,6 +71,24 @@ pub fn app_value_runnable_paths(value: &Value) -> error::Result<Vec<(bool, Strin
     Ok(out)
 }
 
+pub const RAW_APP_RUNNABLES: &str = "runnables";
+
+/// The `runnables` map of a raw app, when `value` is it. An inline script's dependency-map node
+/// id is its closest enclosing component `id`; raw app runnables carry none, so each is keyed by
+/// its name in this map instead, or a relock could not tell them apart.
+pub fn raw_app_runnables<'a>(
+    key: &str,
+    value: &'a Value,
+    container_id: Option<&String>,
+) -> Option<&'a serde_json::Map<String, Value>> {
+    match value {
+        Value::Object(runnables) if container_id.is_none() && key == RAW_APP_RUNNABLES => {
+            Some(runnables)
+        }
+        _ => None,
+    }
+}
+
 /// Traverse FlowValue while invoking provided by caller callback on leafs
 // #[async_recursion::async_recursion(?Send)]
 pub fn traverse_app_inline_scripts<
@@ -109,7 +127,13 @@ pub fn traverse_app_inline_scripts<
                     )?;
                 }
             } else {
-                for (_, value) in object {
+                for (key, value) in object {
+                    if let Some(runnables) = raw_app_runnables(key, value, container_id.as_ref()) {
+                        for (id, runnable) in runnables {
+                            traverse_app_inline_scripts(runnable, Some(id.clone()), cb)?;
+                        }
+                        continue;
+                    }
                     traverse_app_inline_scripts(
                         value,
                         object

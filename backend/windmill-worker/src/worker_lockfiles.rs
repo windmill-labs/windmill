@@ -34,7 +34,7 @@ use windmill_dep_map::trigger_dependents::trigger_dependents_to_recompute_depend
 use windmill_parser_yaml::AnsibleRequirements;
 
 use windmill_common::{
-    apps::AppScriptId,
+    apps::{raw_app_runnables, AppScriptId, RAW_APP_RUNNABLES},
     cache::{self, RawData},
     error,
     flows::{add_virtual_items_if_necessary, FlowValue},
@@ -546,8 +546,14 @@ pub async fn handle_dependency_job(
                         );
                         tracing::info!(workspace_id = %w_id, job_id = %job.id, "{log_msg}");
                         append_logs(&job.id, w_id, log_msg, &db.into()).await;
-                        requeue_relock(db, job, script_path, deployment_message, parent_path)
-                            .await?;
+                        requeue_relock(
+                            db,
+                            job,
+                            script_dependent(script_path),
+                            deployment_message,
+                            parent_path,
+                        )
+                        .await?;
                         return Ok(to_raw_value_owned(
                             json!({ "status": "Lock generation superseded by a newer version", "lock": content }),
                         ));
@@ -706,9 +712,14 @@ pub async fn handle_dependency_job(
                 {
                     Ok(RelockOutcome::Deployed(_)) => *deployment_tallied = false,
                     Ok(RelockOutcome::Superseded(_)) => {
-                        if let Err(e) =
-                            requeue_relock(db, job, script_path, deployment_message, parent_path)
-                                .await
+                        if let Err(e) = requeue_relock(
+                            db,
+                            job,
+                            script_dependent(script_path),
+                            deployment_message,
+                            parent_path,
+                        )
+                        .await
                         {
                             tracing::error!(%e, "error queueing a relock of {script_path}")
                         }
@@ -830,14 +841,15 @@ async fn commit_relock(
     Ok(RelockOutcome::Deployed(ScriptHash(new_hash)))
 }
 
-/// Queues another relative-import relock of `script_path`, through the same push the fan-out
+/// Queues another relative-import relock of `dependent`, through the same push the fan-out
 /// uses. The version live now was deployed while a lock was generated for its predecessor;
-/// when that deploy was a sibling relock it queued nothing for this path, and the result just
-/// discarded may have been the one generated against the current imports.
+/// when that deploy was a sibling relock it queued nothing for this path, and a deploy of an
+/// edited app carries the locks of the version it was edited from, so the result just
+/// discarded may have been the only one generated against the current imports.
 async fn requeue_relock(
     db: &DB,
     job: &MiniPulledJob,
-    script_path: &str,
+    dependent: DependencyDependent,
     deployment_message: Option<String>,
     parent_path: Option<String>,
 ) -> error::Result<()> {
@@ -849,11 +861,7 @@ async fn requeue_relock(
         .unwrap_or_default();
     trigger_dependents_to_recompute_dependencies(
         &job.workspace_id,
-        vec![DependencyDependent {
-            importer_path: script_path.to_string(),
-            importer_kind: "script".to_string(),
-            importer_node_ids: None,
-        }],
+        vec![dependent],
         deployment_message,
         parent_path,
         &job.permissioned_as_email,
@@ -863,6 +871,43 @@ async fn requeue_relock(
         already_visited,
     )
     .await
+}
+
+fn script_dependent(script_path: &str) -> DependencyDependent {
+    DependencyDependent {
+        importer_path: script_path.to_string(),
+        importer_kind: "script".to_string(),
+        importer_node_ids: None,
+    }
+}
+
+/// The version an app is served from, which is the one a relative-import relock rewrites.
+async fn published_app_version(db: &DB, w_id: &str, app_path: &str) -> error::Result<Option<i64>> {
+    Ok(sqlx::query_scalar!(
+        "SELECT versions[array_upper(versions, 1)] FROM app WHERE path = $1 AND workspace_id = $2",
+        app_path,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten())
+}
+
+/// A raw app's runnables are recorded in the dependency map under their name in `runnables`.
+/// Versions deployed before that recorded every runnable under the empty node id, so a relock
+/// asking for that id relocks each of them.
+fn expand_legacy_raw_app_components(
+    components_to_relock: Option<Vec<String>>,
+    value: &Value,
+) -> Option<Vec<String>> {
+    let mut components = components_to_relock?;
+    if let Some(i) = components.iter().position(String::is_empty) {
+        components.swap_remove(i);
+        if let Some(Value::Object(runnables)) = value.get(RAW_APP_RUNNABLES) {
+            components.extend(runnables.keys().cloned());
+        }
+    }
+    Some(components)
 }
 
 fn remove_ansi_codes(s: &str) -> String {
@@ -2549,6 +2594,35 @@ async fn lock_modules_app(
                 }
             }
             for (a, b) in m.clone().into_iter() {
+                if let Some(runnables) = raw_app_runnables(&a, &b, container_id.as_ref()) {
+                    let mut locked = serde_json::Map::new();
+                    for (id, runnable) in runnables {
+                        let runnable = lock_modules_app(
+                            runnable.clone(),
+                            job,
+                            mem_peak,
+                            canceled_by,
+                            job_dir,
+                            db,
+                            worker_name,
+                            worker_dir,
+                            job_path,
+                            base_internal_url,
+                            token,
+                            occupancy_metrics,
+                            locks_to_reload,
+                            Some(id.clone()),
+                            dependency_map,
+                            raw_workspace_dependencies_o,
+                            triggered_by_relative_import,
+                            temp_script_refs,
+                        )
+                        .await?;
+                        locked.insert(id.clone(), runnable);
+                    }
+                    m.insert(a, Value::Object(locked));
+                    continue;
+                }
                 m.insert(
                     a.clone(),
                     lock_modules_app(
@@ -2661,25 +2735,23 @@ pub async fn handle_app_dependency_job(
         .and_then(|x| x.get("temp_script_refs"))
         .and_then(|v| serde_json::from_str(v.get()).ok());
 
-    // The version captured at job creation can be stale (the app may have been
-    // redeployed since). Relock the current latest instead, mirroring the flow
-    // dependency handler.
+    // A relative-import relock rewrites the published version in place and deploys no new one,
+    // and that version was tallied by the deploy that published it.
+    if triggered_by_relative_import {
+        *deployment_tallied = true;
+    }
+
+    // The version captured at job creation can be stale (the app may have been redeployed
+    // since): relock the one published now.
     let id = if triggered_by_relative_import {
-        let latest_version = sqlx::query_scalar!(
-            "SELECT id FROM app_version WHERE app_id = (SELECT id FROM app WHERE path = $1 AND workspace_id = $2) ORDER BY created_at DESC LIMIT 1",
-            job_path,
-            job.workspace_id
-        )
-        .fetch_optional(db)
-        .await?;
-        match latest_version {
-            Some(latest_version) if latest_version != id => {
+        match published_app_version(db, &job.workspace_id, &job_path).await? {
+            Some(published) if published != id => {
                 tracing::info!(
-                    "App version changed since dependency job was queued ({} -> {}), using latest",
+                    "App version changed since dependency job was queued ({} -> {}), using the published one",
                     id,
-                    latest_version
+                    published
                 );
-                latest_version
+                published
             }
             _ => id,
         }
@@ -2716,6 +2788,11 @@ pub async fn handle_app_dependency_job(
 
     // TODO: Use transaction for entire segment?
     if let Some((app_id, value, is_raw_app)) = record {
+        let components_to_relock = if is_raw_app {
+            expand_legacy_raw_app_components(components_to_relock, &value)
+        } else {
+            components_to_relock
+        };
         let value = lock_modules_app(
             value,
             &job,
@@ -2752,15 +2829,6 @@ pub async fn handle_app_dependency_job(
             object.insert("version".to_string(), json!(id));
             object.remove("files");
         }
-        sqlx::query!(
-            "INSERT INTO app_version_lite (id, value) VALUES ($1, $2)
-             ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
-            id,
-            sqlx::types::Json(to_raw_value(&value_lite)) as sqlx::types::Json<Box<RawValue>>,
-        )
-        .execute(db)
-        .await?;
-
         // Re-check cancelation to ensure we don't accidentially override an app.
         if sqlx::query_scalar!(
             "SELECT canceled_by IS NOT NULL AS \"canceled!\" FROM v2_job_queue WHERE id = $1",
@@ -2777,27 +2845,62 @@ pub async fn handle_app_dependency_job(
             return Ok(());
         }
 
-        sqlx::query!("UPDATE app_version SET value = $1 WHERE id = $2", value, id,)
-            .execute(db)
-            .await?;
+        let (deployment_message, parent_path) =
+            get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
-        // Re-publish the relocked version as latest for cache invalidation, but
-        // only if it is still the latest: the guard makes this a single atomic,
-        // never-demoting statement. Without it, a concurrent deploy that landed a
-        // newer version (e.g. same git-sync push) would be reverted, pointing a
-        // raw app's bundle_secret at a version with no bundle (404 / white screen).
+        let mut tx = db.begin().await?;
         if triggered_by_relative_import {
-            sqlx::query!(
-                "UPDATE app SET versions = array_append(versions, $1::bigint) WHERE path = $2 AND workspace_id = $3 AND versions[array_upper(versions, 1)] = $1::bigint",
-                id,
+            // Only the published version is rewritten: a raw app's bundle is stored under the
+            // version id it was deployed with, so serving any other version 404s its bundle.
+            // The row lock orders this against a deploy appending a newer version.
+            let published = sqlx::query_scalar!(
+                "SELECT versions[array_upper(versions, 1)] FROM app WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
                 &job_path,
                 &job.workspace_id
             )
-            .execute(db)
-            .await?;
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten();
+            if published != Some(id) {
+                drop(tx);
+                let log_msg = format!(
+                    "\nApp version {published:?} was deployed while version {id} was relocked; discarding the relock and queueing one of the published version"
+                );
+                tracing::info!(workspace_id = %job.workspace_id, job_id = %job.id, "{log_msg}");
+                append_logs(&job.id, &job.workspace_id, log_msg, &db.into()).await;
+                if published.is_some() {
+                    // This relock already recorded the imports' current lock hashes, which would
+                    // let the queued one skip regenerating the locks it discarded.
+                    sqlx::query!(
+                        "UPDATE dependency_map SET imported_lockfile_hash = NULL
+                         WHERE workspace_id = $1 AND importer_path = $2 AND importer_kind = 'app'",
+                        &job.workspace_id,
+                        &job_path,
+                    )
+                    .execute(db)
+                    .await?;
+                    let dependent = DependencyDependent {
+                        importer_path: job_path,
+                        importer_kind: "app".to_string(),
+                        importer_node_ids: components_to_relock,
+                    };
+                    requeue_relock(db, &job, dependent, deployment_message, parent_path).await?;
+                }
+                return Ok(());
+            }
         }
-        let (deployment_message, parent_path) =
-            get_deployment_msg_and_parent_path_from_args(job.args.clone());
+        sqlx::query!("UPDATE app_version SET value = $1 WHERE id = $2", value, id,)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query!(
+            "INSERT INTO app_version_lite (id, value) VALUES ($1, $2)
+             ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
+            id,
+            sqlx::types::Json(to_raw_value(&value_lite)) as sqlx::types::Json<Box<RawValue>>,
+        )
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
 
         let deployed_object = if is_raw_app {
             DeployedObject::RawApp { path: job_path, version: id, parent_path: parent_path.clone() }

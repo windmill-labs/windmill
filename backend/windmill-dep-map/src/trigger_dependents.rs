@@ -141,12 +141,13 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             },
 
             "app" => match sqlx::query_scalar!(
-                "SELECT id FROM app_version WHERE app_id = (SELECT id FROM app WHERE path = $1 AND workspace_id = $2) ORDER BY created_at DESC LIMIT 1",
+                "SELECT versions[array_upper(versions, 1)] FROM app WHERE path = $1 AND workspace_id = $2",
                 importer_path,
                 w_id
             )
             .fetch_optional(&mut *tx)
             .await?
+            .flatten()
             {
                 Some(version) => {
                     tracing::debug!("Handling app dependency update for: {}", importer_path);
