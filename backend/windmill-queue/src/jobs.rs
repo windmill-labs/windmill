@@ -4661,7 +4661,9 @@ async fn clone_runnable(j: &mut PulledJob, db: &DB) -> error::Result<()> {
             // A script gets its new version from the worker, once the generated lock is known
             // to differ from the live version's: minting one here would deploy, and walk the
             // importers of, a version whose lock turns out byte-identical to its parent's.
-            JobKind::Dependencies => *base_hash,
+            // An app is relocked in place: a raw app's bundle is stored under its version id,
+            // so a copy minted here could never be published.
+            JobKind::Dependencies | JobKind::AppDependencies => *base_hash,
             JobKind::FlowDependencies => {
                 sqlx::query_scalar!(
                     "INSERT INTO flow_version
@@ -4675,18 +4677,6 @@ async fn clone_runnable(j: &mut PulledJob, db: &DB) -> error::Result<()> {
                     j.runnable_path(),
                     j.workspace_id,
                     *base_hash,
-                )
-                .fetch_one(db)
-                .await?
-            }
-            JobKind::AppDependencies => {
-                sqlx::query_scalar!(
-                    "INSERT INTO app_version
-                        (app_id, value, created_by, raw_app)
-                    SELECT app_id, value, created_by, raw_app
-                    FROM app_version WHERE id = $1
-                    RETURNING id",
-                    *base_hash
                 )
                 .fetch_one(db)
                 .await?
@@ -5590,8 +5580,6 @@ pub async fn get_result_and_success_by_id_from_flow(
             },
         };
 
-    let mut completed = false;
-
     if job_result.is_none() {
         job_result =
             match get_result_by_id_from_original_flow_inner(db, w_id, flow_id, node_id).await {
@@ -5601,7 +5589,6 @@ pub async fn get_result_and_success_by_id_from_flow(
                     _ => return Err(err),
                 },
             };
-        completed = job_result.is_some();
     }
 
     let job_result = not_found_if_none(
@@ -5621,32 +5608,37 @@ pub async fn get_result_and_success_by_id_from_flow(
             .fetch_one(db)
             .await?
         }
-        JobResult::ListJob(_) => {
-            let query = format!(
-                r#"WITH modules AS (
-                    SELECT jsonb_array_elements(flow_status->'modules') AS module
-                    FROM {}
-                    WHERE id = $1
-                )
-                SELECT module->>'type' = 'Success'
-                FROM modules
-                WHERE module->>'id' = $2"#,
-                if completed {
-                    "v2_job_completed"
-                } else {
-                    "v2_job_status"
+        JobResult::ListJob(jobs) => {
+            // The step's status lives in the flow job that ran it, which is the root only for a
+            // top-level step: one nested in a branch is a module of that branch's job. An empty
+            // container has no job to start from, so only a top-level one resolves; a nested one
+            // falls back to the flow's final result.
+            let holder = match jobs.first() {
+                Some(job) => {
+                    sqlx::query_scalar!("SELECT parent_job FROM v2_job WHERE id = $1", job)
+                        .fetch_optional(db)
+                        .await?
+                        .flatten()
                 }
-            );
-            sqlx::query_scalar(&query)
-                .bind(flow_id)
-                .bind(node_id)
-                .fetch_optional(db)
-                .await?
-                .ok_or_else(|| {
-                    error::Error::internal_err(format!(
-                        "Could not get success from flow job status"
-                    ))
-                })?
+                None => None,
+            }
+            .unwrap_or(*flow_id);
+            // That job can complete before the root does, so its status may be in either table.
+            sqlx::query_scalar(
+                r#"SELECT module->>'type' = 'Success'
+                FROM jsonb_array_elements(COALESCE(
+                    (SELECT flow_status FROM v2_job_completed WHERE id = $1),
+                    (SELECT flow_status FROM v2_job_status WHERE id = $1)
+                )->'modules') AS module
+                WHERE module->>'id' = $2"#,
+            )
+            .bind(holder)
+            .bind(node_id)
+            .fetch_optional(db)
+            .await?
+            .ok_or_else(|| {
+                error::Error::internal_err(format!("Could not get success from flow job status"))
+            })?
         }
     };
 

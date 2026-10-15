@@ -209,6 +209,7 @@ mod workspaces;
 #[cfg(feature = "private")]
 pub mod workspaces_ee;
 mod workspaces_export;
+mod workspace_settings_document;
 
 #[cfg(feature = "mcp")]
 mod mcp_tools;

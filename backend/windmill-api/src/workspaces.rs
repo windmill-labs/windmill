@@ -61,6 +61,11 @@ pub fn workspaced_service() -> Router {
         )
         .route("/tarball", get(crate::workspaces_export::tarball_workspace))
         .route("/edit_copilot_config", post(edit_copilot_config))
+        .route(
+            "/settings_document",
+            get(crate::workspace_settings_document::get_settings_document)
+                .post(crate::workspace_settings_document::apply_settings_document),
+        )
         .route("/get_copilot_info", get(get_copilot_info))
         .route("/critical_alerts", get(get_critical_alerts))
         .route(
@@ -85,7 +90,7 @@ pub fn workspaced_service() -> Router {
     router
 }
 
-async fn edit_copilot_config(
+pub(crate) async fn edit_copilot_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
@@ -190,7 +195,7 @@ async fn edit_copilot_config(
 }
 
 #[derive(Serialize)]
-struct EditCopilotConfigResponse {
+pub(crate) struct EditCopilotConfigResponse {
     effective_ai_config: AIConfig,
     has_instance_ai_config: bool,
     uses_instance_ai_config: bool,
@@ -321,7 +326,7 @@ pub struct MuteCriticalAlertRequest {
 }
 
 #[cfg(feature = "enterprise")]
-async fn mute_critical_alerts(
+pub(crate) async fn mute_critical_alerts(
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     authed: ApiAuthed,

@@ -17,6 +17,7 @@
 	import { Alert } from '$lib/components/common'
 	import { keepsManagedMemory } from '$lib/components/flows/agentFormFields'
 	import { agentMenuItems, deleteAgent } from '$lib/components/flows/agentActions'
+	import AgentHistory from '$lib/components/flows/AgentHistory.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -40,6 +41,7 @@
 	let configModal: AgentConfigModal | undefined = $state(undefined)
 	let shareModal: ShareModal | undefined = $state(undefined)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state(undefined)
+	let history: AgentHistory | undefined = $state(undefined)
 	let deleteOpen = $state(false)
 	let evalsModal: AgentEvalsModal | undefined = $state(undefined)
 	let runForm: RunForm | undefined = $state(undefined)
@@ -77,6 +79,7 @@
 					deployUiSettings: deployUiSettings.current,
 					onPermissions: () => shareModal?.openDrawer?.(path, 'resource'),
 					onDeploy: () => deploymentDrawer?.openDrawer(path, 'resource'),
+					onHistory: () => history?.open(),
 					onDelete: () => (deleteOpen = true)
 				}).map((item) => ({
 					label: item.displayName,
@@ -91,6 +94,7 @@
 
 <ShareModal bind:this={shareModal} />
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
+<AgentHistory bind:this={history} {path} canRestore={canEdit} onRestored={() => reloaded++} />
 <ConfirmationModal
 	open={deleteOpen}
 	title="Delete agent"

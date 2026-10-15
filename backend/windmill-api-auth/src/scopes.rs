@@ -73,7 +73,12 @@ pub fn check_route_access(
                         .to_string(),
                 ));
             }
-            if required_domain == ScopeDomain::Users && suffix != "users/whoami" {
+            if required_domain == ScopeDomain::Users {
+                // Whoami returns what the bundle already has in `window.ctx`, so it
+                // needs no declared scope.
+                if suffix == "users/whoami" {
+                    return Ok(());
+                }
                 return Err(Error::PermissionDenied(
                     "Access denied. A raw app frontend SDK token can only read the viewer's own identity."
                         .to_string(),
@@ -418,8 +423,9 @@ pub fn guest_session_scopes(app_path: &str) -> windmill_common::error::Result<Ve
     ])
 }
 
-/// Sentinel in raw-app SDK tokens. Grants nothing; `check_route_access` uses it
-/// to narrow the declared scopes to what the viewer's prompt promised.
+/// Sentinel in raw-app SDK tokens. `check_route_access` uses it to narrow the
+/// declared scopes to what the viewer's prompt promised; the only thing it grants
+/// is the bearer's own `users/whoami`.
 pub const RAW_APP_SDK_SENTINEL: &str = "raw_app_sdk";
 
 pub fn has_raw_app_sdk_sentinel(scopes: Option<&[String]>) -> bool {
@@ -462,8 +468,9 @@ fn app_embed_route_denied(domain: ScopeDomain, suffix: &str) -> bool {
     }
 }
 
-/// App routes a running app uses: its own definition (`apps/get/p/<path>`, further
-/// path-scoped by `apps:read:<path>`) and the public app-serving endpoints
+/// App routes a running app uses: its own definition (`apps/get/p/<path>`, or
+/// `apps/get/lite/<path>` that the viewer runs from, both further path-scoped by
+/// `apps:read:<path>`) and the public app-serving endpoints
 /// (`apps_u/*`: public_app, public_resource, get_data, and the path-taking
 /// `execute_component` / `download_s3_file`, which re-check `apps:run|read:<path>`
 /// in their handlers so they stay confined to this app). Everything else in the
@@ -477,7 +484,9 @@ fn app_embed_apps_route_allowed(suffix: &str) -> bool {
     if suffix.starts_with("apps_u/embed_token") {
         return false;
     }
-    suffix.starts_with("apps/get/p/") || suffix.starts_with("apps_u/")
+    suffix.starts_with("apps/get/p/")
+        || suffix.starts_with("apps/get/lite/")
+        || suffix.starts_with("apps_u/")
 }
 
 /// Routes a guest session is denied: the app-embed allowlist, plus the embed-token
@@ -937,11 +946,15 @@ fn is_global_read_open_to_job_token(route_path: &str) -> bool {
 ///   not send.
 /// - tutorial progress upserts a UI bitfield keyed on the caller's own email. Its path
 ///   serves a `GET` too, which the read list above carries.
-const GLOBAL_WRITES_OPEN_TO_JOB_TOKEN: [&str; 4] = [
+/// - a Teams message from a job (the Teams error, recovery and success handlers) posts as
+///   the instance-wide bot. The handler refuses a job token whose conversation is not a
+///   channel of the team connected to the job's workspace.
+const GLOBAL_WRITES_OPEN_TO_JOB_TOKEN: [&str; 5] = [
     "/api/settings/test_object_storage_config",
     "/api/workspaces/exists",
     "/api/schedules/preview",
     "/api/users/tutorial_progress",
+    "/api/teams/activities",
 ];
 
 /// Confines a job token (`$WM_TOKEN`) to routes that name a workspace. It is minted

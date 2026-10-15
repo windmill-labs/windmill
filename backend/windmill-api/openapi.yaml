@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.833.0
+  version: 1.835.0
   title: Windmill API
 
   contact:
@@ -5184,6 +5184,107 @@ paths:
                   - has_instance_ai_config
                   - uses_instance_ai_config
 
+  /w/{workspace}/workspaces/settings_document:
+    get:
+      summary: get the workspace settings document
+      description: >-
+        The workspace's settings in the layout of the settings.yaml that `wmill sync` writes.
+        Admin only.
+      operationId: getWorkspaceSettingsDocument
+      x-mcp-tool: true
+      x-mcp-tool-include-query-params: []
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: secrets
+          description: >-
+            How secrets are written: `redacted` (the default) replaces each set secret with
+            `__SENSITIVE_AND_UNCHANGED__`; `encrypted` writes it encrypted with the workspace key,
+            prefixed with `$encrypted:`.
+          in: query
+          schema:
+            type: string
+            enum: [redacted, encrypted]
+      responses:
+        "200":
+          description: the settings document
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+    post:
+      summary: apply a workspace settings document
+      description: >-
+        Applies a settings document, each setting through the endpoint that owns it. Admin only.
+      operationId: applyWorkspaceSettingsDocument
+      x-mcp-tool: true
+      x-mcp-instructions: "Send only the top-level keys to change, each whole as getWorkspaceSettingsDocument returns it: a key the document omits is left as it is, and a key set to null clears it. Keep `__SENSITIVE_AND_UNCHANGED__` for a secret you were not given. Call with dry_run true first, show the user the changes and apply only once they agree."
+      x-mcp-tool-include-fields:
+        - document
+        - dry_run
+      x-mcp-tool-opaque-fields:
+        - document
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                document:
+                  description: >-
+                    The settings to apply, in the layout of the document. A secret given as
+                    `__SENSITIVE_AND_UNCHANGED__` keeps its stored value; one prefixed with
+                    `$encrypted:` is decrypted with the workspace key.
+                  type: object
+                  additionalProperties: true
+                replace:
+                  description: >-
+                    Clear the settings `wmill sync push` clears when settings.yaml omits them.
+                    Otherwise a setting the document omits is left as it is.
+                  type: boolean
+                dry_run:
+                  description: Only compute the changes, without applying them.
+                  type: boolean
+              required:
+                - document
+      responses:
+        "200":
+          description: the changes, applied unless dry_run
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  changes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key:
+                          type: string
+                        before: {}
+                        after: {}
+                      required:
+                        - key
+                        - before
+                        - after
+                  applied:
+                    type: boolean
+                  warnings:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - changes
+                  - applied
+
   /w/{workspace}/workspaces/get_copilot_settings_state:
     get:
       summary: get copilot settings state
@@ -5967,6 +6068,12 @@ paths:
           schema:
             type: integer
             format: int64
+        - name: schema
+          in: query
+          required: false
+          description: apply only the pending migrations whose `-- schemas` annotation declares this schema
+          schema:
+            type: string
       responses:
         "200":
           description: applied migrations
@@ -9363,6 +9470,12 @@ paths:
             When true, append per-user draft resources whose path has
             no deployed resource. Synthesized rows carry
             `draft_only: true`.
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - name: starred_only
+          description: Only the `ai_agent` resources the caller starred
           in: query
           required: false
           schema:
@@ -12783,7 +12896,7 @@ paths:
 
   /w/{workspace}/runnables/list:
     get:
-      summary: list runnables (scripts, flows, apps) merged, ordered and keyset-paginated
+      summary: list runnables (scripts, flows, apps, agents) merged, ordered and keyset-paginated
       operationId: listRunnables
       tags:
         - script
@@ -12800,7 +12913,7 @@ paths:
         - $ref: "#/components/parameters/OrderDesc"
         - name: kinds
           in: query
-          description: comma-separated subset of script,flow,app (default all)
+          description: comma-separated subset of script,flow,app,agent (default all)
           schema:
             type: string
         - name: show_archived
@@ -12874,7 +12987,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: kinds
           in: query
-          description: comma-separated subset of script,flow,app (default all)
+          description: comma-separated subset of script,flow,app,agent (default all)
           schema:
             type: string
         - name: include_without_main
@@ -15487,6 +15600,12 @@ paths:
                       type: integer
                     tag:
                       type: string
+                    modules:
+                      type: object
+                      nullable: true
+                      description: "Additional modules keyed by relative file path. Honored in preview only: a deployed app runs the modules stored with its runnable."
+                      additionalProperties:
+                        $ref: "#/components/schemas/ScriptModule"
                   required:
                     - content
                     - language
@@ -15515,6 +15634,14 @@ paths:
                   description: "Map of relative-import script path -> temp storage hash. Only honored for inline-script (raw_code) execution so app dev resolves those imports from not-yet-deployed local content."
                   additionalProperties:
                     type: string
+                on_behalf_of:
+                  type: string
+                  nullable: true
+                  description: "Preview mode (force_viewer_static_fields set) only: run as this identity (an email, `u/<username>` or `g/<group>`) instead of the caller. Naming anyone other than yourself requires being an admin or a member of wm_deployers."
+                viewer_data_access:
+                  type: boolean
+                  nullable: true
+                  description: "Preview mode only: the inline runnable's viewer_data_access policy setting (run mode reads it from the deployed policy)."
               required:
                 - args
                 - component
@@ -24541,7 +24668,7 @@ paths:
                   type: string
                 favorite_kind:
                   type: string
-                  enum: [flow, app, script, raw_app, asset]
+                  enum: [flow, app, script, raw_app, asset, agent]
       responses:
         "200":
           description: star item
@@ -24564,7 +24691,7 @@ paths:
                   type: string
                 favorite_kind:
                   type: string
-                  enum: [flow, app, script, raw_app, asset]
+                  enum: [flow, app, script, raw_app, asset, agent]
       responses:
         "200":
           description: unstar item
@@ -30236,9 +30363,10 @@ components:
       description: |
         A row in the merged runnables listing. `type` is the discriminator;
         kind-specific fields (hash/language/kind for scripts, execution_mode/
-        version for apps) are present only for that kind. `edited_at` is the
-        unified last-updated time (a script's created_at, a flow/app's edit
-        time).
+        version for apps, agent_memory/ws_specific for agents) are present only
+        for that kind. An agent is an `ai_agent` resource whose description is
+        reported as `summary`. `edited_at` is the unified last-updated time (a
+        script's created_at, a flow/app/agent's edit time).
       properties:
         type:
           type: string
@@ -30246,6 +30374,7 @@ components:
             - script
             - flow
             - app
+            - agent
         path:
           type: string
         summary:
@@ -30313,6 +30442,11 @@ components:
         version:
           type: integer
           format: int64
+        agent_memory:
+          description: agent-only. The agent's `memory` setting.
+        ws_specific:
+          type: boolean
+          description: agent-only. Whether the agent is workspace-specific, which keeps it out of deploys to other workspaces.
       required:
         - type
         - path
@@ -32285,6 +32419,14 @@ components:
           description: "Map of relative-import script path -> temp storage hash so the preview job resolves those imports from not-yet-deployed local content instead of the deployed script"
           additionalProperties:
             type: string
+        on_behalf_of:
+          type: string
+          nullable: true
+          description: "Run the preview as this identity (an email, `u/<username>` or `g/<group>`) instead of the caller. Naming anyone other than yourself requires being an admin or a member of wm_deployers."
+        viewer_data_access:
+          type: boolean
+          nullable: true
+          description: "Data table and object storage access as the caller rather than as the job's identity, as a full-code app's inline runnable flagged viewer_data_access does for its viewer."
       required:
         - args
 
@@ -36629,6 +36771,10 @@ components:
           description: "Map of relative-import script path -> temp storage hash, propagated to each flow step so inline-script relative imports resolve from not-yet-deployed local content instead of the deployed script"
           additionalProperties:
             type: string
+        on_behalf_of:
+          type: string
+          nullable: true
+          description: "Run the preview as this identity (an email, `u/<username>` or `g/<group>`) instead of the caller. Naming anyone other than yourself requires being an admin or a member of wm_deployers."
 
       required:
         - value
@@ -36725,7 +36871,8 @@ components:
             the app bundle so `windmill-client` calls run as the viewer. Must
             be a subset of the server's curated allowlist (jobs:run, jobs:read,
             users:read, resources:read, variables:read, flow_conversations:read,
-            flow_conversations:write).
+            flow_conversations:write). Every such token can call whoami without
+            consent, whether `users:read` is declared or not.
 
     ListableApp:
       type: object
@@ -37321,6 +37468,15 @@ components:
             - ran
             - not_run
             - unknown
+        schemas:
+          type: array
+          description: the schemas its `-- schemas` annotation declares; absent when it applies to the whole database
+          items:
+            type: string
+        blocked_by:
+          type: integer
+          format: int64
+          description: when not run, the earliest pending migration that must be applied first; when run, the latest applied migration that must be rolled back first
     DataTableSchema:
       type: object
       required: [datatable_name, schemas]

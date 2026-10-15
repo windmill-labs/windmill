@@ -83,17 +83,17 @@ jobs:
           # Extract arm64 binary (include deps/ for hard link resolution)
           mkdir -p /tmp/arm64
           crane export --platform linux/arm64 ${{ steps.meta-ee-public.outputs.tags }} - \
-            | tar -xf - -C /tmp/arm64 windmill/target/release/ usr/src/app/libwindmill_duckdb_ffi_internal.so
+            | tar -xf - -C /tmp/arm64 windmill/target/release/ usr/src/app/windmill_duckdb_runner
           cp /tmp/arm64/windmill/target/release/windmill extracted/windmill-ee-arm64-rhel9
-          cp /tmp/arm64/usr/src/app/libwindmill_duckdb_ffi_internal.so extracted/libwindmill_duckdb_ffi_internal-arm64.so
+          cp /tmp/arm64/usr/src/app/windmill_duckdb_runner extracted/windmill_duckdb_runner-arm64
           rm -rf /tmp/arm64
 
           # Extract amd64 binary
           mkdir -p /tmp/amd64
           crane export --platform linux/amd64 ${{ steps.meta-ee-public.outputs.tags }} - \
-            | tar -xf - -C /tmp/amd64 windmill/target/release/ usr/src/app/libwindmill_duckdb_ffi_internal.so
+            | tar -xf - -C /tmp/amd64 windmill/target/release/ usr/src/app/windmill_duckdb_runner
           cp /tmp/amd64/windmill/target/release/windmill extracted/windmill-ee-amd64-rhel9
-          cp /tmp/amd64/usr/src/app/libwindmill_duckdb_ffi_internal.so extracted/libwindmill_duckdb_ffi_internal-amd64.so
+          cp /tmp/amd64/usr/src/app/windmill_duckdb_runner extracted/windmill_duckdb_runner-amd64
           rm -rf /tmp/amd64
 
       - uses: actions/upload-artifact@v4
@@ -109,9 +109,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: RHEL9-arm64 dynamic libraries build
-          path: extracted/libwindmill_duckdb_ffi_internal-arm64.so
+          path: extracted/windmill_duckdb_runner-arm64
 
       - uses: actions/upload-artifact@v4
         with:
           name: RHEL9-amd64 dynamic libraries build
-          path: extracted/libwindmill_duckdb_ffi_internal-amd64.so
+          path: extracted/windmill_duckdb_runner-amd64

@@ -56,7 +56,11 @@ describe('resolveSessionAccess', () => {
 			'run_preview',
 			'write_app_draft',
 			'write_draft',
-			'write_flow_draft'
+			'write_flow_draft',
+			'write_resource_draft',
+			'write_schedule_draft',
+			'write_trigger_draft',
+			'write_variable_draft'
 		])
 	})
 
@@ -64,13 +68,28 @@ describe('resolveSessionAccess', () => {
 	// so withholding `deploy` from an operator would be stricter than the server.
 	it('leaves an operator the deploy-rule capability, and nothing their token refuses', async () => {
 		const caps = await capabilitiesFor({ operator: true })
-		expect([...caps].sort()).toEqual(['deploy', 'manage_schedules', 'manage_triggers'])
+		expect([...caps].sort()).toEqual([
+			'deploy',
+			'manage_schedules',
+			'manage_triggers',
+			'write_resource_draft',
+			'write_schedule_draft',
+			'write_trigger_draft',
+			'write_variable_draft'
+		])
 	})
 
 	it('takes deploy from the rules alone, so a rule blocks an operator too', async () => {
 		deployRules.mockResolvedValue({ ok: false, refusedBy: 'DisableDirectDeployment' })
 		const caps = await capabilitiesFor({ operator: true })
-		expect([...caps].sort()).toEqual(['manage_schedules', 'manage_triggers'])
+		expect([...caps].sort()).toEqual([
+			'manage_schedules',
+			'manage_triggers',
+			'write_resource_draft',
+			'write_schedule_draft',
+			'write_trigger_draft',
+			'write_variable_draft'
+		])
 	})
 
 	// Both spellings of `authed.is_admin`, which the draft path honours and the handlers
@@ -86,7 +105,11 @@ describe('resolveSessionAccess', () => {
 				'manage_triggers',
 				'write_app_draft',
 				'write_draft',
-				'write_flow_draft'
+				'write_flow_draft',
+				'write_resource_draft',
+				'write_schedule_draft',
+				'write_trigger_draft',
+				'write_variable_draft'
 			])
 		}
 	)
@@ -117,7 +140,11 @@ describe('resolveSessionAccess', () => {
 			'manage_schedules',
 			'manage_triggers',
 			'run_flow_preview',
-			'write_flow_draft'
+			'write_flow_draft',
+			'write_resource_draft',
+			'write_schedule_draft',
+			'write_trigger_draft',
+			'write_variable_draft'
 		])
 	})
 
@@ -134,7 +161,11 @@ describe('resolveSessionAccess', () => {
 			'manage_apps',
 			'manage_schedules',
 			'manage_triggers',
-			'write_app_draft'
+			'write_app_draft',
+			'write_resource_draft',
+			'write_schedule_draft',
+			'write_trigger_draft',
+			'write_variable_draft'
 		])
 	})
 
@@ -147,7 +178,9 @@ describe('resolveSessionAccess', () => {
 			operatorSettings: { manage_schedules: false }
 		})
 		expect(caps.has('manage_schedules')).toBe(false)
+		expect(caps.has('write_schedule_draft')).toBe(false)
 		expect(caps.has('manage_triggers')).toBe(true)
+		expect(caps.has('write_trigger_draft')).toBe(true)
 	})
 
 	it('grants everything when the role cannot be resolved', async () => {

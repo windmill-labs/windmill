@@ -373,6 +373,10 @@ pub async fn get_secret_value_as_admin(
     Ok(r)
 }
 
+/// Marks a workspace setting's secret written into the settings document encrypted with the
+/// workspace key, as `wmill sync pull` writes it.
+pub const SETTINGS_ENCRYPTED_PREFIX: &str = "$encrypted:";
+
 pub fn encrypt(mc: &WorkspaceCrypt, value: &str) -> String {
     mc.encrypt_str(value)
 }

@@ -7,11 +7,12 @@ section name — and the route's own buttons at the far end.
 The row's height matches the sidebar's own header row, so the two read as one band.
 -->
 <script lang="ts">
-	import { PanelLeft } from 'lucide-svelte'
+	import { ChevronDown, PanelLeft } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { navDetached } from './sidebar/navDetached.svelte'
 	import { navHandleSlot } from './sidebar/navHandlePlacement.svelte'
 	import NavBreadcrumb from './NavBreadcrumb.svelte'
+	import BreadcrumbNavPicker from './BreadcrumbNavPicker.svelte'
 	import { BAR_HEIGHT, pageHeader, PHONE_BAR } from './pageHeaderRegistry.svelte'
 	import ContextBridge from './ContextBridge.svelte'
 	import { afterNavigate } from '$app/navigation'
@@ -38,6 +39,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	const hasSummary = $derived(!!item && !!(item.summaryContent || item.summary))
 	/** A summary control can be a placeholder offering to add one; the text is what names the item. */
 	const summaryNamesItem = $derived(!!item?.summary?.trim())
+	const pickerAfterSummary = $derived(hasSummary && !navHidden && !!item?.path)
 
 	/** A phone's bar: a tighter gutter around the same row. */
 	const phone = $derived(pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR)
@@ -304,6 +306,11 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 						>{item.summary}</span
 					>
 				{/if}
+				<!-- The summary ends the trail here, so the breadcrumb's chevron follows it instead. Not
+				     before the path lands: the picker opens in the item's folder, which it reads once. -->
+				{#if pickerAfterSummary}
+					<BreadcrumbNavPicker {item} actingWorkspaceId={content?.actingWorkspaceId} />
+				{/if}
 			</div>
 		{/if}
 
@@ -355,6 +362,9 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 						<span class="truncate text-xs font-medium" style="max-width: {FLOOR.summary}px"
 							>{item.summary}</span
 						>
+					{/if}
+					{#if pickerAfterSummary}
+						<span class="flex items-center h-9 px-1.5 shrink-0"><ChevronDown size={14} /></span>
 					{/if}
 				</div>
 				<span

@@ -17,7 +17,7 @@ not this component) — so the lead can run the whole line.
 	import { Menu, Menubar } from '$lib/components/meltComponents'
 	import MeltButton from '$lib/components/meltComponents/MeltButton.svelte'
 	import WorkspacePickerBody from '$lib/components/sidebar/WorkspacePickerBody.svelte'
-	import BreadcrumbSegment from '$lib/components/BreadcrumbSegment.svelte'
+	import BreadcrumbNavPicker from './BreadcrumbNavPicker.svelte'
 	import { userWorkspaces, workspaceStore, workspaceColor, superadmin } from '$lib/stores'
 	import { findWorkspaceRoot } from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
@@ -29,7 +29,7 @@ not this component) — so the lead can run the whole line.
 	import { page } from '$app/state'
 	import { navPageFor } from './sidebar/navPages'
 	import { copyToClipboard, getContrastTextColor } from '$lib/utils'
-	import { KIND_LABEL_LOWER, kindKey } from '$lib/components/workspacePicker'
+	import { KIND_LABEL_LOWER } from '$lib/components/workspacePicker'
 	import type { PageHeaderItem, PageHeaderSection } from './pageHeaderRegistry.svelte'
 	import type { Snippet } from 'svelte'
 	import {
@@ -258,6 +258,20 @@ not this component) — so the lead can run the whole line.
 	{/if}
 {/snippet}
 
+{#snippet navPicker(measure: boolean)}
+	<!-- The page's own name is the last segment, so the chevron after it moves to a sibling page or
+	     item. Not in a session's preview band, which must not lead out of the host's workspace. -->
+	{#if !nameOnly && !section?.noNavPicker}
+		{#if measure}
+			<span class="flex items-center h-9 px-1.5 shrink-0">
+				<ChevronDown size={ICON} class="flex-shrink-0" />
+			</span>
+		{:else}
+			<BreadcrumbNavPicker {item} pagePath={routePage?.path} {actingWorkspaceId} iconSize={ICON} />
+		{/if}
+	{/if}
+{/snippet}
+
 {#snippet slash(extra = '')}
 	<!-- `extra` tops the workspace part's own 4px gap up to the 6px the breadcrumb puts around its
 	     other separators, so the slash before a fork is spaced like every other slash on the line. -->
@@ -433,6 +447,7 @@ not this component) — so the lead can run the whole line.
 						{@render pathLabel()}
 					</button>
 				{/if}
+				{#if itemIsLast}{@render navPicker(measure)}{/if}
 				{@render afterNameSlot(measure)}
 				{#if pathCopied && !measure}
 					<span
@@ -458,21 +473,14 @@ not this component) — so the lead can run the whole line.
 			</span>
 		{/if}
 	{:else if section?.kind}
-		{#if measure}
-			<span class={twMerge('inline-flex items-center px-1', SEGMENT, LAST)}>
-				{@render sectionKindIcon()}<span>{KIND_LABEL_LOWER[section.kind]}</span>
-			</span>
-		{:else}
-			<BreadcrumbSegment
-				label={KIND_LABEL_LOWER[section.kind]}
-				icon={sectionKindIcon}
-				extraClass={twMerge(SEGMENT, LAST)}
-				isCurrent
-				initialHighlight={kindKey(section.kind)}
-				initialScope={{ kind: section.kind }}
-				onPick={() => {}}
-			/>
-		{/if}
+		<span
+			class={twMerge(SEGMENT, LAST, 'shrink-0 hover:bg-transparent hover:text-emphasis')}
+			aria-current={measure ? undefined : 'page'}
+		>
+			{@render sectionKindIcon()}
+			<span class="truncate">{KIND_LABEL_LOWER[section.kind]}</span>
+		</span>
+		{@render navPicker(measure)}
 	{:else if section}
 		{#if section.parent}
 			<!-- Gives width back with the workspace part, before the section's own name does. -->
@@ -507,6 +515,7 @@ not this component) — so the lead can run the whole line.
 					>{/if}
 			</span>
 		{/if}
+		{@render navPicker(measure)}
 		{@render afterNameSlot(measure)}
 	{:else if routePage}
 		{@const RouteIcon = routePage.icon}
@@ -519,6 +528,7 @@ not this component) — so the lead can run the whole line.
 			{#if RouteIcon}<RouteIcon size={ICON} class="flex-shrink-0 text-tertiary" />{/if}
 			<span class="truncate">{routePage.label}</span>
 		</span>
+		{@render navPicker(measure)}
 		{@render afterNameSlot(measure)}
 	{/if}
 {/snippet}

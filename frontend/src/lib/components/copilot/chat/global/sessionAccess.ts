@@ -15,6 +15,10 @@ const ALL_CAPABILITIES: SessionCapability[] = [
 	'write_draft',
 	'write_flow_draft',
 	'write_app_draft',
+	'write_schedule_draft',
+	'write_trigger_draft',
+	'write_resource_draft',
+	'write_variable_draft',
 	'run_preview',
 	'run_flow_preview',
 	'deploy',
@@ -58,6 +62,18 @@ export function capabilitiesForRole(role: {
 	}
 	if (roleCanDraft('raw_app', user, role.operatorSettings)) {
 		capabilities.add('write_app_draft')
+	}
+	if (roleCanDraft('schedule', user, role.operatorSettings)) {
+		capabilities.add('write_schedule_draft')
+	}
+	if (roleCanDraft('trigger', user, role.operatorSettings)) {
+		capabilities.add('write_trigger_draft')
+	}
+	if (roleCanDraft('resource', user, role.operatorSettings)) {
+		capabilities.add('write_resource_draft')
+	}
+	if (roleCanDraft('variable', user, role.operatorSettings)) {
+		capabilities.add('write_variable_draft')
 	}
 	if (authorsCode) {
 		capabilities.add('run_preview')

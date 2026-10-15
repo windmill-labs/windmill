@@ -1702,6 +1702,12 @@ TOPICS: dict[str, dict] = {
         'chat_helper': 'getDatatablePrompt',
         'parts': ['datatable.md'],
     },
+    'workspace_settings': {
+        'skill': 'workspace-settings',
+        'description': 'MUST use when reading or changing workspace settings, or the settings.yaml file `wmill sync` keeps.',
+        'chat_helper': 'getWorkspaceSettingsPrompt',
+        'parts': ['workspace-settings.md'],
+    },
     'cli_commands': {
         'skill': 'cli-commands',
         'description': 'MUST use when using the CLI, including debugging job failures and inspecting run history via `wmill job`.',
@@ -1722,6 +1728,7 @@ CHAT_CONSTANTS = {
     'raw-app.md': 'RAW_APP_BASE',
     'pipeline-base.md': 'PIPELINE_BASE',
     'datatable.md': 'DATATABLE_BASE',
+    'workspace-settings.md': 'WORKSPACE_SETTINGS_BASE',
     'workflow-as-code.md': 'WORKFLOW_AS_CODE_BASE',
     'flow-chat-special-modules.md': 'FLOW_CHAT_SPECIAL_MODULES',
 }
@@ -2662,6 +2669,11 @@ export function getDatatablePrompt(): string {
   __RETURN_datatable__
 }
 
+// Helper for the workspace settings document (chat consumers)
+export function getWorkspaceSettingsPrompt(): string {
+  __RETURN_workspace_settings__
+}
+
 // Helper to get the datatable SQL SDK reference (wmill.datatable()).
 // Pass a language to get only that SDK; omit it to get both.
 export function getDatatableSdkReference(language?: string): string {
@@ -2724,6 +2736,7 @@ export declare function getResourcePrompt(): string;
 export declare function getRawAppPrompt(language?: string): string;
 export declare function getPipelinePrompt(): string;
 export declare function getDatatablePrompt(): string;
+export declare function getWorkspaceSettingsPrompt(): string;
 export declare function getDatatableSdkReference(language?: string): string;
 export declare function getWorkflowAsCodePrompt(language?: string): string;
 """
