@@ -4666,9 +4666,8 @@ async fn execute_component(
             // `app_script` id. Its resolved `rawscript/<sha>` key must be present
             // in the policy triggerables below — it must never resolve via the
             // Viewer default fallback. Without `id` the caller supplies the code
-            // verbatim; with `id` it selects any `app_script` row by number (no
-            // app/workspace scoping), so both let a caller run code the publisher
-            // never pinned for this app.
+            // verbatim, which lets a caller run code the publisher never pinned
+            // for this app; with `id` the row must also belong to this app.
             let is_inline_raw_code = payload.raw_code.is_some();
 
             // Compute the path for the triggerables map:
