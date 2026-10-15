@@ -82,6 +82,9 @@ test(
         `summary: "test"\ndescription: ""\nlock: ""\nschema:\n  $schema: "https://json-schema.org/draft/2020-12/schema"\n  type: object\n  properties: {}\n  required: []\n`,
         "utf-8",
       );
+      const moduleDir = join(scriptDir, "hello__mod");
+      await mkdir(moduleDir);
+      await writeFile(join(moduleDir, "query.gql"), "query { __typename }\n");
 
       // Push the script so the workspace has content
       const pushResult = await backend.runCLICommand(
@@ -178,14 +181,13 @@ test(
 
         expect(ws.readyState).toEqual(WebSocket.OPEN);
 
-        // Set up a promise to receive the next WebSocket message
         const isWindows = process.platform === "win32";
-        const messagePromise = new Promise<any>((resolve, reject) => {
+        const nextMessage = () => new Promise<any>((resolve, reject) => {
           const timeout = setTimeout(
             () => reject(new Error("WebSocket message timeout")),
             isWindows ? 30000 : 10000,
           );
-          ws!.on("message", (data) => {
+          ws!.once("message", (data) => {
             clearTimeout(timeout);
             try {
               resolve(JSON.parse(data.toString()));
@@ -194,6 +196,14 @@ test(
             }
           });
         });
+
+        const initialMessage = nextMessage();
+        ws.send(JSON.stringify({ type: "loadWmPath", path: "f/test/hello" }));
+        expect((await initialMessage).modules["query.gql"]).toEqual({
+          content: "query { __typename }\n",
+          language: "graphql",
+        });
+        const messagePromise = nextMessage();
 
         // Modify the script file on disk
         // Windows fs.watch() needs more time to initialize with recursive: true
@@ -212,6 +222,14 @@ test(
         expect(message.content).toContain("modified");
         expect(message.path).toContain("f/test/hello");
         expect(message.language).toBeTruthy();
+        expect(message.modules["query.gql"].content).toEqual("query { __typename }\n");
+
+        const moduleMessage = nextMessage();
+        await writeFile(join(moduleDir, "query.gql"), "query Updated { __typename }\n");
+        const updated = await moduleMessage;
+        expect(updated.path).toEqual("f/test/hello");
+        expect(updated.content).toContain("modified");
+        expect(updated.modules["query.gql"].content).toEqual("query Updated { __typename }\n");
       } finally {
         if (ws) {
           ws.close();
