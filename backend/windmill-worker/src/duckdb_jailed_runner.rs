@@ -48,16 +48,32 @@ static REQUESTED: LazyLock<Requested> = LazyLock::new(|| {
     }
 });
 
-/// `DUCKDB_JAILED_RUNNER_FENCE=false` drops the SQL-level fence (`duckdb_isolation_ee`) and
-/// `lock_temp_directory` inside the jail, leaving confinement to nsjail alone. Never applies
-/// outside nsjail.
-static FENCE_IN_JAIL: LazyLock<bool> = LazyLock::new(|| {
-    !matches!(
-        std::env::var("DUCKDB_JAILED_RUNNER_FENCE")
-            .unwrap_or_default()
-            .trim(),
-        "false" | "0"
-    )
+/// How much of the SQL-level policy (`duckdb_isolation_ee`) a connection keeps.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Fence {
+    /// The whole fence: extension allowlist, `disabled_filesystems`, `lock_temp_directory`.
+    Full,
+    /// Inside nsjail only: the allowlist and `lock_temp_directory`, without
+    /// `disabled_filesystems` and the preloads it forces. The jail confines the file system.
+    Allowlist,
+    /// Inside nsjail only: nothing, and no `lock_temp_directory` either, so a script can raise
+    /// the spill cap.
+    Off,
+}
+
+/// `DUCKDB_JAILED_RUNNER_FENCE` = `full` (default) | `allowlist` | `off`. Outside nsjail the
+/// fence is always full.
+static FENCE_IN_JAIL: LazyLock<Fence> = LazyLock::new(|| {
+    match std::env::var("DUCKDB_JAILED_RUNNER_FENCE")
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "allowlist" => Fence::Allowlist,
+        "off" | "false" | "0" => Fence::Off,
+        _ => Fence::Full,
+    }
 });
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -90,9 +106,13 @@ pub(crate) fn runner_mode() -> Option<RunnerMode> {
     }
 }
 
-/// Whether the SQL-level fence still applies to a job running in `mode`.
-pub(crate) fn keeps_fence(mode: Option<RunnerMode>) -> bool {
-    mode != Some(RunnerMode::Jailed) || *FENCE_IN_JAIL
+/// The SQL-level policy a job running in `mode` gets.
+pub(crate) fn fence(mode: Option<RunnerMode>) -> Fence {
+    if mode == Some(RunnerMode::Jailed) {
+        *FENCE_IN_JAIL
+    } else {
+        Fence::Full
+    }
 }
 
 #[derive(Serialize, Clone, Copy)]
@@ -143,13 +163,18 @@ fn runner_path() -> Result<String> {
     Ok(path.to_string_lossy().into_owned())
 }
 
+/// The jail's own extension cache, separate from the one the in-process engine shares. Only
+/// [`install_missing_extensions`] writes to it, and it only sees names the SQL policy let
+/// through, so with the allowlist in force what is in this directory is the allowlist: an
+/// extension DuckDB autoloads without the script naming it is found here or not at all.
 fn extension_dir() -> String {
-    format!("{}/.duckdb/extensions", HOME_ENV.as_str())
+    format!("{}/.duckdb/windmill_jail_extensions", HOME_ENV.as_str())
 }
 
 /// Extensions a job may load inside the jail, where the cache is read-only: the two
-/// `setup_duckdb_connection` installs on every connection, the fence's preloads, and every
-/// extension a block installs by name. A `FORCE INSTALL` stays forced: it is the one
+/// `setup_duckdb_connection` installs on every connection, the two the platform reaches for
+/// without naming them (Parquet data files, the JSON type), and every extension a block
+/// installs by name. A `FORCE INSTALL` stays forced: it is the one
 /// statement here that must run every time.
 fn needed_extensions(blocks: &[String]) -> Vec<String> {
     let mut out: Vec<String> = ["httpfs", "azure", "parquet", "json"]
@@ -207,11 +232,19 @@ async fn install_missing_extensions(blocks: &[String], job_dir: &str) -> Result<
     if missing.is_empty() {
         return Ok(());
     }
+    let ext_dir = extension_dir();
+    tokio::fs::create_dir_all(&ext_dir).await?;
+    let blocks: Vec<String> = std::iter::once(format!(
+        "SET extension_directory='{}';",
+        ext_dir.replace('\'', "''")
+    ))
+    .chain(missing.iter().cloned())
+    .collect();
     let out = spawn_runner(
         RunnerMode::Process,
         &RunnerRequest {
             mode: RequestMode::Install,
-            blocks: &missing,
+            blocks: &blocks,
             job_args: None,
             token: "",
             base_internal_url: "",
@@ -266,11 +299,18 @@ pub(crate) async fn run(
     job_dir: &str,
 ) -> Result<RunnerOutput> {
     if mode != RunnerMode::Jailed {
-        return spawn_runner(mode, req, job_dir, keeps_fence(Some(mode))).await;
+        return spawn_runner(mode, req, job_dir, true).await;
     }
     install_missing_extensions(req.blocks, job_dir).await?;
     let blocks = unforce_installs(req.blocks);
-    spawn_runner(mode, &RunnerRequest { blocks: &blocks, ..*req }, job_dir, keeps_fence(Some(mode))).await
+    let lock_temp_directory = fence(Some(mode)) != Fence::Off;
+    spawn_runner(
+        mode,
+        &RunnerRequest { blocks: &blocks, ..*req },
+        job_dir,
+        lock_temp_directory,
+    )
+    .await
 }
 
 async fn spawn_runner(

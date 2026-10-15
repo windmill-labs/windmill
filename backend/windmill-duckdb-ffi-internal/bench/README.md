@@ -10,6 +10,7 @@ Each worker has exactly one tag, which names the variant:
 | `bench_proc` | `+ DUCKDB_JAILED_RUNNER=process` | runner as a plain child process, fence kept (process cost alone) |
 | `bench_jail` | `+ DUCKDB_JAILED_RUNNER=true` | runner inside nsjail, fence kept (defense in depth) |
 | `bench_nofence` | `+ DUCKDB_JAILED_RUNNER_FENCE=false` | runner inside nsjail, no fence, no `lock_temp_directory` |
+| `bench_allow` | `+ DUCKDB_JAILED_RUNNER_FENCE=allowlist` | runner inside nsjail, extension allowlist + `lock_temp_directory`, no `disabled_filesystems` |
 | `bench_inproc_nofence` | `DISABLE_DUCKDB_FS_SANDBOX=true` | in-process with no fence (a non-isolating worker's cost) |
 
 ## Setup

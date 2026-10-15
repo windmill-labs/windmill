@@ -25,6 +25,8 @@ use windmill_types::s3::S3Object;
 
 use crate::agent_workers::{get_datatable_resource_from_agent_http, get_ducklake_from_agent_http};
 use crate::common::{build_args_values, get_reserved_variables, OccupancyMetrics};
+#[cfg(feature = "private")]
+use crate::duckdb_jailed_runner::Fence;
 use crate::duckdb_jailed_runner::{RequestMode, RunnerMode, RunnerRequest};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 #[cfg(feature = "mysql")]
@@ -1524,10 +1526,12 @@ pub async fn do_duckdb(
             // The probe opens its own DuckDB connection, so it needs the same
             // connection policy as the main query below.
             #[cfg(feature = "private")]
-            let probe_blocks = if crate::duckdb_jailed_runner::keeps_fence(runner) {
-                crate::duckdb_isolation_ee::apply_duckdb_isolation(probe_blocks)?
-            } else {
-                probe_blocks
+            let probe_blocks = match crate::duckdb_jailed_runner::fence(runner) {
+                Fence::Full => crate::duckdb_isolation_ee::apply_duckdb_isolation(probe_blocks)?,
+                Fence::Allowlist => {
+                    crate::duckdb_isolation_ee::apply_duckdb_extension_allowlist(probe_blocks)?
+                }
+                Fence::Off => probe_blocks,
             };
             let alter_ddl = compute_sync_alter_ddl(
                 probe_blocks,
@@ -1615,10 +1619,12 @@ pub async fn do_duckdb(
         .await?;
 
         #[cfg(feature = "private")]
-        let query_block_list = if crate::duckdb_jailed_runner::keeps_fence(runner) {
-            crate::duckdb_isolation_ee::apply_duckdb_isolation(query_block_list)?
-        } else {
-            query_block_list
+        let query_block_list = match crate::duckdb_jailed_runner::fence(runner) {
+            Fence::Full => crate::duckdb_isolation_ee::apply_duckdb_isolation(query_block_list)?,
+            Fence::Allowlist => {
+                crate::duckdb_isolation_ee::apply_duckdb_extension_allowlist(query_block_list)?
+            }
+            Fence::Off => query_block_list,
         };
 
         let base_internal_url = client.base_internal_url.clone();
