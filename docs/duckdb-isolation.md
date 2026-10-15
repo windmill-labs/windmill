@@ -122,7 +122,7 @@ worker that never set it would point the reader at a knob that does not exist.
 
 `backend/windmill-duckdb-ffi-internal` depends on
 [`windmill-labs/duckdb-rs`](https://github.com/windmill-labs/duckdb-rs), branch
-`windmill/duckdb-1.5.5`, pinned by rev. That fork is duckdb-rs 1.10505.0 (DuckDB 1.5.5)
+`windmill/duckdb-1.5.6`, pinned by rev. That fork is duckdb-rs 1.10506.0 (DuckDB 1.5.6)
 plus the windmill commits; `duckdb.tar.gz` is left byte-identical to upstream's and
 `crates/libduckdb-sys/windmill/0*.patch` are applied to the extracted sources at build
 time, in order, so `git diff` against `duckdb/duckdb-rs` shows the whole delta as text.
@@ -180,7 +180,7 @@ An unpatched engine compiles, links and passes every existing test. Three things
 
 ## Upstream
 
-Both patches are written against `duckdb/duckdb` `v1.5.5` in the shape upstream takes
+Both patches are written against `duckdb/duckdb` `v1.5.6` in the shape upstream takes
 changes. Besides the engine sources they carry `src/common/settings.json` (the settings
 generator's input, regenerated with `scripts/generate_settings.py` and formatted with
 clang-format 11.0.1), two sqllogictests under `test/sql/settings/`, and one line in
@@ -190,14 +190,14 @@ irreversible one has to join the exclusion list `disabled_filesystems` and
 `git am`:
 
 ```bash
-git clone https://github.com/duckdb/duckdb.git && cd duckdb && git checkout v1.5.5
+git clone https://github.com/duckdb/duckdb.git && cd duckdb && git checkout v1.5.6
 git am .../crates/libduckdb-sys/windmill/0*.patch
 GEN=ninja make && ./build/release/test/unittest "test/sql/settings/lock_temp_directory*"
 ```
 
 `0001` is filed as
 **[duckdb/duckdb#24694](https://github.com/duckdb/duckdb/pull/24694)**, against `main`
-rather than `v1.5.5`. Filing was a human decision on purpose: their `CONTRIBUTING.md` asks
+rather than `v1.5.6`. Filing was a human decision on purpose: their `CONTRIBUTING.md` asks
 contributors not to submit LLM-generated pull requests, to discuss the change on GitHub
 first, and to run CI on a fork before opening one.
 
