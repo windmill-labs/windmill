@@ -193,6 +193,10 @@ def main(user_id: str):
     return user
 ```
 
+#### Sharing code between runnables
+
+An inline runnable can import another inline runnable of the same app by its id, as a relative import: `import { getDb } from './shared'` (TypeScript, Bun) or `from .shared import get_db` (Python). This works across TypeScript (Bun) runnables and across Python runnables, not between the two. The imported runnable's own dependencies are picked up, and it can import further runnables in turn. A runnable that only holds helpers needs no `main`; the frontend just never calls it. A TypeScript runnable whose id is `main` cannot be imported, because that name is taken by the entrypoint file of every TypeScript job: give shared code any other id.
+
 #### The `wmill` client is already authenticated
 
 An inline runnable runs as an ordinary Windmill job. `import * as wmill from 'windmill-client'` (TypeScript) and `import wmill` (Python) are already pointed at this instance and this workspace — there is nothing to configure.

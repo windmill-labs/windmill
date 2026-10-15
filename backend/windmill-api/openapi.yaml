@@ -15600,6 +15600,12 @@ paths:
                       type: integer
                     tag:
                       type: string
+                    modules:
+                      type: object
+                      nullable: true
+                      description: "Additional modules keyed by relative file path. Honored in preview only: a deployed app runs the modules stored with its runnable."
+                      additionalProperties:
+                        $ref: "#/components/schemas/ScriptModule"
                   required:
                     - content
                     - language
