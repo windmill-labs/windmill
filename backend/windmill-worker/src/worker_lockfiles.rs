@@ -2335,8 +2335,12 @@ impl RawAppRunnables {
         Self(runnables)
     }
 
-    fn contains(&self, path: &str) -> bool {
-        self.0.contains_key(path)
+    /// Whether an import of `path` by `language` code resolves to a runnable shipped as a
+    /// module, rather than to the workspace script at that path.
+    fn resolves(&self, path: &str, language: ScriptLang) -> bool {
+        self.0.get(path).is_some_and(|(_, sibling_language, _)| {
+            module_extension(*sibling_language) == module_extension(language)
+        })
     }
 
     /// The runnables `content` imports, directly or through one another.
@@ -2507,8 +2511,8 @@ async fn lock_modules_app(
                                 .to_string();
                             let mut logs = "".to_string();
 
-                            // An import of another runnable of the app is not a dependency
-                            // on the workspace script at that path: it never resolves to one.
+                            // An import satisfied by another runnable of the app is not a
+                            // dependency on the workspace script at that path.
                             let referenced_paths = extract_referenced_paths(
                                 &content,
                                 &format!("{job_path}/app"),
@@ -2517,7 +2521,7 @@ async fn lock_modules_app(
                             .map(|paths| {
                                 paths
                                     .into_iter()
-                                    .filter(|p| !raw_app_runnables.contains(p))
+                                    .filter(|p| !raw_app_runnables.resolves(p, language))
                                     .collect_vec()
                             });
                             // The lock covers what the imported runnables import, and nothing
