@@ -338,3 +338,149 @@ async fn test_variables_are_cached(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// Reading a variable linked to an OAuth account refreshes through that account, so a variable
+/// may only link an account its caller connected or can already reach through a readable
+/// variable. Any other requested link is dropped, and the variable is still created.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+async fn test_oauth_account_link_requires_ownership(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!(
+        "http://localhost:{}/api/w/test-workspace/variables",
+        server.addr.port()
+    );
+
+    let alice_account: i32 = sqlx::query_scalar(
+        "INSERT INTO account (workspace_id, client, expires_at, refresh_token, created_by)
+         VALUES ('test-workspace', 'github', now(), 'alice-refresh', 'alice') RETURNING id",
+    )
+    .fetch_one(&db)
+    .await?;
+    let missing_account = alice_account + 1000;
+
+    let create = |token: &'static str, path: &'static str, account: i32| {
+        let url = format!("{base}/create");
+        async move {
+            client()
+                .post(url)
+                .header("Authorization", format!("Bearer {token}"))
+                .json(&json!({ "path": path, "value": "x", "is_secret": false,
+                               "description": "", "account": account }))
+                .send()
+                .await
+                .unwrap()
+                .status()
+        }
+    };
+    let linked = |path: &'static str| {
+        let db = db.clone();
+        async move {
+            sqlx::query_scalar::<_, Option<i32>>(
+                "SELECT account FROM variable WHERE workspace_id = 'test-workspace' AND path = $1",
+            )
+            .bind(path)
+            .fetch_one(&db)
+            .await
+            .unwrap()
+        }
+    };
+
+    assert_eq!(
+        create("ALICE_TOKEN_TEST", "u/alice/conn", alice_account).await,
+        201
+    );
+    assert_eq!(linked("u/alice/conn").await, Some(alice_account));
+
+    assert_eq!(
+        create("BOB_TOKEN_TEST12", "u/bob/alias", alice_account).await,
+        201
+    );
+    assert_eq!(linked("u/bob/alias").await, None, "not bob's account");
+
+    let status = client()
+        .post(format!("{base}/update/u/bob/alias"))
+        .header("Authorization", "Bearer BOB_TOKEN_TEST12")
+        .json(&json!({ "account": alice_account }))
+        .send()
+        .await?
+        .status();
+    assert_eq!(status, 200);
+    assert_eq!(
+        linked("u/bob/alias").await,
+        None,
+        "nor by relinking an existing variable"
+    );
+
+    assert_eq!(
+        create("BOB_TOKEN_TEST12", "u/bob/preclaim", missing_account).await,
+        201
+    );
+    assert_eq!(
+        linked("u/bob/preclaim").await,
+        None,
+        "an id nobody connected yet"
+    );
+
+    sqlx::query(
+        "UPDATE variable SET extra_perms = '{\"u/bob\": false}'
+         WHERE workspace_id = 'test-workspace' AND path = 'u/alice/conn'",
+    )
+    .execute(&db)
+    .await?;
+    assert_eq!(
+        create("BOB_TOKEN_TEST12", "u/bob/shared", alice_account).await,
+        201
+    );
+    assert_eq!(
+        linked("u/bob/shared").await,
+        Some(alice_account),
+        "bob can read a variable linking it"
+    );
+
+    let status = client()
+        .post(format!("{base}/update/u/bob/alias"))
+        .header("Authorization", "Bearer BOB_TOKEN_TEST12")
+        .json(&json!({ "account": alice_account }))
+        .send()
+        .await?
+        .status();
+    assert_eq!(status, 200);
+    assert_eq!(
+        linked("u/bob/alias").await,
+        Some(alice_account),
+        "and a permitted relink through an update lands"
+    );
+
+    Ok(())
+}
+
+/// The creator recorded on an OAuth account follows the user through a rename and is cleared
+/// when they leave, so a later member reusing the username cannot link the account.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+async fn test_oauth_account_creator_follows_user(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let account: i32 = sqlx::query_scalar(
+        "INSERT INTO account (workspace_id, client, expires_at, refresh_token, created_by)
+         VALUES ('test-workspace', 'github', now(), 'r', 'alice') RETURNING id",
+    )
+    .fetch_one(&db)
+    .await?;
+    let creator = || async {
+        sqlx::query_scalar::<_, Option<String>>("SELECT created_by FROM account WHERE id = $1")
+            .bind(account)
+            .fetch_one(&db)
+            .await
+    };
+
+    sqlx::query("UPDATE usr SET username = 'alice2' WHERE username = 'alice'")
+        .execute(&db)
+        .await?;
+    assert_eq!(creator().await?.as_deref(), Some("alice2"));
+
+    sqlx::query("DELETE FROM usr WHERE username = 'alice2'")
+        .execute(&db)
+        .await?;
+    assert_eq!(creator().await?, None);
+
+    Ok(())
+}
