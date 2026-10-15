@@ -145,6 +145,26 @@ describe('deployDraft: script lock', () => {
 		expect(body).not.toHaveProperty('lock')
 		expect(body).not.toHaveProperty('lock_error_logs')
 	})
+
+	it('flow: drops the lock of a step whose code differs from the deployed one only', async () => {
+		const step = (id: string, content: string) => ({
+			id,
+			value: { type: 'rawscript', language: 'python3', content, lock: 'requests==2.0' }
+		})
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
+			value: { modules: [step('edited', 'import requests'), step('kept', 'import requests')] },
+			draft: {
+				path: 'f/admin/flow',
+				value: { modules: [step('edited', 'import yaml'), step('kept', 'import requests')] }
+			}
+		} as any)
+
+		await deployDraft('flow', 'f/admin/flow', 'ws')
+		const [edited, kept] = vi.mocked(FlowService.updateFlow).mock.calls[0][0].requestBody.value
+			.modules as any[]
+		expect(edited.value).not.toHaveProperty('lock')
+		expect(kept.value.lock).toBe('requests==2.0')
+	})
 })
 
 // The resource branch reads the item again when the deploy lands, and falls back to the deployed

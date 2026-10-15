@@ -46,6 +46,7 @@ import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 import { userStore } from '$lib/stores'
 import { deployTriggers, type Trigger } from '$lib/components/triggers/utils'
 import { saveScheduleFromCfg } from '$lib/components/flows/scheduleUtils'
+import { dropStaleStepLocks } from '$lib/components/flows/staleStepLocks'
 import { saveHttpRouteFromCfg } from '$lib/components/triggers/http/utils'
 import { saveWebsocketTriggerFromCfg } from '$lib/components/triggers/websocket/utils'
 import { savePostgresTriggerFromCfg } from '$lib/components/triggers/postgres/utils'
@@ -498,6 +499,8 @@ export async function deployDraft(
 		} else if (kind === 'flow') {
 			const r = (await FlowService.getFlowByPath({ workspace, path, getDraft: true })) as any
 			const d = r.draft ?? r
+			const value = d.value ? structuredClone(d.value) : d.value
+			if (value) dropStaleStepLocks(value, draftOnly ? undefined : r.value)
 			const requestBody = {
 				// Deploy at the draft's intended path: flow/app/raw-app drafts keep the
 				// user-typed path in `draft_path` (a never-deployed item is parked at a
@@ -506,7 +509,7 @@ export async function deployDraft(
 				path: d.draft_path ?? d.path ?? path,
 				summary: d.summary ?? '',
 				description: d.description ?? '',
-				value: d.value,
+				value,
 				schema: d.schema,
 				tag: d.tag,
 				dedicated_worker: d.dedicated_worker,
