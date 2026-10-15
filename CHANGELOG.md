@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.837.0](https://github.com/windmill-labs/windmill/compare/v1.836.0...v1.837.0) (2026-10-15)
+
+
+### Features
+
+* agents run on behalf of their deployer ([#11430](https://github.com/windmill-labs/windmill/issues/11430)) ([0b98054](https://github.com/windmill-labs/windmill/commit/0b980546b104cf46f385133af553dfbe5f533eca))
+
 ## [1.836.0](https://github.com/windmill-labs/windmill/compare/v1.835.0...v1.836.0) (2026-10-15)
 
 
