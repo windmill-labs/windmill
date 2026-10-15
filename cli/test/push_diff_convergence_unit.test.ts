@@ -348,7 +348,7 @@ test("push: settings.yaml without instance_groups is not a change", async () => 
   expect(await diff(otherGroups, remote, skips)).toEqual(["edited settings.yaml"]);
 });
 
-function remoteRawApp(customPath?: string) {
+function remoteRawApp(customPath?: string, files: Record<string, string> = {}) {
   const zip = new JSZip();
   zip.file(
     "f/test/myapp.raw_app.json",
@@ -356,7 +356,7 @@ function remoteRawApp(customPath?: string) {
       summary: "My app",
       policy: { execution_mode: "publisher" },
       ...(customPath ? { custom_path: customPath } : {}),
-      value: { files: {}, runnables: {} },
+      value: { files, runnables: {} },
     }),
     { createFolders: false },
   );
@@ -440,6 +440,17 @@ test("a custom path is its own workspace-specific file", async () => {
     "edited f/test/myapp.custom_path.yaml",
   ]);
   expect(await diffIn("prod", cleared, remoteRawApp(), false)).toEqual([]);
+});
+
+test("an app file named like a custom-path file is app content", async () => {
+  const remote = () =>
+    remoteRawApp(undefined, { "/settings.prod.custom_path.json": "{}" });
+  const files = await rendered(remote());
+  expect(files["f/test/myapp.raw_app/settings.prod.custom_path.json"]).toBe("{}");
+  expect(await diffIn("prod", local({}), remote(), true)).toContain(
+    "added f/test/myapp.raw_app/settings.prod.custom_path.json",
+  );
+  expect(await diffIn("prod", local(files), remote(), false)).toEqual([]);
 });
 
 // A checkout from before custom paths had their own file keeps the value in

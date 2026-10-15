@@ -1,6 +1,7 @@
 import { minimatch } from "minimatch";
 import { getCurrentGitBranch, isGitRepository } from "../utils/git.ts";
 import { isFileResource, isFilesetResource } from "../utils/utils.ts";
+import { isFolderResourcePathAnyFormat } from "../utils/resource_folders.ts";
 import {
   SyncOptions,
   findWorkspaceByGitBranch,
@@ -48,7 +49,11 @@ function getWorkspaceSpecificTypeKinds(): string[] {
  * instance, so one shared value can never be deployed to two workspaces.
  */
 export function isCustomPathFile(path: string): boolean {
-  return path.endsWith('.custom_path.yaml') || path.endsWith('.custom_path.json');
+  // A file inside the app folder is app content, whatever its name.
+  return (
+    (path.endsWith('.custom_path.yaml') || path.endsWith('.custom_path.json')) &&
+    !isFolderResourcePathAnyFormat(path)
+  );
 }
 
 /**
@@ -450,8 +455,9 @@ export function isCurrentWorkspaceFile(path: string, workspaceNameOverride?: str
   // Their names are arbitrary, so one can look like typed metadata — and since
   // the patterns match a workspace-name segment with `[^.]` (which spans `/`),
   // an unguarded child is dropped from the diff or, worse, remapped onto a
-  // sibling's key and deployed over it.
-  if (isFilesetResource(path)) {
+  // sibling's key and deployed over it. The same holds for the files inside a
+  // flow or app folder.
+  if (isFilesetResource(path) || isFolderResourcePathAnyFormat(path)) {
     return false;
   }
   let currentWorkspace: string | null = null;
@@ -489,8 +495,8 @@ export function isCurrentWorkspaceFile(path: string, workspaceNameOverride?: str
  * Used to identify and skip files from other branches during sync operations
  */
 export function isWorkspaceSpecificFile(path: string): boolean {
-  // Same fileset exemption as isCurrentWorkspaceFile.
-  if (isFilesetResource(path)) {
+  // Same exemptions as isCurrentWorkspaceFile.
+  if (isFilesetResource(path) || isFolderResourcePathAnyFormat(path)) {
     return false;
   }
   const typePattern = buildItemTypePattern();
