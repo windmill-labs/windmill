@@ -175,10 +175,11 @@ pub async fn push_scheduled_job<'c>(
     // Scheduled events must be stored in the database in UTC
     let next = next.with_timezone(&chrono::Utc);
     let already_exists: bool = sqlx::query_scalar!(
-        // Must be driven by `v2_job_queue`, bounded by pending work, never by a `v2_job` path
-        // index, which walks the schedule's whole retained history (stats underestimate a
-        // single path's rows). The lateral reference forces the join order and `OFFSET 0`
-        // keeps the filters out of the subquery, so `v2_job` is only ever probed by primary key.
+        // Must be driven by `v2_job_queue` (via `v2_job_queue_workspace_scheduled_for`), never
+        // by a `v2_job` path index, which walks the schedule's whole retained history (stats
+        // underestimate a single path's rows). The lateral reference forces the join order and
+        // `OFFSET 0` keeps the filters out of the subquery, so `v2_job` is only ever probed by
+        // primary key.
         "SELECT EXISTS (
             SELECT 1 FROM v2_job_queue q
             CROSS JOIN LATERAL (
