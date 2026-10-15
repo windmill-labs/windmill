@@ -14,6 +14,7 @@ use sqlx::{Pool, Postgres};
 use axum::http::StatusCode;
 use windmill_api_auth::{ApiAuthed, ScopePathFilter};
 use windmill_common::{
+    db::UserDB,
     error::Error,
     variables::{build_crypt, encrypt},
 };
@@ -22,8 +23,8 @@ use windmill_native_triggers::{
     get_workspace_integration,
     github::GitHub,
     google::{parse_stop_channel_params, should_renew_channel},
-    grant_refused, http_error_status, list_native_triggers, map_external_error,
-    native_trigger_is_enabled,
+    grant_refused, http_error_status, list_native_triggers, list_usable_connections,
+    map_external_error, native_trigger_is_enabled,
     nextcloud::NextCloud,
     require_native_integration_use, set_native_trigger_enabled, store_native_trigger,
     store_workspace_integration, update_native_trigger, update_oauth_token_resource, External,
@@ -216,6 +217,45 @@ async fn test_connections_are_isolated(db: Pool<Postgres>) -> anyhow::Result<()>
     let b: OAuthConfig =
         decrypt_oauth_data(&db, "test-workspace", ServiceName::Nextcloud, Some(path_b)).await?;
     assert_eq!(b.refresh_token.as_deref(), Some("refresh-b"));
+
+    Ok(())
+}
+
+/// A member who cannot read the admin's connection may still use it once it is shared as the
+/// workspace connection.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_workspace_connection_usable_by_members(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let path = "u/test-user/native_nextcloud";
+    setup_oauth_integration(&db, ServiceName::Nextcloud, path, "a", "r", None).await?;
+    let member = ApiAuthed {
+        email: "test2@windmill.dev".to_string(),
+        username: "test-user-2".to_string(),
+        is_admin: false,
+        ..test_authed()
+    };
+    let usable_paths = || async {
+        let mut tx = UserDB::new(db.clone()).begin(&member).await?;
+        let connections =
+            list_usable_connections(&db, &mut tx, "test-workspace", ServiceName::Nextcloud).await?;
+        tx.commit().await?;
+        anyhow::Ok(
+            connections
+                .into_iter()
+                .map(|c| (c.path, c.workspace))
+                .collect::<Vec<_>>(),
+        )
+    };
+
+    assert!(usable_paths().await?.is_empty());
+
+    sqlx::query(
+        "UPDATE workspace_integrations SET resource_path = $1
+         WHERE workspace_id = 'test-workspace' AND service_name = 'nextcloud'",
+    )
+    .bind(path)
+    .execute(&db)
+    .await?;
+    assert_eq!(usable_paths().await?, vec![(path.to_string(), true)]);
 
     Ok(())
 }

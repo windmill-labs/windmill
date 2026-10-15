@@ -61,7 +61,10 @@
 	}
 
 	const items = $derived.by(() => {
-		const list = (connections ?? []).map((c) => ({ label: c.path, value: c.path }))
+		const list = (connections ?? []).map((c) => ({
+			label: c.workspace ? `${c.path} (workspace connection)` : c.path,
+			value: c.path
+		}))
 		if (value && !list.some((i) => i.value === value)) {
 			list.push({ label: value, value })
 		}

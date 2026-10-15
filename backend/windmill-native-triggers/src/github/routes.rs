@@ -26,6 +26,7 @@ async fn list_repos(
 ) -> JsonResult<Vec<GithubRepoEntry>> {
     let connection_path = picker_connection(
         &authed,
+        &db,
         user_db,
         &workspace_id,
         ServiceName::Github,

@@ -2175,6 +2175,15 @@ async fn update_resource(
             .execute(&mut *tx)
             .await?;
 
+            sqlx::query!(
+                "UPDATE workspace_integrations SET resource_path = $1 WHERE workspace_id = $2 AND resource_path = $3",
+                npath,
+                w_id,
+                path
+            )
+            .execute(&mut *tx)
+            .await?;
+
             // Update ci_test_reference when a tested resource is renamed
             sqlx::query!(
                 "UPDATE ci_test_reference SET tested_item_path = $1 WHERE tested_item_path = $2 AND workspace_id = $3 AND tested_item_kind = 'resource'",

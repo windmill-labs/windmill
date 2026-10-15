@@ -30,6 +30,7 @@ async fn list_available_events<T: External>(
 ) -> JsonResult<Vec<NextCloudEventType>> {
     let connection_path = picker_connection(
         &authed,
+        &db,
         user_db,
         &workspace_id,
         ServiceName::Nextcloud,

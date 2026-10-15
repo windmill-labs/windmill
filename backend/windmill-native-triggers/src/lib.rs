@@ -1759,19 +1759,23 @@ pub struct Connection {
     pub path: String,
     /// Username of whoever connected the account, when the caller can read its resource.
     pub owner: Option<String>,
+    /// The workspace connection, which every member may use.
+    pub workspace: bool,
 }
 
 /// The connections of a service the caller may use. `tx` must be a user transaction: using a
 /// connection means acting as the account behind it, so it is gated on reading its token
-/// variable, which the variable's row-level security decides.
+/// variable, which the variable's row-level security decides. The one exception is the
+/// workspace connection an admin shared, read through `db` since members cannot read its token.
 pub async fn list_usable_connections(
+    db: &DB,
     tx: &mut PgConnection,
     workspace_id: &str,
     service_name: ServiceName,
 ) -> Result<Vec<Connection>> {
-    let connections = sqlx::query_as!(
+    let mut connections = sqlx::query_as!(
         Connection,
-        r#"SELECT v.path, r.created_by AS "owner?"
+        r#"SELECT v.path, r.created_by AS "owner?", false AS "workspace!"
          FROM variable v
          JOIN account a ON a.workspace_id = v.workspace_id AND a.id = v.account
          LEFT JOIN resource r ON r.workspace_id = v.workspace_id AND r.path = v.path
@@ -1782,18 +1786,48 @@ pub async fn list_usable_connections(
     )
     .fetch_all(&mut *tx)
     .await?;
+
+    if let Some(shared) = workspace_connection(db, workspace_id, service_name).await? {
+        connections.retain(|c| c.path != shared.path);
+        connections.insert(0, shared);
+    }
     Ok(connections)
+}
+
+/// The connection an admin shared with the whole workspace, if it still exists.
+pub async fn workspace_connection(
+    db: &DB,
+    workspace_id: &str,
+    service_name: ServiceName,
+) -> Result<Option<Connection>> {
+    let connection = sqlx::query_as!(
+        Connection,
+        r#"SELECT v.path, r.created_by AS "owner?", true AS "workspace!"
+         FROM workspace_integrations wi
+         JOIN variable v ON v.workspace_id = wi.workspace_id AND v.path = wi.resource_path
+         JOIN account a ON a.workspace_id = v.workspace_id AND a.id = v.account
+         LEFT JOIN resource r ON r.workspace_id = v.workspace_id AND r.path = v.path
+         WHERE wi.workspace_id = $1 AND wi.service_name = $2
+           AND a.client = $3 AND a.is_workspace_integration = true"#,
+        workspace_id,
+        service_name as ServiceName,
+        service_name.as_str(),
+    )
+    .fetch_optional(db)
+    .await?;
+    Ok(connection)
 }
 
 /// Pick the connection a new trigger acts through: the one asked for if the caller may use it,
 /// otherwise the caller's only usable connection. `tx` must be a user transaction.
 pub async fn resolve_usable_connection(
+    db: &DB,
     tx: &mut PgConnection,
     workspace_id: &str,
     service_name: ServiceName,
     requested: Option<&str>,
 ) -> Result<String> {
-    let usable = list_usable_connections(tx, workspace_id, service_name).await?;
+    let usable = list_usable_connections(db, tx, workspace_id, service_name).await?;
     match requested {
         Some(path) if usable.iter().any(|c| c.path == path) => Ok(path.to_string()),
         Some(path) => Err(Error::NotAuthorized(format!(
@@ -1838,6 +1872,7 @@ pub struct ConnectionQuery {
 /// connection to browse through, which the caller must be allowed to use.
 pub async fn picker_connection(
     authed: &ApiAuthed,
+    db: &DB,
     user_db: UserDB,
     workspace_id: &str,
     service_name: ServiceName,
@@ -1845,7 +1880,8 @@ pub async fn picker_connection(
 ) -> Result<String> {
     require_native_integration_use(authed)?;
     let mut tx = user_db.begin(authed).await?;
-    let path = resolve_usable_connection(&mut tx, workspace_id, service_name, requested).await?;
+    let path =
+        resolve_usable_connection(db, &mut tx, workspace_id, service_name, requested).await?;
     tx.commit().await?;
     Ok(path)
 }

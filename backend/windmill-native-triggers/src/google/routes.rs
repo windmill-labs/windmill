@@ -97,6 +97,7 @@ async fn list_calendars(
 ) -> JsonResult<Vec<GoogleCalendarEntry>> {
     let connection_path = picker_connection(
         &authed,
+        &db,
         user_db,
         &workspace_id,
         ServiceName::Google,
@@ -145,6 +146,7 @@ async fn list_drive_files(
 ) -> JsonResult<GoogleDriveFilesResponse> {
     let connection_path = picker_connection(
         &authed,
+        &db,
         user_db,
         &workspace_id,
         ServiceName::Google,
@@ -236,6 +238,7 @@ async fn list_shared_drives(
 ) -> JsonResult<Vec<SharedDriveEntry>> {
     let connection_path = picker_connection(
         &authed,
+        &db,
         user_db,
         &workspace_id,
         ServiceName::Google,
