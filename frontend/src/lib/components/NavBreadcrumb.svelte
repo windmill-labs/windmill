@@ -261,7 +261,7 @@ not this component) — so the lead can run the whole line.
 {#snippet navPicker(measure: boolean)}
 	<!-- The page's own name is the last segment, so the chevron after it moves to a sibling page or
 	     item. Not in a session's preview band, which must not lead out of the host's workspace. -->
-	{#if !nameOnly}
+	{#if !nameOnly && !section?.noNavPicker}
 		{#if measure}
 			<span class="flex items-center h-9 px-1.5 shrink-0">
 				<ChevronDown size={ICON} class="flex-shrink-0" />

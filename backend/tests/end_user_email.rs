@@ -17,6 +17,9 @@ const SAME_WS_EMAIL: &str = "test@windmill.dev";
 const OTHER_WS_EMAIL: &str = "other-ws@windmill.dev";
 const NO_WS_EMAIL: &str = "no-ws@windmill.dev";
 
+const GET_EMAIL_CONTENT: &str =
+    "export function main() { return process.env.WM_END_USER_EMAIL || \"\"; }";
+
 fn client() -> reqwest::Client {
     reqwest::Client::new()
 }
@@ -38,9 +41,11 @@ async fn create_app_with_inline_script(port: u16, path: &str) -> anyhow::Result<
                 "subgrids": {},
                 "hiddenInlineScripts": [{
                     "name": "get_email",
-                    "language": "bun",
-                    "content": "export function main() { return process.env.WM_END_USER_EMAIL || \"\"; }",
-                    "path": "f/test/email_app/get_email"
+                    "inlineScript": {
+                        "language": "bun",
+                        "content": GET_EMAIL_CONTENT,
+                        "path": "f/test/email_app/get_email"
+                    }
                 }]
             },
             "policy": {
@@ -82,11 +87,13 @@ async fn create_raw_app_with_inline_script(port: u16, path: &str) -> anyhow::Res
             "value": {
                 "type": "rawapp",
                 "css": "",
-                "inlineScripts": [{
-                    "name": "get_email",
-                    "language": "bun",
-                    "content": "export function main() { return process.env.WM_END_USER_EMAIL || \"\"; }"
-                }]
+                "runnables": {
+                    "get_email": {
+                        "name": "get_email",
+                        "type": "inline",
+                        "inlineScript": { "language": "bun", "content": GET_EMAIL_CONTENT }
+                    }
+                }
             },
             "policy": {
                 "execution_mode": "anonymous",
@@ -183,7 +190,39 @@ async fn run_app_flow(
     wait_for_job_result(port, token, &job_id).await
 }
 
-async fn run_app_inline_script(
+fn find_inline_script_id(value: &serde_json::Value) -> Option<i64> {
+    match value {
+        serde_json::Value::Object(m) => m
+            .get("inlineScript")
+            .and_then(|s| s.get("id"))
+            .and_then(|id| id.as_i64())
+            .or_else(|| m.values().find_map(find_inline_script_id)),
+        serde_json::Value::Array(a) => a.iter().find_map(find_inline_script_id),
+        _ => None,
+    }
+}
+
+/// Once the app's dependency job writes the deployed lite value, inline code runs only through
+/// the `app_script` rows it references, so the run must carry that row's id.
+async fn deployed_inline_script_id(port: u16, app_path: &str) -> anyhow::Result<i64> {
+    let url = format!(
+        "http://localhost:{}/api/w/test-workspace/apps/get/lite/{}",
+        port, app_path
+    );
+    for _ in 0..300 {
+        let resp = authed(client().get(&url), SAME_WS_TOKEN).send().await?;
+        if resp.status().is_success() {
+            let app = resp.json::<serde_json::Value>().await?;
+            if let Some(id) = find_inline_script_id(&app["value"]) {
+                return Ok(id);
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    anyhow::bail!("timeout waiting for the deployed app_script id of {app_path}")
+}
+
+async fn run_inline_script(
     port: u16,
     token: &str,
     app_path: &str,
@@ -196,9 +235,10 @@ async fn run_app_inline_script(
     let mut payload = json!({
         "args": {},
         "component": "get_email",
+        "id": deployed_inline_script_id(port, app_path).await?,
         "raw_code": {
             "language": "bun",
-            "content": "export function main() { return process.env.WM_END_USER_EMAIL || \"\"; }",
+            "content": GET_EMAIL_CONTENT,
             "path": format!("{}/get_email", app_path)
         }
     });
@@ -212,42 +252,6 @@ async fn run_app_inline_script(
     if !resp.status().is_success() {
         anyhow::bail!(
             "app inline script run failed: {} - {}",
-            resp.status(),
-            resp.text().await?
-        );
-    }
-    let job_id = resp.text().await?;
-    wait_for_job_result(port, token, &job_id).await
-}
-
-async fn run_raw_app_inline_script(
-    port: u16,
-    token: &str,
-    app_path: &str,
-    force_viewer: bool,
-) -> anyhow::Result<String> {
-    let url = format!(
-        "http://localhost:{}/api/w/test-workspace/apps_u/execute_component/{}",
-        port, app_path
-    );
-    let mut payload = json!({
-        "args": {},
-        "component": "get_email",
-        "raw_code": {
-            "language": "bun",
-            "content": "export function main() { return process.env.WM_END_USER_EMAIL || \"\"; }"
-        }
-    });
-    if force_viewer {
-        payload["force_viewer_static_fields"] = json!({});
-    }
-    let resp = authed(client().post(&url), token)
-        .json(&payload)
-        .send()
-        .await?;
-    if !resp.status().is_success() {
-        anyhow::bail!(
-            "raw app inline script run failed: {} - {}",
             resp.status(),
             resp.text().await?
         );
@@ -399,21 +403,21 @@ async fn test_app_wm_end_user_email(db: Pool<Postgres>) -> anyhow::Result<()> {
             create_app_with_inline_script(port, app_path).await?;
 
             // Same workspace user (force_viewer mode works for workspace members)
-            let result = run_app_inline_script(port, SAME_WS_TOKEN, app_path, true).await?;
+            let result = run_inline_script(port, SAME_WS_TOKEN, app_path, true).await?;
             assert_eq!(
                 result, SAME_WS_EMAIL,
                 "same workspace user should get their email"
             );
 
             // Other workspace user (uses app's anonymous policy + token lookup)
-            let result = run_app_inline_script(port, OTHER_WS_TOKEN, app_path, false).await?;
+            let result = run_inline_script(port, OTHER_WS_TOKEN, app_path, false).await?;
             assert_eq!(
                 result, OTHER_WS_EMAIL,
                 "other workspace user should get their email"
             );
 
             // No workspace user (uses app's anonymous policy + token lookup)
-            let result = run_app_inline_script(port, NO_WS_TOKEN, app_path, false).await?;
+            let result = run_inline_script(port, NO_WS_TOKEN, app_path, false).await?;
             assert_eq!(
                 result, NO_WS_EMAIL,
                 "no workspace user should get their email"
@@ -481,21 +485,21 @@ async fn test_raw_app_wm_end_user_email(db: Pool<Postgres>) -> anyhow::Result<()
             create_raw_app_with_inline_script(port, app_path).await?;
 
             // Same workspace user (force_viewer mode works for workspace members)
-            let result = run_raw_app_inline_script(port, SAME_WS_TOKEN, app_path, true).await?;
+            let result = run_inline_script(port, SAME_WS_TOKEN, app_path, true).await?;
             assert_eq!(
                 result, SAME_WS_EMAIL,
                 "same workspace user should get their email"
             );
 
             // Other workspace user (uses app's anonymous policy + token lookup)
-            let result = run_raw_app_inline_script(port, OTHER_WS_TOKEN, app_path, false).await?;
+            let result = run_inline_script(port, OTHER_WS_TOKEN, app_path, false).await?;
             assert_eq!(
                 result, OTHER_WS_EMAIL,
                 "other workspace user should get their email"
             );
 
             // No workspace user (uses app's anonymous policy + token lookup)
-            let result = run_raw_app_inline_script(port, NO_WS_TOKEN, app_path, false).await?;
+            let result = run_inline_script(port, NO_WS_TOKEN, app_path, false).await?;
             assert_eq!(
                 result, NO_WS_EMAIL,
                 "no workspace user should get their email"
@@ -550,7 +554,11 @@ async fn test_app_viewer_data_access_is_stamped_on_inline_runnables_only(
     }))
     .send()
     .await?;
-    anyhow::ensure!(resp.status().is_success(), "create app: {}", resp.text().await?);
+    anyhow::ensure!(
+        resp.status().is_success(),
+        "create app: {}",
+        resp.text().await?
+    );
 
     let execute = |payload: serde_json::Value| async move {
         let resp = authed(
@@ -562,7 +570,11 @@ async fn test_app_viewer_data_access_is_stamped_on_inline_runnables_only(
         .json(&payload)
         .send()
         .await?;
-        anyhow::ensure!(resp.status().is_success(), "execute: {}", resp.text().await?);
+        anyhow::ensure!(
+            resp.status().is_success(),
+            "execute: {}",
+            resp.text().await?
+        );
         Ok::<_, anyhow::Error>(resp.text().await?.trim_matches('"').parse::<uuid::Uuid>()?)
     };
     let as_viewer = |job_id: uuid::Uuid| {
@@ -588,7 +600,8 @@ async fn test_app_viewer_data_access_is_stamped_on_inline_runnables_only(
     .await?;
     assert!(as_viewer(inline).await?);
 
-    let path = execute(json!({ "args": {}, "component": "run_script", "path": script_path })).await?;
+    let path =
+        execute(json!({ "args": {}, "component": "run_script", "path": script_path })).await?;
     assert!(
         !as_viewer(path).await?,
         "a path runnable connected as the viewer because its policy entry said so"
