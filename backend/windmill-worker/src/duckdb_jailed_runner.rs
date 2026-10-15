@@ -226,10 +226,10 @@ async fn install_missing_extensions(blocks: &[String], job_dir: &str) -> Result<
         true,
     )
     .await?;
-    if out.result.starts_with("ERROR") {
+    if let Some(raw) = out.result.strip_prefix("ERROR ") {
+        let msg = serde_json::from_str::<String>(raw).unwrap_or_else(|_| raw.to_string());
         return Err(Error::ExecutionErr(format!(
-            "Installing DuckDB extensions for the jailed runner failed: {}",
-            out.result
+            "Installing DuckDB extensions for the jailed runner failed: {msg}"
         )));
     }
     INSTALLED.lock().unwrap().extend(missing.into_iter().filter(|s| !s.starts_with("FORCE ")));

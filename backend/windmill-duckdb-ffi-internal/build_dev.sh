@@ -40,7 +40,7 @@ else
   find src -type f -exec touch {} +
 fi
 
-CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release -p windmill_duckdb_ffi_internal
+CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release -p windmill_duckdb_ffi_internal --features runner
 mkdir -p ../target/debug/
 # Install through a rename rather than writing over the destination: a running worker
 # has the cdylib mapped, and rewriting those pages under it kills the process with

@@ -29,6 +29,11 @@ serde_json = { version = "^1.0.151", features = ["preserve_order", "raw_value"] 
 # `rlib` so the out-of-process runner below links the same entry points the worker dlopens.
 crate-type = ["cdylib", "rlib"]
 
+[features]
+# Opt-in so the image and Windows builds of the cdylib don't also link the 54 MB runner.
+runner = []
+
 [[bin]]
 name = "windmill_duckdb_runner"
 path = "src/bin/windmill_duckdb_runner.rs"
+required-features = ["runner"]
