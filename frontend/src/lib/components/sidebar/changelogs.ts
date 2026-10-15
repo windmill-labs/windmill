@@ -6,6 +6,12 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'One deployment target, derived from the workspace lineage',
+		href: 'https://www.windmill.dev/changelog/fork-lineage-deploy-target',
+		date: '2026-07-30'
+	},
+
+	{
 		label: 'AWS Bedrock support for Windmill AI',
 		href: 'https://www.windmill.dev/changelog/aws-bedrock',
 		date: '2025-11-19'
