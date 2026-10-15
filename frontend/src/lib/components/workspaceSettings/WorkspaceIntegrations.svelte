@@ -1,10 +1,10 @@
 <script lang="ts">
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/utils'
-	import { Button, Alert, Badge } from '$lib/components/common'
+	import { Button, Alert } from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
-	import { X, ExternalLink, Cog, Plug } from 'lucide-svelte'
+	import { X, ExternalLink, Cog } from 'lucide-svelte'
 	import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
 	import GithubIcon from '$lib/components/icons/GithubIcon.svelte'
 	import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
@@ -17,11 +17,8 @@
 	import OAuthClientConfig from './OAuthClientConfig.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
-	import Path from '$lib/components/Path.svelte'
-	import {
-		connectNativeAccount,
-		nativeOAuthRedirectUri
-	} from '$lib/components/triggers/native/utils'
+	import NativeConnectionPicker from '$lib/components/triggers/native/NativeConnectionPicker.svelte'
+	import { nativeOAuthRedirectUri } from '$lib/components/triggers/native/utils'
 
 	interface WorkspaceIntegration {
 		service_name: string
@@ -96,13 +93,8 @@
 	let integrations = $state<WorkspaceIntegration[]>([])
 	let connections = $state<Record<string, NativeTriggerConnection[]>>({})
 	let loading = $state(false)
-	let connecting = $state<string | null>(null)
 	let showingConfig = $state<string | null>(null)
 	let instanceSharingAvailable = $state<Record<string, boolean>>({})
-	// The service whose "where to save the connection" form is open.
-	let choosingPathFor = $state<string | null>(null)
-	let resourcePath = $state<string | undefined>(undefined)
-	let pathError = $state<string | undefined>(undefined)
 	let confirmationModal = createAsyncConfirmationModal()
 
 	async function loadIntegrations() {
@@ -161,31 +153,7 @@
 		}
 	}
 
-	async function disconnect(serviceName: string, path: string) {
-		if (!$workspaceStore) return
-
-		const displayName = supportedServices[serviceName]?.displayName ?? serviceName
-		const confirmed = await confirmationModal.ask({
-			title: `Disconnect ${path}?`,
-			confirmationText: 'Disconnect',
-			children: `This deletes the ${displayName} triggers created with this account. This action cannot be undone.`
-		})
-		if (!confirmed) return
-
-		try {
-			await WorkspaceIntegrationService.deleteNativeTriggerConnection({
-				workspace: $workspaceStore,
-				serviceName: serviceName as NativeServiceName,
-				path
-			})
-			sendUserToast(`${path} disconnected`)
-			loadConnections(serviceName)
-		} catch (err: any) {
-			sendUserToast(`Failed to disconnect ${path}: ${err.body ?? err.message}`, true)
-		}
-	}
-
-	async function setWorkspaceConnection(serviceName: string, path: string | null) {
+	async function setWorkspaceConnection(serviceName: string, path: string | undefined) {
 		if (!$workspaceStore) return
 
 		const displayName = supportedServices[serviceName]?.displayName ?? serviceName
@@ -196,41 +164,25 @@
 				children: `Every member will be able to create and edit ${displayName} triggers that act as this account. They will not see its token. It replaces any connection shared before.`
 			})
 			if (!confirmed) return
+		} else {
+			const confirmed = await confirmationModal.ask({
+				title: 'Stop sharing the workspace connection?',
+				confirmationText: 'Stop sharing',
+				children: `Members will no longer be able to create or edit ${displayName} triggers through it, unless they can read it. Its triggers keep running.`
+			})
+			if (!confirmed) return
 		}
 
 		try {
 			await WorkspaceIntegrationService.setNativeTriggerWorkspaceConnection({
 				workspace: $workspaceStore,
 				serviceName: serviceName as NativeServiceName,
-				requestBody: { path }
+				requestBody: { path: path ?? null }
 			})
 			sendUserToast(path ? `${path} is now the workspace connection` : 'Stopped sharing')
 			await loadConnections(serviceName)
 		} catch (err: any) {
 			sendUserToast(`Failed to update the workspace connection: ${err.body ?? err.message}`, true)
-		}
-	}
-
-	async function connect(serviceName: string) {
-		if (!$workspaceStore) return
-
-		connecting = serviceName
-		try {
-			const path = await connectNativeAccount(
-				$workspaceStore,
-				serviceName as NativeServiceName,
-				resourcePath
-			)
-			sendUserToast(`${supportedServices[serviceName]?.displayName} account connected as ${path}`)
-			choosingPathFor = null
-			await loadConnections(serviceName)
-		} catch (err: any) {
-			sendUserToast(
-				`Failed to connect ${supportedServices[serviceName]?.displayName}: ${err.body ?? err.message}`,
-				true
-			)
-		} finally {
-			connecting = null
 		}
 	}
 
@@ -312,7 +264,7 @@
 <div class="flex flex-col">
 	<SettingsPageHeader
 		title="Native Triggers"
-		description="Configure the OAuth app of each service. Members then connect their own account, or use one shared through a folder or as the workspace connection, and each trigger acts as the account it was created with."
+		description="Configure the OAuth app of each service. Members connect their own account when creating a trigger, or use the workspace connection, and each trigger acts as the account it was created with."
 		link="https://www.windmill.dev/docs/core_concepts/native_triggers"
 	/>
 
@@ -326,10 +278,9 @@
 		<div class="space-y-4">
 			{#each Object.entries(supportedServices) as [serviceName, config]}
 				{@const integration = getIntegrationByService(serviceName)}
-				{@const isConnecting = connecting === serviceName}
 				{@const workspaceApp = hasWorkspaceApp(integration)}
 				{@const usesInstanceApp = !workspaceApp && instanceSharingAvailable[serviceName]}
-				{@const serviceConnections = connections[serviceName] ?? []}
+				{@const workspaceConnection = connections[serviceName]?.find((c) => c.workspace)?.path}
 
 				<div class="border border-gray-200 dark:border-gray-700 rounded-md p-4 bg-surface-tertiary">
 					<div class="flex items-center justify-between gap-4">
@@ -344,19 +295,6 @@
 						</div>
 
 						<div class="flex flex-wrap items-center justify-end gap-2">
-							{#if workspaceApp || usesInstanceApp}
-								<Button
-									variant="default"
-									onclick={() => {
-										choosingPathFor = serviceName
-										resourcePath = undefined
-									}}
-									disabled={isConnecting}
-									startIcon={{ icon: Plug }}
-								>
-									Connect account
-								</Button>
-							{/if}
 							<Button
 								variant="default"
 								onclick={() => (showingConfig = showingConfig === serviceName ? null : serviceName)}
@@ -407,78 +345,23 @@
 						</div>
 					{/if}
 
-					{#if choosingPathFor === serviceName}
-						<div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
-							<div class="text-xs text-secondary mb-2">
-								Choose where to save the connection. Save it in a folder to let the folder's members
-								create triggers with this account.
+					{#if workspaceApp || usesInstanceApp}
+						<div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex flex-col gap-1">
+							<div class="text-xs font-semibold text-emphasis">Workspace connection</div>
+							<div class="text-xs text-secondary mb-1">
+								Members can create triggers that act as this account, without access to its token.
+								Only an account you connected yourself can be shared.
 							</div>
-							<Path
-								kind="resource"
-								initialPath=""
-								namePlaceholder={'native_' + serviceName}
-								bind:path={resourcePath}
-								bind:error={pathError}
+							<NativeConnectionPicker
+								service={serviceName as NativeServiceName}
+								value={workspaceConnection}
+								ownOnly
+								autoSelect={false}
+								clearable
+								placeholder="No workspace connection"
+								onSelect={(path) => setWorkspaceConnection(serviceName, path)}
+								onConnectionsChange={() => loadConnections(serviceName)}
 							/>
-							<div class="flex gap-2 mt-3">
-								<Button
-									variant="accent"
-									disabled={!resourcePath || !!pathError || isConnecting}
-									loading={isConnecting}
-									onclick={() => connect(serviceName)}
-								>
-									Connect
-								</Button>
-								<Button variant="default" onclick={() => (choosingPathFor = null)}>Cancel</Button>
-							</div>
-						</div>
-					{/if}
-
-					{#if serviceConnections.length > 0}
-						<div
-							class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 flex flex-col gap-1"
-						>
-							<div class="text-xs font-semibold text-emphasis mb-1">Connected accounts</div>
-							{#each serviceConnections as connection (connection.path)}
-								<div class="flex items-center justify-between gap-2 text-xs">
-									<div class="flex items-center gap-2 min-w-0">
-										<span class="font-mono truncate">{connection.path}</span>
-										{#if connection.workspace}
-											<Badge color="blue" small>Workspace connection</Badge>
-										{/if}
-									</div>
-									<div class="flex items-center gap-2 shrink-0">
-										{#if connection.owner}
-											<span class="text-secondary">connected by {connection.owner}</span>
-										{/if}
-										{#if connection.workspace}
-											<Button
-												unifiedSize="xs"
-												variant="subtle"
-												onclick={() => setWorkspaceConnection(serviceName, null)}
-											>
-												Stop sharing
-											</Button>
-										{:else if connection.owner === $userStore?.username}
-											<Button
-												unifiedSize="xs"
-												variant="subtle"
-												onclick={() => setWorkspaceConnection(serviceName, connection.path)}
-											>
-												Share with workspace
-											</Button>
-										{/if}
-										<Button
-											unifiedSize="xs"
-											variant="subtle"
-											destructive
-											onclick={() => disconnect(serviceName, connection.path)}
-										>
-											Disconnect
-										</Button>
-									</div>
-								</div>
-							{/each}
 						</div>
 					{/if}
 
