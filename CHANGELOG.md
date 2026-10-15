@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.836.0](https://github.com/windmill-labs/windmill/compare/v1.835.0...v1.836.0) (2026-10-15)
+
+
+### Features
+
+* **cli:** sync an app's custom path as a workspace-specific file ([#11786](https://github.com/windmill-labs/windmill/issues/11786)) ([718aad7](https://github.com/windmill-labs/windmill/commit/718aad7396397fe12295a27a947c76221f37ad10))
+* let operators save resource and variable drafts ([#11736](https://github.com/windmill-labs/windmill/issues/11736)) ([8c0185d](https://github.com/windmill-labs/windmill/commit/8c0185d55a1a8c6fbc5e41b8b9d77865563f515b))
+* let raw app backend runnables import each other ([#11777](https://github.com/windmill-labs/windmill/issues/11777)) ([526da60](https://github.com/windmill-labs/windmill/commit/526da60da92832cc6e9c2942cea1f7729b3a05fd))
+* let the session agent read folder and group permissions ([#11796](https://github.com/windmill-labs/windmill/issues/11796)) ([eda43dd](https://github.com/windmill-labs/windmill/commit/eda43ddc41c10b3f7263103016275926a33bf768))
+* resolve canceled jobs and re-run them in limited batches ([#11797](https://github.com/windmill-labs/windmill/issues/11797)) ([f827ba0](https://github.com/windmill-labs/windmill/commit/f827ba05667e3ca5bcd3bc89dac7f51b85dd32b3))
+* run duckdb jobs out of process under job isolation, drop the engine fork, bump to 1.5.6 ([#11780](https://github.com/windmill-labs/windmill/issues/11780)) ([f9513e8](https://github.com/windmill-labs/windmill/commit/f9513e82eed3721ecbfd87004d1cd385ac740903))
+* run previews as the runnable's on_behalf_of identity ([#11778](https://github.com/windmill-labs/windmill/issues/11778)) ([4f71231](https://github.com/windmill-labs/windmill/commit/4f712318c3b52366b03bf7f941ecae4730fbf967))
+* sandbox new low-code and raw apps by default ([#11760](https://github.com/windmill-labs/windmill/issues/11760)) ([813c080](https://github.com/windmill-labs/windmill/commit/813c080d4684eecd144ef82706b04339c8f8d35a))
+* share AI sessions read-only by link, optionally public ([#11799](https://github.com/windmill-labs/windmill/issues/11799)) ([a9aa2b8](https://github.com/windmill-labs/windmill/commit/a9aa2b8229da0d54ed68eb40e4426e6983ff631e))
+
+
+### Bug Fixes
+
+* **cli:** include script modules in wmill dev previews ([#11787](https://github.com/windmill-labs/windmill/issues/11787)) ([b563f5c](https://github.com/windmill-labs/windmill/commit/b563f5cb5121c431f525c2e0266994c6d655185b))
+* let raw app SDK tokens read the viewer's identity without a toggle ([#11790](https://github.com/windmill-labs/windmill/issues/11790)) ([7da2344](https://github.com/windmill-labs/windmill/commit/7da234481333fcbdc348215589e2d3bfe5394b4a))
+* let Teams handlers post with job tokens again ([#11792](https://github.com/windmill-labs/windmill/issues/11792)) ([64e1630](https://github.com/windmill-labs/windmill/commit/64e1630d497af1b50a772aa66ef123f675ea6bb1))
+* relock apps in place so imported script changes reach them ([#11789](https://github.com/windmill-labs/windmill/issues/11789)) ([aca7fed](https://github.com/windmill-labs/windmill/commit/aca7fed33ddffa17b0e78d50a39ded032f6d8ba2))
+* relock scripts and flow steps whose code changed on deploy ([#11794](https://github.com/windmill-labs/windmill/issues/11794)) ([1f1df12](https://github.com/windmill-labs/windmill/commit/1f1df1254ebc417a8344801b571c4be8e98636c4))
+* send Azure Foundry gpt-5.5+ models to the Responses API ([#11788](https://github.com/windmill-labs/windmill/issues/11788)) ([ab89835](https://github.com/windmill-labs/windmill/commit/ab8983543b0641c96a8b4a2cbd829cc4040e9f41))
+* show the app's summary in the app viewer's page header ([#11782](https://github.com/windmill-labs/windmill/issues/11782)) ([3bee9c9](https://github.com/windmill-labs/windmill/commit/3bee9c94012474b7bb230d719fa34df0c0a6c25e))
+
+
+### Performance Improvements
+
+* drive schedule already-exists check from an indexed queue lookup ([#11783](https://github.com/windmill-labs/windmill/issues/11783)) ([7eee210](https://github.com/windmill-labs/windmill/commit/7eee210d761d332f8165b4f8a6f0ee6f1ec8864f))
+
 ## [1.835.0](https://github.com/windmill-labs/windmill/compare/v1.834.0...v1.835.0) (2026-10-14)
 
 
