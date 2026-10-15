@@ -4619,7 +4619,9 @@ async fn execute_component(
                 delete_after_secs: force_viewer_delete_after_secs,
                 sensitive_inputs: force_viewer_sensitive_inputs.unwrap_or_default(),
                 tag: None,
-                viewer_data_access: viewer_data_access.unwrap_or(false),
+                // Never for a job token: see `run_preview_script`.
+                viewer_data_access: opt_authed.as_ref().is_some_and(|a| a.job_id.is_none())
+                    && viewer_data_access.unwrap_or(false),
             },
             None,
         ),

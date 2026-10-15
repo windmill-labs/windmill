@@ -4,6 +4,8 @@
 use serde_json::json;
 use sqlx::{Pool, Postgres};
 use uuid::Uuid;
+use windmill_common::auth::create_jwt_token;
+use windmill_common::db::Authed;
 use windmill_test_utils::*;
 
 /// `route` is under `/api/w/test-workspace/`.
@@ -81,6 +83,45 @@ async fn test_preview_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     let (status, id) = post(port, "SECRET_TOKEN_2", "jobs/run/preview", script("u/test-user-2")).await;
     assert_eq!(status, 201, "{id}");
     assert_eq!(identity(&db, &id).await.0, "u/test-user-2");
+
+    // Reading data as the end user is the direct caller's own choice. A job token's end user is
+    // whoever ran that job, so a job's code must not be able to ask for it.
+    set_jwt_secret().await;
+    let job_token = create_jwt_token(
+        Authed {
+            email: "test@windmill.dev".to_string(),
+            username: "test-user".to_string(),
+            is_admin: true,
+            is_operator: false,
+            groups: vec![],
+            folders: vec![],
+            scopes: None,
+            token_prefix: None,
+        },
+        "test-workspace",
+        3600,
+        Some(Uuid::new_v4()),
+        Some("ephemeral-script".to_string()),
+        None,
+        None,
+    )
+    .await?;
+    let viewer_data = json!({
+        "content": "export function main() { return 1; }",
+        "language": "deno",
+        "args": {},
+        "viewer_data_access": true,
+    });
+    for (token, expected) in [("SECRET_TOKEN", true), (job_token.as_str(), false)] {
+        let (status, id) = post(port, token, "jobs/run/preview", viewer_data.clone()).await;
+        assert_eq!(status, 201, "{id}");
+        let stamped: bool =
+            sqlx::query_scalar("SELECT viewer_data_access FROM job_perms WHERE job_id = $1")
+                .bind(Uuid::parse_str(&id).unwrap())
+                .fetch_one(&db)
+                .await?;
+        assert_eq!(stamped, expected, "job token: {}", !expected);
+    }
 
     Ok(())
 }

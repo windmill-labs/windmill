@@ -9071,7 +9071,9 @@ async fn run_preview_script(
     let (email, permissioned_as, push_authed, tx) =
         preview_push_identity(&authed, &user_db, &db, obo.as_ref());
     let audited_path = preview.path.clone();
-    let viewer_data_access = preview.viewer_data_access.unwrap_or(false);
+    // A job token's end user is whoever ran the calling job, who never consented to that job's
+    // code reading data as them: only a direct caller, reading as themselves, may ask for it.
+    let viewer_data_access = authed.job_id.is_none() && preview.viewer_data_access.unwrap_or(false);
 
     let preview_args = preview.args.unwrap_or_default();
     let mut extra = HashMap::new();
