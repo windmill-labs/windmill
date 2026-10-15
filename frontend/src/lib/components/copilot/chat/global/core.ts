@@ -451,7 +451,7 @@ const listWorkspaceItemsSchema = z.object({
 		.array(readableTypeSchema)
 		.optional()
 		.describe(
-			'Optional item types to list. Defaults to scripts and flows. Pass schedule or trigger explicitly when needed (listing triggers spans 9 kinds and is heavier). "folder" lists folders with their owners and extraPerms; "group" lists groups (read one for its members). path_prefix does not apply to these two.'
+			'Optional item types to list. Defaults to scripts and flows. Pass schedule or trigger explicitly when needed (listing triggers spans 9 kinds and is heavier). "folder" lists folders with their owners and extraPerms; "group" lists groups with their extraPerms (read one for its members). path_prefix does not apply to these two.'
 		),
 	query: z.string().optional().describe('Optional case-insensitive path or summary search string.'),
 	path_prefix: z
@@ -2461,7 +2461,7 @@ async function listAccessEntities(
 	}
 	if (types.includes('group')) {
 		for (const g of await GroupService.listGroups({ workspace, perPage, page })) {
-			rows.push({ type: 'group', path: g.name, summary: g.summary })
+			rows.push({ type: 'group', path: g.name, summary: g.summary, extraPerms: g.extra_perms })
 		}
 	}
 	return rows
