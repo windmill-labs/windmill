@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::fs::{create_dir_all, remove_dir_all};
 
 #[cfg(feature = "python")]
@@ -29,12 +29,14 @@ use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, WorkspaceDependenciesPrefetched,
 };
 use windmill_dep_map::scoped_dependency_map::{DependencyDependent, ScopedDependencyMap};
-use windmill_dep_map::trigger_dependents::trigger_dependents_to_recompute_dependencies;
+use windmill_dep_map::trigger_dependents::{
+    trigger_dependents_to_recompute_dependencies, RELOCK_ALL_APP_COMPONENTS,
+};
 #[cfg(feature = "python")]
 use windmill_parser_yaml::AnsibleRequirements;
 
 use windmill_common::{
-    apps::AppScriptId,
+    apps::{raw_app_runnables_map, AppScriptId, RAW_APP_RUNNABLES},
     cache::{self, RawData},
     error,
     flows::{add_virtual_items_if_necessary, FlowValue},
@@ -42,6 +44,7 @@ use windmill_common::{
     DB,
 };
 use windmill_dep_map::lock_hash::record_lock_hashes;
+use windmill_dep_map::raw_app_runnables::RawAppRunnables;
 pub use windmill_dep_map::{
     extract_referenced_paths, extract_relative_imports, process_relative_imports,
     refresh_dependency_map,
@@ -546,8 +549,14 @@ pub async fn handle_dependency_job(
                         );
                         tracing::info!(workspace_id = %w_id, job_id = %job.id, "{log_msg}");
                         append_logs(&job.id, w_id, log_msg, &db.into()).await;
-                        requeue_relock(db, job, script_path, deployment_message, parent_path)
-                            .await?;
+                        requeue_relock(
+                            db,
+                            job,
+                            script_dependent(script_path),
+                            deployment_message,
+                            parent_path,
+                        )
+                        .await?;
                         return Ok(to_raw_value_owned(
                             json!({ "status": "Lock generation superseded by a newer version", "lock": content }),
                         ));
@@ -706,9 +715,14 @@ pub async fn handle_dependency_job(
                 {
                     Ok(RelockOutcome::Deployed(_)) => *deployment_tallied = false,
                     Ok(RelockOutcome::Superseded(_)) => {
-                        if let Err(e) =
-                            requeue_relock(db, job, script_path, deployment_message, parent_path)
-                                .await
+                        if let Err(e) = requeue_relock(
+                            db,
+                            job,
+                            script_dependent(script_path),
+                            deployment_message,
+                            parent_path,
+                        )
+                        .await
                         {
                             tracing::error!(%e, "error queueing a relock of {script_path}")
                         }
@@ -830,14 +844,15 @@ async fn commit_relock(
     Ok(RelockOutcome::Deployed(ScriptHash(new_hash)))
 }
 
-/// Queues another relative-import relock of `script_path`, through the same push the fan-out
+/// Queues another relative-import relock of `dependent`, through the same push the fan-out
 /// uses. The version live now was deployed while a lock was generated for its predecessor;
-/// when that deploy was a sibling relock it queued nothing for this path, and the result just
-/// discarded may have been the one generated against the current imports.
+/// when that deploy was a sibling relock it queued nothing for this path, and a deploy of an
+/// edited app carries the locks of the version it was edited from, so the result just
+/// discarded may have been the only one generated against the current imports.
 async fn requeue_relock(
     db: &DB,
     job: &MiniPulledJob,
-    script_path: &str,
+    dependent: DependencyDependent,
     deployment_message: Option<String>,
     parent_path: Option<String>,
 ) -> error::Result<()> {
@@ -849,11 +864,7 @@ async fn requeue_relock(
         .unwrap_or_default();
     trigger_dependents_to_recompute_dependencies(
         &job.workspace_id,
-        vec![DependencyDependent {
-            importer_path: script_path.to_string(),
-            importer_kind: "script".to_string(),
-            importer_node_ids: None,
-        }],
+        vec![dependent],
         deployment_message,
         parent_path,
         &job.permissioned_as_email,
@@ -863,6 +874,55 @@ async fn requeue_relock(
         already_visited,
     )
     .await
+}
+
+fn script_dependent(script_path: &str) -> DependencyDependent {
+    DependencyDependent {
+        importer_path: script_path.to_string(),
+        importer_kind: "script".to_string(),
+        importer_node_ids: None,
+    }
+}
+
+/// The version an app is served from, which is the one a relative-import relock rewrites.
+async fn published_app_version(db: &DB, w_id: &str, app_path: &str) -> error::Result<Option<i64>> {
+    Ok(sqlx::query_scalar!(
+        "SELECT versions[array_upper(versions, 1)] FROM app WHERE path = $1 AND workspace_id = $2",
+        app_path,
+        w_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten())
+}
+
+/// The dependency-map node id of every inline script of an app version's `value`.
+fn app_component_ids(value: &Value) -> error::Result<Vec<String>> {
+    let mut ids = vec![];
+    windmill_common::apps::traverse_app_inline_scripts(value, None, &mut |_, id| {
+        ids.push(id.unwrap_or_default());
+        Ok(())
+    })?;
+    ids.sort();
+    ids.dedup();
+    Ok(ids)
+}
+
+/// A raw app's runnables are recorded in the dependency map under their name in `runnables`.
+/// Versions deployed before that recorded every runnable under the empty node id, so a relock
+/// asking for that id relocks each of them.
+fn expand_legacy_raw_app_components(
+    components_to_relock: Option<Vec<String>>,
+    value: &Value,
+) -> Option<Vec<String>> {
+    let mut components = components_to_relock?;
+    if let Some(i) = components.iter().position(String::is_empty) {
+        components.swap_remove(i);
+        if let Some(Value::Object(runnables)) = value.get(RAW_APP_RUNNABLES) {
+            components.extend(runnables.keys().cloned());
+        }
+    }
+    Some(components)
 }
 
 fn remove_ansi_codes(s: &str) -> String {
@@ -2301,97 +2361,6 @@ async fn reduce_flow<'c>(
     Ok(tx)
 }
 
-/// A raw app's inline runnables, keyed by the path a relative import of one resolves to:
-/// `<app path>/<runnable id>`, the path the runnable itself runs under. A runnable ships
-/// the ones it imports as its modules, so they resolve from the job dir at run time.
-#[derive(Default)]
-struct RawAppRunnables(HashMap<String, (String, ScriptLang, String)>);
-
-impl RawAppRunnables {
-    fn from_value(app_path: &str, value: &Value) -> Self {
-        let mut runnables = HashMap::new();
-        if let Some(Value::Object(by_id)) = value.get("runnables") {
-            for (id, runnable) in by_id {
-                let Some(script) = runnable.get("inlineScript") else {
-                    continue;
-                };
-                let content = script.get("content").and_then(Value::as_str);
-                let language = script
-                    .get("language")
-                    .and_then(|l| from_value::<ScriptLang>(l.clone()).ok());
-                if let (Some(content), Some(language)) = (content, language) {
-                    // `main.ts` is the Bun entrypoint's own file in the job dir, so a
-                    // runnable with that id cannot ship as a module next to it.
-                    let ext = module_extension(language);
-                    if ext.is_some() && !(ext == Some("ts") && id == "main") {
-                        runnables.insert(
-                            format!("{app_path}/{id}"),
-                            (id.clone(), language, content.to_string()),
-                        );
-                    }
-                }
-            }
-        }
-        Self(runnables)
-    }
-
-    /// Whether an import of `path` by `language` code resolves to a runnable shipped as a
-    /// module, rather than to the workspace script at that path.
-    fn resolves(&self, path: &str, language: ScriptLang) -> bool {
-        self.0.get(path).is_some_and(|(_, sibling_language, _)| {
-            module_extension(*sibling_language) == module_extension(language)
-        })
-    }
-
-    /// The runnables `content` imports, directly or through one another.
-    fn modules_of(
-        &self,
-        app_path: &str,
-        content: &str,
-        language: ScriptLang,
-    ) -> Option<BTreeMap<String, ScriptModule>> {
-        let ext = module_extension(language)?;
-        let mut queue =
-            extract_relative_imports(content, &format!("{app_path}/app"), &Some(language))
-                .unwrap_or_default();
-        let mut visited = HashSet::new();
-        let mut modules = BTreeMap::new();
-        while let Some(path) = queue.pop() {
-            if !visited.insert(path.clone()) {
-                continue;
-            }
-            let Some((id, sibling_language, sibling_content)) = self.0.get(&path) else {
-                continue;
-            };
-            if module_extension(*sibling_language) != Some(ext) {
-                continue;
-            }
-            queue.extend(
-                extract_relative_imports(sibling_content, &path, &Some(*sibling_language))
-                    .unwrap_or_default(),
-            );
-            modules.insert(
-                format!("{id}.{ext}"),
-                ScriptModule {
-                    content: sibling_content.clone(),
-                    language: *sibling_language,
-                    lock: None,
-                },
-            );
-        }
-        (!modules.is_empty()).then_some(modules)
-    }
-}
-
-/// The languages whose executors resolve a relative import against a module file.
-fn module_extension(language: ScriptLang) -> Option<&'static str> {
-    match language {
-        ScriptLang::Bun | ScriptLang::Bunnative => Some("ts"),
-        ScriptLang::Python3 => Some("py"),
-        _ => None,
-    }
-}
-
 async fn reduce_app(
     db: &sqlx::Pool<sqlx::Postgres>,
     path: &str,
@@ -2511,19 +2480,8 @@ async fn lock_modules_app(
                                 .to_string();
                             let mut logs = "".to_string();
 
-                            // An import satisfied by another runnable of the app is not a
-                            // dependency on the workspace script at that path.
-                            let referenced_paths = extract_referenced_paths(
-                                &content,
-                                &format!("{job_path}/app"),
-                                Some(language),
-                            )
-                            .map(|paths| {
-                                paths
-                                    .into_iter()
-                                    .filter(|p| !raw_app_runnables.resolves(p, language))
-                                    .collect_vec()
-                            });
+                            let referenced_paths =
+                                raw_app_runnables.referenced_paths(job_path, &content, language);
                             // The lock covers what the imported runnables import, and nothing
                             // records whether one of them changed, so it is never reused.
                             let modules =
@@ -2657,6 +2615,36 @@ async fn lock_modules_app(
                 }
             }
             for (a, b) in m.clone().into_iter() {
+                if let Some(runnables) = raw_app_runnables_map(&a, &b, container_id.as_ref()) {
+                    let mut locked = serde_json::Map::new();
+                    for (id, runnable) in runnables {
+                        let runnable = lock_modules_app(
+                            runnable.clone(),
+                            job,
+                            mem_peak,
+                            canceled_by,
+                            job_dir,
+                            db,
+                            worker_name,
+                            worker_dir,
+                            job_path,
+                            base_internal_url,
+                            token,
+                            occupancy_metrics,
+                            locks_to_reload,
+                            Some(id.clone()),
+                            dependency_map,
+                            raw_workspace_dependencies_o,
+                            triggered_by_relative_import,
+                            temp_script_refs,
+                            raw_app_runnables,
+                        )
+                        .await?;
+                        locked.insert(id.clone(), runnable);
+                    }
+                    m.insert(a, Value::Object(locked));
+                    continue;
+                }
                 m.insert(
                     a.clone(),
                     lock_modules_app(
@@ -2771,30 +2759,28 @@ pub async fn handle_app_dependency_job(
         .and_then(|x| x.get("temp_script_refs"))
         .and_then(|v| serde_json::from_str(v.get()).ok());
 
-    // The version captured at job creation can be stale (the app may have been
-    // redeployed since). Relock the current latest instead, mirroring the flow
-    // dependency handler.
-    let id = if triggered_by_relative_import {
-        let latest_version = sqlx::query_scalar!(
-            "SELECT id FROM app_version WHERE app_id = (SELECT id FROM app WHERE path = $1 AND workspace_id = $2) ORDER BY created_at DESC LIMIT 1",
-            job_path,
-            job.workspace_id
-        )
-        .fetch_optional(db)
-        .await?;
-        match latest_version {
-            Some(latest_version) if latest_version != id => {
+    // A relative-import relock rewrites the published version in place and deploys no new one,
+    // and that version was tallied by the deploy that published it.
+    if triggered_by_relative_import {
+        *deployment_tallied = true;
+    }
+
+    // The version captured at job creation can be stale (the app may have been redeployed
+    // since): relock the one published now.
+    let (id, version_switched) = if triggered_by_relative_import {
+        match published_app_version(db, &job.workspace_id, &job_path).await? {
+            Some(published) if published != id => {
                 tracing::info!(
-                    "App version changed since dependency job was queued ({} -> {}), using latest",
+                    "App version changed since dependency job was queued ({} -> {}), using the published one",
                     id,
-                    latest_version
+                    published
                 );
-                latest_version
+                (published, true)
             }
-            _ => id,
+            _ => (id, false),
         }
     } else {
-        id
+        (id, false)
     };
 
     sqlx::query!(
@@ -2826,6 +2812,22 @@ pub async fn handle_app_dependency_job(
 
     // TODO: Use transaction for entire segment?
     if let Some((app_id, value, is_raw_app)) = record {
+        // The components to relock were picked in the version the job was queued for, and the
+        // one published since may name them differently and carry its editor's stale locks.
+        // Every selection that can outlive its version is resolved here, against the value
+        // this job writes.
+        let relock_all = version_switched
+            || components_to_relock
+                .as_ref()
+                .is_some_and(|c| c.iter().any(|c| c == RELOCK_ALL_APP_COMPONENTS));
+        let components_to_relock = if relock_all {
+            Some(app_component_ids(&value)?)
+        } else if is_raw_app {
+            expand_legacy_raw_app_components(components_to_relock, &value)
+        } else {
+            components_to_relock
+        };
+        let read_value = value.clone();
         let raw_app_runnables = if is_raw_app {
             RawAppRunnables::from_value(&job_path, &value)
         } else {
@@ -2848,7 +2850,9 @@ pub async fn handle_app_dependency_job(
             None,
             &mut dependency_map,
             &raw_workspace_dependencies_o,
-            triggered_by_relative_import,
+            // A relock of every component regenerates every lock: the imported lock hashes a
+            // skip compares are stamped even by a deploy that kept its editor's stale lock.
+            triggered_by_relative_import && !relock_all,
             &temp_script_refs,
             &raw_app_runnables,
         )
@@ -2868,15 +2872,6 @@ pub async fn handle_app_dependency_job(
             object.insert("version".to_string(), json!(id));
             object.remove("files");
         }
-        sqlx::query!(
-            "INSERT INTO app_version_lite (id, value) VALUES ($1, $2)
-             ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
-            id,
-            sqlx::types::Json(to_raw_value(&value_lite)) as sqlx::types::Json<Box<RawValue>>,
-        )
-        .execute(db)
-        .await?;
-
         // Re-check cancelation to ensure we don't accidentially override an app.
         if sqlx::query_scalar!(
             "SELECT canceled_by IS NOT NULL AS \"canceled!\" FROM v2_job_queue WHERE id = $1",
@@ -2893,27 +2888,63 @@ pub async fn handle_app_dependency_job(
             return Ok(());
         }
 
-        sqlx::query!("UPDATE app_version SET value = $1 WHERE id = $2", value, id,)
-            .execute(db)
-            .await?;
+        let (deployment_message, parent_path) =
+            get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
-        // Re-publish the relocked version as latest for cache invalidation, but
-        // only if it is still the latest: the guard makes this a single atomic,
-        // never-demoting statement. Without it, a concurrent deploy that landed a
-        // newer version (e.g. same git-sync push) would be reverted, pointing a
-        // raw app's bundle_secret at a version with no bundle (404 / white screen).
-        if triggered_by_relative_import {
-            sqlx::query!(
-                "UPDATE app SET versions = array_append(versions, $1::bigint) WHERE path = $2 AND workspace_id = $3 AND versions[array_upper(versions, 1)] = $1::bigint",
-                id,
+        let mut tx = db.begin().await?;
+        // Only the published version is relocked: a raw app's bundle is stored under the
+        // version id it was deployed with, so serving any other version 404s its bundle.
+        // The row lock orders this against a deploy appending a newer version.
+        let superseded = triggered_by_relative_import
+            && sqlx::query_scalar!(
+                "SELECT versions[array_upper(versions, 1)] FROM app WHERE path = $1 AND workspace_id = $2 FOR NO KEY UPDATE",
                 &job_path,
                 &job.workspace_id
             )
-            .execute(db)
-            .await?;
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten()
+                != Some(id);
+        // Every relock of the app, and the dependency job of the deploy that published it,
+        // write this one row: overwriting a write made since it was read would drop its locks.
+        let current = sqlx::query_scalar!(
+            "SELECT value FROM app_version WHERE id = $1 FOR NO KEY UPDATE",
+            id
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if superseded || current.as_ref() != Some(&read_value) {
+            drop(tx);
+            let log_msg = format!(
+                "\nApp version {id} was rewritten or superseded while its locks were generated; discarding them and queueing a relock of the published version"
+            );
+            tracing::info!(workspace_id = %job.workspace_id, job_id = %job.id, "{log_msg}");
+            append_logs(&job.id, &job.workspace_id, log_msg, &db.into()).await;
+            tally_unfinished_dependency_deploy(db, &job, deployment_tallied).await;
+            if current.is_some() {
+                // The version published when the queued relock runs may name its components
+                // differently than this one, and carry its editor's stale locks.
+                let dependent = DependencyDependent {
+                    importer_path: job_path,
+                    importer_kind: "app".to_string(),
+                    importer_node_ids: Some(vec![RELOCK_ALL_APP_COMPONENTS.to_string()]),
+                };
+                requeue_relock(db, &job, dependent, deployment_message, parent_path).await?;
+            }
+            return Ok(());
         }
-        let (deployment_message, parent_path) =
-            get_deployment_msg_and_parent_path_from_args(job.args.clone());
+        sqlx::query!("UPDATE app_version SET value = $1 WHERE id = $2", value, id,)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query!(
+            "INSERT INTO app_version_lite (id, value) VALUES ($1, $2)
+             ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value",
+            id,
+            sqlx::types::Json(to_raw_value(&value_lite)) as sqlx::types::Json<Box<RawValue>>,
+        )
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
 
         let deployed_object = if is_raw_app {
             DeployedObject::RawApp { path: job_path, version: id, parent_path: parent_path.clone() }
@@ -3741,33 +3772,4 @@ async fn add_lock_header(
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod raw_app_runnables_tests {
-    use super::*;
-
-    #[test]
-    fn modules_follow_imports_between_runnables_of_one_language() {
-        let value = json!({ "runnables": {
-            "main": { "inlineScript": { "language": "bun", "content": "import { a } from './a'" } },
-            "a": { "inlineScript": { "language": "bun", "content": "import { b } from './b.ts'" } },
-            "b": { "inlineScript": { "language": "bun", "content": "export const b = 1" } },
-            "unused": { "inlineScript": { "language": "bun", "content": "export const u = 1" } },
-            "py": { "inlineScript": { "language": "python3", "content": "x = 1" } },
-        }});
-        let runnables = RawAppRunnables::from_value("u/admin/app", &value);
-
-        let modules = runnables
-            .modules_of(
-                "u/admin/app",
-                "import { a } from './a'\nimport { p } from './py'",
-                ScriptLang::Bun,
-            )
-            .unwrap();
-        assert_eq!(modules.keys().collect_vec(), vec!["a.ts", "b.ts"]);
-        assert!(runnables
-            .modules_of("u/admin/app", "export const x = 1", ScriptLang::Bun)
-            .is_none());
-    }
 }
