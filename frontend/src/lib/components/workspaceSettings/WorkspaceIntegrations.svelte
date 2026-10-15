@@ -4,7 +4,9 @@
 	import { Button, Alert } from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
-	import { ExternalLink } from 'lucide-svelte'
+	import { ExternalLink, KeyRound, Pencil, Trash2 } from 'lucide-svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import type { Item } from '$lib/utils'
 	import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
 	import GithubIcon from '$lib/components/icons/GithubIcon.svelte'
 	import GoogleIcon from '$lib/components/icons/GoogleIcon.svelte'
@@ -13,7 +15,6 @@
 		type NativeServiceName,
 		type NativeTriggerConnection
 	} from '$lib/gen'
-	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import OAuthClientConfig from './OAuthClientConfig.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
@@ -46,7 +47,7 @@
 		nextcloud: {
 			name: 'nextcloud',
 			displayName: 'Nextcloud',
-			description: 'Connect to Nextcloud for file operations and webhook triggers',
+			description: 'File events',
 			icon: NextcloudIcon,
 			docsUrl: 'https://www.windmill.dev/docs/integrations/nextcloud',
 			setupInstructions: [
@@ -58,7 +59,7 @@
 		google: {
 			name: 'google',
 			displayName: 'Google',
-			description: 'Connect to Google for Drive and Calendar triggers',
+			description: 'Drive and Calendar changes',
 			icon: GoogleIcon,
 			docsUrl: 'https://www.windmill.dev/docs/core_concepts/native_triggers#google-triggers',
 			requiresBaseUrl: false,
@@ -75,7 +76,7 @@
 		github: {
 			name: 'github',
 			displayName: 'GitHub',
-			description: 'Connect to GitHub for repository webhook triggers',
+			description: 'Repository events',
 			icon: GithubIcon,
 			docsUrl: 'https://www.windmill.dev/docs/core_concepts/native_triggers#github-triggers',
 			requiresBaseUrl: false,
@@ -171,7 +172,7 @@
 			if (!confirmed) return
 		} else {
 			const confirmed = await confirmationModal.ask({
-				title: 'Stop sharing the workspace connection?',
+				title: 'Stop sharing this account?',
 				confirmationText: 'Stop sharing',
 				children: `Members will no longer be able to create or edit ${displayName} triggers through it, unless they can read it. Its triggers keep running.`
 			})
@@ -184,11 +185,17 @@
 				serviceName: serviceName as NativeServiceName,
 				requestBody: { path: path ?? null }
 			})
-			sendUserToast(path ? `${path} is now the workspace connection` : 'Stopped sharing')
+			sendUserToast(path ? `${path} is now the shared account` : 'Stopped sharing')
 			await loadConnections(serviceName)
 		} catch (err: any) {
-			sendUserToast(`Failed to update the workspace connection: ${err.body ?? err.message}`, true)
+			sendUserToast(`Failed to update the shared account: ${err.body ?? err.message}`, true)
 		}
+	}
+
+	function docsItem(config: ServiceConfig): Item[] {
+		return config.docsUrl
+			? [{ displayName: 'Docs', icon: ExternalLink, href: config.docsUrl, hrefTarget: '_blank' }]
+			: []
 	}
 
 	async function openConfig(serviceName: string, leavingInstanceApp: boolean) {
@@ -286,7 +293,7 @@
 <div class="flex flex-col">
 	<SettingsPageHeader
 		title="Native Triggers"
-		description="Configure the OAuth app of each service. Members connect their own account when creating a trigger, or use the workspace connection, and each trigger acts as the account it was created with."
+		description="Configure the OAuth app of each service. Members connect their own account when creating a trigger, or use the shared account, and each trigger acts as the account it was created with."
 		link="https://www.windmill.dev/docs/core_concepts/native_triggers"
 	/>
 
@@ -304,112 +311,80 @@
 				{@const usesInstanceApp = !workspaceApp && instanceSharingAvailable[serviceName]}
 				{@const workspaceConnection = connections[serviceName]?.find((c) => c.workspace)?.path}
 
-				<div class="border border-light rounded-md p-4 bg-surface-tertiary flex flex-col gap-4">
-					<div class="flex items-center justify-between gap-4">
-						<div class="flex items-center gap-3">
-							<config.icon class="w-6 h-6 shrink-0" />
-							<div class="flex flex-col">
-								<div class="text-sm font-semibold text-emphasis">{config.displayName}</div>
-								<div class="text-xs text-secondary">{config.description}</div>
-							</div>
+				<div class="border border-light rounded-md p-4 bg-surface-tertiary flex flex-col gap-3">
+					<div class="flex items-center gap-3">
+						<config.icon class="w-6 h-6 shrink-0" />
+						<div class="flex flex-col flex-1 min-w-0">
+							<div class="text-sm font-semibold text-emphasis">{config.displayName}</div>
+							<div class="text-xs text-secondary">{config.description}</div>
 						</div>
-						{#if config.docsUrl}
+						<div class="flex items-center gap-1.5 text-xs text-secondary shrink-0">
+							<span
+								class="w-1.5 h-1.5 rounded-full {workspaceApp || usesInstanceApp
+									? 'bg-green-500'
+									: 'bg-surface-sunken'}"
+							></span>
+							{workspaceApp
+								? 'Workspace OAuth app'
+								: usesInstanceApp
+									? 'Instance OAuth app'
+									: 'Not set up'}
+						</div>
+						{#if workspaceApp || usesInstanceApp}
+							<DropdownV2
+								items={workspaceApp
+									? [
+											{
+												displayName: 'Edit OAuth app',
+												icon: Pencil,
+												action: () => openConfig(serviceName, false)
+											},
+											...docsItem(config),
+											{
+												displayName: `Remove ${config.displayName}`,
+												icon: Trash2,
+												type: 'delete',
+												action: () => deleteIntegration(serviceName)
+											}
+										]
+									: [
+											{
+												displayName: 'Use a workspace OAuth app',
+												icon: KeyRound,
+												action: () => openConfig(serviceName, true)
+											},
+											...docsItem(config)
+										]}
+							/>
+						{:else}
 							<Button
 								unifiedSize="sm"
-								variant="subtle"
-								href={config.docsUrl}
-								target="_blank"
-								startIcon={{ icon: ExternalLink }}
+								variant="default"
+								onclick={() => openConfig(serviceName, false)}
 							>
-								Docs
+								Set up
 							</Button>
 						{/if}
 					</div>
 
-					<div class="border-t border-light pt-4 flex flex-col gap-4">
-						<div class="flex items-center justify-between gap-4">
-							<div class="flex flex-col gap-1">
-								<div class="text-xs font-semibold text-emphasis">
-									{#if workspaceApp}
-										Workspace OAuth app
-									{:else if usesInstanceApp}
-										Shared by your instance admin
-									{:else}
-										No OAuth app yet
-									{/if}
-								</div>
-								{#if usesInstanceApp}
-									<button
-										class="text-xs font-normal text-accent hover:underline w-fit"
-										onclick={() => openConfig(serviceName, true)}
-									>
-										Use a workspace OAuth app instead
-									</button>
-								{/if}
+					{#if workspaceApp || usesInstanceApp}
+						<div class="flex flex-col gap-1">
+							<div class="text-xs font-semibold text-emphasis">Shared account</div>
+							<div class="text-xs text-secondary">
+								Members can create triggers as this account without seeing its token.
 							</div>
-							<div class="flex items-center gap-2 shrink-0">
-								{#if workspaceApp}
-									<Button
-										unifiedSize="sm"
-										variant="default"
-										onclick={() => openConfig(serviceName, false)}
-									>
-										Edit
-									</Button>
-									<Button
-										unifiedSize="sm"
-										variant="default"
-										destructive
-										onclick={() => deleteIntegration(serviceName)}
-									>
-										Remove
-									</Button>
-								{:else if !usesInstanceApp}
-									<Button
-										unifiedSize="sm"
-										variant="default"
-										onclick={() => openConfig(serviceName, false)}
-									>
-										Set up OAuth app
-									</Button>
-								{/if}
-							</div>
+							<NativeConnectionPicker
+								service={serviceName as NativeServiceName}
+								value={workspaceConnection}
+								autoSelect={false}
+								clearable
+								labelWorkspace={false}
+								placeholder="None"
+								onSelect={(path) => setWorkspaceConnection(serviceName, path)}
+								onConnectionsChange={() => loadConnections(serviceName)}
+							/>
 						</div>
-
-						{#if usesInstanceApp && serviceName === 'google'}
-							<div class="flex flex-col gap-1">
-								<div class="text-2xs text-hint">
-									The instance app must list this redirect URI in the
-									<a
-										href="https://console.cloud.google.com/apis/credentials"
-										target="_blank"
-										rel="noopener noreferrer"
-										class="underline">Google Cloud Console</a
-									>
-								</div>
-								<ClipboardPanel content={nativeOAuthRedirectUri('google')} size="sm" />
-							</div>
-						{/if}
-
-						{#if workspaceApp || usesInstanceApp}
-							<div class="flex flex-col gap-1">
-								<div class="text-xs font-semibold text-emphasis">Workspace connection</div>
-								<div class="text-xs text-secondary">
-									Members can create triggers as this account without seeing its token.
-								</div>
-								<NativeConnectionPicker
-									service={serviceName as NativeServiceName}
-									value={workspaceConnection}
-									autoSelect={false}
-									clearable
-									labelWorkspace={false}
-									placeholder="No workspace connection"
-									onSelect={(path) => setWorkspaceConnection(serviceName, path)}
-									onConnectionsChange={() => loadConnections(serviceName)}
-								/>
-							</div>
-						{/if}
-					</div>
+					{/if}
 
 					<OAuthClientConfig
 						bind:open={configOpen[serviceName]}

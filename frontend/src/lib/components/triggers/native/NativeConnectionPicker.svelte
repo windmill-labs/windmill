@@ -121,7 +121,7 @@
 
 	const items = $derived.by(() => {
 		const list = (connections ?? []).map((c) => ({
-			label: c.workspace && labelWorkspace ? `${c.path} (workspace connection)` : c.path,
+			label: c.workspace && labelWorkspace ? `${c.path} (shared account)` : c.path,
 			value: c.path
 		}))
 		if (value && !list.some((i) => i.value === value)) {
