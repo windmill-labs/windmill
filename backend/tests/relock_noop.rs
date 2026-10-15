@@ -438,10 +438,22 @@ async fn multi_file_importer_relock_is_a_no_op_too(db: Pool<Postgres>) -> anyhow
     Ok(())
 }
 
-/// Plants raw app `f/rel/app`, whose runnable `a` imports `f/rel/a`, as a version deployed
-/// before runnables were keyed by name: recorded under the empty node id and holding a lock
-/// already. Returns its published version.
-async fn plant_raw_app(db: &Pool<Postgres>) -> anyhow::Result<i64> {
+/// Plants raw app `f/rel/app` with python runnables of the given contents, one of which imports
+/// `f/rel/a`, as a version deployed before runnables were keyed by name: recorded under the
+/// empty node id and each holding a lock already. Returns its published version.
+async fn plant_raw_app_with(
+    db: &Pool<Postgres>,
+    runnables: &[(&str, &str)],
+) -> anyhow::Result<i64> {
+    let runnables: serde_json::Map<String, serde_json::Value> = runnables
+        .iter()
+        .map(|(id, content)| {
+            let runnable = serde_json::json!({ "type": "inline", "inlineScript": {
+                "content": content, "language": "python3", "lock": "# py: 3.12\n"
+            }});
+            (id.to_string(), runnable)
+        })
+        .collect();
     let app_id: i64 = sqlx::query_scalar(
         "INSERT INTO app (workspace_id, path, summary, policy, versions, extra_perms)
          VALUES ($1, 'f/rel/app', '', '{}'::jsonb, '{}', '{}'::jsonb) RETURNING id",
@@ -454,11 +466,7 @@ async fn plant_raw_app(db: &Pool<Postgres>) -> anyhow::Result<i64> {
          VALUES ($1, $2, 'test-user', true) RETURNING id",
     )
     .bind(app_id)
-    .bind(
-        serde_json::json!({ "runnables": { "a": { "type": "inline", "inlineScript": {
-            "content": B, "language": "python3", "lock": "# py: 3.12\n"
-        }}}}),
-    )
+    .bind(serde_json::json!({ "runnables": runnables }))
     .fetch_one(db)
     .await?;
     sqlx::query("UPDATE app SET versions = ARRAY[$1::bigint] WHERE id = $2")
@@ -476,12 +484,79 @@ async fn plant_raw_app(db: &Pool<Postgres>) -> anyhow::Result<i64> {
     Ok(published)
 }
 
+/// [`plant_raw_app_with`] a single runnable `a` importing `f/rel/a`.
+async fn plant_raw_app(db: &Pool<Postgres>) -> anyhow::Result<i64> {
+    plant_raw_app_with(db, &[("a", B)]).await
+}
+
 async fn app_lock(db: &Pool<Postgres>, version: i64) -> Option<String> {
+    runnable_lock(db, version, "a").await
+}
+
+async fn runnable_lock(db: &Pool<Postgres>, version: i64, runnable: &str) -> Option<String> {
     sqlx::query_scalar(
-        "SELECT value->'runnables'->'a'->'inlineScript'->>'lock' FROM app_version WHERE id = $1",
+        "SELECT value->'runnables'->$2->'inlineScript'->>'lock' FROM app_version WHERE id = $1",
     )
     .bind(version)
+    .bind(runnable)
     .fetch_one(db)
+    .await
+    .unwrap()
+}
+
+const WRITTEN_MEANWHILE: &str = "# py: 3.12\n# written meanwhile\n";
+
+/// Once an app dependency job waits on the version row `writer` holds, rewrites that row's
+/// lock of runnable `a` to [`WRITTEN_MEANWHILE`] and commits.
+async fn write_once_waited_on(
+    db: &Pool<Postgres>,
+    mut writer: sqlx::Transaction<'_, Postgres>,
+    version: i64,
+) {
+    let deadline = tokio::time::Instant::now() + WAIT_BUDGET;
+    loop {
+        let waiting: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+             WHERE datname = current_database() AND wait_event_type = 'Lock'
+                 AND query LIKE 'SELECT value FROM app_version%')",
+        )
+        .fetch_one(db)
+        .await
+        .unwrap();
+        if waiting {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no dependency job reached the version row"
+        );
+        tokio::time::sleep(POLL).await;
+    }
+    sqlx::query(
+        "UPDATE app_version SET value = jsonb_set(value::jsonb,
+         '{runnables,a,inlineScript,lock}', to_jsonb($2::text))::json WHERE id = $1",
+    )
+    .bind(version)
+    .bind(WRITTEN_MEANWHILE)
+    .execute(&mut *writer)
+    .await
+    .unwrap();
+    writer.commit().await.unwrap();
+}
+
+/// Logs of every dependency job of `f/rel/app` created after `since`, oldest first.
+async fn app_dependency_logs(
+    db: &Pool<Postgres>,
+    since: chrono::DateTime<chrono::Utc>,
+) -> Vec<String> {
+    sqlx::query_scalar(
+        "SELECT COALESCE(l.logs, '') FROM v2_job j
+         LEFT JOIN job_logs l ON l.job_id = j.id
+         WHERE j.kind = 'appdependencies' AND j.runnable_path = 'f/rel/app' AND j.created_at > $1
+         ORDER BY j.created_at",
+    )
+    .bind(since)
+    .fetch_all(db)
     .await
     .unwrap()
 }
@@ -585,53 +660,15 @@ async fn raw_app_relock_racing_a_write_requeues(db: Pool<Postgres>) -> anyhow::R
                 .await
                 .unwrap();
 
-            // The relock has generated its lock and waits on the row this transaction holds.
-            let deadline = tokio::time::Instant::now() + WAIT_BUDGET;
-            loop {
-                let waiting: bool = sqlx::query_scalar(
-                    "SELECT EXISTS (SELECT 1 FROM pg_stat_activity
-                     WHERE wait_event_type = 'Lock' AND query LIKE 'SELECT value FROM app_version%')",
-                )
-                .fetch_one(&db)
-                .await
-                .unwrap();
-                if waiting {
-                    break;
-                }
-                assert!(
-                    tokio::time::Instant::now() < deadline,
-                    "the relock never reached the version row"
-                );
-                tokio::time::sleep(POLL).await;
-            }
-            sqlx::query(
-                "UPDATE app_version SET value = jsonb_set(value::jsonb,
-                 '{runnables,a,inlineScript,lock}', '\"# py: 3.12\\n# written meanwhile\\n\"')::json
-                 WHERE id = $1",
-            )
-            .bind(published)
-            .execute(&mut *writer)
-            .await
-            .unwrap();
-            writer.commit().await.unwrap();
+            write_once_waited_on(&db, writer, published).await;
 
             // The leaf's own job, the discarded relock and the one it queued.
             wait_for_jobs(&db, &mut completed, 3).await;
 
-            let logs: Vec<String> = sqlx::query_scalar(
-                "SELECT COALESCE(l.logs, '') FROM v2_job j
-                 LEFT JOIN job_logs l ON l.job_id = j.id
-                 WHERE j.kind = 'appdependencies' AND j.runnable_path = 'f/rel/app'
-                     AND j.created_at > $1
-                 ORDER BY j.created_at",
-            )
-            .bind(since)
-            .fetch_all(&db)
-            .await
-            .unwrap();
+            let logs = app_dependency_logs(&db, since).await;
             assert_eq!(logs.len(), 2, "one relock and its requeue: {logs:?}");
             assert!(
-                logs[0].contains("discarding the relock"),
+                logs[0].contains("discarding them"),
                 "the first relock was discarded: {}",
                 logs[0]
             );
@@ -640,6 +677,147 @@ async fn raw_app_relock_racing_a_write_requeues(db: Pool<Postgres>) -> anyhow::R
                 lock.as_deref().unwrap_or("").contains("tiny"),
                 "the queued relock regenerated the lock over the concurrent write: {lock:?}"
             );
+        },
+        port,
+    )
+    .await;
+
+    Ok(())
+}
+
+/// The dependency job of the deploy that published a version writes the row relocks write
+/// too, so it backs off the same way when that row changed after it read it.
+#[sqlx::test(fixtures("base"))]
+async fn app_deploy_dependency_job_racing_a_write_requeues(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    let (_client, port, _s) = init_client(db.clone()).await;
+    let mut completed = listen_for_completed_jobs(&db).await;
+    let published = plant_raw_app(&db).await?;
+
+    in_test_worker(
+        &db,
+        async {
+            let mut writer = db.begin().await.unwrap();
+            sqlx::query("SELECT 1 FROM app_version WHERE id = $1 FOR UPDATE")
+                .bind(published)
+                .execute(&mut *writer)
+                .await
+                .unwrap();
+
+            let since = chrono::Utc::now();
+            let payload = windmill_common::jobs::JobPayload::AppDependencies {
+                path: "f/rel/app".to_string(),
+                version: published,
+                debouncing_settings: Default::default(),
+            };
+            let args = std::collections::HashMap::new();
+            let (_, tx) = windmill_queue::push(
+                &db,
+                windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone()),
+                W,
+                payload,
+                windmill_queue::PushArgs { args: &args, extra: None },
+                "test-user",
+                "test@windmill.dev",
+                "u/test-user".to_string(),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                false,
+                None,
+                true,
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                None,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+            tx.commit().await.unwrap();
+
+            write_once_waited_on(&db, writer, published).await;
+
+            // The deploy's job, and the relock it queued on backing off.
+            wait_for_jobs(&db, &mut completed, 2).await;
+
+            let logs = app_dependency_logs(&db, since).await;
+            assert_eq!(logs.len(), 2, "the deploy's job and its requeue: {logs:?}");
+            assert!(
+                logs[0].contains("discarding them"),
+                "the deploy's job backed off: {}",
+                logs[0]
+            );
+            assert_eq!(
+                app_lock(&db, published).await.as_deref(),
+                Some(WRITTEN_MEANWHILE),
+                "the concurrent write survives"
+            );
+        },
+        port,
+    )
+    .await;
+
+    Ok(())
+}
+
+/// A raw app runnable ships the runnables it imports as modules, and its lock covers what they
+/// import, so a change to a script one of them imports relocks the importer too.
+#[sqlx::test(fixtures("base"))]
+async fn raw_app_relock_follows_imports_of_imported_runnables(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    std::env::set_var("DEPENDENCY_JOB_DEBOUNCE_DELAY", "0");
+    let (client, port, _s) = init_client(db.clone()).await;
+    let mut completed = listen_for_completed_jobs(&db).await;
+    let published = plant_raw_app_with(
+        &db,
+        &[
+            ("a", "from .b import g\n\ndef main():\n    return g()\n"),
+            ("b", "from f.rel.a import main as a\n\ndef g():\n    return a()\n\ndef main():\n    return g()\n"),
+        ],
+    )
+    .await?;
+
+    in_test_worker(
+        &db,
+        async {
+            // Its relock of the app records what each runnable depends on.
+            client
+                .create_script(W, &py_script("f/rel/a", A, None))
+                .await
+                .unwrap();
+            wait_for_jobs(&db, &mut completed, 1).await;
+
+            let a_hash = live(&versions(&db, "f/rel/a").await).hash;
+            client
+                .create_script(
+                    W,
+                    &py_script("f/rel/a", A_WITH_TINY, Some(format!("{a_hash:016x}"))),
+                )
+                .await
+                .unwrap();
+            wait_for_jobs(&db, &mut completed, 2).await;
+
+            for runnable in ["a", "b"] {
+                let lock = runnable_lock(&db, published, runnable).await;
+                assert!(
+                    lock.as_deref().unwrap_or("").contains("tiny"),
+                    "{runnable} carries the new lock: {lock:?}"
+                );
+            }
         },
         port,
     )

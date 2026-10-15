@@ -76,7 +76,7 @@ pub const RAW_APP_RUNNABLES: &str = "runnables";
 /// The `runnables` map of a raw app, when `value` is it. An inline script's dependency-map node
 /// id is its closest enclosing component `id`; raw app runnables carry none, so each is keyed by
 /// its name in this map instead, or a relock could not tell them apart.
-pub fn raw_app_runnables<'a>(
+pub fn raw_app_runnables_map<'a>(
     key: &str,
     value: &'a Value,
     container_id: Option<&String>,
@@ -128,7 +128,9 @@ pub fn traverse_app_inline_scripts<
                 }
             } else {
                 for (key, value) in object {
-                    if let Some(runnables) = raw_app_runnables(key, value, container_id.as_ref()) {
+                    if let Some(runnables) =
+                        raw_app_runnables_map(key, value, container_id.as_ref())
+                    {
                         for (id, runnable) in runnables {
                             traverse_app_inline_scripts(runnable, Some(id.clone()), cb)?;
                         }

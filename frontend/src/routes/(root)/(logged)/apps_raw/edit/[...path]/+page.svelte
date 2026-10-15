@@ -235,7 +235,8 @@
 					? $userStore?.username
 					: `u/${$userStore?.username}`,
 				on_behalf_of_email: $userStore?.email,
-				execution_mode: 'publisher'
+				execution_mode: 'publisher',
+				sandbox: true
 			} as any
 			// Explicit path seed: the fork-a-draft handoff re-homes the source
 			// path into the forker's namespace and passes it here.
@@ -385,7 +386,7 @@
 				data: savedRawAppDraft?.data
 			}
 			backendApp.summary = savedRawAppDraft?.summary ?? ''
-			backendApp.policy = savedRawAppDraft?.policy ?? { execution_mode: 'publisher' }
+			backendApp.policy = savedRawAppDraft?.policy ?? { execution_mode: 'publisher', sandbox: true }
 			backendApp.custom_path = savedRawAppDraft?.custom_path
 			backendApp.path = page.params.path ?? ''
 		} else if (savedRawAppDraft) {

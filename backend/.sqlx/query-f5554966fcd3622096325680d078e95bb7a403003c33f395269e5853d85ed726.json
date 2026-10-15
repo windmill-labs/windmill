@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE dependency_map SET imported_lockfile_hash = NULL\n                     WHERE workspace_id = $1 AND importer_path = $2 AND importer_kind = 'app'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f5554966fcd3622096325680d078e95bb7a403003c33f395269e5853d85ed726"
+}
