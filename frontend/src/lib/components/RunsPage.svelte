@@ -152,6 +152,7 @@
 				title: string
 				confirmBtnText: string
 				loading?: boolean
+				description?: string
 				preContent?: string
 				onConfirm?: (forceCancel: boolean) => void
 				type?: ConfirmationModal['$$prop_def']['type']
@@ -571,6 +572,10 @@
 		askingForConfirmation = {
 			title: `Confirm re-running the selected jobs`,
 			confirmBtnText: `Re-run ${jobIdsToReRun.length} jobs`,
+			// The server skips resolution for operators, who cannot resolve.
+			description: operatingUser.current?.operator
+				? undefined
+				: "Failed or canceled jobs among them will be marked resolved, with the new run's id as the note.",
 			type: 'reload',
 			onConfirm: async () => {
 				await reRunJobs(jobIdsToReRun, batchReRunOptions)
@@ -900,6 +905,9 @@
 		askingForConfirmation = undefined
 	}}
 >
+	{#if askingForConfirmation?.description}
+		<p class="text-xs text-secondary">{askingForConfirmation.description}</p>
+	{/if}
 	{#if askingForConfirmation?.preContent}
 		<pre>{askingForConfirmation.preContent}</pre>
 		<Toggle
