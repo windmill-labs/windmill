@@ -27,6 +27,7 @@
 		workspaceId ? shareWorkspaceId(workspaceId, $userWorkspaces) : undefined
 	)
 	const messageCount = $derived(manager.displayMessages.length)
+	const shareName = $derived(name.trim() || 'Untitled session')
 
 	const status = resource(
 		() => ({ workspace, sessionId }),
@@ -44,8 +45,9 @@
 
 	const share = $derived(status.current?.share)
 	const url = $derived(share && workspace ? sharedSessionUrl(workspace, share.id) : undefined)
+	// A hint only: an edited and regenerated turn keeps both, so updating stays offered either way.
 	const outdated = $derived(
-		share !== undefined && (share.message_count !== messageCount || share.name !== name.trim())
+		share !== undefined && (share.message_count !== messageCount || share.name !== shareName)
 	)
 
 	let saving = $state(false)
@@ -72,7 +74,7 @@
 				workspace,
 				requestBody: {
 					session_id: sessionId,
-					name: name.trim() || 'Untitled session',
+					name: shareName,
 					message_count: messageCount,
 					snapshot
 				}
@@ -181,20 +183,22 @@
 						)}
 					</span>
 				</div>
-				{#if outdated}
-					<div class="flex items-center justify-between gap-2">
-						<span class="font-normal text-secondary">The session changed since it was shared.</span>
-						<Button
-							unifiedSize="sm"
-							variant="accent"
-							loading={saving}
-							disabled={manager.loading}
-							onClick={shareSnapshot}
-						>
-							Update link
-						</Button>
-					</div>
-				{/if}
+				<div class="flex items-center justify-between gap-2">
+					<span class="font-normal text-secondary">
+						{outdated
+							? 'The session changed since it was shared.'
+							: 'The link shows the session as it was when shared.'}
+					</span>
+					<Button
+						unifiedSize="sm"
+						variant={outdated ? 'accent' : 'default'}
+						loading={saving}
+						disabled={manager.loading}
+						onClick={shareSnapshot}
+					>
+						Update link
+					</Button>
+				</div>
 				<div class="flex justify-end">
 					<Button
 						unifiedSize="sm"

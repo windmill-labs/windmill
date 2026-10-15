@@ -75,6 +75,12 @@
 	}
 </script>
 
+<!-- The transcript is its author's text, rendered to whoever holds the link: an image in it
+     that points elsewhere would report every reader to that host. -->
+<svelte:head>
+	<meta http-equiv="content-security-policy" content="img-src 'self' data: blob:" />
+</svelte:head>
+
 <div class="flex min-h-screen flex-col bg-surface">
 	<div class="border-b bg-surface-secondary">
 		<div class="mx-auto flex w-full max-w-3xl flex-wrap items-center gap-3 px-4 py-3">

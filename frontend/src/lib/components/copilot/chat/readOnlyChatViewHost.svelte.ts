@@ -63,6 +63,7 @@ export function readOnlyChatViewHost(options: {
 		isRunFormPending: () => false,
 
 		isSessionChat: true,
+		untrustedTranscript: true,
 		supportsModelSettings: false,
 		supportsMessageEditing: false,
 		supportsMessageAttachments: false,

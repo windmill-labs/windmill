@@ -1,4 +1,5 @@
 import type { DisplayMessage } from '$lib/components/copilot/chat/shared'
+import type { ImageMediaType } from '$lib/components/copilot/chat/imageUtils'
 import type {
 	ArtifactKind,
 	PersistedArtifact
@@ -76,43 +77,111 @@ export function buildSessionSnapshot(
 	)
 }
 
-const ROLES = new Set(['user', 'assistant', 'tool', 'summary'])
+function isInlineImage(url: unknown): url is string {
+	return typeof url === 'string' && url.startsWith('data:image/')
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+function str(value: unknown): string | undefined {
+	return typeof value === 'string' ? value : undefined
+}
+
+function records(value: unknown): Record<string, unknown>[] {
+	return Array.isArray(value) ? value.filter(isRecord) : []
+}
+
 /**
- * A snapshot as the viewer may render it. It is whatever the author's browser sent, so rows the
- * chat components cannot take are dropped, and an image renders only from an inline data URL:
- * any other source would load a third-party resource on behalf of whoever opens the link.
+ * A row rebuilt from the fields that only display. Everything else the live chat carries on a
+ * row is an affordance acting as whoever has the page open (a run form, a question to answer,
+ * a run to inspect, an item to open) or a pending state that mounts one, so it never survives:
+ * the author controls every byte of the snapshot.
+ */
+function readMessage(m: Record<string, unknown>, index: number): DisplayMessage | undefined {
+	const content = str(m.content) ?? ''
+	switch (m.role) {
+		case 'user':
+			return {
+				role: 'user',
+				content,
+				index,
+				images: records(m.images)
+					.filter((i) => isInlineImage(i.dataUrl))
+					.map((i) => ({
+						dataUrl: i.dataUrl as string,
+						mediaType: i.mediaType as ImageMediaType,
+						name: str(i.name)
+					})),
+				pastes: records(m.pastes)
+					.filter((p) => typeof p.id === 'number' && typeof p.content === 'string')
+					.map((p) => ({
+						id: p.id as number,
+						lines: typeof p.lines === 'number' ? p.lines : 0,
+						content: p.content as string
+					})),
+				files: records(m.files)
+					.filter((f) => typeof f.name === 'string' && typeof f.content === 'string')
+					.map((f) => ({ name: f.name as string, content: f.content as string }))
+			}
+		case 'assistant':
+			return {
+				role: 'assistant',
+				content,
+				reasoning: str(m.reasoning),
+				reasoningDurationMs:
+					typeof m.reasoningDurationMs === 'number' ? m.reasoningDurationMs : undefined,
+				createdAt: str(m.createdAt)
+			}
+		case 'tool':
+			return {
+				role: 'tool',
+				tool_call_id: str(m.tool_call_id) ?? `shared-${index}`,
+				content,
+				toolName: str(m.toolName),
+				parameters: m.parameters,
+				result: m.result,
+				logs: str(m.logs),
+				error: str(m.error),
+				imageUrl: isInlineImage(m.imageUrl) ? m.imageUrl : undefined,
+				planArtifactId: str(m.planArtifactId),
+				planVersion: typeof m.planVersion === 'number' ? m.planVersion : undefined,
+				blockedByPlanMode: m.blockedByPlanMode === true,
+				declinedByUser: m.declinedByUser === true
+			}
+		case 'summary':
+			return { role: 'summary', content }
+		default:
+			return undefined
+	}
+}
+
+/**
+ * A snapshot as the viewer may render it: rows rebuilt by {@link readMessage}, and an attached
+ * image only from an inline data URL, since any other source would load a third-party resource
+ * on behalf of whoever opens the link. Images inside rendered text are left to the viewer
+ * page's `img-src` policy.
  */
 export function readSessionSnapshot(raw: unknown): SessionSnapshot {
 	const snapshot = isRecord(raw) ? raw : {}
-	const messages = (Array.isArray(snapshot.messages) ? snapshot.messages : [])
+	const messages = records(snapshot.messages)
+		.map(readMessage)
+		.filter((m): m is DisplayMessage => m !== undefined)
+	const artifacts = records(snapshot.artifacts)
 		.filter(
-			(m): m is Record<string, unknown> =>
-				isRecord(m) && typeof m.role === 'string' && ROLES.has(m.role)
+			(a) =>
+				typeof a.id === 'string' &&
+				typeof a.name === 'string' &&
+				typeof a.content === 'string' &&
+				(a.kind === 'md' || a.kind === 'html')
 		)
-		.map((m) => {
-			const message: Record<string, unknown> = {
-				...m,
-				content: typeof m.content === 'string' ? m.content : ''
-			}
-			if (message.role === 'user') {
-				message.images = (Array.isArray(m.images) ? m.images : []).filter(
-					(i) => isRecord(i) && typeof i.dataUrl === 'string' && i.dataUrl.startsWith('data:image/')
-				)
-			}
-			return message as unknown as DisplayMessage
-		})
-	const artifacts = (Array.isArray(snapshot.artifacts) ? snapshot.artifacts : []).filter(
-		(a): a is SharedSessionArtifact =>
-			isRecord(a) &&
-			typeof a.id === 'string' &&
-			typeof a.name === 'string' &&
-			typeof a.content === 'string' &&
-			(a.kind === 'md' || a.kind === 'html')
-	)
+		.map((a) => ({
+			id: a.id as string,
+			name: a.name as string,
+			kind: a.kind as ArtifactKind,
+			content: a.content as string,
+			role: a.role === 'plan' ? ('plan' as const) : undefined
+		}))
 	return { messages, artifacts }
 }
