@@ -2120,6 +2120,15 @@ async fn change_user_email(
     .execute(&mut *tx)
     .await?;
 
+    sqlx::query(
+        "UPDATE resource SET value = jsonb_set(value, '{on_behalf_of}', to_jsonb($1::text))
+         WHERE resource_type = 'ai_agent' AND value->>'on_behalf_of' = $2",
+    )
+    .bind(&new_principal)
+    .bind(&old_principal)
+    .execute(&mut *tx)
+    .await?;
+
     sqlx::query!(
         "UPDATE script SET on_behalf_of = $1 WHERE on_behalf_of = $2",
         &new_principal,

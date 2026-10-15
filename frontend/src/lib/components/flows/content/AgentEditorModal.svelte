@@ -582,6 +582,7 @@
 				path={target?.path ?? ''}
 				workspace={ws}
 				bind:error={() => host?.pathError(), (error) => host?.setPathError(error)}
+				onRunAsChange={(runAs) => host?.setRunAs(runAs)}
 			/>
 		{/if}
 	{/snippet}
