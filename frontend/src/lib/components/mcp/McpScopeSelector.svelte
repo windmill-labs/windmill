@@ -25,8 +25,9 @@
 		scope: string
 		initialScope?: string
 		readOnly?: boolean
-		/** Scripts and flows alone, for `/api/mcp`: there `mcp:all` is the full toolset and a
-		 *  selection gets no endpoint tools, so "All scripts/flows" and endpoints are left out. */
+		/** Scripts and flows alone, for `/api/mcp`: a selection gets no endpoint tools there, so
+		 *  endpoints are left out, and since `mcp:all` is the full toolset, "All scripts/flows"
+		 *  is written as `mcp:scripts:* mcp:flows:*`. */
 		runnablesOnly?: boolean
 	}
 
@@ -156,8 +157,15 @@
 			scriptFolders.length === flowFolders.length &&
 			scriptFolders.every((f, i) => f === flowFolders[i])
 		const endpointsIsAll = byKind.endpoints?.length === 1 && byKind.endpoints[0] === '*'
+		// Without endpoints, scopes say "folder" or "all" with the scripts and flows alone.
+		const endpointsAsExpected = runnablesOnly ? !byKind.endpoints : endpointsIsAll
+		const isWildcard = (patterns?: string[]) => patterns?.length === 1 && patterns[0] === '*'
 
-		if (mode !== 'favorites' && mode !== 'all' && sameFolders && endpointsIsAll) {
+		if (runnablesOnly && isWildcard(byKind.scripts) && isWildcard(byKind.flows)) {
+			return { ...empty, mode: 'all', hubApps }
+		}
+
+		if (mode !== 'favorites' && mode !== 'all' && sameFolders && endpointsAsExpected) {
 			return {
 				mode: 'folder',
 				folders: scriptFolders.filter((f): f is string => !!f),
@@ -225,6 +233,10 @@
 					scopeParts.push(`mcp:endpoints:*`)
 				}
 			}
+		} else if (selectedMode === 'all' && runnablesOnly) {
+			// `mcp:all` is the full toolset on `/api/mcp`: every script and flow as its own
+			// tool is said with wildcards instead.
+			scopeParts = ['mcp:scripts:*', 'mcp:flows:*']
 		} else {
 			scopeParts = [`mcp:${selectedMode}`]
 		}
@@ -463,9 +475,7 @@
 		selectedMode === 'all'
 			? 'Create your first scripts or flows to make them available via MCP.'
 			: selectedMode === 'favorites'
-				? runnablesOnly
-					? 'You do not have any favorite scripts or flows. Favorite some to include them, or pick them under Folders or Custom.'
-					: `You do not have any favorite scripts or flows. You can favorite some scripts and flows to include them, or change the scope to "All scripts/flows" to include all your scripts and flows.`
+				? `You do not have any favorite scripts or flows. You can favorite some scripts and flows to include them, or change the scope to "All scripts/flows" to include all your scripts and flows.`
 				: `You do not have any scripts or flows in the selected folder(s).`
 	)
 
@@ -564,14 +574,12 @@
 					label="Favorites only"
 					tooltip="Make only your favorite scripts and flows available as tools"
 				/>
-				{#if !runnablesOnly}
-					<ToggleButton
-						{item}
-						value="all"
-						label="All scripts/flows"
-						tooltip="Make all your scripts and flows available as tools"
-					/>
-				{/if}
+				<ToggleButton
+					{item}
+					value="all"
+					label="All scripts/flows"
+					tooltip="Make all your scripts and flows available as tools"
+				/>
 				<ToggleButton
 					{item}
 					value="folder"
