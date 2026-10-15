@@ -4,7 +4,7 @@
 	import { Button, Alert } from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
-	import { ExternalLink, KeyRound, Pencil, Trash2 } from 'lucide-svelte'
+	import { Check, ExternalLink, KeyRound, Pencil, Trash2 } from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import type { Item } from '$lib/utils'
 	import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
@@ -19,7 +19,7 @@
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import NativeConnectionPicker from '$lib/components/triggers/native/NativeConnectionPicker.svelte'
-	import { nativeOAuthRedirectUri } from '$lib/components/triggers/native/utils'
+	import { connectNativeAccount, nativeOAuthRedirectUri } from '$lib/components/triggers/native/utils'
 
 	interface WorkspaceIntegration {
 		service_name: string
@@ -95,6 +95,9 @@
 	let connections = $state<Record<string, NativeTriggerConnection[]>>({})
 	let loading = $state(false)
 	// The service whose OAuth app dialog is open.
+	// Services whose shared account picker is open.
+	let editingShared = $state<Record<string, boolean>>({})
+	let connectingShared = $state<string | null>(null)
 	let configOpen = $state<Record<string, boolean>>(
 		Object.fromEntries(Object.keys(supportedServices).map((s) => [s, false]))
 	)
@@ -157,8 +160,8 @@
 		}
 	}
 
-	async function setWorkspaceConnection(serviceName: string, path: string | undefined) {
-		if (!$workspaceStore) return
+	async function setWorkspaceConnection(serviceName: string, path: string | undefined): Promise<boolean> {
+		if (!$workspaceStore) return false
 
 		const displayName = supportedServices[serviceName]?.displayName ?? serviceName
 		if (path) {
@@ -169,14 +172,14 @@
 				confirmationText: 'Share',
 				children: `Every member will be able to create and edit ${displayName} triggers that act as ${account}. They will not see its token. It replaces any connection shared before.`
 			})
-			if (!confirmed) return
+			if (!confirmed) return false
 		} else {
 			const confirmed = await confirmationModal.ask({
 				title: 'Stop sharing this account?',
 				confirmationText: 'Stop sharing',
 				children: `Members will no longer be able to create or edit ${displayName} triggers through it, unless they can read it. Its triggers keep running.`
 			})
-			if (!confirmed) return
+			if (!confirmed) return false
 		}
 
 		try {
@@ -187,10 +190,28 @@
 			})
 			sendUserToast(path ? `${path} is now the shared account` : 'Stopped sharing')
 			await loadConnections(serviceName)
+			return true
 		} catch (err: any) {
 			sendUserToast(`Failed to update the shared account: ${err.body ?? err.message}`, true)
+			return false
 		}
 	}
+
+	async function connectAndShare(serviceName: string) {
+		if (!$workspaceStore) return
+		connectingShared = serviceName
+		try {
+			const path = await connectNativeAccount($workspaceStore, serviceName as NativeServiceName)
+			await loadConnections(serviceName)
+			if (await setWorkspaceConnection(serviceName, path)) editingShared[serviceName] = false
+		} catch (err: any) {
+			const displayName = supportedServices[serviceName]?.displayName ?? serviceName
+			sendUserToast(`Could not connect ${displayName}: ${err.body ?? err.message}`, true)
+		} finally {
+			connectingShared = null
+		}
+	}
+
 
 	function docsItem(config: ServiceConfig): Item[] {
 		return config.docsUrl
@@ -362,22 +383,80 @@
 						{/if}
 					</div>
 
-					{#if workspaceApp || usesInstanceApp}
-						<div class="flex flex-col gap-1">
-							<div class="text-xs font-semibold text-emphasis">Shared account</div>
-							<div class="text-xs text-secondary">
-								Members can create triggers as this account without seeing its token.
+					{#if !workspaceApp && !usesInstanceApp}
+						<div class="text-xs text-secondary">
+							Members can't create {config.displayName} triggers yet.
+						</div>
+					{:else}
+						{#if serviceName === 'nextcloud' && !workspaceConnection}
+							<div class="flex items-center justify-between gap-4">
+								<div class="text-xs text-secondary">
+									Nextcloud only accepts webhooks from an admin account. Connect one and share it so
+									members can create triggers.
+								</div>
+								<Button
+									unifiedSize="sm"
+									variant="default"
+									loading={connectingShared === serviceName}
+									onclick={() => connectAndShare(serviceName)}
+								>
+									Connect and share
+								</Button>
 							</div>
-							<NativeConnectionPicker
-								service={serviceName as NativeServiceName}
-								value={workspaceConnection}
-								autoSelect={false}
-								clearable
-								labelWorkspace={false}
-								placeholder="None"
-								onSelect={(path) => setWorkspaceConnection(serviceName, path)}
-								onConnectionsChange={() => loadConnections(serviceName)}
-							/>
+						{:else}
+							<div class="flex items-center gap-1.5 text-xs text-secondary">
+								<Check size={14} class="shrink-0" />
+								{serviceName === 'nextcloud'
+									? 'Members can create triggers through the shared account.'
+									: `Members can connect their own ${config.displayName} account when they create a trigger.`}
+							</div>
+						{/if}
+
+						<div class="flex flex-col gap-1">
+							<div class="flex items-center gap-2 text-xs">
+								<span class="font-semibold text-emphasis">Shared account</span>
+								{#if workspaceConnection}
+									<span class="font-mono text-2xs text-emphasis">{workspaceConnection}</span>
+								{:else}
+									<span class="text-secondary">None</span>
+								{/if}
+								{#if !editingShared[serviceName]}
+									<button
+										class="text-xs font-normal text-accent hover:underline"
+										onclick={() => (editingShared[serviceName] = true)}
+									>
+										{workspaceConnection ? 'Change' : 'Choose'}
+									</button>
+								{/if}
+							</div>
+							{#if editingShared[serviceName]}
+								<div class="text-xs text-secondary">
+									Members can create triggers as this account without seeing its token.
+								</div>
+								<!-- Remounted so its list includes an account connected from elsewhere on the page. -->
+								{#key workspaceConnection}
+									<NativeConnectionPicker
+										service={serviceName as NativeServiceName}
+										value={workspaceConnection}
+										autoSelect={false}
+										clearable
+										labelWorkspace={false}
+										placeholder="None"
+										onSelect={async (path) => {
+											if (await setWorkspaceConnection(serviceName, path)) {
+												editingShared[serviceName] = false
+											}
+										}}
+										onConnectionsChange={() => loadConnections(serviceName)}
+									/>
+								{/key}
+								<button
+									class="text-xs font-normal text-accent hover:underline w-fit"
+									onclick={() => (editingShared[serviceName] = false)}
+								>
+									Done
+								</button>
+							{/if}
 						</div>
 					{/if}
 
