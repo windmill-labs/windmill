@@ -139,9 +139,9 @@
 
 		const displayName = supportedServices[serviceName]?.displayName ?? serviceName
 		const confirmed = await confirmationModal.ask({
-			title: `Remove the ${displayName} integration?`,
+			title: `Remove the ${displayName} configuration?`,
 			confirmationText: 'Remove',
-			children: `This removes the OAuth app configuration, every connected ${displayName} account and all ${displayName} triggers. This action cannot be undone.`
+			children: `This deletes the workspace's ${displayName} OAuth app, every ${displayName} account connected through it and all ${displayName} triggers, which stop receiving events. This action cannot be undone.`
 		})
 		if (!confirmed) return
 
@@ -292,7 +292,7 @@
 
 <div class="flex flex-col">
 	<SettingsPageHeader
-		title="Native Triggers"
+		title="Native triggers"
 		description="Configure the OAuth app of each service. Members connect their own account when creating a trigger, or use the shared account, and each trigger acts as the account it was created with."
 		link="https://www.windmill.dev/docs/core_concepts/native_triggers"
 	/>
@@ -318,17 +318,12 @@
 							<div class="text-sm font-semibold text-emphasis">{config.displayName}</div>
 							<div class="text-xs text-secondary">{config.description}</div>
 						</div>
-						<div class="flex items-center gap-1.5 text-xs text-secondary shrink-0">
-							<span
-								class="w-1.5 h-1.5 rounded-full {workspaceApp || usesInstanceApp
-									? 'bg-green-500'
-									: 'bg-surface-sunken'}"
-							></span>
+						<div class="text-xs text-secondary shrink-0">
 							{workspaceApp
-								? 'Workspace OAuth app'
+								? 'Configured in workspace'
 								: usesInstanceApp
-									? 'Instance OAuth app'
-									: 'Not set up'}
+									? 'Configured by instance'
+									: 'Not configured'}
 						</div>
 						{#if workspaceApp || usesInstanceApp}
 							<DropdownV2
@@ -341,7 +336,7 @@
 											},
 											...docsItem(config),
 											{
-												displayName: `Remove ${config.displayName}`,
+												displayName: 'Remove configuration',
 												icon: Trash2,
 												type: 'delete',
 												action: () => deleteIntegration(serviceName)
