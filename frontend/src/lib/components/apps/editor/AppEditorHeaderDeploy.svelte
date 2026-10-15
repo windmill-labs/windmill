@@ -20,7 +20,6 @@
 	import EEOnly from '$lib/components/EEOnly.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import LabelsInput from '$lib/components/LabelsInput.svelte'
-	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import OnBehalfOfSelector, {
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
@@ -157,17 +156,8 @@
 	let canPreserve = $derived(!!actingUser?.is_admin || !!actingUser?.is_super_admin || isDeployer)
 	let savedOnBehalfOfEmail = $derived(savedApp?.policy?.on_behalf_of_email)
 	let savedOnBehalfOf = $derived(savedApp?.policy?.on_behalf_of)
-	let pickedOnBehalfOf: OnBehalfOfChoice = $state(undefined)
-	// The deploy runs the app as the deployer unless a saved user is preserved or the folder
-	// names one, so show "me" only then; the other two are left for the selector to preselect.
-	const folderDefault = useFolderDefaultPermissionedAs(
-		() => newEditedPath || appPath,
-		() => opWs
-	)
-	let onBehalfOfChoice: OnBehalfOfChoice = $derived(
-		pickedOnBehalfOf ?? (savedOnBehalfOfEmail || folderDefault.value ? undefined : 'me')
-	)
-	let customOnBehalfOf: string = $state('')
+	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
+	let customOnBehalfOfEmail: string = $state('')
 	let dirtyCustomPath = $state(false)
 	let path: Path | undefined = $state(undefined)
 
@@ -332,33 +322,30 @@
 				targetValue={savedOnBehalfOfEmail}
 				selected={onBehalfOfChoice}
 				onSelect={(choice, details) => {
-					pickedOnBehalfOf = choice
+					onBehalfOfChoice = choice
 					if (choice === 'me') {
 						policy.on_behalf_of_email = $userStore?.email
 						policy.on_behalf_of = `u/${$userStore?.username}`
-						customOnBehalfOf = ''
+						customOnBehalfOfEmail = ''
 						preserveOnBehalfOf = false
 					} else if (choice === 'target') {
 						policy.on_behalf_of_email = savedOnBehalfOfEmail
 						policy.on_behalf_of = savedOnBehalfOf
-						customOnBehalfOf = ''
+						customOnBehalfOfEmail = ''
 						preserveOnBehalfOf = true
 					} else if (choice === 'custom' && details) {
-						// A group folder default comes back with its `g/` name as `email`; the backend
-						// rejects a pair that disagrees and fills the email in from the principal.
-						policy.on_behalf_of_email = details.email.includes('@') ? details.email : undefined
+						policy.on_behalf_of_email = details.email
 						policy.on_behalf_of = details.permissionedAs
-						customOnBehalfOf = details.permissionedAs
+						customOnBehalfOfEmail = details.email
 						preserveOnBehalfOf = true
 					}
 				}}
 				kind="app"
 				{canPreserve}
-				customValue={customOnBehalfOf}
+				customValue={customOnBehalfOfEmail}
 				isDeployment={false}
 				myPermissionedAs={actingUser?.username ? `u/${actingUser.username}` : undefined}
 				readOnlyWithoutPreserve
-				folderDefault={folderDefault.value}
 			/>
 			<div class="text-2xs text-secondary">
 				{#if canPreserve}
