@@ -8547,7 +8547,7 @@ async fn clone_apps(
 
     // Clone app scripts with recomputed hashes
     let app_scripts = sqlx::query!(
-        "SELECT app, hash, lock, code, code_sha256
+        "SELECT id, app, hash, lock, code, code_sha256, modules
          FROM app_script
          WHERE app = ANY(SELECT id FROM app WHERE workspace_id = $1)",
         source_workspace_id
@@ -8555,32 +8555,102 @@ async fn clone_apps(
     .fetch_all(&mut **tx)
     .await?;
 
+    let mut app_script_id_mapping: HashMap<i64, i64> = HashMap::new();
     for app_script in app_scripts {
         if let Some(&new_app_id) = app_id_mapping.get(&app_script.app) {
-            // Recompute hash using app_id, code_sha256, and lock
+            // Recompute hash using app_id, code_sha256, lock and modules
             let mut hasher = Sha256::new();
             hasher.update(new_app_id.to_be_bytes());
             hasher.update(hex::decode(&app_script.code_sha256)?);
             if let Some(lock) = &app_script.lock {
                 hasher.update(lock.as_bytes());
             }
+            if let Some(modules) = &app_script.modules {
+                hasher.update(modules.to_string());
+            }
             let new_hash = hex::encode(hasher.finalize());
 
-            sqlx::query!(
-                "INSERT INTO app_script (app, hash, lock, code, code_sha256)
-                 VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
+            let new_id = sqlx::query_scalar!(
+                "INSERT INTO app_script (app, hash, lock, code, code_sha256, modules)
+                 VALUES ($1, $2, $3, $4, $5, $6)
+                 ON CONFLICT (hash) DO UPDATE SET app = EXCLUDED.app -- trivial update to return the id
+                 RETURNING id",
                 new_app_id,
                 new_hash,
                 app_script.lock,
                 app_script.code,
                 app_script.code_sha256,
+                app_script.modules,
             )
-            .execute(&mut **tx)
+            .fetch_one(&mut **tx)
             .await?;
+            app_script_id_mapping.insert(app_script.id, new_id);
         }
     }
 
+    // A version's lite value is what points each inline script at its `app_script` row (lock and
+    // modules). Without it the fork serves the full value, whose inline scripts carry no id and
+    // so run as bare code: no lock, and no modules for a raw app's sibling imports. Every
+    // version, not just `versions.last()`: the fork's `versions` is rebuilt from all rows above,
+    // so its current one can be a row the parent's array never listed.
+    let source_versions: Vec<i64> = version_id_mapping.keys().copied().collect();
+    let lite_versions = sqlx::query!(
+        "SELECT id, value AS \"value!: serde_json::Value\" FROM app_version_lite WHERE id = ANY($1)",
+        &source_versions,
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    let (mut lite_ids, mut lite_values) = (vec![], vec![]);
+    for lite in lite_versions {
+        let Some(&new_version_id) = version_id_mapping.get(&lite.id) else {
+            continue;
+        };
+        let mut value = lite.value;
+        // Lite inline scripts have no code of their own, so one left without a row cannot run.
+        if !remap_app_script_ids(&mut value, &app_script_id_mapping) {
+            continue;
+        }
+        if let Some(object) = value.as_object_mut() {
+            object.insert("version".to_string(), serde_json::json!(new_version_id));
+        }
+        lite_ids.push(new_version_id);
+        lite_values.push(value);
+    }
+    sqlx::query!(
+        "INSERT INTO app_version_lite (id, value)
+         SELECT * FROM UNNEST($1::bigint[], $2::jsonb[])
+         ON CONFLICT (id) DO NOTHING",
+        &lite_ids,
+        &lite_values,
+    )
+    .execute(&mut **tx)
+    .await?;
+
     Ok(app_id_mapping)
+}
+
+/// Points every `inlineScript.id` of a cloned lite app value at the fork's copy of that row.
+/// False when some id has no copy.
+fn remap_app_script_ids(value: &mut serde_json::Value, mapping: &HashMap<i64, i64>) -> bool {
+    match value {
+        serde_json::Value::Object(object) => {
+            if let Some(serde_json::Value::Object(script)) = object.get_mut("inlineScript") {
+                if let Some(old_id) = script.get("id").and_then(serde_json::Value::as_i64) {
+                    let Some(new_id) = mapping.get(&old_id) else {
+                        return false;
+                    };
+                    script.insert("id".to_string(), serde_json::json!(new_id));
+                }
+            }
+            object
+                .values_mut()
+                .all(|child| remap_app_script_ids(child, mapping))
+        }
+        serde_json::Value::Array(array) => array
+            .iter_mut()
+            .all(|child| remap_app_script_ids(child, mapping)),
+        _ => true,
+    }
 }
 
 async fn clone_raw_apps(

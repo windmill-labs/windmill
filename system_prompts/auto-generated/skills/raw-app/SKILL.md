@@ -432,6 +432,10 @@ def main(user_id: str):
     return user
 ```
 
+#### Sharing code between runnables
+
+An inline runnable can import another inline runnable of the same app by its id, as a relative import: `import { getDb } from './shared'` (TypeScript, Bun) or `from .shared import get_db` (Python). This works across TypeScript (Bun) runnables and across Python runnables, not between the two. The imported runnable's own dependencies are picked up, and it can import further runnables in turn. A runnable that only holds helpers needs no `main`; the frontend just never calls it. A TypeScript runnable whose id is `main` cannot be imported, because that name is taken by the entrypoint file of every TypeScript job: give shared code any other id.
+
 #### The `wmill` client is already authenticated
 
 An inline runnable runs as an ordinary Windmill job. `import * as wmill from 'windmill-client'` (TypeScript) and `import wmill` (Python) are already pointed at this instance and this workspace — there is nothing to configure.
@@ -477,7 +481,9 @@ Either one lets those people run the app's backend runnables, so never open an a
 
 ## Sandbox isolation and frontend API access
 
-By default a deployed app's frontend runs with the viewer's own Windmill session. A sandboxed app is isolated from it: the frontend reaches Windmill only through its backend runnables, plus whatever frontend API scopes the app declares, which each viewer approves before the app runs. The scopes are `jobs:run`, `jobs:read`, `users:read`, `resources:read`, `variables:read`, `flow_conversations:read` and `flow_conversations:write`; grant only the ones the frontend calls.
+New apps are sandboxed: the frontend is isolated from the viewer's own Windmill session and reaches Windmill only through its backend runnables, plus whatever frontend API scopes the app declares, which each viewer approves before the app runs. With isolation turned off, the frontend runs with the viewer's full session. The scopes are `jobs:run`, `jobs:read`, `users:read`, `resources:read`, `variables:read`, `flow_conversations:read` and `flow_conversations:write`; grant only the ones the frontend calls.
+
+Inside the sandbox, IndexedDB is unavailable, third-party sign-in and OAuth redirects fail, and requests to other services carry `Origin: null`, which an API that checks the origin rejects. Work around these first: call the service from a backend runnable, keep state in a data table or `localStorage`, or grant the frontend API scope the code needs. Suggest turning isolation off only when none of that works, and say plainly that it is a security risk: the app's code, and any XSS bug in it, then runs with the full Windmill permissions of everyone who opens the app.
 In `raw_app.yaml`:
 
 ```yaml

@@ -462,8 +462,9 @@ fn app_embed_route_denied(domain: ScopeDomain, suffix: &str) -> bool {
     }
 }
 
-/// App routes a running app uses: its own definition (`apps/get/p/<path>`, further
-/// path-scoped by `apps:read:<path>`) and the public app-serving endpoints
+/// App routes a running app uses: its own definition (`apps/get/p/<path>`, or
+/// `apps/get/lite/<path>` that the viewer runs from, both further path-scoped by
+/// `apps:read:<path>`) and the public app-serving endpoints
 /// (`apps_u/*`: public_app, public_resource, get_data, and the path-taking
 /// `execute_component` / `download_s3_file`, which re-check `apps:run|read:<path>`
 /// in their handlers so they stay confined to this app). Everything else in the
@@ -477,7 +478,9 @@ fn app_embed_apps_route_allowed(suffix: &str) -> bool {
     if suffix.starts_with("apps_u/embed_token") {
         return false;
     }
-    suffix.starts_with("apps/get/p/") || suffix.starts_with("apps_u/")
+    suffix.starts_with("apps/get/p/")
+        || suffix.starts_with("apps/get/lite/")
+        || suffix.starts_with("apps_u/")
 }
 
 /// Routes a guest session is denied: the app-embed allowlist, plus the embed-token

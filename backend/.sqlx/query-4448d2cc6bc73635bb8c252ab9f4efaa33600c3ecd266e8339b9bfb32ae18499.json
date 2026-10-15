@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO app_script (app, hash, lock, code, code_sha256, modules)\n                 VALUES ($1, $2, $3, $4, $5, $6)\n                 ON CONFLICT (hash) DO UPDATE SET app = EXCLUDED.app -- trivial update to return the id\n                 RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bpchar",
+        "Text",
+        "Text",
+        "Bpchar",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4448d2cc6bc73635bb8c252ab9f4efaa33600c3ecd266e8339b9bfb32ae18499"
+}

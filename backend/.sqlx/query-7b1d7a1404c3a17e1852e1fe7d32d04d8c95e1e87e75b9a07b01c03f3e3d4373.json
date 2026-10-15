@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT lock, code FROM app_script WHERE id = $1 LIMIT 1",
+  "query": "SELECT lock, code, modules AS \"modules: serde_json::Value\"\n         FROM app_script WHERE id = $1 LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -12,6 +12,11 @@
         "ordinal": 1,
         "name": "code",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "modules: serde_json::Value",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -21,8 +26,9 @@
     },
     "nullable": [
       true,
-      false
+      false,
+      true
     ]
   },
-  "hash": "ffa86babfcab107caffb8dda31a66b142fa628b8983b966357deb3d5e0a1df3c"
+  "hash": "7b1d7a1404c3a17e1852e1fe7d32d04d8c95e1e87e75b9a07b01c03f3e3d4373"
 }
