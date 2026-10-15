@@ -49,7 +49,7 @@
 	</Badge>
 {:else if job && 'success' in job}
 	<Badge {large} color="red">
-		Failed after {msToReadableTime(job.duration_ms)}
+		{job.canceled ? 'Canceled' : 'Failed'} after {msToReadableTime(job.duration_ms)}
 		{#if job.self_wait_time_ms || job.aggregate_wait_time_ms}
 			<WaitTimeWarning
 				self_wait_time_ms={job.self_wait_time_ms}
