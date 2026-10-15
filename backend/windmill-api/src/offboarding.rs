@@ -1215,6 +1215,11 @@ async fn offboard_user_from_workspace<'c>(
     ).execute(&mut **tx).await?;
 
     sqlx::query!(
+        r#"UPDATE workspace_integrations SET resource_path = REGEXP_REPLACE(resource_path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE resource_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        &new_prefix, username, w_id
+    ).execute(&mut **tx).await?;
+
+    sqlx::query!(
         r#"UPDATE workspace_runnable_dependencies SET flow_path = REGEXP_REPLACE(flow_path, 'u/' || $2 || '/(.*)', $1 || '/\1') WHERE flow_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         &new_prefix, username, w_id
     ).execute(&mut **tx).await?;
