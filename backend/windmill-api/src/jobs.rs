@@ -115,7 +115,9 @@ use windmill_common::{
         add_virtual_items_if_necessary, resolve_maybe_value, ApprovalSkin, FlowModule, FlowValue,
         Suspend,
     },
-    jobs::{script_path_to_payload, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode},
+    jobs::{
+        script_path_to_payload, CompletedJob, JobKind, JobPayload, OnBehalfOf, QueuedJob, RawCode,
+    },
     oauth2::HmacSha256,
     query_builders,
     scripts::{ScriptHash, ScriptLang},
@@ -6736,6 +6738,9 @@ struct Preview {
     /// preview job resolves those imports from not-yet-deployed local content
     /// (uploaded to raw_script_temp) instead of the deployed script.
     temp_script_refs: Option<HashMap<String, String>>,
+    /// Run the preview as this identity (an email or a `u/`/`g/` principal) instead of the
+    /// caller. See `preview_on_behalf_of`.
+    on_behalf_of: Option<String>,
 }
 
 #[cfg(feature = "run_inline")]
@@ -6768,6 +6773,8 @@ struct PreviewFlow {
     /// each flow step so inline-script relative imports resolve from
     /// not-yet-deployed local content instead of the deployed script.
     temp_script_refs: Option<HashMap<String, String>>,
+    /// See `Preview::on_behalf_of`.
+    on_behalf_of: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -8930,6 +8937,97 @@ fn operator_preview_refusal(job_id: Option<Uuid>) -> error::Error {
     error::Error::PermissionDenied(reason.to_string())
 }
 
+/// The identity a preview asks to run as, or `None` when it runs as the caller.
+///
+/// A preview is request-supplied code, so running it as someone else is impersonation, not
+/// "running their runnable": only those who may set a runnable's `on_behalf_of` on deploy
+/// (admins and `wm_deployers`) may ask for it. Naming oneself is always allowed.
+async fn preview_on_behalf_of(
+    authed: &ApiAuthed,
+    requested: Option<&str>,
+    w_id: &str,
+    db: &DB,
+) -> error::Result<Option<OnBehalfOf>> {
+    let Some(requested) = requested.filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    let own = username_to_permissioned_as(&authed.username);
+    if requested == own || requested == authed.email {
+        return Ok(None);
+    }
+    if !windmill_common::can_preserve_on_behalf_of(authed) {
+        return Err(Error::PermissionDenied(
+            "Only admins and members of wm_deployers can run a preview on behalf of another user"
+                .to_string(),
+        ));
+    }
+    let permissioned_as =
+        windmill_common::resolve_on_behalf_of(None, Some(requested), true, authed, w_id, db)
+            .await?
+            .unwrap_or(own.clone());
+    if permissioned_as == own {
+        return Ok(None);
+    }
+    let email =
+        windmill_common::users::get_email_from_permissioned_as_uncached(&permissioned_as, w_id, db)
+            .await?;
+    Ok(Some(OnBehalfOf { email, permissioned_as }))
+}
+
+async fn audit_preview_on_behalf_of(
+    tx: &mut Transaction<'_, Postgres>,
+    authed: &ApiAuthed,
+    w_id: &str,
+    job_id: Uuid,
+    path: Option<&str>,
+    obo: &OnBehalfOf,
+) -> error::Result<()> {
+    let mut params = HashMap::from([("on_behalf_of", obo.permissioned_as.as_str())]);
+    if let Some(path) = path {
+        params.insert("path", path);
+    }
+    audit_log(
+        &mut **tx,
+        authed,
+        "jobs.run.preview_on_behalf_of",
+        ActionKind::Execute,
+        w_id,
+        Some(&job_id.to_string()),
+        Some(params),
+    )
+    .await?;
+    Ok(())
+}
+
+/// The push identity and isolation level for a preview: the caller's own, or the requested
+/// `on_behalf_of`'s, pushed through the root pool like a deployed `on_behalf_of` run.
+fn preview_push_identity(
+    authed: &ApiAuthed,
+    user_db: &UserDB,
+    db: &DB,
+    obo: Option<&OnBehalfOf>,
+) -> (
+    String,
+    String,
+    Option<windmill_common::db::Authed>,
+    PushIsolationLevel<'static>,
+) {
+    match obo {
+        Some(obo) => (
+            obo.email.clone(),
+            obo.permissioned_as.clone(),
+            None,
+            PushIsolationLevel::IsolatedRoot(db.clone()),
+        ),
+        None => (
+            authed.email.clone(),
+            username_to_permissioned_as(&authed.username),
+            Some(authed.clone().into()),
+            PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
+        ),
+    }
+}
+
 async fn run_preview_script(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -8964,7 +9062,10 @@ async fn run_preview_script(
     require_path_read_access_for_preview(&authed, &preview.path)?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(preview.tag.clone());
-    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
+    let obo = preview_on_behalf_of(&authed, preview.on_behalf_of.as_deref(), &w_id, &db).await?;
+    let (email, permissioned_as, push_authed, tx) =
+        preview_push_identity(&authed, &user_db, &db, obo.as_ref());
+    let audited_path = preview.path.clone();
 
     let preview_args = preview.args.unwrap_or_default();
     let mut extra = HashMap::new();
@@ -9010,8 +9111,8 @@ async fn run_preview_script(
         },
         push_args,
         authed.display_username(),
-        &authed.email,
-        username_to_permissioned_as(&authed.username),
+        &email,
+        permissioned_as,
         authed.token_prefix.as_deref(),
         authed.username_override.as_deref(),
         scheduled_for,
@@ -9028,7 +9129,7 @@ async fn run_preview_script(
         run_query.timeout,
         None,
         None,
-        Some(&authed.clone().into()),
+        push_authed.as_ref(),
         false,
         end_user_email,
         authed.trigger_or_fallback(None),
@@ -9036,6 +9137,11 @@ async fn run_preview_script(
         scope_ceiling.as_deref(),
     )
     .await?;
+    let mut tx = tx;
+    if let Some(obo) = obo.as_ref() {
+        audit_preview_on_behalf_of(&mut tx, &authed, &w_id, uuid, audited_path.as_deref(), obo)
+            .await?;
+    }
     tx.commit().await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
@@ -9387,7 +9493,11 @@ async fn run_bundle_preview_script(
 
             let scheduled_for = run_query.get_scheduled_for(&db).await?;
             let tag = run_query.tag.clone().or(preview.tag.clone());
-            let ltx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
+            let obo =
+                preview_on_behalf_of(&authed, preview.on_behalf_of.as_deref(), &w_id, &db).await?;
+            let (email, permissioned_as, push_authed, ltx) =
+                preview_push_identity(&authed, &user_db, &db, obo.as_ref());
+            let audited_path = preview.path.clone();
 
             let args = preview.args.unwrap_or_default();
 
@@ -9435,8 +9545,8 @@ async fn run_bundle_preview_script(
                 }),
                 push_args,
                 authed.display_username(),
-                &authed.email,
-                username_to_permissioned_as(&authed.username),
+                &email,
+                permissioned_as,
                 authed.token_prefix.as_deref(),
                 authed.username_override.as_deref(),
                 scheduled_for,
@@ -9453,7 +9563,7 @@ async fn run_bundle_preview_script(
                 run_query.timeout,
                 None,
                 None,
-                Some(&authed.clone().into()),
+                push_authed.as_ref(),
                 false,
                 end_user_email,
                 authed.trigger_or_fallback(None),
@@ -9461,6 +9571,18 @@ async fn run_bundle_preview_script(
                 scope_ceiling.as_deref(),
             )
             .await?;
+            let mut ntx = ntx;
+            if let Some(obo) = obo.as_ref() {
+                audit_preview_on_behalf_of(
+                    &mut ntx,
+                    &authed,
+                    &w_id,
+                    uuid,
+                    audited_path.as_deref(),
+                    obo,
+                )
+                .await?;
+            }
             job_id = Some(uuid);
             tx = Some(ntx);
         }
@@ -10138,7 +10260,9 @@ async fn run_preview_flow_job(
     }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(raw_flow.tag.clone());
-    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
+    let obo = preview_on_behalf_of(&authed, raw_flow.on_behalf_of.as_deref(), &w_id, &db).await?;
+    let (email, permissioned_as, push_authed, tx) =
+        preview_push_identity(&authed, &user_db, &db, obo.as_ref());
 
     let chat_input_enabled = raw_flow.value.chat_input_enabled.unwrap_or(false);
     let flow_path = raw_flow.path.clone().unwrap_or_default();
@@ -10171,8 +10295,8 @@ async fn run_preview_flow_job(
         },
         PushArgs::from(&flow_args),
         authed.display_username(),
-        &authed.email,
-        username_to_permissioned_as(&authed.username),
+        &email,
+        permissioned_as,
         authed.token_prefix.as_deref(),
         authed.username_override.as_deref(),
         scheduled_for,
@@ -10189,7 +10313,7 @@ async fn run_preview_flow_job(
         None,
         None,
         None,
-        Some(&authed.clone().into()),
+        push_authed.as_ref(),
         false,
         end_user_email,
         authed.trigger_or_fallback(None),
@@ -10197,6 +10321,11 @@ async fn run_preview_flow_job(
         scope_ceiling.as_deref(),
     )
     .await?;
+
+    if let Some(obo) = obo.as_ref() {
+        let audited_path = Some(flow_path.as_str()).filter(|p| !p.is_empty());
+        audit_preview_on_behalf_of(&mut tx, &authed, &w_id, uuid, audited_path, obo).await?;
+    }
 
     // Set memory_id if provided (for agent memory)
     if let Some(memory_id) = run_query.memory_key(&w_id, &flow_path) {

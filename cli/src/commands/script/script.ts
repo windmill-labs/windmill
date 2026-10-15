@@ -1878,6 +1878,7 @@ async function preview(
     data?: string;
     silent: boolean;
     tag?: string;
+    onBehalfOf?: string;
   } & SyncOptions,
   filePath: string
 ) {
@@ -2058,6 +2059,7 @@ async function preview(
       kind: isTar ? "tarbundle" : "bundle",
       format: codebase?.format ?? "cjs",
       temp_script_refs: tempScriptRefs,
+      on_behalf_of: opts.onBehalfOf,
     };
     form.append("preview", JSON.stringify(previewPayload));
     form.append(
@@ -2127,6 +2129,7 @@ async function preview(
         tag: opts.tag,
         modules: modules ?? undefined,
         temp_script_refs: tempScriptRefs,
+        on_behalf_of: opts.onBehalfOf,
       },
     });
 
@@ -2276,6 +2279,10 @@ const command = new Command()
   .option(
     "--tag <tag:string>",
     "Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the script's default tag)."
+  )
+  .option(
+    "--on-behalf-of <identity:string>",
+    "Run the preview as this user or group (an email, u/<username> or g/<group>) instead of yourself, e.g. to reproduce a run_on_behalf_of identity. Requires being an admin or a member of wm_deployers."
   )
   .action(preview as any)
   .command("new", "create a new script")

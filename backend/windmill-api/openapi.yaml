@@ -32405,6 +32405,10 @@ components:
           description: "Map of relative-import script path -> temp storage hash so the preview job resolves those imports from not-yet-deployed local content instead of the deployed script"
           additionalProperties:
             type: string
+        on_behalf_of:
+          type: string
+          nullable: true
+          description: "Run the preview as this identity (an email, `u/<username>` or `g/<group>`) instead of the caller. Naming anyone other than yourself requires being an admin or a member of wm_deployers."
       required:
         - args
 
@@ -36749,6 +36753,10 @@ components:
           description: "Map of relative-import script path -> temp storage hash, propagated to each flow step so inline-script relative imports resolve from not-yet-deployed local content instead of the deployed script"
           additionalProperties:
             type: string
+        on_behalf_of:
+          type: string
+          nullable: true
+          description: "Run the preview as this identity (an email, `u/<username>` or `g/<group>`) instead of the caller. Naming anyone other than yourself requires being an admin or a member of wm_deployers."
 
       required:
         - value
