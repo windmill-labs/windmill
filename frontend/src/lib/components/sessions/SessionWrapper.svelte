@@ -26,6 +26,7 @@
 	} from 'lucide-svelte'
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
 	import SessionChangesBar from './SessionChangesBar.svelte'
+	import SessionShareButton from './SessionShareButton.svelte'
 	import { clearSessionRecovered, isSessionRecovered } from './sessionRecoveryNotice.svelte'
 	import {
 		composerFocusRequest,
@@ -432,6 +433,13 @@
 				</span>
 			{/snippet}
 		</DropdownV2>
+
+		<SessionShareButton
+			sessionId={session.id}
+			name={session.summary ?? ''}
+			workspaceId={session.workspace_id}
+			manager={runtime.manager}
+		/>
 	{/snippet}
 
 	{#if headerInPage}
