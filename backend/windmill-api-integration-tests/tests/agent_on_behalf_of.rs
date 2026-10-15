@@ -30,6 +30,15 @@ async fn agent_identity(db: &Pool<Postgres>) -> anyhow::Result<Option<String>> {
     .await?)
 }
 
+async fn job_identity(db: &Pool<Postgres>, id: &str) -> anyhow::Result<(String, String)> {
+    Ok(
+        sqlx::query_as("SELECT permissioned_as, created_by FROM v2_job WHERE id = $1::uuid")
+            .bind(id)
+            .fetch_one(db)
+            .await?,
+    )
+}
+
 /// The identity an agent runs as is in its value, which anyone who can write the agent writes: it
 /// is kept only for an admin asking to keep it, and every other write makes it the writer's own,
 /// so a writer cannot change what runs while it keeps running as someone else.
@@ -65,10 +74,10 @@ async fn test_agent_write_resets_identity(db: Pool<Postgres>) -> anyhow::Result<
     Ok(())
 }
 
-/// Reading an agent is what allows running it, and the run is the agent's identity, not the
-/// caller's: `test-user-2`, a plain member, runs an agent that runs as `test-user-3`.
+/// Reading an agent is what allows running it. The run is the caller's unless the agent opts into
+/// running as its identity: then `test-user-2`, a plain member, runs as `test-user-3`.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_agent_run_is_its_identity_and_needs_read(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_agent_run_identity_and_needs_read(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let base_url = format!("http://localhost:{}/api", server.addr.port());
@@ -101,15 +110,30 @@ async fn test_agent_run_is_its_identity_and_needs_read(db: Pool<Postgres>) -> an
     )
     .await?;
     assert_eq!(status, 201, "a readable agent: {body}");
+    assert_eq!(
+        job_identity(&db, &body).await?,
+        ("u/test-user-2".into(), "test-user-2".into())
+    );
 
-    let (permissioned_as, created_by) = sqlx::query_as::<_, (String, String)>(
-        "SELECT permissioned_as, created_by FROM v2_job WHERE id = $1::uuid",
+    sqlx::query(
+        "UPDATE resource SET value = value || '{\"run_on_behalf_of\": true}'
+         WHERE workspace_id = 'test-workspace' AND path = $1",
     )
-    .bind(&body)
-    .fetch_one(&db)
+    .bind(AGENT)
+    .execute(&db)
     .await?;
-    assert_eq!(permissioned_as, "u/test-user-3");
-    assert_eq!(created_by, "test-user-2");
+    let (status, body) = post(
+        &base_url,
+        "SECRET_TOKEN_2",
+        &run,
+        json!({ "user_message": "hi" }),
+    )
+    .await?;
+    assert_eq!(status, 201, "an agent run on behalf of: {body}");
+    assert_eq!(
+        job_identity(&db, &body).await?,
+        ("u/test-user-3".into(), "test-user-2".into())
+    );
 
     // The run takes its conversation outside the caller's row policy, so a reader must not
     // continue another user's conversation; an admin still may, as the policy allows.

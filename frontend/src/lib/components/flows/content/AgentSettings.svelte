@@ -7,8 +7,9 @@
 	import ResourceDescriptionField from '$lib/components/ResourceDescriptionField.svelte'
 	import ResourcePathHint from '$lib/components/ResourcePathHint.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import PermissionedAsLine from '$lib/components/triggers/PermissionedAsLine.svelte'
 	import { WorkspaceService } from '$lib/gen'
-	import type { AgentDraftHandle } from '../agentDraft.svelte'
+	import type { AgentDraftHandle, AgentRunAs } from '../agentDraft.svelte'
 
 	/** An agent's own settings, laid out as the top of the resource editor: what it is saved as
 	 *  rather than what it does. */
@@ -19,9 +20,11 @@
 		workspace: string | undefined
 		/** Why the path cannot be deployed to, if it cannot. */
 		error?: string
+		/** Who the next deploy makes the agent run as, as picked here. */
+		onRunAsChange?: (runAs: AgentRunAs) => void
 	}
 
-	let { draft, path, workspace, error = $bindable() }: Props = $props()
+	let { draft, path, workspace, error = $bindable(), onRunAsChange = undefined }: Props = $props()
 
 	let readOnly = $derived(!draft.canWrite)
 	// Only a workspace that deploys somewhere has anything to keep an agent out of.
@@ -64,6 +67,33 @@
 		{:else}
 			<LabelsInput bind:labels={draft.state.labels} {workspace} class="-mt-4" />
 		{/if}
+		<!-- Every deployed agent has an identity, resolved on deploy as a flow's on-behalf-of identity
+		     is; it is shown only while runs from the agent's page use it. -->
+		<div class="flex flex-col gap-2">
+			<Label
+				label="Run on behalf of"
+				tooltip="Runs from the agent's page and the API take the permissions of the identity below. Otherwise they take the caller's."
+			>
+				<Toggle
+					bind:checked={
+						() => draft.state?.args.run_on_behalf_of ?? false,
+						(v) => {
+							if (draft.state) draft.state.args.run_on_behalf_of = v || undefined
+						}
+					}
+					disabled={readOnly}
+				/>
+			</Label>
+			{#if draft.state.args.run_on_behalf_of}
+				<PermissionedAsLine
+					permissionedAs={draft.onBehalfOf}
+					path={draft.state.path}
+					disabled={readOnly}
+					onPermissionedAsChange={(permissionedAs, preserve) =>
+						onRunAsChange?.({ permissionedAs, preserve })}
+				/>
+			{/if}
+		</div>
 		{#if deployTo.current}
 			<Label label="Workspace specific" tooltip="Keeps this agent out of deploys to prod/staging.">
 				<Toggle bind:checked={draft.state.wsSpecific} disabled={readOnly} />
