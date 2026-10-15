@@ -149,15 +149,20 @@ async fn test_agent_run_identity_and_needs_read(db: Pool<Postgres>) -> anyhow::R
         ("u/test-user-3".into(), "test-user-2".into())
     );
 
-    // The worker would resolve it with the identity's token.
-    let (status, body) = post(
-        &base_url,
-        "SECRET_TOKEN_2",
-        &run,
-        json!({ "user_message": "$var:u/test-user-3/secret" }),
-    )
-    .await?;
-    assert_eq!(status, 400, "a reference in the caller's input: {body}");
+    // The worker would resolve it with the identity's token, however the JSON spells the `$`.
+    for raw in [
+        r#"{"user_message":"$var:u/test-user-3/secret"}"#,
+        r#"{"user_message":"\u0024var:u/test-user-3/secret"}"#,
+    ] {
+        let resp = reqwest::Client::new()
+            .post(format!("{base_url}/w/test-workspace/{run}"))
+            .header("Authorization", "Bearer SECRET_TOKEN_2")
+            .header("Content-Type", "application/json")
+            .body(raw)
+            .send()
+            .await?;
+        assert_eq!(resp.status().as_u16(), 400, "a reference in {raw}");
+    }
 
     // The run takes its conversation outside the caller's row policy, so a reader must not
     // continue another user's conversation; an admin still may, as the policy allows.
