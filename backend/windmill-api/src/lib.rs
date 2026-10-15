@@ -566,7 +566,7 @@ pub async fn run_server(
 
     // Setup MCP server
     #[allow(unused_variables)]
-    let (mcp_router, mcp_workspace_router, gateway_mcp_router, mcp_cancellation_token) = {
+    let (mcp_router, gateway_mcp_router, gateway_session_router, mcp_cancellation_token) = {
         #[cfg(feature = "mcp")]
         if server_mode || mcp_mode {
             use mcp::{
@@ -587,13 +587,6 @@ pub async fn run_server(
                 .layer(axum::middleware::from_fn(reject_token_query_param))
                 .layer(axum::middleware::from_fn(add_www_authenticate_header))
                 .layer(axum::middleware::from_fn(extract_and_store_workspace_id));
-            // The workspace server: the same auth as the tools server, under its own URL.
-            let mcp_workspace_router = session_router
-                .route_layer(from_extractor::<ApiAuthed>())
-                .layer(axum::middleware::from_fn(reject_token_query_param))
-                .layer(axum::middleware::from_fn(add_www_authenticate_header))
-                .layer(Extension(mcp::McpEndpoint("windmill")))
-                .layer(axum::middleware::from_fn(extract_and_store_workspace_id));
             // Gateway MCP router — resolves workspace from token
             let gateway_mcp_router = mcp_router
                 .route_layer(from_extractor::<ApiAuthed>())
@@ -602,10 +595,19 @@ pub async fn run_server(
                 .layer(axum::middleware::from_fn(
                     add_www_authenticate_header_gateway,
                 ));
+            // The workspace server. Its tools name their workspace; the token bounds which.
+            let gateway_session_router = session_router
+                .route_layer(from_extractor::<ApiAuthed>())
+                .layer(axum::middleware::from_fn(extract_workspace_from_token))
+                .layer(axum::middleware::from_fn(reject_token_query_param))
+                .layer(axum::middleware::from_fn(
+                    add_www_authenticate_header_gateway,
+                ))
+                .layer(Extension(mcp::McpEndpoint("windmill")));
             (
                 workspaced_mcp_router,
-                mcp_workspace_router,
                 gateway_mcp_router,
+                gateway_session_router,
                 Some(mcp_cancellation_token),
             )
         } else {
@@ -946,11 +948,11 @@ pub async fn run_server(
                     "/mcp/w/{workspace_id}/mcp",
                     mcp_router.clone().layer(mcp_cors.clone()),
                 )
-                .nest(
-                    "/mcp/w/{workspace_id}/windmill",
-                    mcp_workspace_router.layer(mcp_cors.clone()),
-                )
                 .nest("/mcp/gateway", gateway_mcp_router.layer(mcp_cors.clone()))
+                .nest(
+                    "/mcp/windmill",
+                    gateway_session_router.layer(mcp_cors.clone()),
+                )
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
                     {
@@ -1164,19 +1166,6 @@ pub async fn run_server(
                 }
             },
         )
-        .route(
-            "/.well-known/oauth-protected-resource/api/mcp/w/{workspace_id}/windmill",
-            {
-                #[cfg(feature = "mcp")]
-                {
-                    get(mcp::oauth_server::workspace_server_protected_resource_metadata)
-                }
-                #[cfg(not(feature = "mcp"))]
-                {
-                    get(|| async { axum::http::StatusCode::NOT_FOUND })
-                }
-            },
-        )
         // Gateway OAuth well-known endpoints
         .route(
             "/.well-known/oauth-authorization-server/api/mcp/gateway/oauth/server",
@@ -1195,6 +1184,16 @@ pub async fn run_server(
             #[cfg(feature = "mcp")]
             {
                 get(mcp::oauth_server::gateway_protected_resource_metadata)
+            }
+            #[cfg(not(feature = "mcp"))]
+            {
+                get(|| async { axum::http::StatusCode::NOT_FOUND })
+            }
+        })
+        .route("/.well-known/oauth-protected-resource/api/mcp/windmill", {
+            #[cfg(feature = "mcp")]
+            {
+                get(mcp::oauth_server::gateway_session_protected_resource_metadata)
             }
             #[cfg(not(feature = "mcp"))]
             {

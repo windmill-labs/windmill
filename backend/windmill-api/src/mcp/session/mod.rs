@@ -35,7 +35,9 @@ mod misc;
 mod runs;
 mod workspace;
 
-pub(super) use instructions::session_instructions;
+pub(super) use instructions::{
+    generic_session_instructions, session_instructions, workspace_context,
+};
 
 #[derive(Deserialize)]
 struct ToolDef {

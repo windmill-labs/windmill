@@ -225,12 +225,19 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
     // Workspace server (`SessionRunner`): the AI-session toolset
     // ─────────────────────────────────────────────────────────────────
 
-    /// The instructions a client receives on connecting, built for this user.
+    /// The instructions a client reaching one workspace receives on connecting, built for
+    /// this user.
     async fn session_instructions(
         &self,
         auth: &Self::Auth,
         workspace_id: &str,
     ) -> BackendResult<String>;
+
+    /// The instructions for a client reaching several workspaces: what holds in all of them.
+    fn generic_session_instructions(&self) -> String;
+
+    /// What `generic_session_instructions` leaves out, for one workspace.
+    async fn workspace_context(&self, auth: &Self::Auth, workspace_id: &str) -> String;
 
     /// The tools offered; a read-only token gets the read tools alone.
     fn session_tools(&self, read_only: bool) -> Vec<Tool>;

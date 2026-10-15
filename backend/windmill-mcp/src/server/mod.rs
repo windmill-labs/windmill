@@ -17,7 +17,7 @@ pub use crate::common::types::{McpToken, MultiWorkspaceMcp, WorkspaceInfo};
 pub use backend::{BackendResult, McpAuth, McpBackend, McpRequest, PathFilter};
 pub use endpoints::{
     endpoint_tool_to_mcp_tool, endpoint_tool_to_mcp_tool_multi, is_endpoint_read_only,
-    list_workspaces_tool, non_empty_body_fields, EndpointTool,
+    list_workspaces_tool, non_empty_body_fields, with_workspace_id_arg, EndpointTool,
 };
 pub use runner::{has_endpoint_path_policy, Runner};
 pub use session::SessionRunner;

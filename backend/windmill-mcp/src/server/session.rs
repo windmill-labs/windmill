@@ -1,18 +1,23 @@
 //! The "Windmill workspace" MCP server: an AI session's toolset and guidance for an
 //! external client, served beside the tools server (`Runner`) on its own URL so a
 //! client that only wants to run a script does not load builder guidance.
+//!
+//! Every tool takes the workspace it acts in, whether the token reaches one workspace or
+//! several, so a client's tool schemas do not change with the token it signed in with.
 
-use crate::common::scope::parse_mcp_scopes;
+use crate::common::scope::{parse_mcp_scopes, McpScopeConfig};
+use crate::common::types::WorkspaceInfo;
 use crate::server::backend::{McpAuth, McpBackend};
+use crate::server::endpoints::{list_workspaces_tool, with_workspace_id_arg};
 use crate::server::runner::{
-    truncate_tool_result, McpContext, McpMode, Runner, LIST_CACHE_SCOPE, LIST_TTL_MS,
-    SUPPORTED_PROTOCOL_VERSIONS,
+    truncate_tool_result, workspace_not_granted, McpContext, McpMode, Runner, LIST_CACHE_SCOPE,
+    LIST_TTL_MS, SUPPORTED_PROTOCOL_VERSIONS,
 };
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResponse, ContentBlock, DiscoverResult, Implementation,
-    InitializeRequestParams, InitializeResult, ListToolsResult, PaginatedRequestParams,
-    ProtocolVersion, ServerCapabilities, ServerInfo,
+    CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, DiscoverResult,
+    Implementation, InitializeRequestParams, InitializeResult, ListToolsResult,
+    PaginatedRequestParams, ProtocolVersion, ServerCapabilities, ServerInfo, Tool, ToolAnnotations,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::ErrorData;
@@ -27,6 +32,32 @@ fn admits(scopes: &[String], all: bool) -> bool {
     all && scopes
         .iter()
         .all(|s| s.starts_with("mcp:") || s.starts_with("if_jobs:filter_tags:"))
+}
+
+const GET_WORKSPACE_CONTEXT: &str = "get_workspace_context";
+
+/// Workspaces named in the instructions before the rest are left to `list_workspaces`.
+const MAX_LISTED_WORKSPACES: usize = 40;
+
+fn get_workspace_context_tool() -> Tool {
+    let schema = serde_json::json!({ "type": "object", "properties": {} });
+    with_workspace_id_arg(
+        Tool::new(
+            Cow::Borrowed(GET_WORKSPACE_CONTEXT),
+            "Your username in a workspace, the folders you can write to there, and the \
+             workspace's skills and instructions. Call it before your first action in a \
+             workspace.",
+            Arc::new(schema.as_object().unwrap().clone()),
+        )
+        .with_annotations(ToolAnnotations::new().read_only(true)),
+    )
+}
+
+/// A request's caller, and the workspaces its token reaches.
+struct Caller<A> {
+    auth: A,
+    mode: McpMode,
+    scope: McpScopeConfig,
 }
 
 pub struct SessionRunner<B: McpBackend> {
@@ -44,25 +75,48 @@ impl<B: McpBackend> SessionRunner<B> {
         Self { backend: Arc::new(backend) }
     }
 
-    /// The caller and its workspace. This server writes drafts and deploys, so it takes
-    /// the scope that already reaches the create/update endpoint tools and nothing narrower:
-    /// a token scoped to a few scripts was never consented for authoring.
-    fn caller(context: &RequestContext<RoleServer>) -> Result<(B::Auth, String), ErrorData> {
+    /// This server writes drafts and deploys, so it takes the scope that already reaches
+    /// the create/update endpoint tools and nothing narrower: a token scoped to a few
+    /// scripts was never consented for authoring.
+    fn caller(context: &RequestContext<RoleServer>) -> Result<Caller<B::Auth>, ErrorData> {
         let McpContext { auth, mode, .. } = Runner::<B>::extract_context(context)?;
-        let scope_config = parse_mcp_scopes(auth.scopes().unwrap_or(&[]))
+        let scope = parse_mcp_scopes(auth.scopes().unwrap_or(&[]))
             .map_err(|e| ErrorData::internal_error(e, None))?;
-        if !admits(auth.scopes().unwrap_or(&[]), scope_config.all) {
+        if !admits(auth.scopes().unwrap_or(&[]), scope.all) {
             return Err(ErrorData::invalid_request(
                 "This server needs an `mcp:all` token with no other route or path scope",
                 None,
             ));
         }
-        match mode {
-            McpMode::Single(workspace_id) => Ok((auth, workspace_id)),
-            McpMode::Multi(_) => Err(ErrorData::invalid_request(
-                "This server needs a workspace in its URL",
-                None,
-            )),
+        Ok(Caller { auth, mode, scope })
+    }
+
+    async fn workspaces(&self, caller: &Caller<B::Auth>) -> Result<Vec<WorkspaceInfo>, ErrorData> {
+        let mut workspaces = self
+            .backend
+            .list_accessible_workspaces(&caller.auth)
+            .await?;
+        match &caller.mode {
+            McpMode::Single(bound) => workspaces.retain(|w| &w.id == bound),
+            McpMode::Multi(_) => workspaces.retain(|w| caller.scope.allows_workspace(&w.id)),
+        }
+        Ok(workspaces)
+    }
+
+    /// The caller as they are in `workspace_id`, if the token reaches it.
+    async fn auth_in(
+        &self,
+        caller: &Caller<B::Auth>,
+        workspace_id: &str,
+    ) -> Result<B::Auth, ErrorData> {
+        match &caller.mode {
+            McpMode::Single(bound) if bound == workspace_id => Ok(caller.auth.clone()),
+            McpMode::Multi(token) if caller.scope.allows_workspace(workspace_id) => {
+                self.backend
+                    .resolve_workspace_auth(token, workspace_id)
+                    .await
+            }
+            _ => Err(workspace_not_granted(workspace_id)),
         }
     }
 
@@ -70,11 +124,43 @@ impl<B: McpBackend> SessionRunner<B> {
         &self,
         context: &RequestContext<RoleServer>,
     ) -> Result<ServerInfo, ErrorData> {
-        let (auth, workspace_id) = Self::caller(context)?;
-        let instructions = self
-            .backend
-            .session_instructions(&auth, &workspace_id)
-            .await?;
+        let caller = Self::caller(context)?;
+        let workspaces = self.workspaces(&caller).await?;
+        let instructions = match workspaces.as_slice() {
+            [only] => {
+                let auth = self.auth_in(&caller, &only.id).await?;
+                format!(
+                    "Every tool takes a `workspace_id`: pass `{}`, the workspace this connection \
+                     works in.\n\n{}",
+                    only.id,
+                    self.backend.session_instructions(&auth, &only.id).await?
+                )
+            }
+            _ => {
+                let mut listed = workspaces
+                    .iter()
+                    .take(MAX_LISTED_WORKSPACES)
+                    .map(|w| format!("`{}` ({})", w.id, w.name))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                if workspaces.len() > MAX_LISTED_WORKSPACES {
+                    listed.push_str(&format!(
+                        " (+{} more)",
+                        workspaces.len() - MAX_LISTED_WORKSPACES
+                    ));
+                }
+                format!(
+                    "This connection works across several Windmill workspaces: {listed}. Every \
+                     tool takes a `workspace_id` naming the one it acts in; list_workspaces lists \
+                     them. Before your first action in a workspace, call get_workspace_context \
+                     with its id: it gives your username there (the `<username>` in the paths \
+                     below), the folders you can write to, and the workspace's skills and \
+                     instructions. When the user has not said which workspace, ask rather than \
+                     guess, and name the workspace whenever you change something.\n\n{}",
+                    self.backend.generic_session_instructions()
+                )
+            }
+        };
         Ok(self.get_info().with_instructions(instructions))
     }
 }
@@ -121,13 +207,22 @@ impl<B: McpBackend> ServerHandler for SessionRunner<B> {
         _request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let (auth, _) = Self::caller(&context)?;
+        let caller = Self::caller(&context)?;
+        let mut tools = vec![list_workspaces_tool()];
+        // A bound token's one workspace is described in the instructions already.
+        if let McpMode::Multi(_) = caller.mode {
+            tools.push(get_workspace_context_tool());
+        }
+        tools.extend(
+            self.backend
+                .session_tools(caller.auth.read_only())
+                .into_iter()
+                .map(with_workspace_id_arg),
+        );
         // Without these a `2026-07-28` client rejects the whole listing.
-        Ok(
-            ListToolsResult::with_all_items(self.backend.session_tools(auth.read_only()))
-                .with_ttl_ms(LIST_TTL_MS)
-                .with_cache_scope(LIST_CACHE_SCOPE),
-        )
+        Ok(ListToolsResult::with_all_items(tools)
+            .with_ttl_ms(LIST_TTL_MS)
+            .with_cache_scope(LIST_CACHE_SCOPE))
     }
 
     async fn call_tool(
@@ -135,15 +230,36 @@ impl<B: McpBackend> ServerHandler for SessionRunner<B> {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        let (auth, workspace_id) = Self::caller(&context)?;
-        let args = request.arguments.map(Value::Object).unwrap_or(Value::Null);
+        let caller = Self::caller(&context)?;
+        if request.name == "list_workspaces" {
+            let workspaces = self.workspaces(&caller).await?;
+            return Ok(CallToolResult::success(vec![ContentBlock::text(
+                serde_json::to_string_pretty(&workspaces).unwrap_or_default(),
+            )])
+            .into());
+        }
+        let mut args = request.arguments.unwrap_or_default();
+        let workspace_id =
+            match args.remove("workspace_id") {
+                Some(Value::String(w)) if !w.is_empty() => w,
+                _ => return Err(ErrorData::invalid_params(
+                    "Missing required `workspace_id` argument. Call list_workspaces to see the \
+                     workspaces you can act in.",
+                    None,
+                )),
+            };
+        let auth = self.auth_in(&caller, &workspace_id).await?;
+        if request.name == GET_WORKSPACE_CONTEXT {
+            let text = self.backend.workspace_context(&auth, &workspace_id).await;
+            return Ok(CallToolResult::success(vec![ContentBlock::text(text)]).into());
+        }
         let mut result = self
             .backend
             .call_session_tool(
                 &auth,
                 &workspace_id,
                 request.name.as_ref(),
-                args,
+                Value::Object(args),
                 auth.read_only(),
             )
             .await?;
@@ -169,6 +285,7 @@ mod tests {
         };
         assert!(admitted(&["mcp:all"]));
         assert!(admitted(&["mcp:all", "if_jobs:filter_tags:gpu"]));
+        assert!(admitted(&["mcp:all", "mcp:workspaces:dev"]));
         assert!(!admitted(&["mcp:all", "variables:read:u/a/safe/*"]));
         assert!(!admitted(&["mcp:all:f/x/*"]));
         assert!(!admitted(&["mcp:favorites"]));

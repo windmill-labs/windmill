@@ -14,6 +14,7 @@
 
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
+	import MultiSelect from '../select/MultiSelect.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -44,17 +45,17 @@
 		displayCreateToken = true
 	}: Props = $props()
 
-	// Sentinel workspace value meaning "all workspaces the user can access".
-	// Produces a workspace-less MCP token served through the /api/mcp/gateway
-	// endpoint, where tools take an explicit workspace_id argument.
-	const ALL_WORKSPACES = '*'
-
 	let newToken = $state<string | undefined>(undefined)
 	let newMcpToken = $state<string | undefined>(undefined)
 	let newMcpTokenReachesWorkspaceServer = $state(false)
 	// What the user picked; `newTokenExpiration` is that pick held within the ceiling.
 	let pickedExpiration = $state<number | undefined>(undefined)
 	let newTokenWorkspace = $state<string | undefined>(untrack(() => defaultNewTokenWorkspace))
+	// The workspaces an MCP token reaches. One binds the token to it; several leave it unbound
+	// and are listed in its scopes; all of them leaves it unbound with no list, so it also
+	// reaches the workspaces its owner joins later.
+	let mcpWorkspaces = $state<string[]>([])
+	let mcpAllWorkspaces = $state(false)
 	let mcpCreationMode = $state(false)
 	let lastRequestedMcpMode = $state<boolean | undefined>(undefined)
 	let mcpLabelAutofilled = $state(false)
@@ -137,7 +138,9 @@
 		mcpCreationMode = true
 		void loadMcpUrlPolicy()
 		resetExpirationOnModeChange()
-		newTokenWorkspace = defaultNewTokenWorkspace ?? $operatingWorkspace
+		const current = defaultNewTokenWorkspace ?? $operatingWorkspace
+		mcpWorkspaces = current ? [current] : []
+		mcpAllWorkspaces = false
 		newToken = undefined
 		newMcpToken = undefined
 		readOnly = false
@@ -168,7 +171,9 @@
 				date = new Date(new Date().getTime() + newTokenExpiration * 1000)
 			}
 
-			const tokenScopes = scopes ?? pickedScopes ?? undefined
+			const pickedOrFixed = scopes ?? pickedScopes ?? undefined
+			const tokenScopes =
+				pickedOrFixed && workspacesScope ? [...pickedOrFixed, workspacesScope] : pickedOrFixed
 
 			const createdToken = await UserService.createToken({
 				requestBody: {
@@ -199,13 +204,15 @@
 	}
 
 	const workspaces = $derived(ensureCurrentWorkspaceIncluded($userWorkspaces, $operatingWorkspace))
-	const isAllWorkspaces = $derived(newTokenWorkspace === ALL_WORKSPACES)
-	const tokenWorkspaceId = $derived(
-		isAllWorkspaces
-			? undefined
-			: mcpCreationMode
-				? newTokenWorkspace || $operatingWorkspace
-				: newTokenWorkspace
+	const mcpBoundWorkspace = $derived(
+		!mcpAllWorkspaces && mcpWorkspaces.length === 1 ? mcpWorkspaces[0] : undefined
+	)
+	const mcpReachesWorkspaces = $derived(mcpAllWorkspaces || mcpWorkspaces.length > 0)
+	const tokenWorkspaceId = $derived(mcpCreationMode ? mcpBoundWorkspace : newTokenWorkspace)
+	const workspacesScope = $derived(
+		mcpCreationMode && !mcpAllWorkspaces && mcpWorkspaces.length > 1
+			? `mcp:workspaces:${mcpWorkspaces.join(',')}`
+			: undefined
 	)
 
 	// Mirrors the server's exemption for tokens owned by a service account: one in the workspace
@@ -238,30 +245,28 @@
 			? maxExpirationSecs
 			: pickedExpiration
 	)
-	// The workspace used to browse scripts/flows/endpoints in the scope picker.
-	// For an all-workspaces token there is no single workspace, so fall back to
-	// the current one just for populating the endpoint list.
+	// The workspace used to browse scripts/flows/endpoints in the scope picker: the first
+	// picked one, or the current one for a token reaching all of them.
 	const scopeWorkspaceId = $derived(
-		isAllWorkspaces ? $operatingWorkspace || '' : newTokenWorkspace || $operatingWorkspace || ''
+		(mcpCreationMode && !mcpAllWorkspaces ? mcpWorkspaces[0] : newTokenWorkspace) ||
+			$operatingWorkspace ||
+			''
 	)
-	// Undefined wherever the workspace is: `/api/mcp/w/undefined/mcp` reads like a real URL
-	// and is copyable, so the OAuth panel withholds it rather than showing a broken one. The
-	// token branch guards the same case by disabling its generate button.
+	// Undefined while no workspace is picked, so the OAuth panel withholds a URL that reaches
+	// none. The token branch guards the same case by disabling its generate button.
 	// On the browsing origin, not the API base url: the OAuth metadata the server
 	// publishes for this URL is built from `base_url`, and a client rejects a mismatch.
 	const mcpUrl = $derived(
-		isAllWorkspaces
-			? `${window.location.origin}/api/mcp/gateway`
-			: newTokenWorkspace
-				? `${window.location.origin}/api/mcp/w/${newTokenWorkspace}/mcp`
+		mcpBoundWorkspace
+			? `${window.location.origin}/api/mcp/w/${mcpBoundWorkspace}/mcp`
+			: mcpReachesWorkspaces
+				? `${window.location.origin}/api/mcp/gateway`
 				: undefined
 	)
 	const mcpBaseUrl = $derived(`${mcpUrl ?? ''}?token=`)
-	// The workspace server (the AI-session toolset) is bound to one workspace: no gateway form.
+	// The workspace server (the AI-session toolset) has one URL: its tools name their workspace.
 	const mcpWorkspaceUrl = $derived(
-		!isAllWorkspaces && newTokenWorkspace
-			? `${window.location.origin}/api/mcp/w/${newTokenWorkspace}/windmill`
-			: undefined
+		mcpReachesWorkspaces ? `${window.location.origin}/api/mcp/windmill` : undefined
 	)
 
 	$effect(() => {
@@ -285,6 +290,30 @@
 		}
 	})
 </script>
+
+{#snippet mcpWorkspacePicker()}
+	<div class="flex flex-col gap-1">
+		<span class="block text-emphasis text-xs font-semibold">Workspaces</span>
+		<Toggle
+			bind:checked={mcpAllWorkspaces}
+			options={{ right: 'All my workspaces, including ones I join later' }}
+			size="xs"
+		/>
+		{#if !mcpAllWorkspaces}
+			<MultiSelect
+				bind:value={mcpWorkspaces}
+				items={workspaces.map((w) => ({ label: w.name, value: w.id }))}
+				placeholder="Pick workspaces"
+				reorderable={false}
+			/>
+		{/if}
+		{#if mcpAllWorkspaces || mcpWorkspaces.length > 1}
+			<p class="text-xs text-tertiary">
+				Tools take a <code>workspace_id</code> argument naming the workspace they act in.
+			</p>
+		{/if}
+	</div>
+{/snippet}
 
 <div>
 	<!-- Stays bounded by the panel width: a content-driven width (min-w-min) would let a long
@@ -327,25 +356,25 @@
 		{:else if mcpCreationMode && mcpUrlPolicy === 'oauth'}
 			{#if !lockWorkspace}
 				<div class="mb-4 max-w-md">
-					<span class="block mb-1 text-emphasis text-xs font-semibold">Workspace</span>
-					<!-- No all-workspaces entry: the gateway's consent screen binds the token it issues
-					     to the one workspace picked there, so OAuth has no multi-workspace grant to offer. -->
-					<Select
-						bind:value={newTokenWorkspace}
-						items={workspaces.map((w) => ({ label: w.name, value: w.id, subtitle: w.id }))}
-					/>
+					{@render mcpWorkspacePicker()}
 				</div>
 			{/if}
 
 			{#if mcpUrl}
-				<span class="block mb-1 text-emphasis text-xs font-semibold"
-					>Run scripts and flows as tools</span
-				>
+				<span class="block text-emphasis text-xs font-semibold">Use your scripts and flows</span>
+				<p class="mb-1 text-xs text-secondary">
+					Your scripts, flows and the Windmill API as tools, to run your automations from a chat.
+				</p>
 				<CopyableCodeBlock code={mcpUrl} language={shell} wrap />
 				{#if mcpWorkspaceUrl}
-					<span class="block mt-3 mb-1 text-emphasis text-xs font-semibold"
-						>Build in the workspace (drafts, test runs, deploy)</span
+					<span class="block mt-3 text-emphasis text-xs font-semibold"
+						>Build in Windmill (write, test, deploy)</span
 					>
+					<p class="mb-1 text-xs text-secondary">
+						The AI chat's toolset: the assistant writes scripts, flows and apps as drafts, tests
+						them and deploys them. When your client signs in, pick the workspaces it may work in and
+						the "All scripts/flows" scope.
+					</p>
 					<CopyableCodeBlock code={mcpWorkspaceUrl} language={shell} wrap />
 				{/if}
 
@@ -356,7 +385,7 @@
 					</Alert>
 				</div>
 			{:else}
-				<p class="text-xs text-tertiary">Pick a workspace to get its MCP URL.</p>
+				<p class="text-xs text-tertiary">Pick a workspace to get the MCP URLs.</p>
 			{/if}
 
 			{#if !mcpOnly}
@@ -397,26 +426,7 @@
 			<div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
 				{#if mcpCreationMode}
 					{#if !lockWorkspace}
-						<div>
-							<span class="block mb-1 text-emphasis text-xs font-semibold">Workspace</span>
-							<Select
-								bind:value={newTokenWorkspace}
-								items={[
-									{
-										label: 'All workspaces',
-										value: ALL_WORKSPACES,
-										subtitle: 'Multi-workspace'
-									},
-									...workspaces.map((w) => ({ label: w.name, value: w.id, subtitle: w.id }))
-								]}
-							/>
-							{#if isAllWorkspaces}
-								<p class="mt-1 text-xs text-tertiary">
-									This token works across every workspace you can access. Tools take a
-									<code>workspace_id</code> argument; call <code>list_workspaces</code> to discover them.
-								</p>
-							{/if}
-						</div>
+						{@render mcpWorkspacePicker()}
 					{/if}
 				{/if}
 
@@ -465,7 +475,7 @@
 				{/if}
 				<Button
 					on:click={() => createToken(mcpCreationMode)}
-					disabled={mcpCreationMode && (newTokenWorkspace == undefined || !pickedScopes)}
+					disabled={mcpCreationMode && (!mcpReachesWorkspaces || !pickedScopes)}
 					variant="accent"
 				>
 					{mcpCreationMode ? 'Generate MCP URL' : 'New token'}
@@ -485,6 +495,7 @@
 			mcpWorkspaceUrl={mcpWorkspaceUrl && newMcpTokenReachesWorkspaceServer
 				? `${mcpWorkspaceUrl}?token=${newMcpToken}`
 				: undefined}
+			mcpWorkspaceNeedsFullScope={!!mcpWorkspaceUrl && !newMcpTokenReachesWorkspaceServer}
 		/>
 	{/if}
 </div>

@@ -423,6 +423,14 @@ impl McpBackend for WindmillBackend {
         Ok(session::session_instructions(&self.session_ctx(auth, workspace_id)).await)
     }
 
+    fn generic_session_instructions(&self) -> String {
+        session::generic_session_instructions()
+    }
+
+    async fn workspace_context(&self, auth: &ApiAuthed, workspace_id: &str) -> String {
+        session::workspace_context(&self.session_ctx(auth, workspace_id)).await
+    }
+
     fn session_tools(&self, read_only: bool) -> Vec<Tool> {
         session::session_tools(read_only)
     }
@@ -440,8 +448,8 @@ impl McpBackend for WindmillBackend {
     }
 }
 
-/// The last segment of the workspace-scoped URL a request arrived on, when it is not
-/// the tools server's `mcp`: each URL is its own OAuth protected resource.
+/// The last segment of a workspace-less MCP URL, when it is not the tools server's
+/// `gateway`: each URL is its own OAuth protected resource.
 #[derive(Clone, Copy)]
 pub struct McpEndpoint(pub &'static str);
 
@@ -476,11 +484,6 @@ pub async fn add_www_authenticate_header(
             .body(axum::body::Body::from("Missing workspace_id in request"))
             .unwrap();
     };
-    let endpoint = request
-        .extensions()
-        .get::<McpEndpoint>()
-        .map_or("mcp", |e| e.0);
-
     let response = next.run(request).await;
 
     // Only add header to 401 Unauthorized responses
@@ -490,7 +493,7 @@ pub async fn add_www_authenticate_header(
         // RFC 9728: The resource parameter contains the protected resource URL.
         // Clients derive the metadata URL by inserting /.well-known/oauth-protected-resource
         // after the host, e.g., http://host/.well-known/oauth-protected-resource/api/mcp/w/test/mcp
-        let resource_url = format!("{}/api/mcp/w/{}/{}", base_url, workspace_id, endpoint);
+        let resource_url = format!("{}/api/mcp/w/{}/mcp", base_url, workspace_id);
         let www_authenticate = format!("Bearer resource=\"{}\"", resource_url);
 
         // Reconstruct response with the new header
@@ -606,11 +609,16 @@ pub async fn add_www_authenticate_header_gateway(
     use axum::http::StatusCode;
     use windmill_common::BASE_URL;
 
+    let endpoint = request
+        .extensions()
+        .get::<McpEndpoint>()
+        .map_or("gateway", |e| e.0);
+
     let response = next.run(request).await;
 
     if response.status() == StatusCode::UNAUTHORIZED {
         let base_url = BASE_URL.load();
-        let resource_url = format!("{}/api/mcp/gateway", base_url);
+        let resource_url = format!("{}/api/mcp/{}", base_url, endpoint);
         let www_authenticate = format!("Bearer resource=\"{}\"", resource_url);
 
         let (mut parts, body) = response.into_parts();

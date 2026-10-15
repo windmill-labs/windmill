@@ -10,11 +10,14 @@
 		mcpUrl?: string
 		/** The same token on the workspace server, when its scope reaches it. */
 		mcpWorkspaceUrl?: string
+		/** The token is bound to one workspace but its scope is too narrow for the workspace server. */
+		mcpWorkspaceNeedsFullScope?: boolean
 		title?: string
 		onClose?: () => void
 	}
 
-	let { token, mcpUrl, mcpWorkspaceUrl, title, onClose }: Props = $props()
+	let { token, mcpUrl, mcpWorkspaceUrl, mcpWorkspaceNeedsFullScope, title, onClose }: Props =
+		$props()
 
 	const displayTitle = $derived(
 		title || (mcpUrl ? 'MCP URL generated successfully' : 'Token created successfully')
@@ -66,9 +69,15 @@
 				<CopyableCodeBlock code={tokenOrUrl} language={shell} wrap />
 				{#if mcpWorkspaceUrl}
 					<p class="mt-2 text-xs text-secondary">
-						To build in the workspace instead (drafts, test runs, deploy), connect this URL:
+						To build in Windmill instead (the AI chat's toolset: write, test and deploy scripts,
+						flows and apps), connect this URL:
 					</p>
 					<CopyableCodeBlock code={mcpWorkspaceUrl} language={shell} wrap />
+				{:else if mcpWorkspaceNeedsFullScope}
+					<p class="mt-2 text-xs text-secondary">
+						Building in Windmill (write, test, deploy) needs a token with the "All scripts/flows"
+						scope.
+					</p>
 				{/if}
 
 				<!-- Warning alert using existing Alert component -->

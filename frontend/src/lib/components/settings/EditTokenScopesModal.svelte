@@ -43,6 +43,18 @@
 	let pickedScopes = $state<string[] | null>(null)
 	let saving = $state(false)
 
+	// The picker rebuilds the MCP scopes from its own modes and knows nothing of the workspace
+	// list, so it is carried over as is: dropping it would widen the token to every workspace.
+	const isWorkspaceList = (s: string) => s.startsWith('mcp:workspaces:')
+	const scopesToSave = $derived(
+		isMcp && pickedScopes
+			? [
+					...pickedScopes.filter((s) => !isWorkspaceList(s)),
+					...(initialScopes ?? []).filter(isWorkspaceList)
+				]
+			: pickedScopes
+	)
+
 	// Seed the label field from the token whenever the modal opens or the token
 	// identity changes (untracked read so typing doesn't reset it). ScopesPicker
 	// seeds itself via the `{#key tokenPrefix}` remount below.
@@ -69,7 +81,7 @@
 		try {
 			const trimmed = labelValue.trim()
 			const labelChanged = labelEditable && trimmed !== (initialLabel ?? '')
-			const scopesChanged = !scopesEqual(pickedScopes, initialScopes ?? null)
+			const scopesChanged = !scopesEqual(scopesToSave, initialScopes ?? null)
 
 			if (labelChanged) {
 				await UserService.updateTokenLabel({
@@ -80,7 +92,7 @@
 			if (scopesChanged) {
 				await UserService.updateTokenScopes({
 					tokenPrefix,
-					requestBody: { scopes: pickedScopes }
+					requestBody: { scopes: scopesToSave }
 				})
 			}
 			if (labelChanged || scopesChanged) {

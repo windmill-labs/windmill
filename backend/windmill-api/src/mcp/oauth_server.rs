@@ -201,7 +201,7 @@ struct AuthorizationCode {
     code: String,
     client_id: String,
     user_email: String,
-    workspace_id: String,
+    workspace_id: Option<String>,
     scopes: Vec<String>,
     redirect_uri: String,
     code_challenge: Option<String>,
@@ -216,7 +216,7 @@ struct RefreshTokenRow {
     access_token_hash: String,
     client_id: String,
     user_email: String,
-    workspace_id: String,
+    workspace_id: Option<String>,
     scopes: Vec<String>,
     token_family: sqlx::types::Uuid,
     created_at: chrono::DateTime<chrono::Utc>,
@@ -277,22 +277,8 @@ pub async fn workspaced_oauth_metadata(
 pub async fn protected_resource_metadata_by_path(
     Path(workspace_id): Path<String>,
 ) -> Json<ProtectedResourceMetadata> {
-    protected_resource_metadata(&workspace_id, "mcp")
-}
-
-/// GET /.well-known/oauth-protected-resource/api/mcp/w/:workspace_id/windmill
-pub async fn workspace_server_protected_resource_metadata(
-    Path(workspace_id): Path<String>,
-) -> Json<ProtectedResourceMetadata> {
-    protected_resource_metadata(&workspace_id, "windmill")
-}
-
-fn protected_resource_metadata(
-    workspace_id: &str,
-    endpoint: &str,
-) -> Json<ProtectedResourceMetadata> {
     let base_url = BASE_URL.load();
-    let resource_path = format!("/api/mcp/w/{}/{}", workspace_id, endpoint);
+    let resource_path = format!("/api/mcp/w/{}/mcp", workspace_id);
     let oauth_prefix = format!("/api/w/{}/mcp/oauth/server", workspace_id);
     Json(build_protected_resource_metadata(
         &resource_path,
@@ -772,10 +758,31 @@ async fn oauth_authorize_inner(
 }
 
 /// Shared approve logic — validates form, checks membership, stores auth code.
+async fn ensure_member(db: &DB, workspace_id: &str, email: &str) -> Result<()> {
+    let is_member = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2 AND NOT disabled)",
+        workspace_id,
+        email
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|e| Error::InternalErr(format!("Database error: {}", e)))?
+    .unwrap_or(false);
+
+    if !is_member {
+        return Err(Error::NotAuthorized(format!(
+            "User is not a member of workspace '{workspace_id}'"
+        )));
+    }
+    Ok(())
+}
+
+/// `workspace_id` is the workspace the minted token is bound to; without one, the token
+/// reaches what its scopes allow (`mcp:workspaces:`), or every workspace of its owner.
 async fn oauth_approve_inner(
     db: &DB,
     authed: &ApiAuthed,
-    workspace_id: &str,
+    workspace_id: Option<&str>,
     form: ApprovalForm,
 ) -> Result<Json<ApprovalResponse>> {
     // The code approved here is exchanged for a database token carrying only this
@@ -785,21 +792,8 @@ async fn oauth_approve_inner(
     // the gateway approve route reach the exchange through here.
     forbid_elevated_job_token(db, &authed.email, authed.job_id).await?;
 
-    // Verify user is a member of the workspace
-    let is_member = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2 AND NOT disabled)",
-        workspace_id,
-        authed.email
-    )
-    .fetch_one(db)
-    .await
-    .map_err(|e| Error::InternalErr(format!("Database error: {}", e)))?
-    .unwrap_or(false);
-
-    if !is_member {
-        return Err(Error::NotAuthorized(
-            "User is not a member of this workspace".to_string(),
-        ));
+    if let Some(workspace_id) = workspace_id {
+        ensure_member(db, workspace_id, &authed.email).await?;
     }
 
     // Verify client exists and redirect_uri is registered
@@ -922,7 +916,7 @@ pub async fn workspaced_oauth_approve(
     authed: ApiAuthed,
     Json(form): Json<ApprovalForm>,
 ) -> Result<Json<ApprovalResponse>> {
-    oauth_approve_inner(&db, &authed, &workspace_id, form).await
+    oauth_approve_inner(&db, &authed, Some(&workspace_id), form).await
 }
 
 /// PKCE validation (S256 only)
@@ -1004,6 +998,16 @@ pub async fn gateway_protected_resource_metadata() -> Json<ProtectedResourceMeta
     ))
 }
 
+/// GET /.well-known/oauth-protected-resource/api/mcp/windmill
+pub async fn gateway_session_protected_resource_metadata() -> Json<ProtectedResourceMetadata> {
+    let base_url = BASE_URL.load();
+    Json(build_protected_resource_metadata(
+        "/api/mcp/windmill",
+        "/api/mcp/gateway/oauth/server",
+        &base_url,
+    ))
+}
+
 /// GET /api/mcp/gateway/oauth/server/authorize — gateway mode (no workspace in path)
 pub async fn gateway_oauth_authorize(
     Extension(db): Extension<DB>,
@@ -1012,23 +1016,40 @@ pub async fn gateway_oauth_authorize(
     oauth_authorize_inner(&db, params, None).await
 }
 
-/// POST /api/mcp/gateway/oauth/server/approve — workspace_id comes from JSON body
+/// POST /api/mcp/gateway/oauth/server/approve — the workspaces come from the JSON body
 pub async fn gateway_oauth_approve(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
     Json(form): Json<GatewayApprovalForm>,
 ) -> Result<Json<ApprovalResponse>> {
-    if form.workspace_id.is_empty() {
-        return Err(Error::BadRequest("workspace_id is required".to_string()));
-    }
+    let mut scope = form.scope;
+    let workspace_id = if form.all_workspaces {
+        None
+    } else {
+        match form.workspace_ids.as_slice() {
+            [] => {
+                return Err(Error::BadRequest(
+                    "Pick at least one workspace, or all of them".to_string(),
+                ))
+            }
+            [only] => Some(only.as_str()),
+            several => {
+                for workspace_id in several {
+                    ensure_member(&db, workspace_id, &authed.email).await?;
+                }
+                scope.push_str(&format!(" mcp:workspaces:{}", several.join(",")));
+                None
+            }
+        }
+    };
     oauth_approve_inner(
         &db,
         &authed,
-        &form.workspace_id,
+        workspace_id,
         ApprovalForm {
             client_id: form.client_id,
             redirect_uri: form.redirect_uri,
-            scope: form.scope,
+            scope,
             state: form.state,
             code_challenge: form.code_challenge,
             code_challenge_method: form.code_challenge_method,
@@ -1037,7 +1058,8 @@ pub async fn gateway_oauth_approve(
     .await
 }
 
-/// Gateway approval form — same as ApprovalForm but includes workspace_id
+/// Gateway approval form — same as ApprovalForm, plus the workspaces the token reaches:
+/// one binds the token to it, several are listed in its scopes.
 #[derive(Debug, Deserialize)]
 pub struct GatewayApprovalForm {
     pub client_id: String,
@@ -1046,7 +1068,11 @@ pub struct GatewayApprovalForm {
     pub state: String,
     pub code_challenge: String,
     pub code_challenge_method: String,
-    pub workspace_id: String,
+    #[serde(default)]
+    pub workspace_ids: Vec<String>,
+    /// Every workspace the user is a member of, including ones they join later.
+    #[serde(default)]
+    pub all_workspaces: bool,
 }
 
 // ── Router constructors ──

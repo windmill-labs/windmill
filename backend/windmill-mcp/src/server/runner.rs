@@ -164,11 +164,24 @@ impl<B: McpBackend> Runner<B> {
                     ErrorData::internal_error("WorkspaceId not found", None)
                 })
                 .map(|w_id| w_id.0.clone())?;
+            // A token without a bound workspace reaches a workspace's own URL too.
+            let scope_config = parse_mcp_scopes(auth.scopes().unwrap_or(&[]))
+                .map_err(|e| ErrorData::internal_error(e, None))?;
+            if !scope_config.allows_workspace(&workspace_id) {
+                return Err(workspace_not_granted(&workspace_id));
+            }
             McpMode::Single(workspace_id)
         };
 
         Ok(McpContext { auth: auth.clone(), mode, headers: http_parts.headers.clone() })
     }
+}
+
+pub(super) fn workspace_not_granted(workspace_id: &str) -> ErrorData {
+    ErrorData::invalid_params(
+        format!("This token was not granted workspace '{workspace_id}'"),
+        None,
+    )
 }
 
 /// How an endpoint tool interacts with the token's `mcp:scripts:` / `mcp:flows:`
@@ -1004,11 +1017,12 @@ impl<B: McpBackend> Runner<B> {
         mut args: Value,
     ) -> Result<CallToolResult, ErrorData> {
         if name.as_ref() == "list_workspaces" {
-            let workspaces = self
+            let mut workspaces = self
                 .backend
                 .list_accessible_workspaces(base_auth)
                 .await
                 .map_err(|e| ErrorData::internal_error(e.message, None))?;
+            workspaces.retain(|w| scope_config.allows_workspace(&w.id));
             return Ok(CallToolResult::success(vec![ContentBlock::text(
                 serde_json::to_string_pretty(&workspaces).unwrap_or_else(|_| "[]".to_string()),
             )]));
@@ -1056,6 +1070,9 @@ impl<B: McpBackend> Runner<B> {
                     )
                 })?
                 .to_string();
+            if !scope_config.allows_workspace(&workspace_id) {
+                return Err(workspace_not_granted(&workspace_id));
+            }
 
             let resolved = self
                 .backend

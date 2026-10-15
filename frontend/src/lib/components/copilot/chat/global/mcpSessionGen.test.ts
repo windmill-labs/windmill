@@ -81,7 +81,7 @@ const WRITABLE = '{{writable_folders}}'
 const READONLY = '{{readonly_folders}}'
 
 function prompt(
-	user: { is_admin: boolean; folders: string[]; folders_read?: string[] },
+	user: { is_admin: boolean; folders?: string[]; folders_read?: string[] },
 	extra: Parameters<typeof prepareGlobalSystemMessage>[1] = {},
 	instructions?: { workspace?: string }
 ): string {
@@ -112,7 +112,10 @@ function promptParts() {
 		'the skills section'
 	)
 	const skillLine = skills.split('\n').pop()!
-	return {
+	// The folder guidance differs per workspace, so it is cut out of the prompt: the server
+	// puts it back for a single workspace, and serves it from `get_workspace_context` otherwise.
+	const withoutFolders = prompt({ is_admin: false })
+	const variants = {
 		admin: prompt({ is_admin: true, folders: [WRITABLE] }),
 		admin_no_folders: prompt({ is_admin: true, folders: [] }),
 		member,
@@ -122,7 +125,24 @@ function promptParts() {
 			folders: [WRITABLE],
 			folders_read: [WRITABLE, READONLY]
 		}),
-		member_no_folders_readonly: prompt({ is_admin: false, folders: [], folders_read: [READONLY] }),
+		member_no_folders_readonly: prompt({ is_admin: false, folders: [], folders_read: [READONLY] })
+	}
+	let at: number | undefined
+	const folder_guidance = Object.fromEntries(
+		Object.entries(variants).map(([name, full]) => {
+			let i = 0
+			while (full[i] === withoutFolders[i]) i++
+			const rest = withoutFolders.slice(i)
+			if ((at !== undefined && at !== i) || !full.endsWith(rest)) {
+				throw new Error(`the folder guidance (${name}) is no longer one inserted block`)
+			}
+			at = i
+			return [name, full.slice(i, full.length - rest.length)]
+		})
+	)
+	return {
+		base: withoutFolders.slice(0, at) + '{{folder_guidance}}' + withoutFolders.slice(at),
+		folder_guidance,
 		skills_header: skills.slice(0, skills.length - skillLine.length),
 		skill_line: skillLine,
 		workspace_instructions: suffixOf(
