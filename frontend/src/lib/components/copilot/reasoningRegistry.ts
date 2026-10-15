@@ -265,8 +265,8 @@ export function completionsRejectsToolsWithReasoning(provider: AIProvider, model
 
 /**
  * Whether the chat sends this model to the Responses API, falling back to Chat Completions
- * where a deployment does not serve it. On Foundry, only the models Chat Completions takes
- * tools from with reasoning off, which gpt-6.1-sol and gpt-6-astra cannot do at all.
+ * where a deployment does not serve it. On Foundry, only the models Chat Completions refuses
+ * function tools from while they reason: gpt-6.1-sol and gpt-6-astra cannot turn it off.
  */
 export function usesOpenAIResponsesApi(provider: AIProvider, model: string): boolean {
 	return (
