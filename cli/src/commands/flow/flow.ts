@@ -19,7 +19,7 @@ import {
   toSyncRootRelativePath,
   validatePath,
 } from "../../core/context.ts";
-import { resolve, track_job, pollForJobResult } from "../script/script.ts";
+import { resolve, track_job, pollForJobResult, assertPreviewRunsAs } from "../script/script.ts";
 import { defaultFlowDefinition } from "../../../bootstrap/flow_bootstrap.ts";
 import {
   SyncOptions,
@@ -779,6 +779,7 @@ async function preview(
       on_behalf_of: opts.onBehalfOf,
     },
   });
+  await assertPreviewRunsAs(workspace.workspaceId, jobId, opts.onBehalfOf);
 
   const { result, success } = await pollForJobResult(workspace.workspaceId, jobId);
 
@@ -878,7 +879,7 @@ async function previewStep(
   } else if (moduleValue?.type === "flow") {
     if (onBehalfOf) {
       throw new Error(
-        `--on-behalf-of does not apply to step '${stepId}': a flow step runs the deployed flow ${moduleValue.path}, which runs as its own on_behalf_of identity.`
+        `--on-behalf-of does not apply to step '${stepId}': a flow step runs the deployed flow ${moduleValue.path} by path, and this flag cannot override its identity.`
       );
     }
     log.info(colors.yellow(`Previewing step '${stepId}' (flow ${moduleValue.path})...`));
@@ -893,6 +894,7 @@ async function previewStep(
       `Cannot preview step of type '${moduleValue?.type ?? "unknown"}'. Supported types: rawscript, script, flow.`
     );
   }
+  await assertPreviewRunsAs(workspace.workspaceId, jobId, onBehalfOf);
 
   const { result, success } = await pollForJobResult(workspace.workspaceId, jobId);
 

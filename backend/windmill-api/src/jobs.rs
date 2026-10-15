@@ -8941,7 +8941,9 @@ fn operator_preview_refusal(job_id: Option<Uuid>) -> error::Error {
 ///
 /// A preview is request-supplied code, so running it as someone else is impersonation, not
 /// "running their runnable": only those who may set a runnable's `on_behalf_of` on deploy
-/// (admins and `wm_deployers`) may ask for it. Naming oneself is always allowed.
+/// (admins and `wm_deployers`) may ask for it. Naming oneself is always allowed. Operators are
+/// refused even in `wm_deployers`: the datatable-query exemption lets them reach this route
+/// without being able to deploy anything.
 async fn preview_on_behalf_of(
     authed: &ApiAuthed,
     requested: Option<&str>,
@@ -8955,7 +8957,7 @@ async fn preview_on_behalf_of(
     if requested == own || requested == authed.email {
         return Ok(None);
     }
-    if !windmill_common::can_preserve_on_behalf_of(authed) {
+    if authed.is_operator || !windmill_common::can_preserve_on_behalf_of(authed) {
         return Err(Error::PermissionDenied(
             "Only admins and members of wm_deployers can run a preview on behalf of another user"
                 .to_string(),

@@ -1615,6 +1615,37 @@ export async function pollForJobResult(
   return await pollJobWithQueueLogging(workspace, jobId);
 }
 
+/**
+ * A server that predates preview `on_behalf_of` drops the field and runs the preview as the
+ * caller, which would pass for a reproduction of the other identity's run. Refuse that instead.
+ */
+export async function assertPreviewRunsAs(
+  workspace: string,
+  jobId: string,
+  onBehalfOf: string | undefined,
+) {
+  if (!onBehalfOf) return;
+  const job = await wmill.getJob({ workspace, id: jobId });
+  if (
+    job.permissioned_as === onBehalfOf ||
+    job.email?.toLowerCase() === onBehalfOf.toLowerCase()
+  ) {
+    return;
+  }
+  try {
+    await wmill.cancelQueuedJob({
+      workspace,
+      id: jobId,
+      requestBody: { reason: "--on-behalf-of was not applied by the server" },
+    });
+  } catch {
+    // Already started or finished: it ran as the caller, which is reported below either way.
+  }
+  throw new Error(
+    `The server ran preview ${jobId} as ${job.permissioned_as}, not ${onBehalfOf}: it does not support --on-behalf-of. Upgrade the Windmill instance.`
+  );
+}
+
 async function show(opts: GlobalOptions, path: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
@@ -2094,6 +2125,7 @@ async function preview(
     }
 
     const jobId = await response.text();
+    await assertPreviewRunsAs(workspace.workspaceId, jobId, opts.onBehalfOf);
     if (!opts.silent) {
       await track_job(workspace.workspaceId, jobId);
     }
@@ -2132,6 +2164,7 @@ async function preview(
         on_behalf_of: opts.onBehalfOf,
       },
     });
+    await assertPreviewRunsAs(workspace.workspaceId, jobId, opts.onBehalfOf);
 
     const { result, success } = await pollForJobResult(workspace.workspaceId, jobId);
 
