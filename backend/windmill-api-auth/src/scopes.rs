@@ -940,11 +940,15 @@ fn is_global_read_open_to_job_token(route_path: &str) -> bool {
 ///   not send.
 /// - tutorial progress upserts a UI bitfield keyed on the caller's own email. Its path
 ///   serves a `GET` too, which the read list above carries.
-const GLOBAL_WRITES_OPEN_TO_JOB_TOKEN: [&str; 4] = [
+/// - a Teams message from a job (the Teams error, recovery and success handlers) posts as
+///   the instance-wide bot. The handler refuses a job token whose conversation is not a
+///   channel of the team connected to the job's workspace.
+const GLOBAL_WRITES_OPEN_TO_JOB_TOKEN: [&str; 5] = [
     "/api/settings/test_object_storage_config",
     "/api/workspaces/exists",
     "/api/schedules/preview",
     "/api/users/tutorial_progress",
+    "/api/teams/activities",
 ];
 
 /// Confines a job token (`$WM_TOKEN`) to routes that name a workspace. It is minted
