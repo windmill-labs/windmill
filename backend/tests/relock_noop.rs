@@ -549,6 +549,62 @@ async fn wait_until_blocked(db: &Pool<Postgres>, query: &str) {
     }
 }
 
+/// Queues a dependency job of `f/rel/app` at `version`: the deploy's own when `components` is
+/// `None`, else a relative-import relock of those components.
+async fn push_app_dependency_job(db: &Pool<Postgres>, version: i64, components: Option<&[&str]>) {
+    let payload = windmill_common::jobs::JobPayload::AppDependencies {
+        path: "f/rel/app".to_string(),
+        version,
+        debouncing_settings: Default::default(),
+    };
+    let mut args = std::collections::HashMap::new();
+    if let Some(components) = components {
+        args.insert(
+            "triggered_by_relative_import".to_string(),
+            serde_json::value::to_raw_value(&true).unwrap(),
+        );
+        args.insert(
+            "components_to_relock".to_string(),
+            serde_json::value::to_raw_value(components).unwrap(),
+        );
+    }
+    let (_, tx) = windmill_queue::push(
+        db,
+        windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone()),
+        W,
+        payload,
+        windmill_queue::PushArgs { args: &args, extra: None },
+        "test-user",
+        "test@windmill.dev",
+        "u/test-user".to_string(),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+}
+
 /// Logs of every dependency job of `f/rel/app` created after `since`, oldest first.
 async fn app_dependency_logs(
     db: &Pool<Postgres>,
@@ -711,47 +767,7 @@ async fn app_deploy_dependency_job_racing_a_write_requeues(
                 .unwrap();
 
             let since = chrono::Utc::now();
-            let payload = windmill_common::jobs::JobPayload::AppDependencies {
-                path: "f/rel/app".to_string(),
-                version: published,
-                debouncing_settings: Default::default(),
-            };
-            let args = std::collections::HashMap::new();
-            let (_, tx) = windmill_queue::push(
-                &db,
-                windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone()),
-                W,
-                payload,
-                windmill_queue::PushArgs { args: &args, extra: None },
-                "test-user",
-                "test@windmill.dev",
-                "u/test-user".to_string(),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                false,
-                false,
-                None,
-                true,
-                None,
-                None,
-                None,
-                None,
-                None,
-                false,
-                None,
-                None,
-                None,
-                None,
-            )
-            .await
-            .unwrap();
-            tx.commit().await.unwrap();
+            push_app_dependency_job(&db, published, None).await;
 
             write_once_waited_on(&db, writer, published).await;
 
@@ -965,62 +981,60 @@ async fn app_relock_queued_before_a_deploy_relocks_the_renamed_component(
             .await
             .unwrap();
 
-            let payload = windmill_common::jobs::JobPayload::AppDependencies {
-                path: "f/rel/app".to_string(),
-                version: queued_for,
-                debouncing_settings: Default::default(),
-            };
-            let args = std::collections::HashMap::from([
-                (
-                    "triggered_by_relative_import".to_string(),
-                    serde_json::value::to_raw_value(&true).unwrap(),
-                ),
-                (
-                    "components_to_relock".to_string(),
-                    serde_json::value::to_raw_value(&["a"]).unwrap(),
-                ),
-            ]);
-            let (_, tx) = windmill_queue::push(
-                &db,
-                windmill_queue::PushIsolationLevel::IsolatedRoot(db.clone()),
-                W,
-                payload,
-                windmill_queue::PushArgs { args: &args, extra: None },
-                "test-user",
-                "test@windmill.dev",
-                "u/test-user".to_string(),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                false,
-                false,
-                None,
-                true,
-                None,
-                None,
-                None,
-                None,
-                None,
-                false,
-                None,
-                None,
-                None,
-                None,
-            )
-            .await
-            .unwrap();
-            tx.commit().await.unwrap();
+            push_app_dependency_job(&db, queued_for, Some(&["a"])).await;
             wait_for_jobs(&db, &mut completed, 1).await;
 
             let lock = runnable_lock(&db, renamed, "c").await;
             assert!(
                 lock.as_deref().unwrap_or("").contains("tiny"),
                 "the renamed component carries the new lock: {lock:?}"
+            );
+        },
+        port,
+    )
+    .await;
+
+    Ok(())
+}
+
+/// A relock of every component regenerates each lock. A deploy that kept its editor's stale
+/// lock still records the imports' current lock hashes, so the skip check would keep it.
+#[sqlx::test(fixtures("base"))]
+async fn app_relock_of_every_component_regenerates_a_kept_stale_lock(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    std::env::set_var("DEPENDENCY_JOB_DEBOUNCE_DELAY", "0");
+    let (client, port, _s) = init_client(db.clone()).await;
+    let mut completed = listen_for_completed_jobs(&db).await;
+    let published = plant_raw_app(&db).await?;
+
+    in_test_worker(
+        &db,
+        async {
+            client
+                .create_script(W, &py_script("f/rel/a", A_WITH_TINY, None))
+                .await
+                .unwrap();
+            wait_for_jobs(&db, &mut completed, 1).await;
+
+            // The stale lock a deploy kept, under the hashes it recorded.
+            sqlx::query(
+                "UPDATE app_version SET value = jsonb_set(value::jsonb,
+                 '{runnables,a,inlineScript,lock}', '\"# py: 3.12\\n\"')::json WHERE id = $1",
+            )
+            .bind(published)
+            .execute(&db)
+            .await
+            .unwrap();
+
+            let every = windmill_dep_map::trigger_dependents::RELOCK_ALL_APP_COMPONENTS;
+            push_app_dependency_job(&db, published, Some(&[every])).await;
+            wait_for_jobs(&db, &mut completed, 1).await;
+
+            let lock = app_lock(&db, published).await;
+            assert!(
+                lock.as_deref().unwrap_or("").contains("tiny"),
+                "the kept stale lock is regenerated: {lock:?}"
             );
         },
         port,

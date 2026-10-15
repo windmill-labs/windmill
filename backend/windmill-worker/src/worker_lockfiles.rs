@@ -2850,7 +2850,9 @@ pub async fn handle_app_dependency_job(
             None,
             &mut dependency_map,
             &raw_workspace_dependencies_o,
-            triggered_by_relative_import,
+            // A relock of every component regenerates every lock: the imported lock hashes a
+            // skip compares are stamped even by a deploy that kept its editor's stale lock.
+            triggered_by_relative_import && !relock_all,
             &temp_script_refs,
             &raw_app_runnables,
         )
@@ -2920,16 +2922,6 @@ pub async fn handle_app_dependency_job(
             append_logs(&job.id, &job.workspace_id, log_msg, &db.into()).await;
             tally_unfinished_dependency_deploy(db, &job, deployment_tallied).await;
             if current.is_some() {
-                // This job already recorded the imports' current lock hashes, which would let
-                // the queued relock skip regenerating the locks it discarded.
-                sqlx::query!(
-                    "UPDATE dependency_map SET imported_lockfile_hash = NULL
-                     WHERE workspace_id = $1 AND importer_path = $2 AND importer_kind = 'app'",
-                    &job.workspace_id,
-                    &job_path,
-                )
-                .execute(db)
-                .await?;
                 // The version published when the queued relock runs may name its components
                 // differently than this one, and carry its editor's stale locks.
                 let dependent = DependencyDependent {
