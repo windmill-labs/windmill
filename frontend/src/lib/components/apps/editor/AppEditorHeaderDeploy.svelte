@@ -4,7 +4,7 @@
 	import Badge from '$lib/components/Badge.svelte'
 	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
-	import { Loader2 } from 'lucide-svelte'
+	import { AlertTriangle, Loader2 } from 'lucide-svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
 
@@ -158,6 +158,17 @@
 	let savedOnBehalfOf = $derived(savedApp?.policy?.on_behalf_of)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
 	let customOnBehalfOfEmail: string = $state('')
+	let myOnBehalfOf = $derived(actingUser?.username ? `u/${actingUser.username}` : undefined)
+	// Without the right to preserve, the backend runs the redeployed app as the deployer whatever
+	// the policy says, as it does for "me".
+	let deployOnBehalfOf = $derived.by(() => {
+		if (!canPreserve || onBehalfOfChoice === 'me') return myOnBehalfOf
+		if (onBehalfOfChoice === 'custom') return policy.on_behalf_of
+		return savedOnBehalfOf
+	})
+	let onBehalfOfWillChange = $derived(
+		!newApp && !!savedOnBehalfOf && !!deployOnBehalfOf && deployOnBehalfOf !== savedOnBehalfOf
+	)
 	let dirtyCustomPath = $state(false)
 	let path: Path | undefined = $state(undefined)
 
@@ -317,36 +328,44 @@
 		tooltip={`The app's runnables run as this user whoever opens the app, so viewers need no access of their own. To keep that safe, the app can call only the runnables it was deployed with, and viewers cannot override their static inputs. Runnables still get the viewer's email in WM_END_USER_EMAIL${rawApp ? ', and inline ones can be set to read data tables and object storage as the viewer' : ''}.`}
 	>
 		<div class="flex flex-col items-start gap-1">
-			<OnBehalfOfSelector
-				targetWorkspace={opWs ?? ''}
-				targetValue={savedOnBehalfOfEmail}
-				selected={onBehalfOfChoice}
-				onSelect={(choice, details) => {
-					onBehalfOfChoice = choice
-					if (choice === 'me') {
-						policy.on_behalf_of_email = $userStore?.email
-						policy.on_behalf_of = `u/${$userStore?.username}`
-						customOnBehalfOfEmail = ''
-						preserveOnBehalfOf = false
-					} else if (choice === 'target') {
-						policy.on_behalf_of_email = savedOnBehalfOfEmail
-						policy.on_behalf_of = savedOnBehalfOf
-						customOnBehalfOfEmail = ''
-						preserveOnBehalfOf = true
-					} else if (choice === 'custom' && details) {
-						policy.on_behalf_of_email = details.email
-						policy.on_behalf_of = details.permissionedAs
-						customOnBehalfOfEmail = details.email
-						preserveOnBehalfOf = true
-					}
-				}}
-				kind="app"
-				{canPreserve}
-				customValue={customOnBehalfOfEmail}
-				isDeployment={false}
-				myPermissionedAs={actingUser?.username ? `u/${actingUser.username}` : undefined}
-				readOnlyWithoutPreserve
-			/>
+			<div class="flex items-center gap-1.5">
+				<OnBehalfOfSelector
+					targetWorkspace={opWs ?? ''}
+					targetValue={savedOnBehalfOfEmail}
+					selected={onBehalfOfChoice}
+					onSelect={(choice, details) => {
+						onBehalfOfChoice = choice
+						if (choice === 'me') {
+							policy.on_behalf_of_email = $userStore?.email
+							policy.on_behalf_of = `u/${$userStore?.username}`
+							customOnBehalfOfEmail = ''
+							preserveOnBehalfOf = false
+						} else if (choice === 'target') {
+							policy.on_behalf_of_email = savedOnBehalfOfEmail
+							policy.on_behalf_of = savedOnBehalfOf
+							customOnBehalfOfEmail = ''
+							preserveOnBehalfOf = true
+						} else if (choice === 'custom' && details) {
+							policy.on_behalf_of_email = details.email
+							policy.on_behalf_of = details.permissionedAs
+							customOnBehalfOfEmail = details.email
+							preserveOnBehalfOf = true
+						}
+					}}
+					kind="app"
+					{canPreserve}
+					customValue={customOnBehalfOfEmail}
+					isDeployment={false}
+					myPermissionedAs={myOnBehalfOf}
+					readOnlyWithoutPreserve
+				/>
+				{#if onBehalfOfWillChange}
+					<AlertTriangle class="w-3.5 h-3.5 text-yellow-500" />
+					<span class="text-2xs text-yellow-600 dark:text-yellow-400"
+						>will change from <strong>{savedOnBehalfOf}</strong> on deploy</span
+					>
+				{/if}
+			</div>
 			<div class="text-2xs text-secondary">
 				{#if canPreserve}
 					Viewers run the app's runnables as this user.
