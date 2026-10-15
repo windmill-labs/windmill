@@ -56,18 +56,23 @@ app rather than telling them why. Both integration tests assert the status for t
 
 ## Drafts
 
-An operator may save a draft of a kind they could deploy, and no other: a schedule draft while
-they hold `manage_schedules`, a trigger draft (every trigger kind, native ones included) while
-they hold `manage_triggers`, a flow or full-code app draft under `builder_flows` / `builder_apps`.
+An operator may save a draft of a kind they could deploy, and no other: a resource or variable
+draft always, since no operator setting gates those routes; a schedule draft while they hold
+`manage_schedules`, a trigger draft (every trigger kind, native ones included) while they hold
+`manage_triggers`, a flow or full-code app draft under `builder_flows` / `builder_apps`.
 drafts.rs `require_can_write_path` asks `operator_can_draft`, which reads the same cached rights
-as the router gate, and `UserDraftItemKind::manage_kind` maps each draft kind to its right. Resource and variable drafts
-stay refused even though operators edit those items directly. The AI session chat writes
-schedules and triggers only as drafts and then deploys them, so without this rule an operator who
-may create a schedule on its page could not ask the chat for one.
+as the router gate, and `UserDraftItemKind::manage_kind` maps each draft kind to its right. The AI
+session chat writes resources, variables, schedules and triggers only as drafts and then deploys
+them, so without this rule an operator who may create a schedule on its page could not ask the
+chat for one.
 
-The schedule and trigger list routes append an operator's draft-only rows under the same
-`operator_can_draft` check, so a saved draft shows on its list page exactly while the operator may
-still save it.
+A secret variable draft is stored as an `$encrypted:` marker and decrypted by the variable create
+and update routes on deploy. Those routes accept the marker from any caller, so a draft gives an
+operator nothing the direct route does not.
+
+The schedule, trigger, resource and variable list routes append an operator's draft-only rows
+under the same `operator_can_draft` check, so a saved draft shows on its list page exactly while
+the operator may still save it.
 
 Deploying a draft goes through the ordinary create and update routes, so the router gate is still
 what decides the write. The draft rule only has to agree with it: a draft the gate would refuse to

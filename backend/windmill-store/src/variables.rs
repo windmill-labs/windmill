@@ -11,7 +11,7 @@ use windmill_api_auth::{
     ApiAuthed,
 };
 use windmill_common::db::{Authable, DB};
-use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
+use windmill_common::workspaces::{check_deploy_rules, operator_can_draft, RuleCheckResult};
 
 use crate::secret_backend_ext::{
     delete_secret_from_backend, get_secret_value, is_external_stored_value, is_vault_stored_value,
@@ -230,7 +230,6 @@ async fn list_variables(
 
     // Append the authed user's draft-only variables; see scripts.rs.
     if lq.include_draft_only.unwrap_or(false)
-        && !authed.is_operator
         && offset == 0
         && lq.path_start.is_none()
         && lq.path.is_none()
@@ -238,6 +237,8 @@ async fn list_variables(
         && lq.value.is_none()
         && lq.broad_filter.is_none()
         && lq.label.is_none()
+        && (!authed.is_operator
+            || operator_can_draft(&db, &w_id, UserDraftItemKind::Variable).await?)
     {
         let draft_only_rows =
             fetch_draft_only_list_rows(&db, &w_id, &authed.email, UserDraftItemKind::Variable)

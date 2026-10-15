@@ -20,7 +20,7 @@ use windmill_common::per_minute_counter::PerMinuteCounter;
 use windmill_common::ssrf::{
     is_private_ip, private_git_host_allowed, private_git_host_hint, GitRemoteCaller,
 };
-use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
+use windmill_common::workspaces::{check_deploy_rules, operator_can_draft, RuleCheckResult};
 
 use crate::secret_backend_ext::rename_vault_secret;
 use crate::var_resource_cache::{auth_identity, cache_resource, get_cached_resource};
@@ -474,7 +474,6 @@ async fn list_resources(
     // list (the resources page always passes `resource_type_exclude`); they're applied
     // per-row below against the draft JSON's `resource_type` instead.
     if lq.include_draft_only.unwrap_or(false)
-        && !authed.is_operator
         && offset == 0
         && lq.path_start.is_none()
         && lq.path.is_none()
@@ -483,6 +482,8 @@ async fn list_resources(
         && lq.broad_filter.is_none()
         && lq.label.is_none()
         && !lq.starred_only.unwrap_or(false)
+        && (!authed.is_operator
+            || operator_can_draft(&db, &w_id, UserDraftItemKind::Resource).await?)
     {
         let rt_filter: Option<Vec<&str>> = lq
             .resource_type
