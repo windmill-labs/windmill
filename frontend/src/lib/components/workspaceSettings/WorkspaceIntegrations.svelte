@@ -95,8 +95,6 @@
 	let connections = $state<Record<string, NativeTriggerConnection[]>>({})
 	let loading = $state(false)
 	// The service whose OAuth app dialog is open.
-	// Services whose shared account picker is open.
-	let editingShared = $state<Record<string, boolean>>({})
 	let connectingShared = $state<string | null>(null)
 	let configOpen = $state<Record<string, boolean>>(
 		Object.fromEntries(Object.keys(supportedServices).map((s) => [s, false]))
@@ -203,7 +201,7 @@
 		try {
 			const path = await connectNativeAccount($workspaceStore, serviceName as NativeServiceName)
 			await loadConnections(serviceName)
-			if (await setWorkspaceConnection(serviceName, path)) editingShared[serviceName] = false
+			await setWorkspaceConnection(serviceName, path)
 		} catch (err: any) {
 			const displayName = supportedServices[serviceName]?.displayName ?? serviceName
 			sendUserToast(`Could not connect ${displayName}: ${err.body ?? err.message}`, true)
@@ -391,8 +389,8 @@
 						{#if serviceName === 'nextcloud' && !workspaceConnection}
 							<div class="flex items-center justify-between gap-4">
 								<div class="text-xs text-secondary">
-									Nextcloud only accepts webhooks from an admin account. Connect one and share it so
-									members can create triggers.
+									Nextcloud only accepts webhooks from admin accounts, so members without one need a
+									shared account.
 								</div>
 								<Button
 									unifiedSize="sm"
@@ -406,57 +404,34 @@
 						{:else}
 							<div class="flex items-center gap-1.5 text-xs text-secondary">
 								<Check size={14} class="shrink-0" />
-								{serviceName === 'nextcloud'
-									? 'Members can create triggers through the shared account.'
-									: `Members can connect their own ${config.displayName} account when they create a trigger.`}
+								Members can connect their own {config.displayName} account when they create a trigger{workspaceConnection
+									? ', or use the shared one'
+									: ''}.
 							</div>
 						{/if}
 
 						<div class="flex flex-col gap-1">
-							<div class="flex items-center gap-2 text-xs">
-								<span class="font-semibold text-emphasis">Shared account</span>
-								{#if workspaceConnection}
-									<span class="font-mono text-2xs text-emphasis">{workspaceConnection}</span>
-								{:else}
-									<span class="text-secondary">None</span>
-								{/if}
-								{#if !editingShared[serviceName]}
-									<button
-										class="text-xs font-normal text-accent hover:underline"
-										onclick={() => (editingShared[serviceName] = true)}
-									>
-										{workspaceConnection ? 'Change' : 'Choose'}
-									</button>
-								{/if}
-							</div>
-							{#if editingShared[serviceName]}
-								<div class="text-xs text-secondary">
-									Members can create triggers as this account without seeing its token.
+							<div class="flex items-center gap-3">
+								<span class="text-xs font-semibold text-emphasis shrink-0">Shared account</span>
+								<div class="flex-1 min-w-0 max-w-md">
+									<!-- Remounted so its list includes an account connected from elsewhere on the page. -->
+									{#key workspaceConnection}
+										<NativeConnectionPicker
+											service={serviceName as NativeServiceName}
+											value={workspaceConnection}
+											autoSelect={false}
+											clearable
+											labelWorkspace={false}
+											placeholder="None"
+											onSelect={(path) => setWorkspaceConnection(serviceName, path)}
+											onConnectionsChange={() => loadConnections(serviceName)}
+										/>
+									{/key}
 								</div>
-								<!-- Remounted so its list includes an account connected from elsewhere on the page. -->
-								{#key workspaceConnection}
-									<NativeConnectionPicker
-										service={serviceName as NativeServiceName}
-										value={workspaceConnection}
-										autoSelect={false}
-										clearable
-										labelWorkspace={false}
-										placeholder="None"
-										onSelect={async (path) => {
-											if (await setWorkspaceConnection(serviceName, path)) {
-												editingShared[serviceName] = false
-											}
-										}}
-										onConnectionsChange={() => loadConnections(serviceName)}
-									/>
-								{/key}
-								<button
-									class="text-xs font-normal text-accent hover:underline w-fit"
-									onclick={() => (editingShared[serviceName] = false)}
-								>
-									Done
-								</button>
-							{/if}
+							</div>
+							<div class="text-2xs text-hint">
+								Members can create triggers as this account without seeing its token.
+							</div>
 						</div>
 					{/if}
 
