@@ -58,9 +58,9 @@
 			{#snippet children({ item })}
 				<ToggleButton
 					{item}
-					value="read"
-					label="Read only"
-					tooltip="Explore and read. Nothing is run or changed."
+					value="full"
+					label="Build and run"
+					tooltip="Everything you can do yourself: explore, write, test and deploy drafts, and run."
 				/>
 				<ToggleButton
 					{item}
@@ -70,20 +70,24 @@
 				/>
 				<ToggleButton
 					{item}
-					value="full"
-					label="Read, run and build"
-					tooltip="Everything you can do yourself: write, test and deploy drafts, run, and explore."
+					value="read"
+					label="Read only"
+					tooltip="Explore and read. Nothing is run or changed."
 				/>
 				<ToggleButton
 					{item}
 					value="selected"
-					label="Run selected scripts and flows"
-					tooltip="Only the scripts and flows you pick, each as its own tool, and nothing else. To share a few automations."
+					label="Only selected scripts and flows"
+					tooltip="The scripts and flows you pick, each as its own tool, and nothing else. To share a few automations."
 				/>
 			{/snippet}
 		</ToggleButtonGroup>
 	</div>
 	{#if access === 'selected'}
+		<p class="text-2xs text-secondary -mt-2">
+			The client can run these scripts and flows and nothing else: it cannot explore the workspace,
+			read runs, build, or run anything outside the selection.
+		</p>
 		<McpScopeSelector
 			{workspaceId}
 			bind:scope={selection}

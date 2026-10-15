@@ -405,8 +405,8 @@
 					<ClipboardPanel content={mcpUrl} size="sm" />
 					<p class="text-2xs text-secondary">
 						Add it to your client as a remote MCP server. It opens a Windmill page where you sign in
-						and choose the workspaces and what the client may do: read only; read and run; read, run
-						and build; or run only the scripts and flows you pick.
+						and choose the workspaces and what the client may do: build and run, read and run, read
+						only, or only the scripts and flows you pick.
 					</p>
 				</div>
 
