@@ -136,7 +136,20 @@ impl External for NextCloud {
                 Some(headers),
                 Some(&full_nextcloud_payload),
             )
-            .await?;
+            .await
+            .map_err(|e| {
+                // Nextcloud lets only its admins register webhooks.
+                if http_error_status(&e) == Some(StatusCode::FORBIDDEN) {
+                    Error::BadRequest(
+                        "This Nextcloud account isn't a Nextcloud admin, so it can't register \
+                         webhooks. Use the shared account, or ask a workspace admin to share a \
+                         Nextcloud admin account."
+                            .to_string(),
+                    )
+                } else {
+                    e
+                }
+            })?;
 
         Ok(ocs_response.ocs.data)
     }
