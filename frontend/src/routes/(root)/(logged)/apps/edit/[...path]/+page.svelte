@@ -108,7 +108,7 @@
 				itemKind: 'app',
 				path
 			})
-			const emptyPolicy = { execution_mode: 'publisher' } as any
+			const emptyPolicy = { execution_mode: 'publisher', sandbox: true } as any
 			// One-shot import handoff via $importStore (YAML/JSON or "Build app").
 			// Wrapped exports carry { summary, value, policy }; bare ones are the App value.
 			const importRaw = $importStore
@@ -246,7 +246,7 @@
 				summary: savedDraftApp?.summary ?? '',
 				value: (savedDraftApp ?? {}) as App,
 				path: page.params.path ?? '',
-				policy: { execution_mode: 'publisher' } as any,
+				policy: { execution_mode: 'publisher', sandbox: true } as any,
 				custom_path: undefined,
 				versions: undefined as any,
 				id: 0 as any,

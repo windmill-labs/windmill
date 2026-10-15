@@ -268,6 +268,33 @@ pub fn parse_code_for_imports(code: &str, path: &str) -> anyhow::Result<Vec<NImp
     return Ok(nimports);
 }
 
+/// A runnable's Python modules as [`parse_python_imports`]' `module_sources`: content keyed
+/// by the path a relative import of each resolves to from `script_path` (`shared.py` next
+/// to `u/a/app/main` is `u/a/app/shared`).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn module_sources(
+    script_path: &str,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
+) -> Option<HashMap<String, String>> {
+    let dir = script_path
+        .rsplit_once('/')
+        .map(|(dir, _)| dir)
+        .unwrap_or("");
+    let sources: HashMap<String, String> = modules?
+        .iter()
+        .filter_map(|(key, module)| {
+            let stem = key.strip_suffix(".py")?;
+            let path = if dir.is_empty() {
+                stem.to_string()
+            } else {
+                format!("{dir}/{stem}")
+            };
+            Some((path, module.content.clone()))
+        })
+        .collect();
+    (!sources.is_empty()).then_some(sources)
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn parse_python_imports(
     code: &str,
@@ -278,6 +305,10 @@ pub async fn parse_python_imports(
     locked_v: &mut Option<pep440_rs::Version>,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
     temp_script_refs: &Option<HashMap<String, String>>,
+    // Content of relative imports that ship with the importer rather than being deployed
+    // (its modules), keyed by the path a relative import resolves to. Wins over both
+    // `temp_script_refs` and the deployed script, as the module file does at run time.
+    module_sources: Option<&HashMap<String, String>>,
 ) -> error::Result<(Vec<String>, Option<String>)> {
     let mut compile_error_hint: Option<String> = None;
     let mut imports = parse_python_imports_inner(
@@ -291,6 +322,7 @@ pub async fn parse_python_imports(
         locked_v,
         raw_workspace_dependencies_o,
         temp_script_refs,
+        module_sources,
     )
     .await?
     .into_values()
@@ -349,6 +381,7 @@ async fn parse_python_imports_inner(
     locked_v: &mut Option<pep440_rs::Version>,
     raw_workspace_dependencies_o: &Option<RawWorkspaceDependencies>,
     temp_script_refs: &Option<HashMap<String, String>>,
+    module_sources: Option<&HashMap<String, String>>,
 ) -> error::Result<HashMap<String, NImportResolved>> {
     tracing::debug!("Parsing python imports for path: {}", path);
     let PythonAnnotations { py310, py311, py312, py313, py314, py315, .. } =
@@ -517,10 +550,11 @@ async fn parse_python_imports_inner(
     for n in nimports.into_iter() {
         let mut nested = match n {
             NImport::Relative(rpath) => {
-                // First try to get content from temp_script_refs cache if available
-                let code_from_cache = if let Some(hash) =
-                    temp_script_refs.as_ref().and_then(|dt| dt.get(&rpath))
+                let code_from_cache = if let Some(content) =
+                    module_sources.and_then(|m| m.get(&rpath))
                 {
+                    Some(content.clone())
+                } else if let Some(hash) = temp_script_refs.as_ref().and_then(|dt| dt.get(&rpath)) {
                     tracing::debug!(
                         "Found relative import '{}' in temp_script_refs with hash '{}'",
                         rpath,
@@ -570,6 +604,7 @@ async fn parse_python_imports_inner(
                         locked_v,
                         raw_workspace_dependencies_o,
                         temp_script_refs,
+                        module_sources,
                     )
                     .await?
                     .into_values()

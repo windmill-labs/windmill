@@ -128,6 +128,7 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { useEditRights, useTriggerLock } from '$lib/operatorWriteRights'
+	import { previewOnBehalfOf } from '$lib/utils/previewOnBehalfOf'
 	const triggerLock = useTriggerLock()
 	const editRights = useEditRights()
 
@@ -2645,6 +2646,11 @@
 		{:else}
 			<ScriptEditor
 				{disableAi}
+				previewOnBehalfOf={previewOnBehalfOf(
+					actingUser,
+					script.on_behalf_of,
+					script.on_behalf_of_email
+				)}
 				workspaceOverride={opWorkspace}
 				sessionOpen={userDraftPath
 					? {

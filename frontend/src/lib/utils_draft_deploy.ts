@@ -551,7 +551,7 @@ export async function deployDraft(
 			// undefined so the backend preserves the existing route. The draft has no
 			// custom_path, so admins fall back to the deployed route (`''` when none).
 			const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
-			const policy = r.policy ?? { execution_mode: 'publisher' }
+			const policy = r.policy ?? { execution_mode: 'publisher', sandbox: true }
 			const requestBody = {
 				value: appValue,
 				summary: draftSummary ?? r.summary ?? '',
