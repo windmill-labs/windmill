@@ -22,6 +22,7 @@ import {
   type AppExecutionMode,
   type AppIsolation,
   basePolicy,
+  changedCustomPath,
   executionModeForPush,
   finalizeDerivedPolicy,
   isolationUpToDate,
@@ -526,9 +527,7 @@ export async function pushRawApp(
             deployment_message: message,
             // Preserve any user draft at this path (see backend skip_draft_deletion).
             skip_draft_deletion: true,
-            ...(localApp.custom_path
-              ? { custom_path: localApp.custom_path }
-              : {}),
+            custom_path: changedCustomPath(localApp.custom_path, app),
           },
           js,
           css,

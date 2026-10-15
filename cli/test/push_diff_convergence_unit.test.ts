@@ -8,6 +8,7 @@ import {
   compareDynFSElement,
   ZipFSElement,
 } from "../src/commands/sync/sync.ts";
+import { changedCustomPath } from "../src/commands/app/app.ts";
 
 // The differ also reads the working tree (shared lockfiles, dependency files);
 // an empty one keeps that out of the picture.
@@ -372,4 +373,17 @@ test("pull: a raw app keeps its custom_path", async () => {
     p.endsWith("/raw_app.yaml"),
   );
   expect(rawAppYaml?.[1]).toContain("custom_path: my-dashboard");
+});
+
+// The backend requires admin for any update carrying custom_path, so the
+// pulled, unchanged value must stay out of a non-admin's push.
+test("push: an unchanged custom_path is not sent", () => {
+  expect(
+    changedCustomPath("my-dashboard", { custom_path: "my-dashboard" }),
+  ).toBeUndefined();
+  expect(changedCustomPath(undefined, { custom_path: "my-dashboard" })).toBeUndefined();
+  expect(changedCustomPath("", undefined)).toBeUndefined();
+  expect(changedCustomPath("new", { custom_path: "my-dashboard" })).toBe("new");
+  expect(changedCustomPath("", { custom_path: "my-dashboard" })).toBe("");
+  expect(changedCustomPath("new", undefined)).toBe("new");
 });

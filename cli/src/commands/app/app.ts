@@ -34,6 +34,7 @@ export interface AppFile {
   public?: boolean;
   sandbox?: boolean;
   frontend_api?: string[];
+  custom_path?: string;
   summary: string;
   policy: Policy;
   // Mirrors granular ACLs on the app path. Omitted from app.yaml when no
@@ -122,6 +123,15 @@ export function stripEditorState(app: any) {
   if (app?.value && typeof app.value == "object") {
     delete app.value.parent_version;
   }
+}
+/** The backend requires admin for any update that carries `custom_path`, even
+ * an unchanged one, so a pulled value must only be sent when it differs from
+ * the deployed one or a non-admin can no longer deploy the app. */
+export function changedCustomPath(
+  local: string | undefined,
+  deployed: { custom_path?: string } | undefined,
+): string | undefined {
+  return (local ?? "") === (deployed?.custom_path ?? "") ? undefined : local;
 }
 export function isExecutionModeAnonymous(app: any) {
   return app?.["policy"]?.["execution_mode"] == "anonymous";
@@ -345,6 +355,7 @@ export async function pushApp(
         requestBody: {
           deployment_message: message,
           ...localAppBody,
+          custom_path: changedCustomPath(localAppBody.custom_path, app),
           ...preserveFields,
           // Preserve any user draft at this path (see backend skip_draft_deletion).
           skip_draft_deletion: true,
