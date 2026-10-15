@@ -44,13 +44,14 @@
 	let saving = $state(false)
 
 	// The picker rebuilds the MCP scopes from its own modes and knows nothing of the workspace
-	// list, so it is carried over as is: dropping it would widen the token to every workspace.
-	const isWorkspaceList = (s: string) => s.startsWith('mcp:workspaces:')
+	// list or of read-and-run, so they are carried over as is: dropping either would widen the
+	// token, to every workspace or to writes.
+	const isNarrowing = (s: string) => s.startsWith('mcp:workspaces:') || s === 'mcp:read_run'
 	const scopesToSave = $derived(
 		isMcp && pickedScopes
 			? [
-					...pickedScopes.filter((s) => !isWorkspaceList(s)),
-					...(initialScopes ?? []).filter(isWorkspaceList)
+					...pickedScopes.filter((s) => !isNarrowing(s)),
+					...(initialScopes ?? []).filter(isNarrowing)
 				]
 			: pickedScopes
 	)

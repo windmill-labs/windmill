@@ -15,6 +15,8 @@
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
 	import RadioCard from '../common/radioCard/RadioCard.svelte'
+	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import MultiSelect from '../select/MultiSelect.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -52,7 +54,12 @@
 	// Which MCP server the URL is for: v2 (the AI chat's toolset), which takes `mcp:all` and
 	// nothing narrower, or v1 (a selection of scripts and flows, each as its own tool).
 	let mcpServer = $state<'v1' | 'v2'>('v2')
-	const V2_SCOPES = ['mcp:all']
+	// What the client may do. Read and run exists on v2 alone: v1 has no such scope.
+	let mcpAccess = $state<'read' | 'read_run' | 'full'>('full')
+	function setMcpAccess(access: 'read' | 'read_run' | 'full') {
+		mcpAccess = access
+		readOnly = access === 'read'
+	}
 	// What the user picked; `newTokenExpiration` is that pick held within the ceiling.
 	let pickedExpiration = $state<number | undefined>(undefined)
 	let newTokenWorkspace = $state<string | undefined>(untrack(() => defaultNewTokenWorkspace))
@@ -148,7 +155,7 @@
 		mcpAllWorkspaces = false
 		newToken = undefined
 		newMcpToken = undefined
-		readOnly = false
+		setMcpAccess('full')
 		if (!newTokenLabel) {
 			newTokenLabel = 'MCP token'
 			mcpLabelAutofilled = true
@@ -177,7 +184,13 @@
 			}
 
 			const pickedOrFixed =
-				scopes ?? (mcpMode && mcpServer === 'v2' ? V2_SCOPES : pickedScopes) ?? undefined
+				scopes ??
+				(mcpMode && mcpServer === 'v2'
+					? mcpAccess === 'read_run'
+						? ['mcp:all', 'mcp:read_run']
+						: ['mcp:all']
+					: pickedScopes) ??
+				undefined
 			const tokenScopes =
 				pickedOrFixed && workspacesScope ? [...pickedOrFixed, workspacesScope] : pickedOrFixed
 
@@ -311,7 +324,10 @@
 			label="Selected scripts and flows (v1)"
 			description="Pick which scripts, flows and API calls a client can use. Each becomes its own tool."
 			selected={mcpServer === 'v1'}
-			onSelect={() => (mcpServer = 'v1')}
+			onSelect={() => {
+				mcpServer = 'v1'
+				if (mcpAccess === 'read_run') setMcpAccess('full')
+			}}
 		/>
 	</div>
 {/snippet}
@@ -414,17 +430,36 @@
 			{#if mcpCreationMode}
 				{@render mcpServerChoice()}
 			{/if}
-			{#if mcpCreationMode && mcpServer === 'v2'}
-				<div class="mb-4 text-tertiary">
-					<Toggle
-						bind:checked={readOnly}
-						options={{
-							right: 'Read-only',
-							rightTooltip:
-								'The client can explore the workspace, its runs and its drafts, but cannot write, run or deploy anything.'
-						}}
-						size="2xs"
-					/>
+			{#if mcpCreationMode}
+				<div class="mb-4">
+					<span class="block mb-1 text-emphasis text-xs font-semibold">Access</span>
+					<ToggleButtonGroup
+						bind:selected={() => mcpAccess, (v) => setMcpAccess(v)}
+						allowEmpty={false}
+					>
+						{#snippet children({ item })}
+							<ToggleButton
+								{item}
+								value="read"
+								label="Read only"
+								tooltip="Explore the workspace and its runs. Nothing is run or changed."
+							/>
+							{#if mcpServer === 'v2'}
+								<ToggleButton
+									{item}
+									value="read_run"
+									label="Read and run"
+									tooltip="Explore the workspace and run deployed scripts and flows. Nothing is changed."
+								/>
+							{/if}
+							<ToggleButton
+								{item}
+								value="full"
+								label="Full"
+								tooltip="Everything you can do yourself, writes included."
+							/>
+						{/snippet}
+					</ToggleButtonGroup>
 				</div>
 			{:else if scopes != undefined}
 				<div class="mb-4">
@@ -452,6 +487,7 @@
 					workspaceId={scopeWorkspaceId}
 					bind:value={pickedScopes}
 					bind:readOnly
+					hideMcpReadOnly={mcpCreationMode}
 				/>
 			{/if}
 

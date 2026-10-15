@@ -17,6 +17,15 @@ use crate::server::endpoints::EndpointTool;
 /// Result type for backend operations using rmcp's ErrorData directly
 pub type BackendResult<T> = Result<T, ErrorData>;
 
+/// What a v2 token may do: read, read and run deployed scripts and flows (`mcp:read_run`),
+/// or everything its owner can.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionAccess {
+    ReadOnly,
+    ReadAndRun,
+    Full,
+}
+
 /// What the backend needs about the HTTP request a tool call arrived on, in order
 /// to hand a runnable the headers of the call that triggered it.
 pub struct McpRequest<'a> {
@@ -239,8 +248,8 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
     /// What `generic_session_instructions` leaves out, for one workspace.
     async fn workspace_context(&self, auth: &Self::Auth, workspace_id: &str) -> String;
 
-    /// The tools offered; a read-only token gets the read tools alone.
-    fn session_tools(&self, read_only: bool) -> Vec<Tool>;
+    /// The tools a token with this access is offered.
+    fn session_tools(&self, access: SessionAccess) -> Vec<Tool>;
 
     async fn call_session_tool(
         &self,
@@ -248,6 +257,6 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         workspace_id: &str,
         name: &str,
         args: Value,
-        read_only: bool,
+        access: SessionAccess,
     ) -> BackendResult<CallToolResult>;
 }

@@ -7,7 +7,7 @@
 
 use crate::common::scope::{parse_mcp_scopes, McpScopeConfig};
 use crate::common::types::WorkspaceInfo;
-use crate::server::backend::{McpAuth, McpBackend};
+use crate::server::backend::{McpAuth, McpBackend, SessionAccess};
 use crate::server::endpoints::{list_workspaces_tool, with_workspace_id_arg};
 use crate::server::runner::{
     truncate_tool_result, workspace_not_granted, McpContext, McpMode, Runner, LIST_CACHE_SCOPE,
@@ -32,6 +32,16 @@ fn admits(scopes: &[String], all: bool) -> bool {
     all && scopes
         .iter()
         .all(|s| s.starts_with("mcp:") || s.starts_with("if_jobs:filter_tags:"))
+}
+
+fn access<A: McpAuth>(auth: &A, scope: &McpScopeConfig) -> SessionAccess {
+    if auth.read_only() {
+        SessionAccess::ReadOnly
+    } else if scope.read_run {
+        SessionAccess::ReadAndRun
+    } else {
+        SessionAccess::Full
+    }
 }
 
 const GET_WORKSPACE_CONTEXT: &str = "get_workspace_context";
@@ -215,7 +225,7 @@ impl<B: McpBackend> ServerHandler for SessionRunner<B> {
         }
         tools.extend(
             self.backend
-                .session_tools(caller.auth.read_only())
+                .session_tools(access(&caller.auth, &caller.scope))
                 .into_iter()
                 .map(with_workspace_id_arg),
         );
@@ -260,7 +270,7 @@ impl<B: McpBackend> ServerHandler for SessionRunner<B> {
                 &workspace_id,
                 request.name.as_ref(),
                 Value::Object(args),
-                auth.read_only(),
+                access(&auth, &caller.scope),
             )
             .await?;
         for block in result.content.iter_mut() {

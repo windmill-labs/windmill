@@ -17,7 +17,8 @@ use std::sync::LazyLock;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use windmill_mcp::server::{
-    BackendResult, CallToolResult, ContentBlock, ErrorData, MetaObject, Tool, ToolAnnotations,
+    BackendResult, CallToolResult, ContentBlock, ErrorData, MetaObject, SessionAccess, Tool,
+    ToolAnnotations,
 };
 
 use crate::db::ApiAuthed;
@@ -92,8 +93,16 @@ const DESTRUCTIVE: &[&str] = &["deploy_workspace_item", "delete_workspace_item"]
 /// nothing on the tools server, so it runs nothing here either.
 const RUNS_A_JOB: &[&str] = &["get_db_schema"];
 
-fn allowed_read_only(def: &ToolDef) -> bool {
-    def.read_only && !RUNS_A_JOB.contains(&def.name.as_str())
+/// Tools that run a deployed script or flow, the one write a read-and-run token keeps.
+const RUNS_DEPLOYED: &[&str] = &["run_script", "run_flow"];
+
+fn allowed(def: &ToolDef, access: SessionAccess) -> bool {
+    let read = def.read_only && !RUNS_A_JOB.contains(&def.name.as_str());
+    match access {
+        SessionAccess::Full => true,
+        SessionAccess::ReadAndRun => read || RUNS_DEPLOYED.contains(&def.name.as_str()),
+        SessionAccess::ReadOnly => read,
+    }
 }
 
 /// Each group's tools and its dispatcher, tried in order.
@@ -122,11 +131,11 @@ fn result_size_meta() -> MetaObject {
     MetaObject(meta)
 }
 
-pub(super) fn session_tools(read_only: bool) -> Vec<Tool> {
+pub(super) fn session_tools(access: SessionAccess) -> Vec<Tool> {
     TOOL_DEFS
         .iter()
         .filter(|def| implemented().any(|name| name == def.name))
-        .filter(|def| !read_only || allowed_read_only(def))
+        .filter(|def| allowed(def, access))
         .map(|def| {
             Tool::new(
                 def.name.clone(),
@@ -151,18 +160,13 @@ pub(super) struct Ctx<'a> {
     pub auth: &'a ApiAuthed,
     pub w_id: &'a str,
     pub base_internal_url: &'a str,
+    pub access: SessionAccess,
 }
 
 impl Ctx<'_> {
     /// Call the API as the caller. `path` follows `/api`; a non-2xx answer is the error.
     pub async fn request(&self, method: &str, path: &str, body: Option<Value>) -> ToolResult {
-        let url = guarded_url(
-            self.base_internal_url,
-            self.w_id,
-            method,
-            path,
-            self.auth.read_only,
-        )?;
+        let url = guarded_url(self.base_internal_url, self.w_id, method, path, self.access)?;
         // No route scope: this server only admits `mcp:all`, several routes (hub, embeddings)
         // map to none, and `guarded_url` is what keeps a call on its route. The tag fence
         // is not a route scope and stays: it limits which jobs the caller runs and reads.
@@ -225,14 +229,14 @@ const INSTANCE_ROUTES: &[&str] = &[
 ///
 /// The JWT behind a call carries the caller's full rights, and paths embed arguments a
 /// model chose: a `..` segment, or an id carrying `#`, would otherwise turn a read of
-/// one job into a run of any script. A read-only token is held to the read-only rule
-/// here too, since that JWT does not carry the flag.
+/// one job into a run of any script. A read-only or read-and-run token is held to its rule
+/// here too, since that JWT carries neither.
 fn guarded_url(
     base: &str,
     w_id: &str,
     method: &str,
     path: &str,
-    read_only: bool,
+    access: SessionAccess,
 ) -> Result<String, String> {
     let refused = || format!("Refusing to call `{path}`: not a route of this tool");
     let route = path.split('?').next().unwrap_or_default();
@@ -255,7 +259,17 @@ fn guarded_url(
     if !parsed.path().ends_with(&format!("/api{route}")) {
         return Err(refused());
     }
-    if read_only {
+    // Runs of deployed items by path only: the preview routes take code, so they are writes.
+    let runs_deployed = method == "POST"
+        && ["jobs/run/p/", "jobs/run/f/"]
+            .iter()
+            .any(|run| route.starts_with(&format!("/w/{w_id}/{run}")));
+    let held_to_reads = match access {
+        SessionAccess::Full => false,
+        SessionAccess::ReadAndRun => !runs_deployed,
+        SessionAccess::ReadOnly => true,
+    };
+    if held_to_reads {
         windmill_api_auth::scopes::check_read_only_for_route(parsed.path(), method)
             .map_err(|e| e.to_string())?;
     }
@@ -395,7 +409,6 @@ pub(super) async fn call_session_tool(
     ctx: &Ctx<'_>,
     name: &str,
     args: Value,
-    read_only: bool,
 ) -> BackendResult<CallToolResult> {
     let Some(def) = TOOL_DEFS.iter().find(|def| def.name == name) else {
         return Err(ErrorData::invalid_params(
@@ -403,9 +416,13 @@ pub(super) async fn call_session_tool(
             None,
         ));
     };
-    if read_only && !allowed_read_only(def) {
+    if !allowed(def, ctx.access) {
+        let token = match ctx.access {
+            SessionAccess::ReadAndRun => "can only read and run deployed scripts and flows",
+            _ => "is read-only",
+        };
         return Err(ErrorData::invalid_request(
-            format!("Tool '{name}' changes or runs something, and this token is read-only"),
+            format!("Tool '{name}' changes or runs something, and this token {token}"),
             None,
         ));
     }
@@ -433,9 +450,10 @@ mod tests {
 
     #[test]
     fn a_call_stays_on_the_route_its_handler_wrote() {
-        let url = |method, path, read_only| guarded_url("http://h", "ws", method, path, read_only);
-        assert!(url("GET", "/w/ws/jobs_u/get/0191?no_logs=true", false).is_ok());
-        assert!(url("GET", "/docs/search?query=a%2Fb", true).is_ok());
+        use SessionAccess::*;
+        let url = |method, path, access| guarded_url("http://h", "ws", method, path, access);
+        assert!(url("GET", "/w/ws/jobs_u/get/0191?no_logs=true", Full).is_ok());
+        assert!(url("GET", "/docs/search?query=a%2Fb", ReadOnly).is_ok());
         for path in [
             "/w/ws/jobs_u/get/../../jobs/run_wait_result/p/u/a/b",
             "/w/ws/jobs_u/get/%2e%2e/%2E%2E/variables/get_value/u/a/b",
@@ -445,12 +463,19 @@ mod tests {
             "/settings/global/x",
             "/docs/../users/tokens/list",
         ] {
-            assert!(url("GET", path, false).is_err(), "{path} should be refused");
+            assert!(url("GET", path, Full).is_err(), "{path} should be refused");
         }
-        assert!(guarded_url("http://h", "a/../b", "GET", "/w/a/../b/scripts/list", false).is_err());
+        assert!(guarded_url("http://h", "a/../b", "GET", "/w/a/../b/scripts/list", Full).is_err());
         // A read-only token neither writes nor runs, whatever the tool.
-        assert!(url("POST", "/w/ws/drafts/update", true).is_err());
-        assert!(url("GET", "/w/ws/jobs/run_wait_result/p/u/a/b", true).is_err());
+        assert!(url("POST", "/w/ws/drafts/update", ReadOnly).is_err());
+        assert!(url("GET", "/w/ws/jobs/run_wait_result/p/u/a/b", ReadOnly).is_err());
+        assert!(url("POST", "/w/ws/jobs/run/p/u/a/b", ReadOnly).is_err());
+        // A read-and-run token runs deployed items by path, and writes nothing else: a
+        // preview takes code.
+        assert!(url("POST", "/w/ws/jobs/run/p/u/a/b", ReadAndRun).is_ok());
+        assert!(url("POST", "/w/ws/jobs/run/f/u/a/b", ReadAndRun).is_ok());
+        assert!(url("POST", "/w/ws/jobs/run/preview", ReadAndRun).is_err());
+        assert!(url("POST", "/w/ws/drafts/update", ReadAndRun).is_err());
     }
 
     #[test]

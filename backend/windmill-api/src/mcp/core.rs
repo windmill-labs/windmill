@@ -14,7 +14,7 @@ use windmill_mcp::common::types::{
 };
 use windmill_mcp::server::{
     BackendResult, CallToolResult, EndpointTool, ErrorData, McpBackend, McpRequest, PathFilter,
-    Tool,
+    SessionAccess, Tool,
 };
 
 use crate::auth::AuthCache;
@@ -66,8 +66,23 @@ pub struct WindmillBackend {
 }
 
 impl WindmillBackend {
+    /// The instructions only read, so they are built at the token's own read-only flag.
     fn session_ctx<'a>(&'a self, auth: &'a ApiAuthed, w_id: &'a str) -> session::Ctx<'a> {
-        session::Ctx { auth, w_id, base_internal_url: &self.base_internal_url }
+        let access = if auth.read_only {
+            SessionAccess::ReadOnly
+        } else {
+            SessionAccess::Full
+        };
+        self.session_ctx_with(auth, w_id, access)
+    }
+
+    fn session_ctx_with<'a>(
+        &'a self,
+        auth: &'a ApiAuthed,
+        w_id: &'a str,
+        access: SessionAccess,
+    ) -> session::Ctx<'a> {
+        session::Ctx { auth, w_id, base_internal_url: &self.base_internal_url, access }
     }
 
     pub fn new(
@@ -431,8 +446,8 @@ impl McpBackend for WindmillBackend {
         session::workspace_context(&self.session_ctx(auth, workspace_id)).await
     }
 
-    fn session_tools(&self, read_only: bool) -> Vec<Tool> {
-        session::session_tools(read_only)
+    fn session_tools(&self, access: SessionAccess) -> Vec<Tool> {
+        session::session_tools(access)
     }
 
     async fn call_session_tool(
@@ -441,10 +456,14 @@ impl McpBackend for WindmillBackend {
         workspace_id: &str,
         name: &str,
         args: Value,
-        read_only: bool,
+        access: SessionAccess,
     ) -> BackendResult<CallToolResult> {
-        session::call_session_tool(&self.session_ctx(auth, workspace_id), name, args, read_only)
-            .await
+        session::call_session_tool(
+            &self.session_ctx_with(auth, workspace_id, access),
+            name,
+            args,
+        )
+        .await
     }
 }
 

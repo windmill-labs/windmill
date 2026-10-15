@@ -23,6 +23,8 @@ pub struct McpScopeConfig {
     /// The workspaces a token without a bound workspace may act in
     /// (`mcp:workspaces:a,b`); `None` is every workspace its owner belongs to.
     pub workspaces: Option<Vec<String>>,
+    /// `mcp:read_run`: reads, plus running deployed scripts and flows, and nothing else.
+    pub read_run: bool,
 }
 
 impl McpScopeConfig {
@@ -82,6 +84,9 @@ impl McpScopeConfig {
                 Some(req_ws) if req_ws.iter().all(|w| caller_ws.contains(w)) => {}
                 _ => return false,
             }
+        }
+        if self.read_run && !requested.read_run {
+            return false;
         }
         if self.all {
             return true;
@@ -192,6 +197,11 @@ pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, String> {
         if let Some(resources) = scope.strip_prefix("mcp:flows:") {
             // New granular flow scope: mcp:flows:path1,path2,f/folder/*
             config.flows.extend(parse_resource_list(resources));
+            continue;
+        }
+
+        if scope == "mcp:read_run" {
+            config.read_run = true;
             continue;
         }
 
@@ -443,5 +453,13 @@ mod tests {
         assert!(!two.contains(&cfg(&["mcp:all", "mcp:workspaces:dev,prod"])));
         assert!(!two.contains(&cfg(&["mcp:all"])));
         assert!(cfg(&["mcp:all"]).contains(&two));
+    }
+
+    #[test]
+    fn test_read_run_scope_only_narrows() {
+        let read_run = cfg(&["mcp:all", "mcp:read_run"]);
+        assert!(read_run.read_run && read_run.all);
+        assert!(read_run.contains(&cfg(&["mcp:all", "mcp:read_run"])));
+        assert!(!read_run.contains(&cfg(&["mcp:all"])));
     }
 }
