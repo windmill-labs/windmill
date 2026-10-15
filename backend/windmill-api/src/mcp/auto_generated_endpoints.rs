@@ -599,6 +599,10 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "include_draft_only": {
                         "type": "boolean",
                         "description": "When true, append per-user draft resources whose path has\nno deployed resource. Synthesized rows carry\n`draft_only: true`.\n"
+                },
+                "starred_only": {
+                        "type": "boolean",
+                        "description": "Only the `ai_agent` resources the caller starred"
                 }
         },
         "required": []
@@ -1842,7 +1846,7 @@ is, a different one moves it there and archives the old path"),
                 },
                 "resolved": {
                         "type": "boolean",
-                        "description": "filter on whether a failure has been marked as handled. true keeps only resolved failures, false hides them"
+                        "description": "filter on whether a failed or canceled run has been marked as handled. true keeps only resolved runs, false hides them"
                 },
                 "is_flow_step": {
                         "type": "boolean",
