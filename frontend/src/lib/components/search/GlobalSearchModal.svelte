@@ -3,16 +3,19 @@
 	import {
 		AppService,
 		FlowService,
+		ResourceService,
 		ScriptService,
 		type Flow,
 		type ListableApp,
 		type ListableRawApp,
+		type ListableResource,
 		type Script,
 		type SearchJobsIndexResponse
 	} from '$lib/gen'
 	import { clickOutside, isMac, scroll_into_view_if_needed_polyfill } from '$lib/utils'
 	import {
 		AlertTriangle,
+		Bot,
 		BoxesIcon,
 		CalendarIcon,
 		Code2Icon,
@@ -432,6 +435,9 @@
 			case 'raw_app':
 				path = `/apps_raw/get/${e.path}`
 				break
+			case 'agent':
+				path = `/agents/get/${e.path}`
+				break
 			default:
 				path = '/'
 		}
@@ -501,7 +507,7 @@
 		}
 	}
 
-	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
+	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app' | 'agent'> = T & {
 		search_id: string
 		marked?: string
 		type?: U
@@ -518,7 +524,9 @@
 	type TableApp = TableItem<ListableApp, 'app'>
 	type TableRawApp = TableItem<ListableRawApp, 'raw_app'>
 
-	type TableAny = TableScript | TableFlow | TableApp | TableRawApp
+	type TableAgent = TableItem<ListableResource & { summary?: string }, 'agent'>
+
+	type TableAny = TableScript | TableFlow | TableApp | TableRawApp | TableAgent
 
 	let combinedItems: TableAny[] | undefined = $state(undefined)
 
@@ -532,8 +540,18 @@
 			withoutDescription: true
 		})
 		const apps = await AppService.listApps({ workspace: $workspaceStore! })
+		const [agents, starredAgents] = await Promise.all(
+			[false, true].map((starredOnly) =>
+				ResourceService.listResource({
+					workspace: $workspaceStore!,
+					resourceType: 'ai_agent',
+					starredOnly
+				})
+			)
+		)
+		const starredAgentPaths = new Set(starredAgents.map((x) => x.path))
 
-		let combinedItems: (TableScript | TableFlow | TableApp | TableRawApp)[] | undefined = [
+		let combinedItems: TableAny[] | undefined = [
 			...flows.map((x) => ({
 				...x,
 				type: 'flow' as 'flow',
@@ -555,7 +573,17 @@
 				type: 'app' as 'app',
 				time: new Date(x.edited_at).getTime(),
 				search_id: x.path
-			}))
+			})),
+			...agents
+				.filter((x) => !x.draft_only)
+				.map((x) => ({
+					...x,
+					summary: x.description,
+					type: 'agent' as 'agent',
+					time: x.edited_at ? new Date(x.edited_at).getTime() : 0,
+					starred: starredAgentPaths.has(x.path),
+					search_id: x.path
+				}))
 		].sort((a, b) => (a.starred != b.starred ? (a.starred ? -1 : 1) : a.time - b.time > 0 ? -1 : 1))
 
 		return combinedItems
@@ -571,6 +599,8 @@
 				return LayoutDashboardIcon
 			case 'raw_app':
 				return LayoutDashboardIcon
+			case 'agent':
+				return Bot
 		}
 	}
 
@@ -729,7 +759,9 @@
 					{#if tab === 'default'}
 						{#if (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)).length > 0}
 							<div class="p-2">
-								<div class="py-2 px-1 text-xs font-semibold text-primary"> Flows/Scripts/Apps </div>
+								<div class="py-2 px-1 text-xs font-semibold text-primary">
+									Flows/Scripts/Apps/Agents</div
+								>
 								{#each (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)) as el}
 									<QuickMenuItem
 										onselect={(shift) => {

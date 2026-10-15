@@ -69,11 +69,11 @@ export function roleCanAuthor(
 }
 
 /**
- * Whether the user may save drafts of `kind` — what every session editor writes. Mirrors drafts.rs
- * `require_can_write_path`, which differs from the item handlers both ways: it admits an admin
- * before its operator branch, and it refuses every operator draft but a flow or full-code app
- * under its builder right — schedules, triggers, resources and variables included, though an operator may
- * write those directly.
+ * Whether the user may save drafts of `kind` — what every session editor and the chat's draft
+ * tools write. Mirrors drafts.rs `require_can_write_path`, which differs from the item handlers
+ * both ways: it admits an admin before its operator branch, and an operator drafts only the kinds
+ * they could deploy — flows and full-code apps under their builder right, schedules and triggers
+ * under the manage rights — never resources, variables or groups, which they write directly.
  */
 export function roleCanDraft(
 	kind: EditKind,
@@ -81,7 +81,16 @@ export function roleCanDraft(
 	operatorSettings: OperatorRights
 ): boolean {
 	if (user?.is_admin || user?.is_super_admin || !user?.operator) return true
-	return builderGrants(kind, operatorSettings)
+	switch (kind) {
+		case 'flow':
+		case 'raw_app':
+			return builderGrants(kind, operatorSettings)
+		case 'schedule':
+		case 'trigger':
+			return roleCanAuthor(kind, user, operatorSettings)
+		default:
+			return false
+	}
 }
 
 function builderGrants(kind: EditKind, operatorSettings: OperatorRights): boolean {

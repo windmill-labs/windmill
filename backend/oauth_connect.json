@@ -3,7 +3,7 @@
     "auth_url": "https://github.com/login/oauth/authorize",
     "token_url": "https://github.com/login/oauth/access_token",
     "scopes": ["workflow", "repo"],
-    "scope_options": ["repo", "workflow", "gist", "read:org"]
+    "scope_options": ["repo", "workflow", "gist", "read:org", "read:project", "project"]
   },
   "gitlab": {
     "auth_url": "https://gitlab.com/oauth/authorize",
@@ -123,6 +123,69 @@
     "extra_params": {
       "access_type": "offline",
       "prompt": "consent"
+    }
+  },
+  "ms_onedrive": {
+    "req_body_auth": true,
+    "scopes": ["offline_access", "User.Read", "Files.ReadWrite"],
+    "scope_options": [
+      { "value": "offline_access", "label": "Stay connected (refresh token)" },
+      { "value": "User.Read", "label": "Read your profile" },
+      { "value": "Files.Read", "label": "Read your files" },
+      { "value": "Files.ReadWrite", "label": "Read, upload, edit and delete your files" },
+      { "value": "Files.Read.All", "label": "Read all files you can access (shared and SharePoint drives)" },
+      { "value": "Files.ReadWrite.All", "label": "Read and edit all files you can access (shared and SharePoint drives)" }
+    ],
+    "connect_config_template": {
+      "display_name": "Microsoft OneDrive",
+      "label": "Microsoft Entra tenant",
+      "placeholder": "common, organizations, or your tenant id",
+      "help_url": "https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols#endpoints",
+      "auth_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/authorize",
+      "token_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/token",
+      "req_body_auth": true,
+      "scopes": ["offline_access", "User.Read", "Files.ReadWrite"]
+    }
+  },
+  "ms_sharepoint": {
+    "req_body_auth": true,
+    "scopes": ["offline_access", "User.Read", "Sites.ReadWrite.All"],
+    "scope_options": [
+      { "value": "offline_access", "label": "Stay connected (refresh token)" },
+      { "value": "User.Read", "label": "Read your profile" },
+      { "value": "Sites.Read.All", "label": "Read sites, lists and files" },
+      { "value": "Sites.ReadWrite.All", "label": "Read and edit lists, list items and files in all sites" },
+      { "value": "Sites.Manage.All", "label": "Create and manage lists and libraries" }
+    ],
+    "connect_config_template": {
+      "display_name": "Microsoft SharePoint",
+      "label": "Microsoft Entra tenant",
+      "placeholder": "common, organizations, or your tenant id",
+      "help_url": "https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols#endpoints",
+      "auth_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/authorize",
+      "token_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/token",
+      "req_body_auth": true,
+      "scopes": ["offline_access", "User.Read", "Sites.ReadWrite.All"]
+    }
+  },
+  "ms_excel": {
+    "req_body_auth": true,
+    "scopes": ["offline_access", "User.Read", "Files.ReadWrite"],
+    "scope_options": [
+      { "value": "offline_access", "label": "Stay connected (refresh token)" },
+      { "value": "User.Read", "label": "Read your profile" },
+      { "value": "Files.ReadWrite", "label": "Read and edit workbooks in your OneDrive" },
+      { "value": "Files.ReadWrite.All", "label": "Read and edit workbooks in shared and SharePoint drives" }
+    ],
+    "connect_config_template": {
+      "display_name": "Microsoft Excel",
+      "label": "Microsoft Entra tenant",
+      "placeholder": "common, organizations, or your tenant id",
+      "help_url": "https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols#endpoints",
+      "auth_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/authorize",
+      "token_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/token",
+      "req_body_auth": true,
+      "scopes": ["offline_access", "User.Read", "Files.ReadWrite"]
     }
   },
   "gmail": {

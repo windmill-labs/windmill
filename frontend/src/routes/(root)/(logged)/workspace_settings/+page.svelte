@@ -99,6 +99,8 @@
 	import SettingsFooter from '$lib/components/workspaceSettings/SettingsFooter.svelte'
 	import WorkspaceRulesets from '$lib/components/workspaceSettings/WorkspaceRulesets.svelte'
 	import SettingCard from '$lib/components/instanceSettings/SettingCard.svelte'
+	import WorkspaceSettingsYaml from '$lib/components/workspaceSettings/WorkspaceSettingsYaml.svelte'
+	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -416,6 +418,50 @@
 	// something for a fork. A root workspace deploys nowhere by lineage.
 	const showDeployToTab = $derived(Boolean(currentWorkspace?.parent_workspace_id))
 	const canAdmin = $derived(($userStore?.is_admin ?? false) || Boolean($superadmin))
+	let yamlMode = $state(false)
+	// A workspace where the user is not an admin hides the toggle, so it must not stay in YAML mode.
+	const showYaml = $derived(yamlMode && canAdmin)
+	let yamlEditor: WorkspaceSettingsYaml | undefined = $state(undefined)
+	let yamlConfirm: 'enter' | 'leave' | undefined = $state(undefined)
+
+	function paneHasUnsavedChanges() {
+		const changes = getAllUnsavedChanges()
+		return hasUnsavedChanges(changes.savedValue ?? {}, changes.modifiedValue ?? {})
+	}
+
+	// Switching mode unmounts either the editor or the current pane, so the check runs in the
+	// binding's setter, before that happens. A refused change still leaves the toggle's checkbox
+	// flipped, so the toggle is remounted to show the mode again.
+	let yamlToggleKey = $state(0)
+	function setYamlMode(on: boolean) {
+		if (on === yamlMode) return
+		if (paneHasUnsavedChanges()) {
+			yamlToggleKey++
+			yamlConfirm = on ? 'enter' : 'leave'
+			return
+		}
+		yamlMode = on
+	}
+
+	function confirmYamlSwitch() {
+		if (yamlConfirm === 'enter') {
+			discardAllChanges()
+			yamlMode = true
+		} else {
+			yamlMode = false
+		}
+		yamlConfirm = undefined
+	}
+
+	async function reloadAfterYamlApply() {
+		await Promise.all([
+			loadSettings(),
+			loadSlackOAuthConfig(),
+			WorkspaceService.listUserWorkspaces().then((w) => usersWorkspaceStore.set(w)),
+			loadCopilot($workspaceStore!)
+		])
+	}
+
 	// The creator of a fork gets the fork members screen even when they are not an admin of it:
 	// their `usr` row is copied from the parent, so forking as an ordinary developer leaves them
 	// unable to bring anyone in to collaborate. Nothing else on this page opens up — the backend
@@ -709,12 +755,8 @@
 		slack_team_name = settings.slack_name
 		teams_team_id = settings.teams_team_id
 		teams_team_name = settings.teams_team_name
-		if (settings.slack_command_script) {
-			itemKind = settings.slack_command_script.split('/')[0] as 'flow' | 'script'
-		}
-		if (settings.teams_command_script) {
-			itemKind = settings.teams_command_script.split('/')[0] as 'flow' | 'script'
-		}
+		const commandScript = settings.teams_command_script || settings.slack_command_script
+		itemKind = commandScript ? (commandScript.split('/')[0] as 'flow' | 'script') : 'flow'
 		slackScriptPath = (settings.slack_command_script ?? '').split('/').slice(1).join('/')
 		teamsScriptPath = (settings.teams_command_script ?? '').split('/').slice(1).join('/')
 		slackInitialPath = slackScriptPath
@@ -808,6 +850,8 @@
 					triggers: (settings.deploy_ui.include_type?.indexOf('trigger') ?? -1) >= 0
 				}
 			}
+		} else {
+			deployUiSettings = defaultDeployUiSettings()
 		}
 
 		// Store initial deploy settings state for unsaved changes detection
@@ -915,7 +959,7 @@
 		}
 	}
 
-	let deployUiSettings: {
+	type DeployUiSettings = {
 		include_path: string[]
 		include_type: {
 			scripts: boolean
@@ -926,18 +970,22 @@
 			secrets: boolean
 			triggers: boolean
 		}
-	} = $state({
-		include_path: [],
-		include_type: {
-			scripts: true,
-			flows: true,
-			apps: true,
-			resources: true,
-			variables: true,
-			secrets: true,
-			triggers: true
+	}
+	function defaultDeployUiSettings(): DeployUiSettings {
+		return {
+			include_path: [],
+			include_type: {
+				scripts: true,
+				flows: true,
+				apps: true,
+				resources: true,
+				variables: true,
+				secrets: true,
+				triggers: true
+			}
 		}
-	})
+	}
+	let deployUiSettings: DeployUiSettings = $state(defaultDeployUiSettings())
 
 	$effect(() => {
 		// `canAdmin` is read as a dependency, not inside untrack: $userStore is repopulated
@@ -1269,6 +1317,9 @@
 
 	// Combined function to check for unsaved changes across all tabs
 	function getAllUnsavedChanges() {
+		if (showYaml) {
+			return yamlEditor?.unsavedChanges() ?? { savedValue: {}, modifiedValue: {} }
+		}
 		switch (tab) {
 			case 'windmill_data_tables':
 				return dataTableSettingsComponent?.unsavedChanges() ?? { savedValue: {}, modifiedValue: {} }
@@ -1328,6 +1379,10 @@
 
 	// Combined function to discard changes based on current tab
 	function discardAllChanges() {
+		if (showYaml) {
+			yamlEditor?.discard()
+			return
+		}
 		switch (tab) {
 			case 'ai':
 				aiSettingsComponent?.discard()
@@ -1585,7 +1640,11 @@
 		     two controls that sat beside the title are the page's actions. The panes below scroll
 		     inside themselves, so the bar keeps its edge at rest rather than only under a scroll. -->
 		<PageHeaderContent
-			section={tabLabel ? { parent: 'Workspace settings', label: tabLabel } : undefined}
+			section={showYaml
+				? { parent: 'Workspace settings', label: 'YAML' }
+				: tabLabel
+					? { parent: 'Workspace settings', label: tabLabel }
+					: undefined}
 			actions={settingsActions}
 			separator="always"
 		/>
@@ -1595,17 +1654,19 @@
 			<!-- The top padding belongs inside both scrollers, not above them: it is the gap under the
 			     separator at rest, and it has to travel with the content so what scrolls passes under
 			     the line rather than stopping short of it. -->
-			<div class="w-60 shrink-0 h-full overflow-auto pt-6 pb-4 pr-4 -ml-2">
-				<SidebarNavigation
-					groups={navigationGroups}
-					selectedId={tab}
-					onNavigate={(id) => {
-						const params = new URLSearchParams($page.url.searchParams)
-						params.set('tab', id)
-						goto(`?${params.toString()}`)
-					}}
-				/>
-			</div>
+			{#if !showYaml}
+				<div class="w-60 shrink-0 h-full overflow-auto pt-6 pb-4 pr-4 -ml-2">
+					<SidebarNavigation
+						groups={navigationGroups}
+						selectedId={tab}
+						onNavigate={(id) => {
+							const params = new URLSearchParams($page.url.searchParams)
+							params.set('tab', id)
+							goto(`?${params.toString()}`)
+						}}
+					/>
+				</div>
+			{/if}
 
 			<!-- Main Content -->
 			<div class="flex-1 min-w-0 h-full">
@@ -1613,6 +1674,8 @@
 					<div class="h-fit px-6 pt-6" style="scrollbar-gutter: stable both-edges;">
 						{#if !loadedSettings}
 							<Skeleton layout={[1, [40]]} />
+						{:else if showYaml}
+							<WorkspaceSettingsYaml bind:this={yamlEditor} onApplied={reloadAfterYamlApply} />
 						{:else if tab == 'users'}
 							{#if canAdmin}
 								<WorkspaceUserSettings />
@@ -2639,7 +2702,28 @@ export async function main(
 	tabMode={true}
 />
 
+<ConfirmationModal
+	open={yamlConfirm !== undefined}
+	title="Unsaved changes detected"
+	confirmationText="Discard changes"
+	onConfirmed={confirmYamlSwitch}
+	onCanceled={() => {
+		yamlConfirm = undefined
+	}}
+>
+	<span>
+		{yamlConfirm === 'enter'
+			? 'Switching to YAML mode discards the changes you made in this pane.'
+			: 'Leaving YAML mode discards the changes you made in the editor.'}
+	</span>
+</ConfirmationModal>
+
 {#snippet settingsActions()}
+	{#if canAdmin}
+		{#key yamlToggleKey}
+			<Toggle bind:checked={() => yamlMode, setYamlMode} options={{ right: 'YAML' }} size="sm" />
+		{/key}
+	{/if}
 	{#if $superadmin}
 		<Button variant="default" unifiedSize="sm" on:click={() => goto('#superadmin-settings')}>
 			Instance settings

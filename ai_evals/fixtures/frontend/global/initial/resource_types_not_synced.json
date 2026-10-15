@@ -1,0 +1,5 @@
+{
+  "workspace": {
+    "resourceTypes": [{ "name": "ai_skill" }, { "name": "ai_instruction" }]
+  }
+}

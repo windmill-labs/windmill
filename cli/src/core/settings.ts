@@ -41,10 +41,8 @@ export interface VariableExpirationHandlerConfig {
 }
 
 export interface SimplifiedSettings {
-  // Grouped format (current). On push the YAML is canonical: a handler that is
-  // absent or explicitly `null` clears the remote value, a present object upserts.
-  // An omitted handler reaches that clear only when some other setting differs:
-  // `isSuperset` compares local's own keys, so it never sees the missing one.
+  // Grouped format (current). Explicit `null` on error_handler / success_handler
+  // signals "clear the remote value"; `undefined` means "not managed by git".
   auto_invite?: AutoInviteConfig;
   error_handler?: ErrorHandlerConfig | null;
   success_handler?: SuccessHandlerConfig | null;
@@ -67,7 +65,35 @@ export interface SimplifiedSettings {
   slack_command_script?: string;
   slack_oauth_client_id?: string;
   slack_oauth_client_secret?: string;
+  ducklake?: any;
+  dbt_warehouses?: any;
+  deploy_ui?: any;
+  teams_command_script?: string | null;
+  public_app_execution_limit_per_minute?: number | null;
+  guest_access_enabled?: boolean;
+  guest_jwt_public_key?: string | null;
+  guest_jwt_jwks_url?: string | null;
+  error_handler_fallback_to_instance_alerts?: boolean;
+  add_admins_and_developers_to_forks?: boolean;
+  datatable_permissions?: Record<string, unknown> | null;
 }
+
+/** Settings the server manages only when settings.yaml states them: a file written before
+ * they existed must neither clear them nor show as differing from the workspace. */
+export const SETTINGS_MANAGED_ONLY_WHEN_PRESENT = [
+  "datatable_permissions",
+  "ducklake",
+  "dbt_warehouses",
+  "deploy_ui",
+  "teams_command_script",
+  "public_app_execution_limit_per_minute",
+  "guest_access_enabled",
+  "guest_jwt_public_key",
+  "guest_jwt_jwks_url",
+  "error_handler_fallback_to_instance_alerts",
+  "add_admins_and_developers_to_forks",
+  "variable_expiration_handler",
+] as const;
 
 // Legacy settings interface for reading old settings.yaml files
 interface LegacySimplifiedSettings {
@@ -117,6 +143,9 @@ export function migrateToGroupedFormat(settings: any): SimplifiedSettings {
   if (settings.slack_command_script !== undefined) result.slack_command_script = settings.slack_command_script;
   if (settings.slack_oauth_client_id !== undefined) result.slack_oauth_client_id = settings.slack_oauth_client_id;
   if (settings.slack_oauth_client_secret !== undefined) result.slack_oauth_client_secret = settings.slack_oauth_client_secret;
+  for (const key of SETTINGS_MANAGED_ONLY_WHEN_PRESENT) {
+    if (settings[key] !== undefined) (result as any)[key] = settings[key];
+  }
 
   // Handle auto_invite: check if already grouped or needs migration
   if (settings.auto_invite && typeof settings.auto_invite === "object") {
@@ -159,17 +188,6 @@ export function migrateToGroupedFormat(settings: any): SimplifiedSettings {
     };
   }
 
-  // Handle variable_expiration_handler: same null-clears semantics. It has no flat
-  // legacy form — the setting postdates the grouped format.
-  if (settings.variable_expiration_handler === null) {
-    result.variable_expiration_handler = null;
-  } else if (
-    settings.variable_expiration_handler &&
-    typeof settings.variable_expiration_handler === "object"
-  ) {
-    result.variable_expiration_handler = settings.variable_expiration_handler;
-  }
-
   return result;
 }
 
@@ -193,10 +211,37 @@ export async function pushWorkspaceSettings(
   workspace: string,
   _path: string,
   settings: SimplifiedSettings | undefined,
-  localSettings: SimplifiedSettings | any
+  localSettings: SimplifiedSettings | any,
+  opts: { includeDatatablePermissions?: boolean } = {},
 ) {
+  if (localSettings?.protection_rules !== undefined) {
+    log.warn(
+      "Ignoring protection_rules in settings.yaml: protection-rules.yaml syncs them (wmill protection-rules push)."
+    );
+  }
   // Migrate local settings from legacy format if needed
   localSettings = migrateToGroupedFormat(localSettings);
+  if (!opts.includeDatatablePermissions) {
+    delete localSettings.datatable_permissions;
+  }
+
+  if (await applySettingsDocument(workspace, localSettings)) {
+    return;
+  }
+  // The per-setting endpoints of a server without the settings document know nothing of
+  // these keys, nor of a secret it would have to decrypt or keep.
+  for (const key of SETTINGS_MANAGED_ONLY_WHEN_PRESENT) {
+    delete (localSettings as any)[key];
+  }
+  const secret = localSettings.slack_oauth_client_secret;
+  const slackSecretUnreadable =
+    typeof secret === "string" &&
+    (secret.startsWith("$encrypted:") || secret === "__SENSITIVE_AND_UNCHANGED__");
+  if (slackSecretUnreadable) {
+    log.warn(
+      "Leaving the Slack OAuth client and secret unchanged: this server cannot read an encrypted or redacted secret. Upgrade it, or write the secret in plain text."
+    );
+  }
 
   try {
     const remoteSettings = await wmill.getSettings({
@@ -212,9 +257,6 @@ export async function pushWorkspaceSettings(
       auto_invite: remoteSettings.auto_invite as AutoInviteConfig | undefined,
       error_handler: remoteSettings.error_handler as ErrorHandlerConfig | undefined,
       success_handler: remoteSettings.success_handler as SuccessHandlerConfig | undefined,
-      variable_expiration_handler: remoteSettings.variable_expiration_handler as
-        | VariableExpirationHandlerConfig
-        | undefined,
       webhook: remoteSettings.webhook,
       ai_config: remoteSettings.ai_config,
       large_file_storage: remoteSettings.large_file_storage,
@@ -365,26 +407,6 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  // Handle variable_expiration_handler using grouped format. Same semantics as error_handler.
-  if (
-    !deepEqual(
-      localSettings.variable_expiration_handler,
-      settings.variable_expiration_handler
-    )
-  ) {
-    log.debug(`Updating variable expiration handler...`);
-    const localVariableExpirationHandler = localSettings.variable_expiration_handler;
-    await wmill.editVariableExpirationHandler({
-      workspace,
-      requestBody: {
-        path: localVariableExpirationHandler?.path,
-        extra_args: localVariableExpirationHandler?.extra_args,
-        muted_on_user_path:
-          localVariableExpirationHandler?.muted_on_user_path ?? false,
-      },
-    });
-  }
-
   if (
     !deepEqual(localSettings.large_file_storage, settings.large_file_storage)
   ) {
@@ -499,8 +521,9 @@ export async function pushWorkspaceSettings(
   // every other setting): both present → upsert; anything else → delete.
   // Pull always emits both fields as null when remote is NULL.
   if (
-    localSettings.slack_oauth_client_id != settings.slack_oauth_client_id ||
-    localSettings.slack_oauth_client_secret != settings.slack_oauth_client_secret
+    !slackSecretUnreadable &&
+    (localSettings.slack_oauth_client_id != settings.slack_oauth_client_id ||
+      localSettings.slack_oauth_client_secret != settings.slack_oauth_client_secret)
   ) {
     log.debug(`Updating slack oauth config...`);
     if (
@@ -518,6 +541,38 @@ export async function pushWorkspaceSettings(
       await wmill.deleteWorkspaceSlackOauthConfig({ workspace });
     }
   }
+}
+
+/** Applies settings.yaml server-side, which owns the rules for what an omitted or null setting
+ * means. Returns false on a server that predates the settings document. */
+async function applySettingsDocument(
+  workspace: string,
+  document: SimplifiedSettings,
+): Promise<boolean> {
+  let result;
+  try {
+    result = await wmill.applyWorkspaceSettingsDocument({
+      workspace,
+      requestBody: { document: document as unknown as Record<string, unknown>, replace: true },
+    });
+  } catch (err: any) {
+    // A missing route answers 404 with no body; a handler's own 404 carries a message.
+    if (err?.status === 404 && !err?.body) {
+      return false;
+    }
+    throw new Error(`Failed to apply workspace settings: ${err?.body ?? err}`);
+  }
+  if (result.changes.length > 0) {
+    log.debug(
+      `Updated workspace settings: ${result.changes.map((c) => c.key).join(", ")}`,
+    );
+  } else {
+    log.debug(`Workspace settings are up to date`);
+  }
+  for (const warning of result.warnings ?? []) {
+    log.warn(warning);
+  }
+  return true;
 }
 
 export interface PushWorkspaceKeyOptions {

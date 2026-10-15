@@ -330,6 +330,54 @@ describe('AIChatManager run form', () => {
 		})
 	})
 
+	// Only a deployed item has a page with a form to confirm on: a test run executes the
+	// draft being written, and a chat-enabled flow's page is a conversation. Routing either
+	// there would park the call on a page that can never answer it.
+	it('hands a deployed run to a page already open, and nothing else', async () => {
+		const manager = new AIChatManager()
+		const routed: any[] = []
+		manager.openRunOnDeployedPage = (a) => {
+			routed.push(a)
+			return true
+		}
+
+		void manager.requestRunArgs('call_run', {
+			path: 'f/a/b',
+			kind: 'run',
+			runnableKind: 'flow',
+			summary: 'Plain flow',
+			schema: {},
+			args: {}
+		})
+		void manager.requestRunArgs('call_test', {
+			path: 'f/a/b',
+			kind: 'test',
+			schema: {},
+			args: {}
+		})
+		void manager.requestRunArgs('call_chat', {
+			path: 'f/a/c',
+			kind: 'run',
+			conversational: true,
+			schema: {},
+			args: {}
+		})
+
+		expect(routed).toEqual([
+			{
+				toolCallId: 'call_run',
+				kind: 'flow',
+				path: 'f/a/b',
+				summary: 'Plain flow',
+				carries: true,
+				// Never opens a tab of its own: the reader did not ask for one here.
+				onlyIfAlreadyOpen: true
+			}
+		])
+		// Routed after the form is installed, so the page finds the call the moment it mounts.
+		expect(manager.isRunFormPending('call_run')).toBe(true)
+	})
+
 	// Stopping the turn is the form's other way out, and it settles cards through
 	// settledToolDisplay rather than through #settleRunForm.
 	it('settles a stopped form on what it held too', () => {

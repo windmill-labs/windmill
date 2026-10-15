@@ -47,6 +47,7 @@ a CLI-only workflow file (`flow-cli.md`, `script-cli.md`, `raw-app-cli.md`).
 | workflow-as-code | `getWorkflowAsCodePrompt(lang)` | `write-workflow-as-code` | `workflow-as-code.md`, the WAC SDK |
 | pipeline | `getPipelinePrompt()` | `write-pipeline` | `pipeline-base.md` |
 | data tables | `getDatatablePrompt()` | `datatables` | `datatable.md` |
+| workspace settings | `getWorkspaceSettingsPrompt()` | `workspace-settings` | `workspace-settings.md` |
 | triggers, schedules, preview, CLI commands | — | same names | CLI only |
 
 The app chat embeds `RAW_APP_BASE` directly (`chat/app/core.ts`).

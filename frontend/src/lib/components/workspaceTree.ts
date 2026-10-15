@@ -271,19 +271,20 @@ export function legacyScopeToPath(
 	layout: 'by-kind' | 'flat' = 'by-kind'
 ): string[] {
 	if (!scope) return []
+	// A subfolder is a child of its parent's branch, not a root entry, so a scope into
+	// `f/a/b` must walk `f/a` first or it resolves to nothing.
+	const dirChain = (kind: WorkspaceItemKind | 'all') => {
+		if (!scope.dir) return []
+		const parts = scope.dir.split('/')
+		return parts.slice(1).map((_, i) => dirKey(kind, parts.slice(0, i + 2).join('/')))
+	}
 	// Flat layout: no kind branches at all — scope dirs live at root and are
 	// always keyed under the cross-kind 'all' namespace.
-	if (layout === 'flat') {
-		return scope.dir ? [dirKey('all', scope.dir)] : []
-	}
+	if (layout === 'flat') return dirChain('all')
 	// Single-kind mode: there's no kind branch at root; scope's `kind` is
 	// implicit. Only the dir (if any) makes it to the path.
-	if (kinds.length === 1) {
-		return scope.dir ? [dirKey(scope.kind, scope.dir)] : []
-	}
-	const path: string[] = [kindKey(scope.kind)]
-	if (scope.dir) path.push(dirKey(scope.kind, scope.dir))
-	return path
+	if (kinds.length === 1) return dirChain(scope.kind)
+	return [kindKey(scope.kind), ...dirChain(scope.kind)]
 }
 
 /** Return `absolutePath` shortened to its segment relative to the deepest

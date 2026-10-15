@@ -67,7 +67,7 @@ const DEFAULT_PORT = 4000;
 const DEFAULT_HOST = "localhost";
 
 // HTML template with live reload and SQL migration modal
-const createHTML = (jsPath: string, cssPath: string) => `
+const createHTML = (jsPath: string, cssPath: string, appCtx: unknown) => `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -228,6 +228,7 @@ const createHTML = (jsPath: string, cssPath: string) => `
       </div>
     </div>
   </div>
+  <script>window.ctx = ${JSON.stringify(appCtx).replace(/</g, "\\u003c")};</script>
   <script src="${jsPath}"></script>
   <script>
     // Live reload via EventSource
@@ -405,6 +406,18 @@ async function dev(opts: DevOptions, appFolder?: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const workspaceId = workspace.workspaceId;
+
+  // What the deployed app receives as `window.ctx`: the viewer's membership in this
+  // workspace, shaped as the frontend's UserExt, or no viewer when it can't be looked up.
+  const viewer = await wmill.whoami({ workspace: workspaceId }).catch(() => undefined);
+  const appCtx = {
+    ctx: viewer && {
+      ...viewer,
+      workspace_id: workspaceId,
+      pgroups: (viewer.groups ?? []).map((g) => `g/${g}`),
+    },
+    workspace: workspaceId,
+  };
 
   // Resolve relative imports in app inline scripts from local (not-yet-deployed)
   // content so previews use locally-edited workspace libs instead of deployed.
@@ -966,7 +979,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
 
     // Serve injected HTML for root and any other path
     res.writeHead(200, { "Content-Type": "text/html" });
-    res.end(createHTML("/dist/bundle.js", "/dist/bundle.css"));
+    res.end(createHTML("/dist/bundle.js", "/dist/bundle.css", appCtx));
   });
 
   // Create WebSocket server on the same HTTP server

@@ -359,6 +359,9 @@ pub(crate) struct ArchiveQueryParams {
     include_users: Option<bool>,
     include_groups: Option<bool>,
     include_settings: Option<bool>,
+    /// Opt-in, with `settings_version=v2`: state the data tables' roles in settings.json. Their
+    /// tenants name this workspace's users and groups, and their roles this instance's catalog.
+    include_datatable_permissions: Option<bool>,
     include_key: Option<bool>,
     include_workspace_dependencies: Option<bool>,
     /// Default `false`: data table migrations ship in the tarball unless the repo
@@ -513,50 +516,6 @@ struct SimplifiedGroup {
     admins: Vec<String>,
 }
 
-// V2 format: New grouped format
-#[derive(Serialize)]
-struct SimplifiedSettings {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    auto_invite: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    webhook: Option<String>,
-    // Always serialize (including as `null`) so that `wmill sync pull` emits
-    // these fields in settings.yaml unconditionally. Makes round-trip
-    // bijective: YAML is the source of truth, absence/null = "clear remote",
-    // mirroring every other workspace setting.
-    error_handler: Option<Value>,
-    success_handler: Option<Value>,
-    variable_expiration_handler: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ai_config: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    large_file_storage: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    git_sync: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    default_app: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    default_scripts: Option<Value>,
-    name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    mute_critical_alerts: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    color: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    operator_settings: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    datatable: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    slack_team_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    slack_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    slack_command_script: Option<String>,
-    // Always serialize (see note above on error_handler / success_handler).
-    slack_oauth_client_id: Option<String>,
-    slack_oauth_client_secret: Option<String>,
-}
-
 // V1 format: Legacy flat format for backward compatibility (matches main branch exactly)
 #[derive(Serialize)]
 struct SimplifiedSettingsLegacy {
@@ -603,8 +562,6 @@ struct SettingsRow {
     auto_invite: Option<Value>,
     webhook: Option<String>,
     error_handler: Option<Value>,
-    success_handler: Option<Value>,
-    variable_expiration_handler: Option<Value>,
     ai_config: Option<serde_json::Value>,
     large_file_storage: Option<Value>,
     git_sync: Option<Value>,
@@ -618,8 +575,6 @@ struct SettingsRow {
     slack_team_id: Option<String>,
     slack_name: Option<String>,
     slack_command_script: Option<String>,
-    slack_oauth_client_id: Option<String>,
-    slack_oauth_client_secret: Option<String>,
 }
 
 pub(crate) async fn tarball_workspace(
@@ -640,6 +595,7 @@ pub(crate) async fn tarball_workspace(
         include_users,
         include_groups,
         include_settings,
+        include_datatable_permissions,
         include_key,
         include_workspace_dependencies,
         skip_datatable_migrations,
@@ -1595,8 +1551,6 @@ pub(crate) async fn tarball_workspace(
                  auto_invite,
                  webhook,
                  error_handler,
-                 success_handler,
-                 variable_expiration_handler,
                  ai_config,
                  large_file_storage,
                  git_sync,
@@ -1609,9 +1563,7 @@ pub(crate) async fn tarball_workspace(
                  datatable,
                  slack_team_id,
                  slack_name,
-                 slack_command_script,
-                 slack_oauth_client_id,
-                 slack_oauth_client_secret
+                 slack_command_script
              FROM workspace_settings
              LEFT JOIN workspace ON workspace.id = workspace_settings.workspace_id
              WHERE workspace_id = $1"#,
@@ -1620,74 +1572,23 @@ pub(crate) async fn tarball_workspace(
         .fetch_one(&mut *tx)
         .await?;
 
-        // Use v2 format only if explicitly requested, otherwise use v1 (legacy) for backward compatibility
-        // Server-owned state (the HMAC webhook secret + hook id/error, the
-        // synced-sha / last-pull status, the admin automatic pulls run as, and what
-        // the credential check observed) must never leave the server: keep it out of
-        // export archives and synced repos, and don't let a re-imported workspace
-        // inherit another install's hook/sync state or pull identity.
-        fn redact_git_sync_for_export(git_sync: Option<Value>) -> Option<Value> {
-            let mut git_sync = git_sync?;
-            if let Some(repos) = git_sync
-                .get_mut("repositories")
-                .and_then(|r| r.as_array_mut())
-            {
-                for repo in repos {
-                    if let Some(auto_pull) =
-                        repo.get_mut("auto_pull").and_then(|a| a.as_object_mut())
-                    {
-                        for field in [
-                            "webhook_secret",
-                            "webhook_id",
-                            "webhook_error",
-                            "last_synced_sha",
-                            "last_pull_status",
-                            "enabled_by",
-                        ] {
-                            auto_pull.remove(field);
-                        }
-                    }
-                    // What this install observed about its own credential: a token
-                    // id and expiry, and a `checked_at` that moves on its own.
-                    // None of it describes the workspace, and in a git-synced
-                    // `wmill.yaml` it would churn the file for no reason.
-                    if let Some(repo) = repo.as_object_mut() {
-                        repo.remove("credential");
-                    }
-                }
-            }
-            Some(git_sync)
-        }
-
         let settings_str = if settings_version.as_deref() == Some("v2") {
-            let settings = SimplifiedSettings {
-                auto_invite: row.auto_invite,
-                webhook: row.webhook,
-                error_handler: row.error_handler,
-                success_handler: row.success_handler,
-                variable_expiration_handler: row.variable_expiration_handler,
-                ai_config: row.ai_config,
-                large_file_storage: row.large_file_storage,
-                git_sync: redact_git_sync_for_export(row.git_sync),
-                default_app: row.default_app,
-                default_scripts: row.default_scripts,
-                name: row.name.clone().unwrap_or_default(),
-                mute_critical_alerts: row.mute_critical_alerts,
-                color: row.color.clone(),
-                operator_settings: row.operator_settings.clone(),
-                datatable: windmill_common::workspaces::strip_datatable_permissions(
-                    row.datatable.clone(),
-                ),
-                slack_team_id: row.slack_team_id.clone(),
-                slack_name: row.slack_name.clone(),
-                slack_command_script: row.slack_command_script.clone(),
-                slack_oauth_client_id: row.slack_oauth_client_id.clone(),
-                slack_oauth_client_secret: row.slack_oauth_client_secret.clone(),
+            let secrets = if export_plain_secrets {
+                crate::workspace_settings_document::SecretMode::Plain
+            } else {
+                crate::workspace_settings_document::SecretMode::Encrypted
             };
-            serde_json::to_value(settings)
-                .map(|v| serde_json::to_string_pretty(&v).ok())
-                .ok()
-                .flatten()
+            let mut doc = crate::workspace_settings_document::load_settings_document(
+                &mut *tx, &db, &w_id, secrets,
+            )
+            .await?;
+            // A repo syncs its rules through protection-rules.yaml, so settings.yaml leaving
+            // them out keeps one writer for them.
+            doc.remove("protection_rules");
+            if !include_datatable_permissions.unwrap_or(false) {
+                doc.remove("datatable_permissions");
+            }
+            serde_json::to_string_pretty(&doc).ok()
         } else {
             // V1 (legacy) format: convert JSONB to flat fields (matches main branch exactly)
             let (auto_invite_enabled, auto_invite_as, auto_invite_mode) =
@@ -1734,7 +1635,7 @@ pub(crate) async fn tarball_workspace(
                 error_handler_muted_on_cancel,
                 ai_config: row.ai_config,
                 large_file_storage: row.large_file_storage,
-                git_sync: redact_git_sync_for_export(row.git_sync),
+                git_sync: crate::workspace_settings_document::redact_git_sync(row.git_sync),
                 default_app: row.default_app,
                 default_scripts: row.default_scripts,
                 name: row.name.unwrap_or_default(),

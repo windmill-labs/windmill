@@ -184,6 +184,17 @@ dismissed, so `userAnswers: []` dismisses every question. Without it the tool re
 it cannot ask, and the model usually carries on with its own guess, which makes "asks
 before creating anything" impossible to assert.
 
+`runtime.profile` runs a session-chat case (`sessionChat: true`) as a non-admin role
+instead of full access: the prompt, toolset and tool schemas are cut as production's
+`capabilitiesForRole` cuts them, and the workspace's `operator_settings` are seeded for the
+tools that read them directly:
+
+```yaml
+profile:
+  operator: true
+  operatorSettings: { builder_apps: true }   # also builder_flows, manage_schedules, manage_triggers
+```
+
 `toolExpect.toolCallArgs` entries support `sharedByAtLeast: <n>`: at least `n` recorded
 calls to that tool must carry the same non-blank string in the field. Use it for calls that
 have to share an identifier, like two test runs of one chat conversation.

@@ -14,6 +14,7 @@ import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import * as log from "../../core/log.ts";
+import { SETTINGS_MANAGED_ONLY_WHEN_PRESENT } from "../../core/settings.ts";
 import * as path from "node:path";
 import { sep as SEP } from "node:path";
 import {
@@ -2576,6 +2577,14 @@ const isWorkspaceSettingsFile = (p: string) =>
 function stripUnappliedSettingsFields(local: any, remote: any) {
   delete local?.name;
   delete remote?.name;
+  for (const key of ["operator_settings", ...SETTINGS_MANAGED_ONLY_WHEN_PRESENT]) {
+    if (local?.[key] === undefined) delete remote?.[key];
+  }
+  // push clears an omitted mute_critical_alerts to false
+  if (local?.mute_critical_alerts == null && remote?.mute_critical_alerts === false) {
+    delete local?.mute_critical_alerts;
+    delete remote.mute_critical_alerts;
+  }
   if (local?.color == null) {
     delete local?.color;
     delete remote?.color;
@@ -3843,6 +3852,7 @@ export async function pull(
     opts.skipDatatableMigrations,
     opts.defaultTs,
     opts.syncBehavior,
+    opts.includeDatatablePermissions,
   );
 
   const remote = ZipFSElement(
@@ -4946,6 +4956,7 @@ export async function push(
       opts.skipDatatableMigrations,
       opts.defaultTs,
       opts.syncBehavior,
+      opts.includeDatatablePermissions,
     ))!,
     !opts.json,
     opts.defaultTs ?? "bun",
@@ -6049,6 +6060,7 @@ export async function push(
                       (opts.yes ?? false) || !process.stdin.isTTY,
                     skipReencrypt: opts.skipReencryptOnKeyChange,
                   },
+                  includeDatatablePermissions: opts.includeDatatablePermissions,
                   defaultTs: opts.defaultTs,
                 },
               );
@@ -6187,6 +6199,7 @@ export async function push(
                       (opts.yes ?? false) || !process.stdin.isTTY,
                     skipReencrypt: opts.skipReencryptOnKeyChange,
                   },
+                  includeDatatablePermissions: opts.includeDatatablePermissions,
                   defaultTs: opts.defaultTs,
                 },
               );
@@ -6815,6 +6828,10 @@ const command = new Command()
   .option("--include-users", "Include syncing users")
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
+  .option(
+    "--include-datatable-permissions",
+    "With --include-settings, also sync who may connect to each data table as which role",
+  )
   .option("--include-key", "Include workspace encryption key")
   .option(
     "--keep-deleted",
@@ -6878,6 +6895,10 @@ const command = new Command()
   .option("--include-users", "Include syncing users")
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
+  .option(
+    "--include-datatable-permissions",
+    "With --include-settings, also sync who may connect to each data table as which role",
+  )
   .option("--include-key", "Include workspace encryption key")
   .option(
     "--skip-reencrypt-on-key-change",
