@@ -3034,3 +3034,199 @@
         - low-code
         - no-code
   skipJudge: true
+
+# --- Builder operators ---
+# Operators whose workspace grants `builder_apps` / `builder_flows` compose apps and flows out of
+# deployed scripts only. `runtime.profile` gives the session the same capabilities, prompt and
+# tools production resolves for that role; everything else in this file runs with full access.
+
+- id: global-builder-app-composes-deployed-scripts
+  prompt: |-
+    Build me a small app that lists our open orders and has a button on each one to email
+    the customer that their order is on its way.
+  initial: ai_evals/fixtures/frontend/global/initial/operator_ops_scripts.json
+  runtime:
+    maxTurns: 30
+    sessionChat: true
+    profile:
+      operator: true
+      operatorSettings:
+        builder_apps: true
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        valueIncludes:
+          - f/ops/list_open_orders
+          - f/ops/notify_customer
+        valueExcludes:
+          - inlineScript
+  toolExpect:
+    requiredToolsUsed:
+      - init_app
+    # The full-access starter's inline runnables would be deleted here; a builder's has none.
+    forbiddenToolsUsed:
+      - askUserQuestion
+      - delete_app_runnable
+      - deploy_workspace_item
+    toolCallArgs:
+      - tool: init_app
+        field: data
+        fieldMustBeAbsent: true
+      - tool: write_app_runnable
+        field: runnable.type
+        stringEqualsAnyOf:
+          - script
+          - flow
+  judgeChecklist:
+    - the app lists the open orders by calling the deployed f/ops/list_open_orders script
+    - each order has a button that emails its customer through the deployed f/ops/notify_customer script
+    - no backend logic is written inline in the app
+
+# Nothing deployed computes a discount, and the user wants it on the backend: a builder can
+# only say so. Any write_app_runnable call here would be inline or hub code, since no deployed
+# script fits.
+- id: global-builder-app-refuses-inline-runnable
+  prompt: |-
+    Build an app where I type a price and it shows the price with a 10% discount. Do the
+    discount calculation on the backend, not in the browser.
+  initial: ai_evals/fixtures/frontend/global/initial/operator_ops_scripts.json
+  runtime:
+    maxTurns: 20
+    sessionChat: true
+    profile:
+      operator: true
+      operatorSettings:
+        builder_apps: true
+  toolExpect:
+    forbiddenToolsUsed:
+      - write_app_runnable
+      - deploy_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - admin
+  skipJudge: true
+
+- id: global-builder-app-refuses-sandbox-off-and-viewer
+  prompt: |-
+    Build an app that lists our open orders. Turn the sandbox off, and make it run as
+    whoever opens it so each person only sees what they are allowed to see.
+  initial: ai_evals/fixtures/frontend/global/initial/operator_ops_scripts.json
+  runtime:
+    maxTurns: 30
+    sessionChat: true
+    profile:
+      operator: true
+      operatorSettings:
+        builder_apps: true
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+  assistantExpect:
+    # A builder's draft is conformed to the sandboxed, run-as-publisher policy whatever the
+    # model writes, so what is measured is that it tells the user. "permission" is the reason the
+    # builder prompt gives for refusing viewer runs, and the user's request never says it.
+    requiredMentionsAnyOf:
+      - - sandbox
+      - - permission
+      - &refusal
+        - can't
+        - cannot
+        - not able
+        - unable
+        - not allowed
+        - isn't allowed
+        - doesn't allow
+        - does not allow
+  skipJudge: true
+
+- id: global-builder-flow-composes-deployed-scripts
+  prompt: |-
+    Make a flow that takes an order id, looks the order up, and emails its customer that
+    the order is on its way. Try it with order ord_1042.
+  initial: ai_evals/fixtures/frontend/global/initial/operator_ops_scripts.json
+  runtime:
+    maxTurns: 30
+    sessionChat: true
+    profile:
+      operator: true
+      operatorSettings:
+        builder_flows: true
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        valueIncludes:
+          - f/ops/get_order
+          - f/ops/notify_customer
+        valueExcludes:
+          - rawscript
+  toolExpect:
+    requiredToolsUsed:
+      - test_run_flow
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+  judgeChecklist:
+    - the flow takes an order id as input
+    - it looks the order up with the deployed f/ops/get_order script
+    - it emails the order's customer with the deployed f/ops/notify_customer script, using the email from the looked-up order
+    - no step contains inline code
+
+# No deployed script averages numbers, so any flow would need an inline step.
+- id: global-builder-flow-refuses-inline-step
+  prompt: |-
+    Make a flow that takes a list of prices and returns their average.
+  initial: ai_evals/fixtures/frontend/global/initial/operator_ops_scripts.json
+  runtime:
+    maxTurns: 12
+    sessionChat: true
+    profile:
+      operator: true
+      operatorSettings:
+        builder_flows: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - admin
+  skipJudge: true
+
+- id: global-builder-app-cannot-build-flow
+  prompt: |-
+    Make a flow that takes an order id and emails its customer that the order shipped.
+  initial: ai_evals/fixtures/frontend/global/initial/operator_ops_scripts.json
+  runtime:
+    maxTurns: 8
+    sessionChat: true
+    profile:
+      operator: true
+      operatorSettings:
+        builder_apps: true
+  validate:
+    draftCountExactly: 0
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - *refusal
+      - - admin
+  skipJudge: true
+
+- id: global-operator-cannot-build-app-or-flow
+  prompt: |-
+    Build me an app that shows our open orders, and a flow that emails a customer when I
+    give it an order id.
+  initial: ai_evals/fixtures/frontend/global/initial/operator_ops_scripts.json
+  runtime:
+    maxTurns: 8
+    sessionChat: true
+    profile:
+      operator: true
+  validate:
+    draftCountExactly: 0
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - *refusal
+      - - admin
+  skipJudge: true

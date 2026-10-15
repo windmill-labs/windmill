@@ -53,6 +53,7 @@ export function createGlobalModeRunner(
           previewTabs: initial?.previewTabs,
           sessionChat: context.evalCase?.runtime?.sessionChat,
           planMode: context.evalCase?.runtime?.planMode,
+          profile: context.evalCase?.runtime?.profile,
           maxIterations: context.evalCase?.runtime?.maxTurns,
           userAnswers: context.evalCase?.runtime?.userAnswers,
           provider: modelConfig.provider,

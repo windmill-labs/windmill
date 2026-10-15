@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.835.0](https://github.com/windmill-labs/windmill/compare/v1.834.0...v1.835.0) (2026-10-14)
+
+
+### Features
+
+* allow early return on steps inside branches ([#11733](https://github.com/windmill-labs/windmill/issues/11733)) ([08319a0](https://github.com/windmill-labs/windmill/commit/08319a004c289f93398b9fdc790b2ed412a81fa4))
+* run global ai eval cases under builder operator profiles ([#11768](https://github.com/windmill-labs/windmill/issues/11768)) ([d788f16](https://github.com/windmill-labs/windmill/commit/d788f16c4028985afd2b82f35d625b0a12c04653))
+* search the workspace picker dropdown past 8 workspaces ([#11761](https://github.com/windmill-labs/windmill/issues/11761)) ([c1a561f](https://github.com/windmill-labs/windmill/commit/c1a561f5ec091de0ae2de12ee811ca628c58c9f5))
+
+
+### Bug Fixes
+
+* show native triggers in the operator sidebar ([#11769](https://github.com/windmill-labs/windmill/issues/11769)) ([717162e](https://github.com/windmill-labs/windmill/commit/717162eab44757182a4a67316c288e188f811599))
+
 ## [1.834.0](https://github.com/windmill-labs/windmill/compare/v1.833.0...v1.834.0) (2026-10-14)
 
 
