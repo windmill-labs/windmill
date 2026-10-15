@@ -69,6 +69,14 @@ async fn test_preview_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
             ),
             "{route}"
         );
+        let logs: String = sqlx::query_scalar("SELECT logs FROM job_logs WHERE job_id = $1")
+            .bind(Uuid::parse_str(&id).unwrap())
+            .fetch_one(&db)
+            .await?;
+        assert!(
+            logs.starts_with("Preview run on behalf of u/test-user-2 (test2@windmill.dev), requested by test@windmill.dev"),
+            "{route}: {logs}"
+        );
     }
 
     for (route, body) in [

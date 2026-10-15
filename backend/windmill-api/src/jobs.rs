@@ -8979,6 +8979,8 @@ pub(crate) async fn preview_on_behalf_of(
     Ok(Some(OnBehalfOf { email, permissioned_as }))
 }
 
+/// Audits the impersonation and opens the job's own logs with it, so whoever reads the run sees
+/// who it ran as and who asked, not only the identity columns.
 pub(crate) async fn audit_preview_on_behalf_of(
     tx: &mut Transaction<'_, Postgres>,
     authed: &ApiAuthed,
@@ -9000,6 +9002,17 @@ pub(crate) async fn audit_preview_on_behalf_of(
         Some(&job_id.to_string()),
         Some(params),
     )
+    .await?;
+    sqlx::query!(
+        "INSERT INTO job_logs (logs, job_id, workspace_id) VALUES ($1, $2, $3) ON CONFLICT (job_id) DO UPDATE SET logs = concat(job_logs.logs, EXCLUDED.logs)",
+        format!(
+            "Preview run on behalf of {} ({}), requested by {}\n",
+            obo.permissioned_as, obo.email, authed.email
+        ),
+        job_id,
+        w_id,
+    )
+    .execute(&mut **tx)
     .await?;
     Ok(())
 }
