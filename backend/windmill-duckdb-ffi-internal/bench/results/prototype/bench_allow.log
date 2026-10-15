@@ -1,9 +1,0 @@
-select_1: inproc: 31.0/652.2499999999969ms ok=30 | jail: 46.0/261.0999999999989ms ok=30 | nofence: 31.0/34.0ms ok=30 | allow: 31.0/163.69999999999962ms ok=30
-postgres_attach: inproc: 59.0/67.3ms ok=10 | jail: 75.0/80.1ms ok=10 | nofence: 62.0/99.34999999999994ms ok=10 | allow: 60.0/115.04999999999998ms ok=10
-ducklake_read: inproc: 94.0/100.3ms ok=10 | jail: 116.0/121.19999999999999ms ok=10 | nofence: 106.0/115.85ms ok=10 | allow: 105.5/119.14999999999999ms ok=10
-ducklake_write_100k: inproc: 140.0/237.59999999999997ms ok=5 | jail: 311.0/555.1999999999999ms ok=5 | nofence: 499.0/2332.7999999999997ms ok=5 | allow: 185.0/236.39999999999998ms ok=5
-agg_10m_in_memory: inproc: 328.5/335.0ms ok=10 | jail: 345.5/360.34999999999997ms ok=10 | nofence: 334.5/350.05ms ok=10 | allow: 333.0/341.65ms ok=10
-result_1k_rows: inproc: 30.0/38.05ms ok=20 | jail: 43.0/50.35000000000002ms ok=20 | nofence: 30.0/55.400000000000006ms ok=20 | allow: 29.0/31.05ms ok=20
-result_100k_rows: inproc: 78.0/91.85ms ok=10 | jail: 96.0/106.49999999999999ms ok=10 | nofence: 83.0/85.0ms ok=10 | allow: 84.5/87.55ms ok=10
-result_1m_rows: inproc: 589.0/1012.8ms ok=5 | jail: 615.0/1969.7999999999997ms ok=5 | nofence: 603.0/671.0ms ok=5 | allow: 578.0/631.4ms ok=5
-spill_15m_sort_256mb: inproc: 5523.0/6191.4ms ok=5 | jail: 5546.0/5793.2ms ok=5 | nofence: 5610.0/5791.8ms ok=5 | allow: 5666.0/6569.8ms ok=5

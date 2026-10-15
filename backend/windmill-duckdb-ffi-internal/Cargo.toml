@@ -13,7 +13,7 @@ chrono = "0.4.41"
 #
 # Pinned exactly, so `cargo update` cannot move the engine (and the prebuilt extensions it
 # must match) under us.
-duckdb = { version = "=1.10505.0", features = [
+duckdb = { version = "=1.10506.0", features = [
     "bundled",
     "rust_decimal",
 ] }

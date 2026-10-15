@@ -1,8 +1,0 @@
-{"tag": "bench_inproc", "jobs": 400, "ok": 400, "span_s": 9.8, "jobs_per_s": 40.8, "exec_p50_ms": 74.0, "exec_p95_ms": 86.0}
-{"tag": "bench_jail", "jobs": 400, "ok": 400, "span_s": 13.95, "jobs_per_s": 28.7, "exec_p50_ms": 87.0, "exec_p95_ms": 132.04999999999995}
-{"tag": "bench_nofence", "jobs": 400, "ok": 400, "span_s": 5.21, "jobs_per_s": 76.8, "exec_p50_ms": 50.0, "exec_p95_ms": 57.0}
-{"tag": "bench_allow", "jobs": 400, "ok": 400, "span_s": 5.34, "jobs_per_s": 74.9, "exec_p50_ms": 52.0, "exec_p95_ms": 58.0}
-{"tag": "bench_allow", "jobs": 400, "ok": 400, "span_s": 5.29, "jobs_per_s": 75.6, "exec_p50_ms": 51.0, "exec_p95_ms": 56.0}
-{"tag": "bench_nofence", "jobs": 400, "ok": 400, "span_s": 5.35, "jobs_per_s": 74.7, "exec_p50_ms": 50.0, "exec_p95_ms": 57.0}
-{"tag": "bench_jail", "jobs": 400, "ok": 400, "span_s": 11.68, "jobs_per_s": 34.2, "exec_p50_ms": 82.0, "exec_p95_ms": 96.04999999999995}
-{"tag": "bench_inproc", "jobs": 400, "ok": 400, "span_s": 7.78, "jobs_per_s": 51.4, "exec_p50_ms": 69.0, "exec_p95_ms": 81.0}

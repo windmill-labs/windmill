@@ -1,3 +1,0 @@
-{"tag": "bench_jail", "cpu_cores_before_cancel": 2.04, "cancel_to_completed_s": 0.407, "cpu_cores_after_cancel_0_2_4_6s": [0.0, 0.0, 0.0]}
-{"tag": "bench_nofence", "cpu_cores_before_cancel": 1.02, "cancel_to_completed_s": 0.417, "cpu_cores_after_cancel_0_2_4_6s": [0.0, 0.0, 0.01]}
-{"tag": "bench_inproc", "cpu_cores_before_cancel": 1.03, "cancel_to_completed_s": 0.435, "cpu_cores_after_cancel_0_2_4_6s": [1.01, 1.01, 1.01]}

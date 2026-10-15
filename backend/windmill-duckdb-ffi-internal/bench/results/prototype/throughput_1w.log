@@ -1,4 +1,0 @@
-{"tag": "bench_inproc", "jobs": 200, "ok": 200, "span_s": 5.11, "jobs_per_s": 39.2, "exec_p50_ms": 24.0, "exec_p95_ms": 26.0}
-{"tag": "bench_proc", "jobs": 200, "ok": 200, "span_s": 6.3, "jobs_per_s": 31.8, "exec_p50_ms": 30.0, "exec_p95_ms": 31.0}
-{"tag": "bench_jail", "jobs": 200, "ok": 200, "span_s": 7.99, "jobs_per_s": 25.0, "exec_p50_ms": 38.0, "exec_p95_ms": 41.0}
-{"tag": "bench_nofence", "jobs": 200, "ok": 200, "span_s": 5.7, "jobs_per_s": 35.1, "exec_p50_ms": 27.0, "exec_p95_ms": 30.0}

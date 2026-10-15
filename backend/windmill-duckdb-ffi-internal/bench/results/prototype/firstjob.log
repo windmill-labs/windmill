@@ -1,9 +1,0 @@
-bench_inproc first 35 second 26
-bench_jail first 49 second 39
-bench_nofence first 34 second 26
-bench_inproc first 33 second 25
-bench_jail first 45 second 36
-bench_nofence first 33 second 25
-bench_inproc first 33 second 25
-bench_jail first 46 second 38
-bench_nofence first 33 second 25
