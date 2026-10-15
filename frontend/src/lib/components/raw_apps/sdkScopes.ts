@@ -4,7 +4,7 @@
 // implicit scope below), plus the viewer-side consent persistence for the
 // permission banner.
 
-/** Granted to every SDK token by the server, so never toggled nor asked for: whoami
+/** Never toggled nor asked for: every SDK token reaches whoami without it, and whoami
  * returns what the bundle already gets in `window.ctx`. */
 export const IMPLICIT_SDK_SCOPE = 'users:read'
 

@@ -1564,26 +1564,6 @@ fn validate_frontend_sdk_scopes(policy: &Policy) -> Result<()> {
     Ok(())
 }
 
-fn raw_app_sdk_token_scopes(authed: &ApiAuthed, declared: &[String]) -> Result<Vec<String>> {
-    validate_frontend_sdk_scopes_list(declared)?;
-    // A scope-restricted caller token must not bootstrap a broader-scoped SDK
-    // token. No-op for unscoped browser sessions. Checked on the declared scopes
-    // only — the sentinel grants nothing and exists to *narrow* the token.
-    ensure_scopes_within_caller(authed, Some(declared))?;
-    let mut scopes = declared.to_vec();
-    // Whoami returns what the bundle already has in `window.ctx`, so every token
-    // gets it unasked — but never beyond what a scope-restricted caller holds. It
-    // stays in the allowlist so policies that still declare it keep validating.
-    let implicit = "users:read".to_string();
-    if !scopes.contains(&implicit)
-        && ensure_scopes_within_caller(authed, Some(std::slice::from_ref(&implicit))).is_ok()
-    {
-        scopes.push(implicit);
-    }
-    scopes.push(windmill_api_auth::scopes::RAW_APP_SDK_SENTINEL.to_string());
-    Ok(scopes)
-}
-
 /// Mint the viewer-identity token a raw app's bundle uses for `windmill-client`.
 ///
 /// The CALLER MUST establish that `authed` may hold this app's credential: the
@@ -1609,7 +1589,13 @@ async fn mint_raw_app_sdk_token(
             "App embed tokens cannot mint SDK tokens".to_string(),
         ));
     }
-    let mut scopes = raw_app_sdk_token_scopes(authed, scopes)?;
+    validate_frontend_sdk_scopes_list(scopes)?;
+    // A scope-restricted caller token must not bootstrap a broader-scoped SDK
+    // token. No-op for unscoped browser sessions. Checked on the declared scopes
+    // only — the sentinel grants nothing and exists to *narrow* the token.
+    ensure_scopes_within_caller(authed, Some(scopes))?;
+    let mut scopes = scopes.to_vec();
+    scopes.push(windmill_api_auth::scopes::RAW_APP_SDK_SENTINEL.to_string());
     let requested_exp =
         chrono::Utc::now() + chrono::Duration::hours(APP_EMBED_TOKEN_VALIDITY_HOURS);
     let (label, expiration) =
@@ -6793,8 +6779,8 @@ mod embed_token_tests {
                 "POST",
             ),
             ("/api/w/test/jobs/restart/f/some-uuid", "POST"),
-            // `users:read` is granted without consent, so the workspace member
-            // directory must stay out of reach.
+            // `users:read` reaches whoami only: the workspace member directory must
+            // stay out of reach.
             ("/api/w/test/users/list", "GET"),
             ("/api/w/test/users/list_usage", "GET"),
             ("/api/w/test/users/username_to_email/admin", "GET"),
@@ -6805,6 +6791,15 @@ mod embed_token_tests {
                 "SDK token should deny {method} {path}"
             );
         }
+
+        // Whoami needs no declared scope.
+        let jobs_only = [
+            "jobs:run".to_string(),
+            windmill_api_auth::scopes::RAW_APP_SDK_SENTINEL.to_string(),
+        ];
+        assert!(
+            check_scopes_for_route(Some(&jobs_only[..]), "/api/w/test/users/whoami", "GET").is_ok()
+        );
     }
 
     /// The token carries path-scoped `apps:run:<own path>` and `apps:read:<own path>`
@@ -6873,33 +6868,6 @@ mod embed_token_tests {
         // narrows.
         let unscoped = ApiAuthed { scopes: None, ..Default::default() };
         assert!(ensure_scopes_within_caller(&unscoped, Some(&minted)).is_ok());
-    }
-
-    #[test]
-    fn raw_app_sdk_token_gets_identity_only_within_caller() {
-        use windmill_api_auth::ApiAuthed;
-
-        let declared = vec!["jobs:run".to_string()];
-        let has_identity = |authed: &ApiAuthed| {
-            super::raw_app_sdk_token_scopes(authed, &declared)
-                .unwrap()
-                .contains(&"users:read".to_string())
-        };
-
-        let unscoped = ApiAuthed { scopes: None, ..Default::default() };
-        assert!(has_identity(&unscoped));
-
-        let restricted = ApiAuthed {
-            scopes: Some(vec![
-                "jobs:run".to_string(),
-                "apps:write:u/admin/app".to_string(),
-            ]),
-            ..Default::default()
-        };
-        assert!(
-            !has_identity(&restricted),
-            "a caller restricted without users:read must not gain it on the SDK token"
-        );
     }
 
     /// The embed-token endpoints must keep working for legacy apps whose stored

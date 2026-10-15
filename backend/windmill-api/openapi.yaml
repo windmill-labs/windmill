@@ -36871,9 +36871,8 @@ components:
             the app bundle so `windmill-client` calls run as the viewer. Must
             be a subset of the server's curated allowlist (jobs:run, jobs:read,
             users:read, resources:read, variables:read, flow_conversations:read,
-            flow_conversations:write). `users:read` (whoami only) is granted to
-            every such token without consent, whether declared or not, unless
-            the viewer's own session is restricted to scopes without it.
+            flow_conversations:write). Every such token can call whoami without
+            consent, whether `users:read` is declared or not.
 
     ListableApp:
       type: object
