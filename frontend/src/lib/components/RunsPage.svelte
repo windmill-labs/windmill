@@ -437,6 +437,7 @@
 
 	async function reRunJobs(jobIdsToReRun: string[], batchReRunOptions: BatchReRunOptions) {
 		if (!$operatingWorkspace) return
+		const batching = filterMatchedIds !== undefined
 
 		if (askingForConfirmation) {
 			askingForConfirmation.loading = true
@@ -486,7 +487,11 @@
 						}
 						if (reRanUuids.length !== jobIdsToReRun.length) {
 							sendUserToast(
-								`Failed to re-run ${jobIdsToReRun.length - reRanUuids.length} jobs. Check console for details`,
+								`Failed to re-run ${jobIdsToReRun.length - reRanUuids.length} jobs. Check console for details` +
+									// Only a re-run resolves its source, so these stay first in line.
+									(batching
+										? '. They stay unresolved and the next batch will try them again: resolve them to skip them'
+										: ''),
 								true
 							)
 							// We do not get explicit error from backend if the job script don't exist
