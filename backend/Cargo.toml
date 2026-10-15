@@ -723,7 +723,6 @@ flume = { version = "0.11.1", features = ["async"] }
 kube = { version = "1.1.0", features = ["runtime", "derive"] }
 schemars = "0.8"
 k8s-openapi = { version = "0.25.0", features = ["latest"] }
-libloading = "0.8.8"
 
 # Macro-related
 proc-macro2 = "1.0"

@@ -218,7 +218,7 @@ jobs:
         id: extract-duckdb-ffi-internal
         with:
           image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
-          path: "/usr/src/app/libwindmill_duckdb_ffi_internal.so"
+          path: "/usr/src/app/windmill_duckdb_runner"
 
       - uses: shrink/actions-docker-extract@v3
         id: extract-ee
