@@ -268,6 +268,33 @@ pub fn parse_code_for_imports(code: &str, path: &str) -> anyhow::Result<Vec<NImp
     return Ok(nimports);
 }
 
+/// A runnable's Python modules as [`parse_python_imports`]' `module_sources`: content keyed
+/// by the path a relative import of each resolves to from `script_path` (`shared.py` next
+/// to `u/a/app/main` is `u/a/app/shared`).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn module_sources(
+    script_path: &str,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
+) -> Option<HashMap<String, String>> {
+    let dir = script_path
+        .rsplit_once('/')
+        .map(|(dir, _)| dir)
+        .unwrap_or("");
+    let sources: HashMap<String, String> = modules?
+        .iter()
+        .filter_map(|(key, module)| {
+            let stem = key.strip_suffix(".py")?;
+            let path = if dir.is_empty() {
+                stem.to_string()
+            } else {
+                format!("{dir}/{stem}")
+            };
+            Some((path, module.content.clone()))
+        })
+        .collect();
+    (!sources.is_empty()).then_some(sources)
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn parse_python_imports(
     code: &str,

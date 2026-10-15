@@ -3427,8 +3427,7 @@ async fn capture_dependency_job(
                         &mut locked_v,
                         raw_workspace_dependencies_o,
                         temp_script_refs,
-                        crate::python_executor::python_module_sources(script_path, modules)
-                            .as_ref(),
+                        windmill_parser_py_imports::module_sources(script_path, modules).as_ref(),
                     )
                     .await?
                     .0

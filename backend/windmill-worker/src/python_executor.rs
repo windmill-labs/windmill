@@ -791,7 +791,7 @@ pub async fn handle_python_job(
         None
     };
 
-    let module_sources = python_module_sources(&script_path, modules.as_ref());
+    let module_sources = windmill_parser_py_imports::module_sources(&script_path, modules.as_ref());
     let (py_version, mut additional_python_paths) = handle_python_deps_with_modules(
         job_dir,
         requirements_o,
@@ -1939,32 +1939,6 @@ async fn replace_pip_secret(
     } else {
         Ok(req.to_string())
     }
-}
-
-/// Content of a runnable's Python modules, keyed by the path a relative import of each
-/// resolves to from `script_path` (`shared.py` next to `u/a/app/main` is `u/a/app/shared`),
-/// for the import parser to read in place of a deployed script.
-pub(crate) fn python_module_sources(
-    script_path: &str,
-    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
-) -> Option<HashMap<String, String>> {
-    let dir = script_path
-        .rsplit_once('/')
-        .map(|(dir, _)| dir)
-        .unwrap_or("");
-    let sources: HashMap<String, String> = modules?
-        .iter()
-        .filter_map(|(key, module)| {
-            let stem = key.strip_suffix(".py")?;
-            let path = if dir.is_empty() {
-                stem.to_string()
-            } else {
-                format!("{dir}/{stem}")
-            };
-            Some((path, module.content.clone()))
-        })
-        .collect();
-    (!sources.is_empty()).then_some(sources)
 }
 
 #[cfg(feature = "private")]
