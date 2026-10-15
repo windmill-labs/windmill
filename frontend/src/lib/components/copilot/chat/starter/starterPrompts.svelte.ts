@@ -2,6 +2,8 @@ import { onboardingProfile, type StarterPrompt } from '$lib/onboardingProfile'
 import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 import { userStore } from '$lib/stores'
 import { fromStore } from 'svelte/store'
+import { resource } from 'runed'
+import { ScriptService } from '$lib/gen'
 
 /** Example prompts: the short `label` is shown as a clickable tag under the composer,
  * the `prompt` is what rotates through the placeholder / gets dropped into the input. */
@@ -48,12 +50,57 @@ export class StarterPrompts {
 	readonly list = $derived(
 		this.#invite ?? (this.#user.current?.operator ? operatorStarterPrompts : defaultStarterPrompts)
 	)
+	#hasItems: { readonly current: boolean | undefined }
 
-	constructor() {
+	/** `workspace`: where the session acts, which decides whether the chips are offered. */
+	constructor(workspace: () => string | undefined) {
 		void onboardingProfile().then((p) => {
 			if (p?.starter_prompts?.length) this.#invite = p.starter_prompts
 		})
+		this.#hasItems = resource(workspace, async (ws) => (ws ? workspaceHasItems(ws) : undefined))
 	}
+
+	/** The example chips are for a workspace with nothing in it yet: next to someone's own
+	 * scripts and flows, "Ban Discord users" is noise. Withheld until the workspace is known
+	 * to be empty, so they never show and then vanish. The examples still rotate through the
+	 * placeholder either way. */
+	get chipsOffered(): boolean {
+		return this.#hasItems.current === false
+	}
+}
+
+// Workspaces known to hold something, for the page load. An empty answer is not kept: the
+// next mount asks again, so the chips go once the user has created their first item.
+const workspacesWithItems = new Set<string>()
+
+async function workspaceHasItems(workspace: string): Promise<boolean> {
+	if (workspacesWithItems.has(workspace)) return true
+	try {
+		// What Home's list counts: library scripts and the user's own drafts included.
+		const res = await ScriptService.listRunnables({
+			workspace,
+			includeWithoutMain: true,
+			includeDraftOnly: true,
+			perPage: 1
+		})
+		const has = (res.items?.length ?? 0) > 0
+		if (has) workspacesWithItems.add(workspace)
+		return has
+	} catch (e) {
+		// Unknown reads as "has items": no chips is the quieter mistake.
+		console.error(`Could not check whether workspace ${workspace} has items:`, e)
+		return true
+	}
+}
+
+/** What turns an empty chat into the block that starts a session. */
+export type ChatStarter = {
+	/** The page the block is on: an empty session centres it in the pane, Home does not. */
+	where: 'home' | 'session'
+	/** Rotated through the placeholder. */
+	prompts: StarterPrompt[]
+	/** Also offered as chips under the box. */
+	chips: boolean
 }
 
 const CYCLE_MS = 7_000

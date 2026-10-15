@@ -73,7 +73,14 @@
 	// Reactive session reference (mutations to summary/target propagate via the $state proxy)
 	const session = $derived(sessionState.sessions.find((s) => s.id === sessionId))
 
-	const starterPrompts = new StarterPrompts()
+	// Only a session that has never sent opens as the starter block. Read off the record, not
+	// the transcript: a cold session's history is still loading from storage when it mounts,
+	// and an empty transcript would show the greeting and then glide the composer away.
+	// The first send commits the workspace, so this flips only after the transcript has.
+	const opensSession = $derived(!session?.workspace_id)
+	const starterPrompts = new StarterPrompts(() =>
+		opensSession ? (actingWorkspaceId ?? $workspaceStore ?? undefined) : undefined
+	)
 
 	// Seed the composer with the unsent prompt a reload preserved on the session
 	// record (script-init: AIChatInput reads it once at mount).
@@ -309,6 +316,10 @@
 {#if !session || !runtime}
 	<div class="p-8 text-secondary text-sm">Session not found</div>
 {:else}
+	<!-- A sent session whose transcript is still loading (or came back empty) shows nothing
+	     rather than the docked copilot's keyboard-shortcut hint, which means nothing here. -->
+	{#snippet sessionEmptyHint()}{/snippet}
+
 	{#snippet inputPreface()}
 		{#if showRecoveryNotice}
 			<!-- mb-6, not the banner column's mb-1: at that gap it reads as one more
@@ -464,7 +475,15 @@
 							: session.archived
 								? 'This session is archived. Unarchive it from the banner above to keep working.'
 								: ''}
-						starterPrompts={starterPrompts.list}
+						starter={opensSession
+							? {
+									where: 'session',
+									prompts: starterPrompts.list,
+									chips: starterPrompts.chipsOffered
+								}
+							: undefined}
+						viewTransitionNames={headerInPage}
+						emptyHint={sessionEmptyHint}
 						{inputPreface}
 					/>
 				</div>

@@ -51,6 +51,8 @@
 		onKeyDown?: (e: KeyboardEvent) => void
 		/** Rendered inside the input box, above the textarea (e.g. context chips). */
 		leading?: Snippet
+		/** Rendered inside the input box, below the textarea (the composer's controls). */
+		trailing?: Snippet
 		/** The taller box that opens a session, matching Home's composer. */
 		hero?: boolean
 		/** Replaces `placeholder` with one drawn over the field, so it can fade between prompts. */
@@ -72,6 +74,7 @@
 		className = '',
 		onKeyDown = undefined,
 		leading,
+		trailing,
 		hero = false,
 		fadingPlaceholder
 	}: Props = $props()
@@ -828,7 +831,7 @@
 			bind:this={textarea}
 			onkeydown={handleKeyDown}
 			bind:value
-			use:autosize={{ maxHeight: '40vh', minHeight: hero ? 96 : undefined }}
+			use:autosize={{ maxHeight: '40vh', minHeight: hero ? 56 : undefined }}
 			rows={1}
 			oninput={handleInput}
 			onpaste={handlePaste}
@@ -853,7 +856,7 @@
 				}, 200)
 			}}
 			placeholder={fadingPlaceholder ? '' : placeholder}
-			aria-label={fadingPlaceholder ? 'Describe what you want to build' : undefined}
+			aria-label={fadingPlaceholder ? 'Describe what you want to do' : undefined}
 			class={twMerge(
 				'textarea-input resize-none caret-black dark:caret-white overflow-clip',
 				COMPOSER_FIELD_RESET,
@@ -864,6 +867,7 @@
 			{disabled}
 		></textarea>
 	</div>
+	{@render trailing?.()}
 </div>
 
 {#if showContextTooltip || showCommandTooltip}

@@ -1051,29 +1051,6 @@ export function findEmptyLandingSession(): Session | undefined {
 	)
 }
 
-/** The workspace a new session starts on, before the user picks another. */
-export function defaultSessionWorkspace(): string | undefined {
-	// Start in the workspace you're in. The one exception: a root you can't
-	// deploy to (locked, no bypass) steers to its dev, since a session there
-	// couldn't edit anything. The picker lets you switch.
-	const currentWs = get(workspaceStore)
-	const devOfCurrent = currentWs
-		? findCanonicalDevWorkspace(currentWs, get(userWorkspaces))?.id
-		: undefined
-	// Only trust the deploy check once the active workspace's rules have actually loaded: until then
-	// `isRuleActive` reads an empty ruleset and fails open, which would default a new session onto a
-	// locked prod. Treat "not yet loaded for currentWs" as not-deployable so we steer to the dev (always
-	// editable) when one exists; the picker still lets the user switch back once rules resolve.
-	const rulesLoadedForCurrent =
-		protectionRulesState.rulesets !== undefined && protectionRulesState.workspace === currentWs
-	const canDeployHere =
-		rulesLoadedForCurrent &&
-		(!isRuleActive('DisableDirectDeployment') ||
-			canUserBypassRuleKind('DisableDirectDeployment', get(userStore)))
-	const pending = devOfCurrent && !canDeployHere ? devOfCurrent : currentWs
-	return pending && pending.length > 0 ? pending : undefined
-}
-
 export function createSession(): Session {
 	// Reuse an existing untouched draft from the active family rather than pile a
 	// blank entry on every `+`, so several pending sessions can still be built up
@@ -1093,8 +1070,42 @@ export function createSession(): Session {
 		requestComposerFocus()
 		return reusable
 	}
+	const session = newTransientSession()
+	sessionState.currentSessionId = session.id
+	return session
+}
+
+// Told which never-touched drafts were dropped, so their runtimes go with them. Set by
+// sessionRuntime, which imports this module and so cannot be imported back. Home builds a
+// runtime for its draft on every mount, so a dropped draft would otherwise leave its
+// manager and its history database handle open.
+let onDraftsDiscarded: ((ids: string[]) => void) | undefined
+export function setDraftsDiscardedHandler(handler: (ids: string[]) => void): void {
+	onDraftsDiscarded = handler
+}
+
+function newTransientSession(): Session {
+	const discarded = sessionState.sessions.filter(isDiscardableDraft).map((s) => s.id)
 	sessionState.sessions = sessionState.sessions.filter((s) => !isDiscardableDraft(s))
-	const pending = defaultSessionWorkspace()
+	if (discarded.length > 0) onDraftsDiscarded?.(discarded)
+	// Start in the workspace you're in. The one exception: a root you can't
+	// deploy to (locked, no bypass) steers to its dev, since a session there
+	// couldn't edit anything. The picker lets you switch.
+	const currentWs = get(workspaceStore)
+	const devOfCurrent = currentWs
+		? findCanonicalDevWorkspace(currentWs, get(userWorkspaces))?.id
+		: undefined
+	// Only trust the deploy check once the active workspace's rules have actually loaded: until then
+	// `isRuleActive` reads an empty ruleset and fails open, which would default a new session onto a
+	// locked prod. Treat "not yet loaded for currentWs" as not-deployable so we steer to the dev (always
+	// editable) when one exists; the picker still lets the user switch back once rules resolve.
+	const rulesLoadedForCurrent =
+		protectionRulesState.rulesets !== undefined && protectionRulesState.workspace === currentWs
+	const canDeployHere =
+		rulesLoadedForCurrent &&
+		(!isRuleActive('DisableDirectDeployment') ||
+			canUserBypassRuleKind('DisableDirectDeployment', get(userStore)))
+	const pending = devOfCurrent && !canDeployHere ? devOfCurrent : currentWs
 	// Friendly default summary so the header reads like "Zippy session"
 	// rather than "Untitled session" — assigned at create time, the user
 	// can still rename it (or it gets overwritten by an editor target).
@@ -1104,15 +1115,35 @@ export function createSession(): Session {
 		id: createLongHash(),
 		summary,
 		summarySource: 'placeholder',
-		pending_workspace_id: pending,
+		pending_workspace_id: pending && pending.length > 0 ? pending : undefined,
 		createdAt: Date.now(),
 		transient: true
 	}
 	sessionState.sessions = [session, ...sessionState.sessions]
-	sessionState.currentSessionId = session.id
 	// Transient until first touch: no DB record yet. Persisting is deferred to the
 	// first user edit (the mutation helpers below route through persistTouched).
 	return session
+}
+
+/** The unsent session Home's composer writes into, so a prompt half-typed on Home is the
+ * one the empty session page shows, and the reverse. Never selects it: merely opening Home
+ * must not change which session the AI Sessions switch resumes. A session opened on an
+ * item (it carries preview tabs) is about that item, so Home starts its own instead. */
+export function homeStarterSession(): Session {
+	const unsent = (s: Session) =>
+		!s.archived && !s.workspace_id && !s.previewTabs?.length && sessionInCurrentFamily(s)
+	const current = sessionState.sessions.find((s) => s.id === sessionState.currentSessionId)
+	if (current && unsent(current)) return current
+	// Stored but never sent: a draft the user touched, by typing or by picking where it acts.
+	// Either is theirs to come back to, and leaving it would strand it in the sidebar.
+	const touched = sessionState.sessions
+		.filter((s) => unsent(s) && !s.transient)
+		.sort((a, b) => sessionLastActivityAt(b) - sessionLastActivityAt(a))[0]
+	return (
+		touched ??
+		sessionState.sessions.find((s) => isDiscardableDraft(s) && sessionInCurrentFamily(s)) ??
+		newTransientSession()
+	)
 }
 
 // Promote an in-memory transient session to a persisted IndexedDB record.

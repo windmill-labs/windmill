@@ -68,9 +68,10 @@
 	import { sendUserToast } from '$lib/toast'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { copilotInfo } from '$lib/aiStore'
-	import type { StarterPrompt } from '$lib/onboardingProfile'
-	import BuildWithAIHeading from './starter/BuildWithAIHeading.svelte'
-	import { RotatingPlaceholder } from './starter/starterPrompts.svelte'
+	import SessionGreeting from './starter/SessionGreeting.svelte'
+	import StarterPromptChips from './starter/StarterPromptChips.svelte'
+	import { RotatingPlaceholder, type ChatStarter } from './starter/starterPrompts.svelte'
+	import { glideOnLayoutChange } from './composerGlide.svelte'
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
 	const chatHost = getChatViewHost()
@@ -109,7 +110,9 @@
 		hideModeSelector = false,
 		wideLayout = false,
 		emptyHint,
-		starterPrompts = undefined,
+		starter = undefined,
+		viewTransitionNames = false,
+		onSent = undefined,
 		inputPreface,
 		footerSettings,
 		initialInstructions = undefined,
@@ -142,10 +145,17 @@
 		// off there.
 		wideLayout?: boolean
 		emptyHint?: Snippet
-		/** Open an empty chat the way Home's composer looks: the "Build with AI" heading, a
-		 * taller box cycling through these prompts as its placeholder. Sessions
-		 * set it so the two read as the same entry point. Replaces `emptyHint`. */
-		starterPrompts?: StarterPrompt[]
+		/** Open an empty chat as the block that starts a session: Home and an empty session
+		 * both mount it, so the two are one entry point rather than look-alikes. Replaces
+		 * `emptyHint`. */
+		starter?: ChatStarter
+		/** Names the block for the view transition between Home and AI Sessions. Only one
+		 * chat on the page may carry the names: a duplicate makes the browser skip the
+		 * transition. Named only while the chat is empty: the glide carries Home's draft to
+		 * the same draft's page and back, and a session already under way just cross-fades. */
+		viewTransitionNames?: boolean
+		/** After the composer hands a new turn to the host. */
+		onSent?: () => void
 		inputPreface?: Snippet
 		/** The settings control at the footer's right edge, where the copilot puts its
 		 * model picker. A host that configures its turn elsewhere replaces it here. */
@@ -293,13 +303,10 @@
 	}
 
 	$effect(() => {
-		if (aiChatInput) {
-			chatHost.setAiChatInput(aiChatInput)
-		}
-
-		return () => {
-			chatHost.setAiChatInput(null)
-		}
+		const input = aiChatInput
+		if (!input) return
+		chatHost.setAiChatInput(input)
+		return () => chatHost.releaseAiChatInput(input)
 	})
 
 	// Also shown for a run held by another tab, labeled with where it is: the
@@ -560,10 +567,20 @@
 	// A step name hangs its icon in the column's left padding (see AssistantMessage), so a
 	// transcript carrying one widens the padding, on both sides to keep the column centred.
 	const agentGutter = $derived(messages.some((m) => m.role === 'assistant' && m.stepName))
-	const starterHero = $derived(!!starterPrompts && messages.length === 0 && !disabled)
+	// The block's layout holds while the chat is empty, usable or not; only the rotating
+	// placeholder, the taller box and the prompts need a composer that can send.
+	const starterLayout = $derived(!!starter && messages.length === 0)
+	const starterHero = $derived(starterLayout && !disabled)
+	// Home is a page, not a pane: nothing there to centre in.
+	const centreComposer = $derived(starterLayout && starter?.where === 'session')
 	const starterPlaceholder = new RotatingPlaceholder(
-		() => (starterPrompts ?? []).map((p) => p.prompt),
+		() => (starter?.prompts ?? []).map((p) => p.prompt),
 		() => starterHero
+	)
+	let composerEl: HTMLDivElement | undefined = $state()
+	glideOnLayoutChange(
+		() => composerEl,
+		() => starterLayout
 	)
 
 	const columnClass = $derived(
@@ -673,9 +690,7 @@
 <!-- tabindex="-1": clicks on non-focusable chat content must move focus into
 the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 <div
-	class="flex flex-col h-full relative outline-none {starterPrompts && messages.length === 0
-		? 'justify-center'
-		: ''}"
+	class="flex flex-col h-full relative outline-none {starterLayout ? 'justify-center' : ''}"
 	tabindex="-1"
 	bind:this={panelEl}
 	ondragenter={onPanelDragEnter}
@@ -784,9 +799,17 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		</div>
 	{/if}
 	{#if messages.length === 0}
-		{#if starterPrompts}
-			<div class={columnClass}>
-				<BuildWithAIHeading />
+		{#if starter}
+			<!-- In a session the greeting rides on top of the centred composer instead of being
+			     centred with it: it takes the space above, the spacer after the composer the
+			     same below. -->
+			<div class={centreComposer ? 'flex-1 min-h-0 flex flex-col justify-end' : ''}>
+				<div
+					class={columnClass}
+					style:view-transition-name={viewTransitionNames ? 'session-heading' : undefined}
+				>
+					<SessionGreeting />
+				</div>
 			</div>
 		{:else if emptyHint}
 			{@render emptyHint()}
@@ -909,8 +932,14 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 
 	<!-- Same horizontal padding as the transcript above: the composer's edges line up with
 	     the messages rather than sitting closer to the panel edge. -->
-	<!-- The bottom margin offsets the heading's weight above, so the centred box sits mid-pane. -->
-	<div class="relative {columnClass} pb-2 {starterPrompts && messages.length === 0 ? 'mb-24' : ''}">
+	<div
+		bind:this={composerEl}
+		data-session-composer
+		class="relative {columnClass} pb-2"
+		style:view-transition-name={viewTransitionNames && starterLayout
+			? 'session-composer'
+			: undefined}
+	>
 		{#if showFlowPendingActionControls}
 			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">
 				<Button
@@ -956,7 +985,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			{#if inputPreface}
 				{@render inputPreface()}
 			{/if}
-			{#if showFreeTierUsage}
+			{#if showFreeTierUsage && !starterLayout}
 				{@render freeTierUsageBanner()}
 			{/if}
 			<AIChatInput
@@ -970,322 +999,351 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				{disabled}
 				{pendingQuestionToolCallId}
 				isFirstMessage={messages.length === 0}
-				hero={starterHero}
+				hero={starterLayout}
 				fadingPlaceholder={starterHero ? starterPlaceholder : undefined}
-			/>
-			<div
-				class="mt-1 flex flex-row flex-wrap items-center gap-x-1.5 gap-y-1"
-				class:justify-between={showFooterLeftControls}
-				class:justify-end={!showFooterLeftControls}
+				{onSent}
 			>
-				{#if showFooterLeftControls}
-					<div class="flex flex-row items-center gap-x-1.5 min-w-0 flex-wrap">
-						{#if showContextPicker && !disabled}
-							<Popover placement="bottom-start">
-								{#snippet trigger()}
-									<Button
-										nonCaptureEvent
-										unifiedSize="2xs"
-										variant="default"
-										title="Add context"
-										iconOnly
-										startIcon={{ icon: AtSign }}
-									/>
-								{/snippet}
-								{#snippet content({ close })}
-									{#if chatHost.mode === AIMode.APP}
-										<AppAvailableContextList
-											{availableContext}
-											{selectedContext}
-											onSelect={(element) => {
-												void aiChatInput?.addContextToSelection(element)
-												close()
-											}}
-										/>
-									{:else}
-										<ChatContextPicker
-											{availableContext}
-											{selectedContext}
-											onSelect={(element) => {
-												void aiChatInput?.addContextToSelection(element)
-												aiChatInput?.insertMention(element.title)
-												close()
-												aiChatInput?.focusInput()
-											}}
-											onSelectWorkspaceItem={(element) => {
-												void aiChatInput?.addContextToSelection(element)
-												aiChatInput?.insertMention(element.title)
-												close()
-												aiChatInput?.focusInput()
-											}}
-											setShowing={(showing) => {
-												if (!showing) close()
-											}}
-											onSelectFile={(name) => {
-												aiChatInput?.insertFileMention(name)
-												close()
-											}}
-										/>
-									{/if}
-								{/snippet}
-							</Popover>
-						{/if}
-						{#if attachmentsOffReason}
-							<Tooltip small placement="top">
-								<Button
-									nonCaptureEvent
-									unifiedSize="2xs"
-									variant="default"
-									iconOnly
-									disabled
-									startIcon={{ icon: Plus }}
-								/>
-								{#snippet text()}
-									<div class="max-w-64 text-xs">{attachmentsOffReason}</div>
-								{/snippet}
-							</Tooltip>
-						{:else if canAttachFiles}
-							<DropdownV2
-								items={() => {
-									const closeMenu = () => (plusMenuOpen = false)
-									const inGlobal = chatHost.mode === AIMode.GLOBAL
-									if (inGlobal) {
-										skillsMenu.refresh()
-										mcpMenu.refresh()
-									}
-									return [
-										{
-											displayName: 'Attach file or image',
-											icon: FileText,
-											action: () => {
-												plusMenuOpen = false
-												linkFiles()
-											}
-										},
-										...(canLinkFolders
-											? [
-													{
-														// A real (live) link needs the File System Access API; without it the
-														// folder is only snapshotted, so call it "Add folder", not "Link folder".
-														displayName: canUseFsAccess ? 'Link folder' : 'Add folder',
-														icon: Folder,
-														tooltip: canUseFsAccess
-															? 'Linked live — the assistant reads the folder’s current files from disk and refreshes each turn.'
-															: 'Loaded as a snapshot — the folder’s files are copied into your browser (they won’t auto-update). For a live link that refreshes from disk, use a Chromium-based browser (Chrome, Edge).',
-														action: () => {
-															plusMenuOpen = false
-															linkFolder()
-														}
-													}
-												]
-											: []),
-										...(inGlobal
-											? [
-													{
-														displayName: 'Mention file',
-														icon: AtSign,
-														customSubmenu: WorkspaceMentionPicker,
-														customSubmenuProps: {
-															onSelect: mentionWorkspaceItem,
-															onAfterClose: () => aiChatInput?.focusInput()
-														}
-													}
-												]
-											: []),
-										...(inGlobal
-											? [
-													{
-														displayName: 'Skills',
-														icon: BookOpen,
-														separatorTop: true,
-														// Getters so the submenus fill in when their fetch lands
-														// rather than the whole menu waiting on it.
-														get submenuItems() {
-															return skillsMenu.items(closeMenu)
-														}
-													},
-													{
-														displayName: 'MCP connections',
-														icon: Plug,
-														get submenuItems() {
-															return mcpMenu.items(closeMenu)
-														}
-													}
-												]
-											: [])
-									]
-								}}
-								placement="bottom-start"
-								fixedHeight={false}
-								closeOnItemClick={false}
-								bind:open={plusMenuOpen}
-							>
-								{#snippet buttonReplacement()}
+				{#snippet toolbar()}
+					<div
+						class="flex flex-row flex-wrap items-center gap-x-1.5 gap-y-1"
+						class:justify-between={showFooterLeftControls}
+						class:justify-end={!showFooterLeftControls}
+					>
+						{#if showFooterLeftControls}
+							<div class="flex flex-row items-center gap-x-1.5 min-w-0 flex-wrap">
+								{#if showContextPicker && !disabled}
+									<Popover placement="bottom-start">
+										{#snippet trigger()}
+											<Button
+												nonCaptureEvent
+												unifiedSize="2xs"
+												variant="default"
+												title="Add context"
+												iconOnly
+												startIcon={{ icon: AtSign }}
+											/>
+										{/snippet}
+										{#snippet content({ close })}
+											{#if chatHost.mode === AIMode.APP}
+												<AppAvailableContextList
+													{availableContext}
+													{selectedContext}
+													onSelect={(element) => {
+														void aiChatInput?.addContextToSelection(element)
+														close()
+													}}
+												/>
+											{:else}
+												<ChatContextPicker
+													{availableContext}
+													{selectedContext}
+													onSelect={(element) => {
+														void aiChatInput?.addContextToSelection(element)
+														aiChatInput?.insertMention(element.title)
+														close()
+														aiChatInput?.focusInput()
+													}}
+													onSelectWorkspaceItem={(element) => {
+														void aiChatInput?.addContextToSelection(element)
+														aiChatInput?.insertMention(element.title)
+														close()
+														aiChatInput?.focusInput()
+													}}
+													setShowing={(showing) => {
+														if (!showing) close()
+													}}
+													onSelectFile={(name) => {
+														aiChatInput?.insertFileMention(name)
+														close()
+													}}
+												/>
+											{/if}
+										{/snippet}
+									</Popover>
+								{/if}
+								{#if attachmentsOffReason}
 									<Tooltip small placement="top">
 										<Button
 											nonCaptureEvent
 											unifiedSize="2xs"
-											variant="default"
+											variant="subtle"
 											iconOnly
+											disabled
 											startIcon={{ icon: Plus }}
 										/>
 										{#snippet text()}
+											<div class="max-w-64 text-xs">{attachmentsOffReason}</div>
+										{/snippet}
+									</Tooltip>
+								{:else if canAttachFiles}
+									<DropdownV2
+										items={() => {
+											const closeMenu = () => (plusMenuOpen = false)
+											const inGlobal = chatHost.mode === AIMode.GLOBAL
+											if (inGlobal) {
+												skillsMenu.refresh()
+												mcpMenu.refresh()
+											}
+											return [
+												{
+													displayName: 'Attach file or image',
+													icon: FileText,
+													action: () => {
+														plusMenuOpen = false
+														linkFiles()
+													}
+												},
+												...(canLinkFolders
+													? [
+															{
+																// A real (live) link needs the File System Access API; without it the
+																// folder is only snapshotted, so call it "Add folder", not "Link folder".
+																displayName: canUseFsAccess ? 'Link folder' : 'Add folder',
+																icon: Folder,
+																tooltip: canUseFsAccess
+																	? 'Linked live — the assistant reads the folder’s current files from disk and refreshes each turn.'
+																	: 'Loaded as a snapshot — the folder’s files are copied into your browser (they won’t auto-update). For a live link that refreshes from disk, use a Chromium-based browser (Chrome, Edge).',
+																action: () => {
+																	plusMenuOpen = false
+																	linkFolder()
+																}
+															}
+														]
+													: []),
+												...(inGlobal
+													? [
+															{
+																displayName: 'Mention file',
+																icon: AtSign,
+																customSubmenu: WorkspaceMentionPicker,
+																customSubmenuProps: {
+																	onSelect: mentionWorkspaceItem,
+																	onAfterClose: () => aiChatInput?.focusInput()
+																}
+															}
+														]
+													: []),
+												...(inGlobal
+													? [
+															{
+																displayName: 'Skills',
+																icon: BookOpen,
+																separatorTop: true,
+																// Getters so the submenus fill in when their fetch lands
+																// rather than the whole menu waiting on it.
+																get submenuItems() {
+																	return skillsMenu.items(closeMenu)
+																}
+															},
+															{
+																displayName: 'MCP connections',
+																icon: Plug,
+																get submenuItems() {
+																	return mcpMenu.items(closeMenu)
+																}
+															}
+														]
+													: [])
+											]
+										}}
+										placement="bottom-start"
+										fixedHeight={false}
+										closeOnItemClick={false}
+										bind:open={plusMenuOpen}
+									>
+										{#snippet buttonReplacement()}
+											<Tooltip small placement="top">
+												<Button
+													nonCaptureEvent
+													unifiedSize="2xs"
+													variant="subtle"
+													iconOnly
+													startIcon={{ icon: Plus }}
+												/>
+												{#snippet text()}
+													<div class="max-w-64 text-xs">
+														<p class="font-semibold">Attach files or link a folder</p>
+														<p class="mt-1">
+															Files and images attach to your next message. Images are seen
+															directly; file contents stay in your browser and are read on demand.
+														</p>
+														<p class="mt-1">
+															A linked folder is a session-wide resource: the assistant lists,
+															searches, and reads its files whenever it needs them.
+														</p>
+													</div>
+												{/snippet}
+											</Tooltip>
+										{/snippet}
+									</DropdownV2>
+									<!-- Fallback file picker (used when the File System Access API is unavailable).
+							     `accept` only steers the picker; the content sniff at attach is authoritative. -->
+									<input
+										bind:this={fileInputEl}
+										type="file"
+										multiple
+										accept={chatHost.attachmentAccept}
+										class="hidden no-default-style"
+										onchange={onFileInputChange}
+									/>
+									<!-- Fallback folder picker (no File System Access API): webkitdirectory selects a
+							     whole folder; its files carry webkitRelativePath and are snapshotted. -->
+									<input
+										bind:this={folderInputEl}
+										type="file"
+										multiple
+										webkitdirectory
+										class="hidden no-default-style"
+										onchange={onFolderInputChange}
+									/>
+								{/if}
+								{#if showAutonomyModeSelector}
+									<AutonomyModePicker
+										mode={chatHost.autonomyMode}
+										availability={autonomyAvailability}
+										onChange={chatHost.setAutonomyMode}
+									/>
+								{/if}
+								{#if effectiveAutonomyMode === AIAutonomyMode.PLAN}
+									<span class="text-2xs text-secondary">{PLAN_MODE_MESSAGES.modeNote}</span>
+								{/if}
+								{#if effectiveAutonomyMode === AIAutonomyMode.YOLO && chatHost.autoAcceptToolConfirmationsAvailable}
+									<Tooltip small placement="top">
+										<AlertTriangle class="w-3 h-3 text-red-500" />
+										{#snippet text()}
 											<div class="max-w-64 text-xs">
-												<p class="font-semibold">Attach files or link a folder</p>
-												<p class="mt-1">
-													Files and images attach to your next message. Images are seen directly;
-													file contents stay in your browser and are read on demand.
+												<p class="font-semibold">
+													{chatHost.autoAcceptEditsAvailable
+														? 'Bypass permissions auto-accepts edits and tool usage.'
+														: 'Bypass permissions auto-accepts tool usage.'}
 												</p>
 												<p class="mt-1">
-													A linked folder is a session-wide resource: the assistant lists, searches,
-													and reads its files whenever it needs them.
+													{chatHost.autoAcceptEditsAvailable
+														? 'This can result in edits being applied or tools being called without user confirmation.'
+														: 'This can result in tools being called without user confirmation.'}
 												</p>
+												{#if yoloBypassedTools.length > 0}
+													<p class="mt-2 font-semibold">Bypassed in current mode:</p>
+													<ul class="mt-1 list-disc pl-4 space-y-0.5">
+														{#each visibleYoloBypassedTools as tool (tool.name)}
+															<li class="break-words">{tool.label}</li>
+														{/each}
+													</ul>
+													{#if hiddenYoloBypassedToolCount > 0}
+														<p class="mt-1">+ {hiddenYoloBypassedToolCount} more</p>
+													{/if}
+												{:else}
+													<p class="mt-2">No tools in the current mode require confirmation.</p>
+												{/if}
 											</div>
 										{/snippet}
 									</Tooltip>
-								{/snippet}
-							</DropdownV2>
-							<!-- Fallback file picker (used when the File System Access API is unavailable).
-							     `accept` only steers the picker; the content sniff at attach is authoritative. -->
-							<input
-								bind:this={fileInputEl}
-								type="file"
-								multiple
-								accept={chatHost.attachmentAccept}
-								class="hidden no-default-style"
-								onchange={onFileInputChange}
-							/>
-							<!-- Fallback folder picker (no File System Access API): webkitdirectory selects a
-							     whole folder; its files carry webkitRelativePath and are snapshotted. -->
-							<input
-								bind:this={folderInputEl}
-								type="file"
-								multiple
-								webkitdirectory
-								class="hidden no-default-style"
-								onchange={onFolderInputChange}
-							/>
+								{/if}
+								{#if chatHost.mode === AIMode.SCRIPT && hasDiff && !disabled}
+									<ChatQuickActions {askAi} {diffMode} />
+								{/if}
+							</div>
 						{/if}
-						{#if showAutonomyModeSelector}
-							<AutonomyModePicker
-								mode={chatHost.autonomyMode}
-								availability={autonomyAvailability}
-								onChange={chatHost.setAutonomyMode}
-							/>
-						{/if}
-						{#if effectiveAutonomyMode === AIAutonomyMode.PLAN}
-							<span class="text-2xs text-secondary">{PLAN_MODE_MESSAGES.modeNote}</span>
-						{/if}
-						{#if effectiveAutonomyMode === AIAutonomyMode.YOLO && chatHost.autoAcceptToolConfirmationsAvailable}
-							<Tooltip small placement="top">
-								<AlertTriangle class="w-3 h-3 text-red-500" />
-								{#snippet text()}
-									<div class="max-w-64 text-xs">
-										<p class="font-semibold">
-											{chatHost.autoAcceptEditsAvailable
-												? 'Bypass permissions auto-accepts edits and tool usage.'
-												: 'Bypass permissions auto-accepts tool usage.'}
-										</p>
-										<p class="mt-1">
-											{chatHost.autoAcceptEditsAvailable
-												? 'This can result in edits being applied or tools being called without user confirmation.'
-												: 'This can result in tools being called without user confirmation.'}
-										</p>
-										{#if yoloBypassedTools.length > 0}
-											<p class="mt-2 font-semibold">Bypassed in current mode:</p>
-											<ul class="mt-1 list-disc pl-4 space-y-0.5">
-												{#each visibleYoloBypassedTools as tool (tool.name)}
-													<li class="break-words">{tool.label}</li>
-												{/each}
-											</ul>
-											{#if hiddenYoloBypassedToolCount > 0}
-												<p class="mt-1">+ {hiddenYoloBypassedToolCount} more</p>
-											{/if}
-										{:else}
-											<p class="mt-2">No tools in the current mode require confirmation.</p>
-										{/if}
-									</div>
-								{/snippet}
-							</Tooltip>
-						{/if}
-						{#if chatHost.mode === AIMode.SCRIPT && hasDiff && !disabled}
-							<ChatQuickActions {askAi} {diffMode} />
-						{/if}
-					</div>
-				{/if}
-				{#if footerMessageShown}
-					<div class="text-primary text-xs my-2 px-2">
-						<Markdown md={disabledMessage} />
-					</div>
-				{:else}
-					<div class="flex flex-row gap-x-1.5 min-w-0 flex-wrap items-center">
-						{#if chatHost.mode === AIMode.GLOBAL}
-							<AttachedFilesBar />
-						{/if}
-						{#if !hideModeSelector}
-							<ChatMode />
-						{/if}
-						{#if chatHost.mode === AIMode.APP}
-							<DatatableCreationPolicy />
-						{/if}
-						<ContextUsageIndicator />
-						{#if chatHost.supportsModelSettings}
-							<!-- `promptSettings={false}`: in a session, GLOBAL, the settings modal's
+						{#if footerMessageShown}
+							<div class="text-primary text-xs my-2 px-2">
+								<Markdown md={disabledMessage} />
+							</div>
+						{:else}
+							<div class="flex flex-row gap-x-1.5 min-w-0 flex-wrap items-center">
+								{#if chatHost.mode === AIMode.GLOBAL}
+									<AttachedFilesBar />
+								{/if}
+								{#if !hideModeSelector}
+									<ChatMode />
+								{/if}
+								{#if chatHost.mode === AIMode.APP}
+									<DatatableCreationPolicy />
+								{/if}
+								<ContextUsageIndicator />
+								{#if chatHost.supportsModelSettings}
+									<!-- `promptSettings={false}`: in a session, GLOBAL, the settings modal's
 							     Instructions section owns the prompt entries. -->
-							<AIChatModelSettings promptSettings={false} />
-						{/if}
-						{@render footerSettings?.()}
-						{#if chatHost.mode === AIMode.GLOBAL}
-							<AssistantSettingsModal bind:this={assistantSettings} />
-						{/if}
+									<AIChatModelSettings promptSettings={false} />
+								{/if}
+								{@render footerSettings?.()}
+								{#if chatHost.mode === AIMode.GLOBAL}
+									<AssistantSettingsModal bind:this={assistantSettings} />
+								{/if}
 
-						{#if chatHost.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}
-							{#if appContext.inspectorElement}
-								<div
-									class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-2xs"
-									title={appContext.inspectorElement.path}
-								>
-									<MousePointer2 class="w-3 h-3" />
-									<span class="truncate max-w-[60px]">
-										{appContext.inspectorElement.tagName.toLowerCase()}{appContext.inspectorElement
-											.id
-											? `#${appContext.inspectorElement.id}`
-											: ''}{appContext.inspectorElement.className
-											? `.${appContext.inspectorElement.className.split(' ')[0]}`
-											: ''}
-									</span>
-									<button
-										class="hover:bg-purple-200 dark:hover:bg-purple-800/50 rounded p-0.5 -mr-0.5"
-										onclick={() => appContext.clearInspector?.()}
-										title="Clear element selection"
-									>
-										<X class="w-2.5 h-2.5" />
-									</button>
-								</div>
-							{/if}
-							{#if appContext.codeSelection}
-								<div
-									class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-2xs"
-									title={`${appContext.codeSelection.source}: lines ${appContext.codeSelection.startLine}-${appContext.codeSelection.endLine}`}
-								>
-									<TextSelect class="w-3 h-3" />
-									<span class="truncate max-w-[80px]">
-										L{appContext.codeSelection.startLine}-{appContext.codeSelection.endLine}
-									</span>
-									<button
-										class="hover:bg-amber-200 dark:hover:bg-amber-800/50 rounded p-0.5 -mr-0.5"
-										onclick={() => appContext.clearCodeSelection?.()}
-										title="Clear code selection"
-									>
-										<X class="w-2.5 h-2.5" />
-									</button>
-								</div>
-							{/if}
+								{#if chatHost.mode === AIMode.APP && appContext && (appContext.inspectorElement || appContext.codeSelection)}
+									{#if appContext.inspectorElement}
+										<div
+											class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-2xs"
+											title={appContext.inspectorElement.path}
+										>
+											<MousePointer2 class="w-3 h-3" />
+											<span class="truncate max-w-[60px]">
+												{appContext.inspectorElement.tagName.toLowerCase()}{appContext
+													.inspectorElement.id
+													? `#${appContext.inspectorElement.id}`
+													: ''}{appContext.inspectorElement.className
+													? `.${appContext.inspectorElement.className.split(' ')[0]}`
+													: ''}
+											</span>
+											<button
+												class="hover:bg-purple-200 dark:hover:bg-purple-800/50 rounded p-0.5 -mr-0.5"
+												onclick={() => appContext.clearInspector?.()}
+												title="Clear element selection"
+											>
+												<X class="w-2.5 h-2.5" />
+											</button>
+										</div>
+									{/if}
+									{#if appContext.codeSelection}
+										<div
+											class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-2xs"
+											title={`${appContext.codeSelection.source}: lines ${appContext.codeSelection.startLine}-${appContext.codeSelection.endLine}`}
+										>
+											<TextSelect class="w-3 h-3" />
+											<span class="truncate max-w-[80px]">
+												L{appContext.codeSelection.startLine}-{appContext.codeSelection.endLine}
+											</span>
+											<button
+												class="hover:bg-amber-200 dark:hover:bg-amber-800/50 rounded p-0.5 -mr-0.5"
+												onclick={() => appContext.clearCodeSelection?.()}
+												title="Clear code selection"
+											>
+												<X class="w-2.5 h-2.5" />
+											</button>
+										</div>
+									{/if}
+								{/if}
+							</div>
 						{/if}
 					</div>
-				{/if}
-			</div>
+				{/snippet}
+			</AIChatInput>
 		</div>
+		{#if starterLayout && starter}
+			{#if showFreeTierUsage}
+				<div
+					class="mt-2 flex flex-row items-center justify-end gap-1 text-2xs text-hint tabular-nums"
+				>
+					{freeTierUsedPct}% of free AI used ·
+					<Button
+						variant="subtle"
+						unifiedSize="2xs"
+						btnClasses="!text-2xs !text-hint !px-0 underline"
+						href="/workspace_settings?tab=ai"
+					>
+						Configure API key
+					</Button>
+				</div>
+			{/if}
+			{#if starter.chips && !disabled}
+				<div class="mt-3">
+					<StarterPromptChips
+						prompts={starter.prompts}
+						onPick={(prompt) => aiChatInput?.setText(prompt)}
+					/>
+				</div>
+			{/if}
+		{/if}
 		{#if (chatHost.mode === AIMode.NAVIGATOR || chatHost.mode === AIMode.ASK) && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
 			<div class="px-2 mt-4">
 				<div class="flex flex-col gap-2">
@@ -1303,4 +1361,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			</div>
 		{/if}
 	</div>
+	{#if centreComposer}
+		<div class="flex-1 min-h-0"></div>
+	{/if}
 </div>

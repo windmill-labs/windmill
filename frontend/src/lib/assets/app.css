@@ -426,3 +426,28 @@ input[type='time']::-webkit-calendar-picker-indicator {
 .svelte-flow__edges {
 	z-index: -10;
 }
+
+/* The composer's glide, defined once: the Home ↔ AI Sessions view transition below and the
+   in-page move on a session's first message (composerGlide.svelte.ts) both read it. */
+:root {
+	--composer-glide-duration: 200ms;
+	--composer-glide-easing: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* Home ↔ AI Sessions (homeSessionsTransition.svelte.ts). The session heading and composer
+   glide from where they were to where they land; everything else, Home's list included, is
+   the page cross-fading, kept short. The pseudo-elements hang off :root itself, so no space
+   before `::view-transition-*`: with one, the selector looks for a descendant and never
+   matches. */
+:root[data-home-sessions-transition]::view-transition-group(session-heading),
+:root[data-home-sessions-transition]::view-transition-group(session-composer) {
+	animation-duration: var(--composer-glide-duration);
+	animation-timing-function: var(--composer-glide-easing);
+}
+:root[data-home-sessions-transition]::view-transition-old(root),
+:root[data-home-sessions-transition]::view-transition-new(root) {
+	animation-duration: 150ms;
+}
+:root[data-home-sessions-transition='fade'] * {
+	view-transition-name: none !important;
+}

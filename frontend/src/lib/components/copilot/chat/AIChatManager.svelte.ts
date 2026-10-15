@@ -332,7 +332,7 @@ function isWorkspacePath(path: string | undefined): path is string {
 // Returns the safe ACCEPT_EDIT default when no user is known yet — the
 // module-level singleton (constructed at import, before the email resolves)
 // re-reads via onUserChange once it does.
-export function getPersistedAutonomyMode(): AIAutonomyMode {
+function getPersistedAutonomyMode(): AIAutonomyMode {
 	const key = scopedKey(AI_AUTONOMY_MODE_STORAGE_KEY)
 	if (!BROWSER || !key) {
 		return AIAutonomyMode.ACCEPT_EDIT
@@ -2258,6 +2258,10 @@ export class AIChatManager implements ChatViewHost {
 
 	setAiChatInput(aiChatInput: AIChatInput | null) {
 		this.aiChatInput = aiChatInput
+	}
+
+	releaseAiChatInput(aiChatInput: AIChatInput) {
+		if (this.aiChatInput === aiChatInput) this.aiChatInput = null
 	}
 
 	/** Queue the message typed while a turn is streaming. There is only ever

@@ -39,7 +39,7 @@
 		<Button
 			nonCaptureEvent
 			unifiedSize="2xs"
-			variant="default"
+			variant="subtle"
 			title={option.tooltip(availability)}
 			btnClasses={option.triggerClass ?? ''}
 			startIcon={{ icon: option.icon, classes: option.iconColor }}
