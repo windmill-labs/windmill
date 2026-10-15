@@ -21,6 +21,9 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import McpScopeSelector from './McpScopeSelector.svelte'
+	import Popover from '$lib/components/Popover.svelte'
+	import { Badge, Button } from '$lib/components/common'
+	import { SvelteMap } from 'svelte/reactivity'
 
 	interface Props {
 		/** The workspace the selection picker browses. */
@@ -49,11 +52,33 @@
 				? selection.split(' ').filter((s) => s.length > 0)
 				: ACCESS_SCOPES[access]
 	})
+
+	// The tools each access level gives, as the server lists them.
+	type ToolsetEntry = { name: string; description: string }
+	let showTools = $state(false)
+	const toolsets = new SvelteMap<string, ToolsetEntry[]>()
+	const toolsetAccess = $derived(access === 'selected' ? undefined : access)
+	$effect(() => {
+		const level = toolsetAccess
+		if (!showTools || !level || toolsets.has(level)) return
+		fetch(`/api/mcp/toolset?access=${level}`)
+			.then((r) => (r.ok ? r.json() : []))
+			.then((tools: ToolsetEntry[]) => toolsets.set(level, tools))
+			.catch(() => toolsets.set(level, []))
+	})
+	const tools = $derived(toolsetAccess ? toolsets.get(toolsetAccess) : undefined)
 </script>
 
 <div class="flex flex-col gap-4">
 	<div>
-		<span class="block mb-1 text-emphasis text-xs font-semibold">Access</span>
+		<div class="flex items-center justify-between mb-1">
+			<span class="text-emphasis text-xs font-semibold">Access</span>
+			{#if toolsetAccess}
+				<Button variant="subtle" unifiedSize="xs" onclick={() => (showTools = !showTools)}>
+					{showTools ? 'Hide tools' : 'See tools'}
+				</Button>
+			{/if}
+		</div>
 		<ToggleButtonGroup bind:selected={access} allowEmpty={false}>
 			{#snippet children({ item })}
 				<ToggleButton
@@ -83,6 +108,23 @@
 			{/snippet}
 		</ToggleButtonGroup>
 	</div>
+	{#if showTools && toolsetAccess}
+		<div class="flex flex-col gap-1 -mt-2">
+			<span class="text-2xs text-secondary">
+				{tools ? `${tools.length} tools. Hover one for what it does.` : 'Loading tools…'}
+			</span>
+			<div class="flex flex-wrap gap-1">
+				{#each tools ?? [] as tool (tool.name)}
+					<Popover notClickable>
+						{#snippet text()}
+							<div class="text-xs max-w-md">{tool.description}</div>
+						{/snippet}
+						<Badge rounded small color="gray">{tool.name}</Badge>
+					</Popover>
+				{/each}
+			</div>
+		</div>
+	{/if}
 	{#if access === 'selected'}
 		<p class="text-2xs text-secondary -mt-2">
 			The client can run these scripts and flows and nothing else: it cannot explore the workspace,

@@ -633,15 +633,15 @@ pub async fn run_server(
     }
     tokio::task::yield_now().await;
 
-    let mcp_list_tools_service = {
+    let (mcp_list_tools_service, mcp_toolset_service) = {
         #[cfg(feature = "mcp")]
         {
-            mcp::list_tools_service()
+            (mcp::list_tools_service(), mcp::toolset_service())
         }
 
         #[cfg(not(feature = "mcp"))]
         {
-            Router::new()
+            (Router::new(), Router::new())
         }
     };
 
@@ -858,6 +858,7 @@ pub async fn run_server(
                 .nest("/docs", docs::global_service())
                 .nest("/indexer", indexer_oss::management_service())
                 .nest("/mcp/w/{workspace_id}/list_tools", mcp_list_tools_service)
+                .nest("/mcp/toolset", mcp_toolset_service)
                 .nest("/db_health", db_health::global_service())
                 .nest("/health/detailed", health::detailed_service())
                 .nest(

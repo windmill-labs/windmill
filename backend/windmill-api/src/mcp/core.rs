@@ -747,6 +747,42 @@ pub fn list_tools_service() -> Router {
     Router::new().route("/", get(list_mcp_tools_handler))
 }
 
+#[derive(serde::Deserialize)]
+struct ToolsetQuery {
+    access: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+struct ToolsetEntry {
+    name: String,
+    description: String,
+}
+
+/// The tools `/api/mcp` offers an `mcp:all` token at each access level, for the token
+/// form to show: the server's own filter, so the list cannot drift from it.
+async fn list_toolset_handler(
+    axum::extract::Query(query): axum::extract::Query<ToolsetQuery>,
+) -> JsonResult<Vec<ToolsetEntry>> {
+    let access = match query.access.as_deref() {
+        Some("read") => SessionAccess::ReadOnly,
+        Some("read_run") => SessionAccess::ReadAndRun,
+        _ => SessionAccess::Full,
+    };
+    Ok(Json(
+        session::session_tools(access)
+            .into_iter()
+            .map(|tool| ToolsetEntry {
+                name: tool.name.to_string(),
+                description: tool.description.map(|d| d.to_string()).unwrap_or_default(),
+            })
+            .collect(),
+    ))
+}
+
+pub fn toolset_service() -> Router {
+    Router::new().route("/", get(list_toolset_handler))
+}
+
 #[cfg(test)]
 mod tests {
     use super::scoped_to_selection;

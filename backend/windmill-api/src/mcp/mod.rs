@@ -13,5 +13,5 @@ pub mod oauth_server;
 pub use core::{
     add_www_authenticate_header, add_www_authenticate_header_gateway,
     extract_and_store_workspace_id, extract_workspace_from_token, list_tools_service,
-    reject_token_query_param, setup_mcp_server, McpEndpoint,
+    reject_token_query_param, setup_mcp_server, toolset_service, McpEndpoint,
 };
