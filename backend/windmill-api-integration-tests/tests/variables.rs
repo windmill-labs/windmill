@@ -454,3 +454,33 @@ async fn test_oauth_account_link_requires_ownership(db: Pool<Postgres>) -> anyho
 
     Ok(())
 }
+
+/// The creator recorded on an OAuth account follows the user through a rename and is cleared
+/// when they leave, so a later member reusing the username cannot link the account.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+async fn test_oauth_account_creator_follows_user(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let account: i32 = sqlx::query_scalar(
+        "INSERT INTO account (workspace_id, client, expires_at, refresh_token, created_by)
+         VALUES ('test-workspace', 'github', now(), 'r', 'alice') RETURNING id",
+    )
+    .fetch_one(&db)
+    .await?;
+    let creator = || async {
+        sqlx::query_scalar::<_, Option<String>>("SELECT created_by FROM account WHERE id = $1")
+            .bind(account)
+            .fetch_one(&db)
+            .await
+    };
+
+    sqlx::query("UPDATE usr SET username = 'alice2' WHERE username = 'alice'")
+        .execute(&db)
+        .await?;
+    assert_eq!(creator().await?.as_deref(), Some("alice2"));
+
+    sqlx::query("DELETE FROM usr WHERE username = 'alice2'")
+        .execute(&db)
+        .await?;
+    assert_eq!(creator().await?, None);
+
+    Ok(())
+}
