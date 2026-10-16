@@ -42,4 +42,39 @@ async fn declarative_workspace_roles_validates_and_rebuilds_seats(db: Pool<Postg
     .await
     .unwrap();
     assert!(author, "a role that composes flows costs a full seat");
+
+    // A workspace grants `builder` full flows on top of an instance definition that codes; the
+    // instance then withdrawing `code` would leave that workspace with inline code and no code.
+    sync_global_settings_declarative(
+        &db,
+        &BTreeMap::new(),
+        &desired(serde_json::json!([
+            {"name": "developer"},
+            {"name": "builder", "capabilities": {"code": true, "flows": "compose"}},
+            {"name": "operator"}
+        ])),
+        &(),
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE workspace_settings SET role_overrides =
+            '{\"builder\": {\"capabilities\": {\"flows\": \"full\"}}}'
+         WHERE workspace_id = 'test-workspace'",
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+    sync_global_settings_declarative(
+        &db,
+        &BTreeMap::new(),
+        &desired(serde_json::json!([
+            {"name": "developer"},
+            {"name": "builder", "capabilities": {"code": false, "flows": "compose"}},
+            {"name": "operator"}
+        ])),
+        &(),
+    )
+    .await
+    .expect_err("an instance change that invalidates a workspace override must be refused");
 }

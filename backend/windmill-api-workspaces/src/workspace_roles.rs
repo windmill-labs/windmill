@@ -128,7 +128,7 @@ pub(crate) async fn write_role_overrides(
         .await?;
     }
     roles::invalidate_workspace_roles_cache(w_id);
-    roles::sync_role_seats(&mut tx, db, Some(w_id)).await?;
+    roles::sync_role_seats(&mut tx, Some(w_id)).await?;
 
     #[cfg(feature = "enterprise")]
     if let Some(msg) = windmill_common::ee_oss::check_seat_cap_for_role_change(db, &mut tx).await? {
