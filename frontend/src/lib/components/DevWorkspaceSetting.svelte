@@ -31,6 +31,7 @@
 	import { GitFork, ExternalLink, Check, Minus, Pen, Server } from 'lucide-svelte'
 	import {
 		devWorkspaceTagSuffix,
+		isIsolatedWorkspaceId,
 		loadDevWorkspaceTagSuffix,
 		withDevSuffix
 	} from '$lib/devWorkspaceTags'
@@ -555,7 +556,7 @@
 {/snippet}
 
 {#snippet devWorkersNotice()}
-	{#if $devWorkspaceTagSuffix}
+	{#if $devWorkspaceTagSuffix && isIsolatedWorkspaceId($workspaceStore, $userWorkspaces)}
 		<p class="text-2xs text-secondary max-w-2xl flex items-center gap-1.5">
 			<Server size={12} />
 			<span>

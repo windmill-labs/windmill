@@ -11,7 +11,7 @@
 	import { userWorkspaces } from '$lib/stores'
 	import {
 		devWorkspaceTagSuffix,
-		isDevOrForkWorkspaceId,
+		isIsolatedWorkspaceId,
 		loadDevWorkspaceTagSuffix
 	} from '$lib/devWorkspaceTags'
 
@@ -76,7 +76,7 @@
 	<div>
 		<Badge color="indigo" {large}>
 			Tag: {job.tag}
-			{#if $devWorkspaceTagSuffix && job.tag.endsWith($devWorkspaceTagSuffix) && isDevOrForkWorkspaceId(job.workspace_id, $userWorkspaces)}
+			{#if $devWorkspaceTagSuffix && job.tag.endsWith($devWorkspaceTagSuffix) && isIsolatedWorkspaceId(job.workspace_id, $userWorkspaces)}
 				<Tooltip>
 					{#snippet text()}
 						Suffixed with <code>{$devWorkspaceTagSuffix}</code> because this workspace is a dev workspace

@@ -2,9 +2,9 @@ use sqlx::{Pool, Postgres};
 use windmill_common::error::Error;
 use windmill_common::worker::{
     dedicated_worker_tag, dev_workspace_tag_suffix, is_hashed_dedicated_worker_tag,
-    with_dev_workspace_suffix, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES,
-    DEV_WORKSPACE_TAG_SUFFIX, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX, MAX_TAG_LEN,
-    WORKER_SERVES_DEV_WORKSPACES,
+    is_isolated_workspace, with_dev_workspace_suffix, DEFAULT_TAGS_PER_WORKSPACE,
+    DEFAULT_TAGS_WORKSPACES, DEV_WORKSPACE_TAG_SUFFIX, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX,
+    MAX_TAG_LEN, WORKER_SERVES_DEV_WORKSPACES,
 };
 use windmill_common::workspaces::WM_FORK_PREFIX;
 
@@ -21,6 +21,17 @@ struct TagWorkspace {
     /// or carries the generated prefix (a fork orphaned by its parent's deletion stays a fork).
     /// `None` when the lookup failed.
     is_dev: Option<bool>,
+    /// Whether a dev workspace is on the ancestor chain, the workspace itself included. A fork
+    /// orphaned by its parent's deletion counts as one: its lineage can no longer be read.
+    in_dev_lineage: bool,
+}
+
+impl TagWorkspace {
+    /// Whether its jobs go to the workers serving dev workspaces, `None` when the lookup failed.
+    fn is_isolated(&self) -> Option<bool> {
+        self.is_dev
+            .map(|is_dev| is_isolated_workspace(is_dev, self.in_dev_lineage))
+    }
 }
 
 lazy_static::lazy_static! {
@@ -256,7 +267,8 @@ pub async fn dev_flow_tag_suffix(
 }
 
 /// The suffix the jobs of `workspace_id` are queued with: `Some` while isolation is on and the
-/// workspace is a dev workspace or a fork. A lineage that cannot be read is an error rather than
+/// workspace is a dev workspace or a fork, unless it is a fork of a non-dev workspace and the
+/// instance does not isolate those. A lineage that cannot be read is an error rather than
 /// a guess, as either guess queues a job on the wrong pool for good.
 pub async fn dev_workspace_suffix_for(
     workspace_id: &str,
@@ -265,7 +277,7 @@ pub async fn dev_workspace_suffix_for(
     let Some(suffix) = dev_workspace_tag_suffix() else {
         return Ok(None);
     };
-    match lookup_tag_workspace(workspace_id, db).await.is_dev {
+    match lookup_tag_workspace(workspace_id, db).await.is_isolated() {
         Some(true) => Ok(Some(suffix)),
         Some(false) => Ok(None),
         None => Err(Error::internal_err(format!(
@@ -322,7 +334,10 @@ async fn lookup_tag_workspace(workspace_id: &str, db: &Pool<Postgres>) -> TagWor
                  WHERE parent_workspace_id IS NULL
                     OR (is_dev_workspace AND id NOT LIKE 'wm-fork-%')
                  ORDER BY depth LIMIT 1) AS id,
-                (SELECT parent_workspace_id IS NOT NULL FROM chain WHERE depth = 0) AS has_parent
+                (SELECT parent_workspace_id IS NOT NULL FROM chain WHERE depth = 0) AS has_parent,
+                (SELECT bool_or(is_dev_workspace
+                                OR (parent_workspace_id IS NULL AND id LIKE 'wm-fork-%'))
+                 FROM chain) AS in_dev_lineage
         "#,
         workspace_id
     )
@@ -335,6 +350,7 @@ async fn lookup_tag_workspace(workspace_id: &str, db: &Pool<Postgres>) -> TagWor
                 is_dev: Some(
                     row.has_parent == Some(true) || workspace_id.starts_with(WM_FORK_PREFIX),
                 ),
+                in_dev_lineage: row.in_dev_lineage != Some(false),
                 id,
             },
             // No id means the workspace does not exist yet, or its chain is broken: both are "we
@@ -349,6 +365,7 @@ async fn lookup_tag_workspace(workspace_id: &str, db: &Pool<Postgres>) -> TagWor
                     is_dev: Some(
                         row.has_parent == Some(true) || workspace_id.starts_with(WM_FORK_PREFIX),
                     ),
+                    in_dev_lineage: true,
                 }
             }
         },
@@ -358,6 +375,7 @@ async fn lookup_tag_workspace(workspace_id: &str, db: &Pool<Postgres>) -> TagWor
                 id: workspace_id.to_string(),
                 is_fork: workspace_id.starts_with(WM_FORK_PREFIX),
                 is_dev: None,
+                in_dev_lineage: true,
             };
         }
     };

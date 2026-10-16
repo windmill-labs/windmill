@@ -453,6 +453,8 @@ lazy_static::lazy_static! {
     pub static ref DEPENDENCY_JOB_TAG: arc_swap::ArcSwap<Option<String>> = arc_swap::ArcSwap::from_pointee(None);
     /// Whether the jobs of dev workspaces and forks are queued on suffixed tags.
     pub static ref DEV_WORKSPACE_ISOLATION: AtomicBool = AtomicBool::new(false);
+    /// Whether a fork whose lineage holds no dev workspace runs on its parent's workers.
+    pub static ref DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS: AtomicBool = AtomicBool::new(false);
     /// The suffix of those tags. Groups serving dev workspaces listen with it whether isolation is
     /// on or not, so turning it off leaves no job already queued on a suffixed tag unserved.
     pub static ref DEV_WORKSPACE_TAG_SUFFIX: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee(DEFAULT_DEV_WORKSPACE_TAG_SUFFIX.to_string());
@@ -2436,6 +2438,17 @@ pub fn dev_workspace_tag_suffix() -> Option<String> {
     DEV_WORKSPACE_ISOLATION
         .load(std::sync::atomic::Ordering::Relaxed)
         .then(|| DEV_WORKSPACE_TAG_SUFFIX.load().to_string())
+}
+
+/// Whether a workspace's jobs are isolated, given that it has a parent or a generated fork id
+/// (`is_dev_or_fork`) and whether a dev workspace is on its ancestor chain, itself included
+/// (`in_dev_lineage`). Leaves out only the forks of a non-dev workspace, and only when the
+/// instance opts out of isolating them.
+pub fn is_isolated_workspace(is_dev_or_fork: bool, in_dev_lineage: bool) -> bool {
+    is_dev_or_fork
+        && (in_dev_lineage
+            || !DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS
+                .load(std::sync::atomic::Ordering::Relaxed))
 }
 
 /// Worker tags are pasted into the pull queries as SQL literals and listed comma-separated, so

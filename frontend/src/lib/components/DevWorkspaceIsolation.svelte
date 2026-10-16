@@ -13,7 +13,11 @@
 		type GetQueueStatusResponse,
 		type Workspace
 	} from '$lib/gen'
-	import { DEV_WORKSPACE_ISOLATION_SETTING, DEV_WORKSPACE_TAG_SUFFIX_SETTING } from '$lib/consts'
+	import {
+		DEV_WORKSPACE_ISOLATION_SETTING,
+		DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS_SETTING,
+		DEV_WORKSPACE_TAG_SUFFIX_SETTING
+	} from '$lib/consts'
 	import {
 		DEFAULT_DEV_WORKSPACE_TAG_SUFFIX,
 		DEV_WORKSPACE_TAG_SUFFIX_PATTERN,
@@ -21,6 +25,7 @@
 		devWorkspaceListenSuffix,
 		devWorkspaceTagSuffix,
 		isDevOrForkWorkspace,
+		isIsolatedWorkspace,
 		loadDevWorkspaceTagSuffix,
 		withDevSuffix
 	} from '$lib/devWorkspaceTags'
@@ -53,10 +58,45 @@
 			: "Use 1 to 32 letters, digits, '-', '_' or '.'"
 	)
 
+	let skipNonDevForks = $derived($devWorkspaceIsolation?.skip_non_dev_forks ?? false)
+	// Overridden while saving, reset to the saved state otherwise.
+	let skipChecked = $derived(skipNonDevForks)
 	let workspaces = $state<Workspace[] | undefined>(undefined)
 	let devWorkspaces = $derived(
-		(workspaces ?? []).filter((w) => !w.deleted && isDevOrForkWorkspace(w))
+		(workspaces ?? []).filter(
+			(w) => !w.deleted && isIsolatedWorkspace(w, workspaces ?? [], skipNonDevForks)
+		)
 	)
+	// Workspaces a fork of runs on their own workers once non-dev forks are not isolated.
+	let rootWorkspaces = $derived(
+		(workspaces ?? []).filter((w) => !w.deleted && !isDevOrForkWorkspace(w))
+	)
+	let nonDevForkCount = $derived(
+		(workspaces ?? []).filter(
+			(w) =>
+				!w.deleted && isDevOrForkWorkspace(w) && !isIsolatedWorkspace(w, workspaces ?? [], true)
+		).length
+	)
+	// Roots anyone may fork: no rule withholds forking. `undefined` until checked.
+	let forkableRoots = $state<string[] | undefined>(undefined)
+	async function loadForkableRoots(roots: string[]) {
+		const unprotected = await Promise.all(
+			roots.map(async (id) => {
+				try {
+					const rules = await WorkspaceService.listProtectionRules({ workspace: id })
+					return rules.some((r) => r.rules.includes('DisableWorkspaceForking')) ? undefined : id
+				} catch {
+					return undefined
+				}
+			})
+		)
+		forkableRoots = unprotected.filter((id): id is string => id !== undefined)
+	}
+	$effect(() => {
+		if (skipNonDevForks && workspaces !== undefined) {
+			loadForkableRoots(rootWorkspaces.map((w) => w.id))
+		}
+	})
 	let workspaceNames = $derived(Object.fromEntries((workspaces ?? []).map((w) => [w.id, w.name])))
 
 	async function loadWorkspaces() {
@@ -137,7 +177,11 @@
 				key: DEV_WORKSPACE_ISOLATION_SETTING,
 				requestBody: { value: on }
 			})
-			devWorkspaceIsolation.update((i) => ({ suffix: i?.suffix ?? effectiveSuffix, enabled: on }))
+			devWorkspaceIsolation.update((i) => ({
+				suffix: i?.suffix ?? effectiveSuffix,
+				skip_non_dev_forks: i?.skip_non_dev_forks ?? false,
+				enabled: on
+			}))
 			sendUserToast(
 				on
 					? `Dev workspace and fork jobs now run on tags suffixed with ${effectiveSuffix}`
@@ -158,10 +202,39 @@
 				key: DEV_WORKSPACE_TAG_SUFFIX_SETTING,
 				requestBody: { value }
 			})
-			devWorkspaceIsolation.update((i) => ({ enabled: i?.enabled ?? false, suffix: value }))
+			devWorkspaceIsolation.update((i) => ({
+				enabled: i?.enabled ?? false,
+				skip_non_dev_forks: i?.skip_non_dev_forks ?? false,
+				suffix: value
+			}))
 			sendUserToast(`Dev workspace tag suffix set to ${value}`)
 		} catch (e) {
 			sendUserToast(`Could not save the dev workspace tag suffix: ${e}`, true)
+		} finally {
+			saving = false
+		}
+	}
+
+	async function setSkipNonDevForks(skip: boolean) {
+		saving = true
+		try {
+			await SettingService.setGlobal({
+				key: DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS_SETTING,
+				requestBody: { value: skip }
+			})
+			devWorkspaceIsolation.update((i) => ({
+				enabled: i?.enabled ?? false,
+				suffix: i?.suffix ?? effectiveSuffix,
+				skip_non_dev_forks: skip
+			}))
+			sendUserToast(
+				skip
+					? 'Forks of non-dev workspaces now run on the workers of the workspace they fork'
+					: 'Forks of non-dev workspaces now run on dev workers'
+			)
+		} catch (e) {
+			sendUserToast(`Could not save dev workspace isolation: ${e}`, true)
+			skipChecked = skipNonDevForks
 		} finally {
 			saving = false
 		}
@@ -312,11 +385,46 @@
 		</div>
 		<p class="text-2xs text-secondary max-w-2xl">
 			A workspace with a parent, and every fork (including a fork whose parent was deleted), counts
-			as a dev workspace. Every job is covered: runs, previews, schedules, triggers, flow steps, AI
-			agent tools and dependency jobs, and inline runs are refused on workers not serving dev
-			workspaces. A job whose tag no serving worker listens to stays queued: it never falls back to
-			the other worker groups. Dedicated workers keep their own tags.
+			as a dev workspace, unless forks of non-dev workspaces are left out below. Every job is
+			covered: runs, previews, schedules, triggers, flow steps, AI agent tools and dependency jobs,
+			and inline runs are refused on workers not serving dev workspaces. A job whose tag no serving
+			worker listens to stays queued: it never falls back to the other worker groups. Dedicated
+			workers keep their own tags.
 		</p>
+
+		<div class="flex flex-col gap-1 max-w-2xl">
+			<Toggle
+				bind:checked={skipChecked}
+				on:change={(e) => setSkipNonDevForks(e.detail)}
+				disabled={!canEdit || !$enterpriseLicense || saving || suffix === undefined}
+				options={{ right: "Don't isolate forks of non-dev workspaces" }}
+				size="xs"
+			/>
+			<span class="text-2xs text-secondary">
+				A fork with no dev workspace above it, like a fork of a production workspace or a fork of
+				that fork, runs on the same workers as that production workspace. Dev workspaces and their
+				forks stay isolated. Restrict who can create such forks with the <b
+					>Disable workspace forking</b
+				>
+				protection rule of each workspace.
+				{#if skipNonDevForks && workspaces !== undefined}
+					{pluralize(nonDevForkCount, 'fork')} currently {nonDevForkCount === 1 ? 'runs' : 'run'}
+					outside isolation.
+				{/if}
+			</span>
+			{#if skipNonDevForks && forkableRoots && forkableRoots.length > 0}
+				<Alert type="warning" size="xs" title="Workspaces anyone can fork onto their workers">
+					Anyone who can fork
+					{#each forkableRoots.slice(0, 5) as id, i (id)}
+						{i > 0 ? ', ' : ''}<b>{workspaceNames[id] ?? id}</b>
+					{/each}{forkableRoots.length > 5 ? ` and ${forkableRoots.length - 5} more` : ''}
+					can run jobs on {forkableRoots.length === 1 ? 'its' : 'their'} workers. Add a
+					<b>Disable workspace forking</b> protection rule to {forkableRoots.length === 1
+						? 'it'
+						: 'them'}, bypassed by the people allowed to fork, or isolate these forks again.
+				</Alert>
+			{/if}
+		</div>
 
 		<!-- Worker groups serving dev workspaces -->
 		<div class="flex flex-col gap-2">

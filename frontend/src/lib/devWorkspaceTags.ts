@@ -8,10 +8,15 @@ const WM_FORK_PREFIX = 'wm-fork-'
 /** Mirrors `is_valid_dev_workspace_tag_suffix`: the suffix ends up in SQL literals and tag lists. */
 export const DEV_WORKSPACE_TAG_SUFFIX_PATTERN = /^[A-Za-z0-9_.-]{1,32}$/
 
+export type DevWorkspaceIsolationState = {
+	enabled: boolean
+	suffix: string
+	/** Forks of a workspace with no dev workspace in its lineage run on their parent's workers. */
+	skip_non_dev_forks: boolean
+}
+
 /** `undefined` until loaded. */
-export const devWorkspaceIsolation = writable<{ enabled: boolean; suffix: string } | undefined>(
-	undefined
-)
+export const devWorkspaceIsolation = writable<DevWorkspaceIsolationState | undefined>(undefined)
 /** The suffix new dev workspace and fork jobs get: `null` while isolation is off. */
 export const devWorkspaceTagSuffix = derived(devWorkspaceIsolation, (i) =>
 	i === undefined ? undefined : i.enabled ? i.suffix : null
@@ -32,7 +37,11 @@ export function loadDevWorkspaceTagSuffix(force = false): Promise<void> {
 		.then(() => WorkerService.getDevWorkspaceIsolation())
 		.then((i) => devWorkspaceIsolation.set(i))
 		.catch(() =>
-			devWorkspaceIsolation.set({ enabled: false, suffix: DEFAULT_DEV_WORKSPACE_TAG_SUFFIX })
+			devWorkspaceIsolation.set({
+				enabled: false,
+				suffix: DEFAULT_DEV_WORKSPACE_TAG_SUFFIX,
+				skip_non_dev_forks: false
+			})
 		)
 		.finally(() => (inflight = undefined))
 	return inflight
@@ -60,20 +69,58 @@ export function devTagNoWorkerHint(tag: string): string {
 	)
 }
 
-/** Whether a workspace's jobs run on dev workers: it has a parent, or is (or was) a fork. */
-export function isDevOrForkWorkspace(w: {
+type LineageWorkspace = {
 	id: string
 	parent_workspace_id?: string | null
-}): boolean {
+	is_dev_workspace?: boolean
+}
+
+/** Whether a workspace has a parent, or is (or was) a fork. */
+export function isDevOrForkWorkspace(w: LineageWorkspace): boolean {
 	return !!w.parent_workspace_id || w.id.startsWith(WM_FORK_PREFIX)
+}
+
+/** Mirrors `in_dev_lineage` in `windmill-queue/src/tags.rs`: a dev workspace on the ancestor chain,
+ * `w` included. An ancestor missing from `workspaces` or an orphaned fork counts as one, so an
+ * unknown lineage reads as isolated, as it is server-side. */
+function isInDevLineage(w: LineageWorkspace, workspaces: LineageWorkspace[]): boolean {
+	let current: LineageWorkspace | undefined = w
+	for (let depth = 0; current && depth <= 20; depth++) {
+		if (current.is_dev_workspace) return true
+		const parentId = current.parent_workspace_id
+		if (!parentId) return current.id.startsWith(WM_FORK_PREFIX)
+		current = workspaces.find((x) => x.id === parentId)
+	}
+	return true
+}
+
+/** Whether a workspace's jobs run on dev workers while isolation is on. Mirrors
+ * `is_isolated_workspace` in `windmill-common/src/worker.rs`. */
+export function isIsolatedWorkspace(
+	w: LineageWorkspace,
+	workspaces: LineageWorkspace[],
+	skipNonDevForks: boolean = get(devWorkspaceIsolation)?.skip_non_dev_forks ?? false
+): boolean {
+	return isDevOrForkWorkspace(w) && (!skipNonDevForks || isInDevLineage(w, workspaces))
 }
 
 /** The same check for a workspace id, looked up in `workspaces` (pass the store's value so a
  * reactive caller recomputes once the list loads). */
-export function isDevOrForkWorkspaceId(
+export function isIsolatedWorkspaceId(
 	workspaceId: string | undefined,
-	workspaces: { id: string; parent_workspace_id?: string | null }[]
+	workspaces: LineageWorkspace[]
 ): boolean {
 	if (!workspaceId) return false
-	return isDevOrForkWorkspace(workspaces.find((w) => w.id === workspaceId) ?? { id: workspaceId })
+	return isIsolatedWorkspace(
+		workspaces.find((w) => w.id === workspaceId) ?? { id: workspaceId },
+		workspaces
+	)
+}
+
+/** Whether a new throwaway fork of `baseId` would run on dev workers while isolation is on. */
+export function isForkOfIsolated(baseId: string, workspaces: LineageWorkspace[]): boolean {
+	return isIsolatedWorkspace(
+		{ id: `${WM_FORK_PREFIX}new`, parent_workspace_id: baseId, is_dev_workspace: false },
+		workspaces
+	)
 }

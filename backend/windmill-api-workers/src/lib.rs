@@ -23,7 +23,8 @@ use windmill_common::{
     utils::{paginate, Pagination},
     worker::{
         ALL_TAGS, CUSTOM_TAGS_PER_WORKSPACE, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE,
-        DEV_WORKSPACE_ISOLATION, DEV_WORKSPACE_TAG_SUFFIX,
+        DEV_WORKSPACE_ISOLATION, DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS,
+        DEV_WORKSPACE_TAG_SUFFIX,
     },
     workspaces::workspace_with_fork_ancestors,
     DB,
@@ -278,12 +279,15 @@ async fn get_default_tags_per_workspace() -> JsonResult<bool> {
 struct DevWorkspaceIsolation {
     enabled: bool,
     suffix: String,
+    skip_non_dev_forks: bool,
 }
 
 async fn get_dev_workspace_isolation() -> JsonResult<DevWorkspaceIsolation> {
     Ok(Json(DevWorkspaceIsolation {
         enabled: DEV_WORKSPACE_ISOLATION.load(std::sync::atomic::Ordering::Relaxed),
         suffix: DEV_WORKSPACE_TAG_SUFFIX.load().to_string(),
+        skip_non_dev_forks: DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS
+            .load(std::sync::atomic::Ordering::Relaxed),
     }))
 }
 
