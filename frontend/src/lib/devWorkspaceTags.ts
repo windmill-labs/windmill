@@ -21,6 +21,11 @@ export const devWorkspaceIsolation = writable<DevWorkspaceIsolationState | undef
 export const devWorkspaceTagSuffix = derived(devWorkspaceIsolation, (i) =>
 	i === undefined ? undefined : i.enabled ? i.suffix : null
 )
+/** Whether forks with no dev workspace in their lineage run on their parent's workers. */
+export const devWorkspaceSkipNonDevForks = derived(
+	devWorkspaceIsolation,
+	(i) => i?.skip_non_dev_forks ?? false
+)
 /** The suffix worker groups serving dev workspaces listen with, isolation on or off. */
 export const devWorkspaceListenSuffix = derived(
 	devWorkspaceIsolation,
@@ -81,8 +86,9 @@ export function isDevOrForkWorkspace(w: LineageWorkspace): boolean {
 }
 
 /** Mirrors `in_dev_lineage` in `windmill-queue/src/tags.rs`: a dev workspace on the ancestor chain,
- * `w` included. An ancestor missing from `workspaces` or an orphaned fork counts as one, so an
- * unknown lineage reads as isolated, as it is server-side. */
+ * `w` included, an orphaned fork counting as one. The server reads the whole chain; here an
+ * ancestor missing from `workspaces` (one the user is not a member of) also counts as one, so a
+ * hint errs toward the dev workers rather than claiming a job reaches the parent's. */
 function isInDevLineage(w: LineageWorkspace, workspaces: LineageWorkspace[]): boolean {
 	let current: LineageWorkspace | undefined = w
 	for (let depth = 0; current && depth <= 20; depth++) {
@@ -99,7 +105,7 @@ function isInDevLineage(w: LineageWorkspace, workspaces: LineageWorkspace[]): bo
 export function isIsolatedWorkspace(
 	w: LineageWorkspace,
 	workspaces: LineageWorkspace[],
-	skipNonDevForks: boolean = get(devWorkspaceIsolation)?.skip_non_dev_forks ?? false
+	skipNonDevForks: boolean
 ): boolean {
 	return isDevOrForkWorkspace(w) && (!skipNonDevForks || isInDevLineage(w, workspaces))
 }
@@ -108,19 +114,26 @@ export function isIsolatedWorkspace(
  * reactive caller recomputes once the list loads). */
 export function isIsolatedWorkspaceId(
 	workspaceId: string | undefined,
-	workspaces: LineageWorkspace[]
+	workspaces: LineageWorkspace[],
+	skipNonDevForks: boolean
 ): boolean {
 	if (!workspaceId) return false
 	return isIsolatedWorkspace(
 		workspaces.find((w) => w.id === workspaceId) ?? { id: workspaceId },
-		workspaces
+		workspaces,
+		skipNonDevForks
 	)
 }
 
 /** Whether a new throwaway fork of `baseId` would run on dev workers while isolation is on. */
-export function isForkOfIsolated(baseId: string, workspaces: LineageWorkspace[]): boolean {
+export function isForkOfIsolated(
+	baseId: string,
+	workspaces: LineageWorkspace[],
+	skipNonDevForks: boolean
+): boolean {
 	return isIsolatedWorkspace(
 		{ id: `${WM_FORK_PREFIX}new`, parent_workspace_id: baseId, is_dev_workspace: false },
-		workspaces
+		workspaces,
+		skipNonDevForks
 	)
 }

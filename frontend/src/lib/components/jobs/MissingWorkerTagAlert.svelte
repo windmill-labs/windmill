@@ -7,6 +7,7 @@
 	import { userWorkspaces } from '$lib/stores'
 	import {
 		devWorkspaceTagSuffix,
+		devWorkspaceSkipNonDevForks,
 		isIsolatedWorkspaceId,
 		loadDevWorkspaceTagSuffix,
 		withDevSuffix
@@ -33,7 +34,8 @@
 	// those instances.
 	// A dev workspace's jobs run on the suffixed tag, which only groups serving dev workspaces pull.
 	let devSuffix = $derived(
-		$devWorkspaceTagSuffix && isIsolatedWorkspaceId(ws, $userWorkspaces)
+		$devWorkspaceTagSuffix &&
+			isIsolatedWorkspaceId(ws, $userWorkspaces, $devWorkspaceSkipNonDevForks)
 			? $devWorkspaceTagSuffix
 			: undefined
 	)

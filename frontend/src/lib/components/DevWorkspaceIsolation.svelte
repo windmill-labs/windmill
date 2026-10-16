@@ -23,6 +23,7 @@
 		DEV_WORKSPACE_TAG_SUFFIX_PATTERN,
 		devWorkspaceIsolation,
 		devWorkspaceListenSuffix,
+		devWorkspaceSkipNonDevForks,
 		devWorkspaceTagSuffix,
 		isDevOrForkWorkspace,
 		isIsolatedWorkspace,
@@ -58,7 +59,7 @@
 			: "Use 1 to 32 letters, digits, '-', '_' or '.'"
 	)
 
-	let skipNonDevForks = $derived($devWorkspaceIsolation?.skip_non_dev_forks ?? false)
+	let skipNonDevForks = $derived($devWorkspaceSkipNonDevForks)
 	// Overridden while saving, reset to the saved state otherwise.
 	let skipChecked = $derived(skipNonDevForks)
 	let workspaces = $state<Workspace[] | undefined>(undefined)
@@ -77,20 +78,28 @@
 				!w.deleted && isDevOrForkWorkspace(w) && !isIsolatedWorkspace(w, workspaces ?? [], true)
 		).length
 	)
-	// Roots anyone may fork: no rule withholds forking. `undefined` until checked.
+	// Roots anyone may fork: no rule withholds forking, or their rules could not be read, which
+	// must not hide the warning. `undefined` until checked.
 	let forkableRoots = $state<string[] | undefined>(undefined)
+	let forkableRootsRun = 0
 	async function loadForkableRoots(roots: string[]) {
-		const unprotected = await Promise.all(
-			roots.map(async (id) => {
-				try {
-					const rules = await WorkspaceService.listProtectionRules({ workspace: id })
-					return rules.some((r) => r.rules.includes('DisableWorkspaceForking')) ? undefined : id
-				} catch {
-					return undefined
-				}
-			})
-		)
-		forkableRoots = unprotected.filter((id): id is string => id !== undefined)
+		const run = ++forkableRootsRun
+		const unprotected: string[] = []
+		for (let i = 0; i < roots.length; i += 8) {
+			const batch = await Promise.all(
+				roots.slice(i, i + 8).map(async (id) => {
+					try {
+						const rules = await WorkspaceService.listProtectionRules({ workspace: id })
+						return !rules.some((r) => r.rules.includes('DisableWorkspaceForking'))
+					} catch {
+						return true
+					}
+				})
+			)
+			if (run !== forkableRootsRun) return
+			unprotected.push(...roots.slice(i, i + 8).filter((_, j) => batch[j]))
+		}
+		forkableRoots = unprotected
 	}
 	$effect(() => {
 		if (skipNonDevForks && workspaces !== undefined) {

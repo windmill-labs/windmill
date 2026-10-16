@@ -13,6 +13,7 @@
 	import { validateUsername } from '$lib/utils'
 	import {
 		devWorkspaceTagSuffix,
+		devWorkspaceSkipNonDevForks,
 		isForkOfIsolated,
 		loadDevWorkspaceTagSuffix
 	} from '$lib/devWorkspaceTags'
@@ -991,7 +992,7 @@
 							>).
 						{/if}
 					</Alert>
-				{:else if baseWorkspaceId && $devWorkspaceTagSuffix && !isForkOfIsolated(baseWorkspaceId, $userWorkspaces)}
+				{:else if baseWorkspaceId && $devWorkspaceTagSuffix && !isForkOfIsolated(baseWorkspaceId, $userWorkspaces, $devWorkspaceSkipNonDevForks)}
 					<Alert type="info" size="xs" title="Runs on {baseWorkspaceId}'s workers">
 						Forks of non-dev workspaces are not isolated on this instance: jobs of this fork run on
 						the same workers as {baseWorkspaceId}.
