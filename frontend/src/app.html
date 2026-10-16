@@ -3,12 +3,26 @@
 	<head>
 		<meta charset="utf-8" />
 		<link rel="icon" href="/logo.svg" />
-		<link rel="manifest" href="/manifest.webmanifest" />
 		<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 		<meta name="theme-color" media="(prefers-color-scheme: light)" content="#fbfbfd" />
 		<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#3b4252" />
 		<meta name="mobile-web-app-capable" content="yes" />
-		<meta name="apple-mobile-web-app-title" content="Windmill" />
+		<script>
+			// A manifest's start_url replaces the URL a home-screen shortcut was added from, so
+			// public app pages (`/public/...`, `/a/...`) get no manifest: their shortcut must
+			// reopen the app, whose secret-bearing URL is what lets anonymous viewers in.
+			;(function () {
+				if (/^\/(public|a)\//.test(location.pathname)) return
+				var manifest = document.createElement('link')
+				manifest.rel = 'manifest'
+				manifest.href = '/manifest.webmanifest'
+				document.head.appendChild(manifest)
+				var title = document.createElement('meta')
+				title.name = 'apple-mobile-web-app-title'
+				title.content = 'Windmill'
+				document.head.appendChild(title)
+			})()
+		</script>
 		<style type="text/css">
 			.st2 {
 				fill: #bcd4fc;
