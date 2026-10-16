@@ -880,27 +880,7 @@ pub async fn set_flow_memory_id(
     job_id: Uuid,
     memory_id: Uuid,
 ) -> error::Result<()> {
-    // The row lock serializes two runs claiming the same memory id; the second sees the first's
-    // job queued once it commits.
-    let claimed: Option<Uuid> = sqlx::query_scalar(
-        "INSERT INTO ai_memory_turn (workspace_id, memory_id, job_id) VALUES ($1, $2, $3)
-         ON CONFLICT (workspace_id, memory_id) DO UPDATE SET job_id = EXCLUDED.job_id
-         WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = ai_memory_turn.job_id)
-         RETURNING job_id",
-    )
-    .bind(w_id)
-    .bind(memory_id)
-    .bind(job_id)
-    .fetch_optional(&mut **tx)
-    .await?;
-    if claimed.is_none() {
-        let running: Option<Uuid> = sqlx::query_scalar(
-            "SELECT job_id FROM ai_memory_turn WHERE workspace_id = $1 AND memory_id = $2",
-        )
-        .bind(w_id)
-        .bind(memory_id)
-        .fetch_optional(&mut **tx)
-        .await?;
+    if let Some(running) = claim_memory_turn(tx, w_id, memory_id, job_id).await? {
         return Err(Error::Generic(
             StatusCode::CONFLICT,
             serde_json::json!({
@@ -927,13 +907,73 @@ pub async fn set_flow_memory_id(
     Ok(())
 }
 
+/// Make `job_id` the holder of the memory id, or return the queued job that holds it.
+///
+/// Lock, then look, in separate statements: under read committed, a statement that waited on a
+/// row lock still evaluates its subqueries with the snapshot it started with, so a single upsert
+/// checking the queue would miss the holder that committed while it waited.
+async fn claim_memory_turn(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
+    memory_id: Uuid,
+    job_id: Uuid,
+) -> error::Result<Option<Uuid>> {
+    // A claim the monitor deletes while this waits on it is gone, not held: insert again.
+    for _ in 0..3 {
+        let inserted: Option<Uuid> = sqlx::query_scalar(
+            "INSERT INTO ai_memory_turn (workspace_id, memory_id, job_id) VALUES ($1, $2, $3)
+             ON CONFLICT (workspace_id, memory_id) DO NOTHING RETURNING job_id",
+        )
+        .bind(w_id)
+        .bind(memory_id)
+        .bind(job_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+        if inserted.is_some() {
+            return Ok(None);
+        }
+        let holder: Option<Uuid> = sqlx::query_scalar(
+            "SELECT job_id FROM ai_memory_turn WHERE workspace_id = $1 AND memory_id = $2
+             FOR UPDATE",
+        )
+        .bind(w_id)
+        .bind(memory_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+        let Some(holder) = holder else {
+            continue;
+        };
+        let queued: bool =
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM v2_job_queue WHERE id = $1)")
+                .bind(holder)
+                .fetch_one(&mut **tx)
+                .await?;
+        if queued {
+            return Ok(Some(holder));
+        }
+        sqlx::query(
+            "UPDATE ai_memory_turn SET job_id = $3 WHERE workspace_id = $1 AND memory_id = $2",
+        )
+        .bind(w_id)
+        .bind(memory_id)
+        .bind(job_id)
+        .execute(&mut **tx)
+        .await?;
+        return Ok(None);
+    }
+    Err(Error::internal_err(format!(
+        "Could not claim memory id {memory_id}: its claim kept being released"
+    )))
+}
+
 /// How long `take_over_memory_turn` waits for the stopped run to leave the queue: an agent step's
 /// cancel grace period, plus the time its worker takes to notice the cancel.
 const TAKE_OVER_WAIT: std::time::Duration = std::time::Duration::from_secs(40);
 
 /// With `take_over`, stop the run that holds the memory id so this one can claim it: cancel it,
 /// then wait for it to leave the queue, which its agents spend saving what they have to memory.
-/// Only who started that run, or an admin, can stop it.
+/// Only who started that run, or an admin, can stop it, and a restricted token only with an
+/// unconfined `jobs:cancel` grant: the memory id is not confined to the flow being run.
 pub async fn take_over_memory_turn(
     db: &DB,
     authed: &ApiAuthed,
@@ -947,6 +987,15 @@ pub async fn take_over_memory_turn(
     let Some(memory_id) = run_query.memory_key(w_id, flow_path) else {
         return Err(Error::BadRequest("take_over needs a memory_id".to_string()));
     };
+    let scopes = authed.scopes.as_deref();
+    if scopes.is_some()
+        && !(windmill_api_auth::scopes::has_job_cancel_grant(scopes)
+            && windmill_api_auth::scopes::job_cancel_path_confinement(scopes).is_none())
+    {
+        return Err(Error::NotAuthorized(
+            "take_over needs a token that can cancel any job (`jobs:cancel`)".to_string(),
+        ));
+    }
     let holder: Option<(Uuid, String)> = sqlx::query_as(
         "SELECT t.job_id, j.created_by FROM ai_memory_turn t
          JOIN v2_job_queue q ON q.id = t.job_id
