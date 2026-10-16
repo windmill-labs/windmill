@@ -1,8 +1,14 @@
-//! The built-in `request_approval` tool parks the agent instead of running anything. The agent
-//! stores its conversation, releases its worker the way a workflow-as-code parent does
-//! (`suspend_wac_parent`), and is pulled again when `suspend` reaches 0 (an answer, or a
-//! rejection) or `suspend_until` passes (the request timing out). `resume_suspended` answers it
-//! like a WAC approval, since its queue row is the one suspended.
+//! The agent parks, releasing its worker, while it waits on a person or on its background tools.
+//! The built-in `request_approval` tool parks it until someone answers; an answer the model gave
+//! while background tool jobs still run parks it until one of them finishes. It stores its
+//! conversation and parks its own queue row the way a workflow-as-code parent does
+//! (`suspend_wac_parent`), and is pulled again when `suspend` reaches 0 or `suspend_until` passes.
+//!
+//! An answer or a rejection reaches `suspend` through `resume_suspended`, which takes the agent's
+//! row for a WAC approval. A background job reaches it through `record_child_completion`, which
+//! decrements a parked parent's `suspend` when the child is in its `pending_steps.job_ids`: tool
+//! jobs are the agent's children, so parking with those ids wakes it, atomically with the child's
+//! completion.
 //!
 //! The checkpoint row outlives the segment that reads it, so a job restarted after its worker died
 //! resumes from it again. It is deleted by the monitor once the job leaves the queue.
@@ -24,6 +30,7 @@ use windmill_common::{
 use windmill_queue::MiniPulledJob;
 
 use crate::ai::compaction::HistoryCheckpoint;
+use crate::ai::tools::BackgroundJob;
 use crate::ai::utils::find_unique_tool_name;
 use crate::wac_executor::{end_wac_segment, suspend_wac_parent, WacPark};
 
@@ -33,6 +40,8 @@ pub(crate) const APPROVAL_ENABLED_NAME: &str = "__wm_approval";
 
 /// Matches a suspended flow step's default.
 const DEFAULT_APPROVAL_TIMEOUT_SECS: u32 = 1800;
+/// A park on background jobs only is woken by their completion; this bounds a missed wake.
+const BACKGROUND_RECHECK_SECS: f64 = 3600.0;
 
 pub(crate) fn approval_timeout(value: &ApprovalToolValue) -> u32 {
     value
@@ -71,6 +80,7 @@ pub(crate) fn approval_tool(timeout_secs: u32, existing: &[ToolDef]) -> Tool {
         module: None,
         mcp_source: None,
         approval_timeout_secs: Some(timeout_secs),
+        background: false,
     }
 }
 
@@ -117,7 +127,12 @@ pub(crate) struct AgentCheckpoint {
     pub events: String,
     pub reasoning: String,
     pub next_iteration: usize,
-    pub pending: PendingPause,
+    /// The approval the agent waits on, if any.
+    pub pending: Option<PendingPause>,
+    pub background: Vec<BackgroundJob>,
+    /// The model had given its answer: with nothing new from a background job, there is nothing
+    /// to ask it, so the agent parks again.
+    pub answered: bool,
     /// `resume_job` rows never leave while the agent is queued, so each answer must skip the
     /// ones earlier parks already read.
     #[serde(default)]
@@ -144,6 +159,8 @@ pub(crate) enum ParkOutcome {
     Parked,
     /// A cancel reached the queue row first, so nothing was written.
     Cancelled,
+    /// A background job finished before the park could be written, so the agent continues.
+    JobFinished,
 }
 
 /// Park the agent until its approval is answered or expires.
@@ -153,18 +170,41 @@ pub(crate) async fn park(
     job: &MiniPulledJob,
     checkpoint: &AgentCheckpoint,
 ) -> error::Result<ParkOutcome> {
-    let remaining_ms = (checkpoint.pending.expires_at - Utc::now()).num_milliseconds();
-    let suspend_secs = (remaining_ms as f64 / 1000.0).max(1.0);
+    let suspend_secs = match &checkpoint.pending {
+        Some(pending) => {
+            let remaining_ms = (pending.expires_at - Utc::now()).num_milliseconds();
+            (remaining_ms as f64 / 1000.0).max(1.0)
+        }
+        None => BACKGROUND_RECHECK_SECS,
+    };
+    let running: Vec<Uuid> = checkpoint.background.iter().map(|b| b.job_id).collect();
+    let waits_on_approval = checkpoint.pending.is_some();
     let checkpoint = serde_json::to_value(checkpoint).map_err(|e| {
         Error::internal_err(format!("Failed to serialize AI agent checkpoint: {e}"))
     })?;
     let mut tx = db.begin().await?;
-    // One event: an answer, or a rejection, which zeroes `suspend` outright.
+    // One event wakes it: an answer, a rejection (which zeroes `suspend` outright), or a
+    // background job finishing.
     let segment_ms =
         match suspend_wac_parent(&mut tx, &job.id, &job.workspace_id, 1, suspend_secs).await? {
             WacPark::Parked(ms) => ms,
             WacPark::Cancelled(_) => return Ok(ParkOutcome::Cancelled),
         };
+    // A job that completed while the agent ran decremented a `suspend` that was already 0, so it
+    // is read here instead. One completing from now on waits for the queue row this transaction
+    // locked, then wakes the parked agent (`register_background_job`). While an approval is open,
+    // results wait for the answer anyway.
+    if !running.is_empty() && !waits_on_approval {
+        let finished: bool =
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM v2_job_completed WHERE id = ANY($1))")
+                .bind(&running)
+                .fetch_one(&mut *tx)
+                .await?;
+        if finished {
+            tx.rollback().await?;
+            return Ok(ParkOutcome::JobFinished);
+        }
+    }
     sqlx::query(
         "INSERT INTO ai_agent_checkpoint (job_id, workspace_id, checkpoint) VALUES ($1, $2, $3)
          ON CONFLICT (job_id) DO UPDATE SET checkpoint = EXCLUDED.checkpoint",
@@ -177,6 +217,45 @@ pub(crate) async fn park(
     tx.commit().await?;
     end_wac_segment(conn, job, segment_ms);
     Ok(ParkOutcome::Parked)
+}
+
+/// Make a background tool job one whose completion wakes the parked agent. Written before the job
+/// is queued: `record_child_completion` reads the ids before it locks anything, so an entry
+/// written later can miss a job finishing while the agent parks.
+pub(crate) async fn register_background_job(
+    db: &DB,
+    agent_job_id: &Uuid,
+    call_id: &str,
+    tool_job_id: &Uuid,
+) -> error::Result<()> {
+    sqlx::query(
+        "INSERT INTO v2_job_status (id, workflow_as_code_status)
+         VALUES ($1, jsonb_build_object('_checkpoint', jsonb_build_object(
+             'pending_steps', jsonb_build_object('job_ids', jsonb_build_object($2::text, $3::text)))))
+         ON CONFLICT (id) DO UPDATE SET workflow_as_code_status = jsonb_set(
+             COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
+             '{_checkpoint}',
+             COALESCE(v2_job_status.workflow_as_code_status->'_checkpoint', '{}'::jsonb)
+                 || jsonb_build_object('pending_steps', jsonb_build_object('job_ids',
+                     COALESCE(v2_job_status.workflow_as_code_status->'_checkpoint'->'pending_steps'->'job_ids', '{}'::jsonb)
+                         || jsonb_build_object($2::text, $3::text))))",
+    )
+    .bind(agent_job_id)
+    .bind(call_id)
+    .bind(tool_job_id.to_string())
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// A resumed agent with no approval to answer still zeroes `suspend`, so `resume_suspended`
+/// refuses answers while it runs, as `answer_pause` makes it for one with an approval.
+pub(crate) async fn clear_suspend(db: &DB, job_id: &Uuid) -> error::Result<()> {
+    sqlx::query("UPDATE v2_job_queue SET suspend = 0 WHERE id = $1")
+        .bind(job_id)
+        .execute(db)
+        .await?;
+    Ok(())
 }
 
 pub(crate) enum Resumed {

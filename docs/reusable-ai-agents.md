@@ -188,6 +188,29 @@ The built-in `approval` tool type parks the agent rather than run anything: the 
   from a top-level step; one from a step inside a loop or branch is answered from its graph node.
   The chat transcript of a chat flow records neither the request nor its answer.
 
+## Background tools
+
+A `flowmodule` tool with `background: true` is answered as soon as its job is queued ("started in
+the background as job X"), and the agent keeps working. The job's result reaches the model later as
+a user message tagged with the call's `tool_call` action, since the call itself was already
+answered. Its outcome in `agent_actions_success` is `null` until then, set in place by position.
+
+- **Waking.** Before the job is queued, the worker adds it to the agent's own
+  `workflow_as_code_status._checkpoint.pending_steps.job_ids`. Tool jobs are the agent's children,
+  so `record_child_completion` decrements the parked agent's `suspend` when one of them completes,
+  in the completion's own transaction. The entry has to exist before the job does: the completion
+  reads the ids before it locks anything.
+- **Parking.** The loop checks for finished jobs before each model call. When the model answers
+  with jobs still running, the agent parks like it does for an approval (`suspend = 1`, the same
+  checkpoint table) instead of ending, and that iteration runs again on resume. The park checks, with
+  its queue row locked, whether a job finished while it ran; if so it continues instead.
+  `suspend_until` is an hour, a bound on a missed wake rather than a deadline.
+- **With an approval.** A job finishing while an approval is open wakes the agent, which parks again
+  for the time left: results wait for the answer.
+- **Limits.** A nested agent runs its background tools in the foreground, since it cannot park. The
+  job is never reserved for the agent's own worker. If the agent reaches its iteration limit, it ends
+  with the jobs still running.
+
 ## Drafts
 
 The agent editor edits the resource through a **per-user resource draft** (`draft` table,
