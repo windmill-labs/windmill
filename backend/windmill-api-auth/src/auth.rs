@@ -1023,28 +1023,55 @@ where
     }
 }
 
+/// Adds the suffixed form of each tag of an `if_jobs:filter_tags:` scope: in a dev workspace a
+/// job allowed on `gpu` is queued on `gpu-dev`, and the token must still reach the jobs it starts.
+fn expand_filter_tags_with_dev_suffix(scopes: &mut [String], suffix: &str) {
+    for scope in scopes.iter_mut() {
+        if let Some(tags) = scope.strip_prefix("if_jobs:filter_tags:") {
+            let expanded = tags
+                .split(',')
+                .flat_map(|t| {
+                    let suffixed = windmill_common::worker::with_dev_workspace_suffix(t, suffix);
+                    [t.to_string(), suffixed]
+                })
+                .unique()
+                .join(",");
+            *scope = format!("if_jobs:filter_tags:{expanded}");
+        }
+    }
+}
+
+/// Only for a dev workspace or a fork, the workspaces whose jobs get the suffix: elsewhere the
+/// suffixed tags are other tags the token was not given.
+async fn expand_filter_tags_for_dev_workspace(
+    db: &DB,
+    workspace_id: &str,
+    scopes: Option<&mut Vec<String>>,
+) {
+    let Some(scopes) = scopes else { return };
+    if !scopes.iter().any(|s| s.starts_with("if_jobs:filter_tags:")) {
+        return;
+    }
+    let is_dev = workspace_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX)
+        || sqlx::query_scalar::<_, bool>(
+            "SELECT parent_workspace_id IS NOT NULL FROM workspace WHERE id = $1",
+        )
+        .bind(workspace_id)
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(false);
+    if is_dev {
+        let suffix = windmill_common::worker::DEV_WORKSPACE_TAG_SUFFIX.load();
+        expand_filter_tags_with_dev_suffix(scopes, &suffix);
+    }
+}
+
 pub fn transform_old_scope_to_new_scope(scopes: Option<&mut Vec<String>>) {
     if let Some(scopes) = scopes {
         for scope in scopes.iter_mut() {
-            if let Some(tags) = scope.strip_prefix("if_jobs:filter_tags:") {
-                // A dev workspace's job allowed on `gpu` is queued on `gpu-dev`: the token must
-                // still reach the jobs it starts.
-                let suffix = windmill_common::worker::DEV_WORKSPACE_TAG_SUFFIX.load();
-                let expanded = tags
-                    .split(',')
-                    .flat_map(|t| {
-                        let suffixed =
-                            windmill_common::worker::with_dev_workspace_suffix(t, &suffix);
-                        if suffixed == t {
-                            vec![t.to_string()]
-                        } else {
-                            vec![t.to_string(), suffixed]
-                        }
-                    })
-                    .unique()
-                    .join(",");
-                *scope = format!("if_jobs:filter_tags:{expanded}");
-            } else if scope.starts_with("run:") {
+            if scope.starts_with("run:") {
                 let (_, part_scope) = scope.split_once(":").unwrap();
 
                 if let Some((kind, path)) = part_scope.split_once("/") {
@@ -1191,6 +1218,14 @@ pub async fn resolve_opt_job_authed(
                 let authed = &mut opt_job_authed.authed;
                 if authed.scopes.is_some() && !own_job_runtime_route {
                     transform_old_scope_to_new_scope(authed.scopes.as_mut());
+                    if let Some(w_id) = workspace_id.as_deref() {
+                        expand_filter_tags_for_dev_workspace(
+                            &cache.db,
+                            w_id,
+                            authed.scopes.as_mut(),
+                        )
+                        .await;
+                    }
 
                     if let Err(err) = crate::scopes::check_scopes_for_route(
                         authed.scopes.as_deref(),
@@ -1377,6 +1412,19 @@ pub async fn list_tokens_internal(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn filter_tags_reach_their_dev_workspace_form() {
+        let mut scopes = vec![
+            "jobs:read".to_string(),
+            "if_jobs:filter_tags:gpu,bash-dev".to_string(),
+        ];
+        expand_filter_tags_with_dev_suffix(&mut scopes, "-dev");
+        assert_eq!(
+            scopes,
+            vec!["jobs:read", "if_jobs:filter_tags:gpu,gpu-dev,bash-dev"]
+        );
+    }
 
     /// Dropping the `AUTH_CACHE` entry between the two resolutions is what makes a memo
     /// hit observable: only a working memo can answer the second one.
