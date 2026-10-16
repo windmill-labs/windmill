@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Badge, Button, Section } from './common'
+	import { Alert, Button, Section } from './common'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import Toggle from './Toggle.svelte'
 	import TextInput from './text_input/TextInput.svelte'
@@ -122,6 +122,7 @@
 	)
 
 	let groupToFlag = $state<string | undefined>(undefined)
+	let collapsed = $state(true)
 	let showWorkspaces = $state(false)
 	let showAdvanced = $state(false)
 
@@ -168,6 +169,7 @@
 
 	function onToggle(checked: boolean) {
 		if (checked === enabled) return
+		collapsed = false
 		if (checked) {
 			if (liveFlaggedWorkers === 0) {
 				confirmEnable = true
@@ -262,27 +264,32 @@
 	</p>
 </ConfirmationModal>
 
+{#snippet isolationToggle()}
+	<Toggle
+		bind:checked={toggleChecked}
+		on:change={(e) => onToggle(e.detail)}
+		disabled={!canEdit || !$enterpriseLicense || saving || suffix === undefined}
+		options={{ right: 'Run dev workspaces and forks on separate workers' }}
+		size="xs"
+	/>
+{/snippet}
+
 <Section
 	label="Dev workspace isolation"
 	tooltip="Dev workspaces and forks run code that has not been reviewed or deployed to a root workspace. Route their jobs to worker groups of their own, so they never run on the workers of your root workspaces."
 	eeOnly={!$enterpriseLicense}
-	class="mt-4 mb-6 rounded-md border border-light p-4 bg-surface-tertiary"
+	collapsable
+	bind:collapsed
+	wrapperClass="mt-4 mb-6 rounded-md border border-light p-4 bg-surface-tertiary"
 >
-	{#snippet labelExtra()}
-		{#if suffix !== undefined}
-			<Badge color={enabled ? 'green' : 'gray'} small>{enabled ? 'On' : 'Off'}</Badge>
-		{/if}
+	{#snippet action()}
+		{@render isolationToggle()}
+	{/snippet}
+	{#snippet badge()}
+		{@render isolationToggle()}
 	{/snippet}
 
 	<div class="flex flex-col gap-4">
-		<Toggle
-			bind:checked={toggleChecked}
-			on:change={(e) => onToggle(e.detail)}
-			disabled={!canEdit || !$enterpriseLicense || saving || suffix === undefined}
-			options={{ right: 'Run dev workspaces and forks on separate workers' }}
-			class="w-fit"
-		/>
-
 		<div class="grid grid-cols-[auto_auto_1fr] gap-x-3 gap-y-2 items-center text-xs max-w-2xl">
 			<span class="font-semibold text-emphasis">Root workspaces</span>
 			<ArrowRight size={14} class="text-secondary" />
