@@ -36,8 +36,13 @@
 		async (ws) => (ws ? WorkspaceService.listDataTables({ workspace: ws }) : undefined)
 	)
 
-	let datatableBehaviors: Record<string, 'schema_only' | 'schema_and_data' | 'keep_original'> =
-		$state({})
+	type Behavior = 'schema_only' | 'schema_and_data' | 'keep_original'
+	let datatableBehaviors: Record<string, Behavior> = $state({})
+
+	function behaviorOf(name: string): Behavior {
+		const chosen = datatableBehaviors[name] ?? 'keep_original'
+		return requireIsolation && chosen === 'keep_original' ? 'schema_only' : chosen
+	}
 
 	let cloneModalOpen = $state(false)
 	let currentCloneJob: DatatableCloneJob | undefined = $state(undefined)
@@ -51,14 +56,11 @@
 		// A fork attempt starts here: what an earlier attempt confirmed is not this one's to send.
 		confirmedJobs = []
 		return (allDatatables.current ?? [])
-			.filter((dt) => {
-				const behavior = datatableBehaviors[dt.name] ?? 'keep_original'
-				return behavior !== 'keep_original'
-			})
+			.filter((dt) => behaviorOf(dt.name) !== 'keep_original')
 			.map((dt) => ({
 				name: dt.name,
 				resourceType: dt.resource_type,
-				behavior: datatableBehaviors[dt.name] as 'schema_only' | 'schema_and_data',
+				behavior: behaviorOf(dt.name) as 'schema_only' | 'schema_and_data',
 				// A dev workspace's id has no `wm-fork-` prefix; its copies are named like a fork's
 				_newDbName: `wm_fork_${targetWorkspaceId.replace(/^wm-fork-/, '').replace(/-/g, '_')}__${dt.name}`
 			}))
@@ -97,9 +99,14 @@
 
 {#if allDatatables.current && allDatatables.current.length > 0}
 	<Label label="Data table behavior">
-		<span class="text-xs text-secondary"> Choose how to handle each datatable when forking </span>
+		<span class="text-xs text-secondary">
+			Choose how to handle each datatable when forking.
+			{#if requireIsolation}
+				A protection rule on this workspace requires its forks to clone every data table.
+			{/if}
+		</span>
 		<div class="border rounded-md divide-y">
-			{#each allDatatables.current as dt}
+			{#each allDatatables.current as dt (dt.name)}
 				<div class="flex items-center gap-2 justify-between px-4 py-1.5">
 					<div class="flex flex-col">
 						<span class="text-xs font-medium">{dt.name}</span>
@@ -109,15 +116,16 @@
 					</div>
 					<Select
 						dropdownClass="max-w-96"
-						bind:value={
-							() => datatableBehaviors[dt.name] ?? 'keep_original',
-							(v) => (datatableBehaviors[dt.name] = v)
-						}
+						bind:value={() => behaviorOf(dt.name), (v) => (datatableBehaviors[dt.name] = v)}
 						items={[
-							{
-								value: 'keep_original',
-								label: dt.permissioned ? 'Keep original (under roles)' : 'Keep original'
-							},
+							...(requireIsolation
+								? []
+								: [
+										{
+											value: 'keep_original' as const,
+											label: dt.permissioned ? 'Keep original (under roles)' : 'Keep original'
+										}
+									]),
 							// A copy of a data table under roles carries the source's owners and grants,
 							// which only the Enterprise Edition replays: elsewhere the server refuses it.
 							...(dt.permissioned && !$enterpriseLicense

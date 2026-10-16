@@ -54,3 +54,12 @@ the fork does not own costs one HEAD per chain level before the GET.
   them and refuses while they cannot be purged, since a same-id fork would read them.
 - Isolation is a per-fork-creation choice (`shared_storages` on create-fork), never inherited.
   Forks created before the registry existed have no rows and keep sharing.
+
+## Requiring isolation
+
+The `RequireIsolatedForks` protection rule on a workspace makes its forks leave nothing shared
+with it, for every user the ruleset does not exempt (admins always are): no `shared_storages`,
+no `shared_ducklakes`, and every data table it resolves (`resolve_workspace_governing_datatables`,
+what the fork dialog lists) cloned rather than kept as a pointer. It is checked against the
+workspace being forked, in `create_workspace_fork` and in the git-branch pre-check, so a refused
+fork leaves no branch behind.
