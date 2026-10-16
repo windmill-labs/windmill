@@ -447,7 +447,6 @@ pub fn validate_overrides(instance: &[RoleDefinition], overrides: &RoleOverrides
     Ok(())
 }
 
-/// The role a `usr` row holds: its `workspace_role`, or the legacy one its `operator` flag names.
 /// The role a member gets when nothing names one (a legacy non-operator payload, an unmapped
 /// instance group, an admin's underlying role): `developer` while it is defined, else the first
 /// role, since an instance may drop `developer` and `set_workspace_role` refuses unknown names.
@@ -462,6 +461,7 @@ pub fn default_role_name<'a>(names: impl IntoIterator<Item = &'a str>) -> String
     first.unwrap_or(DEVELOPER_ROLE).to_string()
 }
 
+/// The role a `usr` row holds: its `workspace_role`, or the legacy one its `operator` flag names.
 pub fn resolve_role_name(workspace_role: Option<String>, operator: bool) -> String {
     workspace_role.unwrap_or_else(|| {
         if operator {
