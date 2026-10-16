@@ -10,9 +10,14 @@
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
 	import { CornerDownLeft, Play, RefreshCw, X } from 'lucide-svelte'
 	import type { Schema } from '$lib/common'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+	import { previewOnBehalfOf } from '$lib/utils/previewOnBehalfOf'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
 
 	interface Props {
 		open: boolean
@@ -112,7 +117,12 @@
 				restartedFrom,
 				undefined,
 				undefined,
-				opWorkspace?.()
+				opWorkspace?.(),
+				previewOnBehalfOf(
+					operatingUser.current,
+					flowStore.val.on_behalf_of,
+					flowStore.val.on_behalf_of_email
+				)
 			)
 		} catch (err: any) {
 			// `runFlowPreview` resolves a linked agent's draft first and refuses when it cannot be read.

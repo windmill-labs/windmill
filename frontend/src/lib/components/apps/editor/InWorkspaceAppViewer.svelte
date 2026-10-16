@@ -83,6 +83,8 @@
 	 * where the lite payload carries it; the flat field beside it is the apps *list* row's
 	 * spelling (ListableApp, which is what AppRow reads). */
 	let executionMode = $state<string | undefined>(undefined)
+	/** From the lite read too: a sandboxed low-code app never fills `app`. */
+	let summary = $state<string | undefined>(undefined)
 	let editHref = $derived(`/${isRawApp ? 'apps_raw' : 'apps'}/edit/${path}?nodraft=true`)
 	let refresh: (() => void) | undefined
 
@@ -123,8 +125,8 @@
 
 	// Viewer side — used for the inline renderings (raw, and unsandboxed low-code);
 	// the sandboxed low-code case loads inside the opaque /app_embed iframe instead.
-	// getAppByPath returns bundle_secret + runnables for raw apps, which
-	// PublicApp -> RawAppPreview needs.
+	// getAppLiteByPath returns the runnables (with their ids) that
+	// PublicApp -> RawAppPreview needs for raw apps.
 	async function loadApp() {
 		// Kept local and handed to PublicApp rather than written to `userStore`: this is the
 		// membership in `workspace`, and a session preview tab shows a workspace the rest of
@@ -134,8 +136,10 @@
 		// populated `userStore` for the workspace the page *is* on.
 		appUser = await getUserExt(workspace)
 		try {
-			const loaded: any = await AppService.getAppByPath({ workspace, path })
-			// Raw apps need the bundle secret to load their bundle. getAppByPath
+			// The lite value: its inline scripts carry the ids of their deployed rows, the only
+			// code a deployed app runs (with its lock, and a raw app's imported runnables).
+			const loaded: any = await AppService.getAppLiteByPath({ workspace, path })
+			// Raw apps need the bundle secret to load their bundle. getAppLiteByPath
 			// doesn't compute it (unlike the public handlers), so fetch it here — the
 			// same call the previous raw viewer used — and hand it to PublicApp ->
 			// RawAppPreview via bundle_secret.
@@ -174,8 +178,10 @@
 			appPerms = { path: lite?.path ?? path, extraPerms: lite?.extra_perms ?? {} }
 			isRawApp = !!lite?.raw_app
 			executionMode = lite?.policy?.execution_mode ?? lite?.execution_mode
+			summary = lite?.summary || undefined
 		} catch (_) {
 			appPerms = undefined
+			summary = undefined
 		}
 	}
 
@@ -265,7 +271,7 @@
      no item, and the breadcrumb would fall back to the section name "Apps". -->
 {#if ownsPageHeader}
 	<PageHeaderContent
-		item={{ kind: 'app', path }}
+		item={{ kind: 'app', path, summary }}
 		actions={showEdit && !menuHidden ? editAction : undefined}
 		separator="always"
 	/>

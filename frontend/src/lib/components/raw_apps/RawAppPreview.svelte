@@ -351,6 +351,7 @@
 		title="raw-app"
 		src={iframeSrc}
 		sandbox={sandboxAttr}
+		allow="clipboard-read; clipboard-write; fullscreen"
 		referrerpolicy={unsandboxed ? undefined : 'no-referrer'}
 		onload={() => (loadedSrc = iframeSrc)}
 		style="display: block; width: 100%; height: 100%; border: none"

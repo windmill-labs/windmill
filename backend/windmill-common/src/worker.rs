@@ -2223,14 +2223,22 @@ pub async fn fetch_raw_script_from_app_query(
     loc: &'static Location<'_>,
 ) -> error::Result<RawScript> {
     sqlx::query!(
-        "SELECT lock, code FROM app_script WHERE id = $1 LIMIT 1",
+        "SELECT lock, code, modules AS \"modules: serde_json::Value\"
+         FROM app_script WHERE id = $1 LIMIT 1",
         id,
     )
     .fetch_optional(db)
     .await
     .map_err(Into::into)
     .and_then(unwrap_or_error(&loc, "Application script", id))
-    .map(|r| RawScript { content: r.code, lock: r.lock, meta: None, modules: None })
+    .and_then(|r| {
+        Ok(RawScript {
+            content: r.code,
+            lock: r.lock,
+            meta: None,
+            modules: r.modules.map(serde_json::from_value).transpose()?,
+        })
+    })
 }
 
 /// Returns the number of jobs the row already accounted for: non-zero when a worker of the

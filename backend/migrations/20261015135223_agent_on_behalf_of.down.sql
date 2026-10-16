@@ -1,0 +1,1 @@
+-- Nothing to undo: older versions ignore both keys, and clearing them would drop toggles set since.

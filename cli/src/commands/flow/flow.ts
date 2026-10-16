@@ -19,7 +19,7 @@ import {
   toSyncRootRelativePath,
   validatePath,
 } from "../../core/context.ts";
-import { resolve, track_job, pollForJobResult } from "../script/script.ts";
+import { resolve, track_job, pollForJobResult, ensurePreviewOnBehalfOfSupported } from "../script/script.ts";
 import { defaultFlowDefinition } from "../../../bootstrap/flow_bootstrap.ts";
 import {
   SyncOptions,
@@ -639,6 +639,7 @@ async function preview(
     remote?: boolean;
     step?: string;
     tag?: string;
+    onBehalfOf?: string;
   } & SyncOptions,
   flowPath: string
 ) {
@@ -653,6 +654,7 @@ async function preview(
   }
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+  await ensurePreviewOnBehalfOfSupported(workspace.workspaceId, opts.onBehalfOf);
   const codebases = useLocalPathScripts ? listSyncCodebases(opts) : [];
 
   const argPath = flowPath;
@@ -758,7 +760,7 @@ async function preview(
   // when `useLocalPathScripts` is set, and tempScriptRefs covers relative
   // imports in inline scripts.
   if (opts.step) {
-    await previewStep(opts.step, localFlow, flowWmPath, workspace, input, tempScriptRefs, opts.silent, opts.tag);
+    await previewStep(opts.step, localFlow, flowWmPath, workspace, input, tempScriptRefs, opts.silent, opts.tag, opts.onBehalfOf);
     return;
   }
 
@@ -775,6 +777,7 @@ async function preview(
       args: input,
       tag: opts.tag,
       temp_script_refs: tempScriptRefs,
+      on_behalf_of: opts.onBehalfOf,
     },
   });
 
@@ -808,6 +811,7 @@ async function previewStep(
   tempScriptRefs: Record<string, string> | undefined,
   silent: boolean,
   tag: string | undefined,
+  onBehalfOf: string | undefined,
 ) {
   const module = findStepInFlowValue(localFlow.value, stepId);
   if (!module) {
@@ -841,6 +845,7 @@ async function previewStep(
         args,
         tag,
         temp_script_refs: tempScriptRefs,
+        on_behalf_of: onBehalfOf,
       },
     });
   } else if (moduleValue?.type === "script") {
@@ -868,9 +873,15 @@ async function previewStep(
         args,
         tag,
         temp_script_refs: tempScriptRefs,
+        on_behalf_of: onBehalfOf,
       },
     });
   } else if (moduleValue?.type === "flow") {
+    if (onBehalfOf) {
+      throw new Error(
+        `--on-behalf-of does not apply to step '${stepId}': a flow step runs the deployed flow ${moduleValue.path} by path, and this flag cannot override its identity.`
+      );
+    }
     log.info(colors.yellow(`Previewing step '${stepId}' (flow ${moduleValue.path})...`));
     jobId = await wmill.runFlowByPath({
       workspace: workspace.workspaceId,
@@ -1215,6 +1226,10 @@ const command = new Command()
   .option(
     "--tag <tag:string>",
     "Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the flow's default tag)."
+  )
+  .option(
+    "--on-behalf-of <identity:string>",
+    "Run the preview as this user or group (an email, u/<username> or g/<group>) instead of yourself, e.g. to reproduce a run_on_behalf_of identity. Requires being an admin or a member of wm_deployers."
   )
   .action(preview as any)
   .command(

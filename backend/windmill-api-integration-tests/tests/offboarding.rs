@@ -90,6 +90,25 @@ async fn test_offboard_to_user(db: Pool<Postgres>) -> anyhow::Result<()> {
     .execute(&db)
     .await?;
 
+    // An agent records who it runs as inside its value, on a path the user does not own.
+    sqlx::query(
+        "INSERT INTO resource (workspace_id, path, value, resource_type, created_by)
+         VALUES ('test-workspace', 'f/shared/agent', $1, 'ai_agent', 'test-user')",
+    )
+    .bind(json!({ "run_on_behalf_of": true, "on_behalf_of": "u/test-user-2" }))
+    .execute(&db)
+    .await?;
+    let preview: serde_json::Value =
+        authed(client().get(ws_url(port, "offboard_preview/test-user-2")))
+            .send()
+            .await?
+            .json()
+            .await?;
+    assert_eq!(
+        preview["executing_on_behalf"]["resources"],
+        json!(["f/shared/agent"])
+    );
+
     let resp = authed(client().post(ws_url(port, "offboard/test-user-2")))
         .json(&json!({
             "reassign_to": "u/test-user",
@@ -99,6 +118,14 @@ async fn test_offboard_to_user(db: Pool<Postgres>) -> anyhow::Result<()> {
         .send()
         .await?;
     assert_eq!(resp.status(), 200);
+
+    let agent_obo: Option<String> = sqlx::query_scalar(
+        "SELECT value->>'on_behalf_of' FROM resource
+         WHERE path = 'f/shared/agent' AND workspace_id = 'test-workspace'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(agent_obo.as_deref(), Some("u/test-user"));
 
     let body: serde_json::Value = resp.json().await?;
     assert!(body["conflicts"].as_array().map_or(true, |a| a.is_empty()));
@@ -117,7 +144,10 @@ async fn test_offboard_to_user(db: Pool<Postgres>) -> anyhow::Result<()> {
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        (obo.on_behalf_of.as_deref(), obo.on_behalf_of_email.as_deref()),
+        (
+            obo.on_behalf_of.as_deref(),
+            obo.on_behalf_of_email.as_deref()
+        ),
         (Some("u/test-user"), Some("test@windmill.dev")),
         "the reassignment moves the whole identity, not just the half this release reads"
     );

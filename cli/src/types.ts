@@ -6,7 +6,7 @@ import { sep as SEP } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 import { yamlParseContent } from "./utils/yaml.ts";
 import { isDbtDescriptorPath } from "./utils/resource_folders.ts";
-import { pushApp } from "./commands/app/app.ts";
+import { pushApp, pushAppCustomPath } from "./commands/app/app.ts";
 import { pushFolder } from "./commands/folder/folder.ts";
 import { pushFlow } from "./commands/flow/flow.ts";
 import { pushResource } from "./commands/resource/resource.ts";
@@ -231,13 +231,16 @@ export async function pushObj(
     if (!appName) {
       throw new Error(`Could not extract app name from path: ${p}`);
     }
-    await pushApp(workspace, appName, buildFolderPath(appName, "app"), message, permissionedAsContext);
+    // A sync carries the custom path in its own workspace-specific file.
+    await pushApp(workspace, appName, buildFolderPath(appName, "app"), message, permissionedAsContext, false);
   } else if (typeEnding === "raw_app") {
     const rawAppName = extractResourceName(p, "raw_app");
     if (!rawAppName) {
       throw new Error(`Could not extract raw app name from path: ${p}`);
     }
-    await pushRawApp(workspace, rawAppName, buildFolderPath(rawAppName, "raw_app"), message, defaultTs, permissionedAsContext);
+    await pushRawApp(workspace, rawAppName, buildFolderPath(rawAppName, "raw_app"), message, defaultTs, permissionedAsContext, false);
+  } else if (typeEnding === "custom_path") {
+    await pushAppCustomPath(workspace, removeType(p, "custom_path"), newObj);
   } else if (typeEnding === "folder") {
     await pushFolder(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {
@@ -251,7 +254,7 @@ export async function pushObj(
   } else if (typeEnding === "resource") {
     if (!alreadySynced.includes(p)) {
       alreadySynced.push(p);
-      await pushResource(workspace, p, befObj, newObj, originalLocalPath || p, wsSpecific, true);
+      await pushResource(workspace, p, befObj, newObj, originalLocalPath || p, wsSpecific, true, permissionedAsContext);
     }
   } else if (typeEnding === "resource-type") {
     await pushResourceType(workspace, p, befObj, newObj);
@@ -358,6 +361,7 @@ export function getTypeStrFromPath(
   | "folder"
   | "app"
   | "raw_app"
+  | "custom_path"
   | "schedule"
   | "http_trigger"
   | "websocket_trigger"
@@ -452,6 +456,7 @@ export function getTypeStrFromPath(
     typeEnding === "resource" ||
     typeEnding === "resource-type" ||
     typeEnding === "app" ||
+    typeEnding === "custom_path" ||
     typeEnding === "schedule" ||
     typeEnding === "http_trigger" ||
     typeEnding === "websocket_trigger" ||

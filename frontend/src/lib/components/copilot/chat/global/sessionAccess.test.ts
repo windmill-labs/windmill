@@ -57,8 +57,10 @@ describe('resolveSessionAccess', () => {
 			'write_app_draft',
 			'write_draft',
 			'write_flow_draft',
+			'write_resource_draft',
 			'write_schedule_draft',
-			'write_trigger_draft'
+			'write_trigger_draft',
+			'write_variable_draft'
 		])
 	})
 
@@ -70,8 +72,10 @@ describe('resolveSessionAccess', () => {
 			'deploy',
 			'manage_schedules',
 			'manage_triggers',
+			'write_resource_draft',
 			'write_schedule_draft',
-			'write_trigger_draft'
+			'write_trigger_draft',
+			'write_variable_draft'
 		])
 	})
 
@@ -81,8 +85,10 @@ describe('resolveSessionAccess', () => {
 		expect([...caps].sort()).toEqual([
 			'manage_schedules',
 			'manage_triggers',
+			'write_resource_draft',
 			'write_schedule_draft',
-			'write_trigger_draft'
+			'write_trigger_draft',
+			'write_variable_draft'
 		])
 	})
 
@@ -100,8 +106,10 @@ describe('resolveSessionAccess', () => {
 				'write_app_draft',
 				'write_draft',
 				'write_flow_draft',
+				'write_resource_draft',
 				'write_schedule_draft',
-				'write_trigger_draft'
+				'write_trigger_draft',
+				'write_variable_draft'
 			])
 		}
 	)
@@ -133,8 +141,10 @@ describe('resolveSessionAccess', () => {
 			'manage_triggers',
 			'run_flow_preview',
 			'write_flow_draft',
+			'write_resource_draft',
 			'write_schedule_draft',
-			'write_trigger_draft'
+			'write_trigger_draft',
+			'write_variable_draft'
 		])
 	})
 
@@ -152,8 +162,10 @@ describe('resolveSessionAccess', () => {
 			'manage_schedules',
 			'manage_triggers',
 			'write_app_draft',
+			'write_resource_draft',
 			'write_schedule_draft',
-			'write_trigger_draft'
+			'write_trigger_draft',
+			'write_variable_draft'
 		])
 	})
 

@@ -62,13 +62,30 @@ async fn fork_with_public_app(
 
 /// An app policy's `on_behalf_of` is the identity anonymous and publisher executions queue jobs
 /// under, and the fork's endpoint outlives any revocation in the parent — so a creator who may
-/// not preserve someone else's identity must not receive one by forking. `test-user-2` is a
-/// plain member of the parent.
+/// not preserve someone else's identity must not receive one by forking. The same goes for the
+/// one an agent's value carries. `test-user-2` is a plain member of the parent.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_fork_repoints_app_identity_for_unprivileged_creator(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO resource (workspace_id, path, value, resource_type, extra_perms, created_by)
+         VALUES ('test-workspace', 'u/test-user/agent', $1, 'ai_agent', '{}', 'test-user')",
+    )
+    .bind(json!({ "system_prompt": "hi", "on_behalf_of": "u/test-user" }))
+    .execute(&db)
+    .await?;
     let (policy, custom_path) = fork_with_public_app(&db, "SECRET_TOKEN_2").await?;
+
+    assert_eq!(
+        sqlx::query_scalar::<_, String>(
+            "SELECT value->>'on_behalf_of' FROM resource
+             WHERE workspace_id = 'wm-fork-app' AND path = 'u/test-user/agent'"
+        )
+        .fetch_one(&db)
+        .await?,
+        "u/test-user-2"
+    );
 
     assert_eq!(policy["on_behalf_of"], json!("u/test-user-2"));
     assert_eq!(policy["on_behalf_of_email"], json!("test2@windmill.dev"));
@@ -312,8 +329,9 @@ async fn test_fork_keeps_only_resolvable_on_behalf_of(db: Pool<Postgres>) -> any
     Ok(())
 }
 
-/// Apps, schedules, triggers and their drafts cannot drop an identity the way scripts and flows
-/// do, so one naming nobody in the fork goes to its creator while one that still resolves stays.
+/// Apps, agents, schedules, triggers and their drafts cannot drop an identity the way scripts and
+/// flows do, so one naming nobody in the fork goes to its creator while one that still resolves
+/// stays.
 /// Forked as an admin, whose app policies the clone otherwise keeps.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_fork_repoints_unresolvable_identities(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -365,6 +383,13 @@ async fn test_fork_repoints_unresolvable_identities(db: Pool<Postgres>) -> anyho
         r#"{{"policy":{{"on_behalf_of":"u/test-user-2"}},"files":{{"f":"a{}u0000"}}}}"#,
         "\\"
     ))
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO resource (workspace_id, path, value, resource_type, extra_perms, created_by)
+         VALUES ('test-workspace', 'u/test-user/stranger', $1, 'ai_agent', '{}', 'test-user')",
+    )
+    .bind(json!({ "system_prompt": "hi", "on_behalf_of": "u/test-user-2" }))
     .execute(&db)
     .await?;
     sqlx::query(
@@ -422,6 +447,10 @@ async fn test_fork_repoints_unresolvable_identities(db: Pool<Postgres>) -> anyho
     );
     assert_eq!(
         text("SELECT value->>'permissioned_as' FROM draft WHERE workspace_id = 'wm-fork-repoint' AND typ = 'trigger_websocket'").await?,
+        "u/test-user"
+    );
+    assert_eq!(
+        text("SELECT value->>'on_behalf_of' FROM resource WHERE workspace_id = 'wm-fork-repoint' AND path = 'u/test-user/stranger'").await?,
         "u/test-user"
     );
     assert_eq!(

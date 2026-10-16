@@ -139,8 +139,8 @@ jobs:
         run: |
           cargo build --release -p windmill_duckdb_ffi_internal
           New-Item -ItemType Directory -Path ..\target\debug -Force
-          Copy-Item target\release\windmill_duckdb_ffi_internal.dll ..\target\debug\
-          # duckdb is bundled (~2GB of build artifacts); the DLL is the only
+          Copy-Item target\release\windmill_duckdb_runner.exe ..\target\debug\
+          # duckdb is bundled (~2GB of build artifacts); the runner is the only
           # thing we need from this excluded-crate target dir.
           Remove-Item -Recurse -Force -ErrorAction SilentlyContinue target
           Get-PSDrive C | Select-Object Used,Free | Format-Table -AutoSize

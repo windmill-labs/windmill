@@ -4661,7 +4661,9 @@ async fn clone_runnable(j: &mut PulledJob, db: &DB) -> error::Result<()> {
             // A script gets its new version from the worker, once the generated lock is known
             // to differ from the live version's: minting one here would deploy, and walk the
             // importers of, a version whose lock turns out byte-identical to its parent's.
-            JobKind::Dependencies => *base_hash,
+            // An app is relocked in place: a raw app's bundle is stored under its version id,
+            // so a copy minted here could never be published.
+            JobKind::Dependencies | JobKind::AppDependencies => *base_hash,
             JobKind::FlowDependencies => {
                 sqlx::query_scalar!(
                     "INSERT INTO flow_version
@@ -4675,18 +4677,6 @@ async fn clone_runnable(j: &mut PulledJob, db: &DB) -> error::Result<()> {
                     j.runnable_path(),
                     j.workspace_id,
                     *base_hash,
-                )
-                .fetch_one(db)
-                .await?
-            }
-            JobKind::AppDependencies => {
-                sqlx::query_scalar!(
-                    "INSERT INTO app_version
-                        (app_id, value, created_by, raw_app)
-                    SELECT app_id, value, created_by, raw_app
-                    FROM app_version WHERE id = $1
-                    RETURNING id",
-                    *base_hash
                 )
                 .fetch_one(db)
                 .await?

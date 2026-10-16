@@ -49,6 +49,7 @@
 	import WorkspaceScriptSettingsDrawer from './flows/content/WorkspaceScriptSettingsDrawer.svelte'
 	import FlowEditorDrawer from './flows/content/FlowEditorDrawer.svelte'
 	import { dfs as dfsApply } from './flows/dfs'
+	import { dropStaleStepLocks } from './flows/staleStepLocks'
 	import {
 		claimLinkedToolsFetch,
 		invalidateLinkedToolsFetches,
@@ -626,6 +627,16 @@
 					console.error('Could not check flow existence', err)
 				}
 			}
+
+			// The editor clears a step's lock when its code is edited, but a draft written elsewhere
+			// can hold a step whose code changed and whose lock did not. A failed lookup skips the
+			// check rather than blocking the deploy.
+			const liveFlowValue = isNewFlow
+				? undefined
+				: await FlowService.getFlowByPath({ workspace: opWorkspace!, path: initialPath })
+						.then((f) => f.value)
+						.catch(() => undefined)
+			dropStaleStepLocks(flow.value, liveFlowValue)
 
 			if (isNewFlow) {
 				await FlowService.createFlow({

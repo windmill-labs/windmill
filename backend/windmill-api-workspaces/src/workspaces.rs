@@ -7130,7 +7130,7 @@ async fn clone_workspace_data(
     clone_resource_types(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone resources
-    clone_resources(tx, source_workspace_id, target_workspace_id).await?;
+    clone_resources(tx, source_workspace_id, target_workspace_id, authed).await?;
 
     // Clone variables (including external secret backend replication)
     clone_variables(tx, db, source_workspace_id, target_workspace_id).await?;
@@ -7667,18 +7667,30 @@ async fn clone_resource_types(
     Ok(())
 }
 
+/// An agent's value carries the identity it runs as, re-pointed at the fork's creator when they
+/// may not preserve someone else's, as `clone_apps` does an app's policy. The rest is swept by
+/// `repoint_unresolvable_cloned_identities` once the fork's membership is final.
 async fn clone_resources(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
+    authed: &ApiAuthed,
 ) -> Result<()> {
+    let repoint = (!windmill_common::can_preserve_on_behalf_of(authed))
+        .then(|| username_to_permissioned_as(&authed.username));
     sqlx::query!(
         "INSERT INTO resource (workspace_id, path, value, description, resource_type, extra_perms, edited_at, created_by)
-         SELECT $2, path, value, description, resource_type, extra_perms, edited_at, created_by
+         SELECT $2, path,
+                CASE WHEN $3::text IS NOT NULL AND resource_type = 'ai_agent'
+                          AND jsonb_typeof(value) = 'object' AND value ? 'on_behalf_of'
+                     THEN jsonb_set(value, '{on_behalf_of}', to_jsonb($3::text))
+                     ELSE value END,
+                description, resource_type, extra_perms, edited_at, created_by
          FROM resource
          WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
+        repoint,
     )
     .execute(&mut **tx)
     .await?;
@@ -8165,6 +8177,18 @@ async fn repoint_unresolvable_cloned_identities(
         .await?;
     }
 
+    sqlx::query(&format!(
+        "UPDATE resource SET value = jsonb_set(value, '{{on_behalf_of}}', to_jsonb($2::text))
+         WHERE workspace_id = $1 AND resource_type = 'ai_agent'
+           AND jsonb_typeof(value) = 'object' AND value ? 'on_behalf_of'
+           AND NOT ({})",
+        principal_resolves_sql("(value->>'on_behalf_of')")
+    ))
+    .bind(target_workspace_id)
+    .bind(&principal)
+    .execute(&mut **tx)
+    .await?;
+
     // `email` is still written for workers that predate `permissioned_as`.
     sqlx::query(&format!(
         "UPDATE schedule SET permissioned_as = $2, email = $3
@@ -8547,7 +8571,7 @@ async fn clone_apps(
 
     // Clone app scripts with recomputed hashes
     let app_scripts = sqlx::query!(
-        "SELECT app, hash, lock, code, code_sha256
+        "SELECT id, app, hash, lock, code, code_sha256, modules
          FROM app_script
          WHERE app = ANY(SELECT id FROM app WHERE workspace_id = $1)",
         source_workspace_id
@@ -8555,32 +8579,102 @@ async fn clone_apps(
     .fetch_all(&mut **tx)
     .await?;
 
+    let mut app_script_id_mapping: HashMap<i64, i64> = HashMap::new();
     for app_script in app_scripts {
         if let Some(&new_app_id) = app_id_mapping.get(&app_script.app) {
-            // Recompute hash using app_id, code_sha256, and lock
+            // Recompute hash using app_id, code_sha256, lock and modules
             let mut hasher = Sha256::new();
             hasher.update(new_app_id.to_be_bytes());
             hasher.update(hex::decode(&app_script.code_sha256)?);
             if let Some(lock) = &app_script.lock {
                 hasher.update(lock.as_bytes());
             }
+            if let Some(modules) = &app_script.modules {
+                hasher.update(modules.to_string());
+            }
             let new_hash = hex::encode(hasher.finalize());
 
-            sqlx::query!(
-                "INSERT INTO app_script (app, hash, lock, code, code_sha256)
-                 VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
+            let new_id = sqlx::query_scalar!(
+                "INSERT INTO app_script (app, hash, lock, code, code_sha256, modules)
+                 VALUES ($1, $2, $3, $4, $5, $6)
+                 ON CONFLICT (hash) DO UPDATE SET app = EXCLUDED.app -- trivial update to return the id
+                 RETURNING id",
                 new_app_id,
                 new_hash,
                 app_script.lock,
                 app_script.code,
                 app_script.code_sha256,
+                app_script.modules,
             )
-            .execute(&mut **tx)
+            .fetch_one(&mut **tx)
             .await?;
+            app_script_id_mapping.insert(app_script.id, new_id);
         }
     }
 
+    // A version's lite value is what points each inline script at its `app_script` row (lock and
+    // modules). Without it the fork serves the full value, whose inline scripts carry no id and
+    // so run as bare code: no lock, and no modules for a raw app's sibling imports. Every
+    // version, not just `versions.last()`: the fork's `versions` is rebuilt from all rows above,
+    // so its current one can be a row the parent's array never listed.
+    let source_versions: Vec<i64> = version_id_mapping.keys().copied().collect();
+    let lite_versions = sqlx::query!(
+        "SELECT id, value AS \"value!: serde_json::Value\" FROM app_version_lite WHERE id = ANY($1)",
+        &source_versions,
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    let (mut lite_ids, mut lite_values) = (vec![], vec![]);
+    for lite in lite_versions {
+        let Some(&new_version_id) = version_id_mapping.get(&lite.id) else {
+            continue;
+        };
+        let mut value = lite.value;
+        // Lite inline scripts have no code of their own, so one left without a row cannot run.
+        if !remap_app_script_ids(&mut value, &app_script_id_mapping) {
+            continue;
+        }
+        if let Some(object) = value.as_object_mut() {
+            object.insert("version".to_string(), serde_json::json!(new_version_id));
+        }
+        lite_ids.push(new_version_id);
+        lite_values.push(value);
+    }
+    sqlx::query!(
+        "INSERT INTO app_version_lite (id, value)
+         SELECT * FROM UNNEST($1::bigint[], $2::jsonb[])
+         ON CONFLICT (id) DO NOTHING",
+        &lite_ids,
+        &lite_values,
+    )
+    .execute(&mut **tx)
+    .await?;
+
     Ok(app_id_mapping)
+}
+
+/// Points every `inlineScript.id` of a cloned lite app value at the fork's copy of that row.
+/// False when some id has no copy.
+fn remap_app_script_ids(value: &mut serde_json::Value, mapping: &HashMap<i64, i64>) -> bool {
+    match value {
+        serde_json::Value::Object(object) => {
+            if let Some(serde_json::Value::Object(script)) = object.get_mut("inlineScript") {
+                if let Some(old_id) = script.get("id").and_then(serde_json::Value::as_i64) {
+                    let Some(new_id) = mapping.get(&old_id) else {
+                        return false;
+                    };
+                    script.insert("id".to_string(), serde_json::json!(new_id));
+                }
+            }
+            object
+                .values_mut()
+                .all(|child| remap_app_script_ids(child, mapping))
+        }
+        serde_json::Value::Array(array) => array
+            .iter_mut()
+            .all(|child| remap_app_script_ids(child, mapping)),
+        _ => true,
+    }
 }
 
 async fn clone_raw_apps(
@@ -13871,17 +13965,18 @@ async fn compare_two_flows(
     });
 }
 
-/// The policy minus the identity pair. Deploying cannot converge a difference there — the
-/// target recomputes the identity from the deployer's own choice, which offers its current
-/// value, the deployer, or a typed-in one, never the source's — so listing an app for it
-/// alone leaves an entry no deploy can clear. `script` and `flow` compare no identity either.
-fn policy_without_identity(policy: &serde_json::Value) -> serde_json::Value {
-    let mut policy = policy.clone();
-    if let Some(obj) = policy.as_object_mut() {
+/// An app's policy or an agent's value minus the identity it carries. Deploying cannot converge
+/// a difference there — the target recomputes the identity from the deployer's own choice, which
+/// offers its current value, the deployer, or a typed-in one, never the source's — so listing an
+/// item for it alone leaves an entry no deploy can clear. `script` and `flow` compare no identity
+/// either.
+fn without_identity(value: &serde_json::Value) -> serde_json::Value {
+    let mut value = value.clone();
+    if let Some(obj) = value.as_object_mut() {
         obj.remove("on_behalf_of");
         obj.remove("on_behalf_of_email");
     }
-    policy
+    value
 }
 
 async fn compare_two_apps(
@@ -13924,7 +14019,7 @@ async fn compare_two_apps(
     // Check metadata and content differences
     if let (Some(source), Some(target)) = (&source_app, &target_app) {
         if source.summary != target.summary
-            || policy_without_identity(&source.policy) != policy_without_identity(&target.policy)
+            || without_identity(&source.policy) != without_identity(&target.policy)
             || source.value != target.value
             || source.raw_app != target.raw_app
         {
@@ -14002,7 +14097,14 @@ async fn compare_two_resources(
 
     // Check metadata differences
     if let (Some(source), Some(target)) = (&source_resource, &target_resource) {
-        if source.value != target.value
+        let agent = source.resource_type == "ai_agent" && target.resource_type == "ai_agent";
+        let values_differ = if agent {
+            source.value.as_ref().map(without_identity)
+                != target.value.as_ref().map(without_identity)
+        } else {
+            source.value != target.value
+        };
+        if values_differ
             || source.description != target.description
             || source.resource_type != target.resource_type
         {
