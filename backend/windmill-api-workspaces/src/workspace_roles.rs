@@ -104,6 +104,8 @@ pub(crate) async fn write_role_overrides(
 
     let overrides_json = serde_json::to_value(&overrides)
         .map_err(|e| Error::internal_err(format!("serializing role overrides: {e:#}")))?;
+    #[cfg(feature = "enterprise")]
+    let seat_baseline = windmill_common::ee_oss::seat_cap_baseline(db).await?;
     let mut tx = db.begin().await?;
     sqlx::query!(
         "UPDATE workspace_settings SET role_overrides = $1 WHERE workspace_id = $2",
@@ -131,7 +133,9 @@ pub(crate) async fn write_role_overrides(
     roles::sync_role_seats(&mut tx, Some(w_id)).await?;
 
     #[cfg(feature = "enterprise")]
-    if let Some(msg) = windmill_common::ee_oss::check_seat_cap_for_role_change(db, &mut tx).await? {
+    if let Some(msg) =
+        windmill_common::ee_oss::check_seat_cap_for_role_change(&seat_baseline, &mut tx).await?
+    {
         return Err(Error::BadRequest(msg));
     }
 

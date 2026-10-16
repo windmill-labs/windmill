@@ -1346,9 +1346,11 @@ async fn update_workspace_user(
     Path((w_id, username_to_update)): Path<(String, String)>,
     Json(eu): Json<EditWorkspaceUser>,
 ) -> Result<String> {
-    let mut tx = db.begin().await?;
-
     require_admin(authed.is_admin, &authed.username)?;
+
+    #[cfg(feature = "enterprise")]
+    let seat_baseline = windmill_common::ee_oss::seat_cap_baseline(&db).await?;
+    let mut tx = db.begin().await?;
 
     update_workspace_user_internal(
         &w_id,
@@ -1363,7 +1365,8 @@ async fn update_workspace_user(
     .await?;
 
     #[cfg(feature = "enterprise")]
-    if let Some(msg) = windmill_common::ee_oss::check_seat_cap_for_role_change(&db, &mut tx).await?
+    if let Some(msg) =
+        windmill_common::ee_oss::check_seat_cap_for_role_change(&seat_baseline, &mut tx).await?
     {
         return Err(Error::BadRequest(msg));
     }
