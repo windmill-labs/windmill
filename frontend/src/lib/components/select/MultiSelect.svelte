@@ -157,10 +157,13 @@
 		e.stopImmediatePropagation()
 	}
 
+	// Keys the field acts on stop here: editors around it bind the same keys on `window` (arrows
+	// move the selected step or component). Modified keys are left to them (Cmd+Enter runs).
 	function onFieldKeydown(e: KeyboardEvent) {
-		if (e.target !== wrapperEl) return
-		if (!open && (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown')) {
+		if (e.target !== wrapperEl || e.ctrlKey || e.metaKey || e.altKey) return
+		if (!open && ['Enter', ' ', 'ArrowDown', 'ArrowUp'].includes(e.key)) {
 			e.preventDefault()
+			e.stopPropagation()
 			open = true
 		} else if (open && e.key === 'Escape') {
 			consumeEscape(e)
@@ -171,6 +174,9 @@
 	}
 
 	function onSearchKeydown(e: KeyboardEvent) {
+		// Picking is done by SelectDropdown's window listener. With `disablePortal` the input sits
+		// in the caller's <form>, where Enter would otherwise click its first submit button.
+		if (e.key === 'Enter') e.preventDefault()
 		if (e.key === 'Escape') {
 			consumeEscape(e)
 			closeAndFocusField()
@@ -270,8 +276,18 @@
 						bind:value={filterText}
 						inputProps={{
 							// Pressing the field or a chip focuses the field; typing must still filter.
-							// Not once the last option is picked, as the input is then unmounting.
-							onblur: () => open && showSearch && searchInputEl?.focus(),
+							// Not once the last option is picked, as the input is then unmounting, nor
+							// when focus goes to a control outside the field and its list.
+							onblur: (e: FocusEvent) => {
+								const to = e.relatedTarget as Node | null
+								if (
+									to &&
+									!wrapperEl?.contains(to) &&
+									!document.getElementById(listId)?.contains(to)
+								)
+									return
+								if (open && showSearch) searchInputEl?.focus()
+							},
 							onkeydown: onSearchKeydown,
 							placeholder: searchPlaceholder
 						}}
