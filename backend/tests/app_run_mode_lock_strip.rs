@@ -315,6 +315,7 @@ async fn test_run_mode_id_less_code_with_lite(db: Pool<Postgres>) -> anyhow::Res
     let ws = format!("http://localhost:{port}/api/w/test-workspace");
 
     const RUNTIME_CONTENT: &str = "SELECT 1;\n";
+    const DEPLOYED_CONTENT: &str = "SELECT 2;\n";
     let app_path = "u/test-user/lite_id_less";
     let resp = authed(client().post(format!("{ws}/apps/create")), "SECRET_TOKEN")
         .json(&json!({
@@ -324,7 +325,7 @@ async fn test_run_mode_id_less_code_with_lite(db: Pool<Postgres>) -> anyhow::Res
             "policy": {
                 "execution_mode": "viewer",
                 "triggerables_v2": {
-                    format!("comp:{}", rawscript_pin(CONTENT)): { "static_inputs": {}, "one_of_inputs": {} },
+                    format!("comp:{}", rawscript_pin(DEPLOYED_CONTENT)): { "static_inputs": {}, "one_of_inputs": {} },
                     format!("comp:{}", rawscript_pin(RUNTIME_CONTENT)): { "static_inputs": {}, "one_of_inputs": {} }
                 }
             }
@@ -333,7 +334,7 @@ async fn test_run_mode_id_less_code_with_lite(db: Pool<Postgres>) -> anyhow::Res
         .await?;
     assert_eq!(resp.status(), 201, "create app: {}", resp.text().await?);
 
-    let sha = rawscript_pin(CONTENT)
+    let sha = rawscript_pin(DEPLOYED_CONTENT)
         .trim_start_matches("rawscript/")
         .to_string();
     let script_id: i64 = sqlx::query_scalar(
@@ -342,7 +343,7 @@ async fn test_run_mode_id_less_code_with_lite(db: Pool<Postgres>) -> anyhow::Res
     )
     .bind(app_path)
     .bind(&sha)
-    .bind(CONTENT)
+    .bind(DEPLOYED_CONTENT)
     .fetch_one(&db)
     .await?;
     sqlx::query(
@@ -352,7 +353,7 @@ async fn test_run_mode_id_less_code_with_lite(db: Pool<Postgres>) -> anyhow::Res
     .bind(app_path)
     .bind(
         json!({ "grid": [{ "data": { "componentInput": { "runnable": {
-        "inlineScript": { "id": script_id, "language": "python3" }
+        "inlineScript": { "id": script_id, "language": "postgresql" }
     } } } }] }),
     )
     .execute(&db)
@@ -391,7 +392,7 @@ async fn test_run_mode_id_less_code_with_lite(db: Pool<Postgres>) -> anyhow::Res
         resp.text().await?
     );
 
-    let resp = run(CONTENT, "python3").await?;
+    let resp = run(DEPLOYED_CONTENT, "postgresql").await?;
     let status = resp.status();
     assert_eq!(
         status,
