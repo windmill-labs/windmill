@@ -899,7 +899,7 @@ fn test_provider_rejection_is_readable_and_not_internal() {
         "the envelope should not reach the user: {message}"
     );
     assert!(
-        message.contains("Workspace settings > Integrations"),
+        message.contains("the workspace's shared account"),
         "the hint should say what to do: {message}"
     );
 }
