@@ -80,14 +80,15 @@ export function applyCapabilitiesPatch(
 	// Spread rather than `structuredClone`: `base` may be a Svelte state proxy, which cannot be cloned.
 	const out: RoleCapabilities = { ...base, visibility: { ...base.visibility } }
 	if (!patch) return out
-	if (patch.code !== undefined) out.code = patch.code
-	if (patch.flows !== undefined) out.flows = patch.flows
-	if (patch.apps !== undefined) out.apps = patch.apps
-	if (patch.manage_schedules !== undefined) out.manage_schedules = patch.manage_schedules
-	if (patch.manage_triggers !== undefined) out.manage_triggers = patch.manage_triggers
+	// `!= null`: a stored `null` deserializes to `None` server-side, so it is unset like `undefined`.
+	if (patch.code != null) out.code = patch.code
+	if (patch.flows != null) out.flows = patch.flows
+	if (patch.apps != null) out.apps = patch.apps
+	if (patch.manage_schedules != null) out.manage_schedules = patch.manage_schedules
+	if (patch.manage_triggers != null) out.manage_triggers = patch.manage_triggers
 	for (const { key } of VISIBILITY_KEYS) {
 		const v = patch.visibility?.[key]
-		if (v !== undefined) out.visibility[key] = v
+		if (v != null) out.visibility[key] = v
 	}
 	return out
 }
@@ -114,8 +115,8 @@ export function isEmptyPatch(patch: RoleCapabilitiesPatch | undefined): boolean 
 	if (!patch) return true
 	const { visibility, ...rest } = patch
 	return (
-		Object.values(rest).every((v) => v === undefined) &&
-		Object.values(visibility ?? {}).every((v) => v === undefined)
+		Object.values(rest).every((v) => v == null) &&
+		Object.values(visibility ?? {}).every((v) => v == null)
 	)
 }
 
