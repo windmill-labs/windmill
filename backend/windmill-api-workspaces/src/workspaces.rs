@@ -10032,16 +10032,7 @@ async fn enforce_isolated_forks(
     parent: &str,
     nw: &CreateWorkspaceFork,
 ) -> Result<()> {
-    let RuleCheckResult::Blocked(msg) = check_user_against_rule(
-        parent,
-        &ProtectionRuleKind::RequireIsolatedForks,
-        AuditAuthorable::username(authed),
-        &authed.groups,
-        authed.is_admin,
-        db,
-    )
-    .await?
-    else {
+    let Some(msg) = isolation_required(db, authed, parent).await? else {
         return Ok(());
     };
     let mut shared: Vec<String> = nw
@@ -10054,25 +10045,68 @@ async fn enforce_isolated_forks(
                 .map(|l| format!("ducklake `{l}`")),
         )
         .collect();
-    for (name, _) in
-        windmill_common::workspaces::resolve_workspace_governing_datatables(db, parent).await?
+    shared.extend(
+        kept_parent_datatables(db, parent, &nw.forked_datatables)
+            .await?
+            .into_iter()
+            .map(|name| format!("data table `{name}`")),
+    );
+    refuse_shared(msg, shared)
+}
+
+/// The rule's message when `RequireIsolatedForks` on `parent` binds `authed`.
+async fn isolation_required(db: &DB, authed: &ApiAuthed, parent: &str) -> Result<Option<String>> {
+    match check_user_against_rule(
+        parent,
+        &ProtectionRuleKind::RequireIsolatedForks,
+        AuditAuthorable::username(authed),
+        &authed.groups,
+        authed.is_admin,
+        db,
+    )
+    .await?
     {
-        let cloned = nw.forked_datatables.iter().any(|d| {
-            d.name == name
-                && matches!(
-                    d.fork_behavior,
-                    Some(DataTableForkBehavior::SchemaOnly | DataTableForkBehavior::SchemaAndData)
-                )
-        });
-        if !cloned {
-            shared.push(format!("data table `{name}` (clone it)"));
-        }
+        RuleCheckResult::Blocked(msg) => Ok(Some(msg)),
+        RuleCheckResult::Allowed => Ok(None),
     }
+}
+
+/// `parent`'s own data tables that `forked` leaves as pointers at its database. A pointer entry
+/// governed elsewhere is not `parent`'s data, and cannot be cloned from it anyway.
+async fn kept_parent_datatables(
+    db: &DB,
+    parent: &str,
+    forked: &[ForkedDatatableInfo],
+) -> Result<Vec<String>> {
+    Ok(
+        windmill_common::workspaces::resolve_workspace_governing_datatables(db, parent)
+            .await?
+            .into_iter()
+            .filter(|(_, governing)| governing.governing_workspace_id() == parent)
+            .filter(|(name, _)| {
+                !forked.iter().any(|d| {
+                    &d.name == name
+                        && matches!(
+                            d.fork_behavior,
+                            Some(
+                                DataTableForkBehavior::SchemaOnly
+                                    | DataTableForkBehavior::SchemaAndData
+                            )
+                        )
+                })
+            })
+            .map(|(name, _)| name)
+            .collect(),
+    )
+}
+
+fn refuse_shared(msg: String, shared: Vec<String>) -> Result<()> {
     if shared.is_empty() {
         return Ok(());
     }
     Err(Error::PermissionDenied(format!(
-        "{msg}. Shared in this request: {}",
+        "{msg}. Shared in this request: {}. Only a bypasser of the rule can fork while one of \
+         them cannot be isolated",
         shared.join(", ")
     )))
 }
@@ -10190,6 +10224,17 @@ async fn write_workspace_fork(
     // Also before the external cluster's lifecycle lock, which finalizing an external copy takes:
     // fork cleanup takes the two in this order.
     windmill_common::workspaces::lock_fork_datatables(&mut tx, &parent_workspace_id).await?;
+    // Data table edits take the lock above: one committed since the creation check would reach
+    // this fork as a pointer at the parent's database.
+    if let Some(msg) = isolation_required(&db, &authed, &parent_workspace_id).await? {
+        let kept = kept_parent_datatables(&db, &parent_workspace_id, &nw.forked_datatables).await?;
+        refuse_shared(
+            msg,
+            kept.into_iter()
+                .map(|name| format!("data table `{name}`"))
+                .collect(),
+        )?;
+    }
 
     if nw.is_dev_workspace {
         // The checks above ran outside a transaction, so the parent's eligibility and the chain's

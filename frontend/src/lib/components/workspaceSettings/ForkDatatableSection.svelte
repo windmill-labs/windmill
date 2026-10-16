@@ -21,7 +21,7 @@
 		// Workspace whose datatables are cloned into the fork (the fork's base). Falls back to the
 		// current workspace so existing callers keep working.
 		sourceWorkspace?: string
-		// A protection rule on the base forbids `keep_original`: every datatable is cloned.
+		// A protection rule on the base forbids `keep_original` for the base's own datatables.
 		requireIsolation?: boolean
 		onAllDone?: () => void
 		onCanceled?: () => void
@@ -39,9 +39,15 @@
 	type Behavior = 'schema_only' | 'schema_and_data' | 'keep_original'
 	let datatableBehaviors: Record<string, Behavior> = $state({})
 
-	function behaviorOf(name: string): Behavior {
-		const chosen = datatableBehaviors[name] ?? 'keep_original'
-		return requireIsolation && chosen === 'keep_original' ? 'schema_only' : chosen
+	// A pointer at another workspace's database is not the base's data, and only that workspace
+	// can clone it: the rule leaves it alone, as the server does.
+	function mustClone(dt: { governing_workspace_id?: string }): boolean {
+		return requireIsolation && !dt.governing_workspace_id
+	}
+
+	function behaviorOf(dt: { name: string; governing_workspace_id?: string }): Behavior {
+		const chosen = datatableBehaviors[dt.name] ?? 'keep_original'
+		return mustClone(dt) && chosen === 'keep_original' ? 'schema_only' : chosen
 	}
 
 	let cloneModalOpen = $state(false)
@@ -56,11 +62,11 @@
 		// A fork attempt starts here: what an earlier attempt confirmed is not this one's to send.
 		confirmedJobs = []
 		return (allDatatables.current ?? [])
-			.filter((dt) => behaviorOf(dt.name) !== 'keep_original')
+			.filter((dt) => behaviorOf(dt) !== 'keep_original')
 			.map((dt) => ({
 				name: dt.name,
 				resourceType: dt.resource_type,
-				behavior: behaviorOf(dt.name) as 'schema_only' | 'schema_and_data',
+				behavior: behaviorOf(dt) as 'schema_only' | 'schema_and_data',
 				// A dev workspace's id has no `wm-fork-` prefix; its copies are named like a fork's
 				_newDbName: `wm_fork_${targetWorkspaceId.replace(/^wm-fork-/, '').replace(/-/g, '_')}__${dt.name}`
 			}))
@@ -116,9 +122,9 @@
 					</div>
 					<Select
 						dropdownClass="max-w-96"
-						bind:value={() => behaviorOf(dt.name), (v) => (datatableBehaviors[dt.name] = v)}
+						bind:value={() => behaviorOf(dt), (v) => (datatableBehaviors[dt.name] = v)}
 						items={[
-							...(requireIsolation
+							...(mustClone(dt)
 								? []
 								: [
 										{

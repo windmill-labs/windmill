@@ -22,7 +22,6 @@
 	import {
 		enterpriseLicense,
 		superadmin,
-		userStore,
 		usersWorkspaceStore,
 		userWorkspaces,
 		workspaceStore
@@ -39,9 +38,11 @@
 	import {
 		canUserBypassRuleKindInRulesets,
 		fetchProtectionRulesForWorkspace,
+		isRuleActiveInRulesets,
 		isRuleUnconditionallyActiveInRulesets
 	} from '$lib/workspaceProtectionRules.svelte'
 	import { resource } from 'runed'
+	import { getUserExt } from '$lib/user'
 	import { Button } from '$lib/components/common'
 	import {
 		DEV_WORKSPACE_LABELS,
@@ -284,14 +285,27 @@
 
 	// The base's `RequireIsolatedForks` rule leaves no data shared with it: the sections below drop
 	// their sharing options. The server enforces it; this only keeps the form from offering a
-	// choice it would refuse.
-	const baseRulesets = resource(
+	// choice it would refuse. Bypass is judged with the user's identity in the BASE, like
+	// ParentWorkspaceProtectionAlert.
+	const baseRuleContext = resource(
 		() => (isFork ? baseWorkspaceId : undefined),
-		async (ws) => (ws ? fetchProtectionRulesForWorkspace(ws) : undefined)
+		async (ws) => {
+			if (!ws) return undefined
+			const [rules, user] = await Promise.all([
+				fetchProtectionRulesForWorkspace(ws),
+				getUserExt(ws)
+			])
+			return { rules, user }
+		}
 	)
-	let requireIsolation = $derived(
-		!canUserBypassRuleKindInRulesets(baseRulesets.current ?? [], 'RequireIsolatedForks', $userStore)
-	)
+	let requireIsolation = $derived.by(() => {
+		const ctx = baseRuleContext.current
+		return (
+			!!ctx &&
+			isRuleActiveInRulesets(ctx.rules, 'RequireIsolatedForks') &&
+			!canUserBypassRuleKindInRulesets(ctx.rules, 'RequireIsolatedForks', ctx.user)
+		)
+	})
 
 	let workspaceColor: string | undefined = $state(undefined)
 	let colorEnabled = $state(false)
@@ -448,9 +462,11 @@
 					id: prefixed_id,
 					name,
 					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
-					// Sent in this first phase too, so a clone the fork would refuse is refused before
-					// any branch is created.
+					// Sent in this first phase too, so a clone or a sharing choice the fork would refuse
+					// is refused before any branch is created.
 					forked_datatables: forkedDatatables,
+					shared_ducklakes: forkDucklakeSection?.getSharedDucklakes() ?? [],
+					shared_storages: forkStorageSection?.getSharedStorages() ?? [],
 					is_dev_workspace: createAsDevWorkspace,
 					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
 					// Send the lock intent in this first phase too so the backend can reject a non-admin's
