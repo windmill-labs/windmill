@@ -230,6 +230,38 @@ fn check_connection_scopes(authed: &ApiAuthed, path: &str) -> Result<()> {
     check_scopes(authed, || format!("resources:write:{path}"))
 }
 
+/// Reconnecting at a path swaps the account every trigger using it acts as, including the shared
+/// account's, so only whoever connected it or an admin may replace what is there. Writing the
+/// path is not enough: a folder writer would otherwise turn other members' triggers into their own.
+#[cfg(feature = "native_trigger")]
+async fn check_can_replace(
+    db: &DB,
+    authed: &ApiAuthed,
+    workspace_id: &str,
+    path: &str,
+) -> Result<()> {
+    if authed.is_admin {
+        return Ok(());
+    }
+    let existing = sqlx::query!(
+        r#"SELECT
+             (SELECT created_by FROM resource WHERE workspace_id = $1 AND path = $2) AS "owner?",
+             EXISTS(SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2)
+               OR EXISTS(SELECT 1 FROM variable WHERE workspace_id = $1 AND path = $2) AS "taken!""#,
+        workspace_id,
+        path,
+    )
+    .fetch_one(db)
+    .await?;
+    if existing.taken && existing.owner.as_deref() != Some(authed.username.as_str()) {
+        return Err(Error::NotAuthorized(format!(
+            "{path} holds a connection someone else created. Connect at another path, or ask an \
+             admin to reconnect it."
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(feature = "native_trigger")]
 fn default_connection_path(authed: &ApiAuthed, service_name: ServiceName) -> String {
     format!(
@@ -256,6 +288,7 @@ async fn generate_connect_url(
         .filter(|p| !p.is_empty())
         .unwrap_or_else(|| default_connection_path(&authed, service_name));
     check_connection_scopes(&authed, &connection_path)?;
+    check_can_replace(&db, &authed, &workspace_id, &connection_path).await?;
 
     // A GitHub OAuth app only redirects under its one registered callback, and the instance app's
     // is the resource connect callback, so its connections land on a page below that one.
@@ -470,13 +503,18 @@ async fn delete_integration(
 ) -> JsonResult<String> {
     require_admin(authed.is_admin, &workspace_id)?;
 
-    // Delete triggers first: removing their registrations needs the connections cleaned up below
-    delete_triggers_for_service(&db, &workspace_id, service_name, None).await;
-
-    let mut tx = user_db.begin(&authed).await?;
-
-    // Same serialization as a single disconnect: a trigger created meanwhile either committed
-    // before these locks, and is caught below, or waits and then finds its connection gone.
+    // This deletes every trigger and connection of the service, so a path-scoped token must
+    // cover each of them, as for a single disconnect.
+    let script_paths = sqlx::query_scalar!(
+        "SELECT script_path FROM native_trigger WHERE workspace_id = $1 AND service_name = $2",
+        workspace_id,
+        service_name as ServiceName,
+    )
+    .fetch_all(&db)
+    .await?;
+    for script_path in &script_paths {
+        check_scopes(&authed, || format!("native_triggers:write:{script_path}"))?;
+    }
     let mut paths = sqlx::query_scalar!(
         "SELECT v.path FROM variable v
          JOIN account a ON a.workspace_id = v.workspace_id AND a.id = v.account
@@ -486,6 +524,17 @@ async fn delete_integration(
     )
     .fetch_all(&db)
     .await?;
+    for path in &paths {
+        check_connection_scopes(&authed, path)?;
+    }
+
+    // Delete triggers first: removing their registrations needs the connections cleaned up below
+    delete_triggers_for_service(&db, &workspace_id, service_name, None).await;
+
+    let mut tx = user_db.begin(&authed).await?;
+
+    // Same serialization as a single disconnect: a trigger created meanwhile either committed
+    // before these locks, and is caught below, or waits and then finds its connection gone.
     paths.sort();
     for path in &paths {
         lock_connection(&mut tx, &workspace_id, path).await?;
@@ -661,6 +710,7 @@ async fn oauth_callback(
     )
     .await?;
     check_connection_scopes(&authed, &resource_path)?;
+    check_can_replace(&db, &authed, &workspace_id, &resource_path).await?;
 
     let (oauth_config, is_instance_shared) =
         resolve_oauth_client(&db, &workspace_id, service_name).await?;
@@ -1121,6 +1171,8 @@ async fn set_workspace_connection(
     require_admin(authed.is_admin, &workspace_id)?;
 
     if let Some(path) = path.as_deref() {
+        // Sharing lets every member act as the account, so a path-scoped token must cover it.
+        check_connection_scopes(&authed, path)?;
         let exists = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM variable v
              JOIN account a ON a.workspace_id = v.workspace_id AND a.id = v.account

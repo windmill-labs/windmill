@@ -1823,7 +1823,9 @@ pub async fn workspace_connection(
 }
 
 /// Pick the connection a new trigger acts through: the one asked for if the caller may use it,
-/// otherwise the caller's only usable connection. `tx` must be a user transaction.
+/// otherwise the shared account, otherwise the caller's only usable connection. Clients and
+/// trigger specs that predate connections send none and expect the shared account, so it wins
+/// over a lone personal one. `tx` must be a user transaction.
 pub async fn resolve_usable_connection(
     db: &DB,
     tx: &mut PgConnection,
@@ -1835,9 +1837,10 @@ pub async fn resolve_usable_connection(
     match requested {
         Some(path) if usable.iter().any(|c| c.path == path) => Ok(path.to_string()),
         Some(path) => Err(Error::NotAuthorized(format!(
-            "No {service_name} connection you can use at {path}. Connect your own account or ask \
-             for read access to that connection."
+            "No {service_name} connection you can use at {path}. Connect an account at that \
+             path, or ask for read access to the connection there."
         ))),
+        None if usable.first().is_some_and(|c| c.workspace) => Ok(usable[0].path.clone()),
         None => match usable.as_slice() {
             [only] => Ok(only.path.clone()),
             [] => Err(Error::BadRequest(format!(

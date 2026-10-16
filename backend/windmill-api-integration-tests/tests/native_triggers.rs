@@ -26,9 +26,10 @@ use windmill_native_triggers::{
     grant_refused, http_error_status, list_native_triggers, list_usable_connections,
     map_external_error, native_trigger_is_enabled,
     nextcloud::NextCloud,
-    require_native_integration_use, set_native_trigger_enabled, store_native_trigger,
-    store_workspace_integration, update_native_trigger, update_oauth_token_resource, External,
-    ExternalReadFailure, HttpRequestError, NativeTriggerConfig, OAuthConfig, ServiceName,
+    require_native_integration_use, resolve_usable_connection, set_native_trigger_enabled,
+    store_native_trigger, store_workspace_integration, update_native_trigger,
+    update_oauth_token_resource, External, ExternalReadFailure, HttpRequestError,
+    NativeTriggerConfig, OAuthConfig, ServiceName,
 };
 
 // ============================================================================
@@ -256,6 +257,18 @@ async fn test_workspace_connection_usable_by_members(db: Pool<Postgres>) -> anyh
     .execute(&db)
     .await?;
     assert_eq!(usable_paths().await?, vec![(path.to_string(), true)]);
+
+    // Clients and specs that predate connections name none: they keep getting the shared
+    // account once the member also has their own.
+    let own = "u/test-user-2/native_nextcloud";
+    setup_oauth_integration(&db, ServiceName::Nextcloud, own, "b", "s", None).await?;
+    let mut tx = UserDB::new(db.clone()).begin(&member).await?;
+    let default =
+        resolve_usable_connection(&db, &mut tx, "test-workspace", ServiceName::Nextcloud, None)
+            .await?;
+    tx.commit().await?;
+    assert_eq!(usable_paths().await?.len(), 2);
+    assert_eq!(default, path);
 
     Ok(())
 }
