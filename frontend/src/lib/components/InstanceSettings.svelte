@@ -320,7 +320,12 @@
 			const key = tmpl.extra_params_key ?? 'instance'
 			const v = normalizeInstanceInput(tmpl, instanceInputs[name] ?? '')
 			instanceInputs[name] = v
-			if (oauths[name].connect_config?.extra_params?.[key] === v) continue
+			const cc = oauths[name].connect_config
+			if (cc?.extra_params?.[key] === v) continue
+			// URLs written out by hand, with no instance name: keep them, as the server does.
+			const explicitUrls =
+				!v && !(key in (cc?.extra_params ?? {})) && cc?.token_url && !cc.token_url.includes('{')
+			if (explicitUrls) continue
 			oauths[name].connect_config = templatedConnectConfig(tmpl, v)
 		}
 	}
