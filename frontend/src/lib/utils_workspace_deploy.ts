@@ -977,14 +977,7 @@ export async function checkDeployPermission(
 ): Promise<DeployPermission> {
 	try {
 		const me = whoami ?? (await UserService.whoami({ workspace }))
-		// Superadmin is left out on purpose: a superadmin whose role cannot code is refused too.
-		const roleUser = { is_admin: me.is_admin, operator: me.operator }
-		if (
-			!capabilitiesIn(
-				roleUser,
-				get(userWorkspaces).find((w) => w.id === workspace)
-			).code
-		) {
+		if (!capabilitiesIn(me, get(userWorkspaces).find((w) => w.id === workspace)).code) {
 			return {
 				ok: false,
 				reason: "Your role in this workspace can't deploy",
