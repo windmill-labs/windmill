@@ -174,6 +174,18 @@ pub async fn execute_tool_calls(
                 tool_call_id: Some(tool_call.id.clone()),
                 ..Default::default()
             });
+            // The answer ends the turn, but the history can be sent again after a background
+            // result, and a provider refuses a call left unanswered.
+            for skipped in calls.by_ref() {
+                messages.push(OpenAIMessage {
+                    role: "tool".to_string(),
+                    content: Some(OpenAIContent::Text(
+                        "Not run: the structured answer ended this turn.".to_string(),
+                    )),
+                    tool_call_id: Some(skipped.id.clone()),
+                    ..Default::default()
+                });
+            }
             messages.push(OpenAIMessage {
                 role: "assistant".to_string(),
                 content: Some(OpenAIContent::Text(tool_call.function.arguments.clone())),

@@ -929,16 +929,16 @@
 
 	function getAgentActionContent(agentResult: any, actionIndex: number): unknown | undefined {
 		if (!agentResult?.messages || !Array.isArray(agentResult.messages)) return undefined
-		let agentActionIdx = 0
-		for (const m of agentResult.messages) {
-			if (m.agent_action) {
-				if (agentActionIdx === actionIndex) {
-					return m.content
-				}
-				agentActionIdx++
-			}
-		}
-		return undefined
+		// A background tool's result arrives later as a user message tagged with the action its
+		// job started: it is not an action of its own, and it answers that one.
+		const isBackgroundResult = (m: any) => m.role === 'user' && m.agent_action?.type === 'tool_call'
+		const tagged = agentResult.messages.filter((m: any) => m.agent_action)
+		const message = tagged.filter((m: any) => !isBackgroundResult(m))[actionIndex]
+		const jobId = message?.agent_action?.job_id
+		const result = jobId
+			? tagged.find((m: any) => isBackgroundResult(m) && m.agent_action.job_id === jobId)
+			: undefined
+		return (result ?? message)?.content
 	}
 
 	function isSuccess(arg: any): boolean | undefined {

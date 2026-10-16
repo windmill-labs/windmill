@@ -168,7 +168,8 @@ pub(crate) enum ParkOutcome {
     JobFinished,
 }
 
-/// Park the agent until its approval is answered or expires.
+/// Park the agent until its approval is answered or expires or, with no approval open, until the
+/// monitor finds one of its `waiting_on` jobs completed.
 pub(crate) async fn park(
     db: &DB,
     conn: &Connection,

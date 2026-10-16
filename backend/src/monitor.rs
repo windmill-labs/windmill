@@ -4478,7 +4478,6 @@ pub async fn monitor_db(
         }
     };
 
-    // run every 30 iterations (~5min at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
     // Every pass: a parked AI agent waits on this for its background tool jobs.
     let wake_ai_agents_f = async {
         if server_mode && !initial_load {
@@ -4490,6 +4489,7 @@ pub async fn monitor_db(
         }
     };
 
+    // run every 30 iterations (~5min at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
     let stranded_jobs_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(30) {
             if let Some(db) = conn.as_sql() {
