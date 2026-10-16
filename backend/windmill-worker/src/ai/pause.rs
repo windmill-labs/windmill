@@ -135,6 +135,9 @@ pub(crate) struct AgentCheckpoint {
     /// to ask it, so the agent parks again.
     #[serde(default)]
     pub answered: bool,
+    /// The model gave a structured answer, which stands unless it gives another.
+    #[serde(default)]
+    pub structured_answer: bool,
     /// `resume_job` rows never leave while the agent is queued, so each answer must skip the
     /// ones earlier parks already read.
     #[serde(default)]

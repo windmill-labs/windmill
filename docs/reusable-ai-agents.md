@@ -215,7 +215,8 @@ answered. Its outcome in `agent_actions_success` is `null` until then, set in pl
   answer. An answer the row accepts while the agent waits on background jobs only is marked read on
   resume, so it cannot answer a later request.
 - **Limits.** A nested agent runs its background tools in the foreground, since it cannot park. The
-  job is never reserved for the agent's own worker.
+  job is never reserved for the agent's own worker. Like a foreground tool, a job that never
+  finishes (a tag no worker serves) keeps the agent waiting, here parked and re-checked hourly.
 
 ## Drafts
 

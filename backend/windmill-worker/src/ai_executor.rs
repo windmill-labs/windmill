@@ -1662,6 +1662,7 @@ pub async fn run_agent(
             consumed_resume_rows = checkpoint.consumed_resume_rows;
             background = checkpoint.background;
             answered = checkpoint.answered;
+            keep_structured_answer = checkpoint.structured_answer;
             resumed_answer = answer;
             (
                 AgentHistory::from_checkpoint(checkpoint.history),
@@ -1909,6 +1910,7 @@ pub async fn run_agent(
                 pending: None,
                 background: background.clone(),
                 answered: true,
+                structured_answer: keep_structured_answer || used_structured_output_tool,
                 consumed_resume_rows: consumed_resume_rows.clone(),
             };
             match park_agent(db, conn, job, &checkpoint, &cancel_rx).await {
@@ -2584,6 +2586,7 @@ pub async fn run_agent(
                         pending: Some(pending),
                         background,
                         answered: false,
+                        structured_answer: keep_structured_answer,
                         consumed_resume_rows,
                     };
                     let parked =
@@ -2659,7 +2662,8 @@ pub async fn run_agent(
     }
 
     if !background.is_empty() {
-        // Out of iterations with background jobs still running: nothing would read their results.
+        // Resumed past its iteration limit, which a linked agent edited while parked can lower:
+        // nothing would read the background jobs' results.
         cleanup_orphaned_tool_jobs(db, &job.id, &job.workspace_id, None).await;
     }
 
