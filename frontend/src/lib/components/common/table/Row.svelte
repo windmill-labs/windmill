@@ -284,7 +284,7 @@
 			{#if customSummary}
 				<div class="min-w-0">{@render customSummary()}</div>
 			{:else}
-				<span class="truncate">
+				<span class="truncate" title={summary || displayPath}>
 					{#if marked}
 						{@html marked}
 					{:else}
