@@ -1302,12 +1302,35 @@ pub async fn operator_can_draft<A: Authable + ?Sized>(
         return Ok(true);
     }
     let caps = caller_capabilities(db, workspace_id, authed).await?;
+    // Exhaustive on purpose: a new kind must pick the capability it needs, or every non-admin
+    // (unrestricted developers included) is refused its drafts.
     Ok(match kind {
         UserDraftItemKind::Flow => caps.flows != AuthorLevel::None,
         UserDraftItemKind::RawApp => caps.apps != AuthorLevel::None,
-        UserDraftItemKind::Script => caps.code,
+        UserDraftItemKind::Script | UserDraftItemKind::DataPipeline => caps.code,
         UserDraftItemKind::App => caps.apps == AuthorLevel::Full,
-        kind => kind.manage_kind().is_some_and(|m| caps.has_manage(m)),
+        UserDraftItemKind::Resource | UserDraftItemKind::Variable => true,
+        UserDraftItemKind::TriggerSchedule
+        | UserDraftItemKind::TriggerWebhook
+        | UserDraftItemKind::TriggerDefaultEmail
+        | UserDraftItemKind::TriggerEmail
+        | UserDraftItemKind::TriggerHttp
+        | UserDraftItemKind::TriggerWebsocket
+        | UserDraftItemKind::TriggerPostgres
+        | UserDraftItemKind::TriggerKafka
+        | UserDraftItemKind::TriggerNats
+        | UserDraftItemKind::TriggerMqtt
+        | UserDraftItemKind::TriggerAmqp
+        | UserDraftItemKind::TriggerSqs
+        | UserDraftItemKind::TriggerGcp
+        | UserDraftItemKind::TriggerAzure
+        | UserDraftItemKind::TriggerPoll
+        | UserDraftItemKind::TriggerCli
+        | UserDraftItemKind::TriggerNextcloud
+        | UserDraftItemKind::TriggerGoogle
+        | UserDraftItemKind::TriggerGithub => {
+            kind.manage_kind().is_some_and(|m| caps.has_manage(m))
+        }
     })
 }
 
