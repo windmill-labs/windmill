@@ -404,10 +404,12 @@ async fn test_oidc_claim_carries_the_presented_scopes(db: Pool<Postgres>) -> any
         let status = resp.status();
         let id_token = resp.text().await?;
         assert_eq!(status, StatusCode::OK, "{id_token}");
-        let payload = id_token.split('.').nth(1).expect("a JWT payload");
-        let claims: serde_json::Value = serde_json::from_slice(
-            &base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(payload)?,
-        )?;
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(id_token.split('.').nth(1).expect("a JWT payload"))?;
+        // serde_json keeps the last of duplicate keys, so count them on the raw payload.
+        let raw = String::from_utf8(payload.clone())?;
+        assert_eq!(raw.matches("\"email\":").count(), 1, "{raw}");
+        let claims: serde_json::Value = serde_json::from_slice(&payload)?;
         assert_eq!(claims["job_token_scopes"], expected, "{job}");
     }
 
