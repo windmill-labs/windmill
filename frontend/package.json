@@ -16,6 +16,7 @@
 		"package": "svelte-package -o package && node scripts/package-system-prompts.js && node scripts/fix-svelte-module-imports.js",
 		"generate-backend-client": "openapi-ts --input ../backend/windmill-api/openapi.yaml --output ./src/lib/gen --useOptions --enums javascript --format false",
 		"generate-backend-client-mac": "openapi-ts --input ../backend/windmill-api/openapi.yaml --output ./src/lib/gen --useOptions --enums javascript",
+		"gen:mcp-session": "WM_GEN_MCP_SESSION=1 vitest run --project server src/lib/components/copilot/chat/global/mcpSessionGen.test.ts",
 		"pretest": "tsc --incremental -p tests/tsconfig.json",
 		"filter-classes": "node filterTailwindClasses.js",
 		"test:unit": "vitest",

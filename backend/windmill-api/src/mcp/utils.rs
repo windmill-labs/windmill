@@ -653,6 +653,25 @@ pub async fn create_http_request(
     api_authed: &ApiAuthed,
     body_json: Option<Value>,
 ) -> BackendResult<reqwest::Response> {
+    // Scope the minted JWT to the proxied route so a scope-restricted MCP token
+    // can't be widened into a full-privilege blank check. See
+    // `jwt_scopes_for_proxied_route`.
+    let parsed = reqwest::Url::parse(url)
+        .map_err(|e| ErrorData::internal_error(format!("Invalid proxied URL: {}", e), None))?;
+    let scopes = jwt_scopes_for_proxied_route(api_authed.scopes.as_deref(), method, parsed.path())?;
+    send_as_caller(method, url, workspace_id, api_authed, body_json, scopes).await
+}
+
+/// Call the API as `api_authed` with a JWT carrying `scopes`; `None` is the caller's
+/// full rights, for a server whose own code picks every route it calls.
+pub async fn send_as_caller(
+    method: &str,
+    url: &str,
+    workspace_id: &str,
+    api_authed: &ApiAuthed,
+    body_json: Option<Value>,
+    scopes: Option<Vec<String>>,
+) -> BackendResult<reqwest::Response> {
     let client = &HTTP_CLIENT;
     let mut request_builder = match method {
         "GET" => client.get(url),
@@ -667,13 +686,6 @@ pub async fn create_http_request(
             ));
         }
     };
-
-    // Scope the minted JWT to the proxied route so a scope-restricted MCP token
-    // can't be widened into a full-privilege blank check. See
-    // `jwt_scopes_for_proxied_route`.
-    let parsed = reqwest::Url::parse(url)
-        .map_err(|e| ErrorData::internal_error(format!("Invalid proxied URL: {}", e), None))?;
-    let scopes = jwt_scopes_for_proxied_route(api_authed.scopes.as_deref(), method, parsed.path())?;
 
     // Add authorization header. Carry the caller's job provenance into the proxy
     // JWT: a job's WM_TOKEN is capped at workspace admin (GHSA-hfh4-cx4h-3fcr), and

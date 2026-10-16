@@ -568,14 +568,14 @@ pub async fn run_server(
 
     // Setup MCP server
     #[allow(unused_variables)]
-    let (mcp_router, gateway_mcp_router, mcp_cancellation_token) = {
+    let (mcp_router, gateway_mcp_router, gateway_session_router, mcp_cancellation_token) = {
         #[cfg(feature = "mcp")]
         if server_mode || mcp_mode {
             use mcp::{
                 add_www_authenticate_header, add_www_authenticate_header_gateway,
                 extract_workspace_from_token, reject_token_query_param,
             };
-            let (mcp_router, mcp_cancellation_token) = setup_mcp_server(
+            let (mcp_router, session_router, mcp_cancellation_token) = setup_mcp_server(
                 db.clone(),
                 user_db,
                 _base_internal_url.clone(),
@@ -597,17 +597,32 @@ pub async fn run_server(
                 .layer(axum::middleware::from_fn(
                     add_www_authenticate_header_gateway,
                 ));
+            // The workspace server. Its tools name their workspace; the token bounds which.
+            let gateway_session_router = session_router
+                .route_layer(from_extractor::<ApiAuthed>())
+                .layer(axum::middleware::from_fn(extract_workspace_from_token))
+                .layer(axum::middleware::from_fn(reject_token_query_param))
+                .layer(axum::middleware::from_fn(
+                    add_www_authenticate_header_gateway,
+                ))
+                .layer(Extension(mcp::McpEndpoint("/api/mcp")));
             (
                 workspaced_mcp_router,
                 gateway_mcp_router,
+                gateway_session_router,
                 Some(mcp_cancellation_token),
             )
         } else {
-            (Router::new(), Router::new(), None)
+            (Router::new(), Router::new(), Router::new(), None)
         }
 
         #[cfg(not(feature = "mcp"))]
-        (Router::new(), Router::new(), Option::<()>::None)
+        (
+            Router::new(),
+            Router::new(),
+            Router::new(),
+            Option::<()>::None,
+        )
     };
 
     // Workers block on this before pulling their first job, so it is released ahead of
@@ -620,15 +635,15 @@ pub async fn run_server(
     }
     tokio::task::yield_now().await;
 
-    let mcp_list_tools_service = {
+    let (mcp_list_tools_service, mcp_toolset_service) = {
         #[cfg(feature = "mcp")]
         {
-            mcp::list_tools_service()
+            (mcp::list_tools_service(), mcp::toolset_service())
         }
 
         #[cfg(not(feature = "mcp"))]
         {
-            Router::new()
+            (Router::new(), Router::new())
         }
     };
 
@@ -845,6 +860,7 @@ pub async fn run_server(
                 .nest("/docs", docs::global_service())
                 .nest("/indexer", indexer_oss::management_service())
                 .nest("/mcp/w/{workspace_id}/list_tools", mcp_list_tools_service)
+                .nest("/mcp/toolset", mcp_toolset_service)
                 .nest("/db_health", db_health::global_service())
                 .nest("/health/detailed", health::detailed_service())
                 .nest(
@@ -940,6 +956,7 @@ pub async fn run_server(
                     mcp_router.clone().layer(mcp_cors.clone()),
                 )
                 .nest("/mcp/gateway", gateway_mcp_router.layer(mcp_cors.clone()))
+                .merge(gateway_session_router.layer(mcp_cors.clone()))
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
                     {
@@ -1171,6 +1188,16 @@ pub async fn run_server(
             #[cfg(feature = "mcp")]
             {
                 get(mcp::oauth_server::gateway_protected_resource_metadata)
+            }
+            #[cfg(not(feature = "mcp"))]
+            {
+                get(|| async { axum::http::StatusCode::NOT_FOUND })
+            }
+        })
+        .route("/.well-known/oauth-protected-resource/api/mcp", {
+            #[cfg(feature = "mcp")]
+            {
+                get(mcp::oauth_server::gateway_session_protected_resource_metadata)
             }
             #[cfg(not(feature = "mcp"))]
             {

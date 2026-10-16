@@ -20,9 +20,26 @@ pub struct McpScopeConfig {
     pub granular: bool,
     /// Hub app filter (if any)
     pub hub_apps: Option<String>,
+    /// The workspaces a token without a bound workspace may act in
+    /// (`mcp:workspaces:a,b`); `None` is every workspace its owner belongs to.
+    pub workspaces: Option<Vec<String>>,
+    /// `mcp:read_run`: reads, plus running deployed scripts and flows, and nothing else.
+    pub read_run: bool,
+    /// `mcp:read_only`: reads alone, as the token's read-only flag does. An OAuth grant
+    /// carries scopes and no flag, so this is how a sign-in asks for read-only access.
+    pub read_only: bool,
+    /// Set by the server, not by a scope: on `/api/mcp` a selection is its scripts and flows
+    /// as tools and nothing else, the API being the full toolset's job there.
+    pub no_endpoints: bool,
 }
 
 impl McpScopeConfig {
+    pub fn allows_workspace(&self, workspace_id: &str) -> bool {
+        self.workspaces
+            .as_ref()
+            .is_none_or(|ws| ws.iter().any(|w| w == workspace_id))
+    }
+
     /// Whether the token grants access to *any* concrete resource of this type by
     /// path. Used to decide whether to advertise the run-by-path tools in
     /// multi-workspace mode (a `mcp:scripts:*`-only token should see
@@ -68,6 +85,18 @@ impl McpScopeConfig {
     /// semantics), this requires every requested pattern to be covered by some
     /// caller pattern — so `mcp:scripts:f/x` cannot widen into `mcp:scripts:*`.
     pub fn contains(&self, requested: &McpScopeConfig) -> bool {
+        if let Some(caller_ws) = self.workspaces.as_ref() {
+            match requested.workspaces.as_ref() {
+                Some(req_ws) if req_ws.iter().all(|w| caller_ws.contains(w)) => {}
+                _ => return false,
+            }
+        }
+        if self.read_only && !requested.read_only {
+            return false;
+        }
+        if self.read_run && !(requested.read_run || requested.read_only) {
+            return false;
+        }
         if self.all {
             return true;
         }
@@ -177,6 +206,24 @@ pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, String> {
         if let Some(resources) = scope.strip_prefix("mcp:flows:") {
             // New granular flow scope: mcp:flows:path1,path2,f/folder/*
             config.flows.extend(parse_resource_list(resources));
+            continue;
+        }
+
+        if scope == "mcp:read_run" {
+            config.read_run = true;
+            continue;
+        }
+
+        if scope == "mcp:read_only" {
+            config.read_only = true;
+            continue;
+        }
+
+        if let Some(ids) = scope.strip_prefix("mcp:workspaces:") {
+            config
+                .workspaces
+                .get_or_insert_with(Vec::new)
+                .extend(parse_resource_list(ids));
             continue;
         }
 
@@ -408,5 +455,28 @@ mod tests {
         assert!(!ep.contains(&cfg(&["mcp:all"])));
         // mcp:all grants all endpoints.
         assert!(cfg(&["mcp:all"]).contains(&cfg(&["mcp:endpoints:getResource"])));
+    }
+
+    #[test]
+    fn test_workspaces_scope() {
+        let two = cfg(&["mcp:all", "mcp:workspaces:dev,staging"]);
+        assert!(two.allows_workspace("dev") && !two.allows_workspace("prod"));
+        assert!(cfg(&["mcp:all"]).allows_workspace("prod"));
+        // A workspace list only narrows: it cannot be dropped or widened by a grant.
+        assert!(two.contains(&cfg(&["mcp:all", "mcp:workspaces:dev"])));
+        assert!(!two.contains(&cfg(&["mcp:all", "mcp:workspaces:dev,prod"])));
+        assert!(!two.contains(&cfg(&["mcp:all"])));
+        assert!(cfg(&["mcp:all"]).contains(&two));
+    }
+
+    #[test]
+    fn test_read_run_scope_only_narrows() {
+        let read_run = cfg(&["mcp:all", "mcp:read_run"]);
+        assert!(read_run.read_run && read_run.all);
+        assert!(read_run.contains(&cfg(&["mcp:all", "mcp:read_run"])));
+        assert!(!read_run.contains(&cfg(&["mcp:all"])));
+        assert!(read_run.contains(&cfg(&["mcp:all", "mcp:read_only"])));
+        let read_only = cfg(&["mcp:all", "mcp:read_only"]);
+        assert!(!read_only.contains(&cfg(&["mcp:all", "mcp:read_run"])));
     }
 }
