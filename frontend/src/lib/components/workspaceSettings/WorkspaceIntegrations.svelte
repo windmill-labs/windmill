@@ -157,17 +157,27 @@
 		}
 	}
 
-	async function setWorkspaceConnection(serviceName: string, path: string | undefined): Promise<boolean> {
+	async function setWorkspaceConnection(
+		serviceName: string,
+		path: string | undefined
+	): Promise<boolean> {
 		if (!$workspaceStore) return false
 
 		const displayName = supportedServices[serviceName]?.displayName ?? serviceName
 		if (path) {
 			const owner = connections[serviceName]?.find((c) => c.path === path)?.owner
 			const account = owner ? `this account, connected by ${owner}` : 'this account'
+			const browsable: string | undefined = (
+				{ google: 'its Drive files and calendars', github: 'its repositories' } as Record<
+					string,
+					string
+				>
+			)[serviceName]
+			const browse = browsable ? `, and browse ${browsable} in the trigger editor` : ''
 			const confirmed = await confirmationModal.ask({
 				title: `Share ${path} with the workspace?`,
 				confirmationText: 'Share',
-				children: `Every member will be able to create and edit ${displayName} triggers that act as ${account}. They will not see its token. It replaces any connection shared before.`
+				children: `Every member will be able to create and edit ${displayName} triggers that act as ${account}${browse}. They will not see its token. It replaces any connection shared before.`
 			})
 			if (!confirmed) return false
 		} else {
@@ -193,7 +203,6 @@
 			return false
 		}
 	}
-
 
 	function docsItem(config: ServiceConfig): Item[] {
 		return config.docsUrl
@@ -372,7 +381,10 @@
 						</div>
 
 						{#if serviceName === 'nextcloud' && !workspaceConnection}
-							<Alert type="info" title="Creating Nextcloud triggers requires a Nextcloud admin account">
+							<Alert
+								type="info"
+								title="Creating Nextcloud triggers requires a Nextcloud admin account"
+							>
 								We recommend connecting one below and sharing it with the workspace.
 							</Alert>
 						{/if}
@@ -380,7 +392,8 @@
 						<div class="flex flex-col gap-1">
 							<div class="text-xs font-semibold text-emphasis">Shared account</div>
 							<div class="text-xs text-secondary">
-								Members can create triggers as this account without seeing its token.
+								Members can create triggers as this account and pick from what it can access,
+								without seeing its token.
 							</div>
 							<div class="max-w-md">
 								<!-- Remounted so its list includes an account connected from elsewhere on the page. -->

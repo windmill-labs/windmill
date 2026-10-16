@@ -20737,7 +20737,7 @@ paths:
 
   /w/{workspace}/native_triggers/integrations/{service_name}/workspace_connection:
     post:
-      summary: share one of your connections with every member of the workspace, or stop sharing
+      summary: share a connection of this service with every member of the workspace (admin only), or stop sharing
       operationId: setNativeTriggerWorkspaceConnection
       tags:
         - workspace_integration
