@@ -1348,9 +1348,7 @@ describe('global AI tools', () => {
 		expect(localStorageSnapshot()).not.toContain('new-secret-token')
 	})
 
-	// Clearing an expiry once the value has been rotated is a normal edit, and the draft
-	// state has no null to carry it — so an absent expiry has to deploy as an explicit
-	// null, which the update endpoint reads as "clear" rather than "leave alone".
+	// The draft has no null, so a cleared expiry must deploy as an explicit one.
 	it('clears a variable value expiry through to the deploy body', async () => {
 		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // write probe
 		vi.mocked(VariableService.existsVariable).mockResolvedValueOnce(true) // deploy probe

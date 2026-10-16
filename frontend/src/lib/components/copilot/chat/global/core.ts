@@ -731,9 +731,7 @@ const writeVariableSchema = variableRequestSchema.extend({
 		.string()
 		.optional()
 		.describe('The description of the variable. Omit it to keep the current description.'),
-	// Clearing an expiry is the normal move once a value has been rotated, and the
-	// generated schema admits only a timestamp — leaving an omitted field and a cleared
-	// one indistinguishable.
+	// Nullable, unlike the generated schema, so a cleared expiry differs from an omitted one.
 	value_expires_at: z
 		.string()
 		.datetime({ offset: true })
@@ -5600,9 +5598,8 @@ function createVariableToDraftState(
 		account: args.account ?? base?.account,
 		is_oauth: args.is_oauth ?? base?.is_oauth,
 		expires_at: args.expires_at ?? base?.expires_at,
-		// `null` clears, an omitted field keeps what the base holds. The draft state itself
-		// has no null — an absent expiry is `undefined` there, so that a cleared one
-		// survives the JSON round-trip a stored draft goes through as an absent key.
+		// `null` clears and omitted keeps the base's. The draft stores a cleared expiry as
+		// `undefined`, since a stored draft goes through a JSON round-trip.
 		value_expires_at:
 			args.value_expires_at === null ? undefined : (args.value_expires_at ?? base?.value_expires_at)
 	}
@@ -5631,9 +5628,7 @@ function buildVariableUpdateRequestBody(draftValue: CreateVariable): Omit<
 	value_expires_at?: string | null
 } {
 	const { value, value_expires_at, ...others } = structuredClone(draftValue)
-	// The draft is seeded from the deployed variable, so an absent expiry means this edit
-	// cleared it and has to be sent as an explicit null — omitting it would read as "leave
-	// alone". Same full-state semantics as the value below.
+	// The draft holds the full state, so an absent expiry was cleared: send `null`.
 	const rest = { ...others, value_expires_at: value_expires_at ?? null }
 	// A value the draft is never allowed to carry — a secret's, and an OAuth-managed one
 	// dropped by `variableToDraftState` — reaches here as '' whenever this edit staged

@@ -617,9 +617,7 @@ export async function deployItem(
             is_secret: variable.is_secret,
             description: variable.description ?? "",
             labels: variable.labels,
-            // Sent as an explicit null when the source has no expiry: an absent key means
-            // "leave the stored date alone", which would strand the target on a date the
-            // source has already moved or cleared.
+            // `null` clears; absent would keep the target's stored date.
             value_expires_at: variable.value_expires_at ?? null,
           },
           alreadyEncrypted: false,

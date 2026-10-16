@@ -163,8 +163,7 @@ describe("variable", () => {
         "utf-8"
       );
       await mkdir(join(tempDir, "f", "test"), { recursive: true });
-      // No value_expires_at: the server reads an absent field as "leave the stored
-      // date alone", so the clear only lands if the CLI sends an explicit null.
+      // No value_expires_at: the CLI must send an explicit null to clear it.
       await writeFile(
         join(tempDir, `${path}.variable.yaml`),
         `value: "original_value"\nis_secret: false\ndescription: "Expiring"\n`,
@@ -184,8 +183,7 @@ describe("variable", () => {
       const varData = await apiResp.json();
       expect(varData.value_expires_at ?? null).toBeNull();
 
-      // A clear that does not apply leaves the same diff pending forever, so the
-      // push reporting success is not on its own evidence that it landed.
+      // A clear that did not land leaves the diff pending, so push success is not proof.
       const secondPush = await backend.runCLICommand(
         ["sync", "push", "--yes", "--includes", `${path}**`],
         tempDir

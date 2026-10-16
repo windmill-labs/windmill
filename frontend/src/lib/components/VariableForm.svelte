@@ -73,9 +73,7 @@
 
 	let ws = $derived(workspace ?? $operatingWorkspace)
 
-	// Enabling seeds a date rather than revealing an empty picker, mirroring how
-	// `ScriptAdvancedSettings` seeds a timeout of 300s. An empty DateTimeInput renders a time
-	// of 12:00 beside its buttons, which reads as a date already configured.
+	// Enabling seeds a date: an empty DateTimeInput still shows 12:00, which reads as set.
 	const DEFAULT_EXPIRY_DAYS = 90
 
 	function defaultValueExpiry(): string {
@@ -269,10 +267,8 @@ stretch the hit area over the whole row and the alert. The toggle carries its na
 			/>
 			{#if valueExpiresAt}
 				<span class="text-xs font-semibold text-emphasis leading-none mt-2">Expires on</span>
-				<!-- Unbound: DateTimeInput writes `null` when its date is emptied, and a `null` where
-			the deployed baseline has nothing reads as an edit, so every empty state has to
-			normalize to `undefined` before it reaches the draft row. Not `clearable`: the toggle
-			above is the one way to mean "no expiry". -->
+				<!-- Unbound: DateTimeInput writes `null` when emptied, which reads as an edit,
+			so empty states become `undefined`. Not `clearable`: the toggle means "no expiry". -->
 				<DateTimeInput
 					value={valueExpiresAt}
 					useDropdown

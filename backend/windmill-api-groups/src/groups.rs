@@ -218,9 +218,7 @@ pub async fn require_is_owner(
 }
 
 async fn _check_nb_of_groups(db: &DB) -> Result<()> {
-    // The exempt names are enumerated, not derived from how the group was created: these back
-    // workspace settings rather than the user's own org structure, and the limit prices the
-    // latter. `success_handler` is provisioned the same way but is not in the list.
+    // Groups that back workspace settings do not count toward the limit.
     let nb_groups = sqlx::query_scalar!("SELECT COUNT(*) FROM group_ WHERE name != 'all' AND name != 'error_handler' AND name != 'slack' AND name != 'wm_deployers' AND name != 'variable_expiration_handler'",)
         .fetch_one(db)
         .await?;

@@ -1,8 +1,5 @@
-//! Tests for the variable expiration sweep (`windmill_queue::variable_expiration`).
-//!
-//! `dispatch_expiring_variables` is called directly against seeded `variable` /
-//! `workspace_settings` rows — no worker is needed, since the sweep's job ends at the push
-//! and the queued job is itself part of the assertions.
+//! Tests for the variable expiration sweep. No worker: the sweep ends at the push, and the
+//! queued job is what the tests assert on.
 
 use sqlx::{Pool, Postgres};
 use windmill_queue::variable_expiration::dispatch_expiring_variables;
@@ -73,10 +70,7 @@ async fn test_dispatch_within_lead_time_once(db: Pool<Postgres>) -> anyhow::Resu
         "exactly the variable inside the lead window should dispatch"
     );
 
-    // The identity is load-bearing, not incidental: the settings tab tells admins to grant
-    // `g/variable_expiration_handler` access to the secrets it rotates, so the job must run as
-    // that group and under its own email — which is also what keeps cloud metering off the
-    // configuring user's quota.
+    // Admins grant this group access to the secrets it rotates, so the job must run as it.
     let (path, is_secret, permissioned_as, permissioned_as_email): (String, bool, String, String) =
         sqlx::query_as(
             "SELECT args->>'variable_path', (args->>'is_secret')::boolean, permissioned_as,
@@ -93,7 +87,6 @@ async fn test_dispatch_within_lead_time_once(db: Pool<Postgres>) -> anyhow::Resu
         "variable_expiration_handler@windmill.dev"
     );
 
-    // Job args are stored in cleartext and shown in Runs, so the value must never be in them.
     let args: String = sqlx::query_scalar("SELECT args::text FROM v2_job WHERE runnable_path = $1")
         .bind("u/test-user/expiry_handler")
         .fetch_one(&db)
@@ -103,8 +96,7 @@ async fn test_dispatch_within_lead_time_once(db: Pool<Postgres>) -> anyhow::Resu
         "handler args leaked the value: {args}"
     );
 
-    // A second pass must not re-dispatch: the claim is what makes replicas ticking
-    // concurrently safe.
+    // The claim is what makes concurrent replicas safe.
     dispatch_expiring_variables(&db).await;
     assert_eq!(
         queued_handler_jobs(&db, "u/test-user/expiry_handler").await?,
@@ -160,8 +152,7 @@ async fn test_remind_every_repeats_the_notice(db: Pool<Postgres>) -> anyhow::Res
         "no reminder before the interval has elapsed"
     );
 
-    // Stands in for the next sweep landing a few seconds short of the interval, which the
-    // reminder slack must still accept.
+    // A sweep landing a few seconds short of the interval must still remind.
     sqlx::query(
         "UPDATE variable SET expiration_notified_at = now() - interval '9 minutes 50 seconds'",
     )
@@ -173,7 +164,6 @@ async fn test_remind_every_repeats_the_notice(db: Pool<Postgres>) -> anyhow::Res
         2
     );
 
-    // Reminders stop once the value has expired.
     sqlx::query(
         "UPDATE variable SET value_expires_at = now() - interval '1 minute',
          expiration_dispatched_for = now() - interval '1 minute',
@@ -199,8 +189,7 @@ async fn test_rearm_on_date_change(db: Pool<Postgres>) -> anyhow::Result<()> {
     configure_handler(&db, r#"{"path": "script/u/test-user/expiry_handler"}"#).await?;
     seed_variable(&db, "u/test-user/due", "30 minutes").await?;
 
-    // Driven through the real endpoint: what re-arms is the stored date differing from
-    // `expiration_dispatched_for`, so a test writing that column itself would assert nothing.
+    // Through the real endpoint: writing the column directly would assert nothing.
     let update = async |body: serde_json::Value| -> anyhow::Result<u16> {
         Ok(reqwest::Client::new()
             .post(format!(
@@ -228,7 +217,7 @@ async fn test_rearm_on_date_change(db: Pool<Postgres>) -> anyhow::Result<()> {
     .fetch_one(&db)
     .await?;
 
-    // Without this, a `wmill sync push` of an unchanged spec re-fires the handler every push.
+    // An unchanged `wmill sync push` rewrites the same date.
     assert_eq!(
         update(serde_json::json!({ "value_expires_at": stored })).await?,
         200
@@ -267,7 +256,7 @@ async fn test_rearm_on_date_change(db: Pool<Postgres>) -> anyhow::Result<()> {
 }
 
 /// With no handler configured nothing is dispatched, and `muted_on_user_path` keeps
-/// personal-path variables out — mirroring `error_handler_muted_on_user_path`.
+/// personal-path variables out.
 #[sqlx::test(fixtures("base"))]
 async fn test_skips_unconfigured_and_muted_user_paths(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -275,7 +264,6 @@ async fn test_skips_unconfigured_and_muted_user_paths(db: Pool<Postgres>) -> any
     seed_variable(&db, "u/test-user/personal", "30 minutes").await?;
     seed_variable(&db, "f/test_folder/shared", "30 minutes").await?;
 
-    // No handler configured yet.
     dispatch_expiring_variables(&db).await;
     assert_eq!(
         queued_handler_jobs(&db, "u/test-user/expiry_handler").await?,
@@ -303,9 +291,8 @@ async fn test_skips_unconfigured_and_muted_user_paths(db: Pool<Postgres>) -> any
     Ok(())
 }
 
-/// A workspace whose handler cannot be resolved must not consume the per-pass cap. Its
-/// variables are the most overdue on the instance, so taken by date alone they would refill
-/// the cap on every pass and no other workspace would ever dispatch.
+/// A workspace whose handler cannot be resolved must not starve the others of the per-pass
+/// cap, although its variables are the most overdue on the instance.
 #[sqlx::test(fixtures("base"))]
 async fn test_broken_handler_does_not_starve_other_workspaces(
     db: Pool<Postgres>,
@@ -331,7 +318,7 @@ async fn test_broken_handler_does_not_starve_other_workspaces(
     )
     .execute(&db)
     .await?;
-    // More overdue rows than one pass can carry, so they alone would fill the cap.
+    // More overdue rows than one pass carries.
     sqlx::query(
         r#"INSERT INTO variable (workspace_id, path, value, is_secret, description, value_expires_at)
            SELECT 'poison-ws', 'f/creds/v' || i, 'v', false, '', now() - (i || ' minutes')::interval
@@ -355,8 +342,8 @@ async fn test_broken_handler_does_not_starve_other_workspaces(
     Ok(())
 }
 
-/// The endpoint that configures the handler: admin-only, existence-checked, and clearing by
-/// omission — which is what `wmill sync push` relies on to propagate an absent handler.
+/// The handler endpoint: admin-only, existence-checked, and clearing by omission, which
+/// `wmill sync push` relies on to propagate an absent handler.
 #[sqlx::test(fixtures("base"))]
 async fn test_edit_handler_endpoint(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -389,7 +376,6 @@ async fn test_edit_handler_endpoint(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(edit("SECRET_TOKEN_2", handler.clone()).await?, 403);
     assert!(stored().await?.is_none());
 
-    // A path the sweep could never resolve to a runnable is rejected up front.
     for path in ["u/test-user/expiry_handler", "script/u/test-user/does_not_exist"] {
         assert_eq!(
             edit("SECRET_TOKEN", serde_json::json!({ "path": path })).await?,
@@ -406,10 +392,8 @@ async fn test_edit_handler_endpoint(db: Pool<Postgres>) -> anyhow::Result<()> {
         Some("script/u/test-user/expiry_handler".to_string())
     );
 
-    // `extra_args` carries the built-in destinations' channel, so it has to survive a save
-    // that keeps the handler. The endpoint rebuilds the setting from the request rather than
-    // merging into the stored one, so an omitted `extra_args` erases it — the settings tab
-    // compensates by sending back what it loaded.
+    // `extra_args` holds the built-ins' channel. The endpoint replaces the setting rather than
+    // merging, so the settings tab sends back what it loaded.
     assert_eq!(
         edit(
             "SECRET_TOKEN",

@@ -171,8 +171,8 @@
 		let submitted_job = await testJobFunction({
 			workspace: effectiveWorkspace!,
 			requestBody: {
-				// The variable expiration scripts are not test-runnable presets; the error handler's
-				// checks the same bot token and channel.
+				// Ours are not test-runnable presets; the error handler's checks the same
+				// token and channel.
 				hub_script_path: isVariableExpiration
 					? builtinHubPath('error', platform)
 					: draft[platform].path,

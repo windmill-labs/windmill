@@ -124,10 +124,7 @@ describe('deployDraft preserves on_behalf_of', () => {
 	})
 })
 
-// The variable deploy bodies are built field-by-field, so a field left out of them is
-// dropped with no error. `value_expires_at` is additionally tri-state on update — absent
-// leaves the stored date alone, null clears it — which is why it is diffed against the
-// deployed row rather than sent as-is.
+// The deploy bodies are built field by field, so a forgotten field is dropped silently.
 describe('deployDraft variable value_expires_at', () => {
 	beforeEach(() => vi.clearAllMocks())
 

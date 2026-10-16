@@ -288,9 +288,8 @@ async fn test_tarball_export_gates_values_on_item_scopes(db: Pool<Postgres>) -> 
     Ok(())
 }
 
-/// The tarball filter keys on `expires_at` (garbage collection) and must ignore
-/// `value_expires_at`, so an expiry set on a variable does not drop it from `wmill sync
-/// pull`. The exported entry has to carry the date back, or a pull/push round-trip clears it.
+/// The tarball drops variables by `expires_at`, never `value_expires_at`, and the exported
+/// entry carries the date, or a pull/push round-trip clears it.
 #[sqlx::test(fixtures("base"))]
 async fn test_tarball_export_excludes_only_gc_variables(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;

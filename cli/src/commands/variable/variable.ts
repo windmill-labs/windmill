@@ -163,10 +163,8 @@ export async function pushVariable(
   const { extra_perms: localPerms, ...localVariableBody } = localVariable;
 
   if (variable) {
-    // The server reads an absent `value_expires_at` as "leave the stored date alone", so
-    // dropping the key from the file has to be sent as an explicit `null`. `isSuperset`
-    // only compares keys the file still has, so a removed expiry is also invisible to it:
-    // without both halves the clear never applies and every later push re-reports it.
+    // An expiry removed from the file is sent as `null` (absent keeps the stored date), and
+    // `isSuperset` cannot see a removed key, so the clear is detected here.
     const clearsValueExpiresAt =
       localVariableBody.value_expires_at === undefined &&
       variable.value_expires_at !== undefined &&

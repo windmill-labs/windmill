@@ -613,9 +613,8 @@ export async function deployDraft(
 						value: d.variable?.value === '' ? undefined : d.variable?.value,
 						is_secret: d.variable?.is_secret,
 						description: d.variable?.description,
-						// Tri-state: absent leaves the stored date alone, `null` clears it. Diffed
-						// against the deployed row because the draft carries no baseline of its own
-						// and an absent date in it means "no expiry", not "unchanged".
+						// `null` clears, absent keeps. Diffed against the deployed row, since an
+						// absent date in the draft means "no expiry", not "unchanged".
 						value_expires_at:
 							(deployed.value_expires_at ?? undefined) !== d.value_expires_at
 								? (d.value_expires_at ?? null)

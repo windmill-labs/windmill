@@ -3594,12 +3594,8 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
     return Ok(uuid);
 }
 
-/// Metadata handed to a variable expiration handler. These field names are wire format for
-/// handler scripts: `variable_path` rather than `path`, which already means the failing
-/// runnable in the error handler contract.
-///
-/// The variable's value is deliberately absent: job results are stored in cleartext and shown
-/// in Runs, so a handler must never receive or return one.
+/// Handler arguments, so the field names are wire format. Never add the value: job args and
+/// results are stored in cleartext and shown in Runs.
 #[derive(Serialize)]
 pub struct ExpiringVariable {
     pub workspace_id: String,
@@ -3609,10 +3605,7 @@ pub struct ExpiringVariable {
     pub is_secret: bool,
 }
 
-/// Enqueue the workspace's variable expiration handler for one expiring variable.
-///
-/// Takes and returns the caller's transaction so the claim on the variable and the push
-/// commit together.
+/// Takes and returns the caller's transaction so the claim and the push commit together.
 pub(crate) async fn push_variable_expiration_handler<'c>(
     db: &Pool<Postgres>,
     tx: Transaction<'c, Postgres>,

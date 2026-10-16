@@ -6146,8 +6146,7 @@ async fn edit_variable_expiration_handler(
 
     let mut tx = db.begin().await?;
 
-    // The group starts empty of permissions beyond its creator: rotating a variable requires
-    // an admin to grant it write access to that variable explicitly.
+    // Created with no access: an admin grants it write access to each variable it rotates.
     sqlx::query_as!(
         Group,
         "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
@@ -6201,8 +6200,7 @@ async fn edit_variable_expiration_handler(
             )));
         }
 
-        // Persisted even when false, matching `error_handler`, so the stored shape is the same
-        // whether or not the caller sent the field.
+        // Persisted even when false, like `error_handler`'s.
         let mut variable_expiration_handler = serde_json::json!({
             "path": path,
             "muted_on_user_path": es.muted_on_user_path,
@@ -6262,7 +6260,7 @@ async fn edit_variable_expiration_handler(
     windmill_common::feature_usage::log_feature_usage(
         "variable_expiration",
         "handler_configured",
-        // The built-ins are matched on the hub slug the frontend picks them by, not the hub id.
+        // By slug, not hub id, so a bumped hub version still counts as the built-in.
         match es.path.as_deref() {
             None => "cleared",
             Some(p) if p.ends_with("/variable-expiration-handler-slack") => "slack",
@@ -7881,8 +7879,7 @@ async fn clone_variables(
     source_workspace_id: &str,
     target_workspace_id: &str,
 ) -> Result<()> {
-    // Dispatch bookkeeping is deliberately not copied: the fork re-arms its own expiration
-    // handler rather than inheriting the source's already-dispatched state.
+    // Dispatch markers are not copied, so the fork re-arms its own handler.
     sqlx::query!(
         "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, value_expires_at)
          SELECT $2, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, value_expires_at

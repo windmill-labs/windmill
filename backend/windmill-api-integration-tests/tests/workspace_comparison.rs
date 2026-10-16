@@ -2571,9 +2571,8 @@ async fn test_rename_records_the_vacated_path(db: Pool<Postgres>) -> anyhow::Res
     Ok(())
 }
 
-/// `compare_two_variables` hand-lists the columns it reads, so a column the variable
-/// carries but the comparison forgets makes that difference invisible in the fork diff
-/// — and an invisible difference can never be promoted.
+/// `compare_two_variables` hand-lists its columns, so a forgotten one hides that difference
+/// from the fork diff, and it can never be promoted.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_compare_variables_detects_value_expires_at(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -2607,9 +2606,7 @@ async fn test_compare_variables_detects_value_expires_at(db: Pool<Postgres>) -> 
         resp.status()
     );
 
-    // Asserted before the UPDATE below overwrites it: the fork has to inherit the date from
-    // the source. Without this, a `clone_variables` that dropped the column would leave NULL
-    // here, the UPDATE would set 2029 anyway, and the comparison would still differ.
+    // Before the UPDATE below overwrites it: the fork must inherit the date from the source.
     let inherited: Option<String> = sqlx::query_scalar(
         "SELECT to_char(value_expires_at, 'YYYY-MM-DD') FROM variable
          WHERE workspace_id = 'wm-fork-expiry' AND path = 'u/admin/expiring'",
@@ -2618,8 +2615,7 @@ async fn test_compare_variables_detects_value_expires_at(db: Pool<Postgres>) -> 
     .await?;
     assert_eq!(inherited.as_deref(), Some("2027-01-01"));
 
-    // Only the expiry differs — value, is_secret and description stay identical, so a
-    // comparison that skips the column sees two equal variables.
+    // Only the expiry differs.
     sqlx::query!(
         "UPDATE variable SET value_expires_at = '2029-12-31T00:00:00Z'
          WHERE workspace_id = 'wm-fork-expiry' AND path = 'u/admin/expiring'"
@@ -2627,8 +2623,7 @@ async fn test_compare_variables_detects_value_expires_at(db: Pool<Postgres>) -> 
     .execute(&db)
     .await?;
 
-    // `has_changes = NULL` makes the endpoint re-evaluate the pair instead of trusting
-    // a cached verdict.
+    // Forces the endpoint to re-evaluate the pair rather than trust a cached verdict.
     sqlx::query!(
         "INSERT INTO workspace_diff
          (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)

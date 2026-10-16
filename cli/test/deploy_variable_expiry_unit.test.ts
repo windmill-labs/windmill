@@ -1,11 +1,8 @@
 import { expect, test } from "bun:test";
 import { deployItem } from "../windmill-utils-internal/src/deploy.ts";
 
-// Workspace deploy builds the variable body field by field, so a field the variable
-// carries but the body forgets is dropped on promotion — silently, since the deploy
-// still reports success. The clear half matters as much as the carry: the server reads
-// an absent `value_expires_at` as "leave the stored date alone", so a source with no
-// expiry has to say so explicitly or the target keeps a date the source no longer has.
+// Workspace deploy builds the variable body field by field, so a forgotten field is
+// dropped silently on promotion, and a source with no expiry must send `null`.
 function recordingProvider(
   captured: [string, any][],
   exists: boolean,
@@ -30,8 +27,7 @@ function recordingProvider(
 test("deployItem: carries value_expires_at, and clears it explicitly", async () => {
   const captured: [string, any][] = [];
 
-  // The field is written out once per branch, so exercise both: a variable absent from
-  // the target (create) and one already there (update).
+  // Written once per branch: create and update.
   for (const exists of [false, true]) {
     await deployItem(
       recordingProvider(captured, exists, "2027-03-15T08:00:00Z"),

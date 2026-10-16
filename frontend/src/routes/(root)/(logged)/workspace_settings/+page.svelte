@@ -205,8 +205,7 @@
 	const defaultNotifyBeforeSecs = 24 * 3600
 	let variableExpirationNotifyBeforeSecs: number = $state(defaultNotifyBeforeSecs)
 	let variableExpirationRemindEverySecs: number | undefined = $state(undefined)
-	// The first notice plus its reminders. The sweep runs every 5 minutes, so no interval
-	// fires more often than that.
+	// The sweep runs every 5 minutes, so shorter intervals count as 5 minutes.
 	let variableExpirationRuns = $derived(
 		variableExpirationRemindEverySecs
 			? Math.ceil(
@@ -348,9 +347,8 @@
 		)
 	})
 
-	// The mute flag is stored inside the handler setting, so saving with no path selected
-	// clears the whole setting and drops it. Gating the toggle keeps the tab from offering
-	// a change it cannot persist.
+	// The mute flag is stored inside the handler setting, which saving with no handler
+	// clears, so the toggle is gated on having one.
 	let variableExpirationHasHandler = $derived(!!handlerDraftToStored(variableExpirationDraft).path)
 
 	// The stored handler is nested because `hasUnsavedChanges` drops a top-level `path`.

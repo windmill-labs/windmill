@@ -6,11 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-//! Detection pass for variables whose value is about to expire.
-//!
-//! Owns the transaction that claims a variable and pushes its handler job, so it lives in
-//! this crate beside `push_variable_expiration_handler` rather than in the server's `monitor`
-//! module, which only drives it on a timer.
+//! Dispatches the workspace variable expiration handler for variables coming due.
 
 use std::collections::HashSet;
 
@@ -21,32 +17,26 @@ use windmill_common::DB;
 
 use crate::jobs::{push_variable_expiration_handler, ExpiringVariable};
 
-/// How far ahead of a variable's `value_expires_at` its handler runs when the handler setting
-/// has no `notify_before_secs`.
+/// Lead time when the handler setting has no `notify_before_secs`.
 const VARIABLE_EXPIRATION_DEFAULT_NOTIFY_BEFORE_SECS: i64 = 24 * 3600;
 
 /// Subtracted from `remind_every_secs` so a reminder whose interval is a multiple of the
 /// sweep's period is not skipped by tick jitter.
 const VARIABLE_EXPIRATION_REMINDER_SLACK_SECS: i64 = 30;
 
-/// Cap on variables dispatched per pass, so a large first-pass backlog is drained over
-/// several passes rather than enqueuing every handler job at once.
+/// Cap per pass, so a backlog drains over several passes instead of enqueuing at once.
 const VARIABLE_EXPIRATION_MAX_PER_PASS: i64 = 100;
 
 /// Advisory lock id ensuring only one server replica sweeps at a time. Must not reuse one of
 /// the other monitor pass locks (737_483_920..=737_483_925): both sides try-lock and skip.
 const VARIABLE_EXPIRATION_LOCK_ID: i64 = 737_483_926;
 
-/// Enqueue the workspace variable expiration handler for every variable coming due. A system
-/// caller only (the monitor loop): it dispatches across every workspace. Dispatch-once: a
-/// handler job that then fails is not re-dispatched before its next reminder, if any, as
-/// re-running it would repeat its side effects against the third party it rotates; retrying
-/// is the handler's job.
+/// System caller only: dispatches across every workspace. A handler job that fails is not
+/// re-dispatched before its next reminder, as re-running it would repeat its side effects
+/// against the third party it rotates; retrying is the handler's job.
 pub async fn dispatch_expiring_variables(db: &DB) {
-    // Transaction-scoped advisory lock, not session-scoped: a session lock taken on a pooled
-    // connection would ride that connection back into the pool still held if this future is
-    // dropped mid-pass, wedging the sweep on every replica until restart. The tx is held open
-    // only to own the lock.
+    // Transaction-scoped, not session-scoped: a session lock would go back to the pool still
+    // held if this future were dropped mid-pass, wedging the sweep on every replica.
     let mut lock_tx = match db.begin().await {
         Ok(tx) => tx,
         Err(e) => {
@@ -66,23 +56,20 @@ pub async fn dispatch_expiring_variables(db: &DB) {
         }
     };
     if !locked {
-        // Another replica is already sweeping this tick.
         return;
     }
 
     dispatch_expiring_variables_inner(db).await;
 
-    // Ends the transaction and releases the xact lock; a plain drop would too.
     if let Err(e) = lock_tx.rollback().await {
         tracing::error!("variable expiration: releasing lock failed: {e:#}");
     }
 }
 
 async fn dispatch_expiring_variables_inner(db: &DB) {
-    // No lower bound on `value_expires_at`, so an instance that was down catches up. That
-    // keeps overdue rows first forever if their handler never starts, so rows are taken
-    // round-robin across workspaces (`rn`): neither a broken handler nor a large backlog can
-    // fill the cap and starve the other workspaces.
+    // No lower bound on `value_expires_at`, so a downed instance catches up. Rows are taken
+    // round-robin across workspaces (`rn`) so neither a broken handler's overdue rows nor a
+    // large backlog fills the cap and starves the other workspaces.
     let due = sqlx::query!(
         r#"SELECT workspace_id AS "workspace_id!", path AS "path!", description AS "description!",
                   value_expires_at AS "value_expires_at!", is_secret AS "is_secret!",
@@ -128,8 +115,7 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
     };
 
     let mut dispatched = 0usize;
-    // A workspace's handler resolves the same way for every one of its variables, so once it
-    // has failed this pass the rest of its rows would only repeat the same error.
+    // A handler fails alike for every variable of its workspace: try it once per pass.
     let mut failed_this_pass: HashSet<String> = HashSet::new();
 
     for row in due {
@@ -192,8 +178,7 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
         let tx = match pushed {
             Ok((_job_id, tx)) => tx,
             Err(e) => {
-                // The claim rides in the same transaction, so dropping it un-claims the
-                // variable and the next pass retries it.
+                // Dropping the tx un-claims the variable, so the next pass retries it.
                 failed_this_pass.insert(row.workspace_id.clone());
                 report_critical_error(
                     format!(

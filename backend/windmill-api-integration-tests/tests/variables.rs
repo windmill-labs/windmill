@@ -339,8 +339,7 @@ async fn test_variables_are_cached(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// A draft-only row is synthesized field by field from the editor's `VariableState`,
-/// so a field the editor stores but the synthesis forgets is dropped silently.
+/// A draft-only row is built field by field, so a forgotten field is dropped silently.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_draft_only_row_carries_value_expires_at(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -379,8 +378,8 @@ async fn test_draft_only_row_carries_value_expires_at(db: Pool<Postgres>) -> any
     Ok(())
 }
 
-/// Windmill refreshes an OAuth-linked value itself, so a rotation date on it is refused with a
-/// readable error rather than a raw constraint violation.
+/// An expiry on an OAuth-linked variable is refused with a readable error, not a raw
+/// constraint violation.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_oauth_variable_refuses_value_expiry(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;

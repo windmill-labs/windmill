@@ -436,8 +436,7 @@
 	async function save(): Promise<void> {
 		const dirty = dirtyWorkspaces
 		const savedPath = (curWs ? states[curWs]?.draft?.path : undefined) ?? editPath ?? ''
-		// Counted before the loop rewrites the baselines, and once per save rather than
-		// once per workspace, so a multi-workspace edit is one act of setting an expiry.
+		// Before the loop rewrites the baselines; once per save, not per workspace.
 		const expiryEdited = dirty.some(
 			(ws) => initialStates[ws]?.value_expires_at !== states[ws].draft?.value_expires_at
 		)

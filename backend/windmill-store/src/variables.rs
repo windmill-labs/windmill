@@ -1072,8 +1072,8 @@ struct EditVariable {
     account: Option<i32>,
     labels: Option<Vec<String>>,
     ws_specific: Option<bool>,
-    /// Absent leaves the stored expiry alone; an explicit `null` clears it — a caller
-    /// patching one field must not have its omissions read as "clear".
+    /// Absent leaves the stored expiry alone and `null` clears it, so a partial update
+    /// never clears it by omission.
     #[serde(
         default,
         deserialize_with = "windmill_common::more_serde::double_option"
@@ -1179,9 +1179,8 @@ async fn update_variable(
     }
 
     if let Some(nvalue_expires_at) = ns.value_expires_at {
-        // No bookkeeping to reset: the sweep compares this against
-        // `expiration_dispatched_for`, so moving the date re-arms the handler on its own and
-        // rewriting the same date (an unchanged CLI push) leaves it disarmed.
+        // Nothing to reset: the sweep compares the date with `expiration_dispatched_for`, so
+        // moving it re-arms the handler and rewriting the same date does not.
         match nvalue_expires_at {
             Some(ts) => sqlb.set("value_expires_at", "?".bind(&ts.to_rfc3339())),
             None => sqlb.set("value_expires_at", "NULL"),
