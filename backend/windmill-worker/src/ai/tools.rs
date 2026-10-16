@@ -186,6 +186,13 @@ pub async fn execute_tool_calls(
                     ..Default::default()
                 });
             }
+            // An action like a text answer's: the run page matches tagged messages to actions by
+            // position, and with background tools a run can go on after this answer.
+            actions.push(AgentAction::Message {});
+            if let Some(parent_job) = ctx.parent_job {
+                update_flow_status_module_with_actions(ctx.db, parent_job, actions).await?;
+                update_flow_status_module_with_actions_success(ctx.db, parent_job, true).await?;
+            }
             messages.push(OpenAIMessage {
                 role: "assistant".to_string(),
                 content: Some(OpenAIContent::Text(tool_call.function.arguments.clone())),
