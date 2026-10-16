@@ -2139,12 +2139,16 @@
 												{@const approval = agentNode?.agent_actions?.[approvalIndex]}
 												{#if approval?.type === 'approval' && agentNode?.job_id}
 													<div class="p-4">
-														<AgentApprovalRequest
-															workspaceId={job.workspace_id ?? ''}
-															agentJobId={agentNode.job_id}
-															request={approval}
-															pending={agentNode?.agent_actions_success?.[approvalIndex] === undefined}
-														/>
+														<!-- One form per request: its answered state must not carry over to the next. -->
+														{#key `${agentNode.job_id}-${approval.call_id}`}
+															<AgentApprovalRequest
+																workspaceId={job.workspace_id ?? ''}
+																agentJobId={agentNode.job_id}
+																request={approval}
+																pending={job.type === 'QueuedJob' &&
+																	agentNode?.agent_actions_success?.[approvalIndex] === undefined}
+															/>
+														{/key}
 													</div>
 												{/if}
 											{:else if selectedNode}
