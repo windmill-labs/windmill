@@ -73,6 +73,7 @@ pub use feature_usage_oss as feature_usage;
 pub mod flow_conversations;
 pub mod flow_status;
 pub mod flows;
+pub mod fork_storage;
 pub mod folders;
 pub mod global_settings;
 pub mod hub_resource_types;

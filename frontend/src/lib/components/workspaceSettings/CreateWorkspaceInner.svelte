@@ -76,6 +76,7 @@
 	import WorkspaceScopeTrigger from '../WorkspaceScopeTrigger.svelte'
 	import DarkModeToggle from '../sidebar/DarkModeToggle.svelte'
 	import ForkDucklakeSection from './ForkDucklakeSection.svelte'
+	import ForkStorageSection from './ForkStorageSection.svelte'
 	import { createWorkspaceForkAndWait } from '$lib/utils/forkCreation'
 
 	interface Props {
@@ -277,6 +278,7 @@
 
 	let forkDatatableSection: ReturnType<typeof ForkDatatableSection> | undefined = $state(undefined)
 	let forkDucklakeSection: ReturnType<typeof ForkDucklakeSection> | undefined = $state(undefined)
+	let forkStorageSection: ReturnType<typeof ForkStorageSection> | undefined = $state(undefined)
 
 	let workspaceColor: string | undefined = $state(undefined)
 	let colorEnabled = $state(false)
@@ -499,6 +501,7 @@
 					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
 					forked_datatables: forkedDatatables,
 					shared_ducklakes: forkDucklakeSection?.getSharedDucklakes() ?? [],
+					shared_storages: forkStorageSection?.getSharedStorages() ?? [],
 					is_dev_workspace: createAsDevWorkspace,
 					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
 					lock_prod_deploy: createAsDevWorkspace && effectiveLockProdDeploy,
@@ -1021,6 +1024,7 @@
 					}}
 				/>
 				<ForkDucklakeSection bind:this={forkDucklakeSection} sourceWorkspace={baseWorkspaceId} />
+				<ForkStorageSection bind:this={forkStorageSection} sourceWorkspace={baseWorkspaceId} />
 			{/if}
 			{#if !automateUsernameCreation}
 				<Label label="Your username in that workspace">

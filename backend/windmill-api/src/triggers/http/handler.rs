@@ -34,10 +34,7 @@ use windmill_store::resources::try_get_resource_from_db_as;
 use windmill_trigger::TriggerMode;
 
 #[cfg(feature = "parquet")]
-use {
-    crate::job_helpers_oss::get_workspace_s3_resource,
-    windmill_object_store::build_object_store_client,
-};
+use crate::job_helpers_oss::get_workspace_s3_resource;
 
 /// Which router a request's CORS decision must be looked up in.
 ///
@@ -624,7 +621,13 @@ async fn route_job(
             let s3_resource = s3_resource_opt.ok_or_else(|| {
                 windmill_object_store::workspace_storage_misconfigured(config.storage.as_deref())
             })?;
-            let s3_client = build_object_store_client(&s3_resource).await?;
+            let s3_client = windmill_object_store::fork_store::workspace_object_store(
+                &db,
+                &trigger.workspace_id,
+                config.storage.as_deref(),
+                &s3_resource,
+            )
+            .await?;
 
             let path = if trigger.is_static_website {
                 let subpath = params
