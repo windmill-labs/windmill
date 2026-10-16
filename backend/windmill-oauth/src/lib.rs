@@ -290,8 +290,8 @@ fn validate_oauth_entry(
     }
     let registry_entry = resolve_registry_config(registry, name);
     // The settings page builds a per-instance provider's URLs from the instance name it
-    // stores in extra_params; without one, and without URLs written out by hand, they
-    // point at no host.
+    // stores in extra_params, even an empty one, which leaves them on no host. An entry
+    // without that key had its URLs written out by hand.
     if let Some(tmpl) = registry_entry
         .as_ref()
         .and_then(|r| r.connect_config_template.as_ref())
@@ -301,13 +301,16 @@ fn validate_oauth_entry(
             .connect_config
             .as_ref()
             .and_then(|c| c.extra_params.as_ref())
-            .and_then(|p| p.get(key))
-            .filter(|v| !v.is_empty());
+            .and_then(|p| p.get(key));
         let explicit_urls = entry
             .connect_config
             .as_ref()
             .is_some_and(|c| !c.token_url.is_empty() && !c.token_url.contains('{'));
-        if !entry.id.is_empty() && instance.is_none() && !explicit_urls {
+        let missing = match instance {
+            Some(v) => v.is_empty(),
+            None => !explicit_urls,
+        };
+        if !entry.id.is_empty() && missing {
             return Err(format!("{} is required", tmpl.label));
         }
     }
@@ -1640,6 +1643,13 @@ mod tests {
                        "connect_config": { "token_url": "https://acme.coupahost.com/oauth2/token" } }
         }))
         .is_ok());
+        assert!(ok(serde_json::json!({
+            "coupa": { "id": "a", "secret": "b", "grant_types": ["client_credentials"],
+                       "connect_config": { "token_url": "https://.coupahost.com/oauth2/token",
+                                           "extra_params": { "instance": "" } } }
+        }))
+        .unwrap_err()
+        .contains("Coupa instance is required"));
 
         let err = ok(serde_json::json!({
             "github": { "id": "a", "secret": "b", "grant_types": ["client_credentials"] },

@@ -674,7 +674,7 @@
 										/>
 									</label>
 								{/if}
-								{#if sharesCc(k) && oauths[k]['id'] && oauths[k]['secret']}
+								{#if $enterpriseLicense && sharesCc(k) && oauths[k]['id'] && oauths[k]['secret']}
 									<div class="flex flex-row items-center gap-2">
 										<Button
 											variant="default"
