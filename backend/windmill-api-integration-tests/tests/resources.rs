@@ -689,6 +689,27 @@ async fn test_resource_references_are_scoped_at_write(db: Pool<Postgres>) -> any
         assert_eq!(status, expected, "{value}: {}", resp.text().await?);
     }
 
+    // A result-cache resource is written by the worker, unvetted, so its references keep
+    // their own read scope.
+    sqlx::query(
+        "INSERT INTO resource (workspace_id, path, value, resource_type, created_by)
+         VALUES ('test-workspace', 'g/results/abc', '{\"v\": \"$var:u/test-user/secret\"}', 'cache', 'test-user-3')",
+    )
+    .execute(&db)
+    .await?;
+    let cache_only = mint(json!(["resources:read:g/results/abc"])).await;
+    let resp = client()
+        .get(format!(
+            "{base}/resources/get_value_interpolated/g/results/abc"
+        ))
+        .bearer_auth(&cache_only)
+        .send()
+        .await?;
+    let status = resp.status().as_u16();
+    let body = resp.text().await?;
+    assert_eq!(status, 403, "{body}");
+    assert!(!body.contains("CANARY"), "{body}");
+
     Ok(())
 }
 

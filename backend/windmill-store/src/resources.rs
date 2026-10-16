@@ -904,6 +904,9 @@ pub async fn transform_json_value(
 /// a reference as the reader's user, not as the token. A nested `$res:` still needs its own
 /// read scope, since what it references can change after the reference is written. A
 /// reference outside any resource needs its own read scope. Job tokens carry no scopes.
+///
+/// Result-cache resources (`g/results/`) are excluded: the worker writes job output there
+/// straight to the table, so no writer check ever saw their references.
 fn check_interpolation_scope(
     db_with_opt_authed: &DbWithOptAuthed<'_, ApiAuthed>,
     domain: &str,
@@ -911,7 +914,7 @@ fn check_interpolation_scope(
     resource_path: Option<&str>,
 ) -> Result<()> {
     match db_with_opt_authed.authed() {
-        Some(_) if resource_path.is_some() => Ok(()),
+        Some(_) if resource_path.is_some_and(|r| !r.starts_with("g/results/")) => Ok(()),
         Some(authed) => check_scopes(authed, || format!("{domain}:read:{path}")),
         None => Ok(()),
     }
