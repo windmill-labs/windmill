@@ -9,7 +9,7 @@ import { capabilitiesIn } from '$lib/roleCapabilities'
 /**
  * The `editRights` rules (`roleCanAuthor` / `canEditItem` for the item handlers, `roleCanDraft` /
  * `canDraftItem` for drafts) answered for the user acting in the operating workspace, with their
- * role's capabilities there — or in `workspace`, for a component that is handed one rather than
+ * role's capabilities there, or in `workspace`, for a component that is handed one rather than
  * sitting under a host that declares it. Reads context and registers an effect: call during
  * component initialisation.
  */
@@ -68,7 +68,7 @@ export const capabilitiesInWorkspace = (workspace: string | undefined) =>
 	get(capabilitiesStore(readable(workspace)))
 
 /**
- * Why writes of this kind are locked in the operating workspace, or `undefined` when they are not —
+ * Why writes of this kind are locked in the operating workspace, or `undefined` when they are not:
  * the shape `title` and `disabled` both want. See `docs/operator-write-rights.md`.
  */
 function writeLock(kind: 'schedule' | 'trigger', noun: string) {

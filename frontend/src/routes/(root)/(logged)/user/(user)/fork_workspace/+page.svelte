@@ -7,7 +7,7 @@
 
 <!-- The form is reachable by URL whatever the pickers show, and forking is what turns a restricted role
      into a full member of the copy (the fork's membership row carries `is_admin` but not the
-     role). The server still accepts the call — this refuses the page, it does not enforce
+     role). The server still accepts the call: this refuses the page, it does not enforce
      the rule; see docs/operator-write-rights.md. -->
 {#if isRestricted($roleCapabilities)}
 	<div class="p-4 mt-12">

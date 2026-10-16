@@ -11,6 +11,8 @@ const ALL_CAPABILITIES: SessionCapability[] = [
 	'write_draft',
 	'write_flow_draft',
 	'write_app_draft',
+	'write_inline_flow_code',
+	'write_inline_app_code',
 	'write_schedule_draft',
 	'write_trigger_draft',
 	'write_resource_draft',
@@ -53,6 +55,12 @@ export function capabilitiesForRole(role: {
 	}
 	if (roleCanDraft('raw_app', caps)) {
 		capabilities.add('write_app_draft')
+	}
+	if (caps.flows === 'full') {
+		capabilities.add('write_inline_flow_code')
+	}
+	if (caps.apps === 'full') {
+		capabilities.add('write_inline_app_code')
 	}
 	if (roleCanDraft('schedule', caps)) {
 		capabilities.add('write_schedule_draft')

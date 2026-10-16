@@ -404,7 +404,7 @@
 						displayName: 'Audit logs',
 						icon: Eye,
 						href: `/audit_logs?resource=${script.path}`,
-						hide: !$roleCapabilities.code
+						hide: !$roleCapabilities.code || !$roleCapabilities.visibility.audit_logs
 					},
 					{
 						displayName: 'Schedule',
@@ -413,7 +413,7 @@
 							scheduleEditor?.openNew(false, script.path)
 						},
 						disabled: script.archived,
-						hide: !$roleCapabilities.code
+						hide: !$roleCapabilities.code || !$roleCapabilities.manage_schedules
 					},
 					{
 						displayName: 'Permissions',

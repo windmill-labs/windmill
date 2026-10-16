@@ -1,5 +1,6 @@
 import { get } from 'svelte/store'
 import { isRestricted } from '$lib/roleCapabilities'
+import type { RoleCapabilities } from '$lib/gen'
 import {
 	roleCapabilities,
 	userStore,
@@ -29,9 +30,9 @@ export function editInForkAllowed(
 	currentWorkspaceId: string | undefined,
 	allWorkspaces: UserWorkspace[]
 ): boolean {
-	const user = get(userStore)
-	if (!get(roleCapabilities).code) return false
-	return canCreateFork(user) || !!findCanonicalDevWorkspace(currentWorkspaceId, allWorkspaces)
+	const caps = get(roleCapabilities)
+	if (!caps.code) return false
+	return canCreateFork(get(userStore), caps) || !!findCanonicalDevWorkspace(currentWorkspaceId, allWorkspaces)
 }
 
 /** Label for the affordance: "Edit in <dev name>" when routed to a canonical dev, else "Edit in fork". */
@@ -66,8 +67,8 @@ export function editInForkDescription(
  * and forking would hand a restricted member a full-rights copy of the workspace. The server does
  * not refuse it: this hides the affordance, it does not enforce the rule.
  */
-export function canCreateFork(user: UserExt | undefined): boolean {
-	if (isRestricted(get(roleCapabilities))) return false
+export function canCreateFork(user: UserExt | undefined, caps: RoleCapabilities): boolean {
+	if (isRestricted(caps)) return false
 	return (
 		!isRuleActive('DisableWorkspaceForking') ||
 		canUserBypassRuleKind('DisableWorkspaceForking', user)

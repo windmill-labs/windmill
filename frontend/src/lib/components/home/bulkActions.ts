@@ -9,7 +9,8 @@
  * there is nothing deployed at its path.
  */
 import { AppService, DraftService, FlowService, ResourceService, ScriptService } from '$lib/gen'
-import type { UserDraftItemKind } from '$lib/gen'
+import type { RoleCapabilities, UserDraftItemKind } from '$lib/gen'
+import { roleCanAuthor, roleCanDraft } from '$lib/editRights'
 import { updateItemPathAndSummary } from '$lib/components/moveRenameManager'
 import { discardDraft } from '$lib/utils_draft_deploy'
 import type { BulkItem } from './homeSelection.svelte'
@@ -30,6 +31,8 @@ export type BulkContext = {
 	workspace: string
 	/** Deleting a script is admin-only, mirroring the row menu. */
 	isAdmin: boolean
+	/** The role's capabilities: a role that codes may still lack the flows or apps it selects. */
+	caps: RoleCapabilities
 }
 
 /** Why `action` cannot be applied to `item`; `undefined` means it can. The
@@ -41,6 +44,9 @@ export function blockedReason(
 	ctx: BulkContext
 ): string | undefined {
 	const notOwner = 'you are not an owner of this path'
+	const kind = draftKind(item)
+	if (action === 'discard' ? !roleCanDraft(kind, ctx.caps) : !roleCanAuthor(kind, ctx.caps))
+		return 'your role cannot author this kind of item'
 	switch (action) {
 		case 'move':
 			if (item.archived) return 'archived items cannot be moved'
