@@ -3,18 +3,20 @@ use crate::ai::compaction::{
     Compactor,
 };
 use crate::ai::pause::{
-    answer_pause, approval_timeout, approval_tool, load_checkpoint, park, AgentCheckpoint,
-    ParkOutcome, Resumed, APPROVAL_ENABLED_NAME,
+    answer_pause, approval_timeout, approval_tool, clear_suspend, load_checkpoint, park,
+    AgentCheckpoint, ParkOutcome, Resumed, APPROVAL_ENABLED_NAME,
 };
 use crate::ai::tools::{
-    execute_tool_calls, ToolAbortHandles, ToolCallsOutcome, ToolExecutionContext,
+    execute_tool_calls, take_finished_background_jobs, ToolAbortHandles, ToolCallsOutcome,
+    ToolExecutionContext,
 };
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
     filter_schema_by_input_transforms, find_unique_tool_name, get_flow_context,
     get_flow_job_runnable_and_raw_flow, get_step_name_from_flow, load_mcp_tools,
-    parse_raw_script_schema, set_flow_status_module_last_action_success,
-    update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
+    parse_raw_script_schema, reset_flow_status_module_action_successes,
+    set_flow_status_module_action_success_at, update_flow_status_module_with_actions,
+    update_flow_status_module_with_actions_success,
 };
 use crate::memory_common::MAX_MEMORY_SIZE_BYTES;
 use crate::memory_oss::{memory_storage_capacity_bytes, read_from_memory, write_to_memory};
@@ -23,7 +25,10 @@ use async_recursion::async_recursion;
 use regex::Regex;
 use serde_json::value::RawValue;
 use sha2::Digest;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use uuid::Uuid;
 #[cfg(feature = "bedrock")]
 use windmill_ai::ai_bedrock::check_env_credentials;
@@ -950,6 +955,8 @@ pub async fn handle_ai_agent_job(
     // Explicit per-tool descriptions keyed by tool id. When set, these override the
     // description auto-derived from the underlying runnable when building tool definitions.
     let mut tool_descriptions: HashMap<String, String> = HashMap::new();
+    // A nested agent cannot park to wait for one, so its background tools run like any other.
+    let mut background_tools: HashSet<String> = HashSet::new();
     #[allow(unused_mut)]
     let mut mcp_configs: Vec<crate::ai::utils::McpResourceConfig> = Vec::new();
     let mut has_websearch = false;
@@ -991,6 +998,9 @@ pub async fn handle_ai_agent_job(
                 {
                     tool_descriptions.insert(tool.id.clone(), description.to_string());
                 }
+                if tool.background && direct_parent_job_kind != JobKind::AIAgent {
+                    background_tools.insert(tool.id.clone());
+                }
                 if let Some(flow_module) = Option::<FlowModule>::from(&tool) {
                     windmill_modules.push(flow_module);
                 }
@@ -1012,6 +1022,7 @@ pub async fn handle_ai_agent_job(
         let db = db;
         let job = job;
         let user_description = tool_descriptions.get(&t.id).cloned();
+        let background = background_tools.contains(&t.id);
         async move {
             let summary = flow_module_tool_name(t.summary.as_deref())?;
 
@@ -1150,6 +1161,7 @@ pub async fn handle_ai_agent_job(
                 module: Some(t),
                 mcp_source: None,
                 approval_timeout_secs: None,
+                background,
             })
         }
     }))
@@ -1306,19 +1318,18 @@ pub async fn handle_ai_agent_job(
     result
 }
 
-/// Park the agent on its pending approval, as the error `run_agent` returns.
+/// Park the agent, as the error `run_agent` returns. `None` when a background job finished
+/// before the park was written, so the agent goes on instead; never for a park on an approval.
 async fn park_agent(
     db: &DB,
     conn: &Connection,
     job: &MiniPulledJob,
     checkpoint: &AgentCheckpoint,
     cancel_rx: &tokio::sync::watch::Receiver<bool>,
-) -> Error {
-    match park(db, conn, job, checkpoint).await {
-        Ok(ParkOutcome::Parked) => Error::WacSuspended(format!(
-            "AI agent {} parked on {}",
-            job.id, checkpoint.pending.function_name
-        )),
+) -> Option<Error> {
+    Some(match park(db, conn, job, checkpoint).await {
+        Ok(ParkOutcome::JobFinished) => return None,
+        Ok(ParkOutcome::Parked) => Error::WacSuspended(format!("AI agent {} parked", job.id)),
         Ok(ParkOutcome::Cancelled) => {
             // The cancel is on the queue row but not yet seen by the poller, which is what
             // completes the job as cancelled rather than failed. Wait for it to notice.
@@ -1331,7 +1342,12 @@ async fn park_agent(
             Error::ExecutionErr("Job cancelled".to_string())
         }
         Err(e) => e,
-    }
+    })
+}
+
+/// A park on an approval is never stood down by a background job.
+fn approval_park(parked: Option<Error>) -> Error {
+    parked.unwrap_or_else(|| Error::internal_err("AI agent approval park was skipped".to_string()))
 }
 
 /// OpenAI rejects a `prompt_cache_key` over 64 characters
@@ -1443,20 +1459,30 @@ pub async fn run_agent(
     // roster says now: a linked agent can lose the tool while one of its runs is parked.
     let resumed = match load_checkpoint(db, &job.id).await? {
         Some(mut checkpoint) => {
-            let answer = answer_pause(
-                db,
-                &job.id,
-                &checkpoint.pending,
-                &checkpoint.actions,
-                &mut checkpoint.consumed_resume_rows,
-            )
-            .await?;
-            match answer {
-                Resumed::StillPending => {
-                    return Err(park_agent(db, conn, job, &checkpoint, &cancel_rx).await)
+            let answer = match checkpoint.pending.clone() {
+                Some(pending) => {
+                    let answer = answer_pause(
+                        db,
+                        &job.id,
+                        &pending,
+                        &checkpoint.actions,
+                        &mut checkpoint.consumed_resume_rows,
+                    )
+                    .await?;
+                    match answer {
+                        Resumed::StillPending => {
+                            let parked = park_agent(db, conn, job, &checkpoint, &cancel_rx).await;
+                            return Err(approval_park(parked));
+                        }
+                        Resumed::Answered(message, success) => Some((pending, message, success)),
+                    }
                 }
-                Resumed::Answered(message, success) => Some((checkpoint, message, success)),
-            }
+                None => {
+                    clear_suspend(db, &job.id).await?;
+                    None
+                }
+            };
+            Some((checkpoint, answer))
         }
         None => None,
     };
@@ -1623,13 +1649,18 @@ pub async fn run_agent(
     let mut first_iteration = 0;
     let mut consumed_resume_rows = vec![];
     let mut resumed_answer = None;
+    let mut background = vec![];
+    let mut answered = false;
+    let was_resumed = resumed.is_some();
     let (mut messages, mut actions, mut content, mut final_usage) = match resumed {
-        Some((checkpoint, message, success)) => {
+        Some((checkpoint, answer)) => {
             final_events_str = checkpoint.events;
             final_reasoning = checkpoint.reasoning;
             first_iteration = checkpoint.next_iteration;
             consumed_resume_rows = checkpoint.consumed_resume_rows;
-            resumed_answer = Some((checkpoint.pending, message, success));
+            background = checkpoint.background;
+            answered = checkpoint.answered;
+            resumed_answer = answer;
             (
                 AgentHistory::from_checkpoint(checkpoint.history),
                 checkpoint.actions,
@@ -1694,17 +1725,22 @@ pub async fn run_agent(
     *has_stream = user_wants_streaming && is_text_output;
 
     // Always create a StreamEventProcessor for text output (use silent mode if user doesn't want streaming)
-    let mut stream_event_processor = if is_text_output {
-        if user_wants_streaming {
-            // Each streamed event is one line of the accumulated string.
-            let streamed = final_events_str.lines().count() as i32;
-            Some(StreamEventProcessor::new(conn, job, streamed))
+    // Each streamed event is one line of the accumulated string, so a segment streams on from
+    // where the last one stopped.
+    let new_stream_event_processor = |events: &str| {
+        if !is_text_output {
+            None
+        } else if user_wants_streaming {
+            Some(StreamEventProcessor::new(
+                conn,
+                job,
+                events.lines().count() as i32,
+            ))
         } else {
             Some(StreamEventProcessor::new_silent())
         }
-    } else {
-        None
     };
+    let mut stream_event_processor = new_stream_event_processor(&final_events_str);
 
     let chat_enabled = flow_context
         .flow_status
@@ -1763,14 +1799,15 @@ pub async fn run_agent(
     #[cfg(feature = "bedrock")]
     let mut bedrock_assumed_role: Option<windmill_ai::ai_bedrock::AssumedRoleCredentials> = None;
 
+    if let (true, Some(parent_job)) = (was_resumed, parent_job) {
+        // Rewritten whole rather than appended: a job restarted after its worker died resumes
+        // from the same checkpoint and must not record anything twice.
+        update_flow_status_module_with_actions(db, parent_job, &actions).await?;
+        let answer = resumed_answer.as_ref().map(|(_, _, success)| *success);
+        let keep = actions.len() - usize::from(answer.is_some());
+        reset_flow_status_module_action_successes(db, parent_job, keep, answer).await?;
+    }
     if let Some((pending, message, success)) = resumed_answer {
-        if let Some(parent_job) = parent_job {
-            // Rewritten whole rather than appended: a job restarted after its worker died
-            // resumes from the same checkpoint and must not record the answer twice.
-            update_flow_status_module_with_actions(db, parent_job, &actions).await?;
-            set_flow_status_module_last_action_success(db, parent_job, actions.len(), success)
-                .await?;
-        }
         if let (Some(processor), Some(OpenAIContent::Text(result))) =
             (stream_event_processor.as_ref(), message.content.as_ref())
         {
@@ -1792,8 +1829,87 @@ pub async fn run_agent(
             return Err(Error::ExecutionErr("Job cancelled".to_string()));
         }
 
-        if used_structured_output_tool {
-            break;
+        if !background.is_empty() {
+            let finished =
+                take_finished_background_jobs(db, &job.workspace_id, &mut background).await?;
+            if !finished.is_empty() {
+                answered = false;
+                used_structured_output_tool = false;
+            }
+            for finished in finished {
+                messages.push(finished.message());
+                if let Some(parent_job) = parent_job {
+                    set_flow_status_module_action_success_at(
+                        db,
+                        parent_job,
+                        finished.job.action_index,
+                        Some(finished.success),
+                    )
+                    .await?;
+                }
+                if let Some(processor) = stream_event_processor.as_ref() {
+                    let event = StreamingEvent::ToolResult {
+                        call_id: finished.job.call_id.clone(),
+                        function_name: finished.job.function_name.clone(),
+                        result: finished.content.clone(),
+                        success: finished.success,
+                    };
+                    processor.send(event, &mut final_events_str).await?;
+                }
+                if let (true, Some(conversation_id)) =
+                    (persist_output_to_conversation, conversation_id)
+                {
+                    let (row, extras) = finished.chat_row();
+                    if let Err(e) = add_message_to_conversation(
+                        db,
+                        &conversation_id,
+                        Some(finished.job.job_id),
+                        get_root_job_id(job),
+                        &row,
+                        MessageType::Tool,
+                        &step_name,
+                        finished.success,
+                        Some(&extras),
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                            "Failed to add tool message to conversation {conversation_id}: {e}"
+                        );
+                    }
+                }
+            }
+        }
+
+        if answered || used_structured_output_tool {
+            if background.is_empty() {
+                break;
+            }
+            // The model has answered but background jobs still run: wait for one, without a
+            // worker. This iteration runs again on resume, starting with what finished.
+            if let Some(handle) = stream_event_processor.take().and_then(|p| p.to_handle()) {
+                let _ = handle.await;
+            }
+            let checkpoint = AgentCheckpoint {
+                history: messages.checkpoint(),
+                actions: actions.clone(),
+                content: content.clone(),
+                usage: final_usage.clone(),
+                events: final_events_str.clone(),
+                reasoning: final_reasoning.clone(),
+                next_iteration: i,
+                pending: None,
+                background: background.clone(),
+                answered: true,
+                consumed_resume_rows: consumed_resume_rows.clone(),
+            };
+            match park_agent(db, conn, job, &checkpoint, &cancel_rx).await {
+                Some(parked) => return Err(parked),
+                None => {
+                    stream_event_processor = new_stream_event_processor(&final_events_str);
+                    continue;
+                }
+            }
         }
 
         compact_if_needed(
@@ -2298,7 +2414,8 @@ pub async fn run_agent(
                 }
 
                 if tool_calls.is_empty() {
-                    break;
+                    answered = true;
+                    continue;
                 } else if i == max_iterations - 1 {
                     #[derive(serde::Serialize)]
                     struct MaxIterError<'a> {
@@ -2383,6 +2500,7 @@ pub async fn run_agent(
                     final_content: tool_content,
                     used_structured_output_tool: tool_used_structured_output,
                     pause,
+                    started,
                 } = execute_tool_calls(
                     tool_execution_ctx,
                     &tool_calls,
@@ -2435,6 +2553,7 @@ pub async fn run_agent(
                     content = Some(tc);
                 }
                 used_structured_output_tool = tool_used_structured_output;
+                background.extend(started);
 
                 if let Some(mut pending) = pause {
                     actions.extend(pending.action.take());
@@ -2452,10 +2571,13 @@ pub async fn run_agent(
                         events: final_events_str,
                         reasoning: final_reasoning,
                         next_iteration: i + 1,
-                        pending,
+                        pending: Some(pending),
+                        background,
+                        answered: false,
                         consumed_resume_rows,
                     };
-                    let parked = park_agent(db, conn, job, &checkpoint, &cancel_rx).await;
+                    let parked =
+                        approval_park(park_agent(db, conn, job, &checkpoint, &cancel_rx).await);
                     // Written once parked: the run page offers an answer only for a request that
                     // `resume_suspended` can take. The park is committed, so a failure here only
                     // costs the page its banner.
@@ -3209,6 +3331,7 @@ mod tests {
             its.insert(key.to_string(), js(expr));
             AgentTool {
                 job_token_scopes: None,
+                background: false,
                 id: id.to_string(),
                 summary: None,
                 description: None,
@@ -3237,6 +3360,7 @@ mod tests {
             script_tool("b", "y", "keep_me"),
             AgentTool {
                 job_token_scopes: None,
+                background: false,
                 id: "m".to_string(),
                 summary: None,
                 description: None,
@@ -3285,6 +3409,7 @@ mod tests {
         fn named(id: &str, summary: &str) -> AgentTool {
             AgentTool {
                 job_token_scopes: None,
+                background: false,
                 id: id.to_string(),
                 summary: Some(summary.to_string()),
                 description: None,
@@ -3301,6 +3426,7 @@ mod tests {
         fn mcp(id: &str, summary: &str, path: &str) -> AgentTool {
             AgentTool {
                 job_token_scopes: None,
+                background: false,
                 id: id.to_string(),
                 summary: Some(summary.to_string()),
                 description: None,
@@ -3314,6 +3440,7 @@ mod tests {
         fn websearch(id: &str, summary: Option<&str>) -> AgentTool {
             AgentTool {
                 job_token_scopes: None,
+                background: false,
                 id: id.to_string(),
                 summary: summary.map(str::to_string),
                 description: None,

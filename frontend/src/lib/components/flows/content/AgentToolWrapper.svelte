@@ -63,6 +63,9 @@
 		isAgentTool={true}
 		{staticOnly}
 		bind:toolDescription={tool.description}
+		bind:toolBackground={
+			() => tool.background ?? false, (v) => (tool.background = v ? true : undefined)
+		}
 		{siblingToolNames}
 	/>
 {:else if isMcpTool(tool)}

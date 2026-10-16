@@ -132,6 +132,8 @@
 		/** Lets the agent's Tools section add a tool through the graph's own insert path. */
 		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
 		toolDescription?: string | undefined
+		/** The tool's `background` setting; only an agent tool has one. */
+		toolBackground?: boolean
 		siblingToolNames?: string[]
 	}
 
@@ -152,6 +154,7 @@
 		staticOnly = false,
 		flowModuleSchemaMap = undefined,
 		toolDescription = $bindable(undefined),
+		toolBackground = $bindable(false),
 		siblingToolNames = undefined
 	}: Props = $props()
 
@@ -1400,6 +1403,7 @@
 											onApplyS3Snippet={(code) => editor?.setCode(code)}
 											bind:flowModule
 											{isAgentTool}
+											bind:toolBackground
 											{parentModule}
 											{previousModule}
 											selectedId={flowModule.id}
