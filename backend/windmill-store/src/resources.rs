@@ -898,11 +898,11 @@ pub async fn transform_json_value(
     .await
 }
 
-/// RLS resolves a reference as the token's user, not as the token: a token scoped to one
-/// resource would otherwise read, through that resource, every variable or resource its
-/// user can. Job tokens carry no scopes, so what a runnable resolves is unaffected.
-/// `resource_path` is the resource being expanded: its own linked secrets
-/// ([`is_owned_linked_var`]) are covered by the read of it.
+/// A token's scope on a resource covers everything that resource references
+/// (`resource_path` is the resource being expanded). That holds only because a scoped token
+/// cannot write a reference it could not read itself ([`check_added_reference_scopes`]): RLS
+/// resolves a reference as the token's user, not as the token. A reference outside any
+/// resource needs its own read scope. Job tokens carry no scopes.
 fn check_interpolation_scope(
     db_with_opt_authed: &DbWithOptAuthed<'_, ApiAuthed>,
     domain: &str,
@@ -910,10 +910,58 @@ fn check_interpolation_scope(
     resource_path: Option<&str>,
 ) -> Result<()> {
     match db_with_opt_authed.authed() {
-        Some(_) if resource_path.is_some_and(|r| is_owned_linked_var(r, path)) => Ok(()),
+        Some(_) if resource_path.is_some() => Ok(()),
         Some(authed) => check_scopes(authed, || format!("{domain}:read:{path}")),
         None => Ok(()),
     }
+}
+
+/// Refuses a scoped token writing into the resource at `path` a `$var:`/`$jsonvar:`/`$res:`
+/// reference it holds no read scope on. A reference the stored value already carries is kept
+/// without one: whoever put it there was allowed to. Without this check, a token scoped to
+/// one resource could point it at any secret its user can read and then read it through
+/// that resource.
+async fn check_added_reference_scopes(
+    authed: &ApiAuthed,
+    user_db: &UserDB,
+    w_id: &str,
+    path: &str,
+    value: Option<&serde_json::Value>,
+) -> Result<()> {
+    let Some(value) = value else { return Ok(()) };
+    if authed.scopes.is_none() {
+        return Ok(());
+    }
+    let mut tx = user_db.clone().begin(authed).await?;
+    let stored = sqlx::query_scalar::<_, Option<serde_json::Value>>(
+        "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
+    )
+    .bind(path)
+    .bind(w_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
+    tx.commit().await?;
+
+    for (domain, prefixes) in [
+        ("variables", &REFERRER_PREFIXES[..]),
+        ("resources", &["$res:"][..]),
+    ] {
+        let mut kept = vec![];
+        if let Some(stored) = &stored {
+            collect_refs_with_prefixes(stored, prefixes, &mut kept);
+        }
+        let mut refs = vec![];
+        collect_refs_with_prefixes(value, prefixes, &mut refs);
+        for r in refs.iter().filter(|r| !kept.contains(r)) {
+            check_scopes(authed, || format!("{domain}:read:{r}")).map_err(|_| {
+                Error::PermissionDenied(format!(
+                    "This token needs {domain}:read:{r} to add a reference to it in resource {path}"
+                ))
+            })?;
+        }
+    }
+    Ok(())
 }
 
 /// Like [`transform_json_value`], but records into `used_job_context` whether the value
@@ -964,7 +1012,7 @@ pub async fn transform_json_value_tracked(
                     "Invalid resource path: {path}"
                 )));
             }
-            check_interpolation_scope(db_with_opt_authed, "resources", path, None)?;
+            check_interpolation_scope(db_with_opt_authed, "resources", path, resource_path)?;
             let mut tx: Transaction<'_, Postgres> = db_with_opt_authed.begin().await?;
             let v = sqlx::query_scalar!(
                 "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
@@ -1233,16 +1281,17 @@ async fn create_resource(
     }
     let authed = maybe_refresh_folders(&resource.path, &w_id, authed, &db).await;
 
-    authorize_azure_devops_reference(
+    let parsed_value = resource
+        .value
+        .as_deref()
+        .and_then(|v| serde_json::from_str::<serde_json::Value>(v.get()).ok());
+    authorize_azure_devops_reference(&authed, &db, &user_db, &w_id, parsed_value.as_ref()).await?;
+    check_added_reference_scopes(
         &authed,
-        &db,
         &user_db,
         &w_id,
-        resource
-            .value
-            .as_deref()
-            .and_then(|v| serde_json::from_str::<serde_json::Value>(v.get()).ok())
-            .as_ref(),
+        &resource.path,
+        parsed_value.as_ref(),
     )
     .await?;
 
@@ -2108,17 +2157,12 @@ async fn update_resource(
     sqlb.returning("path");
     let authed = maybe_refresh_folders(path, &w_id, authed, &db).await;
 
-    authorize_azure_devops_reference(
-        &authed,
-        &db,
-        &user_db,
-        &w_id,
-        ns.value
-            .as_deref()
-            .and_then(|v| serde_json::from_str::<serde_json::Value>(v.get()).ok())
-            .as_ref(),
-    )
-    .await?;
+    let parsed_value = ns
+        .value
+        .as_deref()
+        .and_then(|v| serde_json::from_str::<serde_json::Value>(v.get()).ok());
+    authorize_azure_devops_reference(&authed, &db, &user_db, &w_id, parsed_value.as_ref()).await?;
+    check_added_reference_scopes(&authed, &user_db, &w_id, path, parsed_value.as_ref()).await?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -2398,6 +2442,7 @@ async fn set_resource_value(
         return Err(Error::PermissionDenied(msg));
     }
     authorize_azure_devops_reference(authed, db, user_db, w_id, value.as_ref()).await?;
+    check_added_reference_scopes(authed, user_db, w_id, path, value.as_ref()).await?;
 
     let mut tx = user_db.clone().begin(authed).await?;
 
