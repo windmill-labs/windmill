@@ -337,25 +337,30 @@ fn migration_status(status: &Value) -> &'static str {
     }
 }
 
-/// The body of a leading comment line that attempts a `-- role` annotation.
-fn role_attempt(line: &str) -> Option<&str> {
+/// The rest of a leading comment line whose first word is `keyword`: an annotation attempt.
+fn annotation_attempt<'a>(line: &'a str, keyword: &str) -> Option<&'a str> {
     let body = line.strip_prefix("--")?.trim_start();
     let after = body
-        .get(..4)
-        .filter(|w| w.eq_ignore_ascii_case("role"))
-        .map(|_| &body[4..])?;
+        .get(..keyword.len())
+        .filter(|w| w.eq_ignore_ascii_case(keyword))
+        .map(|_| &body[keyword.len()..])?;
     match after.chars().next() {
         Some(c) if !(c.is_whitespace() || c == ':' || c == '=') => None,
         _ => Some(after),
     }
 }
 
-/// `sql` declaring `role`: the server reads the role a migration runs as from a `-- role <name>`
-/// annotation in its leading comment block, so any attempt there is replaced by one on top.
-fn with_migration_role(sql: &str, role: Option<&str>) -> String {
-    let Some(role) = role else {
-        return sql.to_string();
-    };
+/// The lines of `sql`'s leading comment block, where the server reads its annotations.
+fn leading_block(sql: &str) -> impl Iterator<Item = &str> {
+    sql.split('\n')
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .take_while(|l| l.starts_with("--"))
+}
+
+/// `sql` with every `keyword` attempt of its leading comment block removed, and `line`, if
+/// any, on top.
+fn with_annotation(sql: &str, keyword: &str, line: Option<String>) -> String {
     let lines: Vec<&str> = sql.split('\n').collect();
     let leading = lines
         .iter()
@@ -363,13 +368,80 @@ fn with_migration_role(sql: &str, role: Option<&str>) -> String {
         .unwrap_or(lines.len());
     let rest = lines[..leading]
         .iter()
-        .filter(|l| role_attempt(l.trim()).is_none())
+        .filter(|l| annotation_attempt(l.trim(), keyword).is_none())
         .chain(&lines[leading..])
-        .skip_while(|l| l.trim().is_empty());
-    std::iter::once(format!("-- role {role}"))
-        .chain(rest.map(|l| l.to_string()))
-        .collect::<Vec<_>>()
-        .join("\n")
+        .skip_while(|l| l.trim().is_empty())
+        .map(|l| l.to_string());
+    line.into_iter().chain(rest).collect::<Vec<_>>().join("\n")
+}
+
+/// `sql` declaring `role`: the server reads the role a migration runs as from a `-- role <name>`
+/// annotation in its leading comment block, so any attempt there is replaced by one on top.
+fn with_migration_role(sql: &str, role: Option<&str>) -> String {
+    match role {
+        Some(role) => with_annotation(sql, "role", Some(format!("-- role {role}"))),
+        None => sql.to_string(),
+    }
+}
+
+fn is_annotatable_schema_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 63
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '$' | '-'))
+}
+
+/// The scope `sql`'s `-- schemas a, b` annotation declares, lowercased, as the server's
+/// `parse_migration_schemas` reads it. None for the whole database, which is also what a
+/// malformed annotation stands for here.
+fn declared_schemas(sql: &str) -> Option<Vec<String>> {
+    let after = leading_block(sql).find_map(|l| annotation_attempt(l, "schemas"))?;
+    let rest = after.trim_start();
+    let rest = rest.strip_prefix([':', '=']).unwrap_or(rest).trim();
+    let rest = rest.strip_suffix(';').unwrap_or(rest);
+    let mut schemas: Vec<String> = Vec::new();
+    for name in rest.split(',').map(str::trim) {
+        if !is_annotatable_schema_name(name) {
+            return None;
+        }
+        let name = name.to_ascii_lowercase();
+        if !schemas.contains(&name) {
+            schemas.push(name);
+        }
+    }
+    Some(schemas)
+}
+
+/// Whether a listed migration's `schemas` overlaps `own`; an absent scope is the whole database.
+fn scopes_overlap(theirs: &Value, own: Option<&[String]>) -> bool {
+    match (theirs.as_array(), own) {
+        (Some(theirs), Some(own)) => theirs
+            .iter()
+            .any(|s| own.iter().any(|o| s.as_str() == Some(o))),
+        _ => true,
+    }
+}
+
+/// The optional `schemas` argument, held to the rule the server applies to a scope name.
+fn schemas_arg(args: &Value) -> Result<Option<Vec<String>>, String> {
+    let Some(value) = non_null(args.get("schemas")) else {
+        return Ok(None);
+    };
+    let names = value
+        .as_array()
+        .ok_or("`schemas` must be an array of schema names")?;
+    names
+        .iter()
+        .map(|name| match name.as_str() {
+            Some(name) if is_annotatable_schema_name(name) => Ok(name.to_ascii_lowercase()),
+            _ => Err(format!(
+                "Invalid schema name '{}' in `schemas`: only letters, digits, '_', '$' and '-' are allowed (1 to 63 characters)",
+                js_str(name)
+            )),
+        })
+        .collect::<Result<_, _>>()
+        .map(Some)
 }
 
 async fn list_datatable_migrations(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
@@ -394,6 +466,7 @@ async fn list_datatable_migrations(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
                         "version": m["timestamp"],
                         "name": m["name"],
                         "status": migration_status(&m["status"]),
+                        "schemas": non_null(m.get("schemas")).cloned().unwrap_or_else(|| json!("whole database")),
                     })
                 })
                 .collect(),
@@ -467,16 +540,19 @@ async fn save_migration(
     Ok(Ok(version))
 }
 
-/// The labels of the migrations before `version` that are not applied yet.
+/// The labels of the migrations before `version`, in a scope overlapping `scope`, that are
+/// not applied yet.
 async fn earlier_pending(
     ctx: &Ctx<'_>,
     datatable_name: &str,
     version: i64,
+    scope: Option<&[String]>,
 ) -> Result<Vec<String>, String> {
     let status = migrations_status(ctx, datatable_name).await?;
     let earlier: Vec<&Value> = array(status.get("migrations"))
         .iter()
         .filter(|m| m["timestamp"].as_i64().is_some_and(|t| t < version))
+        .filter(|m| scopes_overlap(&m["schemas"], scope))
         .collect();
     // Unreadable is not pending: reporting it so would send the user to apply migrations
     // that already ran.
@@ -507,12 +583,18 @@ async fn create_datatable_migration(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     }
     let role = role_arg(args)?;
     let version = version_arg(args)?;
+    let code_up = str_arg(args, "code_up")?;
+    // What the caller declares, else what `code_up` does; none is the whole database.
+    let scope = schemas_arg(args)?
+        .or_else(|| declared_schemas(code_up))
+        .unwrap_or_default();
+    let header = (!scope.is_empty()).then(|| format!("-- schemas {}", scope.join(", ")));
 
     let mut definition = Map::new();
     definition.insert("name".into(), name.into());
     definition.insert(
         "code_up".into(),
-        with_migration_role(str_arg(args, "code_up")?, role).into(),
+        with_annotation(&with_migration_role(code_up, role), "schemas", header).into(),
     );
     if let Some(code_down) = opt_str_arg(args, "code_down") {
         // A rollback has to run as the role that created what it drops.
@@ -534,7 +616,8 @@ async fn create_datatable_migration(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     }
 
     // Applying it alone would run it ahead of migrations it may depend on.
-    let earlier = match earlier_pending(ctx, datatable_name, version).await {
+    let own_scope = (!scope.is_empty()).then_some(scope.as_slice());
+    let earlier = match earlier_pending(ctx, datatable_name, version, own_scope).await {
         Ok(earlier) => earlier,
         Err(e) => return Ok(format!("Saved migration {label} as pending, but could not check what else is pending, so it was not applied: {e}")),
     };
@@ -825,6 +908,33 @@ mod tests {
             ),
             "-- role app_rw\n-- note\n-- roles kept\nBEGIN;\n-- role below\nEND;"
         );
+    }
+
+    #[test]
+    fn migration_scope_is_read_from_the_leading_block_and_overlaps() {
+        let sql = "-- role r\n--SCHEMAS: Sales, billing, sales;\nBEGIN;\n-- schemas other\nEND;";
+        let scope = declared_schemas(sql).unwrap();
+        assert_eq!(scope, ["sales", "billing"]);
+        assert_eq!(declared_schemas("BEGIN;\n-- schemas a\nEND;"), None);
+        assert_eq!(declared_schemas("-- schemas a b\nBEGIN;"), None);
+        assert_eq!(declared_schemas("-- schemasx a\nBEGIN;"), None);
+        assert_eq!(
+            with_annotation(
+                &with_migration_role(sql, Some("w")),
+                "schemas",
+                Some("-- schemas sales".into())
+            ),
+            "-- schemas sales\n-- role w\nBEGIN;\n-- schemas other\nEND;"
+        );
+        assert_eq!(
+            with_annotation(sql, "schemas", None),
+            "-- role r\nBEGIN;\n-- schemas other\nEND;"
+        );
+
+        assert!(scopes_overlap(&json!(["billing", "x"]), Some(&scope)));
+        assert!(!scopes_overlap(&json!(["x"]), Some(&scope)));
+        assert!(scopes_overlap(&Value::Null, Some(&scope)));
+        assert!(scopes_overlap(&json!(["x"]), None));
     }
 
     #[test]

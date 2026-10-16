@@ -350,6 +350,10 @@ fn recompute_policy(value: &mut Value) {
         {
             entry.insert("tag".into(), tag.clone());
         }
+        // The server honors it on inline runnables only, whose code is deployed with the app.
+        if is_inline(&runnable) && runnable.get("viewer_data_access") == Some(&Value::Bool(true)) {
+            entry.insert("viewer_data_access".into(), json!(true));
+        }
         triggerables.insert(format!("{id}:{target}"), Value::Object(entry));
     }
     let policy = object_mut(value, "policy");
@@ -406,6 +410,7 @@ async fn init_app(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     }
     value.insert("files".into(), template.clone());
     value.insert("runnables".into(), starters.clone());
+    value.insert("policy".into(), json!({ "sandbox": true }));
     let data = args.get("data").filter(|d| truthy(Some(d)));
     let schema = data.and_then(|d| text_of(d, "schema"));
     let datatable = data
@@ -770,7 +775,7 @@ async fn patch_app_file(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 
 /// The stored runnable for a `write_app_runnable` input. Converting between kinds drops
 /// the other kind's fields, and a path runnable's `schema` survives only while its target
-/// is unchanged: it describes the item pointed at.
+/// is unchanged: it describes the item pointed at. `viewer_data_access` is inline-only.
 fn build_persisted_runnable(input: &Value, existing: Option<&Value>) -> Result<Value, String> {
     let name = str_arg(input, "name")?;
     let kind = str_arg(input, "type")?;
@@ -794,6 +799,7 @@ fn build_persisted_runnable(input: &Value, existing: Option<&Value>) -> Result<V
             .unwrap_or_else(|| json!({})),
     };
     let mut out = existing.cloned().unwrap_or_default();
+    let carried_as_viewer = out.shift_remove("viewer_data_access") == Some(Value::Bool(true));
     for key in ["runType", "path", "inlineScript"] {
         out.shift_remove(key);
     }
@@ -809,6 +815,13 @@ fn build_persisted_runnable(input: &Value, existing: Option<&Value>) -> Result<V
             "inlineScript".into(),
             json!({ "content": inline.get("content"), "language": inline.get("language") }),
         );
+        let viewer_data_access = input
+            .get("viewerDataAccess")
+            .and_then(Value::as_bool)
+            .unwrap_or(carried_as_viewer);
+        if viewer_data_access {
+            out.insert("viewer_data_access".into(), json!(true));
+        }
         out.insert("fields".into(), fields);
         return Ok(Value::Object(out));
     }
@@ -1139,6 +1152,47 @@ mod tests {
             build_persisted_runnable(&json!({ "name": "n", "type": "inline" }), None),
             Err("inlineScript is required when runnable type is \"inline\".".to_string())
         );
+    }
+
+    #[test]
+    fn viewer_data_access_is_set_kept_or_cleared_on_inline_runnables_only() {
+        let inline = |viewer: Value| {
+            let mut input = json!({
+                "name": "n", "type": "inline",
+                "inlineScript": { "language": "bun", "content": "c" }
+            });
+            if !viewer.is_null() {
+                input["viewerDataAccess"] = viewer;
+            }
+            input
+        };
+        let set = build_persisted_runnable(&inline(json!(true)), None).unwrap();
+        assert_eq!(set["viewer_data_access"], json!(true));
+        let kept = build_persisted_runnable(&inline(Value::Null), Some(&set)).unwrap();
+        assert_eq!(kept["viewer_data_access"], json!(true));
+        let cleared = build_persisted_runnable(&inline(json!(false)), Some(&set)).unwrap();
+        assert!(cleared.get("viewer_data_access").is_none());
+        let by_path = build_persisted_runnable(
+            &json!({ "name": "n", "type": "script", "path": "u/a/s", "viewerDataAccess": true }),
+            Some(&set),
+        )
+        .unwrap();
+        assert!(by_path.get("viewer_data_access").is_none());
+
+        let mut value = json!({ "runnables": { "a": set, "b": {
+            "type": "path", "runType": "script", "path": "u/a/s", "viewer_data_access": true
+        } } });
+        recompute_policy(&mut value);
+        let triggerables = &value["policy"]["triggerables_v2"];
+        let flagged: Vec<&String> = triggerables
+            .as_object()
+            .unwrap()
+            .iter()
+            .filter(|(_, e)| e["viewer_data_access"] == json!(true))
+            .map(|(k, _)| k)
+            .collect();
+        assert_eq!(flagged.len(), 1);
+        assert!(flagged[0].starts_with("a:rawscript/"));
     }
 
     #[test]

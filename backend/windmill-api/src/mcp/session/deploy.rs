@@ -6,6 +6,7 @@ use futures::{stream, StreamExt};
 use regex::Regex;
 use serde_json::{json, Map, Value};
 
+use super::flows::drop_stale_step_locks;
 use super::workspace::{
     api_message, app_source_to_draft_value, delete_draft, deployed_item_exists, draft_kind,
     get_deployed, get_draft_item, item_exists, item_type_arg, path_enc, service, unified_patch,
@@ -104,6 +105,10 @@ async fn deploy_script(ctx: &Ctx<'_>, path: &str, message: Option<&str>) -> Resu
             "parent_hash",
             "deployment_message",
             "preserve_on_behalf_of",
+            // A draft seeded from the deployed script carries its lock, and the server skips
+            // the dependency job whenever one is set.
+            "lock",
+            "lock_error_logs",
         ],
     );
     body["path"] = non_null(draft.get("path")).cloned().unwrap_or(json!(path));
@@ -163,6 +168,13 @@ async fn deploy_flow(
             body.insert(key.into(), value.clone());
         }
     }
+    if let Some(Value::Object(value)) = body.get_mut("value") {
+        // With nothing deployed the server fills `value` from the draft itself.
+        let deployed = row
+            .get("value")
+            .filter(|_| !draft_only && !truthy(row.get("no_deployed")));
+        drop_stale_step_locks(value, deployed);
+    }
     if truthy(draft.get("on_behalf_of_email")) {
         body.insert("preserve_on_behalf_of".into(), json!(true));
     }
@@ -195,6 +207,40 @@ async fn upsert(
         format!("{service}/create")
     };
     ctx.post(&ctx.ws(&route), body).await?;
+    Ok(())
+}
+
+/// An agent's draft never carries the identity it runs as, and without the flag the server
+/// resets it to the deploying user, so an update restates the deployed one.
+async fn deploy_resource(ctx: &Ctx<'_>, path: &str, draft: &Value) -> Result<(), String> {
+    if !item_exists(ctx, "resource", None, path).await? {
+        ctx.post(&ctx.ws("resources/create"), draft.clone()).await?;
+        return Ok(());
+    }
+    let deployed = get_deployed(ctx, "resource", None, path).await?;
+    let mut body = draft.clone();
+    let agent_obo = deployed
+        .get("value")
+        .and_then(|value| value.get("on_behalf_of"))
+        .filter(|obo| {
+            deployed.get("resource_type").and_then(Value::as_str) == Some("ai_agent")
+                && truthy(Some(obo))
+        });
+    if let (Some(obo), Some(body)) = (agent_obo, body.as_object_mut()) {
+        let mut value = body
+            .get("value")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        value.insert("on_behalf_of".into(), obo.clone());
+        body.insert("value".into(), Value::Object(value));
+        body.insert("preserve_on_behalf_of".into(), json!(true));
+    }
+    ctx.post(
+        &ctx.ws(&format!("resources/update/{}", path_enc(path))),
+        body,
+    )
+    .await?;
     Ok(())
 }
 
@@ -493,6 +539,7 @@ async fn deploy_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             deploy_flow(ctx, path, !exists, message).await?;
         }
         "variable" => note = deploy_variable(ctx, path, value).await?,
+        "resource" => deploy_resource(ctx, path, value).await?,
         "app" => note = deploy_app(ctx, path, &item, value, message, force).await?,
         _ => upsert(ctx, item_type, trigger_kind, path, value.clone()).await?,
     }
@@ -1140,11 +1187,15 @@ fn canonical_drawer_value(kind: &str, raw: &Value, is_draft: bool) -> Value {
             out.insert("description".into(), or_empty(variable.get("description")));
         }
         "resource" => {
-            let value = if is_draft { "args" } else { "value" };
-            out.insert(
-                "value".into(),
-                non_null(raw.get(value)).cloned().unwrap_or(json!({})),
-            );
+            let key = if is_draft { "args" } else { "value" };
+            let mut value = non_null(raw.get(key)).cloned().unwrap_or(json!({}));
+            // An agent's identity is in its deployed value and never in a draft: not an edit.
+            if raw.get("resource_type").and_then(Value::as_str) == Some("ai_agent") {
+                if let Some(value) = value.as_object_mut() {
+                    value.shift_remove("on_behalf_of");
+                }
+            }
+            out.insert("value".into(), value);
             out.insert("description".into(), or_empty(raw.get("description")));
             if let Some(resource_type) = non_null(raw.get("resource_type")) {
                 out.insert("resource_type".into(), resource_type.clone());

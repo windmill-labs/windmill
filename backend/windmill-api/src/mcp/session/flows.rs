@@ -199,6 +199,51 @@ fn walk(modules: Option<&mut Value>, in_tool: bool, f: &mut dyn FnMut(&mut Value
     }
 }
 
+/// `walk` over a flow value: its modules, then its preprocessor and failure modules.
+fn walk_flow(flow: &mut Map<String, Value>, f: &mut dyn FnMut(&mut Value, bool)) {
+    walk(flow.get_mut("modules"), false, f);
+    for (key, _) in SPECIAL_MODULES {
+        if let Some(module) = flow.get_mut(key).filter(|m| !m.is_null()) {
+            let mut single = Value::Array(vec![module.take()]);
+            walk(Some(&mut single), false, f);
+            *module = single[0].take();
+        }
+    }
+}
+
+/// Drops the lock of every step whose code differs from the same step in `base`: the worker
+/// reuses any non-empty step lock, so a changed step keeping its lock runs against the old
+/// dependencies. A step id `base` lacks (renamed or duplicated) keeps its lock only when some
+/// `base` step has the same code. Without a base nothing is dropped: a copied flow's locks match.
+pub(super) fn drop_stale_step_locks(value: &mut Map<String, Value>, base: Option<&Value>) {
+    let Some(mut base) = base.and_then(Value::as_object).cloned() else {
+        return;
+    };
+    let code = |module: &Value| module.get("value").and_then(|v| v.get("content")).cloned();
+    let mut base_code_by_id = HashMap::new();
+    let mut base_codes = Vec::new();
+    walk_flow(&mut base, &mut |module, _| {
+        base_code_by_id.insert(module_id(module).to_string(), code(module));
+        base_codes.push(code(module));
+    });
+    walk_flow(value, &mut |module, _| {
+        let (id, content) = (module_id(module).to_string(), code(module));
+        let Some(step) = module.get_mut("value").and_then(Value::as_object_mut) else {
+            return;
+        };
+        if step.get("lock").is_none_or(Value::is_null) {
+            return;
+        }
+        let unchanged = match base_code_by_id.get(&id) {
+            Some(base_code) => *base_code == content,
+            None => base_codes.contains(&content),
+        };
+        if !unchanged {
+            step.shift_remove("lock");
+        }
+    });
+}
+
 /// Put the stored bodies back in place of the placeholders that name them.
 fn restore_inline_scripts(flow: &mut Map<String, Value>, scripts: &HashMap<String, String>) {
     visit_flow_scripts(flow, &mut |_, value| {
@@ -235,14 +280,7 @@ fn finalize_inline_scripts(flow: &mut Map<String, Value>) -> Result<(), String> 
             value.insert("content".into(), json!(""));
         }
     };
-    walk(flow.get_mut("modules"), false, &mut blank);
-    for (key, _) in SPECIAL_MODULES {
-        if let Some(module) = flow.get_mut(key).filter(|m| !m.is_null()) {
-            let mut single = Value::Array(vec![module.take()]);
-            walk(Some(&mut single), false, &mut blank);
-            *module = single[0].take();
-        }
-    }
+    walk_flow(flow, &mut blank);
     let unresolved = unresolved_inline_scripts(flow);
     if unresolved.is_empty() {
         return Ok(());
@@ -783,6 +821,11 @@ async fn write_flow_draft(ctx: &Ctx<'_>, write: FlowWrite<'_>) -> ToolResult {
             }
         }
     }
+    // Also done at deploy; here too because a test run of the draft reads the locks.
+    drop_stale_step_locks(
+        &mut value,
+        base_flow.as_ref().and_then(|flow| flow.get("value")),
+    );
     let empty_scripts = if write.warn_empty_scripts {
         empty_inline_script_ids(&value)
     } else {
@@ -1023,6 +1066,37 @@ mod tests {
         assert!(
             error.starts_with("Unresolved inline script reference(s): \"inline_script.gone\". ")
         );
+    }
+
+    #[test]
+    fn only_steps_whose_code_changed_lose_their_lock() {
+        let locked = |id: &str, content: &str| {
+            let mut module = raw(id, content);
+            module["value"]["lock"] = json!("lock");
+            module
+        };
+        let base = json!({ "modules": [raw("edited", "A"), raw("kept", "B")] });
+        let mut value = json!({
+            "modules": [locked("edited", "B"), locked("kept", "B"), locked("renamed", "B"), locked("new", "C")],
+            "failure_module": locked("failure", "F"),
+        })
+        .as_object()
+        .cloned()
+        .unwrap();
+        let unlocked = value.clone();
+        drop_stale_step_locks(&mut value, None);
+        assert_eq!(value, unlocked);
+
+        drop_stale_step_locks(&mut value, Some(&base));
+        let has_lock = |module: &Value| module["value"].get("lock").is_some();
+        let kept: Vec<bool> = value["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(has_lock)
+            .collect();
+        assert_eq!(kept, [false, true, true, false]);
+        assert!(!has_lock(&value["failure_module"]));
     }
 
     #[test]

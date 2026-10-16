@@ -17,6 +17,7 @@ pub(super) const TOOLS: &[&str] = &[
     "search_docs",
     "read_docs_page",
     "search_resource_types",
+    "create_resource_type",
     "list_workers",
     "create_folder",
     "get_trigger_schema",
@@ -31,6 +32,7 @@ pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult 
         "search_docs" => search_docs(ctx, args).await,
         "read_docs_page" => read_docs_page(ctx, args).await,
         "search_resource_types" => search_resource_types(ctx, args).await,
+        "create_resource_type" => create_resource_type(ctx, args).await,
         "list_workers" => list_workers(ctx).await,
         "create_folder" => create_folder(ctx, args).await,
         "get_trigger_schema" => get_trigger_schema(args),
@@ -486,16 +488,33 @@ async fn read_docs_page(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 // Resource types
 // ---------------------------------------------------------------------------
 
+/// The hub publishes hundreds of resource types and an instance seeds only a few of its
+/// own, so fewer than this means the instance never synced with the hub.
+const UNSYNCED_RESOURCE_TYPE_COUNT: usize = 20;
+
+const HUB_SYNC_INSTRUCTIONS: &str = "Tell the user: no resource of a missing type can be created until a superadmin syncs resource types from the hub, with \"Sync resource types with Hub\" in the Add resource dialog of the Resources page.";
+
 async fn search_resource_types(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let query = str_arg(args, "query")?;
     let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(5);
-    let results = ctx
-        .get(&ctx.ws(&format!(
-            "embeddings/query_resource_types?text={}&limit={limit}",
-            enc(query)
-        )))
-        .await?;
+    let search_route = ctx.ws(&format!(
+        "embeddings/query_resource_types?text={}&limit={limit}",
+        enc(query)
+    ));
+    let names_route = ctx.ws("resources/type/listnames");
+    let (results, names) =
+        futures::future::join(ctx.get(&search_route), ctx.get(&names_route)).await;
+    let results = results?;
     let results = array(Some(&results));
+    let count = names
+        .map(|names| {
+            array(Some(&names))
+                .iter()
+                .filter_map(Value::as_str)
+                .collect::<HashSet<_>>()
+                .len()
+        })
+        .unwrap_or(0);
     let listing: Vec<Value> = results
         .iter()
         .map(|rt| {
@@ -505,6 +524,12 @@ async fn search_resource_types(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         })
         .collect();
     let listing = pretty(&Value::Array(listing));
+    // The similarity search still returns the nearest of the few types there are, so the
+    // note cannot wait for an empty result; it replaces the "no dedicated type" one, which
+    // would have the model create a duplicate of a type a sync brings.
+    if count > 0 && count < UNSYNCED_RESOURCE_TYPE_COUNT {
+        return Ok(format!("{listing}\n\nOnly {count} resource types exist on this instance, so it has most likely never synced with the Windmill Hub, which has types for most services. {HUB_SYNC_INSTRUCTIONS}"));
+    }
     // The search is semantic and always returns its closest types, so a miss reads
     // like a hit unless the absence is spelled out.
     let words: Vec<String> = words(query).filter(|w| w.len() >= 3).collect();
@@ -521,6 +546,35 @@ async fn search_resource_types(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     } else {
         format!("{listing}\n\nNo resource type name contains \"{query}\": these are only the nearest matches, so no dedicated type exists. Searching again with synonyms will not find one — use a fitting generic type above, or create a custom c_<name> type.")
     })
+}
+
+/// The prefix the Add resource type form adds: a hub type of the same name, synced later,
+/// would otherwise clash with this one.
+fn custom_resource_type_name(name: &str) -> String {
+    if name.starts_with("c_") {
+        name.to_string()
+    } else {
+        format!("c_{name}")
+    }
+}
+
+async fn create_resource_type(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let name = custom_resource_type_name(str_arg(args, "name")?);
+    let description = str_arg(args, "description")?;
+    let schema = args
+        .get("schema")
+        .filter(|s| s.is_object())
+        .ok_or("Missing required object argument `schema`")?;
+    ctx.post(
+        &ctx.ws("resources/type/create"),
+        json!({ "name": name, "description": description, "schema": schema }),
+    )
+    .await?;
+    Ok(json!({
+        "success": true,
+        "message": format!("Created resource type {name}. Refer to it by this name.")
+    })
+    .to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -655,6 +709,12 @@ mod tests {
             without_provenance(&json!({ "a": 1, "validation": { "method": "live" } })),
             json!({ "a": 1 })
         );
+    }
+
+    #[test]
+    fn custom_resource_types_carry_the_c_prefix_once() {
+        assert_eq!(custom_resource_type_name("acme"), "c_acme");
+        assert_eq!(custom_resource_type_name("c_acme"), "c_acme");
     }
 
     #[test]

@@ -639,11 +639,20 @@ async fn run_deployed(ctx: &Ctx<'_>, args: &Value, is_flow: bool) -> ToolResult 
             Ok(prepared) => prepared,
             Err(message) => return Ok(message),
         };
+    // A chat-enabled flow is refused without a conversation, and this run is one of its own.
+    let memory_id = if is_flow && truthy(item["value"].get("chat_input_enabled")) {
+        format!("&memory_id={}", uuid::Uuid::new_v4())
+    } else {
+        String::new()
+    };
     // The arguments fill the main input schema; a preprocessor would take them for a
     // trigger event.
     let started = ctx
         .post(
-            &ctx.ws(&format!("{run}/{}?skip_preprocessor=true", path_enc(path))),
+            &ctx.ws(&format!(
+                "{run}/{}?skip_preprocessor=true{memory_id}",
+                path_enc(path)
+            )),
             Value::Object(prepared.args),
         )
         .await
@@ -765,7 +774,7 @@ fn available_step_ids(flow: &Value) -> String {
 
 /// The agent form's rows in its own order: key, whether an agent always has it, and
 /// the value a run cannot tell apart from an absent key.
-fn agent_fields() -> [(&'static str, bool, Option<Value>); 14] {
+fn agent_fields() -> [(&'static str, bool, Option<Value>); 16] {
     [
         ("provider", true, None),
         ("temperature", false, None),
@@ -781,6 +790,8 @@ fn agent_fields() -> [(&'static str, bool, Option<Value>); 14] {
         ("output_type", false, Some(json!("text"))),
         ("output_schema", false, None),
         ("streaming", false, Some(json!(true))),
+        ("model", false, Some(json!(""))),
+        ("reasoning_effort", false, Some(json!(""))),
     ]
 }
 
@@ -793,6 +804,8 @@ const AGENT_FLOW_LOCAL_KEYS: [&str; 5] = [
     "previous_messages",
 ];
 const AGENT_HISTORY_KEYS: [&str; 2] = ["memory_id", "previous_messages"];
+/// A linked step's overrides of what its agent saved; an unlinked step has no such inputs.
+const AGENT_OVERRIDE_KEYS: [&str; 2] = ["model", "reasoning_effort"];
 
 /// Older spellings of two agent inputs, read as the current ones.
 fn migrate_agent_transforms(transforms: &mut Map<String, Value>) {
@@ -842,7 +855,13 @@ fn agent_step_form(
     let mut keys = Vec::new();
     let mut args = Map::new();
     for (key, core, implicit) in agent_fields() {
-        if linked && !AGENT_FLOW_LOCAL_KEYS.contains(&key) {
+        let override_key = AGENT_OVERRIDE_KEYS.contains(&key);
+        let applies = if linked {
+            override_key || AGENT_FLOW_LOCAL_KEYS.contains(&key)
+        } else {
+            !override_key
+        };
+        if !applies {
             continue;
         }
         let transform = transforms.and_then(|t| t.get(key));
@@ -951,7 +970,7 @@ fn inline_agent_draft(module: &mut Value, drafts: &HashMap<String, Value>) {
                 transforms.insert(key.clone(), json!({ "type": "static", "value": arg }));
             }
         }
-        for key in AGENT_FLOW_LOCAL_KEYS {
+        for key in AGENT_FLOW_LOCAL_KEYS.into_iter().chain(AGENT_OVERRIDE_KEYS) {
             if let Some(own) = map
                 .get("input_transforms")
                 .and_then(|t| t.get(key))

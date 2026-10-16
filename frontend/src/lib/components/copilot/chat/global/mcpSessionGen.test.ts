@@ -46,15 +46,20 @@ const DESCRIPTION_REWRITES: [tool: string, from: string, to: string][] = [
 	],
 	[
 		'run_script',
-		' Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs.',
+		" Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs. In an AI session the user can open that form on the script's own deployed page instead; either way this call waits for them and runs what they confirm.",
 		' It runs with exactly the `args` you send.'
 	],
 	[
 		'run_flow',
-		' Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs.',
+		" Fill in every argument you can infer: the user gets an argument form prefilled with `args` and decides what runs. In an AI session the user can open that form on the flow's own deployed page instead; either way this call waits for them and runs what they confirm.",
 		' It runs with exactly the `args` you send.'
-	]
+	],
+	['create_resource_type', ' once the user confirms the schema', ''],
+	['set_workspace_settings', ' The user reviews the changes before they apply.', '']
 ]
+
+// A rewrite only proves its old sentence is still there; this catches one added next to it.
+const CHAT_ONLY_PROMISE = /argument form|the user (confirms|reviews|approves)/i
 
 function toolDefs() {
 	return globalToolsFor({ sessionPreview: false }).map((tool) => {
@@ -66,6 +71,9 @@ function toolDefs() {
 				throw new Error(`${name}: its description no longer contains "${from}"`)
 			}
 			description = description.replace(from, to)
+		}
+		if (CHAT_ONLY_PROMISE.test(description)) {
+			throw new Error(`${fn.name}: its description promises a chat-only confirmation`)
 		}
 		return {
 			name: fn.name,

@@ -216,7 +216,7 @@
 			"type": "object",
 			"properties": {
 				"subject": {
-					"description": "What to get authoring instructions for: a workspace item type (script, flow, resource, app), \"pipeline\" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or \"datatable\" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables. Schedules, triggers, and variables don't need instructions — their tool schemas describe everything.",
+					"description": "What to get authoring instructions for: a workspace item type (script, flow, resource, app), \"pipeline\" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or \"datatable\" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, or \"workspace_settings\" for the keys and rules of the workspace settings (admins only). Schedules, triggers, and variables don't need instructions — their tool schemas describe everything.",
 					"type": "string",
 					"enum": [
 						"script",
@@ -224,7 +224,8 @@
 						"resource",
 						"app",
 						"datatable",
-						"pipeline"
+						"pipeline",
+						"workspace_settings"
 					]
 				},
 				"language": {
@@ -443,7 +444,7 @@
 			"type": "object",
 			"properties": {
 				"types": {
-					"description": "Optional item types to list. Defaults to scripts and flows. Pass schedule or trigger explicitly when needed (listing triggers spans 9 kinds and is heavier).",
+					"description": "Optional item types to list. Defaults to scripts and flows. Pass schedule or trigger explicitly when needed (listing triggers spans 9 kinds and is heavier). \"folder\" lists folders with their owners and extraPerms; \"group\" lists groups with their extraPerms (read one for its members). path_prefix does not apply to these two.",
 					"type": "array",
 					"items": {
 						"type": "string",
@@ -454,7 +455,9 @@
 							"trigger",
 							"resource",
 							"variable",
-							"app"
+							"app",
+							"folder",
+							"group"
 						]
 					}
 				},
@@ -497,7 +500,7 @@
 	},
 	{
 		"name": "read_workspace_item",
-		"description": "Read one workspace item or draft. Prefers your draft when one exists; pass version: \"deployed\" to read the deployed state instead.",
+		"description": "Read one workspace item or draft. Prefers your draft when one exists; pass version: \"deployed\" to read the deployed state instead. A deployed item carries extraPerms (a draft does not; pass version: \"deployed\" for it): who it is shared with beyond its owner, as u/<user> or g/<group> → true (write) or false (read-only). A folder returns its owners and extraPerms; a group returns its members and extraPerms (who may manage it). For a folder or group, path is its name. A g/<group> entry grants every member of that group (g/all is everyone), and workspace admins can read and write every folder and item whatever these lists say.",
 		"parameters": {
 			"type": "object",
 			"properties": {
@@ -510,11 +513,13 @@
 						"trigger",
 						"resource",
 						"variable",
-						"app"
+						"app",
+						"folder",
+						"group"
 					]
 				},
 				"path": {
-					"description": "Workspace path of the item to read, or a hub/<version>/<app>/<name> path from search_hub_scripts to read a hub script.",
+					"description": "Workspace path of the item to read, or a hub/<version>/<app>/<name> path from search_hub_scripts to read a hub script. For a folder or group, its name.",
 					"type": "string"
 				},
 				"trigger_kind": {
@@ -1624,6 +1629,10 @@
 				"ws_specific": {
 					"type": "boolean"
 				},
+				"preserve_on_behalf_of": {
+					"description": "ai_agent only. Keep the identity `value.on_behalf_of` names (`u/<username>`, `g/<group>`) rather than the caller's own. Honoured for admins and members of wm_deployers; otherwise every write of an agent sets it to the caller.",
+					"type": "boolean"
+				},
 				"override": {
 					"description": "Overwrite the server draft even if it changed externally since you last read it (resolve a save conflict, your version wins).",
 					"type": "boolean"
@@ -1720,6 +1729,38 @@
 			"additionalProperties": false
 		},
 		"read_only": true
+	},
+	{
+		"name": "create_resource_type",
+		"description": "Create a resource type in the workspace. Mutates the workspace.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"name": {
+					"description": "Type name with the c_ prefix of custom types, e.g. c_acme_billing (added when missing): 1 to 50 letters, digits, \"_\" or \"-\". Resources and resource-typed parameters refer to it by this name.",
+					"type": "string"
+				},
+				"description": {
+					"description": "What a resource of this type connects to.",
+					"type": "string"
+				},
+				"schema": {
+					"description": "JSON Schema of a resource value of this type: { \"type\": \"object\", \"properties\": {...}, \"required\": [...] }, with every connection field, secrets included (a resource fills those with \"$var:\" references).",
+					"type": "object",
+					"propertyNames": {
+						"type": "string"
+					},
+					"additionalProperties": {}
+				}
+			},
+			"required": [
+				"name",
+				"description",
+				"schema"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
 	},
 	{
 		"name": "get_db_schema",
@@ -2071,6 +2112,10 @@
 						"path": {
 							"description": "Required when type is \"script\", \"flow\", or \"hubscript\". Workspace path of the runnable.",
 							"type": "string"
+						},
+						"viewerDataAccess": {
+							"description": "Inline only. When true, the runnable reads data as the person viewing the app instead of as the app's identity: data table connections that name no role hold the viewer's roles, and object storage permission rules are checked against the viewer, so row-level security and per-user storage paths answer per viewer. Resources and variables stay the app's. Anonymous viewers are refused. Omit to keep the current setting.",
+							"type": "boolean"
 						}
 					},
 					"required": [
@@ -2298,6 +2343,14 @@
 					"type": "string",
 					"pattern": "^[A-Za-z0-9_-]{1,63}$"
 				},
+				"schemas": {
+					"description": "Every schema the migration changes or depends on (including schemas of referenced tables, types and functions), with every name in `code_up` schema-qualified. A migration then waits only on earlier migrations touching those schemas. Omit only for a change that spans the whole database (an extension, a grant across schemas): every later migration then waits for it.",
+					"type": "array",
+					"items": {
+						"type": "string",
+						"pattern": "^[A-Za-z0-9_$-]{1,63}$"
+					}
+				},
 				"version": {
 					"description": "Rewrite this migration instead of adding one: only for a pending migration, typically the one that just failed to apply.",
 					"type": "number"
@@ -2449,5 +2502,42 @@
 			"additionalProperties": false
 		},
 		"read_only": true
+	},
+	{
+		"name": "get_workspace_settings",
+		"description": "Read the workspace settings as YAML, in the layout of the settings.yaml file the CLI syncs. Secrets read as `__SENSITIVE_AND_UNCHANGED__`.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"keys": {
+					"description": "Only these top-level keys. Omit for the whole document.",
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				}
+			},
+			"additionalProperties": false,
+			"required": []
+		},
+		"read_only": true
+	},
+	{
+		"name": "set_workspace_settings",
+		"description": "Change workspace settings. Keys the yaml omits are left as they are. Read get_instructions subject \"workspace_settings\" before your first change.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"yaml": {
+					"description": "A YAML mapping of only the top-level keys to change, each given whole (a nested object replaces the stored one). A key set to null clears it.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"yaml"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
 	}
 ]

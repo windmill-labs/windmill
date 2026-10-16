@@ -34,6 +34,7 @@ mod instructions;
 mod items;
 mod misc;
 mod runs;
+mod settings;
 mod workspace;
 
 pub(super) use instructions::{
@@ -87,7 +88,12 @@ const EDITOR_ONLY: &[&str] = &[
 
 /// Tools whose effect reaches the deployed workspace and cannot be undone by discarding
 /// a draft. Stands in for the session's confirmation card.
-const DESTRUCTIVE: &[&str] = &["deploy_workspace_item", "delete_workspace_item"];
+const DESTRUCTIVE: &[&str] = &[
+    "deploy_workspace_item",
+    "delete_workspace_item",
+    "create_resource_type",
+    "set_workspace_settings",
+];
 
 /// Tools the session counts as reads that still start a job. A read-only token runs
 /// nothing on the tools server, so it runs nothing here either.
@@ -120,7 +126,7 @@ macro_rules! groups {
         }
     };
 }
-groups!(guidance, workspace, items, misc, flows, apps, runs, deploy, data);
+groups!(guidance, workspace, items, misc, flows, apps, runs, deploy, data, settings);
 
 /// Claude clients keep an MCP result in context only up to a token budget well under the
 /// authoring references `get_instructions` returns, unless the tool raises it. Above the

@@ -85,6 +85,10 @@ pub(super) const ITEM_TYPES: &[&str] = &[
     "script", "flow", "schedule", "trigger", "resource", "variable", "app",
 ];
 
+/// Folders and groups only carry permissions, so they are listed and read but kept out of
+/// `ITEM_TYPES`, which the draft, deploy and delete tools share.
+const ACCESS_TYPES: &[&str] = &["folder", "group"];
+
 pub(super) const FLOW_VALUE_SETTINGS_KEYS: &[&str] = &[
     "same_worker",
     "preserve_step_tags",
@@ -824,7 +828,14 @@ pub(super) fn serialize_for_read(item: &Value, execution_mode: Option<Value>) ->
     match item_type {
         Some("variable") => copy(
             &mut out,
-            &["type", "path", "summary", "isSecret", "isDraft"],
+            &[
+                "type",
+                "path",
+                "summary",
+                "isSecret",
+                "extraPerms",
+                "isDraft",
+            ],
         ),
         Some("app") if item.get("value").is_some_and(|v| v.get("files").is_some()) => {
             copy(&mut out, &["type", "path", "summary"]);
@@ -835,7 +846,7 @@ pub(super) fn serialize_for_read(item: &Value, execution_mode: Option<Value>) ->
                 "executionMode",
                 execution_mode.or_else(|| item.get("executionMode").cloned()),
             );
-            copy(&mut out, &["isDraft"]);
+            copy(&mut out, &["extraPerms", "isDraft"]);
         }
         Some("flow") if truthy(item.get("value")) => {
             let flow = &item["value"];
@@ -853,7 +864,7 @@ pub(super) fn serialize_for_read(item: &Value, execution_mode: Option<Value>) ->
                 "value".into(),
                 compact_flow(&value, non_null(flow.get("schema"))).0,
             );
-            copy(&mut out, &["isDraft"]);
+            copy(&mut out, &["extraPerms", "isDraft"]);
         }
         _ => {
             let mut item = item.clone();
@@ -1256,10 +1267,14 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         .and_then(Value::as_array)
         .map(|types| types.iter().filter_map(Value::as_str).collect())
         .unwrap_or_default();
-    let types = if requested.is_empty() {
+    let (access_types, item_types): (Vec<&str>, Vec<&str>) = requested
+        .into_iter()
+        .partition(|t| ACCESS_TYPES.contains(t));
+    // Asking only for folders or groups must not fall back to the default scripts and flows.
+    let types = if item_types.is_empty() && access_types.is_empty() {
         vec!["script", "flow"]
     } else {
-        requested
+        item_types
     };
     let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(50);
     let page = args.get("page").and_then(Value::as_u64);
@@ -1269,6 +1284,26 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     if let Some(page) = page {
         query.push_str(&format!("&page={page}"));
     }
+
+    // Group rows carry no members: the list endpoint does not return them.
+    let mut access_rows = Vec::new();
+    for access_type in ACCESS_TYPES.iter().filter(|t| access_types.contains(t)) {
+        let rows = ctx
+            .get(&ctx.ws(&format!("{access_type}s/list?{query}")))
+            .await?;
+        for row in array(Some(&rows)) {
+            let mut item = Map::new();
+            item.insert("type".into(), json!(access_type));
+            put(&mut item, "path", row.get("name").cloned());
+            put(&mut item, "summary", row.get("summary").cloned());
+            if *access_type == "folder" {
+                put(&mut item, "owners", row.get("owners").cloned());
+            }
+            put(&mut item, "extraPerms", row.get("extra_perms").cloned());
+            access_rows.push(Value::Object(item));
+        }
+    }
+
     if let Some(prefix) = prefix {
         query.push_str(&format!("&path_start={}", enc(prefix)));
     }
@@ -1346,6 +1381,7 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let results: Vec<Value> = by_key
         .into_iter()
         .map(|(_, item)| item)
+        .chain(access_rows)
         .filter(|item| {
             let Some(query) = &query else { return true };
             ["path", "summary"].iter().any(|key| {
@@ -1359,6 +1395,9 @@ async fn list_workspace_items(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 }
 
 async fn read_workspace_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    if let Some(access_type) = opt_str_arg(args, "type").filter(|t| ACCESS_TYPES.contains(t)) {
+        return read_access_entity(ctx, access_type, str_arg(args, "path")?).await;
+    }
     let item_type = item_type_arg(args)?;
     let path = str_arg(args, "path")?;
     let trigger_kind = opt_str_arg(args, "trigger_kind");
@@ -1408,16 +1447,20 @@ async fn read_workspace_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             let deployed = ctx
                 .get(&format!("{route}?get_draft={}", !deployed_only))
                 .await?;
+            let extra_perms = deployed.get("extra_perms").cloned();
             // The draft stored on the item itself outranks its deployed version.
             let row = non_null(deployed.get("draft"))
                 .cloned()
                 .filter(|_| !deployed_only)
                 .unwrap_or(deployed);
             if item_type == "script" {
-                with_value(
-                    deployed_item("script", None, &row),
-                    row.get("content").cloned(),
-                    row.get("schema").cloned(),
+                with_extra_perms(
+                    with_value(
+                        deployed_item("script", None, &row),
+                        row.get("content").cloned(),
+                        row.get("schema").cloned(),
+                    ),
+                    extra_perms,
                 )
             } else {
                 let item = with_value(
@@ -1425,14 +1468,17 @@ async fn read_workspace_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
                     Some(deployed_flow_value(&row)),
                     None,
                 );
-                serialize_for_read(&item, None)
+                serialize_for_read(&with_extra_perms(item, extra_perms), None)
             }
         }
-        "variable" => deployed_item(
-            "variable",
-            None,
-            &get_deployed(ctx, "variable", None, path).await?,
-        ),
+        "variable" => {
+            let row = get_deployed(ctx, "variable", None, path).await?;
+            let item = with_extra_perms(
+                deployed_item("variable", None, &row),
+                row.get("extra_perms").cloned(),
+            );
+            serialize_for_read(&item, None)
+        }
         "app" => {
             // Metadata only: file and runnable contents come through `read_app_file`.
             let app = get_deployed(ctx, "app", None, path).await?;
@@ -1452,19 +1498,62 @@ async fn read_workspace_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             }
             put(&mut item, "rawApp", app.get("raw_app").cloned());
             put(&mut item, "executionMode", mode);
+            put(&mut item, "extraPerms", app.get("extra_perms").cloned());
             item.insert("isDraft".into(), json!(false));
             Value::Object(item)
         }
         _ => {
             let row = get_deployed(ctx, item_type, trigger_kind, path).await?;
-            with_value(
+            let item = with_value(
                 deployed_item(item_type, trigger_kind, &row),
                 Some(row.clone()),
                 None,
-            )
+            );
+            with_extra_perms(item, row.get("extra_perms").cloned())
         }
     };
     Ok(pretty(&item))
+}
+
+/// Who a deployed item is shared with. A draft has no permissions of its own, so a draft
+/// read leaves it out rather than reporting the item unshared.
+fn with_extra_perms(mut item: Value, extra_perms: Option<Value>) -> Value {
+    if let Some(item) = item.as_object_mut() {
+        put(item, "extraPerms", extra_perms);
+    }
+    item
+}
+
+/// Accepts the `f/<name>` / `g/<name>` form the model sees in extra_perms keys and paths.
+fn access_entity_name<'a>(access_type: &str, path: &'a str) -> &'a str {
+    let prefix = if access_type == "folder" { "f/" } else { "g/" };
+    path.strip_prefix(prefix)
+        .unwrap_or(path)
+        .trim_end_matches('/')
+}
+
+async fn read_access_entity(ctx: &Ctx<'_>, access_type: &str, path: &str) -> ToolResult {
+    let name = access_entity_name(access_type, path);
+    let row = ctx
+        .get(&ctx.ws(&format!("{access_type}s/get/{}", enc(name))))
+        .await?;
+    let mut entity = Map::new();
+    entity.insert("type".into(), json!(access_type));
+    put(&mut entity, "name", row.get("name").cloned());
+    put(&mut entity, "summary", row.get("summary").cloned());
+    if access_type == "folder" {
+        put(&mut entity, "owners", row.get("owners").cloned());
+        put(&mut entity, "extraPerms", row.get("extra_perms").cloned());
+        put(
+            &mut entity,
+            "defaultPermissionedAs",
+            row.get("default_permissioned_as").cloned(),
+        );
+    } else {
+        put(&mut entity, "members", row.get("members").cloned());
+        put(&mut entity, "extraPerms", row.get("extra_perms").cloned());
+    }
+    Ok(pretty(&Value::Object(entity)))
 }
 
 async fn write_script_draft(
@@ -1482,6 +1571,10 @@ async fn write_script_draft(
             if !base.from_draft {
                 let hash = script.get("hash").cloned().unwrap_or(Value::Null);
                 script.insert("parent_hash".into(), hash);
+                // The deployed lock describes the deployed content, not the draft's; the
+                // deploy recomputes it.
+                script.shift_remove("lock");
+                script.shift_remove("lock_error_logs");
             }
             script.insert("path".into(), json!(path));
             put(&mut script, "summary", summary.map(Value::from));
@@ -1742,6 +1835,15 @@ async fn rebase_draft(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn access_entities_are_named_with_or_without_their_prefix() {
+        assert_eq!(access_entity_name("folder", "f/ops/"), "ops");
+        assert_eq!(access_entity_name("folder", "ops"), "ops");
+        assert_eq!(access_entity_name("group", "g/devs"), "devs");
+        // Only the type's own prefix is stripped.
+        assert_eq!(access_entity_name("group", "f/devs"), "f/devs");
+    }
 
     #[test]
     fn find_and_replace_requires_one_match_unless_replace_all() {

@@ -12,7 +12,7 @@ pub(super) const TOOLS: &[&str] = &["get_instructions", "read_skill"];
 
 pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult {
     match name {
-        "get_instructions" => get_instructions(args),
+        "get_instructions" => get_instructions(ctx, args),
         "read_skill" => read_skill(ctx, args).await,
         _ => unreachable!("{name} is not a guidance tool"),
     }
@@ -31,8 +31,11 @@ static INSTRUCTIONS: LazyLock<Instructions> = LazyLock::new(|| {
         .expect("gen/instructions.json is valid")
 });
 
-fn get_instructions(args: &Value) -> ToolResult {
+fn get_instructions(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let subject = str_arg(args, "subject")?;
+    if subject == "workspace_settings" && !ctx.auth.is_admin {
+        return Ok("Only a workspace admin can read or change the workspace settings. Tell the user plainly that you cannot, and suggest asking a workspace admin.".to_string());
+    }
     let by_language = INSTRUCTIONS
         .index
         .get(subject)
