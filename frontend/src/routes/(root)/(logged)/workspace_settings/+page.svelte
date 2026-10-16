@@ -2347,6 +2347,17 @@ export async function main(
 											})}
 									/>
 
+									<SettingCard
+										label="Notify before expiry"
+										description="How long before a variable's value expires the handler runs"
+										class="gap-2"
+									>
+										<SecondsInput
+											bind:seconds={variableExpirationNotifyBeforeSecs}
+											disabled={!variableExpirationHasHandler}
+										/>
+									</SettingCard>
+
 									<SettingCard class="gap-2">
 										<!-- `w-fit`: the trigger is a flex item of the card, so it would otherwise
 										stretch the full width and anchor the popup away from the toggle. -->
@@ -2367,16 +2378,6 @@ export async function main(
 												Select a handler first
 											{/snippet}
 										</Popover>
-										<div class="flex flex-col gap-1 mt-2">
-											<span class="text-xs font-semibold text-emphasis">Notify before expiry</span>
-											<span class="text-2xs text-hint">
-												How long before a variable's value expires the handler runs
-											</span>
-											<SecondsInput
-												bind:seconds={variableExpirationNotifyBeforeSecs}
-												disabled={!variableExpirationHasHandler}
-											/>
-										</div>
 									</SettingCard>
 
 									<Alert type="info" title="Runs as g/variable_expiration_handler">
