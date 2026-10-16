@@ -13695,12 +13695,12 @@ paths:
                   runs_as:
                     type: string
                     description: who the agent runs as (its on_behalf_of); absent unless it runs on behalf of someone
-                  share_blocked:
-                    type: string
-                    description: why the caller can't share the agent with anyone in a channel; absent when they can
-                  can_edit:
+                  anyone:
                     type: boolean
-                    description: whether the caller can share the agent with workspace members in a channel, or take it out of one
+                    description: whether anyone in its channels can ask it (its slack_anyone, kept only while it runs on behalf of someone), rather than workspace members only
+                  can_share:
+                    type: boolean
+                    description: whether the caller can change the agent's channels, as anyone who can edit it can
                   channels:
                     type: array
                     items:
@@ -13709,10 +13709,11 @@ paths:
                   - channels
                   - signing_secret_set
                   - missing_scopes
-                  - can_edit
+                  - anyone
+                  - can_share
     post:
       summary: share an agent in a Slack channel, or change how it answers there
-      description: anyone in the channel can then ask the agent, which needs run_on_behalf_of and to be its on_behalf_of or an admin or wm_deployers member; or with members_only only the workspace members whose Slack email matches and who can read the agent, which needs edit access. Making it the channel's default takes an admin.
+      description: the workspace members in the channel whose Slack email matches and who can read the agent can then ask it, or anyone there when its settings say so (slack_anyone, with run_on_behalf_of). Needs edit access to the agent; making it the channel's default takes an admin.
       operationId: shareAgentInSlackChannel
       tags:
         - slack_agents
@@ -13733,9 +13734,6 @@ paths:
                 is_default:
                   type: boolean
                   description: whether the agent answers messages in the channel that name no agent
-                members_only:
-                  type: boolean
-                  description: answer only the workspace members the askers' Slack emails belong to, rather than anyone in the channel
               required:
                 - channel_id
                 - channel_name
@@ -30052,15 +30050,11 @@ components:
         is_default:
           type: boolean
           description: whether the agent answers messages in the channel that name no agent
-        members_only:
-          type: boolean
-          description: whether it answers only the workspace members the askers' Slack emails belong to, rather than anyone in the channel
       required:
         - channel_id
         - channel_name
         - agent_path
         - is_default
-        - members_only
 
     FlowConversation:
       type: object

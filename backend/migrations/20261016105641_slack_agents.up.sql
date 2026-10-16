@@ -1,5 +1,5 @@
--- The Slack channels an agent is shared in: anyone in one of them can ask it, or with
--- `members_only` only the workspace members their Slack email belongs to. Keyed by the Slack team rather than the workspace, as channels are,
+-- The Slack channels an agent is shared in: anyone in one of them can ask it when it runs on
+-- behalf of its identity, the workspace members their Slack email belongs to otherwise. Keyed by the Slack team rather than the workspace, as channels are,
 -- and at most one agent per channel answers a message that names none. The agent key cascades,
 -- so a renamed agent keeps its channels and a deleted one leaves them.
 CREATE TABLE slack_agent_channel (
@@ -9,7 +9,6 @@ CREATE TABLE slack_agent_channel (
     workspace_id VARCHAR(50) NOT NULL,
     agent_path VARCHAR(255) NOT NULL,
     is_default BOOLEAN NOT NULL DEFAULT false,
-    members_only BOOLEAN NOT NULL DEFAULT false,
     PRIMARY KEY (slack_team_id, channel_id, workspace_id, agent_path),
     FOREIGN KEY (workspace_id, agent_path) REFERENCES resource (workspace_id, path)
         ON DELETE CASCADE ON UPDATE CASCADE

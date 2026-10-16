@@ -8,6 +8,7 @@
 	import ResourcePathHint from '$lib/components/ResourcePathHint.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import PermissionedAsLine from '$lib/components/triggers/PermissionedAsLine.svelte'
+	import AgentSlackSettings from './AgentSlackSettings.svelte'
 	import { WorkspaceService } from '$lib/gen'
 	import type { AgentDraftHandle, AgentRunAs } from '../agentDraft.svelte'
 
@@ -72,13 +73,16 @@
 		<div class="flex flex-col gap-2">
 			<Label
 				label="Run on behalf of"
-				tooltip="Runs from the agent's page and the API take the permissions of whoever deploys it, or of the user an admin picks. Otherwise they take the caller's. Sharing the agent with anyone in a Slack channel needs it, and turning it off stops that sharing."
+				tooltip="Runs from the agent's page, the API and Slack take the permissions of whoever deploys it, or of the user an admin picks. Otherwise they take the caller's."
 			>
 				<Toggle
 					bind:checked={
 						() => draft.state?.args.run_on_behalf_of ?? false,
 						(v) => {
-							if (draft.state) draft.state.args.run_on_behalf_of = v || undefined
+							if (!draft.state) return
+							draft.state.args.run_on_behalf_of = v || undefined
+							// Lending the identity to anyone in Slack needs one to lend.
+							if (!v) draft.state.args.slack_anyone = undefined
 						}
 					}
 					disabled={readOnly}
@@ -94,6 +98,7 @@
 				/>
 			{/if}
 		</div>
+		<AgentSlackSettings {draft} {path} {workspace} />
 		{#if deployTo.current}
 			<Label label="Workspace specific" tooltip="Keeps this agent out of deploys to prod/staging.">
 				<Toggle bind:checked={draft.state.wsSpecific} disabled={readOnly} />

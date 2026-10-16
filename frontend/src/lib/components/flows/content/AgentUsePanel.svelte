@@ -1,22 +1,18 @@
 <script lang="ts">
-	import { Copy, Plus, X } from 'lucide-svelte'
+	import { Copy } from 'lucide-svelte'
 	import CollapseLink from '$lib/components/CollapseLink.svelte'
-	import { resource } from 'runed'
 	import { bash, markdown, typescript } from 'svelte-highlight/languages'
-	import { Alert, Button, CopyButton, Tab, TabContent, Tabs } from '$lib/components/common'
+	import { Alert, Badge, Button, CopyButton, Tab, TabContent, Tabs } from '$lib/components/common'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import CopyableCodeBlock from '$lib/components/details/CopyableCodeBlock.svelte'
 	import Label from '$lib/components/Label.svelte'
-	import Select from '$lib/components/select/Select.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
-	import { SlackAgentsService, type SlackAgentChannel } from '$lib/gen'
+	import type { SlackAgentChannel } from '$lib/gen'
 	import { userStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/toast'
 	import { copyToClipboard, generateRandomString } from '$lib/utils'
 	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import {
@@ -29,8 +25,8 @@
 	} from './agentApiExamples'
 
 	/**
-	 * The ways to use an agent outside its page: in the Slack channels it is shared in, where anyone
-	 * or its workspace members can ask it, and over the API.
+	 * The ways to use an agent outside its page: in the Slack channels it is shared in, set in its
+	 * settings and summed up here, and over the API.
 	 */
 	let {
 		agentPath,
@@ -43,10 +39,9 @@
 		missingScopes,
 		signingSecretSet,
 		runsAs,
-		shareBlocked,
-		canEdit,
-		channels,
-		onChanged
+		anyone,
+		canShare,
+		channels
 	}: {
 		agentPath: string
 		workspace: string
@@ -65,101 +60,16 @@
 		signingSecretSet: boolean
 		/** Who the agent runs as; unset unless it runs on behalf of someone. */
 		runsAs: string | undefined
-		/** Why the user can't share it with anyone in a channel; unset when they can. */
-		shareBlocked: string | undefined
-		/** Whether the user can share it with members only, or take it out of a channel. */
-		canEdit: boolean
+		/** Whether anyone in its channels can ask it, rather than workspace members only. */
+		anyone: boolean
+		/** Whether the user can change its Slack settings: anyone who can edit it. */
+		canShare: boolean
 		channels: SlackAgentChannel[]
-		onChanged: () => void
 	} = $props()
 
 	let pickedTab = $state('api')
 	let tab = $derived(chat ? pickedTab : 'api')
 	let handle = $derived(`+${agentPath.split('/').pop()}`)
-
-	type Choice = { label: string; value: string; name: string }
-	let adding = $state(false)
-	let saving = $state(false)
-
-	// Read again whenever the agent's channels change, so a channel just added or removed moves
-	// between the list and the picker.
-	const available = resource(
-		() => ({
-			ws:
-				canEdit && chat && slackTeamName && botName && missingScopes.length === 0
-					? workspace
-					: undefined,
-			channels
-		}),
-		async ({ ws, channels }) => (ws ? await listChoices(ws, channels) : [])
-	)
-
-	async function listChoices(ws: string, shared: SlackAgentChannel[]): Promise<Choice[]> {
-		try {
-			const all: Choice[] = []
-			let cursor: string | undefined = undefined
-			// ponytail: stops at 10 pages of 200 channels; search on the server if a team has more.
-			for (let page = 0; page < 10; page++) {
-				const res = await SlackAgentsService.listAvailableSlackChannels({ workspace: ws, cursor })
-				for (const c of res.channels) {
-					if (shared.some((s) => s.channel_id === c.id)) continue
-					all.push({ value: c.id, name: c.name, label: `#${c.name}` })
-				}
-				cursor = res.next_cursor
-				if (!cursor) break
-			}
-			return all
-		} catch (e) {
-			sendUserToast(`Couldn't list the Slack channels: ${e.body ?? e.message}`, true)
-			return []
-		}
-	}
-
-	let audienceChoices = $derived([
-		{ label: 'Anyone in the channel', value: false, disabled: !!shareBlocked },
-		{ label: 'Workspace members', value: true }
-	])
-
-	async function share(
-		channelId: string,
-		channelName: string,
-		isDefault: boolean,
-		membersOnly: boolean
-	) {
-		saving = true
-		try {
-			await SlackAgentsService.shareAgentInSlackChannel({
-				workspace,
-				path: agentPath,
-				requestBody: {
-					channel_id: channelId,
-					channel_name: channelName,
-					is_default: isDefault,
-					members_only: membersOnly
-				}
-			})
-			adding = false
-		} catch (e) {
-			sendUserToast(e.body ?? e.message, true)
-		} finally {
-			saving = false
-			// Also on failure, so a default toggle flipped in vain flips back.
-			onChanged()
-		}
-	}
-
-	async function unshare(channel: SlackAgentChannel) {
-		try {
-			await SlackAgentsService.unshareAgentFromSlackChannel({
-				workspace,
-				path: agentPath,
-				channelId: channel.channel_id
-			})
-			onChanged()
-		} catch (e) {
-			sendUserToast(e.body ?? e.message, true)
-		}
-	}
 
 	let userSettings: UserSettings | undefined = $state(undefined)
 	let token = $state('')
@@ -252,111 +162,35 @@
 						{/if}
 
 						<div class="flex flex-col gap-2">
-							<span class="text-xs font-semibold text-emphasis">Shared in these channels</span>
-							<span class="text-xs text-secondary">
-								{#if runsAs}
-									Shared with anyone in a channel of {slackTeamName}, it runs as <b>{runsAs}</b> for
-									everyone there.
+							<div class="flex items-center justify-between gap-2">
+								<span class="text-xs font-semibold text-emphasis">Shared in these channels</span>
+								{#if canShare}
+									<Button
+										variant="default"
+										unifiedSize="sm"
+										href="/agents/edit/{agentPath}?settings=true"
+									>
+										Edit in settings
+									</Button>
 								{/if}
-								Shared with workspace members, it answers those whose Slack email matches
-								and who can read it, as it would in Windmill.
-							</span>
-							{#if channels.length === 0 && !adding}
-								<span class="text-xs text-hint">Not shared in any channel.</span>
-							{/if}
-							{#each channels as channel (channel.channel_id)}
-								<div class="flex items-center gap-2 w-full">
-									<TextInput
-										class="flex-1"
-										inputProps={{ readonly: true }}
-										value="#{channel.channel_name}"
-									/>
-									<Select
-										class="w-52"
-										items={audienceChoices}
-										bind:value={
-											() => channel.members_only,
-											(v) => share(channel.channel_id, channel.channel_name, channel.is_default, v)
-										}
-										disabled={!canEdit || (!channel.members_only && !!shareBlocked) || saving}
-									/>
-									<Toggle
-										size="xs"
-										checked={channel.is_default}
-										disabled={!canEdit ||
-											(!channel.members_only && !!shareBlocked) ||
-											(!isAdmin && !channel.is_default) ||
-											saving}
-										on:change={(e) =>
-											share(channel.channel_id, channel.channel_name, e.detail, channel.members_only)}
-										options={{
-											right: 'Default',
-											rightTooltip:
-												"Answers the bot's mentions and /windmill commands in this channel that name no agent, which then no longer reach the workspace's command script there. Only workspace admins can turn it on."
-										}}
-									/>
-									{#if canEdit}
-										<Button
-											variant="subtle"
-											unifiedSize="md"
-											iconOnly
-											destructive
-											startIcon={{ icon: X }}
-											title="Stop sharing in #{channel.channel_name}"
-											onClick={() => unshare(channel)}
-										/>
+							</div>
+							{#if channels.length === 0}
+								<span class="text-xs text-hint">Not shared in any channel of {slackTeamName}.</span>
+							{:else}
+								<span class="text-xs text-secondary">
+									{#if anyone}
+										Anyone in them can ask it, as <b>{runsAs}</b>.
+									{:else if runsAs}
+										Workspace members who can read it can ask it, as <b>{runsAs}</b>.
+									{:else}
+										Workspace members who can read it can ask it, each as themselves.
 									{/if}
+								</span>
+								<div class="flex flex-wrap gap-1">
+									{#each channels as channel (channel.channel_id)}
+										<Badge small>#{channel.channel_name}{channel.is_default ? ' · default' : ''}</Badge>
+									{/each}
 								</div>
-							{/each}
-							{#if shareBlocked}
-								<span class="text-2xs text-hint">{shareBlocked}</span>
-							{/if}
-							{#if canEdit && missingScopes.length === 0}
-								{#if adding}
-									<div class="flex items-center gap-2 w-full">
-										<Select
-											class="flex-1"
-											items={available.current ?? []}
-											bind:value={
-												() => undefined,
-												(v) => {
-													const choice = available.current?.find((c) => c.value === v)
-													if (choice)
-														share(
-															choice.value,
-															choice.name,
-															isAdmin && channels.length === 0,
-															!!shareBlocked
-														)
-												}
-											}
-											loading={available.loading || saving}
-											disabled={saving}
-											placeholder="Pick a public channel"
-											noItemsMsg="No other public channel"
-											open
-										/>
-										<Button
-											variant="subtle"
-											unifiedSize="md"
-											iconOnly
-											startIcon={{ icon: X }}
-											title="Cancel"
-											onClick={() => (adding = false)}
-										/>
-									</div>
-								{:else}
-									<div class="flex justify-start">
-										<Button
-											variant="default"
-											unifiedSize="sm"
-											startIcon={{ icon: Plus }}
-											onClick={() => (adding = true)}
-										>
-											Share in a channel
-										</Button>
-									</div>
-								{/if}
 							{/if}
 						</div>
 

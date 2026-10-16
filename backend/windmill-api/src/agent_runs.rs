@@ -83,11 +83,14 @@ pub(crate) async fn run_agent_as(
             "Agent {path} has no configuration"
         )));
     };
-    // Who the agent runs as, not one of its inputs: its identity when it opts in, as a deployed
-    // flow does.
+    // Who the agent runs as and who can ask it in Slack, not inputs: its identity when it opts
+    // in, as a deployed flow does.
     let obj = value.as_object_mut();
     let (agent_obo, run_obo) = obj
-        .map(|o| (o.remove("on_behalf_of"), o.remove("run_on_behalf_of")))
+        .map(|o| {
+            o.remove("slack_anyone");
+            (o.remove("on_behalf_of"), o.remove("run_on_behalf_of"))
+        })
         .unwrap_or_default();
     let agent_obo = agent_obo
         .filter(|_| run_obo.and_then(|v| v.as_bool()).unwrap_or(false))

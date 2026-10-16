@@ -258,10 +258,9 @@
 						missingScopes={slack.current?.missing_scopes ?? []}
 						signingSecretSet={slack.current?.signing_secret_set ?? true}
 						runsAs={slack.current?.runs_as}
-						shareBlocked={slack.current?.share_blocked}
-						canEdit={slack.current?.can_edit ?? false}
+						anyone={slack.current?.anyone ?? false}
+						canShare={slack.current?.can_share ?? false}
 						channels={slack.current?.channels ?? []}
-						onChanged={() => slack.refetch()}
 					/>
 				</Pane>
 			{/if}
