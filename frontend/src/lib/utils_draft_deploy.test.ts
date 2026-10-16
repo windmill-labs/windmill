@@ -166,6 +166,12 @@ describe('deployDraft variable value_expires_at', () => {
 		expect(updateBody().value_expires_at).toBeUndefined()
 	})
 
+	it('omits it when the draft spells the deployed moment differently', async () => {
+		mockVariable('2027-03-15T08:30:00Z', DATE)
+		await deployDraft('variable', 'u/admin/key', 'ws')
+		expect(updateBody().value_expires_at).toBeUndefined()
+	})
+
 	it('carries the date onto a draft-only variable', async () => {
 		mockVariable(undefined, DATE)
 		await deployDraft('variable', 'u/admin/key', 'ws', { draftOnly: true })

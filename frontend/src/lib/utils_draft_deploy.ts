@@ -441,6 +441,10 @@ async function deployDraftTriggers(
 	await deployTriggers(triggers, workspace, isAdmin, writable<string[]>([]), path, isNew)
 }
 
+function timeOf(date: string | null | undefined): number | undefined {
+	return date ? new Date(date).getTime() : undefined
+}
+
 /**
  * Promote a draft to deployed by replaying the editor's create/update call with
  * the stored draft value. The matching draft row is deleted server-side by the
@@ -613,10 +617,10 @@ export async function deployDraft(
 						value: d.variable?.value === '' ? undefined : d.variable?.value,
 						is_secret: d.variable?.is_secret,
 						description: d.variable?.description,
-						// `null` clears, absent keeps. Diffed against the deployed row, since an
-						// absent date in the draft means "no expiry", not "unchanged".
+						// `null` clears, absent keeps. Diffed against the deployed row by moment, since
+						// an absent date in the draft means "no expiry", not "unchanged".
 						value_expires_at:
-							(deployed.value_expires_at ?? undefined) !== d.value_expires_at
+							timeOf(deployed.value_expires_at) !== timeOf(d.value_expires_at)
 								? (d.value_expires_at ?? null)
 								: undefined,
 						labels: d.labels,
