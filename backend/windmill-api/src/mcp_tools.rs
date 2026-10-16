@@ -67,22 +67,12 @@ async fn connect_mcp_client(
         serde_json::from_str::<windmill_mcp::McpResource>(resource_value.0.get())
             .map_err(|e| Error::BadRequest(format!("Failed to parse MCP resource: {}", e)))?;
 
-    // The token is a variable read on the caller's behalf, sent to a URL the
-    // resource's author chose: a scoped token must hold variables:read on it,
-    // checked before the OAuth refresh touches that variable.
-    let token_var_path = mcp_resource
-        .token
-        .as_deref()
-        .map(|t| t.trim_start_matches("$var:"))
-        .filter(|p| !p.trim().is_empty());
-    if let Some(token_var_path) = token_var_path {
-        check_scopes(authed, || format!("variables:read:{}", token_var_path))?;
-    }
-
     #[cfg(feature = "oauth2")]
     {
         tracing::info!("Checking if token needs refresh before creating MCP client");
-        if let Some(token_var_path) = token_var_path {
+        if let Some(ref token_path) = mcp_resource.token {
+            let token_var_path = token_path.trim_start_matches("$var:");
+
             let token_info = sqlx::query!(
                 r#"
             SELECT
@@ -120,22 +110,26 @@ async fn connect_mcp_client(
         }
     }
 
-    // Resolve the token through the caller's permissioned (RLS + audit) path so
-    // a developer cannot exfiltrate a secret they are not allowed to read by
-    // pointing an MCP resource's token at it.
-    let token = if let Some(token_var_path) = token_var_path {
-        let db_authed = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
-        Some(get_value_internal(&db_authed, w_id, token_var_path, false).await?)
+    // The token, URL and header secrets resolve through the caller's RLS + audit
+    // path, so no one can send a secret they could not read themselves. No
+    // `variables:read` scope is required: a scoped token's `resources:*:<path>`
+    // covers the secrets that resource references.
+    let token = if let Some(token_path) = &mcp_resource.token {
+        let token_var_path = token_path.trim_start_matches("$var:");
+        if token_var_path.trim().is_empty() {
+            None
+        } else {
+            let db_authed = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
+            Some(get_value_internal(&db_authed, w_id, token_var_path, false).await?)
+        }
     } else {
         None
     };
 
-    // The URL and header secrets go through the same permissioned path as the token.
     for value in std::iter::once(&mut mcp_resource.url)
         .chain(mcp_resource.headers.iter_mut().flatten().map(|(_, v)| v))
     {
         if let Some(var_path) = value.strip_prefix("$var:") {
-            check_scopes(authed, || format!("variables:read:{}", var_path))?;
             let db_authed = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
             *value = get_value_internal(&db_authed, w_id, var_path, false).await?;
         }

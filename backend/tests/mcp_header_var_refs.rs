@@ -1,5 +1,6 @@
 //! An MCP resource header whose value is a `$var:` reference reaches the MCP
-//! server as the variable's value, and only for a caller allowed to read it.
+//! server as the variable's value. A scoped token needs only the resource's
+//! scope for that, not one on the variable.
 #![cfg(feature = "mcp")]
 
 use sqlx::{Pool, Postgres};
@@ -27,6 +28,7 @@ async fn seed(db: &Pool<Postgres>, url: &str) -> anyhow::Result<()> {
     .bind(serde_json::json!({
         "name": "mcp",
         "url": url,
+        "token": "$var:u/test-user/mcp_header",
         "headers": { "X-Api-Key": "$var:u/test-user/mcp_header", "X-Plain": "plain" }
     }))
     .execute(db)
@@ -75,10 +77,10 @@ async fn test_mcp_header_var_ref_is_resolved(db: Pool<Postgres>) -> anyhow::Resu
     Ok(())
 }
 
-/// A token scoped to the resource alone must not have the API read the
-/// variable a header points at.
+/// A token scoped to the resource alone resolves the variables its token and
+/// headers reference: the resource's scope covers them.
 #[sqlx::test(fixtures("base"))]
-async fn test_mcp_header_var_ref_requires_variable_scope(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_mcp_var_refs_need_only_the_resource_scope(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     seed(&db, "https://mcp.invalid.windmill.test").await?;
     sqlx::query(
@@ -98,12 +100,10 @@ async fn test_mcp_header_var_ref_requires_variable_scope(db: Pool<Postgres>) -> 
         .header("Authorization", "Bearer RES_ONLY_TOKEN")
         .send()
         .await?;
-    let status = resp.status();
     let body = resp.text().await?;
-    assert_eq!(status, reqwest::StatusCode::FORBIDDEN, "{body}");
     assert!(
-        body.contains("variables:read:u/test-user/mcp_header"),
-        "{body}"
+        body.contains("Failed to connect to MCP server"),
+        "the variables must resolve and only the connection fail: {body}"
     );
 
     Ok(())
