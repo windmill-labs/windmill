@@ -363,7 +363,8 @@ async fn test_deploy_without_the_field_keeps_the_restriction(
     Ok(())
 }
 
-/// The OIDC `job_token_scopes` claim states the scopes of the token that asked for it.
+/// The OIDC `job_token_scopes` claim states the scopes of the token that asked for it, in a
+/// payload that strict JSON parsers accept (no duplicate `email` key).
 #[cfg(all(feature = "enterprise", feature = "private", feature = "openidconnect"))]
 #[sqlx::test(fixtures("base"))]
 async fn test_oidc_claim_carries_the_presented_scopes(db: Pool<Postgres>) -> anyhow::Result<()> {
