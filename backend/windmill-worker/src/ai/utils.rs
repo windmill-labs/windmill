@@ -353,6 +353,35 @@ pub async fn set_flow_status_module_action_success_at(
     Ok(())
 }
 
+/// Mark as failed the outcomes still `null`: background calls whose agent ended before they did,
+/// and whose jobs it cancels.
+pub async fn fail_unfinished_action_successes(db: &DB, parent_job: &Uuid) -> Result<(), Error> {
+    if let Step::Step { idx: step, .. } = get_step_of_flow_status(db, parent_job.to_owned()).await?
+    {
+        sqlx::query(
+            "UPDATE v2_job_status SET
+                flow_status = jsonb_set(
+                    flow_status,
+                    array['modules', $2::TEXT, 'agent_actions_success'],
+                    (
+                        SELECT jsonb_agg(CASE WHEN e = 'null'::jsonb THEN 'false'::jsonb ELSE e END
+                            ORDER BY i)
+                        FROM jsonb_array_elements(
+                            flow_status->'modules'->$2->'agent_actions_success'
+                        ) WITH ORDINALITY AS t(e, i)
+                    )
+                )
+            WHERE id = $1
+                AND flow_status->'modules'->$2->'agent_actions_success' @> '[null]'::jsonb",
+        )
+        .bind(parent_job)
+        .bind(step as i32)
+        .execute(db)
+        .await?;
+    }
+    Ok(())
+}
+
 /// Keep the first `keep` action outcomes, dropping any recorded past them, then append `append`.
 /// A resumed segment calls it so that one replayed after its worker died records nothing twice.
 pub async fn reset_flow_status_module_action_successes(

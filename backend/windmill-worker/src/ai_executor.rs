@@ -12,8 +12,8 @@ use crate::ai::tools::{
 };
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
-    filter_schema_by_input_transforms, find_unique_tool_name, get_flow_context,
-    get_flow_job_runnable_and_raw_flow, get_step_name_from_flow, load_mcp_tools,
+    fail_unfinished_action_successes, filter_schema_by_input_transforms, find_unique_tool_name,
+    get_flow_context, get_flow_job_runnable_and_raw_flow, get_step_name_from_flow, load_mcp_tools,
     parse_raw_script_schema, reset_flow_status_module_action_successes,
     set_flow_status_module_action_success_at, update_flow_status_module_with_actions,
     update_flow_status_module_with_actions_success,
@@ -1313,6 +1313,11 @@ pub async fn handle_ai_agent_job(
             handle.abort();
         }
         cleanup_orphaned_tool_jobs(db, &job.id, &job.workspace_id, canceled_by.clone()).await;
+        if let Some(parent_job) = flow_status_job.as_ref() {
+            if let Err(e) = fail_unfinished_action_successes(db, parent_job).await {
+                tracing::error!("Failed to close the background calls of {}: {e}", job.id);
+            }
+        }
     }
     cleanup_mcp_clients(mcp_clients).await;
     result
@@ -2566,6 +2571,11 @@ pub async fn run_agent(
                 }
                 used_structured_output_tool = tool_used_structured_output;
                 background.extend(started);
+                if used_structured_output_tool {
+                    // An answer, like a text one: it keeps its iteration for the call that
+                    // revisits it once a background result arrives.
+                    continue;
+                }
 
                 if let Some(mut pending) = pause {
                     actions.extend(pending.action.take());
@@ -2665,6 +2675,9 @@ pub async fn run_agent(
         // Resumed past its iteration limit, which a linked agent edited while parked can lower:
         // nothing would read the background jobs' results.
         cleanup_orphaned_tool_jobs(db, &job.id, &job.workspace_id, None).await;
+        if let Some(parent_job) = parent_job {
+            fail_unfinished_action_successes(db, parent_job).await?;
+        }
     }
 
     if let Some(capacity_bytes) =
