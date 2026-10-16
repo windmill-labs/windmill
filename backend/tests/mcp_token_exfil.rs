@@ -182,3 +182,36 @@ async fn test_mcp_call_tool_token_not_exfiltrated(db: Pool<Postgres>) -> anyhow:
 
     Ok(())
 }
+
+/// A token scoped to the resource alone must not have the API read the variable
+/// the resource's token points at, even when its owner may read that variable.
+#[sqlx::test(fixtures("base", "mcp_token_exfil"))]
+async fn test_mcp_token_var_ref_requires_variable_scope(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    insert_locked_secret(&db).await?;
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes)
+         VALUES (encode(sha256('RES_ONLY_TOKEN'::bytea), 'hex'), 'RES_ONLY_T', 'RES_ONLY_TOKEN',
+                 'test@windmill.dev', 'resource only', false, $1)",
+    )
+    .bind(vec![format!("resources:write:{RESOURCE_PATH}")])
+    .execute(&db)
+    .await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!(
+        "http://localhost:{}/api/w/test-workspace/resources/mcp_call_tool",
+        server.addr.port()
+    );
+    let body = serde_json::json!({ "tool": "whoami", "arguments": {} });
+
+    let (status, resp) = post(&base, RESOURCE_PATH, "RES_ONLY_TOKEN", body).await;
+    assert_eq!(status, reqwest::StatusCode::FORBIDDEN, "{resp}");
+    assert!(
+        resp.contains("variables:read:f/locked/secret_token"),
+        "{resp}"
+    );
+
+    Ok(())
+}
