@@ -593,5 +593,28 @@
       "optional_scope": "tickets crm.objects.line_items.read crm.objects.line_items.write e-commerce crm.objects.quotes.read crm.objects.quotes.write crm.objects.leads.read crm.objects.leads.write crm.objects.custom.read crm.objects.custom.write crm.schemas.custom.read crm.lists.read crm.lists.write sales-email-read forms files content crm.objects.marketing_events.read marketing.campaigns.read communication_preferences.read_write automation automation.sequences.read automation.sequences.enrollments.write conversations.read conversations.write scheduler.meetings.meeting-link.read"
     },
     "req_body_auth": true
+  },
+  "zendesk": {
+    "grant_types": ["authorization_code", "client_credentials"],
+    "scopes": ["read", "write"],
+    "cc_scopes": ["read", "write"],
+    "scope_options": [
+      { "value": "read", "label": "Read tickets, users, organizations and Help Center content" },
+      { "value": "write", "label": "Create, update and delete tickets, users, organizations and Help Center content" }
+    ],
+    "req_body_auth": true,
+    "connect_config_template": {
+      "display_name": "Zendesk",
+      "label": "Zendesk subdomain",
+      "placeholder": "yourcompany (from yourcompany.zendesk.com)",
+      "help_url": "https://developer.zendesk.com/documentation/api-basics/authentication/oauth-migration/",
+      "auth_url": "https://{instance}.zendesk.com/oauth/authorizations/new",
+      "token_url": "https://{instance}.zendesk.com/oauth/tokens",
+      "req_body_auth": true,
+      "strip_suffix": ".zendesk.com",
+      "resource_mapping": {
+        "subdomain": "{instance}"
+      }
+    }
   }
 }
