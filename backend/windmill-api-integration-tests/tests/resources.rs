@@ -667,6 +667,22 @@ async fn test_resource_references_are_scoped_at_write(db: Pool<Postgres>) -> any
         json!({"v": "CANARY", "o": {"pw": "OTHER"}, "n": 1})
     );
 
+    // An unscoped writer is held to its own user's RLS, since a reader's resource-scoped token
+    // would resolve the reference as the reader. A reference to nothing yet is allowed.
+    for (value, expected) in [
+        (json!({"v": "$var:u/test-user/secret"}), 403),
+        (json!({"v": "$var:u/test-user/not_yet"}), 201),
+    ] {
+        let resp = client()
+            .post(format!("{base}/resources/create?update_if_exists=true"))
+            .bearer_auth("SECRET_TOKEN_3")
+            .json(&json!({"path": "u/test-user-3/probe", "value": value, "resource_type": "object", "description": ""}))
+            .send()
+            .await?;
+        let status = resp.status().as_u16();
+        assert_eq!(status, expected, "{value}: {}", resp.text().await?);
+    }
+
     Ok(())
 }
 

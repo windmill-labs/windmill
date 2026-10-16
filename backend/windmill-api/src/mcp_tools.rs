@@ -113,7 +113,7 @@ async fn connect_mcp_client(
     // The token, URL and header secrets resolve through the caller's RLS + audit
     // path. No `variables:read` scope is required: as for any resource read, a
     // scoped token's `resources:*:<path>` covers what the resource references,
-    // which a scoped token could only have written with read scope on it.
+    // which no writer could have added without being able to read it.
     let token = if let Some(token_path) = &mcp_resource.token {
         let token_var_path = token_path.trim_start_matches("$var:");
         if token_var_path.trim().is_empty() {

@@ -899,10 +899,10 @@ pub async fn transform_json_value(
 }
 
 /// A token's scope on a resource covers everything that resource references
-/// (`resource_path` is the resource being expanded). That holds only because a scoped token
-/// cannot write a reference it could not read itself ([`check_added_reference_scopes`]): RLS
-/// resolves a reference as the token's user, not as the token. A reference outside any
-/// resource needs its own read scope. Job tokens carry no scopes.
+/// (`resource_path` is the resource being expanded). That holds only because no writer can
+/// add a reference it could not read itself ([`check_added_references`]): RLS resolves a
+/// reference as the reader's user, not as the token. A reference outside any resource needs
+/// its own read scope. Job tokens carry no scopes.
 fn check_interpolation_scope(
     db_with_opt_authed: &DbWithOptAuthed<'_, ApiAuthed>,
     domain: &str,
@@ -916,22 +916,34 @@ fn check_interpolation_scope(
     }
 }
 
-/// Refuses a scoped token writing into the resource at `path` a `$var:`/`$jsonvar:`/`$res:`
-/// reference it holds no read scope on. A reference the stored value already carries is kept
-/// without one: whoever put it there was allowed to. Without this check, a token scoped to
-/// one resource could point it at any secret its user can read and then read it through
-/// that resource.
-async fn check_added_reference_scopes(
+/// Refuses writing into the resource at `path` a `$var:`/`$jsonvar:`/`$res:` reference the
+/// writer could not read: one RLS hides from the writer's user, or, for a scoped token, one
+/// outside its read scopes. [`check_interpolation_scope`] relies on this to let a token scoped
+/// to a resource resolve everything in it. A reference the stored value already carries is
+/// kept unchecked, so a writer can edit around one someone else placed. A reference to nothing
+/// yet is allowed: a promotion pushes resources before the secrets they point at.
+async fn check_added_references(
     authed: &ApiAuthed,
+    db: &DB,
     user_db: &UserDB,
     w_id: &str,
     path: &str,
     value: Option<&serde_json::Value>,
 ) -> Result<()> {
     let Some(value) = value else { return Ok(()) };
-    if authed.scopes.is_none() {
+    let groups = [
+        ("variables", "variable", &REFERRER_PREFIXES[..]),
+        ("resources", "resource", &["$res:"][..]),
+    ]
+    .map(|(domain, table, prefixes)| {
+        let mut refs = vec![];
+        collect_refs_with_prefixes(value, prefixes, &mut refs);
+        (domain, table, prefixes, refs)
+    });
+    if groups.iter().all(|(.., refs)| refs.is_empty()) {
         return Ok(());
     }
+
     let mut tx = user_db.clone().begin(authed).await?;
     let stored = sqlx::query_scalar::<_, Option<serde_json::Value>>(
         "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
@@ -941,24 +953,45 @@ async fn check_added_reference_scopes(
     .fetch_optional(&mut *tx)
     .await?
     .flatten();
-    tx.commit().await?;
-
-    for (domain, prefixes) in [
-        ("variables", &REFERRER_PREFIXES[..]),
-        ("resources", &["$res:"][..]),
-    ] {
+    let mut hidden = vec![];
+    for (domain, table, prefixes, refs) in &groups {
         let mut kept = vec![];
         if let Some(stored) = &stored {
             collect_refs_with_prefixes(stored, prefixes, &mut kept);
         }
-        let mut refs = vec![];
-        collect_refs_with_prefixes(value, prefixes, &mut refs);
         for r in refs.iter().filter(|r| !kept.contains(r)) {
             check_scopes(authed, || format!("{domain}:read:{r}")).map_err(|_| {
                 Error::PermissionDenied(format!(
                     "This token needs {domain}:read:{r} to add a reference to it in resource {path}"
                 ))
             })?;
+            let visible: bool = sqlx::query_scalar(&format!(
+                "SELECT EXISTS(SELECT 1 FROM {table} WHERE path = $1 AND workspace_id = $2)"
+            ))
+            .bind(r)
+            .bind(w_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if !visible {
+                hidden.push((*table, r));
+            }
+        }
+    }
+    tx.commit().await?;
+
+    // Off the RLS transaction, which must not stay open while a second pool connection is taken.
+    for (table, r) in hidden {
+        let exists: bool = sqlx::query_scalar(&format!(
+            "SELECT EXISTS(SELECT 1 FROM {table} WHERE path = $1 AND workspace_id = $2)"
+        ))
+        .bind(r)
+        .bind(w_id)
+        .fetch_one(db)
+        .await?;
+        if exists {
+            return Err(Error::PermissionDenied(format!(
+                "Cannot add a reference to {table} {r} in resource {path}: you cannot read it"
+            )));
         }
     }
     Ok(())
@@ -1286,8 +1319,9 @@ async fn create_resource(
         .as_deref()
         .and_then(|v| serde_json::from_str::<serde_json::Value>(v.get()).ok());
     authorize_azure_devops_reference(&authed, &db, &user_db, &w_id, parsed_value.as_ref()).await?;
-    check_added_reference_scopes(
+    check_added_references(
         &authed,
+        &db,
         &user_db,
         &w_id,
         &resource.path,
@@ -2162,7 +2196,7 @@ async fn update_resource(
         .as_deref()
         .and_then(|v| serde_json::from_str::<serde_json::Value>(v.get()).ok());
     authorize_azure_devops_reference(&authed, &db, &user_db, &w_id, parsed_value.as_ref()).await?;
-    check_added_reference_scopes(&authed, &user_db, &w_id, path, parsed_value.as_ref()).await?;
+    check_added_references(&authed, &db, &user_db, &w_id, path, parsed_value.as_ref()).await?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -2442,7 +2476,7 @@ async fn set_resource_value(
         return Err(Error::PermissionDenied(msg));
     }
     authorize_azure_devops_reference(authed, db, user_db, w_id, value.as_ref()).await?;
-    check_added_reference_scopes(authed, user_db, w_id, path, value.as_ref()).await?;
+    check_added_references(authed, db, user_db, w_id, path, value.as_ref()).await?;
 
     let mut tx = user_db.clone().begin(authed).await?;
 
