@@ -329,8 +329,9 @@
 	// URLs). Replaces the old per-provider setup functions.
 	function setupTemplatedOauthUrls() {
 		// The backend falls back to the pre-rename `teams` key when `ms_teams` is absent, so
-		// turning Teams off has to drop both. TODO: remove with the backend fallback.
-		if (oauths && !oauths['ms_teams'] && oauths['teams']) {
+		// turning the Teams tile off (ms_teams saved before, gone now) has to drop both.
+		// TODO: remove with the backend fallback.
+		if (oauths && initialOauths?.['ms_teams'] && !oauths['ms_teams'] && oauths['teams']) {
 			delete oauths['teams']
 		}
 		for (const [name, tmpl] of Object.entries(connectConfigTemplates)) {
