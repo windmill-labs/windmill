@@ -140,10 +140,12 @@ async fn test_folder_endpoints(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(resp.status(), 200);
 
     // --- is_owner ---
-    let resp = authed(client().get(format!("{base}/is_owner/f/test_folder")))
-        .send()
-        .await
-        .unwrap();
+    let resp = authed(client().get(format!(
+        "{base}/is_owner/f/test_folder"
+    )))
+    .send()
+    .await
+    .unwrap();
     assert_eq!(resp.status(), 200);
     resp.json::<bool>().await?;
 

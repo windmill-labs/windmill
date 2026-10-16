@@ -124,10 +124,7 @@ async fn test_dbt_materialize_target_deploy_contract(db: Pool<Postgres>) -> anyh
     )
     .await;
     assert_eq!(resp.status(), 400);
-    assert!(resp
-        .text()
-        .await?
-        .contains("characters an asset path holds"));
+    assert!(resp.text().await?.contains("characters an asset path holds"));
 
     // Any language may declare the write — the DuckLake write engine is DuckDB's,
     // this declaration is not — and the target is canonicalized on the way into

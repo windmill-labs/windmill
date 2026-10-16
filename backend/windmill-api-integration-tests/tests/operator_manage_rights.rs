@@ -253,9 +253,7 @@ async fn test_manage_rights_admit_matching_drafts(db: Pool<Postgres>) -> anyhow:
     };
 
     let resp = c
-        .post(format!(
-            "{api}/drafts/update/trigger_schedule/u/operator/sched_draft"
-        ))
+        .post(format!("{api}/drafts/update/trigger_schedule/u/operator/sched_draft"))
         .json(&json!({ "value": {
             "path": "u/operator/sched_draft",
             "schedule": "0 0 12 * * *",

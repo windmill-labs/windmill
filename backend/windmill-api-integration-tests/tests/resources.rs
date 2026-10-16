@@ -566,10 +566,12 @@ async fn test_resource_value_cache_is_identity_scoped(db: Pool<Postgres>) -> any
     Ok(())
 }
 
-/// A token scoped to one resource reads the variables that resource references, so no writer
-/// may add a `$var:`/`$jsonvar:` reference it could not read. A nested `$res:` needs its own scope.
+/// A token scoped to one resource must not read, through the `$var:`/`$res:` references it
+/// writes into that resource, what its scopes would refuse to read directly.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_resource_references_are_scoped_at_write(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_interpolated_references_need_the_token_scopes(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -600,33 +602,28 @@ async fn test_resource_references_are_scoped_at_write(db: Pool<Postgres>) -> any
     };
     let probe_only = mint(json!(["resources:write:u/test-user/probe"])).await;
     let with_var = mint(json!([
-        "resources:write:u/test-user/probe",
+        "resources:read:u/test-user/probe",
         "variables:read:u/test-user/secret"
     ]))
     .await;
 
-    let write_probe = |value: serde_json::Value, token: String| {
-        let base = base.clone();
-        async move {
-            let resp = client()
-                .post(format!("{base}/resources/create?update_if_exists=true"))
-                .bearer_auth(&token)
-                .json(&json!({"path": "u/test-user/probe", "value": value, "resource_type": "object", "description": ""}))
-                .send()
-                .await
-                .unwrap();
-            (resp.status().as_u16(), resp.text().await.unwrap())
-        }
-    };
-    let read_probe = || {
+    let read_probe = |value: serde_json::Value, token: String| {
         let base = base.clone();
         let probe_only = probe_only.clone();
         async move {
             let resp = client()
+                .post(format!("{base}/resources/create?update_if_exists=true"))
+                .bearer_auth(&probe_only)
+                .json(&json!({"path": "u/test-user/probe", "value": value, "resource_type": "object", "description": ""}))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), 201);
+            let resp = client()
                 .get(format!(
                     "{base}/resources/get_value_interpolated/u/test-user/probe"
                 ))
-                .bearer_auth(&probe_only)
+                .bearer_auth(&token)
                 .send()
                 .await
                 .unwrap();
@@ -637,98 +634,50 @@ async fn test_resource_references_are_scoped_at_write(db: Pool<Postgres>) -> any
     for value in [
         json!({"v": "$var:u/test-user/secret"}),
         json!({"v": "$jsonvar:u/test-user/secret"}),
+        json!({"v": ["$res:u/test-user/other"]}),
     ] {
-        let (status, body) = write_probe(value.clone(), probe_only.clone()).await;
+        let (status, body) = read_probe(value.clone(), probe_only.clone()).await;
         assert_eq!(status, 403, "{value}: {body}");
+        assert!(
+            !body.contains("CANARY") && !body.contains("OTHER"),
+            "{body}"
+        );
     }
 
-    let (status, body) = write_probe(json!({"v": "$var:u/test-user/secret"}), with_var).await;
-    assert_eq!(status, 201, "{body}");
+    let (status, body) =
+        read_probe(json!({"v": "$var:u/test-user/secret"}), with_var.clone()).await;
+    assert_eq!((status, body.as_str()), (200, r#"{"v":"CANARY"}"#));
 
-    // References placed by someone allowed to are read, and kept across the token's edits.
-    let resp = authed(client().post(format!(
-        "{base}/resources/create?update_if_exists=true"
-    )))
-    .json(&json!({"path": "u/test-user/probe", "value": {"v": "$var:u/test-user/secret"}, "resource_type": "object", "description": ""}))
-    .send()
-    .await?;
-    assert_eq!(resp.status(), 201);
-    let (status, body) = write_probe(
-        json!({"v": "$var:u/test-user/secret", "n": 1}),
+    // A wildcard resource pattern extends to the variables it matches, and only to those.
+    let wildcard = mint(json!(["resources:read:u/test-user/*"])).await;
+    let (status, body) =
+        read_probe(json!({"v": "$var:u/test-user/secret"}), wildcard.clone()).await;
+    assert_eq!((status, body.as_str()), (200, r#"{"v":"CANARY"}"#));
+    let elsewhere = mint(json!(["resources:read:u/test-user/probe,f/other/*"])).await;
+    let (status, body) = read_probe(json!({"v": "$var:u/test-user/secret"}), elsewhere).await;
+    assert_eq!(status, 403, "{body}");
+
+    // The resource's own linked secrets (at its path, or `<path>_<field>`) are part of it.
+    for (path, value) in [
+        ("u/test-user/probe", "LINKED"),
+        ("u/test-user/probe_key", "KEY"),
+    ] {
+        let resp = authed(client().post(format!("{base}/variables/create")))
+            .json(&json!({"path": path, "value": value, "is_secret": true, "description": ""}))
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 201);
+    }
+    let (status, body) = read_probe(
+        json!({"pw": "$var:u/test-user/probe", "key": "$var:u/test-user/probe_key"}),
         probe_only.clone(),
     )
     .await;
-    assert_eq!(status, 201, "{body}");
-    let (status, body) = read_probe().await;
     assert_eq!(status, 200, "{body}");
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(&body)?,
-        json!({"v": "CANARY", "n": 1})
+        json!({"pw": "LINKED", "key": "KEY"})
     );
-
-    let (status, body) =
-        write_probe(json!({"o": ["$res:u/test-user/other"]}), probe_only.clone()).await;
-    assert_eq!(status, 201, "{body}");
-    let (status, body) = read_probe().await;
-    assert_eq!(status, 403, "{body}");
-    assert!(!body.contains("OTHER"), "{body}");
-
-    // An unscoped writer is held to its own user's RLS, since a reader's resource-scoped token
-    // would resolve the reference as the reader. A reference to nothing yet is allowed.
-    for (value, expected) in [
-        (json!({"v": "$var:u/test-user/secret"}), 403),
-        (json!({"v": "$var:u/test-user/not_yet"}), 201),
-    ] {
-        let resp = client()
-            .post(format!("{base}/resources/create?update_if_exists=true"))
-            .bearer_auth("SECRET_TOKEN_3")
-            .json(&json!({"path": "u/test-user-3/probe", "value": value, "resource_type": "object", "description": ""}))
-            .send()
-            .await?;
-        let status = resp.status().as_u16();
-        assert_eq!(status, expected, "{value}: {}", resp.text().await?);
-    }
-    // Nor can it keep a reference someone else placed while editing around it.
-    let resp = authed(client().post(format!(
-        "{base}/resources/create?update_if_exists=true"
-    )))
-    .json(&json!({"path": "u/test-user-3/probe", "value": {"v": "$var:u/test-user/secret", "url": "a"}, "resource_type": "object", "description": ""}))
-    .send()
-    .await?;
-    assert_eq!(resp.status(), 201);
-    let resp = client()
-        .post(format!("{base}/resources/update_value/u/test-user-3/probe"))
-        .bearer_auth("SECRET_TOKEN_3")
-        .json(&json!({"value": {"v": "$var:u/test-user/secret", "url": "b"}}))
-        .send()
-        .await?;
-    assert_eq!(resp.status(), 403, "{}", resp.text().await?);
-
-    // A result-cache resource is written by the worker, unvetted, so its references keep
-    // their own read scope.
-    sqlx::query(
-        "INSERT INTO resource (workspace_id, path, value, resource_type, created_by)
-         VALUES ('test-workspace', 'g/results/abc', '{\"v\": \"$var:u/test-user/secret\"}', 'cache', 'test-user-3')",
-    )
-    .execute(&db)
-    .await?;
-    let cache_only = mint(json!(["resources:read:g/results/abc"])).await;
-    let resp = client()
-        .get(format!(
-            "{base}/resources/get_value_interpolated/g/results/abc"
-        ))
-        .bearer_auth(&cache_only)
-        .send()
-        .await?;
-    let status = resp.status().as_u16();
-    let body = resp.text().await?;
-    assert_eq!(status, 403, "{body}");
-    assert!(!body.contains("CANARY"), "{body}");
-    let resp = authed(client().post(format!("{base}/resources/update/g/results/abc")))
-        .json(&json!({"path": "u/test-user/escaped"}))
-        .send()
-        .await?;
-    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
 
     Ok(())
 }

@@ -295,10 +295,7 @@ async fn test_ai_proxy_x_resource_value(db: Pool<Postgres>) -> anyhow::Result<()
     );
 
     let resp = send("sk-other", "SECRET_TOKEN").await?;
-    assert!(
-        resp.status().as_u16() >= 400,
-        "a different key must reach the upstream as is"
-    );
+    assert!(resp.status().as_u16() >= 400, "a different key must reach the upstream as is");
 
     let resp = send("$var:u/test-user/secret", "SCOPED_AI_TOKEN").await?;
     let body = resp.text().await?;

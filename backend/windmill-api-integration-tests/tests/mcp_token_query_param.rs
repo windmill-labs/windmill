@@ -83,9 +83,7 @@ async fn test_mcp_token_query_param_switch(db: Pool<Postgres>) -> anyhow::Result
     .await?;
     assert_eq!(resp.status(), 401);
     assert!(
-        resp.text()
-            .await?
-            .contains("does not accept a token in the MCP URL"),
+        resp.text().await?.contains("does not accept a token in the MCP URL"),
         "an invalid URL token was answered by authentication, so the token was read before \
          the switch refused it"
     );

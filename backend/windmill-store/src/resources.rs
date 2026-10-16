@@ -17,6 +17,7 @@ use windmill_api_auth::{
 };
 use windmill_common::db::DB;
 use windmill_common::per_minute_counter::PerMinuteCounter;
+use windmill_common::scopes::ScopeDefinition;
 use windmill_common::ssrf::{
     is_private_ip, private_git_host_allowed, private_git_host_hint, GitRemoteCaller,
 };
@@ -898,111 +899,65 @@ pub async fn transform_json_value(
     .await
 }
 
-/// A token's scope on a resource covers the variables that resource references
-/// (`resource_path` is the resource being expanded). That holds only because no writer can
-/// add a variable reference it could not read itself ([`check_added_var_refs`]): RLS resolves
-/// a reference as the reader's user, not as the token. A nested `$res:` still needs its own
-/// read scope, since what it references can change after the reference is written. A
-/// reference outside any resource needs its own read scope. Job tokens carry no scopes.
-///
-/// Result-cache resources (`g/results/`) are excluded: the worker writes job output there
-/// straight to the table, so no writer check ever saw their references.
+/// RLS resolves a reference as the token's user, not as the token: a token scoped to one
+/// resource would otherwise read, through that resource, every variable or resource its
+/// user can. Job tokens carry no scopes, so what a runnable resolves is unaffected.
+/// `resource_path` is the resource being expanded: see [`check_resource_var_ref_scope`].
 fn check_interpolation_scope(
     db_with_opt_authed: &DbWithOptAuthed<'_, ApiAuthed>,
     domain: &str,
     path: &str,
     resource_path: Option<&str>,
 ) -> Result<()> {
-    match db_with_opt_authed.authed() {
-        Some(_) if resource_path.is_some_and(|r| !r.starts_with("g/results/")) => Ok(()),
-        Some(authed) => check_scopes(authed, || format!("{domain}:read:{path}")),
-        None => Ok(()),
+    match (db_with_opt_authed.authed(), resource_path) {
+        (Some(authed), Some(r)) if domain == "variables" => {
+            check_resource_var_ref_scope(authed, r, path)
+        }
+        (Some(authed), _) => check_scopes(authed, || format!("{domain}:read:{path}")),
+        (None, _) => Ok(()),
     }
 }
 
-/// Moving a result-cache resource out of `g/results/` would let its unvetted references
-/// resolve under the resource's scope alone ([`check_interpolation_scope`]).
-pub fn check_result_cache_rename(path: &str, npath: &str) -> Result<()> {
-    if path.starts_with("g/results/") && !npath.starts_with("g/results/") {
-        return Err(Error::BadRequest(format!(
-            "Cannot move result-cache resource {path} out of g/results/"
-        )));
-    }
-    Ok(())
-}
-
-/// Refuses writing into the resource at `path` a `$var:`/`$jsonvar:` reference the writer
-/// could not read: one RLS hides from the writer's user, or, for a scoped token, one outside
-/// its read scopes. The RLS check covers references the stored value already carries too,
-/// since a co-writer could otherwise keep a secret and redirect where it is sent; only the
-/// scope check spares them. A reference to nothing yet is allowed: a promotion pushes
-/// resources before the secrets they point at.
-async fn check_added_var_refs(
+/// The scope a token needs to resolve variable `var_path` referenced by resource
+/// `resource_path`: `variables:read` on it, unless it is the resource's own linked secret
+/// ([`is_owned_linked_var`]) or a wildcard pattern of the token's `resources:` scopes
+/// matches it. An exact path, or a scope naming no path at all, grants no variable: RLS
+/// lets the token resolve any variable its user can read.
+pub fn check_resource_var_ref_scope(
     authed: &ApiAuthed,
-    db: &DB,
-    user_db: &UserDB,
-    w_id: &str,
-    path: &str,
-    value: Option<&serde_json::Value>,
+    resource_path: &str,
+    var_path: &str,
 ) -> Result<()> {
-    let Some(value) = value else { return Ok(()) };
-    let mut refs = vec![];
-    collect_refs_with_prefixes(value, &REFERRER_PREFIXES, &mut refs);
-    if refs.is_empty() {
+    if is_owned_linked_var(resource_path, var_path) {
         return Ok(());
     }
-
-    let mut tx = user_db.clone().begin(authed).await?;
-    let stored = sqlx::query_scalar::<_, Option<serde_json::Value>>(
-        "SELECT value FROM resource WHERE path = $1 AND workspace_id = $2",
-    )
-    .bind(path)
-    .bind(w_id)
-    .fetch_optional(&mut *tx)
-    .await?
-    .flatten();
-    let mut kept = vec![];
-    if let Some(stored) = &stored {
-        collect_refs_with_prefixes(stored, &REFERRER_PREFIXES, &mut kept);
-    }
-    let mut hidden = vec![];
-    for r in &refs {
-        if !kept.contains(r) {
-            check_scopes(authed, || format!("variables:read:{r}")).map_err(|_| {
-                Error::PermissionDenied(format!(
-                    "This token needs variables:read:{r} to add a reference to it in resource {path}"
-                ))
-            })?;
+    let denied = match check_scopes(authed, || format!("variables:read:{var_path}")) {
+        Ok(()) => return Ok(()),
+        Err(e) => e,
+    };
+    let required = ScopeDefinition::new("variables", "read", None, Some(vec![var_path.into()]));
+    let covered = authed.scopes.iter().flatten().any(|scope| {
+        let Ok(scope) = ScopeDefinition::from_scope_string(scope) else {
+            return false;
+        };
+        if scope.domain != "resources" {
+            return false;
         }
-        let visible = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM variable WHERE path = $1 AND workspace_id = $2)",
-        )
-        .bind(r)
-        .bind(w_id)
-        .fetch_one(&mut *tx)
-        .await?;
-        if !visible {
-            hidden.push(r);
-        }
+        let patterns = scope
+            .resource
+            .into_iter()
+            .flatten()
+            .filter(|r| r.contains('*'))
+            .collect::<Vec<_>>();
+        !patterns.is_empty()
+            && ScopeDefinition::new("variables", &scope.action, None, Some(patterns))
+                .includes(&required)
+    });
+    if covered {
+        Ok(())
+    } else {
+        Err(denied)
     }
-    tx.commit().await?;
-
-    // Off the RLS transaction, which must not stay open while a second pool connection is taken.
-    for r in hidden {
-        let exists = sqlx::query_scalar::<_, bool>(
-            "SELECT EXISTS(SELECT 1 FROM variable WHERE path = $1 AND workspace_id = $2)",
-        )
-        .bind(r)
-        .bind(w_id)
-        .fetch_one(db)
-        .await?;
-        if exists {
-            return Err(Error::PermissionDenied(format!(
-                "Cannot write a reference to variable {r} in resource {path}: you cannot read it"
-            )));
-        }
-    }
-    Ok(())
 }
 
 /// Like [`transform_json_value`], but records into `used_job_context` whether the value
@@ -1322,18 +1277,16 @@ async fn create_resource(
     }
     let authed = maybe_refresh_folders(&resource.path, &w_id, authed, &db).await;
 
-    let parsed_value = resource
-        .value
-        .as_deref()
-        .and_then(|v| serde_json::from_str::<serde_json::Value>(v.get()).ok());
-    authorize_azure_devops_reference(&authed, &db, &user_db, &w_id, parsed_value.as_ref()).await?;
-    check_added_var_refs(
+    authorize_azure_devops_reference(
         &authed,
         &db,
         &user_db,
         &w_id,
-        &resource.path,
-        parsed_value.as_ref(),
+        resource
+            .value
+            .as_deref()
+            .and_then(|v| serde_json::from_str::<serde_json::Value>(v.get()).ok())
+            .as_ref(),
     )
     .await?;
 
@@ -2162,7 +2115,6 @@ async fn update_resource(
     if let Some(npath) = ns.path.as_deref() {
         check_scopes(&authed, || format!("resources:write:{}", npath))?;
         check_proper_path(npath)?;
-        check_result_cache_rename(path, npath)?;
     }
     if let Some(nrt) = ns.resource_type.as_deref() {
         check_proper_type_name(nrt)?;
@@ -2200,12 +2152,17 @@ async fn update_resource(
     sqlb.returning("path");
     let authed = maybe_refresh_folders(path, &w_id, authed, &db).await;
 
-    let parsed_value = ns
-        .value
-        .as_deref()
-        .and_then(|v| serde_json::from_str::<serde_json::Value>(v.get()).ok());
-    authorize_azure_devops_reference(&authed, &db, &user_db, &w_id, parsed_value.as_ref()).await?;
-    check_added_var_refs(&authed, &db, &user_db, &w_id, path, parsed_value.as_ref()).await?;
+    authorize_azure_devops_reference(
+        &authed,
+        &db,
+        &user_db,
+        &w_id,
+        ns.value
+            .as_deref()
+            .and_then(|v| serde_json::from_str::<serde_json::Value>(v.get()).ok())
+            .as_ref(),
+    )
+    .await?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -2485,7 +2442,6 @@ async fn set_resource_value(
         return Err(Error::PermissionDenied(msg));
     }
     authorize_azure_devops_reference(authed, db, user_db, w_id, value.as_ref()).await?;
-    check_added_var_refs(authed, db, user_db, w_id, path, value.as_ref()).await?;
 
     let mut tx = user_db.clone().begin(authed).await?;
 

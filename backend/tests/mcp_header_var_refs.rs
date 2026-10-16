@@ -1,6 +1,5 @@
 //! An MCP resource header whose value is a `$var:` reference reaches the MCP
-//! server as the variable's value. A scoped token needs only the resource's
-//! scope for that, not one on the variable.
+//! server as the variable's value, and only for a caller allowed to read it.
 #![cfg(feature = "mcp")]
 
 use sqlx::{Pool, Postgres};
@@ -16,7 +15,7 @@ async fn seed(db: &Pool<Postgres>, url: &str) -> anyhow::Result<()> {
     let mc = windmill_common::variables::build_crypt(db, "test-workspace").await?;
     sqlx::query(
         "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms)
-         VALUES ('test-workspace', 'u/test-user/mcp_header', $1, true, '', '{}')",
+         VALUES ('test-workspace', 'u/test-user/header_secret', $1, true, '', '{}')",
     )
     .bind(windmill_common::variables::encrypt(&mc, SECRET_VALUE))
     .execute(db)
@@ -28,8 +27,7 @@ async fn seed(db: &Pool<Postgres>, url: &str) -> anyhow::Result<()> {
     .bind(serde_json::json!({
         "name": "mcp",
         "url": url,
-        "token": "$var:u/test-user/mcp_header",
-        "headers": { "X-Api-Key": "$var:u/test-user/mcp_header", "X-Plain": "plain" }
+        "headers": { "X-Api-Key": "$var:u/test-user/header_secret", "X-Plain": "plain" }
     }))
     .execute(db)
     .await?;
@@ -77,10 +75,10 @@ async fn test_mcp_header_var_ref_is_resolved(db: Pool<Postgres>) -> anyhow::Resu
     Ok(())
 }
 
-/// A token scoped to the resource alone resolves the variables its token and
-/// headers reference: the resource's scope covers them.
+/// A token scoped to the resource alone must not have the API read the
+/// variable a header points at.
 #[sqlx::test(fixtures("base"))]
-async fn test_mcp_var_refs_need_only_the_resource_scope(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_mcp_header_var_ref_requires_variable_scope(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     seed(&db, "https://mcp.invalid.windmill.test").await?;
     sqlx::query(
@@ -100,34 +98,49 @@ async fn test_mcp_var_refs_need_only_the_resource_scope(db: Pool<Postgres>) -> a
         .header("Authorization", "Bearer RES_ONLY_TOKEN")
         .send()
         .await?;
-    let body = resp.text().await?;
-    assert!(
-        body.contains("Failed to connect to MCP server"),
-        "the variables must resolve and only the connection fail: {body}"
-    );
-
-    // A bare token path resolves as a variable without being vetted on write.
-    sqlx::query(
-        "UPDATE resource SET value = jsonb_set(value, '{token}', '\"u/test-user/mcp_header\"')
-         WHERE workspace_id = 'test-workspace' AND path = 'u/test-user/mcp'",
-    )
-    .execute(&db)
-    .await?;
-    let resp = reqwest::Client::new()
-        .get(format!(
-            "http://localhost:{}/api/w/test-workspace/resources/mcp_tools/u/test-user/mcp",
-            server.addr.port()
-        ))
-        .header("Authorization", "Bearer RES_ONLY_TOKEN")
-        .send()
-        .await?;
     let status = resp.status();
     let body = resp.text().await?;
     assert_eq!(status, reqwest::StatusCode::FORBIDDEN, "{body}");
     assert!(
-        body.contains("variables:read:u/test-user/mcp_header"),
+        body.contains("variables:read:u/test-user/header_secret"),
         "{body}"
     );
+
+    // The token is held to the same scope, and a wildcard resource scope covers both.
+    sqlx::query(
+        "UPDATE resource SET value = jsonb_build_object('name', 'mcp', 'url', value->>'url',
+         'token', '$var:u/test-user/header_secret') WHERE path = 'u/test-user/mcp'",
+    )
+    .execute(&db)
+    .await?;
+    for (token, scope, denied) in [
+        ("EXACT_TOKEN", "resources:read:u/test-user/mcp", true),
+        ("WILDCARD_TOKEN", "resources:read:u/test-user/*", false),
+    ] {
+        sqlx::query(
+            "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes)
+             VALUES (encode(sha256($1::bytea), 'hex'), left($1, 10), $1,
+                     'test@windmill.dev', 'scoped', false, ARRAY[$2])",
+        )
+        .bind(token)
+        .bind(scope)
+        .execute(&db)
+        .await?;
+        let resp = reqwest::Client::new()
+            .get(format!(
+                "http://localhost:{}/api/w/test-workspace/resources/mcp_tools/u/test-user/mcp",
+                server.addr.port()
+            ))
+            .bearer_auth(token)
+            .send()
+            .await?;
+        let body = resp.text().await?;
+        assert_eq!(
+            body.contains("variables:read:u/test-user/header_secret"),
+            denied,
+            "{scope}: {body}"
+        );
+    }
 
     Ok(())
 }
