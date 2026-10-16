@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT EXISTS(SELECT 1 FROM variable WHERE account = $1 AND workspace_id = $2)",
+  "query": "SELECT EXISTS(SELECT 1 FROM variable WHERE account = $1 AND workspace_id = $2 AND path <> $3)",
   "describe": {
     "columns": [
       {
@@ -12,6 +12,7 @@
     "parameters": {
       "Left": [
         "Int4",
+        "Text",
         "Text"
       ]
     },
@@ -19,5 +20,5 @@
       null
     ]
   },
-  "hash": "7aa589db3199d7f727cc69e63e1281b7ed329ff0c9d1617747f4ccd6014720cf"
+  "hash": "92d2202c8752ab24777daa5c46b14ae645076a85940cef890083a45301a7cd62"
 }

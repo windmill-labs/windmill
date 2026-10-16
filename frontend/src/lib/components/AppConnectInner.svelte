@@ -1005,10 +1005,19 @@
 						}
 					})
 					if (accountData) {
-						await OauthService.createAccount({
-							workspace: effectiveWorkspace,
-							requestBody: { ...accountData, variable_path: tokenPath }
-						})
+						try {
+							await OauthService.createAccount({
+								workspace: effectiveWorkspace,
+								requestBody: { ...accountData, variable_path: tokenPath }
+							})
+						} catch (e) {
+							// An unlinked token never refreshes, and its path would block a retry.
+							await VariableService.deleteVariable({
+								workspace: effectiveWorkspace,
+								path: tokenPath
+							}).catch(() => {})
+							throw e
+						}
 					}
 					resourceValue['token'] = `$var:${tokenPath}`
 				}
