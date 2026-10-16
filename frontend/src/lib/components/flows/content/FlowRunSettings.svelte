@@ -63,8 +63,6 @@
 		/** Agent tools never go through the flow scheduler, so the settings `same_worker`
 		 *  rules out for a flow step still apply to them. */
 		isAgentTool?: boolean
-		/** An agent tool's `background` setting. */
-		toolBackground?: boolean
 	}
 
 	let {
@@ -84,8 +82,7 @@
 		workspaceScriptNoEditReason = undefined,
 		onEditWorkspaceScript,
 		onApplyS3Snippet,
-		isAgentTool = false,
-		toolBackground = $bindable(false)
+		isAgentTool = false
 	}: Props = $props()
 
 	let rootEl: HTMLDivElement | undefined = $state()
@@ -159,18 +156,6 @@
 		{@render sectionHeader('Execution policy')}
 
 		<div class="flex flex-col gap-6">
-			{#if isAgentTool}
-				<Toggle
-					size="xs"
-					textClass="text-xs font-normal text-primary"
-					bind:checked={toolBackground}
-					options={{
-						right: 'Run in background',
-						rightTooltip:
-							'The agent is answered as soon as the job starts and keeps working. The result reaches it in a later message. If it finishes its answer first, it waits for the result without holding a worker.'
-					}}
-				/>
-			{/if}
 			{#if !loopSubset}
 				<div data-setting="retries">
 					<FlowRetries bind:flowModuleRetry={flowModule.retry} bind:flowModule {isAgentTool} />

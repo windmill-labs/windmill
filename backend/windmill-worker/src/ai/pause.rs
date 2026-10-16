@@ -5,10 +5,10 @@
 //! (`suspend_wac_parent`), and is pulled again when `suspend` reaches 0 or `suspend_until` passes.
 //!
 //! An answer or a rejection reaches `suspend` through `resume_suspended`, which takes the agent's
-//! row for a WAC approval. A background job reaches it through `record_child_completion`, which
-//! decrements a parked parent's `suspend` when the child is in its `pending_steps.job_ids`: tool
-//! jobs are the agent's children, so parking with those ids wakes it, atomically with the child's
-//! completion.
+//! row for a WAC approval. A finished background job reaches it through the monitor, which zeroes
+//! the `suspend` of a parked agent once a job in its checkpoint's `waiting_on` has completed. Not
+//! through `record_child_completion`: it clears every pending id of a parent it wakes, which fits a
+//! WAC round but would drop the agent's other background jobs.
 //!
 //! The checkpoint row outlives the segment that reads it, so a job restarted after its worker died
 //! resumes from it again. It is deleted by the monitor once the job leaves the queue.
@@ -40,7 +40,7 @@ pub(crate) const APPROVAL_ENABLED_NAME: &str = "__wm_approval";
 
 /// Matches a suspended flow step's default.
 const DEFAULT_APPROVAL_TIMEOUT_SECS: u32 = 1800;
-/// A park on background jobs only is woken by their completion; this bounds a missed wake.
+/// A park on background jobs only is woken by the monitor; this only bounds the park.
 const BACKGROUND_RECHECK_SECS: f64 = 3600.0;
 
 pub(crate) fn approval_timeout(value: &ApprovalToolValue) -> u32 {
@@ -129,9 +129,11 @@ pub(crate) struct AgentCheckpoint {
     pub next_iteration: usize,
     /// The approval the agent waits on, if any.
     pub pending: Option<PendingPause>,
+    #[serde(default)]
     pub background: Vec<BackgroundJob>,
     /// The model had given its answer: with nothing new from a background job, there is nothing
     /// to ask it, so the agent parks again.
+    #[serde(default)]
     pub answered: bool,
     /// `resume_job` rows never leave while the agent is queued, so each answer must skip the
     /// ones earlier parks already read.
@@ -190,14 +192,13 @@ pub(crate) async fn park(
             WacPark::Parked(ms) => ms,
             WacPark::Cancelled(_) => return Ok(ParkOutcome::Cancelled),
         };
-    // A job that completed while the agent ran decremented a `suspend` that was already 0, so it
-    // is read here instead. One completing from now on waits for the queue row this transaction
-    // locked, then wakes the parked agent (`register_background_job`). While an approval is open,
-    // results wait for the answer anyway.
-    if !running.is_empty() && !waits_on_approval {
+    // A job that completed since the loop last looked is delivered now rather than after a park
+    // and a monitor tick. While an approval is open, results wait for the answer anyway.
+    let waiting_on: Vec<Uuid> = if waits_on_approval { vec![] } else { running };
+    if !waiting_on.is_empty() {
         let finished: bool =
             sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM v2_job_completed WHERE id = ANY($1))")
-                .bind(&running)
+                .bind(&waiting_on)
                 .fetch_one(&mut *tx)
                 .await?;
         if finished {
@@ -206,12 +207,15 @@ pub(crate) async fn park(
         }
     }
     sqlx::query(
-        "INSERT INTO ai_agent_checkpoint (job_id, workspace_id, checkpoint) VALUES ($1, $2, $3)
-         ON CONFLICT (job_id) DO UPDATE SET checkpoint = EXCLUDED.checkpoint",
+        "INSERT INTO ai_agent_checkpoint (job_id, workspace_id, checkpoint, waiting_on)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (job_id) DO UPDATE
+             SET checkpoint = EXCLUDED.checkpoint, waiting_on = EXCLUDED.waiting_on",
     )
     .bind(&job.id)
     .bind(&job.workspace_id)
     .bind(&checkpoint)
+    .bind(&waiting_on)
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
@@ -219,42 +223,27 @@ pub(crate) async fn park(
     Ok(ParkOutcome::Parked)
 }
 
-/// Make a background tool job one whose completion wakes the parked agent. Written before the job
-/// is queued: `record_child_completion` reads the ids before it locks anything, so an entry
-/// written later can miss a job finishing while the agent parks.
-pub(crate) async fn register_background_job(
+/// Resume an agent that waits on no approval. `suspend` is zeroed, so `resume_suspended` refuses
+/// answers while it runs, as `answer_pause` does for one with an approval. An answer the parked
+/// row still accepted is marked read: no request was open, so none may take it later.
+pub(crate) async fn resume_without_approval(
     db: &DB,
-    agent_job_id: &Uuid,
-    call_id: &str,
-    tool_job_id: &Uuid,
+    job_id: &Uuid,
+    consumed_resume_rows: &mut Vec<Uuid>,
 ) -> error::Result<()> {
-    sqlx::query(
-        "INSERT INTO v2_job_status (id, workflow_as_code_status)
-         VALUES ($1, jsonb_build_object('_checkpoint', jsonb_build_object(
-             'pending_steps', jsonb_build_object('job_ids', jsonb_build_object($2::text, $3::text)))))
-         ON CONFLICT (id) DO UPDATE SET workflow_as_code_status = jsonb_set(
-             COALESCE(v2_job_status.workflow_as_code_status, '{}'::jsonb),
-             '{_checkpoint}',
-             COALESCE(v2_job_status.workflow_as_code_status->'_checkpoint', '{}'::jsonb)
-                 || jsonb_build_object('pending_steps', jsonb_build_object('job_ids',
-                     COALESCE(v2_job_status.workflow_as_code_status->'_checkpoint'->'pending_steps'->'job_ids', '{}'::jsonb)
-                         || jsonb_build_object($2::text, $3::text))))",
-    )
-    .bind(agent_job_id)
-    .bind(call_id)
-    .bind(tool_job_id.to_string())
-    .execute(db)
-    .await?;
-    Ok(())
-}
-
-/// A resumed agent with no approval to answer still zeroes `suspend`, so `resume_suspended`
-/// refuses answers while it runs, as `answer_pause` makes it for one with an approval.
-pub(crate) async fn clear_suspend(db: &DB, job_id: &Uuid) -> error::Result<()> {
+    let mut tx = db.begin().await?;
     sqlx::query("UPDATE v2_job_queue SET suspend = 0 WHERE id = $1")
         .bind(job_id)
-        .execute(db)
+        .execute(&mut *tx)
         .await?;
+    let stray: Vec<Uuid> =
+        sqlx::query_scalar("SELECT id FROM resume_job WHERE job = $1 AND id <> ALL($2)")
+            .bind(job_id)
+            .bind(&*consumed_resume_rows)
+            .fetch_all(&mut *tx)
+            .await?;
+    tx.commit().await?;
+    consumed_resume_rows.extend(stray);
     Ok(())
 }
 
