@@ -10,10 +10,11 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import UserSettings from '$lib/components/UserSettings.svelte'
-	import { SlackAgentsService, type SlackChannelAgent } from '$lib/gen'
+	import { SlackAgentsService, type SlackAgentChannel } from '$lib/gen'
 	import { userStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { copyToClipboard, generateRandomString } from '$lib/utils'
@@ -28,9 +29,8 @@
 	} from './agentApiExamples'
 
 	/**
-	 * The ways to use an agent outside its page: in Slack, anywhere by its `+name` and without one
-	 * in the channels it is the default of, and over the API. Only admins change the channels, as
-	 * only they change the workspace's Slack settings.
+	 * The ways to use an agent outside its page: in the Slack channels it is shared in, where anyone
+	 * can ask it and it runs as its identity, and over the API.
 	 */
 	let {
 		agentPath,
@@ -42,6 +42,9 @@
 		botName,
 		missingScopes,
 		signingSecretSet,
+		runsAs,
+		shareBlocked,
+		canUnshare,
 		channels,
 		onChanged
 	}: {
@@ -60,7 +63,12 @@
 		missingScopes: string[]
 		/** Agents answer in Slack only when the instance verifies Slack's request signatures. */
 		signingSecretSet: boolean
-		channels: SlackChannelAgent[]
+		/** Who the agent runs as; unset unless it runs on behalf of someone. */
+		runsAs: string | undefined
+		/** Why the user can't share it in a channel; unset when they can. */
+		shareBlocked: string | undefined
+		canUnshare: boolean
+		channels: SlackAgentChannel[]
 		onChanged: () => void
 	} = $props()
 
@@ -77,36 +85,24 @@
 	const available = resource(
 		() => ({
 			ws:
-				isAdmin && chat && slackTeamName && botName && missingScopes.length === 0
+				!shareBlocked && chat && slackTeamName && botName && missingScopes.length === 0
 					? workspace
 					: undefined,
 			channels
 		}),
-		async ({ ws }) => (ws ? await listChoices(ws) : [])
+		async ({ ws, channels }) => (ws ? await listChoices(ws, channels) : [])
 	)
 
-	async function listChoices(ws: string): Promise<Choice[]> {
+	async function listChoices(ws: string, shared: SlackAgentChannel[]): Promise<Choice[]> {
 		try {
-			// Which agent each channel already has, so picking one says what it replaces.
-			const taken = new Map(
-				(await SlackAgentsService.listSlackChannelAgents({ workspace: ws })).map((c) => [
-					c.channel_id,
-					c.agent_path
-				])
-			)
 			const all: Choice[] = []
 			let cursor: string | undefined = undefined
 			// ponytail: stops at 10 pages of 200 channels; search on the server if a team has more.
 			for (let page = 0; page < 10; page++) {
 				const res = await SlackAgentsService.listAvailableSlackChannels({ workspace: ws, cursor })
 				for (const c of res.channels) {
-					const current = taken.get(c.id)
-					if (current === agentPath) continue
-					all.push({
-						value: c.id,
-						name: c.name,
-						label: current ? `#${c.name} (replaces ${current})` : `#${c.name}`
-					})
+					if (shared.some((s) => s.channel_id === c.id)) continue
+					all.push({ value: c.id, name: c.name, label: `#${c.name}` })
 				}
 				cursor = res.next_cursor
 				if (!cursor) break
@@ -118,28 +114,29 @@
 		}
 	}
 
-	async function add(channelId: string | undefined) {
-		const choice = available.current?.find((c) => c.value === channelId)
-		if (!choice) return
+	async function share(channelId: string, channelName: string, isDefault: boolean) {
 		saving = true
 		try {
-			await SlackAgentsService.setSlackChannelAgent({
+			await SlackAgentsService.shareAgentInSlackChannel({
 				workspace,
-				requestBody: { channel_id: choice.value, channel_name: choice.name, agent_path: agentPath }
+				path: agentPath,
+				requestBody: { channel_id: channelId, channel_name: channelName, is_default: isDefault }
 			})
 			adding = false
-			onChanged()
 		} catch (e) {
 			sendUserToast(e.body ?? e.message, true)
 		} finally {
 			saving = false
+			// Also on failure, so a default toggle flipped in vain flips back.
+			onChanged()
 		}
 	}
 
-	async function remove(channel: SlackChannelAgent) {
+	async function unshare(channel: SlackAgentChannel) {
 		try {
-			await SlackAgentsService.removeSlackChannelAgent({
+			await SlackAgentsService.unshareAgentFromSlackChannel({
 				workspace,
+				path: agentPath,
 				channelId: channel.channel_id
 			})
 			onChanged()
@@ -227,43 +224,25 @@
 						{/if}
 						{#if botName && missingScopes.length > 0}
 							<Alert type="warning" title="Slack was connected without AI agents" size="xs">
-								The connection lacks {missingScopes.join(', ')}, so agents can't tell who is asking.
+								The connection lacks {missingScopes.join(', ')}, so agents can't check who is
+								asking.
 								{#if isAdmin}
 									<a href="/workspace_settings?tab=slack&agents=true">Disconnect Slack</a>, then
-									connect it again with AI agents enabled. Disconnecting clears the channel
-									defaults.
+									connect it again with AI agents enabled.
 								{:else}
 									A workspace admin can reconnect Slack with AI agents enabled.
 								{/if}
 							</Alert>
 						{/if}
-						<div class="flex flex-col gap-1">
-							<span class="text-xs font-semibold text-emphasis">Ask it anywhere</span>
-							<span class="text-xs text-secondary">
-								In {slackTeamName}, mention the bot and start your message with the agent's name, in
-								a channel or in a direct message. Follow-ups in the same thread that mention the bot
-								go to the same agent.
-							</span>
-							<div class="flex items-center gap-2 mt-1">
-								<code class="text-xs bg-surface-secondary rounded px-2 py-1"
-									>@{botName ?? '<Slack app name>'} {handle} your question</code
-								>
-								<CopyButton value={handle} title="Copy {handle}" />
-								<Tooltip>
-									{handle} matches the last part of the agent's path. Use the whole path,
-									<code>+{agentPath}</code>, when two agents share that name.
-								</Tooltip>
-							</div>
-						</div>
 
 						<div class="flex flex-col gap-2">
-							<span class="text-xs font-semibold text-emphasis">Default in these channels</span>
+							<span class="text-xs font-semibold text-emphasis">Shared in these channels</span>
 							<span class="text-xs text-secondary">
-								Mentions of the bot and <code>/windmill</code> commands in these channels go to this
-								agent without its name. They no longer reach the workspace's Slack command script there.
+								Anyone in these channels of {slackTeamName} can ask this agent.
+								{#if runsAs}It runs as <b>{runsAs}</b>, with that user's permissions.{/if}
 							</span>
 							{#if channels.length === 0 && !adding}
-								<span class="text-xs text-hint">No channel yet.</span>
+								<span class="text-xs text-hint">Not shared in any channel.</span>
 							{/if}
 							{#each channels as channel (channel.channel_id)}
 								<div class="flex items-center gap-2 w-full">
@@ -272,26 +251,45 @@
 										inputProps={{ readonly: true }}
 										value="#{channel.channel_name}"
 									/>
-									{#if isAdmin}
+									<Toggle
+										size="xs"
+										checked={channel.is_default}
+										disabled={!!shareBlocked || saving}
+										on:change={(e) => share(channel.channel_id, channel.channel_name, e.detail)}
+										options={{
+											right: 'Default',
+											rightTooltip:
+												"Answers the bot's mentions and /windmill commands in this channel that name no agent, which then no longer reach the workspace's command script there"
+										}}
+									/>
+									{#if canUnshare}
 										<Button
 											variant="subtle"
 											unifiedSize="md"
 											iconOnly
 											destructive
 											startIcon={{ icon: X }}
-											title="Remove #{channel.channel_name}"
-											onClick={() => remove(channel)}
+											title="Stop sharing in #{channel.channel_name}"
+											onClick={() => unshare(channel)}
 										/>
 									{/if}
 								</div>
 							{/each}
-							{#if isAdmin && missingScopes.length === 0}
+							{#if shareBlocked}
+								<span class="text-2xs text-hint">{shareBlocked}</span>
+							{:else if missingScopes.length === 0}
 								{#if adding}
 									<div class="flex items-center gap-2 w-full">
 										<Select
 											class="flex-1"
 											items={available.current ?? []}
-											bind:value={() => undefined, (v) => add(v)}
+											bind:value={
+												() => undefined,
+												(v) => {
+													const choice = available.current?.find((c) => c.value === v)
+													if (choice) share(choice.value, choice.name, channels.length === 0)
+												}
+											}
 											loading={available.loading || saving}
 											disabled={saving}
 											placeholder="Pick a public channel"
@@ -315,19 +313,32 @@
 											startIcon={{ icon: Plus }}
 											onClick={() => (adding = true)}
 										>
-											Add channel
+											Share in a channel
 										</Button>
 									</div>
 								{/if}
-							{:else if !isAdmin}
-								<span class="text-2xs text-hint">Only workspace admins can change these.</span>
 							{/if}
 						</div>
 
-						<Alert type="info" title="Each person runs the agent as themselves" size="xs">
-							Their Slack email must belong to a member of this workspace, and the agent can use
-							only what that member can.
-						</Alert>
+						{#if channels.length > 0}
+							<div class="flex flex-col gap-1">
+								<span class="text-xs font-semibold text-emphasis">Ask it by name</span>
+								<span class="text-xs text-secondary">
+									In those channels, mention the bot and start your message with the agent's name.
+									Follow-ups in the same thread that mention the bot go to the same agent.
+								</span>
+								<div class="flex items-center gap-2 mt-1">
+									<code class="text-xs bg-surface-secondary rounded px-2 py-1"
+										>@{botName ?? '<Slack app name>'} {handle} your question</code
+									>
+									<CopyButton value={handle} title="Copy {handle}" />
+									<Tooltip>
+										{handle} matches the last part of the agent's path. Use the whole path,
+										<code>+{agentPath}</code>, when two agents shared in a channel have that name.
+									</Tooltip>
+								</div>
+							</div>
+						{/if}
 					{/if}
 				</TabContent>
 

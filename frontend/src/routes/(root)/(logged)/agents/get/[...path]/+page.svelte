@@ -257,6 +257,9 @@
 						botName={slack.current?.bot_name}
 						missingScopes={slack.current?.missing_scopes ?? []}
 						signingSecretSet={slack.current?.signing_secret_set ?? true}
+						runsAs={slack.current?.runs_as}
+						shareBlocked={slack.current?.share_blocked}
+						canUnshare={slack.current?.can_unshare ?? false}
 						channels={slack.current?.channels ?? []}
 						onChanged={() => slack.refetch()}
 					/>

@@ -13585,66 +13585,25 @@ paths:
 
   /w/{workspace}/slack_agents/channels:
     get:
-      summary: list the Slack channels whose default agent this workspace set
-      operationId: listSlackChannelAgents
+      summary: list the Slack channels this workspace's agents are shared in
+      operationId: listSlackAgentChannels
       tags:
         - slack_agents
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
       responses:
         "200":
-          description: channels and their default agent
+          description: each agent shared in a channel, with whether it is the channel's default
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/SlackChannelAgent"
-    post:
-      summary: make an agent the default in a Slack channel (admin only)
-      operationId: setSlackChannelAgent
-      tags:
-        - slack_agents
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/SlackChannelAgent"
-      responses:
-        "200":
-          description: default agent set
-          content:
-            text/plain:
-              schema:
-                type: string
-
-  /w/{workspace}/slack_agents/channels/{channel_id}:
-    delete:
-      summary: remove a Slack channel's default agent (admin only)
-      operationId: removeSlackChannelAgent
-      tags:
-        - slack_agents
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - name: channel_id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: default agent removed
-          content:
-            text/plain:
-              schema:
-                type: string
+                  $ref: "#/components/schemas/SlackAgentChannel"
 
   /w/{workspace}/slack_agents/available_channels:
     get:
-      summary: list the connected Slack workspace's public channels (admin only)
+      summary: list the connected Slack workspace's public channels
       operationId: listAvailableSlackChannels
       tags:
         - slack_agents
@@ -13704,7 +13663,7 @@ paths:
 
   /w/{workspace}/slack_agents/agent_channels/{path}:
     get:
-      summary: the Slack channels where an agent is the default, and whether Slack is connected
+      summary: the Slack channels an agent is shared in, and whether the caller can share it
       operationId: getAgentSlackChannels
       tags:
         - slack_agents
@@ -13733,14 +13692,77 @@ paths:
                     items:
                       type: string
                     description: agent scopes the workspace's Slack connection lacks, so it must be reconnected with AI agents enabled
+                  runs_as:
+                    type: string
+                    description: who the agent runs as (its on_behalf_of); absent unless it runs on behalf of someone
+                  share_blocked:
+                    type: string
+                    description: why the caller can't share the agent in a channel; absent when they can
+                  can_unshare:
+                    type: boolean
+                    description: whether the caller can take the agent out of a channel
                   channels:
                     type: array
                     items:
-                      $ref: "#/components/schemas/SlackChannelAgent"
+                      $ref: "#/components/schemas/SlackAgentChannel"
                 required:
                   - channels
                   - signing_secret_set
                   - missing_scopes
+                  - can_unshare
+    post:
+      summary: share an agent in a Slack channel, or change whether it is the channel's default
+      description: anyone in the channel can then ask the agent, which runs as its on_behalf_of. Needs run_on_behalf_of, and to be that identity or an admin or wm_deployers member.
+      operationId: shareAgentInSlackChannel
+      tags:
+        - slack_agents
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channel_id:
+                  type: string
+                channel_name:
+                  type: string
+                is_default:
+                  type: boolean
+                  description: whether the agent answers messages in the channel that name no agent
+              required:
+                - channel_id
+                - channel_name
+      responses:
+        "200":
+          description: agent shared
+          content:
+            text/plain:
+              schema:
+                type: string
+    delete:
+      summary: stop sharing an agent in a Slack channel
+      operationId: unshareAgentFromSlackChannel
+      tags:
+        - slack_agents
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: channel_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: agent no longer shared there
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /w/{workspace}/flow_conversations/update/{conversation_id}:
     post:
@@ -30015,7 +30037,7 @@ components:
         definition_changed:
           type: boolean
 
-    SlackChannelAgent:
+    SlackAgentChannel:
       type: object
       properties:
         channel_id:
@@ -30024,10 +30046,14 @@ components:
           type: string
         agent_path:
           type: string
+        is_default:
+          type: boolean
+          description: whether the agent answers messages in the channel that name no agent
       required:
         - channel_id
         - channel_name
         - agent_path
+        - is_default
 
     FlowConversation:
       type: object

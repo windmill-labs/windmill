@@ -2454,6 +2454,15 @@ async fn resolve_agent_on_behalf_of(
         .remove("on_behalf_of")
         .and_then(|v| v.as_str().map(str::to_string));
     if obj.get("run_on_behalf_of").and_then(|v| v.as_bool()) != Some(true) {
+        // Everyone in a Slack channel it is shared in runs it as its identity: without one,
+        // turning it back on must not share it again unasked.
+        sqlx::query!(
+            "DELETE FROM slack_agent_channel WHERE workspace_id = $1 AND agent_path = $2",
+            w_id,
+            path
+        )
+        .execute(&mut **tx)
+        .await?;
         return Ok(());
     }
     let mut preserve = preserve;

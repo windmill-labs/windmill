@@ -72,7 +72,7 @@
 		<div class="flex flex-col gap-2">
 			<Label
 				label="Run on behalf of"
-				tooltip="Runs from the agent's page and the API take the permissions of whoever deploys it, or of the user an admin picks. Otherwise they take the caller's."
+				tooltip="Runs from the agent's page and the API take the permissions of whoever deploys it, or of the user an admin picks. Otherwise they take the caller's. Sharing the agent in Slack channels needs it, and turning it off stops the sharing."
 			>
 				<Toggle
 					bind:checked={

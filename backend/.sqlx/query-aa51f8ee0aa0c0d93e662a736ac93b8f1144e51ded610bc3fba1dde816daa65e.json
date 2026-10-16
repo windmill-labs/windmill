@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT value->'run_on_behalf_of' = 'true'::jsonb AS run_on_behalf_of,\n                value->>'on_behalf_of' AS on_behalf_of\n         FROM resource WHERE workspace_id = $1 AND path = $2 AND resource_type = 'ai_agent'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "run_on_behalf_of",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "on_behalf_of",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "aa51f8ee0aa0c0d93e662a736ac93b8f1144e51ded610bc3fba1dde816daa65e"
+}
