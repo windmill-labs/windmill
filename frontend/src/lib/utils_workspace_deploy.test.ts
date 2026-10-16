@@ -246,7 +246,7 @@ describe('workspace-level deploy permission', () => {
 	it('refuses an operator who is also a superadmin', async () => {
 		const res = await permission({ ...member, operator: true, is_super_admin: true }, [])
 		expect(res.ok).toBe(false)
-		expect(res.reason).toContain('operator')
+		expect(res.reason).toContain('role')
 	})
 })
 

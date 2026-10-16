@@ -1,7 +1,6 @@
 import { getDraftItems, type DraftItem } from '$lib/workspaceDrafts.svelte'
-import { get } from 'svelte/store'
-import { userWorkspaces } from '$lib/stores'
 import { roleCanAuthor } from '$lib/editRights'
+import { capabilitiesInWorkspace } from '$lib/operatorWriteRights'
 import {
 	checkDeployPermission,
 	checkDeployRules,
@@ -232,8 +231,9 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	// button disables with a reason instead of failing on click. `ok` defaults
 	// true while resolving (fail-open).
 	let deployPerm = $state<DeployPermission>({ ok: true })
-	// `checkDeployPermission` refuses every operator, but flows.rs and apps.rs let one with the
-	// workspace's matching builder right deploy that kind, under the rules alone.
+	const AUTHORED_KINDS: Kind[] = ['script', 'flow', 'app', 'raw_app']
+	// `checkDeployPermission` refuses every role that cannot code, but flows.rs and apps.rs let one
+	// that composes that kind deploy it, under the rules alone.
 	let builder = $state<{ perm: DeployPermission; kinds: Kind[] } | undefined>(undefined)
 	let deployPermFetchedFor = ''
 	$effect(() => {
@@ -248,10 +248,8 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 			void checkDeployPermission(ws).then(async (perm) => {
 				if (deployPermFetchedFor !== ws) return
 				deployPerm = perm
-				const settings = get(userWorkspaces).find((w) => w.id === ws)?.operator_settings
-				const kinds = (['flow', 'raw_app'] as const).filter((k) =>
-					roleCanAuthor(k, { operator: true }, settings)
-				)
+				const caps = capabilitiesInWorkspace(ws)
+				const kinds = (['flow', 'raw_app'] as const).filter((k) => roleCanAuthor(k, caps))
 				if (perm.refusedBy === 'operator' && kinds.length) {
 					const rules = await checkDeployRules(ws)
 					if (deployPermFetchedFor === ws) builder = { perm: rules, kinds }
@@ -262,6 +260,13 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 
 	function permissionFor(kind: Kind): DeployPermission {
 		if (builder?.kinds.includes(kind)) return deployPermissionForKind(builder.perm, kind)
+		// A role that codes passes `checkDeployPermission`, yet may still lack apps or flows.
+		if (
+			AUTHORED_KINDS.includes(kind) &&
+			!roleCanAuthor(kind, capabilitiesInWorkspace(getArgs().workspaceId))
+		) {
+			return { ok: false, reason: 'Your role cannot deploy this kind here', refusedBy: 'operator' }
+		}
 		return deployPermissionForKind(deployPerm, kind)
 	}
 
