@@ -1041,15 +1041,17 @@ fn expand_filter_tags_with_dev_suffix(scopes: &mut [String], suffix: &str) {
     }
 }
 
-/// Only for a dev workspace or a fork, the workspaces whose jobs get the suffix: elsewhere the
-/// suffixed tags are other tags the token was not given.
+/// Only while isolation is on and for a dev workspace or a fork, whose jobs get the suffix then:
+/// otherwise the suffixed tags are other tags the token was not given.
 async fn expand_filter_tags_for_dev_workspace(
     db: &DB,
     workspace_id: &str,
     scopes: Option<&mut Vec<String>>,
 ) {
     let Some(scopes) = scopes else { return };
-    if !scopes.iter().any(|s| s.starts_with("if_jobs:filter_tags:")) {
+    if !windmill_common::worker::DEV_WORKSPACE_ISOLATION.load(std::sync::atomic::Ordering::Relaxed)
+        || !scopes.iter().any(|s| s.starts_with("if_jobs:filter_tags:"))
+    {
         return;
     }
     let is_dev = workspace_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX)
