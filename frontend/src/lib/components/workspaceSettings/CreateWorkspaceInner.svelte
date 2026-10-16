@@ -11,7 +11,12 @@
 		type CompletedJob
 	} from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
-	import { devWorkspaceTagSuffix, loadDevWorkspaceTagSuffix } from '$lib/devWorkspaceTags'
+	import {
+		devWorkspaceTagSuffix,
+		devWorkspaceSkipNonDevForks,
+		isForkOfIsolated,
+		loadDevWorkspaceTagSuffix
+	} from '$lib/devWorkspaceTags'
 	import { logoutWithRedirect } from '$lib/logoutKit'
 	import { page } from '$app/state'
 	import {
@@ -986,6 +991,11 @@
 							Its jobs run on dev workers (tags suffixed with <code>{$devWorkspaceTagSuffix}</code
 							>).
 						{/if}
+					</Alert>
+				{:else if baseWorkspaceId && $devWorkspaceTagSuffix && !isForkOfIsolated(baseWorkspaceId, $userWorkspaces, $devWorkspaceSkipNonDevForks)}
+					<Alert type="info" size="xs" title="Runs on {baseWorkspaceId}'s workers">
+						Forks of non-dev workspaces are not isolated on this instance: jobs of this fork run on
+						the same workers as {baseWorkspaceId}.
 					</Alert>
 				{:else if baseWorkspaceId && $devWorkspaceTagSuffix}
 					<Alert type="info" size="xs" title="Runs on dev workers">

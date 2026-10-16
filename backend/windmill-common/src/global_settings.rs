@@ -12,6 +12,8 @@ pub const PREVIEW_TAGS_OVERRIDE_SETTING: &str = "preview_tags_override";
 pub const DEPENDENCY_JOB_TAG_SETTING: &str = "dependency_job_tag";
 pub const DEV_WORKSPACE_ISOLATION_SETTING: &str = "dev_workspace_isolation";
 pub const DEV_WORKSPACE_TAG_SUFFIX_SETTING: &str = "dev_workspace_tag_suffix";
+pub const DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS_SETTING: &str =
+    "dev_workspace_isolation_skip_non_dev_forks";
 pub const BASE_URL_SETTING: &str = "base_url";
 pub const WS_BASE_URL_SETTING: &str = "ws_base_url";
 pub const OAUTH_SETTING: &str = "oauths";

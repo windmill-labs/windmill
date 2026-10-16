@@ -12,7 +12,8 @@
 	import Popover from './Popover.svelte'
 	import {
 		devWorkspaceTagSuffix,
-		isDevOrForkWorkspaceId,
+		devWorkspaceSkipNonDevForks,
+		isIsolatedWorkspaceId,
 		loadDevWorkspaceTagSuffix,
 		withDevSuffix
 	} from '$lib/devWorkspaceTags'
@@ -160,7 +161,8 @@
 
 	loadDevWorkspaceTagSuffix()
 	let devSuffix = $derived(
-		$devWorkspaceTagSuffix && isDevOrForkWorkspaceId(effectiveWorkspace, $userWorkspaces)
+		$devWorkspaceTagSuffix &&
+			isIsolatedWorkspaceId(effectiveWorkspace, $userWorkspaces, $devWorkspaceSkipNonDevForks)
 			? $devWorkspaceTagSuffix
 			: undefined
 	)

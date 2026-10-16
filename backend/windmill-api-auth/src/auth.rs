@@ -1041,8 +1041,8 @@ fn expand_filter_tags_with_dev_suffix(scopes: &mut [String], suffix: &str) {
     }
 }
 
-/// Only while isolation is on and for a dev workspace or a fork, whose jobs get the suffix then:
-/// otherwise the suffixed tags are other tags the token was not given.
+/// Only while isolation is on and for a workspace whose jobs get the suffix then: otherwise the
+/// suffixed tags are other tags the token was not given.
 async fn expand_filter_tags_for_dev_workspace(
     db: &DB,
     workspace_id: &str,
@@ -1054,17 +1054,13 @@ async fn expand_filter_tags_for_dev_workspace(
     {
         return;
     }
-    let is_dev = workspace_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX)
-        || sqlx::query_scalar::<_, bool>(
-            "SELECT parent_workspace_id IS NOT NULL FROM workspace WHERE id = $1",
-        )
-        .bind(workspace_id)
-        .fetch_optional(db)
+    let (is_dev, in_dev_lineage) = windmill_common::workspaces::dev_lineage(db, workspace_id)
         .await
-        .ok()
-        .flatten()
-        .unwrap_or(false);
-    if is_dev {
+        .unwrap_or((
+            workspace_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX),
+            true,
+        ));
+    if windmill_common::worker::is_isolated_workspace(is_dev, in_dev_lineage) {
         let suffix = windmill_common::worker::DEV_WORKSPACE_TAG_SUFFIX.load();
         expand_filter_tags_with_dev_suffix(scopes, &suffix);
     }

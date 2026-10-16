@@ -957,6 +957,13 @@ pub async fn set_global_setting_internal(
             if turns_on { "on" } else { "off" },
         );
     }
+    if key == windmill_common::global_settings::DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS_SETTING {
+        windmill_common::feature_usage::log_feature_usage(
+            "dev_workspace_isolation",
+            "skip_non_dev_forks_toggle",
+            if turns_on { "on" } else { "off" },
+        );
+    }
 
     if should_bump_instance_ai_revision {
         bump_instance_ai_config_revision();

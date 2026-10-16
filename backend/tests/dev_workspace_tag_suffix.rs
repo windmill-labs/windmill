@@ -8,7 +8,7 @@ use windmill_common::{
     jobs::{JobPayload, RawCode},
     runnable_settings::{ConcurrencySettings, DebouncingSettings},
     scripts::{ScriptHash, ScriptLang},
-    worker::DEV_WORKSPACE_ISOLATION,
+    worker::{DEV_WORKSPACE_ISOLATION, DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS},
 };
 use windmill_queue::{PushArgs, PushIsolationLevel};
 
@@ -92,19 +92,25 @@ fn preview() -> JobPayload {
 async fn dev_workspace_and_fork_jobs_run_on_suffixed_tags(db: Pool<Postgres>) {
     DEV_WORKSPACE_ISOLATION.store(true, std::sync::atomic::Ordering::Relaxed);
 
-    // A dev workspace, a fork of it, and a fork whose parent was deleted (`ON DELETE SET NULL`).
+    // A dev workspace, a fork of it, a fork whose parent was deleted (`ON DELETE SET NULL`), and a
+    // fork of the root with a fork of its own.
     sqlx::query(
         "INSERT INTO workspace (id, name, owner, parent_workspace_id, is_dev_workspace) VALUES
             ('staging', 'staging', 'test-user', 'test-workspace', true),
             ('wm-fork-a', 'fork', 'test-user', 'staging', false),
-            ('wm-fork-orphan', 'orphan', 'test-user', NULL, false)",
+            ('wm-fork-orphan', 'orphan', 'test-user', NULL, false),
+            ('wm-fork-root', 'root fork', 'test-user', 'test-workspace', false),
+            ('wm-fork-root-2', 'root fork 2', 'test-user', 'wm-fork-root', false),
+            ('archived-dev', 'archived dev', 'test-user', 'test-workspace', false),
+            ('wm-fork-of-archived', 'fork of archived dev', 'test-user', 'archived-dev', false)",
     )
     .execute(&db)
     .await
     .unwrap();
     sqlx::query(
-        "INSERT INTO workspace_settings (workspace_id)
-         VALUES ('staging'), ('wm-fork-a'), ('wm-fork-orphan')",
+        "INSERT INTO workspace_settings (workspace_id) VALUES
+            ('staging'), ('wm-fork-a'), ('wm-fork-orphan'), ('wm-fork-root'), ('wm-fork-root-2'),
+            ('archived-dev'), ('wm-fork-of-archived')",
     )
     .execute(&db)
     .await
@@ -119,6 +125,7 @@ async fn dev_workspace_and_fork_jobs_run_on_suffixed_tags(db: Pool<Postgres>) {
         ("staging", Some("gpu-dev"), "gpu-dev"),
         ("wm-fork-a", None, "bash-dev"),
         ("wm-fork-orphan", None, "bash-dev"),
+        ("wm-fork-root", None, "bash-dev"),
     ] {
         assert_eq!(
             pushed_tag(&db, workspace, preview(), tag).await,
@@ -126,6 +133,30 @@ async fn dev_workspace_and_fork_jobs_run_on_suffixed_tags(db: Pool<Postgres>) {
             "{workspace} with tag {tag:?}"
         );
     }
+
+    // Only the forks whose lineage holds no dev workspace leave isolation. An orphaned fork's
+    // lineage is unknown, and so is that of a fork of an archived dev workspace (archiving clears
+    // `is_dev_workspace`), so both stay.
+    sqlx::query("UPDATE workspace SET deleted = true WHERE id = 'archived-dev'")
+        .execute(&db)
+        .await
+        .unwrap();
+    DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS.store(true, std::sync::atomic::Ordering::Relaxed);
+    for (workspace, expected) in [
+        ("wm-fork-root", "bash"),
+        ("wm-fork-root-2", "bash"),
+        ("staging", "bash-dev"),
+        ("wm-fork-a", "bash-dev"),
+        ("wm-fork-orphan", "bash-dev"),
+        ("wm-fork-of-archived", "bash-dev"),
+    ] {
+        assert_eq!(
+            pushed_tag(&db, workspace, preview(), None).await,
+            expected,
+            "{workspace} with non-dev forks not isolated"
+        );
+    }
+    DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS.store(false, std::sync::atomic::Ordering::Relaxed);
 
     // A dedicated worker tag already names the workspace, and its worker is placed by hand.
     let dedicated = JobPayload::ScriptHash {
