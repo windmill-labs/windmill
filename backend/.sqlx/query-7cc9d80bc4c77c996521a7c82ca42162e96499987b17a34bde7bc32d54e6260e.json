@@ -1,0 +1,55 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE ai_shared_session SET is_public = $4\n         WHERE workspace_id = $1 AND id = $2 AND email = $3\n         RETURNING id, name, is_public, message_count, created_by, shared_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "is_public",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "message_count",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "shared_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "7cc9d80bc4c77c996521a7c82ca42162e96499987b17a34bde7bc32d54e6260e"
+}

@@ -7,6 +7,7 @@ import {
 	FlowService,
 	FolderService,
 	GcpTriggerService,
+	GroupService,
 	HttpTriggerService,
 	JobService,
 	KafkaTriggerService,
@@ -52,6 +53,7 @@ import { withAgentDrafts } from '$lib/components/flows/linkedAgentDrafts'
 import { resolveLinkedAgentTools } from '$lib/components/flows/flowState'
 import { enabledToolNames, type AgentTool } from '$lib/components/flows/agentToolUtils'
 import { evalValue } from '$lib/components/flows/utils.svelte'
+import { dropStaleStepLocks } from '$lib/components/flows/staleStepLocks'
 import { quickjsReady } from '$lib/utils/quickjsEval.svelte'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
 import {
@@ -236,12 +238,13 @@ import {
 	WRITE_FLOW_DRAFT,
 	WRITE_SCHEDULE_DRAFT,
 	WRITE_TRIGGER_DRAFT,
+	WRITE_RESOURCE_DRAFT,
+	WRITE_VARIABLE_DRAFT,
 	type SessionAccess,
 	type SessionTool,
 	type SessionToolPolicy
 } from '../sessionCapabilities'
 import { OPERATOR_SETTINGS_LOCATION } from '../assistantPermissions'
-import { capitalize } from '$lib/utils/capitalize'
 import {
 	buildRunsUrl,
 	buildSchedulesUrl,
@@ -377,6 +380,14 @@ export type GlobalUserMessageOptions = {
 }
 
 const itemTypeSchema = z.enum(ITEM_TYPES)
+// Folders and groups only carry permissions, so they are readable but kept out of
+// `itemTypeSchema`, which the draft, deploy and delete tools share.
+const ACCESS_TYPES = ['folder', 'group'] as const
+type AccessType = (typeof ACCESS_TYPES)[number]
+const readableTypeSchema = z.enum([...ITEM_TYPES, ...ACCESS_TYPES])
+function isAccessType(type: string): type is AccessType {
+	return (ACCESS_TYPES as readonly string[]).includes(type)
+}
 const instructionSubjectSchema = z.enum(ALL_INSTRUCTION_SUBJECTS)
 const triggerKindSchema = z.enum(TRIGGER_KINDS)
 const scriptLangSchema = z.enum($ScriptLang.enum)
@@ -453,10 +464,10 @@ const listPipelinesSchema = z.object({})
 
 const listWorkspaceItemsSchema = z.object({
 	types: z
-		.array(itemTypeSchema)
+		.array(readableTypeSchema)
 		.optional()
 		.describe(
-			'Optional item types to list. Defaults to scripts and flows. Pass schedule or trigger explicitly when needed (listing triggers spans 9 kinds and is heavier).'
+			'Optional item types to list. Defaults to scripts and flows. Pass schedule or trigger explicitly when needed (listing triggers spans 9 kinds and is heavier). "folder" lists folders with their owners and extraPerms; "group" lists groups with their extraPerms (read one for its members). path_prefix does not apply to these two.'
 		),
 	query: z.string().optional().describe('Optional case-insensitive path or summary search string.'),
 	path_prefix: z
@@ -483,11 +494,11 @@ const listWorkspaceItemsSchema = z.object({
 })
 
 const readWorkspaceItemSchema = z.object({
-	type: itemTypeSchema,
+	type: readableTypeSchema,
 	path: z
 		.string()
 		.describe(
-			'Workspace path of the item to read, or a hub/<version>/<app>/<name> path from search_hub_scripts to read a hub script.'
+			'Workspace path of the item to read, or a hub/<version>/<app>/<name> path from search_hub_scripts to read a hub script. For a folder or group, its name.'
 		),
 	trigger_kind: triggerKindSchema
 		.optional()
@@ -1398,16 +1409,19 @@ const createFolderSchema = z.object({
 
 // `folders`/`foldersRead` are undefined when the user's role in this workspace could not
 // be resolved.
-type FolderPromptContext = { folders?: string[]; foldersRead?: string[]; isAdmin: boolean }
+type FolderPromptContext = {
+	folders?: string[]
+	foldersRead?: string[]
+	groups?: string[]
+	isAdmin: boolean
+}
 
 // Renders the folders the current user can act on into the system prompt so the
-// model can pick an `f/<folder>/...` path without a discovery round-trip (there
-// is no folder-listing tool). For a non-admin, `folders` (from whoami) is exactly
-// the writable set, so read-only folders are listed separately as off-limits.
-// Admins bypass folder ACLs and can write anywhere, but `folders` only carries
-// their explicitly-permissioned subset, so for admins it is offered as a
-// non-exhaustive hint alongside permission-agnostic guidance (the complete set
-// needs a folder-listing tool — follow-up).
+// model can pick an `f/<folder>/...` path without a discovery round-trip. For a
+// non-admin, `folders` (from whoami) is exactly the writable set, so read-only
+// folders are listed separately as off-limits. Admins bypass folder ACLs and can
+// write anywhere, but `folders` only carries their explicitly-permissioned subset,
+// so for admins it is a non-exhaustive hint and list_workspace_items has the rest.
 // Capped so a folder-heavy workspace can't dominate the prompt.
 function buildFolderGuidance(
 	username: string,
@@ -1427,7 +1441,7 @@ function buildFolderGuidance(
 	if (ctx.isAdmin) {
 		const known =
 			writable.length > 0
-				? ` Folders here include ${fmt(writable)} (you can also write to others not listed).`
+				? ` Folders here include ${fmt(writable)} (you can also write to others not listed; list_workspace_items with type "folder" lists them all).`
 				: ''
 		return `- As a workspace admin you can write to any existing folder.${known} If the user names a folder, use it;${canCreateFolder ? ' if they explicitly ask for a new folder, create it with `create_folder`;' : ''} otherwise ask them which folder to use rather than guessing${canCreateFolder ? ' or creating one unprompted' : ''}.`
 	}
@@ -1459,8 +1473,8 @@ function buildFolderGuidance(
 	return lines.join('\n')
 }
 
-const listJoin = (items: (string | false)[]) =>
-	new Intl.ListFormat('en', { type: 'conjunction' }).format(items.filter((i): i is string => !!i))
+const listJoin = (items: (string | false)[], type: 'conjunction' | 'disjunction' = 'conjunction') =>
+	new Intl.ListFormat('en', { type }).format(items.filter((i): i is string => !!i))
 
 const buildGlobalSystemPrompt = (
 	username: string,
@@ -1477,25 +1491,47 @@ const buildGlobalSystemPrompt = (
 	const canWriteAppDraft = !access || access.has('write_app_draft')
 	const canDraftSchedules = !access || access.has('write_schedule_draft')
 	const canDraftTriggers = !access || access.has('write_trigger_draft')
+	const canDraftResources = !access || access.has('write_resource_draft')
+	const canDraftVariables = !access || access.has('write_variable_draft')
 	// A builder operator: drafts of the kinds the workspace lets them compose, and nothing else.
 	// Blocks about drafting in general follow `canWriteAnyDraft`; blocks naming scripts or the
 	// other kinds keep `canWriteDraft`.
 	const buildsFlows = canWriteFlowDraft && !canWriteDraft
 	const buildsApps = canWriteAppDraft && !canWriteDraft
 	const canWriteAnyDraft =
-		canWriteDraft || canWriteFlowDraft || canWriteAppDraft || canDraftSchedules || canDraftTriggers
-	// Both read only where `write_draft` is missing: it implies the two draft rights.
-	const draftedOperatorKinds = [canDraftSchedules && 'schedules', canDraftTriggers && 'triggers']
-		.filter((k): k is string => !!k)
-		.join(' and ')
+		canWriteDraft ||
+		canWriteFlowDraft ||
+		canWriteAppDraft ||
+		canDraftSchedules ||
+		canDraftTriggers ||
+		canDraftResources ||
+		canDraftVariables
+	const canDeploy = !access || access.has('deploy')
+	// Whether deploy_workspace_item and delete_workspace_item keep any kind: only schedules and
+	// triggers skip the deploy rules, and an admin passes them.
+	const canDeployAnyKind =
+		canDeploy || access.has('manage_schedules') || access.has('manage_triggers')
+	// These read only where `write_draft` is missing: it implies the other draft rights.
+	const draftedKinds = [
+		canDraftResources && 'resources',
+		canDraftVariables && 'variables',
+		canDraftSchedules && 'schedules',
+		canDraftTriggers && 'triggers'
+	].filter((k): k is string => !!k)
+	const draftedOperatorKinds = listJoin(draftedKinds)
+	// Resources and variables deploy under the rules; schedules and triggers under the right
+	// that also lets them be drafted.
+	const deployableKinds = draftedKinds.filter(
+		(k) => canDeploy || k === 'schedules' || k === 'triggers'
+	)
 	const refusedKinds = [
 		!buildsFlows && 'flows',
 		'scripts',
 		!buildsApps && 'apps',
 		!canDraftSchedules && 'schedules',
 		!canDraftTriggers && 'triggers',
-		'resources',
-		'variables'
+		!canDraftResources && 'resources',
+		!canDraftVariables && 'variables'
 	].filter((k): k is string => !!k)
 	const refusedCode = ['scripts', !buildsFlows && 'flows', !buildsApps && 'apps'].filter(
 		(k): k is string => !!k
@@ -1512,6 +1548,13 @@ const buildGlobalSystemPrompt = (
 	const when = (cond: boolean, block: string) => (cond ? block : '')
 	const folderGuidance = buildFolderGuidance(username, folderCtx, canCreateFolder)
 	const folderGuidanceBlock = folderGuidance ? `\n${folderGuidance}` : ''
+	// A grant to `g/<group>` reaches the user only through membership, which no permission
+	// list shows. Outside the folder guidance, which a role that cannot draft never gets.
+	const memberOf = (folderCtx?.groups ?? []).filter((g) => g !== 'all')
+	const groupMembershipRule =
+		memberOf.length > 0
+			? `- The user is a member of ${memberOf.map((g) => `\`g/${g}\``).join(', ')}, so a grant to one of those groups is a grant to them.\n`
+			: ''
 	// `previewTools` doubles as "this is a session chat" — sessions are the only
 	// chats that get the preview tool set. The alpha heads-up only makes sense
 	// there, where the chat actively builds the pipeline on the canvas; the
@@ -1555,7 +1598,7 @@ The current user's workspace username is "${username}".${instanceLine}
 ${
 	canWriteDraft
 		? 'Use tools to inspect workspace items and create per-user drafts (saved server-side, visible only to this user — not deployed) for scripts, flows, schedules, triggers, resources, variables, and raw apps.'
-		: `Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit ${refusedKinds.slice(0, -1).join(', ')} or ${refusedKinds.at(-1)} here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had. Their role is refused ${refusedCode.length > 1 ? `${refusedCode.slice(0, -1).join(', ')} and ${refusedCode.at(-1)}` : refusedCode[0]} outside this chat too, so for those suggest asking a workspace admin, who grants operators more in ${OPERATOR_SETTINGS_LOCATION}, rather than creating them in the editor. ${capitalize(listJoin(['resources', 'variables', canManageSchedules && !canDraftSchedules && 'schedules', canManageTriggers && !canDraftTriggers && 'triggers']))} they can still edit themselves on their pages, so when open_page lists that page, open it for them instead.${when(
+		: `Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit ${listJoin(refusedKinds, 'disjunction')} here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had. Their role is refused ${listJoin(refusedCode)} outside this chat too, so for those suggest asking a workspace admin, who grants operators more in ${OPERATOR_SETTINGS_LOCATION}, rather than creating them in the editor.${when(
 				canManageSchedules,
 				' To make something recur, they can schedule a deployed script or flow themselves; only when none does the job is there something to ask an admin for, and it is that script.'
 			)} When you decline something, give the reason stated here and keep to it.${when(
@@ -1566,13 +1609,19 @@ ${
 				`\n\nRaw apps are ${buildsFlows ? 'an exception too' : 'the exception'}: this workspace lets them build raw apps whose backend calls scripts and flows that are already deployed. Call get_instructions with subject "app" first, then write app drafts with init_app and the app file and runnable tools, making every backend runnable a path runnable to a deployed script or flow. The server refuses inline and hub runnables, so never write one; when the app needs logic no deployed script provides, say so and suggest asking a workspace admin for that script. An app this user deploys always runs sandboxed, and runs its runnables as the user who deployed it: turning the sandbox off or running them as the viewer is refused. If asked, say operators cannot, because the app's code would then run with the permissions of whoever opens it.`
 			)}${when(
 				!!draftedOperatorKinds,
-				`\n\nThis workspace lets them create and edit ${draftedOperatorKinds}: write them as drafts with ${[
-					canDraftSchedules && 'write_schedule',
-					canDraftTriggers &&
-						'write_trigger (call get_trigger_schema first: the config fields differ per kind)'
-				]
-					.filter(Boolean)
-					.join(' and ')}, then deploy them with deploy_workspace_item once the user asks.`
+				`\n\nThis workspace lets them create and edit ${draftedOperatorKinds}: write them as drafts with ${listJoin(
+					[
+						canDraftResources && 'write_resource (call search_resource_types first)',
+						canDraftVariables && 'write_variable',
+						canDraftSchedules && 'write_schedule',
+						canDraftTriggers &&
+							'write_trigger (call get_trigger_schema first: the config fields differ per kind)'
+					]
+				)}${
+					deployableKinds.length
+						? `, then deploy ${deployableKinds.length === draftedKinds.length ? 'them' : listJoin(deployableKinds)} with deploy_workspace_item once the user asks`
+						: ''
+				}.`
 			)}`
 }${when(
 		canWriteAnyDraft,
@@ -1598,16 +1647,22 @@ Rules:${when(
 - Draft tools create or update drafts only; they do not deploy or mutate deployed workspace items.`
 	)}
 - Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
-- Listings and reads return only what this user can see: items in folders they cannot read are hidden from you both. When an item the user names is missing, say it is not among what they can see and may be in a folder they cannot read, where someone with access can run it — never state that it does not exist or is not deployed.
+${groupMembershipRule}- Listings and reads return only what this user can see: items in folders they cannot read are hidden from you both. When an item the user names is missing, say it is not among what they can see and may be in a folder they cannot read, where someone with access can run it — never state that it does not exist or is not deployed.
 - An agent, as the Agents page lists it, is a resource of type \`ai_agent\`: read it with read_workspace_item type "resource".${when(
-		canWriteDraft,
+		canDraftResources,
 		" You may draft a change to an agent, but never deploy or rename one here: the user reviews and deploys it from the agent's page, `/agents/edit/<path>`, so point them there."
 	)}
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".${activePreviewRule}${when(
+		canWriteAnyDraft && canDeployAnyKind,
+		`
+- Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.`
+	)}${when(
 		canWriteAnyDraft,
 		`
-- Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.
-- To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft). Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.`
+- To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft).${when(
+			canDeployAnyKind,
+			' Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.'
+		)}`
 	)}${when(
 		!canWriteAnyDraft,
 		`
@@ -1624,9 +1679,12 @@ Rules:${when(
 		}, here or in the editor, so never ask them to create or edit one: suggest asking a workspace admin.`
 	)}
 - Use diff to review changes — before deploying, or when the user asks what changed. It is read-only: without arguments it lists every draft in the workspace with its change status; with type+path it returns that item's unified diff (for multi-file apps, pass file to read one file's diff). In a fork, pass against="parent_workspace" to compare the deployed fork with its parent workspace instead. Pass search to grep changed lines across all diffs.${when(
+		canDraftVariables,
+		`
+- You can never read a variable's value, secret or not, so never invent one: when editing an existing variable, omit value (and is_secret) from write_variable and pass only the fields you are actually changing. The user can reveal a value in the variable editor; you cannot, so never tell them a value is unreadable in general. "$var:path/to/variable" is how a resource value references a variable — it is never a variable's own value.`
+	)}${when(
 		canWriteDraft,
 		`
-- You can never read a variable's value, secret or not, so never invent one: when editing an existing variable, omit value (and is_secret) from write_variable and pass only the fields you are actually changing. The user can reveal a value in the variable editor; you cannot, so never tell them a value is unreadable in general. "$var:path/to/variable" is how a resource value references a variable — it is never a variable's own value.
 - Use search_resource_types before write_resource, and get_trigger_schema before write_trigger: the trigger config fields differ per kind and are not listed in the write_trigger definition.
 - When script or raw app code needs an external npm package you are not fully familiar with, use search_npm_packages to find it and get its documentation and type definitions. Link the package documentation in your answer when you rely on it.
 - Hub scripts are prebuilt, vetted integrations for third-party services, hosted outside the workspace under \`hub/<version>/<app>/<name>\` paths. Check search_hub_scripts before hand-writing code against a third-party API, even when the user never mentions the hub; read a result with read_workspace_item type "script" and its hub path to get its code, language, and input schema. Use what you find in whichever way fits: reference the hub path directly from a flow module or app runnable when a script already does the job, copy it into a workspace draft and adapt it when it is close (note the source hub path in a comment at the top of the code), or take it as a worked example and write your own. A script that does not do what the user asked is still worth reading when it is the only example of that integration: pass its \`integration\` back to search_hub_scripts to list that integration's other scripts with their descriptions, or use the \`suggested_integrations\` a search hands back when it finds nothing.
@@ -1817,6 +1875,7 @@ function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
 			path: item.path,
 			summary: item.summary,
 			isSecret: item.isSecret,
+			extraPerms: item.extraPerms,
 			isDraft: item.isDraft
 		}
 	}
@@ -1834,6 +1893,7 @@ function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
 			value: summarizeAppValue(item.value as AppDraftValue),
 			rawApp: item.rawApp,
 			executionMode: item.executionMode,
+			extraPerms: item.extraPerms,
 			isDraft: item.isDraft
 		}
 	}
@@ -1847,6 +1907,7 @@ function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
 		path: item.path,
 		summary: item.summary,
 		value: editable,
+		extraPerms: item.extraPerms,
 		isDraft: item.isDraft
 	}
 }
@@ -2369,34 +2430,43 @@ async function readWorkspaceItem(
 				getDraft: !deployedOnly
 			})
 			const draft = deployedOnly ? undefined : (script.draft as Script | undefined)
-			return scriptToItem(draft ?? script, true)
+			return { ...scriptToItem(draft ?? script, true), extraPerms: script.extra_perms }
 		}
 		case 'flow': {
 			// Prefer the DB draft (newer than the deployed version) when one exists,
 			// unless the caller explicitly asked for the deployed state.
 			const flow = await FlowService.getFlowByPath({ workspace, path, getDraft: !deployedOnly })
 			const draft = deployedOnly ? undefined : (flow.draft as Flow | undefined)
-			return flowToItem(draft ?? flow, true)
+			return { ...flowToItem(draft ?? flow, true), extraPerms: flow.extra_perms }
 		}
-		case 'schedule':
-			return scheduleToItem(await ScheduleService.getSchedule({ workspace, path }), true)
-		case 'trigger':
+		case 'schedule': {
+			const schedule = await ScheduleService.getSchedule({ workspace, path })
+			return { ...scheduleToItem(schedule, true), extraPerms: schedule.extra_perms }
+		}
+		case 'trigger': {
 			if (!triggerKind) {
 				throw new Error('trigger_kind is required when type is trigger.')
 			}
-			return triggerToItem(
-				triggerKind,
-				await triggerServices[triggerKind].get({ workspace, path }),
-				true
-			)
-		case 'resource':
-			return resourceToItem(await ResourceService.getResource({ workspace, path }), true)
-		case 'variable':
+			const trigger = await triggerServices[triggerKind].get({ workspace, path })
+			return {
+				...triggerToItem(triggerKind, trigger, true),
+				extraPerms: (trigger as { extra_perms?: Record<string, boolean> }).extra_perms
+			}
+		}
+		case 'resource': {
+			const resource = await ResourceService.getResource({ workspace, path })
+			return { ...resourceToItem(resource, true), extraPerms: resource.extra_perms }
+		}
+		case 'variable': {
 			// Never expose the value, even when read directly. Pass decryptSecret=false
 			// to avoid materializing secret values server-side.
-			return variableToItem(
-				await VariableService.getVariable({ workspace, path, decryptSecret: false })
-			)
+			const variable = await VariableService.getVariable({
+				workspace,
+				path,
+				decryptSecret: false
+			})
+			return { ...variableToItem(variable), extraPerms: variable.extra_perms }
+		}
 		case 'app': {
 			// Returns lightweight metadata only — file/runnable contents come via read_app_file.
 			const app = await AppService.getAppByPath({ workspace, path })
@@ -2410,6 +2480,7 @@ async function readWorkspaceItem(
 					summary: app.summary,
 					rawApp: false,
 					executionMode,
+					extraPerms: app.extra_perms,
 					isDraft: false
 				}
 			}
@@ -2422,10 +2493,76 @@ async function readWorkspaceItem(
 				value: metadata as unknown as AppDraftValue,
 				rawApp: app.raw_app,
 				executionMode,
+				extraPerms: app.extra_perms,
 				isDraft: false
 			}
 		}
 	}
+}
+
+// Accepts the `f/<name>` / `g/<name>` form the model sees in extra_perms keys and paths.
+function accessEntityName(type: AccessType, path: string): string {
+	const prefix = type === 'folder' ? 'f/' : 'g/'
+	const name = path.startsWith(prefix) ? path.slice(prefix.length) : path
+	return name.replace(/\/+$/, '')
+}
+
+async function readAccessEntity(type: AccessType, path: string, workspace: string) {
+	const name = accessEntityName(type, path)
+	if (type === 'folder') {
+		const folder = await FolderService.getFolder({ workspace, name })
+		return {
+			type,
+			name: folder.name,
+			summary: folder.summary,
+			owners: folder.owners,
+			extraPerms: folder.extra_perms,
+			defaultPermissionedAs: folder.default_permissioned_as
+		}
+	}
+	const group = await GroupService.getGroup({ workspace, name })
+	return {
+		type,
+		name: group.name,
+		summary: group.summary,
+		members: group.members,
+		extraPerms: group.extra_perms
+	}
+}
+
+type AccessEntityRow = {
+	type: AccessType
+	path: string
+	summary?: string
+	owners?: string[]
+	extraPerms?: Record<string, boolean>
+}
+
+// Group rows omit members: the list endpoint does not return them.
+async function listAccessEntities(
+	types: AccessType[],
+	workspace: string,
+	perPage: number,
+	page?: number
+): Promise<AccessEntityRow[]> {
+	const rows: AccessEntityRow[] = []
+	if (types.includes('folder')) {
+		for (const f of await FolderService.listFolders({ workspace, perPage, page })) {
+			rows.push({
+				type: 'folder',
+				path: f.name,
+				summary: f.summary,
+				owners: f.owners,
+				extraPerms: f.extra_perms
+			})
+		}
+	}
+	if (types.includes('group')) {
+		for (const g of await GroupService.listGroups({ workspace, perPage, page })) {
+			rows.push({ type: 'group', path: g.name, summary: g.summary, extraPerms: g.extra_perms })
+		}
+	}
+	return rows
 }
 
 async function listWorkspaceItems(
@@ -2752,13 +2889,17 @@ export function getSessionContextPromptSection(
 		access.has('write_flow_draft') ||
 		access.has('write_app_draft') ||
 		access.has('write_schedule_draft') ||
-		access.has('write_trigger_draft')
+		access.has('write_trigger_draft') ||
+		access.has('write_resource_draft') ||
+		access.has('write_variable_draft')
 	const canRunPreview = !access || access.has('run_preview') || access.has('run_flow_preview')
 	// The kinds no deploy rule reaches, unless the workspace withdrew them from this user.
 	const unruledKinds = [
 		(!access || access.has('manage_schedules')) && 'schedules',
 		(!access || access.has('manage_triggers')) && 'triggers'
 	].filter((k): k is string => !!k)
+	// With no kind left to deploy, the deploy tool is not shipped, so the lines below cannot name it.
+	const deployer = canDeploy || unruledKinds.length ? 'deploy_workspace_item' : 'A deploy'
 	const targets = ['reads', canWriteDraft && 'drafts', canRunPreview && 'test runs', 'deploys']
 		.filter(Boolean)
 		.join(', ')
@@ -2774,19 +2915,19 @@ export function getSessionContextPromptSection(
 		)
 	} else if (ctx.parentWorkspaceId && ctx.isDevWorkspace) {
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — the user's persistent DEV WORKSPACE, forked from workspace "${ctx.parentWorkspaceId}". deploy_workspace_item publishes into the dev workspace only; the user reviews & promotes changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
+			`- Operating workspace: "${ctx.workspaceId}" — the user's persistent DEV WORKSPACE, forked from workspace "${ctx.parentWorkspaceId}". ${deployer} publishes into the dev workspace only; the user reviews & promotes changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
 		)
 	} else if (ctx.parentWorkspaceId) {
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — an ephemeral STAGED FORK of workspace "${ctx.parentWorkspaceId}", created for session work. deploy_workspace_item publishes into the fork only, and the user reviews & promotes fork changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
+			`- Operating workspace: "${ctx.workspaceId}" — an ephemeral STAGED FORK of workspace "${ctx.parentWorkspaceId}", created for session work. ${deployer} publishes into the fork only, and the user reviews & promotes fork changes into "${ctx.parentWorkspaceId}" from the session's deploy panel. Never present a change as live in "${ctx.parentWorkspaceId}".`
 		)
 	} else if (ctx.forkParentUnknown) {
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — a fork whose parent workspace is not currently visible to this user. deploy_workspace_item publishes into the fork only; the user promotes changes from the session's deploy panel. Never present a change as live in any other workspace.`
+			`- Operating workspace: "${ctx.workspaceId}" — a fork whose parent workspace is not currently visible to this user. ${deployer} publishes into the fork only; the user promotes changes from the session's deploy panel. Never present a change as live in any other workspace.`
 		)
 	} else if (ctx.workspaceId) {
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — the live workspace itself, not a fork. deploy_workspace_item publishes directly to everyone in it.`
+			`- Operating workspace: "${ctx.workspaceId}" — the live workspace itself, not a fork. ${deployer} publishes directly to everyone in it.`
 		)
 	} else {
 		lines.push(
@@ -3015,6 +3156,7 @@ export type GlobalPromptIdentity = {
 	is_admin?: boolean
 	folders?: string[]
 	folders_read?: string[]
+	groups?: string[]
 }
 
 // `userWorkspaces` carries the real per-workspace username for every membership at no
@@ -3037,7 +3179,8 @@ export async function resolveGlobalPromptIdentity(
 			username: u.username,
 			is_admin: u.is_admin,
 			folders: u.folders,
-			folders_read: u.folders_read
+			folders_read: u.folders_read,
+			groups: u.groups
 		}
 	}
 	// Headless callers (the eval harness) hold no workspace and pass their own identity.
@@ -3660,15 +3803,11 @@ export const globalTools: SessionTool<{}>[] = [
 				!access ||
 				access.has('write_draft') ||
 				(parsed.subject === 'flow' && access.has('write_flow_draft')) ||
-				(parsed.subject === 'app' && access.has('write_app_draft'))
+				(parsed.subject === 'app' && access.has('write_app_draft')) ||
+				(parsed.subject === 'resource' && access.has('write_resource_draft'))
 			if (!canAuthor) {
-				const composed = [
-					access?.has('write_flow_draft') && 'flow',
-					access?.has('write_app_draft') && 'app'
-				].filter((k): k is string => !!k)
-				const message = composed.length
-					? `This session can only compose ${composed.map((k) => `${k}s`).join(' and ')}, so ${composed.join(' and ')} ${composed.length > 1 ? 'are the subjects' : 'is the one subject'} with authoring guidance here. Tell the user plainly that you cannot create or edit this kind of item.`
-					: 'This session cannot create or edit workspace items, so there is no authoring guidance to give. Tell the user plainly rather than describing how it would be done.'
+				const message =
+					'This session cannot create or edit this kind of item, so there is no authoring guidance to give for it. Tell the user plainly rather than describing how it would be done.'
 				toolCallbacks.setToolStatus(toolId, { content: 'No authoring guidance' })
 				return message
 			}
@@ -3841,9 +3980,22 @@ export const globalTools: SessionTool<{}>[] = [
 		planModeSafe: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = listWorkspaceItemsSchema.parse(args)
-			const types = getRequestedTypes(parsed.types)
+			const accessTypes = (parsed.types ?? []).filter(isAccessType)
+			const itemTypes = (parsed.types ?? []).filter((t): t is WorkspaceItemType => !isAccessType(t))
+			// Asking only for folders or groups must not fall back to the default scripts and flows.
+			const types =
+				accessTypes.length > 0 && itemTypes.length === 0 ? [] : getRequestedTypes(itemTypes)
 			const limit = parsed.limit ?? 50
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing workspace items...' })
+
+			const accessRows = (
+				await listAccessEntities(
+					accessTypes,
+					workspace,
+					Math.min(limit, MAX_LIST_LIMIT),
+					parsed.page
+				)
+			).filter((row) => itemMatches(row, parsed.query))
 
 			const byKey = new Map<string, WorkspaceItem>()
 			const workspaceItems = await listWorkspaceItems(
@@ -3888,7 +4040,10 @@ export const globalTools: SessionTool<{}>[] = [
 			// No cross-type truncation: each type is already capped at `limit` rows by
 			// its own list call, and slicing the concatenation would silently drop the
 			// later types' rows while their next page skips past them.
-			const results = Array.from(byKey.values()).filter((item) => itemMatches(item, parsed.query))
+			const results = [
+				...Array.from(byKey.values()).filter((item) => itemMatches(item, parsed.query)),
+				...accessRows
+			]
 
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Listed ${results.length} workspace item(s)`
@@ -3918,12 +4073,19 @@ export const globalTools: SessionTool<{}>[] = [
 		def: createToolDef(
 			readWorkspaceItemSchema,
 			'read_workspace_item',
-			'Read one workspace item or draft. Prefers your draft when one exists; pass version: "deployed" to read the deployed state instead.'
+			'Read one workspace item or draft. Prefers your draft when one exists; pass version: "deployed" to read the deployed state instead. A deployed item carries extraPerms (a draft does not; pass version: "deployed" for it): who it is shared with beyond its owner, as u/<user> or g/<group> → true (write) or false (read-only). A folder returns its owners and extraPerms; a group returns its members and extraPerms (who may manage it). For a folder or group, path is its name. A g/<group> entry grants every member of that group (g/all is everyone), and workspace admins can read and write every folder and item whatever these lists say.'
 		),
 		planModeSafe: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = readWorkspaceItemSchema.parse(args)
-			if (parsed.type === 'trigger' && !parsed.trigger_kind) {
+			const { type } = parsed
+			if (isAccessType(type)) {
+				toolCallbacks.setToolStatus(toolId, { content: `Reading ${type} "${parsed.path}"...` })
+				const entity = await readAccessEntity(type, parsed.path, workspace)
+				toolCallbacks.setToolStatus(toolId, { content: `Read ${type} "${entity.name}"` })
+				return JSON.stringify(entity, null, 2)
+			}
+			if (type === 'trigger' && !parsed.trigger_kind) {
 				const message = 'trigger_kind is required when type is trigger.'
 				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
 				return JSON.stringify({ success: false, error: message })
@@ -3931,16 +4093,16 @@ export const globalTools: SessionTool<{}>[] = [
 			const draft =
 				parsed.version === 'deployed' || isHubPath(parsed.path)
 					? null
-					: await getGlobalDraft(workspace, parsed.type, parsed.path, parsed.trigger_kind)
+					: await getGlobalDraft(workspace, type, parsed.path, parsed.trigger_kind)
 			if (draft) {
 				toolCallbacks.setToolStatus(toolId, {
-					content: `Read draft ${parsed.type} "${parsed.path}"`
+					content: `Read draft ${type} "${parsed.path}"`
 				})
 				// The mode reported is the draft's, which is what deploying it will write. The
 				// deployed app's own mode is a different question, asked with version:
 				// "deployed", and must not be fetched here.
 				const executionMode =
-					parsed.type === 'app'
+					type === 'app'
 						? await describeAppExposure(
 								workspace,
 								(draft.value as AppDraftValue)?.policy?.execution_mode
@@ -3950,16 +4112,16 @@ export const globalTools: SessionTool<{}>[] = [
 			}
 
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Reading ${parsed.type} "${parsed.path}"...`
+				content: `Reading ${type} "${parsed.path}"...`
 			})
 			const item = await readWorkspaceItem(
-				parsed.type,
+				type,
 				parsed.path,
 				workspace,
 				parsed.trigger_kind,
 				parsed.version === 'deployed'
 			)
-			toolCallbacks.setToolStatus(toolId, { content: `Read ${parsed.type} "${parsed.path}"` })
+			toolCallbacks.setToolStatus(toolId, { content: `Read ${type} "${parsed.path}"` })
 			return JSON.stringify(serializeWorkspaceItemForRead(item), null, 2)
 		}
 	},
@@ -4421,8 +4583,9 @@ export const globalTools: SessionTool<{}>[] = [
 			app: WRITE_APP_DRAFT,
 			resource: WRITE_DRAFT,
 			variable: WRITE_DRAFT,
-			// Not the schedule/trigger draft rights: `rebaseDraft` has no handler for these kinds,
-			// so an operator holding only those rights would be offered a tool that always throws.
+			// Not the per-kind draft rights: `rebaseDraft` has no handler for resources, variables,
+			// schedules or triggers, so an operator holding only those rights would be offered a
+			// tool that always throws.
 			schedule: WRITE_DRAFT,
 			trigger: WRITE_DRAFT
 		} satisfies Record<(typeof ITEM_TYPES)[number], SessionToolPolicy>,
@@ -4513,7 +4676,7 @@ export const globalTools: SessionTool<{}>[] = [
 		}
 	},
 	{
-		requires: WRITE_DRAFT,
+		requires: WRITE_RESOURCE_DRAFT,
 		def: createToolDef(
 			writeResourceSchema,
 			'write_resource',
@@ -4529,7 +4692,7 @@ export const globalTools: SessionTool<{}>[] = [
 		}
 	},
 	{
-		requires: WRITE_DRAFT,
+		requires: WRITE_VARIABLE_DRAFT,
 		def: createToolDef(
 			writeVariableSchema,
 			'write_variable',
@@ -5769,7 +5932,12 @@ type ScriptDraftArgs = {
 const SCRIPT_SPEC: WriteSpec<NewScript, ScriptDraftArgs> = {
 	probe: (workspace, path) => ScriptService.existsScriptByPath({ workspace, path }),
 	fetchDeployed: async (workspace, path) => {
-		const existing = await ScriptService.getScriptByPath({ workspace, path })
+		// The deployed lock describes the deployed content, not the draft's; the deploy recomputes it.
+		const {
+			lock: _lock,
+			lock_error_logs: _lockErrorLogs,
+			...existing
+		} = await ScriptService.getScriptByPath({ workspace, path })
 		return { ...(existing as unknown as NewScript), parent_hash: existing.hash }
 	},
 	buildDraft: async (base, args, path) => {
@@ -5868,6 +6036,8 @@ const FLOW_SPEC: WriteSpec<Flow, FlowDraftArgs> = {
 				}
 			}
 		}
+		// Also checked at deploy; dropped here too because a test run of the draft reads the locks.
+		dropStaleStepLocks(value, base?.value)
 		return base
 			? {
 					...structuredClone(base),
@@ -6974,6 +7144,7 @@ async function initApp(
 		summary,
 		files: { ...(builder ? BUILDER_FRAMEWORK_TEMPLATES : FRAMEWORK_TEMPLATES)[framework] },
 		runnables: builder ? {} : structuredClone(STARTER_RUNNABLES),
+		policy: { sandbox: true },
 		...(data && {
 			data: {
 				tables: (data.tables ?? []).map((ref) => appTableRef(data.datatable, data.schema, ref)),
@@ -9324,6 +9495,7 @@ export function prepareGlobalSystemMessage(
 		? {
 				folders: user.folders,
 				foldersRead: user.folders_read ?? user.folders,
+				groups: user.groups,
 				isAdmin: user.is_admin ?? false
 			}
 		: undefined

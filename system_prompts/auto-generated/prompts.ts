@@ -1105,6 +1105,10 @@ def main(user_id: str):
     return user
 \`\`\`
 
+#### Sharing code between runnables
+
+An inline runnable can import another inline runnable of the same app by its id, as a relative import: \`import { getDb } from './shared'\` (TypeScript, Bun) or \`from .shared import get_db\` (Python). This works across TypeScript (Bun) runnables and across Python runnables, not between the two. The imported runnable's own dependencies are picked up, and it can import further runnables in turn. A runnable that only holds helpers needs no \`main\`; the frontend just never calls it. A TypeScript runnable whose id is \`main\` cannot be imported, because that name is taken by the entrypoint file of every TypeScript job: give shared code any other id.
+
 #### The \`wmill\` client is already authenticated
 
 An inline runnable runs as an ordinary Windmill job. \`import * as wmill from 'windmill-client'\` (TypeScript) and \`import wmill\` (Python) are already pointed at this instance and this workspace — there is nothing to configure.
@@ -1150,7 +1154,10 @@ When a deploy widens who may open the app, tell the user in plain words.
 
 ## Sandbox isolation and frontend API access
 
-By default a deployed app's frontend runs with the viewer's own Windmill session. A sandboxed app is isolated from it: the frontend reaches Windmill only through its backend runnables, plus whatever frontend API scopes the app declares, which each viewer approves before the app runs. The scopes are \`jobs:run\`, \`jobs:read\`, \`users:read\`, \`resources:read\`, \`variables:read\`, \`flow_conversations:read\` and \`flow_conversations:write\`; grant only the ones the frontend calls.
+New apps are sandboxed: the frontend is isolated from the viewer's own Windmill session and reaches Windmill only through its backend runnables, plus whatever frontend API scopes the app declares, which each viewer approves before the app runs. With isolation turned off, the frontend runs with the viewer's full session. The scopes are \`jobs:run\`, \`jobs:read\`, \`resources:read\`, \`variables:read\`, \`flow_conversations:read\` and \`flow_conversations:write\`; grant only the ones the frontend calls. The viewer's identity needs no scope: it is in \`window.ctx\`, and whoami works with any of them.
+
+Inside the sandbox, IndexedDB is unavailable, third-party sign-in and OAuth redirects fail, and requests to other services carry \`Origin: null\`, which an API that checks the origin rejects. Work around these first: call the service from a backend runnable, keep state in a data table or \`localStorage\`, or grant the frontend API scope the code needs. Suggest turning isolation off only when none of that works, and say plainly that it is a security risk: the app's code, and any XSS bug in it, then runs with the full Windmill permissions of everyone who opens the app.
+You cannot turn isolation off; the user does it in the app's deploy settings.
 
 ## Reading data as the viewer
 
@@ -3893,6 +3900,7 @@ flow related commands
   - \`--remote\` - Use deployed workspace scripts for PathScript steps instead of local files.
   - \`--step <step_id:string>\` - Run only the named step instead of the whole flow. Honors --data as the step's args and --remote / local-PathScript resolution the same way the full-flow preview does.
   - \`--tag <tag:string>\` - Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the flow's default tag).
+  - \`--on-behalf-of <identity:string>\` - Run the preview as this user or group (an email, u/<username> or g/<group>) instead of yourself, e.g. to reproduce a run_on_behalf_of identity. Requires being an admin or a member of wm_deployers.
 - \`flow new <flow_path:string>\` - create a new empty flow
   - \`--summary <summary:string>\` - flow summary
   - \`--description <description:string>\` - flow description
@@ -4291,6 +4299,7 @@ script related commands
   - \`-d --data <data:file>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-. A resource argument is the bare string $res:<path> as its whole value, and a variable argument is the bare string $var:<path> — not an object wrapper keyed on $res/$var, and not a plain path.
   - \`-s --silent\` - Do not output anything other than the final output. Useful for scripting.
   - \`--tag <tag:string>\` - Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the script's default tag).
+  - \`--on-behalf-of <identity:string>\` - Run the preview as this user or group (an email, u/<username> or g/<group>) instead of yourself, e.g. to reproduce a run_on_behalf_of identity. Requires being an admin or a member of wm_deployers.
 - \`script new <path:file> <language:string>\` - create a new script
   - \`--summary <summary:string>\` - script summary
   - \`--description <description:string>\` - script description

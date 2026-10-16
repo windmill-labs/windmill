@@ -54,9 +54,13 @@ function sessionReachableTools(): SessionTool<any>[] {
 }
 
 function withheldNames(access: SessionAccess): string[] {
+	// Shipped, not merely allowed: a kind-taking tool left with no kind is dropped too.
+	const shipped = new Set(
+		filterSessionTools(sessionReachableTools(), access).map((t) => t.def.function.name)
+	)
 	return sessionReachableTools()
-		.filter((t) => !sessionToolAllowed(t, access))
 		.map((t) => t.def.function.name)
+		.filter((n) => !shipped.has(n))
 }
 
 /** The tools a session actually ships, through the same assembly production uses. */
@@ -313,9 +317,11 @@ describe('session tool policies', () => {
 				})
 			}).content as string
 
-		// Schedules and triggers are not sent to the UI: the chat drafts them itself.
-		expect(prompt({})).toContain('Resources and variables they can still edit')
-		expect(prompt({})).toContain('lets them create and edit schedules and triggers')
+		// None of these is sent to the UI: the chat drafts them itself.
+		expect(prompt({})).not.toContain('they can still edit themselves on their pages')
+		expect(prompt({})).toContain(
+			'lets them create and edit resources, variables, schedules, and triggers'
+		)
 		expect(prompt({})).toContain('schedule a deployed script or flow themselves')
 		expect(prompt({ manage_schedules: false })).not.toContain('schedule a deployed script')
 	})

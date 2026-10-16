@@ -193,7 +193,7 @@ pub enum ObjectType {
     DatatableMigration,
 }
 
-pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/29151/sync-script-to-git-repo-windmill";
+pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/29785/sync-script-to-git-repo-windmill";
 
 /// Hub script that applies a repository's state back into a workspace
 /// (the repo → Windmill / "pull" direction). Same script the UI runs from
@@ -201,7 +201,7 @@ pub const LATEST_GIT_SYNC_SCRIPT_PATH: &str = "hub/29151/sync-script-to-git-repo
 /// ignores the slug, so the slug is kept free of characters that would be
 /// percent-encoded into the run URL (a `:` becomes `%3A`, which some hardened
 /// reverse proxies reject as double-encoding when the client re-encodes it).
-pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/29150/git-sync-init-repository-windmill";
+pub const GIT_SYNC_PULL_SCRIPT_PATH: &str = "hub/29784/git-sync-init-repository-windmill";
 
 /// Prefix used to identify fork workspaces. A workspace whose id starts with this string is a
 /// fork of another workspace.
@@ -1365,21 +1365,26 @@ pub async fn operator_builder_rights(db: &DB, workspace_id: &str) -> Result<Oper
     Ok(operator_rights(db, workspace_id).await?.builder)
 }
 
-/// Whether operators of this workspace may save a draft of `kind`: one they could deploy. A flow
-/// or full-code app under its builder right, a schedule or trigger under the matching manage right,
-/// nothing else. `kind: None` asks whether they may draft any kind at all.
+/// Whether operators of this workspace may save a draft of `kind`: one they could deploy. A
+/// resource or variable always, since their routes do not gate operators; a flow or full-code app
+/// under its builder right, a schedule or trigger under the matching manage right; nothing else.
 pub async fn operator_can_draft(
     db: &DB,
     workspace_id: &str,
-    kind: Option<crate::user_drafts::UserDraftItemKind>,
+    kind: crate::user_drafts::UserDraftItemKind,
 ) -> Result<bool> {
     use crate::user_drafts::UserDraftItemKind;
+    if matches!(
+        kind,
+        UserDraftItemKind::Resource | UserDraftItemKind::Variable
+    ) {
+        return Ok(true);
+    }
     let rights = operator_rights(db, workspace_id).await?;
     Ok(match kind {
-        None => rights.builder.any() || rights.manage.schedules || rights.manage.triggers,
-        Some(UserDraftItemKind::Flow) => rights.builder.has(BuilderKind::Flows),
-        Some(UserDraftItemKind::RawApp) => rights.builder.has(BuilderKind::Apps),
-        Some(kind) => kind.manage_kind().is_some_and(|m| rights.manage.has(m)),
+        UserDraftItemKind::Flow => rights.builder.has(BuilderKind::Flows),
+        UserDraftItemKind::RawApp => rights.builder.has(BuilderKind::Apps),
+        kind => kind.manage_kind().is_some_and(|m| rights.manage.has(m)),
     })
 }
 

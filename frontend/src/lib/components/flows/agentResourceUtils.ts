@@ -118,6 +118,8 @@ export interface AIAgentConfig {
 	temperature?: number
 	max_iterations?: number
 	tools?: AgentTool[]
+	/** Runs from the agent's page take its `on_behalf_of` rather than the caller's identity. */
+	run_on_behalf_of?: boolean
 }
 
 /** Extract the static brain values from a step's input_transforms into a flat agent config. */
