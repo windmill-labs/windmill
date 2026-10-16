@@ -310,7 +310,10 @@ const INSTRUCTION_SUBJECTS = [
 // `pipeline` likewise isn't an item type — a data pipeline is a set of
 // annotated scripts in a folder, so it gets authoring guidance, not a CRUD type.
 const INSTRUCTION_SUBJECTS_EXTRA = ['datatable', 'pipeline'] as const
-export const ALL_INSTRUCTION_SUBJECTS = [...INSTRUCTION_SUBJECTS, ...INSTRUCTION_SUBJECTS_EXTRA] as const
+export const ALL_INSTRUCTION_SUBJECTS = [
+	...INSTRUCTION_SUBJECTS,
+	...INSTRUCTION_SUBJECTS_EXTRA
+] as const
 const MAX_LIST_LIMIT = 100
 type ActiveGlobalEditorType = Extract<WorkspaceItemType, 'script' | 'flow' | 'app'>
 type LiveEditorDraftKind = Parameters<typeof UserDraft.getLiveEditorDraft>[0]
@@ -1583,6 +1586,10 @@ ${pipelineBullet}`
 		`
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Carry over every filter the user described — Runs takes the page's whole filter set (time window, path, user, folder, label, tag, worker, trigger kind, args/result, ...), so don't drop a criterion just because it wasn't in the request's main clause. Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
 - Whenever you ask the user to perform a manual step in the UI — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its editor, or the page's filters otherwise). Never just describe where to click.`
+	)}${when(
+		external,
+		`
+- The user sees no Windmill preview next to this conversation: "the preview" in these instructions is the app editor's, which preview_url opens. Run results carry a run page link, app draft writes a preview_url (the editor on the user's draft, with its live preview), and deploys the deployed item's url. Give the user that link whenever they will want to look at what you built or ran, and when they have to do a step in Windmill themselves.`
 	)}${when(
 		canWriteDraft && !external,
 		`

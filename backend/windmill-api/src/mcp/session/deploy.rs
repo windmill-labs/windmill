@@ -406,6 +406,7 @@ fn mutation_result(
     item_type: &str,
     path: &str,
     trigger_kind: Option<&str>,
+    url: Option<String>,
 ) -> String {
     let mut out = Map::new();
     out.insert("success".into(), json!(true));
@@ -415,7 +416,23 @@ fn mutation_result(
     if let Some(trigger_kind) = trigger_kind {
         out.insert("triggerKind".into(), json!(trigger_kind));
     }
+    if let Some(url) = url {
+        out.insert("url".into(), json!(url));
+    }
     pretty(&Value::Object(out))
+}
+
+/// Where a deployed item is seen in Windmill.
+fn deployed_page(item_type: &str, path: &str) -> Option<String> {
+    Some(match item_type {
+        "script" => format!("/scripts/get/{path}"),
+        "flow" => format!("/flows/get/{path}"),
+        "app" => format!("/apps_raw/get/{path}"),
+        "variable" => format!("/variables#{path}"),
+        "resource" => format!("/resources#/resource/{path}"),
+        "schedule" => format!("/schedules#{path}"),
+        _ => return None,
+    })
 }
 
 async fn deploy_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
@@ -489,6 +506,7 @@ async fn deploy_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         item_type,
         path,
         trigger_kind,
+        deployed_page(item_type, path).map(|page| ctx.page_url(&page)),
     ))
 }
 
@@ -541,6 +559,7 @@ async fn delete_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         item_type,
         path,
         trigger_kind,
+        None,
     ))
 }
 

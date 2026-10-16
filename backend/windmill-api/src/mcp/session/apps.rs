@@ -272,6 +272,10 @@ async fn save_app(
             let mut out = Map::new();
             out.insert("success".into(), json!(true));
             out.insert("message".into(), json!(message));
+            out.insert(
+                "preview_url".into(),
+                json!(ctx.page_url(&format!("/apps_raw/edit/{path}"))),
+            );
             if let Some(warning) = warning {
                 out.insert("warning".into(), json!(warning));
             }

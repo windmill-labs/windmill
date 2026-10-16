@@ -196,8 +196,9 @@ pub(super) async fn finish_run(
     tool_args: &Value,
 ) -> ToolResult {
     let id = started.map_err(|e| format!("Failed to execute {action}: {}", api_message(&e)))?;
+    let run_page = format!("\n\nRun page: {}", ctx.page_url(&format!("/run/{id}")));
     let Some(job) = wait_job(ctx, &id, wait_budget(tool_args), true).await else {
-        return Ok(backgrounded_summary(&id, label));
+        return Ok(format!("{}{run_page}", backgrounded_summary(&id, label)));
     };
     let mut summary = format_result_summary(&job);
     if is_flow && !truthy(job.get("success")) {
@@ -205,6 +206,7 @@ pub(super) async fn finish_run(
             "\n\nFor per-step statuses and results (subflow steps included), call get_run with id=\"{id}\"."
         ));
     }
+    summary.push_str(&run_page);
     Ok(summary)
 }
 
@@ -1686,7 +1688,11 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         ctx.get(&tree_route),
     );
     let results = results.unwrap_or_else(|_| json!({ "entries": [] }));
-    Ok(shape_run(id, &job?, logs, &results))
+    Ok(format!(
+        "{}\n\nRun page: {}",
+        shape_run(id, &job?, logs, &results),
+        ctx.page_url(&format!("/run/{}", enc(id)))
+    ))
 }
 
 /// A run as `get_run` reports it: its summary, args, result and logs around the step

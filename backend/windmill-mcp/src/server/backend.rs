@@ -258,5 +258,6 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         name: &str,
         args: Value,
         access: SessionAccess,
+        origin: Option<&str>,
     ) -> BackendResult<CallToolResult>;
 }

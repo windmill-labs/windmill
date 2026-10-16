@@ -161,6 +161,8 @@ pub(super) struct Ctx<'a> {
     pub w_id: &'a str,
     pub base_internal_url: &'a str,
     pub access: SessionAccess,
+    /// The scheme and host the MCP client reached, when known.
+    pub origin: Option<&'a str>,
 }
 
 impl Ctx<'_> {
@@ -211,6 +213,24 @@ impl Ctx<'_> {
     /// A workspace-scoped path: `ws("scripts/list")` is `/w/<workspace>/scripts/list`.
     pub fn ws(&self, rest: &str) -> String {
         format!("/w/{}/{}", self.w_id, rest)
+    }
+
+    /// A Windmill page in this workspace, as a link the user can open: an external client
+    /// has no preview panel, so a link is how it shows what a tool made or ran.
+    pub fn page_url(&self, page: &str) -> String {
+        let (page, hash) = page
+            .split_once('#')
+            .map_or((page, None), |(p, h)| (p, Some(h)));
+        let sep = if page.contains('?') { '&' } else { '?' };
+        let hash = hash.map(|h| format!("#{h}")).unwrap_or_default();
+        // An instance that never set its base URL holds this placeholder, which no client
+        // can open; the host the client reached is the better guess then.
+        let base = windmill_common::BASE_URL.load();
+        let base = match self.origin {
+            Some(origin) if base.as_str() == "http://localhost" => origin,
+            _ => base.as_str(),
+        };
+        format!("{base}{page}{sep}workspace={}{hash}", enc(self.w_id))
     }
 }
 

@@ -68,6 +68,23 @@ struct Caller<A> {
     auth: A,
     mode: McpMode,
     scope: McpScopeConfig,
+    /// The scheme and host the client reached, for links to Windmill pages.
+    origin: Option<String>,
+}
+
+/// `x-forwarded-*` first, since a proxy in front rewrites the host the request names.
+fn request_origin(headers: &http::HeaderMap) -> Option<String> {
+    let header = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.split(',').next())
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+    };
+    let host = header("x-forwarded-host").or_else(|| header("host"))?;
+    let scheme = header("x-forwarded-proto").unwrap_or("http");
+    Some(format!("{scheme}://{host}"))
 }
 
 pub struct SessionRunner<B: McpBackend> {
@@ -89,7 +106,7 @@ impl<B: McpBackend> SessionRunner<B> {
     /// the create/update endpoint tools and nothing narrower: a token scoped to a few
     /// scripts was never consented for authoring.
     fn caller(context: &RequestContext<RoleServer>) -> Result<Caller<B::Auth>, ErrorData> {
-        let McpContext { auth, mode, .. } = Runner::<B>::extract_context(context)?;
+        let McpContext { auth, mode, headers, .. } = Runner::<B>::extract_context(context)?;
         let scope = parse_mcp_scopes(auth.scopes().unwrap_or(&[]))
             .map_err(|e| ErrorData::internal_error(e, None))?;
         if !admits(auth.scopes().unwrap_or(&[]), scope.all) {
@@ -98,7 +115,7 @@ impl<B: McpBackend> SessionRunner<B> {
                 None,
             ));
         }
-        Ok(Caller { auth, mode, scope })
+        Ok(Caller { auth, mode, scope, origin: request_origin(&headers) })
     }
 
     async fn workspaces(&self, caller: &Caller<B::Auth>) -> Result<Vec<WorkspaceInfo>, ErrorData> {
@@ -271,6 +288,7 @@ impl<B: McpBackend> ServerHandler for SessionRunner<B> {
                 request.name.as_ref(),
                 Value::Object(args),
                 access(&auth, &caller.scope),
+                caller.origin.as_deref(),
             )
             .await?;
         for block in result.content.iter_mut() {
@@ -285,6 +303,22 @@ impl<B: McpBackend> ServerHandler for SessionRunner<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn origin_prefers_forwarded_headers() {
+        let mut headers = http::HeaderMap::new();
+        headers.insert("host", "backend:8000".parse().unwrap());
+        assert_eq!(
+            request_origin(&headers).as_deref(),
+            Some("http://backend:8000")
+        );
+        headers.insert("x-forwarded-host", "wm.example.com, proxy".parse().unwrap());
+        headers.insert("x-forwarded-proto", "https".parse().unwrap());
+        assert_eq!(
+            request_origin(&headers).as_deref(),
+            Some("https://wm.example.com")
+        );
+    }
 
     #[test]
     fn only_an_unnarrowed_mcp_all_token_is_admitted() {
