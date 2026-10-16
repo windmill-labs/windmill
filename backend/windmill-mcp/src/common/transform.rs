@@ -117,7 +117,12 @@ pub fn is_encoded_tool_name(name: &str) -> bool {
 
 /// The last path segments an item named `name` by `assign_tool_names` can have:
 /// each `_`-separated suffix of the name, since segments may contain `_` themselves.
+/// None for a name longer than any short name: the suffixes of a caller-supplied
+/// name grow quadratically with its length.
 pub fn short_name_last_segments(name: &str) -> Vec<String> {
+    if name.len() > MAX_PATH_LENGTH {
+        return vec![];
+    }
     let parts: Vec<&str> = name.split('_').collect();
     (0..parts.len()).map(|i| parts[i..].join("_")).collect()
 }
@@ -522,6 +527,15 @@ mod tests {
                 .collect();
             assert_eq!(resolved, vec![*item], "{name}");
         }
+    }
+
+    #[test]
+    fn test_short_name_last_segments_bounded() {
+        assert_eq!(
+            short_name_last_segments("a_b_c"),
+            vec!["a_b_c".to_string(), "b_c".to_string(), "c".to_string()]
+        );
+        assert!(short_name_last_segments(&"_".repeat(100_000)).is_empty());
     }
 
     #[test]
