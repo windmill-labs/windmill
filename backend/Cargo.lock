@@ -16160,6 +16160,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "chrono",
+ "ed25519-dalek",
  "futures",
  "lazy_static",
  "regex",
