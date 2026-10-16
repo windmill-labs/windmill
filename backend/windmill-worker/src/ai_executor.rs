@@ -1323,6 +1323,22 @@ pub async fn handle_ai_agent_job(
     result
 }
 
+/// Say in the job's logs when storage capacity cut what memory keeps.
+async fn log_memory_fit(
+    conn: &Connection,
+    job: &MiniPulledJob,
+    memory_to_save: Option<&[OpenAIMessage]>,
+    held: usize,
+) {
+    if memory_to_save.is_some_and(|tail| tail.len() < held) {
+        append_logs(&job.id, &job.workspace_id,
+            "AI agent memory exceeds storage capacity after compaction; saving only the newest complete exchanges. Older memory was dropped; the answer and run action results are preserved.\n".to_string(), conn).await;
+    } else if memory_to_save.is_none() {
+        append_logs(&job.id, &job.workspace_id,
+            "AI agent memory has no complete user-starting conversation that fits storage capacity and memory was not saved. The answer is preserved; the next run will load the previous saved memory.\n".to_string(), conn).await;
+    }
+}
+
 /// Write `memory_to_save` to the step's managed memory, if it keeps one.
 async fn persist_memory(
     db: &DB,
@@ -1403,6 +1419,7 @@ async fn persist_memory_on_stop(
             Some(limit) => memory_within_capacity(messages.context(), limit),
             None => Some(messages.context()),
         };
+        log_memory_fit(conn, job, memory_to_save, messages.context().len()).await;
         if let Some(memory_to_save) = memory_to_save {
             persist_memory(
                 db,
@@ -2833,13 +2850,7 @@ pub async fn run_agent(
         Some(limit) => memory_within_capacity(messages.context(), limit),
         None => Some(messages.context()),
     };
-    if memory_to_save.is_some_and(|tail| tail.len() < messages.context().len()) {
-        append_logs(&job.id, &job.workspace_id,
-            "AI agent memory exceeds storage capacity after compaction; saving only the newest complete exchanges. Older memory was dropped; the answer and run action results are preserved.\n".to_string(), conn).await;
-    } else if memory_to_save.is_none() {
-        append_logs(&job.id, &job.workspace_id,
-            "AI agent memory has no complete user-starting conversation that fits storage capacity and memory was not saved. The answer is preserved; the next run will load the previous saved memory.\n".to_string(), conn).await;
-    }
+    log_memory_fit(conn, job, memory_to_save, messages.context().len()).await;
 
     // Return the final result
     let final_messages: Vec<Message> = messages
