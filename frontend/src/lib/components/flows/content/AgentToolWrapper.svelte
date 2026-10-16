@@ -5,6 +5,7 @@
 	import FlowModuleComponent from './FlowModuleComponent.svelte'
 	import McpToolEditor from './McpToolEditor.svelte'
 	import WebsearchToolDisplay from './WebsearchToolDisplay.svelte'
+	import ApprovalToolDisplay from './ApprovalToolDisplay.svelte'
 
 	interface Props {
 		tool: AgentTool
@@ -69,4 +70,6 @@
 	<McpToolEditor bind:tool {noEditor} />
 {:else if isWebsearchTool(tool)}
 	<WebsearchToolDisplay {noEditor} />
+{:else if tool.value?.tool_type === 'approval'}
+	<ApprovalToolDisplay bind:tool {noEditor} />
 {/if}

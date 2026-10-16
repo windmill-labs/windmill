@@ -247,6 +247,16 @@
 							dispatch('close')
 						}}
 					/>
+					<!-- A nested agent cannot park, so the worker drops it from its roster. -->
+					{#if !nestedAgent}
+						<TopLevelNode
+							label="Request approval"
+							onSelect={() => {
+								dispatch('pickApprovalTool')
+								dispatch('close')
+							}}
+						/>
+					{/if}
 					<TopLevelNode
 						label="AI Agent"
 						chevron={false}

@@ -156,7 +156,35 @@ older editor baked into `memory` stays a fallback behind the run's id until the 
 *Keep as memory id* or *Use the run's memory id*. In a chat flow it is dropped on save, since the
 conversation id always took precedence there.
 
-## Drafts
+## Approval tool
+
+The built-in `approval` tool type parks the agent rather than run anything: the model calls
+`request_approval` with a message. It lives in `windmill-worker/src/ai/pause.rs`.
+
+- **Park.** Once the turn's other calls are answered, the worker stores the conversation, actions,
+  usage, accumulated stream and next iteration in `ai_agent_checkpoint`, then parks the agent's own
+  queue row with `suspend_wac_parent`: `suspend = 1`, `suspend_until` at the approval timeout (the
+  tool's `timeout`, default 1800s). The job is not completed,
+  its worker is free, and the flow stays on the step.
+- **Answer.** `resume_suspended` with the agent job's id already treats a self-suspended job like a
+  WAC approval: it inserts the `resume_job` row and decrements, or zeroes on a rejection, the
+  agent's own `suspend`. The run page offers Approve/Reject from the pending `approval` agent
+  action. There are no signed resume URLs, Slack or Teams messages, approval page or approver
+  conditions for it: whoever can answer a suspended step without conditions can answer it.
+- **Resume.** The suspended pull takes the row back and `run_agent` finds the checkpoint: it skips
+  memory and the prompt, answers the parked call (the first unread `resume_job` row, or a timeout),
+  and continues the loop. Every row present then counts as read, so a late answer to one request
+  cannot answer the next. The step's stream continues at the offset the first segment
+  reached. Resolution is live here too: a linked agent edited while parked resumes with its new
+  definition.
+- **Cleanup.** The checkpoint row stays while the job is queued, so a job restarted after its
+  worker died resumes from it. The monitor deletes rows whose job left the queue; the table has no
+  foreign key, since one would lock `v2_job_queue` on every write.
+- **Limits.** A nested agent tool is never offered the tool: it writes no flow status, and its
+  parent holds a worker while it runs. Only one park per turn; a second call in the same turn is
+  answered with an error. The chat transcript of a chat flow records neither the request nor its
+  answer.
+
 
 The agent editor edits the resource through a **per-user resource draft** (`draft` table,
 `item_kind = 'resource'`), autosaved by `useAgentDraft` and deployed by the editor's own Deploy

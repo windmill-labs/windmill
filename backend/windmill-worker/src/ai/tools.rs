@@ -1,3 +1,4 @@
+use crate::ai::pause::{start_pause, PendingPause};
 use crate::ai::stream_event_processor::StreamEventProcessor;
 use crate::ai::utils::{
     add_message_to_conversation, execute_mcp_tool, get_step_name_from_flow,
@@ -97,10 +98,11 @@ pub async fn execute_tool_calls(
     actions: &mut Vec<AgentAction>,
     final_events_str: &mut String,
     structured_output_tool_name: &Option<String>,
-) -> Result<(Vec<OpenAIMessage>, Option<OpenAIContent>, bool), Error> {
+) -> Result<ToolCallsOutcome, Error> {
     let mut messages = Vec::new();
     let mut used_structured_output_tool = false;
     let mut final_content = None;
+    let mut pause: Option<PendingPause> = None;
 
     let mut calls = tool_calls.iter().peekable();
     while let Some(tool_call) = calls.next() {
@@ -142,8 +144,27 @@ pub async fn execute_tool_calls(
             .find(|t| t.def.function.name == tool_call.function.name);
 
         if let Some(tool) = tool {
+            if let Some(timeout_secs) = tool.approval_timeout_secs {
+                // Answered when the agent is pulled again, so the call gets no message here. A
+                // second park in the same turn is refused: one segment waits on one thing.
+                let refusal = match (&pause, start_pause(timeout_secs, tool_call)) {
+                    (Some(_), _) => Some("Only one approval request can be pending at a time. Call it again once this turn's pending one is answered.".to_string()),
+                    (None, Ok(pending)) => {
+                        pause = Some(pending);
+                        None
+                    }
+                    (None, Err(e)) => Some(e),
+                };
+                if let Some(error_msg) = refusal {
+                    messages.push(OpenAIMessage {
+                        role: "tool".to_string(),
+                        content: Some(OpenAIContent::Text(error_msg)),
+                        tool_call_id: Some(tool_call.id.clone()),
+                        ..Default::default()
+                    });
+                }
             // Check if this is an MCP tool
-            if let Some(mcp_source) = &tool.mcp_source {
+            } else if let Some(mcp_source) = &tool.mcp_source {
                 execute_mcp_tool_call(
                     &mut ctx,
                     tool_call,
@@ -192,7 +213,15 @@ pub async fn execute_tool_calls(
         }
     }
 
-    Ok((messages, final_content, used_structured_output_tool))
+    Ok(ToolCallsOutcome { messages, final_content, used_structured_output_tool, pause })
+}
+
+pub struct ToolCallsOutcome {
+    pub messages: Vec<OpenAIMessage>,
+    pub final_content: Option<OpenAIContent>,
+    pub used_structured_output_tool: bool,
+    /// A built-in tool asked the agent to park once this turn's other calls are answered.
+    pub pause: Option<PendingPause>,
 }
 
 /// Whether the model wrote an argument the tool's job would interpolate with the agent's token,
