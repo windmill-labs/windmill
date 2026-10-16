@@ -2771,11 +2771,14 @@ mod tests {
                 include_str!("../nsjail/download.ruby.config.proto"),
             ),
         ] {
-            let at = profile
-                .find("\n{ENVARS}\n")
+            // Line by line: a Windows checkout gives the profiles CRLF endings.
+            let lines = profile.lines().collect::<Vec<_>>();
+            let at = lines
+                .iter()
+                .position(|l| *l == "{ENVARS}")
                 .unwrap_or_else(|| panic!("{name}: no {{ENVARS}}"));
             assert!(
-                !profile[..at].contains("\nenvar:"),
+                !lines[..at].iter().any(|l| l.starts_with("envar:")),
                 "{name}: a fixed envar precedes {{ENVARS}}"
             );
         }
