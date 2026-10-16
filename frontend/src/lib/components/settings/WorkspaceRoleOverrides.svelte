@@ -1,0 +1,359 @@
+<script lang="ts">
+	import { Alert, Badge, Button, Section } from '$lib/components/common'
+	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import RoleCapabilitiesEditor from './RoleCapabilitiesEditor.svelte'
+	import {
+		WorkspaceService,
+		type EffectiveRole,
+		type RoleCapabilities,
+		type RoleOverride,
+		type RoleOverrides,
+		type WorkspaceRoles
+	} from '$lib/gen'
+	import { sendUserToast } from '$lib/toast'
+	import {
+		applyCapabilitiesPatch,
+		authorLevelLabel,
+		baseCapabilitiesFor,
+		capabilitiesError,
+		isEmptyPatch,
+		roleNameError,
+		VISIBILITY_KEYS
+	} from '$lib/workspaceRoles'
+	import { ChevronDown, ChevronRight, Plus, RotateCcw, SaveIcon, Trash2 } from 'lucide-svelte'
+
+	interface Props {
+		workspace: string
+		/** The workspace's roles as last read; undefined while loading. */
+		data: WorkspaceRoles | undefined
+		onSaved: () => void
+	}
+
+	let { workspace, data, onSaved }: Props = $props()
+
+	// The instance layer of a role, when the server reports it. Without it, a field this workspace
+	// overrides has no known instance value until the override is saved away.
+	type WithInstance = EffectiveRole & { instance_capabilities?: RoleCapabilities }
+
+	let draft = $state<RoleOverrides>({})
+	let loadedFrom: WorkspaceRoles | undefined = undefined
+	let open = $state<Record<string, boolean>>({})
+	let newRoleName = $state('')
+	let confirmSeatOpen = $state(false)
+	let saving = $state(false)
+
+	$effect(() => {
+		if (data && data !== loadedFrom) {
+			loadedFrom = data
+			draft = structuredClone($state.snapshot(data.overrides) ?? {})
+		}
+	})
+
+	const instanceRoles = $derived((data?.roles ?? []).filter((r) => r.source === 'instance'))
+	const workspaceOnlyNames = $derived(
+		Object.keys(draft)
+			.filter((n) => !instanceRoles.some((r) => r.name === n))
+			.sort()
+	)
+
+	function overriddenKeys(o: RoleOverride | undefined): string[] {
+		const c = o?.capabilities ?? {}
+		const keys = ['code', 'flows', 'apps', 'manage_schedules', 'manage_triggers'].filter(
+			(k) => c[k] !== undefined
+		)
+		for (const { key } of VISIBILITY_KEYS) {
+			if (c.visibility?.[key] !== undefined) keys.push(`visibility.${key}`)
+		}
+		return keys
+	}
+
+	/** The instance layer of `role`, exact where known. */
+	function instanceBase(role: WithInstance): { base: RoleCapabilities; unknown: string[] } {
+		if (role.instance_capabilities) return { base: role.instance_capabilities, unknown: [] }
+		// A field the stored override leaves unset shows the instance value as is.
+		return { base: role.capabilities, unknown: overriddenKeys(data?.overrides[role.name]) }
+	}
+
+	function baseFor(name: string): { base: RoleCapabilities; unknown: string[] } {
+		const role = instanceRoles.find((r) => r.name === name)
+		return role ? instanceBase(role) : { base: baseCapabilitiesFor(name), unknown: [] }
+	}
+
+	function effectiveFor(name: string): RoleCapabilities {
+		return applyCapabilitiesPatch(baseFor(name).base, draft[name]?.capabilities)
+	}
+
+	function isAuthor(c: RoleCapabilities): boolean {
+		return c.code || c.flows !== 'none' || c.apps !== 'none'
+	}
+
+	function summary(c: RoleCapabilities): string {
+		return [
+			c.code ? 'Code' : 'No code',
+			`Flows: ${authorLevelLabel(c.flows).toLowerCase()}`,
+			`Apps: ${authorLevelLabel(c.apps).toLowerCase()}`
+		].join(' · ')
+	}
+
+	/** The overrides to store: instance roles left as the instance has them are dropped. */
+	function cleaned(o: RoleOverrides): RoleOverrides {
+		const out: RoleOverrides = {}
+		for (const [name, v] of Object.entries(o)) {
+			const label = v.label?.trim() || undefined
+			const isInstance = instanceRoles.some((r) => r.name === name)
+			if (isInstance && !label && isEmptyPatch(v.capabilities)) continue
+			out[name] = {
+				...(label ? { label } : {}),
+				capabilities: isEmptyPatch(v.capabilities) ? {} : v.capabilities
+			}
+		}
+		return out
+	}
+
+	const dirty = $derived(
+		data != undefined && JSON.stringify(cleaned(draft)) !== JSON.stringify(cleaned(data.overrides))
+	)
+
+	const errors = $derived.by(() => {
+		const e: Record<string, string> = {}
+		for (const name of [...instanceRoles.map((r) => r.name), ...workspaceOnlyNames]) {
+			const err = capabilitiesError(effectiveFor(name))
+			if (err) e[name] = err
+		}
+		return e
+	})
+
+	// A role that starts authoring moves each member from half a seat to a full one.
+	const newAuthorRoles = $derived(
+		[...instanceRoles.map((r) => r.name), ...workspaceOnlyNames].filter((name) => {
+			const before = data?.roles.find((r) => r.name === name)?.capabilities
+			return isAuthor(effectiveFor(name)) && !(before && isAuthor(before))
+		})
+	)
+
+	function setPatch(name: string, capabilities: RoleOverride['capabilities']) {
+		draft[name] = { ...(draft[name] ?? {}), capabilities }
+	}
+
+	function setLabel(name: string, label: string) {
+		draft[name] = { ...(draft[name] ?? {}), label }
+	}
+
+	function resetRole(name: string) {
+		delete draft[name]
+	}
+
+	const newRoleError = $derived.by(() => {
+		const name = newRoleName.trim()
+		if (!name) return undefined
+		if (data?.roles.some((r) => r.name === name) || draft[name]) return 'This role already exists'
+		return roleNameError(name)
+	})
+
+	function addRole() {
+		const name = newRoleName.trim()
+		if (!name || newRoleError) return
+		draft[name] = { capabilities: {} }
+		open[name] = true
+		newRoleName = ''
+	}
+
+	function onSaveClicked() {
+		if (newAuthorRoles.length > 0) confirmSeatOpen = true
+		else save()
+	}
+
+	async function save() {
+		saving = true
+		try {
+			await WorkspaceService.updateWorkspaceRoleOverrides({
+				workspace,
+				requestBody: cleaned(draft)
+			})
+			sendUserToast('Workspace roles saved')
+			onSaved()
+		} catch (e) {
+			sendUserToast(`Failed to save workspace roles: ${e?.body ?? e}`, true)
+		} finally {
+			saving = false
+		}
+	}
+</script>
+
+{#snippet roleCard(name: string, role: WithInstance | undefined)}
+	{@const { base, unknown } = baseFor(name)}
+	{@const caps = applyCapabilitiesPatch(base, draft[name]?.capabilities)}
+	{@const overridden = draft[name] !== undefined}
+	<div class="flex flex-col rounded-md border bg-surface-tertiary">
+		<div class="flex items-center gap-2 p-2">
+			<div class="flex flex-col w-40 shrink-0 min-w-0">
+				<span class="text-xs font-semibold text-emphasis truncate">
+					{draft[name]?.label?.trim() || role?.label || name}
+				</span>
+				<span class="text-2xs text-secondary font-mono truncate">{name}</span>
+			</div>
+			{#if role}
+				<Badge color="gray" verySmall>Instance</Badge>
+				{#if overridden}
+					<Badge color="blue" verySmall>Overridden here</Badge>
+				{/if}
+			{:else}
+				<Badge color="indigo" verySmall>This workspace only</Badge>
+			{/if}
+			<span class="text-2xs text-secondary truncate grow">{summary(caps)}</span>
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
+				startIcon={{ icon: open[name] ? ChevronDown : ChevronRight }}
+				onclick={() => (open[name] = !open[name])}
+			>
+				Capabilities
+			</Button>
+			{#if role}
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					startIcon={{ icon: RotateCcw }}
+					disabled={!overridden}
+					title="Use the instance definition of this role"
+					onclick={() => resetRole(name)}
+				>
+					Reset role
+				</Button>
+			{:else}
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					destructive
+					iconOnly
+					startIcon={{ icon: Trash2 }}
+					aria-label="Remove role"
+					title="Remove role"
+					onclick={() => resetRole(name)}
+				/>
+			{/if}
+		</div>
+		{#if errors[name] && !open[name]}
+			<span class="text-2xs text-red-600 dark:text-red-400 px-2 pb-2">{errors[name]}</span>
+		{/if}
+		{#if open[name]}
+			<div class="border-t p-3 flex flex-col gap-3">
+				<div class="flex items-center gap-2">
+					<span class="text-xs font-semibold text-emphasis w-24">Label</span>
+					<div class="w-60">
+						<TextInput
+							size="sm"
+							value={draft[name]?.label ?? ''}
+							inputProps={{
+								placeholder: role?.label ?? name,
+								'aria-label': 'Label in this workspace',
+								oninput: (e) => setLabel(name, e.currentTarget.value)
+							}}
+						/>
+					</div>
+				</div>
+				<RoleCapabilitiesEditor
+					{base}
+					unknownBase={unknown}
+					patch={draft[name]?.capabilities ?? {}}
+					baseName={role ? 'instance' : 'default'}
+					setText={role ? 'Overridden' : 'Set'}
+					inheritedText={role ? 'From instance' : 'Default'}
+					onchange={(p) => setPatch(name, p)}
+				/>
+			</div>
+		{/if}
+	</div>
+{/snippet}
+
+<Section
+	label="Workspace roles"
+	collapsable={true}
+	description="The roles members of this workspace can hold, as the instance defines them. Override what a role allows in this workspace; a field you do not override keeps following the instance. Workspace admins hold everything regardless of their role."
+>
+	{#snippet action()}
+		<Button
+			onclick={onSaveClicked}
+			startIcon={{ icon: SaveIcon }}
+			disabled={!dirty || saving || Object.keys(errors).length > 0}
+			variant="accent"
+		>
+			Save workspace roles
+		</Button>
+	{/snippet}
+
+	{#if !data}
+		<span class="text-xs text-secondary">Loading roles...</span>
+	{:else}
+		<div class="flex flex-col gap-3">
+			{#each instanceRoles as role (role.name)}
+				{@render roleCard(role.name, role)}
+			{/each}
+			{#each workspaceOnlyNames as name (name)}
+				{@render roleCard(name, undefined)}
+			{/each}
+
+			{#if data.custom_roles_enabled}
+				<div class="flex items-start gap-2">
+					<div class="flex flex-col gap-0.5 w-60">
+						<TextInput
+							size="sm"
+							bind:value={newRoleName}
+							error={newRoleError}
+							inputProps={{
+								placeholder: 'new role name',
+								'aria-label': 'New role name',
+								onkeydown: (e) => e.key === 'Enter' && addRole()
+							}}
+						/>
+						{#if newRoleError}
+							<span class="text-2xs text-red-600 dark:text-red-400">{newRoleError}</span>
+						{/if}
+					</div>
+					<Button
+						variant="default"
+						unifiedSize="sm"
+						startIcon={{ icon: Plus }}
+						disabled={!newRoleName.trim() || !!newRoleError}
+						onclick={addRole}
+					>
+						Add workspace role
+					</Button>
+				</div>
+				<span class="text-2xs text-secondary">
+					A workspace role exists only here. Its unset capabilities default to the operator rights.
+					One still held by a member, invite, auto-invite or instance group mapping cannot be
+					removed.
+				</span>
+			{:else}
+				<Alert type="info" size="xs" title="Adding roles requires Windmill Enterprise Edition">
+					This workspace can adjust what the default roles allow.
+				</Alert>
+			{/if}
+		</div>
+	{/if}
+</Section>
+
+<ConfirmationModal
+	open={confirmSeatOpen}
+	title="Roles that now author consume a full seat"
+	type="info"
+	confirmationText="Save"
+	onCanceled={() => (confirmSeatOpen = false)}
+	onConfirmed={async () => {
+		confirmSeatOpen = false
+		await save()
+	}}
+>
+	<div class="flex flex-col gap-2 text-sm">
+		<span>
+			With this change, members holding
+			<b>{newAuthorRoles.join(', ')}</b> can write code or build flows or apps in this workspace.
+		</span>
+		<span>
+			Each of them then consumes a full seat instead of half a seat, which changes what this
+			instance is billed. They can author wherever their folder permissions already let them write.
+		</span>
+	</div>
+</ConfirmationModal>

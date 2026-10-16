@@ -4,7 +4,15 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import WorkspaceOperatorSettings from '$lib/components/settings/WorkspaceOperatorSettings.svelte'
+	import WorkspaceRoleOverrides from '$lib/components/settings/WorkspaceRoleOverrides.svelte'
+	import RolePicker from '$lib/components/settings/RolePicker.svelte'
+	import {
+		DEVELOPER_ROLE,
+		loadWorkspaceRoles,
+		pickerValue,
+		roleLabel,
+		roleRequestFields
+	} from '$lib/workspaceRoles'
 	import InviteUser from '$lib/components/InviteUser.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
 
@@ -12,7 +20,7 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import type { CancelablePromise, User, UserUsage } from '$lib/gen'
+	import type { CancelablePromise, User, UserUsage, WorkspaceRoles } from '$lib/gen'
 	import { UserService, WorkspaceService, GroupService, type WorkspaceInvite } from '$lib/gen'
 	import {
 		userStore,
@@ -39,12 +47,23 @@
 	let offboardingUser: string | undefined = $state(undefined)
 	let offboardingReassignOnly = $state(false)
 
-	let users: User[] | undefined = $state(undefined)
+	// `role` is the member's workspace role, which `listUsers` returns but the spec's `User` omits.
+	type Member = User & { role?: string }
+
+	let users: Member[] | undefined = $state(undefined)
 	let invites: WorkspaceInvite[] = $state([])
-	let filteredUsers: User[] | undefined = $state(undefined)
+	let filteredUsers: Member[] | undefined = $state(undefined)
 	let userFilter = $state('')
 	let auto_invite_domain: string | undefined = $state()
-	let operatorOnly: boolean | undefined = $state(undefined)
+	let autoInviteRole: string = $state(DEVELOPER_ROLE)
+	let workspaceRoles = $state<WorkspaceRoles | undefined>(undefined)
+	const roles = $derived(workspaceRoles?.roles)
+
+	async function loadRoles(): Promise<void> {
+		const workspace = $workspaceStore!
+		const r = await loadWorkspaceRoles(workspace)
+		if (workspace === $workspaceStore) workspaceRoles = r
+	}
 	let autoAdd: boolean | undefined = $state(false)
 	let addAdminsAndDevelopersToForks = $state(false)
 	let nbDisplayed = $state(30)
@@ -56,7 +75,7 @@
 
 	// Add new instance group form state
 	let selectedNewInstanceGroup: string | undefined = $state(undefined)
-	let selectedNewRole: string | undefined = $state('developer')
+	let selectedNewRole: string | undefined = $state(DEVELOPER_ROLE)
 
 	// Service account creation
 
@@ -113,13 +132,14 @@
 					enabled?: boolean
 					domain?: string
 					operator?: boolean
+					role?: string
 					mode?: string
 					instance_groups?: string[]
 					instance_groups_roles?: Record<string, string>
 			  }
 			| undefined
 		auto_invite_domain = autoInvite?.enabled ? (autoInvite?.domain ?? '*') : undefined
-		operatorOnly = autoInvite?.operator ?? false
+		autoInviteRole = pickerValue({ role: autoInvite?.role, operator: autoInvite?.operator })
 		autoAdd = autoInvite?.mode === 'add'
 		autoAddInstanceGroups = autoInvite?.instance_groups || []
 		autoAddInstanceGroupsRoles = autoInvite?.instance_groups_roles || {}
@@ -190,11 +210,11 @@
 	let lastSeen: { workspace: string; signature: string; seq: number } | undefined = undefined
 	let usersIssued = 0
 
-	// Every field a paid seat count depends on — the developer/operator split, and the
-	// two categories billing excludes.
-	function membershipSignature(list: User[] | undefined): string {
+	// Every field a paid seat count depends on — the role, and the two categories billing
+	// excludes.
+	function membershipSignature(list: Member[] | undefined): string {
 		return (list ?? [])
-			.map((u) => `${u.email}:${u.operator}:${u.disabled}:${u.is_service_account}`)
+			.map((u) => `${u.email}:${u.operator}:${u.role}:${u.disabled}:${u.is_service_account}`)
 			.sort()
 			.join(',')
 	}
@@ -218,22 +238,18 @@
 		}
 	}
 
+	// Throws, so each caller rolls back its optimistic change.
 	async function saveInstanceGroupSettings(): Promise<void> {
-		try {
-			await WorkspaceService.editInstanceGroups({
-				workspace: $workspaceStore ?? '',
-				requestBody: {
-					groups: autoAddInstanceGroups,
-					roles: autoAddInstanceGroupsRoles
-				}
-			})
-			sendUserToast('Instance group settings saved')
-			// Refresh user list to show newly auto-added users
-			listUsers()
-		} catch (e) {
-			console.error('Failed to save instance group settings:', e)
-			sendUserToast('Failed to save settings', true)
-		}
+		await WorkspaceService.editInstanceGroups({
+			workspace: $workspaceStore ?? '',
+			requestBody: {
+				groups: autoAddInstanceGroups,
+				roles: autoAddInstanceGroupsRoles
+			}
+		})
+		sendUserToast('Instance group settings saved')
+		// Refresh user list to show newly auto-added users
+		listUsers()
 	}
 
 	async function addInstanceGroup(): Promise<void> {
@@ -248,14 +264,14 @@
 
 			// Reset form
 			selectedNewInstanceGroup = undefined
-			selectedNewRole = 'developer'
+			selectedNewRole = DEVELOPER_ROLE
 
 			await saveInstanceGroupSettings()
 		} catch (e) {
 			// Rollback on error
 			autoAddInstanceGroups = autoAddInstanceGroups.filter((g) => g !== groupToAdd)
 			delete autoAddInstanceGroupsRoles[groupToAdd]
-			sendUserToast('Failed to add instance group', true)
+			sendUserToast(`Failed to add instance group: ${e?.body ?? e}`, true)
 		}
 	}
 
@@ -273,7 +289,7 @@
 			if (previousRole) {
 				autoAddInstanceGroupsRoles[groupName] = previousRole
 			}
-			sendUserToast('Failed to remove instance group', true)
+			sendUserToast(`Failed to remove instance group: ${e?.body ?? e}`, true)
 		}
 	}
 
@@ -286,7 +302,7 @@
 		} catch (e) {
 			// Rollback on error
 			autoAddInstanceGroupsRoles[groupName] = previousRole
-			sendUserToast('Failed to update role', true)
+			sendUserToast(`Failed to update role: ${e?.body ?? e}`, true)
 		}
 	}
 
@@ -315,6 +331,8 @@
 				listInvites()
 				loadSettings()
 				loadInstanceGroups()
+				workspaceRoles = undefined
+				loadRoles()
 			})
 		}
 	})
@@ -356,20 +374,16 @@
 
 	let nbInviteDisplayed = $state(50)
 
-	async function inviteUser(email: string, selected: 'operator' | 'developer' | 'admin') {
+	async function inviteUser(email: string, selected: string) {
 		try {
 			await WorkspaceService.inviteUser({
 				workspace: $workspaceStore!,
-				requestBody: {
-					email,
-					is_admin: selected == 'admin',
-					operator: selected == 'operator'
-				}
+				requestBody: { email, ...roleRequestFields(selected) }
 			})
 			sendUserToast(`Invited ${email}`)
 		} catch (e) {
 			console.error('Failed to invite user:', e)
-			sendUserToast('Failed to invite user', true)
+			sendUserToast(`Failed to invite user: ${e?.body ?? e}`, true)
 		}
 
 		if (!(await UserService.existsEmail({ email }))) {
@@ -412,7 +426,7 @@
 				workspace: $workspaceStore ?? '',
 				requestBody: enable
 					? {
-							operator: operatorOnly ?? false,
+							...roleRequestFields(autoInviteRole),
 							invite_all: !isCloudHosted(),
 							auto_add: autoAdd
 						}
@@ -430,7 +444,7 @@
 			sendUserToast(message)
 		} catch (e) {
 			console.error('Failed to update auto invite:', e)
-			sendUserToast('Failed to update auto invite', true)
+			sendUserToast(`Failed to update auto invite: ${e?.body ?? e}`, true)
 		}
 		loadSettings()
 		listInvites()
@@ -548,32 +562,18 @@
 							{/if}
 
 							<span class="text-xs mb-1">Role <Tooltip>Role of the auto-added users</Tooltip></span>
-							<ToggleButtonGroup
-								selected={operatorOnly ? 'operator' : 'developer'}
-								on:selected={async (e) => {
-									operatorOnly = e.detail === 'operator'
+							<RolePicker
+								{roles}
+								admin={false}
+								disablePortal
+								value={autoInviteRole}
+								onchange={async (v) => {
+									autoInviteRole = v
 									if (auto_invite_domain != undefined) {
 										await updateAutoInvite(true)
 									}
 								}}
-							>
-								{#snippet children({ item })}
-									<ToggleButton
-										value="operator"
-										small
-										label="Operator"
-										tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
-										{item}
-									/>
-									<ToggleButton
-										value="developer"
-										small
-										label="Developer"
-										tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
-										{item}
-									/>
-								{/snippet}
-							</ToggleButtonGroup>
+							/>
 
 							<div class="mt-6">
 								<Toggle
@@ -660,36 +660,12 @@
 
 												<div class="flex flex-col gap-1">
 													<span class="text-xs text-primary">Role</span>
-													<ToggleButtonGroup
-														selected={selectedNewRole}
-														on:selected={(e) => {
-															selectedNewRole = e.detail
-														}}
-													>
-														{#snippet children({ item })}
-															<ToggleButton
-																value="operator"
-																small
-																label="Operator"
-																tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
-																{item}
-															/>
-															<ToggleButton
-																value="developer"
-																small
-																label="Developer"
-																tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
-																{item}
-															/>
-															<ToggleButton
-																value="admin"
-																small
-																label="Admin"
-																tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
-																{item}
-															/>
-														{/snippet}
-													</ToggleButtonGroup>
+													<RolePicker
+														{roles}
+														disablePortal
+														value={selectedNewRole}
+														onchange={(v) => (selectedNewRole = v)}
+													/>
 												</div>
 											</div>
 
@@ -730,38 +706,15 @@
 																</td>
 																<td class="py-2">
 																	<div>
-																		<ToggleButtonGroup
-																			selected={autoAddInstanceGroupsRoles[groupName] ||
-																				'developer'}
-																			on:selected={async (e) => {
-																				autoAddInstanceGroupsRoles[groupName] = e.detail
-																				await updateGroupRole(groupName, e.detail)
+																		<RolePicker
+																			{roles}
+																			disablePortal
+																			value={autoAddInstanceGroupsRoles[groupName] ||
+																				DEVELOPER_ROLE}
+																			onchange={async (v) => {
+																				await updateGroupRole(groupName, v)
 																			}}
-																		>
-																			{#snippet children({ item })}
-																				<ToggleButton
-																					value="operator"
-																					small
-																					label="Operator"
-																					tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
-																					{item}
-																				/>
-																				<ToggleButton
-																					value="developer"
-																					small
-																					label="Developer"
-																					tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
-																					{item}
-																				/>
-																				<ToggleButton
-																					value="admin"
-																					small
-																					label="Admin"
-																					tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
-																					{item}
-																				/>
-																			{/snippet}
-																		</ToggleButtonGroup>
+																		/>
 																	</div>
 																</td>
 																<td class="py-2">
@@ -800,10 +753,11 @@
 				{/if}
 
 				{#if showAutoInviteToggle}
-					<InviteUser {inviteUser} />
+					<InviteUser {inviteUser} {roles} />
 				{/if}
 
 				<AddUser
+					{roles}
 					on:new={() => {
 						listUsers()
 						listInvites()
@@ -851,7 +805,7 @@
 		<tbody>
 			{#if filteredUsers}
 				{#each sortedUsers().slice(0, nbDisplayed) as user, index (user.email)}
-					{@const { email, username, is_admin, operator, disabled, added_via } = user}
+					{@const { email, username, is_admin, disabled, added_via } = user}
 					<!-- Add separator between manual users and instance group users -->
 					{#if hasNonManualUsers && index > 0 && sortedUsers()[index - 1]?.added_via?.source !== 'instance_group' && added_via?.source === 'instance_group'}
 						<tr class="bg-surface-secondary">
@@ -901,63 +855,35 @@
 								{#if added_via?.source === 'instance_group'}
 									<div class="flex items-center gap-1">
 										<span class="rounded-md text-xs px-2 py-1 bg-surface shadow-md font-bold">
-											{is_admin ? 'Admin' : operator ? 'Operator' : 'Developer'}
+											{roleLabel(roles, pickerValue(user))}
 										</span>
 										<Tooltip>Role is managed through instance group configuration above.</Tooltip>
 									</div>
 								{:else}
-									<ToggleButtonGroup
-										selected={is_admin ? 'admin' : operator ? 'operator' : 'developer'}
-										on:selected={async (e) => {
-											if (is_admin && email == $userStore?.email && e.detail != 'admin') {
+									<RolePicker
+										{roles}
+										value={pickerValue(user)}
+										onchange={async (v) => {
+											if (is_admin && email == $userStore?.email && v != 'admin') {
 												sendUserToast(
 													'Admins cannot be demoted by themselves, ask another admin to demote you',
 													true
 												)
-												e.preventDefault()
 												listUsers()
 												return
 											}
-											const body =
-												e.detail == 'admin'
-													? { is_admin: true, operator: false }
-													: e.detail == 'operator'
-														? { is_admin: false, operator: true }
-														: { is_admin: false, operator: false }
-											await UserService.updateUser({
-												workspace: $workspaceStore ?? '',
-												username,
-												requestBody: body
-											})
+											try {
+												await UserService.updateUser({
+													workspace: $workspaceStore ?? '',
+													username,
+													requestBody: roleRequestFields(v)
+												})
+											} catch (e) {
+												sendUserToast(`Failed to change role: ${e?.body ?? e}`, true)
+											}
 											listUsers()
 										}}
-									>
-										{#snippet children({ item })}
-											<ToggleButton
-												value="operator"
-												small
-												label="Operator"
-												tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
-												{item}
-											/>
-
-											<ToggleButton
-												value="developer"
-												small
-												label="Developer"
-												tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
-												{item}
-											/>
-
-											<ToggleButton
-												value="admin"
-												small
-												label="Admin"
-												tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
-												{item}
-											/>
-										{/snippet}
-									</ToggleButtonGroup>
+									/>
 								{/if}
 							</div>
 						</Cell>
@@ -1083,7 +1009,9 @@
 
 <div class="pt-12"></div>
 
-<WorkspaceOperatorSettings />
+{#if $workspaceStore}
+	<WorkspaceRoleOverrides workspace={$workspaceStore} data={workspaceRoles} onSaved={loadRoles} />
+{/if}
 
 <div class="pt-12"></div>
 
@@ -1118,7 +1046,7 @@
 		{#snippet action()}
 			{#if showAutoInviteToggle && !isAdminsWorkspaceWithoutEE}
 				<div class="flex gap-2 items-center">
-					<InviteUser {inviteUser} />
+					<InviteUser {inviteUser} {roles} />
 				</div>
 			{/if}
 		{/snippet}
@@ -1132,56 +1060,27 @@
 			</Head>
 			<tbody class="divide-y bg-surface">
 				{#if invites?.length > 0}
-					{#each invites.slice(0, nbInviteDisplayed) as { email, is_admin, operator }}
+					{#each invites.slice(0, nbInviteDisplayed) as invite}
+						{@const { email, is_admin, operator } = invite}
 						<Row>
 							<Cell first>{email}</Cell>
 							<Cell>
 								<div>
-									<ToggleButtonGroup
-										selected={is_admin ? 'admin' : operator ? 'operator' : 'developer'}
-										on:selected={async (e) => {
-											const body =
-												e.detail == 'admin'
-													? { is_admin: true, operator: false }
-													: e.detail == 'operator'
-														? { is_admin: false, operator: true }
-														: { is_admin: false, operator: false }
-											await WorkspaceService.inviteUser({
-												workspace: $workspaceStore ?? '',
-												requestBody: {
-													email,
-													...body
-												}
-											})
-											listUsers()
+									<RolePicker
+										{roles}
+										value={pickerValue(invite)}
+										onchange={async (v) => {
+											try {
+												await WorkspaceService.inviteUser({
+													workspace: $workspaceStore ?? '',
+													requestBody: { email, ...roleRequestFields(v) }
+												})
+											} catch (e) {
+												sendUserToast(`Failed to change role: ${e?.body ?? e}`, true)
+											}
+											listInvites()
 										}}
-									>
-										{#snippet children({ item })}
-											<ToggleButton
-												value="operator"
-												small
-												label="Operator"
-												tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
-												{item}
-											/>
-
-											<ToggleButton
-												value="developer"
-												small
-												label="Developer"
-												tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
-												{item}
-											/>
-
-											<ToggleButton
-												value="admin"
-												small
-												label="Admin"
-												tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
-												{item}
-											/>
-										{/snippet}
-									</ToggleButtonGroup>
+									/>
 								</div>
 							</Cell>
 							<Cell last actions>
