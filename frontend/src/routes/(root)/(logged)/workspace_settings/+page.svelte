@@ -11,7 +11,6 @@
 	import RemoteDeployTargetSetting from '$lib/components/RemoteDeployTargetSetting.svelte'
 	import DevWorkspaceSetting from '$lib/components/DevWorkspaceSetting.svelte'
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
-	import VariableExpirationHandler from '$lib/components/VariableExpirationHandler.svelte'
 	import {
 		cloneHandlerDraft,
 		handlerDraftFromStored,
@@ -2341,8 +2340,12 @@ export async function main(
 
 							<Section label="Handler">
 								<div class="flex flex-col gap-6">
-									<VariableExpirationHandler
+									<ErrorOrRecoveryHandler
+										noMargin
 										isEditable={true}
+										errorOrRecovery="variableExpiration"
+										customRequiresEE={false}
+										toggleText="Notify when a variable is about to expire"
 										bind:draft={variableExpirationDraft}
 										customScriptTemplate={`/scripts/add?lang=bun#` +
 											encodeState({

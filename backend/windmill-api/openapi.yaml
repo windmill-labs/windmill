@@ -5377,42 +5377,6 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/workspaces/run_variable_expiration_test_job:
-    post:
-      summary: run the variable expiration handler against a placeholder variable
-      operationId: runVariableExpirationTestJob
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: handler to run and the extra args to pass it
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - handler_path
-              properties:
-                handler_path:
-                  type: string
-                  description: >-
-                    one of the built-in handlers, `script/hub/28987/variable-expiration-handler-slack`
-                    or `script/hub/28988/variable-expiration-handler-teams`; any other path is refused
-                extra_args:
-                  $ref: "#/components/schemas/ScriptArgs"
-      responses:
-        "200":
-          description: status
-          content:
-            text/json:
-              schema:
-                type: object
-                properties:
-                  job_uuid:
-                    type: string
-
   /w/{workspace}/workspaces/edit_success_handler:
     post:
       summary: edit success handler

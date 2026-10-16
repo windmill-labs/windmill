@@ -3410,13 +3410,6 @@ const PRESET_HANDLER_PATHS: [&str; 23] = [
     "hub/19795/workspace-or-error-handler-email",
 ];
 
-/// The built-in variable expiration handlers in `hubPaths.json`. Kept out of
-/// `PRESET_HANDLER_PATHS`, which would let a schedule pointed at them run as the error handler.
-pub const VARIABLE_EXPIRATION_PRESET_PATHS: [&str; 2] = [
-    "hub/28987/variable-expiration-handler-slack",
-    "hub/28988/variable-expiration-handler-teams",
-];
-
 /// The preset handler Windmill ships on the hub that `handler_path` names, `None` for user code.
 fn preset_handler(handler_path: &str) -> Option<&'static str> {
     let path = handler_path.strip_prefix("script/").unwrap_or(handler_path);
@@ -3696,31 +3689,6 @@ pub(crate) async fn push_variable_expiration_handler<'c>(
         None,
     )
     .await
-}
-
-/// Dispatch the variable expiration handler once, on demand, for a variable the caller
-/// names rather than one the sweep found due.
-///
-/// Goes through `push_variable_expiration_handler` rather than reimplementing the push so a
-/// test run proves the thing that actually matters: that the handler resolves and that
-/// `g/variable_expiration_handler` can read what it needs, under the same identity and the
-/// same argument shape a real expiry would use.
-///
-/// Callers MUST verify the requester is a workspace admin and restrict `handler_path` to the
-/// built-ins: this runs it as `g/variable_expiration_handler`, which may hold write access to
-/// the variables it rotates.
-pub async fn push_variable_expiration_test_handler(
-    db: &Pool<Postgres>,
-    w_id: &str,
-    handler_path: &str,
-    expiring: &ExpiringVariable,
-    extra_args: Option<Json<Box<RawValue>>>,
-) -> windmill_common::error::Result<Uuid> {
-    let tx = db.begin().await?;
-    let (uuid, tx) =
-        push_variable_expiration_handler(db, tx, w_id, handler_path, expiring, extra_args).await?;
-    tx.commit().await?;
-    Ok(uuid)
 }
 
 pub async fn push_success_handler<'a, 'c, T: Serialize + Send + Sync>(
@@ -8928,7 +8896,7 @@ mod git_sync_concurrency_key_tests {
 
 #[cfg(test)]
 mod preset_handler_path_tests {
-    use super::{is_preset_handler_path, VARIABLE_EXPIRATION_PRESET_PATHS};
+    use super::is_preset_handler_path;
 
     #[test]
     fn only_pinned_hub_scripts_are_presets() {
@@ -8951,10 +8919,10 @@ mod preset_handler_path_tests {
         let hub_paths: std::collections::HashMap<String, String> =
             serde_json::from_str(include_str!("../../../frontend/src/lib/hubPaths.json")).unwrap();
         for (name, path) in hub_paths {
-            if path.contains("-handler-") {
+            // Variable expiration handlers run as their own group whatever their path.
+            if path.contains("-handler-") && !path.contains("variable-expiration") {
                 assert!(
-                    is_preset_handler_path(&path)
-                        || VARIABLE_EXPIRATION_PRESET_PATHS.contains(&path.as_str()),
+                    is_preset_handler_path(&path),
                     "{name}: {path} is not pinned"
                 );
             }

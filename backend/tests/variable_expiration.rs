@@ -470,31 +470,3 @@ async fn test_edit_handler_endpoint(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     Ok(())
 }
-
-/// The test-message endpoint runs as the handler group, which may hold write access to
-/// secrets and is exempt from per-user quotas: only an admin, and only for a built-in.
-#[sqlx::test(fixtures("base"))]
-async fn test_run_test_job_endpoint_is_admin_only(db: Pool<Postgres>) -> anyhow::Result<()> {
-    initialize_tracing().await;
-    let server = ApiServer::start(db.clone()).await?;
-    let path = "u/test-user/expiry_handler";
-    seed_handler_script(&db, path).await?;
-
-    for (token, expected) in [("SECRET_TOKEN_2", 403), ("SECRET_TOKEN", 400)] {
-        let status = reqwest::Client::new()
-            .post(format!(
-                "http://localhost:{}/api/w/{WS}/workspaces/run_variable_expiration_test_job",
-                server.addr.port()
-            ))
-            .bearer_auth(token)
-            .json(&serde_json::json!({ "handler_path": format!("script/{path}") }))
-            .send()
-            .await?
-            .status()
-            .as_u16();
-        assert_eq!(status, expected, "{token}");
-    }
-
-    assert_eq!(queued_handler_jobs(&db, path).await?, 0);
-    Ok(())
-}
