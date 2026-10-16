@@ -136,7 +136,7 @@
 				key: DEV_WORKSPACE_ISOLATION_SETTING,
 				requestBody: { value: on }
 			})
-			devWorkspaceIsolation.update((i) => ({ suffix: effectiveSuffix, ...i, enabled: on }))
+			devWorkspaceIsolation.update((i) => ({ suffix: i?.suffix ?? effectiveSuffix, enabled: on }))
 			sendUserToast(
 				on
 					? `Dev workspace and fork jobs now run on tags suffixed with ${effectiveSuffix}`
@@ -157,7 +157,7 @@
 				key: DEV_WORKSPACE_TAG_SUFFIX_SETTING,
 				requestBody: { value }
 			})
-			devWorkspaceIsolation.update((i) => ({ enabled: false, ...i, suffix: value }))
+			devWorkspaceIsolation.update((i) => ({ enabled: i?.enabled ?? false, suffix: value }))
 			sendUserToast(`Dev workspace tag suffix set to ${value}`)
 		} catch (e) {
 			sendUserToast(`Could not save the dev workspace tag suffix: ${e}`, true)

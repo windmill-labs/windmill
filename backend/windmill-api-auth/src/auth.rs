@@ -6,6 +6,7 @@ use axum::{
 };
 use chrono::TimeZone;
 use http::{request::Parts, StatusCode};
+use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -1025,7 +1026,25 @@ where
 pub fn transform_old_scope_to_new_scope(scopes: Option<&mut Vec<String>>) {
     if let Some(scopes) = scopes {
         for scope in scopes.iter_mut() {
-            if scope.starts_with("run:") {
+            if let Some(tags) = scope.strip_prefix("if_jobs:filter_tags:") {
+                // A dev workspace's job allowed on `gpu` is queued on `gpu-dev`: the token must
+                // still reach the jobs it starts.
+                let suffix = windmill_common::worker::DEV_WORKSPACE_TAG_SUFFIX.load();
+                let expanded = tags
+                    .split(',')
+                    .flat_map(|t| {
+                        let suffixed =
+                            windmill_common::worker::with_dev_workspace_suffix(t, &suffix);
+                        if suffixed == t {
+                            vec![t.to_string()]
+                        } else {
+                            vec![t.to_string(), suffixed]
+                        }
+                    })
+                    .unique()
+                    .join(",");
+                *scope = format!("if_jobs:filter_tags:{expanded}");
+            } else if scope.starts_with("run:") {
                 let (_, part_scope) = scope.split_once(":").unwrap();
 
                 if let Some((kind, path)) = part_scope.split_once("/") {
