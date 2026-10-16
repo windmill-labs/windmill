@@ -330,10 +330,10 @@
 		} catch (e) {
 			sendUserToast(e.body ?? String(e), true)
 			// A failed create is not proof the group is absent: `create_group` commits before a
-			// git-sync step that can still fail the request, including with a 4xx. Only the name
-			// conflict says it was never written. Report rather than resolve — a group found by
+			// git-sync step that can still fail the request, including with a 4xx. Only a name
+			// conflict or reservation proves absence. Report rather than resolve — a group found by
 			// name may be someone else's, and adopting it would send this draft's writes there.
-			const nameTaken = String(e?.body ?? '').includes('already exists')
+			const nameTaken = /already exists|is reserved/.test(String(e?.body ?? ''))
 			if (created && !alreadyCreated && !nameTaken) {
 				sendUserToast(`Group ${name} may have been created anyway — reopen it to check`, true)
 			}
