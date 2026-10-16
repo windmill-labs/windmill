@@ -81,6 +81,18 @@ fn forbidden(key: &str) -> Error {
     ))
 }
 
+/// The S3 proxy forwards mapped keys in a URL, where clients and signers collapse `.` and `..`
+/// segments: `<fork area>../../k` would reach the parent's `k`.
+fn reject_dot_segments(key: &str) -> Result<&str> {
+    let key = key.trim_start_matches('/');
+    if key.split('/').any(|s| s == "." || s == "..") {
+        return Err(Error::BadRequest(format!(
+            "`{key}` has a `.` or `..` path segment, which object storage keys may not use here"
+        )));
+    }
+    Ok(key)
+}
+
 /// One workspace of a fork chain, nearest first, as the storage mapping needs it.
 #[derive(Debug, Clone)]
 pub struct ChainLink {
@@ -122,9 +134,15 @@ impl ForkStorageKeys {
         self.write_prefix.is_empty() && self.read_prefixes.len() == 1
     }
 
+    /// The same mapping with reads confined to the workspace's own copy, for sizing what a
+    /// write replaces: an ancestor's object is not overwritten by it.
+    pub fn own_only(&self) -> Self {
+        Self { read_prefixes: vec![self.write_prefix.clone()], ..self.clone() }
+    }
+
     /// The physical key a write (put, multipart, delete, copy destination) of `key` goes to.
     pub fn write_key(&self, key: &str) -> Result<String> {
-        let key = key.trim_start_matches('/');
+        let key = reject_dot_segments(key)?;
         if in_fork_area(key) {
             return if key.starts_with(&self.own_area) {
                 Ok(key.to_string())
@@ -137,7 +155,7 @@ impl ForkStorageKeys {
 
     /// The physical keys a read of `key` tries, in order, until one exists.
     pub fn read_keys(&self, key: &str) -> Result<Vec<String>> {
-        let key = key.trim_start_matches('/');
+        let key = reject_dot_segments(key)?;
         if in_fork_area(key) {
             return if self.readable_areas.iter().any(|a| key.starts_with(a)) {
                 Ok(vec![key.to_string()])
@@ -155,7 +173,7 @@ impl ForkStorageKeys {
     /// A listing of `prefix` covers this workspace's own objects only: an isolating fork does
     /// not list its ancestors' keys.
     pub fn list(&self, prefix: &str) -> Result<ListMapping> {
-        let prefix = prefix.trim_start_matches('/');
+        let prefix = reject_dot_segments(prefix)?;
         if in_fork_area(prefix) {
             if !self.readable_areas.iter().any(|a| prefix.starts_with(a)) {
                 return Err(forbidden(prefix));
@@ -340,6 +358,23 @@ mod tests {
         ]);
         let d = fork_area("wm-fork-d");
         assert_eq!(keys.read_keys("x").unwrap(), vec![format!("{d}x")]);
+    }
+
+    #[test]
+    fn dot_segments_cannot_climb_out_of_the_fork_area() {
+        let keys = ForkStorageKeys::from_chain(&[
+            link("wm-fork-a", "S3Storage:u/a/s3", true),
+            link("prod", "S3Storage:u/a/s3", false),
+        ]);
+        let area = fork_area("wm-fork-a");
+        assert!(keys.write_key("../../prod.csv").is_err());
+        assert!(keys.write_key(&format!("{area}lake/../../x")).is_err());
+        assert!(keys.read_keys("a/./b").is_err());
+        assert!(keys.list("..").is_err());
+        assert_eq!(
+            keys.write_key("a..b/c.d").unwrap(),
+            format!("{area}a..b/c.d")
+        );
     }
 
     #[test]

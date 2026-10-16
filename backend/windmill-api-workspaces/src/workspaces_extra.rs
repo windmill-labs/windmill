@@ -1116,6 +1116,23 @@ pub(crate) async fn delete_workspace(
             tracing::warn!("deleting workspace {w_id}: preparing ducklake cleanup: {e:#}");
             vec![]
         });
+    // A child fork reads through to this fork's prefix, and a child sharing the storage writes
+    // into it: purging it would destroy the child's data, and losing this link would leave the
+    // child writing the root's own keys.
+    let isolating_with_children = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM fork_storage_namespace WHERE workspace_id = $1)
+            AND EXISTS (SELECT 1 FROM workspace WHERE parent_workspace_id = $1)",
+        &w_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+    if isolating_with_children {
+        return Err(Error::BadRequest(format!(
+            "{w_id} isolates its object storage and its forks read and write through it: delete \
+             its forks first"
+        )));
+    }
     // Nothing can reach a deleted fork's prefix once it is gone, so it is always purged.
     let fork_storage_purges = prepare_fork_storage_purges(&db, &w_id, None)
         .await

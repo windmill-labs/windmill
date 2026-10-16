@@ -15,12 +15,25 @@ use crate::{build_object_store_client, ObjectStoreResource};
 
 /// The client for `w_id`'s storage `storage` (None = default). Every server-side access to a
 /// workspace storage by logical key goes through this, so fork isolation holds on each path.
+///
+/// It checks no authorization: the caller must already have checked that the requester may
+/// use `w_id`'s storage, and its permission rules for each key it reads or writes.
 pub async fn workspace_object_store(
     db: &windmill_common::DB,
     w_id: &str,
     storage: Option<&str>,
     resource: &ObjectStoreResource,
 ) -> windmill_common::error::Result<Arc<dyn ObjectStore>> {
+    Ok(workspace_fork_store(db, w_id, storage, resource).await?)
+}
+
+/// [`workspace_object_store`] as its concrete type, under the same authorization contract.
+pub async fn workspace_fork_store(
+    db: &windmill_common::DB,
+    w_id: &str,
+    storage: Option<&str>,
+    resource: &ObjectStoreResource,
+) -> windmill_common::error::Result<Arc<ForkStore>> {
     let inner = build_object_store_client(resource).await?;
     let keys = fork_storage_keys(db, w_id, storage).await?;
     Ok(Arc::new(ForkStore { inner, keys }))
@@ -39,6 +52,11 @@ impl ForkStore {
 
     pub fn keys(&self) -> &ForkStorageKeys {
         &self.keys
+    }
+
+    /// This store with reads confined to the workspace's own copies.
+    pub fn own_only(&self) -> Arc<dyn ObjectStore> {
+        Arc::new(ForkStore { inner: self.inner.clone(), keys: Arc::new(self.keys.own_only()) })
     }
 }
 

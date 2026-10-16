@@ -18,7 +18,14 @@ turns a workspace-storage key into a storage operation: the `ForkStore` object-s
 (`windmill_object_store::fork_store::workspace_object_store`) for every server-side helper, and
 key rewriting in the S3 proxy's raw S3 forwarding (URI key, list `prefix`/`start-after`/`marker`
 and response keys, `x-amz-copy-source`). A named resource (`s3_resource_path`) is not workspace
-storage and is never mapped. Credentials handed out for a named resource bypass it by design.
+storage and is never mapped. A workspace whose keys are mapped is refused its workspace
+storage's own credentials (`s3_resource_info`, the duckdb/polars settings endpoints): a client
+holding them would write past the mapping.
+
+Not mapped, on purpose: AI sessions and volumes (their keys already carry the workspace id),
+SMTP attachments (job-id keys), the storage usage count (it counts the whole bucket). Known
+gaps: the worker's result-cache hash HEADs the logical key unmapped, and a read of an object
+the fork does not own costs one HEAD per chain level before the GET.
 
 ## Invariants
 
@@ -28,8 +35,16 @@ storage and is never mapped. Credentials handed out for a named resource bypass 
   paths arrive already prefixed, and its defer attaches read ancestors' raw keys through the
   read chain. Every workspace gets the rule, isolating or not, so pre-existing forks' lakes keep
   working.
+- **No `.` or `..` key segments**, in any workspace: the proxy forwards mapped keys in a URL,
+  where they collapse and would climb out of the fork's prefix.
 - **The prefix derives from the workspace id**, so an isolating fork's id cannot be changed
-  (`change_workspace_id` refuses): under a new id it would see none of its objects.
+  (`change_workspace_id` refuses): under a new id it would see none of its objects. Nor can an
+  isolated storage be repointed, since the purge targets the storage recorded at creation.
+- **A shared lake needs its storage shared**: its files must land at the parent's keys, where the
+  parent's catalog looks for them. Fork creation refuses the other combination.
+- **Children before parents**: deleting an isolating fork with forks of its own is refused. A
+  child reads through, or writes into, the parent's prefix, and without the parent in its chain
+  it would fall back to writing the root's keys.
 - **Deletion always purges** the fork's area of each isolated storage, post-commit, from the
   storage identity recorded at creation: nothing can reach it once the fork is gone. Rows have
   no FK and outlive the workspace when the purge fails; creating a fork with the same id retries
