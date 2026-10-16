@@ -1,5 +1,7 @@
 import { get } from 'svelte/store'
+import { isRestricted } from '$lib/roleCapabilities'
 import {
+	roleCapabilities,
 	userStore,
 	userWorkspaces,
 	workspaceStore,
@@ -19,15 +21,16 @@ export type ItemType = 'script' | 'flow' | 'app' | 'raw_app'
  * Whether to show the "edit in fork / dev workspace" affordance. Allowed when the user may create a
  * fork, OR when the current workspace has a canonical dev to route to — routing into an existing dev
  * workspace creates no fork, so it survives a locked prod that has `DisableWorkspaceForking` set.
- * Never for an operator, who has nothing to edit at the other end either way. User identity is read
- * non-reactively (it's stable within a session); reactivity comes from the workspace args.
+ * Never for a role without `code`, which has nothing to edit at the other end either way. User
+ * identity is read non-reactively (it's stable within a session); reactivity comes from the
+ * workspace args.
  */
 export function editInForkAllowed(
 	currentWorkspaceId: string | undefined,
 	allWorkspaces: UserWorkspace[]
 ): boolean {
 	const user = get(userStore)
-	if (user?.operator) return false
+	if (!get(roleCapabilities).code) return false
 	return canCreateFork(user) || !!findCanonicalDevWorkspace(currentWorkspaceId, allWorkspaces)
 }
 
@@ -54,17 +57,17 @@ export function editInForkDescription(
 }
 
 /**
- * Whether the user may CREATE a new fork of the current workspace: not an operator, and either
- * forking isn't disabled or they can bypass the rule (workspace admins). Keeps the "Fork workspace"
- * entry available to admins as the last-resort escape hatch on a locked prod.
+ * Whether the user may CREATE a new fork of the current workspace: their role is unrestricted, and
+ * either forking isn't disabled or they can bypass the rule (workspace admins). Keeps the "Fork
+ * workspace" entry available to admins as the last-resort escape hatch on a locked prod.
  *
- * An operator is refused because a fork does not carry the role: the server writes the forker's
- * membership row from the parent's `is_admin` and lets `operator` fall to its `false` default, so
- * forking would hand an operator a full-rights copy of the workspace. The server does not refuse it
- * — this hides the affordance, it does not enforce the rule.
+ * Any restricted role is refused because a fork does not carry the role: the server writes the
+ * forker's membership row from the parent's `is_admin` alone, so the forker gets the default role
+ * and forking would hand a restricted member a full-rights copy of the workspace. The server does
+ * not refuse it: this hides the affordance, it does not enforce the rule.
  */
 export function canCreateFork(user: UserExt | undefined): boolean {
-	if (user?.operator) return false
+	if (isRestricted(get(roleCapabilities))) return false
 	return (
 		!isRuleActive('DisableWorkspaceForking') ||
 		canUserBypassRuleKind('DisableWorkspaceForking', user)

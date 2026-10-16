@@ -97,7 +97,7 @@ import { untrack } from 'svelte'
 import { fromStore, get } from 'svelte/store'
 import type { ProviderToolSummary } from './agentContext'
 import { BROWSER } from 'esm-env'
-import { workspaceStore, type DBSchemas } from '$lib/stores'
+import { roleCapabilities, workspaceStore, type DBSchemas } from '$lib/stores'
 import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
 import { copilotWorkspaceRequested, loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
@@ -173,11 +173,6 @@ import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRout
 import { appendAttachedFilesRoster } from './files/fileTools'
 import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from './planMode'
 import { PlanModeController, type PlanModeHost } from './planModeController.svelte'
-import {
-	navigationOperatorBuilderApps,
-	navigationOperatorBuilderFlows,
-	navigationOperatorBuilderRights
-} from '$lib/operatorWriteRights'
 
 // Compaction of the stored history: once the projected request size
 // (contextTokens — the provider's report when current, a fresh chars/4
@@ -310,9 +305,7 @@ export function supportsPlanMode(mode: AIMode): boolean {
 	return PLAN_MODES.has(mode)
 }
 
-const isOperatorBuilder = fromStore(navigationOperatorBuilderRights)
-const isOperatorBuilderFlows = fromStore(navigationOperatorBuilderFlows)
-const isOperatorBuilderApps = fromStore(navigationOperatorBuilderApps)
+const navCapabilities = fromStore(roleCapabilities)
 
 export function isAIModeVisible(mode: AIMode): boolean {
 	return mode !== AIMode.GLOBAL || isGlobalAiEnabled()
@@ -1486,23 +1479,22 @@ export class AIChatManager implements ChatViewHost {
 			.map((s) => ({ ...s, kind: 'skill' as const }))
 	])
 
-	// The flow, app and script builders all write code, which the backend refuses from an
-	// operator with builder rights: leaving them reachable would only produce work that cannot be
-	// deployed.
+	// The flow, app and script builders all write code, which the backend refuses from a role
+	// that only composes: leaving them reachable would only produce work that cannot be deployed.
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script:
 			this.flowAiChatHelpers === undefined &&
 			this.scriptEditorOptions !== undefined &&
 			!this.disabledModes.script &&
-			!isOperatorBuilder.current,
+			navCapabilities.current.code,
 		flow:
 			this.flowAiChatHelpers !== undefined &&
 			!this.disabledModes.flow &&
-			!isOperatorBuilderFlows.current,
+			navCapabilities.current.flows === 'full',
 		app:
 			this.appAiChatHelpers !== undefined &&
 			!this.disabledModes.app &&
-			!isOperatorBuilderApps.current,
+			navCapabilities.current.apps === 'full',
 		navigator: !this.disabledModes.navigator,
 		ask: !this.disabledModes.ask,
 		API: !this.disabledModes.API,

@@ -17,9 +17,9 @@
 		}
 	]
 
-	/** An operator's session can run what is deployed, read runs and call MCP servers, but
-	 * cannot author scripts or apps. It composes flows only where the workspace grants
-	 * `operator_settings.builder_flows`, so none of these asks it to build anything. */
+	/** A session for a role that cannot code can run what is deployed, read runs and call MCP
+	 * servers, but cannot author scripts. It composes flows or apps only where its role grants
+	 * that, so none of these asks it to build anything. */
 	export const homeAIOperatorExamples: { label: string; prompt: string }[] = [
 		{
 			label: 'Run a flow',
@@ -54,7 +54,7 @@
 	import { startSessionWithPrompt } from '../sessions/sessionSwitch.svelte'
 	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
-	import { aiUserDisabled, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import { aiUserDisabled, hubBaseUrlStore, roleCapabilities, workspaceStore } from '$lib/stores'
 	import { HOME_SHOW_HUB } from '$lib/consts'
 	import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
@@ -76,7 +76,7 @@
 	 *  labelled buttons without the trail starting to truncate. Below it they fold back. */
 	const BAR_FITS_SIDE_TRIPS = 1024
 	const sideTripsInBar = $derived(pageHeader.barWidth >= BAR_FITS_SIDE_TRIPS)
-	const hubOffered = $derived(!$userStore?.operator && HOME_SHOW_HUB)
+	const hubOffered = $derived($roleCapabilities.code && HOME_SHOW_HUB)
 
 	let value = $state('')
 	// The stock examples for the reader's role, unless the invite that brought this person here wrote prompts for
@@ -89,7 +89,7 @@
 		promptIndex = 0
 	})
 	let examples = $derived(
-		invitePrompts ?? ($userStore?.operator ? homeAIOperatorExamples : homeAIExamples)
+		invitePrompts ?? ($roleCapabilities.code ? homeAIExamples : homeAIOperatorExamples)
 	)
 	let placeholderVisible = $state(true)
 	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)
@@ -158,11 +158,11 @@
 	// unlocked, so the far commoner unlocked workspace never pops the composer in mid-load.
 	let runOnlyWorkspace = $derived(isRuleActive('DisableDirectDeployment'))
 
-	// The composer hands off to /sessions, which refuses operators and users opted out of the
+	// The composer hands off to /sessions, which refuses roles that cannot code and users opted out of the
 	// sessions beta — so hide it from them (the prompt would be silently dropped) while the
 	// AI-independent CLI/MCP row below stays.
 	let showComposer = $derived(
-		prefersSessionHandoff($userStore?.operator) &&
+		prefersSessionHandoff(!$roleCapabilities.code) &&
 			!runOnlyWorkspace &&
 			!$copilotInfo.workspaceDisabled
 	)
@@ -247,7 +247,7 @@
 			{/if}
 			<div class="flex items-center justify-center gap-2 mb-4">
 				<p class="text-center font-regular text-3xl">
-					{$userStore?.operator ? 'Run with AI' : 'Build with AI'}
+					{$roleCapabilities.code ? 'Build with AI' : 'Run with AI'}
 				</p>
 				<Badge color="blue" small>Beta</Badge>
 			</div>
@@ -263,9 +263,9 @@
 						underlyingInputEl="textarea"
 						inputProps={{
 							rows: 4,
-							'aria-label': $userStore?.operator
-								? 'Describe what you want to do'
-								: 'Describe what you want to build',
+							'aria-label': $roleCapabilities.code
+								? 'Describe what you want to build'
+								: 'Describe what you want to do',
 							onkeydown: onKeydown
 						}}
 					/>

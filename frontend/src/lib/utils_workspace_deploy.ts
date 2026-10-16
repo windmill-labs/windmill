@@ -22,6 +22,9 @@ import {
 	type User
 } from '$lib/gen'
 import type { UserDraftItemKind } from '$lib/gen'
+import { get } from 'svelte/store'
+import { userWorkspaces } from '$lib/stores'
+import { capabilitiesIn } from '$lib/roleCapabilities'
 import {
 	fetchProtectionRulesForWorkspace,
 	canUserBypassRuleKindInRulesets
@@ -933,9 +936,9 @@ export async function checkDeployRules(
 
 /**
  * Whether the current user may deploy into `workspace` at all: the protection rules above,
- * plus a refusal of every operator.
+ * plus a refusal of every role without `code`.
  *
- * That refusal is not part of the `check_deploy_rules` mirror. The server refuses operators
+ * That refusal is not part of the `check_deploy_rules` mirror. The server refuses such roles
  * in the item handlers instead, and for fewer kinds, so refusing them for everything here is
  * deliberately stricter than the server rather than a faithful copy of it. A caller mirroring
  * one handler wants `checkDeployRules`.
@@ -948,10 +951,17 @@ export async function checkDeployPermission(
 ): Promise<DeployPermission> {
 	try {
 		const me = whoami ?? (await UserService.whoami({ workspace }))
-		if (me.operator) {
+		// Superadmin is left out on purpose: a superadmin whose role cannot code is refused too.
+		const roleUser = { is_admin: me.is_admin, operator: me.operator }
+		if (
+			!capabilitiesIn(
+				roleUser,
+				get(userWorkspaces).find((w) => w.id === workspace)
+			).code
+		) {
 			return {
 				ok: false,
-				reason: "You're an operator in this workspace — operators can't deploy",
+				reason: "Your role in this workspace can't deploy",
 				refusedBy: 'operator'
 			}
 		}
