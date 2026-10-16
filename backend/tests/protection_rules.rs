@@ -692,21 +692,30 @@ async fn test_protection_rule_rename(db: Pool<Postgres>) -> anyhow::Result<()> {
 #[sqlx::test(fixtures("base"))]
 async fn test_require_isolated_forks(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
-    invalidate_protection_rules_cache("test-workspace");
+    // Not `test-workspace`: PROTECTION_RULES_CACHE is process-wide and keyed by workspace id, so
+    // the other tests here, running concurrently on their own databases, would overwrite its rules.
+    invalidate_protection_rules_cache("iso-ws");
     // `dt2` is a clone governed from `gov`, but its database is this workspace's; `dt3` points
     // into `gov`'s database.
     let pg = r#"{"resource_type": "postgresql", "resource_path": "u/test-user/pg"}"#;
     let gov = r#"{"workspace_id": "gov", "datatable": "src"}"#;
     sqlx::raw_sql(
-        "INSERT INTO workspace (id, name, owner) VALUES ('gov', 'gov', 'test-user');
-         INSERT INTO workspace_settings (workspace_id) VALUES ('gov')",
+        "INSERT INTO workspace (id, name, owner) VALUES
+             ('gov', 'gov', 'test-user'), ('iso-ws', 'iso-ws', 'test-user');
+         INSERT INTO workspace_settings (workspace_id) VALUES ('gov'), ('iso-ws');
+         INSERT INTO workspace_key (workspace_id, kind, key) VALUES ('iso-ws', 'cloud', 'iso-key');
+         INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES
+             ('iso-ws', 'all', 'All users', '{}');
+         INSERT INTO usr (workspace_id, email, username, is_admin, role) VALUES
+             ('iso-ws', 'test@windmill.dev', 'test-user', true, 'Admin'),
+             ('iso-ws', 'test2@windmill.dev', 'test-user-2', false, 'User')",
     )
     .execute(&db)
     .await?;
     for (w_id, datatables) in [
         ("gov", format!(r#"{{"src": {{"database": {pg}}}}}"#)),
         (
-            "test-workspace",
+            "iso-ws",
             format!(
                 r#"{{"dt1": {{"database": {pg}}}, "dt2": {{"database": {pg}, "governed_by": {gov}}},
                     "dt3": {{"reference": {gov}}}}}"#
@@ -724,10 +733,7 @@ async fn test_require_isolated_forks(db: Pool<Postgres>) -> anyhow::Result<()> {
     }
 
     let server = ApiServer::start(db.clone()).await?;
-    let base = format!(
-        "http://localhost:{}/api/w/test-workspace",
-        server.addr.port()
-    );
+    let base = format!("http://localhost:{}/api/w/iso-ws", server.addr.port());
     let resp = authed(
         client().post(format!("{base}/workspaces/protection_rules")),
         "SECRET_TOKEN",
