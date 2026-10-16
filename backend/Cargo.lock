@@ -16229,6 +16229,7 @@ dependencies = [
  "uuid",
  "windmill-api-auth",
  "windmill-common",
+ "windmill-queue",
 ]
 
 [[package]]

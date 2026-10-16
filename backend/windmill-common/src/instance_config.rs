@@ -263,6 +263,8 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_tags_per_workspace: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub dev_workspace_isolation: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub preview_tags_override: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disable_hub: Option<bool>,
@@ -278,6 +280,8 @@ pub struct GlobalSettings {
     pub auto_build_binary_tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dependency_job_tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dev_workspace_tag_suffix: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_base_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -970,6 +974,9 @@ pub struct WorkerGroupConfig {
     /// Workers of the group pull no new job while this is set; queued jobs wait.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub paused: Option<bool>,
+    /// The group listens to its tags suffixed with the dev workspace tag suffix, and only to them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub serves_dev_workspaces: Option<bool>,
     /// Object store this group's dependency cache uses instead of the instance one. Same shape
     /// as the instance `object_store_cache_config`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1497,6 +1504,14 @@ pub async fn sync_global_settings_declarative(
         Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
         Some(color) => crate::global_settings::validate_accent_color(color)
             .map_err(|e| anyhow::anyhow!("{accent_key}: {e}"))?,
+    }
+
+    let suffix_key = crate::global_settings::DEV_WORKSPACE_TAG_SUFFIX_SETTING;
+    match desired.get(suffix_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
+        Some(suffix) => crate::global_settings::validate_dev_workspace_tag_suffix(suffix)
+            .map_err(|e| anyhow::anyhow!("{suffix_key}: {e}"))?,
     }
 
     // An origin list that cannot be parsed is dropped at boot, leaving the

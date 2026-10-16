@@ -11413,6 +11413,30 @@ paths:
               schema:
                 type: boolean
 
+  /workers/dev_workspace_isolation:
+    get:
+      summary: get whether the jobs of dev workspaces and forks run on their own worker groups
+      operationId: getDevWorkspaceIsolation
+      tags:
+        - worker
+      responses:
+        "200":
+          description: dev workspace isolation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                    description: whether new jobs of dev workspaces and forks are queued on suffixed tags
+                  suffix:
+                    type: string
+                    description: the suffix of those tags, which worker groups serving dev workspaces listen with
+                required:
+                  - enabled
+                  - suffix
+
   /w/{workspace}/workspace_dependencies/create:
     post:
       summary: create workspace dependencies

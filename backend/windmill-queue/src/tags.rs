@@ -1,6 +1,10 @@
 use sqlx::{Pool, Postgres};
+use windmill_common::error::Error;
 use windmill_common::worker::{
-    DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX,
+    dedicated_worker_tag, dev_workspace_tag_suffix, is_hashed_dedicated_worker_tag,
+    with_dev_workspace_suffix, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES,
+    DEV_WORKSPACE_TAG_SUFFIX, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX, MAX_TAG_LEN,
+    WORKER_SERVES_DEV_WORKSPACES,
 };
 use windmill_common::workspaces::WM_FORK_PREFIX;
 
@@ -13,6 +17,10 @@ struct TagWorkspace {
     /// Whether the `-fork` suffix may apply: the workspace shares an ancestor's id, or carries the
     /// generated prefix itself.
     is_fork: bool,
+    /// Whether the workspace's jobs run on the workers serving dev workspaces: it has a parent,
+    /// or carries the generated prefix (a fork orphaned by its parent's deletion stays a fork).
+    /// `None` when the lookup failed.
+    is_dev: Option<bool>,
 }
 
 lazy_static::lazy_static! {
@@ -140,9 +148,153 @@ pub async fn per_workspace_tag(workspace_id: &str, db: &Pool<Postgres>) -> Optio
     })
 }
 
+/// `tag`, fully resolved, as a job of `workspace_id` is queued on it: suffixed with the dev
+/// workspace tag suffix when isolation is on and the workspace is a dev workspace or a fork, so
+/// only the worker groups serving dev workspaces pick it up. A tag no group serves leaves the job
+/// queued; it never falls back to the unsuffixed tag. Dedicated worker tags are exempt: they
+/// already name the workspace and an admin places each dedicated worker by hand.
+pub async fn apply_dev_workspace_suffix(
+    tag: String,
+    workspace_id: &str,
+    db: &Pool<Postgres>,
+) -> Result<String, Error> {
+    let Some(suffix) = dev_workspace_suffix_for(workspace_id, db).await? else {
+        return Ok(tag);
+    };
+    if is_dedicated_worker_tag_of(workspace_id, &tag, db).await? {
+        return Ok(tag);
+    }
+    let suffixed = with_dev_workspace_suffix(&tag, &suffix);
+    if suffixed.len() > MAX_TAG_LEN {
+        return Err(Error::BadRequest(format!(
+            "tag {tag} of a dev workspace job would be {suffixed} once suffixed with {suffix}, \
+             longer than the {MAX_TAG_LEN} characters a job tag holds"
+        )));
+    }
+    Ok(suffixed)
+}
+
+/// Whether `tag` is a dedicated worker tag of `workspace_id`. A hashed one keeps only a prefix of
+/// the workspace id, which another workspace may share, so it counts only when a worker group's
+/// dedicated config for this workspace produces it.
+async fn is_dedicated_worker_tag_of(
+    workspace_id: &str,
+    tag: &str,
+    db: &Pool<Postgres>,
+) -> Result<bool, Error> {
+    if tag.starts_with(&format!("{workspace_id}:")) {
+        return Ok(true);
+    }
+    if !is_hashed_dedicated_worker_tag(tag) {
+        return Ok(false);
+    }
+    let configs = sqlx::query_scalar!("SELECT config FROM config WHERE name LIKE 'worker\\_\\_%'")
+        .fetch_all(db)
+        .await?;
+    Ok(configs.into_iter().flatten().any(|config| {
+        let single = config.get("dedicated_worker").cloned().into_iter();
+        let many = config
+            .get("dedicated_workers")
+            .and_then(|v| v.as_array().cloned())
+            .unwrap_or_default();
+        single.chain(many).any(|entry| {
+            entry
+                .as_str()
+                .and_then(|e| e.split_once(':'))
+                .is_some_and(|(ws, path)| {
+                    ws == workspace_id && dedicated_worker_tag(ws, path) == tag
+                })
+        })
+    }))
+}
+
+/// Gives `new_id` the lineage of `old_id` before a rename commits: the rename re-pushes the
+/// workspace's schedules in its own transaction, where the new row is not yet visible to the
+/// lookup, and a job queued then would keep a tag resolved without its parent for good.
+pub async fn carry_lineage_over_rename(
+    old_id: &str,
+    new_id: &str,
+    db: &Pool<Postgres>,
+) -> Result<(), Error> {
+    let old = lookup_tag_workspace(old_id, db).await;
+    if old.is_dev.is_none() {
+        return Err(Error::internal_err(format!(
+            "could not resolve the lineage of {old_id}"
+        )));
+    }
+    let new = TagWorkspace {
+        id: if old.id == old_id {
+            new_id.to_string()
+        } else {
+            old.id
+        },
+        ..old
+    };
+    FORK_PARENT_CACHE.insert(new_id.to_string(), (new, std::time::Instant::now()));
+    Ok(())
+}
+
+/// The suffix to strip from a flow job's tag to compare it with the generic flow tags: that of a
+/// dev workspace's flow, isolation on or off, so a flow started before isolation was turned off
+/// still routes its steps by their own tags.
+pub async fn dev_flow_tag_suffix(
+    workspace_id: &str,
+    flow_tag: &str,
+    db: &Pool<Postgres>,
+) -> Result<Option<String>, Error> {
+    let suffix = DEV_WORKSPACE_TAG_SUFFIX.load().to_string();
+    if !flow_tag.ends_with(&suffix) {
+        return Ok(None);
+    }
+    match lookup_tag_workspace(workspace_id, db).await.is_dev {
+        Some(true) => Ok(Some(suffix)),
+        Some(false) => Ok(None),
+        None => Err(Error::internal_err(format!(
+            "could not resolve whether {workspace_id} is a dev workspace"
+        ))),
+    }
+}
+
+/// The suffix the jobs of `workspace_id` are queued with: `Some` while isolation is on and the
+/// workspace is a dev workspace or a fork. A lineage that cannot be read is an error rather than
+/// a guess, as either guess queues a job on the wrong pool for good.
+pub async fn dev_workspace_suffix_for(
+    workspace_id: &str,
+    db: &Pool<Postgres>,
+) -> Result<Option<String>, Error> {
+    let Some(suffix) = dev_workspace_tag_suffix() else {
+        return Ok(None);
+    };
+    match lookup_tag_workspace(workspace_id, db).await.is_dev {
+        Some(true) => Ok(Some(suffix)),
+        Some(false) => Ok(None),
+        None => Err(Error::internal_err(format!(
+            "could not resolve whether {workspace_id} is a dev workspace, which decides the \
+             workers its jobs run on"
+        ))),
+    }
+}
+
+/// Refuses running code of `workspace_id` in this process, as the inline routes do, when its
+/// jobs are isolated on dev workers and this process's group does not serve dev workspaces.
+pub async fn check_inline_run_allowed(
+    workspace_id: &str,
+    db: &Pool<Postgres>,
+) -> Result<(), Error> {
+    if dev_workspace_suffix_for(workspace_id, db).await?.is_some()
+        && !WORKER_SERVES_DEV_WORKSPACES.load(std::sync::atomic::Ordering::Relaxed)
+    {
+        return Err(Error::BadRequest(format!(
+            "{workspace_id} is a dev workspace or a fork, whose code runs only on worker groups \
+             serving dev workspaces, and this worker's group does not: run it as a job instead"
+        )));
+    }
+    Ok(())
+}
+
 /// Backed by a short-TTL cache to avoid a DB round-trip per job push. A transient DB error resolves
 /// to the workspace's own id for this call but is NOT cached, so the next push retries instead of
-/// misrouting for the whole TTL.
+/// misrouting for the whole TTL. Whether the workspace is dev is then unknown.
 async fn lookup_tag_workspace(workspace_id: &str, db: &Pool<Postgres>) -> TagWorkspace {
     if let Some((resolved, cached_at)) = FORK_PARENT_CACHE.get(workspace_id) {
         if cached_at.elapsed().as_secs() < FORK_PARENT_CACHE_TTL_SECS {
@@ -154,7 +306,7 @@ async fn lookup_tag_workspace(workspace_id: &str, db: &Pool<Postgres>) -> TagWor
     // itself under a generated fork id. The depth bound mirrors the other chain walkers as a
     // cycle-safety backstop. A `wm-fork-` workspace orphaned by `ON DELETE SET NULL` has no parent
     // left to borrow from, so it ends the walk on itself.
-    let resolved = match sqlx::query_scalar!(
+    let resolved = match sqlx::query!(
         r#"
             WITH RECURSIVE chain AS (
                 SELECT id, parent_workspace_id, is_dev_workspace, 0 AS depth
@@ -165,35 +317,47 @@ async fn lookup_tag_workspace(workspace_id: &str, db: &Pool<Postgres>) -> TagWor
                 JOIN chain ON w.id = chain.parent_workspace_id
                 WHERE chain.depth < 20
             )
-            SELECT id AS "id!" FROM chain
-            WHERE parent_workspace_id IS NULL
-               OR (is_dev_workspace AND id NOT LIKE 'wm-fork-%')
-            ORDER BY depth LIMIT 1
+            SELECT
+                (SELECT id FROM chain
+                 WHERE parent_workspace_id IS NULL
+                    OR (is_dev_workspace AND id NOT LIKE 'wm-fork-%')
+                 ORDER BY depth LIMIT 1) AS id,
+                (SELECT parent_workspace_id IS NOT NULL FROM chain WHERE depth = 0) AS has_parent
         "#,
         workspace_id
     )
-    .fetch_optional(db)
+    .fetch_one(db)
     .await
     {
-        // No row means the workspace does not exist yet, or its chain is broken: both are "we
-        // cannot resolve this", so fall back to its own id for this call WITHOUT caching. Caching
-        // it would pin a fork to its own unserved id for the whole TTL — a rename resolves the new
-        // id before the row lands, and every job pushed until the TTL expires would queue.
-        Ok(None) => {
-            return TagWorkspace {
-                id: workspace_id.to_string(),
-                is_fork: workspace_id.starts_with(WM_FORK_PREFIX),
+        Ok(row) => match row.id {
+            Some(id) => TagWorkspace {
+                is_fork: id != workspace_id || workspace_id.starts_with(WM_FORK_PREFIX),
+                is_dev: Some(
+                    row.has_parent == Some(true) || workspace_id.starts_with(WM_FORK_PREFIX),
+                ),
+                id,
+            },
+            // No id means the workspace does not exist yet, or its chain is broken: both are "we
+            // cannot resolve this", so fall back to its own id for this call WITHOUT caching.
+            // Caching it would pin a fork to its own unserved id for the whole TTL — a rename
+            // resolves the new id before the row lands, and every job pushed until the TTL
+            // expires would queue.
+            None => {
+                return TagWorkspace {
+                    id: workspace_id.to_string(),
+                    is_fork: workspace_id.starts_with(WM_FORK_PREFIX),
+                    is_dev: Some(
+                        row.has_parent == Some(true) || workspace_id.starts_with(WM_FORK_PREFIX),
+                    ),
+                }
             }
-        }
-        Ok(Some(id)) => {
-            let is_fork = id != workspace_id || workspace_id.starts_with(WM_FORK_PREFIX);
-            TagWorkspace { id, is_fork }
-        }
+        },
         Err(e) => {
             tracing::warn!("failed to resolve tag workspace for {workspace_id}: {e:#}");
             return TagWorkspace {
                 id: workspace_id.to_string(),
                 is_fork: workspace_id.starts_with(WM_FORK_PREFIX),
+                is_dev: None,
             };
         }
     };
