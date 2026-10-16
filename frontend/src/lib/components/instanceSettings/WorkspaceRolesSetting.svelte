@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { Writable } from 'svelte/store'
+	import { untrack } from 'svelte'
 	import { Alert, Badge, Button } from '../common'
 	import TextInput from '../text_input/TextInput.svelte'
 	import RoleCapabilitiesEditor from '../settings/RoleCapabilitiesEditor.svelte'
@@ -72,7 +73,11 @@
 		const next = serialize($state.snapshot(rows) as Row[])
 		if (lastSynced === undefined || disabled) return
 		const nextStr = JSON.stringify(next ?? null)
-		if (nextStr === JSON.stringify($values[KEY] ?? null)) return
+		// Compared with the stored value in serialized form, so one spelled differently (the
+		// defaults written out, an empty `capabilities`, another key order) is not rewritten
+		// and the category not marked unsaved before anything is edited.
+		const stored = untrack(() => $values[KEY])
+		if (nextStr === JSON.stringify(serialize(toRows(stored)) ?? null)) return
 		lastSynced = nextStr
 		$values[KEY] = next
 	})

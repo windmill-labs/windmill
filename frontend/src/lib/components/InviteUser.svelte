@@ -3,7 +3,7 @@
 	import Popover from './meltComponents/Popover.svelte'
 	import RolePicker from './settings/RolePicker.svelte'
 	import type { EffectiveRole } from '$lib/gen'
-	import { DEVELOPER_ROLE } from '$lib/workspaceRoles'
+	import { validRoleOr } from '$lib/workspaceRoles'
 	import { MailPlus } from 'lucide-svelte'
 
 	interface Props {
@@ -26,7 +26,8 @@
 		}
 	}
 
-	let selected: string = $state(DEVELOPER_ROLE)
+	let picked: string | undefined = $state(undefined)
+	const selected = $derived(validRoleOr(roles, picked))
 </script>
 
 <Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
@@ -49,7 +50,7 @@
 				bind:value={email}
 				class="mr-4"
 			/>
-			<RolePicker {roles} disablePortal value={selected} onchange={(v) => (selected = v)} />
+			<RolePicker {roles} disablePortal value={selected} onchange={(v) => (picked = v)} />
 			<Button
 				variant="accent"
 				unifiedSize="md"

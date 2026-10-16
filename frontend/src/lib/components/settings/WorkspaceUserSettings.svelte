@@ -7,11 +7,13 @@
 	import WorkspaceRoleOverrides from '$lib/components/settings/WorkspaceRoleOverrides.svelte'
 	import RolePicker from '$lib/components/settings/RolePicker.svelte'
 	import {
-		DEVELOPER_ROLE,
+		defaultRoleName,
 		loadWorkspaceRoles,
+		OPERATOR_ROLE,
 		pickerValue,
 		roleLabel,
-		roleRequestFields
+		roleRequestFields,
+		validRoleOr
 	} from '$lib/workspaceRoles'
 	import InviteUser from '$lib/components/InviteUser.svelte'
 	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
@@ -55,14 +57,19 @@
 	let filteredUsers: Member[] | undefined = $state(undefined)
 	let userFilter = $state('')
 	let auto_invite_domain: string | undefined = $state()
-	let autoInviteRole: string = $state(DEVELOPER_ROLE)
+	// Unset until picked or stored; the pickers and payloads fall back to the default role.
+	let autoInviteRole: string | undefined = $state(undefined)
 	let workspaceRoles = $state<WorkspaceRoles | undefined>(undefined)
 	const roles = $derived(workspaceRoles?.roles)
 
 	async function loadRoles(): Promise<void> {
 		const workspace = $workspaceStore!
-		const r = await loadWorkspaceRoles(workspace)
-		if (workspace === $workspaceStore) workspaceRoles = r
+		try {
+			const r = await loadWorkspaceRoles(workspace)
+			if (workspace === $workspaceStore) workspaceRoles = r
+		} catch (e) {
+			sendUserToast(`Failed to load the workspace roles: ${e?.body ?? e}`, true)
+		}
 	}
 	let autoAdd: boolean | undefined = $state(false)
 	let addAdminsAndDevelopersToForks = $state(false)
@@ -75,7 +82,7 @@
 
 	// Add new instance group form state
 	let selectedNewInstanceGroup: string | undefined = $state(undefined)
-	let selectedNewRole: string | undefined = $state(DEVELOPER_ROLE)
+	let selectedNewRole: string | undefined = $state(undefined)
 
 	// Service account creation
 
@@ -139,7 +146,7 @@
 			  }
 			| undefined
 		auto_invite_domain = autoInvite?.enabled ? (autoInvite?.domain ?? '*') : undefined
-		autoInviteRole = pickerValue({ role: autoInvite?.role, operator: autoInvite?.operator })
+		autoInviteRole = autoInvite?.role ?? (autoInvite?.operator ? OPERATOR_ROLE : undefined)
 		autoAdd = autoInvite?.mode === 'add'
 		autoAddInstanceGroups = autoInvite?.instance_groups || []
 		autoAddInstanceGroupsRoles = autoInvite?.instance_groups_roles || {}
@@ -253,10 +260,10 @@
 	}
 
 	async function addInstanceGroup(): Promise<void> {
-		if (!selectedNewInstanceGroup || !selectedNewRole) return
+		if (!selectedNewInstanceGroup) return
 
 		const groupToAdd = selectedNewInstanceGroup
-		const roleToAdd = selectedNewRole
+		const roleToAdd = validRoleOr(roles, selectedNewRole)
 
 		try {
 			autoAddInstanceGroups = [...autoAddInstanceGroups, groupToAdd]
@@ -264,7 +271,7 @@
 
 			// Reset form
 			selectedNewInstanceGroup = undefined
-			selectedNewRole = DEVELOPER_ROLE
+			selectedNewRole = undefined
 
 			await saveInstanceGroupSettings()
 		} catch (e) {
@@ -426,7 +433,7 @@
 				workspace: $workspaceStore ?? '',
 				requestBody: enable
 					? {
-							...roleRequestFields(autoInviteRole),
+							...roleRequestFields(validRoleOr(roles, autoInviteRole)),
 							invite_all: !isCloudHosted(),
 							auto_add: autoAdd
 						}
@@ -566,7 +573,7 @@
 								{roles}
 								admin={false}
 								disablePortal
-								value={autoInviteRole}
+								value={validRoleOr(roles, autoInviteRole)}
 								onchange={async (v) => {
 									autoInviteRole = v
 									if (auto_invite_domain != undefined) {
@@ -663,7 +670,7 @@
 													<RolePicker
 														{roles}
 														disablePortal
-														value={selectedNewRole}
+														value={validRoleOr(roles, selectedNewRole)}
 														onchange={(v) => (selectedNewRole = v)}
 													/>
 												</div>
@@ -673,7 +680,7 @@
 												color="blue"
 												size="xs"
 												startIcon={{ icon: Plus }}
-												disabled={!selectedNewInstanceGroup || !selectedNewRole}
+												disabled={!selectedNewInstanceGroup}
 												onclick={addInstanceGroup}
 											>
 												Add
@@ -710,7 +717,7 @@
 																			{roles}
 																			disablePortal
 																			value={autoAddInstanceGroupsRoles[groupName] ||
-																				DEVELOPER_ROLE}
+																				defaultRoleName(roles)}
 																			onchange={async (v) => {
 																				await updateGroupRole(groupName, v)
 																			}}
@@ -881,7 +888,7 @@
 											} catch (e) {
 												sendUserToast(`Failed to change role: ${e?.body ?? e}`, true)
 											}
-											listUsers()
+											await listUsers()
 										}}
 									/>
 								{/if}
@@ -1078,7 +1085,7 @@
 											} catch (e) {
 												sendUserToast(`Failed to change role: ${e?.body ?? e}`, true)
 											}
-											listInvites()
+											await listInvites()
 										}}
 									/>
 								</div>

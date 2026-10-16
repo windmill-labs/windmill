@@ -15,7 +15,7 @@
 	import Select from './select/Select.svelte'
 	import { resource } from 'runed'
 	import RolePicker from './settings/RolePicker.svelte'
-	import { DEVELOPER_ROLE, roleRequestFields } from '$lib/workspaceRoles'
+	import { roleRequestFields, validRoleOr } from '$lib/workspaceRoles'
 
 	interface Props {
 		/** The workspace's roles; undefined while loading. */
@@ -155,7 +155,8 @@
 
 	type ServiceAccountRole = 'operator' | 'developer' | 'admin'
 	// A role name, or `admin`.
-	let selected: string = $state(DEVELOPER_ROLE)
+	let picked: string | undefined = $state(undefined)
+	const selected = $derived(validRoleOr(roles, picked))
 	let serviceAccountRole: ServiceAccountRole = $state('operator' as ServiceAccountRole)
 	let addToDeployers: boolean = $state(true)
 	let isServiceAccount = $state(false)
@@ -245,7 +246,7 @@
 			{#if !isServiceAccount}
 				<span class="text-xs mb-1 pt-6 leading-6">Role</span>
 				<div class="mb-4">
-					<RolePicker {roles} disablePortal value={selected} onchange={(v) => (selected = v)} />
+					<RolePicker {roles} disablePortal value={selected} onchange={(v) => (picked = v)} />
 				</div>
 			{:else}
 				<span class="text-xs mb-1 leading-6">Service account role</span>
