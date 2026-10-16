@@ -3,7 +3,6 @@
 	import { workspaceStore } from '$lib/stores'
 	import { resource } from 'runed'
 	import Select from '../select/Select.svelte'
-	import Label from '../Label.svelte'
 	import { TriangleAlert } from 'lucide-svelte'
 
 	// The workspace the fork is created from (matches ForkDatatableSection): a
@@ -11,8 +10,9 @@
 	// the lakes listed here must match the ones the create-fork call submits to.
 	let {
 		sourceWorkspace,
-		requireIsolation = false
-	}: { sourceWorkspace?: string; requireIsolation?: boolean } = $props()
+		requireIsolation = false,
+		itemCount = $bindable()
+	}: { sourceWorkspace?: string; requireIsolation?: boolean; itemCount?: number } = $props()
 	let effectiveSource = $derived(sourceWorkspace ?? $workspaceStore ?? undefined)
 
 	// Keyed on the source so a direct page load (store hydrates after mount) still fetches.
@@ -20,6 +20,10 @@
 		() => effectiveSource,
 		async (ws) => (ws ? WorkspaceService.listDucklakes({ workspace: ws }) : undefined)
 	)
+
+	$effect(() => {
+		itemCount = allDucklakes.current?.length ?? 0
+	})
 
 	let lakeBehaviors: Record<string, 'isolated' | 'shared'> = $state({})
 
@@ -38,14 +42,8 @@
 
 <!-- Self-hides when the workspace has no ducklake configured, like the datatable section. -->
 {#if allDucklakes.current && allDucklakes.current.length > 0}
-	<Label label="Ducklake data environment">
-		<span class="text-xs text-secondary">
-			By default each lake is isolated in the fork: materializations write a fork-scoped namespace
-			and reads of not-yet-materialized tables defer to this workspace's current data.
-			{#if requireIsolation}
-				A protection rule on this workspace requires its forks to keep every lake isolated.
-			{/if}
-		</span>
+	<div class="flex flex-col gap-1">
+		<span class="text-xs font-medium text-secondary">Ducklakes</span>
 		<div class="border rounded-md divide-y">
 			{#each allDucklakes.current as name (name)}
 				<div class="flex items-center gap-2 justify-between px-4 py-1.5">
@@ -58,7 +56,7 @@
 							(v) => (lakeBehaviors[name] = v)
 						}
 						items={[
-							{ value: 'isolated', label: 'Isolated (defer reads to parent)' },
+							{ value: 'isolated', label: 'Isolated' },
 							{ value: 'shared', label: 'Shared with parent' }
 						]}
 					/>
@@ -66,15 +64,10 @@
 			{/each}
 		</div>
 		{#if anyShared}
-			<div
-				class="flex items-start gap-2 px-3 py-2 text-xs rounded-md border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300"
-			>
-				<TriangleAlert size={14} class="shrink-0 mt-0.5" />
-				<span>
-					A shared lake is NOT isolated: pipeline runs in the fork read and write this workspace's
-					tables directly.
-				</span>
-			</div>
+			<span class="flex items-center gap-1 text-2xs text-amber-700 dark:text-amber-300">
+				<TriangleAlert size={12} class="shrink-0" />
+				Pipeline runs in the fork will write this workspace's tables.
+			</span>
 		{/if}
-	</Label>
+	</div>
 {/if}

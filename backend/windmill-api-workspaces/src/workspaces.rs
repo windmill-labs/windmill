@@ -2332,6 +2332,9 @@ struct DataTableListItem {
     /// at its parent. Its permissions apply here, and only its admins may edit them.
     #[serde(skip_serializing_if = "Option::is_none")]
     governing_workspace_id: Option<String>,
+    /// The workspace owning the database this entry points at, when it is not this workspace.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    database_workspace_id: Option<String>,
     /// Whether the governing entry is under roles.
     permissioned: bool,
 }
@@ -2361,6 +2364,8 @@ async fn list_datatables(
             resource_path: database.resource_path.clone(),
             governing_workspace_id: (governing.governing_workspace_id() != w_id)
                 .then(|| governing.governing_workspace_id().to_string()),
+            database_workspace_id: (governing.workspace_id != w_id)
+                .then(|| governing.workspace_id.clone()),
             permissioned: governing.datatable.permissions.is_some(),
         });
     }
@@ -10071,8 +10076,8 @@ async fn isolation_required(db: &DB, authed: &ApiAuthed, parent: &str) -> Result
     }
 }
 
-/// `parent`'s own data tables that `forked` leaves as pointers at its database. A pointer entry
-/// governed elsewhere is not `parent`'s data, and cannot be cloned from it anyway.
+/// `parent`'s own data tables that `forked` leaves as pointers at its database. An entry whose
+/// database another workspace owns is not `parent`'s data, so the rule does not cover it.
 async fn kept_parent_datatables(
     db: &DB,
     parent: &str,
@@ -10082,7 +10087,7 @@ async fn kept_parent_datatables(
         windmill_common::workspaces::resolve_workspace_governing_datatables(db, parent)
             .await?
             .into_iter()
-            .filter(|(_, governing)| governing.governing_workspace_id() == parent)
+            .filter(|(_, governing)| governing.workspace_id == parent)
             .filter(|(name, _)| {
                 !forked.iter().any(|d| {
                     &d.name == name
