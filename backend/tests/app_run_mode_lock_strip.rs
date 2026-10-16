@@ -289,7 +289,10 @@ async fn test_app_script_run_derives_path(db: Pool<Postgres>) -> anyhow::Result<
     .await?;
     let status = resp.status();
     let body = resp.text().await?;
-    assert_eq!(status, 200, "deployed app script run must be accepted: {body}");
+    assert_eq!(
+        status, 200,
+        "deployed app script run must be accepted: {body}"
+    );
     let uuid = uuid::Uuid::parse_str(body.trim())?;
     let (_, _, _, _, runnable_path) = job_fields(&db, uuid).await?;
     assert_eq!(
@@ -302,7 +305,7 @@ async fn test_app_script_run_derives_path(db: Pool<Postgres>) -> anyhow::Result<
 }
 
 /// Once the deployed version has its lite value, a deployed row's code runs only through
-/// that row, while id-less code the frontend builds at runtime (database studio queries)
+/// that row, while id-less SQL the frontend builds at runtime (database studio queries)
 /// still runs on its content pin.
 #[sqlx::test(fixtures("base"))]
 async fn test_run_mode_id_less_code_with_lite(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -330,7 +333,9 @@ async fn test_run_mode_id_less_code_with_lite(db: Pool<Postgres>) -> anyhow::Res
         .await?;
     assert_eq!(resp.status(), 201, "create app: {}", resp.text().await?);
 
-    let sha = rawscript_pin(CONTENT).trim_start_matches("rawscript/").to_string();
+    let sha = rawscript_pin(CONTENT)
+        .trim_start_matches("rawscript/")
+        .to_string();
     let script_id: i64 = sqlx::query_scalar(
         "INSERT INTO app_script (app, hash, code, code_sha256)
          SELECT id, $2, $3, $2 FROM app WHERE path = $1 RETURNING id",
@@ -345,9 +350,11 @@ async fn test_run_mode_id_less_code_with_lite(db: Pool<Postgres>) -> anyhow::Res
          SELECT versions[array_upper(versions, 1)], $2 FROM app WHERE path = $1",
     )
     .bind(app_path)
-    .bind(json!({ "grid": [{ "data": { "componentInput": { "runnable": {
+    .bind(
+        json!({ "grid": [{ "data": { "componentInput": { "runnable": {
         "inlineScript": { "id": script_id, "language": "python3" }
-    } } } }] }))
+    } } } }] }),
+    )
     .execute(&db)
     .await?;
 
@@ -370,6 +377,17 @@ async fn test_run_mode_id_less_code_with_lite(db: Pool<Postgres>) -> anyhow::Res
         status,
         200,
         "id-less runtime-built code must run: {}",
+        resp.text().await?
+    );
+
+    // The pin covers content only (it also pins frontend scripts), so a pinned content
+    // must not run id-less in a language the database studio never emits.
+    let resp = run(RUNTIME_CONTENT, "bash").await?;
+    let status = resp.status();
+    assert_eq!(
+        status,
+        401,
+        "id-less code must not run as a non-SQL language: {}",
         resp.text().await?
     );
 
