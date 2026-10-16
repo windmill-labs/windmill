@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.839.0](https://github.com/windmill-labs/windmill/compare/v1.838.0...v1.839.0) (2026-10-16)
+
+
+### Features
+
+* add a Require isolated forks protection rule ([#11834](https://github.com/windmill-labs/windmill/issues/11834)) ([ab4e790](https://github.com/windmill-labs/windmill/commit/ab4e790a216b92f789e130955d7cd180b394d1fe))
+* isolate fork object storage under a per-fork prefix ([#11829](https://github.com/windmill-labs/windmill/issues/11829)) ([9375805](https://github.com/windmill-labs/windmill/commit/9375805fdf7501347a4dfb37e58f1be7fa2c5658))
+* one Entra app for the Teams bot and ms_teams Graph connect ([#11718](https://github.com/windmill-labs/windmill/issues/11718)) ([e7088e7](https://github.com/windmill-labs/windmill/commit/e7088e7f4766cd662890cdf61f2b6a5a0fce06a8))
+* route python S3 client settings through the S3 proxy ([#11819](https://github.com/windmill-labs/windmill/issues/11819)) ([de340ee](https://github.com/windmill-labs/windmill/commit/de340eed6f5520414b59166f8dc16938f7ac6c36))
+
+
+### Bug Fixes
+
+* verify Bot Framework JWT on incoming Teams activities ([#11818](https://github.com/windmill-labs/windmill/issues/11818)) ([0b1935f](https://github.com/windmill-labs/windmill/commit/0b1935f251605926760565fb7693f345f1a56312))
+
 ## [1.838.0](https://github.com/windmill-labs/windmill/compare/v1.837.0...v1.838.0) (2026-10-16)
 
 
