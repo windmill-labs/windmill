@@ -238,6 +238,13 @@ async fn create_group(
     Json(ng): Json<NewGroup>,
 ) -> Result<String> {
     crate::check_demo_workspace_restriction(&authed, &w_id, "Group creation")?;
+    // Admins stay allowed: `wmill sync push` recreates exported groups through this endpoint.
+    if !authed.is_admin && windmill_common::RESERVED_GROUP_NAMES.contains(&ng.name.as_str()) {
+        return Err(Error::BadRequest(format!(
+            "Group name {} is reserved by Windmill; only an admin can create it",
+            ng.name
+        )));
+    }
     let mut tx = user_db.begin(&authed).await?;
 
     check_name_conflict(&mut tx, &w_id, &ng.name).await?;

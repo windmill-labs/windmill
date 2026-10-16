@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.838.0](https://github.com/windmill-labs/windmill/compare/v1.837.0...v1.838.0) (2026-10-16)
+
+
+### Features
+
+* accept Ed25519-signed license keys alongside RSA ([#11810](https://github.com/windmill-labs/windmill/issues/11810)) ([33d4049](https://github.com/windmill-labs/windmill/commit/33d4049db029e1dc478b1251c562232f0127fc8a))
+* make the frontend installable as a progressive web app ([#11805](https://github.com/windmill-labs/windmill/issues/11805)) ([b86909f](https://github.com/windmill-labs/windmill/commit/b86909fc81b21447414266f47a83a43492204e50))
+* name mcp script and flow tools after their last path segment ([#11817](https://github.com/windmill-labs/windmill/issues/11817)) ([d1a13d9](https://github.com/windmill-labs/windmill/commit/d1a13d9054d5994b5ed9c0f8566b86154662caa0))
+* route dev workspace and fork jobs to their own worker groups ([#11811](https://github.com/windmill-labs/windmill/issues/11811)) ([6e565b0](https://github.com/windmill-labs/windmill/commit/6e565b0dcb0fb56b69131c262d482c82bb6c527b))
+
+
+### Bug Fixes
+
+* **ai-chat:** tell the session chat that an agent is an ai_agent resource ([#11798](https://github.com/windmill-labs/windmill/issues/11798)) ([a521548](https://github.com/windmill-labs/windmill/commit/a52154877caa5c3e473ee56c1eaf040b7da2375f))
+* emit a single email claim in job OIDC tokens ([#11804](https://github.com/windmill-labs/windmill/issues/11804)) ([2ef0c0d](https://github.com/windmill-labs/windmill/commit/2ef0c0d8e14fcd5ff1c06f6113ffaf2792b9d4c9))
+* give inline script runs their own job dir ([#11822](https://github.com/windmill-labs/windmill/issues/11822)) ([6aec448](https://github.com/windmill-labs/windmill/commit/6aec4488ebe8f377b4ea9bb4948649831cba0dbc))
+* hold mcp token references to resource reference scopes ([#11803](https://github.com/windmill-labs/windmill/issues/11803)) ([c09038b](https://github.com/windmill-labs/windmill/commit/c09038b10698042209fd6aa26c466fb53d6dc7d0))
+* let deployed low-code apps run database studio queries again ([#11816](https://github.com/windmill-labs/windmill/issues/11816)) ([7c63a30](https://github.com/windmill-labs/windmill/commit/7c63a30edd650f49eff85066dcc7916cec1b7010))
+* truncate long row titles instead of wrapping ([#11815](https://github.com/windmill-labs/windmill/issues/11815)) ([153a871](https://github.com/windmill-labs/windmill/commit/153a871550e3ae9ad6282aa59b3a4f9897fec6c1))
+* use the session workspace's user in three AI session places ([#11808](https://github.com/windmill-labs/windmill/issues/11808)) ([19fc07f](https://github.com/windmill-labs/windmill/commit/19fc07faa95a8a2247e726f9d0a2adc3cfa42bd2))
+
 ## [1.837.0](https://github.com/windmill-labs/windmill/compare/v1.836.0...v1.837.0) (2026-10-15)
 
 

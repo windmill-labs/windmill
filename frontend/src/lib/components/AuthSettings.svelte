@@ -97,7 +97,8 @@
 		'salesforce',
 		'outreach',
 		'notion',
-		'hubspot'
+		'hubspot',
+		'asana'
 	]
 	// Providers whose registry entry (`backend/oauth_connect.json`) carries a
 	// `sandbox` URL block. Each one gets a sibling `<name>_sandbox` dropdown

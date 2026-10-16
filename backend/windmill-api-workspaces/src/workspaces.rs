@@ -10983,20 +10983,10 @@ async fn archive_workspace(
 
     if let Some(prod) = dev_lock_parent {
         windmill_common::workspaces::invalidate_protection_rules_cache(&prod);
-        // The teardown above cleared `is_dev_workspace`, which is what let this workspace keep its
-        // own id for tag routing; it and every fork resolving through it now land on an ancestor.
-        // Only a dev workspace reaches here, so archiving anything else needs no sweep.
-        windmill_queue::tags::invalidate_fork_parent_cache(&w_id);
-        for id in windmill_common::workspaces::list_fork_descendants(&db, &w_id)
-            .await
-            .unwrap_or_default()
-        {
-            windmill_queue::tags::invalidate_fork_parent_cache(&id);
-        }
-        if let Err(e) = windmill_queue::tags::notify_fork_lineage_reset(&db).await {
-            tracing::warn!("failed to broadcast fork lineage change: {e:#}");
-        }
     }
+    // The tag lineage reads `deleted` (an archived ancestor counts as dev lineage), and a dev
+    // workspace's teardown above also cleared `is_dev_workspace`.
+    reset_tag_lineage(&db, &w_id).await;
 
     Ok(format!(
         "Archived workspace {}, disabled {} schedules, canceled {} jobs and deleted {} tokens",
@@ -11097,8 +11087,24 @@ async fn unarchive_workspace(
     )
     .await?;
     tx.commit().await?;
+    reset_tag_lineage(&db, &w_id).await;
 
     Ok(format!("Unarchived workspace {}", &w_id))
+}
+
+/// Drops the tag lineage cached for `w_id` and every fork resolving through it, here and on every
+/// replica, after a change to a field the lineage reads.
+async fn reset_tag_lineage(db: &DB, w_id: &str) {
+    windmill_queue::tags::invalidate_fork_parent_cache(w_id);
+    for id in windmill_common::workspaces::list_fork_descendants(db, w_id)
+        .await
+        .unwrap_or_default()
+    {
+        windmill_queue::tags::invalidate_fork_parent_cache(&id);
+    }
+    if let Err(e) = windmill_queue::tags::notify_fork_lineage_reset(db).await {
+        tracing::warn!("failed to broadcast fork lineage change: {e:#}");
+    }
 }
 
 /// Whether the instance is configured to suppress the email notifications sent
