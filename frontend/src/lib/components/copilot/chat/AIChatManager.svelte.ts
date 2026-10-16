@@ -2260,6 +2260,10 @@ export class AIChatManager implements ChatViewHost {
 		this.aiChatInput = aiChatInput
 	}
 
+	releaseAiChatInput(aiChatInput: AIChatInput) {
+		if (this.aiChatInput === aiChatInput) this.aiChatInput = null
+	}
+
 	/** Queue the message typed while a turn is streaming. There is only ever
 	 * one queued message; pressing Enter again appends the new text as another
 	 * line so it all goes out as a single message, and its images accumulate

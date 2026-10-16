@@ -14,6 +14,11 @@
 	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
 	import { getChatViewHost } from './chatViewHost'
 	import { composerBoxClass, COMPOSER_FIELD_RESET } from './composerBox'
+
+	// The send button sits in the toolbar row, not over the field, so the text needs no
+	// room reserved on its right, and the row right below it stands in for most of its
+	// bottom padding.
+	const FIELD_PADDING_WITH_TOOLBAR = '!pr-3 !pb-1'
 	import { formatMention, hasMention, removeMentionFromText } from './mention'
 	import { twMerge } from 'tailwind-merge'
 	import { tick, untrack, type Snippet } from 'svelte'
@@ -49,7 +54,7 @@
 		MAX_BLOB_BYTES,
 		type AttachedBlob
 	} from './blobUtils'
-	import { MessageDraft } from './messageDraft.svelte'
+	import { MessageDraft, type DraftAttachments } from './messageDraft.svelte'
 	import { useSessionPermissions } from '$lib/components/sessions/sessionPermissions.svelte'
 	import ExpandableImage, {
 		isImageViewerOpen
@@ -89,10 +94,25 @@
 		// `chatHost.instructions` only carries programmatic prompts). Used by
 		// sessions to persist the typed-but-unsent prompt with the session draft.
 		onDraftChange?: (text: string) => void
+		/** The rest of the draft — collapsed pastes, images, files — seeded and observed the
+		 * same way. The text alone is not the draft: a collapsed paste is a token in it whose
+		 * content lives here, so a composer remounted elsewhere needs both. */
+		initialAttachments?: DraftAttachments
+		onAttachmentsChange?: (attachments: DraftAttachments) => void
 		// tool_call_id of the askUserQuestion the turn is parked on, when it is. A
 		// plain-text draft sent from here answers it instead of queueing behind a
 		// turn that only the answer can resume.
 		pendingQuestionToolCallId?: string
+		/** The composer that opens a session (Home, an empty session): `toolbar` is drawn in the
+		 * box's bottom row with the send button at its end, and a usable box is taller. Otherwise
+		 * the controls sit under the box and the send button floats over the field's corner, as a
+		 * chat under way reads more clearly. */
+		hero?: boolean
+		fadingPlaceholder?: { text: string; visible: boolean }
+		/** After a new turn is handed to the host — not an edit, a queued message or an answer. */
+		onSent?: () => void
+		/** The composer's controls. */
+		toolbar?: Snippet
 	}
 
 	let {
@@ -116,8 +136,16 @@
 		loading,
 		onCancel,
 		onDraftChange = undefined,
-		pendingQuestionToolCallId = undefined
+		initialAttachments = undefined,
+		onAttachmentsChange = undefined,
+		pendingQuestionToolCallId = undefined,
+		onSent = undefined,
+		toolbar = undefined,
+		hero = false,
+		fadingPlaceholder = undefined
 	}: Props = $props()
+
+	const toolbarInBox = $derived(!!toolbar && hero)
 
 	// GLOBAL-mode suggestion pool. We pick one at mount-time so each new
 	// session lands on a different prompt; the choice stays stable for
@@ -207,9 +235,10 @@
 	const draft = new MessageDraft(
 		untrack(() => ({
 			text: initialInstructions,
-			pastes: initialPastes ?? [],
-			images: initialImages ?? [],
-			files: initialFiles ?? []
+			pastes: initialPastes ?? initialAttachments?.pastes ?? [],
+			images: initialImages ?? initialAttachments?.images ?? [],
+			files: initialFiles ?? initialAttachments?.files ?? [],
+			blobs: initialAttachments?.blobs ?? []
 		}))
 	)
 	// Report edits, never the mount-time value. The first run carries whatever the
@@ -226,6 +255,24 @@
 				return
 			}
 			onDraftChange?.(text)
+		})
+	})
+	// Same rule for the rest of the draft.
+	let attachmentsReported = false
+	$effect(() => {
+		// Copied, not passed: the paste lane is edited in place, and a copy reads every item.
+		const attachments = {
+			pastes: [...draft.pastes],
+			images: [...draft.images],
+			files: [...draft.files],
+			blobs: [...draft.blobs]
+		}
+		untrack(() => {
+			if (!attachmentsReported) {
+				attachmentsReported = true
+				return
+			}
+			onAttachmentsChange?.(attachments)
 		})
 	})
 
@@ -636,6 +683,13 @@
 		draft.text = removeMentionFromText(draft.text, title)
 	}
 
+	/** Replace the draft's text, keeping its attachments: a starter prompt fills the box, it
+	 * never sends. */
+	export function setText(text: string) {
+		draft.text = text
+		focusInput()
+	}
+
 	export function focusInput() {
 		if (isContextEnabledMode) {
 			contextTextareaComponent?.focus()
@@ -977,6 +1031,7 @@
 			// textarea still rely on the draft reset alone (no `@`-mention state to
 			// coordinate).
 			contextTextareaComponent?.clearForSend()
+			onSent?.()
 		}
 	}
 
@@ -1207,7 +1262,18 @@
 	}
 </script>
 
-{#snippet sendStopButton()}
+{#snippet toolbarRow()}
+	{#if toolbarInBox}
+		<!-- The send button sets the row's height and the smaller controls centre on it, which
+		     already puts them a few pixels further from the box's bottom edge than the padding. -->
+		<div class="flex flex-row items-center gap-1.5 px-1.5 pb-1">
+			<div class="flex-1 min-w-0">{@render toolbar?.()}</div>
+			{@render sendStopButton('sm')}
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet sendStopButton(size: 'sm' | 'md' = 'md')}
 	<!-- The turn stays `loading` while parked on a question, but a drafted answer
 	     is what the button should ship then — otherwise the only pointer action on
 	     a typed answer would be Stop. Anything else keeps Stop. -->
@@ -1232,9 +1298,11 @@
 			(onSendRequest !== undefined ||
 				chatHost.mode !== AIMode.GLOBAL ||
 				selectedContext.length === 0))}
+	<!-- Accent only once there is something to send, so the button lights up as the draft
+	     becomes sendable; idle and Stop stay quiet. -->
 	<Button
-		variant="subtle"
-		unifiedSize="md"
+		variant={!isLoading && !sendDisabled ? 'accent' : 'subtle'}
+		unifiedSize={size}
 		iconOnly
 		title={isLoading
 			? 'Stop'
@@ -1402,6 +1470,10 @@
 				{availableContext}
 				{selectedContext}
 				placeholder={modePlaceholder}
+				hero={hero && !disabled}
+				fadingPlaceholder={isFirstMessage && !chatHost.runHeldElsewhere
+					? fadingPlaceholder
+					: undefined}
 				onAddContext={(contextElement) => void addContextToSelection(contextElement)}
 				onRemoveContext={(element) => {
 					selectedContext = selectedContext?.filter((c) => !isSameContextElement(c, element))
@@ -1414,13 +1486,17 @@
 				}}
 				{disabled}
 				{onKeyDown}
+				className={toolbarInBox ? FIELD_PADDING_WITH_TOOLBAR : ''}
 			>
 				{#snippet leading()}
 					{@render badgeRow()}
 					{@render imageChipsRow()}
 				{/snippet}
+				{#snippet trailing()}
+					{@render toolbarRow()}
+				{/snippet}
 			</ContextTextarea>
-			{#if !bottomRightSnippet}
+			{#if !bottomRightSnippet && !toolbarInBox}
 				<div class="absolute bottom-1 right-1">
 					{@render sendStopButton()}
 				</div>
@@ -1518,16 +1594,25 @@
 					}}
 					rows={1}
 					placeholder={modePlaceholder}
-					class={twMerge('resize-none', COMPOSER_FIELD_RESET, CHAT_INPUT_PADDING)}
+					class={twMerge(
+						'resize-none',
+						COMPOSER_FIELD_RESET,
+						CHAT_INPUT_PADDING,
+						toolbarInBox && FIELD_PADDING_WITH_TOOLBAR
+					)}
 					{disabled}
 				></textarea>
-				{#if !bottomRightSnippet}
+				{#if !bottomRightSnippet && !toolbarInBox}
 					<div class="absolute bottom-1 right-1">
 						{@render sendStopButton()}
 					</div>
 				{/if}
 			</div>
+			{@render toolbarRow()}
 		</div>
+	{/if}
+	{#if toolbar && !toolbarInBox}
+		<div class="mt-1">{@render toolbar()}</div>
 	{/if}
 	{#if bottomRightSnippet}
 		<div class="absolute bottom-1 right-1">

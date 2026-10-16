@@ -57,7 +57,8 @@
 		type UserWorkspace
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
-	import { afterNavigate, beforeNavigate } from '$app/navigation'
+	import { afterNavigate, beforeNavigate, onNavigate } from '$app/navigation'
+	import { homeSessionsTransition } from '$lib/components/sessions/homeSessionsTransition.svelte'
 	import { goto } from '$lib/navigation'
 	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
 	import type UserSettings from '$lib/components/UserSettings.svelte'
@@ -443,6 +444,8 @@
 						: undefined
 		return kind ? { kind, path: route.itemPath } : undefined
 	}
+
+	onNavigate(homeSessionsTransition)
 
 	beforeNavigate((navigation) => {
 		if (preserveMenuOnNextNav) {

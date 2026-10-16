@@ -45,6 +45,7 @@
 	import { enterSessionMode } from '$lib/components/sessions/sessionSwitch.svelte'
 	import type { SessionPreviewTabs } from '$lib/components/sessions/sessionPreviewTabs.svelte'
 	import { userStore, userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import {
 		getOrCreateRuntime,
 		getRuntime,
@@ -351,8 +352,19 @@
 	// landed yet.
 	const aiHiddenVerdict = $derived.by(() => {
 		const current = workspaceAiHidden.current
-		return current && current.workspace === previewWorkspace ? current.hidden : undefined
+		if (current && current.workspace === previewWorkspace) return current.hidden
+		// The AI config already loaded for this very workspace (by Home, on the way here) carries
+		// the same flag. Tagged with its workspace, so it is never another workspace's verdict.
+		return previewWorkspace && $copilotWorkspace === previewWorkspace
+			? $copilotInfo.workspaceDisabled
+			: undefined
 	})
+	// The full loader is for the page's first verdict only. Later, picking another workspace in
+	// "Acting on" leaves the session on screen, inert until its verdict lands (the resource
+	// keeps the previous one meanwhile): covering it for a request reads as the page reloading.
+	const firstVerdictPending = $derived(
+		aiHiddenVerdict === undefined && workspaceAiHidden.current === undefined
+	)
 
 	// Lazy-mount gate: a tab's content only renders once its key lands here (on
 	// first activation) — so restoring a session with N saved tabs boots just
@@ -1271,7 +1283,7 @@
 					</Pane>
 				</Splitpanes>
 			</div>
-			{#if aiHiddenVerdict === undefined}
+			{#if firstVerdictPending}
 				<div class="absolute inset-0 z-20 flex items-center justify-center bg-surface">
 					<Loader2 class="animate-spin" />
 				</div>
