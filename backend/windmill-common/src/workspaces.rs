@@ -1287,7 +1287,8 @@ pub async fn operator_builder_rights<A: Authable + ?Sized>(
 
 /// Whether the caller may save a draft of `kind`: one they could deploy. A resource or variable
 /// always, since their routes do not gate roles; a flow or full-code app at the `Compose` level or
-/// above, a schedule or trigger under the matching manage right, a script with `code`.
+/// above, a low-code app at `Full`, a schedule or trigger under the matching manage right, a
+/// script or data pipeline with `code`.
 pub async fn operator_can_draft<A: Authable + ?Sized>(
     db: &DB,
     workspace_id: &str,
