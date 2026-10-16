@@ -59,9 +59,10 @@ the fork does not own costs one HEAD per chain level before the GET.
 
 The `RequireIsolatedForks` protection rule on a workspace makes its forks leave nothing shared
 with it, for every user the ruleset does not exempt (admins always are): no `shared_storages`,
-no `shared_ducklakes`, and every data table it owns cloned rather than kept as a pointer. A data
-table it resolves through another workspace is left alone: that is not its data, and only the
-owning workspace can clone it. It is checked against the workspace being forked, in
+no `shared_ducklakes`, and every data table whose database it owns cloned rather than kept as a
+pointer. A data table whose database another workspace owns is left alone: that is not its data.
+A clone governed from another workspace still has its own database, so it is not exempt. It is
+checked against the workspace being forked, in
 `create_workspace_fork` and in the git-branch pre-check (so a refused fork leaves no branch
 behind), and the data table part again under the parent's `lock_fork_datatables`, which data table
 edits also take: a table added between the two would otherwise reach the fork as a pointer.
