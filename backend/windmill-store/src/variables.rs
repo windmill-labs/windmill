@@ -236,8 +236,7 @@ async fn list_variables(
         && lq.value.is_none()
         && lq.broad_filter.is_none()
         && lq.label.is_none()
-        && (!authed.is_operator
-            || operator_can_draft(&db, &w_id, UserDraftItemKind::Variable).await?)
+        && operator_can_draft(&db, &w_id, &authed, UserDraftItemKind::Variable).await?
     {
         let draft_only_rows =
             fetch_draft_only_list_rows(&db, &w_id, &authed.email, UserDraftItemKind::Variable)

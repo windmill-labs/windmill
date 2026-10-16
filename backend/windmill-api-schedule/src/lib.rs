@@ -926,13 +926,13 @@ async fn list_schedule(
         && lsq.summary.is_none()
         && lsq.broad_filter.is_none()
         && lsq.label.is_none()
-        && (!authed.is_operator
-            || windmill_common::workspaces::operator_can_draft(
-                &db,
-                &w_id,
-                UserDraftItemKind::TriggerSchedule,
-            )
-            .await?)
+        && windmill_common::workspaces::operator_can_draft(
+            &db,
+            &w_id,
+            &authed,
+            UserDraftItemKind::TriggerSchedule,
+        )
+        .await?
     {
         let draft_only_rows = fetch_draft_only_list_rows(
             &db,

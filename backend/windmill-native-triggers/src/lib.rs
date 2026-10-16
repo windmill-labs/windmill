@@ -1736,14 +1736,16 @@ pub async fn store_workspace_integration(
 /// pickers). A workspace admin configures the integration, but any member who can
 /// create a native trigger needs the pickers to configure one. Operators are
 /// read-only and cannot create triggers, so they must not be able to drive the
-/// admin-configured integration's upstream API and enumerate its data.
-pub fn require_native_integration_use(authed: &ApiAuthed) -> Result<()> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot use workspace integrations".to_string(),
-        ));
-    }
-    Ok(())
+/// admin-configured integration's upstream API and enumerate its data. Gated on the right to
+/// manage triggers, which is what the pickers serve.
+pub async fn require_native_integration_use(db: &DB, w_id: &str, authed: &ApiAuthed) -> Result<()> {
+    windmill_common::workspaces::check_operator_can_manage(
+        db,
+        w_id,
+        authed,
+        windmill_common::workspaces::ManageKind::Triggers,
+    )
+    .await
 }
 
 pub async fn get_workspace_integration<'c, E: sqlx::Executor<'c, Database = Postgres>>(

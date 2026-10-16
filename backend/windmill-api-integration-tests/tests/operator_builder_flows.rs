@@ -1,6 +1,5 @@
 use serde_json::json;
 use sqlx::{Pool, Postgres};
-use windmill_common::workspaces::invalidate_operator_rights_cache;
 use windmill_test_utils::*;
 
 const WS: &str = "test-workspace";
@@ -19,14 +18,17 @@ fn operator_client() -> reqwest::Client {
 
 async fn set_builder(db: &Pool<Postgres>, flows: bool) -> anyhow::Result<()> {
     sqlx::query(
-        "UPDATE workspace_settings SET operator_settings = $1::text::jsonb WHERE workspace_id = $2",
+        "UPDATE workspace_settings SET role_overrides = $1::text::jsonb WHERE workspace_id = $2",
     )
-    .bind(format!(r#"{{"builder_flows": {flows}}}"#))
+    .bind(format!(
+        r#"{{"operator": {{"capabilities": {{"flows": "{}"}}}}}}"#,
+        if flows { "compose" } else { "none" }
+    ))
     .bind(WS)
     .execute(db)
     .await?;
     // The right is read through a process-global 60s cache keyed by workspace id.
-    invalidate_operator_rights_cache(WS);
+    windmill_common::roles::invalidate_all_roles_cache();
     Ok(())
 }
 

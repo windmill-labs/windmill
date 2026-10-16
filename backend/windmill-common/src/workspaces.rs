@@ -7,8 +7,10 @@ use strum::AsRefStr;
 
 use crate::{
     datatable_roles::{ADMIN_DATATABLE_ROLE, CUSTOM_INSTANCE_USER},
+    db::Authable,
     error::{self, to_anyhow, Error, Result},
     get_database_url,
+    roles::{caller_capabilities, AuthorLevel, RoleCapabilities},
     secret_backend::{get_secret_value, is_external_stored_value},
     utils::{get_custom_pg_instance_password, get_custom_pg_instance_replication_password},
     variables::{build_crypt, decrypt},
@@ -1060,9 +1062,9 @@ pub async fn guest_app_admits<'c, E: sqlx::Executor<'c, Database = sqlx::Postgre
 }
 
 /// Billable members of `w_id` and the seats they cost, as
-/// `ceil(developers + (operators + service_accounts)/2)`. A service account is half a seat whatever
-/// its role; a disabled member is not billed. In a workspace that granted operators builder rights,
-/// every operator counts as a developer.
+/// `ceil(authors + (non_authors + service_accounts)/2)`. A service account is half a seat whatever
+/// its role; a disabled member is not billed. A member is an author when its role writes or
+/// composes scripts, flows or apps (`crate::roles::AUTHOR_SEAT_SQL`).
 ///
 /// The workspace is invoiced by a job outside this codebase that counts the same rows with its own
 /// SQL. The two must be changed together: this rule disagreeing with that one is what bills a
@@ -1071,28 +1073,23 @@ pub async fn guest_app_admits<'c, E: sqlx::Executor<'c, Database = sqlx::Postgre
 /// Unauthenticated metering helper: reads member counts for any `w_id`, so callers must already be
 /// authorized for that workspace (or run in trusted server-side code).
 pub async fn billable_seats(db: &crate::DB, w_id: &str) -> Result<BillableSeats> {
-    let row = sqlx::query!(
-        r#"SELECT
-            COUNT(*) FILTER (WHERE NOT operator AND NOT disabled AND NOT is_service_account) AS "developers!",
-            COUNT(*) FILTER (WHERE operator AND NOT disabled AND NOT is_service_account) AS "operators!",
-            COUNT(*) FILTER (WHERE is_service_account AND NOT disabled) AS "service_accounts!"
-        FROM usr WHERE workspace_id = $1"#,
-        w_id
-    )
+    let (developers, operators, service_accounts): (i64, i64, i64) = sqlx::query_as(&format!(
+        "SELECT
+            COUNT(*) FILTER (WHERE ({author}) AND NOT disabled AND NOT is_service_account),
+            COUNT(*) FILTER (WHERE NOT ({author}) AND NOT disabled AND NOT is_service_account),
+            COUNT(*) FILTER (WHERE is_service_account AND NOT disabled)
+        FROM usr t WHERE workspace_id = $1",
+        author = crate::roles::AUTHOR_SEAT_SQL
+    ))
+    .bind(w_id)
     .fetch_one(db)
     .await
     .map_err(|e| Error::internal_err(format!("counting billable seats of {w_id}: {e:#}")))?;
-    let (developers, operators) = if operator_builder_rights(db, w_id).await?.any() {
-        (row.developers + row.operators, 0)
-    } else {
-        (row.developers, row.operators)
-    };
     Ok(BillableSeats {
         developers,
         operators,
-        service_accounts: row.service_accounts,
-        seats: ((developers as f64) + 0.5 * ((operators + row.service_accounts) as f64)).ceil()
-            as i64,
+        service_accounts,
+        seats: ((developers as f64) + 0.5 * ((operators + service_accounts) as f64)).ceil() as i64,
     })
 }
 
@@ -1212,25 +1209,10 @@ pub fn invalidate_protection_rules_cache(workspace_id: &str) {
     PROTECTION_RULES_CACHE.remove(workspace_id);
 }
 
-// Operator rights cache
+// Role rights. What a restricted caller may author or manage comes from its role; see
+// `crate::roles`. The gates below keep the operator vocabulary of the call sites that predate roles.
 
-lazy_static::lazy_static! {
-    static ref OPERATOR_RIGHTS_CACHE: Cache<String, (OperatorRights, i64)> = Cache::new(1000);
-}
-
-/// Every operator right of a workspace, read and cached together because they share one
-/// `operator_settings` column and one invalidation. The two groups have opposite polarity:
-/// the builder rights are granted on request and cost a seat, the `manage` rights are held by
-/// default and cost nothing.
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
-pub struct OperatorRights {
-    pub builder: OperatorBuilderRights,
-    pub manage: OperatorManageRights,
-}
-
-/// The two things a workspace can let its operators compose. Granted independently: composing a
-/// flow is fully checked server-side, while a full-code app is a browser-built bundle no check can
-/// read, so an admin may reasonably want the first without the second.
+/// What a caller may compose or author, per kind, at least at the `Compose` level.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub struct OperatorBuilderRights {
     pub flows: bool,
@@ -1238,8 +1220,8 @@ pub struct OperatorBuilderRights {
 }
 
 /// Which capability a gate needs. Naming a kind at each call site is what keeps the two rights
-/// from collapsing back into one: a gate that takes "either" authorizes an app write on a
-/// flows-only workspace.
+/// from collapsing back into one: a gate that takes "either" authorizes an app write for a role
+/// that may only compose flows.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum BuilderKind {
     Flows,
@@ -1247,8 +1229,8 @@ pub enum BuilderKind {
 }
 
 impl OperatorBuilderRights {
-    /// Whether either right is granted. Only for surfaces that are genuinely not per-kind: the
-    /// seat a membership costs, and listing drafts.
+    /// Whether either right is granted. Only for surfaces that are genuinely not per-kind, such
+    /// as listing drafts.
     pub fn any(&self) -> bool {
         self.flows || self.apps
     }
@@ -1259,23 +1241,9 @@ impl OperatorBuilderRights {
             BuilderKind::Apps => self.apps,
         }
     }
-}
 
-/// Writes an operator may perform unless the workspace withdraws them. Unlike the visibility
-/// flags beside them in `operator_settings`, these are enforced; unlike a right a workspace
-/// grants, they are held by default and cost no seat.
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct OperatorManageRights {
-    pub schedules: bool,
-    pub triggers: bool,
-}
-
-/// Granted unless explicitly withdrawn. Every path that materializes these rights without a
-/// stored setting - a workspace with no `workspace_settings` row included - has to land here, or
-/// an upgrade silently revokes what operators could do the day before.
-impl Default for OperatorManageRights {
-    fn default() -> Self {
-        Self { schedules: true, triggers: true }
+    pub fn from_capabilities(caps: &RoleCapabilities) -> Self {
+        Self { flows: caps.flows != AuthorLevel::None, apps: caps.apps != AuthorLevel::None }
     }
 }
 
@@ -1306,77 +1274,24 @@ impl ManageKind {
     }
 }
 
-impl OperatorManageRights {
-    pub fn has(&self, kind: ManageKind) -> bool {
-        match kind {
-            ManageKind::Schedules => self.schedules,
-            ManageKind::Triggers => self.triggers,
-        }
-    }
-}
-
-/// What operators of this workspace may still write. Per workspace, not per user.
-///
-/// Read on every gated write, so it is cached with a 60s TTL. This gates writes, so a withdrawal
-/// cannot wait out that TTL on the rest of the fleet: an `AFTER UPDATE OF operator_settings`
-/// trigger publishes `notify_operator_settings_change` and every server drops its entry through
-/// `process_notify_event`. [`invalidate_operator_rights_cache`] is the local half of that, and
-/// what a test flipping the setting directly has to call itself.
-///
-/// Call it before opening an RLS transaction: it takes a connection from the root pool, and a
-/// second pooled connection held alongside a transaction self-deadlocks on a one-connection pool.
-async fn operator_rights(db: &DB, workspace_id: &str) -> Result<OperatorRights> {
-    let now = chrono::Utc::now().timestamp();
-
-    if let Some((rights, expiry)) = OPERATOR_RIGHTS_CACHE.get(workspace_id) {
-        if expiry > now {
-            return Ok(rights);
-        }
-    }
-
-    // The builder key defaults to false, a right the workspace has to grant; the manage keys to
-    // true, rights it has to withdraw. An absent key means "never configured" for both, so the
-    // defaults have to differ here rather than at the call sites.
-    let row = sqlx::query!(
-        "SELECT COALESCE((operator_settings->>'builder_flows')::boolean, false) AS \"flows!\",
-                COALESCE((operator_settings->>'builder_apps')::boolean, false) AS \"apps!\",
-                COALESCE((operator_settings->>'manage_schedules')::boolean, true) AS \"schedules!\",
-                COALESCE((operator_settings->>'manage_triggers')::boolean, true) AS \"triggers!\"
-         FROM workspace_settings WHERE workspace_id = $1",
-        workspace_id
-    )
-    .fetch_optional(db)
-    .await
-    .map_err(|e| {
-        Error::internal_err(format!(
-            "Failed to fetch operator settings for {workspace_id}: {e:#}"
-        ))
-    })?;
-
-    let rights = row
-        .map(|r| OperatorRights {
-            builder: OperatorBuilderRights { flows: r.flows, apps: r.apps },
-            manage: OperatorManageRights { schedules: r.schedules, triggers: r.triggers },
-        })
-        .unwrap_or_default();
-
-    OPERATOR_RIGHTS_CACHE.insert(workspace_id.to_string(), (rights, now + 60));
-
-    Ok(rights)
-}
-
-/// What operators of this workspace may compose out of already-deployed runnables. Per workspace,
-/// not per user: every operator gets whatever is granted, and consumes a full seat for it.
-pub async fn operator_builder_rights(db: &DB, workspace_id: &str) -> Result<OperatorBuilderRights> {
-    Ok(operator_rights(db, workspace_id).await?.builder)
-}
-
-/// Whether operators of this workspace may save a draft of `kind`: one they could deploy. A
-/// resource or variable always, since their routes do not gate operators; a flow or full-code app
-/// under its builder right, a schedule or trigger under the matching manage right; nothing else.
-pub async fn operator_can_draft(
+/// What the caller may compose or author, per kind. Everything for an unrestricted caller.
+pub async fn operator_builder_rights<A: Authable + ?Sized>(
     db: &DB,
     workspace_id: &str,
+    authed: &A,
+) -> Result<OperatorBuilderRights> {
+    Ok(OperatorBuilderRights::from_capabilities(
+        &caller_capabilities(db, workspace_id, authed).await?,
+    ))
+}
+
+/// Whether the caller may save a draft of `kind`: one they could deploy. A resource or variable
+/// always, since their routes do not gate roles; a flow or full-code app at the `Compose` level or
+/// above, a schedule or trigger under the matching manage right, a script with `code`.
+pub async fn operator_can_draft<A: Authable + ?Sized>(
+    db: &DB,
+    workspace_id: &str,
+    authed: &A,
     kind: crate::user_drafts::UserDraftItemKind,
 ) -> Result<bool> {
     use crate::user_drafts::UserDraftItemKind;
@@ -1386,64 +1301,81 @@ pub async fn operator_can_draft(
     ) {
         return Ok(true);
     }
-    let rights = operator_rights(db, workspace_id).await?;
+    let caps = caller_capabilities(db, workspace_id, authed).await?;
     Ok(match kind {
-        UserDraftItemKind::Flow => rights.builder.has(BuilderKind::Flows),
-        UserDraftItemKind::RawApp => rights.builder.has(BuilderKind::Apps),
-        kind => kind.manage_kind().is_some_and(|m| rights.manage.has(m)),
+        UserDraftItemKind::Flow => caps.flows != AuthorLevel::None,
+        UserDraftItemKind::RawApp => caps.apps != AuthorLevel::None,
+        UserDraftItemKind::Script => caps.code,
+        UserDraftItemKind::App => caps.apps == AuthorLevel::Full,
+        kind => kind.manage_kind().is_some_and(|m| caps.has_manage(m)),
     })
 }
 
-/// Gate for a write only a workspace that granted the builder right covering `kind` lets operators
-/// perform. `action` completes "Operators cannot {action} for security reasons".
-pub async fn check_operator_can_build(
+/// Gate for a flow or app write. Refuses a caller whose role holds no right on `kind`, and returns
+/// the level it does hold: at `Compose` the caller MUST then run the composition-only checks, and
+/// only at `Full` may skip them. `action` completes "Your role cannot {action}".
+pub async fn check_operator_can_build<A: Authable + ?Sized>(
     db: &DB,
     workspace_id: &str,
-    is_operator: bool,
+    authed: &A,
     kind: BuilderKind,
     action: &str,
-) -> Result<()> {
-    if is_operator && !operator_builder_rights(db, workspace_id).await?.has(kind) {
+) -> Result<AuthorLevel> {
+    let level = caller_capabilities(db, workspace_id, authed)
+        .await?
+        .level(kind);
+    if level == AuthorLevel::None {
         return Err(Error::PermissionDenied(format!(
-            "Operators cannot {action} for security reasons"
+            "Your role cannot {action} in this workspace"
+        )));
+    }
+    Ok(level)
+}
+
+/// Gate for a write that runs or stores code of the caller's own on a worker: scripts, previews,
+/// dependency jobs, dynamic selects. `action` completes "Your role cannot {action}".
+pub async fn check_role_can_code<A: Authable + ?Sized>(
+    db: &DB,
+    workspace_id: &str,
+    authed: &A,
+    action: &str,
+) -> Result<()> {
+    if !caller_capabilities(db, workspace_id, authed).await?.code {
+        return Err(Error::PermissionDenied(format!(
+            "Your role cannot {action} in this workspace"
         )));
     }
     Ok(())
 }
 
-/// Whether a membership consumes an operator (half) seat rather than an author seat. Either
-/// builder right makes an operator an author of deployable artifacts, so both weigh the same full
-/// seat: there is no half-author.
-pub async fn consumes_operator_seat(
-    db: &DB,
-    workspace_id: &str,
-    is_operator: bool,
-) -> Result<bool> {
-    Ok(is_operator && !operator_builder_rights(db, workspace_id).await?.any())
+/// Whether a member holding role `role` in `workspace_id` consumes an operator (half) seat rather
+/// than an author seat: a role that composes counts as an author, there is no half-author.
+pub async fn consumes_operator_seat(db: &DB, workspace_id: &str, role: &str) -> Result<bool> {
+    Ok(
+        !crate::roles::role_capabilities_by_name(db, workspace_id, role)
+            .await?
+            .is_author(),
+    )
 }
 
-/// Invalidate the operator rights cache for a workspace
-pub fn invalidate_operator_rights_cache(workspace_id: &str) {
-    OPERATOR_RIGHTS_CACHE.remove(workspace_id);
-}
-
-/// Gate for a write operators may perform unless the workspace withdrew it. Prefer layering
+/// Gate for a write a role may perform unless its configuration withdraws it. Prefer layering
 /// `gate_operator_writes` on a whole router over calling this per handler; see
-/// `docs/operator-write-rights.md`. Both `workspace_id` and `is_operator` MUST come from the
-/// authenticated request (the route's workspace, `ApiAuthed::is_operator`): passing `false` skips
-/// the check, and another workspace's id checks the wrong settings.
-pub async fn check_operator_can_manage(
+/// `docs/operator-write-rights.md`. `workspace_id` MUST be the route's workspace.
+pub async fn check_operator_can_manage<A: Authable + ?Sized>(
     db: &DB,
     workspace_id: &str,
-    is_operator: bool,
+    authed: &A,
     kind: ManageKind,
 ) -> Result<()> {
-    if is_operator && !operator_rights(db, workspace_id).await?.manage.has(kind) {
+    if !caller_capabilities(db, workspace_id, authed)
+        .await?
+        .has_manage(kind)
+    {
         // 403, not 401: the caller is authenticated and simply lacks the right. The frontend reads
         // an uncaught 401 as a dead session and logs the user out, so `NotAuthorized` here would
-        // eject an operator from the app instead of telling them why.
+        // eject the user from the app instead of telling them why.
         return Err(Error::PermissionDenied(format!(
-            "Operators cannot manage {} in this workspace",
+            "Your role cannot manage {} in this workspace",
             kind.noun()
         )));
     }
