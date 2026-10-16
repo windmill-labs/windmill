@@ -178,18 +178,18 @@ fn omission_hint(input_schema: &Map<String, Value>, item_type: &str) -> Option<S
     ))
 }
 
-/// Create an MCP Tool from a ToolableItem
+/// Create an MCP Tool named `path` from a ToolableItem
 ///
 /// The resources_cache should be pre-populated with all resource types
 /// that may be referenced by the item's schema.
 pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
     item: &T,
+    path: String,
     backend: &B,
     resources_cache: &HashMap<String, Vec<ResourceInfo>>,
     resources_types: &[ResourceType],
 ) -> Tool {
     let is_hub = item.is_hub();
-    let path = item.get_transformed_path();
     let item_type = item.item_type();
     let mut description = format!(
         "This is a {} named `{}` with the following description: `{}`.{}",
