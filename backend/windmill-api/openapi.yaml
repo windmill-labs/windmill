@@ -9002,6 +9002,7 @@ paths:
                       type: boolean
                     has_shared_credentials:
                       type: boolean
+                      description: The instance entry holds a client id and secret users can connect with, for sign-in or as a shared service account. Whether client credentials are shared is get_connect's client_credentials_configured.
                   required:
                     - name
                     - supports_client_credentials

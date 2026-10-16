@@ -632,7 +632,11 @@
 												checked={sharesCc(k)}
 												on:change={(e) => setSharesCc(k, e.detail)}
 											/>
-											{#if sharesCc(k)}
+											{#if sharesCc(k) && !(oauths[k]['id'] && oauths[k]['secret'])}
+												<span class="text-2xs text-hint"
+													>Fill the client ID and secret to share them.</span
+												>
+											{:else if sharesCc(k)}
 												<Alert type="warning" title="Anyone can act as this app" size="xs">
 													Any user with write access in any workspace can create a resource that acts
 													as this app's client ID, without seeing its secret.
