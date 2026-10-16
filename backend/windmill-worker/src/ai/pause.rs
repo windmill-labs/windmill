@@ -7,7 +7,7 @@
 //! The checkpoint row outlives the segment that reads it, so a job restarted after its worker died
 //! resumes from it again. It is deleted by the monitor once the job leaves the queue.
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use windmill_ai::{
@@ -79,8 +79,7 @@ pub(crate) fn approval_tool(timeout_secs: u32, existing: &[ToolDef]) -> Tool {
 pub(crate) struct PendingPause {
     pub call_id: String,
     pub function_name: String,
-    #[serde(skip)]
-    pub suspend_secs: f64,
+    pub expires_at: DateTime<Utc>,
     #[serde(skip)]
     pub action: Option<AgentAction>,
 }
@@ -103,7 +102,7 @@ pub(crate) fn start_pause(
     Ok(PendingPause {
         call_id: tool_call.id.clone(),
         function_name: tool_call.function.name.clone(),
-        suspend_secs: timeout_secs as f64,
+        expires_at,
         action: Some(AgentAction::Approval { call_id: tool_call.id.clone(), message, expires_at }),
     })
 }
@@ -141,33 +140,21 @@ pub(crate) async fn load_checkpoint(
     .transpose()
 }
 
-/// Park the agent until its pause resolves. The error returned on success is the one the worker
-/// treats as "not completed".
+pub(crate) enum ParkOutcome {
+    Parked,
+    /// A cancel reached the queue row first, so nothing was written.
+    Cancelled,
+}
+
+/// Park the agent until its approval is answered or expires.
 pub(crate) async fn park(
     db: &DB,
     conn: &Connection,
     job: &MiniPulledJob,
     checkpoint: &AgentCheckpoint,
-) -> Error {
-    match park_inner(db, job, checkpoint).await {
-        Ok(Some(segment_ms)) => {
-            end_wac_segment(conn, job, segment_ms);
-            Error::WacSuspended(format!(
-                "AI agent {} parked on {}",
-                job.id, checkpoint.pending.function_name
-            ))
-        }
-        Ok(None) => Error::ExecutionErr("Job cancelled".to_string()),
-        Err(e) => e,
-    }
-}
-
-async fn park_inner(
-    db: &DB,
-    job: &MiniPulledJob,
-    checkpoint: &AgentCheckpoint,
-) -> error::Result<Option<Option<i64>>> {
-    let suspend_secs = checkpoint.pending.suspend_secs;
+) -> error::Result<ParkOutcome> {
+    let remaining_ms = (checkpoint.pending.expires_at - Utc::now()).num_milliseconds();
+    let suspend_secs = (remaining_ms as f64 / 1000.0).max(1.0);
     let checkpoint = serde_json::to_value(checkpoint).map_err(|e| {
         Error::internal_err(format!("Failed to serialize AI agent checkpoint: {e}"))
     })?;
@@ -176,7 +163,7 @@ async fn park_inner(
     let segment_ms =
         match suspend_wac_parent(&mut tx, &job.id, &job.workspace_id, 1, suspend_secs).await? {
             WacPark::Parked(ms) => ms,
-            WacPark::Cancelled(_) => return Ok(None),
+            WacPark::Cancelled(_) => return Ok(ParkOutcome::Cancelled),
         };
     sqlx::query(
         "INSERT INTO ai_agent_checkpoint (job_id, workspace_id, checkpoint) VALUES ($1, $2, $3)
@@ -188,17 +175,36 @@ async fn park_inner(
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
-    Ok(Some(segment_ms))
+    end_wac_segment(conn, job, segment_ms);
+    Ok(ParkOutcome::Parked)
 }
 
-/// The tool message answering the parked call, and whether it counts as a success on the run page.
+pub(crate) enum Resumed {
+    /// The tool message answering the parked call, and whether it counts as a success on the run
+    /// page.
+    Answered(OpenAIMessage, bool),
+    /// Woken by an answer to an earlier request; the parked one still waits.
+    StillPending,
+}
+
+/// Read the answer to the parked approval.
+///
+/// `suspend` is zeroed in the same transaction as the read, so `resume_suspended` refuses any
+/// answer sent while the agent runs instead of storing a row the next request would take. An answer
+/// that names another request (the page sends the call id it shows) is read and ignored: a stale
+/// page must not answer a request its user never saw.
 pub(crate) async fn answer_pause(
     db: &DB,
     job_id: &Uuid,
     pending: &PendingPause,
     actions: &[AgentAction],
     consumed_resume_rows: &mut Vec<Uuid>,
-) -> error::Result<(OpenAIMessage, bool)> {
+) -> error::Result<Resumed> {
+    let mut tx = db.begin().await?;
+    sqlx::query("UPDATE v2_job_queue SET suspend = 0 WHERE id = $1")
+        .bind(job_id)
+        .execute(&mut *tx)
+        .await?;
     let rows: Vec<(
         Uuid,
         sqlx::types::Json<serde_json::Value>,
@@ -210,18 +216,27 @@ pub(crate) async fn answer_pause(
     )
     .bind(job_id)
     .bind(&*consumed_resume_rows)
-    .fetch_all(db)
+    .fetch_all(&mut *tx)
     .await?;
-    // Every row counts as read, an answer sent while the agent slept included: left unread it
-    // would answer the next approval request before anyone saw it.
+    tx.commit().await?;
     consumed_resume_rows.extend(rows.iter().map(|(id, ..)| *id));
 
-    let (result, success) = match rows.into_iter().next() {
-        Some((_, value, approver, approved)) => {
+    let answer = rows.into_iter().find(|(_, value, ..)| {
+        value
+            .0
+            .get("call_id")
+            .and_then(|v| v.as_str())
+            .map_or(true, |call_id| call_id == pending.call_id)
+    });
+    let (result, success) = match answer {
+        Some((_, mut value, approver, approved)) => {
             let mut answer = serde_json::json!({
                 "approved": approved,
                 "approver": approver.unwrap_or_else(|| "anonymous".to_string()),
             });
+            if let Some(object) = value.0.as_object_mut() {
+                object.remove("call_id");
+            }
             let comment = value.0.get("comment").cloned().unwrap_or(value.0);
             let empty = comment.is_null() || comment.as_object().is_some_and(|o| o.is_empty());
             if !empty {
@@ -229,6 +244,7 @@ pub(crate) async fn answer_pause(
             }
             (answer, approved)
         }
+        None if Utc::now() < pending.expires_at => return Ok(Resumed::StillPending),
         None => (
             serde_json::json!({
                 "approved": false,
@@ -242,10 +258,7 @@ pub(crate) async fn answer_pause(
     let action = actions
         .iter()
         .rev()
-        .find(|a| match a {
-            AgentAction::Approval { call_id, .. } => *call_id == pending.call_id,
-            _ => false,
-        })
+        .find(|a| matches!(a, AgentAction::Approval { call_id, .. } if *call_id == pending.call_id))
         .cloned();
     let message = OpenAIMessage {
         role: "tool".to_string(),
@@ -254,5 +267,5 @@ pub(crate) async fn answer_pause(
         agent_action: action,
         ..Default::default()
     };
-    Ok((message, success))
+    Ok(Resumed::Answered(message, success))
 }
