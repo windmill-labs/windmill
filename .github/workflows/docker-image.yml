@@ -291,10 +291,13 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: us-east-1
+          TAG: ${{ github.ref_name }}
+          ARCH: ${{ matrix.arch }}
         run: |
+          aws --version
           aws configure set default.s3.multipart_chunksize 64MB
           aws s3 cp ./debuginfo/windmill.debug \
-            "s3://windmill-ee-debuginfo/${{ github.ref_name }}/windmill-ee-${{ matrix.arch }}.debug" \
+            "s3://windmill-ee-debuginfo/$TAG/windmill-ee-$ARCH.debug" \
             --storage-class GLACIER_IR --only-show-errors
 
   # attach_arm64_binary_to_release:
