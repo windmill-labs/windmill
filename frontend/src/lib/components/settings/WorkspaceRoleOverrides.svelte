@@ -32,10 +32,6 @@
 
 	let { workspace, data, onSaved }: Props = $props()
 
-	// The instance layer of a role, when the server reports it. Without it, a field this workspace
-	// overrides has no known instance value until the override is saved away.
-	type WithInstance = EffectiveRole & { instance_capabilities?: RoleCapabilities }
-
 	let draft = $state<RoleOverrides>({})
 	let loadedFrom: WorkspaceRoles | undefined = undefined
 	let open = $state<Record<string, boolean>>({})
@@ -68,20 +64,26 @@
 		return keys
 	}
 
-	/** The instance layer of `role`, exact where known. */
-	function instanceBase(role: WithInstance): { base: RoleCapabilities; unknown: string[] } {
-		if (role.instance_capabilities) return { base: role.instance_capabilities, unknown: [] }
-		// A field the stored override leaves unset shows the instance value as is.
-		return { base: role.capabilities, unknown: overriddenKeys(data?.overrides[role.name]) }
-	}
-
+	/**
+	 * The instance layer of a role. The listing gives only capabilities with the stored override
+	 * applied, so a field that override sets has no known instance value: `unknown` lists them.
+	 */
 	function baseFor(name: string): { base: RoleCapabilities; unknown: string[] } {
 		const role = instanceRoles.find((r) => r.name === name)
-		return role ? instanceBase(role) : { base: baseCapabilitiesFor(name), unknown: [] }
+		if (!role) return { base: baseCapabilitiesFor(name), unknown: [] }
+		return { base: role.capabilities, unknown: overriddenKeys(data?.overrides[name]) }
 	}
 
 	function effectiveFor(name: string): RoleCapabilities {
 		return applyCapabilitiesPatch(baseFor(name).base, draft[name]?.capabilities)
+	}
+
+	const AUTHORING_KEYS = ['code', 'flows', 'apps']
+
+	/** Whether saving makes an authoring field of `name` fall back to an unknown instance value. */
+	function authoringUnknown(name: string): boolean {
+		const set = overriddenKeys(draft[name])
+		return baseFor(name).unknown.some((k) => AUTHORING_KEYS.includes(k) && !set.includes(k))
 	}
 
 	function isAuthor(c: RoleCapabilities): boolean {
@@ -118,17 +120,21 @@
 	const errors = $derived.by(() => {
 		const e: Record<string, string> = {}
 		for (const name of [...instanceRoles.map((r) => r.name), ...workspaceOnlyNames]) {
+			// Left to the server, which knows the instance value.
+			if (authoringUnknown(name)) continue
 			const err = capabilitiesError(effectiveFor(name))
 			if (err) e[name] = err
 		}
 		return e
 	})
 
-	// A role that starts authoring moves each member from half a seat to a full one.
+	// A role that starts authoring moves each member from half a seat to a full one. One that
+	// falls back to an unknown instance value may, so it is confirmed too.
 	const newAuthorRoles = $derived(
 		[...instanceRoles.map((r) => r.name), ...workspaceOnlyNames].filter((name) => {
 			const before = data?.roles.find((r) => r.name === name)?.capabilities
-			return isAuthor(effectiveFor(name)) && !(before && isAuthor(before))
+			if (before && isAuthor(before)) return false
+			return isAuthor(effectiveFor(name)) || authoringUnknown(name)
 		})
 	)
 
@@ -147,7 +153,7 @@
 	const newRoleError = $derived.by(() => {
 		const name = newRoleName.trim()
 		if (!name) return undefined
-		if (data?.roles.some((r) => r.name === name) || draft[name]) return 'This role already exists'
+		if (instanceRoles.some((r) => r.name === name) || draft[name]) return 'This role already exists'
 		return roleNameError(name)
 	})
 
@@ -181,10 +187,10 @@
 	}
 </script>
 
-{#snippet roleCard(name: string, role: WithInstance | undefined)}
+{#snippet roleCard(name: string, role: EffectiveRole | undefined)}
 	{@const { base, unknown } = baseFor(name)}
 	{@const caps = applyCapabilitiesPatch(base, draft[name]?.capabilities)}
-	{@const overridden = draft[name] !== undefined}
+	{@const overridden = cleaned(draft)[name] !== undefined}
 	<div class="flex flex-col rounded-md border bg-surface-tertiary">
 		<div class="flex items-center gap-2 p-2">
 			<div class="flex flex-col w-40 shrink-0 min-w-0">
@@ -349,7 +355,8 @@
 	<div class="flex flex-col gap-2 text-sm">
 		<span>
 			With this change, members holding
-			<b>{newAuthorRoles.join(', ')}</b> can write code or build flows or apps in this workspace.
+			<b>{newAuthorRoles.join(', ')}</b> can write code or build flows or apps in this workspace, or
+			may again if the instance definition allows it.
 		</span>
 		<span>
 			Each of them then consumes a full seat instead of half a seat, which changes what this

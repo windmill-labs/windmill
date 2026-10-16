@@ -163,6 +163,23 @@ export async function loadWorkspaceRoles(workspace: string): Promise<WorkspaceRo
 	return await WorkspaceService.listWorkspaceRoles({ workspace })
 }
 
+/**
+ * The role a new member gets when none is picked: `developer` while the workspace defines it,
+ * the first role otherwise, as the server picks one.
+ */
+export function defaultRoleName(roles: EffectiveRole[] | undefined): string {
+	if (!roles?.length || roles.some((r) => r.name === DEVELOPER_ROLE)) return DEVELOPER_ROLE
+	return roles[0].name
+}
+
+/** `value` while the workspace still defines it (or it is Admin), the default role otherwise. */
+export function validRoleOr(roles: EffectiveRole[] | undefined, value: string | undefined): string {
+	if (value === ADMIN_ROLE || (value && (!roles || roles.some((r) => r.name === value)))) {
+		return value
+	}
+	return defaultRoleName(roles)
+}
+
 /** Role picker items: the workspace's roles in their order, then Admin. */
 export function roleItems(
 	roles: EffectiveRole[] | undefined,

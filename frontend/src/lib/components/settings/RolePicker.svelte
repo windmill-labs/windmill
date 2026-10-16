@@ -10,7 +10,8 @@
 		roles: EffectiveRole[] | undefined
 		/** A role name, or `admin`. */
 		value: string | undefined
-		onchange: (value: string) => void
+		/** May return a promise; the picker shows `value` again once it settles. */
+		onchange: (value: string) => unknown
 		/** Whether Admin is offered next to the roles. */
 		admin?: boolean
 		disabled?: boolean
@@ -33,6 +34,17 @@
 		return list
 	})
 
+	let picks = $state(0)
+
+	async function pick(v: string) {
+		if (v === value) return
+		try {
+			await onchange(v)
+		} finally {
+			picks++
+		}
+	}
+
 	const TOOLTIPS: Record<string, string> = {
 		admin:
 			'Full control over the workspace: members, settings, every item. Holds everything whatever the role.'
@@ -40,13 +52,17 @@
 </script>
 
 {#if items.length <= 4}
-	<ToggleButtonGroup selected={value} {disabled} onSelected={(v) => onchange(v)}>
-		{#snippet children({ item })}
-			{#each items as i (i.value)}
-				<ToggleButton value={i.value} label={i.label} tooltip={TOOLTIPS[i.value]} small {item} />
-			{/each}
-		{/snippet}
-	</ToggleButtonGroup>
+	<!-- The group keeps its own selection, so it is remounted after each pick: a pick the parent
+	     refuses then shows `value` again instead of the refused one. -->
+	{#key picks}
+		<ToggleButtonGroup selected={value} {disabled} onSelected={pick}>
+			{#snippet children({ item })}
+				{#each items as i (i.value)}
+					<ToggleButton value={i.value} label={i.label} tooltip={TOOLTIPS[i.value]} small {item} />
+				{/each}
+			{/snippet}
+		</ToggleButtonGroup>
+	{/key}
 {:else}
 	<Select
 		{items}
@@ -54,6 +70,6 @@
 		{disablePortal}
 		size="sm"
 		class="min-w-36"
-		bind:value={() => value, (v) => v && v !== value && onchange(v)}
+		bind:value={() => value, (v) => v && pick(v)}
 	/>
 {/if}
