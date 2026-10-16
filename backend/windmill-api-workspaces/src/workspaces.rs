@@ -8897,6 +8897,7 @@ async fn create_workspace_fork_branch(
     {
         return Err(Error::PermissionDenied(msg));
     }
+    enforce_isolated_forks(&db, &authed, &w_id, &nw).await?;
 
     // Two-phase create for git-synced workspaces: this endpoint only creates the git branch(es) and
     // validates up front; it does NOT create the workspace row. The caller follows up with
@@ -9647,6 +9648,7 @@ async fn create_workspace_fork(
     {
         return Err(Error::PermissionDenied(msg));
     }
+    enforce_isolated_forks(&db, &authed, &parent_workspace_id, &nw).await?;
 
     if nw.is_dev_workspace {
         ensure_dev_parent_can_host_dev(&db, &parent_workspace_id).await?;
@@ -10019,6 +10021,60 @@ fn copy_requests(
                 })
         })
         .collect()
+}
+
+/// Under `RequireIsolatedForks` on `parent`, refuse a fork that would leave any of its data
+/// shared: a shared storage or lake, or a data table not cloned (`Keep original` points the fork
+/// at the parent's database).
+async fn enforce_isolated_forks(
+    db: &DB,
+    authed: &ApiAuthed,
+    parent: &str,
+    nw: &CreateWorkspaceFork,
+) -> Result<()> {
+    let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        parent,
+        &ProtectionRuleKind::RequireIsolatedForks,
+        AuditAuthorable::username(authed),
+        &authed.groups,
+        authed.is_admin,
+        db,
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+    let mut shared: Vec<String> = nw
+        .shared_storages
+        .iter()
+        .map(|s| format!("storage `{s}`"))
+        .chain(
+            nw.shared_ducklakes
+                .iter()
+                .map(|l| format!("ducklake `{l}`")),
+        )
+        .collect();
+    for (name, _) in
+        windmill_common::workspaces::resolve_workspace_governing_datatables(db, parent).await?
+    {
+        let cloned = nw.forked_datatables.iter().any(|d| {
+            d.name == name
+                && matches!(
+                    d.fork_behavior,
+                    Some(DataTableForkBehavior::SchemaOnly | DataTableForkBehavior::SchemaAndData)
+                )
+        });
+        if !cloned {
+            shared.push(format!("data table `{name}` (clone it)"));
+        }
+    }
+    if shared.is_empty() {
+        return Ok(());
+    }
+    Err(Error::PermissionDenied(format!(
+        "{msg}. Shared in this request: {}",
+        shared.join(", ")
+    )))
 }
 
 /// Record every storage of the fork's cloned settings as isolated, except `shared` ones.

@@ -21,11 +21,13 @@
 		// Workspace whose datatables are cloned into the fork (the fork's base). Falls back to the
 		// current workspace so existing callers keep working.
 		sourceWorkspace?: string
+		// A protection rule on the base forbids `keep_original`: every datatable is cloned.
+		requireIsolation?: boolean
 		onAllDone?: () => void
 		onCanceled?: () => void
 	}
 
-	let { sourceWorkspace, onAllDone, onCanceled }: Props = $props()
+	let { sourceWorkspace, requireIsolation = false, onAllDone, onCanceled }: Props = $props()
 
 	let effectiveSource = $derived(sourceWorkspace ?? $workspaceStore ?? undefined)
 

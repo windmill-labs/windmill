@@ -16,6 +16,7 @@
 	import {
 		enterpriseLicense,
 		superadmin,
+		userStore,
 		usersWorkspaceStore,
 		userWorkspaces,
 		workspaceStore
@@ -30,6 +31,7 @@
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
 	import { isOperatorInWorkspace } from '$lib/components/sidebar/operatorRoutes'
 	import {
+		canUserBypassRuleKindInRulesets,
 		fetchProtectionRulesForWorkspace,
 		isRuleUnconditionallyActiveInRulesets
 	} from '$lib/workspaceProtectionRules.svelte'
@@ -267,6 +269,17 @@
 	let forkDatatableSection: ReturnType<typeof ForkDatatableSection> | undefined = $state(undefined)
 	let forkDucklakeSection: ReturnType<typeof ForkDucklakeSection> | undefined = $state(undefined)
 	let forkStorageSection: ReturnType<typeof ForkStorageSection> | undefined = $state(undefined)
+
+	// The base's `RequireIsolatedForks` rule leaves no data shared with it: the sections below drop
+	// their sharing options. The server enforces it; this only keeps the form from offering a
+	// choice it would refuse.
+	const baseRulesets = resource(
+		() => (isFork ? baseWorkspaceId : undefined),
+		async (ws) => (ws ? fetchProtectionRulesForWorkspace(ws) : undefined)
+	)
+	let requireIsolation = $derived(
+		!canUserBypassRuleKindInRulesets(baseRulesets.current ?? [], 'RequireIsolatedForks', $userStore)
+	)
 
 	let workspaceColor: string | undefined = $state(undefined)
 	let colorEnabled = $state(false)
@@ -971,6 +984,7 @@
 				<ForkDatatableSection
 					bind:this={forkDatatableSection}
 					sourceWorkspace={baseWorkspaceId}
+					{requireIsolation}
 					onAllDone={() => {
 						completeFork(effectiveForkId)
 					}}
@@ -978,8 +992,16 @@
 						forkCreationLoading = false
 					}}
 				/>
-				<ForkDucklakeSection bind:this={forkDucklakeSection} sourceWorkspace={baseWorkspaceId} />
-				<ForkStorageSection bind:this={forkStorageSection} sourceWorkspace={baseWorkspaceId} />
+				<ForkDucklakeSection
+					bind:this={forkDucklakeSection}
+					sourceWorkspace={baseWorkspaceId}
+					{requireIsolation}
+				/>
+				<ForkStorageSection
+					bind:this={forkStorageSection}
+					sourceWorkspace={baseWorkspaceId}
+					{requireIsolation}
+				/>
 			{/if}
 			{#if !automateUsernameCreation}
 				<Label label="Your username in that workspace">
@@ -1105,11 +1127,8 @@
 	</div>
 	<div class="flex flex-wrap flex-row {inModal ? 'justify-end' : 'justify-between'} gap-4 pt-4">
 		{#if !inModal}
-			<Button
-				disabled={forkCreationLoading}
-				variant="default"
-				size="sm"
-				href="/user/workspaces">&leftarrow; Back to workspaces</Button
+			<Button disabled={forkCreationLoading} variant="default" size="sm" href="/user/workspaces"
+				>&leftarrow; Back to workspaces</Button
 			>
 		{/if}
 		{#if !forkCreationLoading}

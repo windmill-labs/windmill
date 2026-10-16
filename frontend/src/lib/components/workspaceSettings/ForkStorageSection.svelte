@@ -8,7 +8,10 @@
 
 	// The workspace the fork is created from, like ForkDucklakeSection: the storages
 	// listed here must match the ones the create-fork call submits to.
-	let { sourceWorkspace }: { sourceWorkspace?: string } = $props()
+	let {
+		sourceWorkspace,
+		requireIsolation = false
+	}: { sourceWorkspace?: string; requireIsolation?: boolean } = $props()
 	let effectiveSource = $derived(sourceWorkspace ?? $workspaceStore ?? undefined)
 
 	let storages = resource(
@@ -23,10 +26,13 @@
 
 	// Sent as `shared_storages` on the create-fork request; unlisted storages are isolated.
 	export function getSharedStorages(): string[] {
+		if (requireIsolation) return []
 		return (storages.current ?? []).filter((name) => behaviors[name] === 'shared')
 	}
 
-	let anyShared = $derived((storages.current ?? []).some((n) => behaviors[n] === 'shared'))
+	let anyShared = $derived(
+		!requireIsolation && (storages.current ?? []).some((n) => behaviors[n] === 'shared')
+	)
 
 	function storageLabel(name: string): string {
 		return name === '_default_' ? 'Primary storage' : name
@@ -40,6 +46,9 @@
 			By default each storage is isolated in the fork: the fork's writes go to its own prefix, and
 			it reads this workspace's files until it writes its own. Deleting the fork deletes what it
 			wrote.
+			{#if requireIsolation}
+				A protection rule on this workspace requires its forks to keep every storage isolated.
+			{/if}
 		</span>
 		<div class="border rounded-md divide-y">
 			{#each storages.current as name (name)}
@@ -47,7 +56,11 @@
 					<span class="text-xs font-medium">{storageLabel(name)}</span>
 					<Select
 						dropdownClass="max-w-96"
-						bind:value={() => behaviors[name] ?? 'isolated', (v) => (behaviors[name] = v)}
+						disabled={requireIsolation}
+						bind:value={
+							() => (requireIsolation ? 'isolated' : (behaviors[name] ?? 'isolated')),
+							(v) => (behaviors[name] = v)
+						}
 						items={[
 							{ value: 'isolated', label: 'Isolated (read through to parent)' },
 							{ value: 'shared', label: 'Shared with parent' }
