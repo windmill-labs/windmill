@@ -1116,3 +1116,38 @@ async fn test_instance_group_member_that_is_not_an_email_is_skipped(
 
     Ok(())
 }
+
+/// A non-admin who creates a reserved group first becomes its member and inherits every grant
+/// Windmill later gives it.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_reserved_group_names_admin_only(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!(
+        "http://localhost:{}/api/w/test-workspace/groups",
+        server.addr.port()
+    );
+
+    for name in windmill_common::RESERVED_GROUP_NAMES {
+        let resp = client()
+            .post(format!("{base}/create"))
+            .header("Authorization", "Bearer SECRET_TOKEN_2")
+            .json(&json!({ "name": name }))
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 400, "non-admin creating {name}");
+        assert!(resp.text().await?.contains("reserved"));
+
+        let resp = authed(client().post(format!("{base}/create")))
+            .json(&json!({ "name": name }))
+            .send()
+            .await?;
+        assert_eq!(
+            resp.status(),
+            200,
+            "admin creating {name}: {}",
+            resp.text().await?
+        );
+    }
+    Ok(())
+}

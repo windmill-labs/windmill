@@ -11,6 +11,12 @@
 		type CompletedJob
 	} from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
+	import {
+		devWorkspaceTagSuffix,
+		devWorkspaceSkipNonDevForks,
+		isForkOfIsolated,
+		loadDevWorkspaceTagSuffix
+	} from '$lib/devWorkspaceTags'
 	import { logoutWithRedirect } from '$lib/logoutKit'
 	import { page } from '$app/state'
 	import {
@@ -165,6 +171,12 @@
 	// read as a root (it would offer invalid dev creation while the workspace list is still loading).
 	// `workspaceIsFork` (prefix OR parent) also excludes an orphaned `wm-fork-` workspace, whose parent
 	// FK was set null — it has no parent but is still a fork, so it can't host a dev workspace.
+	let baseIsRoot = $derived(
+		!!baseWorkspaceEntry && !workspaceIsFork(baseWorkspaceId, forkableWorkspaces)
+	)
+	$effect(() => {
+		isFork && loadDevWorkspaceTagSuffix()
+	})
 	let baseCanHostDev = $derived(
 		!!baseWorkspaceEntry &&
 			(!workspaceIsFork(baseWorkspaceId, forkableWorkspaces) ||
@@ -977,6 +989,39 @@
 					<Alert type="info" size="xs" title="Admins and developers join this fork">
 						{baseWorkspaceId} adds its admins and developers to every new fork, with the role they have
 						there.
+					</Alert>
+				{/if}
+				{#if baseWorkspaceId && createAsDevWorkspace}
+					<Alert
+						type="info"
+						size="xs"
+						title="Resources and variables are copied from {baseWorkspaceId}"
+					>
+						The dev workspace starts with copies of {baseWorkspaceId}'s resources and variables,
+						credentials included. Point them at staging before developers use it.
+						{#if !forkingLocked && !lockProdForking}
+							Turn on <b>Prevent forking</b> above so developers fork this dev workspace, which will
+							hold staging credentials, rather than {baseWorkspaceId}.
+						{/if}
+						{#if $devWorkspaceTagSuffix}
+							Its jobs run on dev workers (tags suffixed with <code>{$devWorkspaceTagSuffix}</code
+							>).
+						{/if}
+					</Alert>
+				{:else if baseWorkspaceId && $devWorkspaceTagSuffix && !isForkOfIsolated(baseWorkspaceId, $userWorkspaces, $devWorkspaceSkipNonDevForks)}
+					<Alert type="info" size="xs" title="Runs on {baseWorkspaceId}'s workers">
+						Forks of non-dev workspaces are not isolated on this instance: jobs of this fork run on
+						the same workers as {baseWorkspaceId}.
+					</Alert>
+				{:else if baseWorkspaceId && $devWorkspaceTagSuffix}
+					<Alert type="info" size="xs" title="Runs on dev workers">
+						Jobs of this fork run on the worker groups serving dev workspaces (tags suffixed with
+						<code>{$devWorkspaceTagSuffix}</code>).
+						{#if baseIsRoot}
+							It copies {baseWorkspaceId}'s resources and variables, so its scripts use
+							{baseWorkspaceId}'s credentials from those workers and reach what their network
+							allows. Forking a dev workspace instead gives a fork its staging credentials.
+						{/if}
 					</Alert>
 				{/if}
 			{/if}

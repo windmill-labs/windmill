@@ -15,7 +15,7 @@ async fn seed(db: &Pool<Postgres>, url: &str) -> anyhow::Result<()> {
     let mc = windmill_common::variables::build_crypt(db, "test-workspace").await?;
     sqlx::query(
         "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms)
-         VALUES ('test-workspace', 'u/test-user/mcp_header', $1, true, '', '{}')",
+         VALUES ('test-workspace', 'u/test-user/header_secret', $1, true, '', '{}')",
     )
     .bind(windmill_common::variables::encrypt(&mc, SECRET_VALUE))
     .execute(db)
@@ -27,7 +27,7 @@ async fn seed(db: &Pool<Postgres>, url: &str) -> anyhow::Result<()> {
     .bind(serde_json::json!({
         "name": "mcp",
         "url": url,
-        "headers": { "X-Api-Key": "$var:u/test-user/mcp_header", "X-Plain": "plain" }
+        "headers": { "X-Api-Key": "$var:u/test-user/header_secret", "X-Plain": "plain" }
     }))
     .execute(db)
     .await?;
@@ -102,9 +102,45 @@ async fn test_mcp_header_var_ref_requires_variable_scope(db: Pool<Postgres>) -> 
     let body = resp.text().await?;
     assert_eq!(status, reqwest::StatusCode::FORBIDDEN, "{body}");
     assert!(
-        body.contains("variables:read:u/test-user/mcp_header"),
+        body.contains("variables:read:u/test-user/header_secret"),
         "{body}"
     );
+
+    // The token is held to the same scope, and a wildcard resource scope covers both.
+    sqlx::query(
+        "UPDATE resource SET value = jsonb_build_object('name', 'mcp', 'url', value->>'url',
+         'token', '$var:u/test-user/header_secret') WHERE path = 'u/test-user/mcp'",
+    )
+    .execute(&db)
+    .await?;
+    for (token, scope, denied) in [
+        ("EXACT_TOKEN", "resources:read:u/test-user/mcp", true),
+        ("WILDCARD_TOKEN", "resources:read:u/test-user/*", false),
+    ] {
+        sqlx::query(
+            "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes)
+             VALUES (encode(sha256($1::bytea), 'hex'), left($1, 10), $1,
+                     'test@windmill.dev', 'scoped', false, ARRAY[$2])",
+        )
+        .bind(token)
+        .bind(scope)
+        .execute(&db)
+        .await?;
+        let resp = reqwest::Client::new()
+            .get(format!(
+                "http://localhost:{}/api/w/test-workspace/resources/mcp_tools/u/test-user/mcp",
+                server.addr.port()
+            ))
+            .bearer_auth(token)
+            .send()
+            .await?;
+        let body = resp.text().await?;
+        assert_eq!(
+            body.contains("variables:read:u/test-user/header_secret"),
+            denied,
+            "{scope}: {body}"
+        );
+    }
 
     Ok(())
 }

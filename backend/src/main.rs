@@ -44,12 +44,13 @@ use windmill_common::{
         CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
         CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
         CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
-        DEPENDENCY_JOB_TAG_SETTING, DISABLE_PASSWORD_LOGIN_SETTING, EMAIL_DOMAIN_SETTING,
-        ENV_SETTINGS, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
-        EXTRA_PIP_INDEX_URL_SETTING, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING,
-        HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING, HTTP_ROUTE_WORKSPACED_ROUTE_SETTING,
-        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
-        INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
+        DEPENDENCY_JOB_TAG_SETTING, DEV_WORKSPACE_ISOLATION_SETTING,
+        DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS_SETTING, DEV_WORKSPACE_TAG_SUFFIX_SETTING,
+        DISABLE_PASSWORD_LOGIN_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
+        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
+        HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING,
+        INDEXER_SETTING, INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MAVEN_SETTINGS_XML_SETTING,
         MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
@@ -129,7 +130,9 @@ use windmill_worker::{
 
 use crate::monitor::{
     initial_load, load_concurrency_key_max_queued, load_dependency_job_tag,
-    load_disable_password_login, load_fork_workspace_tag_append_fork_suffix, load_keep_job_dir,
+    load_dev_workspace_isolation, load_dev_workspace_isolation_skip_non_dev_forks,
+    load_dev_workspace_tag_suffix, load_disable_password_login,
+    load_fork_workspace_tag_append_fork_suffix, load_keep_job_dir,
     load_mcp_disable_token_query_param, load_metrics_debug_enabled, load_preview_tags_override,
     load_require_preexisting_user, load_retention_period_overrides, load_tag_per_workspace_enabled,
     load_tag_per_workspace_workspaces, load_workspace_fairness_duration_secs,
@@ -1052,12 +1055,8 @@ Windmill Community Edition {GIT_VERSION}
 
         // Before the first load: it can sign a token for instance object storage.
         #[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
-        windmill_common::oidc_ee::init_oidc_signing(
-            &conn,
-            server_mode,
-            killpill_rx.resubscribe(),
-        )
-        .await?;
+        windmill_common::oidc_ee::init_oidc_signing(&conn, server_mode, killpill_rx.resubscribe())
+            .await?;
 
         initial_load(
             &conn,
@@ -1881,6 +1880,21 @@ async fn process_notify_event(
                         tracing::error!("Error loading dependency job tag: {e:#}");
                     }
                 }
+                DEV_WORKSPACE_ISOLATION_SETTING => {
+                    if let Err(e) = load_dev_workspace_isolation(db).await {
+                        tracing::error!("Error loading dev workspace isolation: {e:#}");
+                    }
+                }
+                DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS_SETTING => {
+                    if let Err(e) = load_dev_workspace_isolation_skip_non_dev_forks(db).await {
+                        tracing::error!("Error loading dev workspace isolation of forks: {e:#}");
+                    }
+                }
+                DEV_WORKSPACE_TAG_SUFFIX_SETTING => match load_dev_workspace_tag_suffix(db).await {
+                    Ok(true) if worker_mode => reload_worker_config(db, tx.clone(), true).await,
+                    Ok(_) => (),
+                    Err(e) => tracing::error!("Error loading dev workspace tag suffix: {e:#}"),
+                },
                 WORKSPACE_FAIRNESS_ENABLED_SETTING => {
                     if let Err(e) = load_workspace_fairness_enabled(db).await {
                         tracing::error!("Error loading workspace fairness enabled: {e:#}");

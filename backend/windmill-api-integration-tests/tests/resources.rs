@@ -648,6 +648,15 @@ async fn test_interpolated_references_need_the_token_scopes(
         read_probe(json!({"v": "$var:u/test-user/secret"}), with_var.clone()).await;
     assert_eq!((status, body.as_str()), (200, r#"{"v":"CANARY"}"#));
 
+    // A wildcard resource pattern extends to the variables it matches, and only to those.
+    let wildcard = mint(json!(["resources:read:u/test-user/*"])).await;
+    let (status, body) =
+        read_probe(json!({"v": "$var:u/test-user/secret"}), wildcard.clone()).await;
+    assert_eq!((status, body.as_str()), (200, r#"{"v":"CANARY"}"#));
+    let elsewhere = mint(json!(["resources:read:u/test-user/probe,f/other/*"])).await;
+    let (status, body) = read_probe(json!({"v": "$var:u/test-user/secret"}), elsewhere).await;
+    assert_eq!(status, 403, "{body}");
+
     // The resource's own linked secrets (at its path, or `<path>_<field>`) are part of it.
     for (path, value) in [
         ("u/test-user/probe", "LINKED"),

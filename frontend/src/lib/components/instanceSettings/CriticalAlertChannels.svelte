@@ -42,7 +42,8 @@
 		)
 	}
 
-	const isTeamsConnected = $derived(isTeamsOAuthConfigured(oauths?.teams))
+	// TODO: drop the pre-rename `teams` fallback with the backend one.
+	const isTeamsConnected = $derived(isTeamsOAuthConfigured(oauths?.ms_teams ?? oauths?.teams))
 
 	// Compute dynamic order based on channel presence
 	const slackOrder = $derived(slackChannels.length > 0 ? 1 : 4)
