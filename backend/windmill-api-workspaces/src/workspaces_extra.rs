@@ -868,11 +868,21 @@ pub(crate) async fn change_workspace_id(
         "Re-pushing jobs for {} enabled schedules",
         enabled_schedule_paths.len()
     );
-    for schedule_path in &enabled_schedule_paths {
-        if let Some(schedule) = get_schedule_opt(&mut *tx, &rw.new_id, schedule_path).await? {
-            tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
+    windmill_queue::tags::carry_lineage_over_rename(&old_id, &rw.new_id, &db).await?;
+    let new_id = &rw.new_id;
+    let repushed = async {
+        for schedule_path in &enabled_schedule_paths {
+            if let Some(schedule) = get_schedule_opt(&mut *tx, new_id, schedule_path).await? {
+                tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
+            }
         }
+        Ok::<_, Error>(tx)
     }
+    .await;
+    if repushed.is_err() {
+        windmill_queue::tags::invalidate_fork_parent_cache(new_id);
+    }
+    let mut tx = repushed?;
 
     // After every workspace_settings write above: fork cleanup locks a settings row before the
     // registry, so taking the registry first here would deadlock with it.

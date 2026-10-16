@@ -18,6 +18,17 @@ async fn pushed_tag(
     payload: JobPayload,
     tag: Option<&str>,
 ) -> String {
+    try_pushed_tag(db, workspace_id, payload, tag)
+        .await
+        .expect("push must succeed")
+}
+
+async fn try_pushed_tag(
+    db: &Pool<Postgres>,
+    workspace_id: &str,
+    payload: JobPayload,
+    tag: Option<&str>,
+) -> Result<String, windmill_common::error::Error> {
     let args = HashMap::new();
     let (id, tx) = windmill_queue::push(
         db,
@@ -51,14 +62,13 @@ async fn pushed_tag(
         None,
         None,
     )
-    .await
-    .expect("push must succeed");
+    .await?;
     tx.commit().await.unwrap();
-    sqlx::query_scalar("SELECT tag FROM v2_job WHERE id = $1")
+    Ok(sqlx::query_scalar("SELECT tag FROM v2_job WHERE id = $1")
         .bind(id)
         .fetch_one(db)
         .await
-        .unwrap()
+        .unwrap())
 }
 
 fn preview() -> JobPayload {
@@ -135,5 +145,33 @@ async fn dev_workspace_and_fork_jobs_run_on_suffixed_tags(db: Pool<Postgres>) {
     assert_eq!(
         pushed_tag(&db, "staging", dedicated, None).await,
         "staging:f/system/hello"
+    );
+
+    // A hashed dedicated tag keeps only a prefix of its workspace id: a dev workspace sharing that
+    // prefix does not get to use another workspace's dedicated worker.
+    let root = "a".repeat(40);
+    let dev = format!("{root}-dev");
+    sqlx::query(
+        "INSERT INTO workspace (id, name, owner, parent_workspace_id, is_dev_workspace)
+         VALUES ($1, 'root', 'test-user', NULL, false), ($2, 'dev', 'test-user', $1, true)",
+    )
+    .bind(&root)
+    .bind(&dev)
+    .execute(&db)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO workspace_settings (workspace_id) VALUES ($1), ($2)")
+        .bind(&root)
+        .bind(&dev)
+        .execute(&db)
+        .await
+        .unwrap();
+    let root_dedicated =
+        windmill_common::worker::dedicated_worker_tag(&root, "f/some/long/script/path");
+    assert!(
+        try_pushed_tag(&db, &dev, preview(), Some(&root_dedicated))
+            .await
+            .is_err(),
+        "{root_dedicated} must not stay unsuffixed, and suffixed it no longer fits a job tag"
     );
 }

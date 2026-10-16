@@ -3295,8 +3295,8 @@ pub(crate) fn resolve_flow_step_tag(
     workspace_id: &str,
     preserve_step_tags: bool,
     step_tag: Option<&str>,
-    // The suffix the workspace's jobs are queued with, if any: its flows run on the generic tag
-    // suffixed, and their steps are suffixed when pushed.
+    // The suffix of a dev workspace's flow tag, if any: its flows run on the generic tag suffixed,
+    // and their steps are suffixed when pushed.
     dev_suffix: Option<&str>,
 ) -> Option<String> {
     let generic_flow_tag = dev_suffix
@@ -4710,7 +4710,7 @@ async fn push_next_flow_job(
             &flow_job.workspace_id,
             flow.preserve_step_tags,
             payload_tag.tag.as_deref(),
-            windmill_queue::tags::dev_workspace_suffix_for(&flow_job.workspace_id, db)
+            windmill_queue::tags::dev_flow_tag_suffix(&flow_job.workspace_id, &flow_job.tag, db)
                 .await?
                 .as_deref(),
         );

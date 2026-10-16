@@ -577,7 +577,7 @@ async fn enqueue_windmill_tool(
         &ctx.job.workspace_id,
         ctx.preserve_step_tags,
         job_payload.tag.as_deref(),
-        windmill_queue::tags::dev_workspace_suffix_for(&ctx.job.workspace_id, ctx.db)
+        windmill_queue::tags::dev_flow_tag_suffix(&ctx.job.workspace_id, &ctx.job.tag, ctx.db)
             .await?
             .as_deref(),
     );

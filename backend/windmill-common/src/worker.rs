@@ -2425,7 +2425,8 @@ pub async fn update_worker_ping_main_loop_query(
 // occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
 // memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11 WHERE worker = $6",
 
-const MAX_TAG_LEN: usize = 50;
+/// The length of `v2_job.tag`.
+pub const MAX_TAG_LEN: usize = 50;
 const HASH_SUFFIX_LEN: usize = 16;
 
 pub const DEFAULT_DEV_WORKSPACE_TAG_SUFFIX: &str = "-dev";
@@ -2457,17 +2458,10 @@ pub fn with_dev_workspace_suffix(tag: &str, suffix: &str) -> String {
     }
 }
 
-/// Whether `tag` is a [`dedicated_worker_tag`] of `workspace_id`, hashed form included.
-pub fn is_dedicated_worker_tag_of(workspace_id: &str, tag: &str) -> bool {
-    let full_prefix = format!("{workspace_id}:");
-    if tag.starts_with(&full_prefix) {
-        return true;
-    }
-    let prefix_len = MAX_TAG_LEN - 1 - HASH_SUFFIX_LEN;
-    tag.len() == MAX_TAG_LEN
-        && tag.as_bytes().get(prefix_len) == Some(&b'#')
-        && full_prefix.len() > prefix_len
-        && full_prefix.starts_with(&tag[..prefix_len])
+/// Whether `tag` has the shape of a [`dedicated_worker_tag`] too long to keep whole. Its prefix
+/// alone does not tell whose it is: two workspaces may share it.
+pub fn is_hashed_dedicated_worker_tag(tag: &str) -> bool {
+    tag.len() == MAX_TAG_LEN && tag.as_bytes().get(MAX_TAG_LEN - 1 - HASH_SUFFIX_LEN) == Some(&b'#')
 }
 
 pub fn dedicated_worker_tag(workspace_id: &str, path: &str) -> String {

@@ -452,7 +452,8 @@
 						fork's <code>python3-$workspace-fork</code> becomes
 						<code>{withDevSuffix('python3-$workspace-fork', effectiveSuffix)}</code>. Changing it
 						moves the worker groups serving dev workspaces to the new suffix right away, while jobs
-						already queued keep the old one: change it when no dev job is waiting.
+						already queued keep the old one: change it when no dev job is waiting. A dev job whose
+						tag would exceed 50 characters once suffixed is refused.
 					</span>
 					<div class="flex gap-2 items-start">
 						<TextInput

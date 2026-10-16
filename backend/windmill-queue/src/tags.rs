@@ -1,8 +1,9 @@
 use sqlx::{Pool, Postgres};
 use windmill_common::error::Error;
 use windmill_common::worker::{
-    dev_workspace_tag_suffix, is_dedicated_worker_tag_of, with_dev_workspace_suffix,
-    DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX,
+    dedicated_worker_tag, dev_workspace_tag_suffix, is_hashed_dedicated_worker_tag,
+    with_dev_workspace_suffix, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES,
+    DEV_WORKSPACE_TAG_SUFFIX, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX, MAX_TAG_LEN,
     WORKER_SERVES_DEV_WORKSPACES,
 };
 use windmill_common::workspaces::WM_FORK_PREFIX;
@@ -157,13 +158,101 @@ pub async fn apply_dev_workspace_suffix(
     workspace_id: &str,
     db: &Pool<Postgres>,
 ) -> Result<String, Error> {
-    if is_dedicated_worker_tag_of(workspace_id, &tag) {
+    let Some(suffix) = dev_workspace_suffix_for(workspace_id, db).await? else {
+        return Ok(tag);
+    };
+    if is_dedicated_worker_tag_of(workspace_id, &tag, db).await? {
         return Ok(tag);
     }
-    Ok(match dev_workspace_suffix_for(workspace_id, db).await? {
-        Some(suffix) => with_dev_workspace_suffix(&tag, &suffix),
-        None => tag,
-    })
+    let suffixed = with_dev_workspace_suffix(&tag, &suffix);
+    if suffixed.len() > MAX_TAG_LEN {
+        return Err(Error::BadRequest(format!(
+            "tag {tag} of a dev workspace job would be {suffixed} once suffixed with {suffix}, \
+             longer than the {MAX_TAG_LEN} characters a job tag holds"
+        )));
+    }
+    Ok(suffixed)
+}
+
+/// Whether `tag` is a dedicated worker tag of `workspace_id`. A hashed one keeps only a prefix of
+/// the workspace id, which another workspace may share, so it counts only when a worker group's
+/// dedicated config for this workspace produces it.
+async fn is_dedicated_worker_tag_of(
+    workspace_id: &str,
+    tag: &str,
+    db: &Pool<Postgres>,
+) -> Result<bool, Error> {
+    if tag.starts_with(&format!("{workspace_id}:")) {
+        return Ok(true);
+    }
+    if !is_hashed_dedicated_worker_tag(tag) {
+        return Ok(false);
+    }
+    let configs = sqlx::query_scalar!("SELECT config FROM config WHERE name LIKE 'worker\\_\\_%'")
+        .fetch_all(db)
+        .await?;
+    Ok(configs.into_iter().flatten().any(|config| {
+        let single = config.get("dedicated_worker").cloned().into_iter();
+        let many = config
+            .get("dedicated_workers")
+            .and_then(|v| v.as_array().cloned())
+            .unwrap_or_default();
+        single.chain(many).any(|entry| {
+            entry
+                .as_str()
+                .and_then(|e| e.split_once(':'))
+                .is_some_and(|(ws, path)| {
+                    ws == workspace_id && dedicated_worker_tag(ws, path) == tag
+                })
+        })
+    }))
+}
+
+/// Gives `new_id` the lineage of `old_id` before a rename commits: the rename re-pushes the
+/// workspace's schedules in its own transaction, where the new row is not yet visible to the
+/// lookup, and a job queued then would keep a tag resolved without its parent for good.
+pub async fn carry_lineage_over_rename(
+    old_id: &str,
+    new_id: &str,
+    db: &Pool<Postgres>,
+) -> Result<(), Error> {
+    let old = lookup_tag_workspace(old_id, db).await;
+    if old.is_dev.is_none() {
+        return Err(Error::internal_err(format!(
+            "could not resolve the lineage of {old_id}"
+        )));
+    }
+    let new = TagWorkspace {
+        id: if old.id == old_id {
+            new_id.to_string()
+        } else {
+            old.id
+        },
+        ..old
+    };
+    FORK_PARENT_CACHE.insert(new_id.to_string(), (new, std::time::Instant::now()));
+    Ok(())
+}
+
+/// The suffix to strip from a flow job's tag to compare it with the generic flow tags: that of a
+/// dev workspace's flow, isolation on or off, so a flow started before isolation was turned off
+/// still routes its steps by their own tags.
+pub async fn dev_flow_tag_suffix(
+    workspace_id: &str,
+    flow_tag: &str,
+    db: &Pool<Postgres>,
+) -> Result<Option<String>, Error> {
+    let suffix = DEV_WORKSPACE_TAG_SUFFIX.load().to_string();
+    if !flow_tag.ends_with(&suffix) {
+        return Ok(None);
+    }
+    match lookup_tag_workspace(workspace_id, db).await.is_dev {
+        Some(true) => Ok(Some(suffix)),
+        Some(false) => Ok(None),
+        None => Err(Error::internal_err(format!(
+            "could not resolve whether {workspace_id} is a dev workspace"
+        ))),
+    }
 }
 
 /// The suffix the jobs of `workspace_id` are queued with: `Some` while isolation is on and the
