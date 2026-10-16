@@ -1170,8 +1170,8 @@ async fn set_workspace_connection(
     tx.commit().await?;
 
     Ok(Json(match path {
-        Some(path) => format!("{path} is now the workspace connection"),
-        None => "No workspace connection".to_string(),
+        Some(path) => format!("{path} is now the shared account"),
+        None => "No shared account".to_string(),
     }))
 }
 

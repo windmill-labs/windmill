@@ -351,13 +351,13 @@ impl External for NextCloud {
     fn error_hint(&self, status: StatusCode) -> Option<&'static str> {
         match status {
             StatusCode::UNAUTHORIZED => {
-                Some("reconnect the Nextcloud integration from Workspace settings > Integrations.")
+                Some("reconnect the Nextcloud account this uses from the account picker.")
             }
             StatusCode::FORBIDDEN => Some(
                 "Nextcloud grants webhook management to administrators only, and a Windmill \
                  admin is a different thing. If the connected Nextcloud account is not an admin \
-                 there and holds no delegated admin rights for the Webhooks setting, reconnect \
-                 the integration from Workspace settings > Integrations with one that does.",
+                 there and holds no delegated admin rights for the Webhooks setting, use one that \
+                 does, such as the workspace's shared account.",
             ),
             _ => None,
         }
