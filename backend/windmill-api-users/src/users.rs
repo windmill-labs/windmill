@@ -2454,14 +2454,18 @@ pub async fn update_workspace_user_internal(
         .execute(&mut **tx)
         .await?;
     }
-    // A legacy payload granting admin also cleared `operator`; keep that, as the developer role.
-    let role = role.or_else(|| match (is_admin, operator) {
-        (_, Some(true)) => Some(windmill_common::roles::OPERATOR_ROLE.to_string()),
-        (Some(true), _) | (_, Some(false)) => {
-            Some(windmill_common::roles::DEVELOPER_ROLE.to_string())
+    // A legacy payload granting admin also cleared `operator`; keep that, as the default role.
+    let role = match (role, is_admin, operator) {
+        (Some(role), _, _) => Some(role),
+        (None, _, Some(true)) => Some(windmill_common::roles::OPERATOR_ROLE.to_string()),
+        (None, Some(true), _) | (None, _, Some(false)) => {
+            let roles = windmill_common::roles::workspace_roles_on(&mut **tx, w_id).await?;
+            Some(windmill_common::roles::default_role_name(
+                roles.iter().map(|r| r.name.as_str()),
+            ))
         }
         _ => None,
-    });
+    };
     if let Some(role) = role {
         set_workspace_role(tx, w_id, username_to_update, &role).await?;
     }

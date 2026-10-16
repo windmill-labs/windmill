@@ -11,8 +11,8 @@ use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     error::{Error, JsonResult, Result},
     roles::{
-        self, caller_capabilities, instance_roles, load_role_overrides, EffectiveRole,
-        RoleCapabilities, RoleOverrides, RoleSource, OPERATOR_ROLE,
+        self, instance_roles, load_role_overrides, EffectiveRole, RoleCapabilities, RoleOverrides,
+        RoleSource, OPERATOR_ROLE,
     },
     utils::require_admin,
     DB,
@@ -51,7 +51,13 @@ async fn list_roles(
     .fetch_optional(&db)
     .await?
     .map(|r| roles::resolve_role_name(r.workspace_role, r.operator));
-    let my_capabilities = caller_capabilities(&db, &w_id, &authed).await?;
+    // Not `caller_capabilities`: its fast path answers FULL for an unrestricted member, which
+    // drops the visibility a role may still withhold.
+    let my_capabilities = match &my_role {
+        _ if authed.is_admin => roles::RoleCapabilities::FULL,
+        Some(role) => roles::role_capabilities_by_name(&db, &w_id, role).await?,
+        None => roles::RoleCapabilities::NONE,
+    };
     Ok(Json(WorkspaceRoles {
         roles: roles.as_ref().clone(),
         overrides,

@@ -382,9 +382,9 @@ async fn get_email_from_permissioned_as_inner<'c>(
 /// The highest-precedence workspace role a user holds across their instance groups.
 ///
 /// `admin` ranks first, then the workspace's roles in `role_order` (earlier is higher). A group
-/// with no mapped role grants `developer`; a role name not in `role_order` ranks last. Returns
-/// `(best_group_name, is_admin, role)`, where `role` is the role the membership holds and, for an
-/// admin, the one it keeps under the admin flag.
+/// with no mapped role grants `roles::default_role_name`; a role name not in `role_order` ranks
+/// last. Returns `(best_group_name, is_admin, role)`, where `role` is the role the membership
+/// holds and, for an admin, the one it keeps under the admin flag.
 pub fn compute_highest_workspace_role(
     user_igroups: &[String],
     ws_configured_groups: &[String],
@@ -401,11 +401,12 @@ pub fn compute_highest_workspace_role(
                 .unwrap_or(role_order.len())
         }
     };
+    let default_role = crate::roles::default_role_name(role_order.iter().map(String::as_str));
     let role_of = |group: &str| -> String {
         ws_roles
             .get(group)
             .cloned()
-            .unwrap_or_else(|| crate::roles::DEVELOPER_ROLE.to_string())
+            .unwrap_or_else(|| default_role.clone())
     };
 
     let mut best: Option<(usize, String)> = None;
@@ -422,7 +423,7 @@ pub fn compute_highest_workspace_role(
     let best_group = best.map(|(_, g)| g).unwrap_or_default();
     let role = role_of(&best_group);
     if role == "admin" {
-        (best_group, true, crate::roles::DEVELOPER_ROLE.to_string())
+        (best_group, true, default_role)
     } else {
         (best_group, false, role)
     }
@@ -521,6 +522,12 @@ mod tests {
         assert_eq!(
             compute_highest_workspace_role(&user_groups, &ws_groups, &Default::default(), &order()),
             ("team".to_string(), false, "developer".to_string())
+        );
+        // An instance that dropped `developer` falls back to its first role.
+        let no_dev = vec!["builder".to_string(), "operator".to_string()];
+        assert_eq!(
+            compute_highest_workspace_role(&user_groups, &ws_groups, &Default::default(), &no_dev),
+            ("team".to_string(), false, "builder".to_string())
         );
     }
 }

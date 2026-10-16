@@ -631,11 +631,15 @@ async fn resolve_new_member_role(
     operator: bool,
     role: Option<&str>,
 ) -> Result<(String, bool)> {
-    let name = role
-        .map(str::to_string)
-        .unwrap_or_else(|| windmill_common::roles::resolve_role_name(None, operator));
-    let caps = windmill_common::roles::find_role(db, w_id, &name)
-        .await?
+    let roles = windmill_common::roles::workspace_roles(db, w_id).await?;
+    let name = match role {
+        Some(role) => role.to_string(),
+        None if operator => windmill_common::roles::OPERATOR_ROLE.to_string(),
+        None => windmill_common::roles::default_role_name(roles.iter().map(|r| r.name.as_str())),
+    };
+    let caps = roles
+        .iter()
+        .find(|r| r.name == name)
         .ok_or_else(|| {
             Error::BadRequest(format!("role `{name}` is not defined in workspace {w_id}"))
         })?

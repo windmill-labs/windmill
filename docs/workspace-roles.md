@@ -25,7 +25,9 @@ Stored values are **patches**: an unset key falls through to the layer below, so
 reads as "never configured". The layers, top first: the workspace override, the instance
 definition, then `RoleCapabilities::base_for` (`FULL` for `developer`, the legacy operator for any
 other name). A role name no longer defined resolves to `NONE`, so deleting a role fails closed;
-deleting one that a member, invite, auto-invite or instance group mapping still names is refused.
+deleting one that a member, invite, auto-invite or instance group mapping still names is refused,
+and so is deleting an instance role that a workspace still overrides (the override would fall onto
+`base_for` instead of the definition it was written against).
 
 ## Who is restricted
 

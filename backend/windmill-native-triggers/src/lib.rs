@@ -1733,19 +1733,18 @@ pub async fn store_workspace_integration(
 }
 
 /// Authorization gate for the integration *use* routes (calendar/drive/repo/event
-/// pickers). A workspace admin configures the integration, but any member who can
-/// create a native trigger needs the pickers to configure one. Operators are
-/// read-only and cannot create triggers, so they must not be able to drive the
-/// admin-configured integration's upstream API and enumerate its data. Gated on the right to
-/// manage triggers, which is what the pickers serve.
+/// pickers). They drive the admin-connected account's upstream API and enumerate its data, so
+/// they need both the right to manage triggers and the right to write code: a role that only
+/// manages triggers (the default `operator`) must not browse the admin's Drive or repos.
 pub async fn require_native_integration_use(db: &DB, w_id: &str, authed: &ApiAuthed) -> Result<()> {
-    windmill_common::workspaces::check_operator_can_manage(
-        db,
-        w_id,
-        authed,
-        windmill_common::workspaces::ManageKind::Triggers,
-    )
-    .await
+    let caps = windmill_common::roles::caller_capabilities(db, w_id, authed).await?;
+    if caps.code && caps.manage_triggers {
+        Ok(())
+    } else {
+        Err(Error::PermissionDenied(
+            "Your role cannot use this workspace's native trigger integrations".to_string(),
+        ))
+    }
 }
 
 pub async fn get_workspace_integration<'c, E: sqlx::Executor<'c, Database = Postgres>>(
