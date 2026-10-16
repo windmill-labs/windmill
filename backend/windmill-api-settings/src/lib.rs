@@ -916,20 +916,6 @@ pub async fn set_global_setting_internal(
 
     run_setting_pre_write_hook(db, &key, &value).await?;
 
-    if key == windmill_common::global_settings::DEV_WORKSPACE_TAG_SUFFIX_SETTING {
-        if let serde_json::Value::String(s) = &value {
-            if !s.trim().is_empty()
-                && !windmill_common::worker::is_valid_dev_workspace_tag_suffix(s.trim())
-            {
-                return Err(error::Error::BadRequest(
-                    "The dev workspace tag suffix may only contain letters, digits, '-', '_' and \
-                     '.', up to 32 characters"
-                        .to_string(),
-                ));
-            }
-        }
-    }
-
     let turns_on = value.as_bool() == Some(true);
     match value {
         serde_json::Value::Null => {
@@ -998,6 +984,14 @@ async fn run_setting_pre_write_hook(
     value: &serde_json::Value,
 ) -> error::Result<()> {
     match key {
+        windmill_common::global_settings::DEV_WORKSPACE_TAG_SUFFIX_SETTING => match value {
+            serde_json::Value::Null => {}
+            serde_json::Value::String(s) if s.trim().is_empty() => {}
+            suffix => windmill_common::global_settings::validate_dev_workspace_tag_suffix(suffix)
+                .map_err(|e| {
+                error::Error::BadRequest(format!("The dev workspace tag suffix {e}"))
+            })?,
+        },
         // The instance AI config is written as an untyped blob through this generic
         // endpoint, so it never passes the typed check the workspace handler applies.
         // Rates that reach a cost total unbounded would make it negative or infinite.

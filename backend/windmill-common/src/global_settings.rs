@@ -317,6 +317,21 @@ pub fn validate_accent_color(value: &serde_json::Value) -> Result<(), String> {
     Ok(())
 }
 
+/// Validate a non-empty [`DEV_WORKSPACE_TAG_SUFFIX_SETTING`] value. Every writer must call
+/// it: a suffix that fails it is ignored at load, so the workers would listen on a suffix
+/// the setting does not show.
+pub fn validate_dev_workspace_tag_suffix(value: &serde_json::Value) -> Result<(), String> {
+    let s = value
+        .as_str()
+        .ok_or_else(|| "must be a string".to_string())?;
+    if !crate::worker::is_valid_dev_workspace_tag_suffix(s.trim()) {
+        return Err(
+            "may only contain letters, digits, '-', '_' and '.', up to 32 characters".to_string(),
+        );
+    }
+    Ok(())
+}
+
 /// The settings every signed-in browser reads on each full page load.
 #[derive(serde::Serialize, Clone, Debug, Default, PartialEq)]
 pub struct InstanceUi {

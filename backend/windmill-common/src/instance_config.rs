@@ -1506,6 +1506,14 @@ pub async fn sync_global_settings_declarative(
             .map_err(|e| anyhow::anyhow!("{accent_key}: {e}"))?,
     }
 
+    let suffix_key = crate::global_settings::DEV_WORKSPACE_TAG_SUFFIX_SETTING;
+    match desired.get(suffix_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
+        Some(suffix) => crate::global_settings::validate_dev_workspace_tag_suffix(suffix)
+            .map_err(|e| anyhow::anyhow!("{suffix_key}: {e}"))?,
+    }
+
     // An origin list that cannot be parsed is dropped at boot, leaving the
     // empty default — which is no restriction at all. Rejecting it here is what
     // keeps a typo in a ConfigMap from silently widening CORS instance-wide.
