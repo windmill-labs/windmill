@@ -317,6 +317,14 @@
       "type": "web_server"
     }
   },
+  "asana": {
+    "auth_url": "https://app.asana.com/-/oauth_authorize",
+    "token_url": "https://app.asana.com/-/oauth_token",
+    "scopes": ["default"],
+    "scope_options": [
+      { "value": "default", "label": "Full permissions (the Asana app must be registered with Full permissions)" }
+    ]
+  },
   "notion": {
     "auth_url": "https://api.notion.com/v1/oauth/authorize",
     "token_url": "https://api.notion.com/v1/oauth/token",
