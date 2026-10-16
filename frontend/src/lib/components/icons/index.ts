@@ -452,6 +452,7 @@ export const APP_TO_ICON_COMPONENT = {
 	resend: ResendIcon,
 	pushover: PushoverIcon,
 	quickbooks: QuickbooksIcon,
+	ms_teams: MsTeamsIcon,
 	ms_teams_webhook: MsTeamsIcon,
 	teams: MsTeamsIcon,
 	ms_outlook: OutlookIcon,

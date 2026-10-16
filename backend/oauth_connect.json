@@ -500,6 +500,101 @@
       }
     }
   },
+  "ms_teams": {
+    "req_body_auth": true,
+    "scopes": [
+      "offline_access",
+      "User.Read",
+      "Team.ReadBasic.All",
+      "Channel.ReadBasic.All",
+      "ChannelMessage.Send",
+      "Chat.ReadWrite",
+      "OnlineMeetings.ReadWrite"
+    ],
+    "scope_options": [
+      {
+        "value": "offline_access",
+        "label": "Stay connected (refresh token)"
+      },
+      {
+        "value": "User.Read",
+        "label": "Read your profile"
+      },
+      {
+        "value": "Team.ReadBasic.All",
+        "label": "List your teams"
+      },
+      {
+        "value": "Channel.ReadBasic.All",
+        "label": "List channels"
+      },
+      {
+        "value": "ChannelMessage.Send",
+        "label": "Post and reply in channels"
+      },
+      {
+        "value": "Chat.ReadWrite",
+        "label": "Read, create and send in your chats"
+      },
+      {
+        "value": "Chat.ReadBasic",
+        "label": "List your chats"
+      },
+      {
+        "value": "Chat.Read",
+        "label": "Read your chat messages"
+      },
+      {
+        "value": "Chat.Create",
+        "label": "Create chats"
+      },
+      {
+        "value": "ChatMessage.Send",
+        "label": "Send chat messages"
+      },
+      {
+        "value": "OnlineMeetings.ReadWrite",
+        "label": "Create and read online meetings"
+      },
+      {
+        "value": "ChannelMessage.Read.All",
+        "label": "Read channel messages (admin consent)"
+      },
+      {
+        "value": "ChannelMember.Read.All",
+        "label": "List channel members (admin consent)"
+      },
+      {
+        "value": "TeamMember.Read.All",
+        "label": "List team members (admin consent)"
+      },
+      {
+        "value": "Channel.Create",
+        "label": "Create channels (admin consent)"
+      },
+      {
+        "value": "Schedule.Read.All",
+        "label": "Read Shifts schedules (admin consent)"
+      }
+    ],
+    "connect_config_template": {
+      "label": "Microsoft Entra tenant",
+      "placeholder": "organizations, or your tenant id",
+      "help_url": "https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols#endpoints",
+      "auth_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/authorize",
+      "token_url": "https://login.microsoftonline.com/{instance}/oauth2/v2.0/token",
+      "req_body_auth": true,
+      "scopes": [
+        "offline_access",
+        "User.Read",
+        "Team.ReadBasic.All",
+        "Channel.ReadBasic.All",
+        "ChannelMessage.Send",
+        "Chat.ReadWrite",
+        "OnlineMeetings.ReadWrite"
+      ]
+    }
+  },
   "netsuite": {
     "connect_config_template": {
       "display_name": "NetSuite",
