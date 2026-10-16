@@ -1101,6 +1101,7 @@ async fn update_variable(
     if let Some(npath) = ns.path.as_deref() {
         check_scopes(&authed, || format!("variables:write:{}", npath))?;
         check_proper_path(npath)?;
+        crate::resources::check_result_cache_rename(&path, npath)?;
     }
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
 

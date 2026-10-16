@@ -688,6 +688,21 @@ async fn test_resource_references_are_scoped_at_write(db: Pool<Postgres>) -> any
         let status = resp.status().as_u16();
         assert_eq!(status, expected, "{value}: {}", resp.text().await?);
     }
+    // Nor can it keep a reference someone else placed while editing around it.
+    let resp = authed(client().post(format!(
+        "{base}/resources/create?update_if_exists=true"
+    )))
+    .json(&json!({"path": "u/test-user-3/probe", "value": {"v": "$var:u/test-user/secret", "url": "a"}, "resource_type": "object", "description": ""}))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 201);
+    let resp = client()
+        .post(format!("{base}/resources/update_value/u/test-user-3/probe"))
+        .bearer_auth("SECRET_TOKEN_3")
+        .json(&json!({"value": {"v": "$var:u/test-user/secret", "url": "b"}}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 403, "{}", resp.text().await?);
 
     // A result-cache resource is written by the worker, unvetted, so its references keep
     // their own read scope.
@@ -709,6 +724,11 @@ async fn test_resource_references_are_scoped_at_write(db: Pool<Postgres>) -> any
     let body = resp.text().await?;
     assert_eq!(status, 403, "{body}");
     assert!(!body.contains("CANARY"), "{body}");
+    let resp = authed(client().post(format!("{base}/resources/update/g/results/abc")))
+        .json(&json!({"path": "u/test-user/escaped"}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 400, "{}", resp.text().await?);
 
     Ok(())
 }

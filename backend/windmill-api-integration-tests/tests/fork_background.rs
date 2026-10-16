@@ -73,7 +73,11 @@ async fn test_fork_created_in_background(db: Pool<Postgres>) -> anyhow::Result<(
     assert_eq!(resp.status(), 200);
     let err_creation = resp.text().await?;
     let resp = create("wm-fork-bg-err").await?;
-    assert_eq!(resp.status(), 400, "a second creation while the first is in flight");
+    assert_eq!(
+        resp.status(),
+        400,
+        "a second creation while the first is in flight"
+    );
     sqlx::query("INSERT INTO workspace (id, name, owner) VALUES ('wm-fork-bg-err', 'x', 'x')")
         .execute(&mut *blocker)
         .await?;

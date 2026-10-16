@@ -920,11 +920,23 @@ fn check_interpolation_scope(
     }
 }
 
+/// Moving a result-cache resource out of `g/results/` would let its unvetted references
+/// resolve under the resource's scope alone ([`check_interpolation_scope`]).
+pub fn check_result_cache_rename(path: &str, npath: &str) -> Result<()> {
+    if path.starts_with("g/results/") && !npath.starts_with("g/results/") {
+        return Err(Error::BadRequest(format!(
+            "Cannot move result-cache resource {path} out of g/results/"
+        )));
+    }
+    Ok(())
+}
+
 /// Refuses writing into the resource at `path` a `$var:`/`$jsonvar:` reference the writer
 /// could not read: one RLS hides from the writer's user, or, for a scoped token, one outside
-/// its read scopes. A reference the stored value already carries is kept unchecked, so a
-/// writer can edit around one someone else placed. A reference to nothing yet is allowed: a
-/// promotion pushes resources before the secrets they point at.
+/// its read scopes. The RLS check covers references the stored value already carries too,
+/// since a co-writer could otherwise keep a secret and redirect where it is sent; only the
+/// scope check spares them. A reference to nothing yet is allowed: a promotion pushes
+/// resources before the secrets they point at.
 async fn check_added_var_refs(
     authed: &ApiAuthed,
     db: &DB,
@@ -954,12 +966,14 @@ async fn check_added_var_refs(
         collect_refs_with_prefixes(stored, &REFERRER_PREFIXES, &mut kept);
     }
     let mut hidden = vec![];
-    for r in refs.iter().filter(|r| !kept.contains(r)) {
-        check_scopes(authed, || format!("variables:read:{r}")).map_err(|_| {
-            Error::PermissionDenied(format!(
-                "This token needs variables:read:{r} to add a reference to it in resource {path}"
-            ))
-        })?;
+    for r in &refs {
+        if !kept.contains(r) {
+            check_scopes(authed, || format!("variables:read:{r}")).map_err(|_| {
+                Error::PermissionDenied(format!(
+                    "This token needs variables:read:{r} to add a reference to it in resource {path}"
+                ))
+            })?;
+        }
         let visible = sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS(SELECT 1 FROM variable WHERE path = $1 AND workspace_id = $2)",
         )
@@ -984,7 +998,7 @@ async fn check_added_var_refs(
         .await?;
         if exists {
             return Err(Error::PermissionDenied(format!(
-                "Cannot add a reference to variable {r} in resource {path}: you cannot read it"
+                "Cannot write a reference to variable {r} in resource {path}: you cannot read it"
             )));
         }
     }
@@ -2148,6 +2162,7 @@ async fn update_resource(
     if let Some(npath) = ns.path.as_deref() {
         check_scopes(&authed, || format!("resources:write:{}", npath))?;
         check_proper_path(npath)?;
+        check_result_cache_rename(path, npath)?;
     }
     if let Some(nrt) = ns.resource_type.as_deref() {
         check_proper_type_name(nrt)?;
