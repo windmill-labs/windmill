@@ -7248,10 +7248,28 @@ pub async fn parse_sig_of_lang(
 /// Inline runs happen outside any worker's job loop, so they get no job dir from it. Executors
 /// write there (DuckDB's spill and result files), so each run needs its own: an empty one
 /// resolves to `/`, shared by every concurrent run and unwritable to a non-root server.
-async fn create_inline_job_dir() -> error::Result<String> {
+/// Removed on drop: no job loop owns it, and the run's future is dropped mid-await when the
+/// HTTP client disconnects.
+struct InlineJobDir(String);
+
+impl Drop for InlineJobDir {
+    fn drop(&mut self) {
+        let dir = std::mem::take(&mut self.0);
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                handle.spawn_blocking(move || std::fs::remove_dir_all(dir));
+            }
+            Err(_) => {
+                let _ = std::fs::remove_dir_all(dir);
+            }
+        }
+    }
+}
+
+async fn create_inline_job_dir() -> error::Result<InlineJobDir> {
     let job_dir = format!("{}/inline/{}", *WINDMILL_DIR, Uuid::new_v4());
     tokio::fs::create_dir_all(&job_dir).await?;
-    Ok(job_dir)
+    Ok(InlineJobDir(job_dir))
 }
 
 pub fn init_worker_internal_server_inline_utils(
@@ -7286,12 +7304,12 @@ pub fn init_worker_internal_server_inline_utils(
                 let mut killpill_rx = params.killpill_rx;
                 let job_dir = create_inline_job_dir().await?;
 
-                let result = run_language_executor(
+                run_language_executor(
                     &job,
                     &params.conn,
                     &params.client,
                     None,
-                    &job_dir,
+                    &job_dir.0,
                     &params.worker_dir,
                     &mut mem_peak,
                     &mut canceled_by,
@@ -7312,9 +7330,7 @@ pub fn init_worker_internal_server_inline_utils(
                     true,
                     false,
                 )
-                .await;
-                let _ = tokio::fs::remove_dir_all(&job_dir).await;
-                result
+                .await
             })
         }),
         run_inline_script: Arc::new(|params: RunInlineScriptFnParams| {
@@ -7350,12 +7366,12 @@ pub fn init_worker_internal_server_inline_utils(
                 let mut killpill_rx = params.killpill_rx;
                 let job_dir = create_inline_job_dir().await?;
 
-                let result = run_language_executor(
+                run_language_executor(
                     &job,
                     &params.conn,
                     &params.client,
                     None,
-                    &job_dir,
+                    &job_dir.0,
                     &params.worker_dir,
                     &mut mem_peak,
                     &mut canceled_by,
@@ -7376,9 +7392,7 @@ pub fn init_worker_internal_server_inline_utils(
                     true,
                     false,
                 )
-                .await;
-                let _ = tokio::fs::remove_dir_all(&job_dir).await;
-                result
+                .await
             })
         }),
     };
