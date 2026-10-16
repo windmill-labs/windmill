@@ -515,6 +515,11 @@ struct CreateWorkspaceFork {
     /// fork namespace + read-defer.
     #[serde(default)]
     shared_ducklakes: Vec<String>,
+    /// Workspace storages the fork reads and writes at the parent's keys (`_default_` for the
+    /// primary one). Every other storage is isolated: the fork writes under its own prefix
+    /// and reads through to the parent's objects.
+    #[serde(default)]
+    shared_storages: Vec<String>,
     /// Create the fork as a persistent dev workspace: the id is not required to carry the
     /// `wm-fork-` prefix, and at most one dev workspace may exist per parent.
     #[serde(default)]
@@ -9571,6 +9576,24 @@ async fn create_workspace_fork(
             i.msg
         );
     }
+    // Unlike a dropped lake's files, a deleted fork's objects are live to a same-id fork: it
+    // reads its own prefix first.
+    let leftover_storages = crate::workspaces_extra::prepare_fork_storage_purges(
+        &db,
+        &nw.id,
+        Some(&parent_workspace_id),
+    )
+    .await?;
+    let storage_issues =
+        crate::workspaces_extra::purge_fork_storages(&db, &nw.id, leftover_storages).await;
+    if !storage_issues.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "a previously deleted workspace with id '{}' left objects in its fork prefix that \
+             could not be deleted: {}; retry once the storage is reachable again",
+            nw.id,
+            storage_issues.join("; ")
+        )));
+    }
 
     #[cfg(not(feature = "enterprise"))]
     _check_nb_of_workspaces(&db).await?;
@@ -9964,6 +9987,68 @@ fn copy_requests(
         .collect()
 }
 
+/// Record every storage of the fork's cloned settings as isolated, except `shared` ones.
+/// Isolation is a per-fork-creation choice, never inherited: a fork of a shared fork is
+/// isolated unless it asks otherwise.
+async fn isolate_fork_storages(
+    tx: &mut Transaction<'_, Postgres>,
+    fork_id: &str,
+    shared: &[String],
+) -> Result<()> {
+    use windmill_common::fork_storage::{lfs_entry, registry_storage_name};
+
+    let lfs = sqlx::query_scalar!(
+        "SELECT large_file_storage FROM workspace_settings WHERE workspace_id = $1",
+        fork_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?
+    .flatten()
+    .filter(|v| v.get("type").is_some());
+    let mut storages: Vec<&str> = vec![];
+    if let Some(lfs) = &lfs {
+        storages.push("");
+        if let Some(secondary) = lfs.get("secondary_storage").and_then(|s| s.as_object()) {
+            storages.extend(secondary.keys().map(String::as_str));
+        }
+    }
+    for name in shared {
+        if !storages.contains(&registry_storage_name(Some(name))) {
+            return Err(Error::BadRequest(format!(
+                "cannot share storage `{name}` with the parent: no such storage in the workspace \
+                 settings"
+            )));
+        }
+    }
+    let Some(lfs) = &lfs else {
+        return Ok(());
+    };
+    for storage in storages {
+        if shared
+            .iter()
+            .any(|s| registry_storage_name(Some(s)) == storage)
+        {
+            continue;
+        }
+        let Some(storage_ref) =
+            lfs_entry(lfs, storage).and_then(windmill_common::workspaces::lfs_entry_storage_ref)
+        else {
+            continue;
+        };
+        sqlx::query!(
+            "INSERT INTO fork_storage_namespace (workspace_id, storage, storage_ref)
+             VALUES ($1, $2, $3)",
+            fork_id,
+            storage,
+            storage_ref
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+    windmill_common::fork_storage::invalidate_fork_storage_keys_cache(fork_id);
+    Ok(())
+}
+
 /// Write the fork, with its data tables pointed at `copies`.
 async fn write_workspace_fork(
     db: DB,
@@ -10228,6 +10313,8 @@ async fn write_workspace_fork(
             )));
         }
     }
+
+    isolate_fork_storages(&mut tx, &forked_id, &nw.shared_storages).await?;
 
     // Lock the parent ("prod") so edits are funneled through this dev workspace.
     let locked_prod = nw.is_dev_workspace && (nw.lock_prod_deploy || nw.lock_prod_forking);

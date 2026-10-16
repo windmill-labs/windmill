@@ -54,6 +54,23 @@ pub(crate) async fn change_workspace_id(
         require_admin(authed.is_admin, &authed.username)?;
     }
 
+    // An isolating fork's objects live under a prefix derived from its id: under a new id it
+    // would see none of them, and descendants would lose them from their read-through.
+    let isolates_storage = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM fork_storage_namespace WHERE workspace_id = $1)",
+        &old_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+    if isolates_storage {
+        return Err(Error::BadRequest(
+            "This workspace isolates its object storage from its parent under a prefix derived \
+             from its id, so its id cannot be changed"
+                .to_string(),
+        ));
+    }
+
     let mut tx = db.begin().await?;
 
     // The settings copy below carries every data table entry to the new id, which fork cleanup of
@@ -1099,6 +1116,13 @@ pub(crate) async fn delete_workspace(
             tracing::warn!("deleting workspace {w_id}: preparing ducklake cleanup: {e:#}");
             vec![]
         });
+    // Nothing can reach a deleted fork's prefix once it is gone, so it is always purged.
+    let fork_storage_purges = prepare_fork_storage_purges(&db, &w_id, None)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!("deleting workspace {w_id}: preparing storage purge: {e:#}");
+            vec![]
+        });
 
     sqlx::query!("DELETE FROM ai_agent_memory WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
@@ -1368,6 +1392,9 @@ pub(crate) async fn delete_workspace(
             "deleted workspace {w_id}: ducklake namespace cleanup: {}",
             e.msg
         );
+    }
+    for e in purge_fork_storages(&db, &w_id, fork_storage_purges).await {
+        tracing::warn!("deleted workspace {w_id}: storage purge: {e}");
     }
 
     if let Some(parent) = dev_lock_parent {
@@ -2296,6 +2323,80 @@ async fn delete_fork_ducklake_data(
     Err(Error::internal_err(
         "object storage support (parquet feature) is not compiled in".to_string(),
     ))
+}
+
+/// A storage a fork isolated, resolved while its `$res:` still exists.
+pub(crate) struct PreparedForkStoragePurge {
+    storage: String,
+    store: std::result::Result<(windmill_types::s3::LargeFileStorage, serde_json::Value), String>,
+}
+
+/// Read-only: one entry per `fork_storage_namespace` row of `w_id`. `res_fallback_w_id` as in
+/// [`prepare_fork_ducklake_cleanups`].
+pub(crate) async fn prepare_fork_storage_purges(
+    db: &DB,
+    w_id: &str,
+    res_fallback_w_id: Option<&str>,
+) -> Result<Vec<PreparedForkStoragePurge>> {
+    let rows = sqlx::query!(
+        "SELECT storage, storage_ref FROM fork_storage_namespace WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_all(db)
+    .await?;
+    let mut prepared = Vec::with_capacity(rows.len());
+    for row in rows {
+        let storage = Some(row.storage.as_str()).filter(|s| !s.is_empty());
+        let store = resolve_fork_storage(db, w_id, res_fallback_w_id, storage, &row.storage_ref)
+            .await
+            .map_err(|e| e.to_string());
+        prepared.push(PreparedForkStoragePurge { storage: row.storage, store });
+    }
+    Ok(prepared)
+}
+
+/// Delete everything under the fork's `__wm_forks/<segment>/` in each prepared storage, then its
+/// registry row. Returns one message per storage that could not be purged; its row survives.
+pub(crate) async fn purge_fork_storages(
+    db: &DB,
+    w_id: &str,
+    prepared: Vec<PreparedForkStoragePurge>,
+) -> Vec<String> {
+    let area = format!(
+        "{}/{}",
+        windmill_common::workspaces::FORK_DUCKLAKE_DATA_DIR,
+        windmill_common::workspaces::fork_data_dir_segment(w_id)
+    );
+    let mut errors = vec![];
+    for p in prepared {
+        let name = if p.storage.is_empty() {
+            "default storage"
+        } else {
+            p.storage.as_str()
+        };
+        let purged = match p.store {
+            Ok((lfs, value)) => delete_fork_ducklake_data(lfs, value, &area)
+                .await
+                .map_err(|e| e.to_string()),
+            Err(e) => Err(e),
+        };
+        if let Err(e) = purged {
+            errors.push(format!("{name}: {e}"));
+            continue;
+        }
+        if let Err(e) = sqlx::query!(
+            "DELETE FROM fork_storage_namespace WHERE workspace_id = $1 AND storage = $2",
+            w_id,
+            p.storage
+        )
+        .execute(db)
+        .await
+        {
+            errors.push(format!("{name}: removing registry row: {e}"));
+        }
+    }
+    windmill_common::fork_storage::invalidate_fork_storage_keys_cache(w_id);
+    errors
 }
 
 /// Destroying an ATTACHED dev workspace (or its data environments) must be a prod-admin
