@@ -988,41 +988,27 @@
 				// OAuth flow: single secret variable for the token
 				if (typeof value == 'string' && value != '' && !value.startsWith('$var:')) {
 					savedVariableCount++
-					// Read once: the path field stays editable while this awaits, and the account
-					// must link the variable this call created.
-					const tokenPath = path
-					await VariableService.createVariable({
-						workspace: effectiveWorkspace,
-						requestBody: {
-							path: tokenPath,
-							value: value,
-							is_secret: true,
-							description: emptyString(description)
-								? `OAuth token for ${resourceType}`
-								: description,
-							is_oauth: true,
-							ws_specific: wsSpecific
-						}
-					})
-					if (accountData) {
-						try {
-							await OauthService.createAccount({
-								workspace: effectiveWorkspace,
-								requestBody: { ...accountData, variable_path: tokenPath }
-							})
-						} catch (e) {
-							// An unlinked token never refreshes, and its path would block a retry. Not when
-							// filling: deleting a variable also deletes the resource at its path.
-							if (!filling) {
-								await VariableService.deleteVariable({
-									workspace: effectiveWorkspace,
-									path: tokenPath
-								}).catch(() => {})
-							}
-							throw e
-						}
+					const tokenVariable = {
+						path,
+						value: value,
+						is_secret: true,
+						description: emptyString(description) ? `OAuth token for ${resourceType}` : description,
+						is_oauth: true,
+						ws_specific: wsSpecific
 					}
-					resourceValue['token'] = `$var:${tokenPath}`
+					if (accountData) {
+						// Creates the variable with the account it refreshes through, in one transaction.
+						await OauthService.createAccount({
+							workspace: effectiveWorkspace,
+							requestBody: { ...accountData, variable: tokenVariable }
+						})
+					} else {
+						await VariableService.createVariable({
+							workspace: effectiveWorkspace,
+							requestBody: tokenVariable
+						})
+					}
+					resourceValue['token'] = `$var:${tokenVariable.path}`
 				}
 			} else if (linkedSecrets.length === 1) {
 				// Single secret: use the resource path as variable name (original behavior)

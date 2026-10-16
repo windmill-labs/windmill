@@ -8811,9 +8811,9 @@ paths:
                   items:
                     type: string
                   description: "OAuth scopes to use for token refresh. Overrides instance-level scopes."
-                variable_path:
-                  type: string
-                  description: "Path of an existing variable, writable by the caller, to link to this account so it refreshes through it. Its previous account is deleted when nothing else uses it."
+                variable:
+                  $ref: "#/components/schemas/CreateVariable"
+                  description: "The variable holding this account's access token. It is created with the account, in one transaction and with the same checks as createVariable, and linked to it so it refreshes through it."
               required:
                 - refresh_token
                 - expires_in
@@ -31994,7 +31994,7 @@ components:
         account:
           type: integer
           deprecated: true
-          description: Ignored. A variable is linked to an OAuth account only by `createAccount`'s `variable_path`.
+          description: Ignored. A variable is linked to an OAuth account only when `createAccount` creates both.
         is_oauth:
           type: boolean
           description: Whether the variable is an OAuth variable
