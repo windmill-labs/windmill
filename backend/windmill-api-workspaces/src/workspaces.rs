@@ -2168,6 +2168,15 @@ async fn edit_large_file_storage_config(
                 windmill_types::s3::DEFAULT_STORAGE
             )));
         }
+        if lfs_config
+            .secondary_storage
+            .contains_key(windmill_types::s3::BUCKET_ADDRESSED_SEGMENT)
+        {
+            return Err(Error::BadRequest(format!(
+                "`{}` is reserved by the S3 proxy and cannot name a secondary storage",
+                windmill_types::s3::BUCKET_ADDRESSED_SEGMENT
+            )));
+        }
 
         if !windmill_common::workspaces::filesystem_storage_allowed() {
             let named = std::iter::once(("primary storage", &lfs_config.large_file_storage)).chain(
