@@ -610,6 +610,7 @@
       "help_url": "https://developer.zendesk.com/documentation/api-basics/authentication/oauth-migration/",
       "auth_url": "https://{instance}.zendesk.com/oauth/authorizations/new",
       "token_url": "https://{instance}.zendesk.com/oauth/tokens",
+      "scopes": ["read", "write"],
       "req_body_auth": true,
       "strip_suffix": ".zendesk.com",
       "resource_mapping": {
