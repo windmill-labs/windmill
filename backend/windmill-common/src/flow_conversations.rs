@@ -64,12 +64,13 @@ pub async fn get_or_create_conversation_with_id(
     w_id: &str,
     flow_path: &str,
     username: &str,
+    is_admin: bool,
     title: &str,
     conversation_id: Uuid,
     is_test: bool,
 ) -> Result<FlowConversation> {
     if let Some(existing) = lock_conversation(tx, w_id, conversation_id).await? {
-        let existing = same_kind(existing, is_test)?;
+        let existing = same_kind(owned(existing, username, is_admin)?, is_test)?;
         refuse_running_turn(tx, conversation_id).await?;
         return Ok(existing);
     }
@@ -106,7 +107,7 @@ pub async fn get_or_create_conversation_with_id(
                 "conversation {conversation_id} belongs to another workspace"
             ))
         })?;
-    let existing = same_kind(existing, is_test)?;
+    let existing = same_kind(owned(existing, username, is_admin)?, is_test)?;
     refuse_running_turn(tx, conversation_id).await?;
     Ok(existing)
 }
@@ -174,6 +175,19 @@ pub async fn running_turns<'e, E: sqlx::PgExecutor<'e>>(
         .into_iter()
         .map(|r| (r.id, RunningTurn { job_id: r.job_id, user_seq: r.user_seq }))
         .collect())
+}
+
+/// The `see_own` policy on `flow_conversation`, for a turn whose transaction bypasses it: a run
+/// as a flow's or agent's `on_behalf_of` takes the conversation in a root transaction, and must
+/// not continue, or read the memory of, another user's conversation.
+fn owned(existing: FlowConversation, username: &str, is_admin: bool) -> Result<FlowConversation> {
+    if is_admin || existing.created_by == username {
+        return Ok(existing);
+    }
+    Err(crate::error::Error::BadRequest(format!(
+        "conversation {} belongs to another user; start a new conversation",
+        existing.id
+    )))
 }
 
 /// `memory_id` is the caller's to choose, so a preview run could name a deployed

@@ -325,6 +325,7 @@ async fn test_new_turns_wait_for_conversation_cleanup_and_recreate(
                     WS,
                     "f/flow",
                     "test-user",
+                    false,
                     "hi again",
                     conv_id,
                     false,

@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT l.id IS NOT NULL as \"has_lite!\",\n                        CASE WHEN $3::bigint IS NULL THEN NOT EXISTS (\n                            SELECT 1 FROM app_script s\n                            WHERE s.app = a.id AND s.code_sha256 = $4::text\n                                AND jsonb_path_exists(l.value, '$.**.inlineScript.id ? (@ == $id)',\n                                    jsonb_build_object('id', s.id)))\n                        ELSE coalesce(jsonb_path_exists(l.value, '$.**.inlineScript.id ? (@ == $id)',\n                            jsonb_build_object('id', $3::bigint)), false)\n                        END as \"may_run!\"\n                    FROM app a\n                    LEFT JOIN app_version_lite l ON l.id = a.versions[array_upper(a.versions, 1)]\n                    WHERE a.path = $1 AND a.workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "has_lite!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "may_run!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "eafb6d792370bf4d42cb79d0264e2eaf32f8f756920bd9fe9b302cba8e7d8814"
+}

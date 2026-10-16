@@ -98,6 +98,7 @@
 	})
 
 	const candidatePaths = $derived(extractCandidatePaths(message.content))
+	const reasoningPlugins = [gfmPlugin(), { renderer: { a: LinkRenderer } }]
 	const rendererPlugin = {
 		renderer: {
 			pre: CodeDisplay,
@@ -158,7 +159,7 @@
 		labelClass="truncate"
 		contentClass="font-main text-secondary {markdownProse.xs}"
 	>
-		<Markdown md={reasoning} plugins={[gfmPlugin()]} />
+		<Markdown md={reasoning} plugins={reasoningPlugins} />
 	</ChatCollapsibleCard>
 {/if}
 

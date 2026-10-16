@@ -1113,6 +1113,14 @@
 	onblur={closeCardOnFrameFocus}
 />
 
+<!-- A manifest's start_url replaces the URL a home-screen shortcut was added from, so only the
+console links it: shared pages (public apps, public runs, shared sessions, approval links) live
+outside this layout, and their shortcut must reopen the URL that is their credential. -->
+<svelte:head>
+	<link rel="manifest" href="/manifest.webmanifest" />
+	<meta name="apple-mobile-web-app-title" content="Windmill" />
+</svelte:head>
+
 <!-- Home + Runs lifted to the top of the workspace nav, sitting with Favorites
      and Search as the primary quick-access cluster. Excluded from SidebarContent
      (via excludeMainLabels) so they aren't rendered twice. -->

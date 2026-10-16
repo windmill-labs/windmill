@@ -662,6 +662,12 @@ Resources store credentials and configuration for external services.
 - \`value\` - Object containing the resource configuration
 - \`resource_type\` - Name of the resource type (e.g., "postgresql", "slack")
 
+## Agents
+
+An agent, as the Agents page lists it, is a resource of type \`ai_agent\`. Its value holds the
+agent's provider, system prompt, tools and memory settings, and a flow step uses a saved agent by
+linking its path.
+
 ## Variable References
 
 Reference variables in resource values:
@@ -1148,7 +1154,7 @@ When a deploy widens who may open the app, tell the user in plain words.
 
 ## Sandbox isolation and frontend API access
 
-New apps are sandboxed: the frontend is isolated from the viewer's own Windmill session and reaches Windmill only through its backend runnables, plus whatever frontend API scopes the app declares, which each viewer approves before the app runs. With isolation turned off, the frontend runs with the viewer's full session. The scopes are \`jobs:run\`, \`jobs:read\`, \`users:read\`, \`resources:read\`, \`variables:read\`, \`flow_conversations:read\` and \`flow_conversations:write\`; grant only the ones the frontend calls.
+New apps are sandboxed: the frontend is isolated from the viewer's own Windmill session and reaches Windmill only through its backend runnables, plus whatever frontend API scopes the app declares, which each viewer approves before the app runs. With isolation turned off, the frontend runs with the viewer's full session. The scopes are \`jobs:run\`, \`jobs:read\`, \`resources:read\`, \`variables:read\`, \`flow_conversations:read\` and \`flow_conversations:write\`; grant only the ones the frontend calls. The viewer's identity needs no scope: it is in \`window.ctx\`, and whoami works with any of them.
 
 Inside the sandbox, IndexedDB is unavailable, third-party sign-in and OAuth redirects fail, and requests to other services carry \`Origin: null\`, which an API that checks the origin rejects. Work around these first: call the service from a backend runnable, keep state in a data table or \`localStorage\`, or grant the frontend API scope the code needs. Suggest turning isolation off only when none of that works, and say plainly that it is a security risk: the app's code, and any XSS bug in it, then runs with the full Windmill permissions of everyone who opens the app.
 You cannot turn isolation off; the user does it in the app's deploy settings.

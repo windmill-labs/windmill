@@ -118,6 +118,9 @@ export interface ChatViewHost {
 	// of their own; the chrome they drive hides itself.
 	mode?: AIMode
 	isSessionChat: boolean
+	/** Someone else's transcript, replayed for a reader who did not write it: markup that
+	 * would execute or render beyond plain text (mermaid diagrams) stays off. */
+	untrustedTranscript?: boolean
 	/** Model + reasoning picker. Off where the model is configured elsewhere. */
 	supportsModelSettings: boolean
 	/** Click a user message to edit and resend it. Needs a host that can rewind

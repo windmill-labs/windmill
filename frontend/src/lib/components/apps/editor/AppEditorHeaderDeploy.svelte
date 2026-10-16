@@ -24,7 +24,7 @@
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
 	import { canUserBypassRuleKind, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
-	import { FRONTEND_SDK_SCOPES } from '$lib/components/raw_apps/sdkScopes'
+	import { FRONTEND_SDK_SCOPES, sdkScopesToConfirm } from '$lib/components/raw_apps/sdkScopes'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import {
 		useOperatingUser,
@@ -436,7 +436,7 @@
 					tooltip="Each viewer approves these scopes before the app runs. The app's code, or an XSS bug in it, can use them as that viewer."
 				>
 					{#snippet badge()}
-						{#if policy.frontend_sdk_scopes?.length}
+						{#if sdkScopesToConfirm(policy.frontend_sdk_scopes ?? []).length}
 							<div class="flex grow min-w-0 flex-wrap gap-1 ps-2">
 								{#each FRONTEND_SDK_SCOPES.filter( (s) => policy.frontend_sdk_scopes.includes(s.value) ) as scope (scope.value)}
 									<Badge twBgColor="bg-surface-sunken" twTextColor="text-primary"
@@ -464,7 +464,9 @@
 											? [...current, scope.value]
 											: current.filter((s) => s !== scope.value)
 										// Keep the curated order so the consent banner and the stored
-										// consent compare stably across deploys.
+										// consent compare stably across deploys. A leftover implicit scope is
+										// not in the list, so it drops here rather than keep minting a token
+										// for an app whose toggles all read off.
 										const ordered = FRONTEND_SDK_SCOPES.map((s) => s.value).filter((s) =>
 											next.includes(s)
 										)
@@ -481,7 +483,7 @@
 							</div>
 						{/each}
 					</div>
-					{#if policy.frontend_sdk_scopes?.length}
+					{#if sdkScopesToConfirm(policy.frontend_sdk_scopes ?? []).length}
 						<div class="mt-3">
 							<Alert type="info" title="Redeploy to use the SDK from a sandboxed app" size="xs">
 								A sandboxed app calls the API cross-origin, which older <code>windmill-client</code>

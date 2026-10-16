@@ -18,7 +18,13 @@
 		linkedAgentToolsVersion,
 		migrateLinkedAgentToolsScope
 	} from '$lib/components/flows/linkedAgentToolsStore.svelte'
-	import { enterpriseLicense, userStore, userWorkspaces, usedTriggerKinds } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		userStore,
+		userWorkspaces,
+		usedTriggerKinds,
+		workspaceStore
+	} from '$lib/stores'
 	import {
 		generateRandomString,
 		orderedJsonStringify,
@@ -49,6 +55,7 @@
 	import WorkspaceScriptSettingsDrawer from './flows/content/WorkspaceScriptSettingsDrawer.svelte'
 	import FlowEditorDrawer from './flows/content/FlowEditorDrawer.svelte'
 	import { dfs as dfsApply } from './flows/dfs'
+	import { dropStaleStepLocks } from './flows/staleStepLocks'
 	import {
 		claimLinkedToolsFetch,
 		invalidateLinkedToolsFetches,
@@ -551,15 +558,14 @@
 				// One lookup for the whole list: an agent lives in a folder, and the groups and admin
 				// flag that answer for it are per workspace, so the nav user would answer for the wrong
 				// membership when a session editor operates on another workspace.
-				const user = await getUserExt(opWorkspace ?? '').catch(() => undefined)
+				const user =
+					(await getUserExt(opWorkspace ?? '')) ??
+					(opWorkspace === $workspaceStore ? $userStore : undefined)
 				const operatorSettings = $userWorkspaces.find(
 					(w) => w.id === opWorkspace
 				)?.operator_settings
 				agentCanWrite = Object.fromEntries(
-					draftAgents.map((a) => [
-						a.path,
-						agentDraftCanWrite(a, user ?? $userStore ?? undefined, operatorSettings)
-					])
+					draftAgents.map((a) => [a.path, agentDraftCanWrite(a, user, operatorSettings)])
 				)
 				// The path is passed, so a draft that renames the agent is refused here too: a rename is
 				// the agent editor's to deploy, and this dialog lists the agent under the path the flow
@@ -626,6 +632,16 @@
 					console.error('Could not check flow existence', err)
 				}
 			}
+
+			// The editor clears a step's lock when its code is edited, but a draft written elsewhere
+			// can hold a step whose code changed and whose lock did not. A failed lookup skips the
+			// check rather than blocking the deploy.
+			const liveFlowValue = isNewFlow
+				? undefined
+				: await FlowService.getFlowByPath({ workspace: opWorkspace!, path: initialPath })
+						.then((f) => f.value)
+						.catch(() => undefined)
+			dropStaleStepLocks(flow.value, liveFlowValue)
 
 			if (isNewFlow) {
 				await FlowService.createFlow({

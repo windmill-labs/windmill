@@ -608,6 +608,10 @@ export const mcpEndpointTools: EndpointTool[] = [
                 "include_draft_only": {
                         "type": "boolean",
                         "description": "When true, append per-user draft resources whose path has\nno deployed resource. Synthesized rows carry\n`draft_only: true`.\n"
+                },
+                "starred_only": {
+                        "type": "boolean",
+                        "description": "Only the `ai_agent` resources the caller starred"
                 }
         },
         "required": []
@@ -1343,7 +1347,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                                         "items": {
                                                 "type": "string"
                                         },
-                                        "description": "Raw apps: author-declared scopes for the frontend SDK token. Takes effect only when `sandbox` is also true \u2014 an unsandboxed bundle runs with the viewer's own session, so no token is advertised or minted for it and this list stays inert. On a sandboxed app a non-empty list lets viewers mint (after consenting) a short-lived token carrying their own identity restricted to these scopes, handed to the app bundle so `windmill-client` calls run as the viewer. Must be a subset of the server's curated allowlist (jobs:run, jobs:read, users:read, resources:read, variables:read, flow_conversations:read, flow_conversations:write).\n"
+                                        "description": "Raw apps: author-declared scopes for the frontend SDK token. Takes effect only when `sandbox` is also true \u2014 an unsandboxed bundle runs with the viewer's own session, so no token is advertised or minted for it and this list stays inert. On a sandboxed app a non-empty list lets viewers mint (after consenting) a short-lived token carrying their own identity restricted to these scopes, handed to the app bundle so `windmill-client` calls run as the viewer. Must be a subset of the server's curated allowlist (jobs:run, jobs:read, users:read, resources:read, variables:read, flow_conversations:read, flow_conversations:write). Every such token can call whoami without consent, whether `users:read` is declared or not.\n"
                                 }
                         }
                 }
@@ -1460,7 +1464,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                                         "items": {
                                                 "type": "string"
                                         },
-                                        "description": "Raw apps: author-declared scopes for the frontend SDK token. Takes effect only when `sandbox` is also true \u2014 an unsandboxed bundle runs with the viewer's own session, so no token is advertised or minted for it and this list stays inert. On a sandboxed app a non-empty list lets viewers mint (after consenting) a short-lived token carrying their own identity restricted to these scopes, handed to the app bundle so `windmill-client` calls run as the viewer. Must be a subset of the server's curated allowlist (jobs:run, jobs:read, users:read, resources:read, variables:read, flow_conversations:read, flow_conversations:write).\n"
+                                        "description": "Raw apps: author-declared scopes for the frontend SDK token. Takes effect only when `sandbox` is also true \u2014 an unsandboxed bundle runs with the viewer's own session, so no token is advertised or minted for it and this list stays inert. On a sandboxed app a non-empty list lets viewers mint (after consenting) a short-lived token carrying their own identity restricted to these scopes, handed to the app bundle so `windmill-client` calls run as the viewer. Must be a subset of the server's curated allowlist (jobs:run, jobs:read, users:read, resources:read, variables:read, flow_conversations:read, flow_conversations:write). Every such token can call whoami without consent, whether `users:read` is declared or not.\n"
                                 }
                         }
                 },
@@ -1849,7 +1853,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "resolved": {
                         "type": "boolean",
-                        "description": "filter on whether a failure has been marked as handled. true keeps only resolved failures, false hides them"
+                        "description": "filter on whether a failed or canceled run has been marked as handled. true keeps only resolved runs, false hides them"
                 },
                 "is_flow_step": {
                         "type": "boolean",

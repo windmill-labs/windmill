@@ -8,7 +8,7 @@
 		onBehalfOf: string | undefined
 		/** Address of the account `onBehalfOf` names, derived from it on the read paths. */
 		onBehalfOfEmail: string | undefined
-		kind: 'script' | 'flow'
+		kind: 'script' | 'flow' | 'agent'
 	}
 
 	let { onBehalfOf, onBehalfOfEmail, kind }: Props = $props()
@@ -25,7 +25,12 @@
 {#if onBehalfOf}
 	<Tooltip>
 		{#snippet text()}
-			Every run of this {kind} is permissioned as {detailed}, whoever starts it.
+			{#if kind === 'agent'}
+				Runs of this agent from its page and the API are permissioned as {detailed}, whoever
+				starts them.
+			{:else}
+				Every run of this {kind} is permissioned as {detailed}, whoever starts it.
+			{/if}
 		{/snippet}
 		<Badge color="violet" icon={{ icon: UserCog, position: 'left' }}>
 			<span class="truncate max-w-40">On behalf of {onBehalfOf}</span>
