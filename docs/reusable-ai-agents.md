@@ -156,6 +156,28 @@ older editor baked into `memory` stays a fallback behind the run's id until the 
 *Keep as memory id* or *Use the run's memory id*. In a chat flow it is dropped on save, since the
 conversation id always took precedence there.
 
+## One running turn per memory id
+
+Two runs with the same memory id would each read the memory at start and the last to finish would
+overwrite the other's turn, so a run is refused while another holds its id.
+
+- **Claim.** `set_flow_memory_id` claims `ai_memory_turn (workspace_id, memory_id) -> job_id` in
+  the push transaction, for every run that carries a run memory id, chat or not. A claim whose job
+  is still in `v2_job_queue` refuses the push with a 409 whose body names the running turn; one
+  whose job left the queue is taken over, and the monitor deletes it. For a chat flow the
+  conversation check runs first, since its refusal carries the `user_seq` the chat follows. The
+  claim covers the run memory id only: a step's own `memory_id` is evaluated on the worker, after
+  the push, and stays unguarded.
+- **A parked run still holds it.** An agent waiting on an approval or on background jobs is a
+  turn in progress, so its memory id stays claimed until the run ends.
+- **Take over.** `take_over=true` on a run cancels the run holding the id, then waits up to 40s
+  for it to leave the queue before pushing (`take_over_memory_turn`). Only who started that run, or
+  an admin, can do it.
+- **History on stop.** A cancelled agent writes its managed memory before it returns: every place
+  it stops at holds complete exchanges, each tool call answered, so the next turn starts from what
+  this one reached. No compaction runs there, since it would call the model inside the cancel's
+  grace period. An agent cancelled while parked is completed without running, and saves nothing.
+
 ## Approval tool
 
 The built-in `approval` tool type parks the agent rather than run anything: the model calls
