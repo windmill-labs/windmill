@@ -870,11 +870,47 @@ pub async fn check_queue_too_long(db: &DB, queue_limit: Option<i64>) -> error::R
 // Flow run helpers
 // ---------------------------------------------------------------------------
 
+/// Record the run's memory id, and make the run the one turn that holds it: a run started with a
+/// memory id a still-queued run holds is refused with a 409, so two turns never write the same
+/// memory over each other. For a chat flow, call it after `handle_chat_conversation_messages`,
+/// whose refusal names the running turn the way the chat follows it.
 pub async fn set_flow_memory_id(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    w_id: &str,
     job_id: Uuid,
     memory_id: Uuid,
 ) -> error::Result<()> {
+    // The row lock serializes two runs claiming the same memory id; the second sees the first's
+    // job queued once it commits.
+    let claimed: Option<Uuid> = sqlx::query_scalar(
+        "INSERT INTO ai_memory_turn (workspace_id, memory_id, job_id) VALUES ($1, $2, $3)
+         ON CONFLICT (workspace_id, memory_id) DO UPDATE SET job_id = EXCLUDED.job_id
+         WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = ai_memory_turn.job_id)
+         RETURNING job_id",
+    )
+    .bind(w_id)
+    .bind(memory_id)
+    .bind(job_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    if claimed.is_none() {
+        let running: Option<Uuid> = sqlx::query_scalar(
+            "SELECT job_id FROM ai_memory_turn WHERE workspace_id = $1 AND memory_id = $2",
+        )
+        .bind(w_id)
+        .bind(memory_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+        return Err(Error::Generic(
+            StatusCode::CONFLICT,
+            serde_json::json!({
+                "error": "another run with this memory_id is still running. Wait for it, \
+                          or pass `take_over=true` to stop it and run this one instead.",
+                "running_turn": { "job_id": running },
+            })
+            .to_string(),
+        ));
+    }
     sqlx::query!(
         "UPDATE v2_job_status
          SET flow_status = jsonb_set(
@@ -891,6 +927,91 @@ pub async fn set_flow_memory_id(
     Ok(())
 }
 
+/// How long `take_over_memory_turn` waits for the stopped run to leave the queue: an agent step's
+/// cancel grace period, plus the time its worker takes to notice the cancel.
+const TAKE_OVER_WAIT: std::time::Duration = std::time::Duration::from_secs(40);
+
+/// With `take_over`, stop the run that holds the memory id so this one can claim it: cancel it,
+/// then wait for it to leave the queue, which its agents spend saving what they have to memory.
+/// Only who started that run, or an admin, can stop it.
+pub async fn take_over_memory_turn(
+    db: &DB,
+    authed: &ApiAuthed,
+    w_id: &str,
+    flow_path: &str,
+    run_query: &RunJobQuery,
+) -> error::Result<()> {
+    if !run_query.take_over.unwrap_or(false) {
+        return Ok(());
+    }
+    let Some(memory_id) = run_query.memory_key(w_id, flow_path) else {
+        return Err(Error::BadRequest("take_over needs a memory_id".to_string()));
+    };
+    let holder: Option<(Uuid, String)> = sqlx::query_as(
+        "SELECT t.job_id, j.created_by FROM ai_memory_turn t
+         JOIN v2_job_queue q ON q.id = t.job_id
+         JOIN v2_job j ON j.id = t.job_id
+         WHERE t.workspace_id = $1 AND t.memory_id = $2",
+    )
+    .bind(w_id)
+    .bind(memory_id)
+    .fetch_optional(db)
+    .await?;
+    let Some((job_id, created_by)) = holder else {
+        return Ok(());
+    };
+    if created_by != authed.username && !authed.is_admin {
+        return Err(Error::NotAuthorized(
+            "only who started the running turn, or an admin, can take it over".to_string(),
+        ));
+    }
+    let (tx, _) = windmill_queue::cancel_job(
+        &authed.username,
+        Some("taken over by a new run".to_string()),
+        job_id,
+        w_id,
+        db.begin().await?,
+        db,
+        false,
+        false,
+    )
+    .await?;
+    tx.commit().await?;
+    windmill_audit::audit_oss::audit_log(
+        db,
+        authed,
+        "jobs.cancel",
+        ActionKind::Delete,
+        w_id,
+        Some(&job_id.to_string()),
+        None,
+    )
+    .await?;
+
+    let deadline = std::time::Instant::now() + TAKE_OVER_WAIT;
+    loop {
+        let queued: bool =
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM v2_job_queue WHERE id = $1)")
+                .bind(job_id)
+                .fetch_one(db)
+                .await?;
+        if !queued {
+            return Ok(());
+        }
+        if std::time::Instant::now() > deadline {
+            return Err(Error::Generic(
+                StatusCode::CONFLICT,
+                serde_json::json!({
+                    "error": "the running turn was cancelled but has not stopped yet; retry shortly",
+                    "running_turn": { "job_id": job_id },
+                })
+                .to_string(),
+            ));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+}
+
 /// Apply flow-specific query parameters after job creation
 pub async fn process_flow_run_query_params(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -900,7 +1021,7 @@ pub async fn process_flow_run_query_params(
     run_query: &RunJobQuery,
 ) -> error::Result<()> {
     if let Some(memory_id) = run_query.memory_key(w_id, flow_path) {
-        set_flow_memory_id(tx, job_id, memory_id).await?;
+        set_flow_memory_id(tx, w_id, job_id, memory_id).await?;
     }
     Ok(())
 }
@@ -991,6 +1112,7 @@ pub async fn run_flow<'c>(
 )> {
     let mut run_query = run_query;
     drop_unclaimable_run_lineage(db, w_id, &mut run_query, authed).await?;
+    take_over_memory_turn(db, authed, w_id, flow_path, &run_query).await?;
     let on_behalf_of = flow_version_info.on_behalf_of(w_id, &db).await?;
     let FlowVersionInfo {
         version,
@@ -1094,11 +1216,6 @@ pub async fn run_flow<'c>(
     )
     .await?;
 
-    // Set memory_id if provided (for agent memory)
-    if let Some(memory_id) = run_query.memory_key(w_id, flow_path) {
-        set_flow_memory_id(&mut tx, uuid, memory_id).await?;
-    }
-
     // Handle conversation messages for chat-enabled flows
     if chat_input_enabled.unwrap_or(false) {
         handle_chat_conversation_messages(
@@ -1113,6 +1230,11 @@ pub async fn run_flow<'c>(
             &args.args,
         )
         .await?;
+    }
+
+    // Set memory_id if provided (for agent memory)
+    if let Some(memory_id) = run_query.memory_key(w_id, flow_path) {
+        set_flow_memory_id(&mut tx, w_id, uuid, memory_id).await?;
     }
 
     // If we were given a transaction, return it; otherwise commit it

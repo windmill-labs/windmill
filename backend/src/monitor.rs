@@ -7744,6 +7744,18 @@ async fn cleanup_ai_agent_checkpoint_orphaned_jobs(db: &DB) -> error::Result<()>
     if deleted > 0 {
         tracing::info!("Cleaned up {deleted} orphaned ai_agent_checkpoint rows");
     }
+    // A memory id's claim is free once its run left the queue; deleting it only keeps the table
+    // to the memory ids in use.
+    let released = sqlx::query(
+        "DELETE FROM ai_memory_turn t
+         WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = t.job_id)",
+    )
+    .execute(db)
+    .await?
+    .rows_affected();
+    if released > 0 {
+        tracing::info!("Cleaned up {released} released ai_memory_turn rows");
+    }
     Ok(())
 }
 
