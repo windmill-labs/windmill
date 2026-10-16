@@ -137,9 +137,11 @@ impl RoleCapabilities {
     }
 
     /// Whether a member of this role is gated at all. Every gate skips an unrestricted caller
-    /// without reading its role, which is what `ApiAuthed::is_operator` carries.
+    /// without reading its role, which is what `ApiAuthed::is_operator` carries. Visibility is
+    /// left out: it only hides pages, and must not turn a full author into an operator for the
+    /// raw `is_operator` checks, job permissions and credential caches keyed on it.
     pub fn is_restricted(&self) -> bool {
-        *self != Self::FULL
+        Self { visibility: RoleVisibility::ALL, ..*self } != Self::FULL
     }
 
     /// Whether the role authors deployable artifacts and so costs a full seat rather than half.
@@ -446,6 +448,20 @@ pub fn validate_overrides(instance: &[RoleDefinition], overrides: &RoleOverrides
 }
 
 /// The role a `usr` row holds: its `workspace_role`, or the legacy one its `operator` flag names.
+/// The role a member gets when nothing names one (a legacy non-operator payload, an unmapped
+/// instance group, an admin's underlying role): `developer` while it is defined, else the first
+/// role, since an instance may drop `developer` and `set_workspace_role` refuses unknown names.
+pub fn default_role_name<'a>(names: impl IntoIterator<Item = &'a str>) -> String {
+    let mut first = None;
+    for name in names {
+        if name == DEVELOPER_ROLE {
+            return DEVELOPER_ROLE.to_string();
+        }
+        first.get_or_insert(name);
+    }
+    first.unwrap_or(DEVELOPER_ROLE).to_string()
+}
+
 pub fn resolve_role_name(workspace_role: Option<String>, operator: bool) -> String {
     workspace_role.unwrap_or_else(|| {
         if operator {
@@ -686,12 +702,10 @@ pub fn invalidate_member_role_cache(workspace_id: &str, username: &str) {
 
 /// Refuses removing role `name` while a member, a pending invite, the domain auto-invite or an
 /// instance group mapping still names it: in `w_id`, or, for an instance role (`w_id = None`), in
-/// any workspace that does not keep the role as one of its own.
+/// any workspace, and while any workspace still overrides it.
 pub async fn ensure_role_unused(db: &DB, w_id: Option<&str>, name: &str) -> Result<()> {
     let users = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM usr t WHERE ($1::text IS NOT NULL AND t.workspace_id = $1
-            OR $1::text IS NULL AND NOT EXISTS (SELECT 1 FROM workspace_settings ws
-                WHERE ws.workspace_id = t.workspace_id AND ws.role_overrides ? $2)) AND
+        "SELECT COUNT(*) FROM usr t WHERE ($1::text IS NULL OR t.workspace_id = $1) AND
             COALESCE(t.workspace_role, CASE WHEN t.operator THEN 'operator' ELSE 'developer' END) = $2",
         w_id,
         name
@@ -700,9 +714,7 @@ pub async fn ensure_role_unused(db: &DB, w_id: Option<&str>, name: &str) -> Resu
     .await?
     .unwrap_or(0);
     let invites = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM workspace_invite t WHERE ($1::text IS NOT NULL AND t.workspace_id = $1
-            OR $1::text IS NULL AND NOT EXISTS (SELECT 1 FROM workspace_settings ws
-                WHERE ws.workspace_id = t.workspace_id AND ws.role_overrides ? $2)) AND
+        "SELECT COUNT(*) FROM workspace_invite t WHERE ($1::text IS NULL OR t.workspace_id = $1) AND
             COALESCE(t.workspace_role, CASE WHEN t.operator THEN 'operator' ELSE 'developer' END) = $2",
         w_id,
         name
@@ -711,8 +723,7 @@ pub async fn ensure_role_unused(db: &DB, w_id: Option<&str>, name: &str) -> Resu
     .await?
     .unwrap_or(0);
     let settings = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM workspace_settings WHERE ($1::text IS NOT NULL AND workspace_id = $1
-            OR $1::text IS NULL AND NOT COALESCE(role_overrides ? $2, false)) AND (
+        "SELECT COUNT(*) FROM workspace_settings WHERE ($1::text IS NULL OR workspace_id = $1) AND (
             auto_invite->>'role' = $2
             OR EXISTS (SELECT 1 FROM jsonb_each_text(
                 CASE WHEN jsonb_typeof(auto_invite->'instance_groups_roles') = 'object'
@@ -729,6 +740,58 @@ pub async fn ensure_role_unused(db: &DB, w_id: Option<&str>, name: &str) -> Resu
             "role `{name}` is still held by {users} member(s) and {invites} pending invite(s), or named by {settings} workspace auto-invite or instance group mapping(s): reassign them first"
         )));
     }
+    // An override left behind would silently re-base onto `base_for` instead of the instance
+    // definition it was written against.
+    if w_id.is_none() {
+        let overriding = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM workspace_settings WHERE COALESCE(role_overrides ? $1, false)",
+            name
+        )
+        .fetch_one(db)
+        .await?
+        .unwrap_or(0);
+        if overriding > 0 {
+            return Err(Error::BadRequest(format!(
+                "role `{name}` is overridden in {overriding} workspace(s): remove those overrides first"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Checks a write of the `workspace_roles` setting (`None` or null resets to the defaults) before
+/// it is stored. Every writer of the setting must call it, the declarative config sync included.
+pub async fn validate_instance_roles_write(
+    db: &DB,
+    value: Option<&serde_json::Value>,
+) -> Result<()> {
+    if !custom_roles_enabled() {
+        return Err(Error::BadRequest(
+            "workspace roles require Windmill Enterprise Edition".to_string(),
+        ));
+    }
+    let current = instance_roles(db).await?;
+    let next = match value {
+        None | Some(serde_json::Value::Null) => default_instance_roles(),
+        Some(v) => parse_instance_roles(v)?,
+    };
+    for removed in current
+        .iter()
+        .filter(|r| !next.iter().any(|n| n.name == r.name))
+    {
+        ensure_role_unused(db, None, &removed.name).await?;
+    }
+    Ok(())
+}
+
+/// Side effects of a stored `workspace_roles` write, owed by every writer. The seat table is read
+/// by billing on every replica, so it is rebuilt here rather than on the notify that drops the
+/// role caches.
+pub async fn after_instance_roles_write(db: &DB) -> Result<()> {
+    invalidate_all_roles_cache();
+    let mut tx = db.begin().await?;
+    sync_role_seats(&mut tx, db, None).await?;
+    tx.commit().await?;
     Ok(())
 }
 
@@ -821,6 +884,12 @@ mod tests {
         assert_eq!(roles[1].capabilities, RoleCapabilities::OPERATOR);
         assert!(roles[1].capabilities.is_restricted());
         assert!(!roles[1].capabilities.is_author());
+
+        let hidden_page = RoleCapabilities {
+            visibility: RoleVisibility { workers: false, ..RoleVisibility::ALL },
+            ..RoleCapabilities::FULL
+        };
+        assert!(!hidden_page.is_restricted());
     }
 
     #[test]

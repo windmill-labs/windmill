@@ -988,12 +988,7 @@ pub async fn set_global_setting_internal(
 /// Side effects a setting needs once it is stored, for both the per-key and the bulk endpoint.
 async fn run_setting_post_write_hook(db: &DB, key: &str) -> error::Result<()> {
     if key == WORKSPACE_ROLES_SETTING {
-        // The seat table is read by billing on every replica, so it is rebuilt here rather than
-        // on the notify that drops the role caches.
-        windmill_common::roles::invalidate_all_roles_cache();
-        let mut tx = db.begin().await?;
-        windmill_common::roles::sync_role_seats(&mut tx, db, None).await?;
-        tx.commit().await?;
+        windmill_common::roles::after_instance_roles_write(db).await?;
     }
     Ok(())
 }
@@ -1015,23 +1010,7 @@ async fn run_setting_pre_write_hook(
             })?,
         },
         WORKSPACE_ROLES_SETTING => {
-            if !windmill_common::roles::custom_roles_enabled() {
-                return Err(error::Error::BadRequest(
-                    "workspace roles require Windmill Enterprise Edition".to_string(),
-                ));
-            }
-            let current = windmill_common::roles::instance_roles(db).await?;
-            let next = if value.is_null() {
-                windmill_common::roles::default_instance_roles()
-            } else {
-                windmill_common::roles::parse_instance_roles(value)?
-            };
-            for removed in current
-                .iter()
-                .filter(|r| !next.iter().any(|n| n.name == r.name))
-            {
-                windmill_common::roles::ensure_role_unused(db, None, &removed.name).await?;
-            }
+            windmill_common::roles::validate_instance_roles_write(db, Some(value)).await?;
         }
         // The instance AI config is written as an untyped blob through this generic
         // endpoint, so it never passes the typed check the workspace handler applies.
