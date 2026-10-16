@@ -15,3 +15,4 @@ pub use core::{
     extract_and_store_workspace_id, extract_workspace_from_token, list_tools_service,
     reject_token_query_param, setup_mcp_server, toolset_service, McpEndpoint,
 };
+pub(crate) use session::register_router;

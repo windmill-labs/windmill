@@ -1277,6 +1277,9 @@ pub async fn run_server(
     if let Some(name) = name.as_ref() {
         tracing::info!("server starting for name={name}");
     }
+    #[cfg(feature = "mcp")]
+    mcp::register_router(&_base_internal_url, Some(app.clone()));
+
     let listener = listener.tap_io(move |tcp_stream| {
         let _ = tcp_stream.set_nodelay(!server_mode);
     });
@@ -1314,7 +1317,10 @@ pub async fn run_server(
         }
     });
 
-    server.await?;
+    let served = server.await;
+    #[cfg(feature = "mcp")]
+    mcp::register_router(&_base_internal_url, None);
+    served?;
     let forks = &windmill_api_workspaces::workspaces::BACKGROUND_FORKS;
     forks.close();
     if !forks.is_empty() {

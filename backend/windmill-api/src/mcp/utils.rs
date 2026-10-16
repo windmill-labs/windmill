@@ -662,6 +662,28 @@ pub async fn create_http_request(
     send_as_caller(method, url, workspace_id, api_authed, body_json, scopes).await
 }
 
+/// A JWT that acts as `api_authed`, carrying `scopes`; `None` is the caller's full rights.
+pub(crate) async fn mint_caller_jwt(
+    workspace_id: &str,
+    api_authed: &ApiAuthed,
+    scopes: Option<Vec<String>>,
+) -> BackendResult<String> {
+    // Carry the caller's job provenance into the JWT: a job's WM_TOKEN is capped at
+    // workspace admin (GHSA-hfh4-cx4h-3fcr), and dropping `job_id` here would re-mint an
+    // uncapped token that satisfies require_super_admin / require_devops_role.
+    create_jwt_token(
+        Authed::from(api_authed.clone()),
+        workspace_id,
+        3600,
+        api_authed.job_id,
+        None,
+        None,
+        scopes,
+    )
+    .await
+    .map_err(|e| ErrorData::internal_error(e.to_string(), None))
+}
+
 /// Call the API as `api_authed` with a JWT carrying `scopes`; `None` is the caller's
 /// full rights, for a server whose own code picks every route it calls.
 pub async fn send_as_caller(
@@ -687,22 +709,7 @@ pub async fn send_as_caller(
         }
     };
 
-    // Add authorization header. Carry the caller's job provenance into the proxy
-    // JWT: a job's WM_TOKEN is capped at workspace admin (GHSA-hfh4-cx4h-3fcr), and
-    // dropping `job_id` here would re-mint an uncapped token that satisfies
-    // require_super_admin / require_devops_role on the proxied route.
-    let authed = Authed::from(api_authed.clone());
-    let token = create_jwt_token(
-        authed,
-        workspace_id,
-        3600,
-        api_authed.job_id,
-        None,
-        None,
-        scopes,
-    )
-    .await
-    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+    let token = mint_caller_jwt(workspace_id, api_authed, scopes).await?;
     request_builder = request_builder.header("Authorization", format!("Bearer {}", token));
 
     // Add body if present

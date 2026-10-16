@@ -8,8 +8,9 @@
 //! `frontend/src/lib/components/copilot/chat/global/core.ts`: a change to one side's
 //! behaviour belongs on the other.
 //!
-//! A tool acts through the HTTP API as the caller, the way the session's does, so
-//! every permission check is the API's own.
+//! A tool acts through the API as the caller, the way the session's does, so every
+//! permission check is the API's own. It calls the server's router in-process rather
+//! than over a socket.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -23,7 +24,23 @@ use windmill_mcp::server::{
 
 use crate::db::ApiAuthed;
 
-use super::utils::send_as_caller;
+use super::utils::{mint_caller_jwt, send_as_caller};
+
+/// Each running server's fully layered router, by its `base_internal_url`. Keyed rather
+/// than global because the backend tests run one server per test in a single process,
+/// each on its own database: a tool must reach the server it was called on.
+static IN_PROCESS_ROUTERS: LazyLock<std::sync::RwLock<HashMap<String, axum::Router>>> =
+    LazyLock::new(Default::default);
+
+/// Let session tools of the server at `base_internal_url` call its API in-process.
+/// Without a registration they fall back to HTTP.
+pub(crate) fn register_router(base_internal_url: &str, router: Option<axum::Router>) {
+    let mut routers = IN_PROCESS_ROUTERS.write().unwrap();
+    match router {
+        Some(router) => routers.insert(base_internal_url.to_string(), router),
+        None => routers.remove(base_internal_url),
+    };
+}
 
 mod apps;
 mod data;
@@ -187,16 +204,73 @@ impl Ctx<'_> {
             .cloned()
             .collect();
         let scopes = (!tag_scopes.is_empty()).then_some(tag_scopes);
-        let response = send_as_caller(method, &url, self.w_id, self.auth, body, scopes)
-            .await
-            .map_err(|e| e.message.to_string())?;
-        let status = response.status();
-        let text = response.text().await.map_err(|e| e.to_string())?;
+        let router = IN_PROCESS_ROUTERS
+            .read()
+            .unwrap()
+            .get(self.base_internal_url)
+            .cloned();
+        let (status, text) = match router {
+            Some(router) => self.call_router(router, method, &url, body, scopes).await?,
+            None => {
+                let response = send_as_caller(method, &url, self.w_id, self.auth, body, scopes)
+                    .await
+                    .map_err(|e| e.message.to_string())?;
+                let status = response.status();
+                (status, response.text().await.map_err(|e| e.to_string())?)
+            }
+        };
         if status.is_success() {
             Ok(text)
         } else {
             Err(format!("{}: {}", status.as_u16(), text))
         }
+    }
+
+    /// `request` through the server's own router: the same layers and handlers as over
+    /// HTTP, without a socket.
+    async fn call_router(
+        &self,
+        router: axum::Router,
+        method: &str,
+        url: &str,
+        body: Option<Value>,
+        scopes: Option<Vec<String>>,
+    ) -> Result<(http::StatusCode, String), String> {
+        use tower::ServiceExt;
+        let parsed = reqwest::Url::parse(url).map_err(|e| e.to_string())?;
+        // The router does not see the base URL's own path prefix.
+        let at = reqwest::Url::parse(self.base_internal_url)
+            .map_or(0, |base| base.path().trim_end_matches('/').len());
+        let uri = match parsed.query() {
+            Some(q) => format!("{}?{q}", &parsed.path()[at..]),
+            None => parsed.path()[at..].to_string(),
+        };
+        let token = mint_caller_jwt(self.w_id, self.auth, scopes)
+            .await
+            .map_err(|e| e.message.to_string())?;
+        let mut request = http::Request::builder()
+            .method(method)
+            .uri(uri)
+            .header(http::header::AUTHORIZATION, format!("Bearer {token}"));
+        let body = match body {
+            Some(body) => {
+                request = request.header(http::header::CONTENT_TYPE, "application/json");
+                axum::body::Body::from(serde_json::to_vec(&body).map_err(|e| e.to_string())?)
+            }
+            None => axum::body::Body::empty(),
+        };
+        let request = request.body(body).map_err(|e| e.to_string())?;
+        // The total timeout of the HTTP client this replaces.
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            let response = router.oneshot(request).await.map_err(|e| e.to_string())?;
+            let status = response.status();
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok((status, String::from_utf8_lossy(&bytes).into_owned()))
+        })
+        .await
+        .map_err(|_| format!("Failed to execute request: {method} {url} timed out"))?
     }
 
     pub async fn get(&self, path: &str) -> Result<Value, String> {
