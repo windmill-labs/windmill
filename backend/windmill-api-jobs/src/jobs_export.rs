@@ -434,6 +434,7 @@ pub async fn import_completed_jobs(
 
 pub async fn import_queued_jobs(
     authed: ApiAuthed,
+    Extension(db): Extension<windmill_common::DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(jobs): Json<Vec<ExportableQueuedJob>>,
@@ -468,7 +469,9 @@ pub async fn import_queued_jobs(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    for job in jobs {
+    for mut job in jobs {
+        // A fork's admin is whoever created it, so an imported tag is as untrusted as a pushed one.
+        job.tag = windmill_queue::tags::apply_dev_workspace_suffix(job.tag, &w_id, &db).await?;
         sqlx::query!(
             r#"
             INSERT INTO v2_job (
