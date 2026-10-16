@@ -7746,9 +7746,14 @@ async fn cleanup_ai_agent_checkpoint_orphaned_jobs(db: &DB) -> error::Result<()>
     }
     // A memory id's claim is free once its run left the queue; deleting it only keeps the table
     // to the memory ids in use.
+    // Matched on the job too: a claim taken over while this waits on its row lock no longer
+    // names that job when the delete re-reads it, so it is kept.
     let released = sqlx::query(
         "DELETE FROM ai_memory_turn t
-         WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = t.job_id)",
+         USING (SELECT workspace_id, memory_id, job_id FROM ai_memory_turn s
+                WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = s.job_id)) stale
+         WHERE t.workspace_id = stale.workspace_id AND t.memory_id = stale.memory_id
+           AND t.job_id = stale.job_id",
     )
     .execute(db)
     .await?
