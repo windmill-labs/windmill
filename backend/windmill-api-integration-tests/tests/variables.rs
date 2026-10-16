@@ -378,3 +378,32 @@ async fn test_draft_only_row_carries_value_expires_at(db: Pool<Postgres>) -> any
 
     Ok(())
 }
+
+/// Windmill refreshes an OAuth-linked value itself, so a rotation date on it is refused with a
+/// readable error rather than a raw constraint violation.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_oauth_variable_refuses_value_expiry(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    sqlx::query(
+        "WITH a AS (INSERT INTO account (workspace_id, expires_at, refresh_token, client)
+                    VALUES ('test-workspace', now() + interval '1 hour', 'r', 'github') RETURNING id)
+         INSERT INTO variable (workspace_id, path, value, is_secret, description, account, is_oauth)
+         SELECT 'test-workspace', 'u/test-user/oauth_var', 't', false, '', id, true FROM a",
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(client().post(format!(
+        "http://localhost:{port}/api/w/test-workspace/variables/update/u/test-user/oauth_var"
+    )))
+    .json(&json!({ "value_expires_at": "2027-03-15T08:00:00Z" }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 400);
+    assert!(resp.text().await?.contains("OAuth"));
+
+    Ok(())
+}

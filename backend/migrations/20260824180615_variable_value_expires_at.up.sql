@@ -23,3 +23,8 @@ ALTER TABLE variable
 -- dispatched variable due until it expires.
 CREATE INDEX IF NOT EXISTS idx_variable_expiration_due ON variable (value_expires_at)
     WHERE value_expires_at IS NOT NULL;
+
+-- An OAuth-linked value is refreshed by Windmill itself, so a rotation date on it would only
+-- announce an expiry that never comes.
+ALTER TABLE variable ADD CONSTRAINT variable_oauth_no_value_expiry
+    CHECK (account IS NULL OR value_expires_at IS NULL);

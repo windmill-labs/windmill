@@ -98,6 +98,7 @@
 	let initialStates: Record<string, VariableState> = $state({})
 	let existedInitially: Record<string, boolean> = $state({})
 	let extraPerms: Record<string, Record<string, boolean>> = $state({})
+	let oauthLinked: Record<string, boolean> = $state({})
 	let selected: string | undefined = $state(undefined)
 	let pathError = $state('')
 	const acting = useActingUser(() => selected)
@@ -263,6 +264,7 @@
 			// displayed would leave those deciding on the version the user just replaced.
 			existedInitially[ws] = !(v as any).no_deployed
 			extraPerms[ws] = v.extra_perms ?? {}
+			oauthLinked[ws] = v.account != null
 			UserDraftDbSyncer.recordRemoteSync(query, (v as any).draft_saved_at)
 			UserDraft.seed(
 				'variable',
@@ -360,6 +362,7 @@
 				// CREATE, not update (update 404s).
 				existedInitially[ws] = !(v as any).no_deployed
 				extraPerms[ws] = v.extra_perms ?? {}
+				oauthLinked[ws] = v.account != null
 			})
 		})
 	})
@@ -373,6 +376,7 @@
 		initialStates = {}
 		existedInitially = {}
 		extraPerms = {}
+		oauthLinked = {}
 		pathError = ''
 		acting.forgetFailures()
 	}
@@ -593,6 +597,7 @@
 							!!initialStates[selected]?.variable.is_secret}
 						workspace={selected}
 						actingUser={acting.in(selected) ?? null}
+						oauthLinked={!!selected && !!oauthLinked[selected]}
 					/>
 				{/key}
 			{/if}

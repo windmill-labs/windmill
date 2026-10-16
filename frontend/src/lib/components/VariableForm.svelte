@@ -48,6 +48,8 @@
 		 * refuses, rather than answering with the navigation user's rights in another
 		 * workspace. */
 		actingUser: UserExt | null
+		/** Linked to an OAuth account, whose token Windmill refreshes on its own. */
+		oauthLinked?: boolean
 	}
 
 	let {
@@ -65,7 +67,8 @@
 		onSecretChange,
 		deployedSecret = false,
 		workspace = undefined,
-		actingUser
+		actingUser,
+		oauthLinked = false
 	}: Props = $props()
 
 	let ws = $derived(workspace ?? $operatingWorkspace)
@@ -251,42 +254,45 @@ stretch the hit area over the whole row and the alert. The toggle carries its na
 	></textarea>
 </label>
 
-<Section label="Advanced" small collapsable initiallyCollapsed={!valueExpiresAt}>
-	<Label
-		label="Value expiration"
-		tooltip="When the value stored here stops working, such as the expiry date of an API key. Ahead of it (1 day by default), Windmill runs the workspace's variable expiration handler if one is set, so the value can be rotated. The variable itself is never deleted."
-	>
-		<Toggle
-			size="sm"
-			checked={Boolean(valueExpiresAt)}
-			disabled={!can_write}
-			on:change={() => (valueExpiresAt = valueExpiresAt ? undefined : defaultValueExpiry())}
-			options={{ right: 'Set a date on which this value expires' }}
-		/>
-		{#if valueExpiresAt}
-			<span class="text-xs font-semibold text-emphasis leading-none mt-2">Expires on</span>
-			<!-- Unbound: DateTimeInput writes `null` when its date is emptied, and a `null` where
+{#if !oauthLinked}
+	<Section label="Advanced" small collapsable initiallyCollapsed={!valueExpiresAt}>
+		<Label
+			label="Value expiration"
+			tooltip="When the value stored here stops working, such as the expiry date of an API key. Ahead of it (1 day by default), Windmill runs the workspace's variable expiration handler if one is set, so the value can be rotated. The variable itself is never deleted."
+		>
+			<Toggle
+				size="sm"
+				checked={Boolean(valueExpiresAt)}
+				disabled={!can_write}
+				on:change={() => (valueExpiresAt = valueExpiresAt ? undefined : defaultValueExpiry())}
+				options={{ right: 'Set a date on which this value expires' }}
+			/>
+			{#if valueExpiresAt}
+				<span class="text-xs font-semibold text-emphasis leading-none mt-2">Expires on</span>
+				<!-- Unbound: DateTimeInput writes `null` when its date is emptied, and a `null` where
 			the deployed baseline has nothing reads as an edit, so every empty state has to
 			normalize to `undefined` before it reaches the draft row. Not `clearable`: the toggle
 			above is the one way to mean "no expiry". -->
-			<DateTimeInput
-				value={valueExpiresAt}
-				useDropdown
-				disabled={!can_write}
-				on:change={(e) => (valueExpiresAt = e.detail ?? undefined)}
-			/>
-			<span class="text-2xs font-normal text-hint">
-				{#if new Date(valueExpiresAt).getTime() <= Date.now()}
-					This date has passed. Set a new one once the value is rotated.
-				{:else}
-					Runs the workspace's <a href="/workspace_settings?tab=variable_expiration&workspace={ws}"
-						>variable expiration handler</a
-					>
-					ahead of this date, if the workspace has one{path.startsWith('u/')
-						? ' and does not skip u/ paths'
-						: ''}.
-				{/if}
-			</span>
-		{/if}
-	</Label>
-</Section>
+				<DateTimeInput
+					value={valueExpiresAt}
+					useDropdown
+					disabled={!can_write}
+					on:change={(e) => (valueExpiresAt = e.detail ?? undefined)}
+				/>
+				<span class="text-2xs font-normal text-hint">
+					{#if new Date(valueExpiresAt).getTime() <= Date.now()}
+						This date has passed. Set a new one once the value is rotated.
+					{:else}
+						Runs the workspace's <a
+							href="/workspace_settings?tab=variable_expiration&workspace={ws}"
+							>variable expiration handler</a
+						>
+						ahead of this date, if the workspace has one{path.startsWith('u/')
+							? ' and does not skip u/ paths'
+							: ''}.
+					{/if}
+				</span>
+			{/if}
+		</Label>
+	</Section>
+{/if}
