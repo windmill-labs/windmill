@@ -1534,6 +1534,32 @@ async fn declarative_sync_rejects_an_unusable_instance_banner(db: Pool<Postgres>
 }
 
 #[sqlx::test(fixtures("base"))]
+async fn declarative_sync_rejects_an_unusable_dev_workspace_tag_suffix(db: Pool<Postgres>) {
+    clear_settings_and_configs(&db).await;
+    let before = count_global_settings(&db).await;
+
+    let mut desired = BTreeMap::new();
+    desired.insert(
+        "dev_workspace_tag_suffix".to_string(),
+        serde_json::json!("-dev' OR '1'='1"),
+    );
+
+    let err = windmill_common::instance_config::sync_global_settings_declarative(
+        &db,
+        &BTreeMap::new(),
+        &desired,
+        &(),
+    )
+    .await
+    .expect_err("a suffix the workers would ignore must fail the sync");
+    assert!(
+        err.to_string().contains("dev_workspace_tag_suffix"),
+        "the error should name the offending setting, got: {err}"
+    );
+    assert_eq!(count_global_settings(&db).await, before);
+}
+
+#[sqlx::test(fixtures("base"))]
 async fn declarative_sync_rejects_a_malformed_max_token_expiration(db: Pool<Postgres>) {
     clear_settings_and_configs(&db).await;
     let before = count_global_settings(&db).await;

@@ -40,6 +40,9 @@ pub enum PathFilter<'a> {
     /// `is_resource_allowed`: a `*` pattern matches everything, an empty list
     /// matches nothing.
     Patterns(&'a [String]),
+    /// Paths whose last segment is one of these — the candidates a short tool name
+    /// can resolve to.
+    LastSegment(&'a [String]),
 }
 
 /// Authentication context required by the MCP server
@@ -105,6 +108,18 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
         favorites_only: bool,
         path_filter: Option<PathFilter<'_>>,
     ) -> BackendResult<Vec<FlowInfo>>;
+
+    /// Every path of `item_type` ("script" or "flow") the listing would include, with
+    /// no fetch cap: tool names are disambiguated against all of them, not only the
+    /// items that make it into the capped listing.
+    async fn list_runnable_paths(
+        &self,
+        auth: &Self::Auth,
+        workspace_id: &str,
+        item_type: &str,
+        favorites_only: bool,
+        path_filter: Option<PathFilter<'_>>,
+    ) -> BackendResult<Vec<String>>;
 
     /// List resource types in workspace
     async fn list_resource_types(
