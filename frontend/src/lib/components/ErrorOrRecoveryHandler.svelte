@@ -381,6 +381,7 @@
 							}}
 							bind:args={draft.slack.args}
 							shouldHideNoInputs
+							compact
 							className="text-xs"
 						/>
 					{/await}

@@ -263,6 +263,7 @@
 							}}
 							bind:args={draft.slack.args}
 							shouldHideNoInputs
+							compact
 							className="text-xs"
 						/>
 					{/await}
@@ -318,7 +319,8 @@
 		{/if}
 
 		{#if builtinSlot?.path && isEditable && $enterpriseLicense}
-			<div class="flex flex-col gap-2">
+			<!-- `-mt-4`: belongs with the channel field above, not a full card section away. -->
+			<div class="flex flex-col gap-2 -mt-4">
 				<Button
 					disabled={emptyString(builtinSlot.args.channel)}
 					wrapperClasses="w-fit"
