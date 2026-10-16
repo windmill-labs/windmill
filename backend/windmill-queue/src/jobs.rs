@@ -54,6 +54,7 @@ use windmill_common::runnable_settings::{
 };
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{calculate_hash, configure_client, now_from_db, strip_json_nul};
+use windmill_common::variables::omit_untrusted_interpolation;
 use windmill_common::worker::Connection;
 
 use windmill_common::otel_oss::{
@@ -3681,10 +3682,16 @@ pub async fn push_success_handler<'a, 'c, T: Serialize + Send + Sync>(
     return Ok(uuid);
 }
 
+/// A handler's args from the job's result, which the job's author controls while the handler
+/// runs as its own identity.
 fn sanitize_result<T: Serialize + Send + Sync>(result: Json<&T>) -> HashMap<String, Box<RawValue>> {
     let as_str = serde_json::to_string(result.0).unwrap_or_else(|_| "{}".to_string());
-    serde_json::from_str::<HashMap<String, Box<RawValue>>>(&as_str)
-        .unwrap_or_else(|_| [("error".to_string(), RawValue::from_string(as_str).unwrap())].into())
+    let args = serde_json::from_str::<HashMap<String, Box<RawValue>>>(&as_str)
+        .unwrap_or_else(|_| [("error".to_string(), RawValue::from_string(as_str).unwrap())].into());
+    omit_untrusted_interpolation(
+        args,
+        "The following resource has been omitted for security reasons: ",
+    )
 }
 
 // #[derive(Serialize)]

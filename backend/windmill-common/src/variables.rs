@@ -10,21 +10,23 @@ use crate::db::{Authable, UserDB};
 use crate::error::{self, Error};
 use crate::scripts::ScriptHash;
 use crate::secret_backend::{get_secret_value, is_external_stored_value};
-use crate::utils::WarnAfterExt;
-use crate::worker::Connection;
+use crate::utils::{strip_json_nul, WarnAfterExt};
+use crate::worker::{to_raw_value, Connection};
 use crate::workspace_crypt::CipherFormat;
 pub use crate::workspace_crypt::WorkspaceCrypt;
 use crate::{worker::WORKER_GROUP, BASE_URL, DB};
 use chrono::{SecondsFormat, Utc};
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 lazy_static::lazy_static! {
     pub static ref SECRET_SALT: Option<String> = std::env::var("SECRET_SALT").ok();
     static ref RESERVED_WM_VAR_NAME: regex::Regex = regex::Regex::new(r"^WM_[A-Z_]+$").unwrap();
     static ref RE_RES_VAR: regex::Regex =
-        regex::Regex::new(r#"\$(?:var|jsonvar|res|encrypted)\:"#).unwrap();
+        regex::Regex::new(r#"\$(var|jsonvar|res|encrypted)\:"#).unwrap();
 }
 
 /// Whether a job argument, as JSON text, holds a `$var:`/`$jsonvar:`/`$res:`/`$encrypted:`
@@ -32,6 +34,95 @@ lazy_static::lazy_static! {
 /// `$`-prefixed reserved variables included.
 pub fn arg_needs_interpolation(json: &str) -> bool {
     RE_RES_VAR.is_match(json)
+}
+
+/// Whether the worker would interpolate `arg`, which an untrusted user controls on a job that
+/// runs as someone else; `true` for an argument that cannot be read.
+pub fn untrusted_arg_interpolates(arg: &str) -> bool {
+    decoded(arg).map_or(true, |v| interpolates(&v))
+}
+
+/// `args`, which an untrusted user controls on a job that runs as someone else, with every one the
+/// worker would interpolate rewritten so it no longer is. The others keep their exact text.
+pub fn omit_untrusted_interpolation(
+    args: HashMap<String, Box<RawValue>>,
+    resource_omitted: &str,
+) -> HashMap<String, Box<RawValue>> {
+    args.into_iter()
+        .map(|(k, v)| {
+            let v = match decoded(v.get()) {
+                Some(d) if !interpolates(&d) => v,
+                Some(mut d) => {
+                    omit(&mut d, resource_omitted);
+                    to_raw_value(&d)
+                }
+                None => to_raw_value(
+                    &"This argument has been omitted for security reasons: it could not be checked",
+                ),
+            };
+            (k, v)
+        })
+        .collect()
+}
+
+/// `arg` as its jsonb column will hold it: the NUL stripped as `push` strips it, escapes decoded,
+/// the last copy of a duplicate key kept. `None` for what serde_json cannot read, which jsonb may
+/// still store (`1e400`).
+fn decoded(arg: &str) -> Option<serde_json::Value> {
+    serde_json::from_str(&strip_json_nul(arg)).ok()
+}
+
+/// The worker's own test on the whole argument, plus a reserved `WM_*` value at any depth, which a
+/// flow step can move into an argument the worker interpolates. A workspace or worker env var name
+/// moved that way is still resolved: those names are not known on every path.
+fn interpolates(v: &serde_json::Value) -> bool {
+    fn reserved_name(v: &serde_json::Value) -> bool {
+        match v {
+            serde_json::Value::String(s) => reserved(s).is_some(),
+            serde_json::Value::Array(a) => a.iter().any(reserved_name),
+            serde_json::Value::Object(m) => m.values().any(reserved_name),
+            _ => false,
+        }
+    }
+    arg_needs_interpolation(&v.to_string()) || reserved_name(v)
+}
+
+/// Keys included, since the worker's test reads them too.
+fn omit(v: &mut serde_json::Value, resource_omitted: &str) {
+    match v {
+        serde_json::Value::String(s) => *s = omitted(s, resource_omitted),
+        serde_json::Value::Array(a) => a.iter_mut().for_each(|v| omit(v, resource_omitted)),
+        serde_json::Value::Object(m) => {
+            *m = std::mem::take(m)
+                .into_iter()
+                .map(|(k, mut v)| {
+                    omit(&mut v, resource_omitted);
+                    (omitted(&k, resource_omitted), v)
+                })
+                .collect()
+        }
+        _ => {}
+    }
+}
+
+/// The reserved variable a whole `$WM_*` value names, which the worker replaces with its value.
+fn reserved(s: &str) -> Option<&str> {
+    s.strip_prefix('$')
+        .filter(|n| RESERVED_WM_VAR_NAME.is_match(n))
+}
+
+fn omitted(s: &str, resource_omitted: &str) -> String {
+    let variable = "The following variable has been omitted for security reasons: ";
+    if let Some(n) = reserved(s) {
+        return format!("{variable}{n}");
+    }
+    RE_RES_VAR
+        .replace_all(s, |c: &regex::Captures| match &c[1] {
+            "res" => resource_omitted,
+            "encrypted" => "The following encrypted value has been omitted for security reasons: ",
+            _ => variable,
+        })
+        .into_owned()
 }
 
 /// Escape a string so it can be safely embedded inside a single-quoted JS
@@ -981,9 +1072,46 @@ pub async fn get_variable_or_self_as<T: Authable + Sync>(
 #[cfg(test)]
 mod tests {
     use super::{
-        can_bind_as_prologue_const, decrypt, escape_js_single_quoted, is_valid_js_identifier,
-        DECRYPT_FAILED,
+        arg_needs_interpolation, can_bind_as_prologue_const, decrypt, escape_js_single_quoted,
+        is_valid_js_identifier, omit_untrusted_interpolation, DECRYPT_FAILED,
     };
+
+    #[test]
+    fn omits_every_argument_the_worker_would_interpolate() {
+        let omit = |s: &str| {
+            let arg = serde_json::value::RawValue::from_string(s.to_string()).unwrap();
+            omit_untrusted_interpolation(
+                [("a".to_string(), arg)].into(),
+                "The following resource has been omitted for security reasons: ",
+            )["a"]
+                .get()
+                .to_string()
+        };
+        for kept in [
+            r#"{"$match": {"c": "$USD", "_id": "$category"}, "p": 1.10, "id": 18446744073709551617}"#,
+            r#""$10.00""#,
+            r#""$WM_TOKEN ""#,
+        ] {
+            assert_eq!(omit(kept), kept);
+        }
+        for hit in [
+            r#""$var:u/a/s""#,
+            r#""\u0024res:u/a/r""#,
+            r#"{"key": "$API_KEY", "note": "cost $var:x"}"#,
+            r#"{"$encrypted:abc": 1}"#,
+            r#"["$WM_TOKEN"]"#,
+            r#""$va\u0000r:x""#,
+            r#"{"a": "ok", "a": "\u0024jsonvar:x"}"#,
+        ] {
+            let out = omit(hit);
+            assert!(
+                !arg_needs_interpolation(&out) && !out.contains("$WM_"),
+                "{hit}: {out}"
+            );
+            assert!(out.contains("omitted for security reasons"), "{hit}: {out}");
+        }
+        assert!(omit(r#"{"n": 1e400, "r": "$var:x"}"#).contains("could not be checked"));
+    }
     use crate::error::Error;
     use crate::workspace_crypt::WorkspaceCrypt;
     use base64::Engine;
