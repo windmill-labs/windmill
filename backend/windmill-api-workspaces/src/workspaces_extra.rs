@@ -1118,7 +1118,9 @@ pub(crate) async fn delete_workspace(
         });
     // A child fork reads through to this fork's prefix, or to the one this fork shares, and a
     // child sharing the storage writes into it: deleting this link would destroy the child's
-    // data, or leave its chain without the isolating fork, writing the root's own keys.
+    // data, or leave its chain without the isolating fork, writing the root's own keys. Under the
+    // lock forking this workspace takes, so no child can commit between the check and the delete.
+    windmill_common::workspaces::lock_fork_datatables(&mut tx, &w_id).await?;
     let chain = windmill_common::workspaces::workspace_with_fork_ancestors(&db, &w_id).await?;
     let isolating_with_children = sqlx::query_scalar!(
         "SELECT EXISTS (SELECT 1 FROM fork_storage_namespace WHERE workspace_id = ANY($1))
@@ -1126,7 +1128,7 @@ pub(crate) async fn delete_workspace(
         &chain,
         &w_id
     )
-    .fetch_one(&db)
+    .fetch_one(&mut *tx)
     .await?
     .unwrap_or(false);
     if isolating_with_children {

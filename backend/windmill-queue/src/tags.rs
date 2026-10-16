@@ -41,16 +41,20 @@ const CLEAR_ALL: &str = "*";
 pub fn invalidate_fork_parent_cache(workspace_id: &str) {
     FORK_PARENT_CACHE.remove(workspace_id);
     windmill_common::workspaces::invalidate_root_workspace_cache(workspace_id);
+    windmill_common::fork_storage::invalidate_fork_storage_keys_cache(workspace_id);
 }
 
-/// Apply a broadcast lineage change to this process's caches.
+/// Apply a broadcast lineage change to this process's caches. The object storage key mapping is
+/// among them: a replica keeping a recreated fork's old mapping would write the wrong keys.
 pub fn apply_fork_lineage_change(payload: &str) {
     if payload == CLEAR_ALL {
         FORK_PARENT_CACHE.clear();
         windmill_common::workspaces::clear_root_workspace_cache();
+        windmill_common::fork_storage::clear_fork_storage_keys_cache();
     } else {
         FORK_PARENT_CACHE.remove(payload);
         windmill_common::workspaces::invalidate_root_workspace_cache(payload);
+        windmill_common::fork_storage::invalidate_fork_storage_keys_cache(payload);
     }
 }
 

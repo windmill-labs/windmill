@@ -202,6 +202,10 @@ pub fn invalidate_fork_storage_keys_cache(w_id: &str) {
     FORK_STORAGE_KEYS_CACHE.retain(|(w, _), _| w != w_id);
 }
 
+pub fn clear_fork_storage_keys_cache() {
+    FORK_STORAGE_KEYS_CACHE.clear();
+}
+
 /// `storage` as the registry keys it: '' for the default storage.
 pub fn registry_storage_name(storage: Option<&str>) -> &str {
     match storage {
