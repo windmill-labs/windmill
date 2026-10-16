@@ -876,11 +876,17 @@ class Windmill:
         """Where an S3 client reaches the workspace storage through Windmill's S3 proxy, so the
         storage's permission rules apply and its credentials stay on the server.
 
-        None when the workspace storage is not S3, when the token is not a job token (the proxy
-        authenticates S3 signatures with a JWT), or when the server predates the proxy's
-        bucket-addressed routes: the caller then connects with the storage's own credentials.
+        None when the workspace storage is not S3, when the token is not one the server signs
+        itself (the proxy re-derives the SigV4 secret from a ``jwt_`` token's header and payload,
+        which an external ``jwt_ext_`` token's signature does not match), or when the server
+        predates the proxy's bucket-addressed routes: the caller then connects with the
+        storage's own credentials.
         """
-        if not self.token or "." not in self.token:
+        if (
+            not self.token
+            or not self.token.startswith("jwt_")
+            or self.token.startswith(("jwt_ext_", "jwt_agent_"))
+        ):
             return None
         resp = self.get(
             f"/w/{self.workspace}/job_helpers/v2/s3_proxy_bucket",
@@ -930,6 +936,8 @@ class Windmill:
             )
             if not proxy["use_ssl"]:
                 settings += "SET s3_use_ssl=0;\n"
+            if self.verify is False:
+                settings += "SET enable_server_cert_verification=false;\n"
             return DuckDbConnectionSettings(
                 {"connection_settings_str": settings, "s3_bucket": proxy["bucket"]}
             )
@@ -940,6 +948,7 @@ class Windmill:
                 if s3_resource_path == ""
                 else {"s3_resource_path": s3_resource_path},
             ).json()
+            raw_obj.setdefault("s3_bucket", None)
             return DuckDbConnectionSettings(raw_obj)
         except JSONDecodeError as e:
             raise Exception(
@@ -962,6 +971,19 @@ class Windmill:
         s3_resource_path = parse_resource_syntax(s3_resource_path) or s3_resource_path
         proxy = self._s3_proxy_connection() if s3_resource_path == "" else None
         if proxy is not None:
+            client_kwargs = {"region_name": proxy["region"]}
+            storage_options = {
+                "aws_endpoint_url": proxy["endpoint_url"],
+                "aws_access_key_id": proxy["access_key"],
+                "aws_secret_access_key": proxy["secret_key"],
+                "aws_region": proxy["region"],
+                "aws_allow_http": str(not proxy["use_ssl"]).lower(),
+                "aws_virtual_hosted_style_request": "false",
+            }
+            if self.verify is not True:
+                client_kwargs["verify"] = self.verify
+            if self.verify is False:
+                storage_options["allow_invalid_certificates"] = "true"
             return PolarsConnectionSettings(
                 {
                     "s3fs_args": {
@@ -970,17 +992,10 @@ class Windmill:
                         "secret": proxy["secret_key"],
                         "use_ssl": proxy["use_ssl"],
                         "cache_regions": False,
-                        "client_kwargs": {"region_name": proxy["region"]},
+                        "client_kwargs": client_kwargs,
                         "config_kwargs": {"s3": {"addressing_style": "path"}},
                     },
-                    "storage_options": {
-                        "aws_endpoint_url": proxy["endpoint_url"],
-                        "aws_access_key_id": proxy["access_key"],
-                        "aws_secret_access_key": proxy["secret_key"],
-                        "aws_region": proxy["region"],
-                        "aws_allow_http": str(not proxy["use_ssl"]).lower(),
-                        "aws_virtual_hosted_style_request": "false",
-                    },
+                    "storage_options": storage_options,
                     "s3_bucket": proxy["bucket"],
                 }
             )
@@ -991,6 +1006,7 @@ class Windmill:
                 if s3_resource_path == ""
                 else {"s3_resource_path": s3_resource_path},
             ).json()
+            raw_obj.setdefault("s3_bucket", None)
             return PolarsConnectionSettings(raw_obj)
         except JSONDecodeError as e:
             raise Exception(
@@ -1015,7 +1031,7 @@ class Windmill:
         proxy = self._s3_proxy_connection() if s3_resource_path == "" else None
         if proxy is not None:
             # botocore addresses a custom endpoint path-style, which the proxy's routes need.
-            return Boto3ConnectionSettings(
+            settings = Boto3ConnectionSettings(
                 {
                     "endpoint_url": proxy["endpoint_url"],
                     "region_name": proxy["region"],
@@ -1024,6 +1040,9 @@ class Windmill:
                     "aws_secret_access_key": proxy["secret_key"],
                 }
             )
+            if self.verify is not True:
+                settings["verify"] = self.verify
+            return settings
         try:
             s3_resource = self.post(
                 f"/w/{self.workspace}/job_helpers/v2/s3_resource_info",
