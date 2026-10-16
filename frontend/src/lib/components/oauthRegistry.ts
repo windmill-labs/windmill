@@ -39,3 +39,33 @@ export function registryEntryFor(...names: (string | undefined)[]): any {
 export function registryCcCapableFor(...names: (string | undefined)[]): boolean {
 	return registryEntryFor(...names)?.grant_types?.includes('client_credentials') ?? false
 }
+
+/** Reduce what an admin typed (a bare name, a full host or a URL) to the instance name. */
+export function normalizeInstanceInput(tmpl: any, raw: string): string {
+	let v = (raw ?? '').replace(/\s/g, '')
+	if (tmpl.strip_suffix) {
+		v = v.replace(/^https?:\/\//, '').replace(/\/.*$/, '')
+		if (v.endsWith(tmpl.strip_suffix)) {
+			v = v.slice(0, -tmpl.strip_suffix.length)
+		}
+	}
+	return v
+}
+
+/**
+ * The `connect_config` of a per-instance provider (Snowflake, ServiceNow, Coupa, …), its
+ * registry `connect_config_template` with `{instance}` filled in. The instance name is kept
+ * in `extra_params`, where the settings page reads it back.
+ */
+export function templatedConnectConfig(tmpl: any, instance: string) {
+	return {
+		scopes: tmpl.scopes ?? [],
+		// CC-only templated providers have no auth_url: an empty string still types the entry,
+		// and the backend reads it as the unused placeholder of the client-credentials grant.
+		auth_url: tmpl.auth_url ? tmpl.auth_url.replaceAll('{instance}', instance) : '',
+		token_url: tmpl.token_url.replaceAll('{instance}', instance),
+		req_body_auth: tmpl.req_body_auth ?? false,
+		extra_params: { [tmpl.extra_params_key ?? 'instance']: instance },
+		extra_params_callback: {}
+	}
+}

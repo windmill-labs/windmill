@@ -1262,6 +1262,14 @@
 				{#snippet title()}
 					<span class="truncate leading-5">{resourceTypeDisplayName(key)}</span>
 					<span class="shrink-0 font-mono text-2xs font-normal text-hint">{key}</span>
+					<!-- Also listed under the instance section: say what this row does instead. -->
+					{#if !oauth && isSharedConnect(key)}
+						<span class="shrink-0 text-2xs font-normal text-secondary">
+							{isCcCapable(key) || connectsInfo[key]?.supports_client_credentials
+								? 'with your own client ID and secret'
+								: 'entered manually'}
+						</span>
+					{/if}
 				{/snippet}
 				{#snippet subtitle()}
 					{plainDescription(resourceTypeDescriptions[key])}
@@ -1493,16 +1501,12 @@
 						>Create a resource backed by an OAuth connection, whose token is fetched from the
 						external services and refreshed automatically if needed before expiration.</div
 					>
-					{#if ccBringYourOwn}
-						<button
-							onclick={() => {
-								manual = true
-								useClientCredentials = false
-							}}
-							class="text-xs font-normal text-accent w-fit mt-2"
-						>
-							Create resource manually instead
-						</button>
+					{#if !registryEntry()?.user_scopes || useClientCredentials}
+						<div class="text-xs text-secondary font-normal mt-1">
+							{useClientCredentials
+								? 'Connects as the app: the token belongs to the service account behind the client ID, not to you.'
+								: `Connects as you: the token acts with your ${resourceType} account's access.`}
+						</div>
 					{/if}
 				</div>
 
@@ -1562,6 +1566,15 @@
 								/>
 							</div>
 						{/if}
+						<button
+							onclick={() => {
+								manual = true
+								useClientCredentials = false
+							}}
+							class="text-xs font-normal text-accent w-fit mb-2"
+						>
+							Create resource manually instead
+						</button>
 
 						{#if useClientCredentials && !useSharedInstanceCreds}
 							<form class="flex flex-col gap-6">

@@ -226,6 +226,11 @@ pub struct ListedResource {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(default)]
     pub draft_path: Option<String>,
+    /// The linked OAuth account's grant: `client_credentials` connects as the app, anything
+    /// else as the user who connected it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    pub grant_type: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -368,6 +373,7 @@ async fn list_resources(
             "variable.is_oauth",
             "variable.account",
             "account.refresh_error",
+            "account.grant_type",
             "resource.created_by",
             "resource.edited_at",
             "resource.labels",
@@ -578,7 +584,7 @@ async fn list_resources(
                 // Synthesized rows are the authed user's draft.
                 is_draft: Some(true),
             };
-            rows.push(ListedResource { resource, agent_memory, draft_path });
+            rows.push(ListedResource { resource, agent_memory, draft_path, grant_type: None });
         }
     }
 

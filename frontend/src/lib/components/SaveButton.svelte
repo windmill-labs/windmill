@@ -52,7 +52,7 @@
 			})
 			.catch((error) => {
 				console.error('Save failed:', error)
-				sendUserToast(error?.message ?? 'Save failed', true)
+				sendUserToast(error?.body ?? error?.message ?? 'Save failed', true)
 				saveStatus = 'error'
 				statusTimeout = setTimeout(() => {
 					saveStatus = null

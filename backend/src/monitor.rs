@@ -5888,14 +5888,25 @@ pub async fn apply_base_url_setting(
     #[cfg(feature = "oauth2")]
     let oauths = if conn.as_sql().is_some() {
         if let Some(q) = q_oauth {
-            if let Ok(v) = serde_json::from_value::<
-                Option<HashMap<String, windmill_api::oauth2_oss::OAuthClient>>,
-            >(q.clone())
-            {
-                v
-            } else {
-                tracing::error!("Could not parse oauth setting as a json, found: {:#?}", &q);
-                None
+            // Entry by entry, so that one entry that does not parse drops only itself.
+            match serde_json::from_value::<Option<HashMap<String, serde_json::Value>>>(q) {
+                Ok(v) => v.map(|entries| {
+                    entries
+                        .into_iter()
+                        .filter_map(|(name, raw)| {
+                            serde_json::from_value::<windmill_api::oauth2_oss::OAuthClient>(raw)
+                                .map_err(|e| {
+                                    tracing::error!("Skipping invalid OAuth client {name}: {e}")
+                                })
+                                .ok()
+                                .map(|c| (name, c))
+                        })
+                        .collect()
+                }),
+                Err(e) => {
+                    tracing::error!("Could not parse oauth setting as a json object: {e}");
+                    None
+                }
             }
         } else {
             None

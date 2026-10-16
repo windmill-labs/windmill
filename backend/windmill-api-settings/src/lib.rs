@@ -975,6 +975,14 @@ async fn run_setting_pre_write_hook(
     value: &serde_json::Value,
 ) -> error::Result<()> {
     match key {
+        #[cfg(feature = "oauth2")]
+        windmill_common::global_settings::OAUTH_SETTING => {
+            windmill_oauth::validate_oauths_setting(
+                value,
+                include_str!("../../oauth_connect.json"),
+            )
+            .map_err(|e| error::Error::BadRequest(format!("OAuth settings: {e}")))?;
+        }
         // The instance AI config is written as an untyped blob through this generic
         // endpoint, so it never passes the typed check the workspace handler applies.
         // Rates that reach a cost total unbounded would make it negative or infinite.

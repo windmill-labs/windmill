@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
 	import { page } from '$app/state'
+	import oauthConnectRegistry from '$oauth_connect_registry'
 	import AppConnect from '$lib/components/AppConnectDrawer.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Badge, Button, EmptyState, Skeleton, Tab, TabFade } from '$lib/components/common'
@@ -72,6 +73,8 @@
 		SearchX,
 		Shield,
 		Trash,
+		User,
+		Bot,
 		Zap
 	} from 'lucide-svelte'
 	import { onMount, untrack } from 'svelte'
@@ -1194,7 +1197,7 @@
 							</Head>
 							<tbody class="divide-y bg-surface">
 								{#if filteredItems}
-									{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
+									{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, grant_type, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
 										{@const hasDraft =
 											getLocalDraftHint($operatingWorkspace, 'resource', path) ?? is_draft}
 										<Row>
@@ -1310,6 +1313,29 @@
 													</div>
 
 													{#if is_oauth}
+														{@const identityKnown =
+															grant_type === 'client_credentials' ||
+															!(oauthConnectRegistry as Record<string, any>)[resource_type]?.user_scopes}
+														<!-- Slack's bot and user tokens both come from the sign-in flow, so
+														     the grant does not say whose identity the token carries. -->
+														<div class="w-10">
+															{#if identityKnown}
+																<Popover>
+																	{#if grant_type === 'client_credentials'}
+																		<Bot size={16} />
+																	{:else}
+																		<User size={16} />
+																	{/if}
+																	{#snippet text()}
+																		<div>
+																			{grant_type === 'client_credentials'
+																				? 'Connects as the app: the token belongs to the service account behind the client ID.'
+																				: 'Connects as the user who connected it: the token acts with their account.'}
+																		</div>
+																	{/snippet}
+																</Popover>
+															{/if}
+														</div>
 														<div class="w-10 pt-1.5">
 															{#if refresh_error}
 																<Popover>
