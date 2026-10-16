@@ -172,10 +172,14 @@ overwrite the other's turn, so a run is refused while another holds its id.
   turn in progress, so its memory id stays claimed until the run ends.
 - **Take over.** `take_over=true` on a run cancels the run holding the id, then waits up to 40s
   for it to leave the queue before pushing (`take_over_memory_turn`). Only who started that run, or
-  an admin, can do it.
-- **History on stop.** A cancelled agent writes its managed memory before it returns: every place
-  it stops at holds complete exchanges, each tool call answered, so the next turn starts from what
-  this one reached. No compaction runs there, since it would call the model inside the cancel's
+  an admin, can do it, and a restricted token only with an unconfined `jobs:cancel` scope, since a
+  uuid memory id is not confined to the flow being run. The holder is stopped before the new run is
+  validated, so a new run refused for another reason leaves the memory id with no turn. App runs
+  refuse `take_over`.
+- **History on stop.** A cancelled agent writes its managed memory before it returns, so the next
+  turn starts from what this one reached. Every place it stops at has each tool call answered; one
+  stopped before its first reply keeps the unanswered message, and the next turn's message follows
+  it. No compaction runs there, since it would call the model inside the cancel's
   grace period. An agent cancelled while parked is completed without running, and saves nothing.
 
 ## Approval tool
