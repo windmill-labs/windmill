@@ -42,9 +42,12 @@ the fork does not own costs one HEAD per chain level before the GET.
   isolated storage be repointed, since the purge targets the storage recorded at creation.
 - **A shared lake needs its storage shared**: its files must land at the parent's keys, where the
   parent's catalog looks for them. Fork creation refuses the other combination.
-- **Children before parents**: deleting an isolating fork with forks of its own is refused. A
-  child reads through, or writes into, the parent's prefix, and without the parent in its chain
-  it would fall back to writing the root's keys.
+- **Children before parents**: deleting a fork that has forks of its own is refused when anything
+  in its chain isolates a storage, shared forks included. A child reads through, or writes into,
+  the isolating prefix via that link, and without it the child's chain would map like the root's.
+- **Deletion and same-id creation are serialized** on the `fork:<id>` advisory lock, and a purge
+  skips an id that exists again: the rows are then the new fork's. The proxy caches only the raw
+  client, never a mapping, so fork creation and deletion invalidate the one mapping cache.
 - **Deletion always purges** the fork's area of each isolated storage, post-commit, from the
   storage identity recorded at creation: nothing can reach it once the fork is gone. Rows have
   no FK and outlive the workspace when the purge fails; creating a fork with the same id retries

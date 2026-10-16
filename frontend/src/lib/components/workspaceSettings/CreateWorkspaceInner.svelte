@@ -1105,8 +1105,11 @@
 	</div>
 	<div class="flex flex-wrap flex-row {inModal ? 'justify-end' : 'justify-between'} gap-4 pt-4">
 		{#if !inModal}
-			<Button disabled={forkCreationLoading} variant="default" size="sm" href="/user/workspaces"
-				>&leftarrow; Back to workspaces</Button
+			<Button
+				disabled={forkCreationLoading}
+				variant="default"
+				size="sm"
+				href="/user/workspaces">&leftarrow; Back to workspaces</Button
 			>
 		{/if}
 		{#if !forkCreationLoading}

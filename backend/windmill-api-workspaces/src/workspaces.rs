@@ -9610,32 +9610,16 @@ async fn create_workspace_fork(
         );
     }
     // Unlike a dropped lake's files, a deleted fork's objects are live to a same-id fork: it
-    // reads its own prefix first. Under the lock `write_workspace_fork` takes, and only while no
-    // workspace has the id: a concurrent same-id creation that committed first owns these rows.
-    let mut purge_lock = db.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('fork:' || $1))")
-        .bind(&nw.id)
-        .execute(&mut *purge_lock)
-        .await?;
-    let id_taken = sqlx::query_scalar!(
-        "SELECT EXISTS (SELECT 1 FROM workspace WHERE id = $1)",
-        &nw.id
+    // reads its own prefix first.
+    let leftover_storages = crate::workspaces_extra::prepare_fork_storage_purges(
+        &db,
+        &nw.id,
+        Some(&parent_workspace_id),
     )
-    .fetch_one(&mut *purge_lock)
-    .await?
-    .unwrap_or(false);
-    let storage_issues = if id_taken {
-        vec![]
-    } else {
-        let leftover_storages = crate::workspaces_extra::prepare_fork_storage_purges(
-            &db,
-            &nw.id,
-            Some(&parent_workspace_id),
-        )
-        .await?;
-        crate::workspaces_extra::purge_fork_storages(&db, &nw.id, leftover_storages).await
-    };
-    purge_lock.commit().await?;
+    .await?;
+    let storage_issues =
+        crate::workspaces_extra::purge_fork_storages_unless_live(&db, &nw.id, leftover_storages)
+            .await?;
     if !storage_issues.is_empty() {
         return Err(Error::BadRequest(format!(
             "a previously deleted workspace with id '{}' left objects in its fork prefix that \
@@ -10125,7 +10109,6 @@ async fn isolate_fork_storages(
         .execute(&mut **tx)
         .await?;
     }
-    windmill_common::fork_storage::invalidate_fork_storage_keys_cache(fork_id);
     Ok(())
 }
 
@@ -10449,6 +10432,9 @@ async fn write_workspace_fork(
         .await?;
     }
     tx.commit().await?;
+    // Same for a mapping cached before the isolation rows were visible: identity, writing the
+    // root's keys.
+    windmill_common::fork_storage::invalidate_fork_storage_keys_cache(&forked_id);
 
     // A pre-creation lookup could have cached an EMPTY ancestor chain for this id, which
     // would bypass ducklake fork isolation for the TTL. The same lookup could have cached the id

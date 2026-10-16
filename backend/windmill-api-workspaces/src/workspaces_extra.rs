@@ -1116,12 +1116,14 @@ pub(crate) async fn delete_workspace(
             tracing::warn!("deleting workspace {w_id}: preparing ducklake cleanup: {e:#}");
             vec![]
         });
-    // A child fork reads through to this fork's prefix, and a child sharing the storage writes
-    // into it: purging it would destroy the child's data, and losing this link would leave the
-    // child writing the root's own keys.
+    // A child fork reads through to this fork's prefix, or to the one this fork shares, and a
+    // child sharing the storage writes into it: deleting this link would destroy the child's
+    // data, or leave its chain without the isolating fork, writing the root's own keys.
+    let chain = windmill_common::workspaces::workspace_with_fork_ancestors(&db, &w_id).await?;
     let isolating_with_children = sqlx::query_scalar!(
-        "SELECT EXISTS (SELECT 1 FROM fork_storage_namespace WHERE workspace_id = $1)
-            AND EXISTS (SELECT 1 FROM workspace WHERE parent_workspace_id = $1)",
+        "SELECT EXISTS (SELECT 1 FROM fork_storage_namespace WHERE workspace_id = ANY($1))
+            AND EXISTS (SELECT 1 FROM workspace WHERE parent_workspace_id = $2)",
+        &chain,
         &w_id
     )
     .fetch_one(&db)
@@ -1129,8 +1131,8 @@ pub(crate) async fn delete_workspace(
     .unwrap_or(false);
     if isolating_with_children {
         return Err(Error::BadRequest(format!(
-            "{w_id} isolates its object storage and its forks read and write through it: delete \
-             its forks first"
+            "the forks of {w_id} reach its fork chain's isolated object storage through it: \
+             delete them first"
         )));
     }
     // Nothing can reach a deleted fork's prefix once it is gone, so it is always purged.
@@ -1410,8 +1412,13 @@ pub(crate) async fn delete_workspace(
             e.msg
         );
     }
-    for e in purge_fork_storages(&db, &w_id, fork_storage_purges).await {
-        tracing::warn!("deleted workspace {w_id}: storage purge: {e}");
+    match purge_fork_storages_unless_live(&db, &w_id, fork_storage_purges).await {
+        Ok(errors) => {
+            for e in errors {
+                tracing::warn!("deleted workspace {w_id}: storage purge: {e}");
+            }
+        }
+        Err(e) => tracing::warn!("deleted workspace {w_id}: storage purge: {e:#}"),
     }
 
     if let Some(parent) = dev_lock_parent {
@@ -2372,9 +2379,38 @@ pub(crate) async fn prepare_fork_storage_purges(
     Ok(prepared)
 }
 
+/// [`purge_fork_storages`] under the lock same-id fork creation takes, unless a workspace with
+/// that id exists again: the rows are then the new fork's, and its creation already purged the
+/// ones it found.
+pub(crate) async fn purge_fork_storages_unless_live(
+    db: &DB,
+    w_id: &str,
+    prepared: Vec<PreparedForkStoragePurge>,
+) -> Result<Vec<String>> {
+    let mut lock = db.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('fork:' || $1))")
+        .bind(w_id)
+        .execute(&mut *lock)
+        .await?;
+    let live = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM workspace WHERE id = $1)",
+        w_id
+    )
+    .fetch_one(&mut *lock)
+    .await?
+    .unwrap_or(false);
+    let errors = if live {
+        vec![]
+    } else {
+        purge_fork_storages(db, w_id, prepared).await
+    };
+    lock.commit().await?;
+    Ok(errors)
+}
+
 /// Delete everything under the fork's `__wm_forks/<segment>/` in each prepared storage, then its
 /// registry row. Returns one message per storage that could not be purged; its row survives.
-pub(crate) async fn purge_fork_storages(
+async fn purge_fork_storages(
     db: &DB,
     w_id: &str,
     prepared: Vec<PreparedForkStoragePurge>,
