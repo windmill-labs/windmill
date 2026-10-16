@@ -22,6 +22,7 @@
 		VISIBILITY_KEYS
 	} from '$lib/workspaceRoles'
 	import { ChevronDown, ChevronRight, Plus, RotateCcw, SaveIcon, Trash2 } from 'lucide-svelte'
+	import { SvelteMap } from 'svelte/reactivity'
 
 	interface Props {
 		workspace: string
@@ -32,9 +33,10 @@
 
 	let { workspace, data, onSaved }: Props = $props()
 
-	let draft = $state<RoleOverrides>({})
+	// Maps, not objects: a role name is any slug, `constructor` and `__proto__` included.
+	const draft = new SvelteMap<string, RoleOverride>()
 	let loadedFrom: WorkspaceRoles | undefined = undefined
-	let open = $state<Record<string, boolean>>({})
+	const open = new SvelteMap<string, boolean>()
 	let newRoleName = $state('')
 	let confirmSeatOpen = $state(false)
 	let saving = $state(false)
@@ -42,24 +44,25 @@
 	$effect(() => {
 		if (data && data !== loadedFrom) {
 			loadedFrom = data
-			draft = structuredClone($state.snapshot(data.overrides) ?? {})
+			draft.clear()
+			for (const [name, o] of Object.entries(data.overrides ?? {})) {
+				draft.set(name, structuredClone($state.snapshot(o)))
+			}
 		}
 	})
 
 	const instanceRoles = $derived((data?.roles ?? []).filter((r) => r.source === 'instance'))
 	const workspaceOnlyNames = $derived(
-		Object.keys(draft)
-			.filter((n) => !instanceRoles.some((r) => r.name === n))
-			.sort()
+		[...draft.keys()].filter((n) => !instanceRoles.some((r) => r.name === n)).sort()
 	)
 
 	function overriddenKeys(o: RoleOverride | undefined): string[] {
 		const c = o?.capabilities ?? {}
 		const keys = ['code', 'flows', 'apps', 'manage_schedules', 'manage_triggers'].filter(
-			(k) => c[k] !== undefined
+			(k) => c[k] != null
 		)
 		for (const { key } of VISIBILITY_KEYS) {
-			if (c.visibility?.[key] !== undefined) keys.push(`visibility.${key}`)
+			if (c.visibility?.[key] != null) keys.push(`visibility.${key}`)
 		}
 		return keys
 	}
@@ -71,18 +74,19 @@
 	function baseFor(name: string): { base: RoleCapabilities; unknown: string[] } {
 		const role = instanceRoles.find((r) => r.name === name)
 		if (!role) return { base: baseCapabilitiesFor(name), unknown: [] }
-		return { base: role.capabilities, unknown: overriddenKeys(data?.overrides[name]) }
+		const stored = data && Object.hasOwn(data.overrides, name) ? data.overrides[name] : undefined
+		return { base: role.capabilities, unknown: overriddenKeys(stored) }
 	}
 
 	function effectiveFor(name: string): RoleCapabilities {
-		return applyCapabilitiesPatch(baseFor(name).base, draft[name]?.capabilities)
+		return applyCapabilitiesPatch(baseFor(name).base, draft.get(name)?.capabilities)
 	}
 
 	const AUTHORING_KEYS = ['code', 'flows', 'apps']
 
 	/** Whether saving makes an authoring field of `name` fall back to an unknown instance value. */
 	function authoringUnknown(name: string): boolean {
-		const set = overriddenKeys(draft[name])
+		const set = overriddenKeys(draft.get(name))
 		return baseFor(name).unknown.some((k) => AUTHORING_KEYS.includes(k) && !set.includes(k))
 	}
 
@@ -99,26 +103,32 @@
 	}
 
 	/** The overrides to store: instance roles left as the instance has them are dropped. */
-	function cleaned(o: RoleOverrides): RoleOverrides {
-		const out: RoleOverrides = {}
-		for (const [name, v] of Object.entries(o)) {
+	function cleaned(entries: Iterable<[string, RoleOverride]>): RoleOverrides {
+		const out: [string, RoleOverride][] = []
+		for (const [name, v] of entries) {
 			const label = v.label?.trim() || undefined
 			const isInstance = instanceRoles.some((r) => r.name === name)
 			if (isInstance && !label && isEmptyPatch(v.capabilities)) continue
-			out[name] = {
-				...(label ? { label } : {}),
-				capabilities: isEmptyPatch(v.capabilities) ? {} : v.capabilities
-			}
+			out.push([
+				name,
+				{
+					...(label ? { label } : {}),
+					capabilities: isEmptyPatch(v.capabilities) ? {} : v.capabilities
+				}
+			])
 		}
-		return out
+		return Object.fromEntries(out)
 	}
 
+	const cleanedDraft = $derived(cleaned(draft))
+
 	const dirty = $derived(
-		data != undefined && JSON.stringify(cleaned(draft)) !== JSON.stringify(cleaned(data.overrides))
+		data != undefined &&
+			JSON.stringify(cleanedDraft) !== JSON.stringify(cleaned(Object.entries(data.overrides)))
 	)
 
 	const errors = $derived.by(() => {
-		const e: Record<string, string> = {}
+		const e: Record<string, string> = Object.create(null)
 		for (const name of [...instanceRoles.map((r) => r.name), ...workspaceOnlyNames]) {
 			// Left to the server, which knows the instance value.
 			if (authoringUnknown(name)) continue
@@ -139,29 +149,31 @@
 	)
 
 	function setPatch(name: string, capabilities: RoleOverride['capabilities']) {
-		draft[name] = { ...(draft[name] ?? {}), capabilities }
+		draft.set(name, { ...(draft.get(name) ?? {}), capabilities })
 	}
 
 	function setLabel(name: string, label: string) {
-		draft[name] = { ...(draft[name] ?? {}), label }
+		draft.set(name, { ...(draft.get(name) ?? {}), label })
 	}
 
 	function resetRole(name: string) {
-		delete draft[name]
+		draft.delete(name)
 	}
 
 	const newRoleError = $derived.by(() => {
 		const name = newRoleName.trim()
 		if (!name) return undefined
-		if (instanceRoles.some((r) => r.name === name) || draft[name]) return 'This role already exists'
+		if (instanceRoles.some((r) => r.name === name) || draft.has(name)) {
+			return 'This role already exists'
+		}
 		return roleNameError(name)
 	})
 
 	function addRole() {
 		const name = newRoleName.trim()
 		if (!name || newRoleError) return
-		draft[name] = { capabilities: {} }
-		open[name] = true
+		draft.set(name, { capabilities: {} })
+		open.set(name, true)
 		newRoleName = ''
 	}
 
@@ -175,7 +187,7 @@
 		try {
 			await WorkspaceService.updateWorkspaceRoleOverrides({
 				workspace,
-				requestBody: cleaned(draft)
+				requestBody: cleanedDraft
 			})
 			sendUserToast('Workspace roles saved')
 			onSaved()
@@ -189,13 +201,13 @@
 
 {#snippet roleCard(name: string, role: EffectiveRole | undefined)}
 	{@const { base, unknown } = baseFor(name)}
-	{@const caps = applyCapabilitiesPatch(base, draft[name]?.capabilities)}
-	{@const overridden = cleaned(draft)[name] !== undefined}
+	{@const caps = applyCapabilitiesPatch(base, draft.get(name)?.capabilities)}
+	{@const overridden = Object.hasOwn(cleanedDraft, name)}
 	<div class="flex flex-col rounded-md border bg-surface-tertiary">
 		<div class="flex items-center gap-2 p-2">
 			<div class="flex flex-col w-40 shrink-0 min-w-0">
 				<span class="text-xs font-semibold text-emphasis truncate">
-					{draft[name]?.label?.trim() || role?.label || name}
+					{draft.get(name)?.label?.trim() || role?.label || name}
 				</span>
 				<span class="text-2xs text-secondary font-mono truncate">{name}</span>
 			</div>
@@ -211,8 +223,8 @@
 			<Button
 				variant="subtle"
 				unifiedSize="sm"
-				startIcon={{ icon: open[name] ? ChevronDown : ChevronRight }}
-				onclick={() => (open[name] = !open[name])}
+				startIcon={{ icon: open.get(name) ? ChevronDown : ChevronRight }}
+				onclick={() => open.set(name, !open.get(name))}
 			>
 				Capabilities
 			</Button>
@@ -240,17 +252,17 @@
 				/>
 			{/if}
 		</div>
-		{#if errors[name] && !open[name]}
+		{#if errors[name] && !open.get(name)}
 			<span class="text-2xs text-red-600 dark:text-red-400 px-2 pb-2">{errors[name]}</span>
 		{/if}
-		{#if open[name]}
+		{#if open.get(name)}
 			<div class="border-t p-3 flex flex-col gap-3">
 				<div class="flex items-center gap-2">
 					<span class="text-xs font-semibold text-emphasis w-24">Label</span>
 					<div class="w-60">
 						<TextInput
 							size="sm"
-							value={draft[name]?.label ?? ''}
+							value={draft.get(name)?.label ?? ''}
 							inputProps={{
 								placeholder: role?.label ?? name,
 								'aria-label': 'Label in this workspace',
@@ -262,7 +274,7 @@
 				<RoleCapabilitiesEditor
 					{base}
 					unknownBase={unknown}
-					patch={draft[name]?.capabilities ?? {}}
+					patch={draft.get(name)?.capabilities ?? {}}
 					baseName={role ? 'instance' : 'default'}
 					setText={role ? 'Overridden' : 'Set'}
 					inheritedText={role ? 'From instance' : 'Default'}

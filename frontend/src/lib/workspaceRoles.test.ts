@@ -27,6 +27,17 @@ describe('role capability layering', () => {
 		expect(caps.visibility.runs).toBe(true)
 	})
 
+	it('treats a stored null as unset, as serde reads it', () => {
+		const caps = applyCapabilitiesPatch(baseCapabilitiesFor('developer'), {
+			code: null as any,
+			visibility: { runs: null as any }
+		})
+		expect(caps).toEqual(FULL_CAPABILITIES)
+		expect(
+			workspaceRolesErrors([{ name: 'developer', capabilities: { code: null as any } }])
+		).toEqual({})
+	})
+
 	it('refuses what parse_instance_roles refuses', () => {
 		expect(workspaceRolesErrors(undefined)).toEqual({})
 		expect(workspaceRolesErrors([])).toHaveProperty('list')

@@ -58,9 +58,9 @@
 
 	function isSet(path: string): boolean {
 		if (path.startsWith('visibility.')) {
-			return patch.visibility?.[path.slice('visibility.'.length)] !== undefined
+			return patch.visibility?.[path.slice('visibility.'.length)] != null
 		}
-		return patch[path as keyof RoleCapabilitiesPatch] !== undefined
+		return patch[path as keyof RoleCapabilitiesPatch] != null
 	}
 
 	function update(path: string, value: boolean | AuthorLevel | undefined) {
