@@ -5640,6 +5640,9 @@ paths:
                       type: string
                     governing_workspace_id:
                       type: string
+                    database_workspace_id:
+                      type: string
+                      description: The workspace owning the database this entry points at, when it is not this workspace.
                     permissioned:
                       type: boolean
 
@@ -39184,6 +39187,7 @@ components:
         - RestrictAnonymousAppDeployment
         - RestrictPublicRunSharing
         - RestrictGuestAppDeployment
+        - RequireIsolatedForks
     RuleBypasserGroups:
       type: array
       description: Groups that can bypass this ruleset

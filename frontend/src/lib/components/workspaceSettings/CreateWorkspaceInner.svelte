@@ -36,10 +36,13 @@
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
 	import { isOperatorInWorkspace } from '$lib/components/sidebar/operatorRoutes'
 	import {
+		canUserBypassRuleKindInRulesets,
 		fetchProtectionRulesForWorkspace,
+		isRuleActiveInRulesets,
 		isRuleUnconditionallyActiveInRulesets
 	} from '$lib/workspaceProtectionRules.svelte'
 	import { resource } from 'runed'
+	import { getUserExt } from '$lib/user'
 	import { Button } from '$lib/components/common'
 	import {
 		DEV_WORKSPACE_LABELS,
@@ -279,6 +282,34 @@
 	let forkDatatableSection: ReturnType<typeof ForkDatatableSection> | undefined = $state(undefined)
 	let forkDucklakeSection: ReturnType<typeof ForkDucklakeSection> | undefined = $state(undefined)
 	let forkStorageSection: ReturnType<typeof ForkStorageSection> | undefined = $state(undefined)
+	let datatableCount = $state(0)
+	let ducklakeCount = $state(0)
+	let storageCount = $state(0)
+	let forkDataCount = $derived(datatableCount + ducklakeCount + storageCount)
+
+	// The base's `RequireIsolatedForks` rule leaves no data shared with it: the sections below drop
+	// their sharing options. The server enforces it; this only keeps the form from offering a
+	// choice it would refuse. Bypass is judged with the user's identity in the BASE, like
+	// ParentWorkspaceProtectionAlert.
+	const baseRuleContext = resource(
+		() => (isFork ? baseWorkspaceId : undefined),
+		async (ws) => {
+			if (!ws) return undefined
+			const [rules, user] = await Promise.all([
+				fetchProtectionRulesForWorkspace(ws),
+				getUserExt(ws)
+			])
+			return { rules, user }
+		}
+	)
+	let requireIsolation = $derived.by(() => {
+		const ctx = baseRuleContext.current
+		return (
+			!!ctx &&
+			isRuleActiveInRulesets(ctx.rules, 'RequireIsolatedForks') &&
+			!canUserBypassRuleKindInRulesets(ctx.rules, 'RequireIsolatedForks', ctx.user)
+		)
+	})
 
 	let workspaceColor: string | undefined = $state(undefined)
 	let colorEnabled = $state(false)
@@ -435,9 +466,11 @@
 					id: prefixed_id,
 					name,
 					color: colorEnabled && workspaceColor ? workspaceColor : undefined,
-					// Sent in this first phase too, so a clone the fork would refuse is refused before
-					// any branch is created.
+					// Sent in this first phase too, so a clone or a sharing choice the fork would refuse
+					// is refused before any branch is created.
 					forked_datatables: forkedDatatables,
+					shared_ducklakes: forkDucklakeSection?.getSharedDucklakes() ?? [],
+					shared_storages: forkStorageSection?.getSharedStorages() ?? [],
 					is_dev_workspace: createAsDevWorkspace,
 					dev_workspace_label: createAsDevWorkspace ? devWorkspaceLabel : undefined,
 					// Send the lock intent in this first phase too so the backend can reject a non-admin's
@@ -1013,18 +1046,42 @@
 				{/if}
 			{/if}
 			{#if isFork}
-				<ForkDatatableSection
-					bind:this={forkDatatableSection}
-					sourceWorkspace={baseWorkspaceId}
-					onAllDone={() => {
-						completeFork(effectiveForkId)
-					}}
-					onCanceled={() => {
-						forkCreationLoading = false
-					}}
-				/>
-				<ForkDucklakeSection bind:this={forkDucklakeSection} sourceWorkspace={baseWorkspaceId} />
-				<ForkStorageSection bind:this={forkStorageSection} sourceWorkspace={baseWorkspaceId} />
+				<!-- Hidden rather than unmounted while empty: the sections load their own lists. -->
+				<div class={forkDataCount > 0 ? 'flex flex-col gap-3' : 'hidden'}>
+					<Label label="Fork data">
+						<span class="text-xs text-secondary">
+							Isolated or cloned: the fork writes only its own data, and this workspace's is never
+							changed. Shared: the fork reads and writes this workspace's data directly.
+							{#if requireIsolation}
+								A protection rule on this workspace requires isolation.
+							{/if}
+						</span>
+					</Label>
+					<ForkDatatableSection
+						bind:this={forkDatatableSection}
+						bind:itemCount={datatableCount}
+						sourceWorkspace={baseWorkspaceId}
+						{requireIsolation}
+						onAllDone={() => {
+							completeFork(effectiveForkId)
+						}}
+						onCanceled={() => {
+							forkCreationLoading = false
+						}}
+					/>
+					<ForkDucklakeSection
+						bind:this={forkDucklakeSection}
+						bind:itemCount={ducklakeCount}
+						sourceWorkspace={baseWorkspaceId}
+						{requireIsolation}
+					/>
+					<ForkStorageSection
+						bind:this={forkStorageSection}
+						bind:itemCount={storageCount}
+						sourceWorkspace={baseWorkspaceId}
+						{requireIsolation}
+					/>
+				</div>
 			{/if}
 			{#if !automateUsernameCreation}
 				<Label label="Your username in that workspace">

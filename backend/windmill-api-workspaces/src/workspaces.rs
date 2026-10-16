@@ -2332,6 +2332,9 @@ struct DataTableListItem {
     /// at its parent. Its permissions apply here, and only its admins may edit them.
     #[serde(skip_serializing_if = "Option::is_none")]
     governing_workspace_id: Option<String>,
+    /// The workspace owning the database this entry points at, when it is not this workspace.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    database_workspace_id: Option<String>,
     /// Whether the governing entry is under roles.
     permissioned: bool,
 }
@@ -2361,6 +2364,8 @@ async fn list_datatables(
             resource_path: database.resource_path.clone(),
             governing_workspace_id: (governing.governing_workspace_id() != w_id)
                 .then(|| governing.governing_workspace_id().to_string()),
+            database_workspace_id: (governing.workspace_id != w_id)
+                .then(|| governing.workspace_id.clone()),
             permissioned: governing.datatable.permissions.is_some(),
         });
     }
@@ -8897,6 +8902,7 @@ async fn create_workspace_fork_branch(
     {
         return Err(Error::PermissionDenied(msg));
     }
+    enforce_isolated_forks(&db, &authed, &w_id, &nw).await?;
 
     // Two-phase create for git-synced workspaces: this endpoint only creates the git branch(es) and
     // validates up front; it does NOT create the workspace row. The caller follows up with
@@ -9647,6 +9653,7 @@ async fn create_workspace_fork(
     {
         return Err(Error::PermissionDenied(msg));
     }
+    enforce_isolated_forks(&db, &authed, &parent_workspace_id, &nw).await?;
 
     if nw.is_dev_workspace {
         ensure_dev_parent_can_host_dev(&db, &parent_workspace_id).await?;
@@ -10021,6 +10028,94 @@ fn copy_requests(
         .collect()
 }
 
+/// Under `RequireIsolatedForks` on `parent`, refuse a fork that would leave any of its data
+/// shared: a shared storage or lake, or a data table not cloned (`Keep original` points the fork
+/// at the parent's database).
+async fn enforce_isolated_forks(
+    db: &DB,
+    authed: &ApiAuthed,
+    parent: &str,
+    nw: &CreateWorkspaceFork,
+) -> Result<()> {
+    let Some(msg) = isolation_required(db, authed, parent).await? else {
+        return Ok(());
+    };
+    let mut shared: Vec<String> = nw
+        .shared_storages
+        .iter()
+        .map(|s| format!("storage `{s}`"))
+        .chain(
+            nw.shared_ducklakes
+                .iter()
+                .map(|l| format!("ducklake `{l}`")),
+        )
+        .collect();
+    shared.extend(
+        kept_parent_datatables(db, parent, &nw.forked_datatables)
+            .await?
+            .into_iter()
+            .map(|name| format!("data table `{name}`")),
+    );
+    refuse_shared(msg, shared)
+}
+
+/// The rule's message when `RequireIsolatedForks` on `parent` binds `authed`.
+async fn isolation_required(db: &DB, authed: &ApiAuthed, parent: &str) -> Result<Option<String>> {
+    match check_user_against_rule(
+        parent,
+        &ProtectionRuleKind::RequireIsolatedForks,
+        AuditAuthorable::username(authed),
+        &authed.groups,
+        authed.is_admin,
+        db,
+    )
+    .await?
+    {
+        RuleCheckResult::Blocked(msg) => Ok(Some(msg)),
+        RuleCheckResult::Allowed => Ok(None),
+    }
+}
+
+/// `parent`'s own data tables that `forked` leaves as pointers at its database. An entry whose
+/// database another workspace owns is not `parent`'s data, so the rule does not cover it.
+async fn kept_parent_datatables(
+    db: &DB,
+    parent: &str,
+    forked: &[ForkedDatatableInfo],
+) -> Result<Vec<String>> {
+    Ok(
+        windmill_common::workspaces::resolve_workspace_governing_datatables(db, parent)
+            .await?
+            .into_iter()
+            .filter(|(_, governing)| governing.workspace_id == parent)
+            .filter(|(name, _)| {
+                !forked.iter().any(|d| {
+                    &d.name == name
+                        && matches!(
+                            d.fork_behavior,
+                            Some(
+                                DataTableForkBehavior::SchemaOnly
+                                    | DataTableForkBehavior::SchemaAndData
+                            )
+                        )
+                })
+            })
+            .map(|(name, _)| name)
+            .collect(),
+    )
+}
+
+fn refuse_shared(msg: String, shared: Vec<String>) -> Result<()> {
+    if shared.is_empty() {
+        return Ok(());
+    }
+    Err(Error::PermissionDenied(format!(
+        "{msg}. Shared in this request: {}. Only a bypasser of the rule can fork while one of \
+         them cannot be isolated",
+        shared.join(", ")
+    )))
+}
+
 /// Record every storage of the fork's cloned settings as isolated, except `shared` ones.
 /// Isolation is a per-fork-creation choice, never inherited: a fork of a shared fork is
 /// isolated unless it asks otherwise.
@@ -10134,6 +10229,17 @@ async fn write_workspace_fork(
     // Also before the external cluster's lifecycle lock, which finalizing an external copy takes:
     // fork cleanup takes the two in this order.
     windmill_common::workspaces::lock_fork_datatables(&mut tx, &parent_workspace_id).await?;
+    // Data table edits take the lock above: one committed since the creation check would reach
+    // this fork as a pointer at the parent's database.
+    if let Some(msg) = isolation_required(&db, &authed, &parent_workspace_id).await? {
+        let kept = kept_parent_datatables(&db, &parent_workspace_id, &nw.forked_datatables).await?;
+        refuse_shared(
+            msg,
+            kept.into_iter()
+                .map(|name| format!("data table `{name}`"))
+                .collect(),
+        )?;
+    }
 
     if nw.is_dev_workspace {
         // The checks above ran outside a transaction, so the parent's eligibility and the chain's

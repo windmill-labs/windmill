@@ -73,6 +73,7 @@ bitflags::bitflags! {
         const RESTRICT_ANONYMOUS_APP_DEPLOYMENT =   1 << 3;
         const RESTRICT_PUBLIC_RUN_SHARING =         1 << 4;
         const RESTRICT_GUEST_APP_DEPLOYMENT =       1 << 5;
+        const REQUIRE_ISOLATED_FORKS =              1 << 6;
     }
 }
 
@@ -86,6 +87,7 @@ pub enum ProtectionRuleKind {
     RestrictAnonymousAppDeployment,
     RestrictPublicRunSharing,
     RestrictGuestAppDeployment,
+    RequireIsolatedForks,
 }
 
 impl ProtectionRuleKind {
@@ -109,6 +111,7 @@ impl ProtectionRuleKind {
             ProtectionRuleKind::RestrictGuestAppDeployment => {
                 ProtectionRules::RESTRICT_GUEST_APP_DEPLOYMENT
             }
+            ProtectionRuleKind::RequireIsolatedForks => ProtectionRules::REQUIRE_ISOLATED_FORKS,
         }
     }
 
@@ -129,6 +132,9 @@ impl ProtectionRuleKind {
             }
             ProtectionRuleKind::RestrictGuestAppDeployment => {
                 "Opening an app to guests (anyone who can sign in) is restricted in this workspace"
+            }
+            ProtectionRuleKind::RequireIsolatedForks => {
+                "Forks of this workspace must isolate its data: no shared object storage or ducklake, and every data table cloned"
             }
         }
     }

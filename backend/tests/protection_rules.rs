@@ -686,3 +686,112 @@ async fn test_protection_rule_rename(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+/// `RequireIsolatedForks` refuses a non-bypassing forker any data shared with the workspace, on
+/// both fork entry points, and lets an admin through.
+#[sqlx::test(fixtures("base"))]
+async fn test_require_isolated_forks(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    invalidate_protection_rules_cache("test-workspace");
+    // `dt2` is a clone governed from `gov`, but its database is this workspace's; `dt3` points
+    // into `gov`'s database.
+    let pg = r#"{"resource_type": "postgresql", "resource_path": "u/test-user/pg"}"#;
+    let gov = r#"{"workspace_id": "gov", "datatable": "src"}"#;
+    sqlx::raw_sql(
+        "INSERT INTO workspace (id, name, owner) VALUES ('gov', 'gov', 'test-user');
+         INSERT INTO workspace_settings (workspace_id) VALUES ('gov')",
+    )
+    .execute(&db)
+    .await?;
+    for (w_id, datatables) in [
+        ("gov", format!(r#"{{"src": {{"database": {pg}}}}}"#)),
+        (
+            "test-workspace",
+            format!(
+                r#"{{"dt1": {{"database": {pg}}}, "dt2": {{"database": {pg}, "governed_by": {gov}}},
+                    "dt3": {{"reference": {gov}}}}}"#
+            ),
+        ),
+    ] {
+        sqlx::query(
+            "UPDATE workspace_settings SET datatable = jsonb_build_object('datatables', $2::jsonb) \
+             WHERE workspace_id = $1",
+        )
+        .bind(w_id)
+        .bind(datatables)
+        .execute(&db)
+        .await?;
+    }
+
+    let server = ApiServer::start(db.clone()).await?;
+    let base = format!(
+        "http://localhost:{}/api/w/test-workspace",
+        server.addr.port()
+    );
+    let resp = authed(
+        client().post(format!("{base}/workspaces/protection_rules")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({
+        "name": "isolate",
+        "rules": ["RequireIsolatedForks"],
+        "bypass_users": [],
+        "bypass_groups": []
+    }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    let cloned =
+        json!([{"name": "dt1", "new_dbname": "wm_fork_iso__dt1", "fork_behavior": "schema_only"}]);
+    for (route, body, shared) in [
+        (
+            "create_fork",
+            json!({"shared_storages": ["_default_"], "forked_datatables": cloned}),
+            "storage",
+        ),
+        (
+            "create_workspace_fork_branch",
+            json!({"shared_ducklakes": ["main"], "forked_datatables": cloned}),
+            "ducklake",
+        ),
+        (
+            "create_fork",
+            json!({"forked_datatables": cloned}),
+            "data table `dt2`",
+        ),
+    ] {
+        let mut body = body;
+        body["id"] = json!("wm-fork-iso");
+        body["name"] = json!("iso");
+        let resp = authed(
+            client().post(format!("{base}/workspaces/{route}")),
+            "SECRET_TOKEN_2",
+        )
+        .json(&body)
+        .send()
+        .await?;
+        let status = resp.status();
+        let text = resp.text().await?;
+        assert!(
+            status == 403 && text.contains(shared) && !text.contains("dt3"),
+            "{route} sharing {shared} should be refused: {status} {text}"
+        );
+    }
+
+    // An admin bypasses the rule: what stops this request is the unknown storage name.
+    let resp = authed(
+        client().post(format!("{base}/workspaces/create_fork")),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({"id": "wm-fork-iso", "name": "iso", "shared_storages": ["_default_"]}))
+    .send()
+    .await?;
+    let text = resp.text().await?;
+    assert!(
+        !text.contains("isolate"),
+        "admin should bypass the rule: {text}"
+    );
+
+    Ok(())
+}
