@@ -1,14 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { existsVariable, getVariable, createVariable, updateVariable, deleteVariable, existsResource } =
-	vi.hoisted(() => ({
-		existsVariable: vi.fn(),
-		getVariable: vi.fn(),
-		createVariable: vi.fn(),
-		updateVariable: vi.fn(),
-		deleteVariable: vi.fn(),
-		existsResource: vi.fn()
-	}))
+const {
+	existsVariable,
+	getVariable,
+	createVariable,
+	updateVariable,
+	deleteVariable,
+	existsResource
+} = vi.hoisted(() => ({
+	existsVariable: vi.fn(),
+	getVariable: vi.fn(),
+	createVariable: vi.fn(),
+	updateVariable: vi.fn(),
+	deleteVariable: vi.fn(),
+	existsResource: vi.fn()
+}))
 
 vi.mock('$lib/gen', () => ({
 	VariableService: { existsVariable, getVariable, createVariable, updateVariable, deleteVariable },
@@ -71,7 +77,7 @@ describe('upsertSecretVariable', () => {
 		existsVariable.mockResolvedValue(true)
 		getVariable.mockResolvedValue({ description: OURS })
 
-		await upsertSecretVariable({ ...ARGS, isOauth: true, account: 7 })
+		await upsertSecretVariable({ ...ARGS, isOauth: true })
 
 		expect(deleteVariable).toHaveBeenCalled()
 		expect(createVariable).toHaveBeenCalledWith({
@@ -81,7 +87,6 @@ describe('upsertSecretVariable', () => {
 				value: 'token',
 				is_secret: true,
 				is_oauth: true,
-				account: 7,
 				description: OURS
 			}
 		})

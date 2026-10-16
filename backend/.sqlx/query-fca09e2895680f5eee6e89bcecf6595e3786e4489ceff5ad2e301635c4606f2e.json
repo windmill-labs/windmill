@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH previous AS (SELECT account FROM variable WHERE workspace_id = $1 AND path = $2)\n             UPDATE variable SET account = $3 WHERE workspace_id = $1 AND path = $2\n             RETURNING (SELECT account FROM previous)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "account",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "fca09e2895680f5eee6e89bcecf6595e3786e4489ceff5ad2e301635c4606f2e"
+}

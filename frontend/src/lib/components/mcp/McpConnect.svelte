@@ -278,28 +278,25 @@
 		if (!t) return
 		const { workspace, path } = t
 		try {
-			let account: number | undefined = undefined
-			if (res?.expires_in != undefined) {
-				account = Number(
-					await OauthService.createAccount({
-						workspace,
-						requestBody: {
-							refresh_token: res.refresh_token ?? '',
-							expires_in: res.expires_in,
-							client: t.client,
-							scopes: t.scopes
-						}
-					})
-				)
-			}
 			await upsertSecretVariable({
 				workspace,
 				path,
 				value: res.access_token,
 				resourcePath: path,
-				isOauth: true,
-				account
+				isOauth: true
 			})
+			if (res?.expires_in != undefined) {
+				await OauthService.createAccount({
+					workspace,
+					requestBody: {
+						refresh_token: res.refresh_token ?? '',
+						expires_in: res.expires_in,
+						client: t.client,
+						scopes: t.scopes,
+						variable_path: path
+					}
+				})
+			}
 			await createMcpResource(t, `$var:${path}`)
 			sendUserToast(`Connected ${t.label}`)
 		} catch (e) {
