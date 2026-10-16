@@ -12,8 +12,7 @@
 //! this crate beside `push_variable_expiration_handler` rather than in the server's `monitor`
 //! module, which only drives it on a timer.
 
-use std::collections::{HashMap, HashSet};
-use std::sync::Mutex;
+use std::collections::HashSet;
 
 use serde_json::value::RawValue;
 use sqlx::types::Json;
@@ -37,40 +36,6 @@ const VARIABLE_EXPIRATION_MAX_PER_PASS: i64 = 100;
 /// Advisory lock id ensuring only one server replica sweeps at a time. Must not reuse one of
 /// the other monitor pass locks (737_483_920..=737_483_925): both sides try-lock and skip.
 const VARIABLE_EXPIRATION_LOCK_ID: i64 = 737_483_926;
-
-/// Consecutive passes a workspace's handler must fail before the failure is surfaced once as
-/// a critical alert. Most push failures are a transient blip; one that keeps failing has a
-/// real cause — the handler script is gone, or its stored path does not resolve — and would
-/// otherwise leave every expiry in that workspace silently undispatched.
-const VARIABLE_EXPIRATION_ALERT_THRESHOLD: u32 = 3;
-
-/// Cap on the exponential back-off (in passes) between retries of a workspace whose handler
-/// keeps failing. The delay grows 2, 4, 8 and holds here, and resets as soon as one of its
-/// pushes succeeds.
-const VARIABLE_EXPIRATION_MAX_BACKOFF_PASSES: u32 = 8;
-
-/// State for a workspace whose handler keeps failing to push: paces retries and drives the
-/// one-time visibility so the loop is neither hot nor silent.
-#[derive(Default)]
-struct HandlerFailureState {
-    /// The handler these failures were counted against. A workspace that points at a
-    /// different one has not failed yet, so the state is discarded rather than aged out.
-    handler_path: String,
-    consecutive_failures: u32,
-    /// Passes still to skip before the next attempt (exponential back-off).
-    cooldown_passes: u32,
-    /// Whether the persistent failure has already been surfaced.
-    surfaced: bool,
-}
-
-lazy_static::lazy_static! {
-    /// `workspace_id` -> back-off state, keyed by workspace because the handler is a workspace
-    /// setting: an unresolvable one fails every variable there alike. Per-replica, like
-    /// `SCHEDULE_REARM_FAILURES`, so it paces retries only; no double dispatch rides on it, as
-    /// the claim is persisted in `expiration_dispatched_for`.
-    static ref VARIABLE_EXPIRATION_FAILURES: Mutex<HashMap<String, HandlerFailureState>> =
-        Mutex::new(HashMap::new());
-}
 
 /// Enqueue the workspace variable expiration handler for every variable coming due. A system
 /// caller only (the monitor loop): it dispatches across every workspace. Dispatch-once: a
@@ -114,101 +79,41 @@ pub async fn dispatch_expiring_variables(db: &DB) {
 }
 
 async fn dispatch_expiring_variables_inner(db: &DB) {
-    // Every workspace with a variable coming due, before any back-off is applied. A
-    // deliberate superset of the dispatch predicate below — it skips the mute and the cap,
-    // which can only make a workspace spend its back-off more eagerly, never less.
-    let with_due = sqlx::query!(
-        r#"SELECT DISTINCT v.workspace_id AS "workspace_id!",
-                  ws.variable_expiration_handler->>'path' AS "handler_path!"
-           FROM variable v
-           JOIN workspace_settings ws ON ws.workspace_id = v.workspace_id
-           JOIN workspace w ON w.id = v.workspace_id
-           WHERE NOT w.deleted
-             AND v.value_expires_at IS NOT NULL
-             AND (v.value_expires_at IS DISTINCT FROM v.expiration_dispatched_for
-                  OR (v.value_expires_at > now()
-                      AND v.expiration_notified_at <= now() - make_interval(secs =>
-                          NULLIF((ws.variable_expiration_handler->>'remind_every_secs')::bigint, 0) - $2)))
-             AND v.value_expires_at <= now() + make_interval(secs =>
-                 COALESCE((ws.variable_expiration_handler->>'notify_before_secs')::bigint, $1))
-             AND ws.variable_expiration_handler->>'path' IS NOT NULL"#,
-        VARIABLE_EXPIRATION_DEFAULT_NOTIFY_BEFORE_SECS,
-        VARIABLE_EXPIRATION_REMINDER_SLACK_SECS,
-    )
-    .fetch_all(db)
-    .await;
-
-    let with_due: HashMap<String, String> = match with_due {
-        Ok(rows) => rows
-            .into_iter()
-            .map(|r| (r.workspace_id, r.handler_path))
-            .collect(),
-        Err(e) => {
-            tracing::error!("Error listing workspaces with expiring variables: {e:#}");
-            return;
-        }
-    };
-    if with_due.is_empty() {
-        return;
-    }
-
-    // Excluded in the query rather than filtered out of its result: the per-pass cap is
-    // applied by `LIMIT`, so a workspace whose every push fails would otherwise fill those
-    // slots on every pass and starve every other workspace on the instance. Filtering before
-    // the cap is the ordering `reconcile_unarmed_schedules_inner` relies on for the same
-    // reason.
-    //
-    // Only a workspace that has work this pass spends a pass of its back-off, so one that
-    // goes quiet does not silently serve out its cooldown while nothing is expiring.
-    let cooling_down: Vec<String> = {
-        let mut failures = VARIABLE_EXPIRATION_FAILURES.lock().unwrap();
-        // Back-off paces retries of one handler, so pointing the workspace at another one
-        // ends it. Without this a repaired workspace stays out of the sweep for up to
-        // `VARIABLE_EXPIRATION_MAX_BACKOFF_PASSES` passes — most of the lead time it has.
-        failures.retain(|w_id, state| match with_due.get(w_id) {
-            Some(current) => *current == state.handler_path,
-            None => true,
-        });
-        failures
-            .iter_mut()
-            .filter_map(|(w_id, state)| {
-                if !with_due.contains_key(w_id) || state.cooldown_passes == 0 {
-                    return None;
-                }
-                state.cooldown_passes -= 1;
-                Some(w_id.clone())
-            })
-            .collect()
-    };
-
-    // The due predicate has no lower bound on `value_expires_at`: an instance that was down
-    // catches up rather than silently skipping the variables whose window elapsed meanwhile.
+    // No lower bound on `value_expires_at`, so an instance that was down catches up. That
+    // keeps overdue rows first forever if their handler never starts, so rows are taken
+    // round-robin across workspaces (`rn`): neither a broken handler nor a large backlog can
+    // fill the cap and starve the other workspaces.
     let due = sqlx::query!(
-        r#"SELECT v.workspace_id AS "workspace_id!", v.path AS "path!", v.description AS "description!",
-                  v.value_expires_at AS "value_expires_at!", v.is_secret AS "is_secret!",
-                  v.expiration_dispatched_for, v.expiration_notified_at,
-                  ws.variable_expiration_handler->>'path' AS "handler_path!",
-                  (ws.variable_expiration_handler->'extra_args')::text::json AS "extra_args: Json<Box<RawValue>>"
-           FROM variable v
-           JOIN workspace_settings ws ON ws.workspace_id = v.workspace_id
-           JOIN workspace w ON w.id = v.workspace_id
-           WHERE NOT w.deleted
-             AND v.workspace_id <> ALL($3)
-             AND v.value_expires_at IS NOT NULL
-             AND (v.value_expires_at IS DISTINCT FROM v.expiration_dispatched_for
-                  OR (v.value_expires_at > now()
-                      AND v.expiration_notified_at <= now() - make_interval(secs =>
-                          NULLIF((ws.variable_expiration_handler->>'remind_every_secs')::bigint, 0) - $4)))
-             AND v.value_expires_at <= now() + make_interval(secs =>
-                 COALESCE((ws.variable_expiration_handler->>'notify_before_secs')::bigint, $1))
-             AND ws.variable_expiration_handler->>'path' IS NOT NULL
-             AND (NOT COALESCE((ws.variable_expiration_handler->>'muted_on_user_path')::boolean, false)
-                  OR v.path NOT LIKE 'u/%')
-           ORDER BY v.value_expires_at
+        r#"SELECT workspace_id AS "workspace_id!", path AS "path!", description AS "description!",
+                  value_expires_at AS "value_expires_at!", is_secret AS "is_secret!",
+                  expiration_dispatched_for, expiration_notified_at,
+                  handler_path AS "handler_path!",
+                  extra_args AS "extra_args: Json<Box<RawValue>>"
+           FROM (
+               SELECT v.workspace_id, v.path, v.description, v.value_expires_at, v.is_secret,
+                      v.expiration_dispatched_for, v.expiration_notified_at,
+                      ws.variable_expiration_handler->>'path' AS handler_path,
+                      (ws.variable_expiration_handler->'extra_args')::text::json AS extra_args,
+                      row_number() OVER (PARTITION BY v.workspace_id ORDER BY v.value_expires_at) AS rn
+               FROM variable v
+               JOIN workspace_settings ws ON ws.workspace_id = v.workspace_id
+               JOIN workspace w ON w.id = v.workspace_id
+               WHERE NOT w.deleted
+                 AND v.value_expires_at IS NOT NULL
+                 AND (v.value_expires_at IS DISTINCT FROM v.expiration_dispatched_for
+                      OR (v.value_expires_at > now()
+                          AND v.expiration_notified_at <= now() - make_interval(secs =>
+                              NULLIF((ws.variable_expiration_handler->>'remind_every_secs')::bigint, 0) - $3)))
+                 AND v.value_expires_at <= now() + make_interval(secs =>
+                     COALESCE((ws.variable_expiration_handler->>'notify_before_secs')::bigint, $1))
+                 AND ws.variable_expiration_handler->>'path' IS NOT NULL
+                 AND (NOT COALESCE((ws.variable_expiration_handler->>'muted_on_user_path')::boolean, false)
+                      OR v.path NOT LIKE 'u/%')
+           ) due
+           ORDER BY rn, value_expires_at
            LIMIT $2"#,
         VARIABLE_EXPIRATION_DEFAULT_NOTIFY_BEFORE_SECS,
         VARIABLE_EXPIRATION_MAX_PER_PASS,
-        &cooling_down,
         VARIABLE_EXPIRATION_REMINDER_SLACK_SECS,
     )
     .fetch_all(db)
@@ -288,13 +193,19 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
             Ok((_job_id, tx)) => tx,
             Err(e) => {
                 // The claim rides in the same transaction, so dropping it un-claims the
-                // variable and a later pass retries it once the back-off elapses.
-                tracing::error!(
-                    "Error pushing variable expiration handler for {}: {e:#}",
-                    row.path
-                );
+                // variable and the next pass retries it.
                 failed_this_pass.insert(row.workspace_id.clone());
-                record_handler_failure(db, &row.workspace_id, &row.handler_path, e).await;
+                report_critical_error(
+                    format!(
+                        "The variable expiration handler {} of workspace {} failed to start, so \
+                         variables in this workspace are not being notified: {e:#}",
+                        row.handler_path, row.workspace_id
+                    ),
+                    db.clone(),
+                    Some(&row.workspace_id),
+                    None,
+                )
+                .await;
                 continue;
             }
         };
@@ -303,7 +214,6 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
             tracing::error!("Error committing dispatch for {}: {e:#}", row.path);
             continue;
         }
-        clear_handler_failure(&row.workspace_id);
         windmill_common::feature_usage::log_feature_usage(
             "variable_expiration",
             "dispatched",
@@ -315,48 +225,4 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
     if dispatched > 0 {
         tracing::info!("Dispatched {dispatched} variable expiration handler job(s)");
     }
-}
-
-/// Back off this workspace's handler, and surface the cause once it is clearly not transient.
-async fn record_handler_failure(
-    db: &DB,
-    w_id: &str,
-    handler_path: &str,
-    e: windmill_common::error::Error,
-) {
-    let should_surface = {
-        let mut failures = VARIABLE_EXPIRATION_FAILURES.lock().unwrap();
-        let state = failures.entry(w_id.to_string()).or_default();
-        if state.handler_path != handler_path {
-            *state = HandlerFailureState::default();
-            state.handler_path = handler_path.to_string();
-        }
-        state.consecutive_failures += 1;
-        state.cooldown_passes =
-            (1u32 << state.consecutive_failures.min(5)).min(VARIABLE_EXPIRATION_MAX_BACKOFF_PASSES);
-        let surface =
-            !state.surfaced && state.consecutive_failures >= VARIABLE_EXPIRATION_ALERT_THRESHOLD;
-        state.surfaced |= surface;
-        surface
-    };
-
-    if should_surface {
-        report_critical_error(
-            format!(
-                "The variable expiration handler {handler_path} of workspace {w_id} has repeatedly \
-                 failed to start. Variables in this workspace will not run their expiration \
-                 handler until the cause is fixed: {e:#}"
-            ),
-            db.clone(),
-            Some(w_id),
-            None,
-        )
-        .await;
-    }
-}
-
-/// Drop a workspace's back-off as soon as one of its pushes succeeds, so a handler fixed out
-/// of band recovers on the next pass.
-fn clear_handler_failure(w_id: &str) {
-    VARIABLE_EXPIRATION_FAILURES.lock().unwrap().remove(w_id);
 }

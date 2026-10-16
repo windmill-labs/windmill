@@ -6140,10 +6140,9 @@ async fn edit_variable_expiration_handler(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(es): Json<EditVariableExpirationHandler>,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
 
     let mut tx = db.begin().await?;
 
@@ -6171,11 +6170,34 @@ async fn edit_variable_expiration_handler(
             ));
         }
 
-        // Prefix only — whether the runnable exists is left to the sweep, which reports an
-        // unresolvable handler as a critical alert.
-        if !path.starts_with("script/") && !path.starts_with("flow/") {
+        // Hub paths are the pinned built-ins, left unchecked so saving never needs the hub.
+        let exists = if let Some(p) = path.strip_prefix("script/") {
+            p.starts_with("hub/")
+                || sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM script WHERE workspace_id = $1 AND path = $2 AND archived = false AND deleted = false)",
+                    w_id,
+                    p
+                )
+                .fetch_one(&mut *tx)
+                .await?
+                .unwrap_or(false)
+        } else if let Some(p) = path.strip_prefix("flow/") {
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM flow WHERE workspace_id = $1 AND path = $2 AND archived = false)",
+                w_id,
+                p
+            )
+            .fetch_one(&mut *tx)
+            .await?
+            .unwrap_or(false)
+        } else {
             return Err(Error::BadRequest(format!(
                 "Field `path` must start with script/ or flow/ (got {path})"
+            )));
+        };
+        if !exists {
+            return Err(Error::BadRequest(format!(
+                "Variable expiration handler '{path}' not found. The handler must be an existing, non-archived script or flow."
             )));
         }
 
@@ -15165,8 +15187,7 @@ pub async fn apply_settings_edit(
         }
         SuccessHandler => edit_success_handler(a, d, p, settings_edit_body(edit, body)?).await?,
         VariableExpirationHandler => {
-            edit_variable_expiration_handler(a, d, p, authed, settings_edit_body(edit, body)?)
-                .await?
+            edit_variable_expiration_handler(a, d, p, settings_edit_body(edit, body)?).await?
         }
         LargeFileStorage => {
             edit_large_file_storage_config(a, d, p, authed, settings_edit_body(edit, body)?).await?

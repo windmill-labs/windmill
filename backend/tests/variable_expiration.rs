@@ -304,8 +304,8 @@ async fn test_skips_unconfigured_and_muted_user_paths(db: Pool<Postgres>) -> any
 }
 
 /// A workspace whose handler cannot be resolved must not consume the per-pass cap. Its
-/// variables are the most overdue on the instance, so without the back-off they refill the
-/// limit on every pass and no other workspace ever dispatches.
+/// variables are the most overdue on the instance, so taken by date alone they would refill
+/// the cap on every pass and no other workspace would ever dispatch.
 #[sqlx::test(fixtures("base"))]
 async fn test_broken_handler_does_not_starve_other_workspaces(
     db: Pool<Postgres>,
@@ -340,8 +340,6 @@ async fn test_broken_handler_does_not_starve_other_workspaces(
     .execute(&db)
     .await?;
 
-    // First pass reaches only the poison workspace; the second finds it backing off.
-    dispatch_expiring_variables(&db).await;
     dispatch_expiring_variables(&db).await;
 
     assert_eq!(
@@ -357,29 +355,7 @@ async fn test_broken_handler_does_not_starve_other_workspaces(
     Ok(())
 }
 
-/// Pointing the workspace at another handler ends the back-off the broken one earned.
-#[sqlx::test(fixtures("base"))]
-async fn test_repointing_the_handler_ends_the_backoff(db: Pool<Postgres>) -> anyhow::Result<()> {
-    initialize_tracing().await;
-    seed_handler_script(&db, "u/test-user/expiry_handler").await?;
-    configure_handler(&db, r#"{"path": "script/u/test-user/does_not_exist"}"#).await?;
-    seed_variable(&db, "u/test-user/due", "30 minutes").await?;
-
-    // Earns a cooldown, which the next pass would otherwise spend skipping the workspace.
-    dispatch_expiring_variables(&db).await;
-    configure_handler(&db, r#"{"path": "script/u/test-user/expiry_handler"}"#).await?;
-    dispatch_expiring_variables(&db).await;
-
-    assert_eq!(
-        queued_handler_jobs(&db, "u/test-user/expiry_handler").await?,
-        1,
-        "a repointed handler must be tried on the very next pass"
-    );
-
-    Ok(())
-}
-
-/// The endpoint that configures the handler: admin-only, prefix-checked, and clearing by
+/// The endpoint that configures the handler: admin-only, existence-checked, and clearing by
 /// omission — which is what `wmill sync push` relies on to propagate an absent handler.
 #[sqlx::test(fixtures("base"))]
 async fn test_edit_handler_endpoint(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -408,19 +384,19 @@ async fn test_edit_handler_endpoint(db: Pool<Postgres>) -> anyhow::Result<()> {
         .await?)
     };
 
+    seed_handler_script(&db, "u/test-user/expiry_handler").await?;
     let handler = serde_json::json!({ "path": "script/u/test-user/expiry_handler" });
     assert_eq!(edit("SECRET_TOKEN_2", handler.clone()).await?, 403);
     assert!(stored().await?.is_none());
 
     // A path the sweep could never resolve to a runnable is rejected up front.
-    assert_eq!(
-        edit(
-            "SECRET_TOKEN",
-            serde_json::json!({ "path": "u/test-user/expiry_handler" })
-        )
-        .await?,
-        400
-    );
+    for path in ["u/test-user/expiry_handler", "script/u/test-user/does_not_exist"] {
+        assert_eq!(
+            edit("SECRET_TOKEN", serde_json::json!({ "path": path })).await?,
+            400,
+            "{path}"
+        );
+    }
 
     assert_eq!(edit("SECRET_TOKEN", handler).await?, 200);
     assert_eq!(
