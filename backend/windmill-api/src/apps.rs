@@ -61,7 +61,7 @@ use windmill_common::{
         APP_WORKSPACED_ROUTE,
     },
     auth::{APP_EMBED_TOKEN_LABEL_PREFIX, RAW_APP_SDK_TOKEN_LABEL_PREFIX, TOKEN_PREFIX_LEN},
-    cache::{self, future::FutureCachedExt},
+    cache,
     db::{DbWithOptAuthed, UserDB},
     error::{to_anyhow, Error, JsonResult, Result},
     jobs::{
@@ -1502,8 +1502,9 @@ async fn get_public_app_by_secret(
 /// - `users:read`    → `users/whoami` only.
 /// - `folders:read`  → `folders/listnames` only.
 /// Plus two path-scoped scopes minted per app (see `mint_app_embed_token`):
-/// - `apps:read:<path>` → the app's own definition (`apps/get/p/<path>`); no
-///                      `apps:write`, so management routes are unreachable.
+/// - `apps:read:<path>` → the app's own definition (`apps/get/p/<path>` and
+///                      `apps/get/lite/<path>`); no `apps:write`, so management
+///                      routes are unreachable.
 /// - `apps:run:<path>`  → run THIS app's components (`execute_component`, which
 ///                      re-checks the path); `apps_u/*` public-serving routes.
 pub const APP_EMBED_SCOPES: [&str; 5] = [
@@ -4289,6 +4290,12 @@ pub struct ExecuteApp {
     /// inline-script (raw_code, preview) execution so `wmill app dev` resolves
     /// those imports from not-yet-deployed local content instead of deployed.
     pub temp_script_refs: Option<HashMap<String, String>>,
+    /// Preview mode only: run as this identity instead of the caller, as the deployed app
+    /// would in publisher mode. See `jobs::preview_on_behalf_of`.
+    pub on_behalf_of: Option<String>,
+    /// Preview mode only: the inline runnable's `viewer_data_access` policy setting, which run
+    /// mode reads from the deployed policy instead.
+    pub viewer_data_access: Option<bool>,
 }
 
 fn digest(code: &str) -> String {
@@ -4602,6 +4609,7 @@ async fn execute_component(
             force_viewer_allow_user_resources,
             force_viewer_sensitive_inputs,
             force_viewer_delete_after_secs,
+            viewer_data_access,
             ..
         } => (
             &Policy { stated_execution_mode: Some(ExecutionMode::Viewer), ..Default::default() },
@@ -4612,8 +4620,9 @@ async fn execute_component(
                 delete_after_secs: force_viewer_delete_after_secs,
                 sensitive_inputs: force_viewer_sensitive_inputs.unwrap_or_default(),
                 tag: None,
-                // A preview runs as the caller, whose roles these are either way.
-                viewer_data_access: false,
+                // Never for a job token: see `run_preview_script`.
+                viewer_data_access: opt_authed.as_ref().is_some_and(|a| a.job_id.is_none())
+                    && viewer_data_access.unwrap_or(false),
             },
             None,
         ),
@@ -4666,34 +4675,81 @@ async fn execute_component(
             // `app_script` id. Its resolved `rawscript/<sha>` key must be present
             // in the policy triggerables below — it must never resolve via the
             // Viewer default fallback. Without `id` the caller supplies the code
-            // verbatim; with `id` it selects any `app_script` row by number (no
-            // app/workspace scoping), so both let a caller run code the publisher
-            // never pinned for this app.
+            // verbatim, which lets a caller run code the publisher never pinned
+            // for this app; with `id` the row must also belong to this app.
             let is_inline_raw_code = payload.raw_code.is_some();
+
+            // The policy key covers only an inline script's own code, not the lock and modules
+            // its `app_script` row runs with, so it cannot tell the deployed row from an older
+            // one (or from id-less code, which runs with neither). Once the deployed version has
+            // its lite value, inline code runs only through the rows that value points at.
+            // Checked on every run: a deploy moves it.
+            if is_inline_raw_code {
+                let deployed = sqlx::query!(
+                    "SELECT l.id IS NOT NULL as \"has_lite!\",
+                        coalesce(jsonb_path_exists(l.value, '$.**.inlineScript.id ? (@ == $id)',
+                            jsonb_build_object('id', $3::bigint)), false) as \"is_deployed_row!\"
+                    FROM app a
+                    LEFT JOIN app_version_lite l ON l.id = a.versions[array_upper(a.versions, 1)]
+                    WHERE a.path = $1 AND a.workspace_id = $2",
+                    path,
+                    &w_id,
+                    payload.id,
+                )
+                .fetch_optional(&db)
+                .await?;
+                if deployed.is_some_and(|d| d.has_lite && !d.is_deployed_row) {
+                    return Err(Error::NotAuthorized(format!(
+                        "This runnable is not part of the deployed version of app {path}, reload the app"
+                    )));
+                }
+            }
 
             // Compute the path for the triggerables map:
             // - flow: `flow/<payload.path>`
             // - script: `script/<payload.path>`
             // - inline script: `rawscript/<sha256(raw_code.content)>`
+            let app_script_key: Arc<String>;
             let path = match &payload {
                 // flow or script: just use the `payload.path`.
                 ExecuteApp { path: Some(path), .. } => path,
                 // inline script: without entry in the `app_script` table.
                 ExecuteApp { raw_code: Some(raw_code), id: None, .. } => &digest(&raw_code.content),
                 // inline script: with an entry in the `app_script` table.
+                // Scoped to this app: the policy key covers only the entrypoint's code, while the
+                // row also carries the modules (and lock) the job runs, so another app's row with
+                // the same entrypoint would run its own modules under this app's identity.
                 ExecuteApp { raw_code: Some(_), id: Some(id), .. } => {
-                    let cache = cache::anon!({ u64 => Arc<String> } in "appscriptpath" <= 10000);
-                    // `id` is unique, cache the result.
-                    &*sqlx::query_scalar!(
-                        "SELECT format('rawscript/%s', code_sha256) as \"path!: String\"
-                        FROM app_script WHERE id = $1 LIMIT 1",
-                        id
-                    )
-                    .fetch_one(&db)
-                    .map_err(Into::<Error>::into)
-                    .map_ok(Arc::new)
-                    .cached(cache, *id as u64)
-                    .await?
+                    lazy_static! {
+                        static ref APP_SCRIPT_KEY_CACHE: cache::Cache<(String, String, i64), Arc<String>> =
+                            cache::Cache::new(10000);
+                    }
+                    let cache_key = (w_id.to_string(), path.to_string(), *id);
+                    app_script_key = match APP_SCRIPT_KEY_CACHE.get(&cache_key) {
+                        Some(key) => key,
+                        None => {
+                            let key = sqlx::query_scalar!(
+                                "SELECT format('rawscript/%s', s.code_sha256) as \"path!: String\"
+                                FROM app_script s JOIN app a ON a.id = s.app
+                                WHERE s.id = $1 AND a.path = $2 AND a.workspace_id = $3",
+                                id,
+                                path,
+                                &w_id,
+                            )
+                            .fetch_optional(&db)
+                            .await?
+                            .map(Arc::new)
+                            .ok_or_else(|| {
+                                Error::NotAuthorized(format!(
+                                    "App script {id} does not belong to app {path}"
+                                ))
+                            })?;
+                            // A row never changes app, so a hit stays valid.
+                            APP_SCRIPT_KEY_CACHE.insert(cache_key, key.clone());
+                            key
+                        }
+                    };
+                    &**app_script_key
                 }
                 _ => unreachable!(),
             };
@@ -4802,8 +4858,19 @@ async fn execute_component(
         }
     }
 
-    let (username, permissioned_as, email) =
+    let (username, mut permissioned_as, mut email) =
         get_on_behalf_details_from_policy_and_authed(&policy, &opt_authed, &w_id, &db).await?;
+    let preview_obo = match opt_authed.as_ref().filter(|_| is_preview) {
+        Some(authed) => {
+            crate::jobs::preview_on_behalf_of(authed, payload.on_behalf_of.as_deref(), &w_id, &db)
+                .await?
+        }
+        None => None,
+    };
+    if let Some(obo) = preview_obo.as_ref() {
+        permissioned_as = obo.permissioned_as.clone();
+        email = obo.email.clone();
+    }
 
     let resolved_delete_secs =
         resolve_delete_after_secs(None, policy_triggerables.delete_after_secs);
@@ -4914,16 +4981,16 @@ async fn execute_component(
                 .await?;
         }
     }
-    // Identity is already resolved to the requesting user in preview mode (the
-    // policy is forced to `ExecutionMode::Viewer`, so the job runs as the
-    // caller). The enqueue stays root-isolated as before — switching the insert
-    // to user-RLS is not what contains the bypass (the auth guards above are)
-    // and would add unnecessary breakage risk to the legitimate editor flow.
+    // In preview mode the identity is the caller (the policy is forced to
+    // `ExecutionMode::Viewer`), or the gated `on_behalf_of` resolved above. The
+    // enqueue stays root-isolated — switching the insert to user-RLS is not what
+    // contains the bypass (the auth guards above are) and would add unnecessary
+    // breakage risk to the legitimate editor flow.
     let tx = PushIsolationLevel::IsolatedRoot(db.clone());
 
     // An app component runs on-behalf of the APP identity (resolved above), never
     // the referenced runnable's own `on_behalf_of` — else a Viewer-mode app could
-    // execute as that identity and a preview would run as it, not the caller.
+    // execute as that identity and a preview would run as it, not as the editor chose.
     // (Direct `/jobs/run` still honors a runnable's `on_behalf_of`.)
     let (email, permissioned_as) = (email.as_str(), permissioned_as);
 
@@ -4932,8 +4999,8 @@ async fn execute_component(
 
     // Stamp app-origination (trigger_kind='app' + trigger=<app path>), the signal
     // the deployed-app S3 provenance gate trusts (unforgeable via `/jobs/run`).
-    // Deployed runs only: a preview runs as the caller and is read back as the caller
-    // (viewer-scoped), so it must never be app-provenanced (else it could forge one).
+    // Deployed runs only: a preview runs request-supplied code and is read back as the
+    // caller (viewer-scoped), so it must never be app-provenanced (else it could forge one).
     let app_trigger =
         (!is_preview).then(|| TriggerMetadata::new(Some(path.to_string()), JobTriggerKind::App));
 
@@ -4941,6 +5008,7 @@ async fn execute_component(
         Some(authed) => windmill_api_auth::caller_scope_ceiling(&db, authed).await?,
         None => None,
     };
+    let preview_obo_author = preview_obo.as_ref().and(opt_authed.clone());
     let (uuid, mut tx) = push(
         &db,
         tx,
@@ -4979,6 +5047,11 @@ async fn execute_component(
         scope_ceiling.as_deref(),
     )
     .await?;
+
+    if let (Some(obo), Some(authed)) = (preview_obo.as_ref(), preview_obo_author.as_ref()) {
+        crate::jobs::audit_preview_on_behalf_of(&mut tx, authed, &w_id, uuid, Some(path), obo)
+            .await?;
+    }
 
     if policy_triggerables.viewer_data_access && is_inline {
         sqlx::query!(
@@ -6706,8 +6779,8 @@ mod embed_token_tests {
                 "POST",
             ),
             ("/api/w/test/jobs/restart/f/some-uuid", "POST"),
-            // `users:read` is presented to the viewer as "read your identity", so
-            // the workspace member directory must stay out of reach.
+            // `users:read` reaches whoami only: the workspace member directory must
+            // stay out of reach.
             ("/api/w/test/users/list", "GET"),
             ("/api/w/test/users/list_usage", "GET"),
             ("/api/w/test/users/username_to_email/admin", "GET"),
@@ -6718,6 +6791,15 @@ mod embed_token_tests {
                 "SDK token should deny {method} {path}"
             );
         }
+
+        // Whoami needs no declared scope.
+        let jobs_only = [
+            "jobs:run".to_string(),
+            windmill_api_auth::scopes::RAW_APP_SDK_SENTINEL.to_string(),
+        ];
+        assert!(
+            check_scopes_for_route(Some(&jobs_only[..]), "/api/w/test/users/whoami", "GET").is_ok()
+        );
     }
 
     /// The token carries path-scoped `apps:run:<own path>` and `apps:read:<own path>`

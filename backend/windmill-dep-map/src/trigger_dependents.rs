@@ -12,6 +12,11 @@ use windmill_queue::PushIsolationLevel;
 
 use crate::scoped_dependency_map::{DependencyDependent, ScopedDependencyMap};
 
+/// A `components_to_relock` entry asking an app relock to relock every component of the version
+/// it runs on. It travels in the list itself so that debouncing, which concatenates the lists of
+/// the relocks it merges, cannot drop it.
+pub const RELOCK_ALL_APP_COMPONENTS: &str = "*";
+
 lazy_static::lazy_static! {
     static ref DEPENDENCY_JOB_DEBOUNCE_DELAY: usize = std::env::var("DEPENDENCY_JOB_DEBOUNCE_DELAY").ok().and_then(|flag| flag.parse().ok()).unwrap_or(
         if cfg!(test) { 15 } else { 5 }
@@ -141,12 +146,13 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             },
 
             "app" => match sqlx::query_scalar!(
-                "SELECT id FROM app_version WHERE app_id = (SELECT id FROM app WHERE path = $1 AND workspace_id = $2) ORDER BY created_at DESC LIMIT 1",
+                "SELECT versions[array_upper(versions, 1)] FROM app WHERE path = $1 AND workspace_id = $2",
                 importer_path,
                 w_id
             )
             .fetch_optional(&mut *tx)
             .await?
+            .flatten()
             {
                 Some(version) => {
                     tracing::debug!("Handling app dependency update for: {}", importer_path);

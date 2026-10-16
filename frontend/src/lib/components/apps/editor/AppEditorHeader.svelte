@@ -307,7 +307,7 @@
 				summary: $summary,
 				value: structuredClone($state.snapshot($app)),
 				path: path,
-				policy: policy,
+				policy: $state.snapshot(policy),
 				custom_path: customPath,
 				labels: $state.snapshot(labels)
 			}
@@ -425,7 +425,7 @@
 			summary: $summary,
 			value: structuredClone($state.snapshot($app)),
 			path: npath,
-			policy,
+			policy: $state.snapshot(policy),
 			custom_path: customPath,
 			labels: $state.snapshot(labels)
 		}

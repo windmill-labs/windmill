@@ -48,6 +48,7 @@
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
+	import { previewOnBehalfOf } from '$lib/utils/previewOnBehalfOf'
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
@@ -211,7 +212,12 @@
 				restartedFrom,
 				conversationId,
 				devTempScriptRefs?.(),
-				opWorkspace?.()
+				opWorkspace?.(),
+				previewOnBehalfOf(
+					operatingUser.current,
+					flowStore.val.on_behalf_of,
+					flowStore.val.on_behalf_of_email
+				)
 			)
 			jobId = newJobId
 			isRunning = true

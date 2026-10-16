@@ -50,6 +50,7 @@
 	import Button from '../common/button/Button.svelte'
 	import { Badge } from '../common'
 	import CloseButton from '../common/CloseButton.svelte'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { startSessionWithPrompt } from '../sessions/sessionSwitch.svelte'
 	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
@@ -113,7 +114,9 @@
 	let pulsing = $state(false)
 	let pulseEndTimer: ReturnType<typeof setTimeout> | undefined
 
-	function removeComposer() {
+	// `no_ai` is the overlay's button, shown only while AI is unusable here.
+	function removeComposer(source: 'close' | 'no_ai') {
+		logFeatureUsage('home', 'ai_hero_remove', { key: source })
 		setCollapsed(true)
 		if (reducedMotion.val) return
 		clearTimeout(pulseEndTimer)
@@ -234,7 +237,12 @@
 				<!-- The one dismiss control while the composer is usable; the overlay below carries its
 				     own once it takes over, so the two never show at the same time. -->
 				<div class="absolute right-0 top-0 z-20">
-					<CloseButton small noBg title="Remove session chat" onClick={removeComposer} />
+					<CloseButton
+						small
+						noBg
+						title="Remove session chat"
+						onClick={() => removeComposer('close')}
+					/>
 				</div>
 			{/if}
 			<div class="flex items-center justify-center gap-2 mb-4">
@@ -325,7 +333,9 @@
 									{freeTierExhausted ? 'Add your own API key' : 'Configure AI'}
 								</Button>
 							{/if}
-							<Button unifiedSize="sm" variant="default" onClick={removeComposer}>Remove</Button>
+							<Button unifiedSize="sm" variant="default" onClick={() => removeComposer('no_ai')}
+								>Remove</Button
+							>
 						</div>
 					</div>
 				{/if}
@@ -420,7 +430,10 @@
 									{
 										displayName: 'Pin session hero to homepage',
 										icon: WandSparkles,
-										action: () => setCollapsed(false)
+										action: () => {
+											logFeatureUsage('home', 'ai_hero_pin')
+											setCollapsed(false)
+										}
 									}
 								]
 							: []),

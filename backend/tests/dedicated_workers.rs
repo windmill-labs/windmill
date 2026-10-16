@@ -23,6 +23,20 @@ mod dedicated_worker_tests {
         WorkspacedPath { workspace_id: workspace.to_string(), path: path.to_string() }
     }
 
+    /// Waits on one listener for every job: the jobs may complete in any order, and a listener
+    /// opened after one completes never sees that notification.
+    async fn wait_for_all(
+        mut listener: impl futures::Stream<Item = uuid::Uuid> + Unpin,
+        jobs: &[uuid::Uuid],
+    ) {
+        use futures::StreamExt;
+        let mut pending: std::collections::HashSet<_> = jobs.iter().copied().collect();
+        while !pending.is_empty() {
+            let id = listener.next().await.expect("completed job listener ended");
+            pending.remove(&id);
+        }
+    }
+
     /// Assert that a completed job (or any descendant job) was executed
     /// by a dedicated worker process with the expected mode by checking job logs
     /// for the "dedicated worker {mode}:" prefix.
@@ -280,10 +294,7 @@ mod dedicated_worker_tests {
         in_test_worker_dedicated(
             db.clone(),
             async {
-                // Wait for both jobs to complete
-                listener.find(&uuid_a).await;
-                let listener2 = listen_for_completed_jobs(&db).await;
-                listener2.find(&uuid_b).await;
+                wait_for_all(listener, &[uuid_a, uuid_b]).await;
             },
             port,
             vec![
@@ -533,9 +544,7 @@ mod dedicated_worker_tests {
         in_test_worker_dedicated(
             db.clone(),
             async {
-                listener.find(&uuid_a).await;
-                let listener2 = listen_for_completed_jobs(&db).await;
-                listener2.find(&uuid_b).await;
+                wait_for_all(listener, &[uuid_a, uuid_b]).await;
             },
             port,
             vec![
@@ -659,9 +668,7 @@ mod dedicated_worker_tests {
         in_test_worker_dedicated(
             db.clone(),
             async {
-                listener.find(&uuid_standalone).await;
-                let listener2 = listen_for_completed_jobs(&db).await;
-                listener2.find(&uuid_flow).await;
+                wait_for_all(listener, &[uuid_standalone, uuid_flow]).await;
             },
             port,
             vec![
@@ -824,9 +831,7 @@ mod dedicated_worker_tests {
         in_test_worker_dedicated(
             db.clone(),
             async {
-                listener.find(&uuid_a).await;
-                let listener2 = listen_for_completed_jobs(&db).await;
-                listener2.find(&uuid_b).await;
+                wait_for_all(listener, &[uuid_a, uuid_b]).await;
             },
             port,
             vec![
@@ -898,9 +903,7 @@ mod dedicated_worker_tests {
         in_test_worker_dedicated(
             db.clone(),
             async {
-                listener.find(&uuid_pre).await;
-                let listener2 = listen_for_completed_jobs(&db).await;
-                listener2.find(&uuid_other).await;
+                wait_for_all(listener, &[uuid_pre, uuid_other]).await;
             },
             port,
             vec![
@@ -971,9 +974,7 @@ mod dedicated_worker_tests {
         in_test_worker_dedicated(
             db.clone(),
             async {
-                listener.find(&uuid_branch).await;
-                let listener2 = listen_for_completed_jobs(&db).await;
-                listener2.find(&uuid_default).await;
+                wait_for_all(listener, &[uuid_branch, uuid_default]).await;
             },
             port,
             vec![wp("test-workspace", "flow/f/system/dedicated_branch_flow")],
@@ -1198,9 +1199,7 @@ mod dedicated_worker_tests {
         in_test_worker_dedicated(
             db.clone(),
             async {
-                listener.find(&uuid_pre).await;
-                let listener2 = listen_for_completed_jobs(&db).await;
-                listener2.find(&uuid_other).await;
+                wait_for_all(listener, &[uuid_pre, uuid_other]).await;
             },
             port,
             vec![
@@ -1281,9 +1280,7 @@ mod dedicated_worker_tests {
         in_test_worker_dedicated(
             db.clone(),
             async {
-                listener.find(&uuid_ws1).await;
-                let listener2 = listen_for_completed_jobs(&db).await;
-                listener2.find(&uuid_ws2).await;
+                wait_for_all(listener, &[uuid_ws1, uuid_ws2]).await;
             },
             port,
             vec![

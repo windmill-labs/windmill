@@ -514,7 +514,7 @@
 										variant="subtle"
 										disabled={togglingResolution}
 										onClick={() => setResolution(false)}
-										title="Show this run as a failure again"
+										title="Show this run as unhandled again"
 									>
 										Unresolve
 									</Button>
@@ -525,7 +525,7 @@
 												size="xs2"
 												variant="subtle"
 												nonCaptureEvent
-												title="Mark this failure as handled"
+												title="Mark this run as handled"
 											>
 												Mark resolved
 											</Button>
@@ -533,8 +533,7 @@
 										{#snippet content({ close })}
 											<div class="p-3 flex flex-col gap-2 w-80">
 												<p class="text-xs text-secondary">
-													Resolving keeps the run a failure but stops it showing as one in the runs
-													list.
+													Resolving keeps the run's status but marks it as handled in the runs list.
 												</p>
 												<TextInput
 													bind:value={resolutionNote}

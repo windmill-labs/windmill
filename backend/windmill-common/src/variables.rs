@@ -23,6 +23,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 lazy_static::lazy_static! {
     pub static ref SECRET_SALT: Option<String> = std::env::var("SECRET_SALT").ok();
     static ref RESERVED_WM_VAR_NAME: regex::Regex = regex::Regex::new(r"^WM_[A-Z_]+$").unwrap();
+    static ref RE_RES_VAR: regex::Regex =
+        regex::Regex::new(r#"\$(?:var|jsonvar|res|encrypted)\:"#).unwrap();
+}
+
+/// Whether a job argument, as JSON text, holds a `$var:`/`$jsonvar:`/`$res:`/`$encrypted:`
+/// reference, which makes the worker interpolate the whole argument with the job's token,
+/// `$`-prefixed reserved variables included.
+pub fn arg_needs_interpolation(json: &str) -> bool {
+    RE_RES_VAR.is_match(json)
 }
 
 /// Escape a string so it can be safely embedded inside a single-quoted JS

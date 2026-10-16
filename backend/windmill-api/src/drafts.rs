@@ -109,12 +109,6 @@ async fn list_drafts(
     Path(w_id): Path<String>,
     Query(query): Query<ListDraftsQuery>,
 ) -> Result<Json<Vec<DraftListItem>>> {
-    // An operator who may draft no kind at all has no drafts of their own (see
-    // `require_can_write_path`), so this list is always empty for them. They can still READ some
-    // collaborators' drafts via `/drafts/get`.
-    if authed.is_operator && !operator_can_draft(&db, &w_id, None).await? {
-        return Ok(Json(vec![]));
-    }
     let all_users = query.all_users.unwrap_or(false);
     // Only honor `compare_to_workspace` when it is genuinely this workspace's
     // parent (a fork comparing against its source). Any other value is dropped
@@ -1269,12 +1263,13 @@ pub(crate) async fn require_can_write_path(
     if authed.is_admin {
         return Ok(());
     }
-    // Operators WRITE drafts only of a kind they could deploy: flows and full-code apps under their
-    // builder right, schedules and triggers under the manage rights. The kind has to be checked, or
-    // one right would open drafts of kinds it says nothing about. Read access is deliberately asymmetric:
-    // `require_can_read_path` has no operator block, so an operator can still READ a draft they
-    // can read via `/drafts/get`, mirroring their read access to deployed content. Intended.
-    if authed.is_operator && !operator_can_draft(db, w_id, Some(kind)).await? {
+    // Operators WRITE drafts only of a kind they could deploy: resources and variables always,
+    // flows and full-code apps under their builder right, schedules and triggers under the manage
+    // rights. The kind has to be checked, or one right would open drafts of kinds it says nothing
+    // about. Read access is deliberately asymmetric: `require_can_read_path` has no operator block,
+    // so an operator can still READ a draft they can read via `/drafts/get`, mirroring their read
+    // access to deployed content. Intended.
+    if authed.is_operator && !operator_can_draft(db, w_id, kind).await? {
         return Err(Error::PermissionDenied(format!(
             "operators cannot save {} drafts in this workspace",
             kind.as_str()

@@ -19,6 +19,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use uuid::Uuid;
 use windmill_ai::{ai_types::OpenAIToolCall, query_builder::StreamEventSink, types::*};
 use windmill_common::jobs::JobPayload;
+use windmill_common::variables::arg_needs_interpolation;
 
 #[cfg(feature = "mcp")]
 use windmill_mcp::McpClient;
@@ -153,6 +154,8 @@ pub async fn execute_tool_calls(
                     final_events_str,
                 )
                 .await?;
+            } else if tool.module.is_some() && interpolating_args(tool_call) {
+                refuse_tool_call(&mut ctx, tool_call, &mut messages, final_events_str).await?;
             } else if tool.module.is_some() {
                 let mut batch = vec![(tool_call, tool)];
                 while let Some(next_call) = calls.peek() {
@@ -168,6 +171,9 @@ pub async fn execute_tool_calls(
                     }) else {
                         break;
                     };
+                    if interpolating_args(next_call) {
+                        break;
+                    }
                     batch.push((calls.next().unwrap(), next_tool));
                 }
                 execute_windmill_tools(&mut ctx, &batch, actions, &mut messages, final_events_str)
@@ -187,6 +193,44 @@ pub async fn execute_tool_calls(
     }
 
     Ok((messages, final_content, used_structured_output_tool))
+}
+
+/// Whether the model wrote an argument the tool's job would interpolate with the agent's token,
+/// which may be an identity it runs on behalf of. Only the step's own input transforms may name
+/// variables and resources; the model's arguments are text from whoever talks to it.
+fn interpolating_args(tool_call: &OpenAIToolCall) -> bool {
+    serde_json::from_str::<serde_json::Value>(&tool_call.function.arguments)
+        .is_ok_and(|v| arg_needs_interpolation(&v.to_string()))
+}
+
+async fn refuse_tool_call(
+    ctx: &mut ToolExecutionContext<'_>,
+    tool_call: &OpenAIToolCall,
+    messages: &mut Vec<OpenAIMessage>,
+    final_events_str: &mut String,
+) -> Result<(), Error> {
+    let error_msg = "Tool call refused: its arguments cannot reference variables or resources \
+                     ($var:, $jsonvar:, $res:, $encrypted:)"
+        .to_string();
+    messages.push(OpenAIMessage {
+        role: "tool".to_string(),
+        content: Some(OpenAIContent::Text(error_msg.clone())),
+        tool_call_id: Some(tool_call.id.clone()),
+        ..Default::default()
+    });
+    if let Some(stream_event_processor) = ctx.stream_event_processor {
+        let event = StreamingEvent::ToolResult {
+            call_id: tool_call.id.clone(),
+            function_name: tool_call.function.name.clone(),
+            result: error_msg.clone(),
+            success: false,
+        };
+        stream_event_processor.send(event, final_events_str).await?;
+    }
+    let (content, extras) = windmill_tool_row(tool_call, false, &error_msg);
+    let agent_job_id = ctx.job.id;
+    add_tool_message_to_chat(ctx, Some(agent_job_id), &content, false, Some(extras)).await;
+    Ok(())
 }
 
 /// Execute an MCP tool call
@@ -618,10 +662,8 @@ async fn enqueue_windmill_tool(
         // narrows that further.
         windmill_common::scopes::intersect_job_token_scopes(
             ctx.job.job_token_scopes.as_deref(),
-            windmill_common::scopes::step_job_token_scopes(
-                tool_module.job_token_scopes.as_deref(),
-            )
-            .as_deref(),
+            windmill_common::scopes::step_job_token_scopes(tool_module.job_token_scopes.as_deref())
+                .as_deref(),
         )
         .as_deref(),
     )
@@ -1051,7 +1093,7 @@ async fn add_tool_message_to_chat(
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_ai_agent_output, windmill_tool_row};
+    use super::{extract_ai_agent_output, interpolating_args, windmill_tool_row};
     use serde_json::value::RawValue;
     use windmill_ai::ai_types::{OpenAIFunction, OpenAIToolCall};
 
@@ -1086,6 +1128,21 @@ mod tests {
             extras.tool_result.as_deref(),
             Some("Error running tool: ExecutionErr: boom")
         );
+    }
+
+    #[test]
+    fn a_model_written_reference_is_caught_however_it_is_spelled() {
+        let call = |arguments: &str| OpenAIToolCall {
+            id: "call_1".to_string(),
+            function: OpenAIFunction { name: "t".to_string(), arguments: arguments.to_string() },
+            r#type: "function".to_string(),
+            extra_content: None,
+        };
+        assert!(interpolating_args(&call(r#"{"x":"$var:u/a/s"}"#)));
+        assert!(interpolating_args(&call(
+            r#"{"x":{"y":["\u0024res:u/a/r"]}}"#
+        )));
+        assert!(!interpolating_args(&call(r#"{"x":"$5 and var: 3"}"#)));
     }
 
     #[test]

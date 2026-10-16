@@ -72,8 +72,8 @@ export function roleCanAuthor(
  * Whether the user may save drafts of `kind` — what every session editor and the chat's draft
  * tools write. Mirrors drafts.rs `require_can_write_path`, which differs from the item handlers
  * both ways: it admits an admin before its operator branch, and an operator drafts only the kinds
- * they could deploy — flows and full-code apps under their builder right, schedules and triggers
- * under the manage rights — never resources, variables or groups, which they write directly.
+ * they could deploy — resources and variables always, flows and full-code apps under their builder
+ * right, schedules and triggers under the manage rights.
  */
 export function roleCanDraft(
 	kind: EditKind,
@@ -88,6 +88,9 @@ export function roleCanDraft(
 		case 'schedule':
 		case 'trigger':
 			return roleCanAuthor(kind, user, operatorSettings)
+		case 'resource':
+		case 'variable':
+			return true
 		default:
 			return false
 	}
