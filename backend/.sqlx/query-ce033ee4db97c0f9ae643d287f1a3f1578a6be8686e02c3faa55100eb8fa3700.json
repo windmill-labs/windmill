@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_invite\n            (workspace_id, email, is_admin, operator, workspace_role)\n            SELECT $1::text, email, false, $3, $4 FROM password WHERE ($2::text = '*' OR email LIKE CONCAT('%@', $2::text)) AND NOT EXISTS (\n                SELECT 1 FROM usr WHERE workspace_id = $1::text AND email = password.email\n            )\n            ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Bool",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ce033ee4db97c0f9ae643d287f1a3f1578a6be8686e02c3faa55100eb8fa3700"
+}

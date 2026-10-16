@@ -72,9 +72,9 @@ pub async fn check_seat_cap_for_reactivation(
 }
 
 #[cfg(all(feature = "enterprise", not(feature = "private")))]
-pub async fn check_seat_cap_for_operator_builder(
+pub async fn check_seat_cap_for_role_change(
     _db: &DB,
-    _w_id: &str,
+    _tx: &mut sqlx::PgConnection,
 ) -> anyhow::Result<Option<String>> {
     Ok(None)
 }

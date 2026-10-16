@@ -466,8 +466,8 @@ impl AuthCache {
                                         let lookup = if super_admin {
                                             Some((true, false))
                                         } else {
-                                            sqlx::query!(
-                                                "SELECT is_admin, operator FROM usr where username = $1 AND \
+                                            let row = sqlx::query!(
+                                                "SELECT is_admin, operator, workspace_role FROM usr where username = $1 AND \
                                                  workspace_id = $2 AND disabled = false",
                                                 name,
                                                 &w_id.as_ref().unwrap()
@@ -475,8 +475,24 @@ impl AuthCache {
                                             .fetch_optional(&self.db)
                                             .await
                                             .ok()
-                                            .flatten()
-                                            .map(|r| (r.is_admin, r.operator))
+                                            .flatten();
+                                            match row {
+                                                Some(r) => {
+                                                    // Fails closed: an unreadable role config
+                                                    // gates the member rather than freeing it.
+                                                    let restricted =
+                                                        windmill_common::roles::member_is_restricted_db(
+                                                            &self.db,
+                                                            w_id.as_ref().unwrap(),
+                                                            r.workspace_role,
+                                                            r.operator,
+                                                        )
+                                                        .await
+                                                        .unwrap_or(true);
+                                                    Some((r.is_admin, restricted && !r.is_admin))
+                                                }
+                                                None => None,
+                                            }
                                         };
 
                                         if let Some((is_admin, is_operator)) = lookup {
@@ -596,15 +612,31 @@ impl AuthCache {
                                     username_override_from_label(label);
                                 if w_id.is_some() {
                                     let row_o = sqlx::query!(
-                                        "SELECT username, is_admin, operator FROM usr WHERE
+                                        "SELECT username, is_admin, operator, workspace_role FROM usr WHERE
                                             email = $1 AND workspace_id = $2 AND disabled = false",
                                         &email,
                                         w_id.as_ref().unwrap()
                                     )
-                                    .map(|x| (x.username, x.is_admin, x.operator))
+                                    .map(|x| (x.username, x.is_admin, x.operator, x.workspace_role))
                                     .fetch_optional(&self.db)
                                     .await
-                                    .unwrap_or(Some(("error".to_string(), false, false)));
+                                    .unwrap_or(Some(("error".to_string(), false, false, None)));
+                                    let row_o = match row_o {
+                                        Some((username, is_admin, operator, workspace_role)) => {
+                                            // Fails closed, as above.
+                                            let restricted =
+                                                windmill_common::roles::member_is_restricted_db(
+                                                    &self.db,
+                                                    w_id.as_ref().unwrap(),
+                                                    workspace_role,
+                                                    operator,
+                                                )
+                                                .await
+                                                .unwrap_or(true);
+                                            Some((username, is_admin, restricted && !is_admin))
+                                        }
+                                        None => None,
+                                    };
 
                                     match row_o {
                                         Some((username, is_admin, is_operator)) => {
