@@ -4682,23 +4682,36 @@ async fn execute_component(
             // The policy key covers only an inline script's own code, not the lock and modules
             // its `app_script` row runs with, so it cannot tell the deployed row from an older
             // one (or from id-less code, which runs with neither). Once the deployed version has
-            // its lite value, inline code runs only through the rows that value points at.
+            // its lite value, a deployed row's code runs only through that row. Id-less code
+            // whose content is no deployed row's stays allowed: components such as the database
+            // studio build their queries at runtime, so the policy pins them by content alone.
             // Checked on every run: a deploy moves it.
-            if is_inline_raw_code {
+            if let Some(raw_code) = payload.raw_code.as_ref() {
+                let id_less_sha256 = payload
+                    .id
+                    .is_none()
+                    .then(|| format!("{:x}", Sha256::digest(raw_code.content.as_bytes())));
                 let deployed = sqlx::query!(
                     "SELECT l.id IS NOT NULL as \"has_lite!\",
-                        coalesce(jsonb_path_exists(l.value, '$.**.inlineScript.id ? (@ == $id)',
-                            jsonb_build_object('id', $3::bigint)), false) as \"is_deployed_row!\"
+                        CASE WHEN $3::bigint IS NULL THEN NOT EXISTS (
+                            SELECT 1 FROM app_script s
+                            WHERE s.app = a.id AND s.code_sha256 = $4::text
+                                AND jsonb_path_exists(l.value, '$.**.inlineScript.id ? (@ == $id)',
+                                    jsonb_build_object('id', s.id)))
+                        ELSE coalesce(jsonb_path_exists(l.value, '$.**.inlineScript.id ? (@ == $id)',
+                            jsonb_build_object('id', $3::bigint)), false)
+                        END as \"may_run!\"
                     FROM app a
                     LEFT JOIN app_version_lite l ON l.id = a.versions[array_upper(a.versions, 1)]
                     WHERE a.path = $1 AND a.workspace_id = $2",
                     path,
                     &w_id,
                     payload.id,
+                    id_less_sha256,
                 )
                 .fetch_optional(&db)
                 .await?;
-                if deployed.is_some_and(|d| d.has_lite && !d.is_deployed_row) {
+                if deployed.is_some_and(|d| d.has_lite && !d.may_run) {
                     return Err(Error::NotAuthorized(format!(
                         "This runnable is not part of the deployed version of app {path}, reload the app"
                     )));

@@ -300,3 +300,87 @@ async fn test_app_script_run_derives_path(db: Pool<Postgres>) -> anyhow::Result<
 
     Ok(())
 }
+
+/// Once the deployed version has its lite value, a deployed row's code runs only through
+/// that row, while id-less code the frontend builds at runtime (database studio queries)
+/// still runs on its content pin.
+#[sqlx::test(fixtures("base"))]
+async fn test_run_mode_id_less_code_with_lite(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let ws = format!("http://localhost:{port}/api/w/test-workspace");
+
+    const RUNTIME_CONTENT: &str = "SELECT 1;\n";
+    let app_path = "u/test-user/lite_id_less";
+    let resp = authed(client().post(format!("{ws}/apps/create")), "SECRET_TOKEN")
+        .json(&json!({
+            "path": app_path,
+            "summary": "",
+            "value": {},
+            "policy": {
+                "execution_mode": "viewer",
+                "triggerables_v2": {
+                    format!("comp:{}", rawscript_pin(CONTENT)): { "static_inputs": {}, "one_of_inputs": {} },
+                    format!("comp:{}", rawscript_pin(RUNTIME_CONTENT)): { "static_inputs": {}, "one_of_inputs": {} }
+                }
+            }
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "create app: {}", resp.text().await?);
+
+    let sha = rawscript_pin(CONTENT).trim_start_matches("rawscript/").to_string();
+    let script_id: i64 = sqlx::query_scalar(
+        "INSERT INTO app_script (app, hash, code, code_sha256)
+         SELECT id, $2, $3, $2 FROM app WHERE path = $1 RETURNING id",
+    )
+    .bind(app_path)
+    .bind(&sha)
+    .bind(CONTENT)
+    .fetch_one(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO app_version_lite (id, value)
+         SELECT versions[array_upper(versions, 1)], $2 FROM app WHERE path = $1",
+    )
+    .bind(app_path)
+    .bind(json!({ "grid": [{ "data": { "componentInput": { "runnable": {
+        "inlineScript": { "id": script_id, "language": "python3" }
+    } } } }] }))
+    .execute(&db)
+    .await?;
+
+    let run = |content: &'static str, language: &'static str| {
+        authed(
+            client().post(format!("{ws}/apps_u/execute_component/{app_path}")),
+            "SECRET_TOKEN_2",
+        )
+        .json(&json!({
+            "args": {},
+            "component": "comp",
+            "raw_code": { "language": language, "content": content }
+        }))
+        .send()
+    };
+
+    let resp = run(RUNTIME_CONTENT, "postgresql").await?;
+    let status = resp.status();
+    assert_eq!(
+        status,
+        200,
+        "id-less runtime-built code must run: {}",
+        resp.text().await?
+    );
+
+    let resp = run(CONTENT, "python3").await?;
+    let status = resp.status();
+    assert_eq!(
+        status,
+        401,
+        "a deployed row's code must not run id-less: {}",
+        resp.text().await?
+    );
+
+    Ok(())
+}
