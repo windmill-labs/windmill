@@ -188,6 +188,7 @@ The built-in `approval` tool type parks the agent rather than run anything: the 
   from a top-level step; one from a step inside a loop or branch is answered from its graph node.
   The chat transcript of a chat flow records neither the request nor its answer.
 
+## Drafts
 
 The agent editor edits the resource through a **per-user resource draft** (`draft` table,
 `item_kind = 'resource'`), autosaved by `useAgentDraft` and deployed by the editor's own Deploy
