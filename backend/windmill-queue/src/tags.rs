@@ -22,7 +22,8 @@ struct TagWorkspace {
     /// `None` when the lookup failed.
     is_dev: Option<bool>,
     /// Whether a dev workspace is on the ancestor chain, the workspace itself included. A fork
-    /// orphaned by its parent's deletion counts as one: its lineage can no longer be read.
+    /// orphaned by its parent's deletion counts as one, and so does an archived ancestor with a
+    /// parent: archiving a dev workspace clears its flag, so neither shows what the lineage was.
     in_dev_lineage: bool,
 }
 
@@ -321,10 +322,10 @@ async fn lookup_tag_workspace(workspace_id: &str, db: &Pool<Postgres>) -> TagWor
     let resolved = match sqlx::query!(
         r#"
             WITH RECURSIVE chain AS (
-                SELECT id, parent_workspace_id, is_dev_workspace, 0 AS depth
+                SELECT id, parent_workspace_id, is_dev_workspace, deleted, 0 AS depth
                 FROM workspace WHERE id = $1
                 UNION ALL
-                SELECT w.id, w.parent_workspace_id, w.is_dev_workspace, chain.depth + 1
+                SELECT w.id, w.parent_workspace_id, w.is_dev_workspace, w.deleted, chain.depth + 1
                 FROM workspace w
                 JOIN chain ON w.id = chain.parent_workspace_id
                 WHERE chain.depth < 20
@@ -336,7 +337,8 @@ async fn lookup_tag_workspace(workspace_id: &str, db: &Pool<Postgres>) -> TagWor
                  ORDER BY depth LIMIT 1) AS id,
                 (SELECT parent_workspace_id IS NOT NULL FROM chain WHERE depth = 0) AS has_parent,
                 (SELECT bool_or(is_dev_workspace
-                                OR (parent_workspace_id IS NULL AND id LIKE 'wm-fork-%'))
+                                OR (parent_workspace_id IS NULL AND id LIKE 'wm-fork-%')
+                                OR (deleted AND parent_workspace_id IS NOT NULL))
                  FROM chain) AS in_dev_lineage
         "#,
         workspace_id

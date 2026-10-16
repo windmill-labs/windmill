@@ -68,9 +68,10 @@
 			(w) => !w.deleted && isIsolatedWorkspace(w, workspaces ?? [], skipNonDevForks)
 		)
 	)
-	// Workspaces a fork of runs on their own workers once non-dev forks are not isolated.
-	let rootWorkspaces = $derived(
-		(workspaces ?? []).filter((w) => !w.deleted && !isDevOrForkWorkspace(w))
+	// Workspaces whose new forks skip isolation while non-dev forks are not isolated: the roots and
+	// their non-dev forks. A forking rule does not cascade to forks, so each needs its own.
+	let forkSources = $derived(
+		(workspaces ?? []).filter((w) => !w.deleted && !isIsolatedWorkspace(w, workspaces ?? [], true))
 	)
 	let nonDevForkCount = $derived(
 		(workspaces ?? []).filter(
@@ -103,7 +104,7 @@
 	}
 	$effect(() => {
 		if (skipNonDevForks && workspaces !== undefined) {
-			loadForkableRoots(rootWorkspaces.map((w) => w.id))
+			loadForkableRoots(forkSources.map((w) => w.id))
 		}
 	})
 	let workspaceNames = $derived(Object.fromEntries((workspaces ?? []).map((w) => [w.id, w.name])))
@@ -415,7 +416,7 @@
 				forks stay isolated. Restrict who can create such forks with the <b
 					>Disable workspace forking</b
 				>
-				protection rule of each workspace.
+				protection rule of each such workspace and fork.
 				{#if skipNonDevForks && workspaces !== undefined}
 					{pluralize(nonDevForkCount, 'fork')} currently {nonDevForkCount === 1 ? 'runs' : 'run'}
 					outside isolation.

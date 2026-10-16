@@ -78,6 +78,7 @@ type LineageWorkspace = {
 	id: string
 	parent_workspace_id?: string | null
 	is_dev_workspace?: boolean
+	deleted?: boolean
 }
 
 /** Whether a workspace has a parent, or is (or was) a fork. */
@@ -86,14 +87,15 @@ export function isDevOrForkWorkspace(w: LineageWorkspace): boolean {
 }
 
 /** Mirrors `in_dev_lineage` in `windmill-queue/src/tags.rs`: a dev workspace on the ancestor chain,
- * `w` included, an orphaned fork counting as one. The server reads the whole chain; here an
+ * `w` included, an orphaned fork or an archived ancestor with a parent counting as one (archiving a
+ * dev workspace clears its flag). The server reads the whole chain; here an
  * ancestor missing from `workspaces` (one the user is not a member of) also counts as one, so a
  * hint errs toward the dev workers rather than claiming a job reaches the parent's. */
 function isInDevLineage(w: LineageWorkspace, workspaces: LineageWorkspace[]): boolean {
 	let current: LineageWorkspace | undefined = w
 	for (let depth = 0; current && depth <= 20; depth++) {
-		if (current.is_dev_workspace) return true
 		const parentId = current.parent_workspace_id
+		if (current.is_dev_workspace || (current.deleted && parentId)) return true
 		if (!parentId) return current.id.startsWith(WM_FORK_PREFIX)
 		current = workspaces.find((x) => x.id === parentId)
 	}

@@ -1058,10 +1058,10 @@ async fn expand_filter_tags_for_dev_workspace(
     let (has_parent, in_dev_lineage) = sqlx::query_as::<_, (Option<bool>, Option<bool>)>(
         r#"
             WITH RECURSIVE chain AS (
-                SELECT id, parent_workspace_id, is_dev_workspace, 0 AS depth
+                SELECT id, parent_workspace_id, is_dev_workspace, deleted, 0 AS depth
                 FROM workspace WHERE id = $1
                 UNION ALL
-                SELECT w.id, w.parent_workspace_id, w.is_dev_workspace, chain.depth + 1
+                SELECT w.id, w.parent_workspace_id, w.is_dev_workspace, w.deleted, chain.depth + 1
                 FROM workspace w
                 JOIN chain ON w.id = chain.parent_workspace_id
                 WHERE chain.depth < 20
@@ -1069,7 +1069,8 @@ async fn expand_filter_tags_for_dev_workspace(
             SELECT
                 (SELECT parent_workspace_id IS NOT NULL FROM chain WHERE depth = 0),
                 (SELECT bool_or(is_dev_workspace
-                                OR (parent_workspace_id IS NULL AND id LIKE 'wm-fork-%'))
+                                OR (parent_workspace_id IS NULL AND id LIKE 'wm-fork-%')
+                                OR (deleted AND parent_workspace_id IS NOT NULL))
                  FROM chain)
         "#,
     )

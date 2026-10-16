@@ -100,14 +100,17 @@ async fn dev_workspace_and_fork_jobs_run_on_suffixed_tags(db: Pool<Postgres>) {
             ('wm-fork-a', 'fork', 'test-user', 'staging', false),
             ('wm-fork-orphan', 'orphan', 'test-user', NULL, false),
             ('wm-fork-root', 'root fork', 'test-user', 'test-workspace', false),
-            ('wm-fork-root-2', 'root fork 2', 'test-user', 'wm-fork-root', false)",
+            ('wm-fork-root-2', 'root fork 2', 'test-user', 'wm-fork-root', false),
+            ('archived-dev', 'archived dev', 'test-user', 'test-workspace', false),
+            ('wm-fork-of-archived', 'fork of archived dev', 'test-user', 'archived-dev', false)",
     )
     .execute(&db)
     .await
     .unwrap();
     sqlx::query(
         "INSERT INTO workspace_settings (workspace_id) VALUES
-            ('staging'), ('wm-fork-a'), ('wm-fork-orphan'), ('wm-fork-root'), ('wm-fork-root-2')",
+            ('staging'), ('wm-fork-a'), ('wm-fork-orphan'), ('wm-fork-root'), ('wm-fork-root-2'),
+            ('archived-dev'), ('wm-fork-of-archived')",
     )
     .execute(&db)
     .await
@@ -131,8 +134,13 @@ async fn dev_workspace_and_fork_jobs_run_on_suffixed_tags(db: Pool<Postgres>) {
         );
     }
 
-    // Only the forks whose lineage holds no dev workspace leave isolation; an orphaned fork's
-    // lineage is unknown, so it stays.
+    // Only the forks whose lineage holds no dev workspace leave isolation. An orphaned fork's
+    // lineage is unknown, and so is that of a fork of an archived dev workspace (archiving clears
+    // `is_dev_workspace`), so both stay.
+    sqlx::query("UPDATE workspace SET deleted = true WHERE id = 'archived-dev'")
+        .execute(&db)
+        .await
+        .unwrap();
     DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS.store(true, std::sync::atomic::Ordering::Relaxed);
     for (workspace, expected) in [
         ("wm-fork-root", "bash"),
@@ -140,6 +148,7 @@ async fn dev_workspace_and_fork_jobs_run_on_suffixed_tags(db: Pool<Postgres>) {
         ("staging", "bash-dev"),
         ("wm-fork-a", "bash-dev"),
         ("wm-fork-orphan", "bash-dev"),
+        ("wm-fork-of-archived", "bash-dev"),
     ] {
         assert_eq!(
             pushed_tag(&db, workspace, preview(), None).await,
