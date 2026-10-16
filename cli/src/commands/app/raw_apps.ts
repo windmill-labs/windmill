@@ -22,6 +22,7 @@ import {
   type AppExecutionMode,
   type AppIsolation,
   basePolicy,
+  changedCustomPath,
   executionModeForPush,
   finalizeDerivedPolicy,
   isolationUpToDate,
@@ -376,6 +377,7 @@ export async function pushRawApp(
   message?: string,
   defaultTs: "bun" | "deno" = "bun",
   permissionedAsContext?: PermissionedAsContext,
+  customPathFromFile = true,
 ): Promise<void> {
   if (alreadySynced.includes(localPath)) {
     return;
@@ -496,16 +498,19 @@ export async function pushRawApp(
     extra_perms: localPerms,
     sandbox: _sandbox,
     frontend_api: _frontendApi,
+    custom_path: localCustomPath,
     ...localAppNoPerms
   } = localApp as AppFile & {
     extra_perms?: Record<string, boolean>;
   };
+  const customPath = customPathFromFile ? localCustomPath : undefined;
 
   if (app) {
     // Check both metadata/runnables AND files for changes
     // Files need separate comparison because isSuperset only checks if local keys exist in remote
     const metadataUpToDate =
       isSuperset({ ...localAppNoPerms, runnables }, app) &&
+      changedCustomPath(customPath, app) === undefined &&
       isolationUpToDate(isolation, deployedPolicy, true);
     const filesUpToDate = deepEqual(files, app.value?.files);
     if (metadataUpToDate && filesUpToDate) {
@@ -526,9 +531,7 @@ export async function pushRawApp(
             deployment_message: message,
             // Preserve any user draft at this path (see backend skip_draft_deletion).
             skip_draft_deletion: true,
-            ...(localApp.custom_path
-              ? { custom_path: localApp.custom_path }
-              : {}),
+            custom_path: changedCustomPath(customPath, app),
           },
           js,
           css,
@@ -548,9 +551,7 @@ export async function pushRawApp(
           deployment_message: message,
           // Preserve any user draft at this path (see backend skip_draft_deletion).
           skip_draft_deletion: true,
-          ...(localApp.custom_path
-            ? { custom_path: localApp.custom_path }
-            : {}),
+          ...(customPath ? { custom_path: customPath } : {}),
         },
         js,
         css,
@@ -569,6 +570,26 @@ export async function pushRawApp(
   );
 }
 
+/**
+ * `@windmill-labs/shared-utils` up to 1.0.13 derives the policy without `viewer_data_access`,
+ * which would silently deploy an inline runnable that asks to connect as its viewer as one
+ * connecting as the app. The server honors the flag on inline runnables only.
+ */
+export function carryViewerDataAccess(
+  runnables: Record<string, any> | undefined,
+  policy: Policy | undefined,
+) {
+  const triggerables = policy?.triggerables_v2 as Record<string, any> | undefined;
+  if (!runnables || !triggerables) return;
+  for (const [id, runnable] of Object.entries(runnables)) {
+    if (runnable?.viewer_data_access !== true) continue;
+    if (runnable.type !== "inline" && runnable.type !== "runnableByName") continue;
+    for (const [key, triggerable] of Object.entries(triggerables)) {
+      if (key.startsWith(`${id}:rawscript/`)) triggerable.viewer_data_access = true;
+    }
+  }
+}
+
 export async function generatingPolicy(
   app: any,
   path: string,
@@ -579,6 +600,7 @@ export async function generatingPolicy(
   log.info(colors.gray(`Generating fresh policy for app ${path}...`));
   try {
     app.policy = await windmillUtils.updateRawAppPolicy(app.runnables, base);
+    carryViewerDataAccess(app.runnables, app.policy);
     finalizeDerivedPolicy(app.policy, executionMode, isolation, true);
   } catch (e) {
     log.error(colors.red(`Error generating policy for app ${path}: ${e}`));

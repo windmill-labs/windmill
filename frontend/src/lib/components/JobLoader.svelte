@@ -268,7 +268,8 @@
 		args: Record<string, any>,
 		flow: OpenFlow & { tag?: string },
 		callbacks?: Callbacks,
-		path?: string
+		path?: string,
+		onBehalfOf?: string
 	): Promise<string> {
 		return abstractRun(
 			() =>
@@ -278,7 +279,8 @@
 						args,
 						value: flow.value,
 						tag: flow.tag,
-						path
+						path,
+						on_behalf_of: onBehalfOf
 					}
 				}),
 			callbacks
@@ -336,7 +338,8 @@
 		flowPath?: string,
 		modules?: Record<string, import('$lib/gen').ScriptModule> | null,
 		tempScriptRefs?: Record<string, string>,
-		timeout?: number
+		timeout?: number,
+		previewAs?: { onBehalfOf?: string; viewerDataAccess?: boolean }
 	): Promise<string> {
 		return abstractRun(
 			() =>
@@ -353,7 +356,9 @@
 						script_hash: hash,
 						flow_path: flowPath,
 						modules: modules ?? undefined,
-						temp_script_refs: tempScriptRefs
+						temp_script_refs: tempScriptRefs,
+						on_behalf_of: previewAs?.onBehalfOf,
+						viewer_data_access: previewAs?.viewerDataAccess || undefined
 					}
 				}),
 			callbacks

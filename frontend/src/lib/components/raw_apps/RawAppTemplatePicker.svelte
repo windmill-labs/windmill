@@ -298,7 +298,8 @@
 				? $userStore?.username
 				: `u/${$userStore?.username}`,
 			on_behalf_of_email: $userStore?.email,
-			execution_mode: 'publisher'
+			execution_mode: 'publisher',
+			sandbox: true
 		}
 		if ($operatorBuilderApps) conformBuilderAppPolicy(policy, $userStore)
 		return policy

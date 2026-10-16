@@ -3,8 +3,8 @@ import { loadSchemaFlow } from '$lib/scripts'
 import type { Schema } from '$lib/common'
 import { emptySchema } from '$lib/utils'
 import type { FlowModule, InputTransform } from '$lib/gen'
-import { AGENT_FLOW_LOCAL_KEYS } from './agentResourceUtils'
-import { AGENT_HISTORY_KEYS } from './agentFormFields'
+import { AGENT_LINKED_STEP_KEYS } from './agentResourceUtils'
+import { AGENT_UNSEEDED_KEYS } from './agentFormFields'
 
 /** Display names for the memory field's options, so anything else naming the setting an author
  *  picked cannot drift from the button they see. */
@@ -390,20 +390,17 @@ export async function loadSchemaFromModule(
 		}
 	} else if (mod.type === 'aiagent') {
 		let input_transforms = migrateAiAgentInputTransforms(mod.input_transforms ?? {})
-		// A linked step's brain lives in the resource, so only the flow-local inputs get a placeholder
-		// transform: filling the brain keys back in would re-add the very fields linking strips, and
-		// they would be persisted on the next save.
-		const keys = mod.agent
-			? (AGENT_FLOW_LOCAL_KEYS as readonly string[])
-			: Object.keys(AI_AGENT_SCHEMA.properties ?? {})
+		// A linked step's brain lives in the resource, so only the inputs it holds itself are kept:
+		// filling the brain keys back in would re-add the very fields linking strips, and they would
+		// be persisted on the next save.
+		const keys = mod.agent ? AGENT_LINKED_STEP_KEYS : Object.keys(AI_AGENT_SCHEMA.properties ?? {})
 		return {
 			input_transforms: keys.reduce((accu, key) => {
 				const transform =
 					input_transforms[key] ??
-					// A present history input is the step's choice at runtime, so it gets no placeholder.
-					((AGENT_HISTORY_KEYS as readonly string[]).includes(key)
-						? undefined
-						: { type: 'static', value: undefined })
+					// A present history input or override is the step's choice at runtime, so it gets no
+					// placeholder.
+					(AGENT_UNSEEDED_KEYS.includes(key) ? undefined : { type: 'static', value: undefined })
 				if (transform) accu[key] = transform
 				return accu
 			}, {}),

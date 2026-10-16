@@ -10,9 +10,13 @@
 	import DeployToSetting from '$lib/components/DeployToSetting.svelte'
 	import RemoteDeployTargetSetting from '$lib/components/RemoteDeployTargetSetting.svelte'
 	import DevWorkspaceSetting from '$lib/components/DevWorkspaceSetting.svelte'
-	import ErrorOrRecoveryHandler, {
-		handlerFullPath
-	} from '$lib/components/ErrorOrRecoveryHandler.svelte'
+	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
+	import {
+		cloneHandlerDraft,
+		handlerDraftFromStored,
+		handlerDraftToStored,
+		type HandlerDraft
+	} from '$lib/components/handlerDraft.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 
@@ -26,7 +30,6 @@
 		WorkspaceService,
 		SettingService,
 		type AIConfig,
-		type ErrorHandler,
 		type GetCopilotSettingsStateResponse,
 		type InstanceAISummary,
 		type GetSettingsResponse
@@ -67,7 +70,6 @@
 	import GitSyncSection from '$lib/components/git_sync/GitSyncSection.svelte'
 	import Trashbin from '$lib/components/settings/Trashbin.svelte'
 	import { untrack } from 'svelte'
-	import { getHandlerType } from '$lib/components/triggers/utils'
 	import DbtSettings, {
 		convertDbtSettingsFromBackend,
 		type DbtSettingsType
@@ -95,6 +97,8 @@
 	import SettingsFooter from '$lib/components/workspaceSettings/SettingsFooter.svelte'
 	import WorkspaceRulesets from '$lib/components/workspaceSettings/WorkspaceRulesets.svelte'
 	import SettingCard from '$lib/components/instanceSettings/SettingCard.svelte'
+	import WorkspaceSettingsYaml from '$lib/components/workspaceSettings/WorkspaceSettingsYaml.svelte'
+	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -180,10 +184,16 @@
 	let plan: string | undefined = $state(undefined)
 	let customer_id: string | undefined = $state(undefined)
 	let webhook: string | undefined = $state(undefined)
-	let errorHandlerSelected: ErrorHandler = $state('slack')
-	let errorHandlerScriptPath: string | undefined = $state(undefined)
-	let errorHandlerItemKind: 'flow' | 'script' = $state('script')
-	let errorHandlerExtraArgs: Record<string, any> = $state({})
+	const noErrorHandler = handlerDraftFromStored(
+		'error',
+		undefined,
+		'script',
+		{},
+		{
+			emptySelected: 'slack'
+		}
+	)
+	let errorHandlerDraft: HandlerDraft = $state(cloneHandlerDraft(noErrorHandler))
 	let errorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
 	let errorHandlerMutedOnUserPath: boolean | undefined = $state(undefined)
 	let successHandlerScriptPath: string | undefined = $state(undefined)
@@ -249,10 +259,7 @@
 	let initialEditedWorkspaceEncryptionKey: string | undefined = $state(undefined)
 
 	// Track initial error handler settings for unsaved changes detection
-	let initialErrorHandlerSelected: ErrorHandler = $state('slack')
-	let initialErrorHandlerScriptPath: string | undefined = $state(undefined)
-	let initialErrorHandlerItemKind: 'flow' | 'script' = $state('script')
-	let initialErrorHandlerExtraArgs: Record<string, any> = $state({})
+	let initialErrorHandlerDraft: HandlerDraft = $state(cloneHandlerDraft(noErrorHandler))
 	let initialErrorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
 	let initialErrorHandlerMutedOnUserPath: boolean | undefined = $state(undefined)
 
@@ -298,6 +305,13 @@
 		const changes = getErrorHandlerSettingsInitialAndModifiedValues()
 		if (!changes.savedValue || !changes.modifiedValue) return false
 		return hasUnsavedChanges(changes.savedValue, changes.modifiedValue)
+	})
+
+	let errorHandlerChannelMissing = $derived.by(() => {
+		const { selected } = errorHandlerDraft
+		if (selected !== 'slack' && selected !== 'teams') return false
+		const slot = errorHandlerDraft[selected]
+		return !!slot.path && emptyString(slot.args['channel'])
 	})
 
 	// Derived state for checking unsaved changes in success handler
@@ -372,6 +386,50 @@
 	// something for a fork. A root workspace deploys nowhere by lineage.
 	const showDeployToTab = $derived(Boolean(currentWorkspace?.parent_workspace_id))
 	const canAdmin = $derived(($userStore?.is_admin ?? false) || Boolean($superadmin))
+	let yamlMode = $state(false)
+	// A workspace where the user is not an admin hides the toggle, so it must not stay in YAML mode.
+	const showYaml = $derived(yamlMode && canAdmin)
+	let yamlEditor: WorkspaceSettingsYaml | undefined = $state(undefined)
+	let yamlConfirm: 'enter' | 'leave' | undefined = $state(undefined)
+
+	function paneHasUnsavedChanges() {
+		const changes = getAllUnsavedChanges()
+		return hasUnsavedChanges(changes.savedValue ?? {}, changes.modifiedValue ?? {})
+	}
+
+	// Switching mode unmounts either the editor or the current pane, so the check runs in the
+	// binding's setter, before that happens. A refused change still leaves the toggle's checkbox
+	// flipped, so the toggle is remounted to show the mode again.
+	let yamlToggleKey = $state(0)
+	function setYamlMode(on: boolean) {
+		if (on === yamlMode) return
+		if (paneHasUnsavedChanges()) {
+			yamlToggleKey++
+			yamlConfirm = on ? 'enter' : 'leave'
+			return
+		}
+		yamlMode = on
+	}
+
+	function confirmYamlSwitch() {
+		if (yamlConfirm === 'enter') {
+			discardAllChanges()
+			yamlMode = true
+		} else {
+			yamlMode = false
+		}
+		yamlConfirm = undefined
+	}
+
+	async function reloadAfterYamlApply() {
+		await Promise.all([
+			loadSettings(),
+			loadSlackOAuthConfig(),
+			WorkspaceService.listUserWorkspaces().then((w) => usersWorkspaceStore.set(w)),
+			loadCopilot($workspaceStore!)
+		])
+	}
+
 	// The creator of a fork gets the fork members screen even when they are not an admin of it:
 	// their `usr` row is copied from the parent, so forking as an ordinary developer leaves them
 	// unable to bring anyone in to collaborate. Nothing else on this page opens up — the backend
@@ -664,12 +722,8 @@
 		slack_team_name = settings.slack_name
 		teams_team_id = settings.teams_team_id
 		teams_team_name = settings.teams_team_name
-		if (settings.slack_command_script) {
-			itemKind = settings.slack_command_script.split('/')[0] as 'flow' | 'script'
-		}
-		if (settings.teams_command_script) {
-			itemKind = settings.teams_command_script.split('/')[0] as 'flow' | 'script'
-		}
+		const commandScript = settings.teams_command_script || settings.slack_command_script
+		itemKind = commandScript ? (commandScript.split('/')[0] as 'flow' | 'script') : 'flow'
 		slackScriptPath = (settings.slack_command_script ?? '').split('/').slice(1).join('/')
 		teamsScriptPath = (settings.teams_command_script ?? '').split('/').slice(1).join('/')
 		slackInitialPath = slackScriptPath
@@ -686,10 +740,6 @@
 			| { path?: string; extra_args?: any; muted_on_cancel?: boolean; muted_on_user_path?: boolean }
 			| undefined
 		const errorHandlerPath = errorHandler?.path ?? ''
-		errorHandlerItemKind = errorHandlerPath
-			? (errorHandlerPath.split('/')[0] as 'flow' | 'script')
-			: 'script'
-		errorHandlerScriptPath = errorHandlerPath.split('/').slice(1).join('/')
 		errorHandlerMutedOnCancel = errorHandler?.muted_on_cancel
 		errorHandlerMutedOnUserPath = errorHandler?.muted_on_user_path
 		criticalAlertUIMuted = settings.mute_critical_alerts
@@ -706,18 +756,22 @@
 		WorkspaceService.getGuestUsage({ workspace: $workspaceStore! })
 			.then((u) => (guestUsage = u))
 			.catch(() => (guestUsage = undefined))
-		if (emptyString($enterpriseLicense)) {
-			errorHandlerSelected = 'custom'
-		} else if (
+		const [errorHandlerKind, ...errorHandlerScriptPath] = errorHandlerPath.split('/')
+		errorHandlerDraft = handlerDraftFromStored(
+			'error',
+			errorHandlerScriptPath.join('/'),
+			errorHandlerKind === 'flow' ? 'flow' : 'script',
+			errorHandler?.extra_args,
+			{ asCustom: emptyString($enterpriseLicense) }
+		)
+		if (
+			!emptyString($enterpriseLicense) &&
 			canUseInstanceAlerts &&
 			!errorHandlerPath &&
 			settings.error_handler_fallback_to_instance_alerts
 		) {
-			errorHandlerSelected = 'instance_alerts'
-		} else {
-			errorHandlerSelected = getHandlerType(errorHandlerScriptPath)
+			errorHandlerDraft.selected = 'instance_alerts'
 		}
-		errorHandlerExtraArgs = errorHandler?.extra_args ?? {}
 		const successHandler = settings.success_handler as
 			| { path?: string; extra_args?: any }
 			| undefined
@@ -752,6 +806,8 @@
 					triggers: (settings.deploy_ui.include_type?.indexOf('trigger') ?? -1) >= 0
 				}
 			}
+		} else {
+			deployUiSettings = defaultDeployUiSettings()
 		}
 
 		// Store initial deploy settings state for unsaved changes detection
@@ -764,10 +820,7 @@
 		initialEditedWorkspaceEncryptionKey = editedWorkspaceEncryptionKey
 
 		// Store initial error handler state for unsaved changes detection
-		initialErrorHandlerSelected = errorHandlerSelected
-		initialErrorHandlerScriptPath = errorHandlerScriptPath
-		initialErrorHandlerItemKind = errorHandlerItemKind
-		initialErrorHandlerExtraArgs = clone(errorHandlerExtraArgs)
+		initialErrorHandlerDraft = cloneHandlerDraft(errorHandlerDraft)
 		initialErrorHandlerMutedOnCancel = errorHandlerMutedOnCancel
 		initialErrorHandlerMutedOnUserPath = errorHandlerMutedOnUserPath
 
@@ -858,7 +911,7 @@
 		}
 	}
 
-	let deployUiSettings: {
+	type DeployUiSettings = {
 		include_path: string[]
 		include_type: {
 			scripts: boolean
@@ -869,18 +922,22 @@
 			secrets: boolean
 			triggers: boolean
 		}
-	} = $state({
-		include_path: [],
-		include_type: {
-			scripts: true,
-			flows: true,
-			apps: true,
-			resources: true,
-			variables: true,
-			secrets: true,
-			triggers: true
+	}
+	function defaultDeployUiSettings(): DeployUiSettings {
+		return {
+			include_path: [],
+			include_type: {
+				scripts: true,
+				flows: true,
+				apps: true,
+				resources: true,
+				variables: true,
+				secrets: true,
+				triggers: true
+			}
 		}
-	})
+	}
+	let deployUiSettings: DeployUiSettings = $state(defaultDeployUiSettings())
 
 	$effect(() => {
 		// `canAdmin` is read as a dependency, not inside untrack: $userStore is repopulated
@@ -904,18 +961,19 @@
 	})
 
 	async function editErrorHandler() {
-		if (errorHandlerScriptPath) {
+		const handler = handlerDraftToStored(errorHandlerDraft)
+		if (handler.path) {
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: handlerFullPath(errorHandlerSelected, errorHandlerItemKind, errorHandlerScriptPath),
-					extra_args: errorHandlerExtraArgs,
+					path: `${handler.kind}/${handler.path}`,
+					extra_args: handler.args,
 					muted_on_cancel: errorHandlerMutedOnCancel,
 					muted_on_user_path: errorHandlerMutedOnUserPath,
 					fallback_to_instance_alerts: false
 				}
 			})
-			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
+			sendUserToast(`workspace error handler set to ${handler.path}`)
 		} else {
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
@@ -924,23 +982,28 @@
 					extra_args: undefined,
 					muted_on_cancel: undefined,
 					muted_on_user_path: undefined,
-					fallback_to_instance_alerts: errorHandlerSelected === 'instance_alerts'
+					fallback_to_instance_alerts: errorHandlerDraft.selected === 'instance_alerts'
 				}
 			})
 			sendUserToast(
-				errorHandlerSelected === 'instance_alerts'
+				errorHandlerDraft.selected === 'instance_alerts'
 					? `failed jobs will be reported to the instance critical alert channels`
-					: initialErrorHandlerScriptPath
+					: handlerDraftToStored(initialErrorHandlerDraft).path
 						? `workspace error handler removed`
 						: `error handler settings saved`
 			)
 		}
 
-		// Update initial values for dirty detection
-		initialErrorHandlerSelected = errorHandlerSelected
-		initialErrorHandlerScriptPath = errorHandlerScriptPath
-		initialErrorHandlerItemKind = errorHandlerItemKind
-		initialErrorHandlerExtraArgs = clone(errorHandlerExtraArgs)
+		// Rebuilt from what was stored, so Discard also drops the other tabs' unsaved edits.
+		initialErrorHandlerDraft = handlerDraftFromStored(
+			'error',
+			handler.path,
+			handler.kind,
+			handler.args,
+			{
+				emptySelected: errorHandlerDraft.selected
+			}
+		)
 		initialErrorHandlerMutedOnCancel = errorHandlerMutedOnCancel
 		initialErrorHandlerMutedOnUserPath = errorHandlerMutedOnUserPath
 	}
@@ -1132,56 +1195,49 @@
 		guestJwtKeyType = initialGuestJwtJwksUrl ? 'jwks' : 'pem'
 	}
 
-	// Strip keys from extraArgs that are auto-managed by child components:
-	// - 'slack' while the Slack built-in is selected: set by ErrorOrRecoveryHandler's $effect
-	// - 'channel_name': display metadata stripped by SchemaForm's removeExtraKey()
-	function normalizeHandlerExtraArgs(
-		args: Record<string, any>,
-		handlerSelected: ErrorHandler
-	): Record<string, any> {
-		const { channel_name: _, ...rest } = args
-		if (handlerSelected === 'slack') delete rest.slack
-		return rest
+	// Compares what Save would send, so visiting another tab and coming back is not a change.
+	// The stored handler is nested because `hasUnsavedChanges` drops a top-level `path`.
+	function errorHandlerSettingsValue(
+		draft: HandlerDraft,
+		mutedOnCancel: boolean | undefined,
+		mutedOnUserPath: boolean | undefined
+	) {
+		return {
+			errorHandler: handlerDraftToStored(draft),
+			fallbackToInstanceAlerts: draft.selected === 'instance_alerts',
+			errorHandlerMutedOnCancel: mutedOnCancel,
+			errorHandlerMutedOnUserPath: mutedOnUserPath
+		}
 	}
 
 	// Function to check if there are unsaved changes in error handler settings
 	function getErrorHandlerSettingsInitialAndModifiedValues() {
-		const savedValue = {
-			errorHandlerSelected: initialErrorHandlerSelected,
-			errorHandlerScriptPath: initialErrorHandlerScriptPath,
-			errorHandlerItemKind: initialErrorHandlerItemKind,
-			errorHandlerExtraArgs: normalizeHandlerExtraArgs(
-				initialErrorHandlerExtraArgs,
-				initialErrorHandlerSelected
+		return {
+			savedValue: errorHandlerSettingsValue(
+				initialErrorHandlerDraft,
+				initialErrorHandlerMutedOnCancel,
+				initialErrorHandlerMutedOnUserPath
 			),
-			errorHandlerMutedOnCancel: initialErrorHandlerMutedOnCancel,
-			errorHandlerMutedOnUserPath: initialErrorHandlerMutedOnUserPath
+			modifiedValue: errorHandlerSettingsValue(
+				errorHandlerDraft,
+				errorHandlerMutedOnCancel,
+				errorHandlerMutedOnUserPath
+			)
 		}
-
-		const modifiedValue = {
-			errorHandlerSelected: errorHandlerSelected,
-			errorHandlerScriptPath: errorHandlerScriptPath,
-			errorHandlerItemKind: errorHandlerItemKind,
-			errorHandlerExtraArgs: normalizeHandlerExtraArgs(errorHandlerExtraArgs, errorHandlerSelected),
-			errorHandlerMutedOnCancel: errorHandlerMutedOnCancel,
-			errorHandlerMutedOnUserPath: errorHandlerMutedOnUserPath
-		}
-
-		return { savedValue, modifiedValue }
 	}
 
 	// Function to discard unsaved error handler settings changes
 	function discardErrorHandlerSettingsChanges() {
-		errorHandlerSelected = initialErrorHandlerSelected
-		errorHandlerScriptPath = initialErrorHandlerScriptPath
-		errorHandlerItemKind = initialErrorHandlerItemKind
-		errorHandlerExtraArgs = clone(initialErrorHandlerExtraArgs)
+		errorHandlerDraft = cloneHandlerDraft(initialErrorHandlerDraft)
 		errorHandlerMutedOnCancel = initialErrorHandlerMutedOnCancel
 		errorHandlerMutedOnUserPath = initialErrorHandlerMutedOnUserPath
 	}
 
 	// Combined function to check for unsaved changes across all tabs
 	function getAllUnsavedChanges() {
+		if (showYaml) {
+			return yamlEditor?.unsavedChanges() ?? { savedValue: {}, modifiedValue: {} }
+		}
 		switch (tab) {
 			case 'windmill_data_tables':
 				return dataTableSettingsComponent?.unsavedChanges() ?? { savedValue: {}, modifiedValue: {} }
@@ -1230,6 +1286,10 @@
 
 	// Combined function to discard changes based on current tab
 	function discardAllChanges() {
+		if (showYaml) {
+			yamlEditor?.discard()
+			return
+		}
 		switch (tab) {
 			case 'ai':
 				aiSettingsComponent?.discard()
@@ -1477,7 +1537,11 @@
 		     two controls that sat beside the title are the page's actions. The panes below scroll
 		     inside themselves, so the bar keeps its edge at rest rather than only under a scroll. -->
 		<PageHeaderContent
-			section={tabLabel ? { parent: 'Workspace settings', label: tabLabel } : undefined}
+			section={showYaml
+				? { parent: 'Workspace settings', label: 'YAML' }
+				: tabLabel
+					? { parent: 'Workspace settings', label: tabLabel }
+					: undefined}
 			actions={settingsActions}
 			separator="always"
 		/>
@@ -1487,17 +1551,19 @@
 			<!-- The top padding belongs inside both scrollers, not above them: it is the gap under the
 			     separator at rest, and it has to travel with the content so what scrolls passes under
 			     the line rather than stopping short of it. -->
-			<div class="w-60 shrink-0 h-full overflow-auto pt-6 pb-4 pr-4 -ml-2">
-				<SidebarNavigation
-					groups={navigationGroups}
-					selectedId={tab}
-					onNavigate={(id) => {
-						const params = new URLSearchParams($page.url.searchParams)
-						params.set('tab', id)
-						goto(`?${params.toString()}`)
-					}}
-				/>
-			</div>
+			{#if !showYaml}
+				<div class="w-60 shrink-0 h-full overflow-auto pt-6 pb-4 pr-4 -ml-2">
+					<SidebarNavigation
+						groups={navigationGroups}
+						selectedId={tab}
+						onNavigate={(id) => {
+							const params = new URLSearchParams($page.url.searchParams)
+							params.set('tab', id)
+							goto(`?${params.toString()}`)
+						}}
+					/>
+				</div>
+			{/if}
 
 			<!-- Main Content -->
 			<div class="flex-1 min-w-0 h-full">
@@ -1505,6 +1571,8 @@
 					<div class="h-fit px-6 pt-6" style="scrollbar-gutter: stable both-edges;">
 						{#if !loadedSettings}
 							<Skeleton layout={[1, [40]]} />
+						{:else if showYaml}
+							<WorkspaceSettingsYaml bind:this={yamlEditor} onApplied={reloadAfterYamlApply} />
 						{:else if tab == 'users'}
 							{#if canAdmin}
 								<WorkspaceUserSettings />
@@ -1974,11 +2042,8 @@
 										isEditable={true}
 										errorOrRecovery="error"
 										showScriptHelpText={true}
-										bind:handlerSelected={errorHandlerSelected}
-										bind:handlerPath={errorHandlerScriptPath}
+										bind:draft={errorHandlerDraft}
 										customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
-										bind:customHandlerKind={errorHandlerItemKind}
-										bind:handlerExtraArgs={errorHandlerExtraArgs}
 										showInstanceAlerts={canUseInstanceAlerts}
 									>
 										{#snippet customTabTooltip()}
@@ -2009,21 +2074,15 @@
 										{/snippet}
 									</ErrorOrRecoveryHandler>
 
-									{#if errorHandlerSelected !== 'instance_alerts'}
+									{#if errorHandlerDraft.selected !== 'instance_alerts'}
 										<SettingCard class="gap-2">
 											<Toggle
-												disabled={!$enterpriseLicense ||
-													((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-														!emptyString(errorHandlerScriptPath) &&
-														emptyString(errorHandlerExtraArgs['channel']))}
+												disabled={!$enterpriseLicense || errorHandlerChannelMissing}
 												bind:checked={errorHandlerMutedOnCancel}
 												options={{ right: 'Do not run error handler for canceled jobs' }}
 											/>
 											<Toggle
-												disabled={!$enterpriseLicense ||
-													((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-														!emptyString(errorHandlerScriptPath) &&
-														emptyString(errorHandlerExtraArgs['channel']))}
+												disabled={!$enterpriseLicense || errorHandlerChannelMissing}
 												bind:checked={errorHandlerMutedOnUserPath}
 												options={{ right: 'Do not run error handler for u/ scripts and flows' }}
 											/>
@@ -2038,10 +2097,7 @@
 									onSave={editErrorHandler}
 									onDiscard={discardErrorHandlerSettingsChanges}
 									saveLabel="Save error handler"
-									disabled={!$enterpriseLicense ||
-										((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-											!emptyString(errorHandlerScriptPath) &&
-											emptyString(errorHandlerExtraArgs['channel']))}
+									disabled={!$enterpriseLicense || errorHandlerChannelMissing}
 								/>
 							</Section>
 
@@ -2446,7 +2502,28 @@ export async function main(
 	tabMode={true}
 />
 
+<ConfirmationModal
+	open={yamlConfirm !== undefined}
+	title="Unsaved changes detected"
+	confirmationText="Discard changes"
+	onConfirmed={confirmYamlSwitch}
+	onCanceled={() => {
+		yamlConfirm = undefined
+	}}
+>
+	<span>
+		{yamlConfirm === 'enter'
+			? 'Switching to YAML mode discards the changes you made in this pane.'
+			: 'Leaving YAML mode discards the changes you made in the editor.'}
+	</span>
+</ConfirmationModal>
+
 {#snippet settingsActions()}
+	{#if canAdmin}
+		{#key yamlToggleKey}
+			<Toggle bind:checked={() => yamlMode, setYamlMode} options={{ right: 'YAML' }} size="sm" />
+		{/key}
+	{/if}
 	{#if $superadmin}
 		<Button variant="default" unifiedSize="sm" on:click={() => goto('#superadmin-settings')}>
 			Instance settings

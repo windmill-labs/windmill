@@ -1,9 +1,10 @@
 <script lang="ts">
-	import type { ErrorHandler, Retry } from '$lib/gen'
+	import type { Retry } from '$lib/gen'
 	import { enterpriseLicense } from '$lib/stores'
 	import { emptyString } from '$lib/utils'
 	import Alert from '../common/alert/Alert.svelte'
 	import ErrorOrRecoveryHandler from '../ErrorOrRecoveryHandler.svelte'
+	import type { HandlerDraft } from '../handlerDraft.svelte'
 	import FlowRetries from '../flows/content/FlowRetries.svelte'
 	import Tooltip from '../Tooltip.svelte'
 
@@ -11,18 +12,14 @@
 		optionTabSelected,
 		itemKind,
 		can_write,
-		errorHandlerSelected = $bindable(),
-		error_handler_path = $bindable(),
-		error_handler_args = $bindable(),
+		errorHandler = $bindable(),
 		retry = $bindable(),
 		workspace = undefined
 	}: {
 		optionTabSelected: 'error_handler' | 'retries' | string
 		itemKind: 'script' | 'flow'
 		can_write: boolean
-		errorHandlerSelected: ErrorHandler
-		error_handler_path: string | undefined
-		error_handler_args: Record<string, any>
+		errorHandler: HandlerDraft
 		retry: Retry | undefined
 		workspace?: string
 	} = $props()
@@ -42,12 +39,9 @@
 		errorOrRecovery="error"
 		showScriptHelpText={true}
 		{workspace}
-		bind:handlerSelected={errorHandlerSelected}
-		bind:handlerPath={error_handler_path}
+		bind:draft={errorHandler}
 		toggleText="Alert channel on error"
 		customScriptTemplate="/scripts/add?hub=hub%2F13953%2Fwindmill%2Ftrigger_error_handler_template"
-		customHandlerKind="script"
-		bind:handlerExtraArgs={error_handler_args}
 	>
 		{#snippet customTabTooltip()}
 			<Tooltip>

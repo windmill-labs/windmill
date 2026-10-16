@@ -32,8 +32,8 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 
 use crate::{
     common::{
-        build_args_map, get_reserved_variables, raw_to_string, read_and_check_file,
-        resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
+        build_args_map, get_reserved_variables, proto_str, raw_to_string, read_and_check_file,
+        render_envars, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
         OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
@@ -163,36 +163,6 @@ struct OciConfig {
     working_dir: Option<String>,
 }
 
-/// Quote a string as a protobuf-text-format string literal for safe inclusion in
-/// the nsjail config. Image-controlled values (mount srcs/dsts, symlink targets,
-/// WorkingDir) flow into the config, so they MUST be escaped — an unescaped `"` or
-/// newline would otherwise let a hostile image config inject arbitrary nsjail
-/// directives and break out of the sandbox. Every byte is emitted as a printable
-/// ASCII char or a valid protobuf escape (`\"`, `\\`, `\n`/`\r`/`\t`, or 3-digit
-/// octal `\NNN` for control/non-ASCII bytes), so the result always parses.
-///
-/// `{` and `}` are escaped too: the profile is rendered by substituting `{PLACEHOLDER}`
-/// tokens one after another, so a value that still contained braces could smuggle in a
-/// later placeholder's expansion — and `{ENVARS}` expands to unquoted directives.
-fn proto_str(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    out.push('"');
-    for &b in s.as_bytes() {
-        match b {
-            b'"' => out.push_str("\\\""),
-            b'\\' => out.push_str("\\\\"),
-            b'\n' => out.push_str("\\n"),
-            b'\r' => out.push_str("\\r"),
-            b'\t' => out.push_str("\\t"),
-            b'{' | b'}' => out.push_str(&format!("\\{b:03o}")),
-            0x20..=0x7e => out.push(b as char),
-            _ => out.push_str(&format!("\\{b:03o}")),
-        }
-    }
-    out.push('"');
-    out
-}
-
 /// Why `./result.json` can't be collected, phrased for the job log.
 const UNVERIFIABLE_DST: &str =
     "it cannot be proven to resolve inside the container root (a `..` component, or a \
@@ -268,16 +238,6 @@ fn render_result_mount(job_dir: &str, dst: &str) -> String {
         proto_str(&format!("{job_dir}/result.json")),
         proto_str(dst),
     )
-}
-
-/// Render container env vars as nsjail `envar:` directives (one per line). Each
-/// `KEY=VALUE` is proto-escaped, so image-controlled keys/values can neither break
-/// the config nor reach nsjail's own process environment.
-fn render_envars(env: &[(String, String)]) -> String {
-    env.iter()
-        .map(|(k, v)| format!("envar: {}", proto_str(&format!("{k}={v}"))))
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 /// Run `crane` with the optional per-job `DOCKER_CONFIG` auth dir.
@@ -795,7 +755,7 @@ pub async fn handle_docker_v2_job(
     if !container_env.iter().any(|(k, _)| k == "HOME") {
         container_env.push(("HOME".to_string(), "/root".to_string()));
     }
-    let envars = render_envars(&container_env);
+    let envars = render_envars(container_env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
 
     // Render the nsjail profile: dynamic per-entry rootfs binds + image WorkingDir.
     let nsjail_timeout = resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
@@ -926,9 +886,10 @@ pub async fn handle_docker_v2_job(
 #[cfg(test)]
 mod tests {
     use super::{
-        digest_key, proto_str, ref_key, registry_qualified, render_envars, render_result_mount,
-        result_mount_dst, SHADOWED_DST, UNVERIFIABLE_DST,
+        digest_key, ref_key, registry_qualified, render_result_mount, result_mount_dst,
+        SHADOWED_DST, UNVERIFIABLE_DST,
     };
+    use crate::common::{proto_str, render_envars};
 
     #[tokio::test]
     async fn result_mount_dst_targets_working_dir() {
@@ -1046,14 +1007,14 @@ mod tests {
             ("PATH".to_string(), "/usr/bin".to_string()),
             ("LD_PRELOAD".to_string(), "rootfs/evil.so".to_string()),
         ];
-        let out = render_envars(&env);
+        let out = render_envars(env.iter().map(|(k, v)| (k.as_str(), v.as_str())));
         assert_eq!(
             out,
             "envar: \"PATH=/usr/bin\"\nenvar: \"LD_PRELOAD=rootfs/evil.so\""
         );
         // A value trying to inject extra directives is escaped, not interpreted.
         let evil = vec![("X".to_string(), "v\"\nclone_newuser: false".to_string())];
-        let line = render_envars(&evil);
+        let line = render_envars(evil.iter().map(|(k, v)| (k.as_str(), v.as_str())));
         assert!(line.starts_with("envar: \""));
         assert!(!line.contains("\nclone_newuser"));
         assert!(line.contains("\\n"));

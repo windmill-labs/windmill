@@ -7,6 +7,7 @@
 		AssetService,
 		FlowService,
 		OpenAPI,
+		ResourceService,
 		ScriptService,
 		SettingService,
 		UserService,
@@ -670,6 +671,11 @@
 			workspace: $workspaceStore ?? '',
 			starredOnly: true
 		})
+		const agents = await ResourceService.listResource({
+			workspace: $workspaceStore ?? '',
+			resourceType: 'ai_agent',
+			starredOnly: true
+		})
 		const assets = await AssetService.listFavoriteAssets({ workspace: $workspaceStore ?? '' })
 		favoriteManager.current = [
 			...scripts.map((s) => ({
@@ -689,6 +695,12 @@
 				path: f.path,
 				href: getFavoriteHref(f.path, 'app'),
 				kind: 'app' as const
+			})),
+			...agents.map((a) => ({
+				label: a.description || getFavoriteLabel(a.path, 'agent'),
+				path: a.path,
+				href: getFavoriteHref(a.path, 'agent'),
+				kind: 'agent' as const
 			})),
 			...assets.map((a) => ({
 				label: getFavoriteLabel(a.path, 'asset'),
@@ -1097,6 +1109,14 @@
 	onpointerdowncapture={closeCardOnPagePress}
 	onblur={closeCardOnFrameFocus}
 />
+
+<!-- A manifest's start_url replaces the URL a home-screen shortcut was added from, so only the
+console links it: shared pages (public apps, public runs, shared sessions, approval links) live
+outside this layout, and their shortcut must reopen the URL that is their credential. -->
+<svelte:head>
+	<link rel="manifest" href="/manifest.webmanifest" />
+	<meta name="apple-mobile-web-app-title" content="Windmill" />
+</svelte:head>
 
 <!-- Home + Runs lifted to the top of the workspace nav, sitting with Favorites
      and Search as the primary quick-access cluster. Excluded from SidebarContent

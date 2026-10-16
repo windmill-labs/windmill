@@ -23,6 +23,15 @@ use std::sync::atomic::{AtomicBool, Ordering};
 lazy_static::lazy_static! {
     pub static ref SECRET_SALT: Option<String> = std::env::var("SECRET_SALT").ok();
     static ref RESERVED_WM_VAR_NAME: regex::Regex = regex::Regex::new(r"^WM_[A-Z_]+$").unwrap();
+    static ref RE_RES_VAR: regex::Regex =
+        regex::Regex::new(r#"\$(?:var|jsonvar|res|encrypted)\:"#).unwrap();
+}
+
+/// Whether a job argument, as JSON text, holds a `$var:`/`$jsonvar:`/`$res:`/`$encrypted:`
+/// reference, which makes the worker interpolate the whole argument with the job's token,
+/// `$`-prefixed reserved variables included.
+pub fn arg_needs_interpolation(json: &str) -> bool {
+    RE_RES_VAR.is_match(json)
 }
 
 /// Escape a string so it can be safely embedded inside a single-quoted JS
@@ -373,6 +382,10 @@ pub async fn get_secret_value_as_admin(
     Ok(r)
 }
 
+/// Marks a workspace setting's secret written into the settings document encrypted with the
+/// workspace key, as `wmill sync pull` writes it.
+pub const SETTINGS_ENCRYPTED_PREFIX: &str = "$encrypted:";
+
 pub fn encrypt(mc: &WorkspaceCrypt, value: &str) -> String {
     mc.encrypt_str(value)
 }
@@ -416,11 +429,6 @@ pub fn variable_value_widen_pending() -> bool {
     CipherFormat::current() == CipherFormat::V2 && !VARIABLE_VALUE_WIDENED.load(Ordering::Relaxed)
 }
 
-/// Servers report no version, so the worker version gate alone cannot see a server of the
-/// previous release; its rollout is assumed done once this server has been up this long.
-const VARIABLE_VALUE_WIDEN_MIN_UPTIME: std::time::Duration =
-    std::time::Duration::from_secs(30 * 60);
-
 /// Widen `variable.value` to [`VARIABLE_VALUE_WIDTH`], or `false` when it is too early to.
 /// Not a migration: changing a column's type, even its length, fails every statement a live
 /// process prepared on it until its connection closes. It waits for v2 writes, gated on a
@@ -437,7 +445,7 @@ async fn widen_variable_value(db: &DB) -> error::Result<bool> {
     .fetch_one(db)
     .await?;
     if typmod >= 0 && typmod - 4 < VARIABLE_VALUE_WIDTH {
-        if crate::db::process_uptime() < VARIABLE_VALUE_WIDEN_MIN_UPTIME {
+        if crate::db::process_uptime() < crate::db::PREVIOUS_RELEASE_ROLLOUT_UPTIME {
             return Ok(false);
         }
         tracing::info!("widening variable.value to VARCHAR({VARIABLE_VALUE_WIDTH})");

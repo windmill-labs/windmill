@@ -67,7 +67,7 @@ const DEFAULT_PORT = 4000;
 const DEFAULT_HOST = "localhost";
 
 // HTML template with live reload and SQL migration modal
-const createHTML = (jsPath: string, cssPath: string) => `
+const createHTML = (jsPath: string, cssPath: string, appCtx: unknown) => `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -228,6 +228,7 @@ const createHTML = (jsPath: string, cssPath: string) => `
       </div>
     </div>
   </div>
+  <script>window.ctx = ${JSON.stringify(appCtx).replace(/</g, "\\u003c")};</script>
   <script src="${jsPath}"></script>
   <script>
     // Live reload via EventSource
@@ -405,6 +406,18 @@ async function dev(opts: DevOptions, appFolder?: string) {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const workspaceId = workspace.workspaceId;
+
+  // What the deployed app receives as `window.ctx`: the viewer's membership in this
+  // workspace, shaped as the frontend's UserExt, or no viewer when it can't be looked up.
+  const viewer = await wmill.whoami({ workspace: workspaceId }).catch(() => undefined);
+  const appCtx = {
+    ctx: viewer && {
+      ...viewer,
+      workspace_id: workspaceId,
+      pgroups: (viewer.groups ?? []).map((g) => `g/${g}`),
+    },
+    workspace: workspaceId,
+  };
 
   // Resolve relative imports in app inline scripts from local (not-yet-deployed)
   // content so previews use locally-edited workspace libs instead of deployed.
@@ -966,7 +979,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
 
     // Serve injected HTML for root and any other path
     res.writeHead(200, { "Content-Type": "text/html" });
-    res.end(createHTML("/dist/bundle.js", "/dist/bundle.css"));
+    res.end(createHTML("/dist/bundle.js", "/dist/bundle.css", appCtx));
   });
 
   // Create WebSocket server on the same HTTP server
@@ -1168,6 +1181,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
             runnableId,
             args,
             appTempRefs,
+            previewModules(runnables, runnableId),
           );
           log.info(colors.gray(`[backend] Job started: ${uuid}`));
 
@@ -1215,6 +1229,7 @@ async function dev(opts: DevOptions, appFolder?: string) {
                 runnable_id,
                 v,
                 appTempRefs,
+                previewModules(runnables, runnable_id),
               );
               log.info(colors.gray(`[backendAsync] Job started: ${uuid}`));
 
@@ -1800,6 +1815,55 @@ async function loadRunnables(): Promise<Record<string, Runnable>> {
   }
 }
 
+function moduleExtension(language: string | undefined): string | undefined {
+  if (language === "bun" || language === "bunnative") return "ts";
+  if (language === "python3") return "py";
+  return undefined;
+}
+
+/** Ids of the sibling runnables `content` imports as `./<id>` (TS) or `.<id>` (Python). */
+function siblingImports(content: string, ext: string): string[] {
+  const pattern = ext === "ts"
+    ? /(?:from|import)\s*['"]\.\/([^'"/]+?)(?:\.ts)?['"]/g
+    : /^\s*from\s+\.([A-Za-z_]\w*)\s+import\b/gm;
+  return Array.from(content.matchAll(pattern), (m) => m[1]);
+}
+
+/**
+ * The app's other inline runnables that `runnableId` imports, directly or through one
+ * another, as the modules its preview ships with so those imports resolve to the local
+ * files. Deploy stores the same set on the runnable.
+ */
+function previewModules(
+  runnables: Record<string, Runnable>,
+  runnableId: string,
+): Record<string, { content: string; language: string }> | undefined {
+  const inlineScriptOf = (r: Runnable | undefined) =>
+    r && "inlineScript" in r ? r.inlineScript : undefined;
+  const own = inlineScriptOf(runnables[runnableId]);
+  const ext = moduleExtension(own?.language);
+  if (!own || !ext) return undefined;
+  const modules: Record<string, { content: string; language: string }> = {};
+  const queue = siblingImports(own.content, ext);
+  while (queue.length > 0) {
+    const id = queue.pop()!;
+    const key = `${id}.${ext}`;
+    const inlineScript = inlineScriptOf(runnables[id]);
+    // `main.ts` is the Bun entrypoint's own file, so no module may take that name. The
+    // runnable itself is kept when a cycle reaches it: the entrypoint is not under its id.
+    if (key in modules || key === "main.ts") continue;
+    if (!inlineScript || moduleExtension(inlineScript.language) !== ext) {
+      continue;
+    }
+    modules[key] = {
+      content: inlineScript.content,
+      language: inlineScript.language,
+    };
+    queue.push(...siblingImports(inlineScript.content, ext));
+  }
+  return Object.keys(modules).length > 0 ? modules : undefined;
+}
+
 async function executeRunnable(
   runnable: Runnable,
   workspace: string,
@@ -1807,6 +1871,7 @@ async function executeRunnable(
   runnableId: string,
   args: any,
   tempScriptRefs?: Record<string, string>,
+  modules?: Record<string, { content: string; language: string }>,
 ): Promise<string> {
   const requestBody: any = {
     component: runnableId,
@@ -1839,12 +1904,18 @@ async function executeRunnable(
     if (inlineScript.id !== undefined) {
       requestBody.id = inlineScript.id;
     }
+    // A lock is not regenerated when only an imported runnable is edited, so with
+    // modules the preview resolves dependencies afresh.
+    const previewMods = inlineScript.id === undefined ? modules : undefined;
     requestBody.raw_code = {
       content: inlineScript.id === undefined ? inlineScript.content : "",
       language: inlineScript.language ?? "",
       path: `${appPath}/${runnableId}`,
-      lock: inlineScript.id === undefined ? inlineScript.lock : undefined,
+      lock: inlineScript.id === undefined && !previewMods
+        ? inlineScript.lock
+        : undefined,
       cache_ttl: inlineScript.cache_ttl,
+      ...(previewMods ? { modules: previewMods } : {}),
     };
     if (inlineScript.id === undefined && tempScriptRefs) {
       requestBody.temp_script_refs = tempScriptRefs;

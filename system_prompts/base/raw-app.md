@@ -70,6 +70,8 @@ Svelte (`index.ts`): `mount(App, { target: document.getElementById('root')! })`.
 
 **Never replace the entrypoint with a bare component** (`export default function App() { ... }` and no mount call). A component that is defined but never mounted renders a blank screen with **no error thrown** — it never executes, so nothing reaches the console or the error overlay. If an app renders blank, check that the entrypoint still mounts `App` into `#root`.
 
+**Set the browser tab title with `document.title = '...'`** (or a `<title>` the framework renders into `<head>`). The app has no `index.html` of its own, so a `<title>` written there is never served; the deployed app's page shows whatever `document.title` holds, and follows it when it changes.
+
 **Always begin every React file (`.tsx`/`.jsx`) that uses JSX with `import React from 'react'`.** esbuild uses the classic JSX transform, so `React` must be in scope wherever JSX appears — a missing import compiles fine but throws `React is not defined` at runtime, leaving a blank screen.
 
 ### Generated bindings (`wmill.d.ts` / `wmill.ts`)
@@ -191,6 +193,10 @@ def main(user_id: str):
     return user
 ```
 
+#### Sharing code between runnables
+
+An inline runnable can import another inline runnable of the same app by its id, as a relative import: `import { getDb } from './shared'` (TypeScript, Bun) or `from .shared import get_db` (Python). This works across TypeScript (Bun) runnables and across Python runnables, not between the two. The imported runnable's own dependencies are picked up, and it can import further runnables in turn. A runnable that only holds helpers needs no `main`; the frontend just never calls it. A TypeScript runnable whose id is `main` cannot be imported, because that name is taken by the entrypoint file of every TypeScript job: give shared code any other id.
+
 #### The `wmill` client is already authenticated
 
 An inline runnable runs as an ordinary Windmill job. `import * as wmill from 'windmill-client'` (TypeScript) and `import wmill` (Python) are already pointed at this instance and this workspace — there is nothing to configure.
@@ -238,19 +244,38 @@ Either one lets those people run the app's backend runnables, so never open an a
 <!-- chat-only -->
 When a deploy widens who may open the app, tell the user in plain words.
 <!-- /chat-only -->
+<!-- cli-only -->
+
+An app's custom URL is not in `raw_app.yaml`: each workspace has its own file next to the app folder, `<app path>.<workspace>.custom_path.yaml` (for example `f/sales/dashboard.prod.custom_path.yaml` holding `custom_path: dashboard`), where `<workspace>` is the workspace's name in `wmill.yaml`, or its id. A push applies only the target workspace's file and leaves the deployed custom URL alone when there is none, so deleting the file does not remove the URL: `custom_path: ''` does. Setting or clearing one takes a workspace admin.
+<!-- /cli-only -->
 
 ## Sandbox isolation and frontend API access
 
-By default a deployed app's frontend runs with the viewer's own Windmill session. A sandboxed app is isolated from it: the frontend reaches Windmill only through its backend runnables, plus whatever frontend API scopes the app declares, which each viewer approves before the app runs. The scopes are `jobs:run`, `jobs:read`, `users:read`, `resources:read`, `variables:read`, `flow_conversations:read` and `flow_conversations:write`; grant only the ones the frontend calls.
+New apps are sandboxed: the frontend is isolated from the viewer's own Windmill session and reaches Windmill only through its backend runnables, plus whatever frontend API scopes the app declares, which each viewer approves before the app runs. With isolation turned off, the frontend runs with the viewer's full session. The scopes are `jobs:run`, `jobs:read`, `resources:read`, `variables:read`, `flow_conversations:read` and `flow_conversations:write`; grant only the ones the frontend calls. The viewer's identity needs no scope: it is in `window.ctx`, and whoami works with any of them.
+
+Inside the sandbox, IndexedDB is unavailable, third-party sign-in and OAuth redirects fail, and requests to other services carry `Origin: null`, which an API that checks the origin rejects. Work around these first: call the service from a backend runnable, keep state in a data table or `localStorage`, or grant the frontend API scope the code needs. Suggest turning isolation off only when none of that works, and say plainly that it is a security risk: the app's code, and any XSS bug in it, then runs with the full Windmill permissions of everyone who opens the app.
+<!-- chat-only -->
+You cannot turn isolation off; the user does it in the app's deploy settings.
+<!-- /chat-only -->
 <!-- cli-only -->
 In `raw_app.yaml`:
 
 ```yaml
 sandbox: true
-frontend_api: [jobs:run, users:read]
+frontend_api: [jobs:run]
 ```
 
 A file with a `sandbox` key states both settings: `sandbox: false` turns isolation off, and a missing `frontend_api` means no scopes. A file without the key leaves the deployed app's isolation and scopes as they are, so removing `sandbox: true` does not unsandbox it. `frontend_api` needs `sandbox: true`; the push fails otherwise.
+<!-- /cli-only -->
+
+## Reading data as the viewer
+
+A backend runnable reads data as the app's identity (the publisher in publisher mode), the same for every viewer. An inline runnable can instead read data as the person using the app: its data table connections that name no role hold that viewer's roles, and object storage permission rules (which paths may be listed, read, written) are checked against the viewer. Resources, variables and everything else stay the app's, and an anonymous viewer is refused. Turn it on only when what the runnable reads should differ per viewer: row-level security on a data table, or per-user paths in object storage. Both are Enterprise Edition features.
+<!-- chat-only -->
+Set it with `viewerDataAccess: true` on the backend runnable.
+<!-- /chat-only -->
+<!-- cli-only -->
+Set it with `viewer_data_access: true` in the runnable's `backend/<id>.yaml`.
 <!-- /cli-only -->
 
 ## Data Tables
@@ -264,7 +289,7 @@ Data tables are PostgreSQL databases managed by Windmill. Backend runnables quer
 3. **No DDL inside runnables**: runnables only read and write rows (SELECT, INSERT, UPDATE, DELETE) on existing tables. Never CREATE, ALTER or DROP a table from a runnable.
 4. **Qualify table names**: an unqualified name means the `public` schema, so write every other table as `schema.table`, in table creation and queries alike. The app's `data` config sets the default datatable and schema its tables go in; use them consistently across runnables.
 5. **Pass the role**: when the app's `data.roles` gives a data table a role, every `wmill.datatable` call on it passes that role (`wmill.datatable('main', { role: 'analyst' })` in TypeScript, `wmill.datatable('main', role='analyst')` in Python). The role only reaches what it was granted, so a query outside it fails with `permission denied`.
-6. **Per-viewer rows**: a data table with no entry in `data.roles` is called with no role. Unless its default role is `admin`, the connection then holds the default role, if it has one, plus every role the person using the app is a tenant of, and is refused when that is none. Row-level security policies written as `pg_has_role(current_user, '<role>', 'member')` return that viewer's rows with nothing added to the runnable. A role pins the connection to that one role for every viewer, so where rows should differ per viewer give the data table no `data.roles` entry.
+6. **Per-viewer rows**: a data table with no entry in `data.roles` is called with no role. Unless its default role is `admin`, the connection then holds the default role, if it may use it, plus every role it is a tenant of, and is refused when that is none. Whose roles those are follows the runnable's identity (see "Reading data as the viewer"). Row-level security policies written as `pg_has_role(current_user, '<role>', 'member')` then return the right rows with nothing added to the code. A role pins the connection to that one role either way, so a data table whose rows should differ per viewer gets no `data.roles` entry. Data table roles are an Enterprise Edition feature, self-hosted only.
 <!-- cli-only -->
 
 `wmill datatable list` lists the workspace's data tables. Create or change tables with a migration in `sql_to_apply/` (see "SQL Migrations" above), then add them to `data.tables` in `raw_app.yaml`.

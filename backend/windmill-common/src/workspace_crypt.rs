@@ -21,6 +21,7 @@ use aes_gcm::aead::{Aead, AeadCore, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
 use base64::Engine;
 use hkdf::Hkdf;
+use hmac::{Hmac, Mac};
 use magic_crypt::{MagicCrypt256, MagicCryptTrait};
 use sha2::Sha256;
 
@@ -32,7 +33,11 @@ const TAG_LEN: usize = 16;
 const BLOCK: usize = 16;
 const NARROW_VARIABLE_VALUE_WIDTH: usize = 15000;
 
+/// The most `encrypt_bytes_in` adds to a plaintext, in either format.
+pub const MAX_BYTES_OVERHEAD: usize = V2_MAGIC.len() + NONCE_LEN + BLOCK + TAG_LEN;
+
 const AEAD_KEY_INFO: &[u8] = b"windmill workspace secret aes-256-gcm v1";
+const SYNTHETIC_NONCE_KEY_INFO: &[u8] = b"windmill workspace secret synthetic nonce v1";
 
 const B64: base64::engine::GeneralPurpose = base64::engine::general_purpose::STANDARD;
 
@@ -76,10 +81,11 @@ impl CipherFormat {
 pub struct WorkspaceCrypt {
     legacy: MagicCrypt256,
     aead: Aes256Gcm,
+    synthetic_nonce_key: [u8; 32],
 }
 
-/// Code that drives `magic_crypt` directly on this cipher (app link secrets, AI session
-/// objects) keeps the legacy format it always had.
+/// Code that drives `magic_crypt` directly on this cipher (app link secrets) keeps the legacy
+/// format it always had.
 impl std::ops::Deref for WorkspaceCrypt {
     type Target = MagicCrypt256;
     fn deref(&self) -> &MagicCrypt256 {
@@ -96,9 +102,14 @@ impl WorkspaceCrypt {
         Hkdf::<Sha256>::new(None, crypt_key.as_bytes())
             .expand(AEAD_KEY_INFO, &mut aead_key)
             .expect("32 bytes is a valid HKDF-SHA256 output length");
+        let mut synthetic_nonce_key = [0u8; 32];
+        Hkdf::<Sha256>::new(None, crypt_key.as_bytes())
+            .expand(SYNTHETIC_NONCE_KEY_INFO, &mut synthetic_nonce_key)
+            .expect("32 bytes is a valid HKDF-SHA256 output length");
         Self {
             legacy: magic_crypt::new_magic_crypt!(crypt_key, 256),
             aead: Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&aead_key)),
+            synthetic_nonce_key,
         }
     }
 
@@ -129,6 +140,18 @@ impl WorkspaceCrypt {
         }
     }
 
+    /// A v2 value whose nonce is an HMAC of the plaintext, so the same plaintext always gives
+    /// the same ciphertext. For values written into synced files, where a fresh nonce on every
+    /// export would show as a change. It reveals that two values are equal, nothing more; it
+    /// decrypts with [`Self::decrypt_str`] like any v2 value.
+    pub fn encrypt_str_deterministic(&self, plaintext: &str) -> String {
+        let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(&self.synthetic_nonce_key)
+            .expect("HMAC accepts any key length");
+        mac.update(plaintext.as_bytes());
+        let tag = mac.finalize().into_bytes();
+        B64.encode(self.seal_with_nonce(plaintext.as_bytes(), Nonce::from_slice(&tag[..NONCE_LEN])))
+    }
+
     pub fn decrypt_str(&self, ciphertext: &str) -> Result<String, DecryptFailure> {
         let bytes = B64
             .decode(ciphertext)
@@ -153,7 +176,14 @@ impl WorkspaceCrypt {
         (self.decrypt_str(&upgraded).ok()? == plaintext).then_some(upgraded)
     }
 
-    fn decrypt_bytes(&self, bytes: &[u8]) -> Result<Vec<u8>, DecryptFailure> {
+    pub fn encrypt_bytes_in(&self, plaintext: &[u8], format: CipherFormat) -> Vec<u8> {
+        match format {
+            CipherFormat::V2 => self.seal(plaintext),
+            CipherFormat::LegacyCbc => self.legacy.encrypt_bytes_to_bytes(plaintext),
+        }
+    }
+
+    pub fn decrypt_bytes(&self, bytes: &[u8]) -> Result<Vec<u8>, DecryptFailure> {
         match self.open(bytes) {
             Some(plaintext) => Ok(plaintext),
             // Also for a value with the magic: a CBC ciphertext starts with it one time in 2^32.
@@ -165,18 +195,21 @@ impl WorkspaceCrypt {
     }
 
     fn seal(&self, plaintext: &[u8]) -> Vec<u8> {
-        let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+        self.seal_with_nonce(plaintext, &Aes256Gcm::generate_nonce(&mut OsRng))
+    }
+
+    fn seal_with_nonce(&self, plaintext: &[u8], nonce: &Nonce<<Aes256Gcm as AeadCore>::NonceSize>) -> Vec<u8> {
         let pad = BLOCK - plaintext.len() % BLOCK;
         let mut padded = Vec::with_capacity(plaintext.len() + pad);
         padded.extend_from_slice(plaintext);
         padded.resize(plaintext.len() + pad, pad as u8);
         let sealed = self
             .aead
-            .encrypt(&nonce, padded.as_slice())
+            .encrypt(nonce, padded.as_slice())
             .expect("AES-GCM encryption fails only past 64 GiB of plaintext");
         let mut out = Vec::with_capacity(V2_MAGIC.len() + NONCE_LEN + sealed.len());
         out.extend_from_slice(&V2_MAGIC);
-        out.extend_from_slice(&nonce);
+        out.extend_from_slice(nonce);
         out.extend_from_slice(&sealed);
         out
     }
@@ -225,6 +258,17 @@ mod tests {
     }
 
     #[test]
+    fn deterministic_is_stable_per_plaintext_and_key() {
+        let wc = WorkspaceCrypt::new(KEY);
+        let a = wc.encrypt_str_deterministic("secret");
+        assert_eq!(a, wc.encrypt_str_deterministic("secret"));
+        assert_ne!(a, wc.encrypt_str_deterministic("secret2"));
+        assert_ne!(a, WorkspaceCrypt::new("other-key").encrypt_str_deterministic("secret"));
+        assert!(wc.is_v2(&a));
+        assert_eq!(wc.decrypt_str(&a).unwrap(), "secret");
+    }
+
+    #[test]
     fn legacy_cbc_still_decrypts() {
         let wc = WorkspaceCrypt::new(KEY);
         let legacy = magic_crypt::new_magic_crypt!(KEY, 256).encrypt_str_to_base64("old secret");
@@ -257,6 +301,20 @@ mod tests {
             WorkspaceCrypt::new(KEY).decrypt_bytes(&ciphertext).unwrap(),
             plaintext
         );
+    }
+
+    #[test]
+    fn bytes_round_trip_within_the_overhead_in_both_formats() {
+        let wc = WorkspaceCrypt::new(KEY);
+        for len in 0..64 {
+            let plain = vec![b'x'; len];
+            for format in [CipherFormat::V2, CipherFormat::LegacyCbc] {
+                let sealed = wc.encrypt_bytes_in(&plain, format);
+                assert_eq!(wc.open(&sealed).is_some(), format == CipherFormat::V2);
+                assert!(sealed.len() <= len + MAX_BYTES_OVERHEAD, "len {len}");
+                assert_eq!(wc.decrypt_bytes(&sealed).unwrap(), plain);
+            }
+        }
     }
 
     #[test]

@@ -109,6 +109,9 @@ export const CONFIG_REFERENCE: ConfigOption[] = [
     commented: true, templateValue: "true" },
   { name: "includeSettings", type: "boolean", default: "false", description: "Include workspace settings in sync",
     commented: true, templateValue: "true" },
+  { name: "includeDatatablePermissions", type: "boolean", default: "false",
+    description: "With includeSettings, also sync each data table's roles and who may connect as them",
+    commented: true, templateValue: "true" },
   { name: "includeKey", type: "boolean", default: "false", description: "Include encryption key in sync",
     commented: true, templateValue: "true" },
 

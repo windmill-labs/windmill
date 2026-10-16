@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte'
 	import { emptyString, isOwner } from '$lib/utils'
-	import { Alert, Button } from '$lib/components/common'
+	import { Alert, Button, CopyButton } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import Path from '$lib/components/Path.svelte'
@@ -326,14 +326,62 @@
 	<!-- Nothing to open, but the host still drew this into a slot of its own: give back what it
 	     handed over rather than this component's own block, which belongs in a row it owns. -->
 	{@render label()}
+{:else if compact}
+	<!-- Nothing to edit, but the band truncates the summary and, on a short bar, drops the path:
+	     the same click shows both whole, to read and to copy. -->
+	<Popover
+		class={triggerClass}
+		placement="bottom-start"
+		contentClasses="p-4"
+		triggerAttrs={{
+			title: emptyString(summary) ? path : summary,
+			'aria-label': 'Show summary and path'
+		}}
+		usePointerDownOutside
+		excludeSelectors=".drawer"
+	>
+		{#snippet trigger()}
+			<span class="block truncate text-xs font-medium text-emphasis">
+				{emptyString(summary) ? (path ?? '') : summary}
+			</span>
+		{/snippet}
+		{#snippet content()}
+			<div class="flex flex-col gap-4 w-[420px] max-w-[calc(100vw-2rem)]">
+				<div>
+					<div class="pb-1 text-xs font-semibold text-emphasis">Summary</div>
+					{#if emptyString(summary)}
+						<p class="text-xs text-tertiary italic">No summary</p>
+					{:else}
+						<p class="text-xs text-primary break-words">{summary}</p>
+					{/if}
+				</div>
+				<div>
+					<div class="pb-1 text-xs font-semibold text-emphasis">Path</div>
+					<div class="flex items-center gap-1">
+						<span class="min-w-0 text-xs font-mono text-secondary break-all">{path}</span>
+						<CopyButton value={path ?? ''} title="Copy path" />
+					</div>
+				</div>
+				{#if labels?.length || inheritedLabels?.length}
+					<div class="flex flex-wrap items-center gap-0.5">
+						{#each labels ?? [] as labelText}
+							<Badge color="blue" verySmall class="px-1" title="Label: {labelText}"
+								>{labelText}</Badge
+							>
+						{/each}
+						<InheritedLabels labels={inheritedLabels} />
+					</div>
+				{/if}
+				<p class="text-2xs text-tertiary">You can't edit this {kind}'s summary or path.</p>
+			</div>
+		{/snippet}
+	</Popover>
 {:else}
-	<div class="min-w-0 truncate flex items-center {compact ? '' : 'flex-col px-2'}">
-		{#if !emptyString(summary) && !compact}
+	<div class="min-w-0 truncate flex items-center flex-col px-2">
+		{#if !emptyString(summary)}
 			<span class="text-[10px] leading-tight text-tertiary font-mono truncate">{path}</span>
 		{/if}
-		<span
-			class="{compact ? 'text-xs font-medium' : 'text-sm font-semibold'} text-emphasis truncate"
-		>
+		<span class="text-sm font-semibold text-emphasis truncate">
 			{emptyString(summary) ? (path ?? '') : summary}
 		</span>
 	</div>

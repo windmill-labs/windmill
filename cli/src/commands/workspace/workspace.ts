@@ -18,6 +18,7 @@ import { requireLogin } from "../../core/auth.ts";
 import { createWorkspaceFork, deleteWorkspaceFork } from "./fork.ts";
 import { mergeWorkspaces } from "./merge.ts";
 import { connectSlack, disconnectSlack } from "./slack.ts";
+import { applySettings, getSettings } from "./settings.ts";
 
 import * as wmill from "../../../gen/services.gen.ts";
 
@@ -905,6 +906,22 @@ Arguments (omit both to be prompted interactively):
   .description(
     "Clear slack_team_id / slack_name on the active workspace (marks the workspace as disconnected). Does NOT remove the bot token variable/resource/folder/group — delete those from the local sync folder and run 'wmill sync push' to tear them down. Does NOT remove the workspace-level OAuth override — set slack_oauth_client_id/_secret to '' in settings.yaml and push."
   )
-  .action(disconnectSlack as any);
+  .action(disconnectSlack as any)
+  .command("get-settings")
+  .description(
+    "Print the active workspace's settings in the layout of the settings.yaml that 'wmill sync' writes. Secrets show as __SENSITIVE_AND_UNCHANGED__ unless --encrypted. Admin only."
+  )
+  .option("--encrypted", "Write secrets encrypted with the workspace key, as 'wmill sync pull' does")
+  .option("--json", "Output as JSON")
+  .action(getSettings as any)
+  .command("apply-settings")
+  .description(
+    "Apply a settings document (YAML or JSON, in the layout of settings.yaml) to the active workspace. Only the settings the file states are changed, unless --replace; a setting set to null is cleared. A secret left as __SENSITIVE_AND_UNCHANGED__ keeps its value. Shows the changes and asks before applying. Admin only."
+  )
+  .arguments("<file:string>")
+  .option("--dry-run", "Only show the changes")
+  .option("--replace", "Also clear the settings the file omits, as 'wmill sync push' does")
+  .option("-y --yes", "Apply without asking")
+  .action(applySettings as any);
 
 export default command;

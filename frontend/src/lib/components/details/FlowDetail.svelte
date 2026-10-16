@@ -26,9 +26,13 @@
 	import { Badge as HeaderBadge, Alert } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
+	import type { PendingRun } from '$lib/components/details/pendingRun'
+	import { processSecretArgs } from '$lib/components/secretArgUtils'
+	import type { Schema } from '$lib/common'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { enterpriseLicense, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { useEditRights } from '$lib/operatorWriteRights'
+	import { PLAN_MODE_MESSAGES } from '$lib/components/copilot/chat/planModeMessages'
 	import { sendUserToast } from '$lib/toast'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
@@ -100,6 +104,7 @@
 		onNavigate = goto,
 		active = true,
 		embedded = false,
+		pendingRun,
 		onLoadState
 	}: {
 		/** The `[...path]` route segment: the flow's path. */
@@ -115,6 +120,8 @@
 		/** Rendered inside a page that is not the flow's own (an AI session preview tab), whose
 		 * URL this must leave alone and which a cross-workspace link must not navigate away. */
 		embedded?: boolean
+		/** A chat tool call confirmed here rather than on its card. See {@link PendingRun}. */
+		pendingRun?: PendingRun
 		/** How the load ended, for a host that renders its own state around this page. */
 		onLoadState?: (state: 'loaded' | 'not_found') => void
 	} = $props()
@@ -289,6 +296,10 @@
 		invisibleToOwner: boolean | undefined,
 		overrideTag: string | undefined
 	) {
+		// Taken before the round trip below: the call this press answers is the one it was
+		// pressed under, and a call settled meanwhile — declined, then another proposed for
+		// this same flow — must not be answered with a job it never asked for.
+		const call = pendingRun
 		loading = true
 		const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
 		try {
@@ -301,7 +312,11 @@
 				tag: overrideTag,
 				skipPreprocessor: true
 			})
-			await onNavigate('/run/' + run + '?workspace=' + workspace)
+			// The call asked for this run; it follows the job rather than starting one, and
+			// shows it in place of this page — so navigating here as well would leave two
+			// surfaces open on the same job.
+			if (!call?.adopt(run, args, flow?.schema ?? {}))
+				await onNavigate('/run/' + run + '?workspace=' + workspace)
 		} catch (e) {
 			throw e
 		} finally {
@@ -314,11 +329,21 @@
 		conversationId: string,
 		additionalInputs?: Record<string, any>
 	): Promise<string> {
+		// A chat flow's inputs reach the job straight from the composer, with no RunForm in
+		// between to mint a secret as it is typed — so this is the only place a value the
+		// schema marks `password` can become a reference. Without it the literal is stored in
+		// the job's arguments, where anyone who can read the run can read it. Idempotent, so a
+		// reference that was already minted costs a walk and no round trip.
+		const requestBody = await processSecretArgs(
+			{ user_message: userMessage, ...(additionalInputs ?? {}) },
+			flow?.schema as Schema | undefined,
+			workspace
+		)
 		const run = await JobService.runFlowByPath({
 			workspace: workspace!,
 			path,
 			memoryId: conversationId,
-			requestBody: { user_message: userMessage, ...(additionalInputs ?? {}) },
+			requestBody,
 			skipPreprocessor: true
 		})
 		return run
@@ -343,6 +368,10 @@
 			console.error('Was not able to transform hash as args', e)
 		}
 	}
+	// A chat call confirmed here opens its form on what the chat proposed. Read at init like
+	// the hash above, and for the same reason; the host remounts this page when the call
+	// changes, so a tab already open on this flow still builds its form from the new one.
+	if (pendingRun) args = { ...untrack(() => pendingRun.proposedArgs) }
 
 	let canAuthorFlow = $derived(editRights.roleCanAuthor('flow'))
 
@@ -369,7 +398,7 @@
 			buttons.push({
 				label: 'Fork',
 				description: `Start a new flow from a copy of this one`,
-				narrow: { dropdownOf: 'Edit' },
+				placement: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: operatingHref(`/flows/add?template=${flow.path}`),
 					onClick: interceptNav(onNavigate, `/flows/add?template=${flow.path}`),
@@ -390,7 +419,7 @@
 			buttons.push({
 				label: editInForkLabel(workspace, $userWorkspaces),
 				description: editInForkDescription('flow', workspace, $userWorkspaces),
-				narrow: { dropdownOf: 'Edit' },
+				placement: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: buildForkEditUrl('flow', flow.path, workspace),
 					onClick: (e: Event | undefined) => editInFork(e, flow.path),
@@ -418,7 +447,7 @@
 
 		buttons.push({
 			label: `History`,
-			narrow: 'menu',
+			placement: 'menu',
 			buttonProps: {
 				onClick: () => flowHistory?.open(),
 				unifiedSize: 'md',
@@ -435,7 +464,8 @@
 		if (!actingUser?.operator) {
 			buttons.push({
 				label: 'Build app',
-				narrow: 'menu',
+				placement: 'menu',
+				alwaysPlaced: true,
 				buttonProps: {
 					onClick: async () => {
 						const app = createRawAppFromFlow(flow.path, flow.summary, flow.schema)
@@ -682,6 +712,12 @@
 					}
 				: undefined}
 		>
+			{#snippet name_marks()}
+				<!-- Favorites are the sidebar's, which lists the navigation workspace only. -->
+				{#if workspace && flow && workspace === $workspaceStore}
+					<Star kind="flow" path={flow.path} summary={flow.summary} />
+				{/if}
+			{/snippet}
 			{#snippet trigger_badges()}
 				<TriggersBadge
 					showOnlyWithCount={true}
@@ -698,12 +734,6 @@
 					small={false}
 				/>
 			{/snippet}
-			{#if workspace && flow}
-				<!-- Favorites are the sidebar's, which lists the navigation workspace only. -->
-				{#if workspace === $workspaceStore}
-					<Star kind="flow" path={flow.path} summary={flow.summary} />
-				{/if}
-			{/if}
 			<OnBehalfOfBadge
 				onBehalfOf={flow?.on_behalf_of}
 				onBehalfOfEmail={flow?.on_behalf_of_email}
@@ -825,19 +855,31 @@
 								flow.schema && Object.keys(flow.schema.properties ?? {}).length > 0}
 							<!-- Normal Mode: Form Layout -->
 							<div class="flex flex-col align-left">
-								{#if hasSchema || inputSelected}
+								{#if hasSchema || inputSelected || pendingRun}
 									<div
 										class="flex flex-row justify-between min-h-12"
 										transition:slide={{ duration: 150 }}
 									>
-										<InputSelectedBadge
-											onReject={() => {
-												savedInputsV2?.resetSelected()
-											}}
-											{inputSelected}
-										/>
+										<div class="flex flex-row items-start gap-2">
+											{#if pendingRun}
+												<InputSelectedBadge
+													inputSelected="pending_run"
+													onReject={() => pendingRun.decline()}
+												/>
+											{/if}
+											<InputSelectedBadge
+												onReject={() => {
+													savedInputsV2?.resetSelected()
+												}}
+												{inputSelected}
+											/>
+										</div>
 
-										{#if hasSchema}
+										<!-- Not offered while the form refuses writes: each side of this
+										     toggle mounts what the other unmounts, and a `password` field
+										     mints a variable from the literal it opens on. The form stays on
+										     whichever side it is already showing, read-only. -->
+										{#if hasSchema && !pendingRun?.planModeActive}
 											<Toggle
 												bind:checked={jsonView}
 												size="xs"
@@ -880,7 +922,11 @@
 									bind:isValid
 									runnable={flow}
 									runAction={runFlow}
+									runRefusal={pendingRun?.planModeActive
+										? PLAN_MODE_MESSAGES.runFormRefused
+										: undefined}
 									bind:args
+									schedulable={!pendingRun}
 									bind:this={runForm}
 									{jsonView}
 									actions={promptForAi ? undefined : aiAssistant}

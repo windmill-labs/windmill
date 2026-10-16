@@ -10,11 +10,11 @@
 		type UserWorkspace
 	} from '$lib/stores'
 	import {
-		findWorkspaceDescendants,
 		findCanonicalDevWorkspace,
 		findDefaultForkBase,
 		findWorkspaceRoot,
-		buildWorkspaceHierarchy
+		buildWorkspaceHierarchy,
+		workspaceSubtreeRows
 	} from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
 	import { canCreateFork } from '$lib/utils/editInFork'
@@ -102,7 +102,11 @@
 	})
 	const forkableWorkspaces = $derived(forkableWorkspacesProp ?? ownForkable.current)
 	const root = $derived(findWorkspaceRoot(effectiveId, forkableWorkspaces))
-	const forks = $derived(root ? findWorkspaceDescendants(root.id, forkableWorkspaces) : [])
+	// The same hierarchy the sidebar workspace menu builds: forks of forks follow their parent, and the
+	// user's own forks lead each group of siblings.
+	const hierarchy = $derived(buildWorkspaceHierarchy(forkableWorkspaces, $userStore?.email))
+	const forkRows = $derived(root ? workspaceSubtreeRows(root.id, hierarchy) : [])
+	const forks = $derived(forkRows.map((h) => h.workspace))
 
 	// The family's canonical dev workspace, if any — still used for gating (a forking-locked root can be
 	// forked via its dev) and as a selectable base with a "dev" badge.
@@ -126,13 +130,10 @@
 		}))
 	)
 
-	// Depth of each workspace within its family (root = 0, its forks = 1, forks of forks = 2, …), from
-	// the shared hierarchy builder — the same one the sidebar workspace menu uses — so the list indents
-	// forks of forks under their parent the same way. `forks` is a DFS of descendants (parent before
-	// child), so indenting each row by its depth nests it under its parent.
-	const familyDepths = $derived(
-		new Map(buildWorkspaceHierarchy(forkableWorkspaces).map((h) => [h.workspace.id, h.depth]))
-	)
+	// Depth of each workspace within its family (root = 0, its forks = 1, forks of forks = 2, …).
+	// `forks` is a DFS (parent before child), so indenting each row by its depth nests it under its
+	// parent, the same way the sidebar menu does.
+	const familyDepths = $derived(new Map(hierarchy.map((h) => [h.workspace.id, h.depth])))
 	// Extra left padding (on top of the row's base px-3) to nest a workspace one step per depth level,
 	// matching the sidebar menu's `depth * 16px`.
 	function indentStyle(id: string): string | undefined {
@@ -429,9 +430,16 @@
 						/>
 					</div>
 				{/if}
-				{#each forks as f, fi (f.id)}
+				{#each forkRows as { workspace: f, separatorBefore }, fi (f.id)}
 					{@const forkIdx = (root ? 1 : 0) + fi}
 					{@const accentStyle = forkAccentStyle(f.color)}
+					{#if separatorBefore}
+						<div
+							class="my-1 border-t border-border-light shrink-0"
+							style:margin-left={`${((familyDepths.get(f.id) ?? 1) - 1) * 16}px`}
+							role="separator"
+						></div>
+					{/if}
 					<div class="relative group shrink-0">
 						<button
 							type="button"

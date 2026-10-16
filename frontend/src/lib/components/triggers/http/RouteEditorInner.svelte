@@ -15,7 +15,6 @@
 		SettingService,
 		VariableService,
 		type AuthenticationMethod,
-		type ErrorHandler,
 		type HttpTrigger,
 		type NewHttpTrigger,
 		type Retry,
@@ -57,7 +56,8 @@
 	import TestingBadge from '../testingBadge.svelte'
 	import TriggerEditorToolbar from '../TriggerEditorToolbar.svelte'
 	import PermissionedAsLine from '../PermissionedAsLine.svelte'
-	import { getHandlerType, handleConfigChange } from '../utils'
+	import { handleConfigChange } from '../utils'
+	import { handlerDraftFromStored, handlerDraftToStored } from '../../handlerDraft.svelte'
 	import autosize from '$lib/autosize'
 	import { untrack } from 'svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
@@ -166,8 +166,10 @@
 	let extraPerms = $state<Record<string, boolean> | undefined>(undefined)
 	let summary: string | undefined = $state()
 	let routeDescription: string | undefined = $state()
-	let error_handler_path: string | undefined = $state()
-	let error_handler_args: Record<string, any> = $state({})
+	let errorHandler = $state(handlerDraftFromStored('error', undefined))
+	const storedErrorHandler = $derived(handlerDraftToStored(errorHandler))
+	const error_handler_path = $derived(storedErrorHandler.path)
+	const error_handler_args = $derived(storedErrorHandler.args)
 	let retry: Retry | undefined = $state()
 	// Component references
 	let s3FilePicker = $state<S3FilePicker | undefined>(undefined)
@@ -181,7 +183,6 @@
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
 	let preservePermissionedAs = $state(false)
 	let optionTabSelected: 'request_options' | 'error_handler' | 'retries' = $state('request_options')
-	let errorHandlerSelected: ErrorHandler = $state('slack')
 
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
 	let originalConfig = $state<NewHttpTrigger | undefined>(undefined)
@@ -349,10 +350,13 @@
 			allowed_origins = defaultValues?.allowed_origins ?? undefined
 			summary = defaultValues?.summary ?? ''
 			routeDescription = defaultValues?.description ?? ''
-			error_handler_path = defaultValues?.error_handler_path ?? undefined
-			error_handler_args = defaultValues?.error_handler_args ?? {}
+			errorHandler = handlerDraftFromStored(
+				'error',
+				defaultValues?.error_handler_path,
+				'script',
+				defaultValues?.error_handler_args
+			)
 			retry = defaultValues?.retry ?? undefined
-			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 			permissionedAs = undefined
 			selectedPermissionedAs = undefined
 			preservePermissionedAs = false
@@ -397,10 +401,13 @@
 		extraPerms = cfg?.extra_perms ?? undefined
 		permsPath = path
 		permsForWrite = cfg?.extra_perms ?? {}
-		error_handler_path = cfg?.error_handler_path
-		error_handler_args = cfg?.error_handler_args ?? {}
+		errorHandler = handlerDraftFromStored(
+			'error',
+			cfg?.error_handler_path,
+			'script',
+			cfg?.error_handler_args
+		)
 		retry = cfg?.retry
-		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
 		permissionedAs = cfg?.permissioned_as
 		selectedPermissionedAs = cfg?.permissioned_as
 		preservePermissionedAs = !!cfg?.permissioned_as
@@ -1036,9 +1043,7 @@
 									{optionTabSelected}
 									{itemKind}
 									{can_write}
-									bind:errorHandlerSelected
-									bind:error_handler_path
-									bind:error_handler_args
+									bind:errorHandler
 									bind:retry
 								/>
 							{/if}

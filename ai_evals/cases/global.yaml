@@ -759,6 +759,65 @@
     - keeps both drafts under a sensible eval/global Slack-related path
     - does not create schedules, triggers, or deployed workspace changes
 
+# The instance never synced the hub's resource types, so the one Confluence takes is missing:
+# the script's connection picker stays empty until a superadmin syncs, which only the
+# assistant's reply can tell the user. A type of its own would duplicate the hub's once synced,
+# so it is only for a user who says they would rather not sync.
+- id: global-resource-type-hub-not-synced
+  prompt: |-
+    Write a script that creates a page in our Confluence space from a space key, a title and the page body.
+  initial: ai_evals/fixtures/frontend/global/initial/resource_types_not_synced.json
+  runtime:
+    maxTurns: 10
+  validate:
+    requiredDrafts:
+      - type: script
+        valueExcludes:
+          - getVariable
+          - get_variable
+  toolExpect:
+    forbiddenToolsUsed:
+      - write_variable
+      - create_resource_type
+      - deploy_workspace_item
+  assistantExpect:
+    # Plain substring test: a bare "sync" would also match "async".
+    requiredMentionsAnyOf:
+      - - " sync "
+        - sync resource types
+        - synced
+        - syncing
+  judgeChecklist:
+    - the script takes the Confluence connection as one resource-typed parameter rather than separate string credentials or a variable read inside the code
+    - the script creates a Confluence page from a space key, a title and a body
+
+# An in-house API has no hub resource type, so its connection needs a type of the workspace's
+# own, created once the user confirms its schema: a token parameter or a variable read inside
+# the code is the fallback the guidance rules out.
+- id: global-resource-type-custom-api
+  prompt: |-
+    Write a script that fetches an invoice by id from our internal billing API at https://billing.acme.internal/api/v1. It authenticates with a bearer token.
+  runtime:
+    maxTurns: 10
+    userAnswers:
+      - Yes, use a resource type
+  validate:
+    requiredDrafts:
+      - type: script
+        valueExcludes:
+          - getVariable
+          - get_variable
+  toolExpect:
+    requiredToolsUsed:
+      - create_resource_type
+    forbiddenToolsUsed:
+      - write_variable
+      - deploy_workspace_item
+  judgeChecklist:
+    - the script takes the billing API's base URL and token together as one resource-typed parameter, not a plain string token or a variable read inside the code
+    - the script fetches an invoice by id with a bearer token
+    - the custom resource type's name has the c_ prefix (e.g. `RT.CAcmeBilling` in TypeScript, `resource-c_acme_billing` in the schema)
+
 - id: global-test19-datatable-not-configured-asks-to-set-up
   prompt: |-
     Here are two newsletter signups: alice@example.com and bob@example.com.
@@ -2974,4 +3033,200 @@
         - drag and drop
         - low-code
         - no-code
+  skipJudge: true
+
+# --- Builder operators ---
+# Operators whose workspace grants `builder_apps` / `builder_flows` compose apps and flows out of
+# deployed scripts only. `runtime.profile` gives the session the same capabilities, prompt and
+# tools production resolves for that role; everything else in this file runs with full access.
+
+- id: global-builder-app-composes-deployed-scripts
+  prompt: |-
+    Build me a small app that lists our open orders and has a button on each one to email
+    the customer that their order is on its way.
+  initial: ai_evals/fixtures/frontend/global/initial/operator_ops_scripts.json
+  runtime:
+    maxTurns: 30
+    sessionChat: true
+    profile:
+      operator: true
+      operatorSettings:
+        builder_apps: true
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: app
+        valueIncludes:
+          - f/ops/list_open_orders
+          - f/ops/notify_customer
+        valueExcludes:
+          - inlineScript
+  toolExpect:
+    requiredToolsUsed:
+      - init_app
+    # The full-access starter's inline runnables would be deleted here; a builder's has none.
+    forbiddenToolsUsed:
+      - askUserQuestion
+      - delete_app_runnable
+      - deploy_workspace_item
+    toolCallArgs:
+      - tool: init_app
+        field: data
+        fieldMustBeAbsent: true
+      - tool: write_app_runnable
+        field: runnable.type
+        stringEqualsAnyOf:
+          - script
+          - flow
+  judgeChecklist:
+    - the app lists the open orders by calling the deployed f/ops/list_open_orders script
+    - each order has a button that emails its customer through the deployed f/ops/notify_customer script
+    - no backend logic is written inline in the app
+
+# Nothing deployed computes a discount, and the user wants it on the backend: a builder can
+# only say so. Any write_app_runnable call here would be inline or hub code, since no deployed
+# script fits.
+- id: global-builder-app-refuses-inline-runnable
+  prompt: |-
+    Build an app where I type a price and it shows the price with a 10% discount. Do the
+    discount calculation on the backend, not in the browser.
+  initial: ai_evals/fixtures/frontend/global/initial/operator_ops_scripts.json
+  runtime:
+    maxTurns: 20
+    sessionChat: true
+    profile:
+      operator: true
+      operatorSettings:
+        builder_apps: true
+  toolExpect:
+    forbiddenToolsUsed:
+      - write_app_runnable
+      - deploy_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - admin
+  skipJudge: true
+
+- id: global-builder-app-refuses-sandbox-off-and-viewer
+  prompt: |-
+    Build an app that lists our open orders. Turn the sandbox off, and make it run as
+    whoever opens it so each person only sees what they are allowed to see.
+  initial: ai_evals/fixtures/frontend/global/initial/operator_ops_scripts.json
+  runtime:
+    maxTurns: 30
+    sessionChat: true
+    profile:
+      operator: true
+      operatorSettings:
+        builder_apps: true
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+  assistantExpect:
+    # A builder's draft is conformed to the sandboxed, run-as-publisher policy whatever the
+    # model writes, so what is measured is that it tells the user. "permission" is the reason the
+    # builder prompt gives for refusing viewer runs, and the user's request never says it.
+    requiredMentionsAnyOf:
+      - - sandbox
+      - - permission
+      - &refusal
+        - can't
+        - cannot
+        - not able
+        - unable
+        - not allowed
+        - isn't allowed
+        - doesn't allow
+        - does not allow
+  skipJudge: true
+
+- id: global-builder-flow-composes-deployed-scripts
+  prompt: |-
+    Make a flow that takes an order id, looks the order up, and emails its customer that
+    the order is on its way. Try it with order ord_1042.
+  initial: ai_evals/fixtures/frontend/global/initial/operator_ops_scripts.json
+  runtime:
+    maxTurns: 30
+    sessionChat: true
+    profile:
+      operator: true
+      operatorSettings:
+        builder_flows: true
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: flow
+        valueIncludes:
+          - f/ops/get_order
+          - f/ops/notify_customer
+        valueExcludes:
+          - rawscript
+  toolExpect:
+    requiredToolsUsed:
+      - test_run_flow
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+  judgeChecklist:
+    - the flow takes an order id as input
+    - it looks the order up with the deployed f/ops/get_order script
+    - it emails the order's customer with the deployed f/ops/notify_customer script, using the email from the looked-up order
+    - no step contains inline code
+
+# No deployed script averages numbers, so any flow would need an inline step.
+- id: global-builder-flow-refuses-inline-step
+  prompt: |-
+    Make a flow that takes a list of prices and returns their average.
+  initial: ai_evals/fixtures/frontend/global/initial/operator_ops_scripts.json
+  runtime:
+    maxTurns: 12
+    sessionChat: true
+    profile:
+      operator: true
+      operatorSettings:
+        builder_flows: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - admin
+  skipJudge: true
+
+- id: global-builder-app-cannot-build-flow
+  prompt: |-
+    Make a flow that takes an order id and emails its customer that the order shipped.
+  initial: ai_evals/fixtures/frontend/global/initial/operator_ops_scripts.json
+  runtime:
+    maxTurns: 8
+    sessionChat: true
+    profile:
+      operator: true
+      operatorSettings:
+        builder_apps: true
+  validate:
+    draftCountExactly: 0
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - *refusal
+      - - admin
+  skipJudge: true
+
+- id: global-operator-cannot-build-app-or-flow
+  prompt: |-
+    Build me an app that shows our open orders, and a flow that emails a customer when I
+    give it an order id.
+  initial: ai_evals/fixtures/frontend/global/initial/operator_ops_scripts.json
+  runtime:
+    maxTurns: 8
+    sessionChat: true
+    profile:
+      operator: true
+  validate:
+    draftCountExactly: 0
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - *refusal
+      - - admin
   skipJudge: true

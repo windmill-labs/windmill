@@ -20,7 +20,8 @@
 		isHubFlowPath,
 		isFlowPreview,
 		isNotFlow,
-		isScriptPreview
+		isScriptPreview,
+		type Item
 	} from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
@@ -714,10 +715,197 @@
 		onDestroy(resetFavicon)
 	}
 
-	// The bar shares its row with the breadcrumb, and this page's name is a uuid that gives way
-	// grudgingly, so the buttons drop their labels rather than push each other off the end.
-	// Embedded, the buttons have a row of their own that wraps.
-	const compactBar = $derived(!embedded && pageHeader.barWidth > 0 && pageHeader.barWidth < 1150)
+	// The bar folds these (`actionFolds` below) once its breadcrumb has given all it can: first the
+	// buttons drop their labels, then the plain actions go into one menu. Embedded, the buttons
+	// have a row of their own that wraps.
+	const compactBar = $derived(!embedded && pageHeader.actionFold >= 1)
+	const actionsInMenu = $derived(!embedded && pageHeader.actionFold >= 2)
+
+	const isScriptJob = $derived(job?.job_kind === 'script')
+	const isRunnableJob = $derived(
+		job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'
+	)
+	const isHubFlowPreview = $derived(isFlowPreview(job?.job_kind) && isHubFlowPath(job?.script_path))
+	const runsHref = $derived(`/runs/${job?.script_path}${!isScriptJob ? '?jobKind=flow' : ''}`)
+	const stem = $derived(job?.job_kind === 'script_hub' ? '/scripts' : `/${job?.job_kind}s`)
+	// A script is addressed by the hash this run executed. Embedded, that goes in the query: the
+	// host's tabs are keyed by an item's path, and a hash there would be a tab on no item.
+	const viewHref = $derived(
+		isScriptJob && embedded
+			? `/scripts/get/${job?.script_path}?version=${job?.script_hash}`
+			: `${stem}/get/${isScriptJob ? job?.script_hash : job?.script_path}`
+	)
+	const editHref = $derived(`${stem}/edit/${job?.script_path}?workspace=${workspaceId}`)
+	const forkPreviewLabel = $derived(
+		isHubFlowPreview
+			? 'Fork flow into workspace'
+			: `Fork ${isFlowPreview(job?.job_kind) ? 'flow' : 'code'} preview`
+	)
+	const viewLabel = $derived(`View ${job?.job_kind === 'script_hub' ? 'script' : job?.job_kind}`)
+	const canDelete = $derived(
+		!!job && 'deleted' in job && !job?.deleted && ($superadmin || (actingUser?.is_admin ?? false))
+	)
+	const canCancel = $derived(
+		!!job && job?.type != 'CompletedJob' && (!job?.schedule_path || job?.['running'] == true)
+	)
+	const canDebug = $derived(
+		(job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)) &&
+			!!job?.['running'] &&
+			job?.parent_job == undefined
+	)
+	const canEdit = $derived(
+		(job?.job_kind === 'script' || job?.job_kind === 'flow') &&
+			!actingUser?.operator &&
+			editRights.canEditItem(isScriptJob ? 'script' : 'flow', job?.script_path ?? '', {})
+	)
+	const canEditInFork = $derived(
+		(job?.job_kind === 'script' || job?.job_kind === 'flow') &&
+			!actingUser?.operator &&
+			!showEditButton &&
+			!isCloudHosted() &&
+			editInForkAllowed(workspaceId, $userWorkspaces)
+	)
+	/** Which actions the row has: they come and go as the job runs and completes, often while the
+	 *  row is folded into the menu, where the bar cannot see them change (`actionsVersion`). */
+	const actionsVersion = $derived(
+		[
+			canDelete,
+			canCancel,
+			forceCancel,
+			canDebug,
+			canRunNow,
+			canEdit,
+			canEditInFork,
+			dbtResumable,
+			!!job?.schedule_path,
+			persistentScriptDefinition !== undefined,
+			restartStep !== undefined && canRestart(restart)
+		]
+			.map(Number)
+			.join('')
+	)
+
+	async function runAgain() {
+		// The form this lands on rebuilds the whole project. When resuming THIS run is the cheaper
+		// thing to do, name it so the form can offer that in one click rather than leaving the
+		// reader to know.
+		const from = dbtResumable
+			? `${viewHref.includes('?') ? '&' : '?'}dbt_retry_from=${job?.id}`
+			: ''
+		onNavigate(
+			viewHref + from + `#${computeSharableHash(job?.args, await getRerunTagOverride(job?.args))}`
+		)
+	}
+
+	function cancel() {
+		if (!job?.id) return
+		cancelJob(job.id)
+		// The first cancel asks the job to stop; if it has not after three seconds, the same
+		// control offers to force it.
+		if (!forceCancel) setTimeout(() => (forceCancel = true), 3001)
+	}
+
+	// The same actions as the row, most used first; the restart and session controls stay beside
+	// the menu, since each opens a popover of its own that a menu row cannot hold.
+	const menuItems = $derived.by((): Item[] => {
+		if (!job) return []
+		const kind = isScriptJob ? 'script' : 'flow'
+		return [
+			{ displayName: viewLabel, icon: Code2, href: viewHref, hide: !isRunnableJob },
+			{ displayName: 'Run again', icon: RefreshCw, action: runAgain, hide: !isRunnableJob },
+			{
+				displayName: 'dbt retry with same args',
+				icon: RefreshCw,
+				action: resumeDbtRun,
+				hide: !isRunnableJob || !dbtResumable
+			},
+			{
+				displayName: 'Run immediately with same args',
+				icon: RefreshCw,
+				action: () => runImmediately(),
+				hide: !isRunnableJob
+			},
+			{
+				displayName: 'Edit',
+				icon: Pen,
+				href: editHref,
+				action: () => ($initialArgsStore = job?.args),
+				disabled: !showEditButton,
+				hide: !canEdit
+			},
+			{
+				displayName: editInForkLabel(workspaceId, $userWorkspaces),
+				icon: Pen,
+				href: buildForkEditUrl(kind, job.script_path ?? '', workspaceId),
+				action: (e) => editInFork(e, kind, job?.script_path ?? ''),
+				hide: !canEditInFork
+			},
+			{
+				displayName: 'Run now',
+				icon: Play,
+				action: () => job?.id && runJobNow(job.id),
+				hide: !canRunNow
+			},
+			{
+				displayName: 'Edit schedule',
+				icon: Calendar,
+				action: () =>
+					job?.schedule_path && scheduleEditor?.openEdit(job.schedule_path, job.job_kind == 'flow'),
+				hide: !job.schedule_path
+			},
+			{
+				displayName: forkPreviewLabel,
+				icon: GitBranch,
+				action: forkPreview,
+				hide: !(isFlowPreview(job.job_kind) || isScriptPreview(job.job_kind))
+			},
+			{
+				displayName: 'Current runs',
+				icon: Activity,
+				action: () => persistentScriptDrawer?.open?.(persistentScriptDefinition),
+				hide: persistentScriptDefinition === undefined
+			},
+			{
+				displayName: 'View runs',
+				icon: List,
+				href: runsHref,
+				hide: !canDelete || !(job.job_kind === 'script' || job.job_kind === 'flow')
+			},
+			{
+				displayName: 'Copy link for members',
+				icon: Users,
+				action: () => job && shareReadLink(job.id),
+				separatorTop: true
+			},
+			{
+				displayName: 'Copy public link',
+				icon: Globe,
+				disabled: !canSharePublicly,
+				action: () => job && sharePublicLink(job.id)
+			},
+			{
+				displayName: 'Show flow debug info',
+				icon: EllipsisVertical,
+				action: debugInfo,
+				hide: !canDebug
+			},
+			{
+				displayName: forceCancel ? 'Force cancel' : 'Cancel',
+				icon: TimerOff,
+				type: 'delete',
+				action: cancel,
+				hide: !canCancel,
+				separatorTop: true
+			},
+			{
+				displayName: 'Delete result, logs and args (admin only)',
+				icon: Trash,
+				type: 'delete',
+				action: () => job?.id && deleteCompletedJob(job.id),
+				hide: !canDelete
+			}
+		]
+	})
 </script>
 
 <HighlightTheme />
@@ -890,14 +1078,47 @@
 			{@render runActions()}
 		</div>
 	{:else}
-		<PageHeaderContent section={{ label: `run/${runId}` }} actions={runActions} />
+		<PageHeaderContent
+			section={{ label: `run/${runId}` }}
+			actions={runActions}
+			actionFolds={2}
+			{actionsVersion}
+		/>
 	{/if}
 
 	{#snippet runActions()}
-		{@const isScript = job?.job_kind === 'script'}
-		{@const isHubFlowPreview = isFlowPreview(job?.job_kind) && isHubFlowPath(job?.script_path)}
-		{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
-		{#if job && 'deleted' in job && !job?.deleted && ($superadmin || (actingUser?.is_admin ?? false))}
+		{#if actionsInMenu}
+			{#if restartStep !== undefined && canRestart(restart)}
+				{@render flowRestartButton(restart, restartStep, 'button')}
+			{/if}
+			{#if canEdit && showEditButton}
+				<OpenInSessionButton
+					source={{
+						target: { kind: isScriptJob ? 'script' : 'flow', path: job?.script_path ?? '' },
+						workspaceId: workspaceId ?? undefined
+					}}
+					btnProps={{ unifiedSize: 'sm' }}
+				/>
+			{/if}
+			<Dropdown items={menuItems} customWidth={260}>
+				{#snippet buttonReplacement()}
+					<Button
+						nonCaptureEvent
+						variant="default"
+						unifiedSize="sm"
+						iconOnly
+						title="Run actions"
+						startIcon={{ icon: EllipsisVertical }}
+					/>
+				{/snippet}
+			</Dropdown>
+		{:else}
+			{@render runActionsRow()}
+		{/if}
+	{/snippet}
+
+	{#snippet runActionsRow()}
+		{#if canDelete}
 			<Dropdown
 				items={[
 					{
@@ -962,13 +1183,6 @@
 				{/snippet}
 			</Dropdown>
 		{/if}
-		{@const stem = job?.job_kind === 'script_hub' ? '/scripts' : `/${job?.job_kind}s`}
-		<!-- A script is addressed by the hash this run executed. Embedded, that goes in the query:
-		     the host's tabs are keyed by an item's path, and a hash there would be a tab on no item. -->
-		{@const viewHref =
-			isScript && embedded
-				? `/scripts/get/${job?.script_path}?version=${job?.script_hash}`
-				: `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
 		{#if (job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)) && job?.['running'] && job?.parent_job == undefined}
 			<div class="inline">
 				<Dropdown
@@ -1086,19 +1300,7 @@
 		{/if}
 		{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
 			<Button
-				on:click={async () => {
-					// The form this lands on rebuilds the whole project. When resuming
-					// THIS run is the cheaper thing to do, name it so the form can
-					// offer that in one click rather than leaving the reader to know.
-					const from = dbtResumable
-						? `${viewHref.includes('?') ? '&' : '?'}dbt_retry_from=${job?.id}`
-						: ''
-					onNavigate(
-						viewHref +
-							from +
-							`#${computeSharableHash(job?.args, await getRerunTagOverride(job?.args))}`
-					)
-				}}
+				on:click={runAgain}
 				unifiedSize="sm"
 				variant="default"
 				iconOnly={compactBar}
@@ -1122,7 +1324,7 @@
 		{/if}
 		{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 			{#if !actingUser?.operator}
-				{#if editRights.canEditItem(isScript ? 'script' : 'flow', job?.script_path ?? '', {})}
+				{#if editRights.canEditItem(isScriptJob ? 'script' : 'flow', job?.script_path ?? '', {})}
 					<Button
 						href={`${stem}/edit/${job?.script_path}?workspace=${workspaceId}`}
 						on:click={() => {
@@ -1141,7 +1343,7 @@
 							     Edit: where direct deployment is off, the way in is "Edit in fork". -->
 						<OpenInSessionButton
 							source={{
-								target: { kind: isScript ? 'script' : 'flow', path: job?.script_path ?? '' },
+								target: { kind: isScriptJob ? 'script' : 'flow', path: job?.script_path ?? '' },
 								workspaceId: workspaceId ?? undefined
 							}}
 							btnProps={{ unifiedSize: 'sm' }}
@@ -1151,11 +1353,11 @@
 				{#if !showEditButton && !isCloudHosted() && editInForkAllowed(workspaceId, $userWorkspaces)}
 					<Button
 						href={buildForkEditUrl(
-							isScript ? 'script' : 'flow',
+							isScriptJob ? 'script' : 'flow',
 							job?.script_path ?? '',
 							workspaceId
 						)}
-						onClick={(e) => editInFork(e, isScript ? 'script' : 'flow', job?.script_path ?? '')}
+						onClick={(e) => editInFork(e, isScriptJob ? 'script' : 'flow', job?.script_path ?? '')}
 						unifiedSize="sm"
 						variant="default"
 						iconOnly={compactBar}

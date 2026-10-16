@@ -1,0 +1,1 @@
+ALTER TABLE app_script DROP COLUMN IF EXISTS modules;
