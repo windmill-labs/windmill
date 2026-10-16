@@ -332,7 +332,8 @@
 				.filter((i) => selectedItems.includes(i.key) && isDeployable(i))
 				.map((i) => i.draftKind),
 			capabilitiesIn(
-				undefined,
+				// Superadmin is global; a workspace's admin flag is not.
+				{ is_super_admin: $userStore?.is_super_admin },
 				$userWorkspaces.find((w) => w.id === currentWorkspaceId)
 			)
 		)
