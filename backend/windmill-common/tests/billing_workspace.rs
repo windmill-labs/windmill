@@ -154,6 +154,16 @@ async fn paid_seats_and_fork_count(db: Pool<Postgres>) {
         "a workspace override that authors nothing bills its members at half a seat"
     );
 
+    // An admin holds everything, so it is a full seat whatever role it keeps underneath.
+    sqlx::query(
+        "UPDATE usr SET is_admin = true WHERE workspace_id = 'seat-root' AND email = 'op1@w.dev'",
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+    let breakdown = billable_seats(&db, "seat-root").await.unwrap();
+    assert_eq!((breakdown.developers, breakdown.operators), (3, 1));
+
     insert_ws(&db, "seat-fork1", Some("seat-root"), false).await;
     insert_ws(&db, "seat-fork2", Some("seat-root"), false).await;
     // A deleted fork itself is not counted...

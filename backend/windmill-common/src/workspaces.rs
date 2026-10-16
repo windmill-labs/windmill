@@ -1350,12 +1350,16 @@ pub async fn check_role_can_code<A: Authable + ?Sized>(
 
 /// Whether a member holding role `role` in `workspace_id` consumes an operator (half) seat rather
 /// than an author seat: a role that composes counts as an author, there is no half-author.
-pub async fn consumes_operator_seat(db: &DB, workspace_id: &str, role: &str) -> Result<bool> {
-    Ok(
-        !crate::roles::role_capabilities_by_name(db, workspace_id, role)
+pub async fn consumes_operator_seat(
+    db: &DB,
+    workspace_id: &str,
+    is_admin: bool,
+    role: &str,
+) -> Result<bool> {
+    Ok(!is_admin
+        && !crate::roles::role_capabilities_by_name(db, workspace_id, role)
             .await?
-            .is_author(),
-    )
+            .is_author())
 }
 
 /// Gate for a write a role may perform unless its configuration withdraws it. Prefer layering

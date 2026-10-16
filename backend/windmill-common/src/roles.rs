@@ -724,7 +724,8 @@ pub async fn ensure_role_unused(db: &DB, w_id: Option<&str>, name: &str) -> Resu
     .unwrap_or(0);
     let settings = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM workspace_settings WHERE ($1::text IS NULL OR workspace_id = $1) AND (
-            auto_invite->>'role' = $2
+            jsonb_typeof(auto_invite) = 'object' AND COALESCE(auto_invite->>'role',
+                CASE WHEN (auto_invite->>'operator')::boolean THEN 'operator' ELSE 'developer' END) = $2
             OR EXISTS (SELECT 1 FROM jsonb_each_text(
                 CASE WHEN jsonb_typeof(auto_invite->'instance_groups_roles') = 'object'
                      THEN auto_invite->'instance_groups_roles' ELSE '{}'::jsonb END) g
@@ -781,6 +782,22 @@ pub async fn validate_instance_roles_write(
     {
         ensure_role_unused(db, None, &removed.name).await?;
     }
+    // An override valid on the old definitions can merge into an invalid role on the new ones
+    // (`flows: full` kept while the instance withdraws `code`), which the gates would honour.
+    let stored: Vec<(String, serde_json::Value)> = sqlx::query_as(
+        "SELECT workspace_id, role_overrides FROM workspace_settings WHERE role_overrides IS NOT NULL",
+    )
+    .fetch_all(db)
+    .await?;
+    for (w, overrides) in stored {
+        let overrides: RoleOverrides = serde_json::from_value(overrides)
+            .map_err(|e| Error::internal_err(format!("invalid role overrides of {w}: {e:#}")))?;
+        validate_overrides(&next, &overrides).map_err(|e| {
+            Error::BadRequest(format!(
+                "workspace {w}'s role overrides would become invalid: {e}"
+            ))
+        })?;
+    }
     Ok(())
 }
 
@@ -790,7 +807,7 @@ pub async fn validate_instance_roles_write(
 pub async fn after_instance_roles_write(db: &DB) -> Result<()> {
     invalidate_all_roles_cache();
     let mut tx = db.begin().await?;
-    sync_role_seats(&mut tx, db, None).await?;
+    sync_role_seats(&mut tx, None).await?;
     tx.commit().await?;
     Ok(())
 }
@@ -798,13 +815,13 @@ pub async fn after_instance_roles_write(db: &DB) -> Result<()> {
 /// Rewrites `role_seat`, the per-role author flag billing SQL joins on, from the current role
 /// configuration: the instance rows (`workspace_id = ''`) and those of every workspace with an
 /// override, or only `workspace_id`'s when given. Run after any write to either setting; billing
-/// reads nothing else about roles.
+/// reads nothing else about roles. Reads on `tx` only: a second pooled connection held alongside
+/// it self-deadlocks on a one-connection pool.
 pub async fn sync_role_seats<'c>(
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
-    db: &DB,
     workspace_id: Option<&str>,
 ) -> Result<()> {
-    let instance = instance_roles(db).await?;
+    let instance = instance_roles_on(&mut **tx).await?;
     let workspaces: Vec<(String, Option<serde_json::Value>)> = match workspace_id {
         Some(w) => sqlx::query_as(
             "SELECT $1::text, (SELECT role_overrides FROM workspace_settings WHERE workspace_id = $1)",
@@ -862,10 +879,12 @@ async fn write_role_seats<'c>(
     Ok(())
 }
 
-/// SQL for "the membership row aliased `t` consumes a full (author) seat", from `role_seat`: the
-/// workspace's row for the role, else the instance's, else the legacy rule that only a developer
-/// is an author. Shared by every seat count so the displayed, enforced and invoiced numbers agree.
-pub const AUTHOR_SEAT_SQL: &str = "COALESCE(
+/// SQL for "the membership row aliased `t` consumes a full (author) seat": an admin always does,
+/// whatever role it holds underneath; otherwise from `role_seat`, the workspace's row for the role,
+/// else the instance's, else the legacy rule that only a developer is an author. `t` carries
+/// `workspace_id`, `is_admin`, `operator` and `workspace_role`. Shared by every seat count so the
+/// displayed, enforced and invoiced numbers agree.
+pub const AUTHOR_SEAT_SQL: &str = "t.is_admin OR COALESCE(
         (SELECT rs.author FROM role_seat rs WHERE rs.workspace_id = t.workspace_id
             AND rs.role = COALESCE(t.workspace_role, CASE WHEN t.operator THEN 'operator' ELSE 'developer' END)),
         (SELECT rs.author FROM role_seat rs WHERE rs.workspace_id = ''

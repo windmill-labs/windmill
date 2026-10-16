@@ -2499,6 +2499,10 @@ pub async fn update_workspace_user_internal(
 
 /// Gives a member role `role`, which must be one of the workspace's roles. `usr.operator` is
 /// kept as "this role cannot write code", the reading clients that predate roles give it.
+///
+/// AUTHORIZATION: changes what the member may do and checks nothing. Callers MUST have verified
+/// that the caller is an admin of `w_id`, or run as trusted server-side code (instance group sync,
+/// invite acceptance).
 pub async fn set_workspace_role(
     tx: &mut Transaction<'_, Postgres>,
     w_id: &str,

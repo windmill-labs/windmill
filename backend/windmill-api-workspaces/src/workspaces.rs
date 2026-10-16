@@ -11519,7 +11519,7 @@ async fn invite_user(
     if let Some(msg) = windmill_common::ee_oss::check_seat_cap_for_new_user(
         &db,
         &nu.email,
-        windmill_common::workspaces::consumes_operator_seat(&db, &w_id, &role).await?,
+        windmill_common::workspaces::consumes_operator_seat(&db, &w_id, nu.is_admin, &role).await?,
     )
     .await?
     {
@@ -11689,7 +11689,7 @@ async fn add_user(
     if let Some(msg) = windmill_common::ee_oss::check_seat_cap_for_new_user(
         &db,
         &nu.email,
-        windmill_common::workspaces::consumes_operator_seat(&db, &w_id, &role).await?,
+        windmill_common::workspaces::consumes_operator_seat(&db, &w_id, nu.is_admin, &role).await?,
     )
     .await?
     {
