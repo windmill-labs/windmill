@@ -113,7 +113,14 @@ pub async fn execute_tool_calls(
             .map(|timeout_secs| (call, timeout_secs))
     });
     if let Some((approval_call, timeout_secs)) = approval {
-        let mut pause = None;
+        let pause = start_pause(timeout_secs, approval_call);
+        let others_refusal = if pause.is_ok() {
+            "Not run: this turn asks for approval, so its other calls wait for the answer. \
+             Call them again once you have it."
+        } else {
+            "Not run: this turn's approval request was invalid. Fix it, then call these again \
+             once it is answered."
+        };
         for call in tool_calls {
             if let Some(stream_event_processor) = ctx.stream_event_processor {
                 let event = StreamingEvent::ToolExecution {
@@ -122,27 +129,19 @@ pub async fn execute_tool_calls(
                 };
                 stream_event_processor.send(event, final_events_str).await?;
             }
-            let refusal = if call.id != approval_call.id {
-                "Not run: this turn asks for approval, so its other calls wait for the answer. \
-                 Call them again once you have it."
-                    .to_string()
-            } else {
-                match start_pause(timeout_secs, call) {
-                    // Answered when the agent is pulled again, so the call gets no message here.
-                    Ok(pending) => {
-                        pause = Some(pending);
-                        continue;
-                    }
-                    Err(e) => e,
-                }
+            let refusal = match &pause {
+                _ if call.id != approval_call.id => others_refusal,
+                Err(e) => e.as_str(),
+                // Answered when the agent is pulled again, so the call gets no message here.
+                Ok(_) => continue,
             };
-            refuse_tool_call(&mut ctx, call, &refusal, &mut messages, final_events_str).await?;
+            refuse_tool_call(&mut ctx, call, refusal, &mut messages, final_events_str).await?;
         }
         return Ok(ToolCallsOutcome {
             messages,
             final_content,
             used_structured_output_tool,
-            pause,
+            pause: pause.ok(),
         });
     }
 
