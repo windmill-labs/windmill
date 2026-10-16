@@ -1,5 +1,6 @@
 import type { OperatorSettings, RoleCapabilities, RoleVisibility } from '$lib/gen'
 import type { UserExt, UserWorkspace } from '$lib/stores'
+import { FULL_CAPABILITIES, VISIBILITY_KEYS } from '$lib/workspaceRoles'
 
 /**
  * What a member's workspace role lets them author, manage and see: the frontend's copy of
@@ -10,27 +11,9 @@ import type { UserExt, UserWorkspace } from '$lib/stores'
 
 export type VisibilityKey = keyof RoleVisibility
 
-const ALL_VISIBLE: RoleVisibility = {
-	runs: true,
-	schedules: true,
-	resources: true,
-	variables: true,
-	assets: true,
-	triggers: true,
-	audit_logs: true,
-	groups: true,
-	folders: true,
-	workers: true
-}
+export { FULL_CAPABILITIES }
 
-export const FULL_CAPABILITIES: RoleCapabilities = {
-	code: true,
-	flows: 'full',
-	apps: 'full',
-	manage_schedules: true,
-	manage_triggers: true,
-	visibility: ALL_VISIBLE
-}
+const VISIBILITY = VISIBILITY_KEYS.map((v) => v.key)
 
 /**
  * The operator role as a server that predates roles describes it, through `operator_settings`:
@@ -41,7 +24,7 @@ export function legacyOperatorCapabilities(
 	settings: OperatorSettings | null | undefined
 ): RoleCapabilities {
 	const visibility = Object.fromEntries(
-		(Object.keys(ALL_VISIBLE) as VisibilityKey[]).map((k) => [k, settings?.[k] === true])
+		VISIBILITY.map((k) => [k, settings?.[k] === true])
 	) as RoleVisibility
 	return {
 		code: false,
@@ -72,14 +55,20 @@ export function capabilitiesIn(
 	return operator ? legacyOperatorCapabilities(workspace?.operator_settings) : FULL_CAPABILITIES
 }
 
-/** Whether the role is gated at all, as `RoleCapabilities::is_restricted`. */
+/** Whether the role is gated at all, as `RoleCapabilities::is_restricted`: visibility is left out,
+ * since hiding a page must not cost a full author what restricted roles are refused, such as
+ * forking. */
 export function isRestricted(caps: RoleCapabilities): boolean {
 	return (
 		!caps.code ||
 		caps.flows !== 'full' ||
 		caps.apps !== 'full' ||
 		!caps.manage_schedules ||
-		!caps.manage_triggers ||
-		(Object.keys(ALL_VISIBLE) as VisibilityKey[]).some((k) => !caps.visibility[k])
+		!caps.manage_triggers
 	)
+}
+
+/** Whether the role hides any page. */
+export function hidesPages(caps: RoleCapabilities): boolean {
+	return VISIBILITY.some((k) => !caps.visibility[k])
 }

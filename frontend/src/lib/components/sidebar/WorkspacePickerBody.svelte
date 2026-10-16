@@ -2,7 +2,8 @@
 	import { tick, untrack } from 'svelte'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	import { workspaceMenuHref } from './workspaceMenuHref'
-	import { capabilitiesIn, isRestricted } from '$lib/roleCapabilities'
+	import { capabilitiesIn, hidesPages, isRestricted } from '$lib/roleCapabilities'
+	import type { RoleCapabilities } from '$lib/gen'
 	import {
 		roleCapabilities,
 		isPremiumStore,
@@ -91,9 +92,10 @@
 	// workspace for another keeps the page.
 	function landsOnHome(id: string): boolean {
 		if (keepPageOnSwitch) return false
-		if (isRestricted($roleCapabilities)) return true
+		const gated = (caps: RoleCapabilities) => isRestricted(caps) || hidesPages(caps)
+		if (gated($roleCapabilities)) return true
 		const target = ($userWorkspaces ?? []).find((w) => w.id === id)
-		return isRestricted(capabilitiesIn({ is_super_admin: $userStore?.is_super_admin }, target))
+		return gated(capabilitiesIn({ is_super_admin: $userStore?.is_super_admin }, target))
 	}
 
 	// Href for the item's navigation (including modifier/middle clicks opening a
