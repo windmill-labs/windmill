@@ -27,9 +27,10 @@
 		 * (publish flow) needs it to read the app's DOM, which is only possible on
 		 * the unsandboxed path. */
 		oniframe?: (iframe: HTMLIFrameElement | undefined) => void
-		/** Mirror the app's own route into the page URL's hash, and start from it. Off where
-		 * the app is embedded in a page that is not its own — an AI session preview tab —
-		 * since there the hash belongs to that page and to whichever app was opened first. */
+		/** Mirror the app's own route into the page URL's hash, and start from it, and its
+		 * `document.title` into the page's. Off where the app is embedded in a page that is
+		 * not its own — an AI session preview tab — since there the hash and title belong to
+		 * that page and to whichever app was opened first. */
 		syncHashToUrl?: boolean
 	}
 
@@ -241,6 +242,19 @@
 		}
 	})
 
+	// The page's own title, put back when the app clears its title or unmounts. Only
+	// while the tab still shows the app's: anything else is the page's newer title.
+	let pageTitle = ''
+	let appTitle: string | undefined = undefined
+	function setAppTitle(title: string) {
+		if (document.title !== appTitle) pageTitle = document.title
+		appTitle = title.trim().slice(0, 200) || pageTitle
+		document.title = appTitle
+	}
+	onMount(() => () => {
+		if (appTitle !== undefined && document.title === appTitle) document.title = pageTitle
+	})
+
 	$effect(() => {
 		function handleMessage(event: MessageEvent) {
 			const data = event.data
@@ -287,6 +301,8 @@
 				if (syncHashToUrl && window.location.hash !== newHash) {
 					history.replaceState(null, '', newHash || window.location.pathname)
 				}
+			} else if (data?.type === 'windmill:title') {
+				if (syncHashToUrl) setAppTitle(typeof data.title === 'string' ? data.title : '')
 			} else if (runnerFailed) {
 				refuseRequest(event)
 			} else if (!runner) {
@@ -335,6 +351,7 @@
 		title="raw-app"
 		src={iframeSrc}
 		sandbox={sandboxAttr}
+		allow="clipboard-read; clipboard-write; fullscreen"
 		referrerpolicy={unsandboxed ? undefined : 'no-referrer'}
 		onload={() => (loadedSrc = iframeSrc)}
 		style="display: block; width: 100%; height: 100%; border: none"

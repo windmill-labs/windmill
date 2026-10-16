@@ -30,7 +30,6 @@ import GoogleMonoIcon from '$lib/components/icons/triggers/GoogleIcon.svelte'
 import GithubMonoIcon from '$lib/components/icons/triggers/GithubIcon.svelte'
 import type {
 	CaptureTriggerKind,
-	ErrorHandler,
 	Flow,
 	JobTriggerKind,
 	NewScript,
@@ -732,17 +731,3 @@ export function sortTriggers(triggers: Trigger[]): Trigger[] {
 
 export type FlowWithDraftAndDraftTriggers = Flow
 export type NewScriptWithDraftAndDraftTriggers = NewScript & { hash?: string }
-
-export function getHandlerType(scriptPath: string): ErrorHandler {
-	const handlerMap = {
-		teams: '/workspace-or-schedule-error-handler-teams',
-		slack: '/workspace-or-schedule-error-handler-slack',
-		email: '/workspace-or-error-handler-email'
-	}
-	for (const [type, suffix] of Object.entries(handlerMap)) {
-		if (scriptPath.startsWith('hub/') && scriptPath.endsWith(suffix)) {
-			return type as ErrorHandler
-		}
-	}
-	return 'custom'
-}

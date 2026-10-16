@@ -8,17 +8,23 @@ import type { SessionAccess, SessionCapability } from '../sessionCapabilities'
 
 type OperatorRights = Pick<
 	NonNullable<OperatorSettings>,
-	'builder_flows' | 'manage_schedules' | 'manage_triggers'
+	'builder_flows' | 'builder_apps' | 'manage_schedules' | 'manage_triggers'
 >
 
 const ALL_CAPABILITIES: SessionCapability[] = [
 	'write_draft',
 	'write_flow_draft',
+	'write_app_draft',
+	'write_schedule_draft',
+	'write_trigger_draft',
+	'write_resource_draft',
+	'write_variable_draft',
 	'run_preview',
 	'run_flow_preview',
 	'deploy',
 	'manage_code',
 	'manage_flows',
+	'manage_apps',
 	'manage_schedules',
 	'manage_triggers',
 	'admin'
@@ -54,6 +60,21 @@ export function capabilitiesForRole(role: {
 	if (roleCanDraft('flow', user, role.operatorSettings)) {
 		capabilities.add('write_flow_draft')
 	}
+	if (roleCanDraft('raw_app', user, role.operatorSettings)) {
+		capabilities.add('write_app_draft')
+	}
+	if (roleCanDraft('schedule', user, role.operatorSettings)) {
+		capabilities.add('write_schedule_draft')
+	}
+	if (roleCanDraft('trigger', user, role.operatorSettings)) {
+		capabilities.add('write_trigger_draft')
+	}
+	if (roleCanDraft('resource', user, role.operatorSettings)) {
+		capabilities.add('write_resource_draft')
+	}
+	if (roleCanDraft('variable', user, role.operatorSettings)) {
+		capabilities.add('write_variable_draft')
+	}
 	if (authorsCode) {
 		capabilities.add('run_preview')
 		capabilities.add('manage_code')
@@ -61,6 +82,9 @@ export function capabilitiesForRole(role: {
 	if (authorsFlows) {
 		capabilities.add('run_flow_preview')
 		capabilities.add('manage_flows')
+	}
+	if (roleCanAuthor('raw_app', user, role.operatorSettings)) {
+		capabilities.add('manage_apps')
 	}
 	if (roleCanAuthor('schedule', user, role.operatorSettings)) {
 		capabilities.add('manage_schedules')

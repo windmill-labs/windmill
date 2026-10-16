@@ -266,6 +266,17 @@ async fn get_offboard_preview(
         departing.as_deref(), &user_prefix, w_id
     ).fetch_all(db).await?;
 
+    // An agent's identity sits in its value, under any path, the user's own included: those
+    // move with the path but keep running as the departing user until re-pointed.
+    let obo_agents: Vec<String> = sqlx::query_scalar(
+        "SELECT path FROM resource WHERE resource_type = 'ai_agent'
+         AND value->>'on_behalf_of' = $1 AND workspace_id = $2",
+    )
+    .bind(departing.as_deref())
+    .bind(w_id)
+    .fetch_all(db)
+    .await?;
+
     let obo_schedules = sqlx::query_scalar!(
         "SELECT path FROM schedule WHERE permissioned_as = $1 AND NOT path LIKE $2 AND workspace_id = $3",
         &user_owner, &user_prefix, w_id
@@ -354,6 +365,7 @@ async fn get_offboard_preview(
             scripts: obo_scripts,
             flows: obo_flows,
             apps: obo_apps,
+            resources: obo_agents,
             schedules: obo_schedules,
             triggers: obo_triggers,
             ..Default::default()
@@ -1006,6 +1018,16 @@ async fn offboard_user_from_workspace<'c>(
     .fetch_one(&mut **tx)
     .await?
     .unwrap_or(0);
+
+    sqlx::query(
+        "UPDATE resource SET value = jsonb_set(value, '{on_behalf_of}', to_jsonb($1::text))
+         WHERE resource_type = 'ai_agent' AND value->>'on_behalf_of' = $2 AND workspace_id = $3",
+    )
+    .bind(new_permissioned_as)
+    .bind(departing.as_deref())
+    .bind(w_id)
+    .execute(&mut **tx)
+    .await?;
 
     // ---- eval datasets ----
     // The foreign keys cascade the rename onto cases and experiments; the paths held inside JSONB

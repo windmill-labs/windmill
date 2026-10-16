@@ -52,6 +52,8 @@
 	import { captureScale, MAX_IMAGE_EDGE } from '../copilot/chat/imageUtils'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas, userStore } from '$lib/stores'
+	import { useActingUser } from '$lib/actingUser.svelte'
+	import { appPreviewOnBehalfOf } from '$lib/utils/previewOnBehalfOf'
 	import RawAppSdkConsent from './RawAppSdkConsent.svelte'
 	import {
 		hasStoredSdkConsent,
@@ -88,8 +90,11 @@
 	import { randomSecret, randomUUID } from '$lib/utils/uuid'
 	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
+	import { conformBuilderAppPolicy } from './builderAppPolicy'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatorBuilderApps = useOperatorBuilderApps()
 
 	interface Props {
 		files?: Record<string, string>
@@ -255,6 +260,8 @@
 	const opWorkspace = $derived(autosaveWorkspace ?? $operatingWorkspace)
 	// Everything under the editor acts on it too (see operatingWorkspace.svelte.ts).
 	setOperatingWorkspace(() => opWorkspace)
+	const operatingUser = useActingUser(() => opWorkspace)
+	let previewOnBehalfOf = $derived(appPreviewOnBehalfOf(operatingUser.current, policy))
 
 	// The path autosaves land on, which is what the session preview loads the app by.
 	const draftStoragePath = $derived(autosavePath ?? liveEditorDraftStoragePath)
@@ -413,6 +420,11 @@
 			if (url) URL.revokeObjectURL(url)
 		}
 	})
+	// The deploy panel cannot switch Viewer mode off, nor drop the identity an app another user
+	// deployed carries, so the editor conforms the policy as soon as it opens.
+	$effect(() => {
+		if ($operatorBuilderApps && policy) conformBuilderAppPolicy(policy, $userStore)
+	})
 	// An app with sandbox isolation previews the way it runs once deployed: in the
 	// served, opaque-origin shell, framed with the deployed wrapper's flags. The nonce
 	// in its URL authenticates its `windmill:ready`, as in `RawAppPreview`.
@@ -452,7 +464,7 @@ addEventListener('message', function (e) {
     n.hidden = !e.data.text
   } else if (e.source === opener) frame.postMessage(e.data, '*')
 })
-<\/script></head><body><div id="n" hidden></div><iframe src="${window.location.origin}${sandboxedShellUrl}" sandbox="${RAW_APP_SANDBOX_FLAGS}" referrerpolicy="no-referrer"></iframe></body></html>`
+<\/script></head><body><div id="n" hidden></div><iframe src="${window.location.origin}${sandboxedShellUrl}" sandbox="${RAW_APP_SANDBOX_FLAGS}" allow="clipboard-read; clipboard-write; fullscreen" referrerpolicy="no-referrer"></iframe></body></html>`
 				],
 				{ type: 'text/html' }
 			)
@@ -500,6 +512,8 @@ addEventListener('message', function (e) {
 		'The preview is waiting for the user to approve the permissions the app declares in policy.frontend_sdk_scopes, so the app code is not running and the page is empty. This is not a bug in the app: do not change the code. Ask the user to approve the permissions in the preview, then retry.'
 	const SDK_STARTING_TEXT =
 		'The preview is still loading the permissions the app declares in policy.frontend_sdk_scopes, so the app code has not started yet. Retry in a moment.'
+	const VIEWER_PENDING_TEXT =
+		'The preview is still looking up the viewer the app receives in window.ctx, so the app code has not started yet. This is not a bug in the app: do not change the code. Retry in a moment.'
 	const PREVIEW_SETTLE_MS = 1000
 	let editorDestroyed = false
 	// Latest uncaught runtime error thrown by the rendered app; cleared on next build.
@@ -889,6 +903,7 @@ addEventListener('message', function (e) {
 					content: runnable.inlineScript.content ?? ''
 				}
 			}
+			if (runnable.viewer_data_access) backendRunnable.viewerDataAccess = true
 		} else if (isRunnableByPath(runnable)) {
 			// Determine type based on runType
 			if (runnable.runType === 'flow') {
@@ -1192,6 +1207,9 @@ addEventListener('message', function (e) {
 							content: runnable.inlineScript.content,
 							language: runnable.inlineScript.language
 						},
+						...((runnable.viewerDataAccess ?? runnables[key]?.viewer_data_access) && {
+							viewer_data_access: true
+						}),
 						fields: runnable.staticInputs
 							? Object.fromEntries(
 									Object.entries(runnable.staticInputs).map(([k, v]) => [
@@ -1801,12 +1819,13 @@ addEventListener('message', function (e) {
 	}
 
 	function syncExternalPreview() {
-		if (previewSdkPending || !externalPreviewReady) return
+		if (previewSdkPending || previewUserPending || !externalPreviewReady) return
 		if (lastBuild) {
 			postToExternalPreview({
 				type: 'preview',
 				css: lastBuild.css,
 				js: lastBuild.js,
+				ctx: previewCtx(),
 				sdk: previewSdk,
 				storage: previewStorage()
 			})
@@ -1820,17 +1839,40 @@ addEventListener('message', function (e) {
 		// Between dropping a credential and settling its replacement the shell stays
 		// blank; whichever settles last — the mint or the shell's own `load` — starts
 		// the app. Same for a shell still reloading: it replays once ready.
-		if (previewSdkPending || !previewIframeLoaded) return
+		if (previewSdkPending || previewUserPending || !previewIframeLoaded) return
 		runtimeError = undefined
 		emptyRender = false
 		postToPreview({
 			type: 'preview',
 			css: build.css,
 			js: build.js,
+			ctx: previewCtx(),
 			sdk: previewSdk,
 			storage: previewStorage()
 		})
 	}
+
+	// The deployed app's `window.ctx`: the viewer's membership in the app's workspace.
+	function previewCtx() {
+		return $state.snapshot({ ctx: operatingUser.current, workspace: opWorkspace })
+	}
+
+	// A build fed before the viewer is known keeps that viewer until the next one. Outside
+	// the navigation workspace the viewer is looked up; in it, `$userStore` still holds the
+	// previous workspace's membership right after a switch. A failed lookup also settles
+	// this: the app then runs with no viewer, as we don't know who it is.
+	const previewUserPending = $derived(
+		!!opWorkspace &&
+			(!operatingUser.resolved(opWorkspace) ||
+				(!!operatingUser.current && operatingUser.current.workspace_id !== opWorkspace))
+	)
+	$effect(() => {
+		if (previewUserPending) return
+		untrack(() => {
+			if (lastBuild) feedPreviewIframe(lastBuild)
+			syncExternalPreview()
+		})
+	})
 
 	// The shell seeds a fresh document's storage shim from this; unsandboxed
 	// previews use real storage and get none.
@@ -1993,6 +2035,7 @@ addEventListener('message', function (e) {
 		if (buildTracker.pending) return { text: BUILD_PENDING_TEXT }
 		if (sdkPrompt) return { text: SDK_CONSENT_PENDING_TEXT }
 		if (previewSdkPending) return { text: SDK_STARTING_TEXT }
+		if (previewUserPending) return { text: VIEWER_PENDING_TEXT }
 		const res = await readPreviewDom(query)
 		return res && buildError !== undefined
 			? { text: `${buildFailedText(buildError)}\n\n${res.text}` }
@@ -2171,6 +2214,7 @@ addEventListener('message', function (e) {
 		if (buildTracker.pending) throw new Error(BUILD_PENDING_TEXT)
 		if (sdkPrompt) throw new Error(SDK_CONSENT_PENDING_TEXT)
 		if (previewSdkPending) throw new Error(SDK_STARTING_TEXT)
+		if (previewUserPending) throw new Error(VIEWER_PENDING_TEXT)
 		if (buildError !== undefined) throw new Error(buildFailedText(buildError))
 		const body = await requestFromPreview('elementRect', { selector: 'body' })
 		if (!body?.rect) throw new Error('App preview is not ready')
@@ -2557,6 +2601,7 @@ addEventListener('message', function (e) {
 	bind:jobsById
 	{runnables}
 	{path}
+	{previewOnBehalfOf}
 	gateJobIds={sandboxed}
 	extraSourceWindow={() => externalPreviewWindow}
 />
@@ -2764,6 +2809,7 @@ addEventListener('message', function (e) {
 											{#if selectedRunnable !== undefined}
 												<RawAppInlineScriptsPanel
 													appPath={path}
+													{previewOnBehalfOf}
 													{selectedRunnable}
 													bind:runnables
 													onSelectionChange={(selection) => {
@@ -2848,6 +2894,8 @@ addEventListener('message', function (e) {
 												title="Replay the last build into the preview"
 												aria-label="Rebuild"
 												onClick={() => {
+													// Retries a viewer lookup that failed; the hold replays the build once it answers.
+													operatingUser.forgetFailures()
 													if (lastBuild) {
 														feedPreviewIframe(lastBuild)
 													}
@@ -2889,6 +2937,7 @@ addEventListener('message', function (e) {
 											title="App preview"
 											src={previewShellUrl}
 											sandbox={sandboxed ? RAW_APP_SANDBOX_FLAGS : undefined}
+											allow="clipboard-read; clipboard-write; fullscreen"
 											referrerpolicy={sandboxed ? 'no-referrer' : undefined}
 											class="w-full flex-1 block"
 										></iframe>

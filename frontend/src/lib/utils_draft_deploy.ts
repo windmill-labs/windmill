@@ -46,6 +46,7 @@ import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
 import { userStore } from '$lib/stores'
 import { deployTriggers, type Trigger } from '$lib/components/triggers/utils'
 import { saveScheduleFromCfg } from '$lib/components/flows/scheduleUtils'
+import { dropStaleStepLocks } from '$lib/components/flows/staleStepLocks'
 import { saveHttpRouteFromCfg } from '$lib/components/triggers/http/utils'
 import { saveWebsocketTriggerFromCfg } from '$lib/components/triggers/websocket/utils'
 import { savePostgresTriggerFromCfg } from '$lib/components/triggers/postgres/utils'
@@ -233,8 +234,14 @@ function canonicalizeDraftDiffValue(kind: DraftKind, raw: any, isDraft: boolean)
 	if (kind === 'resource') {
 		// draft: { args, description, resource_type, labels, wsSpecific }
 		// deployed row: { value, description, resource_type, labels, ws_specific }
+		// An agent's identity is in its deployed value and never in a draft, which is not an edit.
+		let value = (isDraft ? raw.args : raw.value) ?? {}
+		if (raw.resource_type === 'ai_agent') {
+			const { on_behalf_of: _, ...rest } = value
+			value = rest
+		}
 		return {
-			value: (isDraft ? raw.args : raw.value) ?? {},
+			value,
 			description: raw.description ?? '',
 			resource_type: raw.resource_type ?? undefined,
 			labels: raw.labels ?? undefined,
@@ -469,7 +476,15 @@ export async function deployDraft(
 			const r = (await ScriptService.getScriptByPath({ workspace, path, getDraft: true })) as any
 			const d = r.draft ?? r
 			// Drop editor-only / server-managed keys; deploy as a real (non-draft) version.
-			const { draft_triggers: draftTriggers, draft_only: _o, ...rest } = d
+			// A draft seeded from the deployed script carries its `lock`, and the backend skips
+			// the dependency job whenever `lock` is set, so the new content would keep the old lock.
+			const {
+				draft_triggers: draftTriggers,
+				draft_only: _o,
+				lock: _lock,
+				lock_error_logs: _lockErrorLogs,
+				...rest
+			} = d
 			const scriptPath = d.path ?? path
 			// Deploy at the draft's path so a rename in the draft is honored (same as
 			// the editor: createScript at the new path with parent_hash links lineage).
@@ -490,6 +505,9 @@ export async function deployDraft(
 		} else if (kind === 'flow') {
 			const r = (await FlowService.getFlowByPath({ workspace, path, getDraft: true })) as any
 			const d = r.draft ?? r
+			const value = d.value ? structuredClone(d.value) : d.value
+			// With nothing deployed the server fills `r.value` from the draft itself.
+			if (value) dropStaleStepLocks(value, draftOnly || r.no_deployed ? undefined : r.value)
 			const requestBody = {
 				// Deploy at the draft's intended path: flow/app/raw-app drafts keep the
 				// user-typed path in `draft_path` (a never-deployed item is parked at a
@@ -498,7 +516,7 @@ export async function deployDraft(
 				path: d.draft_path ?? d.path ?? path,
 				summary: d.summary ?? '',
 				description: d.description ?? '',
-				value: d.value,
+				value,
 				schema: d.schema,
 				tag: d.tag,
 				dedicated_worker: d.dedicated_worker,
@@ -538,14 +556,20 @@ export async function deployDraft(
 			// no draft. `draft_path` and `summary` are draft-only fields mirrored onto
 			// the App value (the editor drops them on deploy), so strip them from the
 			// value and apply them as the deploy path / summary column.
+			// `parent_version` is the draft's stale-check base, never deployed.
 			const draft = r.draft as Record<string, any> | undefined
-			const { draft_path: draftPath, summary: draftSummary, ...appValue } = draft ?? r.value ?? {}
+			const {
+				draft_path: draftPath,
+				summary: draftSummary,
+				parent_version: _pv,
+				...appValue
+			} = draft ?? r.value ?? {}
 			// Policy isn't carried in the app draft, so it comes from the deployed app
 			// (or a default). custom_path requires admin on update; non-admins send
 			// undefined so the backend preserves the existing route. The draft has no
 			// custom_path, so admins fall back to the deployed route (`''` when none).
 			const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
-			const policy = r.policy ?? { execution_mode: 'publisher' }
+			const policy = r.policy ?? { execution_mode: 'publisher', sandbox: true }
 			const requestBody = {
 				value: appValue,
 				summary: draftSummary ?? r.summary ?? '',
@@ -640,12 +664,18 @@ export async function deployDraft(
 					}
 				})
 			} else {
+				// As for an app: an agent draft carries no identity, so the deployed one is kept (the
+				// backend resets it to the deploying user without the flag, gated by
+				// can_preserve_on_behalf_of).
+				const agentObo =
+					deployed.resource_type === 'ai_agent' ? deployed.value?.on_behalf_of : undefined
 				await ResourceService.updateResource({
 					workspace,
 					path,
 					requestBody: {
 						path: d.path ?? path,
-						value: d.args ?? {},
+						value: agentObo ? { ...(d.args ?? {}), on_behalf_of: agentObo } : (d.args ?? {}),
+						preserve_on_behalf_of: agentObo ? true : undefined,
 						description: d.description ?? '',
 						labels: d.labels,
 						ws_specific: d.wsSpecific

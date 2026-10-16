@@ -1,31 +1,15 @@
-use std::{
-    collections::HashMap,
-    ffi::{c_char, c_uint, CStr, CString},
-    ptr::null_mut,
-    sync::LazyLock,
-};
+//! DuckDB execution for windmill jobs. The worker never loads this crate: it runs
+//! `windmill_duckdb_runner` (src/bin), which calls [`run`] / [`prepare`] in a process of its
+//! own, under the worker's job isolation. Kept out of the backend workspace because the
+//! bundled engine's libc++ clashes with `deno_core`'s in one process.
+
+use std::{collections::HashMap, sync::LazyLock};
 
 use duckdb::{core::LogicalTypeId, params_from_iter, types::TimeUnit, Row};
 use regex::Regex;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
-
-// Worker passes "" for "no override" — saves an extra C string nullability dance.
-// Returns an owned String so the value outlives the raw pointer's lifetime.
-fn ptr_to_opt_str(ptr: *const c_char) -> Result<Option<String>, String> {
-    if ptr.is_null() {
-        return Ok(None);
-    }
-    let s = unsafe { CStr::from_ptr(ptr) }
-        .to_str()
-        .map_err(|e| format!("Invalid string in duckdb ffi: {}", e))?;
-    Ok(if s.is_empty() {
-        None
-    } else {
-        Some(s.to_owned())
-    })
-}
 
 #[derive(Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct Arg {
@@ -34,95 +18,69 @@ pub struct Arg {
     pub json_value: serde_json::Value,
 }
 
-// Freeing from the caller side crashes the runtime with jemalloc enabled (EXIT CODE 11 SEGFAULT)
-#[unsafe(no_mangle)]
-pub extern "C" fn free_cstr(string: *mut c_char) -> () {
-    if string.is_null() {
-        return;
-    }
-    unsafe {
-        let _ = CString::from_raw(string);
-    }
+/// Everything a connection is set up with before the script's first block runs.
+pub struct Connection<'a> {
+    /// The job token: the S3/GCS secrets against the workspace's S3 proxy are derived from it.
+    pub token: &'a str,
+    pub base_internal_url: &'a str,
+    pub w_id: &'a str,
+    pub memory_limit: Option<String>,
+    /// Where DuckDB spills; the job dir, so the spill is cleaned up with the job.
+    pub temp_directory: Option<String>,
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn get_version() -> c_uint {
-    // Increment when making breaking changes to the FFI interface.
-    // The windmill worker will check that the version matches or else refuse to call
-    // the FFI functions to avoid undefined behavior.
-    return 3;
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn run_duckdb_ffi(
-    query_block_list: *const *const c_char,
-    query_block_list_count: usize,
-    job_args: *const c_char,
-    token: *const c_char,
-    base_internal_url: *const c_char,
-    w_id: *const c_char,
-    memory_limit: *const c_char,
-    temp_directory: *const c_char,
-    // 0 means unbounded; the worker sends its own budget-derived cap.
+/// Runs the blocks in order on one in-memory connection and returns every collected result,
+/// serialized, plus the last statement's column order. `max_result_size` 0 is unbounded.
+pub fn run(
+    blocks: &[String],
+    job_args: Vec<Arg>,
+    conn: Connection<'_>,
     max_result_size: usize,
-    column_order_ptr: *mut *mut c_char,
     collect_last_only: bool,
     collect_first_row_only: bool,
-) -> *mut c_char {
-    let resource_limits = match (ptr_to_opt_str(memory_limit), ptr_to_opt_str(temp_directory)) {
-        (Ok(m), Ok(t)) => Ok(ResourceLimits::from_ffi(m, t)),
-        (Err(e), _) | (_, Err(e)) => Err(e),
-    };
-    let (r, column_order) = match convert_args(
-        query_block_list,
-        query_block_list_count,
-        job_args,
-        token,
-        base_internal_url,
-        w_id,
+) -> Result<(String, Option<Vec<String>>), String> {
+    let limits = ResourceLimits::new(conn.memory_limit, conn.temp_directory);
+    run_duckdb_internal(
+        blocks.iter().map(String::as_str),
+        blocks.len(),
+        job_args_to_values(job_args),
+        conn.token,
+        conn.base_internal_url,
+        conn.w_id,
+        limits,
+        max_result_size,
+        collect_last_only,
+        collect_first_row_only,
     )
-    .and_then(|args| resource_limits.map(|r| (args, r)))
-    .and_then(
-        |((query_block_list, job_args, token, base_internal_url, w_id), limits)| {
-            run_duckdb_internal(
-                query_block_list,
-                query_block_list_count,
-                job_args,
-                token,
-                base_internal_url,
-                w_id,
-                limits,
-                max_result_size,
-                collect_last_only,
-                collect_first_row_only,
-            )
-        },
-    ) {
-        Ok(result) => result,
-        Err(err) => {
-            let err = serde_json::to_string(&err)
-                .unwrap_or_else(|_| "Unknown error in duckdb ffi lib".to_string());
-            (format!("ERROR {}", err), None)
-        }
-    };
+}
 
-    unsafe {
-        if let Some(column_order) = column_order {
-            let column_order =
-                serde_json::to_string(&column_order).unwrap_or_else(|_| "[]".to_string());
-            let c_column_order =
-                CString::new(column_order).unwrap_or_else(|_| CString::new("[]").unwrap());
-            *column_order_ptr = c_column_order.into_raw();
-        } else {
-            *column_order_ptr = null_mut();
-        }
-    }
-    // CString::into_raw because it needs to outlive this function call.
-    // The caller is responsible for freeing the memory through CString::from_raw.
-    CString::new(r).map(|s| s.into_raw()).unwrap_or_else(|e| {
-        println!("Failed to allocate error string in duckdb ffi lib: {:?}", e);
-        null_mut()
-    })
+/// Describes each non-setup block's result columns without running it.
+pub fn prepare(blocks: &[String], conn: Connection<'_>) -> Result<String, String> {
+    let limits = ResourceLimits::new(conn.memory_limit, conn.temp_directory);
+    prepare_duckdb_internal(
+        blocks.iter().map(String::as_str).collect(),
+        conn.token,
+        conn.base_internal_url,
+        conn.w_id,
+        limits,
+    )
+}
+
+fn job_args_to_values(job_args: Vec<Arg>) -> HashMap<String, duckdb::types::Value> {
+    job_args
+        .into_iter()
+        .map(|arg| {
+            let duckdb_value = json_value_to_duckdb_value(&arg.json_value, &arg.arg_type)
+                .unwrap_or_else(|e| {
+                    println!(
+                        "Error converting job_arg {} to duckdb value: {}",
+                        arg.name, e
+                    );
+                    duckdb::types::Value::Null
+                });
+            (arg.name, duckdb_value)
+        })
+        .collect()
 }
 
 #[derive(Serialize, Debug)]
@@ -187,47 +145,6 @@ fn replace_params_with_null(query: &str) -> String {
     PARAM_RE.replace_all(query, "NULL").to_string()
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn prepare_duckdb_ffi(
-    query_block_list: *const *const c_char,
-    query_block_list_count: usize,
-    token: *const c_char,
-    base_internal_url: *const c_char,
-    w_id: *const c_char,
-    memory_limit: *const c_char,
-    temp_directory: *const c_char,
-) -> *mut c_char {
-    let resource_limits = match (ptr_to_opt_str(memory_limit), ptr_to_opt_str(temp_directory)) {
-        (Ok(m), Ok(t)) => Ok(ResourceLimits::from_ffi(m, t)),
-        (Err(e), _) | (_, Err(e)) => Err(e),
-    };
-    let r = match convert_prepare_args(
-        query_block_list,
-        query_block_list_count,
-        token,
-        base_internal_url,
-        w_id,
-    )
-    .and_then(|args| resource_limits.map(|r| (args, r)))
-    .and_then(
-        |((query_block_list, token, base_internal_url, w_id), limits)| {
-            prepare_duckdb_internal(query_block_list, token, base_internal_url, w_id, limits)
-        },
-    ) {
-        Ok(result) => result,
-        Err(err) => {
-            let err = serde_json::to_string(&err)
-                .unwrap_or_else(|_| "Unknown error in duckdb ffi lib".to_string());
-            format!("ERROR {}", err)
-        }
-    };
-
-    CString::new(r).map(|s| s.into_raw()).unwrap_or_else(|e| {
-        println!("Failed to allocate error string in duckdb ffi lib: {:?}", e);
-        null_mut()
-    })
-}
-
 #[derive(Clone, Default)]
 struct ResourceLimits {
     memory_limit: Option<String>,
@@ -236,11 +153,10 @@ struct ResourceLimits {
 }
 
 impl ResourceLimits {
-    // The spill cap comes from the environment rather than from an FFI parameter: this
-    // cdylib is versioned separately from the worker and agent workers ship it out of band,
-    // so a signature change costs an ABI bump and a coordinated redeploy for what is a
-    // config value. Unset keeps DuckDB's default of 90% of the temp volume's free space.
-    fn from_ffi(memory_limit: Option<String>, temp_directory: Option<String>) -> Self {
+    // The spill cap is the worker's DUCKDB_MAX_TEMP_DIRECTORY_SIZE, passed through to the
+    // runner's environment. Unset keeps DuckDB's default of 90% of the temp volume's free
+    // space. A script can raise it, as it can write the job dir any other way.
+    fn new(memory_limit: Option<String>, temp_directory: Option<String>) -> Self {
         let max_temp_directory_size = std::env::var("DUCKDB_MAX_TEMP_DIRECTORY_SIZE")
             .ok()
             .map(|v| v.trim().to_string())
@@ -253,10 +169,9 @@ fn sql_single_quote(s: &str) -> String {
     s.replace('\'', "''")
 }
 
-// Bounds memory so DuckDB spills before blowing the cgroup cap and getting the worker
-// SIGKILLed, and bounds the spill so one query cannot fill its disk. Spill goes to the job
-// dir when set, so it is cleaned up with the job; either way the directory and its cap are
-// then locked for the rest of the connection.
+// Bounds memory so DuckDB spills before blowing the cgroup cap and getting the job
+// SIGKILLed, and sets a default bound on the spill. Spill goes to the job dir when set, so it
+// is cleaned up with the job.
 fn configure_duckdb_resource_limits(
     conn: &duckdb::Connection,
     limits: &ResourceLimits,
@@ -301,11 +216,7 @@ fn configure_duckdb_resource_limits(
             )
         })?;
     }
-    // Freeze both before any script statement can touch them. A remote temp directory makes
-    // `~TemporaryDirectoryHandle` throw out of a `noexcept` destructor — `std::terminate`,
-    // taking this in-process worker and every job on it down, uncatchable from Rust — and a
-    // cap a script can raise bounds nothing.
-    run("SET lock_temp_directory=true;\n")
+    Ok(())
 }
 
 fn setup_duckdb_connection(
@@ -351,39 +262,6 @@ fn setup_duckdb_connection(
         ",
     ))
     .map_err(|e| format!("Error setting up S3 secret: {}", e.to_string()))
-}
-
-fn convert_prepare_args<'a>(
-    query_block_list: *const *const c_char,
-    query_block_list_count: usize,
-    token: *const c_char,
-    base_internal_url: *const c_char,
-    w_id: *const c_char,
-) -> Result<(Vec<&'a str>, &'a str, &'a str, &'a str), String> {
-    let query_block_list = unsafe {
-        std::slice::from_raw_parts(query_block_list, query_block_list_count)
-            .iter()
-            .map(|q| {
-                CStr::from_ptr(*q).to_str().unwrap_or_else(|e| {
-                    println!(
-                        "Invalid query_block string pointer in duckdb ffi: {}",
-                        e.to_string()
-                    );
-                    "Invalid query_block string pointer in duckdb ffi"
-                })
-            })
-            .collect::<Vec<_>>()
-    };
-    let token = unsafe { CStr::from_ptr(token) }
-        .to_str()
-        .map_err(|e| format!("Invalid token string: {}", e.to_string()))?;
-    let base_internal_url = unsafe { CStr::from_ptr(base_internal_url) }
-        .to_str()
-        .map_err(|e| format!("Invalid base_internal_url string: {}", e.to_string()))?;
-    let w_id = unsafe { CStr::from_ptr(w_id) }
-        .to_str()
-        .map_err(|e| format!("Invalid w_id string: {}", e.to_string()))?;
-    Ok((query_block_list, token, base_internal_url, w_id))
 }
 
 fn prepare_duckdb_internal(
@@ -451,67 +329,6 @@ fn prepare_duckdb_internal(
     }
 
     serde_json::to_string(&results).map_err(|e| e.to_string())
-}
-
-fn convert_args<'a>(
-    query_block_list: *const *const c_char,
-    query_block_list_count: usize,
-    job_args: *const c_char,
-    token: *const c_char,
-    base_internal_url: *const c_char,
-    w_id: *const c_char,
-) -> Result<
-    (
-        impl Iterator<Item = &'a str>,
-        HashMap<String, duckdb::types::Value>,
-        &'a str,
-        &'a str,
-        &'a str,
-    ),
-    String,
-> {
-    let query_block_list = unsafe {
-        std::slice::from_raw_parts(query_block_list, query_block_list_count)
-            .iter()
-            .map(|q| {
-                CStr::from_ptr(*q).to_str().unwrap_or_else(|e| {
-                    println!(
-                        "Invalid query_block string pointer in duckdb ffi: {}",
-                        e.to_string()
-                    );
-                    "Invalid query_block string pointer in duckdb ffi"
-                })
-            })
-    };
-    let job_args_str = unsafe { CStr::from_ptr(job_args) }
-        .to_str()
-        .map_err(|e| format!("Invalid job_args string: {}", e.to_string()))?;
-    let job_args: Vec<Arg> = serde_json::from_str(job_args_str)
-        .map_err(|e| format!("Invalid job_args JSON: {}", e.to_string()))?;
-    let job_args: HashMap<String, duckdb::types::Value> = job_args
-        .into_iter()
-        .map(|arg| {
-            let duckdb_value = json_value_to_duckdb_value(&arg.json_value, &arg.arg_type)
-                .unwrap_or_else(|e| {
-                    println!(
-                        "Error converting job_arg {} to duckdb value: {}",
-                        arg.name, e
-                    );
-                    duckdb::types::Value::Null
-                });
-            (arg.name, duckdb_value)
-        })
-        .collect();
-    let token = unsafe { CStr::from_ptr(token) }
-        .to_str()
-        .map_err(|e| format!("Invalid token string: {}", e.to_string()))?;
-    let base_internal_url = unsafe { CStr::from_ptr(base_internal_url) }
-        .to_str()
-        .map_err(|e| format!("Invalid base_internal_url string: {}", e.to_string()))?;
-    let w_id = unsafe { CStr::from_ptr(w_id) }
-        .to_str()
-        .map_err(|e| format!("Invalid w_id string: {}", e.to_string()))?;
-    Ok((query_block_list, job_args, token, base_internal_url, w_id))
 }
 
 // TODO : Better error return to leverage different error kinds on the worker side
@@ -1230,8 +1047,8 @@ mod temporal_json_tests {
 
     // Numbers too wide for a JSON number are rendered as strings. DECIMAL runs to
     // 38 digits and UHUGEINT to 2^128-1; rendering either through a type that
-    // cannot hold it aborts the whole worker rather than erroring, because the
-    // panic escapes an `extern "C"` frame and those cannot unwind.
+    // cannot hold it panics, which kills the runner and fails the job with no
+    // engine message to show for it.
     #[test]
     fn wide_numbers_render_as_strings_without_losing_precision() {
         let conn = duckdb::Connection::open_in_memory().unwrap();
@@ -1676,215 +1493,4 @@ fn string_to_duckdb_time(s: &str) -> Result<duckdb::types::Value, String> {
         TimeUnit::Microsecond,
         time.num_seconds_from_midnight() as i64,
     ))
-}
-
-// The bundled engine is not stock (docs/duckdb-isolation.md). These guard the ways an engine
-// bump can drop the patches without anything else noticing.
-#[cfg(test)]
-mod patched_engine_tests {
-    use super::*;
-
-    /// Too large to be answered within the `memory_limit` `spill_attempt` sets, so the engine
-    /// has to reach the temp directory to finish it.
-    const SPILLING_QUERY: &str = "CREATE TABLE t AS SELECT * FROM range(1000000)";
-
-    /// Every connection is locked at setup, so no script statement can move the temp
-    /// directory onto a remote filesystem — where the spill fails and the
-    /// `~TemporaryDirectoryHandle` cleaning up throws out of a `noexcept` destructor,
-    /// aborting the worker and every job colocated on it.
-    #[test]
-    fn configured_connections_cannot_have_their_temp_directory_moved() {
-        let temp_dir = std::env::temp_dir().join(format!(
-            "windmill_duckdb_locked_{}_{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        std::fs::create_dir_all(&temp_dir).unwrap();
-
-        let conn = duckdb::Connection::open_in_memory().unwrap();
-        configure_duckdb_resource_limits(
-            &conn,
-            &ResourceLimits {
-                memory_limit: Some("2MB".to_string()),
-                temp_directory: Some(temp_dir.display().to_string()),
-                max_temp_directory_size: None,
-            },
-        )
-        .unwrap();
-
-        for stmt in [
-            "SET temp_directory='s3://bucket/tmp'",
-            "SET temp_directory TO 's3://bucket/tmp'",
-            "PRAGMA temp_directory='s3://bucket/tmp'",
-            "RESET temp_directory",
-        ] {
-            let err = conn
-                .execute_batch(stmt)
-                .expect_err(&format!("engine accepted `{stmt}` on a locked connection"));
-            assert!(
-                err.to_string().contains("temp directory has been locked"),
-                "unexpected refusal for `{stmt}`: {err}"
-            );
-        }
-
-        // The lock must not cost the spilling it exists to protect.
-        let spilled = conn.execute_batch(SPILLING_QUERY);
-        std::fs::remove_dir_all(&temp_dir).ok();
-        spilled.expect("a locked temp directory must still be usable for spilling");
-    }
-
-    /// `DUCKDB_MAX_TEMP_DIRECTORY_SIZE` is the only thing standing between one query and the
-    /// worker's whole disk, so pin that a configured connection really does stop at it, names
-    /// the setting when it does, and leaves nothing behind for the next job to trip over.
-    #[test]
-    fn spilling_past_the_configured_cap_fails_the_query_and_cleans_up() {
-        let temp_dir = std::env::temp_dir().join(format!(
-            "windmill_duckdb_capped_{}_{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        std::fs::create_dir_all(&temp_dir).unwrap();
-
-        let spill_under_cap = |cap: &str| {
-            let conn = duckdb::Connection::open_in_memory().unwrap();
-            configure_duckdb_resource_limits(
-                &conn,
-                &ResourceLimits {
-                    memory_limit: Some("2MB".to_string()),
-                    temp_directory: Some(temp_dir.display().to_string()),
-                    max_temp_directory_size: Some(cap.to_string()),
-                },
-            )
-            .unwrap();
-            conn.execute_batch(SPILLING_QUERY)
-                .map_err(|e| e.to_string())
-        };
-
-        let err = spill_under_cap("1MB").expect_err("the cap did not stop the spill");
-        // Verbatim because the worker matches on it (`SPILL_CAP_ENGINE_MARKER` in
-        // `duckdb_executor.rs`) to correct the engine's advice to raise the cap, which the
-        // lock refuses. An engine bump that rewords this has to update that too.
-        assert!(
-            err.contains("This limit was set by the 'max_temp_directory_size' setting"),
-            "the refusal must name the setting an operator can act on, got: {err}"
-        );
-        let leftover: Vec<_> = std::fs::read_dir(&temp_dir)
-            .unwrap()
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .collect();
-        assert!(
-            leftover.is_empty(),
-            "a query killed by the cap must not leave its spill behind: {leftover:?}"
-        );
-
-        // DuckDB compresses temp files, so the failure above is only evidence of the cap if
-        // the same query gets through once the cap is out of the way.
-        let generous = spill_under_cap("1GB");
-        std::fs::remove_dir_all(&temp_dir).ok();
-        generous.expect("the query must still spill and finish under a cap that fits it");
-    }
-
-    fn spill_attempt(temp_dir: &std::path::Path, lock: bool) -> Result<(), String> {
-        let conn = duckdb::Connection::open_in_memory().unwrap();
-        conn.execute_batch(&format!(
-            "SET threads=2; SET memory_limit='2MB'; SET temp_directory='{}';",
-            temp_dir.display()
-        ))
-        .unwrap();
-        if lock {
-            conn.execute_batch("SET lock_temp_directory=true;")
-                .map_err(|e| format!("lock_temp_directory rejected: {e}"))?;
-        }
-        conn.execute_batch("SET disabled_filesystems='LocalFileSystem';")
-            .unwrap();
-        conn.execute_batch(SPILLING_QUERY)
-            .map_err(|e| e.to_string())
-    }
-
-    #[test]
-    fn locking_the_temp_directory_keeps_spilling_available() {
-        let temp_dir = std::env::temp_dir().join(format!(
-            "windmill_duckdb_spill_{}_{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        std::fs::create_dir_all(&temp_dir).unwrap();
-
-        // Without the lock the fence reaches the buffer manager too, which is both the
-        // stock engine's behaviour and the proof that this query really does spill —
-        // otherwise the assertion below would pass on an unpatched engine.
-        let unlocked = spill_attempt(&temp_dir, false).expect_err("query did not need to spill");
-        assert!(
-            unlocked.contains("LocalFileSystem has been disabled"),
-            "expected the fence to stop the spill, got: {unlocked}"
-        );
-
-        let locked = spill_attempt(&temp_dir, true);
-        std::fs::remove_dir_all(&temp_dir).ok();
-        locked.expect("a locked temp directory must stay usable behind disabled_filesystems");
-    }
-
-    /// The exemption above is only sound while neither the spill's destination nor its size
-    /// can be changed: repointing the directory is a write primitive through the very fence
-    /// it is exempt from, and raising the cap leaves the disk unbounded. A rebase can drop
-    /// either half while leaving the spill test green, so pin both.
-    #[test]
-    fn locking_the_temp_directory_makes_it_immutable() {
-        let conn = duckdb::Connection::open_in_memory().unwrap();
-        conn.execute_batch("SET temp_directory='/tmp/windmill_duckdb_lock_probe';")
-            .unwrap();
-        conn.execute_batch("SET lock_temp_directory=true;")
-            .expect("the patched engine must accept lock_temp_directory");
-
-        for stmt in [
-            "SET temp_directory='/tmp/windmill_duckdb_elsewhere';",
-            "RESET temp_directory;",
-            "SET max_temp_directory_size='100GB';",
-            "RESET max_temp_directory_size;",
-            "SET lock_temp_directory=false;",
-            "RESET lock_temp_directory;",
-        ] {
-            let err = conn.execute_batch(stmt).expect_err(&format!(
-                "`{stmt}` must be refused once the directory is locked"
-            ));
-            assert!(
-                err.to_string().contains("locked"),
-                "expected a lock refusal for `{stmt}`, got: {err}"
-            );
-        }
-    }
-
-    // The engine loads the *prebuilt* extensions from extensions.duckdb.org, which are
-    // compiled against the struct layouts of the release it claims to be. A patch that
-    // moves a member those extensions reach does not fail — the extension reads the
-    // neighbouring field and LOAD blocks forever — so this is a timeout, not an assertion.
-    #[test]
-    fn prebuilt_extensions_still_load() {
-        let conn = duckdb::Connection::open_in_memory().unwrap();
-        // Fetching the extension needs egress, which loading it back — the part this guards —
-        // does not. Skipping keeps a developer offline from seeing a failure they can't act on,
-        // but never in CI, where a skip and a pass would be indistinguishable.
-        if let Err(e) = conn.execute_batch("INSTALL httpfs;") {
-            assert!(
-                std::env::var_os("CI").is_none(),
-                "could not install httpfs, so the extension-load guard did not run: {e}"
-            );
-            eprintln!("skipping: INSTALL httpfs failed ({e})");
-            return;
-        }
-        let (tx, rx) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
-            tx.send(
-                conn.execute_batch("LOAD httpfs;")
-                    .map_err(|e| e.to_string()),
-            )
-        });
-        match rx.recv_timeout(std::time::Duration::from_secs(120)) {
-            Ok(r) => r.expect("could not load httpfs"),
-            Err(_) => panic!(
-                "LOAD httpfs did not return: the patched engine's struct layout no longer matches \
-                 the release the prebuilt extensions were built against"
-            ),
-        }
-    }
 }

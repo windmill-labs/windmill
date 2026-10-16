@@ -367,7 +367,7 @@ pub async fn uv_pip_compile(
             args.extend(["--cert", cert_path]);
         }
         if *NATIVE_CERT {
-            args.extend(["--native-tls"]);
+            args.extend(["--system-certs"]);
         }
         if let Some(exclude_newer) = uv_exclude_newer.as_deref() {
             args.extend(["--exclude-newer", exclude_newer]);
@@ -791,7 +791,8 @@ pub async fn handle_python_job(
         None
     };
 
-    let (py_version, mut additional_python_paths) = handle_python_deps(
+    let module_sources = windmill_parser_py_imports::module_sources(&script_path, modules.as_ref());
+    let (py_version, mut additional_python_paths) = handle_python_deps_with_modules(
         job_dir,
         requirements_o,
         inner_content,
@@ -807,6 +808,7 @@ pub async fn handle_python_job(
         precomputed_agent_info,
         annotations.clone(),
         &temp_script_refs,
+        module_sources.as_ref(),
     )
     .await?;
 
@@ -1939,6 +1941,7 @@ async fn replace_pip_secret(
     }
 }
 
+#[cfg(feature = "private")]
 pub(crate) async fn handle_python_deps(
     job_dir: &str,
     requirements_o: Option<&String>,
@@ -1955,6 +1958,45 @@ pub(crate) async fn handle_python_deps(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     annotations: PythonAnnotations,
     temp_script_refs: &Option<HashMap<String, String>>,
+) -> error::Result<(PyV, Vec<String>)> {
+    handle_python_deps_with_modules(
+        job_dir,
+        requirements_o,
+        inner_content,
+        w_id,
+        script_path,
+        job_id,
+        conn,
+        worker_name,
+        worker_dir,
+        mem_peak,
+        canceled_by,
+        occupancy_metrics,
+        precomputed_agent_info,
+        annotations,
+        temp_script_refs,
+        None,
+    )
+    .await
+}
+
+async fn handle_python_deps_with_modules(
+    job_dir: &str,
+    requirements_o: Option<&String>,
+    inner_content: &str,
+    w_id: &str,
+    script_path: &str,
+    job_id: &Uuid,
+    conn: &Connection,
+    worker_name: &str,
+    worker_dir: &str,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    precomputed_agent_info: Option<PrecomputedAgentInfo>,
+    annotations: PythonAnnotations,
+    temp_script_refs: &Option<HashMap<String, String>>,
+    module_sources: Option<&HashMap<String, String>>,
 ) -> error::Result<(PyV, Vec<String>)> {
     create_dependencies_dir(job_dir).await;
 
@@ -1984,6 +2026,7 @@ pub(crate) async fn handle_python_deps(
                         &mut locked_v,
                         &None,
                         temp_script_refs,
+                        module_sources,
                     ))
                     .await?;
 
@@ -2247,7 +2290,7 @@ async fn spawn_uv_install(
             vars.push(("TRUSTED_HOST", host));
         }
         if *NATIVE_CERT {
-            vars.push(("UV_NATIVE_TLS", "true"));
+            vars.push(("UV_SYSTEM_CERTS", "true"));
         }
         if let Some(timeout) = UV_HTTP_TIMEOUT.as_ref() {
             vars.push(("UV_HTTP_TIMEOUT", timeout.as_str()));
@@ -2371,7 +2414,7 @@ async fn spawn_uv_install(
             });
         }
         if *NATIVE_CERT {
-            command_args.extend(["--native-tls"]);
+            command_args.extend(["--system-certs"]);
         }
         // TODO:
         // Track https://github.com/astral-sh/uv/issues/6715

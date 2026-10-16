@@ -54,7 +54,7 @@
 	import EditorHeader from '$lib/components/EditorHeader.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
-	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import AutosaveIndicator from '$lib/components/AutosaveIndicator.svelte'
 	import { editPathFor } from '$lib/components/workspacePicker'
 	import { invalidateWorkspacePaths } from '$lib/components/PathNameAutocomplete.svelte'
@@ -261,27 +261,27 @@
 
 	// Top-bar responsive collapse — container width, not viewport.
 	let topbarWidth = $state(0)
-	// In the page header the buttons share the row with the breadcrumb, so they shed the canvas
-	// toggles and fold Debug runs into the menu sooner: the whole group is ~840px and the trail
-	// with the summary takes ~430px of the same row.
-	// Measured on the band rather than estimated: with the canvas toggles shown the actions alone
-	// are 826-911px and the trail with the summary another ~500, so the row overflows the bar at
-	// every width up to about 1470 — 1350 was not high enough either. Below this the toggles stand
-	// down and the menu carries all three, which is what keeps them reachable rather than merely
-	// out of the way.
-	const compactBelow = $derived(ownsPageHeader ? 1500 : 720)
-	const compactTopbar = $derived.by(() => {
-		const w = ownsPageHeader ? pageHeader.barWidth : topbarWidth
-		return w > 0 && w < compactBelow
-	})
-	// A phone's bar holds the trail and Deploy. Which panels are open, the export and the
-	// editor/preview switch join the menu compact already shows.
-	const phoneTopbar = $derived(
-		ownsPageHeader && pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR
+	// In the page header the bar folds the buttons (`actionFolds` below), once its breadcrumb has
+	// given all it can; anywhere else this editor's own top bar is theirs alone. Folded, the canvas
+	// toggles stand down and the menu carries them and Debug runs, which keeps them reachable
+	// rather than merely out of the way.
+	const compactTopbar = $derived(
+		ownsPageHeader ? pageHeader.actionFold >= 1 : topbarWidth > 0 && topbarWidth < 720
 	)
+	// The second fold holds the trail and Deploy. Which panels are open, the export and the
+	// editor/preview switch join the menu compact already shows.
+	const phoneTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 2)
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
+	}
+
+	// `parent_version` is the draft's stale-check base. Deployed, it would put a version
+	// id that changes on every deploy into git-synced files and version diffs.
+	function withoutDraftBase<T extends App | undefined>(a: T): T {
+		if (!a) return a
+		const { parent_version: _pv, ...rest } = a
+		return rest as T
 	}
 
 	async function createApp(path: string) {
@@ -290,7 +290,7 @@
 			await AppService.createApp({
 				workspace: $workspaceStore!,
 				requestBody: {
-					value: $app,
+					value: withoutDraftBase($app),
 					path,
 					summary: $summary,
 					policy,
@@ -307,7 +307,7 @@
 				summary: $summary,
 				value: structuredClone($state.snapshot($app)),
 				path: path,
-				policy: policy,
+				policy: $state.snapshot(policy),
 				custom_path: customPath,
 				labels: $state.snapshot(labels)
 			}
@@ -349,7 +349,7 @@
 					orderedJsonStringify(
 						replaceFalseWithUndefined({
 							summary: $summary,
-							value: $app,
+							value: withoutDraftBase($app),
 							path: newEditedPath || savedApp.path,
 							policy,
 							custom_path: customPath,
@@ -392,6 +392,7 @@
 		// Strip off extra information
 		deployedValue = replaceFalseWithUndefined({
 			...deployedApp,
+			value: withoutDraftBase(deployedApp.value as App),
 			id: undefined,
 			created_at: undefined,
 			created_by: undefined,
@@ -406,7 +407,7 @@
 			workspace: $workspaceStore!,
 			path: $appPath!,
 			requestBody: {
-				value: $app!,
+				value: withoutDraftBase($app!),
 				summary: $summary,
 				policy,
 				path: npath,
@@ -424,7 +425,7 @@
 			summary: $summary,
 			value: structuredClone($state.snapshot($app)),
 			path: npath,
-			policy,
+			policy: $state.snapshot(policy),
 			custom_path: customPath,
 			labels: $state.snapshot(labels)
 		}
@@ -753,7 +754,7 @@
 						deployed: deployedValue ?? savedApp,
 						current: {
 							summary: $summary,
-							value: $app,
+							value: withoutDraftBase($app),
 							path: newEditedPath || savedApp.path,
 							policy,
 							custom_path: customPath,
@@ -847,7 +848,7 @@
 	bind:deployedValue
 	currentValue={{
 		summary: $summary,
-		value: $app,
+		value: withoutDraftBase($app),
 		path: newEditedPath || savedApp?.path,
 		policy,
 		custom_path: customPath,
@@ -898,7 +899,7 @@
 								deployed: deployedValue ?? savedApp,
 								current: {
 									summary: $summary,
-									value: $app,
+									value: withoutDraftBase($app),
 									path: newEditedPath || savedApp.path,
 									policy,
 									custom_path: customPath,
@@ -1001,10 +1002,12 @@
 			// Frozen while the rename popover is open so the trail holds still as the user types.
 			kind: 'app',
 			path: pathSnapshot ?? (newEditedPath || $appPath || newPath || undefined),
+			summary: $summary,
 			summaryContent: appSummary,
 			pathTrigger: appPathTrigger
 		}}
 		actions={appHeaderActions}
+		actionFolds={2}
 		contexts={headerContexts}
 		separator="always"
 	/>

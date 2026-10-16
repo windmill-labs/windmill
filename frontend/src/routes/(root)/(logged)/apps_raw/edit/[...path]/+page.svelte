@@ -5,7 +5,6 @@
 	import { AppService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { useOperatorBuilderApps, workspaceListLoaded } from '$lib/operatorWriteRights'
-	import { conformBuilderAppPolicy } from '$lib/components/raw_apps/builderAppPolicy'
 	import { readFieldsRecursively } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -236,7 +235,8 @@
 					? $userStore?.username
 					: `u/${$userStore?.username}`,
 				on_behalf_of_email: $userStore?.email,
-				execution_mode: 'publisher'
+				execution_mode: 'publisher',
+				sandbox: true
 			} as any
 			// Explicit path seed: the fork-a-draft handoff re-homes the source
 			// path into the forker's namespace and passes it here.
@@ -386,7 +386,7 @@
 				data: savedRawAppDraft?.data
 			}
 			backendApp.summary = savedRawAppDraft?.summary ?? ''
-			backendApp.policy = savedRawAppDraft?.policy ?? { execution_mode: 'publisher' }
+			backendApp.policy = savedRawAppDraft?.policy ?? { execution_mode: 'publisher', sandbox: true }
 			backendApp.custom_path = savedRawAppDraft?.custom_path
 			backendApp.path = page.params.path ?? ''
 		} else if (savedRawAppDraft) {
@@ -537,12 +537,6 @@
 	function starterRunnables() {
 		return $operatorBuilderApps ? {} : structuredClone(STARTER_RUNNABLES)
 	}
-
-	// The deploy panel cannot switch Viewer mode off, nor drop the identity an app another user
-	// deployed carries, so the editor conforms the policy as soon as it opens.
-	$effect(() => {
-		if ($operatorBuilderApps && policy) conformBuilderAppPolicy(policy, $userStore)
-	})
 
 	async function onTemplatePickerStart(result: RawAppTemplatePickerResult, mode: RawAppBuildMode) {
 		const picked = {

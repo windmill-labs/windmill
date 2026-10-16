@@ -34,6 +34,7 @@ export interface AppFile {
   public?: boolean;
   sandbox?: boolean;
   frontend_api?: string[];
+  custom_path?: string;
   summary: string;
   policy: Policy;
   // Mirrors granular ACLs on the app path. Omitted from app.yaml when no
@@ -114,6 +115,44 @@ export function replaceInlineScripts(
     });
   }
   return [];
+}
+/** `parent_version` is the editor's stale-draft base: a version id that changes on
+ * every deploy and means nothing in another workspace, so it is kept out of the
+ * tracked file and out of what a push deploys. */
+export function stripEditorState(app: any) {
+  if (app?.value && typeof app.value == "object") {
+    delete app.value.parent_version;
+  }
+}
+/** The backend requires admin for any update that carries `custom_path`, even
+ * an unchanged one, so a value read from a checkout must only be sent when it
+ * differs from the deployed one or a non-admin can no longer deploy the app. */
+export function changedCustomPath(
+  local: string | undefined,
+  deployed: { custom_path?: string } | undefined,
+): string | undefined {
+  return (local ?? "") === (deployed?.custom_path ?? "") ? undefined : local;
+}
+
+/** Applies a workspace's `<app>.<workspace>.custom_path.yaml`. An empty value
+ * clears the custom path; the app (low-code or raw) must already exist. */
+export async function pushAppCustomPath(
+  workspace: string,
+  remotePath: string,
+  localFile: { custom_path?: string } | undefined,
+): Promise<void> {
+  remotePath = remotePath.replaceAll(SEP, "/");
+  const deployed = await wmill.getAppByPath({ workspace, path: remotePath });
+  const customPath = changedCustomPath(localFile?.custom_path ?? "", deployed);
+  if (customPath === undefined) {
+    return;
+  }
+  log.info(colors.bold.yellow(`Setting custom path of app ${remotePath}...`));
+  await wmill.updateApp({
+    workspace,
+    path: remotePath,
+    requestBody: { custom_path: customPath, skip_draft_deletion: true },
+  });
 }
 export function isExecutionModeAnonymous(app: any) {
   return app?.["policy"]?.["execution_mode"] == "anonymous";
@@ -261,7 +300,8 @@ export async function pushApp(
   remotePath: string,
   localPath: string,
   message?: string,
-  permissionedAsContext?: PermissionedAsContext
+  permissionedAsContext?: PermissionedAsContext,
+  customPathFromFile = true
 ): Promise<void> {
   if (alreadySynced.includes(localPath)) {
     return;
@@ -294,6 +334,7 @@ export async function pushApp(
   }
   const path = localPath + "app.yaml";
   const localApp = (await yamlParseFile(path)) as AppFile;
+  stripEditorState(localApp);
   const isolation = statedIsolation(localApp, false);
 
   replaceInlineScripts(localApp.value, localPath, true);
@@ -317,14 +358,17 @@ export async function pushApp(
     extra_perms: localPerms,
     sandbox: _sandbox,
     frontend_api: _frontendApi,
+    custom_path: localCustomPath,
     ...localAppBody
   } = localApp as AppFile & {
     extra_perms?: Record<string, boolean>;
   };
+  const customPath = customPathFromFile ? localCustomPath : undefined;
 
   if (app) {
     if (
       isSuperset(localAppBody, app) &&
+      changedCustomPath(customPath, app) === undefined &&
       isolationUpToDate(isolation, deployedPolicy, false)
     ) {
       log.info(colors.green(`App ${remotePath} is up to date`));
@@ -336,6 +380,7 @@ export async function pushApp(
         requestBody: {
           deployment_message: message,
           ...localAppBody,
+          custom_path: changedCustomPath(customPath, app),
           ...preserveFields,
           // Preserve any user draft at this path (see backend skip_draft_deletion).
           skip_draft_deletion: true,
@@ -351,6 +396,7 @@ export async function pushApp(
         path: remotePath,
         deployment_message: message,
         ...localAppBody,
+        ...(customPath ? { custom_path: customPath } : {}),
         ...preserveFields,
         // Preserve any user draft at this path (see backend skip_draft_deletion).
         skip_draft_deletion: true,

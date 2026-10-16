@@ -7,7 +7,7 @@ import {
 	type WorkspaceItem,
 	type WorkspaceItemKind
 } from './workspacePicker'
-import type { DrillBranch, DrillLeaf, DrillNode } from './drillPicker'
+import { resolveScope, type DrillBranch, type DrillLeaf, type DrillNode } from './drillPicker'
 
 const item = (
 	kind: WorkspaceItemKind,
@@ -520,6 +520,17 @@ describe('legacyScopeToPath', () => {
 		expect(legacyScopeToPath({ kind: 'flow', dir: 'f/demo' }, ['flow', 'script'], 'flat')).toEqual([
 			dirKey('all', 'f/demo')
 		])
+	})
+
+	it('walks every ancestor folder, so a nested dir resolves in the built tree', () => {
+		const loaded = { flow: [item('flow', 'f/a/b/c')], script: [] }
+		for (const layout of ['flat', 'by-kind'] as const) {
+			const tree = buildWorkspaceTree({ loaded, kinds: ['flow', 'script'], loadingKind: {}, layout })
+			const path = legacyScopeToPath({ kind: 'flow', dir: 'f/a/b' }, ['flow', 'script'], layout)
+			expect(resolveScope(tree, path)?.children.map((c) => c.key)).toEqual([
+				leafKeyFor('flow', 'f/a/b/c')
+			])
+		}
 	})
 
 	it('flat: returns [] without a dir', () => {

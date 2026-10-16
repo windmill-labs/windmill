@@ -1,0 +1,36 @@
+{
+  "workspace": {
+    "datatables": [
+      {
+        "datatable_name": "main",
+        "migrations_enabled": true,
+        "migrations": [
+          {
+            "timestamp": 20260501090000,
+            "name": "create_orders",
+            "code_up": "BEGIN;\n\nCREATE TABLE orders (id serial PRIMARY KEY, customer_id int, total numeric, status text, created_at timestamptz DEFAULT now());\n\nEND;",
+            "code_down": "BEGIN;\n\nDROP TABLE orders;\n\nEND;",
+            "applied": true
+          }
+        ],
+        "schemas": {
+          "public": {
+            "orders": {
+              "columns": {
+                "id": "int4",
+                "customer_id": "int4",
+                "total": "numeric",
+                "status": "text",
+                "created_at": "timestamptz"
+              },
+              "rows": [
+                { "id": 1, "customer_id": 1, "total": 42.5, "status": "shipped", "created_at": "2026-05-01T10:00:00Z" },
+                { "id": 2, "customer_id": 2, "total": 19.99, "status": "pending", "created_at": "2026-05-02T11:30:00Z" }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

@@ -713,6 +713,10 @@ pub fn workspaced_service() -> Router {
         .nest(
             "/shared_artifacts",
             crate::ai_shared_artifacts::workspaced_service(),
+        )
+        .nest(
+            "/shared_sessions",
+            crate::ai_shared_sessions::workspaced_service(),
         );
 
     #[cfg(feature = "bedrock")]

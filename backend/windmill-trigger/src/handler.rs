@@ -695,12 +695,18 @@ async fn list_triggers<T: TriggerCrud>(
     // Best-effort: the editor's TriggerData shape overlaps T::Trigger but a per-kind
     // config can deviate, so drop a row on deserialize failure rather than fail the list.
     if query.include_draft_only.unwrap_or(false)
-        && !authed.is_operator
         && query.page.unwrap_or(0) == 0
         && query.path.is_none()
         && query.is_flow.is_none()
         && query.path_start.is_none()
         && query.label.is_none()
+        && (!authed.is_operator
+            || windmill_common::workspaces::operator_can_draft(
+                &db,
+                &workspace_id,
+                T::user_draft_item_kind(),
+            )
+            .await?)
     {
         let draft_only_rows = fetch_draft_only_list_rows(
             &db,

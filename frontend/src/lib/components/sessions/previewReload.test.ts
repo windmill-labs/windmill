@@ -9,6 +9,7 @@ describe('toolReloadEffect', () => {
 		expect(toolReloadEffect('write_resource', {}).pages).toEqual(['/resources'])
 		expect(toolReloadEffect('write_variable', {}).pages).toEqual(['/variables'])
 		expect(toolReloadEffect('create_folder', { name: 'f' }).pages).toEqual(['/folders'])
+		expect(toolReloadEffect('create_resource_type', { name: 'c_x' }).pages).toEqual(['/resources'])
 	})
 
 	it('maps a trigger write to its kind-specific page', () => {

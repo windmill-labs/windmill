@@ -19,7 +19,7 @@ import * as log from "../../core/log.ts";
 import { sep as SEP } from "node:path";
 import * as path from "node:path";
 import { stringify as yamlStringify } from "yaml";
-import { deepEqual, getHeaders, isFileResource, isFilesetResource, readTextFile, readTextFileSync } from "../../utils/utils.ts";
+import { deepEqual, getHeaders, isFileResource, isFilesetResource, readTextFile, readTextFileSync, sleep } from "../../utils/utils.ts";
 import { detectAuthGatewayChallenge } from "../../utils/http_guards.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import * as specificItems from "../../core/specific_items.ts";
@@ -1492,45 +1492,49 @@ async function run(
     await track_job(workspace.workspaceId, id);
   }
 
-  const MAX_RETRIES = 600; // ~60 seconds at 100ms intervals
-  let retries = 0;
-  while (retries < MAX_RETRIES) {
-    try {
-      const completedJob = await wmill.getCompletedJob({
-        workspace: workspace.workspaceId,
-        id,
-      });
-
-      if (completedJob.success === false) {
-        process.exitCode = 1;
-      }
-
-      const result = completedJob.result ?? {};
-      if (opts.silent) {
-        console.log(JSON.stringify(result));
-      } else {
-        log.info(JSON.stringify(result, null, 2));
-      }
-
-      break;
-    } catch {
-      retries++;
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
+  let { result, success } = await pollForJobResult(workspace.workspaceId, id);
+  // Prefer getCompletedJob: unlike the poller, it counts a skipped
+  // (debounced) job as a success.
+  try {
+    const completedJob = await wmill.getCompletedJob({
+      workspace: workspace.workspaceId,
+      id,
+    });
+    result = completedJob.result;
+    success = completedJob.success !== false;
+  } catch {
+    /* keep the poller's result */
   }
-  if (retries >= MAX_RETRIES) {
-    throw new Error(`Timed out waiting for job ${id} to complete`);
+  if (!success) {
+    process.exitCode = 1;
+  }
+  result = result ?? {};
+  if (opts.silent) {
+    console.log(JSON.stringify(result));
+  } else {
+    log.info(JSON.stringify(result, null, 2));
   }
 }
+
+function logJobCompleted(success: boolean | undefined) {
+  log.info("\n");
+  log.info(
+    success === false
+      ? colors.bold.underline.red("Job Completed")
+      : colors.bold.underline.green("Job Completed")
+  );
+  log.info("\n");
+}
+
+const JOB_UPDATES_POLL_INTERVAL_MS = 500;
+const MAX_CONSECUTIVE_JOB_UPDATE_ERRORS = 5;
 
 export async function track_job(workspace: string, id: string) {
   try {
     const result = await wmill.getCompletedJob({ workspace, id });
 
     log.info(result.logs);
-    log.info("\n");
-    log.info(colors.bold.underline.green("Job Completed"));
-    log.info("\n");
+    logJobCompleted(result.success);
     return;
   } catch {
     /* ignore */
@@ -1538,15 +1542,13 @@ export async function track_job(workspace: string, id: string) {
 
   log.info(colors.yellow("Waiting for Job " + id + " to start..."));
 
+  // Server-side character position (1-based, as returned in `log_offset`), not
+  // a JS string length: UTF-16 lengths drift from it on non-BMP characters.
   let logOffset = 0;
   let running = false;
-  let retry = 0;
+  let errors = 0;
   while (true) {
-    let updates: {
-      running?: boolean | undefined;
-      completed?: boolean | undefined;
-      new_logs?: string | undefined;
-    };
+    let updates: Awaited<ReturnType<typeof wmill.getJobUpdates>>;
     try {
       updates = await wmill.getJobUpdates({
         workspace,
@@ -1554,13 +1556,16 @@ export async function track_job(workspace: string, id: string) {
         logOffset,
         running,
       });
-    } catch {
-      retry++;
-      if (retry > 3) {
-        log.info("failed to get job updated. skipping log streaming.");
+      errors = 0;
+    } catch (e: any) {
+      errors++;
+      if (errors >= MAX_CONSECUTIVE_JOB_UPDATE_ERRORS) {
+        log.warn(
+          `Failed to get job updates (${e?.message ?? e}), log streaming stopped. Waiting for the job to complete...`
+        );
         break;
       }
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await sleep(JOB_UPDATES_POLL_INTERVAL_MS);
       continue;
     }
 
@@ -1571,11 +1576,10 @@ export async function track_job(workspace: string, id: string) {
 
     if (updates.new_logs) {
       process.stdout.write(updates.new_logs);
-      logOffset += updates.new_logs.length;
     }
+    logOffset = updates.log_offset ?? logOffset;
 
     if (updates.completed === true) {
-      running = false;
       break;
     }
 
@@ -1583,24 +1587,25 @@ export async function track_job(workspace: string, id: string) {
       running = false;
       log.info(colors.yellow("Job suspended. Waiting for it to continue..."));
     }
+    await sleep(JOB_UPDATES_POLL_INTERVAL_MS);
   }
-  await new Promise((resolve, _) => setTimeout(() => resolve(undefined), 1000));
 
+  await pollForJobResult(workspace, id);
+
+  let success: boolean | undefined;
   try {
     const final_job = await wmill.getCompletedJob({ workspace, id });
-    if ((final_job.logs?.length ?? -1) > logOffset) {
-      log.info(final_job.logs!.substring(logOffset));
+    success = final_job.success;
+    const remaining = Array.from(final_job.logs ?? "")
+      .slice(Math.max(logOffset - 1, 0))
+      .join("");
+    if (remaining) {
+      log.info(remaining);
     }
-    log.info("\n");
-    if (final_job.success) {
-      log.info(colors.bold.underline.green("Job Completed"));
-    } else {
-      log.info(colors.bold.underline.red("Job Completed"));
-    }
-    log.info("\n");
-  } catch {
-    log.info("Job appears to have completed, but no data can be retrieved");
+  } catch (e: any) {
+    log.warn(`Could not retrieve the job's remaining logs: ${e?.message ?? e}`);
   }
+  logJobCompleted(success);
 }
 
 export async function pollForJobResult(
@@ -1608,6 +1613,32 @@ export async function pollForJobResult(
   jobId: string,
 ): Promise<{ result: unknown; success: boolean }> {
   return await pollJobWithQueueLogging(workspace, jobId);
+}
+
+/**
+ * A server that predates preview `on_behalf_of` drops the field and runs the preview as the
+ * caller, which would pass for a reproduction of the other identity's run. Probe it with an
+ * `identity` preview, which runs no code, before submitting any.
+ */
+export async function ensurePreviewOnBehalfOfSupported(
+  workspace: string,
+  onBehalfOf: string | undefined,
+) {
+  if (!onBehalfOf) return;
+  const probeId = await wmill.runScriptPreview({
+    workspace,
+    requestBody: { kind: "identity", args: {}, on_behalf_of: onBehalfOf },
+  });
+  const job = await wmill.getJob({ workspace, id: probeId });
+  if (
+    job.permissioned_as === onBehalfOf ||
+    job.email?.toLowerCase() === onBehalfOf.toLowerCase()
+  ) {
+    return;
+  }
+  throw new Error(
+    `The server does not support --on-behalf-of: it would run the preview as ${job.permissioned_as}, not ${onBehalfOf}. Upgrade the Windmill instance.`
+  );
 }
 
 async function show(opts: GlobalOptions, path: string) {
@@ -1873,6 +1904,7 @@ async function preview(
     data?: string;
     silent: boolean;
     tag?: string;
+    onBehalfOf?: string;
   } & SyncOptions,
   filePath: string
 ) {
@@ -1884,6 +1916,7 @@ async function preview(
   opts = await mergeConfigWithConfigFile(opts);
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
+  await ensurePreviewOnBehalfOfSupported(workspace.workspaceId, opts.onBehalfOf);
 
   const argPath = filePath;
   filePath = toSyncRootRelativePath(filePath, cwdBeforeConfig);
@@ -2053,6 +2086,7 @@ async function preview(
       kind: isTar ? "tarbundle" : "bundle",
       format: codebase?.format ?? "cjs",
       temp_script_refs: tempScriptRefs,
+      on_behalf_of: opts.onBehalfOf,
     };
     form.append("preview", JSON.stringify(previewPayload));
     form.append(
@@ -2122,6 +2156,7 @@ async function preview(
         tag: opts.tag,
         modules: modules ?? undefined,
         temp_script_refs: tempScriptRefs,
+        on_behalf_of: opts.onBehalfOf,
       },
     });
 
@@ -2271,6 +2306,10 @@ const command = new Command()
   .option(
     "--tag <tag:string>",
     "Override the worker tag the preview is dispatched to (e.g. to route it to dev workers instead of the script's default tag)."
+  )
+  .option(
+    "--on-behalf-of <identity:string>",
+    "Run the preview as this user or group (an email, u/<username> or g/<group>) instead of yourself, e.g. to reproduce a run_on_behalf_of identity. Requires being an admin or a member of wm_deployers."
   )
   .action(preview as any)
   .command("new", "create a new script")

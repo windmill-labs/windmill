@@ -10,6 +10,9 @@
 //! management, and the workspace-merge diff helper. Split out of `workspaces.rs`
 //! to keep that file focused on core workspace configuration.
 
+use crate::datatable_migration_scope::{
+    blocked_by, parse_migration_schemas, plan_run, ChainEntry, RunSelection,
+};
 use crate::workspaces::{
     managed_datatable_kind, pg_dump_database, strip_unreplayable_dump_lines, ItemComparison,
     PgDumpOptions,
@@ -165,6 +168,19 @@ fn ensure_not_operator(authed: &ApiAuthed) -> Result<()> {
     Ok(())
 }
 
+/// Whether new migrations declare a scope, which the editors push for but do not require.
+fn log_migration_scope(scope: &crate::datatable_migration_scope::Scope) {
+    windmill_common::feature_usage::log_feature_usage(
+        "datatable",
+        "migration_scope",
+        if scope.is_some() {
+            "scoped"
+        } else {
+            "whole_database"
+        },
+    );
+}
+
 #[derive(Serialize)]
 struct AppliedMigration {
     version: i64,
@@ -182,8 +198,11 @@ struct RunDatatableMigrationsQuery {
     up_to: Option<i64>,
     /// When set, apply only this specific migration version (if not already
     /// applied), ignoring any other pending migrations. Takes precedence over
-    /// `up_to`.
+    /// `up_to` and `schema`.
     only: Option<i64>,
+    /// When set, apply only the pending migrations that declare this schema in their
+    /// `-- schemas` annotation. Takes precedence over `up_to`.
+    schema: Option<String>,
 }
 
 /// Build the `database` argument for a migration job. Both resource-backed and
@@ -509,6 +528,127 @@ async fn hold_migration_lock(
     }
 }
 
+/// The `_wm_migrations` rows of a database a schema-only copy is being made of, read with
+/// [`lock_migration_runs_on`] held so they describe the schema the dump captured.
+pub(crate) struct AppliedMigrations {
+    /// `None` when the source has no `_wm_migrations`.
+    schema: Option<String>,
+    datatables: Vec<String>,
+    versions: Vec<i64>,
+    installed_at: Vec<String>,
+}
+
+/// Hold the migration-run lock on database `pg`, for a copy whose schema has to agree with the
+/// `_wm_migrations` rows it carries. The lock is per database, whichever data table names it.
+pub(crate) async fn lock_migration_runs_on(
+    db: &DB,
+    pg: &PgDatabase,
+    label: &str,
+) -> Result<tokio_postgres::Client> {
+    let (client, connection) = pg.connect(Some(db)).await?;
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable connection error: {}", e);
+        }
+    });
+    hold_migration_lock(&client, label, MIGRATION_LOCK_WAIT_SECS).await?;
+    Ok(client)
+}
+
+/// Read every `_wm_migrations` row of the database `client` is connected to, along with the
+/// schema the table is in: the copy is written to by a connection whose `search_path` need not
+/// resolve the way this one does.
+pub(crate) async fn read_applied_migrations(
+    client: &tokio_postgres::Client,
+) -> Result<AppliedMigrations> {
+    let read_err = |e: tokio_postgres::Error| {
+        Error::internal_err(format!(
+            "Failed to read _wm_migrations: {}",
+            pg_error_message(&e)
+        ))
+    };
+    let schema: Option<String> = client
+        .query_one(
+            "SELECT n.nspname::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
+             RIGHT JOIN (SELECT to_regclass('_wm_migrations')::oid AS oid) t ON c.oid = t.oid",
+            &[],
+        )
+        .await
+        .map_err(read_err)?
+        .get(0);
+    let mut applied =
+        AppliedMigrations { schema, datatables: vec![], versions: vec![], installed_at: vec![] };
+    let Some(schema) = applied.schema.as_deref() else {
+        return Ok(applied);
+    };
+    let rows = client
+        .query(
+            &format!(
+                // ISO 8601 in UTC: `::text` follows the session's `DateStyle`, which the copy's
+                // session need not parse the same way.
+                "SELECT datatable, version, \
+                 to_char(installed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US') \
+                 FROM {}._wm_migrations",
+                render_db_quoted_identifier(schema, DbType::Postgresql)
+            ),
+            &[],
+        )
+        .await
+        .map_err(read_err)?;
+    for row in rows {
+        applied.datatables.push(row.get(0));
+        applied.versions.push(row.get(1));
+        applied.installed_at.push(row.get(2));
+    }
+    Ok(applied)
+}
+
+/// Write the rows [`read_applied_migrations`] read into a copy restored from a schema-only dump,
+/// which brings `_wm_migrations` over empty: without them the copy reports every migration its
+/// schema already holds as pending, and running them fails on objects that exist.
+pub(crate) async fn write_applied_migrations(
+    db: &DB,
+    target: &PgDatabase,
+    applied: &AppliedMigrations,
+) -> Result<()> {
+    let Some(schema) = applied.schema.as_deref() else {
+        return Ok(());
+    };
+    if applied.versions.is_empty() {
+        return Ok(());
+    }
+    let (client, connection) = target.connect(Some(db)).await?;
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable connection error: {}", e);
+        }
+    });
+    client
+        .execute(
+            &format!(
+                "INSERT INTO {}._wm_migrations (datatable, version, installed_at) \
+                 SELECT d, v, i::timestamp AT TIME ZONE 'UTC' \
+                 FROM unnest($1::text[], $2::bigint[], $3::text[]) AS t(d, v, i) \
+                 ON CONFLICT DO NOTHING",
+                render_db_quoted_identifier(schema, DbType::Postgresql)
+            ),
+            &[
+                &applied.datatables,
+                &applied.versions,
+                &applied.installed_at,
+            ],
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to copy _wm_migrations into '{}': {}",
+                target.dbname,
+                pg_error_message(&e)
+            ))
+        })?;
+    Ok(())
+}
+
 /// Whether `e` is the lock wait running out, as opposed to the database being unreachable.
 fn is_migration_lock_busy(e: &Error) -> bool {
     matches!(e, Error::Generic(StatusCode::CONFLICT, _))
@@ -541,7 +681,9 @@ async fn read_applied_versions_on_client(
 /// Each migration runs as a normal Windmill `postgresql` job (permissioned as
 /// the requester, labelled `datatable_migration`); applied versions are then
 /// recorded in the data table's own `_wm_migrations` table, so only migrations
-/// not recorded there are run, in ascending `timestamp` order.
+/// not recorded there are run, in ascending `timestamp` order. A run for one
+/// schema is refused while an earlier migration its selection overlaps is pending
+/// (see `datatable_migration_scope`).
 async fn run_datatable_migrations(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -587,30 +729,29 @@ async fn run_datatable_migrations(
 
     let applied_versions = read_applied_versions_on_client(&client, &datatable_name).await?;
 
+    let selection = if let Some(only) = query.only {
+        RunSelection::Only(only)
+    } else if let Some(schema) = query.schema.as_deref() {
+        RunSelection::Schema(schema.to_ascii_lowercase())
+    } else {
+        RunSelection::UpTo(query.up_to)
+    };
     // How the user scoped the run, for the counter emitted on the first migration
     // that lands below.
-    let scope = if query.only.is_some() {
-        "only"
-    } else if query.up_to.is_some() {
-        "up_to"
-    } else {
-        "all"
+    let scope = match selection {
+        RunSelection::Only(_) => "only",
+        RunSelection::Schema(_) => "schema",
+        RunSelection::UpTo(Some(_)) => "up_to",
+        RunSelection::UpTo(None) => "all",
     };
+    let chain: Vec<ChainEntry> = migrations
+        .iter()
+        .map(|m| ChainEntry::new(m.timestamp, m.name.clone(), &m.code_up))
+        .collect();
+    let plan = plan_run(&chain, &applied_versions, &selection)?;
 
     let mut applied = Vec::new();
-    for m in migrations {
-        if let Some(only) = query.only {
-            // Run a single specific migration, skipping every other one.
-            if m.timestamp != only {
-                continue;
-            }
-        } else if query.up_to.is_some_and(|up_to| m.timestamp > up_to) {
-            // Migrations are ordered ascending, so once we pass `up_to` we're done.
-            break;
-        }
-        if applied_versions.contains(&m.timestamp) {
-            continue;
-        }
+    for m in plan.into_iter().map(|i| &migrations[i]) {
         ensure_migration_role_allowed(
             &db,
             &w_id,
@@ -642,7 +783,7 @@ async fn run_datatable_migrations(
                     pg_error_message(&e)
                 ))
             })?;
-        applied.push(AppliedMigration { version: m.timestamp, name: m.name });
+        applied.push(AppliedMigration { version: m.timestamp, name: m.name.clone() });
         // One event per run that moved the data table forward, emitted on the
         // first migration that lands rather than after the loop: a later one
         // failing returns early, and that run still advanced the data table. A
@@ -865,6 +1006,13 @@ struct DatatableMigrationWithStatus {
     #[serde(skip_serializing_if = "Option::is_none")]
     code_down: Option<String>,
     status: DatatableMigrationRunStatus,
+    /// The schemas its `-- schemas` annotation declares; absent for the whole database.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    schemas: Option<Vec<String>>,
+    /// When not run: the earliest pending migration that has to be applied before it. When run:
+    /// the latest applied migration that has to be rolled back before it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    blocked_by: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -880,7 +1028,11 @@ struct DatatableMigrationsStatusResult {
 /// Whether the SQL-migrations feature is enabled for a data table. Honors the
 /// explicit `migrations_enabled` flag; when unset (data tables predating the
 /// feature) it is considered enabled only if migrations already exist.
-async fn datatable_migrations_enabled(db: &DB, w_id: &str, datatable_name: &str) -> Result<bool> {
+pub(crate) async fn datatable_migrations_enabled(
+    db: &DB,
+    w_id: &str,
+    datatable_name: &str,
+) -> Result<bool> {
     let flag: Option<bool> = sqlx::query_scalar!(
         "SELECT (ws.datatable->'datatables'->$2->>'migrations_enabled')::boolean \
          FROM workspace_settings ws WHERE ws.workspace_id = $1",
@@ -977,9 +1129,14 @@ async fn datatable_migrations_status(
         Err(e) => (None, Some(e.to_string())),
     };
 
+    let chain: Vec<ChainEntry> = defs
+        .iter()
+        .map(|m| ChainEntry::new(m.timestamp, m.name.clone(), &m.code_up))
+        .collect();
     let migrations = defs
         .into_iter()
-        .map(|m| {
+        .enumerate()
+        .map(|(i, m)| {
             let status = match &applied {
                 Some(set) if set.contains(&m.timestamp) => DatatableMigrationRunStatus::Ran,
                 Some(_) => DatatableMigrationRunStatus::NotRun,
@@ -991,6 +1148,11 @@ async fn datatable_migrations_status(
                 code_up: m.code_up,
                 code_down: m.code_down,
                 status,
+                schemas: chain[i].scope.clone(),
+                blocked_by: applied
+                    .as_ref()
+                    .and_then(|set| blocked_by(&chain, set, i))
+                    .map(|j| chain[j].timestamp),
             }
         })
         .collect();
@@ -1329,6 +1491,7 @@ async fn create_datatable_migration(
     ensure_not_operator(&authed)?;
     validate_datatable_path_segment(&datatable_name)?;
     validate_migration_name(&payload.name)?;
+    let scope = parse_migration_schemas(&payload.code_up)?;
     ensure_datatable_migrations_enabled(&db, &w_id, &datatable_name).await?;
     ensure_may_edit_migration(
         &db,
@@ -1375,6 +1538,7 @@ async fn create_datatable_migration(
     .await?;
 
     windmill_common::feature_usage::log_feature_usage("datatable", "migration_created", "manual");
+    log_migration_scope(&scope);
 
     Ok(Json(DatatableMigration {
         datatable: datatable_name,
@@ -1577,6 +1741,16 @@ async fn upsert_datatable_migration(
     if unchanged {
         return Ok(upserted_message);
     }
+    // Only up SQL being written is held to the annotation: a stored up that opens with prose
+    // starting with the word `schemas` predates scopes, and must still accept a down added to it.
+    let up_changed = existing
+        .as_ref()
+        .is_none_or(|existing| existing.code_up != payload.code_up);
+    let scope = if up_changed {
+        parse_migration_schemas(&payload.code_up)?
+    } else {
+        None
+    };
     ensure_may_edit_migration(
         &db,
         &w_id,
@@ -1705,6 +1879,9 @@ async fn upsert_datatable_migration(
             "edited"
         },
     );
+    if existing.is_none() {
+        log_migration_scope(&scope);
+    }
 
     Ok(upserted_message)
 }

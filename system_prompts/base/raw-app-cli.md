@@ -147,6 +147,8 @@ fields:
     value: "default_user"
 ```
 
+`viewer_data_access: true` makes an inline runnable read data tables and object storage as the person using the app instead of as the app's identity (see "Reading data as the viewer").
+
 ### Referencing existing scripts
 
 To use an existing Windmill script instead of inline code:
@@ -183,7 +185,7 @@ data:
 - `<datatable>/<table>` — Specific table in public schema
 - `<datatable>/<schema>:<table>` — Table in specific schema
 
-**Roles:** when a datatable is under roles, its queries run as a role, which only reaches what it was granted. `roles` records the role the app uses each datatable through; the app's code must pass the same role: `wmill.datatable('main', { role: 'analyst' })` in TypeScript, `wmill.datatable('main', role='analyst')` in Python. A datatable without an entry is used as its default role.
+**Roles:** when a datatable is under roles, its queries run as a role, which only reaches what it was granted. `roles` records the role the app uses each datatable through; the app's code must pass the same role: `wmill.datatable('main', { role: 'analyst' })` in TypeScript, `wmill.datatable('main', role='analyst')` in Python. A datatable without an entry is used as its default role, if it has one, plus the roles of the app's identity, or of whoever is using the app for a runnable with `viewer_data_access: true`, unless that default is `admin`.
 
 ## SQL Migrations (sql_to_apply/)
 

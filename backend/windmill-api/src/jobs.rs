@@ -115,7 +115,9 @@ use windmill_common::{
         add_virtual_items_if_necessary, resolve_maybe_value, ApprovalSkin, FlowModule, FlowValue,
         Suspend,
     },
-    jobs::{script_path_to_payload, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode},
+    jobs::{
+        script_path_to_payload, CompletedJob, JobKind, JobPayload, OnBehalfOf, QueuedJob, RawCode,
+    },
     oauth2::HmacSha256,
     query_builders,
     scripts::{ScriptHash, ScriptLang},
@@ -1908,7 +1910,7 @@ async fn require_job_access(
     // are immutable after creation, and every mutable caller-side input
     // (is_admin / username / username_override / groups / folders) is folded into
     // the key — so a permission change yields a new key rather than a stale hit, and
-    // no TTL is needed (size-bounded LRU; mirrors apps' PERMIT_CACHE).
+    // no TTL is needed (size-bounded LRU).
     let cache_key = job_read_access_cache_key(authed, w_id, job_id);
     let visible = if let Some(visible) = JOB_READ_ACCESS_CACHE.get(&cache_key) {
         visible
@@ -6736,6 +6738,12 @@ struct Preview {
     /// preview job resolves those imports from not-yet-deployed local content
     /// (uploaded to raw_script_temp) instead of the deployed script.
     temp_script_refs: Option<HashMap<String, String>>,
+    /// Run the preview as this identity (an email or a `u/`/`g/` principal) instead of the
+    /// caller. See `preview_on_behalf_of`.
+    on_behalf_of: Option<String>,
+    /// Data table and object storage access as the caller rather than as the job's identity,
+    /// as a full-code app's inline runnable flagged `viewer_data_access` does for its viewer.
+    viewer_data_access: Option<bool>,
 }
 
 #[cfg(feature = "run_inline")]
@@ -6768,6 +6776,8 @@ struct PreviewFlow {
     /// each flow step so inline-script relative imports resolve from
     /// not-yet-deployed local content instead of the deployed script.
     temp_script_refs: Option<HashMap<String, String>>,
+    /// See `Preview::on_behalf_of`.
+    on_behalf_of: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -7048,6 +7058,7 @@ async fn batch_rerun_handle_job(
             )
             .await;
             if let Ok((uuid, _, _, _)) = result {
+                resolve_batch_rerun_source(authed, user_db, w_id, job.id, uuid).await;
                 return Ok(uuid.to_string());
             }
         }
@@ -7081,6 +7092,7 @@ async fn batch_rerun_handle_job(
                 .map(|r| r.0)
             };
             if let Ok(uuid) = result {
+                resolve_batch_rerun_source(authed, user_db, w_id, job.id, uuid).await;
                 return Ok(uuid.to_string());
             }
         }
@@ -7089,6 +7101,67 @@ async fn batch_rerun_handle_job(
     Err(error::Error::ExecutionErr(
         format!("Couldn't re-run job {}", job.id).to_string(),
     ))
+}
+
+/// Marks a failed or canceled source of a batch re-run as handled, with the re-run as its note.
+/// This is the only moment the link exists (the re-run is pushed with no back-pointer), and it
+/// is what lets "hide resolved" exclude already re-run jobs from the next batch. Never fails the
+/// re-run, which is already queued: a source that cannot be resolved is logged and left as is.
+async fn resolve_batch_rerun_source(
+    authed: &ApiAuthed,
+    user_db: &UserDB,
+    w_id: &str,
+    source: Uuid,
+    rerun: Uuid,
+) {
+    if authed.is_operator {
+        return;
+    }
+    let result: error::Result<()> = async {
+        let mut tx = user_db.clone().begin(authed).await?;
+        let tags = get_scope_tags(authed);
+        let (resolved_by, _) = resolution_attribution(authed, None);
+        // Same authorization and eligibility as `resolve_completed_jobs`. DO NOTHING keeps a
+        // resolution someone already explained.
+        let resolved = sqlx::query_scalar!(
+            "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note, automatic)
+                SELECT c.id, c.workspace_id, $4, $5, false
+                    FROM v2_job_completed c
+                    JOIN v2_job j ON j.id = c.id
+                    WHERE c.id = $1
+                        AND c.workspace_id = $2
+                        AND ($3::TEXT[] IS NULL OR j.tag = ANY($3))
+                        AND c.status IN ('failure', 'canceled')
+                        AND j.flow_step_id IS NULL
+                ON CONFLICT (job_id) DO NOTHING
+                RETURNING job_id",
+            source,
+            w_id,
+            tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
+            resolved_by,
+            format!("Re-run as {rerun}"),
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if resolved.is_some() {
+            audit_log(
+                &mut *tx,
+                authed,
+                "jobs.resolve",
+                ActionKind::Update,
+                w_id,
+                Some(&source.to_string()),
+                None,
+            )
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+    .await;
+    if let Err(e) = result {
+        tracing::error!("Could not resolve job {source} after re-running it as {rerun}: {e}");
+    }
 }
 
 pub async fn run_flow_by_path(
@@ -8930,6 +9003,112 @@ fn operator_preview_refusal(job_id: Option<Uuid>) -> error::Error {
     error::Error::PermissionDenied(reason.to_string())
 }
 
+/// The identity a preview asks to run as, or `None` when it runs as the caller.
+///
+/// A preview is request-supplied code, so running it as someone else is impersonation, not
+/// "running their runnable": only those who may set a runnable's `on_behalf_of` on deploy
+/// (admins and `wm_deployers`) may ask for it. Naming oneself is always allowed. Operators are
+/// refused even in `wm_deployers`: the datatable-query exemption lets them reach this route
+/// without being able to deploy anything.
+pub(crate) async fn preview_on_behalf_of(
+    authed: &ApiAuthed,
+    requested: Option<&str>,
+    w_id: &str,
+    db: &DB,
+) -> error::Result<Option<OnBehalfOf>> {
+    let Some(requested) = requested.filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    let own = username_to_permissioned_as(&authed.username);
+    if requested == own || requested == authed.email {
+        return Ok(None);
+    }
+    if authed.is_operator || !windmill_common::can_preserve_on_behalf_of(authed) {
+        return Err(Error::PermissionDenied(
+            "Only admins and members of wm_deployers can run a preview on behalf of another user"
+                .to_string(),
+        ));
+    }
+    let permissioned_as =
+        windmill_common::resolve_on_behalf_of(None, Some(requested), true, authed, w_id, db)
+            .await?
+            .unwrap_or(own.clone());
+    if permissioned_as == own {
+        return Ok(None);
+    }
+    let email =
+        windmill_common::users::get_email_from_permissioned_as_uncached(&permissioned_as, w_id, db)
+            .await?;
+    Ok(Some(OnBehalfOf { email, permissioned_as }))
+}
+
+/// Audits the impersonation and opens the job's own logs with it, so whoever reads the run sees
+/// who it ran as and who asked, not only the identity columns.
+pub(crate) async fn audit_preview_on_behalf_of(
+    tx: &mut Transaction<'_, Postgres>,
+    authed: &ApiAuthed,
+    w_id: &str,
+    job_id: Uuid,
+    path: Option<&str>,
+    obo: &OnBehalfOf,
+) -> error::Result<()> {
+    let mut params = HashMap::from([("on_behalf_of", obo.permissioned_as.as_str())]);
+    if let Some(path) = path {
+        params.insert("path", path);
+    }
+    audit_log(
+        &mut **tx,
+        authed,
+        "jobs.run.preview_on_behalf_of",
+        ActionKind::Execute,
+        w_id,
+        Some(&job_id.to_string()),
+        Some(params),
+    )
+    .await?;
+    sqlx::query!(
+        "INSERT INTO job_logs (logs, job_id, workspace_id) VALUES ($1, $2, $3) ON CONFLICT (job_id) DO UPDATE SET logs = concat(job_logs.logs, EXCLUDED.logs)",
+        format!(
+            "Preview run on behalf of {} ({}), requested by {}\n",
+            obo.permissioned_as, obo.email, authed.email
+        ),
+        job_id,
+        w_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// The push identity and isolation level for a preview: the caller's own, or the requested
+/// `on_behalf_of`'s, pushed through the root pool like a deployed `on_behalf_of` run.
+fn preview_push_identity(
+    authed: &ApiAuthed,
+    user_db: &UserDB,
+    db: &DB,
+    obo: Option<&OnBehalfOf>,
+) -> (
+    String,
+    String,
+    Option<windmill_common::db::Authed>,
+    PushIsolationLevel<'static>,
+) {
+    match obo {
+        Some(obo) => (
+            obo.email.clone(),
+            obo.permissioned_as.clone(),
+            None,
+            PushIsolationLevel::IsolatedRoot(db.clone()),
+        ),
+        None => (
+            authed.email.clone(),
+            username_to_permissioned_as(&authed.username),
+            Some(authed.clone().into()),
+            PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
+        ),
+    }
+}
+
 async fn run_preview_script(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -8964,7 +9143,13 @@ async fn run_preview_script(
     require_path_read_access_for_preview(&authed, &preview.path)?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(preview.tag.clone());
-    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
+    let obo = preview_on_behalf_of(&authed, preview.on_behalf_of.as_deref(), &w_id, &db).await?;
+    let (email, permissioned_as, push_authed, tx) =
+        preview_push_identity(&authed, &user_db, &db, obo.as_ref());
+    let audited_path = preview.path.clone();
+    // A job token's end user is whoever ran the calling job, who never consented to that job's
+    // code reading data as them: only a direct caller, reading as themselves, may ask for it.
+    let viewer_data_access = authed.job_id.is_none() && preview.viewer_data_access.unwrap_or(false);
 
     let preview_args = preview.args.unwrap_or_default();
     let mut extra = HashMap::new();
@@ -8982,6 +9167,7 @@ async fn run_preview_script(
     check_tag_available_for_workspace(&db, &w_id, &tag, &push_args, &authed).await?;
 
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let (uuid, tx) = push(
         &db,
         tx,
@@ -9009,8 +9195,8 @@ async fn run_preview_script(
         },
         push_args,
         authed.display_username(),
-        &authed.email,
-        username_to_permissioned_as(&authed.username),
+        &email,
+        permissioned_as,
         authed.token_prefix.as_deref(),
         authed.username_override.as_deref(),
         scheduled_for,
@@ -9027,14 +9213,27 @@ async fn run_preview_script(
         run_query.timeout,
         None,
         None,
-        Some(&authed.clone().into()),
+        push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(None),
         None,
         scope_ceiling.as_deref(),
     )
     .await?;
+    let mut tx = tx;
+    if let Some(obo) = obo.as_ref() {
+        audit_preview_on_behalf_of(&mut tx, &authed, &w_id, uuid, audited_path.as_deref(), obo)
+            .await?;
+    }
+    if viewer_data_access {
+        sqlx::query!(
+            "UPDATE job_perms SET viewer_data_access = true WHERE job_id = $1",
+            uuid
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
     tx.commit().await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
@@ -9068,6 +9267,8 @@ async fn run_inline_preview_script(
     if let Some(job_id) = job_id {
         register_potential_assets_on_inline_execution(job_id, &w_id, &preview);
     }
+    let (end_user_email, viewer_data_access) =
+        run_inline_preview_end_user(&db, &w_id, &authed).await?;
     let utils = get_worker_internal_server_inline_utils()?;
     let result = utils.run_inline_preview_script.as_ref()(RunInlinePreviewScriptFnParams {
         content: preview.content,
@@ -9078,6 +9279,8 @@ async fn run_inline_preview_script(
         created_by: authed.display_username().to_string(),
         permissioned_as: username_to_permissioned_as(&authed.username),
         permissioned_as_email: authed.email.clone(),
+        end_user_email,
+        viewer_data_access,
         lang: preview.language,
         job_dir: "".to_string(),
         worker_name: "".to_string(),
@@ -9217,6 +9420,7 @@ async fn run_inline_script_inner(
                 .to_string(),
         ));
     }
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let utils = get_worker_internal_server_inline_utils()?;
     let authed_owned: windmill_common::db::Authed = authed.clone().into();
     let result = utils.run_inline_script.as_ref()(RunInlineScriptFnParams {
@@ -9228,6 +9432,7 @@ async fn run_inline_script_inner(
         created_by: authed.display_username().to_string(),
         permissioned_as: username_to_permissioned_as(&authed.username),
         permissioned_as_email: authed.email.clone(),
+        end_user_email,
         job_dir: "".to_string(),
         worker_name: "".to_string(),
         worker_dir: "".to_string(),
@@ -9380,7 +9585,11 @@ async fn run_bundle_preview_script(
 
             let scheduled_for = run_query.get_scheduled_for(&db).await?;
             let tag = run_query.tag.clone().or(preview.tag.clone());
-            let ltx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
+            let obo =
+                preview_on_behalf_of(&authed, preview.on_behalf_of.as_deref(), &w_id, &db).await?;
+            let (email, permissioned_as, push_authed, ltx) =
+                preview_push_identity(&authed, &user_db, &db, obo.as_ref());
+            let audited_path = preview.path.clone();
 
             let args = preview.args.unwrap_or_default();
 
@@ -9404,6 +9613,7 @@ async fn run_bundle_preview_script(
             // tracing::info!("is_tar 1: {is_tar}");
             // hmap.insert("")
             let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
+            let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
             let (uuid, ntx) = push(
                 &db,
                 ltx,
@@ -9427,8 +9637,8 @@ async fn run_bundle_preview_script(
                 }),
                 push_args,
                 authed.display_username(),
-                &authed.email,
-                username_to_permissioned_as(&authed.username),
+                &email,
+                permissioned_as,
                 authed.token_prefix.as_deref(),
                 authed.username_override.as_deref(),
                 scheduled_for,
@@ -9445,14 +9655,26 @@ async fn run_bundle_preview_script(
                 run_query.timeout,
                 None,
                 None,
-                Some(&authed.clone().into()),
+                push_authed.as_ref(),
                 false,
-                None,
+                end_user_email,
                 authed.trigger_or_fallback(None),
                 None,
                 scope_ceiling.as_deref(),
             )
             .await?;
+            let mut ntx = ntx;
+            if let Some(obo) = obo.as_ref() {
+                audit_preview_on_behalf_of(
+                    &mut ntx,
+                    &authed,
+                    &w_id,
+                    uuid,
+                    audited_path.as_deref(),
+                    obo,
+                )
+                .await?;
+            }
             job_id = Some(uuid);
             tx = Some(ntx);
         }
@@ -10130,7 +10352,9 @@ async fn run_preview_flow_job(
     }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(raw_flow.tag.clone());
-    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
+    let obo = preview_on_behalf_of(&authed, raw_flow.on_behalf_of.as_deref(), &w_id, &db).await?;
+    let (email, permissioned_as, push_authed, tx) =
+        preview_push_identity(&authed, &user_db, &db, obo.as_ref());
 
     let chat_input_enabled = raw_flow.value.chat_input_enabled.unwrap_or(false);
     let flow_path = raw_flow.path.clone().unwrap_or_default();
@@ -10151,6 +10375,7 @@ async fn run_preview_flow_job(
         .await?;
 
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let (uuid, mut tx) = push(
         &db,
         tx,
@@ -10162,8 +10387,8 @@ async fn run_preview_flow_job(
         },
         PushArgs::from(&flow_args),
         authed.display_username(),
-        &authed.email,
-        username_to_permissioned_as(&authed.username),
+        &email,
+        permissioned_as,
         authed.token_prefix.as_deref(),
         authed.username_override.as_deref(),
         scheduled_for,
@@ -10180,14 +10405,19 @@ async fn run_preview_flow_job(
         None,
         None,
         None,
-        Some(&authed.clone().into()),
+        push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(None),
         None,
         scope_ceiling.as_deref(),
     )
     .await?;
+
+    if let Some(obo) = obo.as_ref() {
+        let audited_path = Some(flow_path.as_str()).filter(|p| !p.is_empty());
+        audit_preview_on_behalf_of(&mut tx, &authed, &w_id, uuid, audited_path, obo).await?;
+    }
 
     // Set memory_id if provided (for agent memory)
     if let Some(memory_id) = run_query.memory_key(&w_id, &flow_path) {
@@ -12364,8 +12594,8 @@ fn check_resolution_request(
     Ok(())
 }
 
-/// Marks failed jobs as handled. Returns the ids actually affected: an id that is not
-/// visible to the caller, carries an out-of-scope tag, or did not fail is silently
+/// Marks failed or canceled jobs as handled. Returns the ids actually affected: an id that is
+/// not visible to the caller, carries an out-of-scope tag, or did not fail nor get canceled is silently
 /// absent rather than an error, so a bulk selection never fails as a whole.
 async fn resolve_completed_jobs(
     authed: ApiAuthed,
@@ -12380,7 +12610,7 @@ async fn resolve_completed_jobs(
     let system_note = req.superseded_by.map(|_| SUPERSEDED_NOTE);
     // The join on v2_job is what authorizes this write: v2_job_completed has RLS
     // disabled, so v2_job's policies are the only thing scoping rows to the caller.
-    // `status = 'failure'` keeps the invariant that only a failure can be resolved.
+    // Only a failed or canceled run can be resolved: a success has nothing to handle.
     let resolved = sqlx::query_scalar!(
         "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note, automatic)
             SELECT c.id, c.workspace_id, $4, COALESCE($5, $7), false
@@ -12389,7 +12619,7 @@ async fn resolve_completed_jobs(
                 WHERE c.id = ANY($1)
                     AND c.workspace_id = $2
                     AND ($3::TEXT[] IS NULL OR j.tag = ANY($3))
-                    AND c.status = 'failure'
+                    AND c.status IN ('failure', 'canceled')
                     -- Resolution is a top-level triage state: a step resolved on its own
                     -- would render orange inside a flow whose status is still red.
                     AND j.flow_step_id IS NULL

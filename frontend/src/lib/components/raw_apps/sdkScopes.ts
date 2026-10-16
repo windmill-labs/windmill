@@ -1,7 +1,12 @@
 // Frontend-SDK permissions for raw apps: the curated scopes an app author may
 // declare in `policy.frontend_sdk_scopes` (mirrors FRONTEND_SDK_ALLOWED_SCOPES
-// in the backend `apps.rs` — both lists must stay in sync), plus the viewer-side
-// consent persistence for the permission banner.
+// in the backend `apps.rs` — both lists must stay in sync, except for the
+// implicit scope below), plus the viewer-side consent persistence for the
+// permission banner.
+
+/** Never toggled nor asked for: every SDK token reaches whoami without it, and whoami
+ * returns what the bundle already gets in `window.ctx`. */
+export const IMPLICIT_SDK_SCOPE = 'users:read'
 
 export const FRONTEND_SDK_SCOPES: { value: string; label: string; description: string }[] = [
 	{
@@ -13,11 +18,6 @@ export const FRONTEND_SDK_SCOPES: { value: string; label: string; description: s
 		value: 'jobs:read',
 		label: 'Read jobs and results',
 		description: 'Read jobs and their results, and list the runs the viewer can see'
-	},
-	{
-		value: 'users:read',
-		label: 'Read your identity',
-		description: 'Call whoami (Read the viewer username, email, groups, is_super_admin...)'
 	},
 	{
 		value: 'resources:read',
@@ -59,10 +59,18 @@ function sdkConsentKey(viewer: string, workspace: string, path: string, preview:
 	return `wm_sdk_consent:${preview ? 'p:' : ''}${viewer}:${workspace}:${path}`
 }
 
+/** The declared scopes the viewer is asked to approve. */
+export function sdkScopesToConfirm(scopes: string[]): string[] {
+	return scopes.filter((s) => s !== IMPLICIT_SDK_SCOPE)
+}
+
 /** True when `approved` (a consent the viewer gave) covers every scope the app now
  * declares. Fewer scopes need no new consent; one more does. */
 export function sdkConsentCovers(approved: unknown, scopes: string[]): boolean {
-	return Array.isArray(approved) && scopes.every((s) => approved.includes(s))
+	const needed = sdkScopesToConfirm(scopes)
+	return (
+		needed.length === 0 || (Array.isArray(approved) && needed.every((s) => approved.includes(s)))
+	)
 }
 
 /** True when a previously stored "do not ask again" consent covers every
@@ -80,7 +88,7 @@ export function hasStoredSdkConsent(
 		)
 		return sdkConsentCovers(stored, scopes)
 	} catch (_) {
-		return false
+		return sdkConsentCovers(null, scopes)
 	}
 }
 

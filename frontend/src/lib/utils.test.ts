@@ -13,17 +13,16 @@ import {
 	apiErrorMessage
 } from './utils'
 
-// Mirrors the backend invariant that only `status = 'failure'` rows can carry a
-// resolution; loosening this to `!success` would offer the action on queued and
-// canceled runs the API then silently skips.
+// Mirrors the backend invariant that only failed or canceled rows can carry a resolution;
+// offering the action anywhere else would send ids the API then silently skips.
 describe('isJobResolvable', () => {
 	const completed = (o: object) => ({ type: 'CompletedJob', ...o }) as any
-	it('accepts a plain failure', () => {
+	it('accepts a plain failure and a cancellation', () => {
 		expect(isJobResolvable(completed({ success: false, canceled: false }))).toBe(true)
+		expect(isJobResolvable(completed({ success: false, canceled: true }))).toBe(true)
 	})
-	it('rejects success, cancellation, flow steps and jobs still queued', () => {
+	it('rejects success, flow steps and jobs still queued', () => {
 		expect(isJobResolvable(completed({ success: true, canceled: false }))).toBe(false)
-		expect(isJobResolvable(completed({ success: false, canceled: true }))).toBe(false)
 		// a step resolved alone would show orange inside a flow that is still red
 		expect(
 			isJobResolvable(completed({ success: false, canceled: false, is_flow_step: true }))

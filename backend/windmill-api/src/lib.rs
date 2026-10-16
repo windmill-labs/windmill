@@ -77,6 +77,7 @@ mod ai_sessions;
 #[cfg(feature = "parquet")]
 pub use ai_sessions::sweep_expired_ai_session_backups;
 mod ai_shared_artifacts;
+mod ai_shared_sessions;
 mod apps;
 mod apps_raw_bundle;
 pub use apps::invalidate_app_policy_cache;
@@ -212,6 +213,7 @@ mod workspaces;
 #[cfg(feature = "private")]
 pub mod workspaces_ee;
 mod workspaces_export;
+mod workspace_settings_document;
 
 #[cfg(feature = "mcp")]
 mod mcp_tools;
@@ -931,6 +933,10 @@ pub async fn run_server(
                     apps::unauthed_service()
                         .layer(from_extractor::<OptAuthed>())
                         .layer(cors.clone()),
+                )
+                .nest(
+                    "/w/{workspace_id}/ai_u/shared_sessions",
+                    ai_shared_sessions::workspaced_unauthed_service(),
                 )
                 .layer(from_extractor::<OptAuthed>())
                 // Deprecated, here for backwards compatibility: user should use /mcp/w/{workspace_id}/mcp instead

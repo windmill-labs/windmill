@@ -26,6 +26,7 @@ import {
 	explicitOffToken,
 	requestsReasoning,
 	stripLegacyThinkingSuffix,
+	usesOpenAIResponsesApi,
 	type ReasoningEffort
 } from './reasoningRegistry'
 import { formatResourceTypes } from './utils'
@@ -1242,8 +1243,7 @@ export async function getCompletion(
 		reasoningEffort: options?.reasoningEffort
 	})
 
-	// Use Responses API for OpenAI and Azure OpenAI
-	if ((provider === 'openai' || provider === 'azure_openai') && !options?.forceCompletions) {
+	if (usesOpenAIResponsesApi(provider, modelProvider.model) && !options?.forceCompletions) {
 		try {
 			const stream = getOpenAIResponsesCompletionStream(messages, abortController, tools, {
 				forceModelProvider: options?.forceModelProvider,
@@ -1327,8 +1327,8 @@ export async function getStreamedCompletionText(
 	} catch (error) {
 		// The Responses API stream only fails once iterated, so the fallback to
 		// chat completions for a deployment that doesn't serve it lives here.
-		const { provider } = getCurrentModel()
-		if (abortController.signal.aborted || (provider !== 'openai' && provider !== 'azure_openai')) {
+		const { provider, model } = getCurrentModel()
+		if (abortController.signal.aborted || !usesOpenAIResponsesApi(provider, model)) {
 			throw error
 		}
 		console.error('Error using Responses API:', error)

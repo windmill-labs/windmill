@@ -656,22 +656,13 @@
 									wsId={$workspaceStore}
 									itemKind="script"
 									canWrite
-									bind:errorHandlerSelected={config.advanced.errorHandlerSelected}
-									bind:errorHandlerPath={config.advanced.errorHandlerPath}
-									bind:errorHandleritemKind={config.advanced.errorHandleritemKind}
-									bind:errorHandlerExtraArgs={config.advanced.errorHandlerExtraArgs}
+									bind:errorHandler={config.advanced.errorHandler}
 									bind:wsErrorHandlerMuted={config.advanced.wsErrorHandlerMuted}
 									bind:failedTimes={config.advanced.failedTimes}
 									bind:failedExact={config.advanced.failedExact}
-									bind:recoveryHandlerSelected={config.advanced.recoveryHandlerSelected}
-									bind:recoveryHandlerPath={config.advanced.recoveryHandlerPath}
-									bind:recoveryHandlerItemKind={config.advanced.recoveryHandlerItemKind}
-									bind:recoveryHandlerExtraArgs={config.advanced.recoveryHandlerExtraArgs}
+									bind:recoveryHandler={config.advanced.recoveryHandler}
 									bind:recoveredTimes={config.advanced.recoveredTimes}
-									bind:successHandlerSelected={config.advanced.successHandlerSelected}
-									bind:successHandlerPath={config.advanced.successHandlerPath}
-									bind:successHandlerItemKind={config.advanced.successHandlerItemKind}
-									bind:successHandlerExtraArgs={config.advanced.successHandlerExtraArgs}
+									bind:successHandler={config.advanced.successHandler}
 									bind:retry={config.advanced.retry}
 									bind:dynamicSkipPath={config.advanced.dynamicSkipPath}
 									bind:tag={config.advanced.tag}

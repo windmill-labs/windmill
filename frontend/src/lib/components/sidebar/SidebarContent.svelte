@@ -340,7 +340,7 @@
 			label: config?.serviceDisplayName || service,
 			href: `/native_triggers/${service}`,
 			icon: icon,
-			disabled: $userStore?.operator,
+			disabled: !allows('triggers'),
 			kind: service,
 			aiId: `sidebar-menu-link-${service}`,
 			aiDescription: `Button to navigate to ${config?.serviceDisplayName || service} triggers`
@@ -366,6 +366,10 @@
 		allTriggerLinks.filter((link) => {
 			return !page.url.pathname.includes(link.href) && !$usedTriggerKinds.includes(link.kind)
 		})
+	)
+	let showAddTriggerMenu = $derived(extraTriggerLinks.length > 0 && allows('triggers'))
+	let showTriggersGroup = $derived(
+		showAddTriggerMenu || triggerMenuLinks.some((link) => !link.disabled)
 	)
 	// Admins, superadmins, and fork creators reach workspace settings (the latter
 	// for the fork members screen; see isForkOwner / backend authorize_fork_owner_add_user).
@@ -502,6 +506,8 @@
 					<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 				{/each}
 			</div>
+		{/if}
+		{#if showMain && showTriggersGroup}
 			<div class="pt-4">
 				{#if isCollapsed}
 					<div class="text-secondary text-[0.5rem] uppercase transition-opacity opacity-0">
@@ -529,7 +535,7 @@
 								{#each triggerMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
 									<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 								{/each}
-								{#if extraTriggerLinks.length > 0 && allows('triggers')}
+								{#if showAddTriggerMenu}
 									<Menu {createMenu} usePointerDownOutside>
 										{#snippet triggr({ trigger })}
 											<MeltButton

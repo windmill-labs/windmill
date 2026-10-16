@@ -1,8 +1,9 @@
-import { FileUp, Shield, Trash } from 'lucide-svelte'
+import { Copy, Eye, FileUp, History, List, Shield, Trash } from 'lucide-svelte'
 import { ResourceService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
-import type { Item } from '$lib/utils'
+import { copyToClipboard, type Item } from '$lib/utils'
 import { isDeployable } from '$lib/utils_deployable'
+import { goto } from '$lib/navigation'
 import type { WorkspaceDeployUISettings } from '$lib/gen'
 
 /** Deletes a saved agent, saying how it went. Resolves whether it was deleted. */
@@ -24,10 +25,13 @@ export function agentMenuItems(agent: {
 	/** Never deployed: no resource yet to hold permissions or to deploy onward. */
 	draftOnly?: boolean
 	wsSpecific?: boolean
+	/** Hides what an operator has no page for, as on a flow's menu. */
+	operator?: boolean
 	/** Undefined until loaded, when nothing is offered for deploy. */
 	deployUiSettings: WorkspaceDeployUISettings | undefined
 	onPermissions: () => void
 	onDeploy: () => void
+	onHistory: () => void
 	onDelete: (event?: MouseEvent) => void
 }): Item[] {
 	const deployable =
@@ -35,6 +39,28 @@ export function agentMenuItems(agent: {
 		!agent.draftOnly &&
 		isDeployable('resource', agent.path, agent.deployUiSettings)
 	return [
+		// A draft-only agent has no runs, no audit trail, and only a placeholder path yet.
+		...(agent.draftOnly
+			? []
+			: [
+					{
+						// An agent run is a flow preview, which the runs page hides by default. Chat turns
+						// are filed under `<path>.chat` (agent_runs.rs) and listed by the agent's own chat.
+						displayName: 'View runs',
+						icon: List,
+						action: () => goto(`/runs/${agent.path}?job_kinds=previews`)
+					},
+					...(agent.operator
+						? []
+						: [
+								{
+									displayName: 'Audit logs',
+									icon: Eye,
+									action: () => goto(`/audit_logs?resource=${agent.path}`)
+								}
+							]),
+					{ displayName: 'Copy path', icon: Copy, action: () => copyToClipboard(agent.path) }
+				]),
 		{
 			displayName: 'Permissions',
 			icon: Shield,
@@ -44,6 +70,9 @@ export function agentMenuItems(agent: {
 		...(deployable
 			? [{ displayName: 'Deploy to prod/staging', icon: FileUp, action: agent.onDeploy }]
 			: []),
+		...(agent.draftOnly || agent.operator
+			? []
+			: [{ displayName: 'Version history', icon: History, action: agent.onHistory }]),
 		{
 			displayName: 'Delete',
 			icon: Trash,
