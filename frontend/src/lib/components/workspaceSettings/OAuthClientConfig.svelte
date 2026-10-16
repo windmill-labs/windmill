@@ -8,7 +8,7 @@
 	import { ExternalLink } from 'lucide-svelte'
 
 	interface Props {
-		open?: boolean
+		open: boolean
 		serviceName: string
 		serviceDisplayName: string
 		existingConfig?: {
@@ -29,7 +29,7 @@
 	}
 
 	let {
-		open = $bindable(false),
+		open = $bindable(),
 		serviceName,
 		serviceDisplayName,
 		existingConfig,
