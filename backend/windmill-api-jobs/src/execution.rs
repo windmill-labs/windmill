@@ -996,8 +996,8 @@ pub async fn take_over_memory_turn(
             "take_over needs a token that can cancel any job (`jobs:cancel`)".to_string(),
         ));
     }
-    let holder: Option<(Uuid, String)> = sqlx::query_as(
-        "SELECT t.job_id, j.created_by FROM ai_memory_turn t
+    let holder: Option<(Uuid, String, String)> = sqlx::query_as(
+        "SELECT t.job_id, j.created_by, j.tag FROM ai_memory_turn t
          JOIN v2_job_queue q ON q.id = t.job_id
          JOIN v2_job j ON j.id = t.job_id
          WHERE t.workspace_id = $1 AND t.memory_id = $2",
@@ -1006,9 +1006,15 @@ pub async fn take_over_memory_turn(
     .bind(memory_id)
     .fetch_optional(db)
     .await?;
-    let Some((job_id, created_by)) = holder else {
+    let Some((job_id, created_by, tag)) = holder else {
         return Ok(());
     };
+    // A token confined to tags reads, and so cancels, only jobs on them.
+    if get_scope_tags(authed).is_some_and(|tags| !tags.contains(&tag.as_str())) {
+        return Err(Error::NotAuthorized(format!(
+            "the running turn is on tag {tag}, which this token cannot reach"
+        )));
+    }
     if created_by != authed.username && !authed.is_admin {
         return Err(Error::NotAuthorized(
             "only who started the running turn, or an admin, can take it over".to_string(),
