@@ -594,6 +594,49 @@ async fn create_variable(
     Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
     Json(variable): Json<CreateVariable>,
 ) -> Result<(StatusCode, String)> {
+    let path = variable.path.clone();
+    create_variable_with_account(
+        authed,
+        &db,
+        user_db,
+        &webhook,
+        w_id,
+        variable,
+        already_encrypted.unwrap_or(false),
+        None,
+    )
+    .await?;
+    Ok((StatusCode::CREATED, format!("variable {path} created")))
+}
+
+/// An OAuth account to create with the variable that holds its access token.
+pub struct NewOAuthAccount {
+    pub client: String,
+    pub expires_in: i64,
+    pub refresh_token: Option<String>,
+    pub grant_type: String,
+    pub cc_client_id: Option<String>,
+    pub cc_client_secret: Option<String>,
+    pub cc_token_url: Option<String>,
+    pub mcp_server_url: Option<String>,
+    pub scopes: Option<Vec<String>>,
+}
+
+/// Creates a variable and, given `account`, the OAuth account it refreshes through, linked in the
+/// same transaction. Reading a linked variable refreshes through its account and hands the reader
+/// the fresh token, so this is the only way a variable gets a link: `variable.account` is ignored.
+/// Returns the new account's id.
+pub async fn create_variable_with_account(
+    authed: ApiAuthed,
+    db: &DB,
+    user_db: UserDB,
+    webhook: &WebhookShared,
+    w_id: String,
+    variable: CreateVariable,
+    already_encrypted: bool,
+    account: Option<NewOAuthAccount>,
+) -> Result<Option<i32>> {
+    let db = db.clone();
     check_scopes(&authed, || format!("variables:write:{}", variable.path))?;
     check_proper_path(&variable.path)?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -625,7 +668,7 @@ async fn create_variable(
     let authed = maybe_refresh_folders(&variable.path, &w_id, authed, &db).await;
 
     check_path_conflict(&db, &w_id, &variable.path).await?;
-    let value = if variable.is_secret && !already_encrypted.unwrap_or(false) {
+    let value = if variable.is_secret && !already_encrypted {
         // A restored draft sends the `$encrypted:` marker as-is; decrypt it back
         // (validating against the workspace key) before the secret backend re-stores it.
         let plain = if variable.value.starts_with(ENCRYPTED_DRAFT_PREFIX) {
@@ -646,6 +689,27 @@ async fn create_variable(
 
     let mut tx = user_db.begin(&authed).await?;
 
+    let account_id = match account {
+        Some(a) => Some(
+            sqlx::query_scalar!(
+                "INSERT INTO account (workspace_id, client, expires_at, refresh_token, grant_type, cc_client_id, cc_client_secret, cc_token_url, mcp_server_url, scopes) VALUES ($1, $2, now() + ($3 || ' seconds')::interval, $4, $5, $6, $7, $8, $9, $10) RETURNING id",
+                &w_id,
+                a.client,
+                a.expires_in.to_string(),
+                a.refresh_token,
+                a.grant_type,
+                a.cc_client_id,
+                a.cc_client_secret,
+                a.cc_token_url,
+                a.mcp_server_url,
+                a.scopes.as_deref()
+            )
+            .fetch_one(&mut *tx)
+            .await?,
+        ),
+        None => None,
+    };
+
     sqlx::query!(
         "INSERT INTO variable
             (workspace_id, path, value, is_secret, description, account, is_oauth, expires_at, labels, edited_by)
@@ -655,9 +719,7 @@ async fn create_variable(
         value,
         variable.is_secret,
         variable.description,
-        // Reading a variable linked to an OAuth account refreshes through it and hands the reader
-        // the fresh token, so a caller never chooses the link: only the connect flow sets it.
-        None::<i32>,
+        account_id,
         variable.is_oauth.unwrap_or(false),
         variable.expires_at,
         variable.labels.as_deref() as Option<&[String]>,
@@ -707,10 +769,7 @@ async fn create_variable(
         WebhookMessage::CreateVariable { workspace: w_id, path: variable.path.clone() },
     );
 
-    Ok((
-        StatusCode::CREATED,
-        format!("variable {} created", variable.path),
-    ))
+    Ok(account_id)
 }
 
 async fn encrypt_value(

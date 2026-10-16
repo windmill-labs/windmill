@@ -488,7 +488,7 @@ export const variableRequestSchema = z.object({
 	"value": z.string().describe("The value of the variable"),
 	"is_secret": z.boolean().describe("Whether the variable is a secret"),
 	"description": z.string().describe("The description of the variable"),
-	"account": z.number().int().describe("Ignored. A variable is linked to an OAuth account only by `createAccount`'s `variable_path`.").optional(),
+	"account": z.number().int().describe("Ignored. A variable is linked to an OAuth account only when `createAccount` creates both.").optional(),
 	"is_oauth": z.boolean().describe("Whether the variable is an OAuth variable").optional(),
 	"expires_at": z.string().datetime({ offset: true }).describe("The expiration date of the variable").optional(),
 	"labels": z.array(z.string()).optional(),

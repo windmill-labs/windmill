@@ -283,20 +283,17 @@
 				path,
 				value: res.access_token,
 				resourcePath: path,
-				isOauth: true
+				isOauth: true,
+				account:
+					res?.expires_in != undefined
+						? {
+								refresh_token: res.refresh_token ?? '',
+								expires_in: res.expires_in,
+								client: t.client,
+								scopes: t.scopes
+							}
+						: undefined
 			})
-			if (res?.expires_in != undefined) {
-				await OauthService.createAccount({
-					workspace,
-					requestBody: {
-						refresh_token: res.refresh_token ?? '',
-						expires_in: res.expires_in,
-						client: t.client,
-						scopes: t.scopes,
-						variable_path: path
-					}
-				})
-			}
 			await createMcpResource(t, `$var:${path}`)
 			sendUserToast(`Connected ${t.label}`)
 		} catch (e) {

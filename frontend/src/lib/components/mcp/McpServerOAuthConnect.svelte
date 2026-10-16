@@ -1,10 +1,5 @@
 <script lang="ts">
-	import {
-		McpOauthService,
-		OauthService,
-		ResourceService,
-		type DiscoverMcpOauthResponse
-	} from '$lib/gen'
+	import { McpOauthService, ResourceService, type DiscoverMcpOauthResponse } from '$lib/gen'
 	import { Button } from '$lib/components/common'
 	import Label from '$lib/components/Label.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -141,20 +136,17 @@
 				path,
 				value: data.access_token,
 				resourcePath: path,
-				isOauth: true
+				isOauth: true,
+				account:
+					data.expires_in && data.refresh_token
+						? {
+								refresh_token: data.refresh_token,
+								expires_in: data.expires_in,
+								client: 'mcp',
+								mcp_server_url: data.mcp_server_url
+							}
+						: undefined
 			})
-			if (data.expires_in && data.refresh_token) {
-				await OauthService.createAccount({
-					workspace,
-					requestBody: {
-						refresh_token: data.refresh_token,
-						expires_in: data.expires_in,
-						client: 'mcp',
-						mcp_server_url: data.mcp_server_url,
-						variable_path: path
-					}
-				})
-			}
 
 			await ResourceService.createResource({
 				workspace,
