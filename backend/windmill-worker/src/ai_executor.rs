@@ -1332,7 +1332,7 @@ async fn log_memory_fit(
 ) {
     if memory_to_save.is_some_and(|tail| tail.len() < held) {
         append_logs(&job.id, &job.workspace_id,
-            "AI agent memory exceeds storage capacity after compaction; saving only the newest complete exchanges. Older memory was dropped; the answer and run action results are preserved.\n".to_string(), conn).await;
+            "AI agent memory exceeds storage capacity; saving only the newest complete exchanges. Older memory was dropped; the answer and run action results are preserved.\n".to_string(), conn).await;
     } else if memory_to_save.is_none() {
         append_logs(&job.id, &job.workspace_id,
             "AI agent memory has no complete user-starting conversation that fits storage capacity and memory was not saved. The answer is preserved; the next run will load the previous saved memory.\n".to_string(), conn).await;
