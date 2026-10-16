@@ -4,10 +4,11 @@
 	import { Button } from '$lib/components/common'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Select from '$lib/components/select/Select.svelte'
+	import AppConnectDrawer from '$lib/components/AppConnectDrawer.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '$lib/components/common/confirmationModal/asyncConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { Plus, Unplug } from 'lucide-svelte'
+	import { Plus, RefreshCw, Unplug } from 'lucide-svelte'
 	import { userStore } from '$lib/stores'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { connectNativeAccount, getServiceConfig } from './utils'
@@ -49,6 +50,7 @@
 
 	let connections = $state<NativeTriggerConnection[] | undefined>(undefined)
 	let connecting = $state(false)
+	let connectDrawer: AppConnectDrawer | undefined = $state(undefined)
 
 	async function load() {
 		try {
@@ -76,19 +78,32 @@
 		else value = path
 	}
 
-	async function connect() {
+	async function connect(path: string) {
 		connecting = true
 		try {
-			const path = await connectNativeAccount($operatingWorkspace!, service)
+			path = await connectNativeAccount($operatingWorkspace!, service, path)
 			await load()
 			sendUserToast(`${displayName} account connected`)
 			onConnectionsChange?.()
 			select(path)
 		} catch (err: any) {
 			sendUserToast(`Could not connect ${displayName}: ${err.body ?? err.message}`, true)
+			throw err
 		} finally {
 			connecting = false
 		}
+	}
+
+	async function reconnect(c: NativeTriggerConnection) {
+		if (c.owner && c.owner !== $userStore?.username) {
+			const confirmed = await confirmationModal.ask({
+				title: `Reconnect ${c.path} with your account?`,
+				confirmationText: 'Reconnect',
+				children: `${c.path} will act as the ${displayName} account you sign in with, instead of ${c.owner}'s. Every trigger using it will act as you.`
+			})
+			if (!confirmed) return
+		}
+		await connect(c.path).catch(() => {})
 	}
 
 	async function disconnect(path: string) {
@@ -119,6 +134,11 @@
 		return !c.workspace && !!c.owner && c.owner === $userStore?.username
 	}
 
+	// The server lets only the connection's owner or an admin replace it.
+	function canReconnect(c: NativeTriggerConnection): boolean {
+		return !!$userStore?.is_admin || (!!c.owner && c.owner === $userStore?.username)
+	}
+
 	const items = $derived.by(() => {
 		const list = (connections ?? []).map((c) => ({
 			label: c.workspace && labelWorkspace ? `${c.path} (shared account)` : c.path,
@@ -147,6 +167,17 @@
 	>
 		{#snippet endSnippet({ item, close })}
 			{@const connection = connections?.find((c) => c.path === item.value)}
+			{#if connection && canReconnect(connection)}
+				<Button
+					unifiedSize="xs"
+					variant="subtle"
+					startIcon={{ icon: RefreshCw }}
+					disabled={connecting}
+					onclick={() => (close(), reconnect(connection))}
+				>
+					Reconnect
+				</Button>
+			{/if}
 			{#if connection && canDisconnect(connection)}
 				<Button
 					unifiedSize="xs"
@@ -168,7 +199,7 @@
 					btnClasses="rounded-none"
 					startIcon={{ icon: Plus }}
 					disabled={disabled || connecting}
-					onclick={() => (close(), connect())}
+					onclick={() => (close(), connectDrawer?.open(getServiceConfig(service)?.resourceType))}
 				>
 					Connect a {displayName} account
 				</Button>
@@ -187,5 +218,14 @@
 		</Alert>
 	{/if}
 </div>
+
+<AppConnectDrawer
+	bind:this={connectDrawer}
+	native={{
+		title: `Connect a ${displayName} account`,
+		defaultName: `native_${service}`,
+		connect
+	}}
+/>
 
 <ConfirmationModal {...confirmationModal.props} />
