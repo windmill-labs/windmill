@@ -290,7 +290,8 @@ fn validate_oauth_entry(
     }
     let registry_entry = resolve_registry_config(registry, name);
     // The settings page builds a per-instance provider's URLs from the instance name it
-    // stores in extra_params; without one they point at no host.
+    // stores in extra_params; without one, and without URLs written out by hand, they
+    // point at no host.
     if let Some(tmpl) = registry_entry
         .as_ref()
         .and_then(|r| r.connect_config_template.as_ref())
@@ -302,7 +303,11 @@ fn validate_oauth_entry(
             .and_then(|c| c.extra_params.as_ref())
             .and_then(|p| p.get(key))
             .filter(|v| !v.is_empty());
-        if !entry.id.is_empty() && instance.is_none() {
+        let explicit_urls = entry
+            .connect_config
+            .as_ref()
+            .is_some_and(|c| !c.token_url.is_empty() && !c.token_url.contains('{'));
+        if !entry.id.is_empty() && instance.is_none() && !explicit_urls {
             return Err(format!("{} is required", tmpl.label));
         }
     }
@@ -1628,6 +1633,11 @@ mod tests {
                                            "extra_params": { "instance": "acme" } } },
             "custom": { "id": "a", "secret": "b", "grant_types": ["client_credentials"],
                         "connect_config": { "token_url": "https://idp.example.com/token" } }
+        }))
+        .is_ok());
+        assert!(ok(serde_json::json!({
+            "coupa": { "id": "a", "secret": "b", "grant_types": ["client_credentials"],
+                       "connect_config": { "token_url": "https://acme.coupahost.com/oauth2/token" } }
         }))
         .is_ok());
 
