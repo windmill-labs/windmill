@@ -25220,6 +25220,31 @@ paths:
               schema:
                 $ref: "#/components/schemas/S3Resource"
 
+  /w/{workspace}/job_helpers/v2/s3_proxy_bucket:
+    get:
+      summary: Returns the bucket S3 clients name to reach a workspace storage
+        through the S3 proxy, or null when that storage is not S3
+      operationId: s3ProxyBucket
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The storage's bucket
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bucket:
+                    type: string
+                    nullable: true
+
   /w/{workspace}/job_helpers/test_connection:
     get:
       summary: Test connection to the workspace object storage
