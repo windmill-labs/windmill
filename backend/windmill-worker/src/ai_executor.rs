@@ -3,7 +3,7 @@ use crate::ai::compaction::{
     Compactor,
 };
 use crate::ai::pause::{
-    answer_pause, approval_timeout, approval_tool, clear_suspend, load_checkpoint, park,
+    answer_pause, approval_timeout, approval_tool, load_checkpoint, park, resume_without_approval,
     AgentCheckpoint, ParkOutcome, Resumed, APPROVAL_ENABLED_NAME,
 };
 use crate::ai::tools::{
@@ -1478,7 +1478,8 @@ pub async fn run_agent(
                     }
                 }
                 None => {
-                    clear_suspend(db, &job.id).await?;
+                    resume_without_approval(db, &job.id, &mut checkpoint.consumed_resume_rows)
+                        .await?;
                     None
                 }
             };
@@ -1651,6 +1652,7 @@ pub async fn run_agent(
     let mut resumed_answer = None;
     let mut background = vec![];
     let mut answered = false;
+    let mut keep_structured_answer = false;
     let was_resumed = resumed.is_some();
     let (mut messages, mut actions, mut content, mut final_usage) = match resumed {
         Some((checkpoint, answer)) => {
@@ -1823,7 +1825,10 @@ pub async fn run_agent(
     }
 
     // Main agent loop
-    for i in first_iteration..max_iterations {
+    // Advanced by each model call that answers the run's own work; the call that follows a
+    // background result reuses the iteration of the answer it revisits.
+    let mut i = first_iteration;
+    while i < max_iterations {
         // Check if parent was canceled — stop iterating but let current tool calls finish
         if *cancel_rx.borrow() {
             return Err(Error::ExecutionErr("Job cancelled".to_string()));
@@ -1834,6 +1839,9 @@ pub async fn run_agent(
                 take_finished_background_jobs(db, &job.workspace_id, &mut background).await?;
             if !finished.is_empty() {
                 answered = false;
+                // The model is asked again, but its structured answer stands unless it gives
+                // another one.
+                keep_structured_answer |= used_structured_output_tool;
                 used_structured_output_tool = false;
             }
             for finished in finished {
@@ -1886,7 +1894,7 @@ pub async fn run_agent(
                 break;
             }
             // The model has answered but background jobs still run: wait for one, without a
-            // worker. This iteration runs again on resume, starting with what finished.
+            // worker. This iteration runs again, starting with what finished.
             if let Some(handle) = stream_event_processor.take().and_then(|p| p.to_handle()) {
                 let _ = handle.await;
             }
@@ -2380,7 +2388,9 @@ pub async fn run_agent(
                             .await?;
                     }
 
-                    content = Some(OpenAIContent::Text(response_content.clone()));
+                    if !keep_structured_answer {
+                        content = Some(OpenAIContent::Text(response_content.clone()));
+                    }
 
                     // Add assistant message to conversation if chat_input_enabled
                     if persist_output_to_conversation && !response_content.is_empty() {
@@ -2645,6 +2655,12 @@ pub async fn run_agent(
                 return Ok(content);
             }
         }
+        i += 1;
+    }
+
+    if !background.is_empty() {
+        // Out of iterations with background jobs still running: nothing would read their results.
+        cleanup_orphaned_tool_jobs(db, &job.id, &job.workspace_id, None).await;
     }
 
     if let Some(capacity_bytes) =

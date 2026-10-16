@@ -28,6 +28,7 @@
 	import { getToolNameError } from '$lib/components/flows/agentToolUtils'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import autosize from '$lib/autosize'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -38,6 +39,8 @@
 		title?: string | undefined
 		summary?: string | undefined
 		description?: string | undefined
+		/** An agent tool's `background` setting. */
+		background?: boolean
 		/** Static one-line explanation of what this kind of step does. Not the editable
 		 *  `description`, which is the AI-tool prompt the user writes. */
 		subtitle?: string | undefined
@@ -53,6 +56,7 @@
 		title = undefined,
 		summary = $bindable(undefined),
 		description = $bindable(undefined),
+		background = $bindable(),
 		subtitle = undefined,
 		subtitleDocLink = undefined,
 		children,
@@ -292,5 +296,15 @@
 			placeholder="Tool description (optional): tells the AI when and how to use this tool"
 			class="w-full text-xs resize-none"
 		></textarea>
+		<Toggle
+			size="xs"
+			textClass="text-xs font-normal text-primary"
+			bind:checked={() => background ?? false, (v) => (background = v)}
+			options={{
+				right: 'Run in background',
+				rightTooltip:
+					'The agent is answered as soon as the job starts and keeps working. The result reaches it in a later message. If it finishes its answer first, it waits for the result without holding a worker.'
+			}}
+		/>
 	{/if}
 </div>

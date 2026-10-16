@@ -195,21 +195,24 @@ the background as job X"), and the agent keeps working. The job's result reaches
 a user message tagged with the call's `tool_call` action, since the call itself was already
 answered. Its outcome in `agent_actions_success` is `null` until then, set in place by position.
 
-- **Waking.** Before the job is queued, the worker adds it to the agent's own
-  `workflow_as_code_status._checkpoint.pending_steps.job_ids`. Tool jobs are the agent's children,
-  so `record_child_completion` decrements the parked agent's `suspend` when one of them completes,
-  in the completion's own transaction. The entry has to exist before the job does: the completion
-  reads the ids before it locks anything.
 - **Parking.** The loop checks for finished jobs before each model call. When the model answers
   with jobs still running, the agent parks like it does for an approval (`suspend = 1`, the same
-  checkpoint table) instead of ending, and that iteration runs again on resume. The park checks, with
-  its queue row locked, whether a job finished while it ran; if so it continues instead.
-  `suspend_until` is an hour, a bound on a missed wake rather than a deadline.
-- **With an approval.** A job finishing while an approval is open wakes the agent, which parks again
-  for the time left: results wait for the answer.
+  checkpoint table) instead of ending, with the jobs in the checkpoint row's `waiting_on`. The park
+  first checks, under its queue row lock, whether one already finished, and delivers it instead.
+- **Waking.** Every monitor pass zeroes the `suspend` of a parked agent with a completed job in
+  `waiting_on`, so a result waits at most one pass (10s by default) once its job ends. Not
+  `record_child_completion`, although tool jobs are the agent's children: when it wakes a parent it
+  clears all of its pending ids, which fits a workflow-as-code round but would drop the agent's
+  other background jobs.
+- **Iterations.** The model call that follows a background result reuses the iteration of the
+  answer it revisits, so waiting never runs an agent out of iterations. An agent that does run out
+  cancels the jobs still running. With structured output, an earlier structured answer stands unless
+  the model gives another.
+- **With an approval.** While an approval is open, `waiting_on` is empty: results wait for the
+  answer. An answer the row accepts while the agent waits on background jobs only is marked read on
+  resume, so it cannot answer a later request.
 - **Limits.** A nested agent runs its background tools in the foreground, since it cannot park. The
-  job is never reserved for the agent's own worker. If the agent reaches its iteration limit, it ends
-  with the jobs still running.
+  job is never reserved for the agent's own worker.
 
 ## Drafts
 

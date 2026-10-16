@@ -1,4 +1,4 @@
-use crate::ai::pause::{register_background_job, start_pause, PendingPause};
+use crate::ai::pause::{start_pause, PendingPause};
 use crate::ai::stream_event_processor::StreamEventProcessor;
 use crate::ai::utils::{
     add_message_to_conversation, execute_mcp_tool, get_step_name_from_flow,
@@ -375,7 +375,6 @@ async fn start_background_tool(
     messages: &mut Vec<OpenAIMessage>,
 ) -> Result<BackgroundJob, Error> {
     let job_id = ulid::Ulid::new().into();
-    register_background_job(ctx.db, &ctx.job.id, &tool_call.id, &job_id).await?;
     // Never reserved for this worker: it is busy with the agent, which may park before the job
     // is pulled.
     enqueue_windmill_tool(ctx, tool_call, tool, actions, job_id, false).await?;

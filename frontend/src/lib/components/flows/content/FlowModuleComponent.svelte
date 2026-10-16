@@ -154,7 +154,7 @@
 		staticOnly = false,
 		flowModuleSchemaMap = undefined,
 		toolDescription = $bindable(undefined),
-		toolBackground = $bindable(false),
+		toolBackground = $bindable(),
 		siblingToolNames = undefined
 	}: Props = $props()
 
@@ -867,6 +867,7 @@
 			on:reload={reloadModule}
 			bind:summary={flowModule.summary}
 			bind:description={toolDescription}
+			bind:background={toolBackground}
 			{isAgentTool}
 			{siblingToolNames}
 		>
@@ -1403,7 +1404,6 @@
 											onApplyS3Snippet={(code) => editor?.setCode(code)}
 											bind:flowModule
 											{isAgentTool}
-											bind:toolBackground
 											{parentModule}
 											{previousModule}
 											selectedId={flowModule.id}
