@@ -21,7 +21,10 @@ use windmill_common::{
     jobs::{HIDE_WORKERS_FOR_NON_ADMINS, TAGS_ARE_SENSITIVE},
     queue_metrics::{read_queue_metrics_series, QueueMetricsSeries},
     utils::{paginate, Pagination},
-    worker::{ALL_TAGS, CUSTOM_TAGS_PER_WORKSPACE, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE},
+    worker::{
+        ALL_TAGS, CUSTOM_TAGS_PER_WORKSPACE, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE,
+        DEV_WORKSPACE_TAG_SUFFIX,
+    },
     workspaces::workspace_with_fork_ancestors,
     DB,
 };
@@ -36,6 +39,10 @@ pub fn global_service() -> Router {
         .route(
             "/is_default_tags_per_workspace",
             get(get_default_tags_per_workspace),
+        )
+        .route(
+            "/dev_workspace_tag_suffix",
+            get(get_dev_workspace_tag_suffix),
         )
         .route("/get_default_tags", get(get_default_tags))
         .route("/queue_metrics", get(get_queue_metrics))
@@ -257,6 +264,10 @@ async fn get_default_tags_per_workspace() -> JsonResult<bool> {
     Ok(Json(
         DEFAULT_TAGS_PER_WORKSPACE.load(std::sync::atomic::Ordering::Relaxed),
     ))
+}
+
+async fn get_dev_workspace_tag_suffix() -> JsonResult<Option<String>> {
+    Ok(Json((**DEV_WORKSPACE_TAG_SUFFIX.load()).clone()))
 }
 
 async fn get_default_tags() -> JsonResult<Vec<String>> {

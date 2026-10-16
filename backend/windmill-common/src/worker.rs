@@ -451,6 +451,8 @@ lazy_static::lazy_static! {
     pub static ref FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX: AtomicBool = AtomicBool::new(false);
     pub static ref PREVIEW_TAGS_OVERRIDE: AtomicBool = AtomicBool::new(false);
     pub static ref DEPENDENCY_JOB_TAG: arc_swap::ArcSwap<Option<String>> = arc_swap::ArcSwap::from_pointee(None);
+    /// Appended to every tag of a dev workspace's or fork's jobs; `None` turns isolation off.
+    pub static ref DEV_WORKSPACE_TAG_SUFFIX: arc_swap::ArcSwap<Option<String>> = arc_swap::ArcSwap::from_pointee(None);
 
     pub static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
     .ok()
@@ -2421,6 +2423,42 @@ pub async fn update_worker_ping_main_loop_query(
 const MAX_TAG_LEN: usize = 50;
 const HASH_SUFFIX_LEN: usize = 16;
 
+/// The suffix a group serving dev workspaces listens with while isolation is off. No job carries
+/// it then, so such a group idles rather than taking jobs of root workspaces.
+pub const DEFAULT_DEV_WORKSPACE_TAG_SUFFIX: &str = "-dev";
+
+/// `tag` as the workers serving dev workspaces listen to it. Idempotent, because a tag inherited
+/// from a dev job (a flow step, an agent's tool) already carries the suffix.
+pub fn with_dev_workspace_suffix(tag: &str, suffix: &str) -> String {
+    if tag.ends_with(suffix) {
+        tag.to_string()
+    } else {
+        format!("{tag}{suffix}")
+    }
+}
+
+/// The tag a dev job's flow tag was suffixed from, so it can be compared with the unsuffixed
+/// default flow tags.
+pub fn strip_dev_workspace_suffix(tag: &str) -> &str {
+    match DEV_WORKSPACE_TAG_SUFFIX.load().as_deref() {
+        Some(suffix) => tag.strip_suffix(suffix).unwrap_or(tag),
+        None => tag,
+    }
+}
+
+/// Whether `tag` is a [`dedicated_worker_tag`] of `workspace_id`, hashed form included.
+pub fn is_dedicated_worker_tag_of(workspace_id: &str, tag: &str) -> bool {
+    let full_prefix = format!("{workspace_id}:");
+    if tag.starts_with(&full_prefix) {
+        return true;
+    }
+    let prefix_len = MAX_TAG_LEN - 1 - HASH_SUFFIX_LEN;
+    tag.len() == MAX_TAG_LEN
+        && tag.as_bytes().get(prefix_len) == Some(&b'#')
+        && full_prefix.len() > prefix_len
+        && full_prefix.starts_with(&tag[..prefix_len])
+}
+
 pub fn dedicated_worker_tag(workspace_id: &str, path: &str) -> String {
     let full_tag = format!("{}:{}", workspace_id, path);
     if full_tag.len() <= MAX_TAG_LEN {
@@ -2581,8 +2619,37 @@ pub async fn load_worker_config(
         })
         .unwrap_or_else(|| DEFAULT_TAGS.clone());
 
+    // A group serving dev workspaces listens to the suffixed form of its tags only, so it never
+    // takes a root workspace's job. Dedicated workers are placed by hand and keep their tags.
+    let dev_suffix = (config.serves_dev_workspaces == Some(true)
+        && dedicated_worker.is_none()
+        && dedicated_workers.is_none())
+    .then(|| {
+        DEV_WORKSPACE_TAG_SUFFIX
+            .load()
+            .as_deref()
+            .unwrap_or(DEFAULT_DEV_WORKSPACE_TAG_SUFFIX)
+            .to_string()
+    });
+    let worker_tags = match &dev_suffix {
+        Some(suffix) => worker_tags
+            .iter()
+            .map(|t| with_dev_workspace_suffix(t, suffix))
+            .unique()
+            .collect_vec(),
+        None => worker_tags,
+    };
+
     let mut priority_tags_sorted: Vec<PriorityTags> = Vec::new();
-    let priority_tags_map = config.priority_tags.unwrap_or_else(HashMap::new);
+    let priority_tags_map: HashMap<String, u8> = match &dev_suffix {
+        Some(suffix) => config
+            .priority_tags
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(t, p)| (with_dev_workspace_suffix(&t, suffix), p))
+            .collect(),
+        None => config.priority_tags.unwrap_or_else(HashMap::new),
+    };
     if priority_tags_map.len() > 0 {
         let mut all_tags_set: HashSet<String> = HashSet::from_iter(worker_tags.clone());
 
@@ -2778,6 +2845,7 @@ pub struct WorkerConfigOpt {
     pub native_mode: Option<bool>,
     pub object_store_cache_config: Option<serde_json::Value>,
     pub paused: Option<bool>,
+    pub serves_dev_workspaces: Option<bool>,
 }
 
 impl Default for WorkerConfigOpt {
@@ -2798,6 +2866,7 @@ impl Default for WorkerConfigOpt {
             native_mode: Default::default(),
             object_store_cache_config: Default::default(),
             paused: Default::default(),
+            serves_dev_workspaces: Default::default(),
         }
     }
 }

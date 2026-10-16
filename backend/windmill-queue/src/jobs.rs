@@ -4778,6 +4778,9 @@ pub async fn pull(
                                 }
                             }
                         };
+                        let tag =
+                            crate::tags::apply_dev_workspace_suffix(tag, &job.workspace_id, db)
+                                .await;
                         sqlx::query!(
                             "UPDATE v2_job_queue SET tag = $1, running = false WHERE id = $2",
                             tag,
@@ -7372,7 +7375,8 @@ async fn push_inner<'c, 'd>(
 
     // A dedicated worker runs every job it serves with its own unscoped worker token, so a
     // job with a restricted token runs on the regular workers of its language instead.
-    let tag = if dedicated_worker.is_some_and(|x| x) && job_token_scopes.is_none() {
+    let on_dedicated_worker = dedicated_worker.is_some_and(|x| x) && job_token_scopes.is_none();
+    let tag = if on_dedicated_worker {
         let flow_prefix = if job_kind == JobKind::Flow || job_kind == JobKind::FlowDependencies {
             "flow/"
         } else {
@@ -7452,6 +7456,11 @@ async fn push_inner<'c, 'd>(
                     .unwrap_or_else(default)
             }
         })
+    };
+    let tag = if on_dedicated_worker {
+        tag
+    } else {
+        crate::tags::apply_dev_workspace_suffix(tag, workspace_id, db).await
     };
 
     let mut tx = tx.into_tx().await?;

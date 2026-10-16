@@ -10185,17 +10185,22 @@ async fn add_batch_jobs(
 
     let language = language.unwrap_or(ScriptLang::Deno);
 
-    let tag = if let Some(dedicated_worker) = dedicated_worker {
+    let tag = match (dedicated_worker, batch_info.tag) {
         // Same rule as `push`: a dedicated worker would run it with its own unscoped token.
-        if dedicated_worker && path.is_some() && job_token_scopes.is_none() {
+        (Some(true), _) if path.is_some() && job_token_scopes.is_none() => {
             windmill_common::worker::dedicated_worker_tag(&w_id, &path.clone().unwrap())
-        } else {
-            format!("{}", language.as_str())
         }
-    } else if let Some(tag) = batch_info.tag {
-        tag
-    } else {
-        format!("{}", language.as_str())
+        (None, Some(tag)) => {
+            windmill_queue::tags::apply_dev_workspace_suffix(tag, &w_id, &db).await
+        }
+        _ => {
+            windmill_queue::tags::apply_dev_workspace_suffix(
+                language.as_str().to_string(),
+                &w_id,
+                &db,
+            )
+            .await
+        }
     };
 
     let mut tx = user_db.begin(&authed).await?;

@@ -279,6 +279,8 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dependency_job_tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub dev_workspace_tag_suffix: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_base_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub github_app_webhook_base_url: Option<String>,
@@ -970,6 +972,9 @@ pub struct WorkerGroupConfig {
     /// Workers of the group pull no new job while this is set; queued jobs wait.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub paused: Option<bool>,
+    /// The group listens to its tags suffixed with the dev workspace tag suffix, and only to them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub serves_dev_workspaces: Option<bool>,
     /// Object store this group's dependency cache uses instead of the instance one. Same shape
     /// as the instance `object_store_cache_config`.
     #[serde(skip_serializing_if = "Option::is_none")]

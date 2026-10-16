@@ -11413,6 +11413,21 @@ paths:
               schema:
                 type: boolean
 
+  /workers/dev_workspace_tag_suffix:
+    get:
+      summary: get the suffix appended to the tags of dev workspace and fork jobs
+      operationId: getDevWorkspaceTagSuffix
+      tags:
+        - worker
+      responses:
+        "200":
+          description: the suffix, or null when dev workspace isolation is off
+          content:
+            application/json:
+              schema:
+                type: string
+                nullable: true
+
   /w/{workspace}/workspace_dependencies/create:
     post:
       summary: create workspace dependencies

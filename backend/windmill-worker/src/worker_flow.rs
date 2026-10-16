@@ -1631,7 +1631,17 @@ pub async fn update_flow_status_after_job_completion_internal(
                 Some(t) => {
                     let no_args = HashMap::new();
                     let args = PushArgs::from(fetched_args.as_ref().unwrap_or(&no_args));
-                    resolve_push_tag(t, &args, &flow_job.workspace_id, db).await
+                    match resolve_push_tag(t, &args, &flow_job.workspace_id, db).await {
+                        Some(t) => Some(
+                            windmill_queue::tags::apply_dev_workspace_suffix(
+                                t,
+                                &flow_job.workspace_id,
+                                db,
+                            )
+                            .await,
+                        ),
+                        None => None,
+                    }
                 }
                 None => None,
             };
@@ -2210,7 +2220,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                             None
                         },
                         has_triggered_error_handler: has_triggered_error_handler || is_failure_step,
-                        recovered_by_child: failure_step_recovers || (recovered_by_child && !success),
+                        recovered_by_child: failure_step_recovers
+                            || (recovered_by_child && !success),
                     },
                 ));
             }
@@ -3285,7 +3296,12 @@ pub(crate) fn resolve_flow_step_tag(
     preserve_step_tags: bool,
     step_tag: Option<&str>,
 ) -> Option<String> {
-    if is_preprocessor_step || flow_tag == "flow" || flow_tag == format!("flow-{}", workspace_id) {
+    // A dev workspace's flow runs on the generic tag suffixed, and its steps are suffixed on push.
+    let generic_flow_tag = windmill_common::worker::strip_dev_workspace_suffix(flow_tag);
+    if is_preprocessor_step
+        || generic_flow_tag == "flow"
+        || generic_flow_tag == format!("flow-{}", workspace_id)
+    {
         step_tag.map(str::to_string)
     } else if preserve_step_tags && step_tag.is_some_and(|t| !t.is_empty()) {
         step_tag.map(str::to_string)
@@ -4794,10 +4810,8 @@ async fn push_next_flow_job(
             // narrows that further.
             windmill_common::scopes::intersect_job_token_scopes(
                 flow_job.job_token_scopes.as_deref(),
-                windmill_common::scopes::step_job_token_scopes(
-                    module.job_token_scopes.as_deref(),
-                )
-                .as_deref(),
+                windmill_common::scopes::step_job_token_scopes(module.job_token_scopes.as_deref())
+                    .as_deref(),
             )
             .as_deref(),
         )

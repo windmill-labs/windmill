@@ -11,6 +11,7 @@
 		type CompletedJob
 	} from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
+	import { devWorkspaceTagSuffix, loadDevWorkspaceTagSuffix } from '$lib/devWorkspaceTags'
 	import { logoutWithRedirect } from '$lib/logoutKit'
 	import { page } from '$app/state'
 	import {
@@ -162,6 +163,12 @@
 	// read as a root (it would offer invalid dev creation while the workspace list is still loading).
 	// `workspaceIsFork` (prefix OR parent) also excludes an orphaned `wm-fork-` workspace, whose parent
 	// FK was set null — it has no parent but is still a fork, so it can't host a dev workspace.
+	let baseIsRoot = $derived(
+		!!baseWorkspaceEntry && !workspaceIsFork(baseWorkspaceId, forkableWorkspaces)
+	)
+	$effect(() => {
+		isFork && loadDevWorkspaceTagSuffix()
+	})
 	let baseCanHostDev = $derived(
 		!!baseWorkspaceEntry &&
 			(!workspaceIsFork(baseWorkspaceId, forkableWorkspaces) ||
@@ -963,6 +970,34 @@
 						there.
 					</Alert>
 				{/if}
+				{#if baseWorkspaceId && createAsDevWorkspace}
+					<Alert
+						type="info"
+						size="xs"
+						title="Resources and variables are copied from {baseWorkspaceId}"
+					>
+						The dev workspace starts with copies of {baseWorkspaceId}'s resources and variables,
+						credentials included. Point them at staging before developers use it.
+						{#if !forkingLocked && !lockProdForking}
+							Turn on <b>Prevent forking</b> above so developers fork this dev workspace, which will
+							hold staging credentials, rather than {baseWorkspaceId}.
+						{/if}
+						{#if $devWorkspaceTagSuffix}
+							Its jobs run on dev workers (tags suffixed with <code>{$devWorkspaceTagSuffix}</code
+							>).
+						{/if}
+					</Alert>
+				{:else if baseWorkspaceId && $devWorkspaceTagSuffix}
+					<Alert type="info" size="xs" title="Runs on dev workers">
+						Jobs of this fork run on the worker groups serving dev workspaces (tags suffixed with
+						<code>{$devWorkspaceTagSuffix}</code>).
+						{#if baseIsRoot}
+							It copies {baseWorkspaceId}'s resources and variables, so its scripts use
+							{baseWorkspaceId}'s credentials from those workers and reach what their network
+							allows. Forking a dev workspace instead gives a fork its staging credentials.
+						{/if}
+					</Alert>
+				{/if}
 			{/if}
 			{#if isFork}
 				<ForkDatatableSection
@@ -1101,11 +1136,8 @@
 	</div>
 	<div class="flex flex-wrap flex-row {inModal ? 'justify-end' : 'justify-between'} gap-4 pt-4">
 		{#if !inModal}
-			<Button
-				disabled={forkCreationLoading}
-				variant="default"
-				size="sm"
-				href="/user/workspaces">&leftarrow; Back to workspaces</Button
+			<Button disabled={forkCreationLoading} variant="default" size="sm" href="/user/workspaces"
+				>&leftarrow; Back to workspaces</Button
 			>
 		{/if}
 		{#if !forkCreationLoading}

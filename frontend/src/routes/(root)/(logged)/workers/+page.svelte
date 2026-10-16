@@ -16,6 +16,12 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceGroup from '$lib/components/WorkerGroup.svelte'
+	import DevWorkspaceIsolation from '$lib/components/DevWorkspaceIsolation.svelte'
+	import {
+		DEFAULT_DEV_WORKSPACE_TAG_SUFFIX,
+		devWorkspaceTagSuffix,
+		withDevSuffix
+	} from '$lib/devWorkspaceTags'
 	import {
 		WorkerService,
 		type WorkerPing,
@@ -904,6 +910,23 @@
 				</Alert>
 			{/if}
 
+			{#if $superadmin || $devopsRole}
+				<DevWorkspaceIsolation
+					{workerGroups}
+					liveWorkers={Object.fromEntries(
+						groupedWorkers.map(([name, instances]) => [
+							name,
+							instances.flatMap(([_, pings]) => pings.filter((p) => (p.last_ping ?? 0) < 15)).length
+						])
+					)}
+					canEdit={!!$superadmin}
+					onConfigureGroup={(name) => {
+						selectedTab = name
+						shouldAutoOpenDrawer = name
+					}}
+				/>
+			{/if}
+
 			{#if workers != undefined}
 				{#if groupedWorkers.length == 0}
 					<p>No workers seem to be available</p>
@@ -1046,7 +1069,14 @@
 												{@const isWorkerAlive = isWorkerMaybeAlive(last_ping)}
 												{@const tagMismatchInfo = getTagMismatchInfo(
 													custom_tags,
-													config?.worker_tags
+													config?.serves_dev_workspaces === true
+														? config?.worker_tags?.map((t: string) =>
+																withDevSuffix(
+																	t,
+																	$devWorkspaceTagSuffix ?? DEFAULT_DEV_WORKSPACE_TAG_SUFFIX
+																)
+															)
+														: config?.worker_tags
 												)}
 												<tr class={groupIdx % 2 == 1 ? 'bg-surface-secondary/50' : ''}>
 													<Cell class="text-primary" first>
