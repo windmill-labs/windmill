@@ -3230,3 +3230,56 @@
       - *refusal
       - - admin
   skipJudge: true
+
+# An agent from the Agents page is an `ai_agent` resource. Asked about one by name, the model
+# has to read it as a resource rather than look for a flow or script of that name.
+- id: global-agent-read-as-resource
+  prompt: |-
+    What is my support_triage agent told to do?
+  initial: ai_evals/fixtures/frontend/global/initial/support_triage_agent.json
+  runtime:
+    maxTurns: 6
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    toolCallArgsSameCall:
+      - tool: read_workspace_item
+        args:
+          - field: type
+            stringIncludesAnyOf:
+              - resource
+          - field: path
+            stringIncludesAnyOf:
+              - f/evals/global/support_triage
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - billing
+  skipJudge: true
+
+# The chat may draft an agent change, but the agent is deployed from its own page, whose
+# editor validates it; the chat's deploy does not.
+- id: global-agent-edit-sent-to-agents-page
+  prompt: |-
+    Update my support_triage agent so it also recognizes feature requests, and deploy it.
+  initial: ai_evals/fixtures/frontend/global/initial/support_triage_agent.json
+  runtime:
+    maxTurns: 6
+    sessionChat: true
+  validate:
+    draftCountExactly: 1
+    requiredDrafts:
+      - type: resource
+        path: f/evals/global/support_triage
+        valueIncludes:
+          - ai_agent
+          - feature
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - /agents/edit
+        - Agents page
+        - agent editor
+  skipJudge: true

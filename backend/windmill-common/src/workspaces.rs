@@ -3000,6 +3000,8 @@ lazy_static::lazy_static! {
     /// broadcasts on `FORK_LINEAGE_CHANGE_CHANNEL`. A process that receives no broadcast — an agent
     /// worker polls no notify events — has only the TTL, and takes the shorter one.
     static ref ROOT_WORKSPACE_CACHE: Cache<String, (String, i64)> = Cache::new(5000);
+    /// workspace id -> ((dev or fork, dev lineage), expiry ts), swept with the cache above.
+    static ref DEV_LINEAGE_CACHE: Cache<String, ((bool, bool), i64)> = Cache::new(5000);
 }
 
 const ROOT_WORKSPACE_CACHE_TTL_S: i64 = 300;
@@ -3018,12 +3020,59 @@ const ROOT_WORKSPACE_UNRESOLVED_CACHE_TTL_S: i64 = 30;
 /// `windmill_queue::tags::invalidate_fork_parent_cache`.
 pub fn invalidate_root_workspace_cache(w_id: &str) {
     ROOT_WORKSPACE_CACHE.remove(w_id);
+    DEV_LINEAGE_CACHE.remove(w_id);
 }
 
 /// Drop every cached root workspace: the answer depends on the whole ancestor chain, so a mutation
 /// that reshapes the tree moves an unbounded set of descendants.
 pub fn clear_root_workspace_cache() {
     ROOT_WORKSPACE_CACHE.clear();
+    DEV_LINEAGE_CACHE.clear();
+}
+
+/// Whether `w_id` has a parent or a generated fork id, and whether a dev workspace is on its
+/// ancestor chain: the inputs of `worker::is_isolated_workspace`, as `windmill_queue::tags` reads
+/// them, for callers outside that crate. `None` when the lookup failed, which is not cached.
+pub async fn dev_lineage(db: &crate::DB, w_id: &str) -> Option<(bool, bool)> {
+    let now = chrono::Utc::now().timestamp();
+    if let Some((lineage, expiry)) = DEV_LINEAGE_CACHE.get(w_id) {
+        if expiry > now {
+            return Some(lineage);
+        }
+    }
+    let (has_parent, in_dev_lineage) = sqlx::query_as::<_, (Option<bool>, Option<bool>)>(
+        r#"
+            WITH RECURSIVE chain AS (
+                SELECT id, parent_workspace_id, is_dev_workspace, deleted, 0 AS depth
+                FROM workspace WHERE id = $1
+                UNION ALL
+                SELECT w.id, w.parent_workspace_id, w.is_dev_workspace, w.deleted, chain.depth + 1
+                FROM workspace w
+                JOIN chain ON w.id = chain.parent_workspace_id
+                WHERE chain.depth < 20
+            )
+            SELECT
+                (SELECT parent_workspace_id IS NOT NULL FROM chain WHERE depth = 0),
+                (SELECT bool_or(is_dev_workspace
+                                OR (parent_workspace_id IS NULL AND id LIKE 'wm-fork-%')
+                                OR (deleted AND parent_workspace_id IS NOT NULL))
+                 FROM chain)
+        "#,
+    )
+    .bind(w_id)
+    .fetch_one(db)
+    .await
+    .map_err(|e| tracing::warn!("failed to resolve the dev lineage of {w_id}: {e:#}"))
+    .ok()?;
+    let lineage = (
+        w_id.starts_with(WM_FORK_PREFIX) || has_parent == Some(true),
+        in_dev_lineage != Some(false),
+    );
+    DEV_LINEAGE_CACHE.insert(
+        w_id.to_string(),
+        (lineage, now + ROOT_WORKSPACE_CACHE_TTL_S),
+    );
+    Some(lineage)
 }
 
 /// Nearest ancestor-or-self of `w_id` that is an environment of its own: a root ("prod") workspace

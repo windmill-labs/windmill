@@ -7245,6 +7245,33 @@ pub async fn parse_sig_of_lang(
     })
 }
 
+/// Inline runs happen outside any worker's job loop, so they get no job dir from it. Executors
+/// write there (DuckDB's spill and result files), so each run needs its own: an empty one
+/// resolves to `/`, shared by every concurrent run and unwritable to a non-root server.
+/// Removed on drop: no job loop owns it, and the run's future is dropped mid-await when the
+/// HTTP client disconnects.
+struct InlineJobDir(String);
+
+impl Drop for InlineJobDir {
+    fn drop(&mut self) {
+        let dir = std::mem::take(&mut self.0);
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                handle.spawn_blocking(move || std::fs::remove_dir_all(dir));
+            }
+            Err(_) => {
+                let _ = std::fs::remove_dir_all(dir);
+            }
+        }
+    }
+}
+
+async fn create_inline_job_dir() -> error::Result<InlineJobDir> {
+    let job_dir = format!("{}/inline/{}", *WINDMILL_DIR, Uuid::new_v4());
+    tokio::fs::create_dir_all(&job_dir).await?;
+    Ok(InlineJobDir(job_dir))
+}
+
 pub fn init_worker_internal_server_inline_utils(
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     base_internal_url: String,
@@ -7275,13 +7302,14 @@ pub fn init_worker_internal_server_inline_utils(
                 let mut occupancy_metrics = OccupancyMetrics::new(Instant::now());
                 let mut has_stream: bool = false;
                 let mut killpill_rx = params.killpill_rx;
+                let job_dir = create_inline_job_dir().await?;
 
                 run_language_executor(
                     &job,
                     &params.conn,
                     &params.client,
                     None,
-                    &params.job_dir,
+                    &job_dir.0,
                     &params.worker_dir,
                     &mut mem_peak,
                     &mut canceled_by,
@@ -7336,13 +7364,14 @@ pub fn init_worker_internal_server_inline_utils(
                 let mut occupancy_metrics = OccupancyMetrics::new(Instant::now());
                 let mut has_stream: bool = false;
                 let mut killpill_rx = params.killpill_rx;
+                let job_dir = create_inline_job_dir().await?;
 
                 run_language_executor(
                     &job,
                     &params.conn,
                     &params.client,
                     None,
-                    &params.job_dir,
+                    &job_dir.0,
                     &params.worker_dir,
                     &mut mem_peak,
                     &mut canceled_by,

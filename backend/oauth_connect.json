@@ -317,6 +317,14 @@
       "type": "web_server"
     }
   },
+  "asana": {
+    "auth_url": "https://app.asana.com/-/oauth_authorize",
+    "token_url": "https://app.asana.com/-/oauth_token",
+    "scopes": ["default"],
+    "scope_options": [
+      { "value": "default", "label": "Full permissions (the Asana app must be registered with Full permissions)" }
+    ]
+  },
   "notion": {
     "auth_url": "https://api.notion.com/v1/oauth/authorize",
     "token_url": "https://api.notion.com/v1/oauth/token",
@@ -377,6 +385,20 @@
       "strip_suffix": ".coupahost.com",
       "resource_mapping": {
         "instance_url": "https://{instance}.coupahost.com"
+      }
+    }
+  },
+  "shopify": {
+    "grant_types": ["client_credentials"],
+    "connect_config_template": {
+      "display_name": "Shopify",
+      "label": "Shopify store",
+      "placeholder": "your-store",
+      "help_url": "https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/client-credentials-grant",
+      "token_url": "https://{instance}.myshopify.com/admin/oauth/access_token",
+      "strip_suffix": ".myshopify.com",
+      "resource_mapping": {
+        "store_name": "{instance}"
       }
     }
   },
