@@ -380,6 +380,20 @@
       }
     }
   },
+  "shopify": {
+    "grant_types": ["client_credentials"],
+    "connect_config_template": {
+      "display_name": "Shopify",
+      "label": "Shopify store",
+      "placeholder": "your-store",
+      "help_url": "https://shopify.dev/docs/apps/build/authentication-authorization/access-tokens/client-credentials-grant",
+      "token_url": "https://{instance}.myshopify.com/admin/oauth/access_token",
+      "strip_suffix": ".myshopify.com",
+      "resource_mapping": {
+        "store_name": "{instance}"
+      }
+    }
+  },
   "sage_intacct": {
     "auth_url": "https://api.intacct.com/ia/api/v1/oauth2/authorize",
     "token_url": "https://api.intacct.com/ia/api/v1/oauth2/token",
