@@ -205,6 +205,16 @@
 	// The sweep's default when the stored handler has no `notify_before_secs`.
 	const defaultNotifyBeforeSecs = 24 * 3600
 	let variableExpirationNotifyBeforeSecs: number = $state(defaultNotifyBeforeSecs)
+	let variableExpirationRemindEverySecs: number | undefined = $state(undefined)
+	// The first notice plus its reminders. The sweep runs every 5 minutes, so no interval
+	// fires more often than that.
+	let variableExpirationRuns = $derived(
+		variableExpirationRemindEverySecs
+			? Math.ceil(
+					variableExpirationNotifyBeforeSecs / Math.max(variableExpirationRemindEverySecs, 300)
+				)
+			: 1
+	)
 	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let publicAppRateLimitPerMinute: number | undefined = $state(undefined)
@@ -280,6 +290,7 @@
 	)
 	let initialVariableExpirationMutedOnUserPath: boolean = $state(false)
 	let initialVariableExpirationNotifyBeforeSecs: number = $state(defaultNotifyBeforeSecs)
+	let initialVariableExpirationRemindEverySecs: number | undefined = $state(undefined)
 
 	let s3ResourceSettings: S3ResourceSettings = $state({
 		resourceType: 's3',
@@ -347,9 +358,15 @@
 	function variableExpirationSettingsValue(
 		draft: HandlerDraft,
 		mutedOnUserPath: boolean,
-		notifyBeforeSecs: number
+		notifyBeforeSecs: number,
+		remindEverySecs: number | undefined
 	) {
-		return { handler: handlerDraftToStored(draft), mutedOnUserPath, notifyBeforeSecs }
+		return {
+			handler: handlerDraftToStored(draft),
+			mutedOnUserPath,
+			notifyBeforeSecs,
+			remindEverySecs: remindEverySecs || undefined
+		}
 	}
 
 	let hasVariableExpirationChanges = $derived.by(() => {
@@ -358,12 +375,14 @@
 			variableExpirationSettingsValue(
 				initialVariableExpirationDraft,
 				initialVariableExpirationMutedOnUserPath,
-				initialVariableExpirationNotifyBeforeSecs
+				initialVariableExpirationNotifyBeforeSecs,
+				initialVariableExpirationRemindEverySecs
 			),
 			variableExpirationSettingsValue(
 				variableExpirationDraft,
 				variableExpirationMutedOnUserPath,
-				variableExpirationNotifyBeforeSecs
+				variableExpirationNotifyBeforeSecs,
+				variableExpirationRemindEverySecs
 			)
 		)
 	})
@@ -835,6 +854,7 @@
 		variableExpirationMutedOnUserPath = variableExpirationHandler?.muted_on_user_path ?? false
 		variableExpirationNotifyBeforeSecs =
 			variableExpirationHandler?.notify_before_secs ?? defaultNotifyBeforeSecs
+		variableExpirationRemindEverySecs = variableExpirationHandler?.remind_every_secs || undefined
 		workspaceDefaultAppPath = settings.default_app
 		initialWorkspaceDefaultAppPath = settings.default_app
 
@@ -890,6 +910,7 @@
 		initialVariableExpirationDraft = cloneHandlerDraft(variableExpirationDraft)
 		initialVariableExpirationMutedOnUserPath = variableExpirationMutedOnUserPath
 		initialVariableExpirationNotifyBeforeSecs = variableExpirationNotifyBeforeSecs
+		initialVariableExpirationRemindEverySecs = variableExpirationRemindEverySecs
 
 		loadedSettings = true
 	}
@@ -1080,7 +1101,8 @@
 				path: handler.path ? `${handler.kind}/${handler.path}` : undefined,
 				extra_args: handler.args,
 				muted_on_user_path: variableExpirationMutedOnUserPath,
-				notify_before_secs: variableExpirationNotifyBeforeSecs
+				notify_before_secs: variableExpirationNotifyBeforeSecs,
+				remind_every_secs: variableExpirationRemindEverySecs || undefined
 			}
 		})
 		sendUserToast(
@@ -1101,12 +1123,14 @@
 		)
 		initialVariableExpirationMutedOnUserPath = variableExpirationMutedOnUserPath
 		initialVariableExpirationNotifyBeforeSecs = variableExpirationNotifyBeforeSecs
+		initialVariableExpirationRemindEverySecs = variableExpirationRemindEverySecs
 	}
 
 	function discardVariableExpirationChanges() {
 		variableExpirationDraft = cloneHandlerDraft(initialVariableExpirationDraft)
 		variableExpirationMutedOnUserPath = initialVariableExpirationMutedOnUserPath
 		variableExpirationNotifyBeforeSecs = initialVariableExpirationNotifyBeforeSecs
+		variableExpirationRemindEverySecs = initialVariableExpirationRemindEverySecs
 	}
 
 	async function editSuccessHandler() {
@@ -1378,12 +1402,14 @@
 					savedValue: variableExpirationSettingsValue(
 						initialVariableExpirationDraft,
 						initialVariableExpirationMutedOnUserPath,
-						initialVariableExpirationNotifyBeforeSecs
+						initialVariableExpirationNotifyBeforeSecs,
+						initialVariableExpirationRemindEverySecs
 					),
 					modifiedValue: variableExpirationSettingsValue(
 						variableExpirationDraft,
 						variableExpirationMutedOnUserPath,
-						variableExpirationNotifyBeforeSecs
+						variableExpirationNotifyBeforeSecs,
+						variableExpirationRemindEverySecs
 					)
 				}
 			case 'critical_alerts':
@@ -2325,8 +2351,8 @@ export async function main(
 												description:
 													'Called ahead of the date the value of a variable in this workspace expires',
 												content: `// Workspace Variable Expiration Handler
-// Called ahead of the date the value of a variable in this workspace expires, and
-// again whenever that date is moved to a new one.
+// Called ahead of the date the value of a variable in this workspace expires, at each
+// reminder if the workspace sets one, and again whenever that date is moved to a new one.
 //
 // The value itself is never passed in: job arguments and results are stored in
 // cleartext and shown in Runs. Read it with the Windmill client if the rotation
@@ -2355,7 +2381,35 @@ export async function main(
 										<SecondsInput
 											bind:seconds={variableExpirationNotifyBeforeSecs}
 											disabled={!variableExpirationHasHandler}
+											hideSeconds
+											hideTotal
 										/>
+										<div class="flex flex-col gap-1 mt-4">
+											<span class="text-xs font-semibold text-emphasis">Remind every</span>
+											<span class="text-xs text-secondary">
+												Run the handler again at this interval until the value expires. Expiries are
+												checked every 5 minutes, so shorter intervals act as 5 minutes. Leave empty
+												or at 0 for a single notice.
+											</span>
+											<SecondsInput
+												bind:seconds={variableExpirationRemindEverySecs}
+												disabled={!variableExpirationHasHandler}
+												clearable
+												hideSeconds
+												hideTotal
+											/>
+											{#if variableExpirationRemindEverySecs && variableExpirationRemindEverySecs >= variableExpirationNotifyBeforeSecs}
+												<span class="text-xs text-yellow-600 dark:text-yellow-400">
+													No reminder will be sent: the interval must be shorter than Notify before
+													expiry.
+												</span>
+											{:else if variableExpirationRuns >= 24}
+												<span class="text-xs text-yellow-600 dark:text-yellow-400">
+													This runs the handler up to {variableExpirationRuns} times before the value
+													expires.
+												</span>
+											{/if}
+										</div>
 									</SettingCard>
 
 									<SettingCard class="gap-2">

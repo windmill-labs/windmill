@@ -29267,6 +29267,10 @@ components:
           type: integer
           minimum: 0
           description: How long before a variable's value expires the handler runs. 1 day when omitted.
+        remind_every_secs:
+          type: integer
+          minimum: 0
+          description: Run the handler again at this interval until the value expires. No reminders when omitted or 0.
 
     VariableExpirationHandlerConfig:
       type: object
@@ -29279,6 +29283,8 @@ components:
         muted_on_user_path:
           type: boolean
         notify_before_secs:
+          type: integer
+        remind_every_secs:
           type: integer
 
     EditSuccessHandler:

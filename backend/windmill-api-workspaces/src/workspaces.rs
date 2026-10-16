@@ -6198,6 +6198,7 @@ pub struct EditVariableExpirationHandler {
     #[serde(default)]
     pub muted_on_user_path: bool,
     pub notify_before_secs: Option<u32>,
+    pub remind_every_secs: Option<u32>,
 }
 
 async fn edit_variable_expiration_handler(
@@ -6254,6 +6255,9 @@ async fn edit_variable_expiration_handler(
         }
         if let Some(notify_before_secs) = es.notify_before_secs {
             variable_expiration_handler["notify_before_secs"] = notify_before_secs.into();
+        }
+        if let Some(remind_every_secs) = es.remind_every_secs {
+            variable_expiration_handler["remind_every_secs"] = remind_every_secs.into();
         }
 
         sqlx::query!(

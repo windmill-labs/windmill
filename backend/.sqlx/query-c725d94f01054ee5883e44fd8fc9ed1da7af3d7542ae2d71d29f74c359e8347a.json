@@ -1,0 +1,73 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT v.workspace_id AS \"workspace_id!\", v.path AS \"path!\", v.description AS \"description!\",\n                  v.value_expires_at AS \"value_expires_at!\", v.is_secret AS \"is_secret!\",\n                  v.expiration_dispatched_for, v.expiration_notified_at,\n                  ws.variable_expiration_handler->>'path' AS \"handler_path!\",\n                  (ws.variable_expiration_handler->'extra_args')::text::json AS \"extra_args: Json<Box<RawValue>>\"\n           FROM variable v\n           JOIN workspace_settings ws ON ws.workspace_id = v.workspace_id\n           JOIN workspace w ON w.id = v.workspace_id\n           WHERE NOT w.deleted\n             AND v.workspace_id <> ALL($3)\n             AND v.value_expires_at IS NOT NULL\n             AND (v.value_expires_at IS DISTINCT FROM v.expiration_dispatched_for\n                  OR (v.value_expires_at > now()\n                      AND v.expiration_notified_at <= now() - make_interval(secs =>\n                          NULLIF((ws.variable_expiration_handler->>'remind_every_secs')::bigint, 0) - $4)))\n             AND v.value_expires_at <= now() + make_interval(secs =>\n                 COALESCE((ws.variable_expiration_handler->>'notify_before_secs')::bigint, $1))\n             AND ws.variable_expiration_handler->>'path' IS NOT NULL\n             AND (NOT COALESCE((ws.variable_expiration_handler->>'muted_on_user_path')::boolean, false)\n                  OR v.path NOT LIKE 'u/%')\n           ORDER BY v.value_expires_at\n           LIMIT $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "path!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "description!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "value_expires_at!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "is_secret!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "expiration_dispatched_for",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "expiration_notified_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "handler_path!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "extra_args: Json<Box<RawValue>>",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "TextArray",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "c725d94f01054ee5883e44fd8fc9ed1da7af3d7542ae2d71d29f74c359e8347a"
+}

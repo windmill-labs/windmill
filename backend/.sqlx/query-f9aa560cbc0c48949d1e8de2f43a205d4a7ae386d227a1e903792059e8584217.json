@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE variable SET expiration_dispatched_for = $3, expiration_notified_at = now()\n             WHERE workspace_id = $1 AND path = $2 AND value_expires_at = $3\n               AND expiration_dispatched_for IS NOT DISTINCT FROM $4\n               AND expiration_notified_at IS NOT DISTINCT FROM $5\n             RETURNING 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "f9aa560cbc0c48949d1e8de2f43a205d4a7ae386d227a1e903792059e8584217"
+}

@@ -26,6 +26,10 @@ use crate::jobs::{push_variable_expiration_handler, ExpiringVariable};
 /// has no `notify_before_secs`.
 const VARIABLE_EXPIRATION_DEFAULT_NOTIFY_BEFORE_SECS: i64 = 24 * 3600;
 
+/// Subtracted from `remind_every_secs` so a reminder whose interval is a multiple of the
+/// sweep's period is not skipped by tick jitter.
+const VARIABLE_EXPIRATION_REMINDER_SLACK_SECS: i64 = 30;
+
 /// Cap on variables dispatched per pass, so a large first-pass backlog is drained over
 /// several passes rather than enqueuing every handler job at once.
 const VARIABLE_EXPIRATION_MAX_PER_PASS: i64 = 100;
@@ -70,8 +74,9 @@ lazy_static::lazy_static! {
 
 /// Enqueue the workspace variable expiration handler for every variable coming due. A system
 /// caller only (the monitor loop): it dispatches across every workspace. Dispatch-once: a
-/// handler job that then fails is not re-dispatched for that date, as re-running it would
-/// repeat its side effects against the third party it rotates; retrying is the handler's job.
+/// handler job that then fails is not re-dispatched before its next reminder, if any, as
+/// re-running it would repeat its side effects against the third party it rotates; retrying
+/// is the handler's job.
 pub async fn dispatch_expiring_variables(db: &DB) {
     // Transaction-scoped advisory lock, not session-scoped: a session lock taken on a pooled
     // connection would ride that connection back into the pool still held if this future is
@@ -120,11 +125,15 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
            JOIN workspace w ON w.id = v.workspace_id
            WHERE NOT w.deleted
              AND v.value_expires_at IS NOT NULL
-             AND v.value_expires_at IS DISTINCT FROM v.expiration_dispatched_for
+             AND (v.value_expires_at IS DISTINCT FROM v.expiration_dispatched_for
+                  OR (v.value_expires_at > now()
+                      AND v.expiration_notified_at <= now() - make_interval(secs =>
+                          NULLIF((ws.variable_expiration_handler->>'remind_every_secs')::bigint, 0) - $2)))
              AND v.value_expires_at <= now() + make_interval(secs =>
                  COALESCE((ws.variable_expiration_handler->>'notify_before_secs')::bigint, $1))
              AND ws.variable_expiration_handler->>'path' IS NOT NULL"#,
         VARIABLE_EXPIRATION_DEFAULT_NOTIFY_BEFORE_SECS,
+        VARIABLE_EXPIRATION_REMINDER_SLACK_SECS,
     )
     .fetch_all(db)
     .await;
@@ -177,6 +186,7 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
     let due = sqlx::query!(
         r#"SELECT v.workspace_id AS "workspace_id!", v.path AS "path!", v.description AS "description!",
                   v.value_expires_at AS "value_expires_at!", v.is_secret AS "is_secret!",
+                  v.expiration_dispatched_for, v.expiration_notified_at,
                   ws.variable_expiration_handler->>'path' AS "handler_path!",
                   (ws.variable_expiration_handler->'extra_args')::text::json AS "extra_args: Json<Box<RawValue>>"
            FROM variable v
@@ -185,7 +195,10 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
            WHERE NOT w.deleted
              AND v.workspace_id <> ALL($3)
              AND v.value_expires_at IS NOT NULL
-             AND v.value_expires_at IS DISTINCT FROM v.expiration_dispatched_for
+             AND (v.value_expires_at IS DISTINCT FROM v.expiration_dispatched_for
+                  OR (v.value_expires_at > now()
+                      AND v.expiration_notified_at <= now() - make_interval(secs =>
+                          NULLIF((ws.variable_expiration_handler->>'remind_every_secs')::bigint, 0) - $4)))
              AND v.value_expires_at <= now() + make_interval(secs =>
                  COALESCE((ws.variable_expiration_handler->>'notify_before_secs')::bigint, $1))
              AND ws.variable_expiration_handler->>'path' IS NOT NULL
@@ -196,6 +209,7 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
         VARIABLE_EXPIRATION_DEFAULT_NOTIFY_BEFORE_SECS,
         VARIABLE_EXPIRATION_MAX_PER_PASS,
         &cooling_down,
+        VARIABLE_EXPIRATION_REMINDER_SLACK_SECS,
     )
     .fetch_all(db)
     .await;
@@ -218,9 +232,8 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
             continue;
         }
 
-        // Claim and push in one transaction. Storing the date that was dispatched makes the
-        // claim lose both to a concurrent re-arm (the `value_expires_at` guard) and to
-        // whichever replica got there first.
+        // Claim and push in one transaction. The claim matches the row as it was read, so it
+        // loses both to a concurrent re-arm and to whichever replica got there first.
         let mut tx = match db.begin().await {
             Ok(tx) => tx,
             Err(e) => {
@@ -230,13 +243,16 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
         };
 
         let claimed = sqlx::query_scalar!(
-            "UPDATE variable SET expiration_dispatched_for = $3
+            "UPDATE variable SET expiration_dispatched_for = $3, expiration_notified_at = now()
              WHERE workspace_id = $1 AND path = $2 AND value_expires_at = $3
-               AND expiration_dispatched_for IS DISTINCT FROM $3
+               AND expiration_dispatched_for IS NOT DISTINCT FROM $4
+               AND expiration_notified_at IS NOT DISTINCT FROM $5
              RETURNING 1",
             row.workspace_id,
             row.path,
             row.value_expires_at,
+            row.expiration_dispatched_for,
+            row.expiration_notified_at,
         )
         .fetch_optional(&mut *tx)
         .await;

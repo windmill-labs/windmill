@@ -976,6 +976,12 @@ fn plan_document(
             |v: &Value| v.as_u64().is_some_and(|n| n <= u32::MAX as u64),
             "a non-negative number of seconds",
         ),
+        (
+            "variable_expiration_handler",
+            "remind_every_secs",
+            |v: &Value| v.as_u64().is_some_and(|n| n <= u32::MAX as u64),
+            "a non-negative number of seconds",
+        ),
     ] {
         let v = desired.get(parent).and_then(|p| p.get(key));
         typed(&format!("{parent}.{key}"), v, ok, ty)?;
@@ -1160,6 +1166,7 @@ fn plan_document(
                 "extra_args": v.get("extra_args"),
                 "muted_on_user_path": v.get("muted_on_user_path").and_then(Value::as_bool).unwrap_or(false),
                 "notify_before_secs": v.get("notify_before_secs"),
+                "remind_every_secs": v.get("remind_every_secs"),
             })
         },
     );

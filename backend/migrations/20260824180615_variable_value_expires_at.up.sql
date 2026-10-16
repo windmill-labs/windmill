@@ -14,7 +14,12 @@ COMMENT ON COLUMN variable.value_expires_at IS
 ALTER TABLE variable
     ADD COLUMN IF NOT EXISTS expiration_dispatched_for TIMESTAMP WITH TIME ZONE;
 
+-- When the handler last ran for this variable, which paces its reminders.
+ALTER TABLE variable
+    ADD COLUMN IF NOT EXISTS expiration_notified_at TIMESTAMP WITH TIME ZONE;
+
 -- Serves the sweep's due predicate. Partial so it stays the size of the opted-in set rather
--- than the whole variable table.
+-- than the whole variable table. Not partial on `expiration_dispatched_for`: reminders keep a
+-- dispatched variable due until it expires.
 CREATE INDEX IF NOT EXISTS idx_variable_expiration_due ON variable (value_expires_at)
-    WHERE value_expires_at IS NOT NULL AND value_expires_at IS DISTINCT FROM expiration_dispatched_for;
+    WHERE value_expires_at IS NOT NULL;

@@ -140,6 +140,55 @@ async fn test_notify_before_sets_the_window(db: Pool<Postgres>) -> anyhow::Resul
     Ok(())
 }
 
+/// `remind_every_secs` runs the handler again once the interval has elapsed, and not before.
+#[sqlx::test(fixtures("base"))]
+async fn test_remind_every_repeats_the_notice(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    seed_handler_script(&db, "u/test-user/expiry_handler").await?;
+    configure_handler(
+        &db,
+        r#"{"path": "script/u/test-user/expiry_handler", "remind_every_secs": 600}"#,
+    )
+    .await?;
+    seed_variable(&db, "u/test-user/due", "30 minutes").await?;
+
+    dispatch_expiring_variables(&db).await;
+    dispatch_expiring_variables(&db).await;
+    assert_eq!(
+        queued_handler_jobs(&db, "u/test-user/expiry_handler").await?,
+        1,
+        "no reminder before the interval has elapsed"
+    );
+
+    // Stands in for the next sweep landing a few seconds short of the interval, which the
+    // reminder slack must still accept.
+    sqlx::query(
+        "UPDATE variable SET expiration_notified_at = now() - interval '9 minutes 50 seconds'",
+    )
+    .execute(&db)
+    .await?;
+    dispatch_expiring_variables(&db).await;
+    assert_eq!(
+        queued_handler_jobs(&db, "u/test-user/expiry_handler").await?,
+        2
+    );
+
+    // Reminders stop once the value has expired.
+    sqlx::query(
+        "UPDATE variable SET value_expires_at = now() - interval '1 minute',
+         expiration_dispatched_for = now() - interval '1 minute',
+         expiration_notified_at = now() - interval '11 minutes'",
+    )
+    .execute(&db)
+    .await?;
+    dispatch_expiring_variables(&db).await;
+    assert_eq!(
+        queued_handler_jobs(&db, "u/test-user/expiry_handler").await?,
+        2
+    );
+    Ok(())
+}
+
 /// Moving `value_expires_at` re-arms the variable; re-writing the same date does not.
 #[sqlx::test(fixtures("base"))]
 async fn test_rearm_on_date_change(db: Pool<Postgres>) -> anyhow::Result<()> {
