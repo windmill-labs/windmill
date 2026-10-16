@@ -411,9 +411,9 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 							deployed = undefined
 							canWriteResource = roleCanAuthor(
 								'agent',
-								// No user here: the nav user's admin flag belongs to another workspace.
+								// Only superadmin carries over: the nav user's admin flag belongs to another workspace.
 								capabilitiesIn(
-									undefined,
+									{ is_super_admin: get(userStore)?.is_super_admin },
 									get(userWorkspaces).find((w) => w.id === ws)
 								)
 							)
