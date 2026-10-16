@@ -2621,7 +2621,8 @@ def version()
 # 
 # Without a resource path, the connection goes to the workspace storage through Windmill's
 # S3 proxy when that storage is S3: address it as \`\`s3://<bucket>/<key>\`\` with the
-# storage's own bucket.
+# storage's own bucket, returned as \`\`s3_bucket\`\`. Pass the resource path to connect with
+# the storage's own credentials instead.
 def get_duckdb_connection_settings(s3_resource_path: str = '') -> DuckDbConnectionSettings | None
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
@@ -2629,7 +2630,8 @@ def get_duckdb_connection_settings(s3_resource_path: str = '') -> DuckDbConnecti
 # 
 # Without a resource path, the connection goes to the workspace storage through Windmill's
 # S3 proxy when that storage is S3: address it as \`\`s3://<bucket>/<key>\`\` with the
-# storage's own bucket.
+# storage's own bucket, returned as \`\`s3_bucket\`\`. Pass the resource path to connect with
+# the storage's own credentials instead.
 def get_polars_connection_settings(s3_resource_path: str = '') -> PolarsConnectionSettings
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
@@ -2637,7 +2639,9 @@ def get_polars_connection_settings(s3_resource_path: str = '') -> PolarsConnecti
 # 
 # Without a resource path, the connection goes to the workspace storage through Windmill's
 # S3 proxy when that storage is S3: pass the storage's own bucket as \`\`Bucket\`\`. The proxy
-# serves object reads, writes, deletes, listing and multipart uploads.
+# serves object reads, writes, deletes, listing and multipart uploads of that bucket only;
+# presigned URLs, other buckets and bucket-level APIs need the storage's own credentials,
+# which passing the resource path returns.
 def get_boto3_connection_settings(s3_resource_path: str = '') -> Boto3ConnectionSettings
 
 # Load a file from the workspace s3 bucket and returns its content as bytes.

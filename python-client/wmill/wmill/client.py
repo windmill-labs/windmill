@@ -912,7 +912,8 @@ class Windmill:
 
         Without a resource path, the connection goes to the workspace storage through Windmill's
         S3 proxy when that storage is S3: address it as ``s3://<bucket>/<key>`` with the
-        storage's own bucket.
+        storage's own bucket, returned as ``s3_bucket``. Pass the resource path to connect with
+        the storage's own credentials instead.
         """
         s3_resource_path = parse_resource_syntax(s3_resource_path) or s3_resource_path
         proxy = self._s3_proxy_connection() if s3_resource_path == "" else None
@@ -955,7 +956,8 @@ class Windmill:
 
         Without a resource path, the connection goes to the workspace storage through Windmill's
         S3 proxy when that storage is S3: address it as ``s3://<bucket>/<key>`` with the
-        storage's own bucket.
+        storage's own bucket, returned as ``s3_bucket``. Pass the resource path to connect with
+        the storage's own credentials instead.
         """
         s3_resource_path = parse_resource_syntax(s3_resource_path) or s3_resource_path
         proxy = self._s3_proxy_connection() if s3_resource_path == "" else None
@@ -979,6 +981,7 @@ class Windmill:
                         "aws_allow_http": str(not proxy["use_ssl"]).lower(),
                         "aws_virtual_hosted_style_request": "false",
                     },
+                    "s3_bucket": proxy["bucket"],
                 }
             )
         try:
@@ -1004,13 +1007,14 @@ class Windmill:
 
         Without a resource path, the connection goes to the workspace storage through Windmill's
         S3 proxy when that storage is S3: pass the storage's own bucket as ``Bucket``. The proxy
-        serves object reads, writes, deletes, listing and multipart uploads.
+        serves object reads, writes, deletes, listing and multipart uploads of that bucket only;
+        presigned URLs, other buckets and bucket-level APIs need the storage's own credentials,
+        which passing the resource path returns.
         """
         s3_resource_path = parse_resource_syntax(s3_resource_path) or s3_resource_path
         proxy = self._s3_proxy_connection() if s3_resource_path == "" else None
         if proxy is not None:
-            from botocore.config import Config
-
+            # botocore addresses a custom endpoint path-style, which the proxy's routes need.
             return Boto3ConnectionSettings(
                 {
                     "endpoint_url": proxy["endpoint_url"],
@@ -1018,7 +1022,6 @@ class Windmill:
                     "use_ssl": proxy["use_ssl"],
                     "aws_access_key_id": proxy["access_key"],
                     "aws_secret_access_key": proxy["secret_key"],
-                    "config": Config(s3={"addressing_style": "path"}),
                 }
             )
         try:
