@@ -10,13 +10,14 @@
 		workspaceId: string
 		/** The agent step's own job: it is the one parked, so it is the one answered. */
 		agentJobId: string
-		message: string
-		expiresAt: string
+		/** Its call id goes with the answer, so a page left open on an earlier request cannot
+		 *  answer the one the agent waits on now. */
+		request: { call_id: string; message: string; expires_at: string }
 		/** Whether the request still waits for an answer. */
 		pending: boolean
 	}
 
-	let { workspaceId, agentJobId, message, expiresAt, pending }: Props = $props()
+	let { workspaceId, agentJobId, request, pending }: Props = $props()
 
 	let comment = $state('')
 	let loading = $state(false)
@@ -30,7 +31,10 @@
 				jobId: agentJobId,
 				requestBody: {
 					approved,
-					payload: comment.trim() ? { comment: comment.trim() } : undefined
+					payload: {
+						call_id: request.call_id,
+						...(comment.trim() ? { comment: comment.trim() } : {})
+					}
 				}
 			})
 			answered = approved
@@ -44,13 +48,13 @@
 
 <div class="flex flex-col gap-2 w-full text-xs">
 	<div class="text-emphasis font-semibold">The agent asks for approval</div>
-	<div class="text-primary whitespace-pre-wrap">{message}</div>
+	<div class="text-primary whitespace-pre-wrap">{request.message}</div>
 	{#if answered !== undefined}
 		<div class="text-secondary"
 			>{answered ? 'Approved' : 'Rejected'}, the agent resumes shortly.</div
 		>
 	{:else if pending}
-		<div class="text-hint">Expires {displayDate(expiresAt)}</div>
+		<div class="text-hint">Expires {displayDate(request.expires_at)}</div>
 		<TextInput
 			bind:value={comment}
 			inputProps={{ placeholder: 'Comment for the agent (optional)', disabled: loading }}

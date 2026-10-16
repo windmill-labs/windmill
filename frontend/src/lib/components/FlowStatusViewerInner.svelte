@@ -2142,8 +2142,7 @@
 														<AgentApprovalRequest
 															workspaceId={job.workspace_id ?? ''}
 															agentJobId={agentNode.job_id}
-															message={approval.message}
-															expiresAt={approval.expires_at}
+															request={approval}
 															pending={agentNode?.agent_actions_success?.[approvalIndex] === undefined}
 														/>
 													</div>

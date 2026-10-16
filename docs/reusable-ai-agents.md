@@ -161,29 +161,32 @@ conversation id always took precedence there.
 The built-in `approval` tool type parks the agent rather than run anything: the model calls
 `request_approval` with a message. It lives in `windmill-worker/src/ai/pause.rs`.
 
-- **Park.** Once the turn's other calls are answered, the worker stores the conversation, actions,
-  usage, accumulated stream and next iteration in `ai_agent_checkpoint`, then parks the agent's own
-  queue row with `suspend_wac_parent`: `suspend = 1`, `suspend_until` at the approval timeout (the
-  tool's `timeout`, default 1800s). The job is not completed,
-  its worker is free, and the flow stays on the step.
+- **Park.** A turn that calls `request_approval` runs nothing else: its other calls are refused, so
+  nothing the request may be about happens before the answer. The worker stores the conversation,
+  actions, usage, accumulated stream and next iteration in `ai_agent_checkpoint`, then parks the
+  agent's own queue row with `suspend_wac_parent`: `suspend = 1`, `suspend_until` at the approval
+  timeout (the tool's `timeout`, default 1800s). The job is not completed, its worker is free, and
+  the flow stays on the step.
 - **Answer.** `resume_suspended` with the agent job's id already treats a self-suspended job like a
   WAC approval: it inserts the `resume_job` row and decrements, or zeroes on a rejection, the
   agent's own `suspend`. The run page offers Approve/Reject from the pending `approval` agent
-  action. There are no signed resume URLs, Slack or Teams messages, approval page or approver
+  action, and sends that request's `call_id` in the payload. There are no signed resume URLs, Slack or Teams messages, approval page or approver
   conditions for it: whoever can answer a suspended step without conditions can answer it.
-- **Resume.** The suspended pull takes the row back and `run_agent` finds the checkpoint: it skips
-  memory and the prompt, answers the parked call (the first unread `resume_job` row, or a timeout),
-  and continues the loop. Every row present then counts as read, so a late answer to one request
-  cannot answer the next. The step's stream continues at the offset the first segment
-  reached. Resolution is live here too: a linked agent edited while parked resumes with its new
+- **Resume.** The suspended pull takes the row back and `run_agent` finds the checkpoint. In one
+  transaction it zeroes `suspend`, so `resume_suspended` refuses answers while the agent runs, and
+  reads the unread `resume_job` rows. The first one naming the parked call (or naming none) answers
+  it; one naming an earlier request, from a page left open, is read and ignored, and the agent parks
+  again for the time left. With no answer past the timeout, the call is answered as timed out. The
+  agent then skips memory and the prompt and continues the loop. The step's stream continues at the
+  offset the first segment reached. Resolution is live here too: a linked agent edited while parked resumes with its new
   definition.
 - **Cleanup.** The checkpoint row stays while the job is queued, so a job restarted after its
   worker died resumes from it. The monitor deletes rows whose job left the queue; the table has no
   foreign key, since one would lock `v2_job_queue` on every write.
 - **Limits.** A nested agent tool is never offered the tool: it writes no flow status, and its
-  parent holds a worker while it runs. Only one park per turn; a second call in the same turn is
-  answered with an error. The chat transcript of a chat flow records neither the request nor its
-  answer.
+  parent holds a worker while it runs. The banner at the top of the run page shows only a request
+  from a top-level step; one from a step inside a loop or branch is answered from its graph node.
+  The chat transcript of a chat flow records neither the request nor its answer.
 
 
 The agent editor edits the resource through a **per-user resource draft** (`draft` table,

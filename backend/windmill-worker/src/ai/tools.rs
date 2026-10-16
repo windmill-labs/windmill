@@ -102,7 +102,49 @@ pub async fn execute_tool_calls(
     let mut messages = Vec::new();
     let mut used_structured_output_tool = false;
     let mut final_content = None;
-    let mut pause: Option<PendingPause> = None;
+
+    // Nothing else a turn asks for runs before its approval is answered: the request may be about
+    // exactly those calls. The model can repeat them once it has the answer.
+    let approval = tool_calls.iter().find_map(|call| {
+        tools
+            .iter()
+            .find(|t| t.def.function.name == call.function.name)
+            .and_then(|t| t.approval_timeout_secs)
+            .map(|timeout_secs| (call, timeout_secs))
+    });
+    if let Some((approval_call, timeout_secs)) = approval {
+        let mut pause = None;
+        for call in tool_calls {
+            if let Some(stream_event_processor) = ctx.stream_event_processor {
+                let event = StreamingEvent::ToolExecution {
+                    call_id: call.id.clone(),
+                    function_name: call.function.name.clone(),
+                };
+                stream_event_processor.send(event, final_events_str).await?;
+            }
+            let refusal = if call.id != approval_call.id {
+                "Not run: this turn asks for approval, so its other calls wait for the answer. \
+                 Call them again once you have it."
+                    .to_string()
+            } else {
+                match start_pause(timeout_secs, call) {
+                    // Answered when the agent is pulled again, so the call gets no message here.
+                    Ok(pending) => {
+                        pause = Some(pending);
+                        continue;
+                    }
+                    Err(e) => e,
+                }
+            };
+            refuse_tool_call(&mut ctx, call, &refusal, &mut messages, final_events_str).await?;
+        }
+        return Ok(ToolCallsOutcome {
+            messages,
+            final_content,
+            used_structured_output_tool,
+            pause,
+        });
+    }
 
     let mut calls = tool_calls.iter().peekable();
     while let Some(tool_call) = calls.next() {
@@ -144,27 +186,7 @@ pub async fn execute_tool_calls(
             .find(|t| t.def.function.name == tool_call.function.name);
 
         if let Some(tool) = tool {
-            if let Some(timeout_secs) = tool.approval_timeout_secs {
-                // Answered when the agent is pulled again, so the call gets no message here. A
-                // second park in the same turn is refused: one segment waits on one thing.
-                let refusal = match (&pause, start_pause(timeout_secs, tool_call)) {
-                    (Some(_), _) => Some("Only one approval request can be pending at a time. Call it again once this turn's pending one is answered.".to_string()),
-                    (None, Ok(pending)) => {
-                        pause = Some(pending);
-                        None
-                    }
-                    (None, Err(e)) => Some(e),
-                };
-                if let Some(error_msg) = refusal {
-                    messages.push(OpenAIMessage {
-                        role: "tool".to_string(),
-                        content: Some(OpenAIContent::Text(error_msg)),
-                        tool_call_id: Some(tool_call.id.clone()),
-                        ..Default::default()
-                    });
-                }
-            // Check if this is an MCP tool
-            } else if let Some(mcp_source) = &tool.mcp_source {
+            if let Some(mcp_source) = &tool.mcp_source {
                 execute_mcp_tool_call(
                     &mut ctx,
                     tool_call,
@@ -176,7 +198,16 @@ pub async fn execute_tool_calls(
                 )
                 .await?;
             } else if tool.module.is_some() && interpolating_args(tool_call) {
-                refuse_tool_call(&mut ctx, tool_call, &mut messages, final_events_str).await?;
+                let error_msg = "Tool call refused: its arguments cannot reference variables or \
+                                 resources ($var:, $jsonvar:, $res:, $encrypted:)";
+                refuse_tool_call(
+                    &mut ctx,
+                    tool_call,
+                    error_msg,
+                    &mut messages,
+                    final_events_str,
+                )
+                .await?;
             } else if tool.module.is_some() {
                 let mut batch = vec![(tool_call, tool)];
                 while let Some(next_call) = calls.peek() {
@@ -213,14 +244,14 @@ pub async fn execute_tool_calls(
         }
     }
 
-    Ok(ToolCallsOutcome { messages, final_content, used_structured_output_tool, pause })
+    Ok(ToolCallsOutcome { messages, final_content, used_structured_output_tool, pause: None })
 }
 
 pub struct ToolCallsOutcome {
     pub messages: Vec<OpenAIMessage>,
     pub final_content: Option<OpenAIContent>,
     pub used_structured_output_tool: bool,
-    /// A built-in tool asked the agent to park once this turn's other calls are answered.
+    /// The turn asked for approval: the agent parks, its other calls refused.
     pub pause: Option<PendingPause>,
 }
 
@@ -235,15 +266,13 @@ fn interpolating_args(tool_call: &OpenAIToolCall) -> bool {
 async fn refuse_tool_call(
     ctx: &mut ToolExecutionContext<'_>,
     tool_call: &OpenAIToolCall,
+    error_msg: &str,
     messages: &mut Vec<OpenAIMessage>,
     final_events_str: &mut String,
 ) -> Result<(), Error> {
-    let error_msg = "Tool call refused: its arguments cannot reference variables or resources \
-                     ($var:, $jsonvar:, $res:, $encrypted:)"
-        .to_string();
     messages.push(OpenAIMessage {
         role: "tool".to_string(),
-        content: Some(OpenAIContent::Text(error_msg.clone())),
+        content: Some(OpenAIContent::Text(error_msg.to_string())),
         tool_call_id: Some(tool_call.id.clone()),
         ..Default::default()
     });
@@ -251,12 +280,12 @@ async fn refuse_tool_call(
         let event = StreamingEvent::ToolResult {
             call_id: tool_call.id.clone(),
             function_name: tool_call.function.name.clone(),
-            result: error_msg.clone(),
+            result: error_msg.to_string(),
             success: false,
         };
         stream_event_processor.send(event, final_events_str).await?;
     }
-    let (content, extras) = windmill_tool_row(tool_call, false, &error_msg);
+    let (content, extras) = windmill_tool_row(tool_call, false, error_msg);
     let agent_job_id = ctx.job.id;
     add_tool_message_to_chat(ctx, Some(agent_job_id), &content, false, Some(extras)).await;
     Ok(())

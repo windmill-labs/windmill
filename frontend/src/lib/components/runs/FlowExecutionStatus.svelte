@@ -46,8 +46,7 @@
 				<AgentApprovalRequest
 					workspaceId={job.workspace_id ?? ''}
 					agentJobId={pendingAgentApproval.agentJobId}
-					message={pendingAgentApproval.action.message}
-					expiresAt={pendingAgentApproval.action.expires_at}
+					request={pendingAgentApproval.action}
 					pending
 				/>
 			{/key}

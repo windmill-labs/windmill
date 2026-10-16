@@ -4,7 +4,7 @@ use crate::ai::compaction::{
 };
 use crate::ai::pause::{
     answer_pause, approval_timeout, approval_tool, load_checkpoint, park, AgentCheckpoint,
-    APPROVAL_ENABLED_NAME,
+    ParkOutcome, Resumed, APPROVAL_ENABLED_NAME,
 };
 use crate::ai::tools::{
     execute_tool_calls, ToolAbortHandles, ToolCallsOutcome, ToolExecutionContext,
@@ -13,8 +13,8 @@ use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
     filter_schema_by_input_transforms, find_unique_tool_name, get_flow_context,
     get_flow_job_runnable_and_raw_flow, get_step_name_from_flow, load_mcp_tools,
-    parse_raw_script_schema, update_flow_status_module_with_actions,
-    update_flow_status_module_with_actions_success,
+    parse_raw_script_schema, set_flow_status_module_last_action_success,
+    update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
 };
 use crate::memory_common::MAX_MEMORY_SIZE_BYTES;
 use crate::memory_oss::{memory_storage_capacity_bytes, read_from_memory, write_to_memory};
@@ -1306,6 +1306,34 @@ pub async fn handle_ai_agent_job(
     result
 }
 
+/// Park the agent on its pending approval, as the error `run_agent` returns.
+async fn park_agent(
+    db: &DB,
+    conn: &Connection,
+    job: &MiniPulledJob,
+    checkpoint: &AgentCheckpoint,
+    cancel_rx: &tokio::sync::watch::Receiver<bool>,
+) -> Error {
+    match park(db, conn, job, checkpoint).await {
+        Ok(ParkOutcome::Parked) => Error::WacSuspended(format!(
+            "AI agent {} parked on {}",
+            job.id, checkpoint.pending.function_name
+        )),
+        Ok(ParkOutcome::Cancelled) => {
+            // The cancel is on the queue row but not yet seen by the poller, which is what
+            // completes the job as cancelled rather than failed. Wait for it to notice.
+            let mut cancel_rx = cancel_rx.clone();
+            let _ = tokio::time::timeout(
+                std::time::Duration::from_secs(30),
+                cancel_rx.wait_for(|cancelled| *cancelled),
+            )
+            .await;
+            Error::ExecutionErr("Job cancelled".to_string())
+        }
+        Err(e) => e,
+    }
+}
+
 /// OpenAI rejects a `prompt_cache_key` over 64 characters
 /// (`Invalid 'prompt_cache_key': string too long`), and a runnable path alone can pass
 /// that. Fold an over-long key into a digest of itself: same step still yields the same
@@ -1411,12 +1439,26 @@ pub async fn run_agent(
 
     // Fetch flow context for input transforms context, chat and memory
     let mut flow_context = get_flow_context(db, job).await;
-    // Set when the job parked on its approval tool and has been pulled again. Only an agent that
-    // has the tool can have parked.
-    let resumed = if tools.iter().any(|t| t.approval_timeout_secs.is_some()) {
-        load_checkpoint(db, &job.id).await?
-    } else {
-        None
+    // Set when the job parked on its approval tool and has been pulled again. Read whatever the
+    // roster says now: a linked agent can lose the tool while one of its runs is parked.
+    let resumed = match load_checkpoint(db, &job.id).await? {
+        Some(mut checkpoint) => {
+            let answer = answer_pause(
+                db,
+                &job.id,
+                &checkpoint.pending,
+                &checkpoint.actions,
+                &mut checkpoint.consumed_resume_rows,
+            )
+            .await?;
+            match answer {
+                Resumed::StillPending => {
+                    return Err(park_agent(db, conn, job, &checkpoint, &cancel_rx).await)
+                }
+                Resumed::Answered(message, success) => Some((checkpoint, message, success)),
+            }
+        }
+        None => None,
     };
 
     // The run's memory id is also the chat conversation id, which a step's own memory id never
@@ -1580,14 +1622,14 @@ pub async fn run_agent(
     let mut final_reasoning = String::new();
     let mut first_iteration = 0;
     let mut consumed_resume_rows = vec![];
-    let mut resumed_pending = None;
+    let mut resumed_answer = None;
     let (mut messages, mut actions, mut content, mut final_usage) = match resumed {
-        Some(checkpoint) => {
+        Some((checkpoint, message, success)) => {
             final_events_str = checkpoint.events;
             final_reasoning = checkpoint.reasoning;
             first_iteration = checkpoint.next_iteration;
             consumed_resume_rows = checkpoint.consumed_resume_rows;
-            resumed_pending = Some(checkpoint.pending);
+            resumed_answer = Some((checkpoint.pending, message, success));
             (
                 AgentHistory::from_checkpoint(checkpoint.history),
                 checkpoint.actions,
@@ -1721,11 +1763,13 @@ pub async fn run_agent(
     #[cfg(feature = "bedrock")]
     let mut bedrock_assumed_role: Option<windmill_ai::ai_bedrock::AssumedRoleCredentials> = None;
 
-    if let Some(pending) = resumed_pending {
-        let (message, success) =
-            answer_pause(db, &job.id, &pending, &actions, &mut consumed_resume_rows).await?;
+    if let Some((pending, message, success)) = resumed_answer {
         if let Some(parent_job) = parent_job {
-            update_flow_status_module_with_actions_success(db, parent_job, success).await?;
+            // Rewritten whole rather than appended: a job restarted after its worker died
+            // resumes from the same checkpoint and must not record the answer twice.
+            update_flow_status_module_with_actions(db, parent_job, &actions).await?;
+            set_flow_status_module_last_action_success(db, parent_job, actions.len(), success)
+                .await?;
         }
         if let (Some(processor), Some(OpenAIContent::Text(result))) =
             (stream_event_processor.as_ref(), message.content.as_ref())
@@ -2392,8 +2436,7 @@ pub async fn run_agent(
                 }
                 used_structured_output_tool = tool_used_structured_output;
 
-                // A final structured answer ends the run, so a park requested beside it is moot.
-                if let Some(mut pending) = pause.filter(|_| !used_structured_output_tool) {
+                if let Some(mut pending) = pause {
                     actions.extend(pending.action.take());
                     // The next segment streams from where this one stops, so this one's events
                     // must be written first.
@@ -2412,13 +2455,18 @@ pub async fn run_agent(
                         pending,
                         consumed_resume_rows,
                     };
-                    let parked = park(db, conn, job, &checkpoint).await;
+                    let parked = park_agent(db, conn, job, &checkpoint, &cancel_rx).await;
                     // Written once parked: the run page offers an answer only for a request that
-                    // `resume_suspended` can take.
-                    if matches!(parked, Error::WacSuspended(_)) {
-                        if let Some(parent_job) = parent_job {
-                            update_flow_status_module_with_actions(db, parent_job, &actions)
-                                .await?;
+                    // `resume_suspended` can take. The park is committed, so a failure here only
+                    // costs the page its banner.
+                    if let (Error::WacSuspended(_), Some(parent_job)) = (&parked, parent_job) {
+                        if let Err(e) =
+                            update_flow_status_module_with_actions(db, parent_job, &actions).await
+                        {
+                            tracing::error!(
+                                "Failed to show the approval request of {}: {e}",
+                                job.id
+                            );
                         }
                     }
                     return Err(parked);
