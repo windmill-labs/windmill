@@ -72,6 +72,8 @@
 		SearchX,
 		Shield,
 		Trash,
+		User,
+		Bot,
 		Zap
 	} from 'lucide-svelte'
 	import { onMount, untrack } from 'svelte'
@@ -1194,7 +1196,7 @@
 							</Head>
 							<tbody class="divide-y bg-surface">
 								{#if filteredItems}
-									{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
+									{#each filteredItems as { path, description, resource_type, extra_perms, canWrite, is_oauth, is_linked, account, refresh_error, is_expired, grant_type, marked, is_refreshed, labels, inherited_labels, ws_specific, draft_only, is_draft }}
 										{@const hasDraft =
 											getLocalDraftHint($operatingWorkspace, 'resource', path) ?? is_draft}
 										<Row>
@@ -1310,6 +1312,22 @@
 													</div>
 
 													{#if is_oauth}
+														<div class="w-10">
+															<Popover>
+																{#if grant_type === 'client_credentials'}
+																	<Bot size={16} />
+																{:else}
+																	<User size={16} />
+																{/if}
+																{#snippet text()}
+																	<div>
+																		{grant_type === 'client_credentials'
+																			? 'Connects as the app: the token belongs to the service account behind the client ID.'
+																			: 'Connects as the user who connected it: the token acts with their account.'}
+																	</div>
+																{/snippet}
+															</Popover>
+														</div>
 														<div class="w-10 pt-1.5">
 															{#if refresh_error}
 																<Popover>

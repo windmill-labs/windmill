@@ -18,17 +18,17 @@
 	import { capitalize, type Item } from '$lib/utils'
 	import ClipboardPanel from './details/ClipboardPanel.svelte'
 	import Toggle from './Toggle.svelte'
-	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 	import { APP_TO_ICON_COMPONENT } from './icons'
 	import { ExternalLink, Plus, Circle, X } from 'lucide-svelte'
 	import AzureOauthSettings from './AzureOauthSettings.svelte'
-	import Tooltip from './Tooltip.svelte'
 	import { tick } from 'svelte'
 	import { Popover } from './meltComponents'
 	import SettingsPageHeader from './settings/SettingsPageHeader.svelte'
 	import oauthConnectRegistry from '$oauth_connect_registry'
+	import { normalizeInstanceInput, templatedConnectConfig } from './oauthRegistry'
+	import { OauthService } from '$lib/gen'
+	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
 		// Per-instance OAuth providers (Snowflake, ServiceNow, …): instance name
@@ -158,24 +158,60 @@
 		return registryCcCapable(name) && !registryAuthCodeCapable(name)
 	}
 
-	/** Map the entry's grant_types to the single-select choice (so the segmented
-	 * control always has exactly one selected and can never be empty) */
-	function grantChoice(name: string): string {
-		const gts = oauths?.[name]?.['grant_types'] ?? ['authorization_code']
-		const cc = gts.includes('client_credentials')
-		const ac = gts.includes('authorization_code')
-		if (cc && ac) return 'both'
-		if (cc) return 'client_credentials'
-		return 'authorization_code'
+	function grants(name: string): string[] {
+		return oauths?.[name]?.['grant_types'] ?? ['authorization_code']
 	}
 
-	/** Set the grant types from the segmented choice. The instance credentials are
-	 * then used for every selected grant — authorization-code popup and/or
-	 * server-to-server. */
-	function setGrantChoice(name: string, choice: string) {
-		if (!oauths || !oauths[name]) return
-		oauths[name]['grant_types'] =
-			choice === 'both' ? ['authorization_code', 'client_credentials'] : [choice]
+	function setGrant(name: string, grant: string, on: boolean) {
+		if (!oauths?.[name]) return
+		oauths[name]['grant_types'] = [...grants(name).filter((g) => g !== grant), ...(on ? [grant] : [])]
+	}
+
+	/** Client-credentials connections use this entry's id and secret. An entry saved
+	 * before `share_client_credentials` existed shares through its grant alone. */
+	function sharesCc(name: string): boolean {
+		return (
+			grants(name).includes('client_credentials') &&
+			oauths?.[name]?.['share_client_credentials'] !== false
+		)
+	}
+
+	function setSharesCc(name: string, on: boolean) {
+		if (!oauths?.[name]) return
+		if (on) setGrant(name, 'client_credentials', true)
+		oauths[name]['share_client_credentials'] = on
+	}
+
+	/** Custom providers only: a registry provider offers bring-your-own client
+	 * credentials whatever its instance entry says. */
+	function setServerToServer(name: string, on: boolean) {
+		if (!oauths?.[name]) return
+		setGrant(name, 'client_credentials', on)
+		if (on) oauths[name]['share_client_credentials'] = false
+	}
+
+	let testingCc: Record<string, boolean> = $state({})
+
+	/** Run the client-credentials exchange with the entry as it stands, saved or not. */
+	async function testClientCredentials(name: string) {
+		const tmpl = connectConfigTemplates[name]
+		const entry = $state.snapshot(oauths?.[name])
+		if (tmpl) {
+			entry.connect_config = templatedConnectConfig(
+				tmpl,
+				normalizeInstanceInput(tmpl, instanceInputs[name] ?? '')
+			)
+		}
+		testingCc[name] = true
+		try {
+			sendUserToast(
+				await OauthService.testOauthClientCredentials({ requestBody: { name, entry } })
+			)
+		} catch (e) {
+			sendUserToast(e?.body ?? e?.message ?? String(e), true)
+		} finally {
+			testingCc[name] = false
+		}
 	}
 
 	let showCustomOAuthForm = $state(false)
@@ -194,7 +230,8 @@
 			newOauths[name] = {
 				id: '',
 				secret: '',
-				grant_types: registryCcOnly(name) ? ['client_credentials'] : ['authorization_code']
+				grant_types: registryCcOnly(name) ? ['client_credentials'] : ['authorization_code'],
+				...(registryCcCapable(name) ? { share_client_credentials: false } : {})
 			}
 			oauths = newOauths
 			dropdownOpen = false
@@ -500,6 +537,8 @@
 						{@const headerLabel = k.endsWith('_sandbox')
 							? `${k.slice(0, -'_sandbox'.length)} (sandbox)`
 							: k}
+						{@const custom = !windmillBuiltins.includes(k)}
+						{@const lastGrant = grants(k).length === 1 ? grants(k)[0] : undefined}
 						<div class="flex flex-col gap-2 pb-6">
 							<div class="flex flex-row items-center gap-2">
 								<IconComponent size={24} width="24" height="24" class="shrink-0" />
@@ -554,49 +593,56 @@
 										</Alert>
 									{/if}
 								</div>
-								<div class="flex flex-col gap-2 mb-2">
-									<span class="text-xs font-semibold text-emphasis">These credentials are for</span>
-									{#if !windmillBuiltins.includes(k) || (registryCcCapable(k) && registryAuthCodeCapable(k))}
-										<ToggleButtonGroup
-											selected={grantChoice(k)}
-											onSelected={(v) => setGrantChoice(k, v)}
-										>
-											{#snippet children({ item })}
-												<ToggleButton
-													value="authorization_code"
-													label="Authorization code"
-													showTooltipIcon
-													tooltip="Users sign in through a browser popup using this app's Client ID and Secret."
-													{item}
-												/>
-												<ToggleButton
-													value="client_credentials"
-													label="Client credentials"
-													showTooltipIcon
-													tooltip={`Server-to-server. Fill Client ID and Secret to share one service account for every connection, or leave them empty so each user brings their own.${!windmillBuiltins.includes(k) ? ' A Token URL is required below.' : ''}`}
-													{item}
-												/>
-												<ToggleButton
-													value="both"
-													label="Both"
-													showTooltipIcon
-													tooltip="Offer both flows; the same Client ID and Secret are used for each selected grant."
-													{item}
-												/>
-											{/snippet}
-										</ToggleButtonGroup>
-									{:else if registryCcCapable(k)}
-										<span class="text-xs text-secondary font-normal flex items-center gap-1">
-											Client credentials (server-to-server)
-											<Tooltip
-												>Fill Client ID and Secret to share one service account, or leave them empty
-												so each user brings their own.</Tooltip
+								<div class="flex flex-col gap-3">
+									<span class="text-xs font-semibold text-emphasis">Connections</span>
+									{#if !registryCcOnly(k)}
+										<div class="flex flex-col gap-1">
+											<Toggle
+												size="xs"
+												options={{ right: 'Sign-in for users' }}
+												checked={grants(k).includes('authorization_code')}
+												disabled={lastGrant === 'authorization_code'}
+												on:change={(e) => setGrant(k, 'authorization_code', e.detail)}
+											/>
+											<span class="text-2xs text-hint"
+												>Users sign in to {k} through this app. Each connection acts as the user who
+												signed in.</span
 											>
-										</span>
-									{:else}
-										<span class="text-xs text-secondary font-normal"
-											>Authorization code (browser sign-in)</span
-										>
+										</div>
+									{/if}
+									{#if custom}
+										<div class="flex flex-col gap-1">
+											<Toggle
+												size="xs"
+												options={{ right: 'Server-to-server connections' }}
+												checked={grants(k).includes('client_credentials')}
+												disabled={lastGrant === 'client_credentials'}
+												on:change={(e) => setServerToServer(k, e.detail)}
+											/>
+											<span class="text-2xs text-hint"
+												>Users connect with a client ID and secret through the token URL below.</span
+											>
+										</div>
+									{/if}
+									{#if registryCcCapable(k) || (custom && grants(k).includes('client_credentials'))}
+										<div class="flex flex-col gap-1">
+											<Toggle
+												size="xs"
+												options={{ right: "Share this app's service account" }}
+												checked={sharesCc(k)}
+												on:change={(e) => setSharesCc(k, e.detail)}
+											/>
+											{#if sharesCc(k)}
+												<Alert type="warning" title="Anyone can act as this app" size="xs">
+													Any user with write access in any workspace can create a resource that acts
+													as this app's client ID, without seeing its secret.
+												</Alert>
+											{:else}
+												<span class="text-2xs text-hint"
+													>Server-to-server connections use the user's own client ID and secret.</span
+												>
+											{/if}
+										</div>
 									{/if}
 								</div>
 								{#if k === 'azure_oauth'}
@@ -623,6 +669,21 @@
 											bind:value={instanceInputs[k]}
 										/>
 									</label>
+								{/if}
+								{#if sharesCc(k) && oauths[k]['id'] && oauths[k]['secret']}
+									<div class="flex flex-row items-center gap-2">
+										<Button
+											variant="default"
+											unifiedSize="sm"
+											loading={testingCc[k]}
+											onclick={() => testClientCredentials(k)}
+										>
+											Test client credentials
+										</Button>
+										<span class="text-2xs text-hint"
+											>Requests a token from {k} with this client ID and secret.</span
+										>
+									</div>
 								{/if}
 								{#if k === 'gworkspace'}
 									<div>

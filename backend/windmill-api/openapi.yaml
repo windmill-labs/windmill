@@ -9042,6 +9042,37 @@ paths:
                     type: boolean
                     description: "The instance OAuth entry carries shared client-credentials, so the connect dialog can skip the bring-your-own form and run the exchange server-side"
 
+  /oauth/test_client_credentials:
+    post:
+      summary: test an instance OAuth entry's client credentials
+      description: Runs the client-credentials token exchange with an instance OAuth entry, saved or not. Superadmin only.
+      operationId: testOAuthClientCredentials
+      tags:
+        - oauth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: client name, the key of the entry in the instance OAuth setting
+                entry:
+                  type: object
+                  description: the entry as stored in the instance OAuth setting
+              required:
+                - name
+                - entry
+      responses:
+        "200":
+          description: the exchange returned a token
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /teams/activities:
     post:
       summary: send update to Microsoft Teams activity
@@ -32848,6 +32879,12 @@ components:
             On a draft-only row, the path its editor has staged when it
             differs from the storage path (e.g. a never-deployed item parked at
             `u/{user}/draft_{uuid}`).
+        grant_type:
+          type: string
+          description: |
+            The grant of the linked OAuth account: `client_credentials`
+            connects as the app, `authorization_code` as the user who
+            connected it.
       required:
         - path
         - resource_type

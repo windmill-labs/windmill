@@ -18,8 +18,6 @@ use axum::{routing::get, Json, Router};
 #[cfg(not(feature = "private"))]
 use hmac::Mac;
 
-#[cfg(all(feature = "oauth2", not(feature = "private")))]
-use itertools::Itertools;
 #[cfg(not(feature = "private"))]
 use serde::{Deserialize, Serialize};
 #[cfg(not(feature = "private"))]
@@ -29,8 +27,6 @@ use windmill_common::more_serde::maybe_number_opt;
 #[cfg(all(feature = "oauth2", not(feature = "private")))]
 use windmill_oauth::{helpers, AccessToken, RefreshToken, Scope};
 
-#[cfg(all(feature = "oauth2", not(feature = "private")))]
-use crate::OAUTH_CLIENTS;
 #[cfg(not(feature = "private"))]
 use windmill_common::error;
 #[cfg(not(feature = "private"))]
@@ -114,22 +110,19 @@ async fn list_logins() -> error::JsonResult<Logins> {
     return Ok(Json(Logins { oauth: vec![], saml: None, auto_login: None }));
 }
 
-#[allow(unused)]
-#[cfg(all(feature = "oauth2", not(feature = "private")))]
-async fn list_connects() -> error::JsonResult<Vec<String>> {
-    Ok(Json(
-        (&OAUTH_CLIENTS.load().connects)
-            .keys()
-            .map(|x| x.to_owned())
-            .collect_vec(),
-    ))
+/// Same shape as the enterprise response, which the connect dialog reads.
+#[cfg(not(feature = "private"))]
+#[derive(Serialize)]
+struct OAuthConnectListItem {
+    name: String,
+    supports_client_credentials: bool,
+    has_shared_credentials: bool,
 }
 
-#[allow(unused)]
-#[cfg(not(all(feature = "oauth2", not(feature = "private"))))]
-async fn list_connects() -> windmill_common::error::JsonResult<Vec<String>> {
+#[cfg(not(feature = "private"))]
+async fn list_connects() -> error::JsonResult<Vec<OAuthConnectListItem>> {
     // Implementation is not open source
-    return Ok(axum::Json(vec![]));
+    Ok(Json(vec![]))
 }
 
 #[cfg(not(feature = "private"))]

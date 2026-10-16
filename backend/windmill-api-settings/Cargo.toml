@@ -14,6 +14,7 @@ enterprise = ["license"]
 private = ["windmill-common/private", "windmill-audit/private"]
 parquet = ["windmill-common/parquet", "windmill-object-store/parquet"]
 license = ["dep:rsa", "dep:ed25519-dalek"]
+oauth2 = ["dep:windmill-oauth"]
 
 [dependencies]
 windmill-ai = { workspace = true, default-features = false }
@@ -40,3 +41,4 @@ sha2.workspace = true
 rsa = { workspace = true, optional = true }
 ed25519-dalek = { workspace = true, optional = true }
 windmill-object-store.workspace = true
+windmill-oauth = { workspace = true, optional = true }

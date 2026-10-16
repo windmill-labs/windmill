@@ -20,6 +20,7 @@
 	import { setLicense } from '$lib/enterpriseUtils'
 	import AuthSettings from './AuthSettings.svelte'
 	import oauthConnectRegistry from '$oauth_connect_registry'
+	import { normalizeInstanceInput, templatedConnectConfig } from './oauthRegistry'
 	import InstanceSetting from './InstanceSetting.svelte'
 	import { writable, type Writable } from 'svelte/store'
 	import { ExternalLink, Loader2 } from 'lucide-svelte'
@@ -310,18 +311,6 @@
 			.map(([name, cfg]) => [name, (cfg as any).connect_config_template])
 	)
 
-	function normalizeInstanceInput(tmpl: any, raw: string): string {
-		let v = (raw ?? '').replace(/\s/g, '')
-		if (tmpl.strip_suffix) {
-			// accept a full host/URL or a bare name -> reduce to the bare instance
-			v = v.replace(/^https?:\/\//, '').replace(/\/.*$/, '')
-			if (v.endsWith(tmpl.strip_suffix)) {
-				v = v.slice(0, -tmpl.strip_suffix.length)
-			}
-		}
-		return v
-	}
-
 	// Build each per-instance provider's connect_config from the admin-entered
 	// instance name + its registry template (substituting {instance} into the
 	// URLs). Replaces the old per-provider setup functions.
@@ -332,18 +321,7 @@
 			const v = normalizeInstanceInput(tmpl, instanceInputs[name] ?? '')
 			instanceInputs[name] = v
 			if (oauths[name].connect_config?.extra_params?.[key] === v) continue
-			oauths[name].connect_config = {
-				scopes: tmpl.scopes ?? [],
-				// CC-only templated providers have no auth_url; store an empty string
-				// (not omitted) so the instance-config parser still types the entry.
-				// The backend treats an empty auth_url as the unused placeholder for
-				// the client-credentials grant.
-				auth_url: tmpl.auth_url ? tmpl.auth_url.replaceAll('{instance}', v) : '',
-				token_url: tmpl.token_url.replaceAll('{instance}', v),
-				req_body_auth: tmpl.req_body_auth ?? false,
-				extra_params: { [key]: v },
-				extra_params_callback: {}
-			}
+			oauths[name].connect_config = templatedConnectConfig(tmpl, v)
 		}
 	}
 

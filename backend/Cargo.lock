@@ -16178,6 +16178,7 @@ dependencies = [
  "windmill-api-auth",
  "windmill-audit",
  "windmill-common",
+ "windmill-oauth",
  "windmill-object-store",
 ]
 
