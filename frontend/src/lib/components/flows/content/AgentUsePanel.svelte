@@ -30,7 +30,7 @@
 
 	/**
 	 * The ways to use an agent outside its page: in the Slack channels it is shared in, where anyone
-	 * can ask it and it runs as its identity, and over the API.
+	 * or its workspace members can ask it, and over the API.
 	 */
 	let {
 		agentPath,
@@ -44,7 +44,7 @@
 		signingSecretSet,
 		runsAs,
 		shareBlocked,
-		canUnshare,
+		canEdit,
 		channels,
 		onChanged
 	}: {
@@ -65,9 +65,10 @@
 		signingSecretSet: boolean
 		/** Who the agent runs as; unset unless it runs on behalf of someone. */
 		runsAs: string | undefined
-		/** Why the user can't share it in a channel; unset when they can. */
+		/** Why the user can't share it with anyone in a channel; unset when they can. */
 		shareBlocked: string | undefined
-		canUnshare: boolean
+		/** Whether the user can share it with members only, or take it out of a channel. */
+		canEdit: boolean
 		channels: SlackAgentChannel[]
 		onChanged: () => void
 	} = $props()
@@ -85,7 +86,7 @@
 	const available = resource(
 		() => ({
 			ws:
-				!shareBlocked && chat && slackTeamName && botName && missingScopes.length === 0
+				canEdit && chat && slackTeamName && botName && missingScopes.length === 0
 					? workspace
 					: undefined,
 			channels
@@ -114,13 +115,28 @@
 		}
 	}
 
-	async function share(channelId: string, channelName: string, isDefault: boolean) {
+	let audienceChoices = $derived([
+		{ label: 'Anyone in the channel', value: false, disabled: !!shareBlocked },
+		{ label: 'Workspace members', value: true }
+	])
+
+	async function share(
+		channelId: string,
+		channelName: string,
+		isDefault: boolean,
+		membersOnly: boolean
+	) {
 		saving = true
 		try {
 			await SlackAgentsService.shareAgentInSlackChannel({
 				workspace,
 				path: agentPath,
-				requestBody: { channel_id: channelId, channel_name: channelName, is_default: isDefault }
+				requestBody: {
+					channel_id: channelId,
+					channel_name: channelName,
+					is_default: isDefault,
+					members_only: membersOnly
+				}
 			})
 			adding = false
 		} catch (e) {
@@ -238,8 +254,12 @@
 						<div class="flex flex-col gap-2">
 							<span class="text-xs font-semibold text-emphasis">Shared in these channels</span>
 							<span class="text-xs text-secondary">
-								Anyone in these channels of {slackTeamName} can ask this agent.
-								{#if runsAs}It runs as <b>{runsAs}</b>, with that user's permissions.{/if}
+								{#if runsAs}
+									Shared with anyone in a channel of {slackTeamName}, it runs as <b>{runsAs}</b> for
+									everyone there.
+								{/if}
+								Shared with workspace members, it answers those whose Slack email matches
+								and who can read it, as it would in Windmill.
 							</span>
 							{#if channels.length === 0 && !adding}
 								<span class="text-xs text-hint">Not shared in any channel.</span>
@@ -251,18 +271,31 @@
 										inputProps={{ readonly: true }}
 										value="#{channel.channel_name}"
 									/>
+									<Select
+										class="w-52"
+										items={audienceChoices}
+										bind:value={
+											() => channel.members_only,
+											(v) => share(channel.channel_id, channel.channel_name, channel.is_default, v)
+										}
+										disabled={!canEdit || (!channel.members_only && !!shareBlocked) || saving}
+									/>
 									<Toggle
 										size="xs"
 										checked={channel.is_default}
-										disabled={!!shareBlocked || saving}
-										on:change={(e) => share(channel.channel_id, channel.channel_name, e.detail)}
+										disabled={!canEdit ||
+											(!channel.members_only && !!shareBlocked) ||
+											(!isAdmin && !channel.is_default) ||
+											saving}
+										on:change={(e) =>
+											share(channel.channel_id, channel.channel_name, e.detail, channel.members_only)}
 										options={{
 											right: 'Default',
 											rightTooltip:
-												"Answers the bot's mentions and /windmill commands in this channel that name no agent, which then no longer reach the workspace's command script there"
+												"Answers the bot's mentions and /windmill commands in this channel that name no agent, which then no longer reach the workspace's command script there. Only workspace admins can turn it on."
 										}}
 									/>
-									{#if canUnshare}
+									{#if canEdit}
 										<Button
 											variant="subtle"
 											unifiedSize="md"
@@ -277,7 +310,8 @@
 							{/each}
 							{#if shareBlocked}
 								<span class="text-2xs text-hint">{shareBlocked}</span>
-							{:else if missingScopes.length === 0}
+							{/if}
+							{#if canEdit && missingScopes.length === 0}
 								{#if adding}
 									<div class="flex items-center gap-2 w-full">
 										<Select
@@ -287,7 +321,13 @@
 												() => undefined,
 												(v) => {
 													const choice = available.current?.find((c) => c.value === v)
-													if (choice) share(choice.value, choice.name, channels.length === 0)
+													if (choice)
+														share(
+															choice.value,
+															choice.name,
+															isAdmin && channels.length === 0,
+															!!shareBlocked
+														)
 												}
 											}
 											loading={available.loading || saving}

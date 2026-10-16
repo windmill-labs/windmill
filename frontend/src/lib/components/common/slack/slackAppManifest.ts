@@ -1,5 +1,5 @@
 /** Requested on top of the usual ones when a workspace connects with AI agents enabled. */
-export const SLACK_AGENT_SCOPES = ['users:read', 'channels:read']
+export const SLACK_AGENT_SCOPES = ['users:read', 'users:read.email', 'channels:read']
 
 /**
  * The Slack app manifest Windmill expects, for `baseUrl` (the instance's public URL). It declares

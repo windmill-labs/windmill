@@ -259,7 +259,7 @@
 						signingSecretSet={slack.current?.signing_secret_set ?? true}
 						runsAs={slack.current?.runs_as}
 						shareBlocked={slack.current?.share_blocked}
-						canUnshare={slack.current?.can_unshare ?? false}
+						canEdit={slack.current?.can_edit ?? false}
 						channels={slack.current?.channels ?? []}
 						onChanged={() => slack.refetch()}
 					/>

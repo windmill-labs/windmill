@@ -27,6 +27,9 @@
 						{#if channel.is_default}
 							<Badge small>Default</Badge>
 						{/if}
+						{#if channel.members_only}
+							<Badge small>Members only</Badge>
+						{/if}
 						<a href="/agents/get/{channel.agent_path}">{channel.agent_path}</a>
 					</span>
 				</div>

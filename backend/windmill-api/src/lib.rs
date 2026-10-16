@@ -262,9 +262,9 @@ lazy_static::lazy_static! {
 }
 
 /// Added to `SLACK_OAUTH_SCOPES` when a workspace connects with AI agents enabled: whether a
-/// message's sender is a person of the team, and the channel picker. Opt-in, as a Slack app must
-/// declare every scope it is asked for.
-pub const SLACK_AGENT_SCOPES: &[&str] = &["users:read", "channels:read"];
+/// message's sender is a person of the team and, for agents that run as their asker, their email,
+/// and the channel picker. Opt-in, as a Slack app must declare every scope it is asked for.
+pub const SLACK_AGENT_SCOPES: &[&str] = &["users:read", "users:read.email", "channels:read"];
 
 // Compliance with cloud events spec.
 pub async fn add_webhook_allowed_origin(

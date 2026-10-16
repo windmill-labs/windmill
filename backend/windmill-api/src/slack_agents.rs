@@ -1,10 +1,13 @@
 //! AI agents answering in Slack.
 //!
-//! An agent answers only in the Slack channels it is shared in, to anyone there: the channel is
-//! the trust boundary, as Slack decides who is in it. It runs as its identity (`on_behalf_of`),
-//! which is why sharing it needs `run_on_behalf_of` and is left to that identity or to one who may
-//! keep another's. A message reaches it when it names it (`+name` or `~name`), when its thread was
-//! started with it, or when it is its channel's default. Anything else goes to the workspace's
+//! An agent answers only in the Slack channels it is shared in. Shared with anyone there, the
+//! channel is the trust boundary, as Slack decides who is in it: everyone runs it as its identity
+//! (`on_behalf_of`), which is why that needs `run_on_behalf_of` and is left to the identity or to
+//! one who may keep another's. Shared with members only, it answers the workspace members whose
+//! email matches the asker's Slack email, as Windmill would: through their own permissions, so
+//! only if they can read it, and as its identity only if it runs on behalf of one. That lends
+//! nothing, so edit access is enough to share it so. A message reaches an agent when it names it
+//! (`+name` or `~name`), when its thread was started with it, or when it is its channel's default. Anything else goes to the workspace's
 //! command script as before, or, where there is none, is answered with the agents shared there.
 //! One Slack thread is one conversation per person: a run's tool results are its asker's to see,
 //! and a shared conversation would hand them to whoever replies next.
@@ -19,7 +22,9 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use uuid::Uuid;
-use windmill_api_auth::{fetch_api_authed_from_permissioned_as, require_is_writer};
+use windmill_api_auth::{
+    fetch_api_authed, fetch_api_authed_from_permissioned_as, require_is_writer,
+};
 use windmill_common::{
     error::{Error, JsonResult, Result},
     oauth2::WORKSPACE_SLACK_BOT_TOKEN_PATH,
@@ -80,6 +85,7 @@ struct SharedChannel {
     channel_name: String,
     agent_path: String,
     is_default: bool,
+    members_only: bool,
 }
 
 /// Listed through the caller's permissions: an agent they cannot read stays unnamed.
@@ -91,7 +97,8 @@ async fn list_workspace_channels(
     let mut tx = user_db.begin(&authed).await?;
     let rows = sqlx::query_as!(
         SharedChannel,
-        "SELECT c.channel_id, c.channel_name, c.agent_path, c.is_default FROM slack_agent_channel c
+        "SELECT c.channel_id, c.channel_name, c.agent_path, c.is_default, c.members_only
+         FROM slack_agent_channel c
          JOIN resource r ON r.workspace_id = c.workspace_id AND r.path = c.agent_path
          WHERE c.workspace_id = $1 ORDER BY c.channel_name, c.agent_path",
         w_id
@@ -114,10 +121,11 @@ struct AgentSlack {
     missing_scopes: Vec<String>,
     /// Who the agent runs as, in Slack and elsewhere; `None` unless it runs on behalf of someone.
     runs_as: Option<String>,
-    /// Why the caller can't share it in a channel; `None` when they can.
+    /// Why the caller can't share it with anyone in a channel; `None` when they can.
     share_blocked: Option<String>,
-    /// Whether the caller can take it out of a channel: anyone who can edit it.
-    can_unshare: bool,
+    /// Whether the caller can share it with members only, or take it out of a channel: anyone who
+    /// can edit it.
+    can_edit: bool,
     channels: Vec<SharedChannel>,
 }
 
@@ -159,8 +167,8 @@ async fn is_writer(authed: &ApiAuthed, db: &DB, w_id: &str, path: &str) -> Resul
     .is_ok())
 }
 
-/// Sharing lends the identity's permissions to everyone in the channel, so it takes that
-/// identity, or one who may keep another's when deploying, besides edit access to the agent.
+/// Sharing it to run as its identity lends that identity's permissions to everyone in the
+/// channel, so it takes that identity, or one who may keep another's when deploying, besides edit access to the agent.
 fn share_blocked(
     authed: &ApiAuthed,
     path: &str,
@@ -169,7 +177,7 @@ fn share_blocked(
 ) -> Option<String> {
     let Some(runs_as) = runs_as else {
         return Some(format!(
-            "Turn on Run on behalf of for {path} first: everyone in the channel runs it as its identity."
+            "To share {path} with anyone in a channel, turn on its Run on behalf of: they all run it as that user."
         ));
     };
     if !writer {
@@ -179,7 +187,7 @@ fn share_blocked(
         && !windmill_common::can_preserve_on_behalf_of(authed)
     {
         return Some(format!(
-            "{path} runs on behalf of {runs_as}, so only they or an admin can share it."
+            "{path} runs on behalf of {runs_as}, so only they or an admin can share it with anyone in a channel."
         ));
     }
     None
@@ -204,8 +212,8 @@ async fn get_agent_slack(
     .flatten();
     let channels = sqlx::query_as!(
         SharedChannel,
-        "SELECT channel_id, channel_name, agent_path, is_default FROM slack_agent_channel
-         WHERE workspace_id = $1 AND agent_path = $2 ORDER BY channel_name",
+        "SELECT channel_id, channel_name, agent_path, is_default, members_only
+         FROM slack_agent_channel WHERE workspace_id = $1 AND agent_path = $2 ORDER BY channel_name",
         w_id,
         path
     )
@@ -222,7 +230,7 @@ async fn get_agent_slack(
         missing_scopes: missing_scopes.unwrap_or_default(),
         share_blocked: share_blocked(&authed, path, runs_as.as_deref(), writer),
         runs_as,
-        can_unshare: writer,
+        can_edit: writer,
         channels,
     }))
 }
@@ -267,9 +275,11 @@ struct ShareAgent {
     channel_name: String,
     #[serde(default)]
     is_default: bool,
+    #[serde(default)]
+    members_only: bool,
 }
 
-/// Shares the agent in a channel, or changes whether it is that channel's default.
+/// Shares the agent in a channel, or changes how it answers there.
 async fn share_agent(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -280,7 +290,12 @@ async fn share_agent(
     let path = path.to_path();
     let runs_as = agent_identity(&authed, &user_db, &w_id, path).await?;
     let writer = is_writer(&authed, &db, &w_id, path).await?;
-    if let Some(reason) = share_blocked(&authed, path, runs_as.as_deref(), writer) {
+    let blocked = if body.members_only {
+        (!writer).then(|| format!("Only those who can edit {path} can share it."))
+    } else {
+        share_blocked(&authed, path, runs_as.as_deref(), writer)
+    };
+    if let Some(reason) = blocked {
         return Err(Error::PermissionDenied(reason));
     }
     let team_id = connected_team(&db, &w_id).await?;
@@ -296,25 +311,39 @@ async fn share_agent(
         )
         .fetch_optional(&db)
         .await?;
-        if let Some(current) = current.filter(|c| c.workspace_id != w_id || c.agent_path != path) {
-            return Err(Error::BadRequest(format!(
-                "{} already answers in #{} without being named. Make it stop there first.",
-                current.agent_path, body.channel_name
-            )));
+        match current {
+            Some(c) if c.workspace_id == w_id && c.agent_path == path => {}
+            Some(c) => {
+                return Err(Error::BadRequest(format!(
+                    "{} already answers in #{} without being named. Make it stop there first.",
+                    c.agent_path, body.channel_name
+                )));
+            }
+            // It takes the channel's unnamed messages from the command script an admin set up.
+            None if !authed.is_admin => {
+                return Err(Error::PermissionDenied(
+                    "Only workspace admins can make an agent answer a channel without being named."
+                        .to_string(),
+                ));
+            }
+            None => {}
         }
     }
     sqlx::query!(
         "INSERT INTO slack_agent_channel
-            (slack_team_id, channel_id, channel_name, workspace_id, agent_path, is_default)
-         VALUES ($1, $2, $3, $4, $5, $6)
+            (slack_team_id, channel_id, channel_name, workspace_id, agent_path, is_default,
+             members_only)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (slack_team_id, channel_id, workspace_id, agent_path) DO UPDATE
-            SET channel_name = EXCLUDED.channel_name, is_default = EXCLUDED.is_default",
+            SET channel_name = EXCLUDED.channel_name, is_default = EXCLUDED.is_default,
+                members_only = EXCLUDED.members_only",
         team_id,
         body.channel_id,
         body.channel_name,
         w_id,
         path,
-        body.is_default
+        body.is_default,
+        body.members_only
     )
     .execute(&db)
     .await?;
@@ -717,7 +746,7 @@ async fn help_text(db: &DB, msg: &SlackMessage, note: Option<String>) -> Result<
         let text = if msg.channel_id.starts_with('D') {
             "Agents answer in the Slack channels they're shared in, not in direct messages."
         } else {
-            "No agent is shared in this channel. Whoever runs an agent's identity in Windmill can share it here from the agent's page."
+            "No agent is shared in this channel. Anyone who can edit an agent in Windmill can share it here from the agent's page."
         };
         return Ok(format!("{note}{text}"));
     };
@@ -739,7 +768,8 @@ async fn help_text(db: &DB, msg: &SlackMessage, note: Option<String>) -> Result<
 
 /// Who sent a message, as far as agents are concerned.
 enum Asker {
-    Person,
+    /// With their Slack email, `None` when Slack hides it or the connection lacks the scope.
+    Person { email: Option<String> },
     /// A bot or a workflow: never answered, so two bots cannot keep each other talking, and an
     /// agent's identity is never lent to something no person typed.
     Bot,
@@ -766,7 +796,7 @@ async fn asker(token: &str, msg: &SlackMessage) -> anyhow::Result<Asker> {
     {
         return Ok(Asker::Outsider);
     }
-    Ok(Asker::Person)
+    Ok(Asker::Person { email: user["profile"]["email"].as_str().map(str::to_string) })
 }
 
 async fn answer(
@@ -829,14 +859,17 @@ async fn answer(
     };
     let reply = Reply::start(&token, &channel, &thread_root).await?;
 
-    if matches!(asker, Asker::Outsider) {
-        return reply
-            .send(
-                "Agents answer only people from this Slack workspace.".to_string(),
-                None,
-            )
-            .await;
-    }
+    let email = match asker {
+        Asker::Person { email } => email,
+        _ => {
+            return reply
+                .send(
+                    "Agents answer only people from this Slack workspace.".to_string(),
+                    None,
+                )
+                .await;
+        }
+    };
     let agent_path = match route {
         Route::Help { note } => return reply.send(help_text(db, &msg, note).await?, None).await,
         Route::Agent(path) => path,
@@ -848,38 +881,86 @@ async fn answer(
             .await;
     }
 
-    // Read again at each message: sharing is taken back when the agent stops running on behalf
-    // of its identity, and a message can arrive between the two.
-    let identity = sqlx::query_scalar!(
-        "SELECT value->>'on_behalf_of' FROM resource
-         WHERE workspace_id = $1 AND path = $2 AND resource_type = 'ai_agent'
-           AND value->'run_on_behalf_of' = 'true'::jsonb",
+    // Read again at each message: sharing with anyone is taken back when the agent stops running
+    // on behalf of its identity, and a message can arrive between the two.
+    let share = sqlx::query!(
+        "SELECT c.members_only, r.value->>'on_behalf_of' AS on_behalf_of
+         FROM slack_agent_channel c
+         JOIN resource r ON r.workspace_id = c.workspace_id AND r.path = c.agent_path
+         WHERE c.slack_team_id = $1 AND c.channel_id = $2 AND c.workspace_id = $3
+           AND c.agent_path = $4 AND r.resource_type = 'ai_agent'
+           AND (c.members_only OR r.value->'run_on_behalf_of' = 'true'::jsonb)",
+        msg.team_id,
+        channel,
         w_id,
         agent_path
     )
     .fetch_optional(db)
-    .await?
-    .flatten();
-    let on_behalf_of =
-        windmill_common::on_behalf_of_from_permissioned_as(identity.as_deref(), w_id, db).await?;
-    let Some(on_behalf_of) = on_behalf_of else {
-        return reply
-            .send(
-                format!(
-                    "`{agent_path}` doesn't run on behalf of anyone, so it can't answer in Slack."
-                ),
+    .await?;
+    let members_only = share.as_ref().is_some_and(|s| s.members_only);
+    let authed = match share {
+        None => {
+            return reply
+                .send(
+                    format!("`{agent_path}` is no longer shared in this channel."),
+                    None,
+                )
+                .await;
+        }
+        Some(share) if share.members_only => {
+            let Some(email) = email else {
+                return reply.send(
+                    "Windmill can't read your Slack email. A workspace admin needs to reconnect Slack in the workspace settings to grant it.".to_string(),
+                    None,
+                )
+                .await;
+            };
+            let member = sqlx::query!(
+                "SELECT username, email FROM usr
+                 WHERE workspace_id = $1 AND lower(email) = lower($2) AND NOT disabled",
+                w_id,
+                email
+            )
+            .fetch_optional(db)
+            .await?;
+            let Some(member) = member else {
+                return reply.send(
+                    format!(
+                        "Your Slack email isn't a member of the Windmill workspace *{w_id}*. Ask an admin to invite you."
+                    ),
+                    None,
+                )
+                .await;
+            };
+            fetch_api_authed(member.username, member.email, w_id, db, None).await?
+        }
+        Some(share) => {
+            let on_behalf_of = windmill_common::on_behalf_of_from_permissioned_as(
+                share.on_behalf_of.as_deref(),
+                w_id,
+                db,
+            )
+            .await?;
+            let Some(on_behalf_of) = on_behalf_of else {
+                return reply
+                    .send(
+                        format!(
+                            "`{agent_path}` doesn't run on behalf of anyone, so it can't answer in Slack."
+                        ),
+                        None,
+                    )
+                    .await;
+            };
+            fetch_api_authed_from_permissioned_as(
+                on_behalf_of.permissioned_as,
+                on_behalf_of.email,
+                w_id,
+                db,
                 None,
             )
-            .await;
+            .await?
+        }
     };
-    let authed = fetch_api_authed_from_permissioned_as(
-        on_behalf_of.permissioned_as,
-        on_behalf_of.email,
-        w_id,
-        db,
-        None,
-    )
-    .await?;
     let user_db = UserDB::new(db.clone());
 
     // Keyed with the workspace's secret: anyone who can read the agent's runs could rebuild the
@@ -900,6 +981,14 @@ async fn answer(
     let job_id =
         match run_agent_as(&authed, db, &user_db, w_id, &agent_path, &run_query, &args).await {
             Ok(id) => id,
+            Err(Error::NotFound(_)) if members_only => {
+                return reply
+                    .send(
+                        format!("You don't have access to `{agent_path}` in Windmill."),
+                        None,
+                    )
+                    .await;
+            }
             Err(e) => {
                 return reply
                     .send(format!("`{agent_path}` couldn't start: {e}"), None)

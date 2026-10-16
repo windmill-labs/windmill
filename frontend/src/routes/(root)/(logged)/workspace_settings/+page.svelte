@@ -1781,8 +1781,7 @@
 																title="Agents answer only where they're shared"
 															>
 																Share an agent in Slack channels from its page. Anyone in those
-																channels can then ask it, and it runs with the permissions of the
-																user it runs on behalf of.
+																channels, or only the workspace members among them, can then ask it.
 															</Alert>
 														{/if}
 														{#if slackAgentsStatus.current?.signing_secret_set === false}
