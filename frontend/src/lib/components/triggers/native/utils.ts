@@ -19,6 +19,14 @@ export function useNativeConnection(): () => string | undefined {
 
 const CONNECT_MESSAGE = 'native_trigger_oauth'
 
+/** Turns the resource connect drawer into the connect step of a native trigger account. */
+export type NativeConnect = {
+	title: string
+	defaultName: string
+	/** Rejects when the connection was not saved; the drawer then stays open on the path. */
+	connect: (path: string) => Promise<void>
+}
+
 export type NativeOAuthMessage =
 	| { type: typeof CONNECT_MESSAGE; ok: true; path: string }
 	| { type: typeof CONNECT_MESSAGE; ok: false; error: string }
@@ -83,6 +91,8 @@ export async function connectNativeAccount(
 export interface NativeTriggerConfig {
 	readonly serviceDisplayName: string
 	readonly serviceKey: NativeServiceName
+	/** The type of the resource a connection is saved as. */
+	readonly resourceType: string
 	readonly supportsSync: boolean
 	readonly isCloudCompatible: boolean
 	readonly templates?: {
@@ -95,6 +105,7 @@ export const NATIVE_TRIGGER_SERVICES: Record<NativeServiceName, NativeTriggerCon
 	nextcloud: {
 		serviceDisplayName: 'Nextcloud',
 		serviceKey: 'nextcloud',
+		resourceType: 'nextcloud',
 		supportsSync: true,
 		isCloudCompatible: true,
 		templates: {
@@ -106,6 +117,7 @@ export const NATIVE_TRIGGER_SERVICES: Record<NativeServiceName, NativeTriggerCon
 	google: {
 		serviceDisplayName: 'Google',
 		serviceKey: 'google',
+		resourceType: 'gworkspace',
 		supportsSync: true,
 		isCloudCompatible: true,
 		templates: {
@@ -116,6 +128,7 @@ export const NATIVE_TRIGGER_SERVICES: Record<NativeServiceName, NativeTriggerCon
 	github: {
 		serviceDisplayName: 'GitHub',
 		serviceKey: 'github',
+		resourceType: 'github',
 		supportsSync: true,
 		isCloudCompatible: true,
 		templates: {
