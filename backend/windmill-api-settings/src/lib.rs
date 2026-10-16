@@ -930,6 +930,7 @@ pub async fn set_global_setting_internal(
         }
     }
 
+    let turns_on = value.as_bool() == Some(true);
     match value {
         serde_json::Value::Null => {
             if instance_config::PROTECTED_SETTINGS.contains(&key.as_str()) {
@@ -962,6 +963,14 @@ pub async fn set_global_setting_internal(
             );
         }
     };
+
+    if key == windmill_common::global_settings::DEV_WORKSPACE_ISOLATION_SETTING {
+        windmill_common::feature_usage::log_feature_usage(
+            "dev_workspace_isolation",
+            "toggle",
+            if turns_on { "on" } else { "off" },
+        );
+    }
 
     if should_bump_instance_ai_revision {
         bump_instance_ai_config_revision();
