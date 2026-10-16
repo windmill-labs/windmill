@@ -8811,6 +8811,9 @@ paths:
                   items:
                     type: string
                   description: "OAuth scopes to use for token refresh. Overrides instance-level scopes."
+                variable_path:
+                  type: string
+                  description: "Path of an existing variable, writable by the caller, to link to this account so it refreshes through it. Its previous account is deleted when nothing else uses it."
               required:
                 - refresh_token
                 - expires_in
@@ -31990,7 +31993,8 @@ components:
           description: The description of the variable
         account:
           type: integer
-          description: The account identifier
+          deprecated: true
+          description: Ignored. A variable is linked to an OAuth account only by `createAccount`'s `variable_path`.
         is_oauth:
           type: boolean
           description: Whether the variable is an OAuth variable

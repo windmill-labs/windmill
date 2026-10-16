@@ -33,9 +33,8 @@ export async function upsertSecretVariable(args: {
 	/** The MCP resource this token belongs to; stamped into the description. */
 	resourcePath: string
 	isOauth?: boolean
-	account?: number
 }): Promise<void> {
-	const { workspace, path, value, resourcePath, isOauth, account } = args
+	const { workspace, path, value, resourcePath, isOauth } = args
 	const description = mcpTokenDescription(resourcePath)
 
 	// The path picker rejects an occupied path, but it validates on a debounce and
@@ -66,6 +65,6 @@ export async function upsertSecretVariable(args: {
 
 	await VariableService.createVariable({
 		workspace,
-		requestBody: { path, value, is_secret: true, is_oauth: isOauth, account, description }
+		requestBody: { path, value, is_secret: true, is_oauth: isOauth, description }
 	})
 }

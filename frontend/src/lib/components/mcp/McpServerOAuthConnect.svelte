@@ -136,28 +136,25 @@
 		if (!target) return
 		const { workspace, path } = target
 		try {
-			let accountId: number | undefined
-			if (data.expires_in && data.refresh_token) {
-				const accountIdStr = await OauthService.createAccount({
-					workspace,
-					requestBody: {
-						refresh_token: data.refresh_token,
-						expires_in: data.expires_in,
-						client: 'mcp',
-						mcp_server_url: data.mcp_server_url
-					}
-				})
-				accountId = Number(accountIdStr)
-			}
-
 			await upsertSecretVariable({
 				workspace,
 				path,
 				value: data.access_token,
 				resourcePath: path,
-				isOauth: true,
-				account: accountId
+				isOauth: true
 			})
+			if (data.expires_in && data.refresh_token) {
+				await OauthService.createAccount({
+					workspace,
+					requestBody: {
+						refresh_token: data.refresh_token,
+						expires_in: data.expires_in,
+						client: 'mcp',
+						mcp_server_url: data.mcp_server_url,
+						variable_path: path
+					}
+				})
+			}
 
 			await ResourceService.createResource({
 				workspace,

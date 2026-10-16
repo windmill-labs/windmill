@@ -939,9 +939,9 @@
 				args['realmId'] = responseExtra['realmId']
 			}
 
-			let account: number | undefined = undefined
+			let accountData: any = undefined
 			if (valueToken?.expires_in != undefined) {
-				const accountData: any = {
+				accountData = {
 					refresh_token: valueToken.refresh_token ?? '',
 					expires_in: valueToken.expires_in,
 					client: connectClient,
@@ -970,13 +970,6 @@
 						accountData.cc_token_url = tokenUrl.trim()
 					}
 				}
-
-				account = Number(
-					await OauthService.createAccount({
-						workspace: effectiveWorkspace,
-						requestBody: accountData
-					})
-				)
 			}
 
 			// A copy: the form is still mounted and bound to `args` across the awaits below, and
@@ -1005,10 +998,16 @@
 								? `OAuth token for ${resourceType}`
 								: description,
 							is_oauth: true,
-							account: account,
 							ws_specific: wsSpecific
 						}
 					})
+					if (accountData) {
+						// Links the variable just created, so it refreshes through the account.
+						await OauthService.createAccount({
+							workspace: effectiveWorkspace,
+							requestBody: { ...accountData, variable_path: path }
+						})
+					}
 					resourceValue['token'] = `$var:${path}`
 				}
 			} else if (linkedSecrets.length === 1) {

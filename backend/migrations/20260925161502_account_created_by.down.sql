@@ -1,1 +1,0 @@
-ALTER TABLE account DROP COLUMN IF EXISTS created_by;
