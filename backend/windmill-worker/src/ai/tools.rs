@@ -577,6 +577,9 @@ async fn enqueue_windmill_tool(
         &ctx.job.workspace_id,
         ctx.preserve_step_tags,
         job_payload.tag.as_deref(),
+        windmill_queue::tags::dev_workspace_suffix_for(&ctx.job.workspace_id, ctx.db)
+            .await?
+            .as_deref(),
     );
     if tool_tag.as_deref().is_some_and(tag_reads_flow_expr) {
         append_logs(

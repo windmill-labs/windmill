@@ -4,6 +4,7 @@
 	import { resource } from 'runed'
 	import { hasWorkerForTag } from './missingWorker'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { userWorkspaces } from '$lib/stores'
 	import {
 		devWorkspaceTagSuffix,
 		isDevOrForkWorkspaceId,
@@ -32,7 +33,9 @@
 	// those instances.
 	// A dev workspace's jobs run on the suffixed tag, which only groups serving dev workspaces pull.
 	let devSuffix = $derived(
-		$devWorkspaceTagSuffix && isDevOrForkWorkspaceId(ws) ? $devWorkspaceTagSuffix : undefined
+		$devWorkspaceTagSuffix && isDevOrForkWorkspaceId(ws, $userWorkspaces)
+			? $devWorkspaceTagSuffix
+			: undefined
 	)
 	let runTag = $derived(devSuffix ? withDevSuffix(tag, devSuffix) : tag)
 	const served = resource(

@@ -451,8 +451,13 @@ lazy_static::lazy_static! {
     pub static ref FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX: AtomicBool = AtomicBool::new(false);
     pub static ref PREVIEW_TAGS_OVERRIDE: AtomicBool = AtomicBool::new(false);
     pub static ref DEPENDENCY_JOB_TAG: arc_swap::ArcSwap<Option<String>> = arc_swap::ArcSwap::from_pointee(None);
-    /// Appended to every tag of a dev workspace's or fork's jobs; `None` turns isolation off.
-    pub static ref DEV_WORKSPACE_TAG_SUFFIX: arc_swap::ArcSwap<Option<String>> = arc_swap::ArcSwap::from_pointee(None);
+    /// Whether the jobs of dev workspaces and forks are queued on suffixed tags.
+    pub static ref DEV_WORKSPACE_ISOLATION: AtomicBool = AtomicBool::new(false);
+    /// The suffix of those tags. Groups serving dev workspaces listen with it whether isolation is
+    /// on or not, so turning it off leaves no job already queued on a suffixed tag unserved.
+    pub static ref DEV_WORKSPACE_TAG_SUFFIX: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee(DEFAULT_DEV_WORKSPACE_TAG_SUFFIX.to_string());
+    /// Whether this process's worker group serves dev workspaces, set when its config is loaded.
+    pub static ref WORKER_SERVES_DEV_WORKSPACES: AtomicBool = AtomicBool::new(false);
 
     pub static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
     .ok()
@@ -2423,9 +2428,24 @@ pub async fn update_worker_ping_main_loop_query(
 const MAX_TAG_LEN: usize = 50;
 const HASH_SUFFIX_LEN: usize = 16;
 
-/// The suffix a group serving dev workspaces listens with while isolation is off. No job carries
-/// it then, so such a group idles rather than taking jobs of root workspaces.
 pub const DEFAULT_DEV_WORKSPACE_TAG_SUFFIX: &str = "-dev";
+
+/// The suffix new jobs of dev workspaces and forks get, `None` while isolation is off.
+pub fn dev_workspace_tag_suffix() -> Option<String> {
+    DEV_WORKSPACE_ISOLATION
+        .load(std::sync::atomic::Ordering::Relaxed)
+        .then(|| DEV_WORKSPACE_TAG_SUFFIX.load().to_string())
+}
+
+/// Worker tags are pasted into the pull queries as SQL literals and listed comma-separated, so
+/// the suffix must not carry a quote, a comma or whitespace.
+pub fn is_valid_dev_workspace_tag_suffix(suffix: &str) -> bool {
+    !suffix.is_empty()
+        && suffix.len() <= 32
+        && suffix
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
 
 /// `tag` as the workers serving dev workspaces listen to it. Idempotent, because a tag inherited
 /// from a dev job (a flow step, an agent's tool) already carries the suffix.
@@ -2434,15 +2454,6 @@ pub fn with_dev_workspace_suffix(tag: &str, suffix: &str) -> String {
         tag.to_string()
     } else {
         format!("{tag}{suffix}")
-    }
-}
-
-/// The tag a dev job's flow tag was suffixed from, so it can be compared with the unsuffixed
-/// default flow tags.
-pub fn strip_dev_workspace_suffix(tag: &str) -> &str {
-    match DEV_WORKSPACE_TAG_SUFFIX.load().as_deref() {
-        Some(suffix) => tag.strip_suffix(suffix).unwrap_or(tag),
-        None => tag,
     }
 }
 
@@ -2624,13 +2635,8 @@ pub async fn load_worker_config(
     let dev_suffix = (config.serves_dev_workspaces == Some(true)
         && dedicated_worker.is_none()
         && dedicated_workers.is_none())
-    .then(|| {
-        DEV_WORKSPACE_TAG_SUFFIX
-            .load()
-            .as_deref()
-            .unwrap_or(DEFAULT_DEV_WORKSPACE_TAG_SUFFIX)
-            .to_string()
-    });
+    .then(|| DEV_WORKSPACE_TAG_SUFFIX.load().to_string());
+    WORKER_SERVES_DEV_WORKSPACES.store(dev_suffix.is_some(), std::sync::atomic::Ordering::Relaxed);
     let worker_tags = match &dev_suffix {
         Some(suffix) => worker_tags
             .iter()

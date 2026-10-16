@@ -57,7 +57,7 @@
 	import { computeHashedTag } from './dedicated_worker'
 	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import {
-		DEFAULT_DEV_WORKSPACE_TAG_SUFFIX,
+		devWorkspaceListenSuffix,
 		devWorkspaceTagSuffix,
 		loadDevWorkspaceTagSuffix,
 		withDevSuffix
@@ -391,7 +391,7 @@
 		)
 	)
 	loadDevWorkspaceTagSuffix()
-	let devSuffix = $derived($devWorkspaceTagSuffix ?? DEFAULT_DEV_WORKSPACE_TAG_SUFFIX)
+	let devSuffix = $derived($devWorkspaceListenSuffix)
 	let servesDev = $derived(
 		config?.serves_dev_workspaces === true &&
 			config?.dedicated_worker == undefined &&
@@ -703,12 +703,12 @@
 						</div>
 						{#if $devWorkspaceTagSuffix === null}
 							<Alert size="xs" type="info" title="Dev workspace isolation is off">
-								No job carries the <code>{devSuffix}</code> suffix until dev workspace isolation is turned
-								on from the Workers page, so this group idles until then. It never takes jobs of root
-								workspaces.
+								New jobs get the <code>{devSuffix}</code> suffix only while dev workspace isolation is
+								on (Workers page). Until then this group only runs jobs already queued on suffixed tags,
+								and never takes jobs of root workspaces.
 							</Alert>
 						{/if}
-					{:else if handSuffixed.length > 0 && $devWorkspaceTagSuffix}
+					{:else if handSuffixed.length > 0}
 						<Alert size="xs" type="warning" title="This group would take dev workspace jobs">
 							{handSuffixed.join(', ')}
 							{handSuffixed.length === 1 ? 'is a tag' : 'are tags'} of dev workspace and fork jobs. Listing

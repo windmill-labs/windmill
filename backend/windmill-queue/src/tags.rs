@@ -1,7 +1,9 @@
 use sqlx::{Pool, Postgres};
+use windmill_common::error::Error;
 use windmill_common::worker::{
-    is_dedicated_worker_tag_of, with_dev_workspace_suffix, DEFAULT_TAGS_PER_WORKSPACE,
-    DEFAULT_TAGS_WORKSPACES, DEV_WORKSPACE_TAG_SUFFIX, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX,
+    dev_workspace_tag_suffix, is_dedicated_worker_tag_of, with_dev_workspace_suffix,
+    DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX,
+    WORKER_SERVES_DEV_WORKSPACES,
 };
 use windmill_common::workspaces::WM_FORK_PREFIX;
 
@@ -16,7 +18,8 @@ struct TagWorkspace {
     is_fork: bool,
     /// Whether the workspace's jobs run on the workers serving dev workspaces: it has a parent,
     /// or carries the generated prefix (a fork orphaned by its parent's deletion stays a fork).
-    is_dev: bool,
+    /// `None` when the lookup failed.
+    is_dev: Option<bool>,
 }
 
 lazy_static::lazy_static! {
@@ -153,23 +156,56 @@ pub async fn apply_dev_workspace_suffix(
     tag: String,
     workspace_id: &str,
     db: &Pool<Postgres>,
-) -> String {
-    let suffix = DEV_WORKSPACE_TAG_SUFFIX.load_full();
-    let Some(suffix) = suffix.as_deref() else {
-        return tag;
-    };
-    if is_dedicated_worker_tag_of(workspace_id, &tag)
-        || !lookup_tag_workspace(workspace_id, db).await.is_dev
-    {
-        return tag;
+) -> Result<String, Error> {
+    if is_dedicated_worker_tag_of(workspace_id, &tag) {
+        return Ok(tag);
     }
-    with_dev_workspace_suffix(&tag, suffix)
+    Ok(match dev_workspace_suffix_for(workspace_id, db).await? {
+        Some(suffix) => with_dev_workspace_suffix(&tag, &suffix),
+        None => tag,
+    })
+}
+
+/// The suffix the jobs of `workspace_id` are queued with: `Some` while isolation is on and the
+/// workspace is a dev workspace or a fork. A lineage that cannot be read is an error rather than
+/// a guess, as either guess queues a job on the wrong pool for good.
+pub async fn dev_workspace_suffix_for(
+    workspace_id: &str,
+    db: &Pool<Postgres>,
+) -> Result<Option<String>, Error> {
+    let Some(suffix) = dev_workspace_tag_suffix() else {
+        return Ok(None);
+    };
+    match lookup_tag_workspace(workspace_id, db).await.is_dev {
+        Some(true) => Ok(Some(suffix)),
+        Some(false) => Ok(None),
+        None => Err(Error::internal_err(format!(
+            "could not resolve whether {workspace_id} is a dev workspace, which decides the \
+             workers its jobs run on"
+        ))),
+    }
+}
+
+/// Refuses running code of `workspace_id` in this process, as the inline routes do, when its
+/// jobs are isolated on dev workers and this process's group does not serve dev workspaces.
+pub async fn check_inline_run_allowed(
+    workspace_id: &str,
+    db: &Pool<Postgres>,
+) -> Result<(), Error> {
+    if dev_workspace_suffix_for(workspace_id, db).await?.is_some()
+        && !WORKER_SERVES_DEV_WORKSPACES.load(std::sync::atomic::Ordering::Relaxed)
+    {
+        return Err(Error::BadRequest(format!(
+            "{workspace_id} is a dev workspace or a fork, whose code runs only on worker groups \
+             serving dev workspaces, and this worker's group does not: run it as a job instead"
+        )));
+    }
+    Ok(())
 }
 
 /// Backed by a short-TTL cache to avoid a DB round-trip per job push. A transient DB error resolves
 /// to the workspace's own id for this call but is NOT cached, so the next push retries instead of
-/// misrouting for the whole TTL. That call counts the workspace as dev, so a job whose lineage is
-/// unknown waits for the dev workers rather than running on the others.
+/// misrouting for the whole TTL. Whether the workspace is dev is then unknown.
 async fn lookup_tag_workspace(workspace_id: &str, db: &Pool<Postgres>) -> TagWorkspace {
     if let Some((resolved, cached_at)) = FORK_PARENT_CACHE.get(workspace_id) {
         if cached_at.elapsed().as_secs() < FORK_PARENT_CACHE_TTL_SECS {
@@ -207,7 +243,9 @@ async fn lookup_tag_workspace(workspace_id: &str, db: &Pool<Postgres>) -> TagWor
         Ok(row) => match row.id {
             Some(id) => TagWorkspace {
                 is_fork: id != workspace_id || workspace_id.starts_with(WM_FORK_PREFIX),
-                is_dev: row.has_parent == Some(true) || workspace_id.starts_with(WM_FORK_PREFIX),
+                is_dev: Some(
+                    row.has_parent == Some(true) || workspace_id.starts_with(WM_FORK_PREFIX),
+                ),
                 id,
             },
             // No id means the workspace does not exist yet, or its chain is broken: both are "we
@@ -219,8 +257,9 @@ async fn lookup_tag_workspace(workspace_id: &str, db: &Pool<Postgres>) -> TagWor
                 return TagWorkspace {
                     id: workspace_id.to_string(),
                     is_fork: workspace_id.starts_with(WM_FORK_PREFIX),
-                    is_dev: row.has_parent == Some(true)
-                        || workspace_id.starts_with(WM_FORK_PREFIX),
+                    is_dev: Some(
+                        row.has_parent == Some(true) || workspace_id.starts_with(WM_FORK_PREFIX),
+                    ),
                 }
             }
         },
@@ -229,7 +268,7 @@ async fn lookup_tag_workspace(workspace_id: &str, db: &Pool<Postgres>) -> TagWor
             return TagWorkspace {
                 id: workspace_id.to_string(),
                 is_fork: workspace_id.starts_with(WM_FORK_PREFIX),
-                is_dev: true,
+                is_dev: None,
             };
         }
     };

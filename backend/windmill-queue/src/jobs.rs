@@ -4780,7 +4780,7 @@ pub async fn pull(
                         };
                         let tag =
                             crate::tags::apply_dev_workspace_suffix(tag, &job.workspace_id, db)
-                                .await;
+                                .await?;
                         sqlx::query!(
                             "UPDATE v2_job_queue SET tag = $1, running = false WHERE id = $2",
                             tag,
@@ -7460,7 +7460,7 @@ async fn push_inner<'c, 'd>(
     let tag = if on_dedicated_worker {
         tag
     } else {
-        crate::tags::apply_dev_workspace_suffix(tag, workspace_id, db).await
+        crate::tags::apply_dev_workspace_suffix(tag, workspace_id, db).await?
     };
 
     let mut tx = tx.into_tx().await?;

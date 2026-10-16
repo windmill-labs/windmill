@@ -17,11 +17,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceGroup from '$lib/components/WorkerGroup.svelte'
 	import DevWorkspaceIsolation from '$lib/components/DevWorkspaceIsolation.svelte'
-	import {
-		DEFAULT_DEV_WORKSPACE_TAG_SUFFIX,
-		devWorkspaceTagSuffix,
-		withDevSuffix
-	} from '$lib/devWorkspaceTags'
+	import { devWorkspaceListenSuffix, withDevSuffix } from '$lib/devWorkspaceTags'
 	import {
 		WorkerService,
 		type WorkerPing,
@@ -1069,12 +1065,11 @@
 												{@const isWorkerAlive = isWorkerMaybeAlive(last_ping)}
 												{@const tagMismatchInfo = getTagMismatchInfo(
 													custom_tags,
-													config?.serves_dev_workspaces === true
+													config?.serves_dev_workspaces === true &&
+														config?.dedicated_worker == undefined &&
+														!config?.dedicated_workers?.length
 														? config?.worker_tags?.map((t: string) =>
-																withDevSuffix(
-																	t,
-																	$devWorkspaceTagSuffix ?? DEFAULT_DEV_WORKSPACE_TAG_SUFFIX
-																)
+																withDevSuffix(t, $devWorkspaceListenSuffix)
 															)
 														: config?.worker_tags
 												)}

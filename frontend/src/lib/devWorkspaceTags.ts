@@ -1,32 +1,39 @@
-import { get, writable } from 'svelte/store'
+import { derived, get, writable } from 'svelte/store'
 import { WorkerService } from '$lib/gen'
-import { userWorkspaces } from '$lib/stores'
 
 /** Mirrors `DEFAULT_DEV_WORKSPACE_TAG_SUFFIX` in `windmill-common/src/worker.rs`. */
 export const DEFAULT_DEV_WORKSPACE_TAG_SUFFIX = '-dev'
 const WM_FORK_PREFIX = 'wm-fork-'
 
-/** `null` while dev workspace isolation is off, `undefined` until loaded. */
-export const devWorkspaceTagSuffix = writable<string | null | undefined>(undefined)
+/** Mirrors `is_valid_dev_workspace_tag_suffix`: the suffix ends up in SQL literals and tag lists. */
+export const DEV_WORKSPACE_TAG_SUFFIX_PATTERN = /^[A-Za-z0-9_.-]{1,32}$/
 
-let inflight: Promise<string | null> | undefined
-export function loadDevWorkspaceTagSuffix(force = false): Promise<string | null> {
-	const current = get(devWorkspaceTagSuffix)
-	if (!force && current !== undefined) return Promise.resolve(current)
+/** `undefined` until loaded. */
+export const devWorkspaceIsolation = writable<{ enabled: boolean; suffix: string } | undefined>(
+	undefined
+)
+/** The suffix new dev workspace and fork jobs get: `null` while isolation is off. */
+export const devWorkspaceTagSuffix = derived(devWorkspaceIsolation, (i) =>
+	i === undefined ? undefined : i.enabled ? i.suffix : null
+)
+/** The suffix worker groups serving dev workspaces listen with, isolation on or off. */
+export const devWorkspaceListenSuffix = derived(
+	devWorkspaceIsolation,
+	(i) => i?.suffix ?? DEFAULT_DEV_WORKSPACE_TAG_SUFFIX
+)
+
+let inflight: Promise<void> | undefined
+export function loadDevWorkspaceTagSuffix(force = false): Promise<void> {
+	if (!force && get(devWorkspaceIsolation) !== undefined) return Promise.resolve()
 	if (!force && inflight) return inflight
 	// Started inside the chain so any failure lands in the catch: callers on a job's error path
-	// await this and must not fail because the suffix could not be read.
+	// await this and must not fail because the setting could not be read.
 	inflight = Promise.resolve()
-		.then(() => WorkerService.getDevWorkspaceTagSuffix())
-		.then((s) => {
-			const suffix = s?.trim() ? s.trim() : null
-			devWorkspaceTagSuffix.set(suffix)
-			return suffix
-		})
-		.catch(() => {
-			devWorkspaceTagSuffix.set(null)
-			return null
-		})
+		.then(() => WorkerService.getDevWorkspaceIsolation())
+		.then((i) => devWorkspaceIsolation.set(i))
+		.catch(() =>
+			devWorkspaceIsolation.set({ enabled: false, suffix: DEFAULT_DEV_WORKSPACE_TAG_SUFFIX })
+		)
 		.finally(() => (inflight = undefined))
 	return inflight
 }
@@ -61,9 +68,12 @@ export function isDevOrForkWorkspace(w: {
 	return !!w.parent_workspace_id || w.id.startsWith(WM_FORK_PREFIX)
 }
 
-/** The same check for a workspace id, read from the user's workspaces. */
-export function isDevOrForkWorkspaceId(workspaceId: string | undefined): boolean {
+/** The same check for a workspace id, looked up in `workspaces` (pass the store's value so a
+ * reactive caller recomputes once the list loads). */
+export function isDevOrForkWorkspaceId(
+	workspaceId: string | undefined,
+	workspaces: { id: string; parent_workspace_id?: string | null }[]
+): boolean {
 	if (!workspaceId) return false
-	const w = get(userWorkspaces).find((w) => w.id === workspaceId)
-	return isDevOrForkWorkspace(w ?? { id: workspaceId })
+	return isDevOrForkWorkspace(workspaces.find((w) => w.id === workspaceId) ?? { id: workspaceId })
 }

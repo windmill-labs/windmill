@@ -8,6 +8,7 @@
 	import { ListFilter, Tag } from 'lucide-svelte'
 	import type { Job } from '$lib/gen'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { userWorkspaces } from '$lib/stores'
 	import {
 		devWorkspaceTagSuffix,
 		isDevOrForkWorkspaceId,
@@ -75,7 +76,7 @@
 	<div>
 		<Badge color="indigo" {large}>
 			Tag: {job.tag}
-			{#if $devWorkspaceTagSuffix && job.tag.endsWith($devWorkspaceTagSuffix) && isDevOrForkWorkspaceId(job.workspace_id)}
+			{#if $devWorkspaceTagSuffix && job.tag.endsWith($devWorkspaceTagSuffix) && isDevOrForkWorkspaceId(job.workspace_id, $userWorkspaces)}
 				<Tooltip>
 					{#snippet text()}
 						Suffixed with <code>{$devWorkspaceTagSuffix}</code> because this workspace is a dev workspace

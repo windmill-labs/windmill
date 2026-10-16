@@ -13,9 +13,12 @@
 		type GetQueueStatusResponse,
 		type Workspace
 	} from '$lib/gen'
-	import { DEV_WORKSPACE_TAG_SUFFIX_SETTING } from '$lib/consts'
+	import { DEV_WORKSPACE_ISOLATION_SETTING, DEV_WORKSPACE_TAG_SUFFIX_SETTING } from '$lib/consts'
 	import {
 		DEFAULT_DEV_WORKSPACE_TAG_SUFFIX,
+		DEV_WORKSPACE_TAG_SUFFIX_PATTERN,
+		devWorkspaceIsolation,
+		devWorkspaceListenSuffix,
 		devWorkspaceTagSuffix,
 		isDevOrForkWorkspace,
 		loadDevWorkspaceTagSuffix,
@@ -39,17 +42,15 @@
 
 	let suffix = $derived($devWorkspaceTagSuffix)
 	let enabled = $derived(suffix != null)
-	let effectiveSuffix = $derived(suffix ?? DEFAULT_DEV_WORKSPACE_TAG_SUFFIX)
+	let effectiveSuffix = $derived($devWorkspaceListenSuffix)
 
 	// Overridden while a confirmation is pending, reset to the saved state otherwise.
 	let toggleChecked = $derived(enabled)
 	let suffixDraft = $derived(effectiveSuffix)
 	let suffixError = $derived(
-		!suffixDraft.trim()
-			? 'The suffix cannot be empty'
-			: /[\s,]/.test(suffixDraft.trim())
-				? 'The suffix cannot contain spaces or commas'
-				: undefined
+		DEV_WORKSPACE_TAG_SUFFIX_PATTERN.test(suffixDraft.trim())
+			? undefined
+			: "Use 1 to 32 letters, digits, '-', '_' or '.'"
 	)
 
 	let workspaces = $state<Workspace[] | undefined>(undefined)
@@ -128,22 +129,38 @@
 	let confirmDisable = $state(false)
 	let saving = $state(false)
 
-	async function saveSuffix(value: string | undefined) {
+	async function setIsolation(on: boolean) {
+		saving = true
+		try {
+			await SettingService.setGlobal({
+				key: DEV_WORKSPACE_ISOLATION_SETTING,
+				requestBody: { value: on }
+			})
+			devWorkspaceIsolation.update((i) => ({ suffix: effectiveSuffix, ...i, enabled: on }))
+			sendUserToast(
+				on
+					? `Dev workspace and fork jobs now run on tags suffixed with ${effectiveSuffix}`
+					: 'Dev workspace isolation turned off'
+			)
+		} catch (e) {
+			sendUserToast(`Could not save dev workspace isolation: ${e}`, true)
+			toggleChecked = enabled
+		} finally {
+			saving = false
+		}
+	}
+
+	async function saveSuffix(value: string) {
 		saving = true
 		try {
 			await SettingService.setGlobal({
 				key: DEV_WORKSPACE_TAG_SUFFIX_SETTING,
 				requestBody: { value }
 			})
-			devWorkspaceTagSuffix.set(value ?? null)
-			sendUserToast(
-				value
-					? `Dev workspace and fork jobs now run on tags suffixed with ${value}`
-					: 'Dev workspace isolation turned off'
-			)
+			devWorkspaceIsolation.update((i) => ({ enabled: false, ...i, suffix: value }))
+			sendUserToast(`Dev workspace tag suffix set to ${value}`)
 		} catch (e) {
-			sendUserToast(`Could not save dev workspace isolation: ${e}`, true)
-			toggleChecked = enabled
+			sendUserToast(`Could not save the dev workspace tag suffix: ${e}`, true)
 		} finally {
 			saving = false
 		}
@@ -155,7 +172,7 @@
 			if (liveFlaggedWorkers === 0) {
 				confirmEnable = true
 			} else {
-				saveSuffix(suffixDraft.trim() || DEFAULT_DEV_WORKSPACE_TAG_SUFFIX)
+				setIsolation(true)
 			}
 		} else {
 			confirmDisable = true
@@ -182,7 +199,7 @@
 	}}
 	onConfirmed={async () => {
 		confirmEnable = false
-		await saveSuffix(suffixDraft.trim() || DEFAULT_DEV_WORKSPACE_TAG_SUFFIX)
+		await setIsolation(true)
 	}}
 >
 	<div class="flex flex-col gap-2 text-sm">
@@ -235,13 +252,13 @@
 	}}
 	onConfirmed={async () => {
 		confirmDisable = false
-		await saveSuffix(undefined)
+		await setIsolation(false)
 	}}
 >
 	<p class="text-sm">
-		Jobs of dev workspaces and forks will run on the same worker groups as root workspaces again.
-		Jobs already queued on a <code>{effectiveSuffix}</code> tag stay on it and still need a group serving
-		dev workspaces.
+		New jobs of dev workspaces and forks will run on the same worker groups as root workspaces
+		again. Jobs already queued on a <code>{effectiveSuffix}</code> tag keep it, and the worker groups
+		serving dev workspaces still run them.
 	</p>
 </ConfirmationModal>
 
@@ -289,8 +306,9 @@
 		<p class="text-2xs text-secondary max-w-2xl">
 			A workspace with a parent, and every fork (including a fork whose parent was deleted), counts
 			as a dev workspace. Every job is covered: runs, previews, schedules, triggers, flow steps, AI
-			agent tools and dependency jobs. A job whose tag no serving worker listens to stays queued: it
-			never falls back to the other worker groups. Dedicated workers keep their own tags.
+			agent tools and dependency jobs, and inline runs are refused on workers not serving dev
+			workspaces. A job whose tag no serving worker listens to stays queued: it never falls back to
+			the other worker groups. Dedicated workers keep their own tags.
 		</p>
 
 		<!-- Worker groups serving dev workspaces -->
@@ -433,7 +451,8 @@
 						Appended last, after every other tag setting: with workspace-specific default tags a
 						fork's <code>python3-$workspace-fork</code> becomes
 						<code>{withDevSuffix('python3-$workspace-fork', effectiveSuffix)}</code>. Changing it
-						re-tags worker groups serving dev workspaces; jobs already queued keep their tag.
+						moves the worker groups serving dev workspaces to the new suffix right away, while jobs
+						already queued keep the old one: change it when no dev job is waiting.
 					</span>
 					<div class="flex gap-2 items-start">
 						<TextInput
@@ -445,25 +464,21 @@
 								disabled: !canEdit || !$enterpriseLicense
 							}}
 						/>
-						{#if enabled}
-							<Button
-								variant="accent"
-								unifiedSize="sm"
-								startIcon={{ icon: Save }}
-								disabled={!canEdit ||
-									!!suffixError ||
-									suffixDraft.trim() === effectiveSuffix ||
-									saving}
-								onClick={() => saveSuffix(suffixDraft.trim())}
-							>
-								Save
-							</Button>
-						{/if}
+						<Button
+							variant="accent"
+							unifiedSize="sm"
+							startIcon={{ icon: Save }}
+							disabled={!canEdit ||
+								!!suffixError ||
+								suffixDraft.trim() === effectiveSuffix ||
+								saving}
+							onClick={() => saveSuffix(suffixDraft.trim())}
+						>
+							Save
+						</Button>
 					</div>
 					{#if suffixError}
 						<span class="text-2xs text-red-500">{suffixError}</span>
-					{:else if !enabled}
-						<span class="text-2xs text-secondary">Used when you turn isolation on.</span>
 					{/if}
 				</div>
 			{/if}

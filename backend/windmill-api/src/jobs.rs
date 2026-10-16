@@ -9264,6 +9264,7 @@ async fn run_inline_preview_script(
         return Err(operator_preview_refusal(job_id));
     }
     check_scopes(&authed, || format!("jobs:run"))?;
+    windmill_queue::tags::check_inline_run_allowed(&w_id, &db).await?;
     if let Some(job_id) = job_id {
         register_potential_assets_on_inline_execution(job_id, &w_id, &preview);
     }
@@ -9384,6 +9385,7 @@ async fn run_inline_script_inner(
     args: Option<HashMap<String, Box<JsonRawValue>>>,
     user_db: Option<UserDB>,
 ) -> error::Result<Response> {
+    windmill_queue::tags::check_inline_run_allowed(&w_id, &db).await?;
     // An inline run executes with the caller's own token, so it cannot honour a script's
     // `job_token_scopes`: such a script only runs as a job. A path is resolved here, once, and
     // the version checked is the version run.
@@ -10191,7 +10193,7 @@ async fn add_batch_jobs(
             windmill_common::worker::dedicated_worker_tag(&w_id, &path.clone().unwrap())
         }
         (None, Some(tag)) => {
-            windmill_queue::tags::apply_dev_workspace_suffix(tag, &w_id, &db).await
+            windmill_queue::tags::apply_dev_workspace_suffix(tag, &w_id, &db).await?
         }
         _ => {
             windmill_queue::tags::apply_dev_workspace_suffix(
@@ -10199,7 +10201,7 @@ async fn add_batch_jobs(
                 &w_id,
                 &db,
             )
-            .await
+            .await?
         }
     };
 

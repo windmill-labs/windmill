@@ -916,6 +916,20 @@ pub async fn set_global_setting_internal(
 
     run_setting_pre_write_hook(db, &key, &value).await?;
 
+    if key == windmill_common::global_settings::DEV_WORKSPACE_TAG_SUFFIX_SETTING {
+        if let serde_json::Value::String(s) = &value {
+            if !s.trim().is_empty()
+                && !windmill_common::worker::is_valid_dev_workspace_tag_suffix(s.trim())
+            {
+                return Err(error::Error::BadRequest(
+                    "The dev workspace tag suffix may only contain letters, digits, '-', '_' and \
+                     '.', up to 32 characters"
+                        .to_string(),
+                ));
+            }
+        }
+    }
+
     match value {
         serde_json::Value::Null => {
             if instance_config::PROTECTED_SETTINGS.contains(&key.as_str()) {

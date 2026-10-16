@@ -1,4 +1,4 @@
-//! Sets the process-wide `DEV_WORKSPACE_TAG_SUFFIX`, so it lives in its own test binary: any other
+//! Sets the process-wide `DEV_WORKSPACE_ISOLATION`, so it lives in its own test binary: any other
 //! test pushing a job in the same process would land on a suffixed tag.
 
 use std::collections::HashMap;
@@ -8,7 +8,7 @@ use windmill_common::{
     jobs::{JobPayload, RawCode},
     runnable_settings::{ConcurrencySettings, DebouncingSettings},
     scripts::{ScriptHash, ScriptLang},
-    worker::DEV_WORKSPACE_TAG_SUFFIX,
+    worker::DEV_WORKSPACE_ISOLATION,
 };
 use windmill_queue::{PushArgs, PushIsolationLevel};
 
@@ -80,7 +80,7 @@ fn preview() -> JobPayload {
 
 #[sqlx::test(fixtures("base"))]
 async fn dev_workspace_and_fork_jobs_run_on_suffixed_tags(db: Pool<Postgres>) {
-    DEV_WORKSPACE_TAG_SUFFIX.store(std::sync::Arc::new(Some("-dev".to_string())));
+    DEV_WORKSPACE_ISOLATION.store(true, std::sync::atomic::Ordering::Relaxed);
 
     // A dev workspace, a fork of it, and a fork whose parent was deleted (`ON DELETE SET NULL`).
     sqlx::query(

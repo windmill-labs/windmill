@@ -48,6 +48,7 @@ export const DEFAULT_TAGS_WORKSPACES_SETTING = 'default_tags_workspaces'
 export const FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING = 'fork_workspace_tag_append_fork_suffix'
 export const PREVIEW_TAGS_OVERRIDE_SETTING = 'preview_tags_override'
 export const DEPENDENCY_JOB_TAG_SETTING = 'dependency_job_tag'
+export const DEV_WORKSPACE_ISOLATION_SETTING = 'dev_workspace_isolation'
 export const DEV_WORKSPACE_TAG_SUFFIX_SETTING = 'dev_workspace_tag_suffix'
 
 export const WORKSPACE_FAIRNESS_ENABLED_SETTING = 'workspace_fairness_enabled'

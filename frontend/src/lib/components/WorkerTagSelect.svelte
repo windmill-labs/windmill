@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { workerTags, workspaceStore } from '$lib/stores'
+	import { userWorkspaces, workerTags, workspaceStore } from '$lib/stores'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { WorkerService } from '$lib/gen'
 
@@ -160,7 +160,7 @@
 
 	loadDevWorkspaceTagSuffix()
 	let devSuffix = $derived(
-		$devWorkspaceTagSuffix && isDevOrForkWorkspaceId(effectiveWorkspace)
+		$devWorkspaceTagSuffix && isDevOrForkWorkspaceId(effectiveWorkspace, $userWorkspaces)
 			? $devWorkspaceTagSuffix
 			: undefined
 	)
