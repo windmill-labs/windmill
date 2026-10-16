@@ -1,3 +1,4 @@
+import { FULL_CAPABILITIES } from '$lib/roleCapabilities'
 import { describe, it, expect } from 'vitest'
 import { blockedReason, movedPath, type BulkContext } from './bulkActions'
 import type { BulkItem } from './homeSelection.svelte'
@@ -21,8 +22,8 @@ function item(over: Partial<BulkItem> = {}): BulkItem {
 	}
 }
 
-const admin: BulkContext = { workspace: 'w', isAdmin: true }
-const member: BulkContext = { workspace: 'w', isAdmin: false }
+const admin: BulkContext = { workspace: 'w', isAdmin: true, caps: FULL_CAPABILITIES }
+const member: BulkContext = { workspace: 'w', isAdmin: false, caps: FULL_CAPABILITIES }
 
 // Each action's gate has to keep matching what the equivalent per-row menu entry
 // allows (common/table/{Script,Flow,App}Row.svelte, MoveDrawer.svelte) — a bulk
@@ -43,6 +44,14 @@ describe('blockedReason', () => {
 		// An app is deletable without ownership, matching AppRow's `disabled: !canEdit`.
 		expect(blockedReason('delete', item({ kind: 'app', owner: false }), member)).toBeUndefined()
 		expect(blockedReason('delete', item({ kind: 'app', canWrite: false }), member)).toBeDefined()
+	})
+
+	// The selection opens for any role with `code`, which may still lack apps.
+	it("refuses the kinds the member's role cannot author", () => {
+		const scripter = { ...member, caps: { ...FULL_CAPABILITIES, apps: 'none' as const } }
+		expect(blockedReason('delete', item({ kind: 'app' }), scripter)).toBeDefined()
+		expect(blockedReason('move', item({ kind: 'app', rawApp: true }), scripter)).toBeDefined()
+		expect(blockedReason('move', item({ kind: 'flow' }), scripter)).toBeUndefined()
 	})
 
 	it('requires ownership to move, and refuses archived rows', () => {

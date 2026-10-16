@@ -234,7 +234,7 @@
 								})
 							},
 							disabled: !showEditButton,
-							hide: !$roleCapabilities.code
+							hide: hideForOperator
 						},
 						{
 							displayName: 'Delete',
@@ -287,7 +287,7 @@
 						displayName: 'Audit logs',
 						icon: Eye,
 						href: `/audit_logs?resource=${path}`,
-						hide: !$roleCapabilities.code
+						hide: !$roleCapabilities.code || !$roleCapabilities.visibility.audit_logs
 					},
 					{
 						displayName: 'Move/Rename',
@@ -333,7 +333,7 @@
 							scheduleEditor?.openNew(true, path)
 						},
 						disabled: archived,
-						hide: hideForOperator
+						hide: hideForOperator || !$roleCapabilities.manage_schedules
 					},
 					{
 						displayName: 'Permissions',

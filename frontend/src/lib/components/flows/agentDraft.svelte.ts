@@ -367,7 +367,7 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 							r.extra_perms,
 							writer,
 							capabilitiesIn(
-								writer,
+								user,
 								get(userWorkspaces).find((w) => w.id === ws)
 							)
 						)
@@ -411,8 +411,9 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 							deployed = undefined
 							canWriteResource = roleCanAuthor(
 								'agent',
+								// No user here: the nav user's admin flag belongs to another workspace.
 								capabilitiesIn(
-									get(userStore) ?? undefined,
+									undefined,
 									get(userWorkspaces).find((w) => w.id === ws)
 								)
 							)

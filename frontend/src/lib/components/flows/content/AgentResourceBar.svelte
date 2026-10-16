@@ -8,7 +8,7 @@
 	import ResourcePathHint from '$lib/components/ResourcePathHint.svelte'
 	import { ResourceService, type InputTransform, type Resource } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { userStore, userWorkspaces } from '$lib/stores'
+	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { canEditItem } from '$lib/editRights'
 	import { capabilitiesIn } from '$lib/roleCapabilities'
 	import { Bot, ChevronDown, ChevronUp, Save, Unlink, Pencil } from 'lucide-svelte'
@@ -246,7 +246,7 @@
 				linkedInfo?.extraPerms,
 				$userStore ?? undefined,
 				capabilitiesIn(
-					$userStore,
+					ws === $workspaceStore ? $userStore : undefined,
 					$userWorkspaces.find((w) => w.id === ws)
 				)
 			)

@@ -1495,11 +1495,13 @@ const buildGlobalSystemPrompt = (
 	const canDraftTriggers = !access || access.has('write_trigger_draft')
 	const canDraftResources = !access || access.has('write_resource_draft')
 	const canDraftVariables = !access || access.has('write_variable_draft')
-	// A builder operator: drafts of the kinds the workspace lets them compose, and nothing else.
+	const inlineFlowCode = !access || access.has('write_inline_flow_code')
+	const inlineAppCode = !access || access.has('write_inline_app_code')
+	// A role that composes a kind out of deployed runnables, with no inline code of its own.
 	// Blocks about drafting in general follow `canWriteAnyDraft`; blocks naming scripts or the
 	// other kinds keep `canWriteDraft`.
-	const buildsFlows = canWriteFlowDraft && !canWriteDraft
-	const buildsApps = canWriteAppDraft && !canWriteDraft
+	const buildsFlows = canWriteFlowDraft && !inlineFlowCode
+	const buildsApps = canWriteAppDraft && !inlineAppCode
 	const canWriteAnyDraft =
 		canWriteDraft ||
 		canWriteFlowDraft ||
@@ -1773,7 +1775,7 @@ Documentation:
 
 Flows:
 - read_workspace_item returns compact flow JSON. Inline script bodies appear as "inline_script.<moduleId>".
-- Use read_flow_module_code${when(canWriteDraft && canWriteFlowDraft, ' and set_flow_module_code')} for inline script bodies.${when(
+- Use read_flow_module_code${when(inlineFlowCode && canWriteFlowDraft, ' and set_flow_module_code')} for inline script bodies.${when(
 		canWriteFlowDraft,
 		`
 - Use patch_flow_json for structural flow edits and write_flow for full flow rewrites.`
@@ -3810,9 +3812,17 @@ export const globalTools: SessionTool<{}>[] = [
 					? `${parsed.subject} (${parsed.language})`
 					: parsed.subject
 			toolCallbacks.setToolStatus(toolId, { content: `Loaded ${label} instructions` })
-			// Past the gate without `write_draft` means a builder: guidance for inline code would
-			// steer the model at writes the server refuses and tools it was not given.
-			const composeOnly = !!access && !access.has('write_draft')
+			// Guidance for inline code would steer a composing role at writes the server refuses
+			// and tools it was not given.
+			const composeOnly =
+				!!access &&
+				!access.has(
+					parsed.subject === 'flow'
+						? 'write_inline_flow_code'
+						: parsed.subject === 'app'
+							? 'write_inline_app_code'
+							: 'write_draft'
+				)
 			return getInstructions(parsed.subject, parsed.language, ctx.workspace, composeOnly)
 		}
 	},
@@ -4801,8 +4811,7 @@ export const globalTools: SessionTool<{}>[] = [
 		}
 	},
 	{
-		// Inline code in a flow draft: the flow draft right, and `code` for the inline body.
-		requires: [...WRITE_DRAFT, ...WRITE_FLOW_DRAFT],
+		requires: [...WRITE_FLOW_DRAFT, 'write_inline_flow_code'],
 		def: createToolDef(
 			setFlowModuleCodeSchema,
 			'set_flow_module_code',

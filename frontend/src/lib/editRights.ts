@@ -27,8 +27,8 @@ export type EditKind =
 	| (string & {})
 
 /**
- * Whether a role with `caps` lets its member author items of `kind` — create, edit, deploy or
- * delete one: the role half of every check against the item handlers. Saving a draft is
+ * Whether a role with `caps` lets its member author items of `kind` (create, edit, deploy or
+ * delete one): the role half of every check against the item handlers. Saving a draft is
  * `roleCanDraft`'s rule, and which items they may write is `canEditItem`'s other half.
  * - code (scripts, agents, pipelines): `code`;
  * - flows and full-code apps: `compose` or above (`check_operator_can_build`);
@@ -58,10 +58,9 @@ export function roleCanAuthor(kind: EditKind, caps: RoleCapabilities): boolean {
 }
 
 /**
- * Whether the role may save drafts of `kind` — what every session editor and the chat's draft
- * tools write. Mirrors drafts.rs `require_can_write_path` and `operator_can_draft`: an
- * unrestricted role drafts anything, a restricted one only the kinds it could deploy, and
- * resources and variables always.
+ * Whether the role may save drafts of `kind`, which every session editor and the chat's draft
+ * tools write. Mirrors drafts.rs `operator_can_draft`: a restricted role drafts only the kinds it
+ * could deploy, and resources and variables always. An unrestricted role drafts every kind.
  */
 export function roleCanDraft(kind: EditKind, caps: RoleCapabilities): boolean {
 	if (!isRestricted(caps)) return true

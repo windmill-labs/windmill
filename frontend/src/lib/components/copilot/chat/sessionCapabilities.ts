@@ -17,6 +17,11 @@ export type SessionCapability =
 	| 'write_flow_draft'
 	/** The same for a raw app draft, under `apps`. */
 	| 'write_app_draft'
+	/** Inline code in a flow draft: `flows` at `full`. At `compose` the server validates the draft
+	 * as a pure composition, even for a role that may write scripts. */
+	| 'write_inline_flow_code'
+	/** Inline and hub runnables in an app draft: `apps` at `full`. */
+	| 'write_inline_app_code'
 	/** Passes `require_can_write_path` for a schedule draft: the role's `manage_schedules`. */
 	| 'write_schedule_draft'
 	/** The same for a trigger draft, read from `manage_triggers`. */
