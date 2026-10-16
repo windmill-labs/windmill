@@ -12373,7 +12373,7 @@ paths:
           schema:
             type: string
         - name: take_over
-          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it.
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
           in: query
           schema:
             type: boolean
@@ -12424,7 +12424,7 @@ paths:
           schema:
             type: string
         - name: take_over
-          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it.
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
           in: query
           schema:
             type: boolean
@@ -12475,7 +12475,7 @@ paths:
           schema:
             type: string
         - name: take_over
-          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it.
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
           in: query
           schema:
             type: boolean
@@ -12512,7 +12512,7 @@ paths:
           schema:
             type: string
         - name: take_over
-          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it.
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
           in: query
           schema:
             type: boolean
@@ -12564,7 +12564,7 @@ paths:
           schema:
             type: string
         - name: take_over
-          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it.
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
           in: query
           schema:
             type: boolean
@@ -12614,7 +12614,7 @@ paths:
           schema:
             type: string
         - name: take_over
-          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it.
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
           in: query
           schema:
             type: boolean
@@ -12672,7 +12672,7 @@ paths:
           schema:
             type: string
         - name: take_over
-          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it.
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
           in: query
           schema:
             type: boolean
@@ -16449,7 +16449,7 @@ paths:
           schema:
             type: string
         - name: take_over
-          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it.
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
           in: query
           schema:
             type: boolean
@@ -16517,7 +16517,7 @@ paths:
           schema:
             type: string
         - name: take_over
-          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it.
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
           in: query
           schema:
             type: boolean
@@ -17023,7 +17023,7 @@ paths:
           schema:
             type: string
         - name: take_over
-          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it.
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
           in: query
           schema:
             type: boolean
@@ -17072,7 +17072,7 @@ paths:
           schema:
             type: string
         - name: take_over
-          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it.
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
           in: query
           schema:
             type: boolean
@@ -17112,7 +17112,7 @@ paths:
           schema:
             type: string
         - name: take_over
-          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it.
+          description: Stop the run that holds `memory_id`, if any, and run this one instead of being refused with a 409. Only who started that run, or an admin, can stop it; a restricted token also needs an unconfined `jobs:cancel` scope.
           in: query
           schema:
             type: boolean

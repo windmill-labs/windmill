@@ -4170,8 +4170,11 @@ pub async fn monitor_db(
                 if let Err(e) = cleanup_flow_iterator_data_orphaned_jobs(&db).await {
                     tracing::error!("Error cleaning up flow_iterator_data: {:?}", e);
                 }
-                if let Err(e) = cleanup_ai_agent_checkpoint_orphaned_jobs(&db).await {
-                    tracing::error!("Error cleaning up ai_agent_checkpoint: {:?}", e);
+                if let Err(e) = cleanup_ai_agent_orphaned_rows(&db).await {
+                    tracing::error!(
+                        "Error cleaning up AI agent checkpoints and memory claims: {:?}",
+                        e
+                    );
                 }
             }
         }
@@ -7754,7 +7757,7 @@ async fn wake_ai_agents_with_finished_background_jobs(db: &DB) -> error::Result<
 
 /// A parked agent cancelled from outside, or a worker that died mid-segment, never deletes its
 /// checkpoint itself.
-async fn cleanup_ai_agent_checkpoint_orphaned_jobs(db: &DB) -> error::Result<()> {
+async fn cleanup_ai_agent_orphaned_rows(db: &DB) -> error::Result<()> {
     let deleted = sqlx::query(
         "DELETE FROM ai_agent_checkpoint c
          WHERE NOT EXISTS (SELECT 1 FROM v2_job_queue q WHERE q.id = c.job_id)",

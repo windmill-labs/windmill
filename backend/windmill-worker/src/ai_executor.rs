@@ -1386,8 +1386,8 @@ async fn persist_memory(
 }
 
 /// A stopped turn keeps what it reached instead of losing the whole exchange: every place it
-/// stops at holds complete exchanges, each tool call answered. No compaction runs here, since
-/// it would call the model while the cancel waits.
+/// stops at has each tool call answered. No compaction runs here, since it would call the model
+/// while the cancel waits.
 async fn persist_memory_on_stop(
     db: &DB,
     conn: &Connection,

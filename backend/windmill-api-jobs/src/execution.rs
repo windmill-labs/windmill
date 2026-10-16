@@ -1069,6 +1069,11 @@ pub async fn process_flow_run_query_params(
     flow_path: &str,
     run_query: &RunJobQuery,
 ) -> error::Result<()> {
+    if run_query.take_over.unwrap_or(false) {
+        return Err(Error::BadRequest(
+            "take_over is not supported for app runs".to_string(),
+        ));
+    }
     if let Some(memory_id) = run_query.memory_key(w_id, flow_path) {
         set_flow_memory_id(tx, w_id, job_id, memory_id).await?;
     }
