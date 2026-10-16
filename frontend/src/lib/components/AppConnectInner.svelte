@@ -988,10 +988,13 @@
 				// OAuth flow: single secret variable for the token
 				if (typeof value == 'string' && value != '' && !value.startsWith('$var:')) {
 					savedVariableCount++
+					// Read once: the path field stays editable while this awaits, and the account
+					// must link the variable this call created.
+					const tokenPath = path
 					await VariableService.createVariable({
 						workspace: effectiveWorkspace,
 						requestBody: {
-							path,
+							path: tokenPath,
 							value: value,
 							is_secret: true,
 							description: emptyString(description)
@@ -1002,13 +1005,12 @@
 						}
 					})
 					if (accountData) {
-						// Links the variable just created, so it refreshes through the account.
 						await OauthService.createAccount({
 							workspace: effectiveWorkspace,
-							requestBody: { ...accountData, variable_path: path }
+							requestBody: { ...accountData, variable_path: tokenPath }
 						})
 					}
-					resourceValue['token'] = `$var:${path}`
+					resourceValue['token'] = `$var:${tokenPath}`
 				}
 			} else if (linkedSecrets.length === 1) {
 				// Single secret: use the resource path as variable name (original behavior)
