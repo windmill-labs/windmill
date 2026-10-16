@@ -19,3 +19,28 @@ CREATE TRIGGER account_created_by_follows_user_trigger
 AFTER UPDATE OF username OR DELETE ON usr
 FOR EACH ROW
 EXECUTE FUNCTION account_created_by_follows_user();
+
+-- A superadmin can connect an account in a workspace they are not a member of, which records
+-- their instance username with no `usr` row for the trigger above to follow. Follow
+-- `password.username` there instead, skipping workspaces where they are a member (handled above)
+-- and those where a member holds that username (the name is theirs).
+CREATE OR REPLACE FUNCTION account_created_by_follows_instance_user() RETURNS trigger AS $$
+BEGIN
+    IF TG_OP = 'UPDATE' AND NEW.username IS NOT DISTINCT FROM OLD.username THEN
+        RETURN NULL;
+    END IF;
+    UPDATE account a SET created_by = CASE WHEN TG_OP = 'DELETE' THEN NULL ELSE NEW.username END
+    WHERE a.created_by = OLD.username
+      AND NOT EXISTS (
+          SELECT 1 FROM usr u
+          WHERE u.workspace_id = a.workspace_id
+            AND (u.email = OLD.email OR u.username = OLD.username)
+      );
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER account_created_by_follows_instance_user_trigger
+AFTER UPDATE OF username OR DELETE ON password
+FOR EACH ROW
+EXECUTE FUNCTION account_created_by_follows_instance_user();

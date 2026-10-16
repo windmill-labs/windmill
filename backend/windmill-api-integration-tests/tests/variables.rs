@@ -482,5 +482,27 @@ async fn test_oauth_account_creator_follows_user(db: Pool<Postgres>) -> anyhow::
         .await?;
     assert_eq!(creator().await?, None);
 
+    // A superadmin who is not a member of the workspace is recorded by their instance username.
+    sqlx::query(
+        "INSERT INTO password (email, password_hash, login_type, super_admin, verified, username)
+         VALUES ('sa@windmill.dev', 'x', 'password', true, true, 'sa')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query("UPDATE account SET created_by = 'sa' WHERE id = $1")
+        .bind(account)
+        .execute(&db)
+        .await?;
+
+    sqlx::query("UPDATE password SET username = 'sa2' WHERE email = 'sa@windmill.dev'")
+        .execute(&db)
+        .await?;
+    assert_eq!(creator().await?.as_deref(), Some("sa2"));
+
+    sqlx::query("DELETE FROM password WHERE email = 'sa@windmill.dev'")
+        .execute(&db)
+        .await?;
+    assert_eq!(creator().await?, None);
+
     Ok(())
 }
