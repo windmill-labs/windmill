@@ -67,12 +67,24 @@ async fn connect_mcp_client(
         serde_json::from_str::<windmill_mcp::McpResource>(resource_value.0.get())
             .map_err(|e| Error::BadRequest(format!("Failed to parse MCP resource: {}", e)))?;
 
+    // The token, URL and header secrets resolve through the caller's RLS + audit
+    // path. A `$var:` reference needs no `variables:read` scope: as for any resource
+    // read, `resources:*:<path>` covers it, since no writer could have added it
+    // without being able to read it. A bare token path resolves as a variable too
+    // but is not vetted on write, so it needs its own scope.
+    let token_var_path = mcp_resource.token.as_deref().and_then(|t| {
+        let path = t.strip_prefix("$var:").unwrap_or(t);
+        (!path.trim().is_empty()).then_some((path, t.starts_with("$var:")))
+    });
+    if let Some((path, false)) = token_var_path {
+        check_scopes(authed, || format!("variables:read:{}", path))?;
+    }
+    let token_var_path = token_var_path.map(|(path, _)| path);
+
     #[cfg(feature = "oauth2")]
     {
         tracing::info!("Checking if token needs refresh before creating MCP client");
-        if let Some(ref token_path) = mcp_resource.token {
-            let token_var_path = token_path.trim_start_matches("$var:");
-
+        if let Some(token_var_path) = token_var_path {
             let token_info = sqlx::query!(
                 r#"
             SELECT
@@ -110,18 +122,9 @@ async fn connect_mcp_client(
         }
     }
 
-    // The token, URL and header secrets resolve through the caller's RLS + audit
-    // path. No `variables:read` scope is required: as for any resource read, a
-    // scoped token's `resources:*:<path>` covers what the resource references,
-    // which no writer could have added without being able to read it.
-    let token = if let Some(token_path) = &mcp_resource.token {
-        let token_var_path = token_path.trim_start_matches("$var:");
-        if token_var_path.trim().is_empty() {
-            None
-        } else {
-            let db_authed = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
-            Some(get_value_internal(&db_authed, w_id, token_var_path, false).await?)
-        }
+    let token = if let Some(token_var_path) = token_var_path {
+        let db_authed = DbWithOptAuthed::from_authed(authed, db.clone(), Some(user_db.clone()));
+        Some(get_value_internal(&db_authed, w_id, token_var_path, false).await?)
     } else {
         None
     };

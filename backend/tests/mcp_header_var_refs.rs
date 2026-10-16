@@ -106,5 +106,28 @@ async fn test_mcp_var_refs_need_only_the_resource_scope(db: Pool<Postgres>) -> a
         "the variables must resolve and only the connection fail: {body}"
     );
 
+    // A bare token path resolves as a variable without being vetted on write.
+    sqlx::query(
+        "UPDATE resource SET value = jsonb_set(value, '{token}', '\"u/test-user/mcp_header\"')
+         WHERE workspace_id = 'test-workspace' AND path = 'u/test-user/mcp'",
+    )
+    .execute(&db)
+    .await?;
+    let resp = reqwest::Client::new()
+        .get(format!(
+            "http://localhost:{}/api/w/test-workspace/resources/mcp_tools/u/test-user/mcp",
+            server.addr.port()
+        ))
+        .header("Authorization", "Bearer RES_ONLY_TOKEN")
+        .send()
+        .await?;
+    let status = resp.status();
+    let body = resp.text().await?;
+    assert_eq!(status, reqwest::StatusCode::FORBIDDEN, "{body}");
+    assert!(
+        body.contains("variables:read:u/test-user/mcp_header"),
+        "{body}"
+    );
+
     Ok(())
 }

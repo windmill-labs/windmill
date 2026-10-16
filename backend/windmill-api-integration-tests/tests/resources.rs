@@ -566,8 +566,8 @@ async fn test_resource_value_cache_is_identity_scoped(db: Pool<Postgres>) -> any
     Ok(())
 }
 
-/// A token scoped to one resource reads everything that resource references, so it must not
-/// write into it a `$var:`/`$jsonvar:`/`$res:` reference its scopes would refuse to read.
+/// A token scoped to one resource reads the variables that resource references, so no writer
+/// may add a `$var:`/`$jsonvar:` reference it could not read. A nested `$res:` needs its own scope.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_resource_references_are_scoped_at_write(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -637,7 +637,6 @@ async fn test_resource_references_are_scoped_at_write(db: Pool<Postgres>) -> any
     for value in [
         json!({"v": "$var:u/test-user/secret"}),
         json!({"v": "$jsonvar:u/test-user/secret"}),
-        json!({"v": ["$res:u/test-user/other"]}),
     ] {
         let (status, body) = write_probe(value.clone(), probe_only.clone()).await;
         assert_eq!(status, 403, "{value}: {body}");
@@ -650,12 +649,12 @@ async fn test_resource_references_are_scoped_at_write(db: Pool<Postgres>) -> any
     let resp = authed(client().post(format!(
         "{base}/resources/create?update_if_exists=true"
     )))
-    .json(&json!({"path": "u/test-user/probe", "value": {"v": "$var:u/test-user/secret", "o": "$res:u/test-user/other"}, "resource_type": "object", "description": ""}))
+    .json(&json!({"path": "u/test-user/probe", "value": {"v": "$var:u/test-user/secret"}, "resource_type": "object", "description": ""}))
     .send()
     .await?;
     assert_eq!(resp.status(), 201);
     let (status, body) = write_probe(
-        json!({"v": "$var:u/test-user/secret", "o": "$res:u/test-user/other", "n": 1}),
+        json!({"v": "$var:u/test-user/secret", "n": 1}),
         probe_only.clone(),
     )
     .await;
@@ -664,8 +663,15 @@ async fn test_resource_references_are_scoped_at_write(db: Pool<Postgres>) -> any
     assert_eq!(status, 200, "{body}");
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(&body)?,
-        json!({"v": "CANARY", "o": {"pw": "OTHER"}, "n": 1})
+        json!({"v": "CANARY", "n": 1})
     );
+
+    let (status, body) =
+        write_probe(json!({"o": ["$res:u/test-user/other"]}), probe_only.clone()).await;
+    assert_eq!(status, 201, "{body}");
+    let (status, body) = read_probe().await;
+    assert_eq!(status, 403, "{body}");
+    assert!(!body.contains("OTHER"), "{body}");
 
     // An unscoped writer is held to its own user's RLS, since a reader's resource-scoped token
     // would resolve the reference as the reader. A reference to nothing yet is allowed.
