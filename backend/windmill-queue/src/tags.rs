@@ -41,7 +41,7 @@ lazy_static::lazy_static! {
     // invalidates the mutated workspace AND its descendants; a parentless result is still cached
     // briefly so non-forks (the common case) do not hammer the DB.
     static ref FORK_PARENT_CACHE: quick_cache::sync::Cache<String, (TagWorkspace, std::time::Instant)> =
-        quick_cache::sync::Cache::new(500);
+        quick_cache::sync::Cache::new(5000);
 }
 
 /// Channel on which a lineage change is broadcast to every server and worker process.
@@ -254,12 +254,12 @@ pub async fn dev_flow_tag_suffix(
     flow_tag: &str,
     db: &Pool<Postgres>,
 ) -> Result<Option<String>, Error> {
-    let suffix = DEV_WORKSPACE_TAG_SUFFIX.load().to_string();
-    if !flow_tag.ends_with(&suffix) {
+    let suffix = DEV_WORKSPACE_TAG_SUFFIX.load();
+    if !flow_tag.ends_with(suffix.as_str()) {
         return Ok(None);
     }
     match lookup_tag_workspace(workspace_id, db).await.is_dev {
-        Some(true) => Ok(Some(suffix)),
+        Some(true) => Ok(Some(suffix.to_string())),
         Some(false) => Ok(None),
         None => Err(Error::internal_err(format!(
             "could not resolve whether {workspace_id} is a dev workspace"

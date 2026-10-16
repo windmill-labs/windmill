@@ -1054,33 +1054,13 @@ async fn expand_filter_tags_for_dev_workspace(
     {
         return;
     }
-    // Same lineage as `windmill_queue::tags`, whose cache this crate cannot reach.
-    let (has_parent, in_dev_lineage) = sqlx::query_as::<_, (Option<bool>, Option<bool>)>(
-        r#"
-            WITH RECURSIVE chain AS (
-                SELECT id, parent_workspace_id, is_dev_workspace, deleted, 0 AS depth
-                FROM workspace WHERE id = $1
-                UNION ALL
-                SELECT w.id, w.parent_workspace_id, w.is_dev_workspace, w.deleted, chain.depth + 1
-                FROM workspace w
-                JOIN chain ON w.id = chain.parent_workspace_id
-                WHERE chain.depth < 20
-            )
-            SELECT
-                (SELECT parent_workspace_id IS NOT NULL FROM chain WHERE depth = 0),
-                (SELECT bool_or(is_dev_workspace
-                                OR (parent_workspace_id IS NULL AND id LIKE 'wm-fork-%')
-                                OR (deleted AND parent_workspace_id IS NOT NULL))
-                 FROM chain)
-        "#,
-    )
-    .bind(workspace_id)
-    .fetch_one(db)
-    .await
-    .unwrap_or((None, None));
-    let is_dev = workspace_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX)
-        || has_parent == Some(true);
-    if windmill_common::worker::is_isolated_workspace(is_dev, in_dev_lineage != Some(false)) {
+    let (is_dev, in_dev_lineage) = windmill_common::workspaces::dev_lineage(db, workspace_id)
+        .await
+        .unwrap_or((
+            workspace_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX),
+            true,
+        ));
+    if windmill_common::worker::is_isolated_workspace(is_dev, in_dev_lineage) {
         let suffix = windmill_common::worker::DEV_WORKSPACE_TAG_SUFFIX.load();
         expand_filter_tags_with_dev_suffix(scopes, &suffix);
     }
