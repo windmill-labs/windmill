@@ -1,5 +1,6 @@
 <script lang="ts">
 	import FlowStatusWaitingForEvents from '../FlowStatusWaitingForEvents.svelte'
+	import AgentApprovalRequest from '../AgentApprovalRequest.svelte'
 	import type { FlowStatusModule, Job } from '$lib/gen'
 	import { type StateStore } from '$lib/utils'
 	import { fade, slide } from 'svelte/transition'
@@ -18,7 +19,19 @@
 	)
 	const isSuspended = $derived(suspendStatus.val && Object.keys(suspendStatus.val).length > 0)
 
-	const anyStatusActive = $derived(isWaitingForEvents || isSuspended)
+	// An agent step parked on its approval tool: the step stays in progress while its own job waits.
+	const pendingAgentApproval = $derived.by(() => {
+		const mod = job?.flow_status?.modules?.[job?.flow_status?.step]
+		const actions = mod?.agent_actions
+		if (mod?.type !== 'InProgress' || !mod.job || !actions?.length) return undefined
+		const last = actions[actions.length - 1]
+		if (last.type !== 'approval' || mod.agent_actions_success?.[actions.length - 1] !== undefined) {
+			return undefined
+		}
+		return { agentJobId: mod.job, action: last }
+	})
+
+	const anyStatusActive = $derived(isWaitingForEvents || isSuspended || !!pendingAgentApproval)
 </script>
 
 {#if job && anyStatusActive}
@@ -28,6 +41,16 @@
 	>
 		{#if isWaitingForEvents}
 			<FlowStatusWaitingForEvents workspaceId={job.workspace_id} {job} {isOwner} />
+		{:else if pendingAgentApproval}
+			{#key pendingAgentApproval.action.call_id}
+				<AgentApprovalRequest
+					workspaceId={job.workspace_id ?? ''}
+					agentJobId={pendingAgentApproval.agentJobId}
+					message={pendingAgentApproval.action.message}
+					expiresAt={pendingAgentApproval.action.expires_at}
+					pending
+				/>
+			{/key}
 		{:else if isSuspended}
 			<div class="flex gap-2 flex-col" in:fade={{ duration: 150 }}>
 				{#each Object.values(suspendStatus.val) as suspendCount (suspendCount.job.id)}

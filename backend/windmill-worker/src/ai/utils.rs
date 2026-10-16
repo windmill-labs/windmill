@@ -416,6 +416,7 @@ fn convert_mcp_tools_to_windmill_tools(
                     tool_name: mcp_tool.name.to_string(),
                     resource_path: resource_path.to_string(),
                 }),
+                approval_timeout_secs: None,
             })
         })
         .collect()

@@ -2,7 +2,13 @@ use crate::ai::compaction::{
     memory_within_capacity, persisted_bytes, AgentHistory, CompactionRequest, CompactionTrigger,
     Compactor,
 };
-use crate::ai::tools::{execute_tool_calls, ToolAbortHandles, ToolExecutionContext};
+use crate::ai::pause::{
+    answer_pause, approval_timeout, approval_tool, load_checkpoint, park, AgentCheckpoint,
+    APPROVAL_ENABLED_NAME,
+};
+use crate::ai::tools::{
+    execute_tool_calls, ToolAbortHandles, ToolCallsOutcome, ToolExecutionContext,
+};
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
     filter_schema_by_input_transforms, find_unique_tool_name, get_flow_context,
@@ -42,7 +48,7 @@ use windmill_ai::{
     proxy::{
         common_outbound_headers, needs_unavailable_oauth_exchange, retain_effective_credentials,
     },
-    query_builder::{BuildRequestArgs, ParsedResponse},
+    query_builder::{BuildRequestArgs, ParsedResponse, StreamEventSink},
     retry::{as_transient, into_final_error, response_error, send_error, Backoff, MAX_RETRIES},
     types::*,
     utils::{pinned_ai_client_for, should_use_structured_output_tool},
@@ -588,6 +594,9 @@ fn flow_module_tool_name(summary: Option<&str>) -> Result<&str, Error> {
         Some(name) if name == WEBSEARCH_ENABLED_NAME => Err(Error::internal_err(format!(
             "Invalid tool name: {name:?} is reserved for enabling web search"
         ))),
+        Some(name) if name == APPROVAL_ENABLED_NAME => Err(Error::internal_err(format!(
+            "Invalid tool name: {name:?} is reserved for the approval tool"
+        ))),
         Some(name) if TOOL_NAME_REGEX.is_match(name) => Ok(name),
         other => Err(Error::internal_err(format!("Invalid tool name: {other:?}"))),
     }
@@ -604,6 +613,7 @@ fn tool_enabled_name(tool: &AgentTool) -> Option<&str> {
     match &tool.value {
         ToolValue::Mcp(mcp) => Some(mcp.resource_path.trim_start_matches("$res:")),
         ToolValue::Websearch(_) => Some(WEBSEARCH_ENABLED_NAME),
+        ToolValue::Approval(_) => Some(APPROVAL_ENABLED_NAME),
         _ => tool.summary.as_deref(),
     }
 }
@@ -906,12 +916,14 @@ pub async fn handle_ai_agent_job(
     let tools = if direct_parent_job_kind == JobKind::AIAgent {
         tools
             .into_iter()
+            // A nested agent writes no flow status, so nothing would show its approval request,
+            // and its parent agent holds a worker while it waits: it cannot park either.
             .filter(|t| {
                 !matches!(
                     &t.value,
                     ToolValue::FlowModule(
                         FlowModuleValue::AIAgent { .. } | FlowModuleValue::AIDecision { .. }
-                    )
+                    ) | ToolValue::Approval(_)
                 )
             })
             .collect()
@@ -941,6 +953,7 @@ pub async fn handle_ai_agent_job(
     #[allow(unused_mut)]
     let mut mcp_configs: Vec<crate::ai::utils::McpResourceConfig> = Vec::new();
     let mut has_websearch = false;
+    let mut approval_timeout_secs = None;
 
     for tool in tools {
         match &tool.value {
@@ -986,6 +999,9 @@ pub async fn handle_ai_agent_job(
                 // WebSearch tool - mark as enabled
                 tracing::debug!("WebSearch tool enabled");
                 has_websearch = true;
+            }
+            ToolValue::Approval(approval) => {
+                approval_timeout_secs = Some(approval_timeout(approval));
             }
         }
     }
@@ -1133,6 +1149,7 @@ pub async fn handle_ai_agent_job(
                 },
                 module: Some(t),
                 mcp_source: None,
+                approval_timeout_secs: None,
             })
         }
     }))
@@ -1149,6 +1166,10 @@ pub async fn handle_ai_agent_job(
     } else {
         HashMap::new()
     };
+    if let Some(timeout_secs) = approval_timeout_secs {
+        let defs: Vec<ToolDef> = tools.iter().map(|t| t.def.clone()).collect();
+        tools.push(approval_tool(timeout_secs, &defs));
+    }
 
     if let Some(enabled) = enabled_tools {
         let matchable: Vec<&str> = roster_names.iter().map(|s| s.as_str()).collect();
@@ -1272,7 +1293,10 @@ pub async fn handle_ai_agent_job(
             }
         },
     };
-    if result.is_err() {
+    if result
+        .as_ref()
+        .is_err_and(|e| !matches!(e, Error::WacSuspended(_)))
+    {
         for handle in tool_abort_handles.lock().unwrap().drain(..) {
             handle.abort();
         }
@@ -1387,6 +1411,13 @@ pub async fn run_agent(
 
     // Fetch flow context for input transforms context, chat and memory
     let mut flow_context = get_flow_context(db, job).await;
+    // Set when the job parked on its approval tool and has been pulled again. Only an agent that
+    // has the tool can have parked.
+    let resumed = if tools.iter().any(|t| t.approval_timeout_secs.is_some()) {
+        load_checkpoint(db, &job.id).await?
+    } else {
+        None
+    };
 
     // The run's memory id is also the chat conversation id, which a step's own memory id never
     // replaces.
@@ -1444,7 +1475,7 @@ pub async fn run_agent(
         return Err(Error::internal_err(missing.to_string()));
     }
 
-    if matches!(output_type, OutputType::Text) {
+    if matches!(output_type, OutputType::Text) && resumed.is_none() {
         match &history {
             HistorySource::Messages(provided) => messages.extend(provided.iter().cloned()),
             HistorySource::Managed { memory_id, bound } => {
@@ -1545,10 +1576,27 @@ pub async fn run_agent(
         }
     }
 
-    let mut messages = AgentHistory::new(messages);
-    let mut actions = vec![];
-    let mut content = None;
-    let mut final_usage: Option<TokenUsage> = None;
+    let mut final_events_str = String::new();
+    let mut final_reasoning = String::new();
+    let mut first_iteration = 0;
+    let mut consumed_resume_rows = vec![];
+    let mut resumed_pending = None;
+    let (mut messages, mut actions, mut content, mut final_usage) = match resumed {
+        Some(checkpoint) => {
+            final_events_str = checkpoint.events;
+            final_reasoning = checkpoint.reasoning;
+            first_iteration = checkpoint.next_iteration;
+            consumed_resume_rows = checkpoint.consumed_resume_rows;
+            resumed_pending = Some(checkpoint.pending);
+            (
+                AgentHistory::from_checkpoint(checkpoint.history),
+                checkpoint.actions,
+                checkpoint.content,
+                checkpoint.usage,
+            )
+        }
+        None => (AgentHistory::new(messages), vec![], None, None),
+    };
 
     // Check if this provider supports tools with the current output type
     let supports_tools = query_builder.supports_tools_with_output_type(output_type);
@@ -1603,13 +1651,12 @@ pub async fn run_agent(
     let user_wants_streaming = streaming_requested(args.streaming);
     *has_stream = user_wants_streaming && is_text_output;
 
-    let mut final_events_str = String::new();
-    let mut final_reasoning = String::new();
-
     // Always create a StreamEventProcessor for text output (use silent mode if user doesn't want streaming)
-    let stream_event_processor = if is_text_output {
+    let mut stream_event_processor = if is_text_output {
         if user_wants_streaming {
-            Some(StreamEventProcessor::new(conn, job))
+            // Each streamed event is one line of the accumulated string.
+            let streamed = final_events_str.lines().count() as i32;
+            Some(StreamEventProcessor::new(conn, job, streamed))
         } else {
             Some(StreamEventProcessor::new_silent())
         }
@@ -1674,8 +1721,28 @@ pub async fn run_agent(
     #[cfg(feature = "bedrock")]
     let mut bedrock_assumed_role: Option<windmill_ai::ai_bedrock::AssumedRoleCredentials> = None;
 
+    if let Some(pending) = resumed_pending {
+        let (message, success) =
+            answer_pause(db, &job.id, &pending, &actions, &mut consumed_resume_rows).await?;
+        if let Some(parent_job) = parent_job {
+            update_flow_status_module_with_actions_success(db, parent_job, success).await?;
+        }
+        if let (Some(processor), Some(OpenAIContent::Text(result))) =
+            (stream_event_processor.as_ref(), message.content.as_ref())
+        {
+            let event = StreamingEvent::ToolResult {
+                call_id: pending.call_id.clone(),
+                function_name: pending.function_name.clone(),
+                result: result.clone(),
+                success,
+            };
+            processor.send(event, &mut final_events_str).await?;
+        }
+        messages.push(message);
+    }
+
     // Main agent loop
-    for i in 0..max_iterations {
+    for i in first_iteration..max_iterations {
         // Check if parent was canceled — stop iterating but let current tool calls finish
         if *cancel_rx.borrow() {
             return Err(Error::ExecutionErr("Job cancelled".to_string()));
@@ -2267,17 +2334,21 @@ pub async fn run_agent(
                     job_completed_tx: job_completed_tx.clone(),
                 };
 
-                let (tool_messages, tool_content, tool_used_structured_output) =
-                    execute_tool_calls(
-                        tool_execution_ctx,
-                        &tool_calls,
-                        &tools,
-                        mcp_clients,
-                        &mut actions,
-                        &mut final_events_str,
-                        &structured_output_tool_name,
-                    )
-                    .await?;
+                let ToolCallsOutcome {
+                    messages: tool_messages,
+                    final_content: tool_content,
+                    used_structured_output_tool: tool_used_structured_output,
+                    pause,
+                } = execute_tool_calls(
+                    tool_execution_ctx,
+                    &tool_calls,
+                    &tools,
+                    mcp_clients,
+                    &mut actions,
+                    &mut final_events_str,
+                    &structured_output_tool_name,
+                )
+                .await?;
 
                 messages.extend(tool_messages);
 
@@ -2320,6 +2391,38 @@ pub async fn run_agent(
                     content = Some(tc);
                 }
                 used_structured_output_tool = tool_used_structured_output;
+
+                // A final structured answer ends the run, so a park requested beside it is moot.
+                if let Some(mut pending) = pause.filter(|_| !used_structured_output_tool) {
+                    actions.extend(pending.action.take());
+                    // The next segment streams from where this one stops, so this one's events
+                    // must be written first.
+                    if let Some(handle) = stream_event_processor.take().and_then(|p| p.to_handle())
+                    {
+                        let _ = handle.await;
+                    }
+                    let checkpoint = AgentCheckpoint {
+                        history: messages.checkpoint(),
+                        actions: actions.clone(),
+                        content: content.clone(),
+                        usage: final_usage.clone(),
+                        events: final_events_str,
+                        reasoning: final_reasoning,
+                        next_iteration: i + 1,
+                        pending,
+                        consumed_resume_rows,
+                    };
+                    let parked = park(db, conn, job, &checkpoint).await;
+                    // Written once parked: the run page offers an answer only for a request that
+                    // `resume_suspended` can take.
+                    if matches!(parked, Error::WacSuspended(_)) {
+                        if let Some(parent_job) = parent_job {
+                            update_flow_status_module_with_actions(db, parent_job, &actions)
+                                .await?;
+                        }
+                    }
+                    return Err(parked);
+                }
 
                 // Check cancellation after tool calls complete to avoid a wasted LLM call
                 if *cancel_rx.borrow() {

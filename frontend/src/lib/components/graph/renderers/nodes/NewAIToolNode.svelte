@@ -106,6 +106,14 @@
 					})
 					close()
 				}}
+				on:pickApprovalTool={() => {
+					data.eventHandlers.insert({
+						index: -1,
+						agentId: data.agentModuleId,
+						kind: 'approvalTool'
+					})
+					close()
+				}}
 				on:pickAiAgentTool={(e) => {
 					data.eventHandlers.insert({
 						index: -1,

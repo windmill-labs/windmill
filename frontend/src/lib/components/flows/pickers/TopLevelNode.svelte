@@ -11,6 +11,7 @@
 		Repeat,
 		Scale,
 		Square,
+		UserCheck,
 		Zap
 	} from 'lucide-svelte'
 	import type { ComponentType } from 'svelte'
@@ -54,7 +55,8 @@
 		'Claude Code': { icon: BotIcon, iconClass: 'text-ai' },
 		Pi: { icon: BotIcon, iconClass: 'text-ai' },
 		MCP: { icon: Plug },
-		'Web Search': { icon: Globe }
+		'Web Search': { icon: Globe },
+		'Request approval': { icon: UserCheck }
 	}
 
 	const config = $derived(iconMap[label])
