@@ -21,8 +21,9 @@ use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         parse_npm_config, read_file, read_file_content, read_result, resolve_nsjail_timeout,
-        resolve_nsjail_tmp_mount_block, script_envars, start_child_process, write_file_binary,
-        MaybeLock, OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL,
+        resolve_nsjail_tmp_mount_block, resolve_nsjail_tmpfs_size_bytes, script_envars,
+        start_child_process, write_file_binary, MaybeLock, OccupancyMetrics, StreamNotifier,
+        DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
@@ -73,6 +74,7 @@ pub const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.windows.js");
 pub const RELATIVE_BUN_BUILDER: &str = include_str!("../loader_builder.bun.js");
 
 const NSJAIL_CONFIG_RUN_BUN_CONTENT: &str = include_str!("../nsjail/run.bun.config.proto");
+const NSJAIL_CONFIG_INSTALL_BUN_CONTENT: &str = include_str!("../nsjail/install.bun.config.proto");
 
 pub const BUN_LOCK_SPLIT: &str = "\n//bun.lock\n";
 pub const BUN_LOCKB_SPLIT: &str = "\n//bun.lockb\n";
@@ -731,6 +733,78 @@ registry = {}
     Ok(())
 }
 
+/// An nsjail bind mount of `path` onto itself, skipped when the host path is missing.
+/// Empty for a path that is not absolute or that the proto string cannot carry verbatim.
+fn optional_bind_mount(path: &str, rw: bool) -> String {
+    if !path.starts_with('/') || path.contains(['"', '\\', '\n', '\r']) {
+        return String::new();
+    }
+    format!(
+        "mount {{\n    src: \"{path}\"\n    dst: \"{path}\"\n    is_bind: true\n    rw: {rw}\n    mandatory: false\n}}\n"
+    )
+}
+
+/// The install jail's HOME: a private tmpfs at the worker's HOME path, with the
+/// package manager's user config read-only and, for npm, its cache (`~/.npm`) writable.
+fn install_home_mount_block(home: &str, npm_mode: bool, tmpfs_size_bytes: &str) -> String {
+    let home = home.trim_end_matches('/');
+    let mut block = String::new();
+    // A HOME under /tmp is already private: the jail's /tmp is.
+    if home.starts_with('/')
+        && home != "/tmp"
+        && !home.starts_with("/tmp/")
+        && !home.contains(['"', '\\', '\n', '\r'])
+    {
+        block.push_str(&format!(
+            "mount {{\n    dst: \"{home}\"\n    fstype: \"tmpfs\"\n    rw: true\n    options: \"size={tmpfs_size_bytes}\"\n}}\n"
+        ));
+    }
+    block.push_str(&optional_bind_mount(&format!("{home}/.npmrc"), false));
+    block.push_str(&optional_bind_mount(&format!("{home}/.bunfig.toml"), false));
+    if npm_mode {
+        block.push_str(&optional_bind_mount(&format!("{home}/.npm"), true));
+    }
+    block
+}
+
+/// Custom CA bundles the install is pointed at live outside the jail's mounts: bind them
+/// in, read-only, so TLS to a private registry keeps working.
+fn install_ca_mounts(job_dir: &str, home: &str) -> String {
+    const CA_ENVS: [&str; 4] = [
+        "NODE_EXTRA_CA_CERTS",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "NPM_CONFIG_CAFILE",
+    ];
+    let from_env = crate::worker::WHITELIST_ENVS
+        .iter()
+        .filter(|(k, _)| CA_ENVS.iter().any(|c| c.eq_ignore_ascii_case(k)))
+        .map(|(_, v)| v.trim().to_string());
+    let from_npmrc = [
+        format!("{job_dir}/{BUN_NPMRC_FILE}"),
+        format!("{home}/.npmrc"),
+    ]
+    .into_iter()
+    .filter_map(|f| fs::read_to_string(f).ok())
+    .flat_map(|content| {
+        content
+            .lines()
+            .filter_map(|l| {
+                let (k, v) = l.split_once('=')?;
+                k.trim()
+                    .eq_ignore_ascii_case("cafile")
+                    .then(|| v.trim().trim_matches('"').to_string())
+            })
+            .collect::<Vec<_>>()
+    });
+    from_env
+        .chain(from_npmrc)
+        .filter(|p| !p.is_empty())
+        .unique()
+        .map(|p| optional_bind_mount(&p, false))
+        .collect()
+}
+
 pub async fn install_bun_lockfile(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -744,7 +818,22 @@ pub async fn install_bun_lockfile(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     quiet: bool,
 ) -> Result<()> {
-    let mut child_cmd = Command::new(if npm_mode { &*NPM_PATH } else { &*BUN_PATH });
+    let package_manager = if npm_mode { &*NPM_PATH } else { &*BUN_PATH };
+    // The install runs the lifecycle scripts of dependencies (npm: all of them; bun: its
+    // default trusted list and `trustedDependencies`), so when sandboxing is on it is
+    // confined under nsjail like the run step. The env is the same either way.
+    let sandboxed = is_sandboxing_enabled();
+    let home = common_bun_proc_envs
+        .get("HOME")
+        .cloned()
+        .unwrap_or_else(|| HOME_ENV.clone());
+    let mut child_cmd = if sandboxed {
+        let mut cmd = Command::new(NSJAIL_PATH.as_str());
+        cmd.args(["--config", "install.config.proto", "--", package_manager]);
+        cmd
+    } else {
+        Command::new(package_manager)
+    };
 
     let mut args = vec!["install"];
     // A bun flag: npm 12 rejects unknown cli flags instead of warning.
@@ -853,7 +942,50 @@ pub async fn install_bun_lockfile(
         gen_bunfig(job_dir, job_id, w_id, db).await?;
     }
 
-    let child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
+    if sandboxed {
+        // Both are bind-mounted into the jail, so they must exist before nsjail builds
+        // the mount tree.
+        std::fs::create_dir_all(&*BUN_CACHE_DIR)?;
+        if npm_mode {
+            let _ = std::fs::create_dir_all(format!("{home}/.npm"));
+        }
+        let nsjail_timeout = match db {
+            Some(conn) => resolve_nsjail_timeout(conn, w_id, *job_id, None).await,
+            // no job to bound it: the caller waits for the install unbounded too
+            None => "0".to_string(),
+        };
+        write_file(
+            job_dir,
+            "install.config.proto",
+            &NSJAIL_CONFIG_INSTALL_BUN_CONTENT
+                .replace("{TIMEOUT}", &nsjail_timeout)
+                .replace("{JOB_DIR}", job_dir)
+                .replace("{BUN_CACHE_DIR}", &*BUN_CACHE_DIR)
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace(
+                    "{HOME_MOUNT_BLOCK}",
+                    &install_home_mount_block(
+                        &home,
+                        npm_mode,
+                        &resolve_nsjail_tmpfs_size_bytes().await,
+                    ),
+                )
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
+                .replace("{CA_MOUNT}", &install_ca_mounts(job_dir, &home))
+                .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                ),
+        )?;
+    }
+
+    let child_executable = if sandboxed {
+        NSJAIL_PATH.as_str()
+    } else {
+        package_manager.as_str()
+    };
+    let child_process = start_child_process(child_cmd, child_executable, false).await?;
     if let Some(db) = db {
         let mut quiet_buf = String::new();
         let result = handle_child(
@@ -862,7 +994,8 @@ pub async fn install_bun_lockfile(
             mem_peak,
             canceled_by,
             child_process,
-            false,
+            // jailed when sandboxing is on, so mem sampling finds the real process
+            sandboxed,
             worker_name,
             w_id,
             "bun install",
