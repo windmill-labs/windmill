@@ -16347,6 +16347,7 @@ dependencies = [
  "hmac 0.12.1",
  "hyper 1.12.0",
  "indexmap 2.14.2",
+ "ipnet",
  "itertools 0.14.0",
  "jsonwebtoken 10.4.0",
  "lazy_static",
