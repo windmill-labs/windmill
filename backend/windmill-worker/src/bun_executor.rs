@@ -39,7 +39,7 @@ use windmill_common::{
     min_version::MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2,
     scripts::{id_to_codebase_info, CodebaseInfo, ScriptHash, ScriptLang},
     utils::WarnAfterExt,
-    workspace_dependencies::WorkspaceDependenciesPrefetched,
+    workspace_dependencies::{clean_lock_from_annotations, WorkspaceDependenciesPrefetched},
 };
 use windmill_types::s3::BundleFormat;
 
@@ -1929,7 +1929,17 @@ pub async fn handle_bun_job(
                     ));
                 }
 
-                write_file(job_dir, "package.json", package_json)?;
+                if annotation.npm {
+                    // The stored lock leads with `// workspace-dependencies` header lines: bun
+                    // reads package.json leniently, npm refuses it as invalid JSON.
+                    write_file(
+                        job_dir,
+                        "package.json",
+                        &clean_lock_from_annotations(package_json, ScriptLang::Bun),
+                    )?;
+                } else {
+                    write_file(job_dir, "package.json", package_json)?;
+                }
 
                 let bun_lock = if annotation.npm {
                     ""
