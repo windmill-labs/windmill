@@ -805,6 +805,21 @@ async fn create_flow(
             nf.preserve_on_behalf_of = Some(true);
         }
     }
+    // Before `tx` opens, as every `db` read here must be: `user_db` wraps the same pool, so
+    // taking a second connection while holding `tx` lets concurrent deploys starve it.
+    let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
+        nf.on_behalf_of_email.as_deref(),
+        nf.on_behalf_of.as_deref(),
+        nf.preserve_on_behalf_of.unwrap_or(false),
+        &authed,
+        &w_id,
+        &db,
+    )
+    .await?;
+    // Written beside the principal only while a worker that still reads it may be live.
+    let legacy_on_behalf_of_email =
+        windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
+            .await?;
 
     let mut tx = user_db.clone().begin(&authed).await?;
 
@@ -830,19 +845,6 @@ async fn create_flow(
     if restricts_steps {
         windmill_common::feature_usage::log_feature_usage("job_token_scopes", "deploy", "step:set");
     }
-    let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
-        nf.on_behalf_of_email.as_deref(),
-        nf.on_behalf_of.as_deref(),
-        nf.preserve_on_behalf_of.unwrap_or(false),
-        &authed,
-        &w_id,
-        &db,
-    )
-    .await?;
-    // Written beside the principal only while a worker that still reads it may be live.
-    let legacy_on_behalf_of_email =
-        windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
-            .await?;
     sqlx::query!(
         r#"INSERT INTO flow (
         workspace_id, path, summary, description,
@@ -1389,6 +1391,20 @@ async fn update_flow(
     validate_flow(&nf, &authed, &db, &user_db, &w_id).await?;
 
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
+    // Before `tx` opens, for the reason given in `create_flow`.
+    let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
+        nf.on_behalf_of_email.as_deref(),
+        nf.on_behalf_of.as_deref(),
+        nf.preserve_on_behalf_of.unwrap_or(false),
+        &authed,
+        &w_id,
+        &db,
+    )
+    .await?;
+    // Written beside the principal only while a worker that still reads it may be live.
+    let legacy_on_behalf_of_email =
+        windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
+            .await?;
     let mut tx = user_db.clone().begin(&authed).await?;
 
     check_schedule_conflict(&mut tx, &w_id, flow_path).await?;
@@ -1426,19 +1442,6 @@ async fn update_flow(
     if restricts_steps {
         windmill_common::feature_usage::log_feature_usage("job_token_scopes", "deploy", "step:set");
     }
-    let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
-        nf.on_behalf_of_email.as_deref(),
-        nf.on_behalf_of.as_deref(),
-        nf.preserve_on_behalf_of.unwrap_or(false),
-        &authed,
-        &w_id,
-        &db,
-    )
-    .await?;
-    // Written beside the principal only while a worker that still reads it may be live.
-    let legacy_on_behalf_of_email =
-        windmill_common::legacy_on_behalf_of_email(resolved_on_behalf_of.as_deref(), &w_id, &db)
-            .await?;
 
     sqlx::query!(
         "
