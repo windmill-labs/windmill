@@ -25,3 +25,8 @@ rustflags = [
 
 [net]
 git-fetch-with-cli = true
+
+[env]
+# `#[sqlx::test]` clones each test database from a template migrated once, instead of running
+# every migration per test. The `_sqlx_tmpl_*` databases it leaves on the server are reused.
+SQLX_TEST_TEMPLATE = "true"
