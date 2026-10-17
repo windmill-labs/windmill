@@ -957,7 +957,7 @@ const BUN_STAGING_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(
 /// Whether a bun install needs nothing of the job dir beyond [`BUN_INSTALL_INPUTS`]: no
 /// dependency by path, no workspaces or patches, and no root lifecycle script, which bun
 /// runs next to the manifest and which may read the job's other files.
-#[cfg_attr(not(unix), allow(dead_code))]
+#[cfg(any(unix, test))]
 fn bun_install_can_stage(package_json: &str, lock: Option<&str>) -> bool {
     const DEP_SECTIONS: [&str; 6] = [
         "dependencies",
