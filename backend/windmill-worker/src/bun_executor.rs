@@ -1177,7 +1177,9 @@ async fn npm_config_sets(key: &str, job_dir: &str, envs: &HashMap<String, String
         .current_dir(job_dir)
         .env_clear()
         .envs(envs)
-        .args(["config", "ls"])
+        // The config can set `json` or `long`: JSON output hides an explicit value from
+        // `npm_config_ls_sets`, and `long` also lists npm's defaults.
+        .args(["config", "ls", "--json=false", "--long=false"])
         .stdin(Stdio::null())
         .kill_on_drop(true)
         .output();
