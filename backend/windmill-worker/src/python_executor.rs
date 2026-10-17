@@ -149,15 +149,16 @@ use crate::global_cache::pull_from_tar;
 use windmill_object_store::get_cache_object_store;
 
 use crate::{
+    check_no_network_jailed,
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file,
         read_result, render_nsjail_rlimit_as, resolve_nsjail_timeout,
         resolve_nsjail_tmp_mount_block, start_child_process, OccupancyMetrics, StreamNotifier,
         DEV_CONF_NSJAIL,
     },
-    get_proxy_envs_for_lang,
+    get_proxy_envs_for_lang, get_run_proxy_envs,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry,
+    is_sandboxing_enabled, nsjail_clone_newnet, read_ee_registry,
     worker_utils::ping_job_status,
     PyV, DISABLE_NUSER, HOME_ENV, INDEX_CERT, NATIVE_CERT, NSJAIL_AVAILABLE, NSJAIL_PATH,
     NSJAIL_PY_RLIMIT_AS_MB, PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS,
@@ -775,6 +776,8 @@ pub async fn handle_python_job(
                 .to_string(),
         ));
     }
+    let jailed = is_sandboxing_enabled() || annotations.sandbox;
+    check_no_network_jailed(annotations.no_network, jailed)?;
 
     // Preview jobs may carry _TEMP_SCRIPT_REFS so relative imports resolve from
     // not-yet-deployed local content uploaded to raw_script_temp. Gated on
@@ -792,6 +795,19 @@ pub async fn handle_python_job(
     };
 
     let module_sources = windmill_parser_py_imports::module_sources(&script_path, modules.as_ref());
+    if annotations.no_network {
+        let imports = std::iter::once((script_path.as_str(), inner_content.as_str()))
+            .chain(
+                module_sources
+                    .iter()
+                    .flatten()
+                    .map(|(path, code)| (path.as_str(), code.as_str())),
+            )
+            .flat_map(|(path, code)| {
+                windmill_parser_py_imports::parse_relative_imports(code, path).unwrap_or_default()
+            });
+        crate::check_no_network_imports(imports, &script_path, modules.as_ref(), "Python")?;
+    }
     let (py_version, mut additional_python_paths) = handle_python_deps_with_modules(
         job_dir,
         requirements_o,
@@ -838,6 +854,9 @@ pub async fn handle_python_job(
         );
         if annotations.sandbox {
             logs.push_str("sandbox mode (nsjail)\n");
+        }
+        if annotations.no_network {
+            logs.push_str("no network\n");
         }
         append_logs(&job.id, &job.workspace_id, logs, conn).await;
     }
@@ -1080,6 +1099,7 @@ except BaseException as e:
 
     let mut reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+    crate::strip_no_network_token(&mut reserved_variables, annotations.no_network);
 
     // Add /tmp/windmill/cache/python_x_y_z/global-site-packages to PYTHONPATH.
     // Usefull if certain wheels needs to be preinstalled before execution.
@@ -1112,7 +1132,7 @@ except BaseException as e:
     #[cfg(windows)]
     let additional_python_paths_folders = additional_python_paths_folders.replace(":", ";");
 
-    if is_sandboxing_enabled() || annotations.sandbox {
+    if jailed {
         let shared_deps = additional_python_paths
             .into_iter()
             .map(|pp| {
@@ -1141,6 +1161,10 @@ mount {{
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{PY_INSTALL_DIR}", &*PY_INSTALL_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace(
+                    "{CLONE_NEWNET}",
+                    nsjail_clone_newnet(annotations.no_network),
+                )
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
                 .replace("{GLOBAL_SITE_PACKAGES}", &global_site_packages_path)
@@ -1167,7 +1191,7 @@ mount {{
         job.id
     );
 
-    let child = if is_sandboxing_enabled() || annotations.sandbox {
+    let child = if jailed {
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .current_dir(job_dir)
@@ -1175,12 +1199,13 @@ mount {{
             // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
             .envs(reserved_variables)
             .envs(
-                get_proxy_envs_for_lang(
+                get_run_proxy_envs(
                     &ScriptLang::Python3,
                     job.kind,
                     &job.id,
                     &job.workspace_id,
                     conn,
+                    annotations.no_network,
                 )
                 .await?,
             )
