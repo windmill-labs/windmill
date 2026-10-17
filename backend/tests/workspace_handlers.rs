@@ -16,7 +16,8 @@ fn disable_deployed_script_cache() {
         .store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// The handler job is pushed after the job it handles is reported complete.
+/// Polls so the assertion does not depend on the handler being pushed before
+/// `run_until_complete` returns, which only holds while the worker drains its completions on exit.
 async fn wait_for_handler_job(
     db: &Pool<Postgres>,
     handler_email: &str,
@@ -360,7 +361,6 @@ export async function main(path: string, email: string, job_id: string, is_flow:
         run_script_hash(&db, server.addr.port(), 9876543210, "f/test/simple_script").await;
     assert_eq!(completed_job.json_result().unwrap(), json!("success"));
 
-    // root_job may be None when it equals parent_job (optimization in push function)
     assert_eq!(
         wait_for_handler_job(&db, SUCCESS_HANDLER_EMAIL).await?,
         Some((
