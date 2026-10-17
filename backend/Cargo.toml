@@ -226,9 +226,10 @@ all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "embeddin
    "windmill-git-sync/all_sqlx_features"]
 
 [patch.crates-io]
-# v0.8.6 plus two changes. The second only affects `#[sqlx::test]`: each test database is
+# v0.8.6 plus two changes, the fix below and a `#[sqlx::test]`-only one: each test database is
 # cloned from a template migrated once per migration set instead of migrating it per test.
-# The first: `Pool::begin` is not cancel-safe on Postgres. sqlx raises the
+# The rev is tagged `windmill-0.8.6-test-template-bc69ecc` in the fork so it stays fetchable.
+# The fix: `Pool::begin` is not cancel-safe on Postgres. sqlx raises the
 # transaction depth its rollback-on-drop guard keys on only *after* the BEGIN round trip, so
 # a cancelled caller (a disconnecting API client, a `timeout`, an aborted task) leaves the
 # session in a transaction nothing will end, and the pool hands that connection out again —
