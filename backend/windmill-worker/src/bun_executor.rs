@@ -769,7 +769,29 @@ fn install_home_mount_block(home: &str, npm_mode: bool, tmpfs_size_bytes: &str) 
 
 /// Custom CA bundles the install is pointed at live outside the jail's mounts: bind them
 /// in, read-only, so TLS to a private registry keeps working.
-fn install_ca_mounts(job_dir: &str, home: &str) -> String {
+/// An `.npmrc` value as npm reads it: `${VAR}` from the install env, and a leading `~/`
+/// as HOME. Without it, a `cafile=~/…` or `${HOME}/…` is never mounted and the jail's
+/// private HOME hides the certificate.
+fn expand_npmrc_value(value: &str, home: &str, envs: &HashMap<String, String>) -> String {
+    let mut out = String::new();
+    let mut rest = value;
+    while let Some(start) = rest.find("${") {
+        let Some(len) = rest[start..].find('}') else {
+            break;
+        };
+        out.push_str(&rest[..start]);
+        let name = rest[start + 2..start + len].trim_end_matches('?');
+        out.push_str(envs.get(name).map(String::as_str).unwrap_or_default());
+        rest = &rest[start + len + 1..];
+    }
+    out.push_str(rest);
+    match out.strip_prefix("~/") {
+        Some(p) => format!("{}/{p}", home.trim_end_matches('/')),
+        None => out,
+    }
+}
+
+fn install_ca_mounts(job_dir: &str, home: &str, envs: &HashMap<String, String>) -> String {
     const CA_ENVS: [&str; 4] = [
         "NODE_EXTRA_CA_CERTS",
         "SSL_CERT_FILE",
@@ -793,7 +815,7 @@ fn install_ca_mounts(job_dir: &str, home: &str) -> String {
                 let (k, v) = l.split_once('=')?;
                 k.trim()
                     .eq_ignore_ascii_case("cafile")
-                    .then(|| v.trim().trim_matches('"').to_string())
+                    .then(|| expand_npmrc_value(v.trim().trim_matches('"'), home, envs))
             })
             .collect::<Vec<_>>()
     });
@@ -943,6 +965,11 @@ pub async fn install_bun_lockfile(
     }
 
     if sandboxed {
+        let install_envs: HashMap<String, String> = child_cmd
+            .as_std()
+            .get_envs()
+            .filter_map(|(k, v)| Some((k.to_str()?.to_string(), v?.to_str()?.to_string())))
+            .collect();
         // Both are bind-mounted into the jail, so they must exist before nsjail builds
         // the mount tree.
         std::fs::create_dir_all(&*BUN_CACHE_DIR)?;
@@ -971,7 +998,10 @@ pub async fn install_bun_lockfile(
                     ),
                 )
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
-                .replace("{CA_MOUNT}", &install_ca_mounts(job_dir, &home))
+                .replace(
+                    "{CA_MOUNT}",
+                    &install_ca_mounts(job_dir, &home, &install_envs),
+                )
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace(
                     "{TMP_MOUNT_BLOCK}",
