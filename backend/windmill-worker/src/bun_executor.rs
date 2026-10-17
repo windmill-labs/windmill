@@ -1686,7 +1686,7 @@ pub async fn handle_bun_job(
                 (format!("{script_dir}/{stem}"), module.content.as_str())
             }))
             .flat_map(|(path, code)| {
-                windmill_parser_ts::parse_relative_imports(code, &path).unwrap_or_default()
+                windmill_parser_ts::parse_runtime_relative_imports(code, &path).unwrap_or_default()
             });
         crate::check_no_network_imports(
             imports,
