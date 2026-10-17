@@ -2399,8 +2399,8 @@ pub(crate) async fn purge_fork_storages_unless_live(
     w_id: &str,
     prepared: Vec<PreparedForkStoragePurge>,
 ) -> Result<Vec<String>> {
-    // Fork creation calls this before answering: waiting on the lock with nothing to purge
-    // would hold a background creation's request behind any in-flight same-id fork write.
+    // The lock only orders a purge against a same-id fork write; with nothing to purge, waiting
+    // on it would only hold fork creation's answer behind such a write.
     if prepared.is_empty() {
         return Ok(vec![]);
     }
