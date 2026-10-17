@@ -1085,6 +1085,70 @@ fn bun_staging_dir(cache_dir: &str, job_dir: &str) -> Option<BunStagingDir> {
     }
 }
 
+/// A fetch npm 12 refuses by default but npm 11 made. Windmill still allows it, for now, when
+/// the install's config does not set the key either way.
+#[derive(Clone, Copy)]
+enum NpmFetchFallback {
+    Git,
+    Remote,
+}
+
+impl NpmFetchFallback {
+    fn key(self) -> &'static str {
+        match self {
+            Self::Git => "allow-git",
+            Self::Remote => "allow-remote",
+        }
+    }
+
+    fn error_code(self) -> &'static str {
+        match self {
+            Self::Git => "EALLOWGIT",
+            Self::Remote => "EALLOWREMOTE",
+        }
+    }
+
+    fn what(self) -> &'static str {
+        match self {
+            Self::Git => "git dependencies",
+            Self::Remote => "dependency tarballs hosted outside the configured registry",
+        }
+    }
+}
+
+/// The fetch a failed `npm install` was refused, with npm's `Refusing to fetch` lines.
+fn npm_refused_fetch(output: &str) -> Option<(NpmFetchFallback, Vec<String>)> {
+    let output = crate::bash_executor::ANSI_ESCAPE_RE.replace_all(output, "");
+    let fallback = [NpmFetchFallback::Git, NpmFetchFallback::Remote]
+        .into_iter()
+        .find(|f| {
+            let line = format!("npm error code {}", f.error_code());
+            output.lines().any(|l| l.trim() == line)
+        })?;
+    let refused = output
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("npm error Refusing to fetch "))
+        .map(str::to_string)
+        .collect();
+    Some((fallback, refused))
+}
+
+/// Whether the job's `.npmrc`, the user `.npmrc` or the install env sets npm config `key`.
+fn npm_config_sets(key: &str, job_dir: &str, home: &str, envs: &HashMap<String, String>) -> bool {
+    let norm = |k: &str| k.trim().to_ascii_lowercase().replace('_', "-");
+    let in_npmrc = |path: String| {
+        fs::read_to_string(path).is_ok_and(|c| {
+            c.lines()
+                .any(|l| l.split_once('=').is_some_and(|(k, _)| norm(k) == key))
+        })
+    };
+    in_npmrc(format!("{job_dir}/{BUN_NPMRC_FILE}"))
+        || in_npmrc(format!("{home}/.npmrc"))
+        || envs
+            .keys()
+            .any(|k| norm(k).strip_prefix("npm-config-") == Some(key))
+}
+
 pub async fn install_bun_lockfile(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -1108,14 +1172,6 @@ pub async fn install_bun_lockfile(
         .get("HOME")
         .cloned()
         .unwrap_or_else(|| HOME_ENV.clone());
-    let mut child_cmd = if sandboxed {
-        let mut cmd = Command::new(NSJAIL_PATH.as_str());
-        cmd.args(["--config", "install.config.proto", "--", package_manager]);
-        cmd
-    } else {
-        Command::new(package_manager)
-    };
-
     let mut args = vec!["install"];
     // A bun flag: npm 12 rejects unknown cli flags instead of warning.
     if !npm_mode {
@@ -1128,19 +1184,7 @@ pub async fn install_bun_lockfile(
         args.push("--no-cache");
     }
 
-    child_cmd
-        .current_dir(job_dir)
-        .env_clear()
-        .envs(PROXY_ENVS.clone())
-        .envs(common_bun_proc_envs)
-        .envs(&*crate::worker::WHITELIST_ENVS)
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    #[cfg(windows)]
-    child_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
-
+    let mut registry_env = None;
     let mut npm_logs = if npm_mode {
         "NPM mode\n".to_string()
     } else if no_cache {
@@ -1202,7 +1246,7 @@ pub async fn install_bun_lockfile(
                     }
                 ));
 
-                child_cmd.env("NPM_CONFIG_REGISTRY", custom_registry);
+                registry_env = Some(custom_registry.to_string());
                 write_file(job_dir, ".npmrc", content)?;
                 true
             } else {
@@ -1222,6 +1266,36 @@ pub async fn install_bun_lockfile(
     if !has_file {
         gen_bunfig(job_dir, job_id, w_id, db).await?;
     }
+
+    let make_cmd = |extra_args: &[String]| {
+        let mut cmd = if sandboxed {
+            let mut cmd = Command::new(NSJAIL_PATH.as_str());
+            cmd.args(["--config", "install.config.proto", "--", package_manager]);
+            cmd
+        } else {
+            Command::new(package_manager)
+        };
+        cmd.current_dir(job_dir)
+            .env_clear()
+            .envs(PROXY_ENVS.clone())
+            .envs(&common_bun_proc_envs)
+            .envs(&*crate::worker::WHITELIST_ENVS);
+        if let Some(registry) = registry_env.as_ref() {
+            cmd.env("NPM_CONFIG_REGISTRY", registry);
+        }
+        cmd.args(&args)
+            .args(extra_args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        #[cfg(windows)]
+        cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+        cmd
+    };
+    let install_envs: HashMap<String, String> = make_cmd(&[])
+        .as_std()
+        .get_envs()
+        .filter_map(|(k, v)| Some((k.to_str()?.to_string(), v?.to_str()?.to_string())))
+        .collect();
 
     let mut staging = None;
     if sandboxed {
@@ -1258,11 +1332,6 @@ pub async fn install_bun_lockfile(
             }
             None => install_mounts.push_str(&bind(job_dir, job_dir, true)),
         }
-        let install_envs: HashMap<String, String> = child_cmd
-            .as_std()
-            .get_envs()
-            .filter_map(|(k, v)| Some((k.to_str()?.to_string(), v?.to_str()?.to_string())))
-            .collect();
         let nsjail_timeout = match db {
             Some(conn) => resolve_nsjail_timeout(conn, w_id, *job_id, None).await,
             // no job to bound it: the caller waits for the install unbounded too
@@ -1302,49 +1371,95 @@ pub async fn install_bun_lockfile(
     } else {
         package_manager.as_str()
     };
-    let child_process = start_child_process(child_cmd, child_executable, false).await?;
-    if let Some(db) = db {
-        let mut quiet_buf = String::new();
-        let result = handle_child(
-            job_id,
-            db,
-            mem_peak,
-            canceled_by,
-            child_process,
-            // jailed when sandboxing is on, so mem sampling finds the real process
-            sandboxed,
-            worker_name,
-            w_id,
-            "bun install",
-            None,
-            false,
-            occupancy_metrics,
-            if quiet { Some(&mut quiet_buf) } else { None },
-            None,
-        )
-        .warn_after_seconds_for(10, "bun install")
-        .await;
-        if quiet && result.is_err() {
-            // On failure, flush suppressed install output so the user can diagnose
-            append_logs(
+    let mut fallback_flags: Vec<String> = vec![];
+    loop {
+        let child_process =
+            start_child_process(make_cmd(&fallback_flags), child_executable, false).await?;
+        let (result, output) = if let Some(db) = db {
+            // npm's output is captured rather than streamed: its error code decides the
+            // fetch fallback below.
+            let mut buf = String::new();
+            let result = handle_child(
                 job_id,
-                w_id,
-                format!("\n--- BUN INSTALL (failed) ---\n{quiet_buf}"),
                 db,
+                mem_peak,
+                canceled_by,
+                child_process,
+                // jailed when sandboxing is on, so mem sampling finds the real process
+                sandboxed,
+                worker_name,
+                w_id,
+                "bun install",
+                None,
+                false,
+                occupancy_metrics,
+                if quiet || npm_mode {
+                    Some(&mut buf)
+                } else {
+                    None
+                },
+                None,
             )
-            .await;
-        }
-        result?;
-    } else {
-        let output = Box::into_pin(child_process.wait_with_output()).await?;
-        if !output.status.success() {
+            .warn_after_seconds_for(10, "bun install")
+            .await
+            .map(|_| ());
+            (result, buf)
+        } else {
+            let output = Box::into_pin(child_process.wait_with_output()).await?;
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(error::Error::ExecutionErr(format!(
-                "bun install exited with non-zero status: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
-                output.status
-            )));
+            let result = if output.status.success() {
+                Ok(())
+            } else {
+                Err(error::Error::ExecutionErr(format!(
+                    "bun install exited with non-zero status: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+                    output.status
+                )))
+            };
+            (result, format!("{stdout}\n{stderr}"))
+        };
+
+        if npm_mode && result.is_err() {
+            if let Some((fallback, refused)) = npm_refused_fetch(&output) {
+                let flag = format!("--{}=all", fallback.key());
+                if !fallback_flags.contains(&flag)
+                    && !npm_config_sets(fallback.key(), job_dir, &home, &install_envs)
+                {
+                    let key = fallback.key();
+                    let msg = format!(
+                        "\nWARNING: npm refused {}:\n  {}\nRetrying with {key}=all, which Windmill \
+                         sets by default for now. This default will be removed in a future \
+                         release: add `{key}=all` to the npmrc instance or workspace setting to \
+                         keep fetching them, or `{key}=none` to stop now.\n",
+                        fallback.what(),
+                        refused.join("\n  ")
+                    );
+                    tracing::warn!(%job_id, w_id, "{}", msg.trim());
+                    if let Some(db) = db {
+                        append_logs(job_id, w_id, msg, db).await;
+                    }
+                    fallback_flags.push(flag);
+                    continue;
+                }
+            }
         }
+
+        if let Some(db) = db {
+            if quiet && result.is_err() {
+                // On failure, flush suppressed install output so the user can diagnose
+                append_logs(
+                    job_id,
+                    w_id,
+                    format!("\n--- BUN INSTALL (failed) ---\n{output}"),
+                    db,
+                )
+                .await;
+            } else if npm_mode && !quiet {
+                append_logs(job_id, w_id, output, db).await;
+            }
+        }
+        result?;
+        break;
     }
 
     if let Some(staging) = staging {
