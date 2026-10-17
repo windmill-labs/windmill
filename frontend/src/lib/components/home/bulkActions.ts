@@ -45,7 +45,10 @@ export function blockedReason(
 ): string | undefined {
 	const notOwner = 'you are not an owner of this path'
 	const kind = draftKind(item)
-	if (action === 'discard' ? !roleCanDraft(kind, ctx.caps) : !roleCanAuthor(kind, ctx.caps))
+	// Discarding one's own draft needs no authoring right server-side, so a member who lost it
+	// can still clean up; a legacy (owner-less) draft does.
+	const roleGated = action !== 'discard' || item.legacyDraft
+	if (roleGated && !(action === 'discard' ? roleCanDraft : roleCanAuthor)(kind, ctx.caps))
 		return 'your role cannot author this kind of item'
 	switch (action) {
 		case 'move':
