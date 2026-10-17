@@ -12610,7 +12610,7 @@ dependencies = [
 [[package]]
 name = "sqlx"
 version = "0.8.6"
-source = "git+https://github.com/windmill-labs/sqlx?rev=0b7493fa1b957303672130891927995e66a77dc5#0b7493fa1b957303672130891927995e66a77dc5"
+source = "git+https://github.com/windmill-labs/sqlx?rev=b0dcc0c917dde1f9af64694a58f31a9c74995e88#b0dcc0c917dde1f9af64694a58f31a9c74995e88"
 dependencies = [
  "sqlx-core",
  "sqlx-macros",
@@ -12622,7 +12622,7 @@ dependencies = [
 [[package]]
 name = "sqlx-core"
 version = "0.8.6"
-source = "git+https://github.com/windmill-labs/sqlx?rev=0b7493fa1b957303672130891927995e66a77dc5#0b7493fa1b957303672130891927995e66a77dc5"
+source = "git+https://github.com/windmill-labs/sqlx?rev=b0dcc0c917dde1f9af64694a58f31a9c74995e88#b0dcc0c917dde1f9af64694a58f31a9c74995e88"
 dependencies = [
  "base64 0.22.1",
  "bigdecimal",
@@ -12660,7 +12660,7 @@ dependencies = [
 [[package]]
 name = "sqlx-macros"
 version = "0.8.6"
-source = "git+https://github.com/windmill-labs/sqlx?rev=0b7493fa1b957303672130891927995e66a77dc5#0b7493fa1b957303672130891927995e66a77dc5"
+source = "git+https://github.com/windmill-labs/sqlx?rev=b0dcc0c917dde1f9af64694a58f31a9c74995e88#b0dcc0c917dde1f9af64694a58f31a9c74995e88"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -12672,7 +12672,7 @@ dependencies = [
 [[package]]
 name = "sqlx-macros-core"
 version = "0.8.6"
-source = "git+https://github.com/windmill-labs/sqlx?rev=0b7493fa1b957303672130891927995e66a77dc5#0b7493fa1b957303672130891927995e66a77dc5"
+source = "git+https://github.com/windmill-labs/sqlx?rev=b0dcc0c917dde1f9af64694a58f31a9c74995e88#b0dcc0c917dde1f9af64694a58f31a9c74995e88"
 dependencies = [
  "dotenvy",
  "either",
@@ -12696,7 +12696,7 @@ dependencies = [
 [[package]]
 name = "sqlx-mysql"
 version = "0.8.6"
-source = "git+https://github.com/windmill-labs/sqlx?rev=0b7493fa1b957303672130891927995e66a77dc5#0b7493fa1b957303672130891927995e66a77dc5"
+source = "git+https://github.com/windmill-labs/sqlx?rev=b0dcc0c917dde1f9af64694a58f31a9c74995e88#b0dcc0c917dde1f9af64694a58f31a9c74995e88"
 dependencies = [
  "atoi",
  "base64 0.22.1",
@@ -12740,7 +12740,7 @@ dependencies = [
 [[package]]
 name = "sqlx-postgres"
 version = "0.8.6"
-source = "git+https://github.com/windmill-labs/sqlx?rev=0b7493fa1b957303672130891927995e66a77dc5#0b7493fa1b957303672130891927995e66a77dc5"
+source = "git+https://github.com/windmill-labs/sqlx?rev=b0dcc0c917dde1f9af64694a58f31a9c74995e88#b0dcc0c917dde1f9af64694a58f31a9c74995e88"
 dependencies = [
  "atoi",
  "base64 0.22.1",
@@ -12780,7 +12780,7 @@ dependencies = [
 [[package]]
 name = "sqlx-sqlite"
 version = "0.8.6"
-source = "git+https://github.com/windmill-labs/sqlx?rev=0b7493fa1b957303672130891927995e66a77dc5#0b7493fa1b957303672130891927995e66a77dc5"
+source = "git+https://github.com/windmill-labs/sqlx?rev=b0dcc0c917dde1f9af64694a58f31a9c74995e88#b0dcc0c917dde1f9af64694a58f31a9c74995e88"
 dependencies = [
  "atoi",
  "chrono",

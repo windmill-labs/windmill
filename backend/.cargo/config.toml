@@ -30,3 +30,7 @@ git-fetch-with-cli = true
 # `#[sqlx::test]` clones each test database from a template migrated once, instead of running
 # every migration per test. The `_sqlx_tmpl_*` databases it leaves on the server are reused.
 SQLX_TEST_TEMPLATE = "true"
+# Test pools keep the connections they borrow from sqlx's per-binary pool until the test ends.
+# Below 5 per test thread, tests that all start at once (as they do from a template) can each
+# wait on another until the 30s acquire timeout. CI runs 10 threads; local Postgres allows 500.
+SQLX_TEST_MAX_CONNECTIONS = "64"
