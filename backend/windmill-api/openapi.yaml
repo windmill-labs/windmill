@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.837.0
+  version: 1.839.0
   title: Windmill API
 
   contact:
@@ -5640,6 +5640,9 @@ paths:
                       type: string
                     governing_workspace_id:
                       type: string
+                    database_workspace_id:
+                      type: string
+                      description: The workspace owning the database this entry points at, when it is not this workspace.
                     permissioned:
                       type: boolean
 
@@ -11412,6 +11415,34 @@ paths:
             application/json:
               schema:
                 type: boolean
+
+  /workers/dev_workspace_isolation:
+    get:
+      summary: get whether the jobs of dev workspaces and forks run on their own worker groups
+      operationId: getDevWorkspaceIsolation
+      tags:
+        - worker
+      responses:
+        "200":
+          description: dev workspace isolation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                    description: whether new jobs of dev workspaces and forks are queued on suffixed tags
+                  suffix:
+                    type: string
+                    description: the suffix of those tags, which worker groups serving dev workspaces listen with
+                  skip_non_dev_forks:
+                    type: boolean
+                    description: whether forks of a workspace that is not a dev workspace, nor under one, run on their parent's workers instead
+                required:
+                  - enabled
+                  - suffix
+                  - skip_non_dev_forks
 
   /w/{workspace}/workspace_dependencies/create:
     post:
@@ -25220,6 +25251,31 @@ paths:
               schema:
                 $ref: "#/components/schemas/S3Resource"
 
+  /w/{workspace}/job_helpers/v2/s3_proxy_bucket:
+    get:
+      summary: Returns the bucket S3 clients name to reach a workspace storage
+        through the S3 proxy, or null when that storage is not S3
+      operationId: s3ProxyBucket
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The storage's bucket
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bucket:
+                    type: string
+                    nullable: true
+
   /w/{workspace}/job_helpers/test_connection:
     get:
       summary: Test connection to the workspace object storage
@@ -36625,6 +36681,11 @@ components:
           items:
             type: string
           description: "Lake names the fork SHARES with the parent (reads and writes the parent's lake directly). Every lake not listed gets the default isolated fork namespace with read-defer to the parent."
+        shared_storages:
+          type: array
+          items:
+            type: string
+          description: "Workspace storages the fork SHARES with the parent (`_default_` for the primary one): it reads and writes the parent's objects directly. Every storage not listed is isolated: the fork writes under its own prefix and reads through to the parent's objects."
         is_dev_workspace:
           type: boolean
           description: "Create the fork as a persistent dev workspace (id not required to carry the wm-fork- prefix; at most one per parent)"
@@ -39126,6 +39187,7 @@ components:
         - RestrictAnonymousAppDeployment
         - RestrictPublicRunSharing
         - RestrictGuestAppDeployment
+        - RequireIsolatedForks
     RuleBypasserGroups:
       type: array
       description: Groups that can bypass this ruleset

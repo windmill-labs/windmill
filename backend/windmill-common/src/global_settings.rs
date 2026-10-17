@@ -10,6 +10,10 @@ pub const FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING: &str =
     "fork_workspace_tag_append_fork_suffix";
 pub const PREVIEW_TAGS_OVERRIDE_SETTING: &str = "preview_tags_override";
 pub const DEPENDENCY_JOB_TAG_SETTING: &str = "dependency_job_tag";
+pub const DEV_WORKSPACE_ISOLATION_SETTING: &str = "dev_workspace_isolation";
+pub const DEV_WORKSPACE_TAG_SUFFIX_SETTING: &str = "dev_workspace_tag_suffix";
+pub const DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS_SETTING: &str =
+    "dev_workspace_isolation_skip_non_dev_forks";
 pub const BASE_URL_SETTING: &str = "base_url";
 pub const WS_BASE_URL_SETTING: &str = "ws_base_url";
 pub const OAUTH_SETTING: &str = "oauths";
@@ -311,6 +315,21 @@ pub fn validate_accent_color(value: &serde_json::Value) -> Result<(), String> {
     let hex = s.strip_prefix('#').unwrap_or("");
     if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err("must be a hex color of the form #rrggbb".to_string());
+    }
+    Ok(())
+}
+
+/// Validate a non-empty [`DEV_WORKSPACE_TAG_SUFFIX_SETTING`] value. Every writer must call
+/// it: a suffix that fails it is ignored at load, so the workers would listen on a suffix
+/// the setting does not show.
+pub fn validate_dev_workspace_tag_suffix(value: &serde_json::Value) -> Result<(), String> {
+    let s = value
+        .as_str()
+        .ok_or_else(|| "must be a string".to_string())?;
+    if !crate::worker::is_valid_dev_workspace_tag_suffix(s.trim()) {
+        return Err(
+            "may only contain letters, digits, '-', '_' and '.', up to 32 characters".to_string(),
+        );
     }
     Ok(())
 }

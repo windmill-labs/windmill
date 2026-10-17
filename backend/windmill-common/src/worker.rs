@@ -451,6 +451,15 @@ lazy_static::lazy_static! {
     pub static ref FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX: AtomicBool = AtomicBool::new(false);
     pub static ref PREVIEW_TAGS_OVERRIDE: AtomicBool = AtomicBool::new(false);
     pub static ref DEPENDENCY_JOB_TAG: arc_swap::ArcSwap<Option<String>> = arc_swap::ArcSwap::from_pointee(None);
+    /// Whether the jobs of dev workspaces and forks are queued on suffixed tags.
+    pub static ref DEV_WORKSPACE_ISOLATION: AtomicBool = AtomicBool::new(false);
+    /// Whether a fork whose lineage holds no dev workspace runs on its parent's workers.
+    pub static ref DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS: AtomicBool = AtomicBool::new(false);
+    /// The suffix of those tags. Groups serving dev workspaces listen with it whether isolation is
+    /// on or not, so turning it off leaves no job already queued on a suffixed tag unserved.
+    pub static ref DEV_WORKSPACE_TAG_SUFFIX: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee(DEFAULT_DEV_WORKSPACE_TAG_SUFFIX.to_string());
+    /// Whether this process's worker group serves dev workspaces, set when its config is loaded.
+    pub static ref WORKER_SERVES_DEV_WORKSPACES: AtomicBool = AtomicBool::new(false);
 
     pub static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
     .ok()
@@ -2418,8 +2427,55 @@ pub async fn update_worker_ping_main_loop_query(
 // occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
 // memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11 WHERE worker = $6",
 
-const MAX_TAG_LEN: usize = 50;
+/// The length of `v2_job.tag`.
+pub const MAX_TAG_LEN: usize = 50;
 const HASH_SUFFIX_LEN: usize = 16;
+
+pub const DEFAULT_DEV_WORKSPACE_TAG_SUFFIX: &str = "-dev";
+
+/// The suffix new jobs of dev workspaces and forks get, `None` while isolation is off.
+pub fn dev_workspace_tag_suffix() -> Option<String> {
+    DEV_WORKSPACE_ISOLATION
+        .load(std::sync::atomic::Ordering::Relaxed)
+        .then(|| DEV_WORKSPACE_TAG_SUFFIX.load().to_string())
+}
+
+/// Whether a workspace's jobs are isolated, given that it has a parent or a generated fork id
+/// (`is_dev_or_fork`) and whether a dev workspace is on its ancestor chain, itself included
+/// (`in_dev_lineage`). Leaves out only the forks of a non-dev workspace, and only when the
+/// instance opts out of isolating them.
+pub fn is_isolated_workspace(is_dev_or_fork: bool, in_dev_lineage: bool) -> bool {
+    is_dev_or_fork
+        && (in_dev_lineage
+            || !DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS
+                .load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// Worker tags are pasted into the pull queries as SQL literals and listed comma-separated, so
+/// the suffix must not carry a quote, a comma or whitespace.
+pub fn is_valid_dev_workspace_tag_suffix(suffix: &str) -> bool {
+    !suffix.is_empty()
+        && suffix.len() <= 32
+        && suffix
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
+/// `tag` as the workers serving dev workspaces listen to it. Idempotent, because a tag inherited
+/// from a dev job (a flow step, an agent's tool) already carries the suffix.
+pub fn with_dev_workspace_suffix(tag: &str, suffix: &str) -> String {
+    if tag.ends_with(suffix) {
+        tag.to_string()
+    } else {
+        format!("{tag}{suffix}")
+    }
+}
+
+/// Whether `tag` has the shape of a [`dedicated_worker_tag`] too long to keep whole. Its prefix
+/// alone does not tell whose it is: two workspaces may share it.
+pub fn is_hashed_dedicated_worker_tag(tag: &str) -> bool {
+    tag.len() == MAX_TAG_LEN && tag.as_bytes().get(MAX_TAG_LEN - 1 - HASH_SUFFIX_LEN) == Some(&b'#')
+}
 
 pub fn dedicated_worker_tag(workspace_id: &str, path: &str) -> String {
     let full_tag = format!("{}:{}", workspace_id, path);
@@ -2581,8 +2637,32 @@ pub async fn load_worker_config(
         })
         .unwrap_or_else(|| DEFAULT_TAGS.clone());
 
+    // A group serving dev workspaces listens to the suffixed form of its tags only, so it never
+    // takes a root workspace's job. Dedicated workers are placed by hand and keep their tags.
+    let dev_suffix = (config.serves_dev_workspaces == Some(true)
+        && dedicated_worker.is_none()
+        && dedicated_workers.is_none())
+    .then(|| DEV_WORKSPACE_TAG_SUFFIX.load().to_string());
+    WORKER_SERVES_DEV_WORKSPACES.store(dev_suffix.is_some(), std::sync::atomic::Ordering::Relaxed);
+    let worker_tags = match &dev_suffix {
+        Some(suffix) => worker_tags
+            .iter()
+            .map(|t| with_dev_workspace_suffix(t, suffix))
+            .unique()
+            .collect_vec(),
+        None => worker_tags,
+    };
+
     let mut priority_tags_sorted: Vec<PriorityTags> = Vec::new();
-    let priority_tags_map = config.priority_tags.unwrap_or_else(HashMap::new);
+    let priority_tags_map: HashMap<String, u8> = match &dev_suffix {
+        Some(suffix) => config
+            .priority_tags
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(t, p)| (with_dev_workspace_suffix(&t, suffix), p))
+            .collect(),
+        None => config.priority_tags.unwrap_or_else(HashMap::new),
+    };
     if priority_tags_map.len() > 0 {
         let mut all_tags_set: HashSet<String> = HashSet::from_iter(worker_tags.clone());
 
@@ -2728,6 +2808,93 @@ pub fn load_whitelist_env_vars_from_env() -> std::vec::IntoIter<String> {
         .into_iter()
 }
 
+/// Warns, by name only, about each `WHITELIST_ENVS` entry that looks like a credential:
+/// every job on the worker can read what is listed there.
+pub fn warn_secret_shaped_whitelist_envs() {
+    for name in load_whitelist_env_vars_from_env().sorted().unique() {
+        let value = std::env::var(&name).unwrap_or_default();
+        if looks_like_secret(&name, &value) {
+            tracing::warn!(
+                "WHITELIST_ENVS forwards {name}, which looks like a secret, to every job on \
+                this worker, where any script can read it. Store it as a secret variable or \
+                resource, or in a secret backend, and remove it from WHITELIST_ENVS"
+            );
+        }
+    }
+}
+
+fn looks_like_secret(name: &str, value: &str) -> bool {
+    const SECRET_WORDS: &[&str] = &[
+        "TOKEN",
+        "TOKENS",
+        "SECRET",
+        "SECRETS",
+        "PASSWORD",
+        "PASSWD",
+        "KEY",
+        "APIKEY",
+        "CREDENTIAL",
+        "CREDENTIALS",
+        "AUTH",
+        "PRIVATE",
+    ];
+    let name_matches = name
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|word| SECRET_WORDS.contains(&word.to_ascii_uppercase().as_str()));
+    if name_matches {
+        return true;
+    }
+
+    let value = value.trim();
+    let is_private_pem = value.contains("-----BEGIN ") && value.contains("PRIVATE KEY-----");
+    let is_jwt = value.starts_with("eyJ") && {
+        let parts: Vec<&str> = value.split('.').collect();
+        parts.len() == 3
+            && parts.iter().all(|p| {
+                !p.is_empty()
+                    && p.chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '=')
+            })
+    };
+    let has_url_password = url::Url::parse(value).is_ok_and(|u| u.password().is_some());
+    is_private_pem || is_jwt || has_url_password || is_high_entropy(value)
+}
+
+/// A single token whose longest run between separators is 24+ chars mixing letters and digits
+/// with more than 4 bits of entropy per char: above what hex digests, UUIDs and words reach.
+/// Scoring the whole value instead flags pod names and cloud resource paths, whose entropy
+/// grows with their length.
+fn is_high_entropy(value: &str) -> bool {
+    if !value
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "+/=_-".contains(c))
+    {
+        return false;
+    }
+    let Some(run) = value.split(['-', '_', '/']).max_by_key(|s| s.len()) else {
+        return false;
+    };
+    if run.len() < 24
+        || !run.chars().any(|c| c.is_ascii_digit())
+        || !run.chars().any(|c| c.is_ascii_alphabetic())
+    {
+        return false;
+    }
+    let mut counts = HashMap::<char, usize>::new();
+    for c in run.chars() {
+        *counts.entry(c).or_default() += 1;
+    }
+    let len = run.len() as f64;
+    let entropy: f64 = counts
+        .values()
+        .map(|&n| {
+            let p = n as f64 / len;
+            -p * p.log2()
+        })
+        .sum();
+    entropy > 4.0
+}
+
 pub fn load_env_vars(
     iter: impl Iterator<Item = String>,
     env_vars_static: &HashMap<String, String>,
@@ -2778,6 +2945,7 @@ pub struct WorkerConfigOpt {
     pub native_mode: Option<bool>,
     pub object_store_cache_config: Option<serde_json::Value>,
     pub paused: Option<bool>,
+    pub serves_dev_workspaces: Option<bool>,
 }
 
 impl Default for WorkerConfigOpt {
@@ -2798,6 +2966,7 @@ impl Default for WorkerConfigOpt {
             native_mode: Default::default(),
             object_store_cache_config: Default::default(),
             paused: Default::default(),
+            serves_dev_workspaces: Default::default(),
         }
     }
 }
@@ -3023,6 +3192,57 @@ pub fn try_parse_locked_python_version_from_requirements<S: AsRef<str>>(
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn whitelist_env_secret_heuristic() {
+        let cases = [
+            ("GITHUB_TOKEN", "x", true),
+            ("aws_secret_access_key", "", true),
+            ("DB-PASSWORD", "x", true),
+            ("OPENAI_APIKEY", "x", true),
+            ("MY_CREDENTIALS", "x", true),
+            ("PRIVATE_REGISTRY", "x", true),
+            ("MONKEY", "banana", false),
+            ("KEYCLOAK_URL", "https://kc.example.com", false),
+            ("TOKENIZER_PATH", "/opt/tok", false),
+            (
+                "SSH_CFG",
+                "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----",
+                true,
+            ),
+            (
+                "CA_CERT",
+                "-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----",
+                false,
+            ),
+            (
+                "JWT_LIKE",
+                "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl",
+                true,
+            ),
+            ("DB_URL", "postgres://user:hunter2@db:5432/app", true),
+            ("PROXY", "http://proxy.local:3128", false),
+            ("PROXY_USER", "http://bob@proxy.local:3128", false),
+            ("OPAQUE", "app_51HxQ2vLk9Tq8ZpR3mNcY7wB4aD6eF0gJ", true),
+            ("GIT_SHA", "3f786850e387550fdab836ed7e6dc881de23001b", false),
+            ("RUN_ID", "123e4567-e89b-12d3-a456-426614174000", false),
+            (
+                "SOME_PATH",
+                "/usr/local/lib/python3.11/site-packages/x1",
+                false,
+            ),
+            ("REGION", "eu-west-1", false),
+            ("HOSTNAME", "windmill-workers-7d9f8c6b5-x2k4p", false),
+            (
+                "TOPIC",
+                "projects/my-gcp-project-123/locations/europe-west1",
+                false,
+            ),
+        ];
+        for (name, value, expected) in cases {
+            assert_eq!(looks_like_secret(name, value), expected, "{name}={value}");
+        }
+    }
 
     #[cfg(not(windows))]
     #[test]

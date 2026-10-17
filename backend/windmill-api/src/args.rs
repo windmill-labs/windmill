@@ -139,13 +139,13 @@ impl RawWebhookArgs {
             get_random_file_name, get_workspace_s3_resource, upload_file_internal,
         };
         use futures::TryStreamExt;
-        use windmill_object_store::build_object_store_client;
+        use windmill_object_store::fork_store::workspace_object_store;
         use windmill_object_store::object_store_reexports::{Attribute, Attributes};
 
         let (_, s3_resource) = get_workspace_s3_resource(authed, db, None, w_id, None).await?;
 
         if let Some(s3_resource) = s3_resource {
-            let s3_client = build_object_store_client(&s3_resource).await?;
+            let s3_client = workspace_object_store(db, w_id, None, &s3_resource).await?;
 
             let mut parts: Vec<(String, MultipartValue)> = Vec::new();
 

@@ -68,6 +68,7 @@ use windmill_common::{
         get_payload_tag_from_prefixed_path, resolve_delete_after_secs, schedule_job_deletion,
         JobPayload, JobTriggerKind, RawCode,
     },
+    scripts::ScriptLang,
     triggers::TriggerMetadata,
     user_drafts::{overlay_or_draft_only, DraftUserRef, UserDraftItemKind, WithDraftOverlay},
     users::username_to_permissioned_as,
@@ -4682,23 +4683,46 @@ async fn execute_component(
             // The policy key covers only an inline script's own code, not the lock and modules
             // its `app_script` row runs with, so it cannot tell the deployed row from an older
             // one (or from id-less code, which runs with neither). Once the deployed version has
-            // its lite value, inline code runs only through the rows that value points at.
+            // its lite value, a deployed row's code runs only through that row, and id-less code
+            // only as the database studio's runtime-built queries, which have no row. Those are
+            // limited to the languages it emits: the pin covers content, not language, and the
+            // policy also pins frontend scripts, which must never run as e.g. bash.
             // Checked on every run: a deploy moves it.
-            if is_inline_raw_code {
+            if let Some(raw_code) = payload.raw_code.as_ref() {
+                let id_less_sql = payload.id.is_none()
+                    && matches!(
+                        raw_code.language,
+                        ScriptLang::Postgresql
+                            | ScriptLang::Mysql
+                            | ScriptLang::Mssql
+                            | ScriptLang::Snowflake
+                            | ScriptLang::Bigquery
+                            | ScriptLang::DuckDb
+                    );
+                let id_less_sha256 = id_less_sql
+                    .then(|| format!("{:x}", Sha256::digest(raw_code.content.as_bytes())));
                 let deployed = sqlx::query!(
                     "SELECT l.id IS NOT NULL as \"has_lite!\",
-                        coalesce(jsonb_path_exists(l.value, '$.**.inlineScript.id ? (@ == $id)',
-                            jsonb_build_object('id', $3::bigint)), false) as \"is_deployed_row!\"
+                        CASE WHEN $3::bigint IS NULL THEN NOT EXISTS (
+                            SELECT 1 FROM app_script s
+                            WHERE s.app = a.id AND s.code_sha256 = $4::text
+                                AND jsonb_path_exists(l.value, '$.**.inlineScript.id ? (@ == $id)',
+                                    jsonb_build_object('id', s.id)))
+                        ELSE coalesce(jsonb_path_exists(l.value, '$.**.inlineScript.id ? (@ == $id)',
+                            jsonb_build_object('id', $3::bigint)), false)
+                        END as \"may_run!\"
                     FROM app a
                     LEFT JOIN app_version_lite l ON l.id = a.versions[array_upper(a.versions, 1)]
                     WHERE a.path = $1 AND a.workspace_id = $2",
                     path,
                     &w_id,
                     payload.id,
+                    id_less_sha256,
                 )
                 .fetch_optional(&db)
                 .await?;
-                if deployed.is_some_and(|d| d.has_lite && !d.is_deployed_row) {
+                let may_run = payload.id.is_some() || id_less_sql;
+                if deployed.is_some_and(|d| d.has_lite && !(may_run && d.may_run)) {
                     return Err(Error::NotAuthorized(format!(
                         "This runnable is not part of the deployed version of app {path}, reload the app"
                     )));
@@ -5293,10 +5317,14 @@ async fn upload_s3_file_from_app(
 
     let user_db = UserDB::new(db.clone());
 
-    let (s3_resource_opt, file_key, on_behalf_of_email, permissioned_as, username) = if policy
-        .as_ref()
-        .is_some_and(|p| p.s3_inputs.is_some())
-    {
+    let (
+        s3_resource_opt,
+        file_key,
+        on_behalf_of_email,
+        permissioned_as,
+        username,
+        is_workspace_storage,
+    ) = if policy.as_ref().is_some_and(|p| p.s3_inputs.is_some()) {
         let policy = policy.unwrap();
         let s3_inputs = policy.s3_inputs.as_ref().unwrap();
 
@@ -5365,6 +5393,7 @@ async fn upload_s3_file_from_app(
                                 email,
                                 permissioned_as,
                                 username,
+                                false,
                             )
                         } else {
                             return Err(Error::BadRequest(
@@ -5393,6 +5422,7 @@ async fn upload_s3_file_from_app(
                             email,
                             permissioned_as,
                             username,
+                            false,
                         )
                     }
                 } else {
@@ -5410,7 +5440,14 @@ async fn upload_s3_file_from_app(
                         None,
                     )
                     .await?;
-                    (s3_resource_opt, file_key, email, permissioned_as, username)
+                    (
+                        s3_resource_opt,
+                        file_key,
+                        email,
+                        permissioned_as,
+                        username,
+                        true,
+                    )
                 }
             } else {
                 return Err(Error::BadRequest(
@@ -5444,7 +5481,14 @@ async fn upload_s3_file_from_app(
             )
             .await?;
 
-            (s3_resource_opt, file_key, email, permissioned_as, username)
+            (
+                s3_resource_opt,
+                file_key,
+                email,
+                permissioned_as,
+                username,
+                true,
+            )
         }
     } else {
         // backward compatibility (no policy)
@@ -5476,6 +5520,7 @@ async fn upload_s3_file_from_app(
                     on_behalf_of_email,
                     permissioned_as,
                     username,
+                    false,
                 )
             } else {
                 let db_with_opt_authed = DbWithOptAuthed::from_authed(&authed, db.clone(), None);
@@ -5495,6 +5540,7 @@ async fn upload_s3_file_from_app(
                     on_behalf_of_email,
                     permissioned_as,
                     username,
+                    true,
                 )
             }
         } else {
@@ -5505,7 +5551,19 @@ async fn upload_s3_file_from_app(
     let s3_resource = s3_resource_opt.ok_or(Error::internal_err(
         "No files storage resource defined at the workspace level".to_string(),
     ))?;
-    let s3_client = windmill_object_store::build_object_store_client(&s3_resource).await?;
+    // The quota sizes an overwrite by the fork's own copy: a fork's write never replaces the
+    // ancestor's object its reads fall through to.
+    type Client = std::sync::Arc<dyn windmill_object_store::object_store_reexports::ObjectStore>;
+    let (s3_client, _quota_client): (Client, Client) = if is_workspace_storage {
+        let store =
+            windmill_object_store::fork_store::workspace_fork_store(&db, &w_id, None, &s3_resource)
+                .await?;
+        let own_only = store.own_only();
+        (store, own_only)
+    } else {
+        let client = windmill_object_store::build_object_store_client(&s3_resource).await?;
+        (client.clone(), client)
+    };
 
     let options = Attributes::from_iter(vec![
         (
@@ -5538,7 +5596,8 @@ async fn upload_s3_file_from_app(
             .get(http::header::CONTENT_LENGTH)
             .and_then(|h| h.to_str().ok())
             .and_then(|s| s.parse::<i64>().ok());
-        let budget = ce_upload_budget(&db, &w_id, &s3_client, &file_key, content_length).await?;
+        let budget =
+            ce_upload_budget(&db, &w_id, &_quota_client, &file_key, content_length).await?;
         (Some(budget.max_size), budget.existing_size)
     } else {
         (None, 0)
@@ -5620,6 +5679,7 @@ async fn delete_s3_file_from_app(
     )
     .await?;
 
+    let is_workspace_storage = s3_resource_path.is_none();
     let s3_resource = if let Some(s3_resource_path) = s3_resource_path {
         let db_with_opt_authed =
             DbWithOptAuthed::from_authed(&on_behalf_authed, db.clone(), Some(user_db.clone()));
@@ -5648,7 +5708,12 @@ async fn delete_s3_file_from_app(
         ))?
     };
 
-    let s3_client = windmill_object_store::build_object_store_client(&s3_resource).await?;
+    let s3_client = if is_workspace_storage {
+        windmill_object_store::fork_store::workspace_object_store(&db, &w_id, None, &s3_resource)
+            .await?
+    } else {
+        windmill_object_store::build_object_store_client(&s3_resource).await?
+    };
 
     s3_client.delete(&path).await.map_err(|err| {
         tracing::error!("Error deleting file: {:?}", err);
