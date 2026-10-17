@@ -229,10 +229,7 @@ exit $exit_status
     let mut reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
-    if annotation.no_network {
-        // Useless without network, and the script could still hand it out through its result.
-        reserved_variables.remove("WM_TOKEN");
-    }
+    crate::strip_no_network_token(&mut reserved_variables, annotation.no_network);
 
     let args = build_args_map(job, client, conn).await?.map(Json);
     let job_args = if args.is_some() {

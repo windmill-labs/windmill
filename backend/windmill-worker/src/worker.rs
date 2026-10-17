@@ -1068,6 +1068,17 @@ pub fn runs_no_network_in_jail(language: Option<ScriptLang>, content: &str) -> b
     }
 }
 
+/// Drops `WM_TOKEN` from a `no_network` run step's env: it is useless without network, and
+/// the script could still hand it out through its result.
+pub fn strip_no_network_token(
+    reserved_variables: &mut std::collections::HashMap<String, String>,
+    no_network: bool,
+) {
+    if no_network {
+        reserved_variables.remove("WM_TOKEN");
+    }
+}
+
 /// `clone_newnet` for a run step's nsjail profile.
 pub fn nsjail_clone_newnet(no_network: bool) -> &'static str {
     if no_network {
@@ -1095,7 +1106,8 @@ pub async fn get_run_proxy_envs(
 
 #[cfg(test)]
 mod no_network_tests {
-    use super::no_network_refusal;
+    use super::{no_network_refusal, runs_no_network_in_jail};
+    use windmill_common::scripts::ScriptLang;
 
     #[test]
     fn no_network_runs_only_in_an_available_jail() {
@@ -1104,6 +1116,26 @@ mod no_network_tests {
         assert!(no_network_refusal(true, false, true).is_err());
         assert!(no_network_refusal(true, true, false).is_err());
         assert!(no_network_refusal(true, false, false).is_err());
+    }
+
+    #[test]
+    fn dedicated_workers_leave_jailed_no_network_scripts() {
+        let py = Some(ScriptLang::Python3);
+        let bun = Some(ScriptLang::Bun);
+        assert!(runs_no_network_in_jail(
+            py,
+            "# no_network\ndef main(): pass"
+        ));
+        assert!(!runs_no_network_in_jail(py, "def main(): pass"));
+        assert!(runs_no_network_in_jail(
+            bun,
+            "// no_network\nexport function main() {}"
+        ));
+        // Native scripts take their network away inside the isolate.
+        assert!(!runs_no_network_in_jail(
+            bun,
+            "//native\n//no_network\nexport function main() {}"
+        ));
     }
 }
 

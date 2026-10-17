@@ -1086,10 +1086,7 @@ except BaseException as e:
 
     let mut reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
-    if annotations.no_network {
-        // Useless without network, and the script could still hand it out through its result.
-        reserved_variables.remove("WM_TOKEN");
-    }
+    crate::strip_no_network_token(&mut reserved_variables, annotations.no_network);
 
     // Add /tmp/windmill/cache/python_x_y_z/global-site-packages to PYTHONPATH.
     // Usefull if certain wheels needs to be preinstalled before execution.

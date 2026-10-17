@@ -819,10 +819,7 @@ pub async fn handle_docker_v2_job(
         "BASE_INTERNAL_URL".to_string(),
         base_internal_url.to_string(),
     );
-    if no_network {
-        // Useless without network, and the script could still hand it out through its result.
-        reserved_variables.remove("WM_TOKEN");
-    }
+    crate::strip_no_network_token(&mut reserved_variables, no_network);
 
     let proxy_envs = get_run_proxy_envs(
         &ScriptLang::Bash,

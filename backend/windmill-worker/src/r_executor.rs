@@ -607,10 +607,7 @@ async fn run<'a>(
 ) -> Result<(), Error> {
     let mut reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?;
-    if no_network {
-        // Useless without network, and the script could still hand it out through its result.
-        reserved_variables.remove("WM_TOKEN");
-    }
+    crate::strip_no_network_token(&mut reserved_variables, no_network);
 
     let child = if nsjail {
         append_logs(

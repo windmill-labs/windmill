@@ -2295,10 +2295,7 @@ try {{
         write_wrapper_f,
         write_loader_f
     )?;
-    if jail_no_network {
-        // Useless without network, and the script could still hand it out through its result.
-        reserved_variables.remove("WM_TOKEN");
-    }
+    crate::strip_no_network_token(&mut reserved_variables, jail_no_network);
 
     // For WAC v2, write checkpoint.json before bun runs
     if is_wac_v2 {
