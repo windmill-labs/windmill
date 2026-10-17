@@ -358,6 +358,15 @@ lazy_static::lazy_static! {
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
 
+    /// Runs Bun scripts' dependency installs (bun and `//npm`) outside nsjail even when
+    /// sandboxing is on, for a worker whose installs need host files the install jail
+    /// does not mount (keys for private git dependencies, a package cache outside HOME).
+    /// The run step stays jailed; the installs' lifecycle scripts see the worker again.
+    pub static ref DISABLE_BUN_INSTALL_SANDBOX: bool = std::env::var("DISABLE_BUN_INSTALL_SANDBOX")
+    .ok()
+    .and_then(|x| x.parse::<bool>().ok())
+    .unwrap_or(false);
+
     /// Per-language override for the nsjail `rlimit_as` (virtual address space) cap.
     /// Value is in MiB, or `unlimited`/`none`/`inf`/`0` to uncap. Unset keeps the
     /// historical default baked into the proto. See `render_nsjail_rlimit_as`.

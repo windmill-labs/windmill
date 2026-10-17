@@ -639,6 +639,7 @@ pub fn parse_allowed_origins_setting(
 
 pub const ENV_SETTINGS: &[&str] = &[
     "DISABLE_NSJAIL",
+    "DISABLE_BUN_INSTALL_SANDBOX",
     "MODE",
     "NUM_WORKERS",
     "METRICS_ADDR",
