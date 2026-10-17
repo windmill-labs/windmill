@@ -37,8 +37,8 @@ use windmill_ai::providers::{
     },
 };
 use windmill_ai::proxy::{
-    fim::maybe_transform_fim_request, proxy_execution_mode, ProxyBuildArgs, ProxyExecutionMode,
-    ProxyRequest,
+    fim::maybe_transform_fim_request, proxy_execution_mode, validate_proxy_path, ProxyBuildArgs,
+    ProxyExecutionMode, ProxyRequest,
 };
 use windmill_ai::retry::send_with_retries;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
@@ -1103,6 +1103,7 @@ async fn global_proxy(
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
+    validate_proxy_path(&ai_path)?;
     let provider = headers
         .get("X-Provider")
         .map(|v| v.to_str().unwrap_or("").to_string());
@@ -1221,6 +1222,7 @@ async fn proxy(
     headers: HeaderMap,
     mut body: Bytes,
 ) -> impl IntoResponse {
+    validate_proxy_path(&ai_path)?;
     let provider = headers
         .get("X-Provider")
         .map(|v| v.to_str().unwrap_or("").to_string());
