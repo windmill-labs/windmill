@@ -1051,11 +1051,19 @@ fn bun_staging_dir(cache_dir: &str, job_dir: &str) -> Option<BunStagingDir> {
         let dir = open_dir_nofollow(&format!("{root_fd}/{name}")).ok()?;
         let path = format!("{root_path}/{name}");
         let staging = BunStagingDir { root, dir, name, path };
+        // A jail sharing the cache can list the new dir and plant a symlink in it before
+        // the worker writes there: every file is created new, never opened as found.
+        let create_new = |path: &str| {
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)
+        };
         // The move back is a rename, which is the only test that holds: two mounts of
         // one filesystem share st_dev and still refuse it.
         let probe = staging.entry(".rename-probe");
         let probe_dst = format!("{job_dir}/.wm-staging-probe-{}", Uuid::new_v4());
-        fs::write(&probe, "").ok()?;
+        create_new(&probe).ok()?;
         let renamed = fs::rename(&probe, &probe_dst).is_ok();
         let _ = fs::remove_file(&probe_dst);
         if !renamed {
@@ -1064,7 +1072,8 @@ fn bun_staging_dir(cache_dir: &str, job_dir: &str) -> Option<BunStagingDir> {
         for f in BUN_INSTALL_INPUTS {
             let src = format!("{job_dir}/{f}");
             if fs::symlink_metadata(&src).is_ok_and(|m| m.is_file()) {
-                fs::copy(&src, staging.entry(f)).ok()?;
+                let mut out = create_new(&staging.entry(f)).ok()?;
+                std::io::copy(&mut fs::File::open(&src).ok()?, &mut out).ok()?;
             }
         }
         Some(staging)
@@ -1342,15 +1351,19 @@ pub async fn install_bun_lockfile(
         // replaces the job dir's copy, what it removed is removed there too.
         for f in BUN_INSTALL_OUTPUTS {
             let src = staging.entry(f);
-            let produced = check_install_output(&src, f)?;
             let dst = format!("{job_dir}/{f}");
             match fs::symlink_metadata(&dst) {
                 Ok(m) if m.is_dir() => tokio::fs::remove_dir_all(&dst).await?,
                 Ok(_) => tokio::fs::remove_file(&dst).await?,
                 Err(_) => {}
             }
-            if produced {
+            if fs::symlink_metadata(&src).is_ok() {
                 fs::rename(&src, &dst)?;
+                // Checked once out of the cache, where no other jail can swap it.
+                if let Err(e) = check_install_output(&dst, f) {
+                    let _ = fs::remove_file(&dst);
+                    return Err(e);
+                }
             }
         }
     } else if sandboxed {
