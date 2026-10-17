@@ -1118,37 +1118,83 @@ impl NpmFetchFallback {
     }
 }
 
-/// The fetch a failed `npm install` was refused, with npm's `Refusing to fetch` lines.
-fn npm_refused_fetch(output: &str) -> Option<(NpmFetchFallback, Vec<String>)> {
-    let output = crate::bash_executor::ANSI_ESCAPE_RE.replace_all(output, "");
-    let fallback = [NpmFetchFallback::Git, NpmFetchFallback::Remote]
-        .into_iter()
-        .find(|f| {
-            let line = format!("npm error code {}", f.error_code());
-            output.lines().any(|l| l.trim() == line)
-        })?;
-    let refused = output
-        .lines()
-        .filter_map(|l| l.trim().strip_prefix("npm error Refusing to fetch "))
-        .map(str::to_string)
-        .collect();
-    Some((fallback, refused))
+/// The job-dir folder npm writes its debug log to (`--logs-dir`). The fallback reads a refusal
+/// from there, so the install's output keeps streaming to the job log instead of being held.
+const NPM_LOGS_DIR: &str = ".wm-npm-logs";
+const NPM_LOG_READ_LIMIT: u64 = 16 * 1024 * 1024;
+const NPM_REFUSED_SPECS_SHOWN: usize = 20;
+
+/// The fetch a failed `npm install` was refused, read from the debug log npm wrote to
+/// `logs_dir`. Called once the install has exited, so no jailed process can still swap these
+/// paths; a symlink is never followed.
+fn npm_refused_fetch(logs_dir: &str) -> Option<(NpmFetchFallback, Vec<String>)> {
+    use std::io::{BufRead, Read};
+    if !fs::symlink_metadata(logs_dir).ok()?.is_dir() {
+        return None;
+    }
+    let log = fs::read_dir(logs_dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "log"))
+        .max()?;
+    let log = fs::File::open(log).ok()?.take(NPM_LOG_READ_LIMIT);
+    parse_npm_refused_fetch(std::io::BufReader::new(log).lines().map_while(|l| l.ok()))
 }
 
-/// Whether the job's `.npmrc`, the user `.npmrc` or the install env sets npm config `key`.
-fn npm_config_sets(key: &str, job_dir: &str, home: &str, envs: &HashMap<String, String>) -> bool {
-    let norm = |k: &str| k.trim().to_ascii_lowercase().replace('_', "-");
-    let in_npmrc = |path: String| {
-        fs::read_to_string(path).is_ok_and(|c| {
-            c.lines()
-                .any(|l| l.split_once('=').is_some_and(|(k, _)| norm(k) == key))
-        })
-    };
-    in_npmrc(format!("{job_dir}/{BUN_NPMRC_FILE}"))
-        || in_npmrc(format!("{home}/.npmrc"))
-        || envs
-            .keys()
-            .any(|k| norm(k).strip_prefix("npm-config-") == Some(key))
+/// npm debug log lines read `<n> error <message>`.
+fn parse_npm_refused_fetch(
+    lines: impl Iterator<Item = String>,
+) -> Option<(NpmFetchFallback, Vec<String>)> {
+    let mut fallback = None;
+    let mut refused = vec![];
+    for line in lines {
+        let Some(msg) = line
+            .split_once(' ')
+            .and_then(|(_, m)| m.strip_prefix("error "))
+        else {
+            continue;
+        };
+        if let Some(code) = msg.strip_prefix("code ") {
+            fallback = fallback.or([NpmFetchFallback::Git, NpmFetchFallback::Remote]
+                .into_iter()
+                .find(|f| f.error_code() == code.trim()));
+        } else if let Some(spec) = msg.strip_prefix("Refusing to fetch ") {
+            if refused.len() < NPM_REFUSED_SPECS_SHOWN {
+                refused.push(spec.trim().to_string());
+            }
+        }
+    }
+    fallback.map(|f| (f, refused))
+}
+
+/// Whether npm config sets `key` explicitly, from any source npm reads (global, user, project,
+/// env, including files redirected by `npm_config_userconfig` / `globalconfig`): `npm config
+/// ls` lists only those. A check that fails counts as set, so it never relaxes the policy.
+async fn npm_config_sets(key: &str, job_dir: &str, envs: &HashMap<String, String>) -> bool {
+    let output = Command::new(&*NPM_PATH)
+        .current_dir(job_dir)
+        .env_clear()
+        .envs(envs)
+        .args(["config", "ls"])
+        .stdin(Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    match tokio::time::timeout(std::time::Duration::from_secs(30), output).await {
+        Ok(Ok(o)) if o.status.success() => {
+            npm_config_ls_sets(&String::from_utf8_lossy(&o.stdout), key)
+        }
+        _ => true,
+    }
+}
+
+/// An overridden value is listed commented out (`; key = "v" ; overridden by …`): still set.
+fn npm_config_ls_sets(config_ls: &str, key: &str) -> bool {
+    let prefix = format!("{key} = ");
+    config_ls
+        .lines()
+        .any(|l| l.trim_start_matches("; ").starts_with(&prefix))
 }
 
 pub async fn install_bun_lockfile(
@@ -1183,10 +1229,14 @@ pub async fn install_bun_lockfile(
         .get("HOME")
         .cloned()
         .unwrap_or_else(|| HOME_ENV.clone());
+    let npm_logs_dir = format!("{job_dir}/{NPM_LOGS_DIR}");
+    let npm_logs_dir_flag = format!("--logs-dir={npm_logs_dir}");
     let mut args = vec!["install"];
     // A bun flag: npm 12 rejects unknown cli flags instead of warning.
     if !npm_mode {
         args.push("--save-text-lockfile");
+    } else {
+        args.push(&npm_logs_dir_flag);
     }
 
     let no_cache = !npm_mode && *BUN_NO_CACHE;
@@ -1383,13 +1433,15 @@ pub async fn install_bun_lockfile(
         package_manager.as_str()
     };
     let mut fallback_flags: Vec<String> = vec![];
-    loop {
+    let result = loop {
+        if npm_mode {
+            // Only this attempt's debug log may decide the fallback.
+            let _ = tokio::fs::remove_dir_all(&npm_logs_dir).await;
+        }
         let child_process =
             start_child_process(make_cmd(&fallback_flags), child_executable, false).await?;
-        let (result, output) = if let Some(db) = db {
-            // npm's output is captured rather than streamed: its error code decides the
-            // fetch fallback below.
-            let mut buf = String::new();
+        let result = if let Some(db) = db {
+            let mut quiet_buf = String::new();
             let result = handle_child(
                 job_id,
                 db,
@@ -1404,37 +1456,41 @@ pub async fn install_bun_lockfile(
                 None,
                 false,
                 occupancy_metrics,
-                if quiet || npm_mode {
-                    Some(&mut buf)
-                } else {
-                    None
-                },
+                if quiet { Some(&mut quiet_buf) } else { None },
                 None,
             )
             .warn_after_seconds_for(10, "bun install")
-            .await
-            .map(|_| ());
-            (result, buf)
+            .await;
+            if quiet && result.is_err() {
+                // On failure, flush suppressed install output so the user can diagnose
+                append_logs(
+                    job_id,
+                    w_id,
+                    format!("\n--- BUN INSTALL (failed) ---\n{quiet_buf}"),
+                    db,
+                )
+                .await;
+            }
+            result.map(|_| ())
         } else {
             let output = Box::into_pin(child_process.wait_with_output()).await?;
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let result = if output.status.success() {
+            if output.status.success() {
                 Ok(())
             } else {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
                 Err(error::Error::ExecutionErr(format!(
                     "bun install exited with non-zero status: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
                     output.status
                 )))
-            };
-            (result, format!("{stdout}\n{stderr}"))
+            }
         };
 
         if npm_mode && result.is_err() {
-            if let Some((fallback, refused)) = npm_refused_fetch(&output) {
+            if let Some((fallback, refused)) = npm_refused_fetch(&npm_logs_dir) {
                 let flag = format!("--{}=all", fallback.key());
                 if !fallback_flags.contains(&flag)
-                    && !npm_config_sets(fallback.key(), job_dir, &home, &install_envs)
+                    && !npm_config_sets(fallback.key(), job_dir, &install_envs).await
                 {
                     let key = fallback.key();
                     let msg = format!(
@@ -1455,24 +1511,12 @@ pub async fn install_bun_lockfile(
                 }
             }
         }
-
-        if let Some(db) = db {
-            if quiet && result.is_err() {
-                // On failure, flush suppressed install output so the user can diagnose
-                append_logs(
-                    job_id,
-                    w_id,
-                    format!("\n--- BUN INSTALL (failed) ---\n{output}"),
-                    db,
-                )
-                .await;
-            } else if npm_mode && !quiet {
-                append_logs(job_id, w_id, output, db).await;
-            }
-        }
-        result?;
-        break;
+        break result;
+    };
+    if npm_mode {
+        let _ = tokio::fs::remove_dir_all(&npm_logs_dir).await;
     }
+    result?;
 
     if let Some(staging) = staging {
         // Leave the job dir as an install in place would have: what bun wrote or kept
@@ -5277,6 +5321,37 @@ YmluYXJ5LWNvbnRlbnQ="#; // base64 encoded "binary-content"
         assert!(lock.is_none());
         assert!(!is_empty);
         assert!(!is_binary);
+    }
+
+    // Samples are npm 12.2.0 output: a format change there silently turns the fetch fallback
+    // off, or makes it override an explicit `none`.
+    #[test]
+    fn npm_fetch_fallback_reads_npm_output() {
+        let log = r#"22 verbose exit 1
+23 error code EALLOWGIT
+24 error Fetching packages of type "git" have been disabled
+25 error Refusing to fetch "wm-git-test@git+file:///work/git/wm-git-test.git"
+26 verbose exit 1"#;
+        let (fallback, refused) = parse_npm_refused_fetch(log.lines().map(str::to_string))
+            .expect("EALLOWGIT is a fetch refusal");
+        assert_eq!(fallback.key(), "allow-git");
+        assert_eq!(
+            refused,
+            [r#""wm-git-test@git+file:///work/git/wm-git-test.git""#]
+        );
+        assert!(
+            parse_npm_refused_fetch(["23 error code EJSONPARSE".to_string()].into_iter()).is_none()
+        );
+
+        let config_ls = r#"; "global" config from /usr/etc/npmrc
+; allow-git = "none" ; overridden by project
+; "project" config from /work/j/.npmrc
+allow-remote = "all"
+registry = "http://127.0.0.1:4999/"
+; npm version = 12.2.0"#;
+        assert!(npm_config_ls_sets(config_ls, "allow-git"));
+        assert!(npm_config_ls_sets(config_ls, "allow-remote"));
+        assert!(!npm_config_ls_sets(config_ls, "allow-scripts"));
     }
 
     #[test]
