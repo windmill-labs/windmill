@@ -29,8 +29,9 @@ use crate::{
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry_with_workspace_override, BUNFIG_INSTALL_SCOPES,
     BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_INSTALL_MIN_RELEASE_AGE, BUN_NO_CACHE, BUN_PATH,
-    DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPMRC, NPM_CONFIG_REGISTRY, NPM_PATH,
-    NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
+    DISABLE_BUN_INSTALL_SANDBOX, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPMRC,
+    NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::{
     cache,
@@ -1102,7 +1103,16 @@ pub async fn install_bun_lockfile(
     // The install runs the lifecycle scripts of dependencies (npm: all of them; bun: its
     // default trusted list and `trustedDependencies`), so when sandboxing is on it is
     // confined under nsjail like the run step. The env is the same either way.
-    let sandboxed = is_sandboxing_enabled();
+    let sandboxed = is_sandboxing_enabled() && !*DISABLE_BUN_INSTALL_SANDBOX;
+    if is_sandboxing_enabled() && *DISABLE_BUN_INSTALL_SANDBOX {
+        static WARNED: std::sync::Once = std::sync::Once::new();
+        WARNED.call_once(|| {
+            tracing::warn!(
+                "DISABLE_BUN_INSTALL_SANDBOX is set: Bun and npm dependency installs run \
+                 outside nsjail, with their lifecycle scripts unconfined"
+            )
+        });
+    }
     let home = common_bun_proc_envs
         .get("HOME")
         .cloned()
