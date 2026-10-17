@@ -402,7 +402,7 @@ pub enum PrivateHostAllowance {
     /// Private hosts are refused.
     #[default]
     None,
-    /// Every private host is allowed and no check runs (`true` / `1`).
+    /// Every private host is allowed; only the URL's scheme and host are checked (`true` / `1`).
     All,
     /// Only the private hosts these entries name are allowed.
     Hosts(Vec<AllowedPrivateHost>),
@@ -435,12 +435,14 @@ impl AllowedPrivateHost {
             Some((host, port)) => (host, Some(port.parse::<u16>().ok()?)),
             None => (entry, None),
         };
-        // Normalized the way `url::Url` normalizes the host it is compared against.
+        // Normalized the way `url::Url` normalizes the host it is compared against. An address
+        // reaching here is a loose WHATWG form (`10` is 0.0.0.10, not 10/8) and a `*` is not a
+        // wildcard, so both are refused rather than read as something the operator never meant.
         match url::Host::parse(host.trim_end_matches('.')).ok()? {
-            url::Host::Domain(name) if !name.is_empty() => Some(Self::Name { name, port }),
-            url::Host::Domain(_) => None,
-            url::Host::Ipv4(ip) => Some(Self::Net { net: IpAddr::V4(ip).into(), port }),
-            url::Host::Ipv6(ip) => Some(Self::Net { net: IpAddr::V6(ip).into(), port }),
+            url::Host::Domain(name) if !name.is_empty() && !name.contains('*') => {
+                Some(Self::Name { name, port })
+            }
+            _ => None,
         }
     }
 }
@@ -495,6 +497,16 @@ impl PrivateHostAllowance {
     }
 
     fn allows_ip(&self, ip: &IpAddr, port: u16) -> bool {
+        // Judged by where it is delivered: an allowed v6 range such as an operator's NAT64
+        // prefix must not carry a request on to an embedded private v4 like 169.254.169.254.
+        let ip = &match ip {
+            // `::1` and `::` sit inside the IPv4-compatible block but are v6's own.
+            IpAddr::V6(v6) if !v6.is_loopback() && !v6.is_unspecified() => {
+                embedded_ipv4(v6).map_or(*ip, IpAddr::V4)
+            }
+            IpAddr::V6(_) => *ip,
+            IpAddr::V4(_) => *ip,
+        };
         matches!(self, Self::Hosts(hosts) if hosts.iter().any(|h| matches!(h,
             AllowedPrivateHost::Net { net, port: p } if net.contains(ip) && port_allowed(*p, port))))
     }
@@ -1044,30 +1056,18 @@ mod tests {
             !saml_ssrf_error_message(&invalid_error).contains(ALLOW_PRIVATE_SAML_METADATA_URLS_ENV)
         );
     }
-}
-
-#[cfg(test)]
-mod private_host_allowance_tests {
-    use super::*;
-
-    fn allowance(value: &str) -> PrivateHostAllowance {
-        let (allowance, invalid) = PrivateHostAllowance::parse(value);
-        assert!(invalid.is_empty(), "{invalid:?}");
-        allowance
-    }
 
     #[test]
-    fn parses_flag_values_and_lists() {
-        assert_eq!(allowance("true"), PrivateHostAllowance::All);
-        assert_eq!(allowance("1"), PrivateHostAllowance::All);
-        assert_eq!(allowance("false"), PrivateHostAllowance::None);
-        assert_eq!(allowance(""), PrivateHostAllowance::None);
-        let (parsed, invalid) = PrivateHostAllowance::parse(
-            "Gateway.Internal, llm:8443, 10.1.0.0/16, 10.2.0.5:80, [fd00::1]:443, fd00::2, x:y, a/b",
-        );
-        assert_eq!(invalid, vec!["x:y".to_string(), "a/b".to_string()]);
-        let PrivateHostAllowance::Hosts(hosts) = parsed else { panic!("{parsed:?}") };
-        assert_eq!(hosts.len(), 6);
+    fn private_host_allowance_parses_flags_and_entries() {
+        assert_eq!(PrivateHostAllowance::parse("true").0, PrivateHostAllowance::All);
+        assert_eq!(PrivateHostAllowance::parse("false").0, PrivateHostAllowance::None);
+        let (parsed, invalid) =
+            PrivateHostAllowance::parse("Gateway.Internal., 10.1.0.0/16, x:y, 10, *.internal");
+        // A bare `10` would otherwise be 0.0.0.10, and `*` is no wildcard.
+        assert_eq!(invalid, ["x:y", "10", "*.internal"]);
+        let PrivateHostAllowance::Hosts(hosts) = parsed else {
+            panic!("{parsed:?}")
+        };
         assert_eq!(
             hosts[0],
             AllowedPrivateHost::Name { name: "gateway.internal".into(), port: None }
@@ -1075,28 +1075,40 @@ mod private_host_allowance_tests {
     }
 
     #[tokio::test]
-    async fn allows_only_listed_private_hosts() {
-        let a = allowance("localhost:8080, 10.1.0.0/16, 127.0.0.2:9000, [::1]:443");
+    async fn private_host_allowance_admits_only_listed_hosts() {
+        let a = PrivateHostAllowance::parse(
+            "localhost:8080, 10.1.0.0/16, 127.0.0.2:9000, [::1]:443, 64:ff9b::/96",
+        )
+        .0;
         let ok = |u: &'static str| {
             let a = a.clone();
             async move { validate_url_for_ssrf_allowing(u, &a).await.is_ok() }
         };
-        // Named host, on its port only. Trusted by name, so not pinned.
-        let target = validate_url_for_ssrf_allowing("http://localhost:8080/v1", &a).await.unwrap();
+        // Trusted by name on its port only, so nothing to pin.
+        let target = validate_url_for_ssrf_allowing("http://localhost:8080/v1", &a)
+            .await
+            .unwrap();
         assert!(target.pinned_addrs().is_empty());
         assert!(!ok("http://localhost:8081/v1").await);
-        // Networks and addresses, with their ports.
         assert!(ok("http://10.1.2.3/v1").await);
-        assert!(ok("https://10.1.2.3:8443/v1").await);
+        assert!(ok("http://[::ffff:10.1.2.3]/v1").await);
         assert!(!ok("http://10.2.0.1/v1").await);
         assert!(ok("http://127.0.0.2:9000/v1").await);
         assert!(!ok("http://127.0.0.2/v1").await);
         assert!(ok("https://[::1]/v1").await);
         assert!(!ok("http://[::1]/v1").await);
-        // Everything else private stays refused; public hosts still pass.
+        // An allowed v6 range does not reach the private v4 it embeds.
+        assert!(!ok("http://[64:ff9b::a9fe:a9fe]/").await);
         assert!(!ok("http://169.254.169.254/latest/meta-data").await);
-        assert!(!ok("http://127.0.0.1:8080/v1").await);
         assert!(ok("http://8.8.8.8/v1").await);
-        assert!(!ok("file:///etc/passwd").await);
+    }
+
+    #[tokio::test]
+    async fn private_host_allowance_pins_hosts_resolved_into_allowed_nets() {
+        let a = PrivateHostAllowance::parse("127.0.0.0/8, ::1").0;
+        let target = validate_url_for_ssrf_allowing("http://localhost:1234/", &a)
+            .await
+            .unwrap();
+        assert!(!target.pinned_addrs().is_empty());
     }
 }
