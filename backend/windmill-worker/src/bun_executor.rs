@@ -767,8 +767,6 @@ fn install_home_mount_block(home: &str, npm_mode: bool, tmpfs_size_bytes: &str) 
     block
 }
 
-/// Custom CA bundles the install is pointed at live outside the jail's mounts: bind them
-/// in, read-only, so TLS to a private registry keeps working.
 /// An `.npmrc` value as npm reads it: `${VAR}` from the install env, and a leading `~/`
 /// as HOME. Without it, a `cafile=~/…` or `${HOME}/…` is never mounted and the jail's
 /// private HOME hides the certificate.
@@ -791,6 +789,8 @@ fn expand_npmrc_value(value: &str, home: &str, envs: &HashMap<String, String>) -
     }
 }
 
+/// TLS files the install is pointed at (CA bundles, registry client certificates) live
+/// outside the jail's mounts: bind them in, read-only, so private registries keep working.
 fn install_ca_mounts(job_dir: &str, home: &str, envs: &HashMap<String, String>) -> String {
     const CA_ENVS: [&str; 4] = [
         "NODE_EXTRA_CA_CERTS",
@@ -798,13 +798,18 @@ fn install_ca_mounts(job_dir: &str, home: &str, envs: &HashMap<String, String>) 
         "SSL_CERT_DIR",
         "NPM_CONFIG_CAFILE",
     ];
+    // Also registry-scoped (`//host/:certfile=`), hence the match on the last segment.
+    const TLS_FILE_KEYS: [&str; 3] = ["cafile", "certfile", "keyfile"];
     let from_env = crate::worker::WHITELIST_ENVS
         .iter()
         .filter(|(k, _)| CA_ENVS.iter().any(|c| c.eq_ignore_ascii_case(k)))
         .map(|(_, v)| v.trim().to_string());
-    let from_npmrc = [
+    // `.npmrc` lines and bunfig's `[install] cafile = "…"` share the `key = value` shape.
+    let from_config = [
         format!("{job_dir}/{BUN_NPMRC_FILE}"),
         format!("{home}/.npmrc"),
+        format!("{job_dir}/{BUN_CONFIG_FILE}"),
+        format!("{home}/.bunfig.toml"),
     ]
     .into_iter()
     .filter_map(|f| fs::read_to_string(f).ok())
@@ -813,14 +818,16 @@ fn install_ca_mounts(job_dir: &str, home: &str, envs: &HashMap<String, String>) 
             .lines()
             .filter_map(|l| {
                 let (k, v) = l.split_once('=')?;
-                k.trim()
-                    .eq_ignore_ascii_case("cafile")
-                    .then(|| expand_npmrc_value(v.trim().trim_matches('"'), home, envs))
+                let key = k.trim().rsplit(':').next()?;
+                TLS_FILE_KEYS
+                    .iter()
+                    .any(|t| t.eq_ignore_ascii_case(key))
+                    .then(|| expand_npmrc_value(v.trim().trim_matches(['"', '\'']), home, envs))
             })
             .collect::<Vec<_>>()
     });
     from_env
-        .chain(from_npmrc)
+        .chain(from_config)
         .filter(|p| !p.is_empty())
         .unique()
         .map(|p| optional_bind_mount(&p, false))
@@ -828,14 +835,27 @@ fn install_ca_mounts(job_dir: &str, home: &str, envs: &HashMap<String, String>) 
 }
 
 /// The files `bun install` reads from, and writes to, the directory it installs in.
-const BUN_INSTALL_INPUTS: [&str; 5] = [
-    "package.json",
-    "bun.lock",
-    "bun.lockb",
-    BUN_CONFIG_FILE,
-    BUN_NPMRC_FILE,
-];
+const BUN_INSTALL_INPUTS: [&str; 3] = ["package.json", "bun.lock", "bun.lockb"];
 const BUN_INSTALL_OUTPUTS: [&str; 3] = ["node_modules", "bun.lock", "bun.lockb"];
+/// Registry configuration bun reads from the install dir. It can hold an auth token, so
+/// a staged install gets it bind-mounted read-only from the job dir instead of a copy in
+/// the cache, which every later install jail mounts.
+const BUN_REGISTRY_FILES: [&str; 2] = [BUN_CONFIG_FILE, BUN_NPMRC_FILE];
+
+/// Delete a directory tree without blocking the async worker thread: a staging dir can
+/// hold a whole node_modules.
+fn remove_dir_detached(dir: std::path::PathBuf) {
+    match tokio::runtime::Handle::try_current() {
+        Ok(rt) => {
+            rt.spawn_blocking(move || {
+                let _ = fs::remove_dir_all(dir);
+            });
+        }
+        Err(_) => {
+            let _ = fs::remove_dir_all(dir);
+        }
+    }
+}
 
 /// A directory for one jailed bun install inside the bun cache, removed when dropped.
 ///
@@ -846,7 +866,7 @@ struct BunStagingDir(String);
 
 impl Drop for BunStagingDir {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
+        remove_dir_detached(std::mem::take(&mut self.0).into());
     }
 }
 
@@ -854,17 +874,32 @@ impl Drop for BunStagingDir {
 /// worker killed mid-install leaves it behind. Well past the longest install.
 const BUN_STAGING_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
 
-/// None when the cache is on another filesystem than the job dir: node_modules could
-/// only be moved back by a copy, which is what installing in the job dir costs anyway.
+/// None when node_modules could not be renamed from the cache into the job dir (another
+/// filesystem, or another mount of the same one): moving it back would be a copy, which
+/// is what installing in the job dir costs anyway. Also None when the manifest or lock
+/// may point at other files of the job dir (local `file:`/`link:` packages, workspaces,
+/// patches), which only [`BUN_INSTALL_INPUTS`] are copied next to.
 fn bun_staging_dir(job_dir: &str) -> Option<BunStagingDir> {
     #[cfg(unix)]
     {
-        use std::os::unix::fs::MetadataExt;
+        const LOCAL_REFS: [&str; 4] = [
+            "\"file:",
+            "\"link:",
+            "\"workspace:",
+            "\"patchedDependencies\"",
+        ];
+        // Every text lockfile has a root `"workspaces"` entry: only the manifest's counts.
+        for (f, workspaces_key) in [("package.json", true), ("bun.lock", false)] {
+            if let Ok(content) = fs::read_to_string(format!("{job_dir}/{f}")) {
+                if LOCAL_REFS.iter().any(|r| content.contains(r))
+                    || (workspaces_key && content.contains("\"workspaces\""))
+                {
+                    return None;
+                }
+            }
+        }
         let root = format!("{}/.wm-staging", *BUN_CACHE_DIR);
         fs::create_dir_all(&root).ok()?;
-        if fs::metadata(&root).ok()?.dev() != fs::metadata(job_dir).ok()?.dev() {
-            return None;
-        }
         if let Ok(entries) = fs::read_dir(&root) {
             for e in entries.flatten() {
                 let stale = e
@@ -874,13 +909,23 @@ fn bun_staging_dir(job_dir: &str) -> Option<BunStagingDir> {
                     .and_then(|t| t.elapsed().ok())
                     .is_some_and(|age| age > BUN_STAGING_MAX_AGE);
                 if stale {
-                    let _ = fs::remove_dir_all(e.path());
+                    remove_dir_detached(e.path());
                 }
             }
         }
         let dir = format!("{root}/{}", Uuid::new_v4());
         fs::create_dir(&dir).ok()?;
         let staging = BunStagingDir(dir);
+        // The move back is a rename, which is the only test that holds: two mounts of
+        // one filesystem share st_dev and still refuse it.
+        let probe = format!("{}/.rename-probe", staging.0);
+        let probe_dst = format!("{job_dir}/.wm-staging-probe-{}", Uuid::new_v4());
+        fs::write(&probe, "").ok()?;
+        let renamed = fs::rename(&probe, &probe_dst).is_ok();
+        let _ = fs::remove_file(&probe_dst);
+        if !renamed {
+            return None;
+        }
         for f in BUN_INSTALL_INPUTS {
             let src = format!("{job_dir}/{f}");
             if fs::symlink_metadata(&src).is_ok_and(|m| m.is_file()) {
@@ -1035,28 +1080,43 @@ pub async fn install_bun_lockfile(
 
     let mut staging = None;
     if sandboxed {
-        if !npm_mode {
+        // Bind-mounted into the jail, so they must exist before nsjail builds the mount
+        // tree.
+        if npm_mode {
+            let _ = std::fs::create_dir_all(format!("{home}/.npm"));
+        } else {
+            std::fs::create_dir_all(&*BUN_CACHE_DIR)?;
             staging = bun_staging_dir(job_dir);
         }
         let install_dir = staging.as_ref().map_or(job_dir, |s| s.0.as_str());
-        let install_dir_mount = if staging.is_some() {
-            String::new()
-        } else {
+        let bind = |src: &str, dst: &str, rw: bool| {
             format!(
-                "mount {{\n    src: \"{job_dir}\"\n    dst: \"{job_dir}\"\n    is_bind: true\n    rw: true\n}}"
+                "mount {{\n    src: \"{src}\"\n    dst: \"{dst}\"\n    is_bind: true\n    rw: {rw}\n}}\n"
             )
         };
+        // npm never reads the bun cache, and its install scripts get no write to it.
+        let mut install_mounts = if npm_mode {
+            String::new()
+        } else {
+            bind(&BUN_CACHE_DIR, &BUN_CACHE_DIR, true)
+        };
+        match staging.as_ref() {
+            // After the cache bind: these land inside it.
+            Some(s) => {
+                for f in BUN_REGISTRY_FILES {
+                    let src = format!("{job_dir}/{f}");
+                    if fs::symlink_metadata(&src).is_ok_and(|m| m.is_file()) {
+                        install_mounts.push_str(&bind(&src, &format!("{}/{f}", s.0), false));
+                    }
+                }
+            }
+            None => install_mounts.push_str(&bind(job_dir, job_dir, true)),
+        }
         let install_envs: HashMap<String, String> = child_cmd
             .as_std()
             .get_envs()
             .filter_map(|(k, v)| Some((k.to_str()?.to_string(), v?.to_str()?.to_string())))
             .collect();
-        // Both are bind-mounted into the jail, so they must exist before nsjail builds
-        // the mount tree.
-        std::fs::create_dir_all(&*BUN_CACHE_DIR)?;
-        if npm_mode {
-            let _ = std::fs::create_dir_all(format!("{home}/.npm"));
-        }
         let nsjail_timeout = match db {
             Some(conn) => resolve_nsjail_timeout(conn, w_id, *job_id, None).await,
             // no job to bound it: the caller waits for the install unbounded too
@@ -1067,9 +1127,8 @@ pub async fn install_bun_lockfile(
             "install.config.proto",
             &NSJAIL_CONFIG_INSTALL_BUN_CONTENT
                 .replace("{TIMEOUT}", &nsjail_timeout)
-                .replace("{INSTALL_DIR_MOUNT}", &install_dir_mount)
+                .replace("{INSTALL_MOUNTS}", &install_mounts)
                 .replace("{INSTALL_DIR}", install_dir)
-                .replace("{BUN_CACHE_DIR}", &*BUN_CACHE_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace(
                     "{HOME_MOUNT_BLOCK}",
@@ -1149,8 +1208,8 @@ pub async fn install_bun_lockfile(
             let src = format!("{}/{f}", staging.0);
             let dst = format!("{job_dir}/{f}");
             match fs::symlink_metadata(&dst) {
-                Ok(m) if m.is_dir() => fs::remove_dir_all(&dst)?,
-                Ok(_) => fs::remove_file(&dst)?,
+                Ok(m) if m.is_dir() => tokio::fs::remove_dir_all(&dst).await?,
+                Ok(_) => tokio::fs::remove_file(&dst).await?,
                 Err(_) => {}
             }
             if fs::symlink_metadata(&src).is_ok() {
