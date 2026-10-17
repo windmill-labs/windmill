@@ -20,11 +20,15 @@ pub struct ProxyBuildArgs<'a> {
 }
 
 /// Refuses a client-supplied proxy path that could resolve outside the provider's base
-/// path once appended to it. URL parsing treats `\` as `/`, drops tabs and newlines, and
-/// reads `%2e` as a dot, so `.\t./`, `..\` and `%2e%2e/` all climb a segment like `../`.
+/// path once appended to it. URL parsing treats `\` as `/`, drops tabs and newlines, trims
+/// spaces, ends the path at `?` or `#`, and reads `%2e` as a dot, so `.\t./`, `..\`, `.. `,
+/// `..?x` and `%2e%2e/` all climb a segment like `../`.
 pub fn validate_proxy_path(path: &str) -> Result<()> {
     let invalid = || Error::BadRequest(format!("Invalid AI proxy path: {path}"));
-    if path.chars().any(|c| c == '\\' || c.is_control()) {
+    if path
+        .chars()
+        .any(|c| matches!(c, '\\' | ' ' | '?' | '#') || c.is_control())
+    {
         return Err(invalid());
     }
     for segment in path.split('/') {
@@ -310,6 +314,10 @@ mod tests {
             "..\\key/info",
             ".\t./key/info",
             "..\n/key/info",
+            ".. ",
+            "..?x=1",
+            "..#f",
+            "%2e%2e?x",
         ] {
             assert!(validate_proxy_path(path).is_err(), "{path:?}");
         }
