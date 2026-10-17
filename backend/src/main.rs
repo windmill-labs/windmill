@@ -849,6 +849,8 @@ async fn windmill_main() -> anyhow::Result<()> {
     let worker_mode = num_workers > 0;
 
     if worker_mode {
+        windmill_common::worker::warn_secret_shaped_whitelist_envs();
+
         #[cfg(any(target_os = "linux"))]
         if let Err(e) = disable_oom_group() {
             tracing::warn!(
