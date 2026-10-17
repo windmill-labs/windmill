@@ -41,7 +41,7 @@ use windmill_common::{
     min_version::MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2,
     scripts::{id_to_codebase_info, CodebaseInfo, ScriptHash, ScriptLang},
     utils::WarnAfterExt,
-    workspace_dependencies::WorkspaceDependenciesPrefetched,
+    workspace_dependencies::{clean_lock_from_annotations, WorkspaceDependenciesPrefetched},
 };
 use windmill_types::s3::BundleFormat;
 
@@ -1087,6 +1087,118 @@ fn bun_staging_dir(cache_dir: &str, job_dir: &str) -> Option<BunStagingDir> {
     }
 }
 
+/// A fetch npm 12 refuses by default but npm 11 made. Windmill still allows it, for now, when
+/// the install's config does not set the key either way.
+#[derive(Clone, Copy)]
+enum NpmFetchFallback {
+    Git,
+    Remote,
+}
+
+impl NpmFetchFallback {
+    fn key(self) -> &'static str {
+        match self {
+            Self::Git => "allow-git",
+            Self::Remote => "allow-remote",
+        }
+    }
+
+    fn error_code(self) -> &'static str {
+        match self {
+            Self::Git => "EALLOWGIT",
+            Self::Remote => "EALLOWREMOTE",
+        }
+    }
+
+    fn what(self) -> &'static str {
+        match self {
+            Self::Git => "git dependencies",
+            Self::Remote => "dependency tarballs hosted outside the configured registry",
+        }
+    }
+}
+
+/// The job-dir folder npm writes its debug log to (`--logs-dir`). The fallback reads a refusal
+/// from there, so the install's output keeps streaming to the job log instead of being held.
+const NPM_LOGS_DIR: &str = ".wm-npm-logs";
+const NPM_LOG_READ_LIMIT: u64 = 16 * 1024 * 1024;
+const NPM_REFUSED_SPECS_SHOWN: usize = 20;
+
+/// The fetch a failed `npm install` was refused, read from the debug log npm wrote to
+/// `logs_dir`. Called once the install has exited, so no jailed process can still swap these
+/// paths; a symlink is never followed.
+fn npm_refused_fetch(logs_dir: &str) -> Option<(NpmFetchFallback, Vec<String>)> {
+    use std::io::{BufRead, Read};
+    if !fs::symlink_metadata(logs_dir).ok()?.is_dir() {
+        return None;
+    }
+    let log = fs::read_dir(logs_dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "log"))
+        .max()?;
+    let log = fs::File::open(log).ok()?.take(NPM_LOG_READ_LIMIT);
+    parse_npm_refused_fetch(std::io::BufReader::new(log).lines().map_while(|l| l.ok()))
+}
+
+/// npm debug log lines read `<n> error <message>`.
+fn parse_npm_refused_fetch(
+    lines: impl Iterator<Item = String>,
+) -> Option<(NpmFetchFallback, Vec<String>)> {
+    let mut fallback = None;
+    let mut refused = vec![];
+    for line in lines {
+        let Some(msg) = line
+            .split_once(' ')
+            .and_then(|(_, m)| m.strip_prefix("error "))
+        else {
+            continue;
+        };
+        if let Some(code) = msg.strip_prefix("code ") {
+            fallback = fallback.or([NpmFetchFallback::Git, NpmFetchFallback::Remote]
+                .into_iter()
+                .find(|f| f.error_code() == code.trim()));
+        } else if let Some(spec) = msg.strip_prefix("Refusing to fetch ") {
+            if refused.len() < NPM_REFUSED_SPECS_SHOWN {
+                refused.push(spec.trim().to_string());
+            }
+        }
+    }
+    fallback.map(|f| (f, refused))
+}
+
+/// Whether npm config sets `key` explicitly, from any source npm reads (global, user, project,
+/// env, including files redirected by `npm_config_userconfig` / `globalconfig`): `npm config
+/// ls` lists only those. A check that fails counts as set, so it never relaxes the policy.
+async fn npm_config_sets(key: &str, job_dir: &str, envs: &HashMap<String, String>) -> bool {
+    let output = Command::new(&*NPM_PATH)
+        .current_dir(job_dir)
+        .env_clear()
+        .envs(envs)
+        // The config can set `json` or `long`: JSON output hides an explicit value from
+        // `npm_config_ls_sets`, and `long` also lists npm's defaults.
+        .args(["config", "ls", "--json=false", "--long=false"])
+        .stdin(Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    match tokio::time::timeout(std::time::Duration::from_secs(30), output).await {
+        Ok(Ok(o)) if o.status.success() => {
+            npm_config_ls_sets(&String::from_utf8_lossy(&o.stdout), key)
+        }
+        _ => true,
+    }
+}
+
+/// An overridden value is listed commented out (`; key = "v" ; overridden by …`): still set.
+fn npm_config_ls_sets(config_ls: &str, key: &str) -> bool {
+    let prefix = format!("{key} = ");
+    config_ls
+        .lines()
+        .any(|l| l.trim_start_matches("; ").starts_with(&prefix))
+}
+
 pub async fn install_bun_lockfile(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -1101,9 +1213,10 @@ pub async fn install_bun_lockfile(
     quiet: bool,
 ) -> Result<()> {
     let package_manager = if npm_mode { &*NPM_PATH } else { &*BUN_PATH };
-    // The install runs the lifecycle scripts of dependencies (npm: all of them; bun: its
-    // default trusted list and `trustedDependencies`), so when sandboxing is on it is
-    // confined under nsjail like the run step. The env is the same either way.
+    // The install runs the lifecycle scripts of dependencies (npm >= 12: those its allowScripts
+    // policy covers; bun: its default trusted list and `trustedDependencies`), so when
+    // sandboxing is on it is confined under nsjail like the run step. The env is the same
+    // either way.
     let sandboxed = is_sandboxing_enabled() && !*DISABLE_BUN_INSTALL_SANDBOX;
     if is_sandboxing_enabled() && *DISABLE_BUN_INSTALL_SANDBOX {
         static WARNED: std::sync::Once = std::sync::Once::new();
@@ -1118,18 +1231,14 @@ pub async fn install_bun_lockfile(
         .get("HOME")
         .cloned()
         .unwrap_or_else(|| HOME_ENV.clone());
-    let mut child_cmd = if sandboxed {
-        let mut cmd = Command::new(NSJAIL_PATH.as_str());
-        cmd.args(["--config", "install.config.proto", "--", package_manager]);
-        cmd
-    } else {
-        Command::new(package_manager)
-    };
-
+    let npm_logs_dir = format!("{job_dir}/{NPM_LOGS_DIR}");
+    let npm_logs_dir_flag = format!("--logs-dir={npm_logs_dir}");
     let mut args = vec!["install"];
     // A bun flag: npm 12 rejects unknown cli flags instead of warning.
     if !npm_mode {
         args.push("--save-text-lockfile");
+    } else {
+        args.push(&npm_logs_dir_flag);
     }
 
     let no_cache = !npm_mode && *BUN_NO_CACHE;
@@ -1138,19 +1247,7 @@ pub async fn install_bun_lockfile(
         args.push("--no-cache");
     }
 
-    child_cmd
-        .current_dir(job_dir)
-        .env_clear()
-        .envs(PROXY_ENVS.clone())
-        .envs(common_bun_proc_envs)
-        .envs(&*crate::worker::WHITELIST_ENVS)
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    #[cfg(windows)]
-    child_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
-
+    let mut registry_env = None;
     let mut npm_logs = if npm_mode {
         "NPM mode\n".to_string()
     } else if no_cache {
@@ -1212,7 +1309,7 @@ pub async fn install_bun_lockfile(
                     }
                 ));
 
-                child_cmd.env("NPM_CONFIG_REGISTRY", custom_registry);
+                registry_env = Some(custom_registry.to_string());
                 write_file(job_dir, ".npmrc", content)?;
                 true
             } else {
@@ -1232,6 +1329,36 @@ pub async fn install_bun_lockfile(
     if !has_file {
         gen_bunfig(job_dir, job_id, w_id, db).await?;
     }
+
+    let make_cmd = |extra_args: &[String]| {
+        let mut cmd = if sandboxed {
+            let mut cmd = Command::new(NSJAIL_PATH.as_str());
+            cmd.args(["--config", "install.config.proto", "--", package_manager]);
+            cmd
+        } else {
+            Command::new(package_manager)
+        };
+        cmd.current_dir(job_dir)
+            .env_clear()
+            .envs(PROXY_ENVS.clone())
+            .envs(&common_bun_proc_envs)
+            .envs(&*crate::worker::WHITELIST_ENVS);
+        if let Some(registry) = registry_env.as_ref() {
+            cmd.env("NPM_CONFIG_REGISTRY", registry);
+        }
+        cmd.args(&args)
+            .args(extra_args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        #[cfg(windows)]
+        cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+        cmd
+    };
+    let install_envs: HashMap<String, String> = make_cmd(&[])
+        .as_std()
+        .get_envs()
+        .filter_map(|(k, v)| Some((k.to_str()?.to_string(), v?.to_str()?.to_string())))
+        .collect();
 
     let mut staging = None;
     if sandboxed {
@@ -1268,11 +1395,6 @@ pub async fn install_bun_lockfile(
             }
             None => install_mounts.push_str(&bind(job_dir, job_dir, true)),
         }
-        let install_envs: HashMap<String, String> = child_cmd
-            .as_std()
-            .get_envs()
-            .filter_map(|(k, v)| Some((k.to_str()?.to_string(), v?.to_str()?.to_string())))
-            .collect();
         let nsjail_timeout = match db {
             Some(conn) => resolve_nsjail_timeout(conn, w_id, *job_id, None).await,
             // no job to bound it: the caller waits for the install unbounded too
@@ -1312,50 +1434,91 @@ pub async fn install_bun_lockfile(
     } else {
         package_manager.as_str()
     };
-    let child_process = start_child_process(child_cmd, child_executable, false).await?;
-    if let Some(db) = db {
-        let mut quiet_buf = String::new();
-        let result = handle_child(
-            job_id,
-            db,
-            mem_peak,
-            canceled_by,
-            child_process,
-            // jailed when sandboxing is on, so mem sampling finds the real process
-            sandboxed,
-            worker_name,
-            w_id,
-            "bun install",
-            None,
-            false,
-            occupancy_metrics,
-            if quiet { Some(&mut quiet_buf) } else { None },
-            None,
-        )
-        .warn_after_seconds_for(10, "bun install")
-        .await;
-        if quiet && result.is_err() {
-            // On failure, flush suppressed install output so the user can diagnose
-            append_logs(
+    let mut fallback_flags: Vec<String> = vec![];
+    let result = loop {
+        if npm_mode {
+            // Only this attempt's debug log may decide the fallback.
+            let _ = tokio::fs::remove_dir_all(&npm_logs_dir).await;
+        }
+        let child_process =
+            start_child_process(make_cmd(&fallback_flags), child_executable, false).await?;
+        let result = if let Some(db) = db {
+            let mut quiet_buf = String::new();
+            let result = handle_child(
                 job_id,
-                w_id,
-                format!("\n--- BUN INSTALL (failed) ---\n{quiet_buf}"),
                 db,
+                mem_peak,
+                canceled_by,
+                child_process,
+                // jailed when sandboxing is on, so mem sampling finds the real process
+                sandboxed,
+                worker_name,
+                w_id,
+                "bun install",
+                None,
+                false,
+                occupancy_metrics,
+                if quiet { Some(&mut quiet_buf) } else { None },
+                None,
             )
+            .warn_after_seconds_for(10, "bun install")
             .await;
+            if quiet && result.is_err() {
+                // On failure, flush suppressed install output so the user can diagnose
+                append_logs(
+                    job_id,
+                    w_id,
+                    format!("\n--- BUN INSTALL (failed) ---\n{quiet_buf}"),
+                    db,
+                )
+                .await;
+            }
+            result.map(|_| ())
+        } else {
+            let output = Box::into_pin(child_process.wait_with_output()).await?;
+            if output.status.success() {
+                Ok(())
+            } else {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                Err(error::Error::ExecutionErr(format!(
+                    "bun install exited with non-zero status: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+                    output.status
+                )))
+            }
+        };
+
+        if npm_mode && result.is_err() {
+            if let Some((fallback, refused)) = npm_refused_fetch(&npm_logs_dir) {
+                let flag = format!("--{}=all", fallback.key());
+                if !fallback_flags.contains(&flag)
+                    && !npm_config_sets(fallback.key(), job_dir, &install_envs).await
+                {
+                    let key = fallback.key();
+                    let msg = format!(
+                        "\nWARNING: npm refused {}:\n  {}\nRetrying with {key}=all, which Windmill \
+                         sets by default for now. This default will be removed in a future \
+                         release: to keep fetching them, set `{key}=all` in the npm config (the \
+                         npmrc instance or workspace setting on Enterprise Edition, or the \
+                         worker's ~/.npmrc); set `{key}=none` to stop now.\n",
+                        fallback.what(),
+                        refused.join("\n  ")
+                    );
+                    tracing::warn!(%job_id, w_id, "{}", msg.trim());
+                    if let Some(db) = db {
+                        append_logs(job_id, w_id, msg, db).await;
+                    }
+                    fallback_flags.push(flag);
+                    continue;
+                }
+            }
         }
-        result?;
-    } else {
-        let output = Box::into_pin(child_process.wait_with_output()).await?;
-        if !output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(error::Error::ExecutionErr(format!(
-                "bun install exited with non-zero status: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
-                output.status
-            )));
-        }
+        break result;
+    };
+    if npm_mode {
+        let _ = tokio::fs::remove_dir_all(&npm_logs_dir).await;
     }
+    result?;
 
     if let Some(staging) = staging {
         // Leave the job dir as an install in place would have: what bun wrote or kept
@@ -2314,7 +2477,17 @@ pub async fn handle_bun_job(
                     ));
                 }
 
-                write_file(job_dir, "package.json", package_json)?;
+                if annotation.npm {
+                    // The stored lock leads with `// workspace-dependencies` header lines: bun
+                    // reads package.json leniently, npm refuses it as invalid JSON.
+                    write_file(
+                        job_dir,
+                        "package.json",
+                        &clean_lock_from_annotations(package_json, ScriptLang::Bun),
+                    )?;
+                } else {
+                    write_file(job_dir, "package.json", package_json)?;
+                }
 
                 let bun_lock = if annotation.npm {
                     ""
@@ -5150,6 +5323,37 @@ YmluYXJ5LWNvbnRlbnQ="#; // base64 encoded "binary-content"
         assert!(lock.is_none());
         assert!(!is_empty);
         assert!(!is_binary);
+    }
+
+    // Samples are npm 12.2.0 output: a format change there silently turns the fetch fallback
+    // off, or makes it override an explicit `none`.
+    #[test]
+    fn npm_fetch_fallback_reads_npm_output() {
+        let log = r#"22 verbose exit 1
+23 error code EALLOWGIT
+24 error Fetching packages of type "git" have been disabled
+25 error Refusing to fetch "wm-git-test@git+file:///work/git/wm-git-test.git"
+26 verbose exit 1"#;
+        let (fallback, refused) = parse_npm_refused_fetch(log.lines().map(str::to_string))
+            .expect("EALLOWGIT is a fetch refusal");
+        assert_eq!(fallback.key(), "allow-git");
+        assert_eq!(
+            refused,
+            [r#""wm-git-test@git+file:///work/git/wm-git-test.git""#]
+        );
+        assert!(
+            parse_npm_refused_fetch(["23 error code EJSONPARSE".to_string()].into_iter()).is_none()
+        );
+
+        let config_ls = r#"; "global" config from /usr/etc/npmrc
+; allow-git = "none" ; overridden by project
+; "project" config from /work/j/.npmrc
+allow-remote = "all"
+registry = "http://127.0.0.1:4999/"
+; npm version = 12.2.0"#;
+        assert!(npm_config_ls_sets(config_ls, "allow-git"));
+        assert!(npm_config_ls_sets(config_ls, "allow-remote"));
+        assert!(!npm_config_ls_sets(config_ls, "allow-scripts"));
     }
 
     #[test]
