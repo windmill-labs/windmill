@@ -1022,6 +1022,88 @@ pub fn is_sandboxing_enabled() -> bool {
     }
 }
 
+/// A `no_network` job loses its network only through the fresh network namespace its
+/// nsjail run step is given, so a run step that would not be jailed is refused rather
+/// than run with the worker's network. `jailed` is the executor's own decision to jail.
+pub fn check_no_network_jailed(
+    no_network: bool,
+    jailed: bool,
+) -> windmill_common::error::Result<()> {
+    no_network_refusal(no_network, jailed, NSJAIL_AVAILABLE.is_some())
+}
+
+fn no_network_refusal(
+    no_network: bool,
+    jailed: bool,
+    nsjail_available: bool,
+) -> windmill_common::error::Result<()> {
+    if !no_network || (jailed && nsjail_available) {
+        return Ok(());
+    }
+    let reason = if jailed {
+        "nsjail is not available on this worker"
+    } else {
+        "this job would not run in an nsjail sandbox: add the `sandbox` annotation, or enable \
+        nsjail sandboxing for the instance"
+    };
+    Err(windmill_common::error::Error::ExecutionErr(format!(
+        "Script has the `no_network` annotation, which removes the network from its nsjail \
+        sandbox, but {reason}. Refusing to run it with network."
+    )))
+}
+
+/// A dedicated worker runs its script outside nsjail, so a `no_network` one would keep
+/// the worker's network.
+pub fn check_no_network_dedicated(no_network: bool) -> windmill_common::error::Result<()> {
+    if no_network {
+        return Err(windmill_common::error::Error::ExecutionErr(
+            "Script has the `no_network` annotation, which a dedicated worker cannot honor: \
+            it does not run scripts in an nsjail sandbox. Refusing to run it with network."
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// `clone_newnet` for a run step's nsjail profile.
+pub fn nsjail_clone_newnet(no_network: bool) -> &'static str {
+    if no_network {
+        "true"
+    } else {
+        "false"
+    }
+}
+
+/// [`get_proxy_envs_for_lang`] for a run step. A `no_network` one reaches no proxy, the
+/// OTel tracing proxy included, so it gets only the trace context.
+pub async fn get_run_proxy_envs(
+    lang: &ScriptLang,
+    job_kind: JobKind,
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
+    no_network: bool,
+) -> anyhow::Result<Vec<(&'static str, String)>> {
+    if no_network {
+        return Ok(get_otel_context_envs(job_id));
+    }
+    get_proxy_envs_for_lang(lang, job_kind, job_id, w_id, conn).await
+}
+
+#[cfg(test)]
+mod no_network_tests {
+    use super::no_network_refusal;
+
+    #[test]
+    fn no_network_runs_only_in_an_available_jail() {
+        assert!(no_network_refusal(false, false, false).is_ok());
+        assert!(no_network_refusal(true, true, true).is_ok());
+        assert!(no_network_refusal(true, false, true).is_err());
+        assert!(no_network_refusal(true, true, false).is_err());
+        assert!(no_network_refusal(true, false, false).is_err());
+    }
+}
+
 /// Returns true if unshare PID isolation should be used (when not using nsjail).
 /// ENABLE_UNSHARE_PID forces unshare regardless of the global setting.
 /// FAVOR_UNSHARE_PID uses unshare only when the global setting is not set.

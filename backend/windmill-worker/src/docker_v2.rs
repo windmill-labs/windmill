@@ -36,9 +36,9 @@ use crate::{
         render_envars, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, start_child_process,
         OccupancyMetrics, DEV_CONF_NSJAIL,
     },
-    get_proxy_envs_for_lang,
+    get_run_proxy_envs,
     handle_child::handle_child,
-    DISABLE_NUSER, NSJAIL_AVAILABLE, NSJAIL_PATH, SANDBOX_IMAGE_CACHE_MAX_MB,
+    nsjail_clone_newnet, DISABLE_NUSER, NSJAIL_AVAILABLE, NSJAIL_PATH, SANDBOX_IMAGE_CACHE_MAX_MB,
     SANDBOX_IMAGE_DEFAULT_REGISTRY, SANDBOX_IMAGE_MAX_SIZE_MB, SANDBOX_IMAGE_PULL_POLICY,
     SANDBOX_REGISTRY_AUTH,
 };
@@ -642,6 +642,7 @@ async fn generate_rootfs_mounts(rootfs: &str) -> Result<String, Error> {
 #[tracing::instrument(level = "trace", skip_all)]
 pub async fn handle_docker_v2_job(
     image: &str,
+    no_network: bool,
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
     job: &MiniPulledJob,
@@ -671,7 +672,10 @@ pub async fn handle_docker_v2_job(
     append_logs(
         &job.id,
         &job.workspace_id,
-        format!("\n\n--- SANDBOXED CONTAINER (nsjail) ---\nextracting image {image}...\n"),
+        format!(
+            "\n\n--- SANDBOXED CONTAINER (nsjail) ---\n{}extracting image {image}...\n",
+            if no_network { "no network\n" } else { "" }
+        ),
         conn,
     )
     .await;
@@ -781,6 +785,7 @@ pub async fn handle_docker_v2_job(
         &NSJAIL_CONFIG_RUN_DOCKER_CONTENT
             .replace("{TIMEOUT}", &nsjail_timeout)
             .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+            .replace("{CLONE_NEWNET}", nsjail_clone_newnet(no_network))
             // proto_str-quoted: WorkingDir is image-controlled, must not break out
             // of the `cwd:` string and inject nsjail directives.
             .replace("{WORKDIR}", &proto_str(working_dir))
@@ -814,13 +819,18 @@ pub async fn handle_docker_v2_job(
         "BASE_INTERNAL_URL".to_string(),
         base_internal_url.to_string(),
     );
+    if no_network {
+        // Useless without network, and the script could still hand it out through its result.
+        reserved_variables.remove("WM_TOKEN");
+    }
 
-    let proxy_envs = get_proxy_envs_for_lang(
+    let proxy_envs = get_run_proxy_envs(
         &ScriptLang::Bash,
         job.kind,
         &job.id,
         &job.workspace_id,
         conn,
+        no_network,
     )
     .await?;
 

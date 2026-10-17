@@ -18,18 +18,20 @@ use windmill_parser_ts::{remove_pinned_import_specifiers, remove_pinned_imports}
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PrecomputedAgentInfo};
 
 use crate::{
+    check_no_network_jailed,
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         parse_npm_config, read_file, read_file_content, read_result, resolve_nsjail_timeout,
         resolve_nsjail_tmp_mount_block, script_envars, start_child_process, write_file_binary,
         MaybeLock, OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL,
     },
-    get_proxy_envs_for_lang,
+    get_proxy_envs_for_lang, get_run_proxy_envs,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry_with_workspace_override, BUNFIG_INSTALL_SCOPES,
-    BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_INSTALL_MIN_RELEASE_AGE, BUN_NO_CACHE, BUN_PATH,
-    DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPMRC, NPM_CONFIG_REGISTRY, NPM_PATH,
-    NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
+    is_sandboxing_enabled, nsjail_clone_newnet, read_ee_registry_with_workspace_override,
+    BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_INSTALL_MIN_RELEASE_AGE,
+    BUN_NO_CACHE, BUN_PATH, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPMRC,
+    NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::{
     cache,
@@ -1666,6 +1668,10 @@ pub async fn handle_bun_job(
                 .to_string(),
         ));
     }
+    let jailed = is_sandboxing_enabled() || annotation.sandbox;
+    // Native scripts take their network away inside the isolate instead.
+    let jail_no_network = annotation.no_network && !annotation.native;
+    check_no_network_jailed(jail_no_network, jailed)?;
 
     let (mut has_bundle_cache, cache_logs, local_path, remote_path) = if let (Some(lock), true) = (
         maybe_lock.get_lock(),
@@ -1915,6 +1921,9 @@ pub async fn handle_bun_job(
 
     if annotation.sandbox {
         init_logs.push_str("sandbox mode (nsjail)\n");
+    }
+    if jail_no_network {
+        init_logs.push_str("no network\n");
     }
 
     let write_wrapper_f = async {
@@ -2258,7 +2267,8 @@ try {{
             build_loader(
                 job_dir,
                 base_internal_url,
-                &client.token,
+                // The run step reads this loader, and could hand the token out through its result.
+                if jail_no_network { "" } else { &client.token },
                 &job.workspace_id,
                 job.runnable_path(),
                 if annotation.nodejs {
@@ -2274,11 +2284,15 @@ try {{
         }
     };
 
-    let (reserved_variables, _, _) = tokio::try_join!(
+    let (mut reserved_variables, _, _) = tokio::try_join!(
         reserved_variables_args_out_f,
         write_wrapper_f,
         write_loader_f
     )?;
+    if jail_no_network {
+        // Useless without network, and the script could still hand it out through its result.
+        reserved_variables.remove("WM_TOKEN");
+    }
 
     // For WAC v2, write checkpoint.json before bun runs
     if is_wac_v2 {
@@ -2491,7 +2505,7 @@ try {{
     append_logs(&job.id, &job.workspace_id, init_logs, conn).await;
 
     //do not cache local dependencies
-    let child = if is_sandboxing_enabled() || annotation.sandbox {
+    let child = if jailed {
         let nsjail_timeout =
             resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
 
@@ -2534,12 +2548,13 @@ try {{
             .env_clear()
             .envs(reserved_variables)
             .envs(
-                get_proxy_envs_for_lang(
+                get_run_proxy_envs(
                     &ScriptLang::Bun,
                     job.kind,
                     &job.id,
                     &job.workspace_id,
                     conn,
+                    jail_no_network,
                 )
                 .await?,
             )
@@ -2555,6 +2570,7 @@ try {{
                 .replace("{LANG}", if annotation.nodejs { "nodejs" } else { "bun" })
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{CLONE_NEWNET}", nsjail_clone_newnet(jail_no_network))
                 .replace("{UIDGIDMAP}", if *DISABLE_NUSER { "" } else {
                     "uidmap {\n    inside_id: \"1000\"\n    outside_id: \"\"\n    count: 1\n}\n\ngidmap {\n    inside_id: \"1000\"\n    outside_id: \"\"\n    count: 1\n}"
                 })
@@ -4161,6 +4177,7 @@ pub async fn start_worker(
         get_common_bun_proc_envs(Some(&base_internal_url)).await;
 
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
+    crate::check_no_network_dedicated(annotation.no_network && !annotation.native)?;
 
     let context = variables::get_reserved_variables(
         &Connection::from(db.clone()),
