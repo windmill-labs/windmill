@@ -649,23 +649,41 @@ pub async fn delete_jobs(
     .await?
     .rows_affected();
 
-    let resume_deleted = sqlx::query!("DELETE FROM resume_job WHERE job = ANY($1)", &job_ids)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
+    // job_ids are request-supplied, so scope every side-table delete to the workspace exactly
+    // like the v2_job delete below — otherwise a workspace admin could erase another
+    // workspace's side rows by passing foreign job ids. Tables without a workspace_id are scoped
+    // via v2_job (or, for flow_conversation_message, their conversation).
+    // (Side-table list kept in sync with windmill_common::jobs::delete_jobs.)
+    let resume_deleted = sqlx::query!(
+        "DELETE FROM resume_job WHERE job IN (SELECT id FROM v2_job WHERE workspace_id = $1 AND id = ANY($2))",
+        &w_id,
+        &job_ids
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
 
-    let runtime_deleted = sqlx::query!("DELETE FROM v2_job_runtime WHERE id = ANY($1)", &job_ids)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
+    let runtime_deleted = sqlx::query!(
+        "DELETE FROM v2_job_runtime WHERE id IN (SELECT id FROM v2_job WHERE workspace_id = $1 AND id = ANY($2))",
+        &w_id,
+        &job_ids
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
 
-    let status_deleted = sqlx::query!("DELETE FROM v2_job_status WHERE id = ANY($1)", &job_ids)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
+    let status_deleted = sqlx::query!(
+        "DELETE FROM v2_job_status WHERE id IN (SELECT id FROM v2_job WHERE workspace_id = $1 AND id = ANY($2))",
+        &w_id,
+        &job_ids
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
 
     let concurrency_key_deleted = sqlx::query!(
-        "DELETE FROM concurrency_key WHERE job_id = ANY($1)",
+        "DELETE FROM concurrency_key WHERE job_id IN (SELECT id FROM v2_job WHERE workspace_id = $1 AND id = ANY($2))",
+        &w_id,
         &job_ids
     )
     .execute(&mut *tx)
@@ -690,11 +708,6 @@ pub async fn delete_jobs(
     .await?
     .rows_affected();
 
-    // job_ids are request-supplied, so scope every side-table delete to the workspace exactly
-    // like the v2_job delete below — otherwise a workspace admin could erase another
-    // workspace's side rows by passing foreign job ids. zombie_job_counter and
-    // flow_conversation_message have no workspace_id, so scope them via v2_job / their conversation.
-    // (Side-table list kept in sync with windmill_common::jobs::delete_jobs.)
     let zombie_deleted = sqlx::query!(
         "DELETE FROM zombie_job_counter WHERE job_id IN (SELECT id FROM v2_job WHERE workspace_id = $1 AND id = ANY($2))",
         &w_id,
