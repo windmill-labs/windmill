@@ -827,6 +827,75 @@ fn install_ca_mounts(job_dir: &str, home: &str, envs: &HashMap<String, String>) 
         .collect()
 }
 
+/// The files `bun install` reads from, and writes to, the directory it installs in.
+const BUN_INSTALL_INPUTS: [&str; 5] = [
+    "package.json",
+    "bun.lock",
+    "bun.lockb",
+    BUN_CONFIG_FILE,
+    BUN_NPMRC_FILE,
+];
+const BUN_INSTALL_OUTPUTS: [&str; 3] = ["node_modules", "bun.lock", "bun.lockb"];
+
+/// A directory for one jailed bun install inside the bun cache, removed when dropped.
+///
+/// The jail binds the job dir and the cache as two mounts, and link(2) fails across
+/// mounts, so bun would copy every file out of the cache instead of hardlinking it.
+/// Installing here and renaming node_modules into the job dir keeps the hardlinks.
+struct BunStagingDir(String);
+
+impl Drop for BunStagingDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+/// How long a staging dir may outlive its install before the next one deletes it: a
+/// worker killed mid-install leaves it behind. Well past the longest install.
+const BUN_STAGING_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
+
+/// None when the cache is on another filesystem than the job dir: node_modules could
+/// only be moved back by a copy, which is what installing in the job dir costs anyway.
+fn bun_staging_dir(job_dir: &str) -> Option<BunStagingDir> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let root = format!("{}/.wm-staging", *BUN_CACHE_DIR);
+        fs::create_dir_all(&root).ok()?;
+        if fs::metadata(&root).ok()?.dev() != fs::metadata(job_dir).ok()?.dev() {
+            return None;
+        }
+        if let Ok(entries) = fs::read_dir(&root) {
+            for e in entries.flatten() {
+                let stale = e
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .and_then(|t| t.elapsed().ok())
+                    .is_some_and(|age| age > BUN_STAGING_MAX_AGE);
+                if stale {
+                    let _ = fs::remove_dir_all(e.path());
+                }
+            }
+        }
+        let dir = format!("{root}/{}", Uuid::new_v4());
+        fs::create_dir(&dir).ok()?;
+        let staging = BunStagingDir(dir);
+        for f in BUN_INSTALL_INPUTS {
+            let src = format!("{job_dir}/{f}");
+            if fs::symlink_metadata(&src).is_ok_and(|m| m.is_file()) {
+                fs::copy(&src, format!("{}/{f}", staging.0)).ok()?;
+            }
+        }
+        Some(staging)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = job_dir;
+        None
+    }
+}
+
 pub async fn install_bun_lockfile(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -964,7 +1033,19 @@ pub async fn install_bun_lockfile(
         gen_bunfig(job_dir, job_id, w_id, db).await?;
     }
 
+    let mut staging = None;
     if sandboxed {
+        if !npm_mode {
+            staging = bun_staging_dir(job_dir);
+        }
+        let install_dir = staging.as_ref().map_or(job_dir, |s| s.0.as_str());
+        let install_dir_mount = if staging.is_some() {
+            String::new()
+        } else {
+            format!(
+                "mount {{\n    src: \"{job_dir}\"\n    dst: \"{job_dir}\"\n    is_bind: true\n    rw: true\n}}"
+            )
+        };
         let install_envs: HashMap<String, String> = child_cmd
             .as_std()
             .get_envs()
@@ -986,7 +1067,8 @@ pub async fn install_bun_lockfile(
             "install.config.proto",
             &NSJAIL_CONFIG_INSTALL_BUN_CONTENT
                 .replace("{TIMEOUT}", &nsjail_timeout)
-                .replace("{JOB_DIR}", job_dir)
+                .replace("{INSTALL_DIR_MOUNT}", &install_dir_mount)
+                .replace("{INSTALL_DIR}", install_dir)
                 .replace("{BUN_CACHE_DIR}", &*BUN_CACHE_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
                 .replace(
@@ -1057,6 +1139,23 @@ pub async fn install_bun_lockfile(
                 "bun install exited with non-zero status: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
                 output.status
             )));
+        }
+    }
+
+    if let Some(staging) = staging {
+        // Leave the job dir as an install in place would have: what bun wrote or kept
+        // replaces the job dir's copy, what it removed is removed there too.
+        for f in BUN_INSTALL_OUTPUTS {
+            let src = format!("{}/{f}", staging.0);
+            let dst = format!("{job_dir}/{f}");
+            match fs::symlink_metadata(&dst) {
+                Ok(m) if m.is_dir() => fs::remove_dir_all(&dst)?,
+                Ok(_) => fs::remove_file(&dst)?,
+                Err(_) => {}
+            }
+            if fs::symlink_metadata(&src).is_ok() {
+                fs::rename(&src, &dst)?;
+            }
         }
     }
 

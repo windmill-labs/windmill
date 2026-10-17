@@ -9,7 +9,7 @@ time_limit: {TIMEOUT}
 # size their pools to the host: an address-space cap breaks the install itself.
 disable_rl: true
 
-cwd: "{JOB_DIR}"
+cwd: "{INSTALL_DIR}"
 
 clone_newnet: false
 clone_newuser: {CLONE_NEWUSER}
@@ -99,14 +99,11 @@ mount {
 # ~/.npmrc / ~/.bunfig.toml, but is otherwise a private tmpfs.
 {HOME_MOUNT_BLOCK}
 
-# package.json/lockfile/.npmrc/bunfig.toml live here and node_modules is
-# written here; cwd of the install
-mount {
-    src: "{JOB_DIR}"
-    dst: "{JOB_DIR}"
-    is_bind: true
-    rw: true
-}
+# package.json/lockfile/.npmrc/bunfig.toml live in the install dir and
+# node_modules is written there. Empty when the install dir is inside the bun
+# cache below: a bind of its own would be a second mount, and bun can only
+# hardlink from its cache within one.
+{INSTALL_DIR_MOUNT}
 
 # shared bun install cache. Writable, like the other install jails' shared
 # caches.
