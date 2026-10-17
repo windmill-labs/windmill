@@ -223,9 +223,13 @@
 							type: 'delete',
 							// A draft-only row is always the authed user's own draft (the
 							// list endpoint only surfaces own/legacy draft-only rows), so
-							// discarding it never requires write permission on the path.
+							// discarding it never requires write permission on the path. The server
+							// lets one's own draft go without authoring rights; only a legacy one needs them.
 							disabled: !showEditButton,
-							hide: !canAuthorApp
+							hide:
+								!canAuthorApp &&
+								app.draft_users?.length === 1 &&
+								app.draft_users[0]?.username == null
 						},
 						{
 							displayName: fullApps ? 'View/Edit JSON' : 'View JSON',

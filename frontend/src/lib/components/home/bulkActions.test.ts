@@ -52,6 +52,9 @@ describe('blockedReason', () => {
 		expect(blockedReason('delete', item({ kind: 'app' }), scripter)).toBeDefined()
 		expect(blockedReason('move', item({ kind: 'app', rawApp: true }), scripter)).toBeDefined()
 		expect(blockedReason('move', item({ kind: 'flow' }), scripter)).toBeUndefined()
+		const ownDraft = item({ kind: 'app', draftOnly: true })
+		expect(blockedReason('discard', ownDraft, scripter)).toBeUndefined()
+		expect(blockedReason('discard', { ...ownDraft, legacyDraft: true }, scripter)).toBeDefined()
 	})
 
 	it('requires ownership to move, and refuses archived rows', () => {
