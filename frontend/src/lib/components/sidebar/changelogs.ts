@@ -6,6 +6,12 @@ export type Changelog = {
 
 const changelogs: Changelog[] = [
 	{
+		label: 'Nested filter groups and dotted paths in trigger filters',
+		href: 'https://www.windmill.dev/changelog/nested-trigger-filters',
+		date: '2026-08-11'
+	},
+
+	{
 		label: 'AWS Bedrock support for Windmill AI',
 		href: 'https://www.windmill.dev/changelog/aws-bedrock',
 		date: '2025-11-19'
