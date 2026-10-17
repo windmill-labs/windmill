@@ -746,7 +746,11 @@ pub async fn install_bun_lockfile(
 ) -> Result<()> {
     let mut child_cmd = Command::new(if npm_mode { &*NPM_PATH } else { &*BUN_PATH });
 
-    let mut args = vec!["install", "--save-text-lockfile"];
+    let mut args = vec!["install"];
+    // A bun flag: npm 12 rejects unknown cli flags instead of warning.
+    if !npm_mode {
+        args.push("--save-text-lockfile");
+    }
 
     let no_cache = !npm_mode && *BUN_NO_CACHE;
 
