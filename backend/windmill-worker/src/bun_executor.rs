@@ -1440,8 +1440,9 @@ pub async fn install_bun_lockfile(
                     let msg = format!(
                         "\nWARNING: npm refused {}:\n  {}\nRetrying with {key}=all, which Windmill \
                          sets by default for now. This default will be removed in a future \
-                         release: add `{key}=all` to the npmrc instance or workspace setting to \
-                         keep fetching them, or `{key}=none` to stop now.\n",
+                         release: to keep fetching them, set `{key}=all` in the npm config (the \
+                         npmrc instance or workspace setting on Enterprise Edition, or the \
+                         worker's ~/.npmrc); set `{key}=none` to stop now.\n",
                         fallback.what(),
                         refused.join("\n  ")
                     );
