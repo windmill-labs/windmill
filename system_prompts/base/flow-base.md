@@ -68,7 +68,9 @@ value:
 
 An `aiagent` module runs an LLM that can call tools. Each entry of `value.tools` is a module-shaped
 object with an extra `value.tool_type`: `flowmodule` for a script/flow tool, `mcp` for an MCP server
-tool, `websearch` for web search.
+tool, `websearch` for web search, `approval` for a built-in `request_approval` tool (the agent stops,
+without holding a worker, until someone approves or rejects from the run page; optional
+`value.timeout` in seconds, default 1800).
 
 ```json
 {
@@ -164,9 +166,9 @@ needs becomes unreachable.
 
 ### Tool Naming Rules
 
-These rules cover `flowmodule` tools, the ones the agent calls by name. A `websearch` tool's
-`summary` is a plain label (`Web Search`), and an `mcp` tool exposes the MCP server's own tool
-names, so neither is name-checked at all — leave those summaries as they are.
+These rules cover `flowmodule` tools, the ones the agent calls by name. A `websearch` or `approval`
+tool's `summary` is a plain label (`Web Search`), and an `mcp` tool exposes the MCP
+server's own tool names, so none is name-checked at all — leave those summaries as they are.
 
 - A flowmodule tool's `summary` is the **name the agent calls it by**, not a human label. Put the
   human-readable explanation in `description`

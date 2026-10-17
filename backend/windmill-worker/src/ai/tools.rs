@@ -1,3 +1,4 @@
+use crate::ai::pause::{start_pause, PendingPause};
 use crate::ai::stream_event_processor::StreamEventProcessor;
 use crate::ai::utils::{
     add_message_to_conversation, execute_mcp_tool, get_step_name_from_flow,
@@ -97,10 +98,52 @@ pub async fn execute_tool_calls(
     actions: &mut Vec<AgentAction>,
     final_events_str: &mut String,
     structured_output_tool_name: &Option<String>,
-) -> Result<(Vec<OpenAIMessage>, Option<OpenAIContent>, bool), Error> {
+) -> Result<ToolCallsOutcome, Error> {
     let mut messages = Vec::new();
     let mut used_structured_output_tool = false;
     let mut final_content = None;
+
+    // Nothing else a turn asks for runs before its approval is answered: the request may be about
+    // exactly those calls. The model can repeat them once it has the answer.
+    let approval = tool_calls.iter().find_map(|call| {
+        tools
+            .iter()
+            .find(|t| t.def.function.name == call.function.name)
+            .and_then(|t| t.approval_timeout_secs)
+            .map(|timeout_secs| (call, timeout_secs))
+    });
+    if let Some((approval_call, timeout_secs)) = approval {
+        let pause = start_pause(timeout_secs, approval_call);
+        let others_refusal = if pause.is_ok() {
+            "Not run: this turn asks for approval, so its other calls wait for the answer. \
+             Call them again once you have it."
+        } else {
+            "Not run: this turn's approval request was invalid. Fix it, then call these again \
+             once it is answered."
+        };
+        for call in tool_calls {
+            if let Some(stream_event_processor) = ctx.stream_event_processor {
+                let event = StreamingEvent::ToolExecution {
+                    call_id: call.id.clone(),
+                    function_name: call.function.name.clone(),
+                };
+                stream_event_processor.send(event, final_events_str).await?;
+            }
+            let refusal = match &pause {
+                _ if call.id != approval_call.id => others_refusal,
+                Err(e) => e.as_str(),
+                // Answered when the agent is pulled again, so the call gets no message here.
+                Ok(_) => continue,
+            };
+            refuse_tool_call(&mut ctx, call, refusal, &mut messages, final_events_str).await?;
+        }
+        return Ok(ToolCallsOutcome {
+            messages,
+            final_content,
+            used_structured_output_tool,
+            pause: pause.ok(),
+        });
+    }
 
     let mut calls = tool_calls.iter().peekable();
     while let Some(tool_call) = calls.next() {
@@ -142,7 +185,6 @@ pub async fn execute_tool_calls(
             .find(|t| t.def.function.name == tool_call.function.name);
 
         if let Some(tool) = tool {
-            // Check if this is an MCP tool
             if let Some(mcp_source) = &tool.mcp_source {
                 execute_mcp_tool_call(
                     &mut ctx,
@@ -155,7 +197,16 @@ pub async fn execute_tool_calls(
                 )
                 .await?;
             } else if tool.module.is_some() && interpolating_args(tool_call) {
-                refuse_tool_call(&mut ctx, tool_call, &mut messages, final_events_str).await?;
+                let error_msg = "Tool call refused: its arguments cannot reference variables or \
+                                 resources ($var:, $jsonvar:, $res:, $encrypted:)";
+                refuse_tool_call(
+                    &mut ctx,
+                    tool_call,
+                    error_msg,
+                    &mut messages,
+                    final_events_str,
+                )
+                .await?;
             } else if tool.module.is_some() {
                 let mut batch = vec![(tool_call, tool)];
                 while let Some(next_call) = calls.peek() {
@@ -192,7 +243,15 @@ pub async fn execute_tool_calls(
         }
     }
 
-    Ok((messages, final_content, used_structured_output_tool))
+    Ok(ToolCallsOutcome { messages, final_content, used_structured_output_tool, pause: None })
+}
+
+pub struct ToolCallsOutcome {
+    pub messages: Vec<OpenAIMessage>,
+    pub final_content: Option<OpenAIContent>,
+    pub used_structured_output_tool: bool,
+    /// The turn asked for approval: the agent parks, its other calls refused.
+    pub pause: Option<PendingPause>,
 }
 
 /// Whether the model wrote an argument the tool's job would interpolate with the agent's token,
@@ -206,15 +265,13 @@ fn interpolating_args(tool_call: &OpenAIToolCall) -> bool {
 async fn refuse_tool_call(
     ctx: &mut ToolExecutionContext<'_>,
     tool_call: &OpenAIToolCall,
+    error_msg: &str,
     messages: &mut Vec<OpenAIMessage>,
     final_events_str: &mut String,
 ) -> Result<(), Error> {
-    let error_msg = "Tool call refused: its arguments cannot reference variables or resources \
-                     ($var:, $jsonvar:, $res:, $encrypted:)"
-        .to_string();
     messages.push(OpenAIMessage {
         role: "tool".to_string(),
-        content: Some(OpenAIContent::Text(error_msg.clone())),
+        content: Some(OpenAIContent::Text(error_msg.to_string())),
         tool_call_id: Some(tool_call.id.clone()),
         ..Default::default()
     });
@@ -222,12 +279,12 @@ async fn refuse_tool_call(
         let event = StreamingEvent::ToolResult {
             call_id: tool_call.id.clone(),
             function_name: tool_call.function.name.clone(),
-            result: error_msg.clone(),
+            result: error_msg.to_string(),
             success: false,
         };
         stream_event_processor.send(event, final_events_str).await?;
     }
-    let (content, extras) = windmill_tool_row(tool_call, false, &error_msg);
+    let (content, extras) = windmill_tool_row(tool_call, false, error_msg);
     let agent_job_id = ctx.job.id;
     add_tool_message_to_chat(ctx, Some(agent_job_id), &content, false, Some(extras)).await;
     Ok(())

@@ -33,6 +33,7 @@
 		{ type: 'tool_call', singular: 'tool call', plural: 'tool calls' },
 		{ type: 'mcp_tool_call', singular: 'MCP call', plural: 'MCP calls' },
 		{ type: 'web_search', singular: 'web search', plural: 'web searches' },
+		{ type: 'approval', singular: 'approval request', plural: 'approval requests' },
 		{ type: 'message', singular: 'message', plural: 'messages' }
 	] as const
 

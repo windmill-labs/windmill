@@ -386,8 +386,9 @@ impl FlowValue {
                     for tool in tools {
                         match &tool.value {
                             ToolValue::FlowModule(module_value) => cb(module_value, &tool.id)?,
-                            ToolValue::Mcp(_) => {}
-                            ToolValue::Websearch(_) => {}
+                            ToolValue::Mcp(_)
+                            | ToolValue::Websearch(_)
+                            | ToolValue::Approval(_) => {}
                         }
                     }
                 }
@@ -959,8 +960,7 @@ impl From<&AgentTool> for Option<FlowModule> {
                 job_token_scopes: tool.job_token_scopes.clone(),
                 ..Default::default()
             }),
-            ToolValue::Mcp(_) => None,
-            ToolValue::Websearch(_) => None,
+            ToolValue::Mcp(_) | ToolValue::Websearch(_) | ToolValue::Approval(_) => None,
         }
     }
 }
@@ -971,6 +971,7 @@ pub enum ToolValue {
     FlowModule(FlowModuleValue),
     Mcp(McpToolValue),
     Websearch(WebsearchToolValue),
+    Approval(ApprovalToolValue),
 }
 
 // Custom deserializer for backward compatibility with old flows
@@ -989,6 +990,7 @@ impl<'de> Deserialize<'de> for ToolValue {
             FlowModule(FlowModuleValue),
             Mcp(McpToolValue),
             Websearch(WebsearchToolValue),
+            Approval(ApprovalToolValue),
         }
 
         if let Ok(tagged) = TaggedToolValue::deserialize(&content) {
@@ -996,6 +998,7 @@ impl<'de> Deserialize<'de> for ToolValue {
                 TaggedToolValue::FlowModule(v) => ToolValue::FlowModule(v),
                 TaggedToolValue::Mcp(v) => ToolValue::Mcp(v),
                 TaggedToolValue::Websearch(v) => ToolValue::Websearch(v),
+                TaggedToolValue::Approval(v) => ToolValue::Approval(v),
             });
         }
 
@@ -1020,6 +1023,14 @@ pub struct McpToolValue {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct WebsearchToolValue {}
+
+/// Lets the agent stop and wait for a person to approve or reject what it is about to do.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct ApprovalToolValue {
+    /// Seconds to wait for an answer before the request is reported to the model as timed out.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u32>,
+}
 
 fn is_none_or_empty_vec<T>(expr: &Option<Vec<T>>) -> bool {
     expr.is_none() || expr.as_ref().unwrap().is_empty()

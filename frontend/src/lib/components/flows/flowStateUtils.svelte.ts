@@ -32,6 +32,7 @@ import {
 	createAiDecisionTool,
 	createMcpTool,
 	createWebsearchTool,
+	createApprovalTool,
 	newAiDecisionInputTransforms,
 	newFlowModuleAgentTool,
 	SPECIAL_TOOL_KINDS,
@@ -586,6 +587,9 @@ export async function insertNewModuleAtIndex(
 		// Create Websearch AgentTool
 		const websearchTool = createWebsearchTool(module.id)
 		;(modules as AgentTool[]).splice(index, 0, websearchTool)
+		return modules as AgentTool[]
+	} else if (toolKind === 'approvalTool') {
+		;(modules as AgentTool[]).splice(index, 0, createApprovalTool(module.id))
 		return modules as AgentTool[]
 	} else if (toolKind === 'aiAgentTool') {
 		// Create AI Agent tool (nested agent)

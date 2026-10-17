@@ -48,11 +48,13 @@
 		AI_TOOL_MESSAGE_PREFIX,
 		AI_MCP_TOOL_CALL_PREFIX,
 		AI_WEBSEARCH_PREFIX,
+		AI_APPROVAL_PREFIX,
 		getAgentActionStateId,
 		getToolCallId
 	} from './graph/renderers/nodes/AIToolNode.svelte'
 	import JobAssetsViewer from './assets/JobAssetsViewer.svelte'
 	import McpToolCallDetails from './McpToolCallDetails.svelte'
+	import AgentApprovalRequest from './AgentApprovalRequest.svelte'
 	import GfmMarkdown from './GfmMarkdown.svelte'
 	import JobOtelTraces from './JobOtelTraces.svelte'
 	import JobDetailHeader from './runs/JobDetailHeader.svelte'
@@ -780,7 +782,10 @@
 								job_id: action.job_id,
 								type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
 							})
-						} else if (action.type == 'mcp_tool_call') {
+						} else if (
+							action.type == 'mcp_tool_call' ||
+							action.type == 'approval'
+						) {
 							setModuleState(stateId, {
 								type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
 							})
@@ -2127,6 +2132,25 @@
 												{/if}
 											{:else if selectedNode?.startsWith(AI_WEBSEARCH_PREFIX)}
 												<Alert type="info" title="Web search was used in this step" />
+											{:else if selectedNode?.startsWith(AI_APPROVAL_PREFIX)}
+												{@const [, agentModuleId, actionIndex] = selectedNode.split('-')}
+												{@const agentNode = localModuleStates?.[agentModuleId]}
+												{@const approvalIndex = parseInt(actionIndex)}
+												{@const approval = agentNode?.agent_actions?.[approvalIndex]}
+												{#if approval?.type === 'approval' && agentNode?.job_id}
+													<div class="p-4">
+														<!-- One form per request: its answered state must not carry over to the next. -->
+														{#key `${agentNode.job_id}-${approval.call_id}`}
+															<AgentApprovalRequest
+																workspaceId={job.workspace_id ?? ''}
+																agentJobId={agentNode.job_id}
+																request={approval}
+																pending={job.type === 'QueuedJob' &&
+																	agentNode?.agent_actions_success?.[approvalIndex] === undefined}
+															/>
+														{/key}
+													</div>
+												{/if}
 											{:else if selectedNode}
 												{@const node = localModuleStates[selectedNode]}
 												{#if selectedNode == 'end'}

@@ -1,7 +1,13 @@
 <script lang="ts">
 	import { ChevronRight, Plus, Wrench, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { getToolNameError, toolDisplayName } from '../agentToolUtils'
+	import {
+		BUILTIN_TOOLS,
+		builtinToolType,
+		getToolNameError,
+		isNamedTool,
+		toolDisplayName
+	} from '../agentToolUtils'
 	import type { AgentTool } from '../agentToolUtils'
 	import { Button } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
@@ -42,15 +48,14 @@
 		if (value?.type === 'aiagent') return 'agent'
 		if (value?.type === 'aidecision') return 'decision'
 		if (value?.tool_type === 'mcp') return 'MCP'
-		if (value?.tool_type === 'websearch') return 'web search'
+		const builtin = builtinToolType(tool)
+		if (builtin) return BUILTIN_TOOLS[builtin].label.toLowerCase()
 		return undefined
 	}
 
-	/** Only a flow module tool's summary is the name the model is given; an mcp or websearch
+	/** Only a flow module tool's summary is the name the model is given; an mcp or built-in tool's
 	 *  summary is never sent, so a blank one there is not an error. Same rule as `agentToolTree`. */
-	function isNamed(tool: AgentTool): boolean {
-		return tool?.value?.tool_type !== 'mcp' && tool?.value?.tool_type !== 'websearch'
-	}
+	const isNamed = isNamedTool
 
 	let siblingNames = $derived(tools.filter(isNamed).map((tool) => tool?.summary ?? ''))
 
@@ -103,6 +108,7 @@
 				)}
 				on:pickMcpTool={() => (onAddTool?.({ kind: 'mcpTool' }), close())}
 				on:pickWebsearchTool={() => (onAddTool?.({ kind: 'websearchTool' }), close())}
+				on:pickApprovalTool={() => (onAddTool?.({ kind: 'approvalTool' }), close())}
 				on:pickAiAgentTool={() => (onAddTool?.({ kind: 'aiAgentTool' }), close())}
 				on:pickAiDecisionTool={() => (onAddTool?.({ kind: 'aiDecisionTool' }), close())}
 			/>

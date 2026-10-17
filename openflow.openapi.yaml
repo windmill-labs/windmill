@@ -1008,7 +1008,7 @@ components:
           description: Unique identifier for this tool. Cannot contain spaces - use underscores instead (e.g., 'get_user_data' not 'get user data')
         summary:
           type: string
-          description: "The name the AI agent calls this tool by, not a human label. On a flowmodule tool it must match ^[a-zA-Z0-9_]+$ - letters, numbers and underscores only (e.g. 'search_documentation', not 'Search documentation') - and always be set; on an mcp or websearch tool it is a plain label. Put the human-readable explanation in 'description'."
+          description: "The name the AI agent calls this tool by, not a human label. On a flowmodule tool it must match ^[a-zA-Z0-9_]+$ - letters, numbers and underscores only (e.g. 'search_documentation', not 'Search documentation') - and always be set; on an mcp, websearch or approval tool it is a plain label. Put the human-readable explanation in 'description'."
         description:
           type: string
           description: Free-text description of the tool given to the AI to decide when and how to call it. Overrides the description auto-derived from the underlying script.
@@ -1030,12 +1030,14 @@ components:
         - $ref: '#/components/schemas/FlowModuleTool'
         - $ref: '#/components/schemas/McpToolValue'
         - $ref: '#/components/schemas/WebsearchToolValue'
+        - $ref: '#/components/schemas/ApprovalToolValue'
       discriminator:
         propertyName: tool_type
         mapping:
           flowmodule: '#/components/schemas/FlowModuleTool'
           mcp: '#/components/schemas/McpToolValue'
           websearch: '#/components/schemas/WebsearchToolValue'
+          approval: '#/components/schemas/ApprovalToolValue'
 
     FlowModuleTool:
       description: A tool implemented as a flow module (script, flow, etc.). The AI can call this like any other flow module
@@ -1058,6 +1060,20 @@ components:
           type: string
           enum:
             - websearch
+      required:
+        - tool_type
+
+    ApprovalToolValue:
+      type: object
+      description: "Built-in tool the AI calls as request_approval: the agent stops, releasing its worker, until someone approves or rejects from the run page or the request times out, then resumes with the answer as the tool result."
+      properties:
+        tool_type:
+          type: string
+          enum:
+            - approval
+        timeout:
+          type: integer
+          description: Seconds to wait for an answer before the request is reported to the AI as timed out. Defaults to 1800.
       required:
         - tool_type
 
@@ -1494,6 +1510,23 @@ components:
                     enum: [web_search]
                 required:
                   - type
+              - type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [approval]
+                  call_id:
+                    type: string
+                  message:
+                    type: string
+                  expires_at:
+                    type: string
+                    format: date-time
+                required:
+                  - type
+                  - call_id
+                  - message
+                  - expires_at
               - type: object
                 properties:
                   type:
