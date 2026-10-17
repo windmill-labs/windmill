@@ -1131,16 +1131,6 @@ fn lock_hash_entry(path: &str, lock: &str) -> [(String, i64); 1] {
     [(path.to_string(), hash_script(lock))]
 }
 
-/// The `dbt://` relation both halves of a deploy have to agree on: a whole
-/// `<warehouse>/<schema>/<name>`, under a warehouse this workspace configures.
-///
-/// Every producer is held to exactly this — a `// materialize` target here, a
-/// descriptor's `profile.warehouse` in the worker — so a subscription to anything
-/// else names a relation nothing can ever write. No later deploy fixes that and
-/// no dormant-edge warning reports it, since the warning fires on a dbt project's
-/// ingest and no project can claim a relation under a warehouse that isn't there.
-/// Asking here rather than at each site is what keeps the two from drifting into
-/// refusing and accepting the same string.
 /// The principal a deploy would store, and the address written beside it only while a worker
 /// that still reads that address may be live.
 async fn resolve_deploy_identity(
@@ -1186,6 +1176,34 @@ async fn set_lineage_reads_unscoped(
     Ok(())
 }
 
+/// The folder's default identity for `path` and what deploying under it would store.
+async fn resolve_folder_default_identity(
+    authed: &ApiAuthed,
+    w_id: &str,
+    path: &str,
+    db: &DB,
+) -> Result<Option<(String, String, (Option<String>, Option<String>))>> {
+    let Some((email, permissioned_as)) =
+        windmill_common::folders::resolve_folder_default_on_behalf_of(db, w_id, path).await?
+    else {
+        return Ok(None);
+    };
+    let identity =
+        resolve_deploy_identity(Some(&email), Some(&permissioned_as), true, authed, w_id, db)
+            .await?;
+    Ok(Some((email, permissioned_as, identity)))
+}
+
+/// The `dbt://` relation both halves of a deploy have to agree on: a whole
+/// `<warehouse>/<schema>/<name>`, under a warehouse this workspace configures.
+///
+/// Every producer is held to exactly this — a `// materialize` target here, a
+/// descriptor's `profile.warehouse` in the worker — so a subscription to anything
+/// else names a relation nothing can ever write. No later deploy fixes that and
+/// no dormant-edge warning reports it, since the warning fires on a dbt project's
+/// ingest and no project can claim a relation under a warehouse that isn't there.
+/// Asking here rather than at each site is what keeps the two from drifting into
+/// refusing and accepting the same string.
 async fn validate_dbt_relation(
     db: &sqlx::Pool<Postgres>,
     w_id: &str,
@@ -1393,13 +1411,14 @@ async fn create_script_internal<'c>(
     let explicit_preserve = (ns.on_behalf_of_email.is_some() || ns.on_behalf_of.is_some())
         && ns.preserve_on_behalf_of.unwrap_or(false)
         && windmill_common::can_preserve_on_behalf_of(&authed);
-    let folder_default = if !explicit_preserve
-        && windmill_common::can_preserve_on_behalf_of(&authed)
-    {
-        windmill_common::folders::resolve_folder_default_on_behalf_of(&db, &w_id, &ns.path).await?
-    } else {
-        None
-    };
+    // Held rather than raised: a rule naming a principal that no longer exists fails here, and
+    // must fail only a first deploy, which is all the default applies to.
+    let folder_default =
+        if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
+            resolve_folder_default_identity(&authed, &w_id, &ns.path, &db).await
+        } else {
+            Ok(None)
+        };
     // Resolved here rather than at the INSERT so the no-op check below compares the identity
     // that would actually be stored: the parent row holds only the principal, while a
     // preserving push may name that same principal by address alone.
@@ -1412,20 +1431,6 @@ async fn create_script_internal<'c>(
         &db,
     )
     .await?;
-    let folder_default_identity = match &folder_default {
-        Some((email, permissioned_as)) => Some(
-            resolve_deploy_identity(
-                Some(email),
-                Some(permissioned_as),
-                true,
-                &authed,
-                &w_id,
-                &db,
-            )
-            .await?,
-        ),
-        None => None,
-    };
     // Not on `tx`: these inserts are cached as written, which a rolled-back deploy would undo.
     let runnable_settings_handle = windmill_common::runnable_settings::insert_rs(
         RunnableSettings {
@@ -1441,8 +1446,9 @@ async fn create_script_internal<'c>(
 
     // Apply folder default_permissioned_as the first time a script is deployed
     // at this path. Check inside the transaction to avoid TOCTOU with concurrent deploys.
-    let path_already_exists = match folder_default_identity {
-        Some(_) => sqlx::query_scalar!(
+    let path_already_exists = match folder_default {
+        Ok(None) => true,
+        _ => sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2)",
             &ns.path,
             &w_id
@@ -1450,20 +1456,20 @@ async fn create_script_internal<'c>(
         .fetch_one(&mut *tx)
         .await?
         .unwrap_or(false),
-        None => true,
     };
-    let (resolved_on_behalf_of, legacy_on_behalf_of_email) =
-        match (folder_default, folder_default_identity) {
-            (Some((default_email, default_permissioned_as)), Some(identity))
-                if !path_already_exists =>
-            {
+    let (resolved_on_behalf_of, legacy_on_behalf_of_email) = if path_already_exists {
+        requested_identity
+    } else {
+        match folder_default? {
+            Some((default_email, default_permissioned_as, identity)) => {
                 ns.on_behalf_of_email = Some(default_email);
                 ns.on_behalf_of = Some(default_permissioned_as);
                 ns.preserve_on_behalf_of = Some(true);
                 identity
             }
-            _ => requested_identity,
-        };
+            None => requested_identity,
+        }
+    };
     let authed_principal = windmill_common::users::username_to_permissioned_as(&authed.username);
     // When auto_parent is set, serialize concurrent creates for the same (workspace, path)
     // so the clashing_script query always sees the latest committed head.
