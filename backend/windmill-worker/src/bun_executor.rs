@@ -1672,6 +1672,29 @@ pub async fn handle_bun_job(
     // Native scripts take their network away inside the isolate instead.
     let jail_no_network = annotation.no_network && !annotation.native;
     check_no_network_jailed(jail_no_network, jailed)?;
+    // Unbundled, Bun's run-time loader fetches workspace imports; Node's are bundled on the host.
+    if jail_no_network
+        && codebase.is_none()
+        && !annotation.nodejs
+        && (annotation.nobundling || *DISABLE_BUNDLING)
+    {
+        let script_path = crate::common::use_flow_root_path(job.runnable_path());
+        let script_dir = script_path.rsplit_once('/').map(|(dir, _)| dir).unwrap_or("");
+        let imports = std::iter::once((script_path.clone(), inner_content.as_str()))
+            .chain(modules.iter().flatten().map(|(key, module)| {
+                let stem = key.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(key);
+                (format!("{script_dir}/{stem}"), module.content.as_str())
+            }))
+            .flat_map(|(path, code)| {
+                windmill_parser_ts::parse_relative_imports(code, &path).unwrap_or_default()
+            });
+        crate::check_no_network_imports(
+            imports,
+            &script_path,
+            modules.as_ref(),
+            "Bun without bundling (`//nobundling` or `DISABLE_BUNDLING`)",
+        )?;
+    }
 
     let (mut has_bundle_cache, cache_logs, local_path, remote_path) = if let (Some(lock), true) = (
         maybe_lock.get_lock(),

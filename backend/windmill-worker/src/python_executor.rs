@@ -795,6 +795,19 @@ pub async fn handle_python_job(
     };
 
     let module_sources = windmill_parser_py_imports::module_sources(&script_path, modules.as_ref());
+    if annotations.no_network {
+        let imports = std::iter::once((script_path.as_str(), inner_content.as_str()))
+            .chain(
+                module_sources
+                    .iter()
+                    .flatten()
+                    .map(|(path, code)| (path.as_str(), code.as_str())),
+            )
+            .flat_map(|(path, code)| {
+                windmill_parser_py_imports::parse_relative_imports(code, path).unwrap_or_default()
+            });
+        crate::check_no_network_imports(imports, &script_path, modules.as_ref(), "Python")?;
+    }
     let (py_version, mut additional_python_paths) = handle_python_deps_with_modules(
         job_dir,
         requirements_o,

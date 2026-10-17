@@ -1068,6 +1068,49 @@ pub fn runs_no_network_in_jail(language: Option<ScriptLang>, content: &str) -> b
     }
 }
 
+/// Refuses a `no_network` job that imports another workspace script its run step would fetch
+/// from the API, which it cannot reach. Without this the fetch fails inside the script, where
+/// Python's loader falls back to an empty namespace module and the error names something else.
+/// `imports` are workspace paths; the job's own module files (keyed relative to
+/// `script_path`'s folder) are on disk and need no fetch.
+pub fn check_no_network_imports(
+    imports: impl IntoIterator<Item = String>,
+    script_path: &str,
+    modules: Option<&HashMap<String, ScriptModule>>,
+    fetched_by: &str,
+) -> windmill_common::error::Result<()> {
+    let dir = script_path
+        .rsplit_once('/')
+        .map(|(dir, _)| dir)
+        .unwrap_or("");
+    let local: Vec<String> = modules
+        .into_iter()
+        .flat_map(|m| m.keys())
+        .map(|key| {
+            let stem = key.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(key);
+            if dir.is_empty() {
+                stem.to_string()
+            } else {
+                format!("{dir}/{stem}")
+            }
+        })
+        .collect();
+    let fetched = imports.into_iter().find(|import| {
+        !local
+            .iter()
+            .any(|l| l == import || l.starts_with(&format!("{import}/")))
+    });
+    match fetched {
+        None => Ok(()),
+        Some(import) => Err(windmill_common::error::Error::ExecutionErr(format!(
+            "Script has the `no_network` annotation but imports the workspace script \
+            `{import}`, which {fetched_by} fetches from the Windmill API while the script runs, \
+            and the script has no network. Remove `no_network`, or copy that code into the \
+            script."
+        ))),
+    }
+}
+
 /// Drops `WM_TOKEN` from a `no_network` run step's env: it is useless without network, and
 /// the script could still hand it out through its result.
 pub fn strip_no_network_token(
@@ -1106,7 +1149,7 @@ pub async fn get_run_proxy_envs(
 
 #[cfg(test)]
 mod no_network_tests {
-    use super::{no_network_refusal, runs_no_network_in_jail};
+    use super::{check_no_network_imports, no_network_refusal, runs_no_network_in_jail};
     use windmill_common::scripts::ScriptLang;
 
     #[test]
@@ -1116,6 +1159,29 @@ mod no_network_tests {
         assert!(no_network_refusal(true, false, true).is_err());
         assert!(no_network_refusal(true, true, false).is_err());
         assert!(no_network_refusal(true, false, false).is_err());
+    }
+
+    #[test]
+    fn no_network_refuses_only_imports_it_would_fetch() {
+        let modules = std::collections::HashMap::from([(
+            "lib/util.py".to_string(),
+            windmill_common::scripts::ScriptModule {
+                content: String::new(),
+                lock: None,
+                language: ScriptLang::Python3,
+            },
+        )]);
+        let check = |imports: &[&str]| {
+            check_no_network_imports(
+                imports.iter().map(|s| s.to_string()),
+                "u/admin/main",
+                Some(&modules),
+                "Python",
+            )
+        };
+        assert!(check(&["u/admin/lib/util", "u/admin/lib"]).is_ok());
+        let err = check(&["u/admin/lib/util", "u/admin/helper"]).unwrap_err();
+        assert!(err.to_string().contains("`u/admin/helper`"), "{err}");
     }
 
     #[test]
