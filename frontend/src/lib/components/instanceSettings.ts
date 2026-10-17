@@ -6,6 +6,7 @@ import { ACCENT_COLOR_SETTING, parseAccentColor } from '$lib/accentColor'
 import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
 import { writable } from 'svelte/store'
 import { OidcService } from '$lib/gen'
+import { workspaceRolesErrors } from '$lib/workspaceRoles'
 
 /**
  * Bumped after instance settings are successfully saved. Settings whose display
@@ -77,6 +78,7 @@ export interface Setting {
 		| 'retention_overrides'
 		| 'instance_banner'
 		| 'accent_color'
+		| 'workspace_roles'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -632,6 +634,16 @@ export const settings: Record<string, Setting[]> = {
 				v == undefined ||
 				v === '' ||
 				(Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 3650)
+		}
+	],
+	'Workspace roles': [
+		{
+			label: 'Workspace roles',
+			key: 'workspace_roles',
+			fieldType: 'workspace_roles',
+			storage: 'setting',
+			ee_only: 'Custom workspace roles are only available in the EE version',
+			validate: workspaceRolesErrors
 		}
 	],
 	'Managed Postgres': [
@@ -1313,6 +1325,13 @@ export const instanceSettingsNavigationGroups = [
 				label: 'Jobs',
 				aiId: 'instance-settings-jobs',
 				aiDescription: 'Instance jobs settings'
+			},
+			{
+				id: 'workspace_roles',
+				label: 'Workspace roles',
+				aiId: 'instance-settings-workspace-roles',
+				aiDescription: 'Roles workspace members can hold and their capabilities',
+				isEE: true
 			}
 		]
 	},
@@ -1497,6 +1516,7 @@ export const tabToCategoryMap: Record<string, string> = {
 	object_storage: 'Object Storage',
 	managed_postgres: 'Managed Postgres',
 	jobs: 'Jobs',
+	workspace_roles: 'Workspace roles',
 	private_hub: 'Private Hub',
 	github_enterprise_app: 'GitHub App',
 	websocket: 'WebSocket',
@@ -1559,6 +1579,7 @@ export const categoryToTabMap: Record<string, string> = {
 	'Object Storage': 'object_storage',
 	'Managed Postgres': 'managed_postgres',
 	Jobs: 'jobs',
+	'Workspace roles': 'workspace_roles',
 	'Private Hub': 'private_hub',
 	'GitHub App': 'github_enterprise_app',
 	WebSocket: 'websocket',

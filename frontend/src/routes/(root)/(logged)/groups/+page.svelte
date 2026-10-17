@@ -11,7 +11,7 @@
 	import GroupInfo from '$lib/components/GroupInfo.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
-	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
+	import { userStore, workspaceStore, roleCapabilities } from '$lib/stores'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import { Pen, Plus, Trash } from 'lucide-svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
@@ -70,10 +70,10 @@
 	</DrawerContent>
 </Drawer>
 
-{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.groups}
+{#if $workspaceStore && !$roleCapabilities.visibility.groups}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
-		<p>Page not available for operators</p>
+		<p>Page not available for your role</p>
 	</div>
 {:else}
 	<CenteredPage>

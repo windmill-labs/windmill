@@ -21,6 +21,7 @@
 	import SimpleEditor from './SimpleEditor.svelte'
 	import CriticalAlertChannels from './instanceSettings/CriticalAlertChannels.svelte'
 	import RetentionPeriodOverrides from './instanceSettings/RetentionPeriodOverrides.svelte'
+	import WorkspaceRolesSetting from './instanceSettings/WorkspaceRolesSetting.svelte'
 	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
 	import SecretBackendConfig from './instanceSettings/SecretBackendConfig.svelte'
 	import ExternalInstancePgSettings from './instanceSettings/ExternalInstancePgSettings.svelte'
@@ -341,6 +342,8 @@
 		     getInstanceConfig() has populated the persisted overrides (which would let a save drop
 		     them). -->
 		<RetentionPeriodOverrides {values} disabled={!$enterpriseLicense || loading} />
+	{:else if setting.fieldType == 'workspace_roles'}
+		<WorkspaceRolesSetting {values} disabled={!$enterpriseLicense || loading} />
 	{:else}
 		<SettingCard
 			label={setting.key === 'disable_stats'

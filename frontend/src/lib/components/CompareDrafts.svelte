@@ -34,6 +34,7 @@
 	} from '$lib/workspaceDrafts.svelte'
 	import type { Kind as LayoutKind } from '$lib/utils_deployable'
 	import { userStore, userWorkspaces } from '$lib/stores'
+	import { capabilitiesIn } from '$lib/roleCapabilities'
 	import { childWorkspaceNoun } from '$lib/utils/devWorkspaceLabel'
 
 	interface Props {
@@ -329,7 +330,12 @@
 			workspaceDeployPerm,
 			visibleItems
 				.filter((i) => selectedItems.includes(i.key) && isDeployable(i))
-				.map((i) => i.draftKind)
+				.map((i) => i.draftKind),
+			capabilitiesIn(
+				// Superadmin is global; a workspace's admin flag is not.
+				{ is_super_admin: $userStore?.is_super_admin },
+				$userWorkspaces.find((w) => w.id === currentWorkspaceId)
+			)
 		)
 	)
 	// Select all on the first non-empty load (acting on everything is the common

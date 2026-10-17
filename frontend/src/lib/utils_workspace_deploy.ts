@@ -22,6 +22,11 @@ import {
 	type User
 } from '$lib/gen'
 import type { UserDraftItemKind } from '$lib/gen'
+import { get } from 'svelte/store'
+import { userWorkspaces } from '$lib/stores'
+import { capabilitiesIn } from '$lib/roleCapabilities'
+import { roleCanAuthor } from '$lib/editRights'
+import type { RoleCapabilities } from '$lib/gen'
 import {
 	fetchProtectionRulesForWorkspace,
 	canUserBypassRuleKindInRulesets
@@ -836,6 +841,24 @@ export function kindGatedByDeployRules(kind: Kind | UserDraftItemKind): boolean 
 	return GATED_KIND_NAMES.has(kind)
 }
 
+// The kinds whose item handlers refuse a role per kind (`check_role_can_code`,
+// `check_operator_can_build`, `require_full_apps`). `checkDeployPermission` only asks for `code`,
+// so a role that codes but cannot author flows or apps is caught here.
+const ROLE_GATED_KINDS = new Set<string>(['script', 'flow', 'app', 'raw_app', 'data_pipeline'])
+
+function roleRefusal(
+	kind: Kind | UserDraftItemKind,
+	caps: RoleCapabilities
+): DeployPermission | undefined {
+	if (!ROLE_GATED_KINDS.has(kind) || roleCanAuthor(kind === 'data_pipeline' ? 'script' : kind, caps))
+		return undefined
+	return {
+		ok: false,
+		reason: `Your role in this workspace can't deploy ${kind.replace('_', ' ')}s`,
+		refusedBy: 'operator'
+	}
+}
+
 /**
  * Narrow a workspace-level refusal to one item kind. Only the direct-deployment term is scoped:
  * the deployers-only term over-reaches the same way, but it does so on `main` too, and loosening
@@ -843,8 +866,11 @@ export function kindGatedByDeployRules(kind: Kind | UserDraftItemKind): boolean 
  */
 export function deployPermissionForKind(
 	perm: DeployPermission,
-	kind: Kind | UserDraftItemKind
+	kind: Kind | UserDraftItemKind,
+	caps?: RoleCapabilities
 ): DeployPermission {
+	const refusal = caps && roleRefusal(kind, caps)
+	if (refusal) return refusal
 	if (perm.ok) return perm
 	if (perm.refusedBy === 'DisableDirectDeployment' && !kindGatedByDeployRules(kind)) {
 		return { ok: true }
@@ -855,8 +881,11 @@ export function deployPermissionForKind(
 /** The refusal a bulk action carries: it applies as soon as one selected kind is still refused. */
 export function deployPermissionForKinds(
 	perm: DeployPermission,
-	kinds: (Kind | UserDraftItemKind)[]
+	kinds: (Kind | UserDraftItemKind)[],
+	caps?: RoleCapabilities
 ): DeployPermission {
+	const refusal = caps && kinds.map((k) => roleRefusal(k, caps)).find((r) => r)
+	if (refusal) return refusal
 	if (perm.ok) return perm
 	// An empty selection keeps the workspace-level refusal, which is then the only thing left
 	// to say why the action is unavailable.
@@ -933,9 +962,9 @@ export async function checkDeployRules(
 
 /**
  * Whether the current user may deploy into `workspace` at all: the protection rules above,
- * plus a refusal of every operator.
+ * plus a refusal of every role without `code`.
  *
- * That refusal is not part of the `check_deploy_rules` mirror. The server refuses operators
+ * That refusal is not part of the `check_deploy_rules` mirror. The server refuses such roles
  * in the item handlers instead, and for fewer kinds, so refusing them for everything here is
  * deliberately stricter than the server rather than a faithful copy of it. A caller mirroring
  * one handler wants `checkDeployRules`.
@@ -948,10 +977,10 @@ export async function checkDeployPermission(
 ): Promise<DeployPermission> {
 	try {
 		const me = whoami ?? (await UserService.whoami({ workspace }))
-		if (me.operator) {
+		if (!capabilitiesIn(me, get(userWorkspaces).find((w) => w.id === workspace)).code) {
 			return {
 				ok: false,
-				reason: "You're an operator in this workspace — operators can't deploy",
+				reason: "Your role in this workspace can't deploy",
 				refusedBy: 'operator'
 			}
 		}

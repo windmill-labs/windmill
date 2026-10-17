@@ -44,7 +44,12 @@
 	import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
 	import { enterSessionMode } from '$lib/components/sessions/sessionSwitch.svelte'
 	import type { SessionPreviewTabs } from '$lib/components/sessions/sessionPreviewTabs.svelte'
-	import { userStore, userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
+	import {
+		roleCapabilities,
+		userWorkspaces,
+		usersWorkspaceStore,
+		workspaceStore
+	} from '$lib/stores'
 	import {
 		getOrCreateRuntime,
 		getRuntime,
@@ -205,7 +210,7 @@
 	// load. `recovering` also guards re-entry: recovery mutates the session list
 	// this effect tracks, while the URL that would stop it only updates on `goto`.
 	$effect(() => {
-		if (embedded || !globalEnabled || !sessionsAllowedFor($userStore?.operator)) return
+		if (embedded || !globalEnabled || !sessionsAllowedFor(!$roleCapabilities.code)) return
 		if (!sessionState.hydrated || recovering) return
 		// A deliberate delete removes the open session ahead of its own navigation.
 		// Claiming that gap would take over the URL and tell the user the session
@@ -1023,11 +1028,11 @@
 				}}>Open sessions</Button
 			>
 		</div>
-	{:else if !sessionsAllowedFor($userStore?.operator)}
-		<!-- Operators without the opt-in keep the legacy docked chat (see `gate.ts`); a direct
-		     URL must not bypass that. -->
+	{:else if !sessionsAllowedFor(!$roleCapabilities.code)}
+		<!-- A role that cannot code keeps the legacy docked chat without the opt-in (see `gate.ts`);
+		     a direct URL must not bypass that. -->
 		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
-			<p class="text-primary font-medium">AI Sessions are not available for operators</p>
+			<p class="text-primary font-medium">AI Sessions are not available for your role</p>
 			<p>Use the Ask AI chat instead.</p>
 			<Button
 				unifiedSize="xs"

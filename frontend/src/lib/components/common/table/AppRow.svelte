@@ -5,8 +5,8 @@
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { AppService, type ListableApp } from '$lib/gen'
-	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
-	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
+	import { roleCapabilities, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { roleCanAuthor } from '$lib/editRights'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
@@ -68,7 +68,9 @@
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
-	const operatorBuilderApps = useOperatorBuilderApps()
+	// A compose-only app role authors full-code apps, never low-code ones.
+	const canAuthorApp = $derived(roleCanAuthor(app.raw_app ? 'raw_app' : 'app', $roleCapabilities))
+	const fullApps = $derived($roleCapabilities.apps === 'full')
 
 	let appExport: { open: (path: string, rawApp?: boolean) => void } | undefined = $state(undefined)
 	let appDeploymentHistory: AppDeploymentHistory | undefined = $state(undefined)
@@ -174,7 +176,7 @@
 					</Button>
 				</div>
 			{/if}
-			{#if !$userStore?.operator && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !app.canWrite)}
+			{#if $roleCapabilities.code && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !app.canWrite)}
 				<EditInForkButton itemType={app.raw_app ? 'raw_app' : 'app'} path={app.path} />
 			{/if}
 		</span>
@@ -200,7 +202,7 @@
 								})
 							},
 							disabled: !showEditButton,
-							hide: $userStore?.operator
+							hide: !fullApps
 						},
 						{
 							displayName: 'Delete',
@@ -221,12 +223,16 @@
 							type: 'delete',
 							// A draft-only row is always the authed user's own draft (the
 							// list endpoint only surfaces own/legacy draft-only rows), so
-							// discarding it never requires write permission on the path.
+							// discarding it never requires write permission on the path. The server
+							// lets one's own draft go without authoring rights; only a legacy one needs them.
 							disabled: !showEditButton,
-							hide: $userStore?.operator && !($operatorBuilderApps && app.raw_app)
+							hide:
+								!canAuthorApp &&
+								app.draft_users?.length === 1 &&
+								app.draft_users[0]?.username == null
 						},
 						{
-							displayName: $userStore?.operator ? 'View JSON' : 'View/Edit JSON',
+							displayName: fullApps ? 'View/Edit JSON' : 'View JSON',
 							icon: File,
 							action: () => {
 								loadAppJson()
@@ -241,7 +247,7 @@
 						icon: GitFork,
 						href: `/apps${app.raw_app ? '_raw' : ''}/add?template=${path}`,
 						disabled: !showEditButton,
-						hide: $userStore?.operator
+						hide: !fullApps
 					},
 					{
 						displayName: editInForkLabel($workspaceStore, $userWorkspaces),
@@ -250,7 +256,7 @@
 						// menu item's anchor navigates before a delegated onclick can preventDefault it.
 						action: (e) => onEditInForkClick(e, app.raw_app ? 'raw_app' : 'app', path),
 						hide:
-							$userStore?.operator ||
+							!$roleCapabilities.code ||
 							isCloudHosted() ||
 							!editInForkAllowed($workspaceStore, $userWorkspaces)
 					},
@@ -261,7 +267,7 @@
 							moveDrawer.openDrawer(path, summary, 'app')
 						},
 						disabled: !canEdit,
-						hide: $userStore?.operator
+						hide: !fullApps
 					},
 					...(isDeployable('app', path, await getDeployUiSettings())
 						? [
@@ -271,12 +277,12 @@
 									action: () => {
 										deploymentDrawer.openDrawer(path, 'app')
 									},
-									hide: $userStore?.operator
+									hide: !fullApps
 								}
 							]
 						: []),
 					{
-						displayName: $userStore?.operator ? 'View JSON' : 'View/Edit JSON',
+						displayName: fullApps ? 'View/Edit JSON' : 'View JSON',
 						icon: FileJson,
 						action: () => {
 							loadAppJson()
@@ -286,7 +292,7 @@
 						displayName: 'Deployments',
 						icon: History,
 						action: () => appDeploymentHistory?.open(),
-						hide: $userStore?.operator && !($operatorBuilderApps && app.raw_app)
+						hide: !canAuthorApp
 					},
 					{
 						displayName: 'Permissions',
@@ -294,7 +300,7 @@
 						action: () => {
 							shareModal.openDrawer && shareModal.openDrawer(path, 'app')
 						},
-						hide: $userStore?.operator && !($operatorBuilderApps && app.raw_app)
+						hide: !canAuthorApp
 					},
 					{
 						displayName: 'Copy path',
@@ -340,7 +346,7 @@
 						},
 						type: 'delete',
 						disabled: !canEdit,
-						hide: $userStore?.operator && !($operatorBuilderApps && app.raw_app)
+						hide: !canAuthorApp
 					}
 				]
 			}}

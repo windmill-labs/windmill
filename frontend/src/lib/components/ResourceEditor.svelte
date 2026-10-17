@@ -9,6 +9,7 @@
 	} from '$lib/gen'
 	import { canEditItem } from '$lib/editRights'
 	import { userWorkspaces } from '$lib/stores'
+	import { capabilitiesIn } from '$lib/roleCapabilities'
 	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
@@ -269,8 +270,12 @@
 		path: string,
 		extraPerms: Record<string, boolean> | undefined
 	): boolean {
-		const settings = $userWorkspaces.find((w) => w.id === ws)?.operator_settings
-		return canEditItem('resource', path, extraPerms, acting.in(ws), settings)
+		const user = acting.in(ws)
+		const caps = capabilitiesIn(
+			user,
+			$userWorkspaces.find((w) => w.id === ws)
+		)
+		return canEditItem('resource', path, extraPerms, user, caps)
 	}
 
 	const dirtyWorkspaces = $derived(

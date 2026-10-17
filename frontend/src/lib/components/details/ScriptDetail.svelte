@@ -179,7 +179,8 @@
 			canWrite(script.path, script.extra_perms!, actingUser)
 	)
 	const editRights = useEditRights()
-	// The edit actions also need a role that authors scripts, which no operator has.
+	const caps = $derived(editRights.capabilities)
+	// The edit actions also need a role that authors scripts.
 	const canEdit = $derived(can_write && editRights.roleCanAuthor('script'))
 	let deploymentInProgress = $state(false)
 	let expandedModuleLocks: Record<string, boolean> = $state({})
@@ -545,7 +546,7 @@
 	) {
 		const buttons: any = []
 
-		if (!topHash && script && !actingUser?.operator && !script.codebase) {
+		if (!topHash && script && caps.code && !script.codebase) {
 			buttons.push({
 				label: 'Fork',
 				description: `Start a new script from a copy of this one`,
@@ -561,12 +562,7 @@
 			})
 		}
 
-		if (
-			script &&
-			!actingUser?.operator &&
-			!isCloudHosted() &&
-			editInForkAllowed(workspace, $userWorkspaces)
-		) {
+		if (script && caps.code && !isCloudHosted() && editInForkAllowed(workspace, $userWorkspaces)) {
 			buttons.push({
 				label: editInForkLabel(workspace, $userWorkspaces),
 				description: editInForkDescription('script', workspace, $userWorkspaces),
@@ -616,24 +612,26 @@
 			})
 		}
 
-		if (!actingUser?.operator) {
-			buttons.push({
-				label: 'Build app',
-				placement: 'menu',
-				alwaysPlaced: true,
-				buttonProps: {
-					onClick: async () => {
-						const app = createRawAppFromScript(script.path, script.summary, script.schema)
-						// The raw app editor reads the payload from sessionStorage on mount.
-						sessionStorage.setItem('rawAppImport', JSON.stringify(app))
-						await onNavigate('/apps_raw/add')
-					},
-					disabled: !showEditButtons,
-					unifiedSize: 'md',
-					variant: 'subtle',
-					startIcon: LayoutDashboard
-				}
-			})
+		if (caps.code) {
+			// It starts from the full template, not the builder one a compose-only role deploys.
+			if (caps.apps === 'full')
+				buttons.push({
+					label: 'Build app',
+					placement: 'menu',
+					alwaysPlaced: true,
+					buttonProps: {
+						onClick: async () => {
+							const app = createRawAppFromScript(script.path, script.summary, script.schema)
+							// The raw app editor reads the payload from sessionStorage on mount.
+							sessionStorage.setItem('rawAppImport', JSON.stringify(app))
+							await onNavigate('/apps_raw/add')
+						},
+						disabled: !showEditButtons,
+						unifiedSize: 'md',
+						variant: 'subtle',
+						startIcon: LayoutDashboard
+					}
+				})
 
 			if (script?.restart_unless_cancelled ?? false) {
 				buttons.push({
@@ -688,7 +686,7 @@
 		script: Script | undefined,
 		deployUiSettings: WorkspaceDeployUISettings | undefined
 	) {
-		if (!script || actingUser?.operator) return []
+		if (!script || !caps.code) return []
 
 		const menuItems: any = []
 
@@ -855,7 +853,7 @@
 	</DrawerContent>
 </Drawer>
 {#key script?.hash}
-	<DetailPageLayout bind:selected={rightPaneSelected} isOperator={actingUser?.operator}>
+	<DetailPageLayout bind:selected={rightPaneSelected} isOperator={!caps.code}>
 		{#snippet header({ wide }: { wide: boolean })}
 			<DetailPageHeader
 				{wide}

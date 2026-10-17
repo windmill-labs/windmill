@@ -28,15 +28,10 @@
 	import { deepEqual } from 'fast-equals'
 	import type { Snippet } from 'svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import {
-		useOperatingUser,
-		useOperatingWorkspace
-	} from '$lib/components/operatingWorkspace.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	const triggerLock = useTriggerLock()
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatingUser = useOperatingUser()
-	const actingUser = $derived(operatingUser.current)
 	const editRights = useEditRights()
 
 	interface Props {
@@ -540,7 +535,7 @@
 							bind:itemKind
 							kinds={['script']}
 							allowFlow={true}
-							allowEdit={!actingUser?.operator}
+							allowEdit={editRights.roleCanAuthor(itemKind)}
 							clearable
 						/>
 						{#if emptyString(scriptPath)}
