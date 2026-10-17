@@ -500,6 +500,9 @@ impl PrivateHostAllowance {
         // Judged by where it is delivered: an allowed v6 range such as an operator's NAT64
         // prefix must not carry a request on to an embedded private v4 like 169.254.169.254.
         let ip = &match ip {
+            // The local-use NAT64 prefix places its v4 by a prefix length only the site knows,
+            // so the destination cannot be judged and no network entry admits it.
+            IpAddr::V6(v6) if v6.segments()[..3] == [0x0064, 0xff9b, 0x0001] => return false,
             // `::1` and `::` sit inside the IPv4-compatible block but are v6's own.
             IpAddr::V6(v6) if !v6.is_loopback() && !v6.is_unspecified() => {
                 embedded_ipv4(v6).map_or(*ip, IpAddr::V4)
@@ -1077,7 +1080,7 @@ mod tests {
     #[tokio::test]
     async fn private_host_allowance_admits_only_listed_hosts() {
         let a = PrivateHostAllowance::parse(
-            "localhost:8080, 10.1.0.0/16, 127.0.0.2:9000, [::1]:443, 64:ff9b::/96",
+            "localhost:8080, 10.1.0.0/16, 127.0.0.2:9000, [::1]:443, 64:ff9b::/96, 64:ff9b:1::/48",
         )
         .0;
         let ok = |u: &'static str| {
@@ -1099,6 +1102,7 @@ mod tests {
         assert!(!ok("http://[::1]/v1").await);
         // An allowed v6 range does not reach the private v4 it embeds.
         assert!(!ok("http://[64:ff9b::a9fe:a9fe]/").await);
+        assert!(!ok("http://[64:ff9b:1::a9fe:a9fe]/").await);
         assert!(!ok("http://169.254.169.254/latest/meta-data").await);
         assert!(ok("http://8.8.8.8/v1").await);
     }
