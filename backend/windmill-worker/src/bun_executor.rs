@@ -18,6 +18,7 @@ use windmill_parser_ts::{remove_pinned_import_specifiers, remove_pinned_imports}
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PrecomputedAgentInfo};
 
 use crate::{
+    check_no_network_jailed,
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         parse_npm_config, read_file, read_file_content, read_result, resolve_nsjail_timeout,
@@ -25,13 +26,13 @@ use crate::{
         start_child_process, write_file_binary, MaybeLock, OccupancyMetrics, StreamNotifier,
         DEV_CONF_NSJAIL,
     },
-    get_proxy_envs_for_lang,
+    get_proxy_envs_for_lang, get_run_proxy_envs,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry_with_workspace_override, BUNFIG_INSTALL_SCOPES,
-    BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_INSTALL_MIN_RELEASE_AGE, BUN_NO_CACHE, BUN_PATH,
-    DISABLE_BUN_INSTALL_SANDBOX, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPMRC,
-    NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
-    TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
+    is_sandboxing_enabled, nsjail_clone_newnet, read_ee_registry_with_workspace_override,
+    BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_INSTALL_MIN_RELEASE_AGE,
+    BUN_NO_CACHE, BUN_PATH, DISABLE_BUN_INSTALL_SANDBOX, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH,
+    NODE_PATH, NPMRC, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV,
+    PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::{
     cache,
@@ -2157,6 +2158,36 @@ pub async fn handle_bun_job(
                 .to_string(),
         ));
     }
+    let jailed = is_sandboxing_enabled() || annotation.sandbox;
+    // Native scripts take their network away inside the isolate instead.
+    let jail_no_network = annotation.no_network && !annotation.native;
+    check_no_network_jailed(jail_no_network, jailed)?;
+    // Unbundled, Bun's run-time loader fetches workspace imports; Node's are bundled on the host.
+    if jail_no_network
+        && codebase.is_none()
+        && !annotation.nodejs
+        && (annotation.nobundling || *DISABLE_BUNDLING)
+    {
+        let script_path = crate::common::use_flow_root_path(job.runnable_path());
+        let script_dir = script_path
+            .rsplit_once('/')
+            .map(|(dir, _)| dir)
+            .unwrap_or("");
+        let imports = std::iter::once((script_path.clone(), inner_content.as_str()))
+            .chain(modules.iter().flatten().map(|(key, module)| {
+                let stem = key.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(key);
+                (format!("{script_dir}/{stem}"), module.content.as_str())
+            }))
+            .flat_map(|(path, code)| {
+                windmill_parser_ts::parse_runtime_relative_imports(code, &path).unwrap_or_default()
+            });
+        crate::check_no_network_imports(
+            imports,
+            &script_path,
+            modules.as_ref(),
+            "Bun without bundling (`//nobundling` or `DISABLE_BUNDLING`)",
+        )?;
+    }
 
     let (mut has_bundle_cache, cache_logs, local_path, remote_path) = if let (Some(lock), true) = (
         maybe_lock.get_lock(),
@@ -2406,6 +2437,9 @@ pub async fn handle_bun_job(
 
     if annotation.sandbox {
         init_logs.push_str("sandbox mode (nsjail)\n");
+    }
+    if jail_no_network {
+        init_logs.push_str("no network\n");
     }
 
     let write_wrapper_f = async {
@@ -2723,7 +2757,8 @@ try {{
         && !annotation.nobundling
         && !*DISABLE_BUNDLING
         && !codebase.is_some()
-        && (maybe_lock.get_lock().is_some() || annotation.native);
+        // A `no_network` run step cannot fetch relative imports, so they resolve while bundling.
+        && (maybe_lock.get_lock().is_some() || annotation.native || jail_no_network);
 
     let write_loader_f = async {
         if build_cache {
@@ -2749,7 +2784,13 @@ try {{
             build_loader(
                 job_dir,
                 base_internal_url,
-                &client.token,
+                // Bun's run step reads this loader (Node's builds on the host), and could hand
+                // the token out through its result.
+                if jail_no_network && !annotation.nodejs {
+                    ""
+                } else {
+                    &client.token
+                },
                 &job.workspace_id,
                 job.runnable_path(),
                 if annotation.nodejs {
@@ -2765,11 +2806,12 @@ try {{
         }
     };
 
-    let (reserved_variables, _, _) = tokio::try_join!(
+    let (mut reserved_variables, _, _) = tokio::try_join!(
         reserved_variables_args_out_f,
         write_wrapper_f,
         write_loader_f
     )?;
+    crate::strip_no_network_token(&mut reserved_variables, jail_no_network);
 
     // For WAC v2, write checkpoint.json before bun runs
     if is_wac_v2 {
@@ -2982,7 +3024,7 @@ try {{
     append_logs(&job.id, &job.workspace_id, init_logs, conn).await;
 
     //do not cache local dependencies
-    let child = if is_sandboxing_enabled() || annotation.sandbox {
+    let child = if jailed {
         let nsjail_timeout =
             resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
 
@@ -3025,12 +3067,13 @@ try {{
             .env_clear()
             .envs(reserved_variables)
             .envs(
-                get_proxy_envs_for_lang(
+                get_run_proxy_envs(
                     &ScriptLang::Bun,
                     job.kind,
                     &job.id,
                     &job.workspace_id,
                     conn,
+                    jail_no_network,
                 )
                 .await?,
             )
@@ -3046,6 +3089,7 @@ try {{
                 .replace("{LANG}", if annotation.nodejs { "nodejs" } else { "bun" })
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{CLONE_NEWNET}", nsjail_clone_newnet(jail_no_network))
                 .replace("{UIDGIDMAP}", if *DISABLE_NUSER { "" } else {
                     "uidmap {\n    inside_id: \"1000\"\n    outside_id: \"\"\n    count: 1\n}\n\ngidmap {\n    inside_id: \"1000\"\n    outside_id: \"\"\n    count: 1\n}"
                 })

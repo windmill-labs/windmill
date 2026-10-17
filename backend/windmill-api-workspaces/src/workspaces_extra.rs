@@ -2399,6 +2399,11 @@ pub(crate) async fn purge_fork_storages_unless_live(
     w_id: &str,
     prepared: Vec<PreparedForkStoragePurge>,
 ) -> Result<Vec<String>> {
+    // The lock only orders a purge against a same-id fork write; with nothing to purge, waiting
+    // on it would only hold fork creation's answer behind such a write.
+    if prepared.is_empty() {
+        return Ok(vec![]);
+    }
     let mut lock = db.begin().await?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtext('fork:' || $1))")
         .bind(w_id)

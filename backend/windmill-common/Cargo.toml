@@ -110,6 +110,7 @@ strum.workspace = true
 strum_macros.workspace = true
 windmill-types.workspace = true
 url.workspace = true
+ipnet.workspace = true
 urlencoding.workspace = true
 async-recursion.workspace = true
 pep440_rs.workspace = true
