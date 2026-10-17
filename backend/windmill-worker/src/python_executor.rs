@@ -153,8 +153,8 @@ use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file,
         read_result, render_nsjail_rlimit_as, resolve_nsjail_timeout,
-        resolve_nsjail_tmp_mount_block, start_child_process, OccupancyMetrics, StreamNotifier,
-        DEV_CONF_NSJAIL,
+        proto_str, resolve_nsjail_tmp_mount_block, start_child_process, OccupancyMetrics,
+        StreamNotifier, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang, get_run_proxy_envs,
     handle_child::handle_child,
@@ -1148,6 +1148,7 @@ mount {{
                 )
             })
             .join("\n");
+        let module_mounts = python_module_mounts(job_dir, &dirs, modules.as_ref());
         let nsjail_timeout =
             resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
         let _ = write_file(
@@ -1167,6 +1168,7 @@ mount {{
                 )
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
+                .replace("{MODULE_MOUNTS}", &module_mounts)
                 .replace("{GLOBAL_SITE_PACKAGES}", &global_site_packages_path)
                 .replace("{MAIN}", format!("{dirs}/{last}").as_str())
                 .replace(
@@ -1325,6 +1327,28 @@ mount {{
     }
 
     Ok(result)
+}
+
+/// nsjail mounts for a job's module files. They are written next to the main script, and the
+/// jail sees only what it mounts: without these, a module import falls through to the
+/// loader's API fetch. Keys come from the request, hence the containment check and quoting.
+fn python_module_mounts(
+    job_dir: &str,
+    dirs: &str,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
+) -> String {
+    modules
+        .into_iter()
+        .flat_map(|m| m.keys())
+        .filter(|rel| crate::worker::is_contained_relative_path(rel))
+        .map(|rel| {
+            format!(
+                "mount {{\n    src: {}\n    dst: {}\n    is_bind: true\n    mandatory: false\n}}\n",
+                proto_str(&format!("{job_dir}/{dirs}/{rel}")),
+                proto_str(&format!("/tmp/{dirs}/{rel}")),
+            )
+        })
+        .join("\n")
 }
 
 /// Generate Python code to spread preprocessor args from `kwargs` into `pre_args`.
@@ -3741,6 +3765,25 @@ pub async fn start_worker(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn module_files_are_mounted_next_to_the_main_script() {
+        let module = |content: &str| windmill_common::scripts::ScriptModule {
+            content: content.to_string(),
+            language: windmill_common::scripts::ScriptLang::Python3,
+            lock: None,
+        };
+        let modules = HashMap::from([
+            ("lib/util.py".to_string(), module("")),
+            ("../escape.py".to_string(), module("")),
+            ("q\"uote.py".to_string(), module("")),
+        ]);
+        let mounts = super::python_module_mounts("/jobs/1", "u/admin", Some(&modules));
+        assert!(mounts.contains("src: \"/jobs/1/u/admin/lib/util.py\""), "{mounts}");
+        assert!(mounts.contains("dst: \"/tmp/u/admin/lib/util.py\""), "{mounts}");
+        assert!(!mounts.contains("escape"), "{mounts}");
+        assert!(mounts.contains("q\\\"uote.py"), "{mounts}");
+    }
+
     use super::*;
 
     #[test]
