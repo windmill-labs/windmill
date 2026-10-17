@@ -2267,8 +2267,13 @@ try {{
             build_loader(
                 job_dir,
                 base_internal_url,
-                // The run step reads this loader, and could hand the token out through its result.
-                if jail_no_network { "" } else { &client.token },
+                // Bun's run step reads this loader (Node's builds on the host), and could hand
+                // the token out through its result.
+                if jail_no_network && !annotation.nodejs {
+                    ""
+                } else {
+                    &client.token
+                },
                 &job.workspace_id,
                 job.runnable_path(),
                 if annotation.nodejs {
@@ -4177,7 +4182,6 @@ pub async fn start_worker(
         get_common_bun_proc_envs(Some(&base_internal_url)).await;
 
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
-    crate::check_no_network_dedicated(annotation.no_network && !annotation.native)?;
 
     let context = variables::get_reserved_variables(
         &Connection::from(db.clone()),

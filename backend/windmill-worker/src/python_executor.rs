@@ -3578,7 +3578,6 @@ pub async fn start_worker(
 ) -> error::Result<()> {
     use crate::PyV;
     tracing::info!("script path: {}", script_path);
-    crate::check_no_network_dedicated(PythonAnnotations::parse(inner_content).no_network)?;
 
     let codegen = compute_py_codegen(inner_content, script_path);
 

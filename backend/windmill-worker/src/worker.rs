@@ -1052,17 +1052,20 @@ fn no_network_refusal(
     )))
 }
 
-/// A dedicated worker runs its script outside nsjail, so a `no_network` one would keep
-/// the worker's network.
-pub fn check_no_network_dedicated(no_network: bool) -> windmill_common::error::Result<()> {
-    if no_network {
-        return Err(windmill_common::error::Error::ExecutionErr(
-            "Script has the `no_network` annotation, which a dedicated worker cannot honor: \
-            it does not run scripts in an nsjail sandbox. Refusing to run it with network."
-                .to_string(),
-        ));
+/// Whether a script asks for a run step without network, which only nsjail provides. A
+/// dedicated worker runs its script outside nsjail, so it leaves such a script to the
+/// regular executor.
+pub fn runs_no_network_in_jail(language: Option<ScriptLang>, content: &str) -> bool {
+    match language {
+        Some(ScriptLang::Python3) => {
+            windmill_common::worker::PythonAnnotations::parse(content).no_network
+        }
+        Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) => {
+            let annotation = windmill_common::worker::TypeScriptAnnotations::parse(content);
+            annotation.no_network && !annotation.native
+        }
+        _ => false,
     }
-    Ok(())
 }
 
 /// `clone_newnet` for a run step's nsjail profile.
