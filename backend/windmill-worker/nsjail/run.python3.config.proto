@@ -62,6 +62,8 @@ mount {
     is_bind: true
 }
 
+{MODULE_MOUNTS}
+
 mount {
     src: "{JOB_DIR}/loader.py"
     dst: "/tmp/loader.py"

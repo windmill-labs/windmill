@@ -5779,7 +5779,7 @@ async fn record_declared_warehouse_write(
 /// True when `path` contains only `Normal`/`CurDir` components, i.e. it cannot
 /// escape the directory it is joined onto (no `..`, no absolute root, no Windows
 /// drive prefix).
-fn is_contained_relative_path(path: &str) -> bool {
+pub(crate) fn is_contained_relative_path(path: &str) -> bool {
     use std::path::Component;
     std::path::Path::new(path)
         .components()
