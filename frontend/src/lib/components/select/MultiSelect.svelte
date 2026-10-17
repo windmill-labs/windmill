@@ -74,11 +74,16 @@
 	let filterText = $state<string>('')
 	let open = $state<boolean>(false)
 	let wrapperEl: HTMLDivElement | undefined = $state()
+	const listId = $props.id()
 	let searchInputEl: TextInput | undefined = $state()
 
 	let currentValue = $derived(value ?? [])
 
-	$effect(() => searchInputEl?.focus())
+	// Keyed on `open` too: the closed list stays mounted for its 500ms collapse, so a reopen
+	// within it keeps the same input, and an input mounting during it must not take focus.
+	$effect(() => {
+		if (open) searchInputEl?.focus()
+	})
 
 	let processedItems: ProcessedItem<Value>[] = $derived.by(() => {
 		let args = { items, createText, filterText, groupBy, onCreateItem, sortBy }
@@ -91,6 +96,8 @@
 	$effect(() => {
 		open && untrack(() => onOpen?.())
 	})
+
+	let showSearch = $derived(processedItems.length - currentValue.length > 0 || !!onCreateItem)
 
 	let valueEntry = $derived(
 		currentValue.map(
@@ -108,15 +115,76 @@
 			if ((value?.length ?? 0) !== before) filterText = ''
 		} else {
 			value = [...currentValue, item.value]
+			// Picking the last option unmounts the search input that held focus.
+			if (!showSearch) wrapperEl?.focus()
 		}
 	}
 	function onRemoveValue(item: ProcessedItem<Value>) {
+		keepKeyboardFocus()
 		value = currentValue.filter((v) => v !== item.value)
 	}
 
 	function clearValue() {
+		keepKeyboardFocus()
 		filterText = ''
 		value = []
+	}
+
+	// The chip and clear buttons unmount once they have done their job, which would drop
+	// keyboard focus on <body>. Only a keyboard-focused button hands it back to the field, so
+	// a mouse click leaves nothing focused.
+	function keepKeyboardFocus() {
+		const active = document.activeElement
+		if (
+			active &&
+			active !== wrapperEl &&
+			wrapperEl?.contains(active) &&
+			active.matches(':focus-visible')
+		)
+			wrapperEl.focus()
+	}
+
+	function closeAndFocusField() {
+		open = false
+		wrapperEl?.focus()
+	}
+
+	// Escape that closes the list must not also close the drawer or popover around the field.
+	// Melt popovers listen on `document`, where Svelte handles delegated events of portaled
+	// content too, so only stopping immediate propagation keeps the event from them.
+	function consumeEscape(e: KeyboardEvent) {
+		e.preventDefault()
+		e.stopImmediatePropagation()
+	}
+
+	// Keys the field acts on stop here: editors around it bind the same keys on `window` (arrows
+	// move the selected step or component). Modified keys are left to them (Cmd+Enter runs).
+	function onFieldKeydown(e: KeyboardEvent) {
+		if (e.target !== wrapperEl || e.ctrlKey || e.metaKey || e.altKey) return
+		if (!open && ['Enter', ' ', 'ArrowDown', 'ArrowUp'].includes(e.key)) {
+			e.preventDefault()
+			e.stopPropagation()
+			open = true
+		} else if (open && e.key === 'Escape') {
+			consumeEscape(e)
+			open = false
+		} else if (open && e.key === 'Tab') {
+			open = false
+		}
+	}
+
+	function onSearchKeydown(e: KeyboardEvent) {
+		// Picking is done by SelectDropdown's window listener. With `disablePortal` the input sits
+		// in the caller's <form>, where Enter would otherwise click its first submit button.
+		if (e.key === 'Enter') e.preventDefault()
+		if (e.key === 'Escape') {
+			consumeEscape(e)
+			closeAndFocusField()
+		} else if (e.key === 'Tab') {
+			// The list may be portaled to the end of <body>: moving focus back to the field first
+			// lets Tab continue from the field rather than off the end of the page.
+			closeAndFocusField()
+		}
 	}
 
 	export function getFilteredInputText() {
@@ -124,9 +192,14 @@
 	}
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	bind:this={wrapperEl}
+	role="combobox"
+	aria-controls={listId}
+	aria-expanded={open && !disabled}
+	aria-haspopup="listbox"
+	aria-disabled={disabled}
+	tabindex={disabled ? undefined : 0}
 	class={twMerge(
 		'flex items-center flex-wrap relative',
 		inputBaseClass,
@@ -139,6 +212,7 @@
 	)}
 	{style}
 	onpointerup={() => (open = true)}
+	onkeydown={onFieldKeydown}
 	use:clickOutside={{ onClickOutside: () => (open = false) }}
 	{id}
 >
@@ -192,15 +266,29 @@
 			disabled ? 'disabled' : ''
 		)}
 		ulClass="options"
+		{listId}
 	>
 		{#snippet header()}
-			{#if processedItems.length - currentValue.length > 0 || onCreateItem}
+			{#if showSearch}
 				<div class="mx-2 mb-1 mt-2 flex items-center relative">
 					<TextInput
 						bind:this={searchInputEl}
 						bind:value={filterText}
 						inputProps={{
-							onblur: (e) => (e.preventDefault(), searchInputEl?.focus()),
+							// Pressing the field or a chip focuses the field; typing must still filter.
+							// Not once the last option is picked, as the input is then unmounting, nor
+							// when focus goes to a control outside the field and its list.
+							onblur: (e: FocusEvent) => {
+								const to = e.relatedTarget as Node | null
+								if (
+									to &&
+									!wrapperEl?.contains(to) &&
+									!document.getElementById(listId)?.contains(to)
+								)
+									return
+								if (open && showSearch) searchInputEl?.focus()
+							},
+							onkeydown: onSearchKeydown,
 							placeholder: searchPlaceholder
 						}}
 						class="!pr-7 !bg-surface"

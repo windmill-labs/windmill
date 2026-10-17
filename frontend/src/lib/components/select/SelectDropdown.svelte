@@ -26,7 +26,8 @@
 		startSnippet,
 		endSnippet,
 		bottomSnippet,
-		highlightFirstOnOpen = false
+		highlightFirstOnOpen = false,
+		listId
 	}: {
 		processedItems?: ProcessedItem<T>[]
 		value: T | undefined
@@ -49,6 +50,8 @@
 		bottomSnippet?: Snippet<[{ close: () => void }]>
 		/** When true, the first item is highlighted when the dropdown opens (even without filterText) */
 		highlightFirstOnOpen?: boolean
+		/** `id` of the options list, for a field's `aria-controls`. */
+		listId?: string
 	} = $props()
 
 	let processedItems = $derived(
@@ -106,63 +109,68 @@
 	{getInputRect}
 	class={className}
 >
-	{@render header?.()}
-	{#if processedItems?.length === 0}
-		<div class="py-8 px-4 text-center text-primary text-xs">{noItemsMsg}</div>
-	{/if}
-	<ul
-		class={twMerge(
-			'flex-1 flex flex-col',
-			enableOverflowYAuto.current ? 'overflow-y-auto' : '',
-			ulClass
-		)}
-	>
-		{#each processedItems ?? [] as item, itemIndex}
-			{#if (item.__select_group && itemIndex === 0) || processedItems?.[itemIndex - 1]?.__select_group !== item.__select_group}
-				<li
-					class={twMerge(
-						'mx-4 pb-1 mb-2 text-xs font-semibold text-primary border-b border-border-light',
-						itemIndex === 0 ? 'mt-3' : 'mt-6'
-					)}
-				>
-					{item.__select_group}
-				</li>
-			{/if}
-			<li>
-				<button
-					class={twMerge(
-						'py-2 px-4 w-full font-normal text-left text-primary text-xs',
-						itemIndex === keyArrowPos || item.value === value
-							? 'bg-surface-secondary dark:bg-surface-tertiary'
-							: 'hover:bg-surface-hover',
-						endSnippet || item.__is_create ? 'flex items-center justify-between gap-2' : '',
-						itemButtonWrapperClasses,
-						item.disabled ? 'cursor-not-allowed text-disabled' : ''
-					)}
-					onclick={(e) => {
-						e.stopImmediatePropagation()
-						if (!item.disabled) onSelectValue(item)
-					}}
-				>
-					{@render startSnippet?.({ item, close: () => (open = false) })}
-					<!-- Label and subtitle stay one block so that, with an `endSnippet` making the button a
+	<!-- A closed list stays mounted for its collapse animation. Inert, its controls leave the tab
+	     order at once, so Tab from a field rendered around it (`disablePortal`) skips them. -->
+	<div class="contents" inert={!isVisible}>
+		{@render header?.()}
+		{#if processedItems?.length === 0}
+			<div class="py-8 px-4 text-center text-primary text-xs">{noItemsMsg}</div>
+		{/if}
+		<ul
+			id={listId}
+			class={twMerge(
+				'flex-1 flex flex-col',
+				enableOverflowYAuto.current ? 'overflow-y-auto' : '',
+				ulClass
+			)}
+		>
+			{#each processedItems ?? [] as item, itemIndex}
+				{#if (item.__select_group && itemIndex === 0) || processedItems?.[itemIndex - 1]?.__select_group !== item.__select_group}
+					<li
+						class={twMerge(
+							'mx-4 pb-1 mb-2 text-xs font-semibold text-primary border-b border-border-light',
+							itemIndex === 0 ? 'mt-3' : 'mt-6'
+						)}
+					>
+						{item.__select_group}
+					</li>
+				{/if}
+				<li>
+					<button
+						class={twMerge(
+							'py-2 px-4 w-full font-normal text-left text-primary text-xs',
+							itemIndex === keyArrowPos || item.value === value
+								? 'bg-surface-secondary dark:bg-surface-tertiary'
+								: 'hover:bg-surface-hover',
+							endSnippet || item.__is_create ? 'flex items-center justify-between gap-2' : '',
+							itemButtonWrapperClasses,
+							item.disabled ? 'cursor-not-allowed text-disabled' : ''
+						)}
+						onclick={(e) => {
+							e.stopImmediatePropagation()
+							if (!item.disabled) onSelectValue(item)
+						}}
+					>
+						{@render startSnippet?.({ item, close: () => (open = false) })}
+						<!-- Label and subtitle stay one block so that, with an `endSnippet` making the button a
 					     flex row, the subtitle sits under the name rather than beside the row's actions. -->
-					<div class="min-w-0 flex-1">
-						<span class={itemLabelWrapperClasses}>
-							{item.label || '\xa0'}
-						</span>
-						{#if item.subtitle}
-							<div class="text-2xs text-secondary">{item.subtitle}</div>
+						<div class="min-w-0 flex-1">
+							<span class={itemLabelWrapperClasses}>
+								{item.label || '\xa0'}
+							</span>
+							{#if item.subtitle}
+								<div class="text-2xs text-secondary">{item.subtitle}</div>
+							{/if}
+						</div>
+						{#if item.__is_create}
+							<PlusIcon class="inline ml-auto" size={16} />
+						{:else}
+							{@render endSnippet?.({ item, close: () => (open = false) })}
 						{/if}
-					</div>
-					{#if item.__is_create}
-						<PlusIcon class="inline ml-auto" size={16} />
-					{:else}
-						{@render endSnippet?.({ item, close: () => (open = false) })}
-					{/if}
-				</button>
-			</li>
-		{/each}
-	</ul>
-	{@render bottomSnippet?.({ close: () => (open = false) })}
+					</button>
+				</li>
+			{/each}
+		</ul>
+		{@render bottomSnippet?.({ close: () => (open = false) })}
+	</div>
 </GenericDropdown>
