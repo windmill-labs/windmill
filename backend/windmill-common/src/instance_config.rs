@@ -1528,9 +1528,22 @@ pub async fn sync_global_settings_declarative(
         .map_err(|e| anyhow::anyhow!("{max_expiration_key}: {e}"))?;
 
     let mut diff = diff_global_settings(current, desired, ApplyMode::Replace);
+    let roles_key = crate::global_settings::WORKSPACE_ROLES_SETTING;
+    let roles_written = diff.upserts.iter().any(|(k, _)| k == roles_key)
+        || diff.deletes.iter().any(|k| k == roles_key);
+    if roles_written {
+        crate::roles::validate_instance_roles_write(db, desired.get(roles_key))
+            .await
+            .map_err(|e| anyhow::anyhow!("{roles_key}: {e}"))?;
+    }
     crate::external_instance_pg::write_external_instance_pg_from_diff(db, &mut diff, observer)
         .await?;
     apply_settings_diff(db, &diff, observer).await?;
+    if roles_written {
+        crate::roles::after_instance_roles_write(db)
+            .await
+            .map_err(|e| anyhow::anyhow!("{roles_key}: {e}"))?;
+    }
 
     Ok(())
 }

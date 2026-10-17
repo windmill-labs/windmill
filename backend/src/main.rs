@@ -1665,12 +1665,13 @@ async fn process_notify_event(
             );
             windmill_common::variables::CUSTOM_ENVS_CACHE.remove(payload);
         }
-        "notify_operator_settings_change" => {
+        // Written by the legacy operator settings mirror, always alongside a role override.
+        "notify_operator_settings_change" | "notify_role_overrides_change" => {
             tracing::info!(
-                "Operator settings change detected, invalidating operator rights cache: {}",
+                "Role overrides change detected, invalidating workspace roles cache: {}",
                 payload
             );
-            windmill_common::workspaces::invalidate_operator_rights_cache(payload);
+            windmill_common::roles::invalidate_workspace_roles_cache(payload);
         }
         "notify_asset_producer_change" => {
             tracing::debug!(
@@ -2026,6 +2027,9 @@ async fn process_notify_event(
                 }
                 DISABLE_PASSWORD_LOGIN_SETTING => {
                     load_disable_password_login(db).await;
+                }
+                windmill_common::global_settings::WORKSPACE_ROLES_SETTING => {
+                    windmill_common::roles::invalidate_all_roles_cache();
                 }
                 MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING => {
                     load_mcp_disable_token_query_param(db).await;

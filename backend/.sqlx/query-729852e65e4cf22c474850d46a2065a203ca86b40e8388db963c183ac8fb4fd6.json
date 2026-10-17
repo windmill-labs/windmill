@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM workspace_invite WHERE\n        workspace_id = $1 AND email = $2 AND is_admin = $3\n        AND ($5::text IS NOT NULL OR operator = $4)\n        AND ($5::text IS NULL OR $5 = COALESCE(workspace_role, CASE WHEN operator THEN 'operator' ELSE 'developer' END))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Bool",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "729852e65e4cf22c474850d46a2065a203ca86b40e8388db963c183ac8fb4fd6"
+}
