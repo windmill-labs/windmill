@@ -819,9 +819,10 @@ pub async fn install_bun_lockfile(
     quiet: bool,
 ) -> Result<()> {
     let package_manager = if npm_mode { &*NPM_PATH } else { &*BUN_PATH };
-    // The install runs the lifecycle scripts of dependencies (npm: all of them; bun: its
-    // default trusted list and `trustedDependencies`), so when sandboxing is on it is
-    // confined under nsjail like the run step. The env is the same either way.
+    // The install runs the lifecycle scripts of dependencies (npm >= 12: those its allowScripts
+    // policy covers; bun: its default trusted list and `trustedDependencies`), so when
+    // sandboxing is on it is confined under nsjail like the run step. The env is the same
+    // either way.
     let sandboxed = is_sandboxing_enabled();
     let home = common_bun_proc_envs
         .get("HOME")
