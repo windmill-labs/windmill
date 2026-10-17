@@ -4816,6 +4816,17 @@ pub async fn handle_queued_job(
     let _masks = RunningJobMasks::register(job.id, &client.token);
 
     if job.canceled_by.is_some() {
+        // An AI agent cancelled while parked ends here, never reaching the handler that marks its
+        // background calls still running as failed.
+        if job.kind == JobKind::AIAgent {
+            if let (Some(parent_job), Some(db)) = (job.parent_job.as_ref(), conn.as_sql()) {
+                if let Err(e) =
+                    crate::ai::utils::fail_unfinished_action_successes(&db, parent_job).await
+                {
+                    tracing::error!("Failed to close the background calls of {}: {e}", job.id);
+                }
+            }
+        }
         return Err(Error::JsonErr(canceled_job_to_result(&job)));
     }
     if let Some(e) = &job.pre_run_error {
