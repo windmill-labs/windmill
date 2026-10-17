@@ -2241,7 +2241,8 @@ try {{
         && !annotation.nobundling
         && !*DISABLE_BUNDLING
         && !codebase.is_some()
-        && (maybe_lock.get_lock().is_some() || annotation.native);
+        // A `no_network` run step cannot fetch relative imports, so they resolve while bundling.
+        && (maybe_lock.get_lock().is_some() || annotation.native || jail_no_network);
 
     let write_loader_f = async {
         if build_cache {
