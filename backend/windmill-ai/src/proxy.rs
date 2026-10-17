@@ -19,6 +19,23 @@ pub struct ProxyBuildArgs<'a> {
     pub credentials: &'a ProviderCredentials,
 }
 
+/// Refuses a client-supplied proxy path that could resolve outside the provider's base
+/// path once appended to it. URL parsing treats `\` as `/`, drops tabs and newlines, and
+/// reads `%2e` as a dot, so `.\t./`, `..\` and `%2e%2e/` all climb a segment like `../`.
+pub fn validate_proxy_path(path: &str) -> Result<()> {
+    let invalid = || Error::BadRequest(format!("Invalid AI proxy path: {path}"));
+    if path.chars().any(|c| c == '\\' || c.is_control()) {
+        return Err(invalid());
+    }
+    for segment in path.split('/') {
+        let segment = segment.to_ascii_lowercase().replace("%2e", ".");
+        if segment == "." || segment == ".." {
+            return Err(invalid());
+        }
+    }
+    Ok(())
+}
+
 /// Provider-specific request produced by proxy request builders.
 #[derive(Clone, Debug)]
 pub struct ProxyRequest {
@@ -268,6 +285,33 @@ mod tests {
             oidc_role_arn: None,
             platform: AIPlatform::Standard,
             custom_headers: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn proxy_path_refuses_dot_segments() {
+        for path in [
+            "chat/completions",
+            "v1/messages",
+            "models",
+            "openai/deployments/gpt-4.1/chat/completions",
+            "a..b/c",
+        ] {
+            assert!(validate_proxy_path(path).is_ok(), "{path}");
+        }
+        for path in [
+            "../key/info",
+            "..",
+            "models/../../key/info",
+            "./x",
+            "%2e%2e/key/info",
+            "%2E./key/info",
+            ".%2E/key/info",
+            "..\\key/info",
+            ".\t./key/info",
+            "..\n/key/info",
+        ] {
+            assert!(validate_proxy_path(path).is_err(), "{path:?}");
         }
     }
 
