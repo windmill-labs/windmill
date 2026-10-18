@@ -1,3 +1,13 @@
+gvisor_compat: an opt-in nsjail option (config field and --gvisor_compat) for running inside
+gVisor (runsc). With it false, nsjail behaves as upstream. With it true:
+- no rtnetlink link cache when no interface is moved into the jail: gVisor acks NLM_F_DUMP
+  requests before NLMSG_DONE and libnl rejects that (google/gvisor#15945);
+- an EPERM from setrlimit(RLIMIT_MSGQUEUE) is a warning: gVisor refuses that limit for any
+  value (google/gvisor#15944);
+- an EPERM from PR_SET_SECUREBITS is tolerated when the UID does not change, where the bits
+  have no effect (SECBIT_NO_SETUID_FIXUP lands in gVisor with google/gvisor#15130).
+Applied to google/nsjail dccf911fd2659e7b08ce9507c25b2b38ec2c5800 by the Dockerfiles.
+
 diff --git a/cmdline.cc b/cmdline.cc
 index 1b52b33..b49ce16 100644
 --- a/cmdline.cc
