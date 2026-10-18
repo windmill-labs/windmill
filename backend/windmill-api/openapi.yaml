@@ -36573,7 +36573,12 @@ components:
           type: array
           items:
             type: string
-          description: the worker's tags whose minimum job isolation (min_job_isolation_by_tag) exceeds its own, so it pulls no jobs for them
+          description: the worker's tags it pulls no jobs for, because their minimum job isolation (min_job_isolation_by_tag) exceeds its own or because only agent workers may run them (agent_only_tags)
+        agent_only_refused_tags:
+          type: array
+          items:
+            type: string
+          description: the refused tags that agent_only_tags reserves for agent workers; the others are refused for insufficient job isolation
       required:
         - worker
         - worker_instance

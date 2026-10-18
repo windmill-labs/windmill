@@ -54,7 +54,7 @@ use windmill_common::{
     error,
     flow_status::{FlowStatus, FlowStatusModule},
     global_settings::{
-        get_or_create_jwt_secret, load_value_from_global_settings,
+        get_or_create_jwt_secret, load_value_from_global_settings, AGENT_ONLY_TAGS_SETTING,
         AUDIT_LOG_RETENTION_DAYS_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
         BUN_INSTALL_MIN_RELEASE_AGE_SETTING, CONCURRENCY_KEY_MAX_QUEUED_SETTING,
         CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
@@ -646,6 +646,12 @@ pub async fn initial_load(
         MIN_JOB_ISOLATION_BY_TAG_SETTING,
         true,
         apply_min_job_isolation_by_tag_setting,
+    );
+    // Never read by an agent worker, which it does not apply to.
+    pass.setting(
+        AGENT_ONLY_TAGS_SETTING,
+        false,
+        apply_agent_only_tags_setting,
     );
 
     if worker_mode {
@@ -3363,6 +3369,19 @@ pub async fn reload_min_job_isolation_by_tag_setting(conn: &Connection) {
 pub async fn apply_min_job_isolation_by_tag_setting(value: Option<serde_json::Value>) {
     use windmill_common::min_job_isolation::*;
     MIN_JOB_ISOLATION_BY_TAG.store(Arc::new(parse_min_job_isolation_by_tag(value)));
+    refresh_pull_queries().await;
+}
+
+pub async fn reload_agent_only_tags_setting(conn: &Connection) {
+    match load_value_from_global_settings_with_conn(conn, AGENT_ONLY_TAGS_SETTING, true).await {
+        Ok(v) => apply_agent_only_tags_setting(v).await,
+        Err(e) => tracing::error!("Error reloading agent_only_tags setting: {:?}", e),
+    }
+}
+
+pub async fn apply_agent_only_tags_setting(value: Option<serde_json::Value>) {
+    use windmill_common::min_job_isolation::*;
+    AGENT_ONLY_TAGS.store(Arc::new(parse_agent_only_tags(value)));
     refresh_pull_queries().await;
 }
 

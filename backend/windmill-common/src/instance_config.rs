@@ -227,6 +227,9 @@ pub struct GlobalSettings {
     /// Tag -> minimum job isolation (`unshare` or `nsjail`) a worker needs to pull its jobs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_job_isolation_by_tag: Option<BTreeMap<String, String>>,
+    /// Tags whose jobs only agent workers may run.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_only_tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bun_install_min_release_age: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1533,6 +1536,10 @@ pub async fn sync_global_settings_declarative(
     let min_isolation_key = crate::global_settings::MIN_JOB_ISOLATION_BY_TAG_SETTING;
     crate::min_job_isolation::validate_min_job_isolation_by_tag(desired.get(min_isolation_key))
         .map_err(|e| anyhow::anyhow!("{min_isolation_key}: {e}"))?;
+
+    let agent_only_key = crate::global_settings::AGENT_ONLY_TAGS_SETTING;
+    crate::min_job_isolation::validate_agent_only_tags(desired.get(agent_only_key))
+        .map_err(|e| anyhow::anyhow!("{agent_only_key}: {e}"))?;
 
     let mut diff = diff_global_settings(current, desired, ApplyMode::Replace);
     crate::external_instance_pg::write_external_instance_pg_from_diff(db, &mut diff, observer)

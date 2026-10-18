@@ -97,6 +97,16 @@ struct WorkerPing {
     refused_tags: Option<Vec<String>>,
 }
 
+#[derive(Serialize)]
+struct ListedWorkerPing {
+    #[serde(flatten)]
+    ping: WorkerPing,
+    /// The refused tags that `agent_only_tags` reserves for agent workers, under this server's
+    /// copy of the setting; the rest are refused for insufficient isolation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent_only_refused_tags: Option<Vec<String>>,
+}
+
 // #[derive(Serialize, Deserialize)]
 // struct EnableWorkerQuery {
 //     disable: bool,
@@ -114,7 +124,7 @@ async fn list_worker_pings(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Query(query): Query<ListWorkerQuery>,
-) -> JsonResult<Vec<WorkerPing>> {
+) -> JsonResult<Vec<ListedWorkerPing>> {
     let has_devops_role = require_devops_role(&db, &authed).await.is_ok();
     if *HIDE_WORKERS_FOR_NON_ADMINS && !has_devops_role {
         return Ok(Json(vec![]));
@@ -151,6 +161,26 @@ async fn list_worker_pings(
     } else {
         rows
     };
+
+    let agent_only = windmill_common::min_job_isolation::AGENT_ONLY_TAGS.load();
+    let agent_prefix = format!("{}-", windmill_common::utils::AGENT_WORKER_NAME_PREFIX);
+    let rows = rows
+        .into_iter()
+        .map(|ping| {
+            // An agent worker is never refused a tag for being agent-only, only for isolation.
+            let is_agent = ping.worker.starts_with(&agent_prefix);
+            let refused = ping.refused_tags.as_ref().filter(|_| !is_agent);
+            let agent_only_refused_tags = refused.and_then(|refused| {
+                let tags: Vec<String> = refused
+                    .iter()
+                    .filter(|t| windmill_common::min_job_isolation::is_agent_only(t, &agent_only))
+                    .cloned()
+                    .collect();
+                (!tags.is_empty()).then_some(tags)
+            });
+            ListedWorkerPing { ping, agent_only_refused_tags }
+        })
+        .collect();
 
     Ok(Json(rows))
 }

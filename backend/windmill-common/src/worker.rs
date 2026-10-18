@@ -2070,7 +2070,8 @@ pub struct Ping {
     pub native_mode: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draining: Option<bool>,
-    /// The worker's tags whose `min_job_isolation_by_tag` exceeds its isolation.
+    /// The worker's tags it pulls no jobs for: their `min_job_isolation_by_tag` exceeds its
+    /// isolation, or `agent_only_tags` names them and it is not an agent worker.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refused_tags: Option<Vec<String>>,
     pub ping_type: PingType,

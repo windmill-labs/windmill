@@ -76,6 +76,7 @@ export interface Setting {
 		| 'ws_connectivity'
 		| 'retention_overrides'
 		| 'min_job_isolation_by_tag'
+		| 'agent_only_tags'
 		| 'instance_banner'
 		| 'accent_color'
 	storage: SettingStorage
@@ -442,6 +443,14 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'min_job_isolation_by_tag',
 			description:
 				'Require a minimum isolation for the jobs of a tag (none &lt; unshare &lt; nsjail). A worker whose isolation is below a tag\'s minimum pulls no jobs for that tag: they stay queued until a sufficiently isolated worker picks them up. A minimum also covers the tags derived from it (per-workspace, fork and dev workspace tags): any tag starting with the tag followed by <code>-</code>. Native-mode and dedicated workers count as none. The minimum decides which workers may run a tag\'s jobs, not how a job runs: native languages, <code>//native</code> Bun scripts and squashed loops run outside the sandbox on any worker. This guards against a misconfigured worker group, not against a tampered worker. <a href="https://www.windmill.dev/docs/advanced/security_isolation">Learn more</a>',
+			storage: 'setting'
+		},
+		{
+			label: 'Agent-only tags',
+			key: 'agent_only_tags',
+			fieldType: 'agent_only_tags',
+			description:
+				'Tags whose jobs only <a href="https://www.windmill.dev/docs/core_concepts/agent_workers">agent workers</a> may run: a regular worker, which holds database credentials, pulls none of their jobs whatever its configuration says. Covers derived tags like the minimum job isolation does, and applies on top of it. This guards against a misconfigured worker group, not against a tampered binary holding database credentials.',
 			storage: 'setting'
 		},
 		{

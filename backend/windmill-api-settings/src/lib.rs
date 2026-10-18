@@ -63,7 +63,7 @@ use windmill_common::{
     error::{self, pg_error_message, JsonResult, Result},
     get_database_url,
     global_settings::{
-        ACCENT_COLOR_SETTING, AI_CONFIG_SETTING, API_BASE_URL_SETTING,
+        ACCENT_COLOR_SETTING, AGENT_ONLY_TAGS_SETTING, AI_CONFIG_SETTING, API_BASE_URL_SETTING,
         APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
         DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS, EXTERNAL_INSTANCE_PG_SETTING,
@@ -1259,6 +1259,10 @@ async fn run_setting_pre_write_hook(
                 .map_err(|e| {
                     error::Error::BadRequest(format!("{MIN_JOB_ISOLATION_BY_TAG_SETTING}: {e}"))
                 })?;
+        }
+        AGENT_ONLY_TAGS_SETTING => {
+            windmill_common::min_job_isolation::validate_agent_only_tags(Some(value))
+                .map_err(|e| error::Error::BadRequest(format!("{AGENT_ONLY_TAGS_SETTING}: {e}")))?;
         }
         MAX_TOKEN_EXPIRATION_DAYS_SETTING => {
             windmill_common::global_settings::parse_max_token_expiration_days(Some(value))

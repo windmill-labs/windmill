@@ -81,6 +81,7 @@ pub const REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING: &str = "require_preexistin
 pub const GUEST_ACCESS_DISABLED_SETTING: &str = "guest_access_disabled";
 pub const JOB_ISOLATION_SETTING: &str = "job_isolation";
 pub const MIN_JOB_ISOLATION_BY_TAG_SETTING: &str = "min_job_isolation_by_tag";
+pub const AGENT_ONLY_TAGS_SETTING: &str = "agent_only_tags";
 pub const NSJAIL_TMPFS_SIZE_MB_SETTING: &str = "nsjail_tmpfs_size_mb";
 pub const NSJAIL_TMP_BACKING_SETTING: &str = "nsjail_tmp_backing";
 pub const NSJAIL_TMP_BACKING_DISK: &str = "disk";
