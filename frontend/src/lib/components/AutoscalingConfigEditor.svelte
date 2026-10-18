@@ -117,7 +117,7 @@
 		<Alert
 			type="warning"
 			size="xs"
-			title="Autoscaling has no tags to count queued jobs for"
+			title="Queued jobs won't trigger autoscaling"
 			actions={reported_tags.length && !disabled
 				? [
 						{
@@ -129,10 +129,10 @@
 					]
 				: []}
 		>
-			This group has no worker tags and no custom tags to autoscale on, so queued jobs never trigger
-			a scale-out. Set custom tags under Advanced. For agent workers, set them to the tags in the
-			agents' token: agents take their tags from it, not from this config, so only jobs on matching
-			custom tags trigger a scale-out.
+			Autoscaling counts waiting jobs on this group's worker tags, or on the custom tags under
+			Advanced, and this group has neither. Agent workers don't need either to run, since their tags
+			come from their token, but to scale on their queue set worker tags or custom tags to the tags
+			their token was issued with.
 		</Alert>
 	{/if}
 
