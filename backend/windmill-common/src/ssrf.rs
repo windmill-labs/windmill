@@ -308,7 +308,18 @@ pub async fn validate_guest_jwks_url(url: &str) -> Result<ValidatedTarget, SsrfV
 /// Check an MCP server URL, allowing the private hosts `ALLOW_PRIVATE_MCP_SERVER_URLS` names
 /// (`true`/`1` for all of them, or a [`PrivateHostAllowance`] list).
 pub async fn validate_mcp_server_url(url: &str) -> Result<ValidatedTarget, SsrfValidationError> {
-    let allowance = PrivateHostAllowance::from_env(ALLOW_PRIVATE_MCP_SERVER_URLS_ENV);
+    // Read per call rather than cached, so warn about bad entries once, not on every connect.
+    static WARN_INVALID: std::sync::Once = std::sync::Once::new();
+    let value = std::env::var(ALLOW_PRIVATE_MCP_SERVER_URLS_ENV).unwrap_or_default();
+    let (allowance, invalid) = PrivateHostAllowance::parse(&value);
+    if !invalid.is_empty() {
+        WARN_INVALID.call_once(|| {
+            tracing::warn!(
+                "Ignoring {ALLOW_PRIVATE_MCP_SERVER_URLS_ENV} entries {invalid:?}: expected a \
+                 host, host:port, IP address or CIDR range"
+            )
+        });
+    }
     validate_url_for_ssrf_allowing(url, &allowance).await
 }
 
