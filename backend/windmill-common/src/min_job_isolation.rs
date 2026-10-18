@@ -4,7 +4,7 @@
 //! that lies about its isolation.
 
 use std::collections::{BTreeMap, HashMap};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Mutex;
 
 use crate::worker::{WorkerConfig, NATIVE_MODE_RESOLVED};
@@ -148,11 +148,35 @@ pub fn worker_allowed_tags(wc: &WorkerConfig, tags: &[String]) -> Vec<String> {
     )
 }
 
+/// Why this worker must not run a job with `tag`, if it must not. Pulls already leave refused
+/// tags out; this catches the jobs handed to a worker directly, like a same-worker flow's steps,
+/// which cannot be left for another worker and so fail.
+pub fn worker_refusal(wc: &WorkerConfig, tag: &str) -> Option<String> {
+    let mins = MIN_JOB_ISOLATION_BY_TAG.load();
+    let min = *mins.get(tag)?;
+    let own = worker_job_isolation(wc);
+    (min > own).then(|| {
+        format!(
+            "Tag {tag} requires job isolation {} but this worker's isolation is {}",
+            min.as_str(),
+            own.as_str()
+        )
+    })
+}
+
+static WORKER_REFUSES_TAGS: AtomicBool = AtomicBool::new(false);
+
+/// Whether this worker refuses any of its tags, which can leave it with no pull query at all.
+pub fn worker_refuses_tags() -> bool {
+    WORKER_REFUSES_TAGS.load(Ordering::Relaxed)
+}
+
 /// Logs the tags this worker refuses, only when that set changes, since it is re-evaluated on
 /// every config reload.
 pub fn log_worker_refused_tags(wc: &WorkerConfig) {
     let own = worker_job_isolation(wc);
     let refused = refused_tags(&wc.worker_tags, own, &MIN_JOB_ISOLATION_BY_TAG.load());
+    WORKER_REFUSES_TAGS.store(!refused.is_empty(), Ordering::Relaxed);
     let mut last = LAST_REFUSED.lock().unwrap_or_else(|e| e.into_inner());
     if last.as_ref() == Some(&refused) || (last.is_none() && refused.is_empty()) {
         *last = Some(refused);

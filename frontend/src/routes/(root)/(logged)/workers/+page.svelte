@@ -1151,8 +1151,11 @@
 																			<p>
 																				This worker's job isolation ({native_mode
 																					? 'none, native mode'
-																					: (job_isolation ?? 'none')}) is below the minimum
-																				these tags require, so it pulls none of their jobs:
+																					: config?.dedicated_worker ||
+																						  config?.dedicated_workers?.length
+																						? 'none, dedicated worker'
+																						: (job_isolation ?? 'none')}) is below the minimum these
+																				tags require, so it pulls none of their jobs:
 																			</p>
 																			<TagList tags={refused_tags} class="flex flex-wrap gap-1" />
 																		</div>

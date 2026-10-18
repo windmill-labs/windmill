@@ -4672,6 +4672,12 @@ pub async fn handle_queued_job(
         }
     }
 
+    if let Some(refusal) =
+        windmill_common::min_job_isolation::worker_refusal(&WORKER_CONFIG.load(), &job.tag)
+    {
+        return Err(Error::ExecutionErr(refusal));
+    }
+
     #[cfg(any(not(feature = "enterprise"), feature = "sqlx"))]
     match conn {
         Connection::Sql(db) => {

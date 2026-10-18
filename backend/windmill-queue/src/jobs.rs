@@ -4947,7 +4947,10 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
         let query = WORKER_SUSPENDED_PULL_QUERY.load();
 
         if query.is_empty() {
-            tracing::warn!("No suspended pull queries available");
+            // Refusing every tag was already logged as an error, once.
+            if !windmill_common::min_job_isolation::worker_refuses_tags() {
+                tracing::warn!("No suspended pull queries available");
+            }
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             return Ok((None, false));
         }
@@ -4969,7 +4972,9 @@ async fn pull_single_job_and_mark_as_running_no_concurrency_limit<'c>(
             let queries = WORKER_PULL_QUERIES.load();
 
             if queries.is_empty() {
-                tracing::warn!("No pull queries available");
+                if !windmill_common::min_job_isolation::worker_refuses_tags() {
+                    tracing::warn!("No pull queries available");
+                }
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                 return Ok((None, false));
             }

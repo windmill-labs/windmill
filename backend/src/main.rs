@@ -52,22 +52,21 @@ use windmill_common::{
         HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING,
         INDEXER_SETTING, INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
-        MIN_JOB_ISOLATION_BY_TAG_SETTING,
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MAVEN_SETTINGS_XML_SETTING,
-        MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
-        NO_DEFAULT_MAVEN_SETTING, NPM_CONFIG_REGISTRY_SETTING, NSJAIL_TMPFS_SIZE_MB_SETTING,
-        NSJAIL_TMP_BACKING_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
-        OTEL_TRACES_RETENTION_SECS_SETTING, OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING,
-        POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING,
-        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
-        RESTART_COORDINATION_SETTING, RETENTION_PERIOD_SECS_OVERRIDES_SETTING,
-        RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING, SAML_METADATA_SETTING,
-        SANDBOX_IMAGE_CACHE_MAX_MB_SETTING, SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING,
-        SANDBOX_IMAGE_MAX_SIZE_MB_SETTING, SANDBOX_IMAGE_PULL_POLICY_SETTING,
-        SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING, SERVICE_LOG_RETENTION_SECS_SETTING,
-        SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING, SYNC_HUB_RESOURCE_TYPES_DAILY_SETTING,
-        TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING, UV_EXCLUDE_NEWER_SETTING,
-        UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
+        MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING, MIN_JOB_ISOLATION_BY_TAG_SETTING,
+        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
+        NPM_CONFIG_REGISTRY_SETTING, NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING,
+        NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING, OTEL_TRACES_RETENTION_SECS_SETTING,
+        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
+        POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RESTART_COORDINATION_SETTING,
+        RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RETENTION_PERIOD_SECS_SETTING, RUBY_REPOS_SETTING,
+        SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
+        SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
+        SANDBOX_IMAGE_PULL_POLICY_SETTING, SANDBOX_REGISTRY_AUTH_SETTING, SCIM_TOKEN_SETTING,
+        SERVICE_LOG_RETENTION_SECS_SETTING, SMTP_SETTING, STORE_AUDIT_LOGS_S3_SETTING,
+        SYNC_HUB_RESOURCE_TYPES_DAILY_SETTING, TEAMS_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
+        UV_EXCLUDE_NEWER_SETTING, UV_INDEX_STRATEGY_SETTING, UV_PYTHON_INSTALL_MIRROR_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
         WORKSPACE_MAX_QUEUED_JOBS_SETTING, WORKSPACE_REGISTRIES_SETTING,
@@ -147,9 +146,9 @@ use crate::monitor::{
     reload_extra_pip_index_url_setting, reload_http_route_default_allowed_origins_setting,
     reload_http_route_workspaced_route_setting, reload_hub_api_secret_setting,
     reload_hub_base_url_setting, reload_instance_events_webhook_setting,
-    reload_job_default_timeout_setting, reload_job_isolation_setting,
-    reload_min_job_isolation_by_tag_setting, reload_jwt_secret_setting,
-    reload_license_key, reload_npm_config_registry_setting, reload_nsjail_tmp_backing_setting,
+    reload_job_default_timeout_setting, reload_job_isolation_setting, reload_jwt_secret_setting,
+    reload_license_key, reload_min_job_isolation_by_tag_setting,
+    reload_npm_config_registry_setting, reload_nsjail_tmp_backing_setting,
     reload_nsjail_tmpfs_size_setting, reload_otel_traces_retention_secs_setting,
     reload_otel_tracing_proxy_setting, reload_pip_index_url_setting,
     reload_retention_period_setting, reload_sandbox_image_cache_max_setting,
@@ -1520,6 +1519,12 @@ Windmill Community Edition {GIT_VERSION}
                                 // for sql connection it is the part of monitor_db.
                                 // TODO: pass worker names for min keep-alive alerts (for HTTP connection)
                                 windmill_common::min_version::update_min_version(conn, true, vec![], false).await;
+
+                                // An agent hears of no setting change, and refusing a same-worker
+                                // step it is handed rests on its own copy of this one.
+                                if worker_mode {
+                                    reload_min_job_isolation_by_tag_setting(conn).await;
+                                }
                             }
                         };
                     }

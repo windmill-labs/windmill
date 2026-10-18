@@ -144,6 +144,7 @@ async fn list_worker_pings(
         rows.into_iter()
             .map(|mut w| {
                 w.custom_tags = None;
+                w.refused_tags = None;
                 w
             })
             .collect()
