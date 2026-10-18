@@ -198,10 +198,19 @@ pub fn worker_allowed_tags(wc: &WorkerConfig, tags: &[String]) -> Vec<String> {
 
 /// Why this worker must not run a job with `tag`, if it must not. Pulls already leave refused
 /// tags out; this catches the jobs handed to a worker directly, like a same-worker flow's steps,
-/// which cannot be left for another worker and so fail.
-pub fn worker_refusal(wc: &WorkerConfig, tag: &str) -> Option<String> {
+/// which cannot be left for another worker and so fail. A job that runs `in_process` (a native
+/// language, a `//native` Bun script) gets no sandbox on any worker, so it counts as `None`.
+pub fn worker_refusal(wc: &WorkerConfig, tag: &str, in_process: bool) -> Option<String> {
     let mins = MIN_JOB_ISOLATION_BY_TAG.load();
     let min = min_for_tag(tag, &mins)?;
+    if in_process {
+        return (min > IsolationLevel::None).then(|| {
+            format!(
+                "Tag {tag} requires job isolation {} but this job runs inside the worker process, without isolation",
+                min.as_str()
+            )
+        });
+    }
     let own = worker_job_isolation(wc);
     (min > own).then(|| {
         format!(

@@ -4864,9 +4864,11 @@ pub async fn handle_queued_job(
         }
     }
 
-    if let Some(refusal) =
-        windmill_common::min_job_isolation::worker_refusal(&WORKER_CONFIG.load(), &job.tag)
-    {
+    if let Some(refusal) = windmill_common::min_job_isolation::worker_refusal(
+        &WORKER_CONFIG.load(),
+        &job.tag,
+        job.script_lang.is_some_and(|lang| lang.is_native()),
+    ) {
         return Err(Error::ExecutionErr(refusal));
     }
 

@@ -2318,6 +2318,16 @@ pub async fn handle_bun_job(
         None
     };
 
+    if annotation.native {
+        if let Some(refusal) = windmill_common::min_job_isolation::worker_refusal(
+            &windmill_common::worker::WORKER_CONFIG.load(),
+            &job.tag,
+            true,
+        ) {
+            return Err(error::Error::ExecutionErr(refusal));
+        }
+    }
+
     if annotation.sandbox && NSJAIL_AVAILABLE.is_none() {
         return Err(error::Error::ExecutionErr(
             "Script has //sandbox annotation but nsjail is not available on this worker. \
