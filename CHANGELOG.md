@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.840.0](https://github.com/windmill-labs/windmill/compare/v1.839.0...v1.840.0) (2026-10-17)
+
+
+### Features
+
+* add a no_network annotation for sandboxed jobs ([#11844](https://github.com/windmill-labs/windmill/issues/11844)) ([feb7b1a](https://github.com/windmill-labs/windmill/commit/feb7b1ad906046f4cf6ea53a85506f42b1b66e93))
+* warn at worker startup when WHITELIST_ENVS forwards a secret-shaped variable ([#11838](https://github.com/windmill-labs/windmill/issues/11838)) ([16c8be2](https://github.com/windmill-labs/windmill/commit/16c8be2355b919878091769810749c54c2f0a09d))
+
+
+### Bug Fixes
+
+* keep script and flow deploys off a second pool connection ([#11843](https://github.com/windmill-labs/windmill/issues/11843)) ([2684156](https://github.com/windmill-labs/windmill/commit/268415623b515280b99bd5d9e32876868821dc4f))
+* let ALLOW_PRIVATE_AI_BASE_URLS name the private hosts it allows ([#11841](https://github.com/windmill-labs/windmill/issues/11841)) ([b0c97b3](https://github.com/windmill-labs/windmill/commit/b0c97b34caa6343db278a9c5c09228248acf970c))
+* mount python script modules into the nsjail sandbox ([#11846](https://github.com/windmill-labs/windmill/issues/11846)) ([7a8cb62](https://github.com/windmill-labs/windmill/commit/7a8cb62fa135bff04522f4bbd93aba194e33b121))
+* refuse dot segments in AI proxy paths ([#11837](https://github.com/windmill-labs/windmill/issues/11837)) ([89f36a7](https://github.com/windmill-labs/windmill/commit/89f36a73d16675fd5f0d57daa2baf616ee95cbf5))
+* run bun and npm installs under nsjail sandboxing ([#11845](https://github.com/windmill-labs/windmill/issues/11845)) ([6646c86](https://github.com/windmill-labs/windmill/commit/6646c86351f188d9b7e355dfb46e87bfa5c81846))
+* scope delete_jobs side-table deletes to the request workspace ([#11836](https://github.com/windmill-labs/windmill/issues/11836)) ([09a5911](https://github.com/windmill-labs/windmill/commit/09a59110d941a8c306a0d89e99d34d509545059f))
+* skip the fork lock when a fork creation has no storage to purge ([#11842](https://github.com/windmill-labs/windmill/issues/11842)) ([0b54ebc](https://github.com/windmill-labs/windmill/commit/0b54ebc73d3d9541d2521857adc27766c4342000))
+
+
+### Performance Improvements
+
+* clone sqlx test databases from a migrated template ([#11848](https://github.com/windmill-labs/windmill/issues/11848)) ([4ed6c1a](https://github.com/windmill-labs/windmill/commit/4ed6c1a6ce1b6d53ea9ee965214da0c3adb3f3bd))
+
 ## [1.839.0](https://github.com/windmill-labs/windmill/compare/v1.838.0...v1.839.0) (2026-10-16)
 
 

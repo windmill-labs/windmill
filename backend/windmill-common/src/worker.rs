@@ -1207,6 +1207,7 @@ pub struct RlangAnnotations {
     pub renv_verbose: bool,
     pub renv_install_verbose: bool,
     pub sandbox: bool,
+    pub no_network: bool,
 }
 
 #[annotations("#")]
@@ -1222,6 +1223,7 @@ pub struct PythonAnnotations {
     pub py314: bool,
     pub py315: bool,
     pub sandbox: bool,
+    pub no_network: bool,
 }
 
 #[annotations("//")]
@@ -1332,6 +1334,7 @@ impl SqlAnnotations {
 pub struct BashAnnotations {
     pub docker: bool,
     pub sandbox: bool,
+    pub no_network: bool,
 }
 
 impl BashAnnotations {
@@ -3853,6 +3856,22 @@ mod tests {
         let combined = SqlAnnotations::parse("-- prepare\n-- raw_output\nSELECT 1");
         assert!(combined.raw_output);
         assert!(combined.prepare);
+    }
+
+    #[test]
+    fn test_no_network_annotation() {
+        assert!(PythonAnnotations::parse("# sandbox\n# no_network\ndef main(): pass").no_network);
+        assert!(!PythonAnnotations::parse("# sandbox\ndef main(): pass").no_network);
+        assert!(RlangAnnotations::parse("#no_network\nmain <- function() {}").no_network);
+        assert!(
+            TypeScriptAnnotations::parse("// no_network\nexport function main() {}").no_network
+        );
+        let bash = "# sandbox alpine\n# no_network\necho hi";
+        assert!(BashAnnotations::parse(bash).no_network);
+        assert_eq!(
+            BashAnnotations::sandbox_image(bash),
+            Some("alpine".to_string())
+        );
     }
 
     #[test]
