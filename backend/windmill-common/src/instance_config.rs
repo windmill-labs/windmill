@@ -1546,6 +1546,13 @@ pub async fn sync_global_settings_declarative(
             .map_err(|e| anyhow::anyhow!("{accent_key}: {e}"))?,
     }
 
+    let issuers_key = crate::global_settings::AGENT_WORKLOAD_IDENTITY_ISSUERS_SETTING;
+    match desired.get(issuers_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(issuers) => crate::agent_workload_identity::validate_issuers_value(issuers)
+            .map_err(|e| anyhow::anyhow!("{issuers_key}: {e}"))?,
+    }
+
     let suffix_key = crate::global_settings::DEV_WORKSPACE_TAG_SUFFIX_SETTING;
     match desired.get(suffix_key) {
         None | Some(serde_json::Value::Null) => {}

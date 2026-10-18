@@ -1281,10 +1281,7 @@ async fn run_setting_pre_write_hook(
         windmill_common::global_settings::AGENT_WORKLOAD_IDENTITY_ISSUERS_SETTING => {
             if !value.is_null() {
                 let key = windmill_common::global_settings::AGENT_WORKLOAD_IDENTITY_ISSUERS_SETTING;
-                let issuers: Vec<instance_config::AgentWorkloadIdentityIssuer> =
-                    serde_json::from_value(value.clone())
-                        .map_err(|e| error::Error::BadRequest(format!("{key}: {e}")))?;
-                windmill_common::agent_workload_identity::validate_issuers(&issuers)
+                windmill_common::agent_workload_identity::validate_issuers_value(value)
                     .map_err(|e| error::Error::BadRequest(format!("{key}: {e}")))?;
             }
         }

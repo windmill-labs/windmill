@@ -428,11 +428,73 @@ pub(crate) fn parse_jwks_keys(body: &[u8]) -> Result<HashMap<String, Jwk>> {
 fn servable(entry: Arc<JwksEntry>) -> Result<Arc<JwksEntry>> {
     if entry.keys.is_empty() {
         Err(Error::NotAuthorized(
-            "guest JWT refused: the JWKS issuer is unreachable".to_string(),
+            "the JWKS issuer is unreachable".to_string(),
         ))
     } else {
         Ok(entry)
     }
+}
+
+/// Where a cached JWKS comes from. Both kinds share the cache, its single-flight refresh and
+/// its staleness bounds; they differ only in how a fetch reaches the issuer.
+#[derive(Clone)]
+pub enum JwksSource {
+    /// A workspace guest key URL: SSRF-restricted unless it is the instance issuer
+    /// (`fetch_jwks`).
+    GuestUrl(String),
+    /// An issuer a superadmin trusts for agent workload identity. Trusted like
+    /// `JWT_EXT_JWKS_URL`, so fetched with the permissive client: an in-cluster or
+    /// self-signed issuer has to work. Without `jwks_uri`, OIDC discovery finds it.
+    TrustedIssuer { issuer: String, jwks_uri: Option<String> },
+}
+
+impl JwksSource {
+    fn cache_key(&self) -> String {
+        match self {
+            JwksSource::GuestUrl(url) => url.clone(),
+            JwksSource::TrustedIssuer { issuer, jwks_uri } => {
+                format!("issuer:{issuer}\n{}", jwks_uri.as_deref().unwrap_or(""))
+            }
+        }
+    }
+
+    async fn fetch(&self) -> Result<HashMap<String, Jwk>> {
+        match self {
+            JwksSource::GuestUrl(url) => fetch_jwks(url).await,
+            JwksSource::TrustedIssuer { issuer, jwks_uri } => {
+                let jwks_uri = match jwks_uri.as_deref().filter(|u| !u.trim().is_empty()) {
+                    Some(uri) => uri.to_string(),
+                    None => {
+                        let discovery = format!(
+                            "{}/.well-known/openid-configuration",
+                            issuer.trim_end_matches('/')
+                        );
+                        let doc: serde_json::Value =
+                            serde_json::from_slice(&get_trusted(&discovery).await?).map_err(
+                                |e| Error::BadRequest(format!("OIDC discovery is not JSON: {e}")),
+                            )?;
+                        doc.get("jwks_uri")
+                            .and_then(|u| u.as_str())
+                            .ok_or_else(|| {
+                                Error::BadRequest("OIDC discovery has no jwks_uri".to_string())
+                            })?
+                            .to_string()
+                    }
+                };
+                parse_jwks_keys(&get_trusted(&jwks_uri).await?)
+            }
+        }
+    }
+}
+
+async fn get_trusted(url: &str) -> Result<Vec<u8>> {
+    let resp = crate::utils::HTTP_CLIENT_PERMISSIVE
+        .get(url)
+        .send()
+        .await
+        .and_then(|r| r.error_for_status())
+        .map_err(|e| Error::BadRequest(format!("fetching {url}: {e}")))?;
+    read_capped_body(resp).await
 }
 
 /// A held single-flight lock for one JWKS URL. Dropping it removes the URL from
@@ -474,13 +536,14 @@ impl Drop for JwksFetchLock {
 /// Refresh a URL's JWKS off the request path, under the single-flight lock. A held
 /// lock means a refresh is already running, so this is a no-op. A failed refresh
 /// leaves the served stale keys in place rather than dropping them.
-fn spawn_jwks_refresh(url: String) {
+fn spawn_jwks_refresh(source: JwksSource) {
     tokio::spawn(async move {
+        let url = source.cache_key();
         let fetch_lock = JwksFetchLock::acquire(&url);
         let Ok(_guard) = fetch_lock.lock.try_lock() else {
             return;
         };
-        match fetch_jwks(&url).await {
+        match source.fetch().await {
             Ok(keys) => {
                 let now = Instant::now();
                 JWKS_CACHE.insert(
@@ -492,7 +555,7 @@ fn spawn_jwks_refresh(url: String) {
                     }),
                 );
             }
-            Err(e) => tracing::warn!("guest JWKS background refresh failed for {url}: {e:#}"),
+            Err(e) => tracing::warn!("JWKS background refresh failed for {url}: {e:#}"),
         }
     });
 }
@@ -504,7 +567,9 @@ fn spawn_jwks_refresh(url: String) {
 /// entry that reads as "issuer unreachable", so an unreachable issuer is hit at most
 /// once per `JWKS_NEGATIVE_TTL`. Fetches follow a schedule, never a per-request,
 /// attacker-chosen `kid`.
-async fn cached_jwks(url: &str) -> Result<Arc<JwksEntry>> {
+async fn cached_jwks(source: &JwksSource) -> Result<Arc<JwksEntry>> {
+    let key = source.cache_key();
+    let url = key.as_str();
     if let Some(entry) = JWKS_CACHE.get(url) {
         // Keys past JWKS_MAX_STALE are never served, even while revalidating: a stale re-serve
         // bumps expires_at but keeps fetched_at, so a persistently failing refresh would
@@ -525,7 +590,7 @@ async fn cached_jwks(url: &str) -> Result<Arc<JwksEntry>> {
                     fetched_at: entry.fetched_at,
                 });
                 JWKS_CACHE.insert(url.to_string(), served.clone());
-                spawn_jwks_refresh(url.to_string());
+                spawn_jwks_refresh(source.clone());
                 return Ok(served);
             }
         }
@@ -541,7 +606,7 @@ async fn cached_jwks(url: &str) -> Result<Arc<JwksEntry>> {
             return servable(entry);
         }
     }
-    match fetch_jwks(url).await {
+    match source.fetch().await {
         Ok(keys) => {
             let now = Instant::now();
             let entry = Arc::new(JwksEntry {
@@ -579,7 +644,12 @@ pub async fn jwks_key_for(url: &str, token: &str) -> Result<(DecodingKey, Vec<Al
     let kid = header.kid.ok_or_else(|| {
         Error::NotAuthorized("guest JWT refused: no kid in the header".to_string())
     })?;
-    let entry = cached_jwks(url).await?;
+    let entry = cached_jwks(&JwksSource::GuestUrl(url.to_string()))
+        .await
+        .map_err(|e| match e {
+            Error::NotAuthorized(m) => Error::NotAuthorized(format!("guest JWT refused: {m}")),
+            e => e,
+        })?;
     let jwk = entry.keys.get(&kid).ok_or_else(|| {
         Error::NotAuthorized(format!("guest JWT refused: kid {kid} is not in the JWKS"))
     })?;
@@ -589,6 +659,12 @@ pub async fn jwks_key_for(url: &str, token: &str) -> Result<(DecodingKey, Vec<Al
     let key = DecodingKey::from_jwk(jwk)
         .map_err(|e| Error::internal_err(format!("unusable JWK {kid}: {e}")))?;
     Ok((key, algs))
+}
+
+/// The keys `source` currently serves, through the shared cache. An unknown `kid` is refused
+/// against them by the caller, never refetched, for the reason `jwks_key_for` gives.
+pub async fn cached_jwks_keys(source: &JwksSource) -> Result<Arc<HashMap<String, Jwk>>> {
+    Ok(cached_jwks(source).await?.keys.clone())
 }
 
 /// Verify `token` for `w_id` against whatever key the workspace configured. A PEM key
@@ -956,7 +1032,9 @@ y9rTR828ADcaZ63Ej1oL4GcqmGhODxCLy1YKKcy0FHzChqPMV6g=\n\
         for _ in 0..10 {
             let u = url.clone();
             handles.push(tokio::spawn(async move {
-                cached_jwks(&u).await.map(|e| e.keys.len())
+                cached_jwks(&JwksSource::GuestUrl(u))
+                    .await
+                    .map(|e| e.keys.len())
             }));
         }
         for h in handles {
@@ -1019,7 +1097,7 @@ y9rTR828ADcaZ63Ej1oL4GcqmGhODxCLy1YKKcy0FHzChqPMV6g=\n\
             }),
         );
         assert!(
-            cached_jwks(&within).await.is_ok(),
+            cached_jwks(&JwksSource::GuestUrl(within)).await.is_ok(),
             "stale keys within the grace window are still served"
         );
 
@@ -1036,7 +1114,7 @@ y9rTR828ADcaZ63Ej1oL4GcqmGhODxCLy1YKKcy0FHzChqPMV6g=\n\
             }),
         );
         assert!(
-            cached_jwks(&beyond).await.is_err(),
+            cached_jwks(&JwksSource::GuestUrl(beyond)).await.is_err(),
             "keys past the grace window fail closed once the refresh fails"
         );
         unsafe { std::env::remove_var("ALLOW_PRIVATE_GUEST_JWKS_URLS") };

@@ -6,25 +6,16 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use jsonwebtoken::{jwk::Jwk, Algorithm, DecodingKey, Validation};
-use quick_cache::sync::Cache;
 use serde_json::Value;
 
-use crate::error::{Error, Result};
-use crate::guest_jwt::{jwk_algorithms, parse_jwks_keys, read_capped_body};
+use crate::error::Result;
+use crate::guest_jwt::{cached_jwks_keys, jwk_algorithms, parse_jwks_keys, JwksSource};
 use crate::instance_config::{AgentWorkloadIdentityIssuer, AgentWorkloadIdentityRule};
 
 /// A projected service account token is about 1 KB; refused past this before any work.
 const MAX_TOKEN_LEN: usize = 16 * 1024;
-const JWKS_TTL: Duration = Duration::from_secs(15 * 60);
-/// While the issuer cannot be reached, keys up to this old keep verifying, so an outage at
-/// refresh time does not refuse every agent; past it, verification fails closed.
-const JWKS_MAX_STALE: Duration = Duration::from_secs(60 * 60);
-/// An unknown `kid` refetches the key set, at most this often per source, so tokens carrying
-/// made-up `kid`s cannot turn into one outbound fetch each.
-const JWKS_MIN_REFETCH: Duration = Duration::from_secs(30);
 
 /// Why a token was refused. `issuer` is set once the token named a trusted one. The reason
 /// goes to the server log and the audit log, never to the client.
@@ -49,6 +40,13 @@ pub struct WorkloadIdentity {
     pub worker_group: String,
     pub tags: Vec<String>,
     pub exp: u64,
+}
+
+/// The setting's raw value, as both the settings API and the declarative sync receive it.
+pub fn validate_issuers_value(value: &Value) -> std::result::Result<(), String> {
+    let issuers: Vec<AgentWorkloadIdentityIssuer> =
+        serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
+    validate_issuers(&issuers)
 }
 
 /// Rejects what would make a rule set ambiguous or a rule match more than intended. Runtime
@@ -198,7 +196,7 @@ pub async fn verify(
         .ok_or_else(|| Refusal::new(None, format!("issuer {iss:?} is not trusted")))?;
     let refuse = |reason: String| Refusal::new(Some(&cfg.issuer), reason);
 
-    let keys = issuer_keys(cfg, kid.as_deref())
+    let keys = issuer_keys(cfg)
         .await
         .map_err(|e| refuse(format!("signing keys unavailable: {e}")))?;
     let candidates: Vec<&Jwk> = match &kid {
@@ -274,117 +272,15 @@ fn describe_jwt_error(e: &jsonwebtoken::errors::Error, audience: &str) -> String
     }
 }
 
-struct CachedKeys {
-    /// The last key set fetched successfully, if any, and when.
-    keys: Option<(Arc<HashMap<String, Jwk>>, Instant)>,
-    /// The last fetch attempt, failed ones included: what `JWKS_MIN_REFETCH` throttles.
-    attempted_at: Instant,
-}
-
-impl CachedKeys {
-    fn keys_within(&self, max_age: Duration) -> Option<Arc<HashMap<String, Jwk>>> {
-        self.keys
-            .as_ref()
-            .filter(|(_, fetched_at)| fetched_at.elapsed() < max_age)
-            .map(|(keys, _)| keys.clone())
-    }
-}
-
-lazy_static::lazy_static! {
-    static ref KEYS_CACHE: Cache<String, Arc<CachedKeys>> = Cache::new(64);
-    /// One lock per key source, so a burst of tokens fetches a set once, and an issuer that
-    /// hangs holds up only its own tokens. Keyed by configured sources only, so bounded.
-    static ref FETCH_LOCKS: std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>> =
-        std::sync::Mutex::new(HashMap::new());
-}
-
-async fn issuer_keys(
-    cfg: &AgentWorkloadIdentityIssuer,
-    kid: Option<&str>,
-) -> Result<Arc<HashMap<String, Jwk>>> {
+async fn issuer_keys(cfg: &AgentWorkloadIdentityIssuer) -> Result<Arc<HashMap<String, Jwk>>> {
     if let Some(jwks) = cfg.jwks.as_deref().filter(|j| !j.trim().is_empty()) {
         return Ok(Arc::new(parse_jwks_keys(jwks.as_bytes())?));
     }
-    let cache_key = format!("{}\n{}", cfg.issuer, cfg.jwks_uri.as_deref().unwrap_or(""));
-    let has_kid = |keys: &HashMap<String, Jwk>| kid.map_or(true, |k| keys.contains_key(k));
-    if let Some(keys) = KEYS_CACHE
-        .get(&cache_key)
-        .and_then(|e| e.keys_within(JWKS_TTL))
-    {
-        if has_kid(&keys) {
-            return Ok(keys);
-        }
-    }
-    let lock = FETCH_LOCKS
-        .lock()
-        .unwrap()
-        .entry(cache_key.clone())
-        .or_default()
-        .clone();
-    let _guard = lock.lock().await;
-    let cached = KEYS_CACHE.get(&cache_key);
-    if let Some(entry) = &cached {
-        if let Some(fresh) = entry.keys_within(JWKS_TTL).filter(|k| has_kid(k)) {
-            return Ok(fresh);
-        }
-        if entry.attempted_at.elapsed() < JWKS_MIN_REFETCH {
-            // Throttled: an unknown kid is refused against the keys held, if any.
-            return entry.keys_within(JWKS_MAX_STALE).ok_or_else(|| {
-                Error::BadRequest("the last fetch of the signing keys failed".to_string())
-            });
-        }
-    }
-    let previous = cached.and_then(|e| e.keys.clone());
-    let (result, keys) = match fetch_keys(cfg).await {
-        Ok(keys) => {
-            let keys = Arc::new(keys);
-            (Ok(keys.clone()), Some((keys, Instant::now())))
-        }
-        // An unknown kid with an unreachable issuer still verifies against the known keys.
-        Err(e) => match previous
-            .as_ref()
-            .filter(|(_, at)| at.elapsed() < JWKS_MAX_STALE)
-        {
-            Some((keys, _)) => (Ok(keys.clone()), previous.clone()),
-            None => (Err(e), previous.clone()),
-        },
-    };
-    KEYS_CACHE.insert(
-        cache_key,
-        Arc::new(CachedKeys { keys, attempted_at: Instant::now() }),
-    );
-    result
-}
-
-/// The issuer is superadmin-configured and trusted like `JWT_EXT_JWKS_URL`, so it is fetched
-/// with the permissive client: an in-cluster or self-signed issuer has to work.
-async fn fetch_keys(cfg: &AgentWorkloadIdentityIssuer) -> Result<HashMap<String, Jwk>> {
-    let jwks_uri = match cfg.jwks_uri.as_deref().filter(|u| !u.trim().is_empty()) {
-        Some(uri) => uri.to_string(),
-        None => {
-            let discovery = format!(
-                "{}/.well-known/openid-configuration",
-                cfg.issuer.trim_end_matches('/')
-            );
-            let doc: Value = serde_json::from_slice(&get(&discovery).await?)
-                .map_err(|e| Error::BadRequest(format!("OIDC discovery is not JSON: {e}")))?;
-            doc.get("jwks_uri")
-                .and_then(Value::as_str)
-                .ok_or_else(|| Error::BadRequest("OIDC discovery has no jwks_uri".to_string()))?
-                .to_string()
-        }
-    };
-    parse_jwks_keys(&get(&jwks_uri).await?)
-}
-
-async fn get(url: &str) -> Result<Vec<u8>> {
-    let resp = crate::utils::HTTP_CLIENT_PERMISSIVE
-        .get(url)
-        .send()
-        .await
-        .and_then(|r| r.error_for_status())
-        .map_err(|e| Error::BadRequest(format!("fetching {url}: {e}")))?;
-    read_capped_body(resp).await
+    cached_jwks_keys(&JwksSource::TrustedIssuer {
+        issuer: cfg.issuer.clone(),
+        jwks_uri: cfg.jwks_uri.clone(),
+    })
+    .await
 }
 
 #[cfg(test)]
