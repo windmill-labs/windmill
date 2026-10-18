@@ -1154,10 +1154,10 @@ pub async fn resolve_opt_job_authed(
     };
 
     if is_no_auth() {
-        return Ok((
-            OptJobAuthed { authed: no_auth_admin_authed(), job_id: None },
-            parts,
-        ));
+        let authed = no_auth_admin_authed();
+        // Handlers taking `Extension<ApiAuthed>` read this insert, as on the token path.
+        parts.extensions.insert(authed.clone());
+        return Ok((OptJobAuthed { authed, job_id: None }, parts));
     }
 
     // Safe only while what the route checks below read is fixed before the first
