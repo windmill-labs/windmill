@@ -92,8 +92,15 @@ pub fn validate_issuers(
         }
         for (j, rule) in cfg.rules.iter().enumerate() {
             let at = format!("{at}, rule #{}", j + 1);
-            if rule.claims.is_empty() || rule.claims.keys().any(|k| k.trim().is_empty()) {
-                return Err(format!("{at}: at least one claim to match is required"));
+            if rule.claims.is_empty()
+                || rule
+                    .claims
+                    .iter()
+                    .any(|(k, v)| k.trim().is_empty() || v.trim().is_empty())
+            {
+                return Err(format!(
+                    "{at}: at least one claim to match is required, each with a path and a value"
+                ));
             }
             if rule.worker_group.trim().is_empty()
                 || rule.worker_group.contains(char::is_whitespace)
