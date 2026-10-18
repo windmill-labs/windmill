@@ -92,6 +92,16 @@ pub(crate) fn raw_to_string(x: &str) -> String {
     }
 }
 
+/// Narrow a JSON integer to the Rust type bound for a SQL argument, erroring the way the
+/// database would rather than letting an `as` cast wrap it into a different value.
+pub(crate) fn narrow_sql_int<T, N>(n: N, sql_type: &str) -> anyhow::Result<T>
+where
+    T: TryFrom<N>,
+    N: std::fmt::Display + Copy,
+{
+    T::try_from(n).map_err(|_| anyhow!("value \"{n}\" is out of range for type {sql_type}"))
+}
+
 pub async fn build_args_map<'a>(
     job: &'a MiniPulledJob,
     client: &AuthedClient,
