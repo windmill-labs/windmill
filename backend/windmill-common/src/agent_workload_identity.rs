@@ -19,6 +19,9 @@ use crate::instance_config::{AgentWorkloadIdentityIssuer, AgentWorkloadIdentityR
 /// A projected service account token is about 1 KB; refused past this before any work.
 const MAX_TOKEN_LEN: usize = 16 * 1024;
 const JWKS_TTL: Duration = Duration::from_secs(15 * 60);
+/// While the issuer cannot be reached, keys up to this old keep verifying, so an outage at
+/// refresh time does not refuse every agent; past it, verification fails closed.
+const JWKS_MAX_STALE: Duration = Duration::from_secs(60 * 60);
 /// An unknown `kid` refetches the key set, at most this often per source, so tokens carrying
 /// made-up `kid`s cannot turn into one outbound fetch each.
 const JWKS_MIN_REFETCH: Duration = Duration::from_secs(30);
@@ -28,12 +31,14 @@ const JWKS_MIN_REFETCH: Duration = Duration::from_secs(30);
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Refusal {
     pub issuer: Option<String>,
+    /// The token's `sub`, set only once its signature verified, so a caller cannot vary it.
+    pub verified_subject: Option<String>,
     pub reason: String,
 }
 
 impl Refusal {
     fn new(issuer: Option<&str>, reason: impl Into<String>) -> Self {
-        Self { issuer: issuer.map(str::to_string), reason: reason.into() }
+        Self { issuer: issuer.map(str::to_string), verified_subject: None, reason: reason.into() }
     }
 }
 
@@ -233,8 +238,9 @@ pub async fn verify(
         .get("sub")
         .and_then(Value::as_str)
         .map(str::to_string);
-    let rule = matching_rule(&cfg.rules, &claims).ok_or_else(|| {
-        refuse(format!(
+    let rule = matching_rule(&cfg.rules, &claims).ok_or_else(|| Refusal {
+        verified_subject: subject.clone(),
+        ..refuse(format!(
             "no rule matches the token (sub {})",
             subject.as_deref().unwrap_or("<none>")
         ))
@@ -269,10 +275,10 @@ struct CachedKeys {
 }
 
 impl CachedKeys {
-    fn fresh_keys(&self) -> Option<Arc<HashMap<String, Jwk>>> {
+    fn keys_within(&self, max_age: Duration) -> Option<Arc<HashMap<String, Jwk>>> {
         self.keys
             .as_ref()
-            .filter(|(_, fetched_at)| fetched_at.elapsed() < JWKS_TTL)
+            .filter(|(_, fetched_at)| fetched_at.elapsed() < max_age)
             .map(|(keys, _)| keys.clone())
     }
 }
@@ -294,7 +300,10 @@ async fn issuer_keys(
     }
     let cache_key = format!("{}\n{}", cfg.issuer, cfg.jwks_uri.as_deref().unwrap_or(""));
     let has_kid = |keys: &HashMap<String, Jwk>| kid.map_or(true, |k| keys.contains_key(k));
-    if let Some(keys) = KEYS_CACHE.get(&cache_key).and_then(|e| e.fresh_keys()) {
+    if let Some(keys) = KEYS_CACHE
+        .get(&cache_key)
+        .and_then(|e| e.keys_within(JWKS_TTL))
+    {
         if has_kid(&keys) {
             return Ok(keys);
         }
@@ -308,12 +317,12 @@ async fn issuer_keys(
     let _guard = lock.lock().await;
     let cached = KEYS_CACHE.get(&cache_key);
     if let Some(entry) = &cached {
-        let fresh = entry.fresh_keys();
-        if fresh.as_deref().is_some_and(|k| has_kid(k))
-            || entry.attempted_at.elapsed() < JWKS_MIN_REFETCH
-        {
+        if let Some(fresh) = entry.keys_within(JWKS_TTL).filter(|k| has_kid(k)) {
+            return Ok(fresh);
+        }
+        if entry.attempted_at.elapsed() < JWKS_MIN_REFETCH {
             // Throttled: an unknown kid is refused against the keys held, if any.
-            return fresh.ok_or_else(|| {
+            return entry.keys_within(JWKS_MAX_STALE).ok_or_else(|| {
                 Error::BadRequest("the last fetch of the signing keys failed".to_string())
             });
         }
@@ -325,7 +334,10 @@ async fn issuer_keys(
             (Ok(keys.clone()), Some((keys, Instant::now())))
         }
         // An unknown kid with an unreachable issuer still verifies against the known keys.
-        Err(e) => match previous.as_ref().filter(|(_, at)| at.elapsed() < JWKS_TTL) {
+        Err(e) => match previous
+            .as_ref()
+            .filter(|(_, at)| at.elapsed() < JWKS_MAX_STALE)
+        {
             Some((keys, _)) => (Ok(keys.clone()), previous.clone()),
             None => (Err(e), previous.clone()),
         },
