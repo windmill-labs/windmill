@@ -20,7 +20,8 @@ use tokio::{
 };
 use windmill_trigger::{listener::ListeningTrigger, Listener};
 use windmill_trigger_websocket::{
-    WebsocketConfig, WebsocketTrigger, ALLOW_PRIVATE_WEBSOCKET_URLS_ENV,
+    listener::CONNECT_RETRY_BASE_DELAY_MS, WebsocketConfig, WebsocketTrigger,
+    ALLOW_PRIVATE_WEBSOCKET_URLS_ENV,
 };
 
 /// Mock server: rejects the first `failures` upgrade requests with
@@ -108,6 +109,7 @@ async fn get_consumer_result(
 #[tokio::test]
 async fn transient_502s_are_retried_until_the_upgrade_succeeds() {
     std::env::set_var(ALLOW_PRIVATE_WEBSOCKET_URLS_ENV, "true");
+    CONNECT_RETRY_BASE_DELAY_MS.store(1, Ordering::Relaxed);
     let (addr, attempts) = mock_ws_server(2, "502 Bad Gateway").await;
     let lt = trigger(format!("ws://{addr}"), true);
     let err_message = Arc::new(RwLock::new(None));

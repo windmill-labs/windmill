@@ -254,8 +254,13 @@ RUN curl -sL https://deb.nodesource.com/setup_24.x | bash -
 RUN apt-get -y update && apt-get install -y --no-install-recommends curl procps nodejs awscli && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# The npm bundled with nodejs carries undici (via node-gyp) older than 6.29.1, which has
-# CVE-2026-109383. Replaced in place until a bundled npm ships a fixed one. Only a 6.x below
+# The npm bundled with nodejs is replaced by a pinned one: it is what `//npm` scripts install with
+# (NPM_PATH=/usr/bin/npm). npm 12 skips dependency install scripts not covered by an allowScripts
+# policy (package.json or .npmrc).
+RUN npm install -g npm@12.2.0 && npm cache clean --force
+
+# That npm carries undici (via node-gyp) older than 6.29.1, which has CVE-2026-109383.
+# Replaced in place until a pinned npm ships a fixed one. Only a 6.x below
 # this version is replaced: a bundled undici on another major is not checked here, so the
 # step logs it and leaves it alone.
 ARG NPM_UNDICI_VERSION=6.29.1

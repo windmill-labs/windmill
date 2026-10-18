@@ -68,6 +68,7 @@ pub const EXTERNAL_INSTANCE_PG_SETTING: &str = "external_instance_pg";
 pub const INSTANCE_PG_DISABLED_SETTING: &str = "instance_pg_disabled";
 pub const EXTERNAL_INSTANCE_PG_STATE_SETTING: &str = "external_instance_pg_state";
 pub const TIMEOUT_WAIT_RESULT_SETTING: &str = "timeout_wait_result";
+pub const AGENT_WORKLOAD_IDENTITY_ISSUERS_SETTING: &str = "agent_workload_identity_issuers";
 
 pub const UNIQUE_ID_SETTING: &str = "uid";
 pub const DISABLE_STATS_SETTING: &str = "disable_stats";
@@ -639,6 +640,7 @@ pub fn parse_allowed_origins_setting(
 
 pub const ENV_SETTINGS: &[&str] = &[
     "DISABLE_NSJAIL",
+    "DISABLE_BUN_INSTALL_SANDBOX",
     "MODE",
     "NUM_WORKERS",
     "METRICS_ADDR",

@@ -9,6 +9,8 @@ authors.workspace = true
 crate-type = ["cdylib"]
 name = "windmill_sql_datatype_parser_wasm"
 path = "./src/lib.rs"
+# src/ has no unit tests: remove this line before adding one, or cargo test never runs it.
+test = false
 
 [dev-dependencies]
 wasm-bindgen-test.workspace = true
