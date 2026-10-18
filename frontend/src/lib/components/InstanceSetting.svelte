@@ -354,7 +354,7 @@
 			ee_only={setting.ee_only}
 			settingKey={setting.key}
 		>
-			<AgentOnlyTags {values} disabled={loading} />
+			<AgentOnlyTags {values} disabled={!$enterpriseLicense || loading} />
 		</SettingCard>
 	{:else if setting.fieldType == 'retention_overrides'}
 		<!-- Discrete inline control (no section header) — sits right under the retention field.
