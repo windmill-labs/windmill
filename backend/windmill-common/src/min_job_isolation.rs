@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Mutex;
 
-use crate::worker::{WorkerConfig, NATIVE_MODE_RESOLVED};
+use crate::worker::{WorkerConfig, DEV_WORKSPACE_TAG_SUFFIX, NATIVE_MODE_RESOLVED};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
@@ -86,8 +86,15 @@ pub fn worker_job_isolation(wc: &WorkerConfig) -> IsolationLevel {
 /// An unrecognized level is read as the strictest one: a typo in the setting must not let a
 /// tag's jobs run with less isolation than intended.
 pub fn parse_min_job_isolation_by_tag(value: Option<serde_json::Value>) -> MinJobIsolationByTag {
-    let Some(serde_json::Value::Object(map)) = value else {
-        return HashMap::new();
+    let map = match value {
+        Some(serde_json::Value::Object(map)) => map,
+        None | Some(serde_json::Value::Null) => return HashMap::new(),
+        Some(other) => {
+            tracing::error!(
+                "min_job_isolation_by_tag must map tags to levels, ignoring the value {other}"
+            );
+            return HashMap::new();
+        }
     };
     map.into_iter()
         .map(|(tag, level)| {
@@ -102,6 +109,25 @@ pub fn parse_min_job_isolation_by_tag(value: Option<serde_json::Value>) -> MinJo
         .collect()
 }
 
+/// The minimum `tag` is held to: the strictest among the configured tags it is or derives from.
+/// Per-workspace (`<tag>-<workspace>`), fork and dev-workspace tags extend the configured tag
+/// with `-` or the dev workspace suffix, so any tag of that shape is covered. That also catches
+/// a custom tag like `<tag>-gpu`, which can only refuse more.
+pub fn min_for_tag(tag: &str, mins: &MinJobIsolationByTag) -> Option<IsolationLevel> {
+    if mins.is_empty() {
+        return None;
+    }
+    let dev_suffix = DEV_WORKSPACE_TAG_SUFFIX.load();
+    mins.iter()
+        .filter(|(base, _)| {
+            tag.strip_prefix(base.as_str()).is_some_and(|rest| {
+                rest.is_empty() || rest.starts_with('-') || rest.starts_with(dev_suffix.as_str())
+            })
+        })
+        .map(|(_, min)| *min)
+        .max()
+}
+
 /// The tags among `tags` whose minimum exceeds `own`, with the minimum each requires.
 pub fn refused_tags(
     tags: &[String],
@@ -110,9 +136,9 @@ pub fn refused_tags(
 ) -> BTreeMap<String, IsolationLevel> {
     tags.iter()
         .filter_map(|t| {
-            mins.get(t)
-                .filter(|min| **min > own)
-                .map(|min| (t.clone(), *min))
+            min_for_tag(t, mins)
+                .filter(|min| *min > own)
+                .map(|min| (t.clone(), min))
         })
         .collect()
 }
@@ -123,7 +149,7 @@ pub fn allowed_tags(
     mins: &MinJobIsolationByTag,
 ) -> Vec<String> {
     tags.iter()
-        .filter(|t| mins.get(*t).map_or(true, |min| *min <= own))
+        .filter(|t| min_for_tag(t, mins).map_or(true, |min| min <= own))
         .cloned()
         .collect()
 }
@@ -153,7 +179,7 @@ pub fn worker_allowed_tags(wc: &WorkerConfig, tags: &[String]) -> Vec<String> {
 /// which cannot be left for another worker and so fail.
 pub fn worker_refusal(wc: &WorkerConfig, tag: &str) -> Option<String> {
     let mins = MIN_JOB_ISOLATION_BY_TAG.load();
-    let min = *mins.get(tag)?;
+    let min = min_for_tag(tag, &mins)?;
     let own = worker_job_isolation(wc);
     (min > own).then(|| {
         format!(
@@ -231,5 +257,20 @@ mod tests {
             IsolationLevel::effective(Some("nsjail"), false),
             IsolationLevel::Nsjail
         );
+    }
+
+    #[test]
+    fn derived_tags_take_the_strictest_minimum_they_derive_from() {
+        let mins = parse_min_job_isolation_by_tag(Some(serde_json::json!({
+            "bash": "unshare", "bash-ws1": "nsjail"
+        })));
+        let min = |t| min_for_tag(t, &mins);
+        assert_eq!(min("bash"), Some(IsolationLevel::Unshare));
+        assert_eq!(min("bash-dev"), Some(IsolationLevel::Unshare));
+        assert_eq!(min("bash-ws2-fork"), Some(IsolationLevel::Unshare));
+        assert_eq!(min("bash-ws1-dev"), Some(IsolationLevel::Nsjail));
+        assert_eq!(min("bashx"), None);
+        assert_eq!(min("python3"), None);
+        assert!(parse_min_job_isolation_by_tag(Some(serde_json::json!(["bash"]))).is_empty());
     }
 }
