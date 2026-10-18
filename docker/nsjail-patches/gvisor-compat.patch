@@ -1,0 +1,143 @@
+diff --git a/cmdline.cc b/cmdline.cc
+index 1b52b33..b49ce16 100644
+--- a/cmdline.cc
++++ b/cmdline.cc
+@@ -115,6 +115,7 @@ struct custom_option custom_opts[] = {
+     { { "rlimit_rtprio", required_argument, NULL, 0x0210 }, "RLIMIT_RTPRIO, 'max' or 'hard' for the current hard limit, 'def' or 'soft' for the current soft limit, 'inf' for RLIM64_INFINITY (default: 'soft')" },
+     { { "rlimit_msgqueue", required_argument, NULL, 0x0211 }, "RLIMIT_MSGQUEUE in bytes, 'max' or 'hard' for the current hard limit, 'def' or 'soft' for the current soft limit, 'inf' for RLIM64_INFINITY (default: 'soft')" },
+     { { "disable_rlimits", no_argument, NULL, 0x0208 }, "Disable all rlimits, default to limits set by parent" },
++    { { "gvisor_compat", no_argument, NULL, 0x0510 }, "Tolerate what gVisor (runsc) does not implement (see config.proto)" },
+     { { "persona_addr_compat_layout", no_argument, NULL, 0x0301 }, "personality(ADDR_COMPAT_LAYOUT)" },
+     { { "persona_mmap_page_zero", no_argument, NULL, 0x0302 }, "personality(MMAP_PAGE_ZERO)" },
+     { { "persona_read_implies_exec", no_argument, NULL, 0x0303 }, "personality(READ_IMPLIES_EXEC)" },
+@@ -437,6 +438,7 @@ std::unique_ptr<nsjconf_t> parseArgs(int argc, char* argv[]) {
+ 	nsjconf->rl_rtpr = parseRLimit(RLIMIT_RTPRIO, "soft", 1);
+ 	nsjconf->rl_msgq = parseRLimit(RLIMIT_MSGQUEUE, "soft", 1);
+ 	nsjconf->disable_rl = false;
++	nsjconf->gvisor_compat = false;
+ 	nsjconf->personality = 0;
+ 	nsjconf->clone_newnet = true;
+ 	nsjconf->clone_newuser = true;
+@@ -603,6 +605,9 @@ std::unique_ptr<nsjconf_t> parseArgs(int argc, char* argv[]) {
+ 		case 0x0208:
+ 			nsjconf->disable_rl = true;
+ 			break;
++		case 0x0510:
++			nsjconf->gvisor_compat = true;
++			break;
+ 		case 0x0301:
+ 			nsjconf->personality |= ADDR_COMPAT_LAYOUT;
+ 			break;
+diff --git a/config.cc b/config.cc
+index 620d08e..9427069 100644
+--- a/config.cc
++++ b/config.cc
+@@ -166,6 +166,7 @@ static bool configParseInternal(nsjconf_t* nsjconf, const nsjail::NsJailConfig&
+ 	    configRLimit(RLIMIT_MSGQUEUE, njc.rlimit_msgqueue_type(), njc.rlimit_msgqueue());
+ 
+ 	nsjconf->disable_rl = njc.disable_rl();
++	nsjconf->gvisor_compat = njc.gvisor_compat();
+ 
+ 	if (njc.persona_addr_compat_layout()) {
+ 		nsjconf->personality |= ADDR_COMPAT_LAYOUT;
+diff --git a/config.proto b/config.proto
+index cd297ae..96b477c 100644
+--- a/config.proto
++++ b/config.proto
+@@ -266,4 +266,10 @@ message NsJailConfig {
+     /* Binary path (with arguments) to be executed. If not specified here, it
+        can be specified with cmd-line as "-- /path/to/command arg1 arg2" */
+     optional Exe exec_bin = 90;
++
++    /* Tolerate what gVisor (runsc) does not implement: an EPERM from
++       setrlimit(RLIMIT_MSGQUEUE) or from PR_SET_SECUREBITS when the UID does
++       not change, and no rtnetlink link cache when no interface is moved
++       into the jail */
++    optional bool gvisor_compat = 93 [default = false];
+ }
+diff --git a/contain.cc b/contain.cc
+index b5120cc..41e69f8 100644
+--- a/contain.cc
++++ b/contain.cc
+@@ -172,8 +172,12 @@ static bool containSetLimits(nsjconf_t* nsjconf) {
+ 	}
+ 	rl.rlim_cur = rl.rlim_max = nsjconf->rl_msgq;
+ 	if (setrlimit64(RLIMIT_MSGQUEUE, &rl) == -1) {
+-		PLOG_E("setrlimit64(0, RLIMIT_MSGQUEUE , %" PRIu64 ")", nsjconf->rl_msgq);
+-		return false;
++		if (!nsjconf->gvisor_compat || errno != EPERM) {
++			PLOG_E("setrlimit64(0, RLIMIT_MSGQUEUE , %" PRIu64 ")", nsjconf->rl_msgq);
++			return false;
++		}
++		PLOG_W("setrlimit64(0, RLIMIT_MSGQUEUE , %" PRIu64 "), ignored (gvisor_compat)",
++		    nsjconf->rl_msgq);
+ 	}
+ 	return true;
+ }
+diff --git a/net.cc b/net.cc
+index 87c3df9..b4c64f4 100644
+--- a/net.cc
++++ b/net.cc
+@@ -138,6 +138,10 @@ bool initNsFromParent(nsjconf_t* nsjconf, int pid) {
+ 	if (!nsjconf->clone_newnet) {
+ 		return true;
+ 	}
++	/* gVisor's rtnetlink replies are rejected by libnl's link cache, which is unused here */
++	if (nsjconf->gvisor_compat && nsjconf->ifaces.empty() && nsjconf->iface_vs.empty()) {
++		return true;
++	}
+ 	struct nl_sock* sk = nl_socket_alloc();
+ 	if (!sk) {
+ 		LOG_E("Could not allocate socket with nl_socket_alloc()");
+diff --git a/nsjail.h b/nsjail.h
+index 5687ca7..fa2b9fa 100644
+--- a/nsjail.h
++++ b/nsjail.h
+@@ -119,6 +119,7 @@ struct nsjconf_t {
+ 	uint64_t rl_rtpr;
+ 	uint64_t rl_msgq;
+ 	bool disable_rl;
++	bool gvisor_compat;
+ 	unsigned long personality;
+ 	bool clone_newnet;
+ 	bool clone_newuser;
+diff --git a/user.cc b/user.cc
+index a335e2d..f3e578b 100644
+--- a/user.cc
++++ b/user.cc
+@@ -260,10 +260,24 @@ bool initNsFromChild(nsjconf_t* nsjconf) {
+ 	 * Make sure all capabilities are retained after the subsequent setuid/setgid, as they will
+ 	 * be needed for privileged operations: mounts, uts change etc.
+ 	 */
++	bool securebits_set = true;
+ 	if (prctl(PR_SET_SECUREBITS, SECBIT_KEEP_CAPS | SECBIT_NO_SETUID_FIXUP, 0UL, 0UL, 0UL) ==
+ 	    -1) {
+-		PLOG_E("prctl(PR_SET_SECUREBITS, SECBIT_KEEP_CAPS | SECBIT_NO_SETUID_FIXUP)");
+-		return false;
++		/*
++		 * The bits only matter when setresuid() below changes the UID: without them,
++		 * leaving UID 0 clears the capabilities still needed by the jail setup.
++		 */
++		uid_t ruid, euid, suid;
++		const uid_t uid = nsjconf->uids[0].inside_id;
++		if (!nsjconf->gvisor_compat || errno != EPERM ||
++		    getresuid(&ruid, &euid, &suid) == -1 || ruid != uid || euid != uid ||
++		    suid != uid) {
++			PLOG_E("prctl(PR_SET_SECUREBITS, SECBIT_KEEP_CAPS | SECBIT_NO_SETUID_FIXUP)");
++			return false;
++		}
++		PLOG_W("prctl(PR_SET_SECUREBITS, SECBIT_KEEP_CAPS | SECBIT_NO_SETUID_FIXUP), "
++		       "ignored (gvisor_compat, UID unchanged)");
++		securebits_set = false;
+ 	}
+ 
+ 	/*
+@@ -306,7 +320,7 @@ bool initNsFromChild(nsjconf_t* nsjconf) {
+ 	 * unexpectedly retaining capabilities after a UID/GID
+ 	 * change.
+ 	 */
+-	if (prctl(PR_SET_SECUREBITS, 0UL, 0UL, 0UL, 0UL) == -1) {
++	if (securebits_set && prctl(PR_SET_SECUREBITS, 0UL, 0UL, 0UL, 0UL) == -1) {
+ 		PLOG_E("prctl(PR_SET_SECUREBITS, 0)");
+ 		return false;
+ 	}

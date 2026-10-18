@@ -1070,9 +1070,8 @@ fn probe_nsjail(nsjail_path: &str) -> Result<std::process::Output, NsjailProbeEr
             .env_clear()
             .env("PATH", PATH_ENV.as_str())
             .args(["--config", "probe.config.proto"]);
-        #[cfg(target_os = "linux")]
         if *NSJAIL_GVISOR_COMPAT {
-            crate::nsjail_compat::apply(&mut cmd).map_err(NsjailProbeError::Setup)?;
+            crate::nsjail_compat::apply(&cmd).map_err(NsjailProbeError::Setup)?;
         }
         cmd.output().map_err(NsjailProbeError::Start)
     })();

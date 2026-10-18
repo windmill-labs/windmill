@@ -978,16 +978,15 @@ pub fn build_command_with_isolation(program: &str, args: &[&str]) -> Command {
 
 /// Under `NSJAIL_GVISOR_COMPAT`, rewrites the config of an nsjail `cmd` for gVisor. A spawn of
 /// nsjail that bypasses `start_child_process` must call this itself.
-#[cfg(target_os = "linux")]
-pub fn apply_nsjail_gvisor_compat(mut cmd: Command) -> Result<Command, Error> {
+pub fn apply_nsjail_gvisor_compat(cmd: &Command) -> Result<(), Error> {
     if *crate::NSJAIL_GVISOR_COMPAT && cmd.as_std().get_program() == crate::NSJAIL_PATH.as_str() {
-        crate::nsjail_compat::apply(cmd.as_std_mut()).map_err(|e| {
+        crate::nsjail_compat::apply(cmd.as_std()).map_err(|e| {
             Error::ExecutionErr(format!(
                 "NSJAIL_GVISOR_COMPAT could not prepare nsjail: {e}"
             ))
         })?;
     }
-    Ok(cmd)
+    Ok(())
 }
 
 pub async fn start_child_process(
@@ -996,8 +995,7 @@ pub async fn start_child_process(
     disable_process_group: bool,
 ) -> Result<Box<dyn TokioChildWrapper>, Error> {
     use process_wrap::tokio::*;
-    #[cfg(target_os = "linux")]
-    let cmd = apply_nsjail_gvisor_compat(cmd)?;
+    apply_nsjail_gvisor_compat(&cmd)?;
     let mut cmd = TokioCommandWrap::from(cmd);
 
     // On Windows, put the child in its own console process group so a CTRL_BREAK_EVENT

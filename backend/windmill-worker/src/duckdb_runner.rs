@@ -475,8 +475,7 @@ async fn spawn_runner(
             });
         }
     }
-    #[cfg(target_os = "linux")]
-    let mut cmd = crate::common::apply_nsjail_gvisor_compat(cmd)?;
+    crate::common::apply_nsjail_gvisor_compat(&cmd)?;
     let mut child = cmd.spawn().map_err(|e| {
         Error::InternalErr(format!("Could not start the DuckDB runner ({mode:?}): {e}"))
     })?;
