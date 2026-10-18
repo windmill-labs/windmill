@@ -1134,8 +1134,13 @@
 			const current = new Set(diffs.filter(removesInTarget).map((d) => getItemKey(d)))
 			const flipped = [...current].filter((k) => !removalKeys.has(k))
 			removalKeys = current
-			if (flipped.some((k) => selectedItems.includes(k))) {
-				selectedItems = selectedItems.filter((k) => !flipped.includes(k))
+			// A row that left the list (made workspace specific, synced elsewhere) takes its
+			// tick with it: the deploy button counts the selection, and a key with no row
+			// would be reported as undeployable.
+			const listed = new Set(selectableDiffs.map((d) => getItemKey(d)))
+			const kept = selectedItems.filter((k) => listed.has(k) && !flipped.includes(k))
+			if (kept.length !== selectedItems.length) {
+				selectedItems = kept
 			}
 		})
 	})
