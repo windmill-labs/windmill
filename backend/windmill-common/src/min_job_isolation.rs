@@ -83,6 +83,28 @@ pub fn worker_job_isolation(wc: &WorkerConfig) -> IsolationLevel {
     IsolationLevel::from_u8(WORKER_SANDBOX_ISOLATION.load(Ordering::Relaxed))
 }
 
+/// The settings API and config sync both reject a malformed value at write time: the loader can
+/// only ignore a value that is not a map, which turns the guard off.
+pub fn validate_min_job_isolation_by_tag(value: Option<&serde_json::Value>) -> Result<(), String> {
+    let map = match value {
+        None | Some(serde_json::Value::Null) => return Ok(()),
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => return Ok(()),
+        Some(serde_json::Value::Object(map)) => map,
+        Some(_) => return Err("must be an object mapping tags to unshare or nsjail".to_string()),
+    };
+    for (tag, level) in map {
+        if tag.trim().is_empty() {
+            return Err("tags must not be empty".to_string());
+        }
+        if !matches!(level.as_str(), Some("unshare" | "nsjail")) {
+            return Err(format!(
+                "the minimum for tag {tag} must be unshare or nsjail, got {level}"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// An unrecognized level is read as the strictest one: a typo in the setting must not let a
 /// tag's jobs run with less isolation than intended.
 pub fn parse_min_job_isolation_by_tag(value: Option<serde_json::Value>) -> MinJobIsolationByTag {
@@ -272,5 +294,19 @@ mod tests {
         assert_eq!(min("bashx"), None);
         assert_eq!(min("python3"), None);
         assert!(parse_min_job_isolation_by_tag(Some(serde_json::json!(["bash"]))).is_empty());
+    }
+
+    #[test]
+    fn writes_accept_only_a_map_of_known_levels() {
+        let ok = |v: serde_json::Value| validate_min_job_isolation_by_tag(Some(&v)).is_ok();
+        assert!(ok(
+            serde_json::json!({"bash": "nsjail", "untrusted": "unshare"})
+        ));
+        assert!(ok(serde_json::Value::Null));
+        assert!(!ok(serde_json::json!(["bash"])));
+        assert!(!ok(serde_json::json!("bash")));
+        assert!(!ok(serde_json::json!({"bash": "nsjail_sandboxing"})));
+        assert!(!ok(serde_json::json!({"bash": "none"})));
+        assert!(!ok(serde_json::json!({"": "nsjail"})));
     }
 }

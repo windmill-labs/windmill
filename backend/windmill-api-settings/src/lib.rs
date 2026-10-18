@@ -71,10 +71,10 @@ use windmill_common::{
         HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
         INSTANCE_BANNER_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
         MAX_TOKEN_EXPIRATION_DAYS_SETTING, MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING,
-        RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RUFF_CONFIG_SETTING, UNIQUE_ID_SETTING,
-        WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
-        WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
-        WS_BASE_URL_SETTING,
+        MIN_JOB_ISOLATION_BY_TAG_SETTING, RETENTION_PERIOD_SECS_OVERRIDES_SETTING,
+        RUFF_CONFIG_SETTING, UNIQUE_ID_SETTING, WORKSPACE_FAIRNESS_DURATION_SECS_SETTING,
+        WORKSPACE_FAIRNESS_ENABLED_SETTING, WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING,
+        WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING, WS_BASE_URL_SETTING,
     },
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
@@ -1253,6 +1253,12 @@ async fn run_setting_pre_write_hook(
                     )));
                 }
             }
+        }
+        MIN_JOB_ISOLATION_BY_TAG_SETTING => {
+            windmill_common::min_job_isolation::validate_min_job_isolation_by_tag(Some(value))
+                .map_err(|e| {
+                    error::Error::BadRequest(format!("{MIN_JOB_ISOLATION_BY_TAG_SETTING}: {e}"))
+                })?;
         }
         MAX_TOKEN_EXPIRATION_DAYS_SETTING => {
             windmill_common::global_settings::parse_max_token_expiration_days(Some(value))

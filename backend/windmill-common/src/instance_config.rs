@@ -1530,6 +1530,10 @@ pub async fn sync_global_settings_declarative(
     crate::global_settings::parse_max_token_expiration_days(desired.get(max_expiration_key))
         .map_err(|e| anyhow::anyhow!("{max_expiration_key}: {e}"))?;
 
+    let min_isolation_key = crate::global_settings::MIN_JOB_ISOLATION_BY_TAG_SETTING;
+    crate::min_job_isolation::validate_min_job_isolation_by_tag(desired.get(min_isolation_key))
+        .map_err(|e| anyhow::anyhow!("{min_isolation_key}: {e}"))?;
+
     let mut diff = diff_global_settings(current, desired, ApplyMode::Replace);
     crate::external_instance_pg::write_external_instance_pg_from_diff(db, &mut diff, observer)
         .await?;
