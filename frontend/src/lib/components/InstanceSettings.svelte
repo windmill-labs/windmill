@@ -1204,6 +1204,12 @@
 			{#if $enterpriseLicense}
 				<OidcSigningStatus />
 			{/if}
+		{:else if category == 'Agent workers'}
+			<SettingsPageHeader
+				title="Agent workers"
+				description="Which workload identity tokens agent workers may authenticate with, and the worker group and tags each one serves."
+				link="https://www.windmill.dev/docs/core_concepts/agent_workers"
+			/>
 		{:else if category == 'Auth/OAuth/SAML'}
 			<AuthSettings
 				bind:oauths

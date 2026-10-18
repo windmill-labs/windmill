@@ -328,7 +328,6 @@ pub const MAX_GUEST_JWT_LEN: usize = 8 * 1024;
 /// self-hosted internal (http/private) issuer that works for `jwt_ext_` works for guests too.
 /// The body is read with a cap so a hostile endpoint cannot exhaust memory.
 pub async fn fetch_jwks(url: &str) -> Result<HashMap<String, Jwk>> {
-    use futures::StreamExt;
     if url.len() > MAX_JWKS_URL_LEN {
         return Err(Error::BadRequest(format!(
             "JWKS URL is longer than {MAX_JWKS_URL_LEN} bytes"
@@ -356,6 +355,13 @@ pub async fn fetch_jwks(url: &str) -> Result<HashMap<String, Jwk>> {
     }
     .and_then(|r| r.error_for_status())
     .map_err(|e| Error::BadRequest(format!("could not fetch JWKS: {e}")))?;
+    parse_jwks_keys(&read_capped_body(resp).await?)
+}
+
+/// A JWKS (or OIDC discovery) response body, refused past `JWKS_MAX_BYTES` rather than
+/// buffered: the server behind a configured URL may be hostile.
+pub(crate) async fn read_capped_body(resp: reqwest::Response) -> Result<Vec<u8>> {
+    use futures::StreamExt;
     let mut stream = resp.bytes_stream();
     let mut body: Vec<u8> = Vec::new();
     while let Some(chunk) = stream.next().await {
@@ -367,7 +373,7 @@ pub async fn fetch_jwks(url: &str) -> Result<HashMap<String, Jwk>> {
         }
         body.extend_from_slice(&chunk);
     }
-    parse_jwks_keys(&body)
+    Ok(body)
 }
 
 /// The usable signing keys in a JWKS body, by `kid`. Each key is parsed on its own and
@@ -378,7 +384,7 @@ pub async fn fetch_jwks(url: &str) -> Result<HashMap<String, Jwk>> {
 /// A key is kept only if its material actually decodes (`DecodingKey::from_jwk`): jsonwebtoken
 /// carries `n`/`e`/`x`/`y` as strings and defers decoding to auth time, so without this a JWKS
 /// whose only key is malformed would be accepted at save time and fail every token later.
-fn parse_jwks_keys(body: &[u8]) -> Result<HashMap<String, Jwk>> {
+pub(crate) fn parse_jwks_keys(body: &[u8]) -> Result<HashMap<String, Jwk>> {
     let set: serde_json::Value = serde_json::from_slice(body)
         .map_err(|e| Error::BadRequest(format!("JWKS is not JSON: {e}")))?;
     let entries = set
