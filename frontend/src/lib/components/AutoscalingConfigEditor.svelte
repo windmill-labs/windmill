@@ -130,8 +130,9 @@
 				: []}
 		>
 			This group has no worker tags and no custom tags to autoscale on, so queued jobs never trigger
-			a scale-out. Set custom tags under Advanced. Agent workers take their tags from their token,
-			not from this config.
+			a scale-out. Set custom tags under Advanced. For agent workers, set them to the tags in the
+			agents' token: agents take their tags from it, not from this config, so only jobs on matching
+			custom tags trigger a scale-out.
 		</Alert>
 	{/if}
 
