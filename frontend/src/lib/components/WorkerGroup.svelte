@@ -371,6 +371,15 @@
 
 	let drawer: Drawer | undefined = $state()
 	let vcpus_memory = $derived(computeVCpuAndMemory(workers))
+	let reportedTags = $derived(
+		[
+			...new Set(
+				workers.flatMap(([_, pings]) =>
+					pings.filter((p) => (p.last_ping ?? Infinity) < 60).flatMap((p) => p.custom_tags ?? [])
+				)
+			)
+		].sort()
+	)
 	let selected = $derived(
 		nconfig?.dedicated_worker != undefined || nconfig?.dedicated_workers != undefined
 			? 'dedicated'
@@ -1043,6 +1052,10 @@
 
 		<AutoscalingConfigEditor
 			worker_tags={config?.worker_tags}
+			group_has_tags={nconfig.worker_tags !== undefined
+				? nconfig.worker_tags.length > 0
+				: (nconfig.dedicated_workers?.length ?? 0) > 0 || nconfig.dedicated_worker !== undefined}
+			reported_tags={reportedTags}
 			bind:config={nconfig.autoscaling}
 			disabled={!canEditEEConfig}
 			eeOnly={!hasEnterpriseFeatures}
@@ -1494,7 +1507,7 @@
 				</div>
 			{/if}
 		</div>
-		{#if !isAgent}
+		{#if !isAgent || config}
 			<div class="flex gap-4 items-center justify-end flex-row">
 				{#if canEditConfig}
 					{#if width > 1000}
@@ -1644,7 +1657,12 @@
 	<div class="mt-4">
 		<Alert type="info" title="Agent Worker Group" size="xs">
 			{#snippet children()}
-				This group is formed with agent workers, there is no associated config. {#if $superadmin || $devopsRole}
+				{#if config}
+					This group is formed with agent workers, which ignore its config except for autoscaling.
+				{:else}
+					This group is formed with agent workers, there is no associated config.
+				{/if}
+				{#if $superadmin || $devopsRole}
 					To modify the tags, generate a new <a
 						href="https://www.windmill.dev/docs/core_concepts/agent_workers#quickstart"
 						target="_blank"

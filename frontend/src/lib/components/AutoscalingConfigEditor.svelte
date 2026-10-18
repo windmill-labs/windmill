@@ -15,15 +15,27 @@
 	import Select from './select/Select.svelte'
 	import ScriptPicker from './ScriptPicker.svelte'
 	import { sendUserToast } from '$lib/toast'
+	import { untrack } from 'svelte'
 
 	interface Props {
 		config: AutoscalingConfig | undefined
 		worker_tags: string[] | undefined
+		/** Whether the draft config gives the group any tags (worker_tags or dedicated workers). */
+		group_has_tags: boolean
+		/** Tags reported by the group's live workers, which for agent workers come from their token. */
+		reported_tags: string[]
 		disabled: boolean
 		eeOnly?: boolean
 	}
 
-	let { config = $bindable(), worker_tags, disabled, eeOnly = false }: Props = $props()
+	let {
+		config = $bindable(),
+		worker_tags,
+		group_has_tags,
+		reported_tags,
+		disabled,
+		eeOnly = false
+	}: Props = $props()
 	let test_input: number = $state(3)
 	let healthCheckLoading: boolean = $state(false)
 	let healthCheckResult: { success: boolean; error?: string } | null = $state(null)
@@ -54,7 +66,9 @@
 		}
 	}
 
-	let collapsed: boolean = $state(true)
+	let noTagsToCount = $derived(!!config?.enabled && !group_has_tags && !config.custom_tags?.length)
+
+	let collapsed: boolean = $state(untrack(() => !noTagsToCount))
 </script>
 
 <Section
@@ -98,6 +112,29 @@
 			/>
 		</div>
 	{/snippet}
+
+	{#if noTagsToCount}
+		<Alert
+			type="warning"
+			size="xs"
+			title="Autoscaling has no tags to count queued jobs for"
+			actions={reported_tags.length && !disabled
+				? [
+						{
+							label: `Use the tags these workers report: ${reported_tags.join(', ')}`,
+							onClick: () => {
+								if (config) config.custom_tags = [...reported_tags]
+							}
+						}
+					]
+				: []}
+		>
+			This group has no worker tags and no custom tags to autoscale on, so queued jobs never trigger
+			a scale-out. Set custom tags under Advanced. For agent workers, set them to the tags in the
+			agents' token: agents take their tags from it, not from this config, so only jobs on matching
+			custom tags trigger a scale-out.
+		</Alert>
+	{/if}
 
 	<div class="flex flex-row gap-4">
 		<Label label="Min # of workers" disabled={config === undefined} class="grow min-w-0">
