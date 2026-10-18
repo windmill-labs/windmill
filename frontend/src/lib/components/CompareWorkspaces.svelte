@@ -1128,9 +1128,10 @@
 		})
 	})
 
-	// Reset override when selection or direction changes
+	// Reset override only when direction changes: selection toggles don't
+	// change which items are outdated, so they must not clear the opt-in
 	$effect(() => {
-		;[selectedItems, mergeIntoParent]
+		;[mergeIntoParent]
 		allowBehindChangesOverride = false
 	})
 
