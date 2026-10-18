@@ -1,0 +1,1 @@
+-- PostgreSQL cannot drop an enum value; 'warning' stays on AUTOSCALING_EVENT_TYPE.

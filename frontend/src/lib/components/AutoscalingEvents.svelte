@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { ConfigService, type AutoscalingEvent } from '$lib/gen'
 	import { RefreshCw } from 'lucide-svelte'
-	import { Button, Skeleton } from './common'
+	import { Badge, Button, Skeleton } from './common'
 	import { twMerge } from 'tailwind-merge'
 	import TimeAgo from './TimeAgo.svelte'
 	import { enterpriseLicense } from '$lib/stores'
@@ -84,10 +84,18 @@
 				<tbody>
 					{#each events as event}
 						<tr class="border-b last:border-b-0">
-							<Cell first class="text-xs font-normal text-primary">{event.event_type ?? 'N/A'}</Cell
-							>
-							<Cell class="text-xs font-normal text-primary">{event.desired_workers}</Cell>
-							<Cell class="text-xs font-normal text-secondary">{event.reason ?? 'N/A'}</Cell>
+							<Cell first class="text-xs font-normal text-primary">
+								{#if event.event_type === 'warning'}
+									<Badge color="yellow" small>warning</Badge>
+								{:else}
+									{event.event_type ?? 'N/A'}
+								{/if}
+							</Cell>
+							<!-- a warning scales nothing: its desired_workers is only the count at the time -->
+							<Cell class="text-xs font-normal text-primary">
+								{event.event_type === 'warning' ? '-' : event.desired_workers}
+							</Cell>
+							<Cell wrap class="text-xs font-normal text-secondary">{event.reason ?? 'N/A'}</Cell>
 							<Cell last class="text-xs font-normal text-secondary">
 								<TimeAgo date={event.applied_at ?? ''} />
 							</Cell>

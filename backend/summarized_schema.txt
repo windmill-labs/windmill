@@ -6,7 +6,7 @@ asset_access_type: r, w, rw
 asset_kind: s3object, resource, variable, ducklake, datatable, table
 asset_usage_kind: script, flow, job
 authentication_method: none, windmill, api_key, basic_http, custom_script, signature
-autoscaling_event_type: full_scaleout, scalein, scaleout
+autoscaling_event_type: full_scaleout, scalein, scaleout, warning
 aws_auth_resource_type: oidc, credentials
 delivery_mode: push, pull
 draft_type: script, flow, app
