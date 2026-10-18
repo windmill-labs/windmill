@@ -813,7 +813,19 @@
 	}
 
 	let deploymentErrorMessage = $state('')
-	let allowBehindChangesOverride = $state(false)
+	// The override acknowledges the outdated items listed next to it, not the
+	// selection, so it holds while every outdated item is one the user ticked it
+	// for: a refresh bringing in a new one asks again, one leaving the list does not.
+	let acknowledgedBehindKeys = $state<Set<string> | undefined>()
+	let allowBehindChangesOverride = $derived(
+		acknowledgedBehindKeys != undefined &&
+			itemsWithBehindChanges.every((d) => acknowledgedBehindKeys!.has(getItemKey(d)))
+	)
+	function setBehindChangesOverride(allow: boolean) {
+		acknowledgedBehindKeys = allow
+			? new Set(itemsWithBehindChanges.map((d) => getItemKey(d)))
+			: undefined
+	}
 
 	async function isComparisonUpToDate(): Promise<boolean> {
 		if (!comparison) {
@@ -1126,12 +1138,6 @@
 				selectedItems = selectedItems.filter((k) => !flipped.includes(k))
 			}
 		})
-	})
-
-	// Reset override when selection or direction changes
-	$effect(() => {
-		;[selectedItems, mergeIntoParent]
-		allowBehindChangesOverride = false
 	})
 
 	// Trigger and schedule rows now flow through `comparison.diffs` like every
@@ -1582,7 +1588,8 @@
 							<span class="font-medium flex flex-row gap-1 text-red-500">
 								<input
 									type="checkbox"
-									bind:checked={allowBehindChangesOverride}
+									checked={allowBehindChangesOverride}
+									onchange={(e) => setBehindChangesOverride(e.currentTarget.checked)}
 									class="rounded max-w-4"
 								/>
 								Override: Deploy despite {itemsWithBehindChanges.length} outdated item{itemsWithBehindChanges.length !==
