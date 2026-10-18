@@ -197,12 +197,6 @@ pub async fn validate_url_for_ssrf(url: &str) -> Result<ValidatedTarget, SsrfVal
     Ok(ValidatedTarget { host: host.to_string(), addrs })
 }
 
-pub fn allow_private_mcp_server_urls() -> bool {
-    std::env::var(ALLOW_PRIVATE_MCP_SERVER_URLS_ENV)
-        .ok()
-        .is_some_and(|v| v == "true" || v == "1")
-}
-
 pub fn allow_private_saml_metadata_urls() -> bool {
     std::env::var(ALLOW_PRIVATE_SAML_METADATA_URLS_ENV)
         .ok()
@@ -311,22 +305,22 @@ pub async fn validate_guest_jwks_url(url: &str) -> Result<ValidatedTarget, SsrfV
     validate_url_for_ssrf(url).await
 }
 
+/// Check an MCP server URL, allowing the private hosts `ALLOW_PRIVATE_MCP_SERVER_URLS` names
+/// (`true`/`1` for all of them, or a [`PrivateHostAllowance`] list).
 pub async fn validate_mcp_server_url(url: &str) -> Result<ValidatedTarget, SsrfValidationError> {
-    let parsed =
-        url::Url::parse(url).map_err(|e| SsrfValidationError::InvalidUrl(e.to_string()))?;
-
-    match parsed.scheme() {
-        "http" | "https" => {}
-        scheme => return Err(SsrfValidationError::DisallowedScheme(scheme.to_string())),
+    // Read per call rather than cached, so warn about bad entries once, not on every connect.
+    static WARN_INVALID: std::sync::Once = std::sync::Once::new();
+    let value = std::env::var(ALLOW_PRIVATE_MCP_SERVER_URLS_ENV).unwrap_or_default();
+    let (allowance, invalid) = PrivateHostAllowance::parse(&value);
+    if !invalid.is_empty() {
+        WARN_INVALID.call_once(|| {
+            tracing::warn!(
+                "Ignoring {ALLOW_PRIVATE_MCP_SERVER_URLS_ENV} entries {invalid:?}: expected a \
+                 host, host:port, IP address or CIDR range"
+            )
+        });
     }
-
-    let host = parsed.host_str().ok_or(SsrfValidationError::MissingHost)?;
-
-    if allow_private_mcp_server_urls() {
-        return Ok(ValidatedTarget::unpinned(host));
-    }
-
-    validate_url_for_ssrf(url).await
+    validate_url_for_ssrf_allowing(url, &allowance).await
 }
 
 /// Save-time check only: the webhook is sent later from another task that resolves
@@ -369,8 +363,9 @@ pub async fn validate_mcp_server_url_for_bad_request(
 pub fn mcp_ssrf_error_message(e: &SsrfValidationError) -> String {
     match e {
         SsrfValidationError::Private { .. } => format!(
-            "{e}. If you need to use private/internal MCP server URLs, \
-             set the {ALLOW_PRIVATE_MCP_SERVER_URLS_ENV}=true environment variable"
+            "{e}. To use a private/internal MCP server, add its host (host, host:port or \
+             CIDR range) to the comma-separated {ALLOW_PRIVATE_MCP_SERVER_URLS_ENV} environment \
+             variable, or set it to true to allow every private host"
         ),
         _ => e.to_string(),
     }
@@ -871,6 +866,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn validate_mcp_server_url_allows_only_listed_private_hosts() {
+        let _lock = TEST_ENV_LOCK.lock().await;
+        let _guard = PrivateMcpServerUrlsEnvGuard::set(Some("10.1.0.0/16, mcp.internal:8080"));
+
+        assert!(validate_mcp_server_url("http://10.1.2.3/mcp").await.is_ok());
+        assert!(validate_mcp_server_url("http://mcp.internal:8080/mcp")
+            .await
+            .is_ok());
+        assert!(matches!(
+            validate_mcp_server_url("http://10.2.0.1/mcp").await,
+            Err(SsrfValidationError::Private { resolved: false })
+        ));
+        assert!(matches!(
+            validate_mcp_server_url("http://169.254.169.254/").await,
+            Err(SsrfValidationError::Private { resolved: false })
+        ));
+    }
+
+    #[tokio::test]
     async fn validate_mcp_server_url_keeps_syntax_guards_when_private_urls_are_allowed() {
         let _lock = TEST_ENV_LOCK.lock().await;
         let _guard = PrivateMcpServerUrlsEnvGuard::set(Some("true"));
@@ -893,9 +907,7 @@ mod tests {
         let private_error = validate_mcp_server_url("http://127.0.0.1/foo")
             .await
             .unwrap_err();
-        assert!(
-            mcp_ssrf_error_message(&private_error).contains("ALLOW_PRIVATE_MCP_SERVER_URLS=true")
-        );
+        assert!(mcp_ssrf_error_message(&private_error).contains(ALLOW_PRIVATE_MCP_SERVER_URLS_ENV));
 
         let invalid_error = validate_mcp_server_url("localhost:11434/v1")
             .await
@@ -1062,8 +1074,14 @@ mod tests {
 
     #[test]
     fn private_host_allowance_parses_flags_and_entries() {
-        assert_eq!(PrivateHostAllowance::parse("true").0, PrivateHostAllowance::All);
-        assert_eq!(PrivateHostAllowance::parse("false").0, PrivateHostAllowance::None);
+        assert_eq!(
+            PrivateHostAllowance::parse("true").0,
+            PrivateHostAllowance::All
+        );
+        assert_eq!(
+            PrivateHostAllowance::parse("false").0,
+            PrivateHostAllowance::None
+        );
         let (parsed, invalid) =
             PrivateHostAllowance::parse("Gateway.Internal., 10.1.0.0/16, x:y, 10, *.internal");
         // A bare `10` would otherwise be 0.0.0.10, and `*` is no wildcard.
