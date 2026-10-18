@@ -33,3 +33,17 @@ pub(crate) fn apply(cmd: &Command) -> io::Result<()> {
     let rewritten = compat_config(&std::fs::read_to_string(&path)?);
     std::fs::write(&path, rewritten)
 }
+
+#[cfg(test)]
+mod tests {
+    // nsjail rejects a config that sets a scalar field twice, which would fail every jailed job.
+    #[test]
+    fn compat_config_sets_each_field_once() {
+        let bun = include_str!("../nsjail/run.bun.config.proto");
+        assert!(bun.contains("clone_newcgroup: false"));
+        let twice = super::compat_config(&super::compat_config(bun));
+        assert_eq!(twice.matches("clone_newcgroup").count(), 1);
+        assert_eq!(twice.matches("gvisor_compat").count(), 1);
+        assert!(twice.ends_with("\nclone_newcgroup: false\ngvisor_compat: true\n"));
+    }
+}
