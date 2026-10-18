@@ -261,6 +261,7 @@ const NUM_SECS_PING: u64 = 5;
 const NUM_SECS_READINGS: u64 = 60;
 
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
+const NSJAIL_CONFIG_PROBE_CONTENT: &str = include_str!("../nsjail/probe.config.proto");
 
 const WORKER_SHELL_NAP_TIME_DURATION: u64 = 15;
 const WORKER_SHELL_INITIAL_NAP_TIME_DURATION: u64 = 5;
@@ -334,6 +335,14 @@ pub struct PowershellRepo {
     pub url: String,
     pub pat: String,
 }
+
+/// Runs nsjail in a form gVisor (runsc) accepts, see `nsjail_compat`.
+pub static NSJAIL_GVISOR_COMPAT: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+    std::env::var("NSJAIL_GVISOR_COMPAT")
+        .ok()
+        .and_then(|x| x.parse::<bool>().ok())
+        .unwrap_or(false)
+});
 
 lazy_static::lazy_static! {
 
@@ -546,26 +555,31 @@ lazy_static::lazy_static! {
     pub static ref NSJAIL_AVAILABLE: Option<String> = {
         let nsjail_path = NSJAIL_PATH.as_str();
 
-        let test_result = std::process::Command::new(nsjail_path)
-            .arg("--help")
-            .output();
-
-        match test_result {
+        match probe_nsjail(nsjail_path) {
             Ok(output) if output.status.success() => {
-                tracing::info!("nsjail available at: {}", nsjail_path);
+                tracing::info!(
+                    "nsjail available at: {}{}",
+                    nsjail_path,
+                    if *NSJAIL_GVISOR_COMPAT { " (NSJAIL_GVISOR_COMPAT)" } else { "" }
+                );
                 Some(nsjail_path.to_string())
             },
             Ok(output) => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                tracing::error!(
-                    "nsjail test failed (exit code: {}). stderr: '{}'. path: '{}'. \
-                    Nsjail sandboxing will NOT be available. \
-                    nsjail should be included in all standard windmill images. \
-                    If job_isolation is set to 'nsjail_sandboxing' in Instance Settings, jobs will fail.",
+                let msg = format!(
+                    "nsjail could not run a test jail (exit code: {}). stderr: '{}'. path: '{}'. \
+                    Nsjail sandboxing will NOT be available: the worker reports its job isolation \
+                    without nsjail, and jobs that require nsjail fail. Under gVisor (runsc), see \
+                    NSJAIL_GVISOR_COMPAT.",
                     output.status,
-                    stderr.trim(),
+                    String::from_utf8_lossy(&output.stderr).trim(),
                     nsjail_path
                 );
+                // Most workers never jail anything, and most containers cannot.
+                if *DISABLE_NSJAIL {
+                    tracing::info!("{msg}");
+                } else {
+                    tracing::error!("{msg}");
+                }
                 None
             },
             Err(e) => {
@@ -1019,6 +1033,30 @@ pub(crate) fn artifact_cache_name(
     // Its own namespace: `calculate_hash` emits hex, so however a module-free runnable
     // crafts its content and lockfile it can never land on a module-bearing name.
     format!("mod-{}", windmill_common::utils::calculate_hash(&keyed))
+}
+
+/// Runs `/bin/true` in a jail built like a job's, through the same spawn path, so a worker
+/// whose runtime lets nsjail start but not jail (a container without the privileges, gVisor)
+/// does not report nsjail isolation.
+fn probe_nsjail(nsjail_path: &str) -> std::io::Result<std::process::Output> {
+    let dir = std::env::temp_dir().join(format!("windmill-nsjail-probe-{}", std::process::id()));
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(
+        dir.join("probe.config.proto"),
+        NSJAIL_CONFIG_PROBE_CONTENT.replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
+    )?;
+    let mut cmd = std::process::Command::new(nsjail_path);
+    cmd.current_dir(&dir)
+        .env_clear()
+        .env("PATH", PATH_ENV.as_str())
+        .args(["--config", "probe.config.proto"]);
+    #[cfg(target_os = "linux")]
+    if *NSJAIL_GVISOR_COMPAT {
+        crate::nsjail_compat::apply(&mut cmd)?;
+    }
+    let output = cmd.output();
+    let _ = std::fs::remove_dir_all(&dir);
+    output
 }
 
 pub fn is_sandboxing_enabled() -> bool {

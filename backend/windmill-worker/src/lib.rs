@@ -62,6 +62,8 @@ pub mod memory_ee;
 pub mod memory_oss;
 #[cfg(feature = "mysql")]
 mod mysql_executor;
+#[cfg(target_os = "linux")]
+mod nsjail_compat;
 #[cfg(feature = "nu")]
 mod nu_executor;
 #[cfg(feature = "oracledb")]
