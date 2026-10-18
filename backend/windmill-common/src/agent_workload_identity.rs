@@ -262,15 +262,27 @@ fn describe_jwt_error(e: &jsonwebtoken::errors::Error, audience: &str) -> String
 }
 
 struct CachedKeys {
-    keys: Arc<HashMap<String, Jwk>>,
-    fetched_at: Instant,
+    /// The last key set fetched successfully, if any, and when.
+    keys: Option<(Arc<HashMap<String, Jwk>>, Instant)>,
+    /// The last fetch attempt, failed ones included: what `JWKS_MIN_REFETCH` throttles.
+    attempted_at: Instant,
+}
+
+impl CachedKeys {
+    fn fresh_keys(&self) -> Option<Arc<HashMap<String, Jwk>>> {
+        self.keys
+            .as_ref()
+            .filter(|(_, fetched_at)| fetched_at.elapsed() < JWKS_TTL)
+            .map(|(keys, _)| keys.clone())
+    }
 }
 
 lazy_static::lazy_static! {
     static ref KEYS_CACHE: Cache<String, Arc<CachedKeys>> = Cache::new(64);
-    /// Fetches are rare (a refresh every `JWKS_TTL`, or a rotated-in `kid`); serializing them
-    /// keeps a burst of tokens from fetching the same set once each.
-    static ref FETCH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::new(());
+    /// One lock per key source, so a burst of tokens fetches a set once, and an issuer that
+    /// hangs holds up only its own tokens. Keyed by configured sources only, so bounded.
+    static ref FETCH_LOCKS: std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>> =
+        std::sync::Mutex::new(HashMap::new());
 }
 
 async fn issuer_keys(
@@ -281,32 +293,48 @@ async fn issuer_keys(
         return Ok(Arc::new(parse_jwks_keys(jwks.as_bytes())?));
     }
     let cache_key = format!("{}\n{}", cfg.issuer, cfg.jwks_uri.as_deref().unwrap_or(""));
-    let usable = |e: &CachedKeys, max_age: Duration| {
-        e.fetched_at.elapsed() < max_age && kid.map_or(true, |k| e.keys.contains_key(k))
-    };
-    let cached = KEYS_CACHE.get(&cache_key);
-    if let Some(entry) = cached.as_ref().filter(|e| usable(e, JWKS_TTL)) {
-        return Ok(entry.keys.clone());
-    }
-    let _guard = FETCH_LOCK.lock().await;
-    if let Some(entry) = KEYS_CACHE.get(&cache_key) {
-        if usable(&entry, JWKS_TTL) || entry.fetched_at.elapsed() < JWKS_MIN_REFETCH {
-            return Ok(entry.keys.clone());
+    let has_kid = |keys: &HashMap<String, Jwk>| kid.map_or(true, |k| keys.contains_key(k));
+    if let Some(keys) = KEYS_CACHE.get(&cache_key).and_then(|e| e.fresh_keys()) {
+        if has_kid(&keys) {
+            return Ok(keys);
         }
     }
-    let keys = match fetch_keys(cfg).await {
-        Ok(keys) => Arc::new(keys),
-        Err(e) => match cached.filter(|e| e.fetched_at.elapsed() < JWKS_TTL) {
-            // An unknown kid with an unreachable issuer still verifies against the known keys.
-            Some(entry) => return Ok(entry.keys.clone()),
-            None => return Err(e),
+    let lock = FETCH_LOCKS
+        .lock()
+        .unwrap()
+        .entry(cache_key.clone())
+        .or_default()
+        .clone();
+    let _guard = lock.lock().await;
+    let cached = KEYS_CACHE.get(&cache_key);
+    if let Some(entry) = &cached {
+        let fresh = entry.fresh_keys();
+        if fresh.as_deref().is_some_and(|k| has_kid(k))
+            || entry.attempted_at.elapsed() < JWKS_MIN_REFETCH
+        {
+            // Throttled: an unknown kid is refused against the keys held, if any.
+            return fresh.ok_or_else(|| {
+                Error::BadRequest("the last fetch of the signing keys failed".to_string())
+            });
+        }
+    }
+    let previous = cached.and_then(|e| e.keys.clone());
+    let (result, keys) = match fetch_keys(cfg).await {
+        Ok(keys) => {
+            let keys = Arc::new(keys);
+            (Ok(keys.clone()), Some((keys, Instant::now())))
+        }
+        // An unknown kid with an unreachable issuer still verifies against the known keys.
+        Err(e) => match previous.as_ref().filter(|(_, at)| at.elapsed() < JWKS_TTL) {
+            Some((keys, _)) => (Ok(keys.clone()), previous.clone()),
+            None => (Err(e), previous.clone()),
         },
     };
     KEYS_CACHE.insert(
         cache_key,
-        Arc::new(CachedKeys { keys: keys.clone(), fetched_at: Instant::now() }),
+        Arc::new(CachedKeys { keys, attempted_at: Instant::now() }),
     );
-    Ok(keys)
+    result
 }
 
 /// The issuer is superadmin-configured and trusted like `JWT_EXT_JWKS_URL`, so it is fetched
@@ -483,6 +511,38 @@ Sa6vBkm9YSs4MMV6K5vCIyow+i712HgUL/FNZ55GJVwXF77JffommMAk
             URL_SAFE_NO_PAD.encode(ok.to_string())
         );
         assert!(reason(&none).await.contains("not accepted"));
+    }
+
+    #[tokio::test]
+    async fn failed_key_fetches_are_throttled() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let counted = hits.clone();
+        tokio::spawn(async move {
+            while let Ok((conn, _)) = listener.accept().await {
+                counted.fetch_add(1, Ordering::SeqCst);
+                drop(conn);
+            }
+        });
+        let mut cfg = issuer();
+        cfg.issuer = format!("https://throttle-test-{}", addr.port());
+        cfg.jwks = None;
+        cfg.jwks_uri = Some(format!("http://{addr}/jwks"));
+        let mut c = claims("system:serviceaccount:agents:gpu", "agents");
+        c["iss"] = json!(cfg.issuer);
+        for _ in 0..3 {
+            let refusal = verify(&[cfg.clone()], &sign(&c, PRIV, Algorithm::ES256))
+                .await
+                .unwrap_err();
+            assert!(
+                refusal.reason.contains("signing keys unavailable"),
+                "{}",
+                refusal.reason
+            );
+        }
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
     }
 
     #[test]
