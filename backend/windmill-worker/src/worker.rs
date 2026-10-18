@@ -358,6 +358,15 @@ lazy_static::lazy_static! {
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
 
+    /// Runs Bun scripts' dependency installs (bun and `//npm`) outside nsjail even when
+    /// sandboxing is on, for a worker whose installs need host files the install jail
+    /// does not mount (keys for private git dependencies, a package cache outside HOME).
+    /// The run step stays jailed; the installs' lifecycle scripts see the worker again.
+    pub static ref DISABLE_BUN_INSTALL_SANDBOX: bool = std::env::var("DISABLE_BUN_INSTALL_SANDBOX")
+    .ok()
+    .and_then(|x| x.parse::<bool>().ok())
+    .unwrap_or(false);
+
     /// Per-language override for the nsjail `rlimit_as` (virtual address space) cap.
     /// Value is in MiB, or `unlimited`/`none`/`inf`/`0` to uncap. Unset keeps the
     /// historical default baked into the proto. See `render_nsjail_rlimit_as`.
@@ -1019,6 +1028,189 @@ pub fn is_sandboxing_enabled() -> bool {
     match get_job_isolation() {
         JobIsolationLevel::NsjailSandboxing => true,
         _ => false,
+    }
+}
+
+/// A `no_network` job loses its network only through the fresh network namespace its
+/// nsjail run step is given, so a run step that would not be jailed is refused rather
+/// than run with the worker's network. `jailed` is the executor's own decision to jail.
+pub fn check_no_network_jailed(
+    no_network: bool,
+    jailed: bool,
+) -> windmill_common::error::Result<()> {
+    no_network_refusal(no_network, jailed, NSJAIL_AVAILABLE.is_some())
+}
+
+fn no_network_refusal(
+    no_network: bool,
+    jailed: bool,
+    nsjail_available: bool,
+) -> windmill_common::error::Result<()> {
+    if !no_network || (jailed && nsjail_available) {
+        return Ok(());
+    }
+    let reason = if jailed {
+        "nsjail is not available on this worker"
+    } else {
+        "this job would not run in an nsjail sandbox: add the `sandbox` annotation, or enable \
+        nsjail sandboxing for the instance"
+    };
+    Err(windmill_common::error::Error::ExecutionErr(format!(
+        "Script has the `no_network` annotation, which removes the network from its nsjail \
+        sandbox, but {reason}. Refusing to run it with network."
+    )))
+}
+
+/// Whether a script asks for a run step without network, which only nsjail provides. A
+/// dedicated worker runs its script outside nsjail, so it leaves such a script to the
+/// regular executor.
+pub fn runs_no_network_in_jail(language: Option<ScriptLang>, content: &str) -> bool {
+    match language {
+        Some(ScriptLang::Python3) => {
+            windmill_common::worker::PythonAnnotations::parse(content).no_network
+        }
+        Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) => {
+            let annotation = windmill_common::worker::TypeScriptAnnotations::parse(content);
+            annotation.no_network && !annotation.native
+        }
+        _ => false,
+    }
+}
+
+/// Refuses a `no_network` job that imports another workspace script its run step would fetch
+/// from the API, which it cannot reach. Without this the fetch fails inside the script, where
+/// Python's loader falls back to an empty namespace module and the error names something else.
+/// `imports` are workspace paths; the job's own module files (keyed relative to
+/// `script_path`'s folder) are on disk and need no fetch.
+pub fn check_no_network_imports(
+    imports: impl IntoIterator<Item = String>,
+    script_path: &str,
+    modules: Option<&HashMap<String, ScriptModule>>,
+    fetched_by: &str,
+) -> windmill_common::error::Result<()> {
+    let dir = script_path
+        .rsplit_once('/')
+        .map(|(dir, _)| dir)
+        .unwrap_or("");
+    let local: Vec<String> = modules
+        .into_iter()
+        .flat_map(|m| m.keys())
+        .map(|key| {
+            let stem = key.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(key);
+            if dir.is_empty() {
+                stem.to_string()
+            } else {
+                format!("{dir}/{stem}")
+            }
+        })
+        .collect();
+    let fetched = imports.into_iter().find(|import| {
+        !local
+            .iter()
+            .any(|l| l == import || l.starts_with(&format!("{import}/")))
+    });
+    match fetched {
+        None => Ok(()),
+        Some(import) => Err(windmill_common::error::Error::ExecutionErr(format!(
+            "Script has the `no_network` annotation but imports the workspace script \
+            `{import}`, which {fetched_by} fetches from the Windmill API while the script runs, \
+            and the script has no network. Remove `no_network`, or copy that code into the \
+            script."
+        ))),
+    }
+}
+
+/// Drops `WM_TOKEN` from a `no_network` run step's env: it is useless without network, and
+/// the script could still hand it out through its result.
+pub fn strip_no_network_token(
+    reserved_variables: &mut std::collections::HashMap<String, String>,
+    no_network: bool,
+) {
+    if no_network {
+        reserved_variables.remove("WM_TOKEN");
+    }
+}
+
+/// `clone_newnet` for a run step's nsjail profile.
+pub fn nsjail_clone_newnet(no_network: bool) -> &'static str {
+    if no_network {
+        "true"
+    } else {
+        "false"
+    }
+}
+
+/// [`get_proxy_envs_for_lang`] for a run step. A `no_network` one reaches no proxy, the
+/// OTel tracing proxy included, so it gets only the trace context.
+pub async fn get_run_proxy_envs(
+    lang: &ScriptLang,
+    job_kind: JobKind,
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
+    no_network: bool,
+) -> anyhow::Result<Vec<(&'static str, String)>> {
+    if no_network {
+        return Ok(get_otel_context_envs(job_id));
+    }
+    get_proxy_envs_for_lang(lang, job_kind, job_id, w_id, conn).await
+}
+
+#[cfg(test)]
+mod no_network_tests {
+    use super::{check_no_network_imports, no_network_refusal, runs_no_network_in_jail};
+    use windmill_common::scripts::ScriptLang;
+
+    #[test]
+    fn no_network_runs_only_in_an_available_jail() {
+        assert!(no_network_refusal(false, false, false).is_ok());
+        assert!(no_network_refusal(true, true, true).is_ok());
+        assert!(no_network_refusal(true, false, true).is_err());
+        assert!(no_network_refusal(true, true, false).is_err());
+        assert!(no_network_refusal(true, false, false).is_err());
+    }
+
+    #[test]
+    fn no_network_refuses_only_imports_it_would_fetch() {
+        let modules = std::collections::HashMap::from([(
+            "lib/util.py".to_string(),
+            windmill_common::scripts::ScriptModule {
+                content: String::new(),
+                lock: None,
+                language: ScriptLang::Python3,
+            },
+        )]);
+        let check = |imports: &[&str]| {
+            check_no_network_imports(
+                imports.iter().map(|s| s.to_string()),
+                "u/admin/main",
+                Some(&modules),
+                "Python",
+            )
+        };
+        assert!(check(&["u/admin/lib/util", "u/admin/lib"]).is_ok());
+        let err = check(&["u/admin/lib/util", "u/admin/helper"]).unwrap_err();
+        assert!(err.to_string().contains("`u/admin/helper`"), "{err}");
+    }
+
+    #[test]
+    fn dedicated_workers_leave_jailed_no_network_scripts() {
+        let py = Some(ScriptLang::Python3);
+        let bun = Some(ScriptLang::Bun);
+        assert!(runs_no_network_in_jail(
+            py,
+            "# no_network\ndef main(): pass"
+        ));
+        assert!(!runs_no_network_in_jail(py, "def main(): pass"));
+        assert!(runs_no_network_in_jail(
+            bun,
+            "// no_network\nexport function main() {}"
+        ));
+        // Native scripts take their network away inside the isolate.
+        assert!(!runs_no_network_in_jail(
+            bun,
+            "//native\n//no_network\nexport function main() {}"
+        ));
     }
 }
 
@@ -5779,7 +5971,7 @@ async fn record_declared_warehouse_write(
 /// True when `path` contains only `Normal`/`CurDir` components, i.e. it cannot
 /// escape the directory it is joined onto (no `..`, no absolute root, no Windows
 /// drive prefix).
-fn is_contained_relative_path(path: &str) -> bool {
+pub(crate) fn is_contained_relative_path(path: &str) -> bool {
     use std::path::Component;
     std::path::Path::new(path)
         .components()
