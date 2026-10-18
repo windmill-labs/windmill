@@ -18,7 +18,9 @@ RUN apt-get -y update \
     pkg-config=1.8.* \
     protobuf-compiler=3.21.*
 
-RUN git clone -b master --single-branch https://github.com/google/nsjail.git . && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800
+COPY docker/nsjail-patches/ /nsjail-patches/
+RUN git clone -b master --single-branch https://github.com/google/nsjail.git . && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800 \
+    && git apply /nsjail-patches/*.patch
 RUN make
 
 FROM ${RUST_IMAGE} AS rust_base
