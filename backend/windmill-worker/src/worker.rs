@@ -3846,8 +3846,14 @@ pub async fn run_worker(
                     // A job carrying a pre-run error never runs its code: it only has to be
                     // pulled so `handle_queued_job` can fail it. Both hand-off paths below
                     // dispatch by path and return before that check, so a job sent down them
-                    // would run with whatever arguments survived the failure.
-                    let fails_before_running = job.pre_run_error.is_some();
+                    // would run with whatever arguments survived the failure. The same holds for
+                    // a job whose tag this worker refuses, handed to it without a pull.
+                    let fails_before_running = job.pre_run_error.is_some()
+                        || windmill_common::min_job_isolation::worker_refusal(
+                            &WORKER_CONFIG.load(),
+                            &job.tag,
+                        )
+                        .is_some();
                     // A dedicated worker or flow runner runs every job it gets with its own
                     // unscoped worker token, so a job with a restricted token runs here, with the
                     // token minted for it, whichever tag brought it.
@@ -4864,11 +4870,9 @@ pub async fn handle_queued_job(
         }
     }
 
-    if let Some(refusal) = windmill_common::min_job_isolation::worker_refusal(
-        &WORKER_CONFIG.load(),
-        &job.tag,
-        job.script_lang.is_some_and(|lang| lang.is_native()),
-    ) {
+    if let Some(refusal) =
+        windmill_common::min_job_isolation::worker_refusal(&WORKER_CONFIG.load(), &job.tag)
+    {
         return Err(Error::ExecutionErr(refusal));
     }
 

@@ -198,20 +198,17 @@ pub fn worker_allowed_tags(wc: &WorkerConfig, tags: &[String]) -> Vec<String> {
 
 /// Why this worker must not run a job with `tag`, if it must not. Pulls already leave refused
 /// tags out; this catches the jobs handed to a worker directly, like a same-worker flow's steps,
-/// which cannot be left for another worker and so fail. A job that runs `in_process` (a native
-/// language, a `//native` Bun script) gets no sandbox on any worker, so it counts as `None`.
-pub fn worker_refusal(wc: &WorkerConfig, tag: &str, in_process: bool) -> Option<String> {
-    let mins = MIN_JOB_ISOLATION_BY_TAG.load();
-    let min = min_for_tag(tag, &mins)?;
-    if in_process {
-        return (min > IsolationLevel::None).then(|| {
-            format!(
-                "Tag {tag} requires job isolation {} but this job runs inside the worker process, without isolation",
-                min.as_str()
-            )
-        });
-    }
-    let own = worker_job_isolation(wc);
+/// which cannot be left for another worker and so fail.
+pub fn worker_refusal(wc: &WorkerConfig, tag: &str) -> Option<String> {
+    refusal(
+        tag,
+        worker_job_isolation(wc),
+        &MIN_JOB_ISOLATION_BY_TAG.load(),
+    )
+}
+
+fn refusal(tag: &str, own: IsolationLevel, mins: &MinJobIsolationByTag) -> Option<String> {
+    let min = min_for_tag(tag, mins)?;
     (min > own).then(|| {
         format!(
             "Tag {tag} requires job isolation {} but this worker's isolation is {}",
@@ -303,6 +300,14 @@ mod tests {
         assert_eq!(min("bashx"), None);
         assert_eq!(min("python3"), None);
         assert!(parse_min_job_isolation_by_tag(Some(serde_json::json!(["bash"]))).is_empty());
+        assert_eq!(refusal("bash-dev", IsolationLevel::Unshare, &mins), None);
+        assert_eq!(
+            refusal("bash-ws1", IsolationLevel::Unshare, &mins).as_deref(),
+            Some(
+                "Tag bash-ws1 requires job isolation nsjail but this worker's isolation is unshare"
+            )
+        );
+        assert_eq!(refusal("python3", IsolationLevel::None, &mins), None);
     }
 
     #[test]

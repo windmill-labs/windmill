@@ -441,7 +441,7 @@ export const settings: Record<string, Setting[]> = {
 			key: 'min_job_isolation_by_tag',
 			fieldType: 'min_job_isolation_by_tag',
 			description:
-				'Require a minimum isolation for the jobs of a tag (none &lt; unshare &lt; nsjail). A worker whose isolation is below a tag\'s minimum pulls no jobs for that tag: they stay queued until a sufficiently isolated worker picks them up. A minimum also covers the tags derived from it (per-workspace, fork and dev workspace tags): any tag starting with the tag followed by <code>-</code>. Native-mode and dedicated workers count as none, and jobs that run inside the worker process (native languages, <code>//native</code> Bun scripts) fail on a tag with a minimum.This guards against a misconfigured worker group, not against a tampered worker. <a href="https://www.windmill.dev/docs/advanced/security_isolation">Learn more</a>',
+				'Require a minimum isolation for the jobs of a tag (none &lt; unshare &lt; nsjail). A worker whose isolation is below a tag\'s minimum pulls no jobs for that tag: they stay queued until a sufficiently isolated worker picks them up. A minimum also covers the tags derived from it (per-workspace, fork and dev workspace tags): any tag starting with the tag followed by <code>-</code>. Native-mode and dedicated workers count as none. The minimum decides which workers may run a tag\'s jobs, not how a job runs: native languages, <code>//native</code> Bun scripts and squashed loops run outside the sandbox on any worker. This guards against a misconfigured worker group, not against a tampered worker. <a href="https://www.windmill.dev/docs/advanced/security_isolation">Learn more</a>',
 			storage: 'setting'
 		},
 		{
