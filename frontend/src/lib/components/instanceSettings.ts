@@ -836,7 +836,7 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Workload identity issuers',
 			key: 'agent_workload_identity_issuers',
 			description:
-				'Agent workers can authenticate with a short-lived token their platform issues them (a Kubernetes projected service account token, a SPIFFE JWT-SVID, ...) instead of an agent token: point AGENT_IDENTITY_TOKEN_FILE at it. The token must be signed by a trusted issuer, carry its audience, and match a rule, which decides the worker group and tags the agent may serve. <a href="https://www.windmill.dev/docs/core_concepts/agent_workers">Learn more</a>',
+				'An issuer lets an agent worker authenticate with a short-lived token its platform issues it (a Kubernetes projected service account token, a SPIFFE JWT-SVID, ...) in place of an agent token: point AGENT_IDENTITY_TOKEN_FILE at it. The token must be signed by a trusted issuer, carry its audience, and match a rule, which decides the worker group and tags the agent may serve. <a href="https://www.windmill.dev/docs/core_concepts/agent_workers">Learn more</a>',
 			fieldType: 'agent_workload_identity_issuers',
 			storage: 'setting',
 			ee_only: ''
