@@ -46,6 +46,7 @@ chrono.workspace = true
 chrono-tz.workspace = true
 hex.workspace = true
 async-trait.workspace = true
+http.workspace = true
 reqwest-middleware = { workspace = true }
 reqwest-retry = { workspace = true }
 rand.workspace = true
