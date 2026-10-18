@@ -93,8 +93,11 @@ pub fn validate_min_job_isolation_by_tag(value: Option<&serde_json::Value>) -> R
         Some(_) => return Err("must be an object mapping tags to unshare or nsjail".to_string()),
     };
     for (tag, level) in map {
-        if tag.trim().is_empty() {
-            return Err("tags must not be empty".to_string());
+        // A padded tag would be stored but never match one, which turns the guard off for it.
+        if tag.is_empty() || tag.trim() != tag {
+            return Err(format!(
+                "tag {tag:?} must be non-empty and without surrounding spaces"
+            ));
         }
         if !matches!(level.as_str(), Some("unshare" | "nsjail")) {
             return Err(format!(
@@ -322,5 +325,6 @@ mod tests {
         assert!(!ok(serde_json::json!({"bash": "nsjail_sandboxing"})));
         assert!(!ok(serde_json::json!({"bash": "none"})));
         assert!(!ok(serde_json::json!({"": "nsjail"})));
+        assert!(!ok(serde_json::json!({" untrusted": "nsjail"})));
     }
 }
