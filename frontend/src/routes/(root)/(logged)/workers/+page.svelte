@@ -1383,8 +1383,8 @@
 					{/if}
 				</div>
 				<div class="pb-8"></div>
-				<!-- Agent worker groups don't have autoscaling -->
-				{#if worker_group?.[2] === false}
+				<!-- An agent worker group is only autoscaled when it has a config row -->
+				{#if worker_group?.[2] === false || (workerGroups ?? {})[selectedTab]}
 					<AutoscalingEvents worker_group={selectedTab} />
 				{/if}
 			{:else}

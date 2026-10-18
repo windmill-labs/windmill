@@ -23,6 +23,7 @@
 	import RetentionPeriodOverrides from './instanceSettings/RetentionPeriodOverrides.svelte'
 	import MinJobIsolationByTag from './instanceSettings/MinJobIsolationByTag.svelte'
 	import AgentOnlyTags from './instanceSettings/AgentOnlyTags.svelte'
+	import AgentWorkloadIdentityIssuers from './instanceSettings/AgentWorkloadIdentityIssuers.svelte'
 	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
 	import SecretBackendConfig from './instanceSettings/SecretBackendConfig.svelte'
 	import ExternalInstancePgSettings from './instanceSettings/ExternalInstancePgSettings.svelte'
@@ -649,6 +650,8 @@
 							</Button>
 						</div>
 					</div>
+				{:else if setting.fieldType == 'agent_workload_identity_issuers'}
+					<AgentWorkloadIdentityIssuers {values} disabled={!$enterpriseLicense} />
 				{:else if setting.fieldType == 'critical_error_channels'}
 					<CriticalAlertChannels {values} {openSmtpSettings} {oauths} />
 				{:else if setting.fieldType == 'otel'}

@@ -1204,6 +1204,12 @@
 			{#if $enterpriseLicense}
 				<OidcSigningStatus />
 			{/if}
+		{:else if category == 'Agent workers'}
+			<SettingsPageHeader
+				title="Agent workers"
+				description="Optional. Agent workers authenticate with the agent token (AGENT_TOKEN) you create on the Workers page with New agent worker, which needs nothing set here. Add an issuer only to also accept workload identity tokens."
+				link="https://www.windmill.dev/docs/core_concepts/agent_workers"
+			/>
 		{:else if category == 'Auth/OAuth/SAML'}
 			<AuthSettings
 				bind:oauths

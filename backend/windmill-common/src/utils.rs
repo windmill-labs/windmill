@@ -124,8 +124,10 @@ lazy_static::lazy_static! {
                 if std::env::var("BASE_INTERNAL_URL").is_err() {
                     panic!("BASE_INTERNAL_URL is required in agent mode")
                 }
-                if std::env::var("AGENT_TOKEN").is_err() {
-                    println!("AGENT_TOKEN is not passed. This is required for the agent to work and contains the JWT to authenticate with the server.")
+                if std::env::var("AGENT_TOKEN").is_err()
+                    && std::env::var(crate::agent_workers::AGENT_IDENTITY_TOKEN_FILE_ENV).is_err()
+                {
+                    println!("Neither AGENT_TOKEN nor AGENT_IDENTITY_TOKEN_FILE is passed. One is required for the agent to authenticate with the server.")
                 }
 
                 #[cfg(not(feature = "enterprise"))]
