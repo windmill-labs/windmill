@@ -29,6 +29,7 @@ async fn register(
         None,
         false,
         draining,
+        None,
         db,
     )
     .await?;
@@ -97,6 +98,8 @@ async fn main_loop_ping(
         false,
         None,
         last_job,
+        None,
+        None,
         db,
     )
     .await

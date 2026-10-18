@@ -701,12 +701,13 @@ async fn enqueue_windmill_tool(
 }
 
 fn local_tool_tags() -> Vec<String> {
-    WORKER_CONFIG
-        .load()
+    let wc = WORKER_CONFIG.load();
+    let tags: Vec<String> = wc
         .priority_tags_sorted
         .iter()
         .flat_map(|group| group.tags.iter().cloned())
-        .collect()
+        .collect();
+    windmill_common::min_job_isolation::worker_allowed_tags(&wc, &tags)
 }
 
 fn spawn_local_tool(

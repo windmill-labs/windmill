@@ -36569,6 +36569,11 @@ components:
         draining:
           type: boolean
           description: the worker received its shutdown signal and exits once its current job is done
+        refused_tags:
+          type: array
+          items:
+            type: string
+          description: the worker's tags whose minimum job isolation (min_job_isolation_by_tag) exceeds its own, so it pulls no jobs for them
       required:
         - worker
         - worker_instance

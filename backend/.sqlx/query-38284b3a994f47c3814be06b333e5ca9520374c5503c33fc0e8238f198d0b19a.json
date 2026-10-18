@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT job_isolation, native_mode OR dedicated_worker IS NOT NULL\n            OR COALESCE(cardinality(dedicated_workers) > 0, false) AS \"outside_sandbox!\"\n        FROM worker_ping WHERE worker = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "job_isolation",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "outside_sandbox!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      null
+    ]
+  },
+  "hash": "38284b3a994f47c3814be06b333e5ca9520374c5503c33fc0e8238f198d0b19a"
+}

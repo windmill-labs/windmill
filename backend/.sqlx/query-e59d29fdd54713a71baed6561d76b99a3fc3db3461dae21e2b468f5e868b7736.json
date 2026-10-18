@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed,\n        CASE WHEN $4 IS TRUE THEN current_job_id ELSE NULL END as last_job_id, CASE WHEN $4 IS TRUE THEN current_job_workspace_id ELSE NULL END as last_job_workspace_id,\n        custom_tags, worker_group, wm_version, occupancy_rate, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, memory, vcpus, memory_usage, wm_memory_usage, job_isolation, native_mode, draining\n        FROM worker_ping\n        WHERE ($1::integer IS NULL AND ping_at > now() - interval '5 minute') OR (ping_at > now() - ($1 || ' seconds')::interval)\n        ORDER BY ping_at desc LIMIT $2 OFFSET $3",
+  "query": "SELECT worker, worker_instance,  EXTRACT(EPOCH FROM (now() - ping_at))::integer as last_ping, started_at, ip, jobs_executed,\n        CASE WHEN $4 IS TRUE THEN current_job_id ELSE NULL END as last_job_id, CASE WHEN $4 IS TRUE THEN current_job_workspace_id ELSE NULL END as last_job_workspace_id,\n        custom_tags, worker_group, wm_version, occupancy_rate, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, memory, vcpus, memory_usage, wm_memory_usage, job_isolation, native_mode, draining, refused_tags\n        FROM worker_ping\n        WHERE ($1::integer IS NULL AND ping_at > now() - interval '5 minute') OR (ping_at > now() - ($1 || ' seconds')::interval)\n        ORDER BY ping_at desc LIMIT $2 OFFSET $3",
   "describe": {
     "columns": [
       {
@@ -112,6 +112,11 @@
         "ordinal": 21,
         "name": "draining",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 22,
+        "name": "refused_tags",
+        "type_info": "TextArray"
       }
     ],
     "parameters": {
@@ -144,8 +149,9 @@
       true,
       true,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "fe22c4609d8b2472c0f83fedb92eceec2b6f1ae1a32fcf375161d04419404d9c"
+  "hash": "e59d29fdd54713a71baed6561d76b99a3fc3db3461dae21e2b468f5e868b7736"
 }

@@ -641,6 +641,7 @@ pub async fn update_worker_ping_for_failed_init_script(
                         job_isolation: None,
                         native_mode: None,
                         draining: None,
+                        refused_tags: None,
                         ping_type: PingType::InitScript,
                     },
                 )

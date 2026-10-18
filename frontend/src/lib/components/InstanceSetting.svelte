@@ -21,6 +21,7 @@
 	import SimpleEditor from './SimpleEditor.svelte'
 	import CriticalAlertChannels from './instanceSettings/CriticalAlertChannels.svelte'
 	import RetentionPeriodOverrides from './instanceSettings/RetentionPeriodOverrides.svelte'
+	import MinJobIsolationByTag from './instanceSettings/MinJobIsolationByTag.svelte'
 	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
 	import SecretBackendConfig from './instanceSettings/SecretBackendConfig.svelte'
 	import ExternalInstancePgSettings from './instanceSettings/ExternalInstancePgSettings.svelte'
@@ -335,6 +336,15 @@
 				</div>
 			</SettingCard>
 		{/if}
+	{:else if setting.fieldType == 'min_job_isolation_by_tag'}
+		<SettingCard
+			label={setting.label}
+			description={setting.description}
+			ee_only={setting.ee_only}
+			settingKey={setting.key}
+		>
+			<MinJobIsolationByTag {values} disabled={loading} />
+		</SettingCard>
 	{:else if setting.fieldType == 'retention_overrides'}
 		<!-- Discrete inline control (no section header) — sits right under the retention field.
 		     Disabled until `loading` finishes so the editor can't be interacted with before

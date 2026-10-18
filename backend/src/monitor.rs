@@ -67,6 +67,7 @@ use windmill_common::{
         FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HUB_API_SECRET_SETTING,
         HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
         JOB_ISOLATION_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
+        MIN_JOB_ISOLATION_BY_TAG_SETTING,
         MCP_DISABLE_TOKEN_QUERY_PARAM, MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPMRC_SETTING, NPM_CONFIG_REGISTRY_SETTING,
         NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING, NUGET_CONFIG_SETTING,
@@ -640,6 +641,13 @@ pub async fn initial_load(
             });
         }
     }
+
+    // Workers filter their own pulls by it, servers the pulls of agent workers.
+    pass.setting(
+        MIN_JOB_ISOLATION_BY_TAG_SETTING,
+        true,
+        apply_min_job_isolation_by_tag_setting,
+    );
 
     if worker_mode {
         use windmill_common::global_settings as gs;
@@ -3337,6 +3345,35 @@ pub async fn apply_job_isolation_setting(value: Option<serde_json::Value>) {
             "job_isolation is set to unshare but the unshare binary is not available on this worker. \
             Jobs will run without isolation until unshare is installed or the setting is changed."
         );
+    }
+    windmill_common::min_job_isolation::set_worker_sandbox_isolation(
+        windmill_worker::sandbox_isolation(),
+    );
+    refresh_pull_queries().await;
+}
+
+pub async fn reload_min_job_isolation_by_tag_setting(conn: &Connection) {
+    match load_value_from_global_settings_with_conn(conn, MIN_JOB_ISOLATION_BY_TAG_SETTING, true)
+        .await
+    {
+        Ok(v) => apply_min_job_isolation_by_tag_setting(v).await,
+        Err(e) => tracing::error!("Error reloading min_job_isolation_by_tag setting: {:?}", e),
+    }
+}
+
+pub async fn apply_min_job_isolation_by_tag_setting(value: Option<serde_json::Value>) {
+    use windmill_common::min_job_isolation::*;
+    MIN_JOB_ISOLATION_BY_TAG.store(Arc::new(parse_min_job_isolation_by_tag(value)));
+    refresh_pull_queries().await;
+}
+
+/// Rebuilds the pull queries after a change to the tags this worker refuses. A process without
+/// worker tags (a server) has no pull queries to rebuild.
+async fn refresh_pull_queries() {
+    let wc = windmill_common::worker::WORKER_CONFIG.load_full();
+    if !wc.worker_tags.is_empty() {
+        store_suspended_pull_query(&wc).await;
+        store_pull_query(&wc).await;
     }
 }
 

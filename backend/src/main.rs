@@ -52,6 +52,7 @@ use windmill_common::{
         HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING,
         INDEXER_SETTING, INSTANCE_EVENTS_WEBHOOK_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
+        MIN_JOB_ISOLATION_BY_TAG_SETTING,
         KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, MAVEN_SETTINGS_XML_SETTING,
         MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
         NO_DEFAULT_MAVEN_SETTING, NPM_CONFIG_REGISTRY_SETTING, NSJAIL_TMPFS_SIZE_MB_SETTING,
@@ -146,7 +147,8 @@ use crate::monitor::{
     reload_extra_pip_index_url_setting, reload_http_route_default_allowed_origins_setting,
     reload_http_route_workspaced_route_setting, reload_hub_api_secret_setting,
     reload_hub_base_url_setting, reload_instance_events_webhook_setting,
-    reload_job_default_timeout_setting, reload_job_isolation_setting, reload_jwt_secret_setting,
+    reload_job_default_timeout_setting, reload_job_isolation_setting,
+    reload_min_job_isolation_by_tag_setting, reload_jwt_secret_setting,
     reload_license_key, reload_npm_config_registry_setting, reload_nsjail_tmp_backing_setting,
     reload_nsjail_tmpfs_size_setting, reload_otel_traces_retention_secs_setting,
     reload_otel_tracing_proxy_setting, reload_pip_index_url_setting,
@@ -1958,6 +1960,9 @@ async fn process_notify_event(
                 STORE_AUDIT_LOGS_S3_SETTING => reload_store_audit_logs_s3_setting(conn).await,
                 JOB_DEFAULT_TIMEOUT_SECS_SETTING => reload_job_default_timeout_setting(conn).await,
                 JOB_ISOLATION_SETTING => reload_job_isolation_setting(conn).await,
+                MIN_JOB_ISOLATION_BY_TAG_SETTING => {
+                    reload_min_job_isolation_by_tag_setting(conn).await
+                }
                 NSJAIL_TMPFS_SIZE_MB_SETTING => reload_nsjail_tmpfs_size_setting(conn).await,
                 NSJAIL_TMP_BACKING_SETTING => reload_nsjail_tmp_backing_setting(conn).await,
                 SANDBOX_IMAGE_MAX_SIZE_MB_SETTING => {

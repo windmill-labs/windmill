@@ -21,6 +21,7 @@ use windmill_common::jobs::RunInlineScriptFnParams;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;
 use windmill_common::jobs::MODULES_ARG;
 use windmill_common::jobs::WORKER_INTERNAL_SERVER_INLINE_UTILS;
+use windmill_common::min_job_isolation::IsolationLevel;
 use windmill_common::otel_oss::{
     otel_incr_worker_execution_count, otel_incr_worker_started,
     otel_record_worker_execution_duration, otel_record_worker_pull_duration, otel_set_worker_busy,
@@ -1033,6 +1034,18 @@ pub fn is_unshare_enabled() -> bool {
         JobIsolationLevel::Unshare => true,
         JobIsolationLevel::Undefined => *FAVOR_UNSHARE_PID,
         _ => false,
+    }
+}
+
+/// The sandbox jobs on this worker get, as reported in `worker_ping.job_isolation`. A mode that
+/// is enabled but whose binary is missing does not count.
+pub fn sandbox_isolation() -> IsolationLevel {
+    if is_sandboxing_enabled() && NSJAIL_AVAILABLE.is_some() {
+        IsolationLevel::Nsjail
+    } else if is_unshare_enabled() && UNSHARE_PATH.is_some() {
+        IsolationLevel::Unshare
+    } else {
+        IsolationLevel::None
     }
 }
 

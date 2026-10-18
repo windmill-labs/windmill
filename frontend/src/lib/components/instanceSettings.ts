@@ -75,6 +75,7 @@ export interface Setting {
 		| 'webhook_base_url'
 		| 'ws_connectivity'
 		| 'retention_overrides'
+		| 'min_job_isolation_by_tag'
 		| 'instance_banner'
 		| 'accent_color'
 	storage: SettingStorage
@@ -434,6 +435,14 @@ export const settings: Record<string, Setting[]> = {
 					value: 'nsjail_sandboxing'
 				}
 			]
+		},
+		{
+			label: 'Minimum job isolation per tag',
+			key: 'min_job_isolation_by_tag',
+			fieldType: 'min_job_isolation_by_tag',
+			description:
+				'Require a minimum isolation for the jobs of a tag (none &lt; unshare &lt; nsjail). A worker whose isolation is below a tag\'s minimum pulls no jobs for that tag: they stay queued until a sufficiently isolated worker picks them up. Native-mode and dedicated workers count as none. This guards against a misconfigured worker group, not against a tampered worker. <a href="https://www.windmill.dev/docs/advanced/security_isolation">Learn more</a>',
+			storage: 'setting'
 		},
 		{
 			label: 'Nsjail /tmp backing',

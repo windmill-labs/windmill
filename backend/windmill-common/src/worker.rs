@@ -857,11 +857,14 @@ pub fn make_suspended_pull_query(tags: &[String]) -> String {
 pub async fn store_suspended_pull_query(wc: &WorkerConfig) {
     // An empty tag list must clear the query: keeping the previous one would leave a reloaded
     // worker pulling suspended jobs for tags it no longer listens to.
-    let query = if wc.worker_tags.is_empty() {
-        tracing::error!("Empty tags in worker tags, pulling no suspended jobs");
+    let tags = crate::min_job_isolation::worker_allowed_tags(wc, &wc.worker_tags);
+    let query = if tags.is_empty() {
+        if wc.worker_tags.is_empty() {
+            tracing::error!("Empty tags in worker tags, pulling no suspended jobs");
+        }
         String::new()
     } else {
-        make_suspended_pull_query(&wc.worker_tags)
+        make_suspended_pull_query(&tags)
     };
     WORKER_SUSPENDED_PULL_QUERY.store(std::sync::Arc::new(query));
 }
@@ -922,14 +925,19 @@ pub async fn store_pull_query(wc: &WorkerConfig) {
     let mut queries = vec![];
     let mut fairness_queries = vec![];
     let fairness_enabled = WORKSPACE_FAIRNESS_ENABLED.load(std::sync::atomic::Ordering::Relaxed);
+    crate::min_job_isolation::log_worker_refused_tags(wc);
     for tags in wc.priority_tags_sorted.iter() {
         if tags.tags.len() == 0 {
             tracing::error!("Empty tags in priority tags, skipping");
             continue;
         }
-        queries.push(make_pull_query(&tags.tags));
+        let tags = crate::min_job_isolation::worker_allowed_tags(wc, &tags.tags);
+        if tags.is_empty() {
+            continue;
+        }
+        queries.push(make_pull_query(&tags));
         if fairness_enabled {
-            fairness_queries.push(make_pull_query_fairness(&tags.tags));
+            fairness_queries.push(make_pull_query_fairness(&tags));
         }
     }
     WORKER_PULL_QUERIES.store(std::sync::Arc::new(queries));
@@ -2059,6 +2067,9 @@ pub struct Ping {
     pub native_mode: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub draining: Option<bool>,
+    /// The worker's tags whose `min_job_isolation_by_tag` exceeds its isolation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refused_tags: Option<Vec<String>>,
     pub ping_type: PingType,
 }
 pub async fn update_ping_http(
@@ -2087,6 +2098,8 @@ pub async fn update_ping_http(
                 insert_ping
                     .last_job_executed
                     .zip(insert_ping.last_job_workspace_id.as_deref()),
+                insert_ping.job_isolation.as_deref(),
+                insert_ping.refused_tags.as_deref(),
                 db,
             )
             .await?
@@ -2112,6 +2125,7 @@ pub async fn update_ping_http(
                 insert_ping.job_isolation,
                 insert_ping.native_mode.unwrap_or(false),
                 insert_ping.draining,
+                insert_ping.refused_tags.as_deref(),
                 db,
             )
             .await?;
@@ -2278,6 +2292,7 @@ pub async fn insert_ping_query(
     job_isolation: Option<String>,
     native_mode: bool,
     draining: Option<bool>,
+    refused_tags: Option<&[String]>,
     db: &DB,
 ) -> anyhow::Result<i32> {
     // A NULL `ip` means the external IP lookup is still in flight; a later ping fills it in, and
@@ -2285,8 +2300,8 @@ pub async fn insert_ping_query(
     // lookup that has failed reports `external_ip::UNRETRIEVABLE_IP`, which does overwrite it. The
     // literal below must stay equal to `external_ip::UNKNOWN_IP`.
     let previous_jobs_executed = sqlx::query_scalar!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode, draining) VALUES ($1, $2, COALESCE($3, 'NO IP'), $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($13, false)) ON CONFLICT (worker)
-        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL, draining = COALESCE($13, worker_ping.draining)
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode, draining, refused_tags) VALUES ($1, $2, COALESCE($3, 'NO IP'), $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($13, false), $14) ON CONFLICT (worker)
+        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL, draining = COALESCE($13, worker_ping.draining), refused_tags = EXCLUDED.refused_tags
         RETURNING jobs_executed",
         worker_instance,
         worker_name,
@@ -2301,6 +2316,7 @@ pub async fn insert_ping_query(
         job_isolation.as_deref(),
         native_mode,
         draining,
+        refused_tags,
         )
         .fetch_one(db)
         .await?;
@@ -2394,6 +2410,8 @@ pub async fn update_worker_ping_main_loop_query(
     native_mode: bool,
     ip: Option<&str>,
     last_job: Option<(Uuid, &str)>,
+    job_isolation: Option<&str>,
+    refused_tags: Option<&[String]>,
     db: &DB,
 ) -> anyhow::Result<()> {
     let (last_job_id, last_job_workspace_id) = last_job.unzip();
@@ -2401,7 +2419,8 @@ pub async fn update_worker_ping_main_loop_query(
         "UPDATE worker_ping SET ping_at = now(), jobs_executed = $1, custom_tags = $2,
          occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
          memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11, native_mode = $12, ip = COALESCE($13, ip),
-         current_job_id = COALESCE($14, current_job_id), current_job_workspace_id = COALESCE($15, current_job_workspace_id) WHERE worker = $6",
+         current_job_id = COALESCE($14, current_job_id), current_job_workspace_id = COALESCE($15, current_job_workspace_id),
+         job_isolation = COALESCE($16, job_isolation), refused_tags = $17 WHERE worker = $6",
         jobs_executed,
         tags,
         occupancy_rate,
@@ -2417,6 +2436,8 @@ pub async fn update_worker_ping_main_loop_query(
         ip,
         last_job_id,
         last_job_workspace_id,
+        job_isolation,
+        refused_tags,
     )
         .execute(db))
     .await??;

@@ -127,6 +127,7 @@ async fn update_worker_ping_full_inner(
     ip: Option<&str>,
     last_job: Option<(Uuid, &str)>,
 ) -> anyhow::Result<()> {
+    let refused_tags = ping_refused_tags();
     match conn {
         Connection::Sql(db) => {
             update_worker_ping_main_loop_query(
@@ -144,6 +145,8 @@ async fn update_worker_ping_full_inner(
                 native_mode,
                 ip,
                 last_job,
+                Some(crate::sandbox_isolation().as_str()),
+                refused_tags.as_deref(),
                 db,
             )
             .await?;
@@ -171,9 +174,10 @@ async fn update_worker_ping_full_inner(
                         memory: memory,
                         memory_usage: get_worker_memory_usage(),
                         wm_memory_usage: get_windmill_memory_usage(),
-                        job_isolation: None,
+                        job_isolation: Some(crate::sandbox_isolation().as_str().to_string()),
                         native_mode: Some(native_mode),
                         draining: None,
+                        refused_tags,
                         ping_type: PingType::MainLoop,
                     },
                 )
@@ -181,6 +185,11 @@ async fn update_worker_ping_full_inner(
         }
     }
     Ok(())
+}
+
+fn ping_refused_tags() -> Option<Vec<String>> {
+    let refused = windmill_common::min_job_isolation::worker_refused_tags(&WORKER_CONFIG.load());
+    (!refused.is_empty()).then_some(refused)
 }
 
 /// Registers the worker in `worker_ping` and returns the number of jobs already attributed
@@ -212,13 +221,7 @@ pub async fn insert_ping(
     let vcpus = get_vcpus();
     let memory = get_memory();
 
-    let job_isolation = if crate::is_sandboxing_enabled() && crate::NSJAIL_AVAILABLE.is_some() {
-        Some("nsjail".to_string())
-    } else if crate::is_unshare_enabled() && crate::UNSHARE_PATH.is_some() {
-        Some("unshare".to_string())
-    } else {
-        Some("none".to_string())
-    };
+    let job_isolation = Some(crate::sandbox_isolation().as_str().to_string());
 
     match db {
         Connection::Sql(db) => {
@@ -236,6 +239,7 @@ pub async fn insert_ping(
                 job_isolation,
                 native_mode,
                 reset_draining.then_some(false),
+                ping_refused_tags().as_deref(),
                 db,
             )
             .await;
@@ -269,6 +273,7 @@ pub async fn insert_ping(
                         job_isolation,
                         native_mode: Some(native_mode),
                         draining: reset_draining.then_some(false),
+                        refused_tags: ping_refused_tags(),
                         ping_type: PingType::Initial,
                     },
                 )
@@ -294,13 +299,7 @@ pub async fn update_worker_ping_from_job(
     let occupancy_rate_5m = occupancy.as_ref().and_then(|x| x.occupancy_rate_5m);
     let occupancy_rate_30m = occupancy.as_ref().and_then(|x| x.occupancy_rate_30m);
 
-    let job_isolation = if crate::is_sandboxing_enabled() && crate::NSJAIL_AVAILABLE.is_some() {
-        Some("nsjail".to_string())
-    } else if crate::is_unshare_enabled() && crate::UNSHARE_PATH.is_some() {
-        Some("unshare".to_string())
-    } else {
-        Some("none".to_string())
-    };
+    let job_isolation = Some(crate::sandbox_isolation().as_str().to_string());
 
     match conn.clone() {
         Connection::Sql(ref db) => {
@@ -348,6 +347,7 @@ pub async fn update_worker_ping_from_job(
                         native_mode: Some(
                             NATIVE_MODE_RESOLVED.load(std::sync::atomic::Ordering::Relaxed),
                         ),
+                        refused_tags: None,
                     },
                 )
                 .await?;
@@ -388,6 +388,7 @@ pub async fn mark_worker_draining(conn: &Connection, worker_name: &str) -> anyho
                         occupancy_rate_30m: None,
                         job_isolation: None,
                         native_mode: None,
+                        refused_tags: None,
                     },
                 )
                 .await

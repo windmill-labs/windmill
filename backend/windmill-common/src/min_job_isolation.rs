@@ -1,0 +1,211 @@
+//! The `min_job_isolation_by_tag` instance setting: a tag can demand a minimum isolation, and a
+//! worker below it pulls none of that tag's jobs, which stay queued. It guards against a worker
+//! group configured with less isolation than its tags need; it is not a defense against a worker
+//! that lies about its isolation.
+
+use std::collections::{BTreeMap, HashMap};
+use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::Mutex;
+
+use crate::worker::{WorkerConfig, NATIVE_MODE_RESOLVED};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
+pub enum IsolationLevel {
+    None = 0,
+    Unshare = 1,
+    Nsjail = 2,
+}
+
+impl IsolationLevel {
+    /// Reads both the setting's values and what a worker reports in `worker_ping.job_isolation`.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "none" => Some(Self::None),
+            "unshare" => Some(Self::Unshare),
+            "nsjail" => Some(Self::Nsjail),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Unshare => "unshare",
+            Self::Nsjail => "nsjail",
+        }
+    }
+
+    fn from_u8(v: u8) -> Self {
+        match v {
+            2 => Self::Nsjail,
+            1 => Self::Unshare,
+            _ => Self::None,
+        }
+    }
+
+    /// The isolation a worker's jobs actually get from the one it reports. Native-mode and
+    /// dedicated workers run jobs outside the sandbox whatever they report, so they count as
+    /// `None`, as does anything unreported or unrecognized: it can only cost a worker jobs.
+    pub fn effective(reported: Option<&str>, outside_sandbox: bool) -> Self {
+        if outside_sandbox {
+            return Self::None;
+        }
+        reported.and_then(Self::parse).unwrap_or(Self::None)
+    }
+}
+
+pub type MinJobIsolationByTag = HashMap<String, IsolationLevel>;
+
+lazy_static::lazy_static! {
+    pub static ref MIN_JOB_ISOLATION_BY_TAG: arc_swap::ArcSwap<MinJobIsolationByTag> =
+        arc_swap::ArcSwap::from_pointee(HashMap::new());
+    static ref LAST_REFUSED: Mutex<Option<BTreeMap<String, IsolationLevel>>> = Mutex::new(None);
+}
+
+/// The sandbox this worker applies, set by the worker whenever its isolation settings change.
+/// It starts at `None`, so a worker that never learned its level refuses rather than over-pulls.
+static WORKER_SANDBOX_ISOLATION: AtomicU8 = AtomicU8::new(IsolationLevel::None as u8);
+
+pub fn set_worker_sandbox_isolation(level: IsolationLevel) {
+    WORKER_SANDBOX_ISOLATION.store(level as u8, Ordering::Relaxed);
+}
+
+/// See [`IsolationLevel::effective`].
+pub fn worker_job_isolation(wc: &WorkerConfig) -> IsolationLevel {
+    if NATIVE_MODE_RESOLVED.load(Ordering::Relaxed)
+        || wc.native_mode
+        || wc.dedicated_worker.is_some()
+        || wc.dedicated_workers.as_ref().is_some_and(|d| !d.is_empty())
+    {
+        return IsolationLevel::None;
+    }
+    IsolationLevel::from_u8(WORKER_SANDBOX_ISOLATION.load(Ordering::Relaxed))
+}
+
+/// An unrecognized level is read as the strictest one: a typo in the setting must not let a
+/// tag's jobs run with less isolation than intended.
+pub fn parse_min_job_isolation_by_tag(value: Option<serde_json::Value>) -> MinJobIsolationByTag {
+    let Some(serde_json::Value::Object(map)) = value else {
+        return HashMap::new();
+    };
+    map.into_iter()
+        .map(|(tag, level)| {
+            let parsed = level.as_str().and_then(IsolationLevel::parse);
+            if parsed.is_none() {
+                tracing::error!(
+                    "min_job_isolation_by_tag: unrecognized level {level} for tag {tag}, requiring nsjail"
+                );
+            }
+            (tag, parsed.unwrap_or(IsolationLevel::Nsjail))
+        })
+        .collect()
+}
+
+/// The tags among `tags` whose minimum exceeds `own`, with the minimum each requires.
+pub fn refused_tags(
+    tags: &[String],
+    own: IsolationLevel,
+    mins: &MinJobIsolationByTag,
+) -> BTreeMap<String, IsolationLevel> {
+    tags.iter()
+        .filter_map(|t| {
+            mins.get(t)
+                .filter(|min| **min > own)
+                .map(|min| (t.clone(), *min))
+        })
+        .collect()
+}
+
+pub fn allowed_tags(
+    tags: &[String],
+    own: IsolationLevel,
+    mins: &MinJobIsolationByTag,
+) -> Vec<String> {
+    tags.iter()
+        .filter(|t| mins.get(*t).map_or(true, |min| *min <= own))
+        .cloned()
+        .collect()
+}
+
+/// The tags this worker refuses under the current setting and its own isolation.
+pub fn worker_refused_tags(wc: &WorkerConfig) -> Vec<String> {
+    let mins = MIN_JOB_ISOLATION_BY_TAG.load();
+    if mins.is_empty() {
+        return vec![];
+    }
+    refused_tags(&wc.worker_tags, worker_job_isolation(wc), &mins)
+        .into_keys()
+        .collect()
+}
+
+/// The subset of `tags` this worker may pull from.
+pub fn worker_allowed_tags(wc: &WorkerConfig, tags: &[String]) -> Vec<String> {
+    allowed_tags(
+        tags,
+        worker_job_isolation(wc),
+        &MIN_JOB_ISOLATION_BY_TAG.load(),
+    )
+}
+
+/// Logs the tags this worker refuses, only when that set changes, since it is re-evaluated on
+/// every config reload.
+pub fn log_worker_refused_tags(wc: &WorkerConfig) {
+    let own = worker_job_isolation(wc);
+    let refused = refused_tags(&wc.worker_tags, own, &MIN_JOB_ISOLATION_BY_TAG.load());
+    let mut last = LAST_REFUSED.lock().unwrap_or_else(|e| e.into_inner());
+    if last.as_ref() == Some(&refused) || (last.is_none() && refused.is_empty()) {
+        *last = Some(refused);
+        return;
+    }
+    for (tag, min) in refused.iter() {
+        tracing::error!(
+            "Tag {tag} requires job isolation {} but this worker's isolation is {}: it will not pull jobs with that tag",
+            min.as_str(),
+            own.as_str()
+        );
+    }
+    if refused.is_empty() && last.as_ref().is_some_and(|l| !l.is_empty()) {
+        tracing::info!("This worker no longer refuses any tag for insufficient job isolation");
+    }
+    *last = Some(refused);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn levels_are_ordered_and_unrecognized_minimums_fail_closed() {
+        assert!(IsolationLevel::None < IsolationLevel::Unshare);
+        assert!(IsolationLevel::Unshare < IsolationLevel::Nsjail);
+
+        let mins = parse_min_job_isolation_by_tag(Some(serde_json::json!({
+            "a": "unshare", "b": "nsjail", "c": "nsjail_sandboxing"
+        })));
+        let tags: Vec<String> = ["a", "b", "c", "d"].iter().map(|s| s.to_string()).collect();
+
+        let refused = |own| {
+            refused_tags(&tags, own, &mins)
+                .into_keys()
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(refused(IsolationLevel::None), ["a", "b", "c"]);
+        assert_eq!(refused(IsolationLevel::Unshare), ["b", "c"]);
+        assert!(refused(IsolationLevel::Nsjail).is_empty());
+        assert_eq!(
+            allowed_tags(&tags, IsolationLevel::Unshare, &mins),
+            ["a", "d"]
+        );
+
+        assert_eq!(
+            IsolationLevel::effective(Some("nsjail"), true),
+            IsolationLevel::None
+        );
+        assert_eq!(IsolationLevel::effective(None, false), IsolationLevel::None);
+        assert_eq!(
+            IsolationLevel::effective(Some("nsjail"), false),
+            IsolationLevel::Nsjail
+        );
+    }
+}

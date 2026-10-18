@@ -224,6 +224,9 @@ pub struct GlobalSettings {
     pub nsjail_tmpfs_size_mb: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nsjail_tmp_backing: Option<String>,
+    /// Tag -> minimum job isolation (`unshare` or `nsjail`) a worker needs to pull its jobs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_job_isolation_by_tag: Option<BTreeMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bun_install_min_release_age: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
