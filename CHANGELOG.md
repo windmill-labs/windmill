@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.841.0](https://github.com/windmill-labs/windmill/compare/v1.840.0...v1.841.0) (2026-10-18)
+
+
+### Features
+
+* let agent workers authenticate with a workload identity token ([#11858](https://github.com/windmill-labs/windmill/issues/11858)) ([be23abb](https://github.com/windmill-labs/windmill/commit/be23abb3602ed9c45f1c66c98d5f84e7676dccfa))
+* let ALLOW_PRIVATE_MCP_SERVER_URLS name the private hosts it allows ([#11869](https://github.com/windmill-labs/windmill/issues/11869)) ([5c205fa](https://github.com/windmill-labs/windmill/commit/5c205fa46915de9e5fde731a117ba8571cfa56f7))
+* probe nsjail with a real jail and add a gVisor compat mode ([#11865](https://github.com/windmill-labs/windmill/issues/11865)) ([69d36f7](https://github.com/windmill-labs/windmill/commit/69d36f77daceb25cc903c7ea014ba8d487650b18))
+
+
+### Bug Fixes
+
+* insert ApiAuthed into request extensions in no-auth mode ([#11868](https://github.com/windmill-labs/windmill/issues/11868)) ([a7561fd](https://github.com/windmill-labs/windmill/commit/a7561fd8bde5c4a766a050507c2d9b9823c08bcc))
+* reject out-of-range integer args to narrow SQL types instead of wrapping ([#11864](https://github.com/windmill-labs/windmill/issues/11864)) ([19ec5d3](https://github.com/windmill-labs/windmill/commit/19ec5d3cd8a36600c8896a895d0e566735f729a9))
+* warn when an autoscaled worker group has no tags to count ([#11859](https://github.com/windmill-labs/windmill/issues/11859)) ([8b14a78](https://github.com/windmill-labs/windmill/commit/8b14a78822f95fb045d80940dfd9197f79ea88cc))
+
 ## [1.840.0](https://github.com/windmill-labs/windmill/compare/v1.839.0...v1.840.0) (2026-10-17)
 
 
