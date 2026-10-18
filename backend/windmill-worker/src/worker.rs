@@ -582,7 +582,14 @@ lazy_static::lazy_static! {
                 }
                 None
             },
-            Err(e) => {
+            Err(NsjailProbeError::Setup(e)) => {
+                tracing::error!(
+                    "Could not prepare the nsjail test jail: {}. Nsjail sandboxing will NOT be available.",
+                    e
+                );
+                None
+            },
+            Err(NsjailProbeError::Start(e)) => {
                 if e.kind() == std::io::ErrorKind::NotFound {
                     tracing::error!(
                         "nsjail not found at '{}'. Nsjail sandboxing will NOT be available. \
@@ -1038,23 +1045,37 @@ pub(crate) fn artifact_cache_name(
 /// Runs `/bin/true` in a jail built like a job's, through the same spawn path, so a worker
 /// whose runtime lets nsjail start but not jail (a container without the privileges, gVisor)
 /// does not report nsjail isolation.
-fn probe_nsjail(nsjail_path: &str) -> std::io::Result<std::process::Output> {
-    let dir = std::env::temp_dir().join(format!("windmill-nsjail-probe-{}", std::process::id()));
-    std::fs::create_dir_all(&dir)?;
-    std::fs::write(
-        dir.join("probe.config.proto"),
-        NSJAIL_CONFIG_PROBE_CONTENT.replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
-    )?;
-    let mut cmd = std::process::Command::new(nsjail_path);
-    cmd.current_dir(&dir)
-        .env_clear()
-        .env("PATH", PATH_ENV.as_str())
-        .args(["--config", "probe.config.proto"]);
-    #[cfg(target_os = "linux")]
-    if *NSJAIL_GVISOR_COMPAT {
-        crate::nsjail_compat::apply(&mut cmd)?;
-    }
-    let output = cmd.output();
+enum NsjailProbeError {
+    /// The probe could not be prepared: nothing is known about nsjail.
+    Setup(std::io::Error),
+    /// nsjail itself could not be executed.
+    Start(std::io::Error),
+}
+
+fn probe_nsjail(nsjail_path: &str) -> Result<std::process::Output, NsjailProbeError> {
+    // A fresh private directory: the worker runs what this config says, as itself.
+    let dir = std::env::temp_dir().join(format!("windmill-nsjail-probe-{}", uuid::Uuid::new_v4()));
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(&dir).map_err(NsjailProbeError::Setup)?;
+    let output = (|| {
+        std::fs::write(
+            dir.join("probe.config.proto"),
+            NSJAIL_CONFIG_PROBE_CONTENT.replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
+        )
+        .map_err(NsjailProbeError::Setup)?;
+        let mut cmd = std::process::Command::new(nsjail_path);
+        cmd.current_dir(&dir)
+            .env_clear()
+            .env("PATH", PATH_ENV.as_str())
+            .args(["--config", "probe.config.proto"]);
+        #[cfg(target_os = "linux")]
+        if *NSJAIL_GVISOR_COMPAT {
+            crate::nsjail_compat::apply(&mut cmd).map_err(NsjailProbeError::Setup)?;
+        }
+        cmd.output().map_err(NsjailProbeError::Start)
+    })();
     let _ = std::fs::remove_dir_all(&dir);
     output
 }
