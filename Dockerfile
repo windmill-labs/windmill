@@ -255,19 +255,20 @@ RUN apt-get -y update && apt-get install -y --no-install-recommends curl procps 
     && rm -rf /var/lib/apt/lists/*
 
 # The npm bundled with nodejs carries undici (via node-gyp) older than 6.29.1, which has
-# CVE-2026-109383. Replaced in place until a bundled npm ships a fixed one; a bundled undici
-# at or past this version, or on a later major, is left alone.
+# CVE-2026-109383. Replaced in place until a bundled npm ships a fixed one. Only a 6.x below
+# this version is replaced: a bundled undici on another major is not checked here, so the
+# step logs it and leaves it alone.
 ARG NPM_UNDICI_VERSION=6.29.1
 RUN dir=/usr/lib/node_modules/npm/node_modules/undici; \
     if [ -f "$dir/package.json" ]; then \
-    current="$(node -p "require('$dir/package.json').version")"; \
-    if [ "${current%%.*}" = "${NPM_UNDICI_VERSION%%.*}" ] && [ "$(printf '%s\n' "$current" "$NPM_UNDICI_VERSION" | sort -V | head -n1)" != "$NPM_UNDICI_VERSION" ]; then \
-    cd /tmp && npm pack "undici@$NPM_UNDICI_VERSION" \
-    && rm -rf "$dir" && mkdir "$dir" \
-    && tar -xzf "undici-$NPM_UNDICI_VERSION.tgz" -C "$dir" --strip-components=1 \
-    && rm "undici-$NPM_UNDICI_VERSION.tgz" && rm -rf /root/.npm; \
-    fi; \
-    fi
+        current="$(node -p "require('$dir/package.json').version")"; \
+        if [ "${current%%.*}" = "${NPM_UNDICI_VERSION%%.*}" ] && [ "$(printf '%s\n' "$current" "$NPM_UNDICI_VERSION" | sort -V | head -n1)" != "$NPM_UNDICI_VERSION" ]; then \
+            cd /tmp && npm pack "undici@$NPM_UNDICI_VERSION" \
+            && rm -rf "$dir" && mkdir "$dir" \
+            && tar -xzf "undici-$NPM_UNDICI_VERSION.tgz" -C "$dir" --strip-components=1 \
+            && rm "undici-$NPM_UNDICI_VERSION.tgz" && rm -rf /root/.npm; \
+        else echo "npm's bundled undici $current left as is"; fi; \
+    else echo "npm bundles no undici"; fi
 
 # go build is slower the first time it is ran, so we prewarm it in the build
 # This mirrors Windmill's Go wrapper structure: main.go imports inner package, uses encoding/json, os, fmt
