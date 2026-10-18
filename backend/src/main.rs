@@ -687,6 +687,29 @@ async fn windmill_main() -> anyhow::Result<()> {
         _ => {}
     }
 
+    // Before `num_workers`: it reads `WORKER_GROUP`, which an agent authenticating with a
+    // workload identity token only learns from the server.
+    let agent_setup = if mode == Mode::Agent {
+        let agent_config = match AgentConfig::from_env() {
+            Ok(config) => config,
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        };
+        let suffix = resolve_worker_suffix(&hostname, 1)?;
+        if let Err(e) = agent_config.resolve_workload_identity(&suffix).await {
+            eprintln!(
+                "Agent worker could not authenticate with its workload identity token, check \
+                 AGENT_IDENTITY_TOKEN_FILE and BASE_INTERNAL_URL (the reason is in the server log): {e:#}"
+            );
+            std::process::exit(1);
+        }
+        Some((agent_config, suffix))
+    } else {
+        None
+    };
+
     #[allow(unused_mut)]
     let mut num_workers = if mode == Mode::Server || mode == Mode::Indexer || mode == Mode::MCP {
         0
@@ -739,19 +762,11 @@ async fn windmill_main() -> anyhow::Result<()> {
         .and_then(|x| x.parse().ok())
         .unwrap_or(IpAddr::from(default_bind_addr));
 
-    let (conn, first_suffix, agent_config) = if mode == Mode::Agent {
-        let agent_config = match AgentConfig::from_env() {
-            Ok(config) => config,
-            Err(e) => {
-                tracing::error!("{e}");
-                std::process::exit(1);
-            }
-        };
+    let (conn, first_suffix, agent_config) = if let Some((agent_config, suffix)) = agent_setup {
         tracing::info!(
             "Creating http client for cluster using base internal url {}",
             agent_config.base_internal_url
         );
-        let suffix = resolve_worker_suffix(&hostname, 1)?;
         (
             Connection::Http(agent_config.build_http_client(&suffix)),
             Some(suffix),
@@ -997,7 +1012,7 @@ Windmill Community Edition {GIT_VERSION}
             tracing::error!("Failed to reload license key: {err:#}");
             if is_agent {
                 tracing::error!(
-                    "Agent worker cannot connect to server. Please check AGENT_TOKEN and BASE_INTERNAL_URL"
+                    "Agent worker cannot connect to server. Please check AGENT_TOKEN (or AGENT_IDENTITY_TOKEN_FILE) and BASE_INTERNAL_URL"
                 );
                 std::process::exit(1);
             }

@@ -1284,6 +1284,13 @@ async fn run_setting_pre_write_hook(
             v => windmill_common::global_settings::validate_accent_color(v)
                 .map_err(|e| error::Error::BadRequest(format!("{ACCENT_COLOR_SETTING}: {e}")))?,
         },
+        windmill_common::global_settings::AGENT_WORKLOAD_IDENTITY_ISSUERS_SETTING => {
+            if !value.is_null() {
+                let key = windmill_common::global_settings::AGENT_WORKLOAD_IDENTITY_ISSUERS_SETTING;
+                windmill_common::agent_workload_identity::validate_issuers_value(value)
+                    .map_err(|e| error::Error::BadRequest(format!("{key}: {e}")))?;
+            }
+        }
         _ => {}
     }
     Ok(())

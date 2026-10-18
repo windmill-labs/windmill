@@ -78,6 +78,7 @@ export interface Setting {
 		| 'min_job_isolation_by_tag'
 		| 'instance_banner'
 		| 'accent_color'
+		| 'agent_workload_identity_issuers'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -839,6 +840,17 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		}
 	],
+	'Agent workers': [
+		{
+			label: 'Workload identity issuers',
+			key: 'agent_workload_identity_issuers',
+			description:
+				'An issuer lets an agent worker authenticate with a short-lived token its platform issues it (a Kubernetes projected service account token, a SPIFFE JWT-SVID, ...) in place of an agent token: point AGENT_IDENTITY_TOKEN_FILE at it. The token must be signed by a trusted issuer, carry its audience, and match a rule, which decides the worker group and tags the agent may serve. <a href="https://www.windmill.dev/docs/core_concepts/agent_workers">Learn more</a>',
+			fieldType: 'agent_workload_identity_issuers',
+			storage: 'setting',
+			ee_only: ''
+		}
+	],
 	'DB Health': [],
 	'OIDC signing': [],
 	Registries: [
@@ -1348,6 +1360,13 @@ export const instanceSettingsNavigationGroups = [
 				isEE: true
 			},
 			{
+				id: 'agent_workers',
+				label: 'Agent workers',
+				aiId: 'instance-settings-agent-workers',
+				aiDescription: 'Workload identity issuers agent workers can authenticate with',
+				isEE: true
+			},
+			{
 				id: 'oidc_signing',
 				label: 'OIDC signing',
 				aiId: 'instance-settings-oidc-signing',
@@ -1511,6 +1530,7 @@ export const tabToCategoryMap: Record<string, string> = {
 	websocket: 'WebSocket',
 	db_health: 'DB Health',
 	oidc_signing: 'OIDC signing',
+	agent_workers: 'Agent workers',
 	lsp: 'LSP'
 }
 
@@ -1573,6 +1593,7 @@ export const categoryToTabMap: Record<string, string> = {
 	WebSocket: 'websocket',
 	'DB Health': 'db_health',
 	'OIDC signing': 'oidc_signing',
+	'Agent workers': 'agent_workers',
 	LSP: 'lsp'
 }
 

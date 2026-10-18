@@ -27,6 +27,7 @@ use scripts::ScriptLang;
 use sqlx::{Acquire, Postgres};
 
 pub mod agent_workers;
+pub mod agent_workload_identity;
 pub mod apps;
 pub mod assets;
 pub mod audit;

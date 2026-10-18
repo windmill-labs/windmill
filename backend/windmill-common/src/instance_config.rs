@@ -371,6 +371,8 @@ pub struct GlobalSettings {
     pub custom_instance_pg_databases: Option<CustomInstancePgDatabases>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_instance_pg: Option<ExternalInstancePg>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_workload_identity_issuers: Option<Vec<AgentWorkloadIdentityIssuer>>,
 
     // Opaque settings (EE-private structs or no clear schema)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -739,6 +741,42 @@ pub struct TeamsChannel {
     pub team_name: String,
     pub channel_id: String,
     pub channel_name: String,
+}
+
+// ---------------------------------------------------------------------------
+// Agent worker workload identity
+// ---------------------------------------------------------------------------
+
+/// An issuer whose workload identity tokens (Kubernetes projected service account tokens,
+/// SPIFFE JWT-SVIDs, ...) an agent worker may authenticate with instead of an agent token.
+#[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
+pub struct AgentWorkloadIdentityIssuer {
+    /// Must equal the token's `iss` exactly.
+    pub issuer: String,
+    /// Where the signing keys are published. Defaults to the `jwks_uri` of the issuer's OIDC
+    /// discovery document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jwks_uri: Option<String>,
+    /// The JWKS document itself, as JSON text, for an issuer this instance cannot reach.
+    /// Takes precedence over `jwks_uri`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jwks: Option<String>,
+    /// Must be one of the token's `aud`.
+    pub audience: String,
+    /// Tried in order; the first whose claims all match decides the worker group and tags.
+    #[serde(default)]
+    pub rules: Vec<AgentWorkloadIdentityRule>,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
+pub struct AgentWorkloadIdentityRule {
+    /// Claim path (dot separated, a key that itself contains dots such as `kubernetes.io`
+    /// is matched whole) to the exact value it must hold.
+    pub claims: BTreeMap<String, String>,
+    pub worker_group: String,
+    pub tags: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1509,6 +1547,13 @@ pub async fn sync_global_settings_declarative(
         Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
         Some(color) => crate::global_settings::validate_accent_color(color)
             .map_err(|e| anyhow::anyhow!("{accent_key}: {e}"))?,
+    }
+
+    let issuers_key = crate::global_settings::AGENT_WORKLOAD_IDENTITY_ISSUERS_SETTING;
+    match desired.get(issuers_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(issuers) => crate::agent_workload_identity::validate_issuers_value(issuers)
+            .map_err(|e| anyhow::anyhow!("{issuers_key}: {e}"))?,
     }
 
     let suffix_key = crate::global_settings::DEV_WORKSPACE_TAG_SUFFIX_SETTING;
