@@ -18,18 +18,21 @@ use windmill_parser_ts::{remove_pinned_import_specifiers, remove_pinned_imports}
 use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PrecomputedAgentInfo};
 
 use crate::{
+    check_no_network_jailed,
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         parse_npm_config, read_file, read_file_content, read_result, resolve_nsjail_timeout,
-        resolve_nsjail_tmp_mount_block, script_envars, start_child_process, write_file_binary,
-        MaybeLock, OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL,
+        resolve_nsjail_tmp_mount_block, resolve_nsjail_tmpfs_size_bytes, script_envars,
+        start_child_process, write_file_binary, MaybeLock, OccupancyMetrics, StreamNotifier,
+        DEV_CONF_NSJAIL,
     },
-    get_proxy_envs_for_lang,
+    get_proxy_envs_for_lang, get_run_proxy_envs,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry_with_workspace_override, BUNFIG_INSTALL_SCOPES,
-    BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_INSTALL_MIN_RELEASE_AGE, BUN_NO_CACHE, BUN_PATH,
-    DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPMRC, NPM_CONFIG_REGISTRY, NPM_PATH,
-    NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
+    is_sandboxing_enabled, nsjail_clone_newnet, read_ee_registry_with_workspace_override,
+    BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_INSTALL_MIN_RELEASE_AGE,
+    BUN_NO_CACHE, BUN_PATH, DISABLE_BUN_INSTALL_SANDBOX, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH,
+    NODE_PATH, NPMRC, NPM_CONFIG_REGISTRY, NPM_PATH, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV,
+    PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::{
     cache,
@@ -38,7 +41,7 @@ use windmill_common::{
     min_version::MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2,
     scripts::{id_to_codebase_info, CodebaseInfo, ScriptHash, ScriptLang},
     utils::WarnAfterExt,
-    workspace_dependencies::WorkspaceDependenciesPrefetched,
+    workspace_dependencies::{clean_lock_from_annotations, WorkspaceDependenciesPrefetched},
 };
 use windmill_types::s3::BundleFormat;
 
@@ -73,6 +76,7 @@ pub const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.windows.js");
 pub const RELATIVE_BUN_BUILDER: &str = include_str!("../loader_builder.bun.js");
 
 const NSJAIL_CONFIG_RUN_BUN_CONTENT: &str = include_str!("../nsjail/run.bun.config.proto");
+const NSJAIL_CONFIG_INSTALL_BUN_CONTENT: &str = include_str!("../nsjail/install.bun.config.proto");
 
 pub const BUN_LOCK_SPLIT: &str = "\n//bun.lock\n";
 pub const BUN_LOCKB_SPLIT: &str = "\n//bun.lockb\n";
@@ -731,6 +735,474 @@ registry = {}
     Ok(())
 }
 
+/// An nsjail bind mount of `path` onto itself, skipped when the host path is missing.
+/// Empty for a path that is not absolute or that the proto string cannot carry verbatim.
+fn optional_bind_mount(path: &str, rw: bool) -> String {
+    if !path.starts_with('/') || path.contains(['"', '\\', '\n', '\r']) {
+        return String::new();
+    }
+    format!(
+        "mount {{\n    src: \"{path}\"\n    dst: \"{path}\"\n    is_bind: true\n    rw: {rw}\n    mandatory: false\n}}\n"
+    )
+}
+
+/// node-gyp's header cache under HOME. Kept across jailed installs like the package
+/// caches: without it every native build downloads the headers again, which a worker
+/// with no internet access cannot.
+const NODE_GYP_CACHE: &str = ".cache/node-gyp";
+
+/// The install jail's HOME: a private tmpfs at the worker's HOME path, with the
+/// package manager's user config read-only and the caches kept there writable (npm's
+/// `~/.npm` in npm mode, node-gyp's headers in both).
+fn install_home_mount_block(home: &str, npm_mode: bool, tmpfs_size_bytes: &str) -> String {
+    let home = home.trim_end_matches('/');
+    let mut block = String::new();
+    // A HOME under /tmp is already private: the jail's /tmp is.
+    if home.starts_with('/')
+        && home != "/tmp"
+        && !home.starts_with("/tmp/")
+        && !home.contains(['"', '\\', '\n', '\r'])
+    {
+        block.push_str(&format!(
+            "mount {{\n    dst: \"{home}\"\n    fstype: \"tmpfs\"\n    rw: true\n    options: \"size={tmpfs_size_bytes}\"\n}}\n"
+        ));
+    }
+    block.push_str(&optional_bind_mount(&format!("{home}/.npmrc"), false));
+    block.push_str(&optional_bind_mount(&format!("{home}/.bunfig.toml"), false));
+    block.push_str(&optional_bind_mount(
+        &format!("{home}/{NODE_GYP_CACHE}"),
+        true,
+    ));
+    if npm_mode {
+        block.push_str(&optional_bind_mount(&format!("{home}/.npm"), true));
+    }
+    block
+}
+
+/// An `.npmrc` value as npm reads it: `${VAR}` from the install env, and a leading `~/`
+/// as HOME. Without it, a `cafile=~/…` or `${HOME}/…` is never mounted and the jail's
+/// private HOME hides the certificate.
+fn expand_npmrc_value(value: &str, home: &str, envs: &HashMap<String, String>) -> String {
+    let mut out = String::new();
+    let mut rest = value;
+    while let Some(start) = rest.find("${") {
+        let Some(len) = rest[start..].find('}') else {
+            break;
+        };
+        out.push_str(&rest[..start]);
+        let name = rest[start + 2..start + len].trim_end_matches('?');
+        out.push_str(envs.get(name).map(String::as_str).unwrap_or_default());
+        rest = &rest[start + len + 1..];
+    }
+    out.push_str(rest);
+    match out.strip_prefix("~/") {
+        Some(p) => format!("{}/{p}", home.trim_end_matches('/')),
+        None => out,
+    }
+}
+
+/// TLS files the install is pointed at (CA bundles, registry client certificates) live
+/// outside the jail's mounts: bind them in, read-only, so private registries keep working.
+fn install_ca_mounts(job_dir: &str, home: &str, envs: &HashMap<String, String>) -> String {
+    const CA_ENVS: [&str; 4] = [
+        "NODE_EXTRA_CA_CERTS",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
+        "NPM_CONFIG_CAFILE",
+    ];
+    // Also registry-scoped (`//host/:certfile=`), hence the match on the last segment.
+    const TLS_FILE_KEYS: [&str; 3] = ["cafile", "certfile", "keyfile"];
+    let from_env = crate::worker::WHITELIST_ENVS
+        .iter()
+        .filter(|(k, _)| CA_ENVS.iter().any(|c| c.eq_ignore_ascii_case(k)))
+        .map(|(_, v)| v.trim().to_string());
+    // `.npmrc` lines and bunfig's `[install] cafile = "…"` share the `key = value` shape.
+    let from_config = [
+        format!("{job_dir}/{BUN_NPMRC_FILE}"),
+        format!("{home}/.npmrc"),
+        format!("{job_dir}/{BUN_CONFIG_FILE}"),
+        format!("{home}/.bunfig.toml"),
+    ]
+    .into_iter()
+    .filter_map(|f| fs::read_to_string(f).ok())
+    .flat_map(|content| {
+        content
+            .lines()
+            .filter_map(|l| {
+                let (k, v) = l.split_once('=')?;
+                let key = k.trim().rsplit(':').next()?;
+                TLS_FILE_KEYS
+                    .iter()
+                    .any(|t| t.eq_ignore_ascii_case(key))
+                    .then(|| expand_npmrc_value(v.trim().trim_matches(['"', '\'']), home, envs))
+            })
+            .collect::<Vec<_>>()
+    });
+    from_env
+        .chain(from_config)
+        .filter(|p| !p.is_empty())
+        .unique()
+        .map(|p| optional_bind_mount(&p, false))
+        .collect()
+}
+
+/// The files `bun install` reads from, and writes to, the directory it installs in.
+#[cfg(unix)]
+const BUN_INSTALL_INPUTS: [&str; 3] = ["package.json", "bun.lock", "bun.lockb"];
+const BUN_INSTALL_OUTPUTS: [&str; 3] = ["node_modules", "bun.lock", "bun.lockb"];
+/// What the worker reads or mounts from the job dir after an install that ran in it.
+const BUN_JOB_DIR_OUTPUTS: [&str; 5] = [
+    "node_modules",
+    "package.json",
+    "bun.lock",
+    "bun.lockb",
+    "package-lock.json",
+];
+
+/// Whether an install left `name` at `path`, refusing anything but a real directory
+/// (node_modules) or regular file there: the install jail could write it, and the worker
+/// follows what it then reads, renames or mounts.
+fn check_install_output(path: &str, name: &str) -> Result<bool> {
+    let expect_dir = name == "node_modules";
+    match fs::symlink_metadata(path) {
+        Ok(m) if (expect_dir && m.is_dir()) || (!expect_dir && m.is_file()) => Ok(true),
+        Ok(_) => Err(error::Error::ExecutionErr(format!(
+            "dependency install left an unexpected {name}: expected a regular {}",
+            if expect_dir { "directory" } else { "file" }
+        ))),
+        Err(_) => Ok(false),
+    }
+}
+
+/// Registry configuration bun reads from the install dir. It can hold an auth token, so
+/// a staged install gets it bind-mounted read-only from the job dir instead of a copy in
+/// the cache, which every later install jail mounts.
+const BUN_REGISTRY_FILES: [&str; 2] = [BUN_CONFIG_FILE, BUN_NPMRC_FILE];
+
+/// Open a directory without following a symlink at `path`.
+#[cfg(unix)]
+fn open_dir_nofollow(path: &str) -> std::io::Result<fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(nix::libc::O_DIRECTORY | nix::libc::O_NOFOLLOW)
+        .open(path)
+}
+
+/// Delete entry `name` of the directory open as `dir`, off the async worker thread: a
+/// staging dir can hold a whole node_modules. A symlink there is removed, never followed.
+#[cfg(unix)]
+fn remove_entry_detached(dir: Arc<fs::File>, name: String) {
+    use std::os::fd::AsRawFd;
+    let remove = move || {
+        let path = format!("/proc/self/fd/{}/{name}", dir.as_raw_fd());
+        let _ = match fs::symlink_metadata(&path) {
+            Ok(m) if m.is_dir() => fs::remove_dir_all(&path),
+            Ok(_) => fs::remove_file(&path),
+            Err(e) => Err(e),
+        };
+    };
+    match tokio::runtime::Handle::try_current() {
+        Ok(rt) => {
+            rt.spawn_blocking(remove);
+        }
+        Err(_) => remove(),
+    }
+}
+
+/// A directory for one jailed bun install inside the bun cache, removed when dropped.
+///
+/// The jail binds the job dir and the cache as two mounts, and link(2) fails across
+/// mounts, so bun would copy every file out of the cache instead of hardlinking it.
+/// Installing here and renaming node_modules into the job dir keeps the hardlinks.
+///
+/// Every install jail can write the cache, so any path through it may since have become a
+/// symlink. The worker reaches this dir only through descriptors opened without following
+/// links before the jail runs ([`Self::entry`]); `path` is for the jail config alone.
+struct BunStagingDir {
+    #[cfg(unix)]
+    root: Arc<fs::File>,
+    #[cfg(unix)]
+    dir: fs::File,
+    #[cfg(unix)]
+    name: String,
+    path: String,
+}
+
+impl BunStagingDir {
+    /// Entry `f` of the staging dir, resolved through its descriptor.
+    fn entry(&self, f: &str) -> String {
+        #[cfg(unix)]
+        {
+            use std::os::fd::AsRawFd;
+            format!("/proc/self/fd/{}/{f}", self.dir.as_raw_fd())
+        }
+        #[cfg(not(unix))]
+        format!("{}/{f}", self.path)
+    }
+}
+
+#[cfg(unix)]
+impl Drop for BunStagingDir {
+    fn drop(&mut self) {
+        remove_entry_detached(self.root.clone(), std::mem::take(&mut self.name));
+    }
+}
+
+/// How long a staging dir may outlive its install before the next one deletes it: a
+/// worker killed mid-install leaves it behind. Well past the longest install.
+#[cfg(unix)]
+const BUN_STAGING_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
+
+/// Whether a bun install needs nothing of the job dir beyond [`BUN_INSTALL_INPUTS`]: no
+/// dependency by path, no workspaces or patches, and no root lifecycle script, which bun
+/// runs next to the manifest and which may read the job's other files.
+#[cfg(any(unix, test))]
+fn bun_install_can_stage(package_json: &str, lock: Option<&str>) -> bool {
+    const DEP_SECTIONS: [&str; 6] = [
+        "dependencies",
+        "devDependencies",
+        "optionalDependencies",
+        "peerDependencies",
+        "overrides",
+        "resolutions",
+    ];
+    const ROOT_SCRIPTS: [&str; 6] = [
+        "preinstall",
+        "install",
+        "postinstall",
+        "preprepare",
+        "prepare",
+        "postprepare",
+    ];
+    const LOCAL_SPECS: [&str; 8] = [
+        "file:",
+        "link:",
+        "workspace:",
+        "portal:",
+        "./",
+        "../",
+        "/",
+        "~/",
+    ];
+    fn has_local_spec(v: &serde_json::Value) -> bool {
+        match v {
+            serde_json::Value::String(s) => LOCAL_SPECS.iter().any(|p| s.trim().starts_with(p)),
+            serde_json::Value::Object(m) => m.values().any(has_local_spec),
+            _ => false,
+        }
+    }
+    let Ok(serde_json::Value::Object(pkg)) = serde_json::from_str(package_json) else {
+        return false;
+    };
+    let root_script = pkg
+        .get("scripts")
+        .and_then(|s| s.as_object())
+        .is_some_and(|s| ROOT_SCRIPTS.iter().any(|k| s.contains_key(*k)));
+    if root_script
+        || pkg.contains_key("workspaces")
+        || pkg.contains_key("patchedDependencies")
+        || DEP_SECTIONS
+            .iter()
+            .any(|k| pkg.get(*k).is_some_and(has_local_spec))
+    {
+        return false;
+    }
+    // Every text lockfile has a root `"workspaces"` entry, so only these mark local
+    // packages: as a spec (`"file:x"`) or in a resolution (`"x@file:x"`).
+    const LOCK_LOCAL_PROTOCOLS: [&str; 4] = ["file:", "link:", "workspace:", "portal:"];
+    !lock.is_some_and(|l| {
+        l.contains("\"patchedDependencies\"")
+            || LOCK_LOCAL_PROTOCOLS
+                .iter()
+                .any(|p| l.contains(&format!("\"{p}")) || l.contains(&format!("@{p}")))
+    })
+}
+
+/// None when node_modules could not be renamed from the cache into the job dir (another
+/// filesystem, or another mount of the same one): moving it back would be a copy, which
+/// is what installing in the job dir costs anyway. Also None when
+/// [`bun_install_can_stage`] says the install needs the job dir.
+fn bun_staging_dir(cache_dir: &str, job_dir: &str) -> Option<BunStagingDir> {
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
+        let package_json = fs::read_to_string(format!("{job_dir}/package.json")).ok()?;
+        let lock = fs::read_to_string(format!("{job_dir}/bun.lock")).ok();
+        if !bun_install_can_stage(&package_json, lock.as_deref()) {
+            return None;
+        }
+        // `cache_dir` is the jail's mount point, which no jail can replace; what is under
+        // it can be anything.
+        let root_path = format!("{cache_dir}/.wm-staging");
+        if fs::symlink_metadata(&root_path).is_ok_and(|m| !m.is_dir()) {
+            fs::remove_file(&root_path).ok()?;
+        }
+        let _ = fs::create_dir(&root_path);
+        let root = Arc::new(open_dir_nofollow(&root_path).ok()?);
+        let root_fd = format!("/proc/self/fd/{}", root.as_raw_fd());
+        for e in fs::read_dir(&root_fd).ok()?.flatten() {
+            let stale = e
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .is_some_and(|age| age > BUN_STAGING_MAX_AGE);
+            if stale {
+                remove_entry_detached(root.clone(), e.file_name().to_string_lossy().into_owned());
+            }
+        }
+        let name = Uuid::new_v4().to_string();
+        fs::create_dir(format!("{root_fd}/{name}")).ok()?;
+        let dir = open_dir_nofollow(&format!("{root_fd}/{name}")).ok()?;
+        let path = format!("{root_path}/{name}");
+        let staging = BunStagingDir { root, dir, name, path };
+        // A jail sharing the cache can list the new dir and plant a symlink in it before
+        // the worker writes there: every file is created new, never opened as found.
+        let create_new = |path: &str| {
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)
+        };
+        // The move back is a rename, which is the only test that holds: two mounts of
+        // one filesystem share st_dev and still refuse it.
+        let probe = staging.entry(".rename-probe");
+        let probe_dst = format!("{job_dir}/.wm-staging-probe-{}", Uuid::new_v4());
+        create_new(&probe).ok()?;
+        let renamed = fs::rename(&probe, &probe_dst).is_ok();
+        let _ = fs::remove_file(&probe_dst);
+        if !renamed {
+            return None;
+        }
+        for f in BUN_INSTALL_INPUTS {
+            let src = format!("{job_dir}/{f}");
+            if fs::symlink_metadata(&src).is_ok_and(|m| m.is_file()) {
+                let mut out = create_new(&staging.entry(f)).ok()?;
+                std::io::copy(&mut fs::File::open(&src).ok()?, &mut out).ok()?;
+            }
+        }
+        Some(staging)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (cache_dir, job_dir);
+        None
+    }
+}
+
+/// A fetch npm 12 refuses by default but npm 11 made. Windmill still allows it, for now, when
+/// the install's config does not set the key either way.
+#[derive(Clone, Copy)]
+enum NpmFetchFallback {
+    Git,
+    Remote,
+}
+
+impl NpmFetchFallback {
+    fn key(self) -> &'static str {
+        match self {
+            Self::Git => "allow-git",
+            Self::Remote => "allow-remote",
+        }
+    }
+
+    fn error_code(self) -> &'static str {
+        match self {
+            Self::Git => "EALLOWGIT",
+            Self::Remote => "EALLOWREMOTE",
+        }
+    }
+
+    fn what(self) -> &'static str {
+        match self {
+            Self::Git => "git dependencies",
+            Self::Remote => "dependency tarballs hosted outside the configured registry",
+        }
+    }
+}
+
+/// The job-dir folder npm writes its debug log to (`--logs-dir`). The fallback reads a refusal
+/// from there, so the install's output keeps streaming to the job log instead of being held.
+const NPM_LOGS_DIR: &str = ".wm-npm-logs";
+const NPM_LOG_READ_LIMIT: u64 = 16 * 1024 * 1024;
+const NPM_REFUSED_SPECS_SHOWN: usize = 20;
+
+/// The fetch a failed `npm install` was refused, read from the debug log npm wrote to
+/// `logs_dir`. Called once the install has exited, so no jailed process can still swap these
+/// paths; a symlink is never followed.
+fn npm_refused_fetch(logs_dir: &str) -> Option<(NpmFetchFallback, Vec<String>)> {
+    use std::io::{BufRead, Read};
+    if !fs::symlink_metadata(logs_dir).ok()?.is_dir() {
+        return None;
+    }
+    let log = fs::read_dir(logs_dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "log"))
+        .max()?;
+    let log = fs::File::open(log).ok()?.take(NPM_LOG_READ_LIMIT);
+    parse_npm_refused_fetch(std::io::BufReader::new(log).lines().map_while(|l| l.ok()))
+}
+
+/// npm debug log lines read `<n> error <message>`.
+fn parse_npm_refused_fetch(
+    lines: impl Iterator<Item = String>,
+) -> Option<(NpmFetchFallback, Vec<String>)> {
+    let mut fallback = None;
+    let mut refused = vec![];
+    for line in lines {
+        let Some(msg) = line
+            .split_once(' ')
+            .and_then(|(_, m)| m.strip_prefix("error "))
+        else {
+            continue;
+        };
+        if let Some(code) = msg.strip_prefix("code ") {
+            fallback = fallback.or([NpmFetchFallback::Git, NpmFetchFallback::Remote]
+                .into_iter()
+                .find(|f| f.error_code() == code.trim()));
+        } else if let Some(spec) = msg.strip_prefix("Refusing to fetch ") {
+            if refused.len() < NPM_REFUSED_SPECS_SHOWN {
+                refused.push(spec.trim().to_string());
+            }
+        }
+    }
+    fallback.map(|f| (f, refused))
+}
+
+/// Whether npm config sets `key` explicitly, from any source npm reads (global, user, project,
+/// env, including files redirected by `npm_config_userconfig` / `globalconfig`): `npm config
+/// ls` lists only those. A check that fails counts as set, so it never relaxes the policy.
+async fn npm_config_sets(key: &str, job_dir: &str, envs: &HashMap<String, String>) -> bool {
+    let output = Command::new(&*NPM_PATH)
+        .current_dir(job_dir)
+        .env_clear()
+        .envs(envs)
+        // The config can set `json` or `long`: JSON output hides an explicit value from
+        // `npm_config_ls_sets`, and `long` also lists npm's defaults.
+        .args(["config", "ls", "--json=false", "--long=false"])
+        .stdin(Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    match tokio::time::timeout(std::time::Duration::from_secs(30), output).await {
+        Ok(Ok(o)) if o.status.success() => {
+            npm_config_ls_sets(&String::from_utf8_lossy(&o.stdout), key)
+        }
+        _ => true,
+    }
+}
+
+/// An overridden value is listed commented out (`; key = "v" ; overridden by …`): still set.
+fn npm_config_ls_sets(config_ls: &str, key: &str) -> bool {
+    let prefix = format!("{key} = ");
+    config_ls
+        .lines()
+        .any(|l| l.trim_start_matches("; ").starts_with(&prefix))
+}
+
 pub async fn install_bun_lockfile(
     mem_peak: &mut i32,
     canceled_by: &mut Option<CanceledBy>,
@@ -744,9 +1216,34 @@ pub async fn install_bun_lockfile(
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     quiet: bool,
 ) -> Result<()> {
-    let mut child_cmd = Command::new(if npm_mode { &*NPM_PATH } else { &*BUN_PATH });
-
-    let mut args = vec!["install", "--save-text-lockfile"];
+    let package_manager = if npm_mode { &*NPM_PATH } else { &*BUN_PATH };
+    // The install runs the lifecycle scripts of dependencies (npm >= 12: those its allowScripts
+    // policy covers; bun: its default trusted list and `trustedDependencies`), so when
+    // sandboxing is on it is confined under nsjail like the run step. The env is the same
+    // either way.
+    let sandboxed = is_sandboxing_enabled() && !*DISABLE_BUN_INSTALL_SANDBOX;
+    if is_sandboxing_enabled() && *DISABLE_BUN_INSTALL_SANDBOX {
+        static WARNED: std::sync::Once = std::sync::Once::new();
+        WARNED.call_once(|| {
+            tracing::warn!(
+                "DISABLE_BUN_INSTALL_SANDBOX is set: Bun and npm dependency installs run \
+                 outside nsjail, with their lifecycle scripts unconfined"
+            )
+        });
+    }
+    let home = common_bun_proc_envs
+        .get("HOME")
+        .cloned()
+        .unwrap_or_else(|| HOME_ENV.clone());
+    let npm_logs_dir = format!("{job_dir}/{NPM_LOGS_DIR}");
+    let npm_logs_dir_flag = format!("--logs-dir={npm_logs_dir}");
+    let mut args = vec!["install"];
+    // A bun flag: npm 12 rejects unknown cli flags instead of warning.
+    if !npm_mode {
+        args.push("--save-text-lockfile");
+    } else {
+        args.push(&npm_logs_dir_flag);
+    }
 
     let no_cache = !npm_mode && *BUN_NO_CACHE;
 
@@ -754,19 +1251,7 @@ pub async fn install_bun_lockfile(
         args.push("--no-cache");
     }
 
-    child_cmd
-        .current_dir(job_dir)
-        .env_clear()
-        .envs(PROXY_ENVS.clone())
-        .envs(common_bun_proc_envs)
-        .envs(&*crate::worker::WHITELIST_ENVS)
-        .args(args)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    #[cfg(windows)]
-    child_cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
-
+    let mut registry_env = None;
     let mut npm_logs = if npm_mode {
         "NPM mode\n".to_string()
     } else if no_cache {
@@ -828,7 +1313,7 @@ pub async fn install_bun_lockfile(
                     }
                 ));
 
-                child_cmd.env("NPM_CONFIG_REGISTRY", custom_registry);
+                registry_env = Some(custom_registry.to_string());
                 write_file(job_dir, ".npmrc", content)?;
                 true
             } else {
@@ -849,47 +1334,221 @@ pub async fn install_bun_lockfile(
         gen_bunfig(job_dir, job_id, w_id, db).await?;
     }
 
-    let child_process = start_child_process(child_cmd, &*BUN_PATH, false).await?;
-    if let Some(db) = db {
-        let mut quiet_buf = String::new();
-        let result = handle_child(
-            job_id,
-            db,
-            mem_peak,
-            canceled_by,
-            child_process,
-            false,
-            worker_name,
-            w_id,
-            "bun install",
-            None,
-            false,
-            occupancy_metrics,
-            if quiet { Some(&mut quiet_buf) } else { None },
-            None,
-        )
-        .warn_after_seconds_for(10, "bun install")
-        .await;
-        if quiet && result.is_err() {
-            // On failure, flush suppressed install output so the user can diagnose
-            append_logs(
-                job_id,
-                w_id,
-                format!("\n--- BUN INSTALL (failed) ---\n{quiet_buf}"),
-                db,
-            )
-            .await;
+    let make_cmd = |extra_args: &[String]| {
+        let mut cmd = if sandboxed {
+            let mut cmd = Command::new(NSJAIL_PATH.as_str());
+            cmd.args(["--config", "install.config.proto", "--", package_manager]);
+            cmd
+        } else {
+            Command::new(package_manager)
+        };
+        cmd.current_dir(job_dir)
+            .env_clear()
+            .envs(PROXY_ENVS.clone())
+            .envs(&common_bun_proc_envs)
+            .envs(&*crate::worker::WHITELIST_ENVS);
+        if let Some(registry) = registry_env.as_ref() {
+            cmd.env("NPM_CONFIG_REGISTRY", registry);
         }
-        result?;
+        cmd.args(&args)
+            .args(extra_args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        #[cfg(windows)]
+        cmd.env("SystemRoot", SYSTEM_ROOT.as_str());
+        cmd
+    };
+    let install_envs: HashMap<String, String> = make_cmd(&[])
+        .as_std()
+        .get_envs()
+        .filter_map(|(k, v)| Some((k.to_str()?.to_string(), v?.to_str()?.to_string())))
+        .collect();
+
+    let mut staging = None;
+    if sandboxed {
+        // Bind-mounted into the jail, so they must exist before nsjail builds the mount
+        // tree.
+        let _ = std::fs::create_dir_all(format!("{home}/{NODE_GYP_CACHE}"));
+        if npm_mode {
+            let _ = std::fs::create_dir_all(format!("{home}/.npm"));
+        } else {
+            std::fs::create_dir_all(&*BUN_CACHE_DIR)?;
+            staging = bun_staging_dir(&BUN_CACHE_DIR, job_dir);
+        }
+        let install_dir = staging.as_ref().map_or(job_dir, |s| s.path.as_str());
+        let bind = |src: &str, dst: &str, rw: bool| {
+            format!(
+                "mount {{\n    src: \"{src}\"\n    dst: \"{dst}\"\n    is_bind: true\n    rw: {rw}\n}}\n"
+            )
+        };
+        // npm never reads the bun cache, and its install scripts get no write to it.
+        let mut install_mounts = if npm_mode {
+            String::new()
+        } else {
+            bind(&BUN_CACHE_DIR, &BUN_CACHE_DIR, true)
+        };
+        match staging.as_ref() {
+            // After the cache bind: these land inside it.
+            Some(s) => {
+                for f in BUN_REGISTRY_FILES {
+                    let src = format!("{job_dir}/{f}");
+                    if fs::symlink_metadata(&src).is_ok_and(|m| m.is_file()) {
+                        install_mounts.push_str(&bind(&src, &format!("{}/{f}", s.path), false));
+                    }
+                }
+            }
+            None => install_mounts.push_str(&bind(job_dir, job_dir, true)),
+        }
+        let nsjail_timeout = match db {
+            Some(conn) => resolve_nsjail_timeout(conn, w_id, *job_id, None).await,
+            // no job to bound it: the caller waits for the install unbounded too
+            None => "0".to_string(),
+        };
+        write_file(
+            job_dir,
+            "install.config.proto",
+            &NSJAIL_CONFIG_INSTALL_BUN_CONTENT
+                .replace("{TIMEOUT}", &nsjail_timeout)
+                .replace("{INSTALL_MOUNTS}", &install_mounts)
+                .replace("{INSTALL_DIR}", install_dir)
+                .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace(
+                    "{HOME_MOUNT_BLOCK}",
+                    &install_home_mount_block(
+                        &home,
+                        npm_mode,
+                        &resolve_nsjail_tmpfs_size_bytes().await,
+                    ),
+                )
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
+                .replace(
+                    "{CA_MOUNT}",
+                    &install_ca_mounts(job_dir, &home, &install_envs),
+                )
+                .replace("#{DEV}", DEV_CONF_NSJAIL)
+                .replace(
+                    "{TMP_MOUNT_BLOCK}",
+                    &resolve_nsjail_tmp_mount_block(job_dir).await,
+                ),
+        )?;
+    }
+
+    let child_executable = if sandboxed {
+        NSJAIL_PATH.as_str()
     } else {
-        let output = Box::into_pin(child_process.wait_with_output()).await?;
-        if !output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(error::Error::ExecutionErr(format!(
-                "bun install exited with non-zero status: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
-                output.status
-            )));
+        package_manager.as_str()
+    };
+    let mut fallback_flags: Vec<String> = vec![];
+    let result = loop {
+        if npm_mode {
+            // Only this attempt's debug log may decide the fallback.
+            let _ = tokio::fs::remove_dir_all(&npm_logs_dir).await;
+        }
+        let child_process =
+            start_child_process(make_cmd(&fallback_flags), child_executable, false).await?;
+        let result = if let Some(db) = db {
+            let mut quiet_buf = String::new();
+            let result = handle_child(
+                job_id,
+                db,
+                mem_peak,
+                canceled_by,
+                child_process,
+                // jailed when sandboxing is on, so mem sampling finds the real process
+                sandboxed,
+                worker_name,
+                w_id,
+                "bun install",
+                None,
+                false,
+                occupancy_metrics,
+                if quiet { Some(&mut quiet_buf) } else { None },
+                None,
+            )
+            .warn_after_seconds_for(10, "bun install")
+            .await;
+            if quiet && result.is_err() {
+                // On failure, flush suppressed install output so the user can diagnose
+                append_logs(
+                    job_id,
+                    w_id,
+                    format!("\n--- BUN INSTALL (failed) ---\n{quiet_buf}"),
+                    db,
+                )
+                .await;
+            }
+            result.map(|_| ())
+        } else {
+            let output = Box::into_pin(child_process.wait_with_output()).await?;
+            if output.status.success() {
+                Ok(())
+            } else {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                Err(error::Error::ExecutionErr(format!(
+                    "bun install exited with non-zero status: {:?}\nstdout:\n{stdout}\nstderr:\n{stderr}",
+                    output.status
+                )))
+            }
+        };
+
+        if npm_mode && result.is_err() {
+            if let Some((fallback, refused)) = npm_refused_fetch(&npm_logs_dir) {
+                let flag = format!("--{}=all", fallback.key());
+                if !fallback_flags.contains(&flag)
+                    && !npm_config_sets(fallback.key(), job_dir, &install_envs).await
+                {
+                    let key = fallback.key();
+                    let msg = format!(
+                        "\nWARNING: npm refused {}:\n  {}\nRetrying with {key}=all, which Windmill \
+                         sets by default for now. This default will be removed in a future \
+                         release: to keep fetching them, set `{key}=all` in the npm config (the \
+                         npmrc instance or workspace setting on Enterprise Edition, or the \
+                         worker's ~/.npmrc); set `{key}=none` to stop now.\n",
+                        fallback.what(),
+                        refused.join("\n  ")
+                    );
+                    tracing::warn!(%job_id, w_id, "{}", msg.trim());
+                    if let Some(db) = db {
+                        append_logs(job_id, w_id, msg, db).await;
+                    }
+                    fallback_flags.push(flag);
+                    continue;
+                }
+            }
+        }
+        break result;
+    };
+    if npm_mode {
+        let _ = tokio::fs::remove_dir_all(&npm_logs_dir).await;
+    }
+    result?;
+
+    if let Some(staging) = staging {
+        // Leave the job dir as an install in place would have: what bun wrote or kept
+        // replaces the job dir's copy, what it removed is removed there too.
+        for f in BUN_INSTALL_OUTPUTS {
+            let src = staging.entry(f);
+            let dst = format!("{job_dir}/{f}");
+            match fs::symlink_metadata(&dst) {
+                Ok(m) if m.is_dir() => tokio::fs::remove_dir_all(&dst).await?,
+                Ok(_) => tokio::fs::remove_file(&dst).await?,
+                Err(_) => {}
+            }
+            if fs::symlink_metadata(&src).is_ok() {
+                fs::rename(&src, &dst)?;
+                // Checked once out of the cache, where no other jail can swap it.
+                if let Err(e) = check_install_output(&dst, f) {
+                    let _ = fs::remove_file(&dst);
+                    return Err(e);
+                }
+            }
+        }
+    } else if sandboxed {
+        // The jail could write the job dir: what the worker reads or mounts from it next
+        // must still be what an install leaves there.
+        for f in BUN_JOB_DIR_OUTPUTS {
+            check_install_output(&format!("{job_dir}/{f}"), f)?;
         }
     }
 
@@ -1666,6 +2325,36 @@ pub async fn handle_bun_job(
                 .to_string(),
         ));
     }
+    let jailed = is_sandboxing_enabled() || annotation.sandbox;
+    // Native scripts take their network away inside the isolate instead.
+    let jail_no_network = annotation.no_network && !annotation.native;
+    check_no_network_jailed(jail_no_network, jailed)?;
+    // Unbundled, Bun's run-time loader fetches workspace imports; Node's are bundled on the host.
+    if jail_no_network
+        && codebase.is_none()
+        && !annotation.nodejs
+        && (annotation.nobundling || *DISABLE_BUNDLING)
+    {
+        let script_path = crate::common::use_flow_root_path(job.runnable_path());
+        let script_dir = script_path
+            .rsplit_once('/')
+            .map(|(dir, _)| dir)
+            .unwrap_or("");
+        let imports = std::iter::once((script_path.clone(), inner_content.as_str()))
+            .chain(modules.iter().flatten().map(|(key, module)| {
+                let stem = key.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(key);
+                (format!("{script_dir}/{stem}"), module.content.as_str())
+            }))
+            .flat_map(|(path, code)| {
+                windmill_parser_ts::parse_runtime_relative_imports(code, &path).unwrap_or_default()
+            });
+        crate::check_no_network_imports(
+            imports,
+            &script_path,
+            modules.as_ref(),
+            "Bun without bundling (`//nobundling` or `DISABLE_BUNDLING`)",
+        )?;
+    }
 
     let (mut has_bundle_cache, cache_logs, local_path, remote_path) = if let (Some(lock), true) = (
         maybe_lock.get_lock(),
@@ -1792,7 +2481,17 @@ pub async fn handle_bun_job(
                     ));
                 }
 
-                write_file(job_dir, "package.json", package_json)?;
+                if annotation.npm {
+                    // The stored lock leads with `// workspace-dependencies` header lines: bun
+                    // reads package.json leniently, npm refuses it as invalid JSON.
+                    write_file(
+                        job_dir,
+                        "package.json",
+                        &clean_lock_from_annotations(package_json, ScriptLang::Bun),
+                    )?;
+                } else {
+                    write_file(job_dir, "package.json", package_json)?;
+                }
 
                 let bun_lock = if annotation.npm {
                     ""
@@ -1915,6 +2614,9 @@ pub async fn handle_bun_job(
 
     if annotation.sandbox {
         init_logs.push_str("sandbox mode (nsjail)\n");
+    }
+    if jail_no_network {
+        init_logs.push_str("no network\n");
     }
 
     let write_wrapper_f = async {
@@ -2232,7 +2934,8 @@ try {{
         && !annotation.nobundling
         && !*DISABLE_BUNDLING
         && !codebase.is_some()
-        && (maybe_lock.get_lock().is_some() || annotation.native);
+        // A `no_network` run step cannot fetch relative imports, so they resolve while bundling.
+        && (maybe_lock.get_lock().is_some() || annotation.native || jail_no_network);
 
     let write_loader_f = async {
         if build_cache {
@@ -2258,7 +2961,13 @@ try {{
             build_loader(
                 job_dir,
                 base_internal_url,
-                &client.token,
+                // Bun's run step reads this loader (Node's builds on the host), and could hand
+                // the token out through its result.
+                if jail_no_network && !annotation.nodejs {
+                    ""
+                } else {
+                    &client.token
+                },
                 &job.workspace_id,
                 job.runnable_path(),
                 if annotation.nodejs {
@@ -2274,11 +2983,12 @@ try {{
         }
     };
 
-    let (reserved_variables, _, _) = tokio::try_join!(
+    let (mut reserved_variables, _, _) = tokio::try_join!(
         reserved_variables_args_out_f,
         write_wrapper_f,
         write_loader_f
     )?;
+    crate::strip_no_network_token(&mut reserved_variables, jail_no_network);
 
     // For WAC v2, write checkpoint.json before bun runs
     if is_wac_v2 {
@@ -2491,7 +3201,7 @@ try {{
     append_logs(&job.id, &job.workspace_id, init_logs, conn).await;
 
     //do not cache local dependencies
-    let child = if is_sandboxing_enabled() || annotation.sandbox {
+    let child = if jailed {
         let nsjail_timeout =
             resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
 
@@ -2534,12 +3244,13 @@ try {{
             .env_clear()
             .envs(reserved_variables)
             .envs(
-                get_proxy_envs_for_lang(
+                get_run_proxy_envs(
                     &ScriptLang::Bun,
                     job.kind,
                     &job.id,
                     &job.workspace_id,
                     conn,
+                    jail_no_network,
                 )
                 .await?,
             )
@@ -2555,6 +3266,7 @@ try {{
                 .replace("{LANG}", if annotation.nodejs { "nodejs" } else { "bun" })
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{CLONE_NEWNET}", nsjail_clone_newnet(jail_no_network))
                 .replace("{UIDGIDMAP}", if *DISABLE_NUSER { "" } else {
                     "uidmap {\n    inside_id: \"1000\"\n    outside_id: \"\"\n    count: 1\n}\n\ngidmap {\n    inside_id: \"1000\"\n    outside_id: \"\"\n    count: 1\n}"
                 })
@@ -4461,6 +5173,69 @@ mod tests {
     use super::*;
 
     #[test]
+    fn bun_install_stages_only_self_contained_manifests() {
+        let lock = r#"{"lockfileVersion": 1, "workspaces": {"": {"dependencies": {"zod": "^4"}}}}"#;
+        assert!(bun_install_can_stage(
+            r#"{"dependencies": {"zod": "^4"}}"#,
+            Some(lock)
+        ));
+        for manifest in [
+            r#"{"dependencies": {"x": "file:./x"}}"#,
+            r#"{"dependencies": {"x": "../x"}}"#,
+            r#"{"overrides": {"y": {"x": "link:x"}}}"#,
+            r#"{"workspaces": ["packages/*"]}"#,
+            r#"{"patchedDependencies": {"zod@4.0.0": "patches/zod.patch"}}"#,
+            r#"{"scripts": {"postinstall": "test -f main.ts"}}"#,
+            "not json",
+        ] {
+            assert!(!bun_install_can_stage(manifest, None), "{manifest}");
+        }
+        let local_lock = r#"{"packages": {"x": ["x@file:x", {}]}}"#;
+        assert!(!bun_install_can_stage(
+            r#"{"dependencies": {}}"#,
+            Some(local_lock)
+        ));
+    }
+
+    // Install jails can write the bun cache, so the worker must never follow a path
+    // through it: neither a staging root nor a staging dir swapped for a symlink may
+    // lead its cleanup outside the cache.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn bun_staging_cleanup_does_not_follow_symlinks_out_of_the_cache() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (cache, job, outside) = (
+            tmp.path().join("cache"),
+            tmp.path().join("job"),
+            tmp.path().join("outside"),
+        );
+        for d in [&cache, &job, &outside.join("victim")] {
+            fs::create_dir_all(d).unwrap();
+        }
+        fs::write(job.join("package.json"), r#"{"dependencies": {}}"#).unwrap();
+        // Old enough for the stale sweep if it were reached through the symlink.
+        fs::File::open(outside.join("victim"))
+            .unwrap()
+            .set_modified(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap();
+        std::os::unix::fs::symlink(&outside, cache.join(".wm-staging")).unwrap();
+
+        let staging =
+            bun_staging_dir(cache.to_str().unwrap(), job.to_str().unwrap()).expect("staging dir");
+        assert!(outside.join("victim").exists());
+        assert!(fs::symlink_metadata(cache.join(".wm-staging"))
+            .unwrap()
+            .is_dir());
+
+        let staged = cache.join(".wm-staging").join(&staging.name);
+        fs::remove_dir_all(&staged).unwrap();
+        std::os::unix::fs::symlink(&outside, &staged).unwrap();
+        drop(staging);
+        assert!(outside.join("victim").exists());
+        assert!(fs::symlink_metadata(&staged).is_err());
+    }
+
+    #[test]
     fn test_bun_lockfile_version() {
         assert_eq!(bun_lockfile_version(EMPTY_V1_BUN_LOCK), Some(1));
         assert_eq!(
@@ -4552,6 +5327,37 @@ YmluYXJ5LWNvbnRlbnQ="#; // base64 encoded "binary-content"
         assert!(lock.is_none());
         assert!(!is_empty);
         assert!(!is_binary);
+    }
+
+    // Samples are npm 12.2.0 output: a format change there silently turns the fetch fallback
+    // off, or makes it override an explicit `none`.
+    #[test]
+    fn npm_fetch_fallback_reads_npm_output() {
+        let log = r#"22 verbose exit 1
+23 error code EALLOWGIT
+24 error Fetching packages of type "git" have been disabled
+25 error Refusing to fetch "wm-git-test@git+file:///work/git/wm-git-test.git"
+26 verbose exit 1"#;
+        let (fallback, refused) = parse_npm_refused_fetch(log.lines().map(str::to_string))
+            .expect("EALLOWGIT is a fetch refusal");
+        assert_eq!(fallback.key(), "allow-git");
+        assert_eq!(
+            refused,
+            [r#""wm-git-test@git+file:///work/git/wm-git-test.git""#]
+        );
+        assert!(
+            parse_npm_refused_fetch(["23 error code EJSONPARSE".to_string()].into_iter()).is_none()
+        );
+
+        let config_ls = r#"; "global" config from /usr/etc/npmrc
+; allow-git = "none" ; overridden by project
+; "project" config from /work/j/.npmrc
+allow-remote = "all"
+registry = "http://127.0.0.1:4999/"
+; npm version = 12.2.0"#;
+        assert!(npm_config_ls_sets(config_ls, "allow-git"));
+        assert!(npm_config_ls_sets(config_ls, "allow-remote"));
+        assert!(!npm_config_ls_sets(config_ls, "allow-scripts"));
     }
 
     #[test]

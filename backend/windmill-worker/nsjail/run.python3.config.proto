@@ -12,7 +12,7 @@ rlimit_nofile: 10000
 
 cwd: "/tmp"
 
-clone_newnet: false
+clone_newnet: {CLONE_NEWNET}
 clone_newuser: {CLONE_NEWUSER}
 
 skip_setsid: true
@@ -61,6 +61,8 @@ mount {
     dst: "/tmp/{MAIN}.py"
     is_bind: true
 }
+
+{MODULE_MOUNTS}
 
 mount {
     src: "{JOB_DIR}/loader.py"
