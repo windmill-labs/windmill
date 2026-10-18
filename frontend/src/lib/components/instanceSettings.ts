@@ -449,6 +449,7 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Agent-only tags',
 			key: 'agent_only_tags',
 			fieldType: 'agent_only_tags',
+			ee_only: '',
 			description:
 				'Tags whose jobs only <a href="https://www.windmill.dev/docs/core_concepts/agent_workers">agent workers</a> may run: a regular worker, which holds database credentials, pulls none of their jobs whatever its configuration says. Covers derived tags like the minimum job isolation does, and applies on top of it. This guards against a misconfigured worker group, not against a tampered binary holding database credentials.',
 			storage: 'setting'

@@ -174,11 +174,12 @@ pub fn validate_agent_only_tags(value: Option<&serde_json::Value>) -> Result<(),
         Some(serde_json::Value::Array(tags)) => tags,
         Some(_) => return Err("must be a list of tags".to_string()),
     };
+    // A padded tag would be stored but never match one, which turns the guard off for it.
     if tags
         .iter()
-        .any(|t| !t.as_str().is_some_and(|t| !t.trim().is_empty()))
+        .any(|t| !t.as_str().is_some_and(|t| !t.is_empty() && t.trim() == t))
     {
-        return Err("tags must be non-empty strings".to_string());
+        return Err("tags must be non-empty strings without surrounding spaces".to_string());
     }
     Ok(())
 }
@@ -448,6 +449,7 @@ mod tests {
         assert!(ok(serde_json::json!(["untrusted"])));
         assert!(!ok(serde_json::json!({"untrusted": true})));
         assert!(!ok(serde_json::json!(["untrusted", ""])));
+        assert!(!ok(serde_json::json!(["untrusted "])));
         assert!(!ok(serde_json::json!([1])));
     }
 
