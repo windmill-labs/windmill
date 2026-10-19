@@ -248,8 +248,8 @@
 	}: Props = $props()
 
 	// Set by the on-behalf-of selector when the publisher picks a user other than
-	// themselves. Forwarded as `preserve_on_behalf_of` so the backend keeps the
-	// policy's on_behalf_of instead of resetting it to the deploying user.
+	// themselves. Forwarded as `preserve_on_behalf_of`, which older servers need to
+	// keep the policy's on_behalf_of rather than reset it to the deploying user.
 	let preserveOnBehalfOf = $state(false)
 
 	// The AutosaveIndicator watches these; in the sessions preview they're the

@@ -495,8 +495,8 @@ export async function deployDraft(
 					path: scriptPath,
 					parent_hash: r.hash,
 					deployment_message: deploymentMessage,
-					// Deploy the draft's on-behalf-of as-is; the backend resets it to the
-					// deploying user without this flag, gated by can_preserve_on_behalf_of.
+					// Deploy the draft's on-behalf-of as-is: the backend keeps it for an admin or
+					// deployer (can_preserve_on_behalf_of); older servers only with this flag.
 					preserve_on_behalf_of: rest.on_behalf_of_email ? true : undefined
 				}
 			})
@@ -524,8 +524,8 @@ export async function deployDraft(
 				visible_to_runner_only: d.visible_to_runner_only,
 				on_behalf_of_email: d.on_behalf_of_email,
 				on_behalf_of: d.on_behalf_of,
-				// Same as scripts and apps: the backend resets on_behalf_of_email to the
-				// deploying user without this flag, gated by can_preserve_on_behalf_of.
+				// Same as scripts and apps: older servers keep on_behalf_of_email only with
+				// this flag.
 				preserve_on_behalf_of: d.on_behalf_of_email ? true : undefined,
 				labels: d.labels,
 				job_token_scopes: d.job_token_scopes,
@@ -580,8 +580,8 @@ export async function deployDraft(
 				custom_path: isAdmin ? (r.custom_path ?? '') : undefined,
 				deployment_message: deploymentMessage,
 				// The draft carries no on-behalf-of selector — the policy comes straight
-				// from the deployed app. Preserve its on_behalf_of (the backend resets it
-				// to the deploying user without this flag, gated by can_preserve_on_behalf_of).
+				// from the deployed app. Its on_behalf_of is kept for an admin or deployer
+				// (older servers only with this flag, gated by can_preserve_on_behalf_of).
 				preserve_on_behalf_of: policy?.on_behalf_of ? true : undefined
 			}
 			// Same as flows: draft-only apps have no app row → create;
@@ -664,9 +664,8 @@ export async function deployDraft(
 					}
 				})
 			} else {
-				// As for an app: an agent draft carries no identity, so the deployed one is kept (the
-				// backend resets it to the deploying user without the flag, gated by
-				// can_preserve_on_behalf_of).
+				// As for an app: an agent draft carries no identity, so the deployed one is sent back
+				// to be kept (the backend makes a value naming none the deploying user's).
 				const agentObo =
 					deployed.resource_type === 'ai_agent' ? deployed.value?.on_behalf_of : undefined
 				await ResourceService.updateResource({

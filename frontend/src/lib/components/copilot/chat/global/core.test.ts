@@ -4686,8 +4686,8 @@ describe('global AI tools', () => {
 	})
 
 	it('forwards preserve_on_behalf_of when the deployed policy carries an on_behalf_of', async () => {
-		// Without the flag the backend resets the policy's on_behalf_of to the
-		// deploying user; this chat path has no on-behalf-of selector, so it must
+		// A server that keeps the policy's on_behalf_of only with the flag would reset it
+		// to the deploying user; this chat path has no on-behalf-of selector, so it must
 		// preserve whatever the carried policy already holds.
 		vi.mocked(AppService.existsApp).mockResolvedValueOnce(true)
 		seedBackendDraft(

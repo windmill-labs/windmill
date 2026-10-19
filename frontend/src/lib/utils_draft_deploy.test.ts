@@ -69,9 +69,9 @@ describe('draftBaseIsStale', () => {
 	})
 })
 
-// Without preserve_on_behalf_of the backend rewrites on_behalf_of_email to the
-// deploying user, so deploying a draft silently re-points the runnable's
-// identity.
+// A server that keeps on_behalf_of_email only with preserve_on_behalf_of would
+// otherwise rewrite it to the deploying user, silently re-pointing the
+// runnable's identity on every draft deploy.
 
 describe('deployDraft preserves on_behalf_of', () => {
 	beforeEach(() => vi.clearAllMocks())
