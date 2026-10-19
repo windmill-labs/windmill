@@ -206,21 +206,14 @@ jobs:
           curl -sf http://localhost:8000/api/version > /dev/null || { echo "Windmill failed to start"; exit 1; }
 
       - name: Run git sync E2E tests
-        timeout-minutes: 75
+        timeout-minutes: 10
         env:
           GITEA_DOCKER_URL: http://localhost:3000
           LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
         run: |
           python3 -m venv .venv
           .venv/bin/pip install -r integration_tests/requirements.txt
-          cd integration_tests
-          fails=0
-          for i in $(seq 1 8); do
-            echo "TEMP-LOOP iteration $i"
-            ../.venv/bin/python -m unittest -v test.git_sync_test || fails=$((fails+1))
-          done
-          echo "TEMP-LOOP failed iterations: $fails"
-          [ "$fails" = 0 ]
+          cd integration_tests && ../.venv/bin/python -m unittest -v test.git_sync_test
 
       - name: Archive logs
         uses: actions/upload-artifact@v4

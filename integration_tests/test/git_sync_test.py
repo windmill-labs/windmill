@@ -253,18 +253,6 @@ class GitSyncTestBase(unittest.TestCase):
             interval=2,
             message=f"no push job for {script_path}",
         )
-        # TEMP-DIAG: would the old count-based wait have returned before our push?
-        ours = self._new_sync_jobs(seen, script_path)
-        ours_ids = {j["id"] for j in ours}
-        ours_done = min(j.get("completed_at") or "" for j in ours)
-        others = [
-            (j["id"], j.get("completed_at"), (j.get("args") or {}).get("repo_url_resource_path"))
-            for j in self._client.get_completed_jobs(job_kinds="deploymentcallback")
-            if j["id"] not in seen and j["id"] not in ours_ids
-            and (j.get("completed_at") or "") < ours_done
-        ]
-        print(f"TEMP-DIAG seed={script_path} ours_done={ours_done} earlier_others={others}"
-              + (" RACE-HIT" if others else ""), flush=True)
         failed = [j for j in self._new_sync_jobs(seen, script_path) if not j.get("success")]
         self.assertEqual(failed, [], f"the push of {script_path} failed")
         return script_path
