@@ -124,7 +124,14 @@
 				if ('value' in importRaw) {
 					seedSummary = importRaw.summary ?? ''
 					seedValue = importRaw.value
-					seedPolicy = importRaw.policy ?? emptyPolicy
+					// An imported app is a new app of the importer's: the backend keeps any identity a
+					// deploy names, so the exported policy's would otherwise carry over to the copy.
+					const {
+						on_behalf_of: _sourceIdentity,
+						on_behalf_of_email: _sourceAddress,
+						...importedPolicy
+					} = importRaw.policy ?? emptyPolicy
+					seedPolicy = importedPolicy
 				} else {
 					seedValue = importRaw
 				}
