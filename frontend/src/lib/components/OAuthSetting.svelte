@@ -9,6 +9,9 @@
 	import TextInput from './text_input/TextInput.svelte'
 	import Password from './Password.svelte'
 	import SettingCard from './instanceSettings/SettingCard.svelte'
+	import CopyableCodeBlock from './details/CopyableCodeBlock.svelte'
+	import { slackAppManifest } from './common/slack/slackAppManifest'
+	import { yaml } from 'svelte-highlight/languages'
 
 	interface Props {
 		name: string
@@ -203,16 +206,21 @@
 				</CollapseLink>
 			{:else if name == 'slack'}
 				<CollapseLink text="Set up slack">
-					<div class="text-xs text-primary rounded-md">
-						To use Slack OAuth, create a new Slack app <a
-							href="https://api.slack.com/apps?new_app=1"
-							target="_blank"
-							>in slack API console
-							<ExternalLink size={12} class="inline-block" />
-						</a>. Pick "From a manifest", then YAML and paste manifest template found on
-						<a href="https://www.windmill.dev/docs/misc/setup_oauth#slack" target="_blank"
-							>Windmill docs <ExternalLink size={12} class="inline-block" /></a
-						> and then paste Client ID and Client Secret here.
+					<div class="flex flex-col gap-2 text-xs text-primary">
+						<span>
+							Create a Slack app <a href="https://api.slack.com/apps?new_app=1" target="_blank"
+								>in the Slack API console <ExternalLink size={12} class="inline-block" /></a
+							>: pick "From a manifest", then YAML, and paste the manifest below. Then copy the
+							Client ID and Client Secret here. Socket Mode and token rotation must stay off. For AI
+							agents to answer in Slack, set the app's Signing Secret as the server's
+							<code>SLACK_SIGNING_SECRET</code> environment variable. More in the
+							<a href="https://www.windmill.dev/docs/misc/setup_oauth#slack" target="_blank"
+								>Windmill docs <ExternalLink size={12} class="inline-block" /></a
+							>.
+						</span>
+						<div class="flex flex-col max-h-80 [&>div]:min-h-0">
+							<CopyableCodeBlock code={slackAppManifest(window.location.origin)} language={yaml} />
+						</div>
 					</div>
 				</CollapseLink>
 			{:else if name == 'microsoft'}
