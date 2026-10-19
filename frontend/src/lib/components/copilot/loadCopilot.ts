@@ -2,6 +2,7 @@ import { WorkspaceService } from '$lib/gen'
 import { copilotWorkspace, setCopilotInfo } from '$lib/aiStore'
 import { workspaceAIClients } from './lib'
 import { writable } from 'svelte/store'
+import { previewAiConfig } from '$lib/devPreview'
 
 // The workspace of the most recent loadCopilot *request*, set synchronously before the
 // await — as opposed to `copilotWorkspace`, which only updates once a load resolves. A
@@ -44,7 +45,7 @@ export function loadCopilot(workspace: string): Promise<void> {
 async function fetchAndApply(workspace: string, token: number) {
 	workspaceAIClients.init(workspace)
 	try {
-		const info = await WorkspaceService.getCopilotInfo({ workspace })
+		const info = previewAiConfig(await WorkspaceService.getCopilotInfo({ workspace }))
 		if (token !== loadCopilotToken) return
 		setCopilotInfo(info)
 		copilotWorkspace.set(workspace)

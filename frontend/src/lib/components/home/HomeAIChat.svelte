@@ -31,6 +31,7 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { prefetchItemCount } from '../copilot/chat/starter/starterPrompts.svelte'
+	import { previewAiConfig } from '$lib/devPreview'
 
 	const COLLAPSED_SETTING = 'home-ai-composer-collapsed'
 
@@ -107,7 +108,9 @@
 			if (!workspace) return false
 			let hidden = false
 			try {
-				hidden = (await WorkspaceService.getCopilotInfo({ workspace })).copilot_disabled === true
+				hidden =
+					previewAiConfig(await WorkspaceService.getCopilotInfo({ workspace })).copilot_disabled ===
+					true
 			} catch (e) {
 				console.error(`Failed to read the AI config of workspace ${workspace}:`, e)
 			}

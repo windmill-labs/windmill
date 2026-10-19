@@ -2134,7 +2134,7 @@
 					{/each}
 				</div>
 				{#if items && hasMore}
-					<span class="block px-4 py-2 border-t text-xs font-normal text-secondary"
+					<span class="block px-4 py-2 border-t text-center text-xs font-normal text-secondary"
 						>{Math.min(nbDisplayed, items.length)} items{hasMoreServer && !searching
 							? ''
 							: ` out of ${items.length}`}

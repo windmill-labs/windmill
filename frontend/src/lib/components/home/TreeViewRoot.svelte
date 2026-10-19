@@ -3,7 +3,8 @@
 	import TreeView from './TreeView.svelte'
 	import { countLeaves, groupItems, type ItemType, type UserItem } from './treeViewUtils'
 	import { Button } from '$lib/components/common'
-	import { ChevronDown, ChevronUp, Users } from 'lucide-svelte'
+	import { Users } from 'lucide-svelte'
+	import TreeOwnerRow from './TreeOwnerRow.svelte'
 	import { getLocalSetting, pluralize, storeLocalSetting } from '$lib/utils'
 
 	interface Props {
@@ -294,37 +295,19 @@
 				{#if row.kind === 'otherUsers'}
 					<!-- Same shape as an owner row, so it reads as part of the tree. It only reveals
 				     the user rows under it: each still loads its own items when opened. -->
-					<!-- svelte-ignore a11y_click_events_have_key_events -->
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						onclick={toggleOtherUsers}
-						data-list-row
-						class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer hover:bg-surface-hover"
+					<TreeOwnerRow
+						icon={Users}
+						name="Other users"
+						opened={otherUsersOpen}
+						onToggle={toggleOtherUsers}
+						toggleLabel={otherUsersOpen ? 'Hide other users' : 'Show other users'}
 					>
-						<div class="flex flex-row items-center gap-4">
-							<Users size={16} class="text-secondary" />
-							<div>
-								<span class="whitespace-nowrap text-xs text-emphasis font-semibold"
-									>Other users</span
-								>
-								<div class="text-2xs font-normal text-secondary whitespace-nowrap">
-									({pluralize(otherUsers.length, 'user')}{otherUsersItemCount != undefined
-										? ` · ${pluralize(otherUsersItemCount, 'item')}`
-										: ''})
-								</div>
-							</div>
-						</div>
-						<Button
-							iconOnly
-							unifiedSize="xs"
-							variant="subtle"
-							startIcon={{ icon: otherUsersOpen ? ChevronUp : ChevronDown }}
-							title={otherUsersOpen ? 'Hide other users' : 'Show other users'}
-							aria-label="Other users"
-							aria-expanded={otherUsersOpen}
-							onClick={toggleOtherUsers}
-						/>
-					</div>
+						{#snippet detail()}
+							({pluralize(otherUsers.length, 'user')}{otherUsersItemCount != undefined
+								? ` · ${pluralize(otherUsersItemCount, 'item')}`
+								: ''})
+						{/snippet}
+					</TreeOwnerRow>
 					{#if otherUsersOpen}
 						<!-- Ranked after every root owner, so opening this row can't push folders out
 					     of what "expand all" auto-loads. -->
