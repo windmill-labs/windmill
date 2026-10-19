@@ -592,10 +592,13 @@ async fn create_trigger<T: TriggerCrud>(
     let new_path = new_trigger.base.path.clone();
     let labels = new_trigger.base.labels.clone();
 
-    // A trigger that names no identity takes the folder's default_permissioned_as rule, for a
-    // caller allowed to keep one (create-time only).
-    if new_trigger.base.permissioned_as.is_none()
-        && windmill_common::can_preserve_on_behalf_of(&authed)
+    // A trigger that names nobody but its creator takes the folder's default_permissioned_as
+    // rule, for a caller allowed to keep one (create-time only; see `names_only_caller`).
+    if windmill_common::names_only_caller(
+        None,
+        new_trigger.base.permissioned_as.as_deref(),
+        &authed,
+    ) && windmill_common::can_preserve_on_behalf_of(&authed)
     {
         if let Some(default) = windmill_common::folders::resolve_folder_default_permissioned_as(
             &db,

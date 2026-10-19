@@ -2492,7 +2492,10 @@ async fn resolve_agent_on_behalf_of(
     if obj.get("run_on_behalf_of").and_then(|v| v.as_bool()) != Some(true) {
         return Ok(());
     }
-    if created && requested.is_none() && windmill_common::can_preserve_on_behalf_of(authed) {
+    if created
+        && windmill_common::names_only_caller(None, requested.as_deref(), authed)
+        && windmill_common::can_preserve_on_behalf_of(authed)
+    {
         if let Some((_, folder_default)) =
             windmill_common::folders::resolve_folder_default_on_behalf_of(db, w_id, path).await?
         {

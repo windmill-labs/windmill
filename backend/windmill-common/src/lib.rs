@@ -306,6 +306,20 @@ pub fn check_on_behalf_of_preservation(
         .map(str::to_string)
 }
 
+/// Whether a requested identity names nobody but the caller: every half given (an address, a
+/// principal) is theirs. A write requesting only the caller has chosen nobody, so on create a
+/// folder's `default_permissioned_as` still applies to it — the run-as pickers start on "me",
+/// and a rule made to give a folder's runnables a service identity must not lose to that.
+pub fn names_only_caller(
+    on_behalf_of_email: Option<&str>,
+    on_behalf_of: Option<&str>,
+    authed: &impl db::Authable,
+) -> bool {
+    let own = users::username_to_permissioned_as(authed.username());
+    on_behalf_of.map_or(true, |p| p == own)
+        && on_behalf_of_email.map_or(true, |e| e == authed.email())
+}
+
 /// Resolves the identity to store when creating/updating a flow, script or app.
 ///
 /// The permissioned_as is the identity: it decides what the job may access, and the address is
@@ -352,9 +366,9 @@ pub async fn resolve_on_behalf_of(
     // account lookups below would refuse a caller that acts without a `usr` row. Through the
     // same width check as every other branch: one too wide for a job row is no more enqueueable
     // for naming themselves.
-    let names_self = on_behalf_of.map_or(true, |p| p == own)
-        && on_behalf_of_email.map_or(true, |e| e == authed.email());
-    if names_self || !can_preserve_on_behalf_of(authed) {
+    if names_only_caller(on_behalf_of_email, on_behalf_of, authed)
+        || !can_preserve_on_behalf_of(authed)
+    {
         return reject_unenqueueable(own);
     }
     // Reserved superadmin sentinels are rejected by name, before resolution: the lookups

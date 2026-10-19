@@ -44,7 +44,8 @@ use windmill_queue::schedule::push_scheduled_job;
 
 /// The identity a schedule write stores: the one it names for a caller allowed to keep it (see
 /// `resolve_on_behalf_of`, which also refuses one that names nobody), the caller's own otherwise,
-/// and on create (`create_path`) the folder's `default_permissioned_as` when it names none.
+/// and on create (`create_path`) the folder's `default_permissioned_as` when it names nobody but
+/// the caller (see `names_only_caller`).
 async fn resolve_permissioned_as(
     permissioned_as: Option<&str>,
     create_path: Option<&str>,
@@ -53,7 +54,10 @@ async fn resolve_permissioned_as(
     w_id: &str,
 ) -> Result<String> {
     let requested = permissioned_as.filter(|pa| !pa.is_empty());
-    if requested.is_none() && can_preserve_on_behalf_of(authed) {
+    let names_only_caller = requested.map_or(true, |pa| {
+        pa == authed.email || windmill_common::names_only_caller(None, Some(pa), authed)
+    });
+    if names_only_caller && can_preserve_on_behalf_of(authed) {
         if let Some(path) = create_path {
             if let Some(default) =
                 windmill_common::folders::resolve_folder_default_permissioned_as(db, w_id, path)

@@ -2839,8 +2839,13 @@ async fn create_app_internal<'a>(
     // a second simultaneous connection while `tx` is still checked out. The race this
     // leaves with a concurrent rename or removal, including a freed username later
     // rebinding the stored principal, is known and accepted: see `resolve_on_behalf_of`.
+    // A policy naming only the caller takes the branch below, which is also the caller.
     let should_preserve = windmill_common::can_preserve_on_behalf_of(&authed)
-        && (app.policy.on_behalf_of.is_some() || app.policy.on_behalf_of_email.is_some());
+        && !windmill_common::names_only_caller(
+            app.policy.on_behalf_of_email.as_deref(),
+            app.policy.on_behalf_of.as_deref(),
+            &authed,
+        );
 
     let mut preserved_on_behalf_of: Option<String> = None;
     if should_preserve {

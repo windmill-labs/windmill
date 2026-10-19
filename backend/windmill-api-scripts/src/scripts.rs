@@ -1400,12 +1400,14 @@ async fn create_script_internal<'c>(
     // Everything read from `db` happens before `tx` opens: `user_db` wraps the same pool, so a
     // deploy taking a second connection while holding `tx` lets N concurrent deploys hold the
     // whole pool between them and each wait out the acquire timeout for one more.
-    // A deploy naming any identity, the caller's own included, has chosen one: the folder's
-    // default only fills in for a deploy that names none.
-    let names_identity = ns.on_behalf_of_email.is_some() || ns.on_behalf_of.is_some();
+    let takes_folder_default = windmill_common::names_only_caller(
+        ns.on_behalf_of_email.as_deref(),
+        ns.on_behalf_of.as_deref(),
+        &authed,
+    ) && windmill_common::can_preserve_on_behalf_of(&authed);
     // Held rather than raised: a rule naming a principal that no longer exists fails here, and
     // must fail only a first deploy, which is all the default applies to.
-    let folder_default = if !names_identity && windmill_common::can_preserve_on_behalf_of(&authed) {
+    let folder_default = if takes_folder_default {
         resolve_folder_default_identity(&authed, &w_id, &ns.path, &db).await
     } else {
         Ok(None)
