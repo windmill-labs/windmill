@@ -75,6 +75,8 @@ pub const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.windows.js");
 
 pub const RELATIVE_BUN_BUILDER: &str = include_str!("../loader_builder.bun.js");
 
+pub const NODE_EXTERNALS_PLUGIN: &str = include_str!("../node_externals.bun.js");
+
 const NSJAIL_CONFIG_RUN_BUN_CONTENT: &str = include_str!("../nsjail/run.bun.config.proto");
 const NSJAIL_CONFIG_INSTALL_BUN_CONTENT: &str = include_str!("../nsjail/install.bun.config.proto");
 
@@ -1595,6 +1597,7 @@ pub async fn build_loader(
         .replace("TEMP_SCRIPT_REFS_PLACEHOLDER", &temp_refs_json);
 
     if mode == LoaderMode::Node {
+        let node_externals = NODE_EXTERNALS_PLUGIN.replace("JOB_DIR", &job_dir_js);
         write_file(
             &job_dir,
             "node_builder.ts",
@@ -1602,22 +1605,14 @@ pub async fn build_loader(
                 r#"
 {loader}
 
-import {{ readdir }} from "node:fs/promises";
-
-let fileNames = []
-try {{
-    fileNames = await readdir("{job_dir_js}/node_modules")
-}} catch (e) {{
-}}
-
+{node_externals}
 let result;
 try {{
     result = await Bun.build({{
         entrypoints: ["{job_dir_js}/wrapper.mjs"],
         outdir: "./",
         target: "node",
-        plugins: [p],
-        external: fileNames,
+        plugins: [p, nodeExternals],
         minify: true,
     }});
 }} catch(err) {{
