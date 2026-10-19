@@ -1,66 +1,23 @@
 import { onboardingProfile, type StarterPrompt } from '$lib/onboardingProfile'
 import { userStore } from '$lib/stores'
-import { fromStore } from 'svelte/store'
+import { fromStore, get } from 'svelte/store'
 import { resource } from 'runed'
-import { ScriptService } from '$lib/gen'
+import {
+	JobService,
+	ScriptService,
+	WorkerService,
+	WorkspaceService,
+	type RunnableItem
+} from '$lib/gen'
+import {
+	composerSuggestions,
+	type ComposerItem,
+	type ComposerRole,
+	type ComposerSignals,
+	type ComposerSuggestion
+} from './composerSuggestions'
 
-/** A prompt offered under the composer: `label` is the pill, `prompt` what it puts in the
- * box. `use` looks at, asks about or runs what exists; `build` creates or changes things. */
-export type ComposerSuggestion = StarterPrompt & { mode: 'use' | 'build' }
-
-const USE_EXAMPLES: ComposerSuggestion[] = [
-	{
-		mode: 'use',
-		label: 'What failed today?',
-		prompt: 'Which runs failed in this workspace today, and why?'
-	},
-	{
-		mode: 'use',
-		label: 'Which schedules run the most?',
-		prompt:
-			'Which schedules ran the most today, and does any of them run more often than it should?'
-	}
-]
-
-const BUILD_EXAMPLES: ComposerSuggestion[] = [
-	{
-		mode: 'build',
-		label: 'Sync Salesforce',
-		prompt: 'Sync new Salesforce leads into a postgres table every hour'
-	},
-	{
-		mode: 'build',
-		label: 'Weekly Slack report',
-		prompt: 'Generate a weekly sales report from postgres and post it to Slack every Monday'
-	},
-	{
-		mode: 'build',
-		label: 'Ban Discord users',
-		prompt:
-			'Build a workflow that triggers on a Discord message, checks for offensive language using an LLM, and possibly block them'
-	}
-]
-
-/** An operator's session can run what is deployed, read runs and call MCP servers, but
- * cannot author scripts or apps, so none of these asks it to build anything. */
-const OPERATOR_EXAMPLES: ComposerSuggestion[] = [
-	USE_EXAMPLES[0],
-	{
-		mode: 'use',
-		label: 'Rerun failed jobs',
-		prompt: 'List the jobs that failed today, tell me why, and rerun the ones that timed out'
-	},
-	{
-		mode: 'use',
-		label: 'Run a flow',
-		prompt: 'Find the flow that onboards a new employee and run it for Jane Doe, starting Monday'
-	},
-	{
-		mode: 'use',
-		label: 'Summarize GitHub issues',
-		prompt: "Read this week's open GitHub issues and summarize the ones that mention billing"
-	}
-]
+export type { ComposerSuggestion }
 
 /** From this many items on, Home's composer rests collapsed: below it the workspace is new
  * enough that the composer is the page's main way in. */
@@ -68,13 +25,14 @@ const FEW_ITEMS = 10
 
 /** The suggestions for the reader's role and the workspace the session acts on, and whether
  * that workspace is still small. An invite that wrote prompts for this person replaces the
- * examples outright: a prompt written for someone's own stack next to "Ban Discord users"
+ * suggestions outright: a prompt written for someone's own stack next to "Ban Discord users"
  * reads as the generic one. */
 export class StarterPrompts {
 	#invite = $state<StarterPrompt[]>()
 	#user = fromStore(userStore)
 	#workspace: () => string | undefined
-	#itemCount: { readonly current: number | undefined }
+	#items: { readonly current: ItemsSignal | undefined }
+	#others: { readonly current: ComposerSignals | undefined }
 
 	/** `workspace`: where the session acts. */
 	constructor(workspace: () => string | undefined) {
@@ -82,66 +40,175 @@ export class StarterPrompts {
 		void onboardingProfile().then((p) => {
 			if (p?.starter_prompts?.length) this.#invite = p.starter_prompts
 		})
-		this.#itemCount = resource(workspace, async (ws) => (ws ? workspaceItemCount(ws) : undefined))
+		this.#items = resource(workspace, async (ws) => (ws ? itemsSignal(ws) : undefined))
+		this.#others = resource(
+			() => {
+				const ws = workspace()
+				const role = this.#role
+				return ws && role ? { ws, role } : undefined
+			},
+			async (key) => (key ? otherSignals(key.ws, key.role) : undefined)
+		)
 	}
 
-	/** At most `FEW_ITEMS`; undefined until the workspace has answered. A count already read
-	 * this page load stands in while it is asked again, so a remount does not wait on it. */
-	get #count(): number | undefined {
+	/** Undefined until the user is known. The user is read for Home's workspace, so a session
+	 * acting on another one (a fork) keeps only what is instance-wide. */
+	get #role(): ComposerRole | undefined {
+		const user = this.#user.current
+		if (!user) return undefined
+		const own = user.workspace_id === this.#workspace()
+		return {
+			operator: own && user.operator,
+			workspaceAdmin: own && user.is_admin,
+			instanceAdmin: user.is_super_admin
+		}
+	}
+
+	/** Signals already read this page load stand in while they are asked again, so a remount
+	 * does not wait on them. */
+	get #itemsSignal(): ItemsSignal | undefined {
 		const ws = this.#workspace()
-		return this.#itemCount.current ?? (ws ? itemCounts.get(ws) : undefined)
+		return this.#items.current ?? (ws ? settledItems.get(ws) : undefined)
 	}
 
-	/** Up to four: two Use then two Build. An empty workspace has nothing to ask about yet. */
+	get #otherSignals(): ComposerSignals | undefined {
+		const ws = this.#workspace()
+		return this.#others.current ?? (ws ? settledOthers.get(ws) : undefined)
+	}
+
+	/** Shown once the item list and every other signal have answered, so pills do not
+	 * reshuffle as each request lands; an empty workspace needs only the list. */
 	readonly suggestions: ComposerSuggestion[] = $derived.by(() => {
 		if (this.#invite) return this.#invite.map((p) => ({ ...p, mode: 'build' as const }))
-		if (this.#user.current?.operator) return OPERATOR_EXAMPLES
-		if (this.#count === 0) return BUILD_EXAMPLES
-		return [...USE_EXAMPLES, ...BUILD_EXAMPLES.slice(0, 2)]
+		const items = this.#itemsSignal
+		const role = this.#role
+		if (!items || !role) return []
+		const others = this.#otherSignals
+		if (!others && items.itemCount !== 0) return []
+		return composerSuggestions({ ...items, ...others }, role)
 	})
 
 	/** Whether the workspace holds fewer than `FEW_ITEMS`; undefined until known. */
 	get fewItems(): boolean | undefined {
-		const count = this.#count
+		const count = this.#itemsSignal?.itemCount
 		return count === undefined ? undefined : count < FEW_ITEMS
 	}
 }
 
-const itemCounts = new Map<string, number>()
-const itemCountRequests = new Map<string, Promise<number>>()
+type ItemsSignal = Pick<ComposerSignals, 'itemCount' | 'myDraft' | 'failedDeploy'>
 
-/** Starts the count for a page about to mount the starter; the starter then takes this
- * request rather than sending its own. */
-export function prefetchItemCount(workspace: string): void {
-	void workspaceItemCount(workspace)
-}
+const settledItems = new Map<string, ItemsSignal>()
+const settledOthers = new Map<string, ComposerSignals>()
+const requests = new Map<string, { at: number; request: Promise<unknown> }>()
+/** How long an answer is reused before a mount asks again: long enough to cover the prefetch
+ * that preceded the mount, short enough that returning to Home sees what changed. */
+const REUSE_MS = 30_000
 
-function workspaceItemCount(workspace: string): Promise<number> {
-	let request = itemCountRequests.get(workspace)
-	if (!request) {
-		request = fetchItemCount(workspace).finally(() => itemCountRequests.delete(workspace))
-		itemCountRequests.set(workspace, request)
-	}
+/** One request per workspace and signal, shared by every caller; a failure is not kept. */
+function dedupe<T>(key: string, send: () => Promise<T>): Promise<T> {
+	const kept = requests.get(key)
+	if (kept && Date.now() - kept.at < REUSE_MS) return kept.request as Promise<T>
+	const request = send()
+	requests.set(key, { at: Date.now(), request })
+	request.catch(() => requests.delete(key))
 	return request
 }
 
-async function fetchItemCount(workspace: string): Promise<number> {
-	let count = FEW_ITEMS
+/** Starts the signals for a page about to mount the starter; the starter then takes these
+ * requests rather than sending its own. The role-gated ones go only once the user is
+ * known for this workspace. */
+export function prefetchComposerSignals(workspace: string): void {
+	void itemsSignal(workspace)
+	const user = get(userStore)
+	void otherSignals(workspace, {
+		operator: false,
+		workspaceAdmin: user?.workspace_id === workspace && user.is_admin,
+		instanceAdmin: user?.is_super_admin ?? false
+	})
+}
+
+/** Every signal `role` may read for `workspace`, as the starter reads them. */
+export async function readComposerSignals(
+	workspace: string,
+	role: ComposerRole
+): Promise<ComposerSignals> {
+	const [items, others] = await Promise.all([itemsSignal(workspace), otherSignals(workspace, role)])
+	return { ...items, ...others }
+}
+
+async function itemsSignal(workspace: string): Promise<ItemsSignal> {
 	try {
-		// What Home's list counts: library scripts and the user's own drafts included.
-		const res = await ScriptService.listRunnables({
-			workspace,
-			includeWithoutMain: true,
-			includeDraftOnly: true,
-			perPage: FEW_ITEMS
-		})
-		count = res.items?.length ?? 0
+		const signal = await dedupe(`${workspace}:items`, () => fetchItems(workspace))
+		settledItems.set(workspace, signal)
+		return signal
 	} catch (e) {
 		// Unknown reads as a full workspace: a collapsed composer is the quieter mistake.
-		console.error(`Could not count the items of workspace ${workspace}:`, e)
+		console.error(`Could not list the items of workspace ${workspace}:`, e)
+		return { itemCount: FEW_ITEMS }
 	}
-	itemCounts.set(workspace, count)
-	return count
+}
+
+async function fetchItems(workspace: string): Promise<ItemsSignal> {
+	// What Home's list counts: library scripts and the user's own drafts included.
+	const res = await ScriptService.listRunnables({
+		workspace,
+		includeWithoutMain: true,
+		includeDraftOnly: true,
+		orderBy: 'updated',
+		orderDesc: true,
+		perPage: FEW_ITEMS
+	})
+	const items = res.items ?? []
+	const username = get(userStore)?.username
+	const draft = items.find(
+		(i) =>
+			i.is_draft ||
+			i.draft_only ||
+			(username && i.draft_users?.some((u) => u['username'] === username))
+	)
+	const deploy = items.find((i) => i.has_deploy_errors)
+	return {
+		itemCount: items.length,
+		myDraft: draft && composerItem(draft, draft.draft_path),
+		failedDeploy: deploy && composerItem(deploy)
+	}
+}
+
+function composerItem(item: RunnableItem, path = item.path): ComposerItem {
+	return {
+		kind: item.type,
+		path,
+		name: item.summary || path.split('/').pop() || path
+	}
+}
+
+/** Every signal the role may ask for besides the item list, each absent if it fails. */
+async function otherSignals(workspace: string, role: ComposerRole): Promise<ComposerSignals> {
+	const ask = <T>(name: string, send: () => Promise<T>) =>
+		dedupe(`${workspace}:${name}`, send).catch((e) => {
+			console.error(`Could not read ${name} for the composer's suggestions:`, e)
+			return undefined
+		})
+	const [failedRuns, queue, settings, workers] = await Promise.all([
+		ask('failedRuns', () =>
+			JobService.countCompletedJobs({ workspace, success: false, completedAfterSAgo: 86400 })
+		),
+		ask('queue', () => JobService.getQueueCount({ workspace })),
+		role.workspaceAdmin
+			? ask('settings', () => WorkspaceService.getSettings({ workspace }))
+			: undefined,
+		role.instanceAdmin
+			? ask('workers', () => WorkerService.listWorkers({ pingSince: 300 }))
+			: undefined
+	])
+	const signals: ComposerSignals = {
+		failedRuns,
+		queue: queue && { waiting: queue.database_length, suspended: queue.suspended ?? 0 },
+		hasErrorHandler: settings && !!settings.error_handler,
+		liveWorkers: workers?.length
+	}
+	settledOthers.set(workspace, signals)
+	return signals
 }
 
 /** What turns an empty chat into the block that starts a session. */

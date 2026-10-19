@@ -1,0 +1,25 @@
+{
+  "workspace": {
+    "scripts": [
+      {
+        "path": "f/data/etl_nightly",
+        "summary": "Nightly ETL",
+        "language": "python3",
+        "content": "import pandsa as pd\n\n\ndef main(rows: int = 100):\n    df = pd.DataFrame({\"n\": range(rows)})\n    return {\"rows\": len(df)}\n"
+      }
+    ],
+    "jobs": [
+      {
+        "id": "01930000-0000-7000-8000-0000000b0001",
+        "scriptPath": "f/data/etl_nightly",
+        "jobKind": "dependencies",
+        "createdBy": "dana",
+        "success": false,
+        "createdMinutesAgo": 12,
+        "durationMs": 3400,
+        "tag": "dependency",
+        "logs": "\n--- UV DEPENDENCIES RESOLUTION ---\nresolving dependencies for f/data/etl_nightly\nrequirements: pandsa\n  × No solution found when resolving dependencies:\n  ╰─▶ Because pandsa was not found in the package registry and you require pandsa, we can conclude that your requirements are unsatisfiable.\nerror: uv pip compile failed\nlock generation failed: the script was deployed but its dependencies could not be resolved"
+      }
+    ]
+  }
+}

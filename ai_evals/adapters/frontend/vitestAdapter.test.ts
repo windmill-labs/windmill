@@ -85,12 +85,42 @@ vi.mock('@codingame/monaco-vscode-languages-service-override', () => ({
 
 vi.mock('$lib/components/vscode', () => ({}))
 
+// list_workers reads the superadmin/devops stores to tell "no worker connected" from "workers
+// hidden from you". The harness never logs the frontend in, so a case declares the role with
+// `instanceAdmin`; the stores go back to unknown when that case ends, so the role cannot leak
+// into a later case that reads them.
+vi.mock('$lib/refreshUser', async () => {
+	const actual = await vi.importActual<any>('$lib/refreshUser')
+	const { superadmin, devopsRole } = await import('$lib/stores')
+	const { benchmarkInstanceAdmin, onBenchmarkWorkspaceUnregistered } = await import('./mockBackend')
+	onBenchmarkWorkspaceUnregistered((runnables) => {
+		if (runnables?.instanceAdmin === undefined) return
+		superadmin.set(undefined)
+		devopsRole.set(undefined)
+	})
+	const refreshSuperadmin = Object.assign(
+		async (opts?: { force?: boolean }) => {
+			const admin = benchmarkInstanceAdmin()
+			if (admin === undefined) return actual.refreshSuperadmin(opts)
+			superadmin.set(admin ? 'admin@windmill.dev' : false)
+			devopsRole.set(admin ? 'admin@windmill.dev' : false)
+		},
+		{ cancel: () => {} }
+	)
+	return { ...actual, refreshSuperadmin }
+})
+
 vi.mock('$lib/gen', async () => {
 	const actual = await vi.importActual<any>('$lib/gen')
 	const {
 		getBenchmarkAppByPath,
-		getBenchmarkCompletedJob,
+		getBenchmarkJob,
 		getBenchmarkCompletedJobResultMaybe,
+		listBenchmarkWorkers,
+		listBenchmarkSchedules,
+		getBenchmarkSchedule,
+		getBenchmarkWorkspaceSettingsDocument,
+		applyBenchmarkWorkspaceSettingsDocument,
 		getBenchmarkDatatableSchema,
 		getBenchmarkDatatableMigrationsStatus,
 		createBenchmarkDatatableMigration,
@@ -357,7 +387,7 @@ vi.mock('$lib/gen', async () => {
 					: actual.JobService.runFlowByPath(data),
 			getJob: async (data: { workspace: string; id: string }) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
-					const job = getBenchmarkCompletedJob(data.workspace, data.id)
+					const job = getBenchmarkJob(data.workspace, data.id)
 					if (!job) {
 						throw new Error(`Job "${data.id}" not found in benchmark workspace`)
 					}
@@ -383,6 +413,14 @@ vi.mock('$lib/gen', async () => {
 					: actual.JobService.getFlowAllResults(data)
 		}),
 		WorkspaceService: wrapService(actual.WorkspaceService, {
+			getWorkspaceSettingsDocument: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkWorkspaceSettingsDocument(data.workspace)
+					: actual.WorkspaceService.getWorkspaceSettingsDocument(data),
+			applyWorkspaceSettingsDocument: async (data: any) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? applyBenchmarkWorkspaceSettingsDocument(data)
+					: actual.WorkspaceService.applyWorkspaceSettingsDocument(data),
 			getCopilotInfo: async (data: { workspace: string }) =>
 				hasBenchmarkWorkspace(data.workspace)
 					? (getBenchmarkAiConfig(data.workspace) ?? {})
@@ -436,13 +474,21 @@ vi.mock('$lib/gen', async () => {
 					? { metrics: listBenchmarkDataMetrics(data.workspace) ?? [] }
 					: actual.DataMetricService.listDataMetrics(data)
 		}),
+		WorkerService: wrapService(actual.WorkerService, {
+			listWorkers: async (data: Record<string, unknown>) =>
+				listBenchmarkWorkers() ?? actual.WorkerService.listWorkers(data)
+		}),
 		ScheduleService: wrapService(actual.ScheduleService, {
 			existsSchedule: async (data: { workspace: string; path: string }) =>
 				hasBenchmarkWorkspace(data.workspace) ? false : actual.ScheduleService.existsSchedule(data),
 			listSchedules: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.ScheduleService.listSchedules(data),
+				hasBenchmarkWorkspace(data.workspace)
+					? listBenchmarkSchedules(data.workspace)
+					: actual.ScheduleService.listSchedules(data),
 			getSchedule: async (data: { workspace: string; path: string }) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
+					const schedule = getBenchmarkSchedule(data.workspace, data.path)
+					if (schedule) return schedule
 					throw new Error(`Schedule "${data.path}" not found in benchmark workspace`)
 				}
 				return actual.ScheduleService.getSchedule(data)

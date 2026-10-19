@@ -3283,3 +3283,215 @@
         - Agents page
         - agent editor
   skipJudge: true
+
+# --- Composer suggestions ---
+# The prompts the pills under Home's composer put in the box
+# (frontend/src/lib/components/copilot/chat/starter/composerSuggestions.ts), word for word.
+# A pill is only worth offering if the session chat can act on its prompt, so each one is
+# pinned here against a workspace in the state that makes the pill appear.
+
+- id: global-composer-no-worker
+  prompt: |-
+    No worker has pinged in the last 5 minutes, so no job can run. Find out what is wrong with the workers and how to bring them back.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_no_workers.json
+  runtime:
+    maxTurns: 8
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_workers
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - no worker
+        - no workers
+        - zero workers
+        - 0 workers
+        - not a single worker
+    # The hedge list_workers gives a caller who may not see workers; an instance admin
+    # must get the plain answer instead.
+    forbiddenMentions:
+      - visibility may be restricted
+      - may be hidden from you
+  skipJudge: true
+  judgeChecklist:
+    - confirms from list_workers that no worker is connected rather than assuming it
+    - explains that queued runs stay queued until a worker starts, and how to start or restart workers
+
+- id: global-composer-failed-runs
+  prompt: |-
+    Which runs failed in this workspace in the last 24 hours, and why?
+  initial: ai_evals/fixtures/frontend/global/initial/composer_incidents.json
+  runtime:
+    maxTurns: 8
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_runs
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - charge_cards
+      - - insufficient funds
+        - declined
+  skipJudge: true
+  judgeChecklist:
+    - names f/billing/charge_cards as the failing script, from the returned runs
+    - gives the cause from the logs (card declined, insufficient funds)
+
+- id: global-composer-jobs-waiting
+  prompt: |-
+    13 jobs are waiting in this workspace's queue, 1 of them suspended. Why, and what would unblock them?
+  initial: ai_evals/fixtures/frontend/global/initial/composer_incidents.json
+  runtime:
+    maxTurns: 10
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_runs
+      - list_workers
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - gpu-renderer
+      - - refund_approval
+        - approval
+        - approve
+  skipJudge: true
+  judgeChecklist:
+    - finds the 12 gpu_render runs queued on the gpu-renderer tag that no connected worker serves
+    - finds the refund_approval flow suspended on its approval step, and says approving it unblocks it
+
+- id: global-composer-fix-deploy
+  prompt: |-
+    The last deploy of the script f/data/etl_nightly failed. Find out why and fix it.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_failed_deploy.json
+  runtime:
+    maxTurns: 18
+    sessionChat: true
+  # "Fix it" may end in a draft or in a deploy, which clears the draft, so the fix is pinned
+  # through the edit the model made rather than through the drafts left behind.
+  toolExpect:
+    requiredToolsUsed:
+      - get_run
+    requiredToolsAnyOf:
+      - - write_script
+        - edit_script
+    forbiddenToolsUsed:
+      - delete_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - pandsa
+  skipJudge: true
+  judgeChecklist:
+    - reads the failed dependency job's logs to find that pandsa cannot be resolved
+    - corrects the misspelled pandsa import to pandas and leaves the rest of the script as it was
+
+- id: global-composer-error-handler
+  prompt: |-
+    This workspace has no error handler. Help me set one up so that failed runs notify us.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_no_error_handler.json
+  runtime:
+    maxTurns: 12
+    sessionChat: true
+    userAnswers:
+      - Use the existing f/ops/notify_on_failure script, it posts to our #ops Slack channel
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - set_workspace_settings
+    toolCallArgs:
+      - tool: set_workspace_settings
+        field: yaml
+        stringIncludesAnyOf:
+          - script/f/ops/notify_on_failure
+  skipJudge: true
+  judgeChecklist:
+    - sets the workspace error_handler to the existing script f/ops/notify_on_failure
+    - does not write a new notification script when one already exists
+
+- id: global-composer-workers-keeping-up
+  prompt: |-
+    Are the workers keeping up with the queue? Compare how long jobs wait before they start with how busy each worker group is.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_incidents.json
+  runtime:
+    maxTurns: 10
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_workers
+      - list_runs
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - gpu-renderer
+  skipJudge: true
+  judgeChecklist:
+    - reads the connected workers and the queued runs instead of guessing
+    - points out that the gpu-renderer runs wait because no worker serves that tag
+
+- id: global-composer-failing-schedules
+  prompt: |-
+    Which schedules in this workspace keep failing, and why?
+  initial: ai_evals/fixtures/frontend/global/initial/composer_incidents.json
+  runtime:
+    maxTurns: 10
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_runs
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - charge_cards_every_minute
+      - - insufficient funds
+        - declined
+  skipJudge: true
+  judgeChecklist:
+    - names f/billing/charge_cards_every_minute as the failing schedule, not import_orders_hourly
+    - gives the cause from its runs' logs (card declined, insufficient funds)
+
+- id: global-composer-run-health
+  prompt: |-
+    Look at the last runs in this workspace: how many succeeded, which failed, and is anything getting slower?
+  initial: ai_evals/fixtures/frontend/global/initial/composer_incidents.json
+  runtime:
+    maxTurns: 8
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - list_runs
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - charge_cards
+      - - import_orders
+  skipJudge: true
+  judgeChecklist:
+    - counts the succeeded and failed runs from the returned data
+    - names charge_cards as the one failing, and does not invent a slowdown

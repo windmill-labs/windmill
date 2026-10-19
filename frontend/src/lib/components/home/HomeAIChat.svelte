@@ -30,7 +30,7 @@
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
-	import { prefetchItemCount } from '../copilot/chat/starter/starterPrompts.svelte'
+	import { prefetchComposerSignals } from '../copilot/chat/starter/starterPrompts.svelte'
 
 	const COLLAPSED_SETTING = 'home-ai-composer-collapsed'
 
@@ -93,9 +93,10 @@
 
 	let HomeSessionStarter = $state(loadedStarter)
 	if (!loadedStarter) void loadStarter().then((c) => (HomeSessionStarter = c))
-	// The starter waits on the workspace's item count before it mounts; asked alongside its code
-	// rather than once the code has loaded, it is no extra wait.
-	if ($workspaceStore) prefetchItemCount($workspaceStore)
+	// The starter waits on the workspace's item count before it mounts, and its suggestions on
+	// the other signals; asked alongside its code rather than once the code has loaded, they
+	// are no extra wait.
+	if ($workspaceStore) prefetchComposerSignals($workspaceStore)
 
 	// Whether Home's own workspace hides the assistant, read for that workspace directly: the
 	// shared copilot config follows whichever workspace loaded last, and once the block shows
