@@ -28,7 +28,7 @@
 	import { isDeployable } from '$lib/utils_deployable'
 
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import { LanguageIcon } from '../languageIcons'
+	import LanguageTag from '../languageIcons/LanguageTag.svelte'
 	import {
 		Archive,
 		Calendar,
@@ -51,6 +51,8 @@
 	import { Drawer, DrawerContent } from '..'
 	import NoMainFuncBadge from '$lib/components/NoMainFuncBadge.svelte'
 	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
+	import RowLabels from './RowLabels.svelte'
+	import AskAiRowButton from './AskAiRowButton.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
@@ -207,6 +209,9 @@
 			>
 		{/if}
 		<SharedBadge canWrite={script.canWrite} extraPerms={script.extra_perms} />
+		<RowLabels labels={script.labels} />
+		<InheritedLabels labels={script.inherited_labels} max={1} color="subtle" />
+		<!-- Last, so the draft badges line up down the list whatever labels each row has. -->
 		<DraftBadge
 			is_draft={script.is_draft}
 			draft_only={script.draft_only}
@@ -217,32 +222,15 @@
 			path={script.path}
 			onMigrated={() => dispatch('change')}
 		/>
-		{#if script.labels?.length}
-			<div class="flex items-center gap-0.5">
-				{#each script.labels.slice(0, 3) as label}
-					<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
-				{/each}
-				{#if script.labels.length > 3}
-					<Badge
-						color="blue"
-						small
-						class="px-1"
-						title={script.labels
-							.slice(3)
-							.map((l) => 'Label: ' + l)
-							.join('\n')}>+{script.labels.length - 3}</Badge
-					>
-				{/if}
-			</div>
-		{/if}
-		<InheritedLabels labels={script.inherited_labels} />
-		<div class="w-8 center-center">
-			<LanguageIcon lang={script.language} width={16} height={16} />
-		</div>
+	{/snippet}
+
+	{#snippet titleBadge()}
+		<LanguageTag lang={script.language} />
 	{/snippet}
 
 	{#snippet actions()}
-		<span class="hidden md:inline-flex gap-x-1">
+		<span class="hidden md:inline-flex">
+			<AskAiRowButton kind="script" path={script.path} summary={script.summary} />
 			{#if !$userStore?.operator}
 				{#if showEditButton}
 					{#if script.use_codebase}
@@ -257,8 +245,7 @@
 								aiId={`edit-script-button-${script.summary?.length > 0 ? script.summary : script.path}`}
 								aiDescription={`Edits the script ${script.summary?.length > 0 ? script.summary : script.path}`}
 								variant="subtle"
-								wrapperClasses="w-20"
-								unifiedSize="md"
+								unifiedSize="sm"
 								startIcon={{ icon: Pen }}
 								href="/scripts/edit/{script.path}"
 							>
@@ -273,6 +260,7 @@
 			{/if}
 		</span>
 		<Dropdown
+			size="sm"
 			aiId={`script-row-dropdown-${script.summary?.length > 0 ? script.summary : script.path}`}
 			aiDescription={`Open dropdown for script ${script.summary?.length > 0 ? script.summary : script.path} options`}
 			items={async () => {

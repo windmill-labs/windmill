@@ -28,8 +28,9 @@
 	}
 </script>
 
-<div class="flex flex-row items-center gap-1 py-0.5 px-1 text-2xs text-secondary">
-	<span class="shrink-0">Acting on</span>
+<!-- A control of the composer's toolbar; on a narrow window it gives up its label first. -->
+<div class="flex flex-row items-center gap-1 min-w-0 text-2xs text-secondary">
+	<span class="shrink-0 hidden lg:inline">Acting on</span>
 	<WorkspaceFamilyPicker
 		selectedId={effectiveId}
 		{pendingFork}

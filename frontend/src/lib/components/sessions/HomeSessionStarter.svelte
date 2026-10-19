@@ -21,7 +21,8 @@
 		setSessionDraftPrompt
 	} from './sessionState.svelte'
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
-	import { takeComposerFocus } from './homeSessionsTransition.svelte'
+	import { composerSentFromHome, takeComposerFocus } from './homeSessionsTransition.svelte'
+	import { homeComposerContext } from './homeComposerContext.svelte'
 
 	// Home's block is the empty session's own chat, run by that session's manager: the
 	// composer, its controls and what a send does are the session's, not a copy of them.
@@ -51,6 +52,7 @@
 
 	// The turn is already running on the session's manager; the page it belongs to takes over.
 	function onSent() {
+		composerSentFromHome()
 		selectSession(sessionId)
 		void goto(sessionPageHref(sessionId))
 	}
@@ -71,18 +73,25 @@
 	onMount(() => {
 		onShown?.()
 		if (takeComposerFocus()) setTimeout(() => aiChat?.focusInput(), 0)
+		// The rows' "Ask AI" lands here. Before the chat has mounted (its config still
+		// loading) there is nowhere to put the item, and the attach does nothing.
+		return homeComposerContext.register(async (element) => {
+			await aiChat?.attachContext(element)
+		})
 	})
 </script>
 
-{#snippet inputPreface()}
+{#snippet actingOn()}
 	{#if session}
 		<SessionWorkspaceBar {session} />
 	{/if}
 {/snippet}
 
 <!-- Until a config has loaded the chat reads "AI not configured" and would flash its disabled
-     state. Any loaded config will do, so a fork switch does not hide it while the fork's loads. -->
-{#if session && $copilotWorkspace !== undefined}
+     state. Any loaded config will do, so a fork switch does not hide it while the fork's loads.
+     The item count decides whether the composer rests collapsed, so it waits for that too
+     rather than open and fold up a moment later. -->
+{#if session && $copilotWorkspace !== undefined && starterPrompts.fewItems !== undefined}
 	<AIChat
 		bind:this={aiChat}
 		hideHeader
@@ -92,9 +101,13 @@
 		{onDraftChange}
 		initialAttachments={getSessionDraftAttachments(sessionId)}
 		{onAttachmentsChange}
-		starter={{ where: 'home', prompts: starterPrompts.list, chips: starterPrompts.chipsOffered }}
+		starter={{
+			where: 'home',
+			suggestions: starterPrompts.suggestions,
+			fewItems: starterPrompts.fewItems ?? false
+		}}
 		viewTransitionNames
 		{onSent}
-		{inputPreface}
+		{actingOn}
 	/>
 {/if}

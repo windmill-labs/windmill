@@ -300,7 +300,7 @@
 
 	<ForkWorkspaceBanner />
 	<WorkspaceDraftsBanner />
-	<div class="max-w-7xl px-4 sm:px-8 md:px-8 h-fit w-full mb-6">
+	<div class="max-w-[1120px] px-4 sm:px-8 md:px-8 h-fit w-full mb-6 shrink-0">
 		<!-- HomeAIChat carries both the AI composer and the AI-independent CLI/MCP connect row,
 		     so it shows whenever the sessions beta is on; the composer itself is gated on the
 		     workspace inside the component, which owns its own vertical spacing

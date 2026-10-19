@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { composerBoxClass, COMPOSER_FIELD_RESET } from './composerBox'
-	import { PLACEHOLDER_FADE_CLASS } from './starter/starterPrompts.svelte'
+	import { composerBoxClass, COMPOSER_FIELD_RESET, HERO_BOX_CLASS } from './composerBox'
+	import { smoothHeight } from './starter/smoothHeight'
+	import { MessagesSquare } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
 	import { tick, type Snippet } from 'svelte'
 	import type { ContextElement } from './context'
@@ -55,8 +56,10 @@
 		trailing?: Snippet
 		/** The taller box that opens a session, matching Home's composer. */
 		hero?: boolean
-		/** Replaces `placeholder` with one drawn over the field, so it can fade between prompts. */
-		fadingPlaceholder?: { text: string; visible: boolean }
+		/** One row: the field and `trailing` side by side, for Home's composer at rest. */
+		oneLine?: boolean
+		/** The assistant's chat mark before the field. */
+		chatIcon?: boolean
 	}
 
 	let {
@@ -76,14 +79,11 @@
 		leading,
 		trailing,
 		hero = false,
-		fadingPlaceholder
+		oneLine = false,
+		chatIcon = false
 	}: Props = $props()
 
 	const aiChatManager = getAiChatManager()
-
-	const placeholderClass = $derived(
-		`text-hint ${PLACEHOLDER_FADE_CLASS} ${fadingPlaceholder?.visible ? 'opacity-100' : 'opacity-0'}`
-	)
 
 	// Titles currently appearing as `@title` mentions in the textarea. Compared
 	// against the previous snapshot in a $effect (NOT inside handleInput —
@@ -803,11 +803,31 @@
 	}
 </script>
 
-<div class={twMerge(composerBoxClass(disabled), hero && !disabled && 'shadow-sm')}>
-	<!-- Context chips live inside the input box, above the textarea. The snippet
+<!-- The box that opens a session grows and shrinks between its one-line and full shapes. -->
+<div
+	class={twMerge(composerBoxClass(disabled), hero && !disabled && HERO_BOX_CLASS)}
+	use:smoothHeight={{ enabled: hero && !disabled, key: oneLine }}
+>
+	<div class={oneLine ? 'flex flex-row items-center' : ''}>
+		<!-- Context chips live inside the input box, above the textarea. The snippet
 	     self-guards (renders nothing when empty) so no blank row appears. -->
-	{@render leading?.()}
-	<div class="relative w-full">
+		{@render leading?.()}
+		{#if chatIcon}
+			<!-- The same mark as the "open in chat" buttons. On the field's first line: centred on the
+			     one-line box, level with the first line of text once it opens. -->
+			<div class="flex {oneLine ? 'flex-1 min-w-0 items-center' : 'items-start'}">
+				<MessagesSquare size={16} class="shrink-0 ml-4 text-ai {oneLine ? '' : 'mt-3.5'}" />
+				{@render field()}
+			</div>
+		{:else}
+			{@render field()}
+		{/if}
+		{@render trailing?.()}
+	</div>
+</div>
+
+{#snippet field()}
+	<div class="relative w-full {oneLine ? 'flex-1 min-w-0' : ''}">
 		<div
 			class={twMerge(
 				'textarea-input absolute inset-0 overflow-hidden pointer-events-none',
@@ -816,22 +836,16 @@
 			)}
 		>
 			<div style="transform: translateY({-scrollTop}px)" use:chipClickDelegate>
-				<!-- The placeholder replaces the (empty) highlight rather than following it: this box is
-				     `pre-wrap`, so whitespace between the two would indent its first line. -->
-				{#if fadingPlaceholder && !value}
-					<span aria-hidden="true" class={placeholderClass}>{fadingPlaceholder.text}</span>
-				{:else}
-					<span class="break-words">
-						{@html getHighlightedText(value)}
-					</span>
-				{/if}
+				<span class="break-words">
+					{@html getHighlightedText(value)}
+				</span>
 			</div>
 		</div>
 		<textarea
 			bind:this={textarea}
 			onkeydown={handleKeyDown}
 			bind:value
-			use:autosize={{ maxHeight: '40vh', minHeight: hero ? 56 : undefined }}
+			use:autosize={hero && !oneLine ? { maxHeight: 160, minHeight: 56 } : { maxHeight: '40vh' }}
 			rows={1}
 			oninput={handleInput}
 			onpaste={handlePaste}
@@ -855,8 +869,7 @@
 					showCommandTooltip = false
 				}, 200)
 			}}
-			placeholder={fadingPlaceholder ? '' : placeholder}
-			aria-label={fadingPlaceholder ? 'Describe what you want to do' : undefined}
+			{placeholder}
 			class={twMerge(
 				'textarea-input resize-none caret-black dark:caret-white overflow-clip',
 				COMPOSER_FIELD_RESET,
@@ -867,8 +880,7 @@
 			{disabled}
 		></textarea>
 	</div>
-	{@render trailing?.()}
-</div>
+{/snippet}
 
 {#if showContextTooltip || showCommandTooltip}
 	<Portal target="body">

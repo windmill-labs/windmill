@@ -40,6 +40,8 @@
 		onExpandOwner?: (owner: string, more?: boolean, opts?: { all?: boolean }) => void
 		onCollapseOwner?: (owner: string) => void
 		showEditButton?: boolean
+		/** Off where the tree sits in a card of its host's, which already draws the frame. */
+		framed?: boolean
 		// Tuck every user space but `selfUsername`'s into one collapsible "Other users" row
 		// under it. Only for browsing: a search or filter must not hide its matches behind
 		// a closed row.
@@ -66,6 +68,7 @@
 		onExpandOwner,
 		onCollapseOwner,
 		showEditButton = true,
+		framed = true,
 		groupOtherUsers = false,
 		leaf
 	}: Props = $props()
@@ -280,7 +283,12 @@
 	<!-- Every row draws its own border-b, so the last one would double the frame's bottom border.
 	     Pulling the content 1px down puts that border under the frame, where overflow-hidden
 	     clips it, whichever row (collapsed owner, leaf, expanded subtree) ends the list. -->
-	<div class="border rounded-md bg-surface-tertiary overflow-hidden">
+	<!-- Unframed, the tree is part of a card that separates nothing between its rows. -->
+	<div
+		data-unruled={framed ? undefined : true}
+		data-hover-actions={framed ? undefined : true}
+		class="{framed ? 'border rounded-md bg-surface-tertiary' : 'rounded-b-md'} overflow-hidden"
+	>
 		<div class="-mb-px">
 			{#each rows.slice(0, nbDisplayed) as row (row.kind === 'otherUsers' ? 'other_users' : 'folderName' in row.node ? `f__${row.node.folderName}` : 'username' in row.node ? `u__${row.node.username}` : `i__${row.node.type}__${row.node.path}`)}
 				{#if row.kind === 'otherUsers'}
@@ -290,7 +298,8 @@
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
 						onclick={toggleOtherUsers}
-						class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer"
+						data-list-row
+						class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer hover:bg-surface-hover"
 					>
 						<div class="flex flex-row items-center gap-4">
 							<Users size={16} class="text-secondary" />
@@ -324,6 +333,7 @@
 						{/each}
 						{#if nbOtherUsersDisplayed < otherUsers.length}
 							<div
+								data-list-row
 								class="pl-8 pr-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
 							>
 								<span class="text-xs text-secondary">

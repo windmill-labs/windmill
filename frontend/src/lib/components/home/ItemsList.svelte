@@ -2,7 +2,6 @@
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { PIPELINE_DRAFT_KIND, pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
 	import { Button, Skeleton } from '$lib/components/common'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import {
 		AssetService,
 		FolderService,
@@ -23,16 +22,20 @@
 	import {
 		ArrowDownUp,
 		Bot,
+		ChevronDown,
 		ChevronsDownUp,
 		ChevronsUpDown,
 		Code2,
 		LayoutDashboard,
+		List,
+		ListTree,
+		MoreHorizontal,
 		Tag
 	} from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import CreateActionsMenu from './CreateActionsMenu.svelte'
 	import ContentSearchInner from '$lib/components/ContentSearchInner.svelte'
-	import type { Item as MenuItem } from '$lib/utils'
+	import type { IconType, Item as MenuItem } from '$lib/utils'
 
 	import { HOME_SEARCH_SHOW_FLOW, HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
 
@@ -46,9 +49,11 @@
 	import HubProjectPickerModal from './HubProjectPickerModal.svelte'
 	import type { HubProjectPick } from '$lib/hubProject'
 	import ListFilters from './ListFilters.svelte'
+	import LabelBadge from '../common/badge/LabelBadge.svelte'
+	import { clampRows } from './clampRows'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
-	import FlowIcon from './FlowIcon.svelte'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { getLocalSetting, isOwner, storeLocalSetting } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import Drawer from '../common/drawer/Drawer.svelte'
@@ -183,7 +188,7 @@
 	// (which carries only path + content), so the row-list filters can't
 	// apply to it. When it's active we restrict the searchbar to just the content filter,
 	// clear any other filters so they don't linger as ignored chips, and hide the row-list
-	// controls (kind toggle, tree view) that no longer drive anything.
+	// controls (kind filter, tree view) that no longer drive anything.
 	let contentActive = $derived(!!filterValues.val.content)
 	let searchbarSchema = $derived(
 		contentActive ? { content: searchFilterSchema.content } : searchFilterSchema
@@ -777,11 +782,11 @@
 	const SORT_SETTING_NAME = 'homeSort'
 	// `short` labels the trigger button next to the sort icon (the button is icon-only
 	// only while searching, when sorting is disabled — see below).
-	const sortOptions: { value: SortOrder; label: string; short: string }[] = [
-		{ value: 'updated_desc', label: 'Recently updated', short: 'Recent' },
-		{ value: 'updated_asc', label: 'Oldest updated', short: 'Oldest' },
-		{ value: 'name_asc', label: 'Name (A-Z)', short: 'A-Z' },
-		{ value: 'name_desc', label: 'Name (Z-A)', short: 'Z-A' }
+	const sortOptions: { value: SortOrder; label: string }[] = [
+		{ value: 'updated_desc', label: 'Recently updated' },
+		{ value: 'updated_asc', label: 'Oldest updated' },
+		{ value: 'name_asc', label: 'Name (A-Z)' },
+		{ value: 'name_desc', label: 'Name (Z-A)' }
 	]
 	let sortOrder = $state<SortOrder>(
 		sortOptions.find((o) => o.value === getLocalSetting(SORT_SETTING_NAME))?.value ?? 'updated_desc'
@@ -859,6 +864,9 @@
 			firstElement.scrollTop = 0
 		}
 	}
+
+	let toolbarHeight = $state(0)
+	let chipsExpanded = $state(false)
 
 	const TREE_VIEW_SETTING_NAME = 'treeView'
 	let treeView = $state(getLocalSetting(TREE_VIEW_SETTING_NAME) == 'true')
@@ -1018,6 +1026,39 @@
 		}
 	)
 	let ownerCounts = $derived(ownerCountsRes.current)
+
+	type KindOption = {
+		value: 'all' | 'script' | 'flow' | 'app' | 'agent'
+		label: string
+		icon?: IconType
+	}
+	const kindOptions: KindOption[] = [
+		{ value: 'all', label: 'All kinds' },
+		{ value: 'script', label: 'Scripts', icon: Code2 },
+		...(HOME_SEARCH_SHOW_FLOW
+			? [{ value: 'flow', label: 'Flows', icon: BarsStaggered } satisfies KindOption]
+			: []),
+		{ value: 'app', label: 'Apps', icon: LayoutDashboard },
+		{ value: 'agent', label: 'Agents', icon: Bot }
+	]
+	function setItemKind(v: KindOption['value']) {
+		// itemKind is derived from the shared filter object (which URL-syncs itself); `all`
+		// clears the kind filter (delete, not null, so it doesn't linger as a `kind: null` chip).
+		if (v === 'all') {
+			delete filterValues.val.kind
+		} else {
+			filterValues.val.kind = v
+			subtab = v
+		}
+	}
+	let kindItems = $derived(
+		kindOptions.map((o) => ({
+			displayName: o.label,
+			icon: o.icon,
+			selected: itemKind === o.value,
+			action: () => setItemKind(o.value)
+		}))
+	)
 	// The counts decide which owners the tree renders, so drawing it before they land
 	// would show every workspace folder and then prune it away. Hold the skeleton
 	// until the first response instead — it is fetched in parallel with the listing,
@@ -1795,273 +1836,271 @@
 	</DrawerContent>
 </Drawer>
 
-<CenteredPage wrapperClasses="w-full" handleOverflow={false}>
-	<div
-		class="flex flex-wrap gap-2 items-center justify-between w-full"
-		use:triggerableByAI={{
-			id: 'home-items-list',
-			description: 'Lists of scripts, flows, and apps'
-		}}
-	>
-		{#if !contentActive}
-			<!-- Kept mounted, not hidden, so the toolbar doesn't reflow the moment the first item
-			     lands; `inert` takes it out of the tab order and off the pointer meanwhile. A
-			     workspace with nothing but archived items reaches them from its own placeholder,
-			     so these controls are not the way there — but only where that placeholder
-			     renders, which is what `placeholderTakesOver` tracks. -->
-			<div class="flex justify-start" class:opacity-40={placeholderTakesOver} inert={toolbarInert}>
-				<ToggleButtonGroup
-					selected={itemKind}
-					onSelected={(v) => {
-						// itemKind is derived from the shared filter object (which URL-syncs itself);
-						// `all` clears the kind filter (delete, not null, so it doesn't linger as a
-						// `kind: null` chip).
-						if (v === 'all') {
-							delete filterValues.val.kind
-						} else {
-							filterValues.val.kind = v
-							subtab = v
-						}
-					}}
-				>
-					{#snippet children({ item })}
-						<ToggleButton value="all" label="All" size="md" {item} />
-						<ToggleButton value="script" icon={Code2} label="Scripts" size="md" {item} />
-						{#if HOME_SEARCH_SHOW_FLOW}
+<!-- The width of Home's column above it (the composer), so the page reads as one column. -->
+<CenteredPage wrapperClasses="w-full pb-6" class="max-w-[1120px] sm:px-8" handleOverflow={false}>
+	<!-- One card for the items section: its controls, its filters and its rows, the way the
+	     composer above is one box for the chat. The rows run edge to edge inside it. No
+	     `overflow-hidden` on it: the page scrolls, and that would stop the controls sticking. -->
+	<div class="flex flex-col">
+		<div
+			bind:clientHeight={toolbarHeight}
+			class="sticky top-0 z-10 bg-surface flex flex-wrap gap-2 items-center justify-between px-4 sm:-mx-4 py-3 shrink-0"
+			use:triggerableByAI={{
+				id: 'home-items-list',
+				description: 'Lists of scripts, flows, and apps'
+			}}
+		>
+			{#if !loading && !contentActive && !workspaceEmpty}
+				<!-- List controls, before the searchbar: list or tree, expand/collapse (tree only),
+			     sort. Nothing to group or order on an empty workspace, so the whole row goes. -->
+				<div class="flex items-center gap-2">
+					<ToggleButtonGroup
+						selected={treeView ? 'tree' : 'list'}
+						onSelected={(v) => (treeView = v === 'tree')}
+					>
+						{#snippet children({ item })}
 							<ToggleButton
-								value="flow"
-								label="Flows"
-								icon={FlowIcon}
-								selectedColor="#14b8a6"
-								size="md"
+								value="list"
+								icon={List}
+								label="List"
+								iconOnly
+								tooltip="List view"
+								size="sm"
 								{item}
 							/>
-						{/if}
-						<ToggleButton
-							value="app"
-							label="Apps"
-							icon={LayoutDashboard}
-							selectedColor="#fb923c"
-							size="md"
-							{item}
-						/>
-						<ToggleButton
-							value="agent"
-							label="Agents"
-							icon={Bot}
-							selectedColor="#8b5cf6"
-							size="md"
-							{item}
-						/>
-					{/snippet}
-				</ToggleButtonGroup>
-			</div>
-		{/if}
-
-		{#if !loading && !contentActive && !workspaceEmpty}
-			<!-- List controls, between the kind toggle and the searchbar: tree view,
-			     expand/collapse (tree only), sort. Nothing to group or order on an empty
-			     workspace, so the whole row goes. -->
-			<div class="flex items-center gap-2">
-				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
-				{#if treeView}
-					<Button
-						unifiedSize="sm"
-						variant="subtle"
-						on:click={() => (collapseAll = !collapseAll)}
-						startIcon={{ icon: collapseAll ? ChevronsUpDown : ChevronsDownUp }}
+							<ToggleButton
+								value="tree"
+								icon={ListTree}
+								label="Tree"
+								iconOnly
+								tooltip="Tree view"
+								size="sm"
+								{item}
+							/>
+						{/snippet}
+					</ToggleButtonGroup>
+					<!-- Icon only: the order's name is in the tooltip and the menu, so next to the
+					     search and the kind filter the list's own controls stay out of the way. -->
+					<DropdownV2
+						items={sortItems}
+						disabled={filter !== ''}
+						placement="bottom-start"
+						fixedHeight={false}
 					>
-						{#if collapseAll}
-							Expand all
-						{:else}
-							Collapse all
-						{/if}
-					</Button>
-				{/if}
-				<DropdownV2
-					items={sortItems}
-					disabled={filter !== ''}
-					placement="bottom-end"
-					fixedHeight={false}
-				>
-					{#snippet buttonReplacement()}
-						{@const active = sortOptions.find((o) => o.value === sortOrder)}
-						{@const short = filter !== '' ? '' : (active?.short ?? '')}
+						{#snippet buttonReplacement()}
+							{@const active = sortOptions.find((o) => o.value === sortOrder)}
+							<Button
+								nonCaptureEvent
+								disabled={filter !== ''}
+								iconOnly
+								unifiedSize="sm"
+								variant="default"
+								startIcon={{ icon: ArrowDownUp }}
+								title={filter !== ''
+									? 'Sorting is disabled while searching (results are ranked by relevance)'
+									: `Sort: ${active?.label ?? ''}`}
+							/>
+						{/snippet}
+					</DropdownV2>
+					{#if treeView}
 						<Button
-							nonCaptureEvent
-							disabled={filter !== ''}
-							iconOnly={short === ''}
-							unifiedSize="xs"
+							unifiedSize="sm"
 							variant="default"
-							startIcon={{ icon: ArrowDownUp }}
-							title={filter !== ''
-								? 'Sorting is disabled while searching (results are ranked by relevance)'
-								: `Sort: ${active?.label ?? ''}`}
-						>
-							{#if short !== ''}{short}{/if}
-						</Button>
-					{/snippet}
-				</DropdownV2>
-			</div>
-		{/if}
+							iconOnly
+							title={collapseAll ? 'Expand all' : 'Collapse all'}
+							on:click={() => (collapseAll = !collapseAll)}
+							startIcon={{ icon: collapseAll ? ChevronsUpDown : ChevronsDownUp }}
+						/>
+					{/if}
+				</div>
+			{/if}
 
-		<div class="flex grow items-center justify-end gap-2 min-w-0">
-			<div
-				class="relative text-primary w-full min-w-[200px] max-w-[26rem]"
-				class:opacity-40={placeholderTakesOver}
-				inert={toolbarInert}
-			>
-				<FilterSearchbar
-					schema={searchbarSchema}
-					bind:value={filterValues.val}
-					placeholder={HOME_SEARCH_PLACEHOLDER}
-					presets={contentActive ? [] : searchPresets}
-					autofocus
-					hideDropdownOnFreeText
-					inputId="home-search-input"
-					onDropdownVisibleChange={(v) => (searchbarDropdownOpen = v)}
-				/>
-			</div>
-			<!-- Same gate the old create actions used: hidden from operators and in workspaces
+			<!-- basis-64: the toolbar fits Home's column on one line; narrower, this group wraps
+		     under the heading as a whole. -->
+			<div class="flex grow basis-64 items-center justify-end gap-2 min-w-0">
+				<div
+					class="relative text-primary w-full min-w-[200px] max-w-[22rem]"
+					class:opacity-40={placeholderTakesOver}
+					inert={toolbarInert}
+				>
+					<FilterSearchbar
+						schema={searchbarSchema}
+						bind:value={filterValues.val}
+						placeholder={HOME_SEARCH_PLACEHOLDER}
+						presets={contentActive ? [] : searchPresets}
+						autofocus
+						hideDropdownOnFreeText
+						inputId="home-search-input"
+						onDropdownVisibleChange={(v) => (searchbarDropdownOpen = v)}
+					/>
+				</div>
+				{#if !contentActive}
+					<!-- Kept mounted, not hidden, so the toolbar doesn't reflow the moment the first
+				     item lands; `inert` takes it out of the tab order and off the pointer meanwhile.
+				     A workspace with nothing but archived items reaches them from its own
+				     placeholder, so this is not the way there — but only where that placeholder
+				     renders, which is what `placeholderTakesOver` tracks. -->
+					<div class="shrink-0" class:opacity-40={placeholderTakesOver} inert={toolbarInert}>
+						<DropdownV2 items={kindItems} placement="bottom-end" fixedHeight={false}>
+							{#snippet buttonReplacement()}
+								{@const active = kindOptions.find((o) => o.value === itemKind)}
+								<Button
+									nonCaptureEvent
+									unifiedSize="md"
+									variant="default"
+									title="Filter by kind"
+									startIcon={active?.icon ? { icon: active.icon } : undefined}
+									endIcon={{ icon: ChevronDown }}
+								>
+									{active?.label ?? 'All kinds'}
+								</Button>
+							{/snippet}
+						</DropdownV2>
+					</div>
+				{/if}
+				<!-- Same gate the old create actions used: hidden from operators and in workspaces
 			     whose direct-deploy protection cleared showEditButtons (NoDirectDeployAlert), since
 			     the menu itself does no permission check. -->
-			{#if canCreateHere}
-				<!-- No hub entry where the instance has the hub turned off: the same setting the
+				{#if canCreateHere}
+					<!-- No hub entry where the instance has the hub turned off: the same setting the
 				     script and flow hub pickers observe. Nor for a builder: a hub project brings
 				     scripts and apps along. -->
-				<CreateActionsMenu
-					onImportHubProject={$disableHubStore || !editRights.roleCanAuthor('script')
-						? undefined
-						: () => (hubPickerOpen = true)}
-				/>
-			{/if}
+					<CreateActionsMenu
+						onImportHubProject={$disableHubStore || !editRights.roleCanAuthor('script')
+							? undefined
+							: () => (hubPickerOpen = true)}
+					/>
+				{/if}
+			</div>
 		</div>
-	</div>
-	{#if !contentActive && hasChips}
-		<!-- Owner and label chips on one line. Each function binding routes the chip's
+		<!-- The chips scroll away with the rows; only the controls above stay. -->
+		{#if !contentActive && hasChips}
+			<!-- Owner and label chips on one line. Each function binding routes the chip's
 		     selection into the searchbar key of the same name, and `queryName` points
 		     ListFilters' own mount-time URL read at the param the filter instance syncs, so
 		     the two writers agree. No `syncQuery`: the filter instance owns the URL. -->
-		<div class="gap-2 w-full flex flex-wrap mt-3">
-			<ListFilters
-				inline
-				bind:selectedFilter={() => ownerFilter, setOwnerFilter}
-				filters={owners}
-				queryName="owner"
-				maxDisplayed={10}
-			/>
-			<ListFilters
-				inline
-				bind:selectedFilter={() => labelFilter, setLabelFilter}
-				filters={allLabels}
-				queryName="label"
-				maxDisplayed={10}
-				color="blue"
-				icon={Tag}
-			/>
-		</div>
-	{/if}
-	{#if filteredItems?.length == 0 && !workspaceEmpty}
-		<div class="mt-10"></div>
-	{/if}
-	<div class="mt-3">
-		{#if filterValues.val.content}
-			<!-- Content filter: swap the normal list/tree for the content-match view (the same one
+			<div
+				class="gap-x-2 gap-y-0.5 w-full flex flex-wrap px-4 sm:px-0 pb-3"
+				use:clampRows={{ rows: 2, expanded: chipsExpanded }}
+			>
+				<ListFilters
+					inline
+					bind:selectedFilter={() => ownerFilter, setOwnerFilter}
+					filters={owners}
+					color="subtle"
+					queryName="owner"
+				/>
+				<ListFilters
+					inline
+					bind:selectedFilter={() => labelFilter, setLabelFilter}
+					filters={allLabels}
+					queryName="label"
+					color="subtle"
+					icon={Tag}
+				/>
+				<div data-clamp-toggle hidden>
+					<LabelBadge
+						icon={chipsExpanded ? undefined : MoreHorizontal}
+						title={chipsExpanded ? 'Show fewer filters' : 'Show all filters'}
+						onclick={() => (chipsExpanded = !chipsExpanded)}
+					>
+						{#if chipsExpanded}Show less{/if}
+					</LabelBadge>
+				</div>
+			</div>
+			<!-- Its own element, not the chips' border: it stays under the controls once the chips
+			     have scrolled away. -->
+			<div class="sticky z-10 border-b" style:top="{toolbarHeight}px"></div>
+		{/if}
+		{#if filteredItems?.length == 0 && !workspaceEmpty}
+			<div class="mt-10"></div>
+		{/if}
+		<!-- Rows keep their own padding for the hover fill; pulled out by it, their content
+					     lines up with the controls above and the fill runs into the page's gutter. -->
+		<div class="sm:-mx-4">
+			{#if filterValues.val.content}
+				<!-- Content filter: swap the normal list/tree for the content-match view (the same one
 			     used by the Ctrl-K "Content" modal). It loads the workspace's scripts/flows/apps/
 			     resources and matches their contents client-side — usable on any instance. Keyed by
 			     workspace so a switch remounts a fresh instance and late in-flight responses from
 			     the previous workspace can't land in it. -->
-			<!-- -mx-2 cancels ContentSearchInner's own px-2 so its rows line up flush with the
-			     runnable list instead of sitting slightly inset. -->
-			<div class="-mx-2">
-				{#key $workspaceStore}
-					<ContentSearchInner bind:this={contentSearchEl} search={filterValues.val.content} />
-				{/key}
-			</div>
-		{:else if filteredItems == undefined || treeCountsPending}
-			<div class="mt-4"></div>
-			<Skeleton layout={[[2], 1]} />
-			{#each new Array(6) as _}
-				<Skeleton layout={[[4], 0.5]} />
-			{/each}
-		{:else if filteredItems.length === 0 && (filter !== '' || visiblePipelineFolders.size === 0)}
-			<!-- Pipelines aren't part of the text filter, so only fall through to show
+				<!-- px-1 plus ContentSearchInner's own px-2 lines its rows up with the card's
+				     controls above. -->
+				<div class="px-1 pb-2">
+					{#key $workspaceStore}
+						<ContentSearchInner bind:this={contentSearchEl} search={filterValues.val.content} />
+					{/key}
+				</div>
+			{:else if filteredItems == undefined || treeCountsPending}
+				<div class="px-4 pb-3">
+					<div class="mt-4"></div>
+					<Skeleton layout={[[2], 1]} />
+					{#each new Array(6) as _}
+						<Skeleton layout={[[4], 0.5]} />
+					{/each}
+				</div>
+			{:else if filteredItems.length === 0 && (filter !== '' || visiblePipelineFolders.size === 0)}
+				<div class="px-4 pb-3">
+					<!-- Pipelines aren't part of the text filter, so only fall through to show
 			     them (list rows / injected tree folders) when not actively searching;
 			     a no-match search still reads as empty. -->
-			{#if workspaceEmpty}
-				<!-- Held until the archived probe answers rather than drawn and swapped: the two
+					{#if workspaceEmpty}
+						<!-- Held until the archived probe answers rather than drawn and swapped: the two
 				     placeholders say different things, and showing the wrong one first says the
 				     workspace is empty when it is not. -->
-				{#if emptyStateAnswered}
-					{#if archivedProbe?.hasArchived || canCreateHere}
-						<!-- Shown to whoever has something to do here: the archived notice to
+						{#if emptyStateAnswered}
+							{#if archivedProbe?.hasArchived || canCreateHere}
+								<!-- Shown to whoever has something to do here: the archived notice to
 						     everyone, since reading archived items is not a write, and the create
 						     actions only to a user who may take them. -->
-						<WorkspaceEmptyState
-							archivedOnly={archivedProbe?.hasArchived === true}
-							canCreate={canCreateHere}
-							onPick={(project) => (hubPick = project)}
-							onShowArchived={() => (filterValues.val = { ...filterValues.val, archived: true })}
-						/>
+								<WorkspaceEmptyState
+									archivedOnly={archivedProbe?.hasArchived === true}
+									canCreate={canCreateHere}
+									onPick={(project) => (hubPick = project)}
+									onShowArchived={() =>
+										(filterValues.val = { ...filterValues.val, archived: true })}
+								/>
+							{:else}
+								<NoItemFound {activeFilters} />
+							{/if}
+						{/if}
 					{:else}
 						<NoItemFound {activeFilters} />
 					{/if}
-				{/if}
-			{:else}
-				<NoItemFound {activeFilters} />
-			{/if}
-			{#if hasMoreServer && !searching}
-				<!-- The active filter matched nothing on the loaded pages, but the server
+					{#if hasMoreServer && !searching}
+						<!-- The active filter matched nothing on the loaded pages, but the server
 				     has more: keep paging reachable so matches on later pages aren't lost. -->
-				<div class="text-center text-xs text-secondary mt-2">
-					<button class="text-primary hover:text-emphasis underline" onclick={fetchMoreServer}
-						>Load more to search further</button
-					>
+						<div class="text-center text-xs text-secondary mt-2">
+							<button class="text-primary hover:text-emphasis underline" onclick={fetchMoreServer}
+								>Load more to search further</button
+							>
+						</div>
+					{/if}
 				</div>
-			{/if}
-		{:else if treeView}
-			<!-- Remount the tree on a MODE change only (treeKey = view/owner/search/label):
+			{:else if treeView}
+				<!-- Remount the tree on a MODE change only (treeKey = view/owner/search/label):
 			     expanded folders (their `opened` state is local to each TreeView) collapse
 			     and re-load fresh for the new mode. An in-place order/archive/library/kind
 			     change keeps treeKey stable, so folders stay open and refresh via
 			     reloadItems instead (see loadOwnerItems). -->
-			{#key treeKey}
-				<TreeViewRoot
-					items={treeSource}
-					{collapseAll}
-					sortCompare={compareItems}
-					groupDesc={sortOrder === 'name_desc'}
-					hasMoreServer={treeGlobalHasMore}
-					onLoadMore={fetchMoreServer}
-					pipelineFolders={visiblePipelineFolders}
-					allFolders={treeInjectFolders}
-					allUsers={treeInjectUsers}
-					ownerCounts={!searching && labelFilter == undefined ? ownerCounts : undefined}
-					selfUsername={$userStore?.username}
-					groupOtherUsers={treeLazyMode}
-					ownerLoad={treeLazyMode ? ownerLoad : undefined}
-					onExpandOwner={treeLazyMode ? loadOwnerItems : undefined}
-					onCollapseOwner={treeLazyMode ? collapseOwner : undefined}
-					isSearching={filter !== ''}
-					on:scriptChanged={reloadItemsAndCounts}
-					on:flowChanged={reloadItemsAndCounts}
-					on:appChanged={reloadItemsAndCounts}
-					on:rawAppChanged={reloadItemsAndCounts}
-					on:reload={reloadItemsAndCounts}
-					{showCode}
-					showEditButton={showEditButtons}
-				/>
-			{/key}
-		{:else}
-			<div class="border rounded-md bg-surface-tertiary" class:wm-imported={justImported}>
-				{#if filter === ''}
-					{#each [...visiblePipelineFolders].sort() as folder (folder)}
-						<PipelineRow {folder} onDeleted={reloadItemsAndCounts} />
-					{/each}
-				{/if}
-				{#each displayedItems as item, i (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
-					<Item
-						{item}
+				{#key treeKey}
+					<TreeViewRoot
+						items={treeSource}
+						{collapseAll}
+						sortCompare={compareItems}
+						groupDesc={sortOrder === 'name_desc'}
+						hasMoreServer={treeGlobalHasMore}
+						onLoadMore={fetchMoreServer}
+						pipelineFolders={visiblePipelineFolders}
+						allFolders={treeInjectFolders}
+						allUsers={treeInjectUsers}
+						ownerCounts={!searching && labelFilter == undefined ? ownerCounts : undefined}
+						selfUsername={$userStore?.username}
+						groupOtherUsers={treeLazyMode}
+						ownerLoad={treeLazyMode ? ownerLoad : undefined}
+						onExpandOwner={treeLazyMode ? loadOwnerItems : undefined}
+						onCollapseOwner={treeLazyMode ? collapseOwner : undefined}
+						isSearching={filter !== ''}
 						on:scriptChanged={reloadItemsAndCounts}
 						on:flowChanged={reloadItemsAndCounts}
 						on:appChanged={reloadItemsAndCounts}
@@ -2069,45 +2108,68 @@
 						on:reload={reloadItemsAndCounts}
 						{showCode}
 						showEditButton={showEditButtons}
-						keyboardSelected={selectedIndex === i}
+						framed={false}
 					/>
-				{/each}
-			</div>
-			{#if items && hasMore}
-				<span class="text-xs font-normal text-secondary"
-					>{Math.min(nbDisplayed, items.length)} items{hasMoreServer && !searching
-						? ''
-						: ` out of ${items.length}`}
-					<button
-						bind:this={loadMoreEl}
-						class="ml-4 text-xs font-normal text-primary hover:text-emphasis rounded px-1 {selectedIndex ===
-						loadMoreIndex
-							? 'bg-gray-200 dark:bg-gray-700 underline'
-							: ''}"
-						onclick={loadMore}>load 30 more</button
-					></span
-				>
-			{/if}
-		{/if}
-		{#if searching && searchCursor}
-			<!-- The server has further search matches beyond the page already merged in;
-			     fetch them one page at a time on demand rather than auto-downloading a
-			     broad query's entire result set. -->
-			<div class="text-center text-xs text-secondary mt-2">
-				{#if searchLoadingMore}
-					Loading more results…
-				{:else}
-					<button class="text-primary hover:text-emphasis underline" onclick={loadMoreSearchResults}
-						>Load more results</button
+				{/key}
+			{:else}
+				<!-- No lines between rows: the card holds one list, and the row hover tells them apart. -->
+				<div data-unruled data-hover-actions class="rounded-b-md" class:wm-imported={justImported}>
+					{#if filter === ''}
+						{#each [...visiblePipelineFolders].sort() as folder (folder)}
+							<PipelineRow {folder} onDeleted={reloadItemsAndCounts} />
+						{/each}
+					{/if}
+					{#each displayedItems as item, i (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
+						<Item
+							{item}
+							on:scriptChanged={reloadItemsAndCounts}
+							on:flowChanged={reloadItemsAndCounts}
+							on:appChanged={reloadItemsAndCounts}
+							on:rawAppChanged={reloadItemsAndCounts}
+							on:reload={reloadItemsAndCounts}
+							{showCode}
+							showEditButton={showEditButtons}
+							keyboardSelected={selectedIndex === i}
+						/>
+					{/each}
+				</div>
+				{#if items && hasMore}
+					<span class="block px-4 py-2 border-t text-xs font-normal text-secondary"
+						>{Math.min(nbDisplayed, items.length)} items{hasMoreServer && !searching
+							? ''
+							: ` out of ${items.length}`}
+						<button
+							bind:this={loadMoreEl}
+							class="ml-4 text-xs font-normal text-primary hover:text-emphasis rounded px-1 {selectedIndex ===
+							loadMoreIndex
+								? 'bg-gray-200 dark:bg-gray-700 underline'
+								: ''}"
+							onclick={loadMore}>load 30 more</button
+						></span
 					>
 				{/if}
-			</div>
-		{/if}
-		{#if homeSelection.active}
-			<!-- The bar floats over the page bottom; without this the last rows sit
-			     under it with no way to scroll them clear. -->
-			<div class="h-20"></div>
-		{/if}
+			{/if}
+			{#if searching && searchCursor}
+				<!-- The server has further search matches beyond the page already merged in;
+			     fetch them one page at a time on demand rather than auto-downloading a
+			     broad query's entire result set. -->
+				<div class="text-center text-xs text-secondary py-2 border-t">
+					{#if searchLoadingMore}
+						Loading more results…
+					{:else}
+						<button
+							class="text-primary hover:text-emphasis underline"
+							onclick={loadMoreSearchResults}>Load more results</button
+						>
+					{/if}
+				</div>
+			{/if}
+			{#if homeSelection.active}
+				<!-- The bar floats over the list's bottom; without this the last rows sit
+				     under it with no way to scroll them clear. -->
+				<div class="h-20"></div>
+			{/if}
+		</div>
 	</div>
 </CenteredPage>
 

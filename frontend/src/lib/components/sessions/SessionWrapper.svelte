@@ -25,6 +25,7 @@
 		X
 	} from 'lucide-svelte'
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
+	import { arrivingFromHomeSend } from './homeSessionsTransition.svelte'
 	import SessionChangesBar from './SessionChangesBar.svelte'
 	import SessionShareButton from './SessionShareButton.svelte'
 	import { clearSessionRecovered, isSessionRecovered } from './sessionRecoveryNotice.svelte'
@@ -350,9 +351,6 @@
 				/>
 			</div>
 		{/if}
-		{#if !hasFirstUserMessage}
-			<SessionWorkspaceBar {session} />
-		{/if}
 		<!-- gap-1 (4px) spaces the archived banner and the changes bar when both
 		     are visible. Each renders a single in-flow root (or nothing); the diff
 		     drawer is position:fixed, so it doesn't count as a flex item — no stray
@@ -387,6 +385,10 @@
 				onDelete={() => (deleteConfirmOpen = true)}
 			/>
 		</div>
+	{/snippet}
+
+	{#snippet actingOn()}
+		<SessionWorkspaceBar {session} />
 	{/snippet}
 
 	{#snippet sessionHeader()}
@@ -494,13 +496,14 @@
 						starter={opensSession
 							? {
 									where: 'session',
-									prompts: starterPrompts.list,
-									chips: starterPrompts.chipsOffered
+									suggestions: starterPrompts.suggestions,
+									fewItems: starterPrompts.fewItems ?? false
 								}
 							: undefined}
-						viewTransitionNames={headerInPage}
+						viewTransitionNames={headerInPage && (opensSession || arrivingFromHomeSend())}
 						emptyHint={sessionEmptyHint}
 						{inputPreface}
+						actingOn={hasFirstUserMessage ? undefined : actingOn}
 					/>
 				</div>
 			</Pane>

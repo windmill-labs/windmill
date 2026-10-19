@@ -266,7 +266,8 @@
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			onclick={toggleOwner}
-			class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer"
+			data-list-row
+			class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer hover:bg-surface-hover"
 		>
 			<div
 				class={twMerge('flex flex-row items-center gap-4 text-sm font-semibold')}
@@ -350,6 +351,7 @@
 					{/each}
 					{#if effectiveMax < item.items.length}
 						<div
+							data-list-row
 							class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
 							style="padding-left: {(visualDepth + 1) * 16}px;"
 						>
@@ -387,6 +389,7 @@
 						     is the point: without them this reads as an optional extra rather than
 						     as rows still missing. -->
 							<div
+								data-list-row
 								class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
 								style="padding-left: {(visualDepth + 1) * 16}px;"
 							>

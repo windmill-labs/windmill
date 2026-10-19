@@ -69,11 +69,14 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { copilotInfo } from '$lib/aiStore'
 	import SessionGreeting from './starter/SessionGreeting.svelte'
-	import StarterPromptChips from './starter/StarterPromptChips.svelte'
+	import ComposerSuggestions from './starter/ComposerSuggestions.svelte'
 	import type { DraftAttachments } from './messageDraft.svelte'
-	import { RotatingPlaceholder, type ChatStarter } from './starter/starterPrompts.svelte'
+	import type { ChatStarter } from './starter/starterPrompts.svelte'
+	import { composerCollapses, isComposerOverlay } from './starter/composerCollapse'
+	import { smoothHeight } from './starter/smoothHeight'
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
+	const STARTER_PLACEHOLDER = 'Ask about this workspace, or describe what to build…'
 	const chatHost = getChatViewHost()
 	// The skill and MCP menus take an AIChatManager itself, which the seam deliberately
 	// doesn't carry. They render only under GLOBAL, which a non-copilot host never sets.
@@ -114,6 +117,7 @@
 		viewTransitionNames = false,
 		onSent = undefined,
 		inputPreface,
+		actingOn,
 		footerSettings,
 		initialInstructions = undefined,
 		onDraftChange = undefined,
@@ -151,14 +155,16 @@
 		 * both mount it, so the two are one entry point rather than look-alikes. Replaces
 		 * `emptyHint`. */
 		starter?: ChatStarter
-		/** Names the block for the view transition between Home and AI Sessions. Only one
-		 * chat on the page may carry the names: a duplicate makes the browser skip the
-		 * transition. Named only while the chat is empty: the glide carries Home's draft to
-		 * the same draft's page and back, and a session already under way just cross-fades. */
+		/** Names the composer for the view transition between Home and AI Sessions, so it
+		 * glides between its two places, a send from Home included: that lands it under the
+		 * session's first message. Only one chat on the page may carry the name: a duplicate
+		 * makes the browser skip the transition. */
 		viewTransitionNames?: boolean
 		/** After the composer hands a new turn to the host. */
 		onSent?: () => void
 		inputPreface?: Snippet
+		/** Where the session acts: first among the controls after the attach button. */
+		actingOn?: Snippet
 		/** The settings control at the footer's right edge, where the copilot puts its
 		 * model picker. A host that configures its turn elsewhere replaces it here. */
 		footerSettings?: Snippet
@@ -303,6 +309,14 @@
 	}
 
 	export function focusInput() {
+		aiChatInput?.focusInput()
+	}
+
+	/** Mention a workspace item in the draft, as "+" → Mention file does, and hand the user
+	 * the caret after it. Focusing is what opens Home's one-line composer. */
+	export async function attachContext(element: ContextElement) {
+		void aiChatInput?.addContextToSelection(element)
+		await aiChatInput?.insertMention(element.title)
 		aiChatInput?.focusInput()
 	}
 
@@ -571,21 +585,43 @@
 	// A step name hangs its icon in the column's left padding (see AssistantMessage), so a
 	// transcript carrying one widens the padding, on both sides to keep the column centred.
 	const agentGutter = $derived(messages.some((m) => m.role === 'assistant' && m.stepName))
-	// The block's layout holds while the chat is empty, usable or not; only the rotating
-	// placeholder, the taller box and the prompts need a composer that can send.
+	// The block's layout holds while the chat is empty, usable or not; only the taller box
+	// and the suggestions need a composer that can send.
 	const starterLayout = $derived(!!starter && messages.length === 0)
-	const starterHero = $derived(starterLayout && !disabled)
 	// Home is a page, not a pane: nothing there to centre in.
 	const centreComposer = $derived(starterLayout && starter?.where === 'session')
-	const starterPlaceholder = new RotatingPlaceholder(
-		() => (starter?.prompts ?? []).map((p) => p.prompt),
-		() => starterHero
-	)
 
+	// Home's composer at rest is one line. Focusing the field opens it; a press outside it or
+	// Escape puts it back, but only with nothing in the draft: leaving it open then means
+	// clearing the text later cannot fold it up under the caret. Opened by the field rather
+	// than any focus inside: the one-line row's model button would otherwise unmount under the
+	// menu it is opening.
+	let composerEl: HTMLDivElement | undefined = $state()
+	let composerOpened = $state(false)
+	const composerCollapsed = $derived(
+		composerCollapses({
+			onHome: starterLayout && starter?.where === 'home',
+			usable: !disabled,
+			fewItems: starter?.fewItems ?? false,
+			opened: composerOpened,
+			draftEmpty: aiChatInput?.isDraftEmpty() ?? true
+		})
+	)
+	function closeComposer() {
+		if (aiChatInput?.isDraftEmpty() ?? true) composerOpened = false
+	}
+	function onComposerPointerDown(e: PointerEvent) {
+		if (!composerOpened || composerEl?.contains(e.target as Node)) return
+		if (!isComposerOverlay(e.target)) closeComposer()
+	}
+
+	// Home's composer is one block of the page and takes the page's column as it is.
 	const columnClass = $derived(
-		wideLayout
-			? `w-full max-w-3xl mx-auto ${agentGutter ? 'px-8' : 'px-7'}`
-			: `w-full max-w-2xl mx-auto ${agentGutter ? 'px-8' : 'px-3'}`
+		starter?.where === 'home'
+			? 'w-full'
+			: wideLayout
+				? `w-full max-w-3xl mx-auto ${agentGutter ? 'px-8' : 'px-7'}`
+				: `w-full max-w-2xl mx-auto ${agentGutter ? 'px-8' : 'px-3'}`
 	)
 
 	const waitingForUserAction = $derived(chatHost.loading && !!pendingUserAction(messages))
@@ -641,6 +677,7 @@
 	const showFooterLeftControls = $derived(
 		!footerMessageShown &&
 			(canAttachFiles ||
+				!!actingOn ||
 				attachmentsOffReason !== undefined ||
 				showContextPicker ||
 				showAutonomyModeSelector ||
@@ -685,6 +722,8 @@
 		</Button>
 	</div>
 {/snippet}
+
+<svelte:document onpointerdown={onComposerPointerDown} />
 
 <!-- tabindex="-1": clicks on non-focusable chat content must move focus into
 the panel, or the Escape-to-stop focus check would wrongly reject them. -->
@@ -799,17 +838,16 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 	{/if}
 	{#if messages.length === 0}
 		{#if starter}
-			<!-- In a session the greeting rides on top of the centred composer instead of being
-			     centred with it: it takes the space above, the spacer after the composer the
-			     same below. -->
-			<div class={centreComposer ? 'flex-1 min-h-0 flex flex-col justify-end' : ''}>
-				<div
-					class={columnClass}
-					style:view-transition-name={viewTransitionNames ? 'session-heading' : undefined}
-				>
-					<SessionGreeting />
+			<!-- The greeting rides on top of the centred composer instead of being centred with
+			     it: it takes the space above, the spacer after the composer the same below. Home
+			     has none: there the composer is one control among the page's. -->
+			{#if centreComposer}
+				<div class="flex-1 min-h-0 flex flex-col justify-end">
+					<div class={columnClass}>
+						<SessionGreeting />
+					</div>
 				</div>
-			</div>
+			{/if}
 		{:else if emptyHint}
 			{@render emptyHint()}
 		{:else}
@@ -931,12 +969,26 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 
 	<!-- Same horizontal padding as the transcript above: the composer's edges line up with
 	     the messages rather than sitting closer to the panel edge. -->
+	<!-- The focus and key handlers take events bubbling from the field inside, which is the
+	     interactive element; the group itself is never focused. -->
+	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<div
 		data-session-composer
+		role="group"
+		aria-label="Message composer"
+		bind:this={composerEl}
 		class="relative {columnClass} pb-2"
-		style:view-transition-name={viewTransitionNames && starterLayout
-			? 'session-composer'
-			: undefined}
+		style:view-transition-name={viewTransitionNames ? 'composer' : undefined}
+		onfocusin={(e) => {
+			if (e.target instanceof HTMLTextAreaElement) composerOpened = true
+		}}
+		onkeydown={(e) => {
+			// A prevented Escape closed something inside first, such as the @-mention picker.
+			if (e.key !== 'Escape' || e.defaultPrevented) return
+			if (!composerOpened || starter?.where !== 'home') return
+			closeComposer()
+			if (aiChatInput?.isDraftEmpty() ?? true) (document.activeElement as HTMLElement)?.blur()
+		}}
 	>
 		{#if showFlowPendingActionControls}
 			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">
@@ -990,7 +1042,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				bind:this={aiChatInput}
 				bind:selectedContext
 				{availableContext}
-				{placeholder}
+				placeholder={starterLayout ? STARTER_PLACEHOLDER : placeholder}
 				{initialInstructions}
 				{onDraftChange}
 				{initialAttachments}
@@ -1000,9 +1052,15 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				{pendingQuestionToolCallId}
 				isFirstMessage={messages.length === 0}
 				hero={starterLayout}
-				fadingPlaceholder={starterHero ? starterPlaceholder : undefined}
+				collapsed={composerCollapsed}
+				chatIcon={starterLayout && starter?.where === 'home'}
 				{onSent}
 			>
+				{#snippet collapsedControls()}
+					{#if chatHost.supportsModelSettings}
+						<AIChatModelSettings promptSettings={false} />
+					{/if}
+				{/snippet}
 				{#snippet toolbar()}
 					<div
 						class="flex flex-row flex-wrap items-center gap-x-1.5 gap-y-1"
@@ -1197,6 +1255,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 										onchange={onFolderInputChange}
 									/>
 								{/if}
+								{@render actingOn?.()}
 								{#if showAutonomyModeSelector}
 									<AutonomyModePicker
 										mode={chatHost.autonomyMode}
@@ -1319,31 +1378,19 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				{/snippet}
 			</AIChatInput>
 		</div>
-		{#if starterLayout && starter}
-			{#if showFreeTierUsage}
-				<div
-					class="mt-2 flex flex-row items-center justify-end gap-1 text-2xs text-hint tabular-nums"
-				>
-					{freeTierUsedPct}% of free AI used ·
-					<Button
-						variant="subtle"
-						unifiedSize="2xs"
-						btnClasses="!text-2xs !text-hint !px-0 underline"
-						href="/workspace_settings?tab=ai"
-					>
-						Configure API key
-					</Button>
-				</div>
-			{/if}
-			{#if starter.chips && !disabled}
-				<div class="mt-3">
-					<StarterPromptChips
-						prompts={starter.prompts}
-						onPick={(prompt) => aiChatInput?.setText(prompt)}
-					/>
-				</div>
-			{/if}
-		{/if}
+		<!-- Opens and closes with the box, so the page under it slides rather than jumps. -->
+		<div use:smoothHeight={{ enabled: starterLayout, key: composerCollapsed }}>
+			<div>
+				{#if starterLayout && starter && !disabled && !composerCollapsed && starter.suggestions.length > 0}
+					<div class="pt-2">
+						<ComposerSuggestions
+							suggestions={starter.suggestions}
+							onPick={(prompt) => aiChatInput?.setText(prompt)}
+						/>
+					</div>
+				{/if}
+			</div>
+		</div>
 		{#if (chatHost.mode === AIMode.NAVIGATOR || chatHost.mode === AIMode.ASK) && suggestions.length > 0 && messages.filter((m) => m.role === 'user').length === 0 && !disabled}
 			<div class="px-2 mt-4">
 				<div class="flex flex-col gap-2">

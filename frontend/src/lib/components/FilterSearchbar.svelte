@@ -801,14 +801,18 @@
 	<div class="py-1 p-2 overflow-y-auto" onmousedown={(e) => e.stopPropagation()}>
 		{#if !currentTag || !schema[currentTag]}
 			{#if presets.length}
-				<div class="text-xs px-2 my-2 font-bold">Presets</div>
+				<div class="text-2xs uppercase tracking-wide font-semibold text-secondary px-2 my-2">
+					Presets
+				</div>
 				<div class="mb-3 px-2 flex gap-2 flex-wrap max-h-24 overflow-y-auto">
 					{#each presets as preset}
 						{@render presetTag(preset)}
 					{/each}
 				</div>
 			{/if}
-			<div class="text-xs px-2 my-2 font-bold">Filters</div>
+			<div class="text-2xs uppercase tracking-wide font-semibold text-secondary px-2 my-2">
+				Filters
+			</div>
 			{#each menuItems as item, index}
 				{#if item.type === 'filter' && item.filterSchema}
 					{@render menuItem({
@@ -947,18 +951,18 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div
 		class={twMerge(
-			'py-1.5 px-2 rounded-md hover:bg-surface-hover cursor-pointer text-sm flex items-center gap-3',
+			'py-1.5 px-2 rounded-md hover:bg-surface-hover cursor-pointer text-xs text-primary flex items-center gap-2',
 			highlighted && 'bg-surface-hover'
 		)}
 		onclick={onClick}
 	>
 		{#if Icon}
-			<Icon size={16} class="inline" />
+			<Icon size={14} class="inline shrink-0" />
 		{/if}
 		<div class="inline flex-1 relative min-w-0">
-			<div class="text-sm ellipsize">{label}</div>
+			<div class="ellipsize">{label}</div>
 			{#if description}
-				<div class="text-xs text-hint">{description}</div>
+				<div class="text-2xs text-hint">{description}</div>
 			{/if}
 		</div>
 		{#if onNegativeClick}

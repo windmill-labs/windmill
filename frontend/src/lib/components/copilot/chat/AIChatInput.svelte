@@ -17,8 +17,9 @@
 
 	// The send button sits in the toolbar row, not over the field, so the text needs no
 	// room reserved on its right, and the row right below it stands in for most of its
-	// bottom padding.
-	const FIELD_PADDING_WITH_TOOLBAR = '!pr-3 !pb-1'
+	// bottom padding. The top padding is the one-line row's, so the text holds still as Home's
+	// composer opens.
+	const FIELD_PADDING_WITH_TOOLBAR = '!pl-4 !pr-4 !pt-3 !pb-1'
 	import { formatMention, hasMention, removeMentionFromText } from './mention'
 	import { twMerge } from 'tailwind-merge'
 	import { tick, untrack, type Snippet } from 'svelte'
@@ -108,7 +109,12 @@
 		 * the controls sit under the box and the send button floats over the field's corner, as a
 		 * chat under way reads more clearly. */
 		hero?: boolean
-		fadingPlaceholder?: { text: string; visible: boolean }
+		/** With `hero`: one row, the field then `collapsedControls` and the send button, in
+		 * place of the toolbar. */
+		collapsed?: boolean
+		collapsedControls?: Snippet
+		/** A chat mark before the field, where the box alone doesn't say it is the assistant's. */
+		chatIcon?: boolean
 		/** After a new turn is handed to the host — not an edit, a queued message or an answer. */
 		onSent?: () => void
 		/** The composer's controls. */
@@ -142,9 +148,12 @@
 		onSent = undefined,
 		toolbar = undefined,
 		hero = false,
-		fadingPlaceholder = undefined
+		collapsed = false,
+		collapsedControls = undefined,
+		chatIcon = false
 	}: Props = $props()
 
+	const oneLine = $derived(hero && collapsed)
 	const toolbarInBox = $derived(!!toolbar && hero)
 
 	// GLOBAL-mode suggestion pool. We pick one at mount-time so each new
@@ -660,10 +669,12 @@
 	 * auto-remove items when the user deletes them. No-op when the same
 	 * standalone mention is already present, so picking the same item
 	 * again doesn't leave duplicate tokens. */
-	export function insertMention(title: string) {
+	/** Resolves once the caret sits after the mention, so mentions inserted one after another
+	 * land in that order. */
+	export async function insertMention(title: string) {
 		if (hasMention(draft.text, title)) return
 		if (contextTextareaComponent) {
-			void contextTextareaComponent.insertMention(title)
+			await contextTextareaComponent.insertMention(title)
 			return
 		}
 		const sep = draft.text.length === 0 || /\s$/.test(draft.text) ? '' : ' '
@@ -688,6 +699,11 @@
 	export function setText(text: string) {
 		draft.text = text
 		focusInput()
+	}
+
+	/** Whether nothing would ship with a send: no text and no attachment. */
+	export function isDraftEmpty(): boolean {
+		return draft.isEmpty
 	}
 
 	export function focusInput() {
@@ -1263,10 +1279,15 @@
 </script>
 
 {#snippet toolbarRow()}
-	{#if toolbarInBox}
+	{#if oneLine}
+		<div class="flex flex-row items-center gap-1 pr-3 shrink-0">
+			{@render collapsedControls?.()}
+			{@render sendStopButton('sm')}
+		</div>
+	{:else if toolbarInBox}
 		<!-- The send button sets the row's height and the smaller controls centre on it, which
 		     already puts them a few pixels further from the box's bottom edge than the padding. -->
-		<div class="flex flex-row items-center gap-1.5 px-1.5 pb-1">
+		<div class="flex flex-row items-center gap-1.5 px-3 pb-1.5">
 			<div class="flex-1 min-w-0">{@render toolbar?.()}</div>
 			{@render sendStopButton('sm')}
 		</div>
@@ -1471,9 +1492,8 @@
 				{selectedContext}
 				placeholder={modePlaceholder}
 				hero={hero && !disabled}
-				fadingPlaceholder={isFirstMessage && !chatHost.runHeldElsewhere
-					? fadingPlaceholder
-					: undefined}
+				{oneLine}
+				{chatIcon}
 				onAddContext={(contextElement) => void addContextToSelection(contextElement)}
 				onRemoveContext={(element) => {
 					selectedContext = selectedContext?.filter((c) => !isSameContextElement(c, element))
@@ -1486,7 +1506,10 @@
 				}}
 				{disabled}
 				{onKeyDown}
-				className={toolbarInBox ? FIELD_PADDING_WITH_TOOLBAR : ''}
+				className={twMerge(
+					oneLine ? '!pl-4 !pr-2 !py-3' : toolbarInBox ? FIELD_PADDING_WITH_TOOLBAR : '',
+					chatIcon && '!pl-2'
+				)}
 			>
 				{#snippet leading()}
 					{@render badgeRow()}

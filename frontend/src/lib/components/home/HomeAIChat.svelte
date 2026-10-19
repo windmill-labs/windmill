@@ -11,7 +11,7 @@
 </script>
 
 <script lang="ts">
-	import { ExternalLink, Globe2, PlugZap, WandSparkles } from 'lucide-svelte'
+	import { ExternalLink, Globe2, PinOff, PlugZap, WandSparkles } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import CloseButton from '../common/CloseButton.svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
@@ -30,6 +30,7 @@
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
+	import { prefetchItemCount } from '../copilot/chat/starter/starterPrompts.svelte'
 
 	const COLLAPSED_SETTING = 'home-ai-composer-collapsed'
 
@@ -42,20 +43,21 @@
 
 	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)
 
-	// How much of the home page this reader wants the composer to take, so it lives per browser
-	// rather than per workspace or account.
-	let collapsed = $state(BROWSER && getLocalSetting(COLLAPSED_SETTING) === 'true')
-	function setCollapsed(next: boolean) {
-		collapsed = next
+	// Whether this reader wants the composer on the home page at all, so it lives per browser
+	// rather than per workspace or account. The setting's name predates the composer's own
+	// one-line state, which is unrelated.
+	let removed = $state(BROWSER && getLocalSetting(COLLAPSED_SETTING) === 'true')
+	function setRemoved(next: boolean) {
+		removed = next
 		storeLocalSetting(COLLAPSED_SETTING, next ? 'true' : undefined)
 	}
 
 	// Removing puts the composer away rather than throwing it out, and the way back is one item in
 	// the band's menu — so the ellipsis flashes as it appears, in a corner nobody is watching while
-	// the hero collapses in the middle of the page.
+	// the composer leaves the page.
 	//
-	// A keyframe animation, not a transition: this mounts in the same flush that collapses the
-	// hero, so the frame that would paint it at rest is the frame it is already told to leave, and
+	// A keyframe animation, not a transition: this mounts in the same flush that removes the
+	// composer, so the frame that would paint it at rest is the frame it is already told to leave, and
 	// one `requestAnimationFrame` is not reliably past that paint. The flash then goes straight to
 	// invisible without ever being drawn. Mounted only while pulsing, so each removal replays it.
 	const PULSE_MS = 1000
@@ -65,7 +67,7 @@
 
 	function removeComposer() {
 		logFeatureUsage('home', 'ai_hero_remove', { key: 'close' })
-		setCollapsed(true)
+		setRemoved(true)
 		if (reducedMotion.val) return
 		clearTimeout(pulseEndTimer)
 		pulsing = true
@@ -90,7 +92,10 @@
 	let shownForRoot = $state<string>()
 
 	let HomeSessionStarter = $state(loadedStarter)
-	if (!HomeSessionStarter) void loadStarter().then((c) => (HomeSessionStarter = c))
+	if (!loadedStarter) void loadStarter().then((c) => (HomeSessionStarter = c))
+	// The starter waits on the workspace's item count before it mounts; asked alongside its code
+	// rather than once the code has loaded, it is no extra wait.
+	if ($workspaceStore) prefetchItemCount($workspaceStore)
 
 	// Whether Home's own workspace hides the assistant, read for that workspace directly: the
 	// shared copilot config follows whichever workspace loaded last, and once the block shows
@@ -119,19 +124,21 @@
 		prefersSessionHandoff($userStore?.operator) && !runOnlyWorkspace && !homeAiHidden.current
 	)
 
-	// The hero's margins and centered column are for the full block. The lone button row left
-	// by a collapsed, opted-out, run-only or hidden-assistant view is a hint line and should
-	// cost the page almost nothing: no top margin, and the content column's full width so it
-	// hugs the right edge instead of floating centered in empty space.
-	let hero = $derived(showComposer && !collapsed)
-	let outerSpacing = $derived(hero ? 'mt-20 mb-16' : 'mt-0 mb-1')
+	let hero = $derived(showComposer && !removed)
 </script>
 
-<div class="w-full flex justify-center {outerSpacing}">
-	<div class="{hero ? 'max-w-3xl' : ''} grow relative group">
+<div class="w-full {hero ? 'mt-2' : 'mb-1'}">
+	<div class="relative group/composer">
 		{#if hero}
-			<div class="absolute right-0 top-0 z-20">
-				<CloseButton small noBg title="Remove session chat" onClick={removeComposer} />
+			<!-- In the page's side padding, clear of the composer's own controls at its right end,
+			     and centred on the composer's first row: the one-line box's middle, and where that
+			     row stays once the box opens downward. Shown on hover only where there is hover
+			     (from the `sm` width up); the container starts at the composer's edge so the
+			     pointer reaches the cross without leaving the hovered zone. -->
+			<div
+				class="absolute right-0 -top-6 sm:top-4 sm:right-auto sm:left-full sm:pl-1 z-20 transition-opacity sm:opacity-0 sm:group-hover/composer:opacity-100 sm:focus-within:opacity-100"
+			>
+				<CloseButton small noBg Icon={PinOff} title="Unpin from Home" onClick={removeComposer} />
 			</div>
 			<!-- The block is a session's chat, so it waits for the sessions it might reuse. Keyed on
 			     the workspace family, not the workspace: another family needs its own draft, but a
@@ -192,7 +199,7 @@
 		<!-- No menu while the hero is on the page and its side trips are in the bar: the hero's own
 		     cross removes it, so an ellipsis holding a second way to do that is a button whose only
 		     item is a duplicate. -->
-		{#if !sideTripsInBar || (showComposer && collapsed)}
+		{#if !sideTripsInBar || (showComposer && removed)}
 			<!-- The flash rides the ellipsis itself, not the row: with the side trips beside it the
 			     row is three controls wide, and marking all three names none of them. -->
 			<span class="relative inline-flex">
@@ -209,14 +216,14 @@
 					placement="bottom-end"
 					size="sm"
 					items={[
-						...(showComposer && collapsed
+						...(showComposer && removed
 							? [
 									{
 										displayName: 'Pin session hero to homepage',
 										icon: WandSparkles,
 										action: () => {
 											logFeatureUsage('home', 'ai_hero_pin')
-											setCollapsed(false)
+											setRemoved(false)
 										}
 									}
 								]

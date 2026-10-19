@@ -177,6 +177,7 @@
      with its sibling folder at the same depth. -->
 <div
 	bind:this={rowEl}
+	data-list-row
 	data-row-selection-key={rowSelection?.key}
 	data-row-keyboard-selected={keyboardSelected ? 'true' : undefined}
 	class={twMerge(
@@ -255,20 +256,12 @@
 	{/if}
 
 	{#if badges}
-		<div class="hidden lg:flex flex-row gap-4 items-center">
+		<div class="hidden lg:flex shrink-0 flex-row gap-4 items-center">
 			{@render badges?.()}
 		</div>
 	{/if}
 
-	{#if canFavorite && (kind == 'app' || kind == 'raw_app' || kind == 'script' || kind == 'flow' || kind == 'agent')}
-		<div class="center-center h-full text-xs font-semibold text-secondary w-9 shrink-0">
-			<Star {kind} {path} {workspaceId} {summary} />
-		</div>
-	{:else}
-		<div class="w-9 shrink-0"></div>
-	{/if}
-
-	<div data-row-actions class="flex gap-1 items-center justify-end pr-2">
+	<div data-row-actions class="flex shrink-0 items-center justify-end">
 		{@render actions?.()}
 	</div>
 </div>
@@ -280,7 +273,7 @@
 		</div>
 	{/if}
 	<div class="grow min-w-0">
-		<div class="text-emphasis flex items-center gap-2 text-left text-xs font-semibold">
+		<div class="text-emphasis flex items-center gap-1.5 text-left text-xs font-semibold">
 			{#if customSummary}
 				<div class="min-w-0">{@render customSummary()}</div>
 			{:else}
@@ -294,6 +287,18 @@
 			{/if}
 			{#if titleBadge}
 				<span class="shrink-0">{@render titleBadge()}</span>
+			{/if}
+			{#if canFavorite && (kind == 'app' || kind == 'raw_app' || kind == 'script' || kind == 'flow' || kind == 'agent')}
+				<!-- Beside the title it marks: a star already set stays, an unset one shows on the
+				     row's hover only, so a list of titles doesn't read as a column of outlines. -->
+				<Star
+					{kind}
+					{path}
+					{workspaceId}
+					{summary}
+					size={13}
+					class="inline-flex shrink-0 p-px text-yellow-500 invisible data-[starred]:visible group-hover/row:visible focus-visible:visible"
+				/>
 			{/if}
 		</div>
 		<div class="text-hint text-3xs truncate text-left font-normal" title={path}>
