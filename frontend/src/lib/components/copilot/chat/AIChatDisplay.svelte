@@ -53,6 +53,7 @@
 	import ToolGroupDisplay from './ToolGroupDisplay.svelte'
 	import { chatItemKey, groupToolRuns } from './toolGroups'
 	import AIChatInput from './AIChatInput.svelte'
+	import type { ComposerSelection } from './composerBox'
 	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import QueuedMessageChip from './QueuedMessageChip.svelte'
 	import JobsSegment from './JobsSegment.svelte'
@@ -357,8 +358,8 @@
 		chatHost.sendRequest({ instructions: suggestion })
 	}
 
-	export function focusInput() {
-		aiChatInput?.focusInput()
+	export function focusInput(selection?: ComposerSelection) {
+		aiChatInput?.focusInput(selection)
 	}
 
 	$effect(() => {

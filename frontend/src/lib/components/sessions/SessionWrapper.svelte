@@ -1,7 +1,23 @@
+<script module lang="ts">
+	import { preloadComponent } from '$lib/utils/preloadComponent.svelte'
+
+	// AIChat's code is most of this page's: loaded beside it rather than as part of it, so the
+	// page and its ComposerPlaceholder show without waiting on it.
+	const aiChatComponent = preloadComponent(
+		() => import('$lib/components/copilot/chat/AIChat.svelte')
+	)
+</script>
+
 <script lang="ts">
 	import { onDestroy, setContext, untrack } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import AIChat from '$lib/components/copilot/chat/AIChat.svelte'
+	import type AIChat from '$lib/components/copilot/chat/AIChat.svelte'
+	import ComposerPlaceholder from '$lib/components/copilot/chat/ComposerPlaceholder.svelte'
+	import {
+		globalComposerSuggestion,
+		type ComposerSelection
+	} from '$lib/components/copilot/chat/composerBox'
+	import { useSessionPermissions } from './sessionPermissions.svelte'
 	import EditableInput from '$lib/components/common/EditableInput.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { Button } from '$lib/components/common'
@@ -13,7 +29,7 @@
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { copilotInfo } from '$lib/aiStore'
+	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import {
 		Archive,
@@ -54,11 +70,14 @@
 
 	let {
 		sessionId,
-		headerInPage = false
+		headerInPage = false,
+		covered = false
 	}: {
 		sessionId: string
 		/** True for the session the page is showing: its header rides the page header bar. */
 		headerInPage?: boolean
+		/** True while the page holds this wrapper inert under an overlay, where nothing takes focus. */
+		covered?: boolean
 	} = $props()
 
 	// Parent keys by sessionId; this wrapper only mounts when the session exists.
@@ -84,6 +103,19 @@
 	// page is only keeping warm in the background — still gets a composer, whose
 	// mount-time empty draft would otherwise erase the prompt from the record.
 	const armedAtInit = sessionState.currentSessionId === sessionId && peekSessionAutoSend(sessionId)
+
+	// The composer's text before AIChat mounts, typed into the placeholder, and then the real
+	// composer's initial draft.
+	let draftText = $state(armedAtInit ? '' : (restoredDraftPrompt ?? ''))
+	// The placeholder's caret while it has focus, given to the real composer when it mounts.
+	let handoffSelection: ComposerSelection | undefined = undefined
+
+	// Drawn once, and shared by the placeholder and the real composer so the text survives the swap.
+	const suggestionPick = Math.random()
+	const permissions = useSessionPermissions(() => runtime?.manager.operatingWorkspace)
+	const composerPlaceholder = $derived(
+		globalComposerSuggestion(suggestionPick, permissions.canOpenEditor)
+	)
 
 	// A hand-off whose click already stated the intent asks for its prompt to be
 	// sent, not parked. Reactive rather than mount-time: `createSession` reuses an
@@ -268,7 +300,21 @@
 		if (!aiChat) return
 		if (!$copilotInfo.enabled) return
 		const chat = aiChat
-		setTimeout(() => chat.focusInput(), 0)
+		const selection = handoffSelection
+		handoffSelection = undefined
+		setTimeout(() => chat.focusInput(selection), 0)
+	})
+
+	// The real composer is disabled until the copilot config of the workspace it acts on is in,
+	// so the active session keeps the placeholder, which takes typing, until then. Latched: a
+	// later config reload must not swap a mounted chat, and its transcript, back out.
+	let chatShown = false
+	const showChat = $derived.by(() => {
+		chatShown ||=
+			!!aiChatComponent.current &&
+			(sessionState.currentSessionId !== sessionId ||
+				$copilotWorkspace === (actingWorkspaceId ?? $workspaceStore))
+		return chatShown
 	})
 
 	// True when the session committed to a workspace that's no longer in
@@ -464,22 +510,52 @@
 		<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
 			<Pane minSize={25} class="flex flex-col min-h-0 pb-2">
 				<div class="flex-1 min-h-0 w-full flex flex-col {hasFirstUserMessage ? '' : 'pt-8'}">
-					<AIChat
-						bind:this={aiChat}
-						hideHeader
-						hideModeSelector
-						wideLayout
-						initialInstructions={armedAtInit ? undefined : restoredDraftPrompt}
-						onDraftChange={(text) => setSessionDraftPrompt(sessionId, text)}
-						forceDisabled={isUnavailable || !!session.archived}
-						forceDisabledMessage={isUnavailable
-							? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'
-							: session.archived
-								? 'This session is archived. Unarchive it from the banner above to keep working.'
-								: ''}
-						emptyHint={sessionEmptyHint}
-						{inputPreface}
-					/>
+					{#if showChat && aiChatComponent.current}
+						<aiChatComponent.current
+							bind:this={aiChat}
+							hideHeader
+							hideModeSelector
+							wideLayout
+							initialInstructions={draftText}
+							onDraftChange={(text) => setSessionDraftPrompt(sessionId, text)}
+							placeholder={composerPlaceholder}
+							forceDisabled={isUnavailable || !!session.archived}
+							forceDisabledMessage={isUnavailable
+								? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'
+								: session.archived
+									? 'This session is archived. Unarchive it from the banner above to keep working.'
+									: ''}
+							emptyHint={sessionEmptyHint}
+							{inputPreface}
+						/>
+					{:else}
+						<!-- AIChatDisplay's layout, so the composer stays put when the chat replaces it:
+						     its transcript area, its column, and its footer row's height. -->
+						<div class="flex flex-col h-full">
+							{#if runtime.manager.displayMessages.length > 0}
+								<div class="flex-1 min-h-0"></div>
+							{/if}
+							<div class="w-full max-w-3xl mx-auto px-7 pb-2">
+								{@render inputPreface()}
+								<ComposerPlaceholder
+									bind:value={
+										() => draftText,
+										(text) => {
+											draftText = text
+											setSessionDraftPrompt(sessionId, text)
+										}
+									}
+									placeholder={runtime.manager.displayMessages.length > 0
+										? 'Ask followup'
+										: composerPlaceholder}
+									disabled={isUnavailable || !!session.archived}
+									autofocus={sessionState.currentSessionId === sessionId && !covered}
+									onSelectionChange={(selection) => (handoffSelection = selection)}
+								/>
+								<div class="mt-1 h-5"></div>
+							</div>
+						</div>
+					{/if}
 				</div>
 			</Pane>
 		</Splitpanes>

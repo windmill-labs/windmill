@@ -10,6 +10,7 @@
 	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './script/core'
 	import { copilotInfo } from '$lib/aiStore'
+	import type { ComposerSelection } from './composerBox'
 
 	let {
 		hideHeader = false,
@@ -20,7 +21,8 @@
 		emptyHint,
 		inputPreface,
 		initialInstructions = undefined,
-		onDraftChange = undefined
+		onDraftChange = undefined,
+		placeholder = undefined
 	}: {
 		hideHeader?: boolean
 		hideModeSelector?: boolean
@@ -39,6 +41,8 @@
 		// Seed / observe the composer's draft text (forwarded to AIChatDisplay).
 		initialInstructions?: string
 		onDraftChange?: (text: string) => void
+		/** Composer placeholder for the first message. Falls back to the per-AI-mode wording. */
+		placeholder?: string
 	} = $props()
 
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
@@ -106,8 +110,8 @@
 		aiChatManager.sendRequest(options)
 	}
 
-	export function focusInput() {
-		aiChatDisplay?.focusInput()
+	export function focusInput(selection?: ComposerSelection) {
+		aiChatDisplay?.focusInput(selection)
 	}
 
 	const historyManager = aiChatManager.historyManager
@@ -201,4 +205,5 @@
 	{inputPreface}
 	{initialInstructions}
 	{onDraftChange}
+	{placeholder}
 ></AIChatDisplay>
