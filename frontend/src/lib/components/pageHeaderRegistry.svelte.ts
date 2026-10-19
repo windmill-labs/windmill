@@ -1,5 +1,6 @@
 import type { Snippet } from 'svelte'
 import type { WorkspaceItemKind } from './workspacePicker'
+import type { OpenInSessionSource } from './sessions/OpenInSessionButton.svelte'
 
 /** An item the page is working on: the breadcrumb walks its path and ends with its summary. */
 export type PageHeaderItem = {
@@ -41,6 +42,9 @@ export type PageHeaderContent = {
 	section?: PageHeaderSection
 	/** Rendered at the right end of the bar — the page's own buttons. */
 	actions?: Snippet
+	/** What "Open in AI session" takes this page to. The bar draws that button itself, last in
+	 *  the row, so it sits in the same corner on every page; a page never puts one in `actions`. */
+	sessionSource?: OpenInSessionSource
 	/** Orders these buttons among the other registrations', ascending; registration order breaks a
 	 *  tie. For a menu that must stay at the far end however many pages register before it. */
 	actionsOrder?: number
@@ -198,6 +202,15 @@ export const pageHeader = {
 					: []
 			})
 			.sort((a, b) => a.order - b.order || a.i - b.i)
+	},
+	/** The innermost registration's session source, with the contexts that registration named: the
+	 *  button asks them who the acting user is before offering the hand-off. */
+	get session(): { source: OpenInSessionSource; contexts?: Map<any, any> } | undefined {
+		for (let i = entries.length - 1; i >= 0; i--) {
+			const c = read(entries[i])
+			if (c?.sessionSource) return { source: c.sessionSource, contexts: c.contexts }
+		}
+		return undefined
 	},
 	/** Width of the bar in px, or 0 before it has been measured. */
 	get barWidth(): number {

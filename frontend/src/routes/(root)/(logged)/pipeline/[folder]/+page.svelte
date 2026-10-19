@@ -3,6 +3,7 @@
 	import { workspaceStore, userStore } from '$lib/stores'
 	import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { page } from '$app/state'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -38,10 +39,7 @@
 		mergeColumnGraphs
 	} from '$lib/components/assets/AssetGraph/columnLineageGraph'
 	import { useDbtColumnLineage } from '$lib/components/assets/AssetGraph/dbtColumnLineage.svelte'
-	import {
-		pipelineNodeErrors,
-		resolveGraph
-	} from '$lib/components/assets/AssetGraph/resolveGraph'
+	import { pipelineNodeErrors, resolveGraph } from '$lib/components/assets/AssetGraph/resolveGraph'
 	import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 	import { hideDbtRunnables } from '$lib/components/assets/AssetGraph/hideDbtRunnables'
 	import { usePipelineDataUploads } from '$lib/components/assets/AssetGraph/pipelineDataUploads.svelte'
@@ -81,9 +79,7 @@
 		createPipelineAiHelpers,
 		type PipelineDraft
 	} from '$lib/components/assets/AssetGraph/pipelineAiHelpers'
-	import {
-		PipelineEditorState
-	} from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
+	import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
 	import {
 		defaultTriggerPath,
 		isDraftableTriggerKind,
@@ -118,9 +114,7 @@
 	import PipelineDeployTriggersModal from '$lib/components/assets/AssetGraph/PipelineDeployTriggersModal.svelte'
 	import { onMount, tick, untrack } from 'svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
-	import OpenInSessionButton, {
-		type OpenInSessionSource
-	} from '$lib/components/sessions/OpenInSessionButton.svelte'
+	import type { OpenInSessionSource } from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { setOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import {
@@ -1102,9 +1096,7 @@
 		}
 	}
 	async function removeScript(script: { path: string }, ws: string) {
-		const deployed = graphRes.current?.runnables.some(
-			(r) => r.path === script.path && !r.unsaved
-		)
+		const deployed = graphRes.current?.runnables.some((r) => r.path === script.path && !r.unsaved)
 		if (deployed) {
 			if (canHardDeleteScripts) {
 				await ScriptService.deleteScriptByPath({ workspace: ws, path: script.path })
@@ -1141,9 +1133,7 @@
 		const draft = pe.drafts.get(path)
 		let script: Script
 		try {
-			script = draft
-				? draft.script
-				: await ScriptService.getScriptByPath({ workspace: ws, path })
+			script = draft ? draft.script : await ScriptService.getScriptByPath({ workspace: ws, path })
 		} catch (e: any) {
 			sendUserToast(`Could not open ${path}: ${e?.body ?? e?.message ?? String(e)}`, true)
 			return false
@@ -1218,9 +1208,7 @@
 				explainer: [
 					'Runs after each write to ',
 					// Not drawn when only this subscription names it: nothing to select.
-					shownGraph.edges.some(
-						(e) => e.asset_kind === asset.kind && e.asset_path === asset.path
-					)
+					shownGraph.edges.some((e) => e.asset_kind === asset.kind && e.asset_path === asset.path)
 						? assetLink(asset)
 						: asset.path,
 					', but nothing writes it, so it never runs.'
@@ -1280,7 +1268,12 @@
 									'Added a schedule'
 								)
 								if (!ok) return
-								if (!pe.setTriggerDraft({ kind: 'schedule', config: { ...schedule, script_path: path } })) {
+								if (
+									!pe.setTriggerDraft({
+										kind: 'schedule',
+										config: { ...schedule, script_path: path }
+									})
+								) {
 									sendUserToast(
 										`Another draft schedule already uses the path ${schedule.path}; ${path} has no schedule yet`,
 										true
@@ -1297,9 +1290,7 @@
 					},
 					{
 						label: unsaved ? 'Discard it' : 'Remove it',
-						detail: unsaved
-							? 'Drops the draft.'
-							: 'Opens its archive or delete confirmation.',
+						detail: unsaved ? 'Drops the draft.' : 'Opens its archive or delete confirmation.',
 						run: async () => {
 							if (mode !== 'edit') await setMode('edit')
 							// The pane takes the remove request only once it is open on the
@@ -1559,8 +1550,7 @@
 		new Set(
 			shownGraph.edges
 				.filter(
-					(e) =>
-						e.runnable_kind === 'script' && (e.access_type === 'w' || e.access_type === 'rw')
+					(e) => e.runnable_kind === 'script' && (e.access_type === 'w' || e.access_type === 'rw')
 				)
 				.map((e) => `${e.asset_kind}:${e.asset_path}`)
 		)
@@ -1887,8 +1877,44 @@
 	// overflow (⋮) menu so the bar stays legible on small screens; only primary
 	// actions stay inline. Recording lives here rather than on the bar at all
 	// times — while armed it surfaces a compact inline pill (below) instead.
+	// The bar folds the actions (`actionFolds` below) once its breadcrumb has given all it can,
+	// moving them into the ⋮ menu rather than dropping their labels: first the view helpers, then
+	// the run and the drafts overlay. The mode toggle and Save all stay on the bar.
+	const viewHelpersInMenu = $derived(pageHeader.actionFold >= 1)
+	const runInMenu = $derived(pageHeader.actionFold >= 2)
+
 	let overflowMenuItems = $derived.by<Item[]>(() => {
 		const items: Item[] = []
+		if (runInMenu && !isOperator && allPipelineScripts.length > 0) {
+			items.push({
+				displayName: cascadeRunningRoot ? 'Running…' : 'Run pipeline',
+				icon: Play,
+				disabled: !!cascadeRunningRoot,
+				action: () => runWholePipeline()
+			})
+		}
+		if (runInMenu && !isOperator && mode === 'view' && pendingCount > 0) {
+			items.push({
+				displayName: `${includeDrafts ? 'Hide' : 'Show'} ${pendingCount} draft${pendingCount === 1 ? '' : 's'}`,
+				icon: Telescope,
+				action: () => (includeDrafts = !includeDrafts)
+			})
+		}
+		if (viewHelpersInMenu) {
+			if (mode === 'view') {
+				items.push({
+					displayName: activityShowing ? 'Hide activity' : 'Activity',
+					icon: History,
+					action: () => toggleActivity()
+				})
+			}
+			items.push({
+				displayName: 'Refresh',
+				icon: RefreshCw,
+				disabled: graphRes.loading,
+				action: () => graphRes.refetch()
+			})
+		}
 		if (!isOperator && allPipelineScripts.length > 0) {
 			items.push({
 				displayName: recordingMode ? 'Disarm recorder' : 'Record next run',
@@ -2735,32 +2761,29 @@
 
 	// Cron, zone and summary of the deployed schedules on the graph, for their nodes'
 	// labels. Re-read with every graph load, so an edit in the schedule drawer shows.
-	let scheduleInfo = resource(
-		[() => $workspaceStore, () => graphRes.current],
-		async ([ws, g]) => {
-			const info = new Map<string, { schedule: string; timezone: string; summary?: string }>()
-			if (!ws || !g) return info
-			const paths = new Set<string>()
-			for (const t of g.triggers) {
-				if (t.trigger_kind === 'schedule' && t.path && !t.missing) paths.add(t.path)
-			}
-			await Promise.all(
-				[...paths].map(async (path) => {
-					try {
-						const s = await ScheduleService.getSchedule({ workspace: ws, path })
-						info.set(path, {
-							schedule: s.schedule,
-							timezone: s.timezone,
-							summary: s.summary || undefined
-						})
-					} catch {
-						// Unreadable schedule: its node keeps the plain "Schedule" label.
-					}
-				})
-			)
-			return info
+	let scheduleInfo = resource([() => $workspaceStore, () => graphRes.current], async ([ws, g]) => {
+		const info = new Map<string, { schedule: string; timezone: string; summary?: string }>()
+		if (!ws || !g) return info
+		const paths = new Set<string>()
+		for (const t of g.triggers) {
+			if (t.trigger_kind === 'schedule' && t.path && !t.missing) paths.add(t.path)
 		}
-	)
+		await Promise.all(
+			[...paths].map(async (path) => {
+				try {
+					const s = await ScheduleService.getSchedule({ workspace: ws, path })
+					info.set(path, {
+						schedule: s.schedule,
+						timezone: s.timezone,
+						summary: s.summary || undefined
+					})
+				} catch {
+					// Unreadable schedule: its node keeps the plain "Schedule" label.
+				}
+			})
+		)
+		return info
+	})
 
 	// Folder whose graph is actually rendered. `graphRes.current` is stale-
 	// while-revalidate on an in-place folder switch, so keying the canvas's
@@ -2771,7 +2794,6 @@
 	$effect(() => {
 		if (graphRes.current) untrack(() => (viewportFitFolder = folder))
 	})
-
 
 	function pluralize(n: number, singular: string): string {
 		return `${n} ${singular}${n === 1 ? '' : 's'}`
@@ -2816,7 +2838,8 @@
 <PageHeaderContent
 	section={{ label: 'Pipelines', content: pipelineCrumb }}
 	actions={pipelineActions}
-	actionsFlexible
+	sessionSource={sessionOpen}
+	actionFolds={2}
 />
 
 {#snippet pipelineCrumb()}
@@ -2866,19 +2889,16 @@
 {/snippet}
 
 {#snippet pipelineActions()}
-	<!-- This page carries more actions than any other in the band, so the set scrolls rather than
-	     being pushed off the end. `actionsFlexible` on the registration is what lets this box
-	     shrink far enough for that to matter. -->
-	<div
-		class="flex flex-row items-center gap-2 min-w-0 overflow-x-auto scrollbar-hidden whitespace-nowrap"
-	>
+	<!-- This page carries more actions than any other in the band; what does not fit folds into
+	     the ⋮ menu (see `viewHelpersInMenu`). -->
+	<div class="flex flex-row items-center gap-2 whitespace-nowrap">
 		{#if !isOperator}
 			<!-- Center group: the mode toggle is the page's primary control —
 			     anchored between the two flex-1 side groups so it stays
 			     centered, with breathing room on both sides. -->
 			<div class="flex flex-row items-center gap-2 shrink-0">
 				<PipelineModeToggle {mode} draftCount={pendingCount} onModeChange={(m) => setMode(m)} />
-				{#if mode === 'view' && pendingCount > 0}
+				{#if mode === 'view' && pendingCount > 0 && !runInMenu}
 					<!-- View variant: overlay the unsaved drafts onto the deployed
 					     graph — "what View will show once they're deployed". -->
 					<Button
@@ -2899,26 +2919,27 @@
 				{/if}
 			</div>
 		{/if}
-			{#if !isOperator && allPipelineScripts.length > 0}
-				<!-- Only the armed state surfaces on the bar (arming lives in the ⋮
+		{#if !isOperator && allPipelineScripts.length > 0}
+			<!-- Only the armed state surfaces on the bar (arming lives in the ⋮
 				     menu) — a compact disarm pill. -->
-				{#if recordingMode}
-					<button
-						type="button"
-						onclick={() => (recordingMode = false)}
-						disabled={!!cascadeRunningRoot}
-						class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-colors disabled:opacity-50 bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-700 text-red-700 dark:text-red-400"
-						title={RECORDING_ARMED_HINT}
-					>
-						<Circle size={12} class="fill-red-600 text-red-600 animate-pulse" />
-						Recording
-					</button>
-				{/if}
-				<!-- Pipeline-level run: always visible in both View and Edit so a
+			{#if recordingMode}
+				<button
+					type="button"
+					onclick={() => (recordingMode = false)}
+					disabled={!!cascadeRunningRoot}
+					class="flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs font-medium transition-colors disabled:opacity-50 bg-red-50 dark:bg-red-900/30 border-red-300 dark:border-red-700 text-red-700 dark:text-red-400"
+					title={RECORDING_ARMED_HINT}
+				>
+					<Circle size={12} class="fill-red-600 text-red-600 animate-pulse" />
+					Recording
+				</button>
+			{/if}
+			<!-- Pipeline-level run: in both View and Edit, on the bar or in the ⋮ menu, so a
 				     run never requires hunting for a specific node's play button
 				     (dbt `build` / Dagster "Materialize all"). Runs every script in
 				     dependency order (roots first, cascading downstream) over the
 				     displayed graph — deployed in View, draft-overlaid in Edit. -->
+			{#if !runInMenu}
 				<Button
 					variant="accent-secondary"
 					unifiedSize="sm"
@@ -2937,35 +2958,36 @@
 					{cascadeRunningRoot ? 'Running…' : 'Run pipeline'}
 				</Button>
 			{/if}
-			{#if mode === 'edit' && saveErrors.size > 0}
-				<PipelineDeployErrors errors={saveErrors} bind:open={saveErrorsOpen} />
-			{/if}
-			{#if mode === 'edit' && pendingCount > 0}
-				<Button
-					variant="accent"
-					unifiedSize="sm"
-					startIcon={{ icon: savingAll ? Loader2 : Save }}
-					onclick={requestSaveAll}
-					disabled={savingAll}
-					title={savingAll ? 'Saving drafts…' : `Deploy all ${pendingCount} drafts`}
-				>
-					{savingAll ? 'Saving…' : `Save all (${pendingCount})`}
-				</Button>
-			{/if}
-			{#if mode === 'view'}
-				<Button
-					variant={activityShowing ? 'accent-secondary' : 'subtle'}
-					unifiedSize="sm"
-					startIcon={{ icon: History }}
-					onclick={toggleActivity}
-					title={activityShowing
-						? 'Hide the activity panel'
-						: 'Show the pipeline activity feed (recent and live runs)'}
-				>
-					Activity
-				</Button>
-			{/if}
-			<OpenInSessionButton source={sessionOpen} />
+		{/if}
+		{#if mode === 'edit' && saveErrors.size > 0}
+			<PipelineDeployErrors errors={saveErrors} bind:open={saveErrorsOpen} />
+		{/if}
+		{#if mode === 'edit' && pendingCount > 0}
+			<Button
+				variant="accent"
+				unifiedSize="sm"
+				startIcon={{ icon: savingAll ? Loader2 : Save }}
+				onclick={requestSaveAll}
+				disabled={savingAll}
+				title={savingAll ? 'Saving drafts…' : `Deploy all ${pendingCount} drafts`}
+			>
+				{savingAll ? 'Saving…' : `Save all (${pendingCount})`}
+			</Button>
+		{/if}
+		{#if mode === 'view' && !viewHelpersInMenu}
+			<Button
+				variant={activityShowing ? 'accent-secondary' : 'subtle'}
+				unifiedSize="sm"
+				startIcon={{ icon: History }}
+				onclick={toggleActivity}
+				title={activityShowing
+					? 'Hide the activity panel'
+					: 'Show the pipeline activity feed (recent and live runs)'}
+			>
+				Activity
+			</Button>
+		{/if}
+		{#if !viewHelpersInMenu}
 			<Button
 				variant="subtle"
 				unifiedSize="sm"
@@ -2975,7 +2997,8 @@
 				iconOnly
 				title="Refresh"
 			/>
-			<DropdownV2 size="sm" items={overflowMenuItems} />
+		{/if}
+		<DropdownV2 size="sm" items={overflowMenuItems} />
 	</div>
 {/snippet}
 
@@ -3071,8 +3094,10 @@
 							asset: { kind: AssetKind; path: string }
 						}) => {
 							const reads = new Map(scripts.map((s) => [s.script, s.reads] as const))
-							editScripts([...reads.keys()], 'Now reruns on each write', (s) => (c) =>
-								listenToAsset(c, asset, reads.get(s) ?? false)
+							editScripts(
+								[...reads.keys()],
+								'Now reruns on each write',
+								(s) => (c) => listenToAsset(c, asset, reads.get(s) ?? false)
 							)
 						}}
 				onRunProducer={mode === 'edit' ? handleRunProducer : undefined}
@@ -3218,7 +3243,8 @@
 >
 	{#if multiEdit}
 		<div class="flex flex-col gap-2 text-xs text-secondary">
-			<p>This will edit the annotation header of the following scripts. Each is saved as a draft.</p>
+			<p>This will edit the annotation header of the following scripts. Each is saved as a draft.</p
+			>
 			<ul class="flex flex-col gap-1">
 				{#each multiEdit.scripts as s (s)}
 					<li class="text-emphasis truncate">{s}</li>
@@ -3253,8 +3279,8 @@
 				{#if t.script}
 					{canHardDeleteScripts
 						? 'The script is deleted, with every version'
-						: 'The script is archived'}{t.trigger ? ', and its trigger deleted' : ''}. The tables
-					it wrote stay.
+						: 'The script is archived'}{t.trigger ? ', and its trigger deleted' : ''}. The tables it
+					wrote stay.
 				{:else}
 					The trigger is deleted: its script stays, and no longer runs this way.
 				{/if}
@@ -3337,9 +3363,8 @@
 								<p>
 									You have {pendingCount === 1
 										? 'a pipeline draft'
-										: `${pendingCount} pipeline drafts`} that {pendingCount === 1
-										? 'has'
-										: 'have'} not been deployed yet. What would you like to do?
+										: `${pendingCount} pipeline drafts`} that {pendingCount === 1 ? 'has' : 'have'} not
+									been deployed yet. What would you like to do?
 								</p>
 								<ul class="text-2xs font-mono pl-4 max-h-40 overflow-y-auto flex flex-col gap-0.5">
 									{#each [...pe.drafts.keys(), ...[...pe.triggerDrafts.values()].map((d) => d.config.path)] as p}
@@ -3357,9 +3382,7 @@
 							unifiedSize="sm"
 							startIcon={{ icon: leaveSaving ? Loader2 : Save }}
 						>
-							<span class="min-w-20"
-								>{leaveSaving ? 'Saving…' : `Save all (${pendingCount})`}</span
-							>
+							<span class="min-w-20">{leaveSaving ? 'Saving…' : `Save all (${pendingCount})`}</span>
 						</Button>
 						<Button
 							disabled={leaveSaving}

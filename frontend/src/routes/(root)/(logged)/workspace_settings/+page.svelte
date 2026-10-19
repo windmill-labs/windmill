@@ -18,6 +18,7 @@
 		type HandlerDraft
 	} from '$lib/components/handlerDraft.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { WORKSPACE_SETTINGS_PATH } from '$lib/components/sessions/previewPaths'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -49,6 +50,8 @@
 	import { clone, emptyString, encodeState, hasUnsavedChanges } from '$lib/utils'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { ExternalLink, Slack, Target } from 'lucide-svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
@@ -1543,6 +1546,13 @@
 					? { parent: 'Workspace settings', label: tabLabel }
 					: undefined}
 			actions={settingsActions}
+			sessionSource={{
+				// Read at click time: the tab lives in the query, so the preview opens on the pane
+				// the user is looking at.
+				page: () => WORKSPACE_SETTINGS_PATH + window.location.search,
+				workspaceId: $workspaceStore ?? undefined
+			}}
+			actionFolds={1}
 			separator="always"
 		/>
 
@@ -2525,9 +2535,18 @@ export async function main(
 		{/key}
 	{/if}
 	{#if $superadmin}
-		<Button variant="default" unifiedSize="sm" on:click={() => goto('#superadmin-settings')}>
-			Instance settings
-		</Button>
+		<!-- Goes into a menu on a phone, where the AI session button the bar ends the row with
+		     would otherwise squeeze the breadcrumb under these controls. -->
+		{#if pageHeader.actionFold >= 1}
+			<DropdownV2
+				size="sm"
+				items={[{ displayName: 'Instance settings', action: () => goto('#superadmin-settings') }]}
+			/>
+		{:else}
+			<Button variant="default" unifiedSize="sm" on:click={() => goto('#superadmin-settings')}>
+				Instance settings
+			</Button>
+		{/if}
 	{/if}
 {/snippet}
 

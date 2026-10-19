@@ -323,10 +323,18 @@
 	const compactTopbar = $derived(
 		ownsPageHeader ? pageHeader.actionFold >= 1 : topbarWidth > 0 && topbarWidth < 720
 	)
-	// The second fold keeps the trail, the file sidebar's toggle, Diff and Deploy. AI stands down —
-	// the sidebar's own Ask AI is the way in at that width — while Jobs and the export are already
-	// in the menu, Jobs from `compactTopbar` (true at the second fold too) and the export always.
+	// In the page header no fold drops a button's label: what does not fit goes into the menu.
+	// The second fold keeps the trail, the file sidebar's toggle and Deploy; Diff joins the menu.
+	// AI stands down — the sidebar's own Ask AI is the way in at that width — while Jobs and the
+	// export are already in the menu, Jobs from `compactTopbar` (true at the second fold too) and
+	// the export always.
 	const phoneTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 2)
+	// The third fold leaves the autosave indicator as its icon, so the AI session button the bar
+	// ends the row with still fits beside Deploy on a phone.
+	const narrowTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 3)
+	// The last fold, for the narrowest phones: the file sidebar's toggle joins the menu, which is
+	// then the way back to a collapsed sidebar.
+	const sidebarToggleInMenu = $derived(ownsPageHeader && pageHeader.actionFold >= 4)
 
 	// Top-bar button size + bar height. Condensed (session preview) uses the
 	// smallest well-supported unified size (`sm`) so the bar is thinner.
@@ -704,6 +712,26 @@
 	const mod = isMac() ? '⌘' : 'Ctrl+'
 
 	let moreItems = $derived([
+		...(sidebarToggleInMenu && onToggleSidebar
+			? [
+					{
+						displayName: `${sidebarCollapsed ? 'Expand' : 'Collapse'} file sidebar`,
+						icon: sidebarCollapsed ? PanelLeft : PanelLeftClose,
+						action: () => onToggleSidebar?.(),
+						shortcut: `${mod}B`
+					}
+				]
+			: []),
+		...(phoneTopbar
+			? [
+					{
+						displayName: 'Diff',
+						icon: DiffIcon,
+						action: () => openDiffDrawer(),
+						disabled: !savedApp || newApp || savedApp?.no_deployed === true
+					}
+				]
+			: []),
 		...(compactTopbar
 			? [
 					{
@@ -956,7 +984,8 @@
 			pathTrigger: rawAppPathTrigger
 		}}
 		actions={rawAppHeaderActions}
-		actionFolds={2}
+		sessionSource={sessionOpen}
+		actionFolds={4}
 		contexts={headerContexts}
 		separator="none"
 	/>
@@ -996,7 +1025,7 @@
 {/if}
 
 {#snippet sidebarToggle()}
-	{#if onToggleSidebar}
+	{#if onToggleSidebar && !sidebarToggleInMenu}
 		<Button
 			unifiedSize="sm"
 			variant="subtle"
@@ -1019,6 +1048,7 @@
 			{loadedFromDraft}
 			{othersDraftsCount}
 			{onOpenOthersDrafts}
+			compact={narrowTopbar}
 		/>
 	{/if}
 {/snippet}
@@ -1102,9 +1132,11 @@
 		title={newApp || savedApp?.no_deployed === true
 			? 'Deploy this app once to compare against the deployed version'
 			: 'Diff'}
-		class={!savedApp || newApp || savedApp?.no_deployed === true
-			? 'flex cursor-not-allowed'
-			: 'flex'}
+		class={phoneTopbar
+			? 'hidden'
+			: !savedApp || newApp || savedApp?.no_deployed === true
+				? 'flex cursor-not-allowed'
+				: 'flex'}
 	>
 		<Button
 			variant="default"
@@ -1114,7 +1146,7 @@
 			btnClasses={!savedApp || newApp || savedApp?.no_deployed === true
 				? 'pointer-events-none'
 				: undefined}
-			iconOnly={compactTopbar}
+			iconOnly={compactTopbar && !ownsPageHeader}
 			title={newApp || savedApp?.no_deployed === true
 				? 'Deploy this app once to compare against the deployed version'
 				: 'Diff'}
@@ -1146,7 +1178,7 @@
 	     through this instance. -->
 	<AppExportButton bind:this={appExport} />
 	{#if !phoneTopbar}
-		<OpenInSessionButton source={sessionOpen}>
+		<OpenInSessionButton source={sessionOpen} deferToHeader>
 			{#snippet fallback()}
 				<Button
 					unifiedSize={headerBtnSize}

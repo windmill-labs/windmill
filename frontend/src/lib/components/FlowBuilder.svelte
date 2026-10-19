@@ -901,6 +901,10 @@
 	// falling back to `$pathStore` in drawer mounts that carry no storage path.
 	const sessionTargetPath = $derived(liveEditorDraftStoragePath || $pathStore)
 
+	const showFlowAiButton = $derived(
+		!disableAi && customUi?.topBar?.aiBuilder != false && !$operatorBuilderFlows
+	)
+
 	const sessionOpen = $derived(
 		sessionTargetPath
 			? {
@@ -1604,6 +1608,7 @@
 								: undefined
 					}}
 					actions={flowHeaderActions}
+					sessionSource={showFlowAiButton ? sessionOpen : undefined}
 					actionFolds={2}
 					contexts={headerContexts}
 					separator="none"
@@ -1868,9 +1873,7 @@
 					{forceTestTab}
 					{highlightArg}
 					aiChatOpen={aiChatManager.open}
-					showFlowAiButton={!disableAi &&
-						customUi?.topBar?.aiBuilder != false &&
-						!$operatorBuilderFlows}
+					{showFlowAiButton}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
 					{sessionOpen}
 					onOpenPreview={flowPreviewButtons?.openPreview}
