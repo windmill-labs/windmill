@@ -28,19 +28,27 @@ export function writeDevPreview(preview: DevPreview | undefined): void {
 	} catch {}
 }
 
-/** The workspace's AI config as the preview pretends it is; unchanged outside dev. */
+/**
+ * The workspace's AI config as the preview pretends it is; unchanged outside dev. The
+ * simulated states are whole configs rather than edits of the real one, so they look the
+ * same whatever the workspace has set up. The free tier mirrors what the server serves
+ * (`free_tier_copilot_config`): its one provider and model, or nothing once exhausted.
+ */
 export function previewAiConfig(config: AIConfig): AIConfig {
 	const preview = readDevPreview()
 	switch (preview?.ai) {
 		case 'free-tier':
 			return {
-				...config,
+				providers: {
+					deepseek: { resource_path: '', models: ['deepseek-v4-flash'], web_search_enabled: false }
+				},
+				default_model: { provider: 'deepseek', model: 'deepseek-v4-flash' },
 				free_tier: { exhausted: false, used_ratio: preview.freeTierUsedPct / 100 }
 			}
 		case 'free-tier-exhausted':
-			return { ...config, providers: {}, free_tier: { exhausted: true, used_ratio: 1 } }
+			return { free_tier: { exhausted: true, used_ratio: 1 } }
 		case 'no-key':
-			return { ...config, providers: {}, free_tier: undefined }
+			return {}
 		case 'hidden':
 			return { ...config, copilot_disabled: true }
 		default:

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { ChevronDown, ChevronUp } from 'lucide-svelte'
 	import type { Snippet } from 'svelte'
+	import { Button } from '$lib/components/common'
 
 	/** A row of the tree that groups others under it (a folder, a user, "Other users"): clicking
 	 * anywhere on it opens or closes what it groups. */
@@ -39,16 +40,14 @@
 			</div>
 		</div>
 	</div>
-	<!-- Keyboard access only: its click bubbles to the row, which does the toggling. -->
-	<button
-		class="w-full flex flex-row-reverse"
+	<!-- Button stops its click from reaching the row, so it toggles once on its own. -->
+	<Button
+		iconOnly
+		variant="subtle"
+		unifiedSize="xs"
+		title={toggleLabel ?? name}
 		aria-expanded={opened}
-		aria-label={toggleLabel ?? name}
-	>
-		{#if opened}
-			<ChevronUp size={16} />
-		{:else}
-			<ChevronDown size={16} />
-		{/if}
-	</button>
+		onClick={onToggle}
+		startIcon={{ icon: opened ? ChevronUp : ChevronDown }}
+	/>
 </div>

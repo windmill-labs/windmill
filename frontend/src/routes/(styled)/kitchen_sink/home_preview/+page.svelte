@@ -47,6 +47,7 @@
 
 	const initial = readDevPreview()
 	let ai = $state<DevAiState>(initial?.ai ?? 'real')
+	const USED_PCTS = [0, 30, 60, 90, 99]
 	let usedPct = $state(initial?.freeTierUsedPct ?? 60)
 	let cloud = $state(readStorage(CLOUD_KEY) === '1')
 	let workspace = $state<string | undefined>(readStorage('workspace') ?? undefined)
@@ -121,17 +122,22 @@
 				size="sm"
 			/>
 			{#if ai === 'free-tier'}
-				<label class="flex flex-col gap-1 text-2xs text-secondary">
-					<span>Used: {usedPct}%</span>
-					<input
-						type="range"
-						min="0"
-						max="99"
-						bind:value={usedPct}
-						onchange={apply}
-						class="accent-[rgb(var(--color-accent))]"
-					/>
-				</label>
+				<div class="flex flex-col gap-1 text-2xs text-secondary">
+					<span>Used</span>
+					<ToggleButtonGroup
+						selected={String(usedPct)}
+						onSelected={(v) => {
+							usedPct = Number(v)
+							apply()
+						}}
+					>
+						{#snippet children({ item })}
+							{#each USED_PCTS as p (p)}
+								<ToggleButton value={String(p)} label="{p}%" {item} size="sm" />
+							{/each}
+						{/snippet}
+					</ToggleButtonGroup>
+				</div>
 				<span class="text-2xs text-hint">
 					Home hides the usage line; it shows in a session once it has a message.
 				</span>
