@@ -92,17 +92,32 @@
 			clearTimeout(pollTimer)
 			if (!config?.repos.length) return undefined
 			const lists = await Promise.all(
-				config.repos.map((repo) =>
-					JobService.listJobs({
-						workspace: config.workspace,
-						jobKinds: 'deploymentcallback',
-						// Push and pull jobs both name their repository in this arg, without `$res:`.
-						args: JSON.stringify({
-							repo_url_resource_path: repo.git_repo_resource_path.replace(/^\$res:/, '')
-						}),
-						perPage: JOBS_PER_REPO
-					})
-				)
+				config.repos.map(async (repo) => {
+					// A PR diff check is a pull job too, with `dry_run: true`, and it applies nothing, so
+					// it must not count as a sync. The list returns no args to filter on, so each query
+					// pins one real kind instead: pulls by `dry_run: false`, and pushes by
+					// `use_individual_branch`, which every push sets and no pull does.
+					const repoPath = repo.git_repo_resource_path.replace(/^\$res:/, '')
+					const kinds = [
+						{ dry_run: false },
+						{ use_individual_branch: true },
+						{ use_individual_branch: false }
+					]
+					const lists = await Promise.all(
+						kinds.map((kind) =>
+							JobService.listJobs({
+								workspace: config.workspace,
+								jobKinds: 'deploymentcallback',
+								args: JSON.stringify({ repo_url_resource_path: repoPath, ...kind }),
+								perPage: JOBS_PER_REPO
+							})
+						)
+					)
+					return lists
+						.flat()
+						.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
+						.slice(0, JOBS_PER_REPO)
+				})
 			)
 			// Followed only while something is in flight, so an idle homepage makes no requests.
 			if (lists.some((list) => list.some((job) => job.type === 'QueuedJob'))) {
@@ -150,8 +165,14 @@
 		let url = value?.url
 		const varPath = typeof url === 'string' ? url.match(/^\$var:(.+)$/)?.[1] : undefined
 		if (varPath) {
-			url = (await VariableService.getVariable({ workspace, path: varPath, decryptSecret: true }))
-				.value
+			// Never decrypted: each decrypt is an audit entry, and this runs on every homepage load
+			// just to draw a logo. A secret URL leaves the repo with the generic icon and no link.
+			const variable = await VariableService.getVariable({
+				workspace,
+				path: varPath,
+				decryptSecret: false
+			})
+			url = variable.is_secret ? undefined : variable.value
 		}
 		const remote = typeof url === 'string' ? parseRemote(url) : {}
 		if (value?.is_github_app === true) remote.provider = 'github'
