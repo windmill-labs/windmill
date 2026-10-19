@@ -23,6 +23,7 @@
 	import { page } from '$app/state'
 	import { UserDraft, draftValuesEqual } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
+	import { withCreatorRunAs } from '$lib/utils/copiedRunAs'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import {
 		armRestartOnFirstInteraction,
@@ -244,14 +245,20 @@
 			let seed: Flow = empty
 			let seedSelectedId: string | undefined = undefined
 			if (imported) {
-				seed = { ...empty, ...imported, path: '', extra_perms: {} } as unknown as Flow
+				seed = withCreatorRunAs(
+					{ ...empty, ...imported, path: '', extra_perms: {} } as unknown as Flow,
+					$userStore?.email
+				)
 			} else if (!templatePath && !hubId && forkState) {
-				seed = {
-					...empty,
-					...forkState.flow,
-					path: forkState.path ?? '',
-					extra_perms: {}
-				} as unknown as Flow
+				seed = withCreatorRunAs(
+					{
+						...empty,
+						...forkState.flow,
+						path: forkState.path ?? '',
+						extra_perms: {}
+					} as unknown as Flow,
+					$userStore?.email
+				)
 				if (forkState.initialArgs) {
 					initialArgs = forkState.initialArgs
 				}
@@ -271,12 +278,15 @@
 							})
 					if (tok !== loadFlowToken) return
 					const oldPath = templatePath.split('/')
-					seed = {
-						...empty,
-						...template,
-						path: `${forkOwner}/${oldPath[oldPath.length - 1]}_fork`,
-						extra_perms: {}
-					} as unknown as Flow
+					seed = withCreatorRunAs(
+						{
+							...empty,
+							...template,
+							path: `${forkOwner}/${oldPath[oldPath.length - 1]}_fork`,
+							extra_perms: {}
+						} as unknown as Flow,
+						$userStore?.email
+					)
 				} catch (err: any) {
 					if (tok !== loadFlowToken) return
 					console.error('Error loading template', err)

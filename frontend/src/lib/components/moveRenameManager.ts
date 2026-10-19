@@ -20,8 +20,9 @@ export async function checkFlowOnBehalfOf(
  * Shared utility that performs the API call to update an item's path and summary.
  * No toast, no navigation — callers handle those.
  *
- * Note: on_behalf_of_email is intentionally omitted from flow updates for security
- * reasons — the backend will redeploy the flow on behalf of the current user.
+ * A flow is sent back with the identity it runs on behalf of: the backend keeps it for an
+ * admin or deployer and makes it the mover's otherwise, while a flow sent with none would be
+ * redeployed without one.
  *
  * `skip_draft_deletion` on every call: this re-deploys the DEPLOYED content at a
  * new path, so the caller's draft is unrelated work, not the thing being
@@ -53,6 +54,8 @@ export async function updateItemPathAndSummary(opts: {
 				dedicated_worker: flow.dedicated_worker,
 				ws_error_handler_muted: flow.ws_error_handler_muted,
 				visible_to_runner_only: flow.visible_to_runner_only,
+				on_behalf_of_email: flow.on_behalf_of_email,
+				on_behalf_of: flow.on_behalf_of,
 				labels,
 				skip_draft_deletion: true
 			}

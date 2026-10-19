@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { ScriptService, type NewScript, type Script, type ScriptLang } from '$lib/gen'
 
-	import { initialArgsStore, workspaceStore } from '$lib/stores'
+	import { initialArgsStore, userStore, workspaceStore } from '$lib/stores'
+	import { withCreatorRunAs } from '$lib/utils/copiedRunAs'
 	import ScriptBuilder from '$lib/components/ScriptBuilder.svelte'
 	import { editPathFor, invalidate } from '$lib/components/workspacePicker'
 	import { decodeState, emptySchema, emptyString } from '$lib/utils'
@@ -207,25 +208,31 @@
 			// carry an explicit `<source>_fork` suggestion.
 			let seed: EditableScript = empty
 			if (urlScript) {
-				seed = {
-					...empty,
-					...urlScript,
-					hash: '',
-					extra_perms: {},
-					no_deployed: true
-				} as unknown as EditableScript
+				seed = withCreatorRunAs(
+					{
+						...empty,
+						...urlScript,
+						hash: '',
+						extra_perms: {},
+						no_deployed: true
+					} as unknown as EditableScript,
+					$userStore?.email
+				)
 				sendUserToast('Loaded from URL')
 			} else if (imported) {
 				// Imported fields layer over the empty template; `path` stays '' for
 				// the friendly name, editor/deployed keys pinned to new-draft values.
-				seed = {
-					...empty,
-					...imported,
-					path: '',
-					hash: '',
-					extra_perms: {},
-					no_deployed: true
-				} as unknown as EditableScript
+				seed = withCreatorRunAs(
+					{
+						...empty,
+						...imported,
+						path: '',
+						hash: '',
+						extra_perms: {},
+						no_deployed: true
+					} as unknown as EditableScript,
+					$userStore?.email
+				)
 				if (isWorkflowAsCode(imported.content ?? '', imported.language ?? '')) {
 					builderTemplate = imported.language === 'python3' ? 'wac_python' : 'wac_typescript'
 					sendUserToast('WAC script loaded from YAML/JSON')

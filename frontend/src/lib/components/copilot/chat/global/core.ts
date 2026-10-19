@@ -8932,6 +8932,28 @@ async function flushDraftOrThrow(
 	}
 }
 
+/**
+ * A run-as identity on a schedule or trigger the chat creates is kept only when the draft also
+ * sets `preserve_permissioned_as`: the backend keeps any identity a write names, so one the
+ * model copied from an item it read would make the new item run as that item's identity.
+ */
+function withoutUnflaggedIdentity<T>(requestBody: T): T {
+	const body = requestBody as { permissioned_as?: string; preserve_permissioned_as?: boolean }
+	if (!body.permissioned_as || body.preserve_permissioned_as) return requestBody
+	const { permissioned_as: _dropped, ...rest } = body
+	return rest as T
+}
+
+/** `withoutUnflaggedIdentity` for an agent, which names its identity in its value. */
+function withoutUnflaggedAgentIdentity<T>(requestBody: T): T {
+	const body = requestBody as { value?: unknown; preserve_on_behalf_of?: boolean }
+	const value = body.value as Record<string, unknown> | undefined
+	if (!value || typeof value !== 'object' || !('on_behalf_of' in value)) return requestBody
+	if (body.preserve_on_behalf_of) return requestBody
+	const { on_behalf_of: _dropped, ...rest } = value
+	return { ...body, value: rest } as T
+}
+
 async function deployDraft(
 	args: {
 		type: WorkspaceItemType
@@ -9028,7 +9050,10 @@ async function deployDraft(
 				if (await ScheduleService.existsSchedule({ workspace, path })) {
 					await ScheduleService.updateSchedule({ workspace, path, requestBody })
 				} else {
-					await ScheduleService.createSchedule({ workspace, requestBody })
+					await ScheduleService.createSchedule({
+						workspace,
+						requestBody: withoutUnflaggedIdentity(requestBody)
+					})
 				}
 				actions = [createOpenScheduleAction(path, requestBody.is_flow ? 'flow' : 'script')]
 				break
@@ -9039,7 +9064,7 @@ async function deployDraft(
 				if (await service.exists({ workspace, path })) {
 					await service.update({ workspace, path, requestBody })
 				} else {
-					await service.create({ workspace, requestBody })
+					await service.create({ workspace, requestBody: withoutUnflaggedIdentity(requestBody) })
 				}
 				actions = [
 					createOpenTriggerAction(triggerKind!, path, requestBody.is_flow ? 'flow' : 'script')
@@ -9051,7 +9076,10 @@ async function deployDraft(
 				if (await ResourceService.existsResource({ workspace, path })) {
 					await ResourceService.updateResource({ workspace, path, requestBody })
 				} else {
-					await ResourceService.createResource({ workspace, requestBody })
+					await ResourceService.createResource({
+						workspace,
+						requestBody: withoutUnflaggedAgentIdentity(requestBody)
+					})
 				}
 				actions = [createOpenResourceAction(path)]
 				break

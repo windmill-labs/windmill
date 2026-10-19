@@ -697,7 +697,9 @@
 			const details = customOnBehalfOf[itemKey]
 			return usesPrincipal(kind) ? details?.permissionedAs : details?.email
 		}
-		// 'me' or undefined = don't pass, backend will use deploying user's identity
+		// Every other kind takes the deploying user's identity when it names none, but a script
+		// or flow deployed naming none runs without one, so "me" has to be sent for those.
+		if (choice === 'me' && (kind === 'script' || kind === 'flow')) return $userStore?.email
 		return undefined
 	}
 

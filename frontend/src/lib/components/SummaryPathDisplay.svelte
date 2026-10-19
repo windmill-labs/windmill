@@ -79,6 +79,12 @@
 		saveOverride !== undefined || isOwner(path ?? '', actingUser, $operatingWorkspace)
 	)
 	let onBehalfOfEmail = $state<string | undefined>(undefined)
+	// An admin or deployer keeps the flow's run-as identity; anyone else takes it over.
+	const keepsRunAs = $derived(
+		!!actingUser?.is_admin ||
+			!!actingUser?.is_super_admin ||
+			!!actingUser?.groups?.includes('wm_deployers')
+	)
 	let summaryInput: ReturnType<typeof TextInput> | undefined = $state()
 	let labelsDirty = $state(false)
 	let hasChanges = $derived(editSummary !== (summary ?? '') || (own && dirtyPath) || labelsDirty)
@@ -238,7 +244,7 @@
 							<p class="text-2xs text-tertiary mt-1">Only the owner can change the path</p>
 						{/if}
 					</Label>
-					{#if onBehalfOfEmail}
+					{#if onBehalfOfEmail && !keepsRunAs}
 						<Alert type="info" title="Run on behalf of" size="xs">
 							This flow will be redeployed on behalf of you ({$userStore?.email}) instead of {onBehalfOfEmail}
 						</Alert>
