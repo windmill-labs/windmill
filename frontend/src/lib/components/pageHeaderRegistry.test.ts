@@ -52,4 +52,25 @@ describe('pageHeader', () => {
 		register({ actions: snippet('nested') })
 		expect(pageHeader.actions.map((a) => a.contexts)).toEqual([pageContexts, undefined])
 	})
+
+	// The bar draws one session button, so which registration it reads decides where the session
+	// opens; a nested registration that names no source must not hide the page's.
+	it('takes the session source of the innermost registration that has one, with its contexts', () => {
+		const routeContexts = new Map([['route', 1]])
+		const editorContexts = new Map([['editor', 2]])
+		const route = { page: () => '/runs' }
+		const editor = { target: { kind: 'script' as const, path: 'u/admin/s' } }
+		register({ sessionSource: route, contexts: routeContexts })
+		register({ sessionSource: editor, contexts: editorContexts })
+		register({ section: { label: 'Nested' } })
+		expect(pageHeader.session).toEqual({ source: editor, contexts: editorContexts })
+		pageHeader.release(ids.splice(1, 1)[0])
+		expect(pageHeader.session).toEqual({ source: route, contexts: routeContexts })
+	})
+
+	it('has no session source once its registration is released', () => {
+		register({ sessionSource: { page: () => '/runs' } })
+		pageHeader.release(ids.pop()!)
+		expect(pageHeader.session).toBeUndefined()
+	})
 })

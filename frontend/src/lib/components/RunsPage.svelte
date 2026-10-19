@@ -649,11 +649,11 @@
 	}
 	let resolutionNote = $state('')
 	// The bar folds this row (`actionFolds` below) once its breadcrumb has given all it can: first
-	// the counters, which are a glance and repeat the chart below; then the session button; then
-	// the filter field moves to a row of its own rather than shrinking past usable. Hosted, the row
-	// is the page's own and wraps instead.
+	// the counters, which are a glance and repeat the chart below; then the filter field moves to a
+	// row of its own rather than shrinking past usable. Hosted, the row is the page's own and wraps
+	// instead.
 	const fold = $derived(hosted ? 0 : pageHeader.actionFold)
-	const filterBelow = $derived(fold >= 3)
+	const filterBelow = $derived(fold >= 2)
 </script>
 
 {#snippet runsHint()}
@@ -965,9 +965,9 @@
 					page: () => RUNS_PATH + window.location.search,
 					workspaceId: $operatingWorkspace ?? undefined
 				}}
-				actionFolds={3}
+				actionFolds={2}
 				belowBar={filterRow}
-				belowBarFold={3}
+				belowBarFold={2}
 			/>
 		{/if}
 

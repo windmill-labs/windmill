@@ -1105,7 +1105,8 @@
 {#snippet rawAppHeaderActions()}
 	<!-- The bar's own order kept: the file sidebar, how the draft is doing, who else is here, then
 	     what to do with the app. The sidebar's toggle is the only way back once it is folded — the
-	     collapsed sidebar renders nothing of its own — so it stays on the bar at every width. -->
+	     collapsed sidebar renders nothing of its own — so it stays on the bar until the last fold,
+	     which moves it into the ⋮ menu rather than dropping it. -->
 	{@render sidebarToggle()}
 	{@render autosaveIndicator()}
 	{@render awarenessMark()}
