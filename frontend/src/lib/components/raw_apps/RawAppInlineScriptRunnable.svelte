@@ -28,7 +28,6 @@
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import RunButton from '$lib/components/RunButton.svelte'
-	import { userStore } from '$lib/stores'
 	import { isHubFlowPath } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { rawAppPreviewModules } from './utils'
@@ -156,15 +155,15 @@
 	function getCtxValue(expr: string): any {
 		switch (expr) {
 			case 'username':
-				return $userStore?.username ?? ''
+				return actingUser?.username ?? ''
 			case 'email':
-				return $userStore?.email ?? ''
+				return actingUser?.email ?? ''
 			case 'groups':
 				return actingUser?.groups ?? []
 			case 'workspace':
 				return opWs ?? ''
 			case 'author':
-				return $userStore?.email ?? '' // In editor, author is the current user
+				return actingUser?.email ?? '' // In editor, author is the current user
 			default:
 				return ''
 		}

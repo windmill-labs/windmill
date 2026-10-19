@@ -33,6 +33,9 @@ Open-source platform for internal tools, workflows, API integrations, background
   administers behind `external_instance` data tables and Ducklake catalogs: its invariants (one
   lifecycle lock, managed-object markers, the setup gate, per-cluster roles, fork copy ownership)
   and how to run one locally
+- **Fork object storage**: `docs/fork-object-storage.md` — how a fork's object keys map under
+  `__wm_forks/<segment>/` with read-through to its ancestors, where the mapping must be applied,
+  and why `__wm_forks/` is reachable only through a workspace's own chain
 - **Data table viewer roles**: `docs/datatable-viewer-roles.md`, on what a connection naming no
   role holds: the default role as a floor, whose roles are added (the job's own, or its viewer's
   for an inline app runnable that opts in), why an admin's roles are not added, the per-role-set

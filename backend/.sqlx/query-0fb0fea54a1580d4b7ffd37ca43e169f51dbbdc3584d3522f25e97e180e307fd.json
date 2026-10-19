@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT config FROM config WHERE name LIKE 'worker\\_\\_%'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "config",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "0fb0fea54a1580d4b7ffd37ca43e169f51dbbdc3584d3522f25e97e180e307fd"
+}

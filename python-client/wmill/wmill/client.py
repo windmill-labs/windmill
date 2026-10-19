@@ -872,15 +872,75 @@ class Windmill:
         """
         return self.get("version").text
 
+    def _s3_proxy_connection(self) -> dict | None:
+        """Where an S3 client reaches the workspace storage through Windmill's S3 proxy, so the
+        storage's permission rules apply and its credentials stay on the server.
+
+        None when the workspace storage is not S3, when the token is not one the server signs
+        itself (the proxy re-derives the SigV4 secret from a ``jwt_`` token's header and payload,
+        which an external ``jwt_ext_`` token's signature does not match), or when the server
+        predates the proxy's bucket-addressed routes: the caller then connects with the
+        storage's own credentials.
+        """
+        if (
+            not self.token
+            or not self.token.startswith("jwt_")
+            or self.token.startswith(("jwt_ext_", "jwt_agent_"))
+        ):
+            return None
+        resp = self.get(
+            f"/w/{self.workspace}/job_helpers/v2/s3_proxy_bucket",
+            raise_for_status=False,
+        )
+        if resp.status_code != 200:
+            return None
+        bucket = resp.json().get("bucket")
+        if bucket is None:
+            return None
+        access_key, secret_key = self.token.rsplit(".", 1)
+        return {
+            "endpoint_url": f"{self.base_url}/w/{self.workspace}/s3_proxy/_wm_bucket_/_default_",
+            "use_ssl": self.base_url.startswith("https://"),
+            "access_key": access_key,
+            "secret_key": secret_key,
+            # The proxy checks the signature with whatever region the client signed for.
+            "region": "us-east-1",
+            "bucket": bucket,
+        }
+
     def get_duckdb_connection_settings(
         self,
         s3_resource_path: str = "",
     ) -> DuckDbConnectionSettings | None:
         """
         Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-        initiate an S3 connection from DuckDB
+        initiate an S3 connection from DuckDB.
+
+        Without a resource path, the connection goes to the workspace storage through Windmill's
+        S3 proxy when that storage is S3: address it as ``s3://<bucket>/<key>`` with the
+        storage's own bucket, returned as ``s3_bucket``. Pass the resource path to connect with
+        the storage's own credentials instead.
         """
         s3_resource_path = parse_resource_syntax(s3_resource_path) or s3_resource_path
+        proxy = self._s3_proxy_connection() if s3_resource_path == "" else None
+        if proxy is not None:
+            endpoint = proxy["endpoint_url"].split("://", 1)[1]
+            settings = (
+                "SET home_directory='./';\n"
+                "INSTALL 'httpfs';\n"
+                "SET s3_url_style='path';\n"
+                f"SET s3_region='{proxy['region']}';\n"
+                f"SET s3_endpoint='{endpoint}';\n"
+                f"SET s3_access_key_id='{proxy['access_key']}';\n"
+                f"SET s3_secret_access_key='{proxy['secret_key']}';\n"
+            )
+            if not proxy["use_ssl"]:
+                settings += "SET s3_use_ssl=0;\n"
+            if self.verify is False:
+                settings += "SET enable_server_cert_verification=false;\n"
+            return DuckDbConnectionSettings(
+                {"connection_settings_str": settings, "s3_bucket": proxy["bucket"]}
+            )
         try:
             raw_obj = self.post(
                 f"/w/{self.workspace}/job_helpers/v2/duckdb_connection_settings",
@@ -888,6 +948,7 @@ class Windmill:
                 if s3_resource_path == ""
                 else {"s3_resource_path": s3_resource_path},
             ).json()
+            raw_obj.setdefault("s3_bucket", None)
             return DuckDbConnectionSettings(raw_obj)
         except JSONDecodeError as e:
             raise Exception(
@@ -900,9 +961,44 @@ class Windmill:
     ) -> PolarsConnectionSettings:
         """
         Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-        initiate an S3 connection from Polars
+        initiate an S3 connection from Polars.
+
+        Without a resource path, the connection goes to the workspace storage through Windmill's
+        S3 proxy when that storage is S3: address it as ``s3://<bucket>/<key>`` with the
+        storage's own bucket, returned as ``s3_bucket``. Pass the resource path to connect with
+        the storage's own credentials instead.
         """
         s3_resource_path = parse_resource_syntax(s3_resource_path) or s3_resource_path
+        proxy = self._s3_proxy_connection() if s3_resource_path == "" else None
+        if proxy is not None:
+            client_kwargs = {"region_name": proxy["region"]}
+            storage_options = {
+                "aws_endpoint_url": proxy["endpoint_url"],
+                "aws_access_key_id": proxy["access_key"],
+                "aws_secret_access_key": proxy["secret_key"],
+                "aws_region": proxy["region"],
+                "aws_allow_http": str(not proxy["use_ssl"]).lower(),
+                "aws_virtual_hosted_style_request": "false",
+            }
+            if self.verify is not True:
+                client_kwargs["verify"] = self.verify
+            if self.verify is False:
+                storage_options["allow_invalid_certificates"] = "true"
+            return PolarsConnectionSettings(
+                {
+                    "s3fs_args": {
+                        "endpoint_url": proxy["endpoint_url"],
+                        "key": proxy["access_key"],
+                        "secret": proxy["secret_key"],
+                        "use_ssl": proxy["use_ssl"],
+                        "cache_regions": False,
+                        "client_kwargs": client_kwargs,
+                        "config_kwargs": {"s3": {"addressing_style": "path"}},
+                    },
+                    "storage_options": storage_options,
+                    "s3_bucket": proxy["bucket"],
+                }
+            )
         try:
             raw_obj = self.post(
                 f"/w/{self.workspace}/job_helpers/v2/polars_connection_settings",
@@ -910,6 +1006,7 @@ class Windmill:
                 if s3_resource_path == ""
                 else {"s3_resource_path": s3_resource_path},
             ).json()
+            raw_obj.setdefault("s3_bucket", None)
             return PolarsConnectionSettings(raw_obj)
         except JSONDecodeError as e:
             raise Exception(
@@ -922,9 +1019,30 @@ class Windmill:
     ) -> Boto3ConnectionSettings:
         """
         Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-        initiate an S3 connection using boto3
+        initiate an S3 connection using boto3.
+
+        Without a resource path, the connection goes to the workspace storage through Windmill's
+        S3 proxy when that storage is S3: pass the storage's own bucket as ``Bucket``. The proxy
+        serves object reads, writes, deletes, listing and multipart uploads of that bucket only;
+        presigned URLs, other buckets and bucket-level APIs need the storage's own credentials,
+        which passing the resource path returns.
         """
         s3_resource_path = parse_resource_syntax(s3_resource_path) or s3_resource_path
+        proxy = self._s3_proxy_connection() if s3_resource_path == "" else None
+        if proxy is not None:
+            # botocore addresses a custom endpoint path-style, which the proxy's routes need.
+            settings = Boto3ConnectionSettings(
+                {
+                    "endpoint_url": proxy["endpoint_url"],
+                    "region_name": proxy["region"],
+                    "use_ssl": proxy["use_ssl"],
+                    "aws_access_key_id": proxy["access_key"],
+                    "aws_secret_access_key": proxy["secret_key"],
+                }
+            )
+            if self.verify is not True:
+                settings["verify"] = self.verify
+            return settings
         try:
             s3_resource = self.post(
                 f"/w/{self.workspace}/job_helpers/v2/s3_resource_info",

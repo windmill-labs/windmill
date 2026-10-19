@@ -27,8 +27,8 @@ use super::auto_generated_endpoints::all_tools;
 use super::session;
 use super::utils::{
     build_query_string, build_request_body, create_http_request, get_hub_script_schema,
-    get_item_schema, get_items, get_resources, get_resources_types, get_scripts_from_hub,
-    parse_response_body, prepare_push_args, substitute_path_params,
+    get_item_paths, get_item_schema, get_items, get_resources, get_resources_types,
+    get_scripts_from_hub, parse_response_body, prepare_push_args, substitute_path_params,
 };
 
 use std::sync::Arc;
@@ -139,6 +139,27 @@ impl McpBackend for WindmillBackend {
             workspace_id,
             scope_type,
             "flow",
+            path_filter,
+        )
+        .await
+        .map_err(|e| ErrorData::internal_error(e.message, None))
+    }
+
+    async fn list_runnable_paths(
+        &self,
+        auth: &ApiAuthed,
+        workspace_id: &str,
+        item_type: &str,
+        favorites_only: bool,
+        path_filter: Option<PathFilter<'_>>,
+    ) -> BackendResult<Vec<String>> {
+        let scope_type = if favorites_only { "favorites" } else { "all" };
+        get_item_paths(
+            &self.user_db,
+            auth,
+            workspace_id,
+            scope_type,
+            item_type,
             path_filter,
         )
         .await

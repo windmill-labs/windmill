@@ -6,8 +6,9 @@
 use crate::common::schema::extract_resource_types_from_schema;
 use crate::common::scope::parse_mcp_scopes;
 use crate::common::transform::{
-    extract_hub_version_id_from_hashed, extract_path_prefix_from_hashed, parse_tool_prefix,
-    reverse_transform, reverse_transform_key,
+    assign_tool_names, extract_hub_version_id_from_hashed, extract_path_prefix_from_hashed,
+    is_encoded_tool_name, parse_tool_prefix, reverse_transform, reverse_transform_key,
+    short_name_last_segments,
 };
 use crate::common::types::{
     McpToken, MultiWorkspaceMcp, NoEndpointTools, ResourceInfo, SchemaType, ToolableItem,
@@ -694,6 +695,51 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
 }
 
 impl<B: McpBackend> Runner<B> {
+    /// Name every script and flow the token can see under the given path filters, as
+    /// `(item_type, path, tool_name)`. Listing and calling must both go through here
+    /// so that a listed name resolves to the item it was listed for.
+    async fn name_runnables(
+        &self,
+        auth: &B::Auth,
+        workspace_id: &str,
+        scope_config: &crate::common::scope::McpScopeConfig,
+        script_filter: Option<PathFilter<'_>>,
+        flow_filter: Option<PathFilter<'_>>,
+    ) -> Result<Vec<(&'static str, String, String)>, ErrorData> {
+        let favorites_only = scope_config.favorites;
+        let (scripts, flows) = tokio::try_join!(
+            self.backend.list_runnable_paths(
+                auth,
+                workspace_id,
+                "script",
+                favorites_only,
+                script_filter
+            ),
+            self.backend.list_runnable_paths(
+                auth,
+                workspace_id,
+                "flow",
+                favorites_only,
+                flow_filter
+            ),
+        )?;
+        let items: Vec<(&'static str, String)> = scripts
+            .into_iter()
+            .map(|p| ("script", p))
+            .chain(flows.into_iter().map(|p| ("flow", p)))
+            .filter(|(t, p)| !scope_config.granular || scope_config.is_allowed(t, p))
+            .collect();
+        let endpoint_tools = self.backend.all_endpoint_tools();
+        let reserved: HashSet<&str> = endpoint_tools.iter().map(|t| t.name.as_ref()).collect();
+        let pairs: Vec<(&str, &str)> = items.iter().map(|(t, p)| (*t, p.as_str())).collect();
+        let names = assign_tool_names(&pairs, &reserved);
+        Ok(items
+            .into_iter()
+            .zip(names)
+            .map(|((t, p), n)| (t, p, n))
+            .collect())
+    }
+
     /// List tools for a single, bound workspace (URL-path or token-bound).
     async fn list_tools_single(
         &self,
@@ -722,11 +768,12 @@ impl<B: McpBackend> Runner<B> {
                 .granular
                 .then(|| PathFilter::Patterns(scope_config.flows.as_slice()));
 
-            let (scripts, flows, resource_types, hub_scripts) = tokio::try_join!(
+            let (scripts, flows, named, resource_types, hub_scripts) = tokio::try_join!(
                 self.backend
                     .list_scripts(auth, workspace_id, favorites_only, script_filter),
                 self.backend
                     .list_flows(auth, workspace_id, favorites_only, flow_filter),
+                self.name_runnables(auth, workspace_id, scope_config, script_filter, flow_filter),
                 self.backend.list_resource_types(auth, workspace_id),
                 async {
                     if let Some(ref apps) = scope_config.hub_apps {
@@ -782,9 +829,22 @@ impl<B: McpBackend> Runner<B> {
             let resources_cache: HashMap<String, Vec<ResourceInfo>> =
                 resource_results.into_iter().collect();
 
+            let names: HashMap<(&str, &str), &str> = named
+                .iter()
+                .map(|(t, p, n)| ((*t, p.as_str()), n.as_str()))
+                .collect();
+            // An item created between the two queries has no short name yet.
+            let name_of = |item: &dyn ToolableItem| {
+                names
+                    .get(&(item.item_type(), item.get_full_path()))
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| item.get_transformed_path())
+            };
+
             for script in &filtered_scripts {
                 tools.push(create_tool_from_item(
                     script,
+                    name_of(script),
                     self.backend.as_ref(),
                     &resources_cache,
                     &resource_types,
@@ -794,6 +854,7 @@ impl<B: McpBackend> Runner<B> {
             for flow in &filtered_flows {
                 tools.push(create_tool_from_item(
                     flow,
+                    name_of(flow),
                     self.backend.as_ref(),
                     &resources_cache,
                     &resource_types,
@@ -803,6 +864,7 @@ impl<B: McpBackend> Runner<B> {
             for hub_script in &hub_scripts {
                 tools.push(create_tool_from_item(
                     hub_script,
+                    hub_script.get_transformed_path(),
                     self.backend.as_ref(),
                     &resources_cache,
                     &resource_types,
@@ -883,49 +945,71 @@ impl<B: McpBackend> Runner<B> {
         }
 
         // Resolve the tool name to (type, path, is_hub)
-        let (type_str, is_hub, is_hashed) = parse_tool_prefix(name.as_ref()).map_err(|e| {
-            ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
-        })?;
-
-        let (tool_type, path, is_hub) = if !is_hashed {
-            reverse_transform(name.as_ref()).map_err(|e| {
-                ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
-            })?
-        } else if is_hub {
-            let version_id = extract_hub_version_id_from_hashed(name.as_ref()).map_err(|e| {
-                ErrorData::internal_error(format!("Failed to extract hub version_id: {}", e), None)
-            })?;
-            (type_str, version_id, true)
+        let (tool_type, path, is_hub) = if !is_encoded_tool_name(name.as_ref()) {
+            let segments = short_name_last_segments(name.as_ref());
+            let filter = Some(PathFilter::LastSegment(segments.as_slice()));
+            let named = self
+                .name_runnables(auth, workspace_id, scope_config, filter, filter)
+                .await?;
+            let (tool_type, path, _) = named
+                .into_iter()
+                .find(|(_, _, n)| n == name.as_ref())
+                .ok_or_else(|| {
+                    ErrorData::internal_error(format!("No tool named '{}'", name), None)
+                })?;
+            (tool_type, path, false)
         } else {
-            let path_prefix = extract_path_prefix_from_hashed(name.as_ref());
-            let path_filter = path_prefix.as_deref().map(PathFilter::Prefix);
-            let favorites_only = scope_config.favorites;
-            let matched_path = if type_str == "script" {
-                find_matching_path(
-                    self.backend
-                        .list_scripts(auth, workspace_id, favorites_only, path_filter)
-                        .await
-                        .map_err(|e| ErrorData::internal_error(e.message, None))?,
-                    name.as_ref(),
-                )
-            } else {
-                find_matching_path(
-                    self.backend
-                        .list_flows(auth, workspace_id, favorites_only, path_filter)
-                        .await
-                        .map_err(|e| ErrorData::internal_error(e.message, None))?,
-                    name.as_ref(),
-                )
-            };
-
-            let matched_path = matched_path.ok_or_else(|| {
-                ErrorData::internal_error(
-                    format!("No {} found matching hashed tool name '{}'", type_str, name),
-                    None,
-                )
+            // The `s-`/`f-`/`hs-` encoding: what hub scripts and items whose short
+            // names all collide are listed under, and what clients listed before short
+            // names existed still call.
+            let (type_str, is_hub, is_hashed) = parse_tool_prefix(name.as_ref()).map_err(|e| {
+                ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
             })?;
 
-            (type_str, matched_path, false)
+            if !is_hashed {
+                reverse_transform(name.as_ref()).map_err(|e| {
+                    ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
+                })?
+            } else if is_hub {
+                let version_id =
+                    extract_hub_version_id_from_hashed(name.as_ref()).map_err(|e| {
+                        ErrorData::internal_error(
+                            format!("Failed to extract hub version_id: {}", e),
+                            None,
+                        )
+                    })?;
+                (type_str, version_id, true)
+            } else {
+                let path_prefix = extract_path_prefix_from_hashed(name.as_ref());
+                let path_filter = path_prefix.as_deref().map(PathFilter::Prefix);
+                let favorites_only = scope_config.favorites;
+                let matched_path = if type_str == "script" {
+                    find_matching_path(
+                        self.backend
+                            .list_scripts(auth, workspace_id, favorites_only, path_filter)
+                            .await
+                            .map_err(|e| ErrorData::internal_error(e.message, None))?,
+                        name.as_ref(),
+                    )
+                } else {
+                    find_matching_path(
+                        self.backend
+                            .list_flows(auth, workspace_id, favorites_only, path_filter)
+                            .await
+                            .map_err(|e| ErrorData::internal_error(e.message, None))?,
+                        name.as_ref(),
+                    )
+                };
+
+                let matched_path = matched_path.ok_or_else(|| {
+                    ErrorData::internal_error(
+                        format!("No {} found matching hashed tool name '{}'", type_str, name),
+                        None,
+                    )
+                })?;
+
+                (type_str, matched_path, false)
+            }
         };
 
         // Validate script/flow scope

@@ -7,6 +7,9 @@ authors.workspace = true
 [lib]
 name = "windmill_parser_wac"
 path = "./src/lib.rs"
+# src/ has no unit tests or doctests: remove both lines before adding one, or cargo test never runs it.
+test = false
+doctest = false
 
 [dependencies]
 ruff_python_parser.workspace = true
