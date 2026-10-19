@@ -911,6 +911,33 @@ async fn update_username_in_workpsace<'c>(
     .execute(&mut **tx)
     .await?;
 
+    // ---- schedule and trigger identities ----
+    // Left naming the old username, they fail to run, and run as whoever is given that name next.
+    for table in [
+        "schedule",
+        "http_trigger",
+        "websocket_trigger",
+        "postgres_trigger",
+        "mqtt_trigger",
+        "kafka_trigger",
+        "nats_trigger",
+        "sqs_trigger",
+        "gcp_trigger",
+        "email_trigger",
+        "amqp_trigger",
+        "azure_trigger",
+    ] {
+        // SAFETY: `table` comes from the hardcoded list above, not user input.
+        sqlx::query(&format!(
+            "UPDATE {table} SET permissioned_as = $1 WHERE permissioned_as = $2 AND workspace_id = $3"
+        ))
+        .bind(&new_principal)
+        .bind(&old_principal)
+        .bind(w_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
     // ---- group_ ----
 
     sqlx::query!(
@@ -946,6 +973,25 @@ async fn update_username_in_workpsace<'c>(
         "UPDATE folder SET extra_perms = extra_perms - ('u/' || $2) || jsonb_build_object(('u/' || $1), extra_perms->('u/' || $2)) WHERE extra_perms ? ('u/' || $2) AND workspace_id = $3",
         new_username,
         old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    // Rules are ordered, first match wins, so the rewrite keeps their order. A rule left on the
+    // old username refuses the creation of every runnable it matches.
+    sqlx::query!(
+        r#"UPDATE folder SET default_permissioned_as = (
+            SELECT jsonb_agg(
+                CASE WHEN rule->>'permissioned_as' = $2
+                     THEN jsonb_set(rule, ARRAY['permissioned_as'], to_jsonb($1::text))
+                     ELSE rule END
+                ORDER BY ord)
+            FROM jsonb_array_elements(default_permissioned_as) WITH ORDINALITY AS t(rule, ord))
+        WHERE default_permissioned_as @> jsonb_build_array(jsonb_build_object('permissioned_as', $2::text))
+          AND workspace_id = $3"#,
+        &new_principal,
+        &old_principal,
         w_id
     )
     .execute(&mut **tx)
