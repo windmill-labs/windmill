@@ -31985,7 +31985,7 @@ components:
         expires_at:
           type: string
           format: date-time
-        value_expires_at:
+        value_valid_until:
           type: string
           nullable: true
           format: date-time
@@ -32067,9 +32067,9 @@ components:
           description: >
             When to garbage-collect the variable. Used for ephemeral secrets;
             the variable is deleted once this is reached. Not the value's expiry
-            — see value_expires_at.
+            — see value_valid_until.
           format: date-time
-        value_expires_at:
+        value_valid_until:
           type: string
           description: >
             When the value stored in this variable stops working. Triggers the
@@ -32104,7 +32104,7 @@ components:
         description:
           type: string
           description: The new description of the variable
-        value_expires_at:
+        value_valid_until:
           type: string
           nullable: true
           description: >

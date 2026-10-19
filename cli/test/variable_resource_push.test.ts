@@ -133,7 +133,7 @@ describe("variable", () => {
     });
   });
 
-  test("push clears value_expires_at when the key is dropped from the file", async () => {
+  test("push clears value_valid_until when the key is dropped from the file", async () => {
     await withTestBackend(async (backend, tempDir) => {
       await setupWorkspaceProfile(backend);
 
@@ -150,7 +150,7 @@ describe("variable", () => {
             value: "original_value",
             is_secret: false,
             description: "Expiring",
-            value_expires_at: "2027-03-15T08:00:00Z",
+            value_valid_until: "2027-03-15T08:00:00Z",
           }),
         }
       );
@@ -163,7 +163,7 @@ describe("variable", () => {
         "utf-8"
       );
       await mkdir(join(tempDir, "f", "test"), { recursive: true });
-      // No value_expires_at: the CLI must send an explicit null to clear it.
+      // No value_valid_until: the CLI must send an explicit null to clear it.
       await writeFile(
         join(tempDir, `${path}.variable.yaml`),
         `value: "original_value"\nis_secret: false\ndescription: "Expiring"\n`,
@@ -181,7 +181,7 @@ describe("variable", () => {
       );
       expect(apiResp.status).toEqual(200);
       const varData = await apiResp.json();
-      expect(varData.value_expires_at ?? null).toBeNull();
+      expect(varData.value_valid_until ?? null).toBeNull();
 
       // A clear that did not land leaves the diff pending, so push success is not proof.
       const secondPush = await backend.runCLICommand(

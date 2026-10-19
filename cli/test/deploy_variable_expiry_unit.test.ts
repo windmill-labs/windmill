@@ -6,7 +6,7 @@ import { deployItem } from "../windmill-utils-internal/src/deploy.ts";
 function recordingProvider(
   captured: [string, any][],
   exists: boolean,
-  value_expires_at: string | null,
+  value_valid_until: string | null,
 ) {
   return {
     existsVariable: async () => exists,
@@ -15,7 +15,7 @@ function recordingProvider(
       value: "secret",
       is_secret: true,
       description: "d",
-      value_expires_at,
+      value_valid_until,
     }),
     createVariable: async (p: any) =>
       void captured.push(["createVariable", p.requestBody]),
@@ -24,7 +24,7 @@ function recordingProvider(
   } as any;
 }
 
-test("deployItem: carries value_expires_at, and clears it explicitly", async () => {
+test("deployItem: carries value_valid_until, and clears it explicitly", async () => {
   const captured: [string, any][] = [];
 
   // Written once per branch: create and update.
@@ -51,7 +51,7 @@ test("deployItem: carries value_expires_at, and clears it explicitly", async () 
     "updateVariable",
     "updateVariable",
   ]);
-  expect(captured.map(([, body]) => body.value_expires_at)).toEqual([
+  expect(captured.map(([, body]) => body.value_valid_until)).toEqual([
     "2027-03-15T08:00:00Z",
     null,
     "2027-03-15T08:00:00Z",

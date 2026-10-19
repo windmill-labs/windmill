@@ -149,7 +149,7 @@ async fn list_variables(
             "resource.path IS NOT NULL as is_linked",
             "account.refresh_token != '' as is_refreshed",
             "variable.expires_at",
-            "variable.value_expires_at",
+            "variable.value_valid_until",
             "variable.labels",
             "folder_labels(variable.workspace_id, variable.path) as inherited_labels",
             "ws_specific.path IS NOT NULL as ws_specific",
@@ -247,7 +247,7 @@ async fn list_variables(
         for row in draft_only_rows {
             let v: serde_json::Value =
                 serde_json::from_str(row.value.0.get()).unwrap_or(serde_json::Value::Null);
-            // VariableEditor's `VariableState`: { path, variable: { value, is_secret, description }, labels?, wsSpecific, value_expires_at? }
+            // VariableEditor's `VariableState`: { path, variable: { value, is_secret, description }, labels?, wsSpecific, value_valid_until? }
             let path = v
                 .get("path")
                 .and_then(|s| s.as_str())
@@ -286,8 +286,8 @@ async fn list_variables(
                 })
             });
             let ws_specific = v.get("wsSpecific").and_then(|x| x.as_bool());
-            let value_expires_at = v
-                .get("value_expires_at")
+            let value_valid_until = v
+                .get("value_valid_until")
                 .and_then(|x| x.as_str())
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                 .map(|dt| dt.with_timezone(&chrono::Utc));
@@ -306,7 +306,7 @@ async fn list_variables(
                 refresh_error: None,
                 is_linked: None,
                 expires_at: None,
-                value_expires_at,
+                value_valid_until,
                 labels,
                 // No deployed row to inherit folder labels from.
                 inherited_labels: None,
@@ -347,7 +347,7 @@ async fn get_variable(
     let variable_o = sqlx::query_as::<_, ListableVariable>(
         "SELECT variable.workspace_id, variable.path, variable.value, variable.is_secret,
         variable.description, variable.extra_perms, variable.account, variable.is_oauth,
-        variable.expires_at, variable.value_expires_at, variable.labels,
+        variable.expires_at, variable.value_valid_until, variable.labels,
         folder_labels(variable.workspace_id, variable.path) as inherited_labels,
         variable.edited_at, variable.edited_by,
         (now() > account.expires_at) as is_expired, account.refresh_error,
@@ -657,7 +657,7 @@ async fn create_variable(
 
     sqlx::query!(
         "INSERT INTO variable
-            (workspace_id, path, value, is_secret, description, account, is_oauth, expires_at, value_expires_at, labels, edited_by)
+            (workspace_id, path, value, is_secret, description, account, is_oauth, expires_at, value_valid_until, labels, edited_by)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
         &w_id,
         variable.path,
@@ -667,7 +667,7 @@ async fn create_variable(
         variable.account,
         variable.is_oauth.unwrap_or(false),
         variable.expires_at,
-        variable.value_expires_at,
+        variable.value_valid_until,
         variable.labels.as_deref() as Option<&[String]>,
         &authed.username
     )
@@ -1078,7 +1078,7 @@ struct EditVariable {
         default,
         deserialize_with = "windmill_common::more_serde::double_option"
     )]
-    value_expires_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    value_valid_until: Option<Option<chrono::DateTime<chrono::Utc>>>,
 }
 
 #[derive(Deserialize)]
@@ -1178,12 +1178,12 @@ async fn update_variable(
         has_sql_updates = true;
     }
 
-    if let Some(nvalue_expires_at) = ns.value_expires_at {
+    if let Some(nvalue_valid_until) = ns.value_valid_until {
         // Nothing to reset: the sweep compares the date with `expiration_dispatched_for`, so
         // moving it re-arms the handler and rewriting the same date does not.
-        match nvalue_expires_at {
-            Some(ts) => sqlb.set("value_expires_at", "?".bind(&ts.to_rfc3339())),
-            None => sqlb.set("value_expires_at", "NULL"),
+        match nvalue_valid_until {
+            Some(ts) => sqlb.set("value_valid_until", "?".bind(&ts.to_rfc3339())),
+            None => sqlb.set("value_valid_until", "NULL"),
         };
         has_sql_updates = true;
     }

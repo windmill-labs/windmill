@@ -42,7 +42,7 @@
 		variable: { value: string; is_secret: boolean; description: string }
 		labels: string[] | undefined
 		wsSpecific: boolean
-		value_expires_at?: string
+		value_valid_until?: string
 	}
 
 	// The deployed baseline every dirty check and save diff runs against: a field it
@@ -57,7 +57,7 @@
 			},
 			labels: v.labels ?? undefined,
 			wsSpecific: v.ws_specific ?? false,
-			value_expires_at: v.value_expires_at ?? undefined
+			value_valid_until: v.value_valid_until ?? undefined
 		}
 	}
 
@@ -438,9 +438,9 @@
 		const savedPath = (curWs ? states[curWs]?.draft?.path : undefined) ?? editPath ?? ''
 		// Before the loop rewrites the baselines; once per save, not per workspace.
 		const expiryEdited = dirty.some(
-			(ws) => initialStates[ws]?.value_expires_at !== states[ws].draft?.value_expires_at
+			(ws) => initialStates[ws]?.value_valid_until !== states[ws].draft?.value_valid_until
 		)
-		const expiryNowSet = dirty.some((ws) => !!states[ws].draft?.value_expires_at)
+		const expiryNowSet = dirty.some((ws) => !!states[ws].draft?.value_valid_until)
 		try {
 			for (const ws of dirty) {
 				const s = states[ws].draft!
@@ -459,9 +459,9 @@
 									? s.variable.description
 									: undefined,
 							// Tri-state: absent leaves the stored date alone, `null` clears it.
-							value_expires_at:
-								ini.value_expires_at != s.value_expires_at
-									? (s.value_expires_at ?? null)
+							value_valid_until:
+								ini.value_valid_until != s.value_valid_until
+									? (s.value_valid_until ?? null)
 									: undefined,
 							labels: s.labels,
 							ws_specific: s.wsSpecific
@@ -475,7 +475,7 @@
 							value: s.variable.value,
 							is_secret: s.variable.is_secret,
 							description: s.variable.description,
-							value_expires_at: s.value_expires_at,
+							value_valid_until: s.value_valid_until,
 							labels: s.labels,
 							ws_specific: s.wsSpecific
 						}
@@ -584,7 +584,7 @@
 						bind:variable={current.variable}
 						bind:labels={current.labels}
 						bind:wsSpecific={current.wsSpecific}
-						bind:valueExpiresAt={current.value_expires_at}
+						bind:valueValidUntil={current.value_valid_until}
 						{initialPath}
 						deployTo={deployTo.current}
 						can_write={can_write === true}

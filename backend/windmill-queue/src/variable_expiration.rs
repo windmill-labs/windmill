@@ -67,37 +67,37 @@ pub async fn dispatch_expiring_variables(db: &DB) {
 }
 
 async fn dispatch_expiring_variables_inner(db: &DB) {
-    // No lower bound on `value_expires_at`, so a downed instance catches up. Rows are taken
+    // No lower bound on `value_valid_until`, so a downed instance catches up. Rows are taken
     // round-robin across workspaces (`rn`) so neither a broken handler's overdue rows nor a
     // large backlog fills the cap and starves the other workspaces.
     let due = sqlx::query!(
         r#"SELECT workspace_id AS "workspace_id!", path AS "path!", description AS "description!",
-                  value_expires_at AS "value_expires_at!", is_secret AS "is_secret!",
+                  value_valid_until AS "value_valid_until!", is_secret AS "is_secret!",
                   expiration_dispatched_for, expiration_notified_at,
                   handler_path AS "handler_path!",
                   extra_args AS "extra_args: Json<Box<RawValue>>"
            FROM (
-               SELECT v.workspace_id, v.path, v.description, v.value_expires_at, v.is_secret,
+               SELECT v.workspace_id, v.path, v.description, v.value_valid_until, v.is_secret,
                       v.expiration_dispatched_for, v.expiration_notified_at,
                       ws.variable_expiration_handler->>'path' AS handler_path,
                       (ws.variable_expiration_handler->'extra_args')::text::json AS extra_args,
-                      row_number() OVER (PARTITION BY v.workspace_id ORDER BY v.value_expires_at) AS rn
+                      row_number() OVER (PARTITION BY v.workspace_id ORDER BY v.value_valid_until) AS rn
                FROM variable v
                JOIN workspace_settings ws ON ws.workspace_id = v.workspace_id
                JOIN workspace w ON w.id = v.workspace_id
                WHERE NOT w.deleted
-                 AND v.value_expires_at IS NOT NULL
-                 AND (v.value_expires_at IS DISTINCT FROM v.expiration_dispatched_for
-                      OR (v.value_expires_at > now()
+                 AND v.value_valid_until IS NOT NULL
+                 AND (v.value_valid_until IS DISTINCT FROM v.expiration_dispatched_for
+                      OR (v.value_valid_until > now()
                           AND v.expiration_notified_at <= now() - make_interval(secs =>
                               NULLIF((ws.variable_expiration_handler->>'remind_every_secs')::bigint, 0) - $3)))
-                 AND v.value_expires_at <= now() + make_interval(secs =>
+                 AND v.value_valid_until <= now() + make_interval(secs =>
                      COALESCE((ws.variable_expiration_handler->>'notify_before_secs')::bigint, $1))
                  AND ws.variable_expiration_handler->>'path' IS NOT NULL
                  AND (NOT COALESCE((ws.variable_expiration_handler->>'muted_on_user_path')::boolean, false)
                       OR v.path NOT LIKE 'u/%')
            ) due
-           ORDER BY rn, value_expires_at
+           ORDER BY rn, value_valid_until
            LIMIT $2"#,
         VARIABLE_EXPIRATION_DEFAULT_NOTIFY_BEFORE_SECS,
         VARIABLE_EXPIRATION_MAX_PER_PASS,
@@ -135,13 +135,13 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
 
         let claimed = sqlx::query_scalar!(
             "UPDATE variable SET expiration_dispatched_for = $3, expiration_notified_at = now()
-             WHERE workspace_id = $1 AND path = $2 AND value_expires_at = $3
+             WHERE workspace_id = $1 AND path = $2 AND value_valid_until = $3
                AND expiration_dispatched_for IS NOT DISTINCT FROM $4
                AND expiration_notified_at IS NOT DISTINCT FROM $5
              RETURNING 1",
             row.workspace_id,
             row.path,
-            row.value_expires_at,
+            row.value_valid_until,
             row.expiration_dispatched_for,
             row.expiration_notified_at,
         )
@@ -161,7 +161,7 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
             workspace_id: row.workspace_id.clone(),
             variable_path: row.path.clone(),
             description: row.description,
-            value_expires_at: row.value_expires_at,
+            value_valid_until: row.value_valid_until,
             is_secret: row.is_secret,
         };
 

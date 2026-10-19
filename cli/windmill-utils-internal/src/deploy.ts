@@ -618,7 +618,7 @@ export async function deployItem(
             description: variable.description ?? "",
             labels: variable.labels,
             // `null` clears; absent would keep the target's stored date.
-            value_expires_at: variable.value_expires_at ?? null,
+            value_valid_until: variable.value_valid_until ?? null,
           },
           alreadyEncrypted: false,
         });
@@ -631,7 +631,7 @@ export async function deployItem(
             is_secret: variable.is_secret,
             description: variable.description ?? "",
             labels: variable.labels,
-            value_expires_at: variable.value_expires_at ?? null,
+            value_valid_until: variable.value_valid_until ?? null,
           },
         });
       }

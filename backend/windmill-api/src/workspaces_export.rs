@@ -963,9 +963,9 @@ pub(crate) async fn tarball_workspace(
     if !skip_variables.unwrap_or(false) {
         let variables =
              sqlx::query_as::<_, ExportableListableVariable>(if !skip_secrets.unwrap_or(false) {
-                 "SELECT workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, value_expires_at, labels FROM variable WHERE workspace_id = $1 AND expires_at IS NULL"
+                 "SELECT workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, value_valid_until, labels FROM variable WHERE workspace_id = $1 AND expires_at IS NULL"
              } else {
-                 "SELECT workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, value_expires_at, labels FROM variable WHERE workspace_id = $1 AND is_secret = false AND expires_at IS NULL"
+                 "SELECT workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, value_valid_until, labels FROM variable WHERE workspace_id = $1 AND is_secret = false AND expires_at IS NULL"
              })
              .bind(&w_id)
              .fetch_all(&mut *tx)

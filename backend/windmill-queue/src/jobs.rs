@@ -3601,7 +3601,7 @@ pub struct ExpiringVariable {
     pub workspace_id: String,
     pub variable_path: String,
     pub description: String,
-    pub value_expires_at: DateTime<Utc>,
+    pub value_valid_until: DateTime<Utc>,
     pub is_secret: bool,
 }
 

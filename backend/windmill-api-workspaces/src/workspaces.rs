@@ -7881,8 +7881,8 @@ async fn clone_variables(
 ) -> Result<()> {
     // Dispatch markers are not copied, so the fork re-arms its own handler.
     sqlx::query!(
-        "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, value_expires_at)
-         SELECT $2, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, value_expires_at
+        "INSERT INTO variable (workspace_id, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, value_valid_until)
+         SELECT $2, path, value, is_secret, description, extra_perms, account, is_oauth, expires_at, value_valid_until
          FROM variable
          WHERE workspace_id = $1",
         source_workspace_id,
@@ -14286,7 +14286,7 @@ async fn compare_two_variables(
 
     // Get variable from each workspace
     let source_variable = sqlx::query!(
-        "SELECT value, is_secret, description, value_expires_at
+        "SELECT value, is_secret, description, value_valid_until
          FROM variable
          WHERE workspace_id = $1 AND path = $2",
         source_workspace_id,
@@ -14296,7 +14296,7 @@ async fn compare_two_variables(
     .await?;
 
     let target_variable = sqlx::query!(
-        "SELECT value, is_secret, description, value_expires_at
+        "SELECT value, is_secret, description, value_valid_until
          FROM variable
          WHERE workspace_id = $1 AND path = $2",
         fork_workspace_id,
@@ -14312,7 +14312,7 @@ async fn compare_two_variables(
         if source.is_secret != target.is_secret
             || source.value != target.value
             || source.description != target.description
-            || source.value_expires_at != target.value_expires_at
+            || source.value_valid_until != target.value_valid_until
         {
             has_changes = true;
         }

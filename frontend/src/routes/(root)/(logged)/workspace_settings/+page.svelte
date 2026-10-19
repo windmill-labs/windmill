@@ -2362,10 +2362,10 @@ export async function main(
 export async function main(
   variable_path: string,
   description: string,
-  value_expires_at: string,
+  value_valid_until: string,
   is_secret: boolean
 ) {
-  console.log(\`\${variable_path} expires at \${value_expires_at}\`)
+  console.log(\`\${variable_path} expires at \${value_valid_until}\`)
 
   // Rotate the value here, then write the next expiry date back onto the
   // variable — that is what re-arms this handler for the following rotation.

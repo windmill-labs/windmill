@@ -21,7 +21,7 @@
 		'workspace_id',
 		'variable_path',
 		'description',
-		'value_expires_at',
+		'value_valid_until',
 		'is_secret'
 	]
 

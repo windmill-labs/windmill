@@ -32,7 +32,7 @@
 		variable: Variable
 		labels: string[] | undefined
 		wsSpecific: boolean
-		valueExpiresAt: string | undefined
+		valueValidUntil: string | undefined
 		deployTo: string | undefined
 		can_write: boolean
 		edit: boolean
@@ -59,7 +59,7 @@
 		variable = $bindable(),
 		labels = $bindable(),
 		wsSpecific = $bindable(),
-		valueExpiresAt = $bindable(),
+		valueValidUntil = $bindable(),
 		deployTo,
 		can_write,
 		edit,
@@ -253,30 +253,30 @@ stretch the hit area over the whole row and the alert. The toggle carries its na
 </label>
 
 {#if !oauthLinked}
-	<Section label="Advanced" small collapsable initiallyCollapsed={!valueExpiresAt}>
+	<Section label="Advanced" small collapsable initiallyCollapsed={!valueValidUntil}>
 		<Label
 			label="Value expiration"
 			tooltip="When the value stored here stops working, such as the expiry date of an API key. Ahead of it (1 day by default), Windmill runs the workspace's variable expiration handler if one is set, so the value can be rotated. The variable itself is never deleted."
 		>
 			<Toggle
 				size="sm"
-				checked={Boolean(valueExpiresAt)}
+				checked={Boolean(valueValidUntil)}
 				disabled={!can_write}
-				on:change={() => (valueExpiresAt = valueExpiresAt ? undefined : defaultValueExpiry())}
+				on:change={() => (valueValidUntil = valueValidUntil ? undefined : defaultValueExpiry())}
 				options={{ right: 'Set a date on which this value expires' }}
 			/>
-			{#if valueExpiresAt}
+			{#if valueValidUntil}
 				<span class="text-xs font-semibold text-emphasis leading-none mt-2">Expires on</span>
 				<!-- Unbound: DateTimeInput writes `null` when emptied, which reads as an edit,
 			so empty states become `undefined`. Not `clearable`: the toggle means "no expiry". -->
 				<DateTimeInput
-					value={valueExpiresAt}
+					value={valueValidUntil}
 					useDropdown
 					disabled={!can_write}
-					on:change={(e) => (valueExpiresAt = e.detail ?? undefined)}
+					on:change={(e) => (valueValidUntil = e.detail ?? undefined)}
 				/>
 				<span class="text-2xs font-normal text-hint">
-					{#if new Date(valueExpiresAt).getTime() <= Date.now()}
+					{#if new Date(valueValidUntil).getTime() <= Date.now()}
 						This date has passed. Set a new one once the value is rotated.
 					{:else}
 						Runs the workspace's <a

@@ -32,7 +32,7 @@ async fn seed_handler_script(db: &Pool<Postgres>, path: &str) -> anyhow::Result<
 
 async fn seed_variable(db: &Pool<Postgres>, path: &str, expires_in: &str) -> anyhow::Result<()> {
     sqlx::query(&format!(
-        r#"INSERT INTO variable (workspace_id, path, value, is_secret, description, value_expires_at)
+        r#"INSERT INTO variable (workspace_id, path, value, is_secret, description, value_valid_until)
            VALUES ($1, $2, 'MUST_NOT_LEAK', true, 'a credential', now() + interval '{expires_in}')"#
     ))
     .bind(WS)
@@ -165,7 +165,7 @@ async fn test_remind_every_repeats_the_notice(db: Pool<Postgres>) -> anyhow::Res
     );
 
     sqlx::query(
-        "UPDATE variable SET value_expires_at = now() - interval '1 minute',
+        "UPDATE variable SET value_valid_until = now() - interval '1 minute',
          expiration_dispatched_for = now() - interval '1 minute',
          expiration_notified_at = now() - interval '11 minutes'",
     )
@@ -179,7 +179,7 @@ async fn test_remind_every_repeats_the_notice(db: Pool<Postgres>) -> anyhow::Res
     Ok(())
 }
 
-/// Moving `value_expires_at` re-arms the variable; re-writing the same date does not.
+/// Moving `value_valid_until` re-arms the variable; re-writing the same date does not.
 #[sqlx::test(fixtures("base"))]
 async fn test_rearm_on_date_change(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
@@ -210,7 +210,7 @@ async fn test_rearm_on_date_change(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     let stored: chrono::DateTime<chrono::Utc> = sqlx::query_scalar(
-        "SELECT value_expires_at FROM variable WHERE workspace_id = $1 AND path = $2",
+        "SELECT value_valid_until FROM variable WHERE workspace_id = $1 AND path = $2",
     )
     .bind(WS)
     .bind("u/test-user/due")
@@ -219,7 +219,7 @@ async fn test_rearm_on_date_change(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     // An unchanged `wmill sync push` rewrites the same date.
     assert_eq!(
-        update(serde_json::json!({ "value_expires_at": stored })).await?,
+        update(serde_json::json!({ "value_valid_until": stored })).await?,
         200
     );
     dispatch_expiring_variables(&db).await;
@@ -237,11 +237,11 @@ async fn test_rearm_on_date_change(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(
         queued_handler_jobs(&db, "u/test-user/expiry_handler").await?,
         1,
-        "an update that omits value_expires_at must not re-arm"
+        "an update that omits value_valid_until must not re-arm"
     );
 
     assert_eq!(
-        update(serde_json::json!({ "value_expires_at": stored + chrono::Duration::minutes(5) }))
+        update(serde_json::json!({ "value_valid_until": stored + chrono::Duration::minutes(5) }))
             .await?,
         200
     );
@@ -320,7 +320,7 @@ async fn test_broken_handler_does_not_starve_other_workspaces(
     .await?;
     // More overdue rows than one pass carries.
     sqlx::query(
-        r#"INSERT INTO variable (workspace_id, path, value, is_secret, description, value_expires_at)
+        r#"INSERT INTO variable (workspace_id, path, value, is_secret, description, value_valid_until)
            SELECT 'poison-ws', 'f/creds/v' || i, 'v', false, '', now() - (i || ' minutes')::interval
            FROM generate_series(1, 120) i"#,
     )

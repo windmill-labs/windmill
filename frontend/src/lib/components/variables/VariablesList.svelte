@@ -440,7 +440,7 @@
 								</tr>
 							</Head>
 							<tbody class="divide-y">
-								{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, labels, inherited_labels, ws_specific, draft_only, is_draft, value_expires_at }}
+								{#each filteredItems as { path, value, is_secret, description, extra_perms, canWrite, account, is_refreshed, is_expired, refresh_error, is_linked, labels, inherited_labels, ws_specific, draft_only, is_draft, value_valid_until }}
 									{@const hasDraft =
 										getLocalDraftHint($operatingWorkspace, 'variable', path) ?? is_draft}
 									<Row>
@@ -521,8 +521,8 @@
 														{/snippet}
 													</Popover>
 												{/if}
-												{#if value_expires_at}
-													{@const expired = new Date(value_expires_at).getTime() <= Date.now()}
+												{#if value_valid_until}
+													{@const expired = new Date(value_valid_until).getTime() <= Date.now()}
 													<Popover notClickable>
 														<CalendarClock
 															size={16}
@@ -531,7 +531,7 @@
 														{#snippet text()}
 															<div>
 																The value {expired ? 'expired' : 'expires'} on
-																{new Date(value_expires_at).toLocaleString()}.
+																{new Date(value_valid_until).toLocaleString()}.
 															</div>
 														{/snippet}
 													</Popover>

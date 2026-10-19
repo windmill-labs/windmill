@@ -732,7 +732,7 @@ const writeVariableSchema = variableRequestSchema.extend({
 		.optional()
 		.describe('The description of the variable. Omit it to keep the current description.'),
 	// Nullable, unlike the generated schema, so a cleared expiry differs from an omitted one.
-	value_expires_at: z
+	value_valid_until: z
 		.string()
 		.datetime({ offset: true })
 		.nullable()
@@ -2699,7 +2699,7 @@ function getResourceInstructions(): string {
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
 - A resource draft is a workspace item: \`{ type: 'resource', path, summary?, value, isDraft }\`. \`value\` is a CreateResource body: \`{ path, value, description?, resource_type, labels? }\` where the inner \`value\` is the resource type's data shape.
 - Reading a variable returns \`{ type: 'variable', path, summary?, isSecret, isDraft }\` — never its value, secret or not. \`isSecret\` tells you whether the value is encrypted.
-- \`write_variable\` takes \`{ path, value?, is_secret?, description?, account?, is_oauth?, expires_at?, value_expires_at?, labels? }\`. Creating a variable needs \`value\` and \`is_secret\`; editing one needs only the fields you are changing. Omitting \`value\` keeps the stored value, which is the only way to edit a secret variable — you cannot read its value, so passing any \`value\` you did not get from the user destroys it.
+- \`write_variable\` takes \`{ path, value?, is_secret?, description?, account?, is_oauth?, expires_at?, value_valid_until?, labels? }\`. Creating a variable needs \`value\` and \`is_secret\`; editing one needs only the fields you are changing. Omitting \`value\` keeps the stored value, which is the only way to edit a secret variable — you cannot read its value, so passing any \`value\` you did not get from the user destroys it.
 - For secret fields in a resource value, create the variable with \`write_variable\` and \`is_secret: true\`, and deploy it before the resource (see "Secrets" in the reference below).
 - Reference formats inside resource values: \`$var:g/all/name\` (global), \`$var:u/user/name\` (user), \`$var:f/folder/name\` (folder). Reference another resource with \`$res:path/to/resource\`. The same strings are also how a resource or variable is passed as a run argument (see the run-argument rule in the resource reference below); what they are never valid as is a variable's own value.
 - Use \`search_resource_types\` to discover valid \`resource_type\` names and their JSON Schemas. Match the resource value to that schema.
@@ -5527,7 +5527,7 @@ function variableToDraftState(variable: ListableVariable): VariableDraftState {
 		account: variable.account ?? undefined,
 		is_oauth: variable.is_oauth ?? undefined,
 		expires_at: variable.expires_at ?? undefined,
-		value_expires_at: variable.value_expires_at ?? undefined
+		value_valid_until: variable.value_valid_until ?? undefined
 	}
 }
 
@@ -5600,8 +5600,8 @@ function createVariableToDraftState(
 		expires_at: args.expires_at ?? base?.expires_at,
 		// `null` clears and omitted keeps the base's. The draft stores a cleared expiry as
 		// `undefined`, since a stored draft goes through a JSON round-trip.
-		value_expires_at:
-			args.value_expires_at === null ? undefined : (args.value_expires_at ?? base?.value_expires_at)
+		value_valid_until:
+			args.value_valid_until === null ? undefined : (args.value_valid_until ?? base?.value_valid_until)
 	}
 }
 
@@ -5622,14 +5622,14 @@ function buildVariableCreateRequestBody(draftValue: CreateVariable): CreateVaria
 // endpoint decrypts an `$encrypted:` marker and encrypts plaintext.
 function buildVariableUpdateRequestBody(draftValue: CreateVariable): Omit<
 	CreateVariable,
-	'value' | 'value_expires_at'
+	'value' | 'value_valid_until'
 > & {
 	value?: string
-	value_expires_at?: string | null
+	value_valid_until?: string | null
 } {
-	const { value, value_expires_at, ...others } = structuredClone(draftValue)
+	const { value, value_valid_until, ...others } = structuredClone(draftValue)
 	// The draft holds the full state, so an absent expiry was cleared: send `null`.
-	const rest = { ...others, value_expires_at: value_expires_at ?? null }
+	const rest = { ...others, value_valid_until: value_valid_until ?? null }
 	// A value the draft is never allowed to carry — a secret's, and an OAuth-managed one
 	// dropped by `variableToDraftState` — reaches here as '' whenever this edit staged
 	// none, so sending it would blank the stored value or wipe a rotating token.

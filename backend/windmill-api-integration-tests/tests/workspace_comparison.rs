@@ -2574,7 +2574,7 @@ async fn test_rename_records_the_vacated_path(db: Pool<Postgres>) -> anyhow::Res
 /// `compare_two_variables` hand-lists its columns, so a forgotten one hides that difference
 /// from the fork diff, and it can never be promoted.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_compare_variables_detects_value_expires_at(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_compare_variables_detects_value_valid_until(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
 
     let server = ApiServer::start(db.clone()).await?;
@@ -2586,7 +2586,7 @@ async fn test_compare_variables_detects_value_expires_at(db: Pool<Postgres>) -> 
     );
 
     sqlx::query!(
-        "INSERT INTO variable (workspace_id, path, value, is_secret, description, value_expires_at)
+        "INSERT INTO variable (workspace_id, path, value, is_secret, description, value_valid_until)
          VALUES ('test-workspace', 'u/admin/expiring', 'v', false, 'same', '2027-01-01T00:00:00Z')"
     )
     .execute(&db)
@@ -2608,7 +2608,7 @@ async fn test_compare_variables_detects_value_expires_at(db: Pool<Postgres>) -> 
 
     // Before the UPDATE below overwrites it: the fork must inherit the date from the source.
     let inherited: Option<String> = sqlx::query_scalar(
-        "SELECT to_char(value_expires_at, 'YYYY-MM-DD') FROM variable
+        "SELECT to_char(value_valid_until, 'YYYY-MM-DD') FROM variable
          WHERE workspace_id = 'wm-fork-expiry' AND path = 'u/admin/expiring'",
     )
     .fetch_one(&db)
@@ -2617,7 +2617,7 @@ async fn test_compare_variables_detects_value_expires_at(db: Pool<Postgres>) -> 
 
     // Only the expiry differs.
     sqlx::query!(
-        "UPDATE variable SET value_expires_at = '2029-12-31T00:00:00Z'
+        "UPDATE variable SET value_valid_until = '2029-12-31T00:00:00Z'
          WHERE workspace_id = 'wm-fork-expiry' AND path = 'u/admin/expiring'"
     )
     .execute(&db)

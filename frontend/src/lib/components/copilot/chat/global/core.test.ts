@@ -1357,17 +1357,17 @@ describe('global AI tools', () => {
 			value: 'tok',
 			is_secret: false,
 			description: 'd',
-			value_expires_at: '2027-03-15T08:30:00Z'
+			value_valid_until: '2027-03-15T08:30:00Z'
 		} as any)
 
 		await callGlobalTool('write_variable', {
 			path: 'f/secrets/api_key',
-			value_expires_at: null
+			value_valid_until: null
 		})
 
 		expect(
 			getBackendDraft<any>('variable', 'f/secrets/api_key', { workspace: WORKSPACE })
-				?.value_expires_at
+				?.value_valid_until
 		).toBeUndefined()
 
 		await callGlobalTool('deploy_workspace_item', {
@@ -1377,7 +1377,7 @@ describe('global AI tools', () => {
 
 		expect(VariableService.updateVariable).toHaveBeenCalledWith(
 			expect.objectContaining({
-				requestBody: expect.objectContaining({ value_expires_at: null })
+				requestBody: expect.objectContaining({ value_valid_until: null })
 			})
 		)
 	})

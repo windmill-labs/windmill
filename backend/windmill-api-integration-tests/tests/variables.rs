@@ -341,7 +341,7 @@ async fn test_variables_are_cached(db: Pool<Postgres>) -> anyhow::Result<()> {
 
 /// A draft-only row is built field by field, so a forgotten field is dropped silently.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
-async fn test_draft_only_row_carries_value_expires_at(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_draft_only_row_carries_value_valid_until(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
@@ -354,7 +354,7 @@ async fn test_draft_only_row_carries_value_expires_at(db: Pool<Postgres>) -> any
             "path": "u/test-user/draft_var",
             "variable": { "value": "x", "is_secret": true, "description": "" },
             "wsSpecific": false,
-            "value_expires_at": "2027-03-15T08:00:00Z"
+            "value_valid_until": "2027-03-15T08:00:00Z"
         }
     }))
     .send()
@@ -373,7 +373,7 @@ async fn test_draft_only_row_carries_value_expires_at(db: Pool<Postgres>) -> any
         .find(|v| v["path"] == "u/test-user/draft_var")
         .expect("draft-only row is listed");
     assert_eq!(row["draft_only"], true);
-    assert_eq!(row["value_expires_at"], "2027-03-15T08:00:00Z");
+    assert_eq!(row["value_valid_until"], "2027-03-15T08:00:00Z");
 
     Ok(())
 }
@@ -398,7 +398,7 @@ async fn test_oauth_variable_refuses_value_expiry(db: Pool<Postgres>) -> anyhow:
     let resp = authed(client().post(format!(
         "http://localhost:{port}/api/w/test-workspace/variables/update/u/test-user/oauth_var"
     )))
-    .json(&json!({ "value_expires_at": "2027-03-15T08:00:00Z" }))
+    .json(&json!({ "value_valid_until": "2027-03-15T08:00:00Z" }))
     .send()
     .await?;
     assert_eq!(resp.status(), 400);

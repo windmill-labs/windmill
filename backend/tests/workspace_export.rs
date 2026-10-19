@@ -288,7 +288,7 @@ async fn test_tarball_export_gates_values_on_item_scopes(db: Pool<Postgres>) -> 
     Ok(())
 }
 
-/// The tarball drops variables by `expires_at`, never `value_expires_at`, and the exported
+/// The tarball drops variables by `expires_at`, never `value_valid_until`, and the exported
 /// entry carries the date, or a pull/push round-trip clears it.
 #[sqlx::test(fixtures("base"))]
 async fn test_tarball_export_excludes_only_gc_variables(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -297,7 +297,7 @@ async fn test_tarball_export_excludes_only_gc_variables(db: Pool<Postgres>) -> a
     let base_url = format!("http://localhost:{}", server.addr.port());
 
     sqlx::query(
-        r#"INSERT INTO variable (workspace_id, path, value, is_secret, description, expires_at, value_expires_at)
+        r#"INSERT INTO variable (workspace_id, path, value, is_secret, description, expires_at, value_valid_until)
            VALUES ('test-workspace', 'u/test-user/expiring', 'v', false, '', NULL, now() + interval '30 days'),
                   ('test-workspace', 'u/test-user/ephemeral', 'v', false, '', now() + interval '7 days', NULL)"#,
     )
@@ -319,7 +319,7 @@ async fn test_tarball_export_excludes_only_gc_variables(db: Pool<Postgres>) -> a
         "a variable with an expiry must still reach git sync"
     );
     assert!(
-        body.contains("value_expires_at"),
+        body.contains("value_valid_until"),
         "the exported entry must carry the expiry back"
     );
     assert!(

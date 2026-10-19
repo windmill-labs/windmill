@@ -149,7 +149,7 @@ pub struct ListableVariable {
     pub refresh_error: Option<String>,
     pub is_linked: Option<bool>,
     pub expires_at: Option<chrono::DateTime<Utc>>,
-    pub value_expires_at: Option<chrono::DateTime<Utc>>,
+    pub value_valid_until: Option<chrono::DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
     /// Labels inherited from the parent folder, computed at read time.
@@ -192,7 +192,7 @@ pub struct ExportableListableVariable {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<chrono::DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub value_expires_at: Option<chrono::DateTime<Utc>>,
+    pub value_valid_until: Option<chrono::DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<Vec<String>>,
 }
@@ -213,7 +213,7 @@ pub struct CreateVariable {
     pub expires_at: Option<chrono::DateTime<Utc>>,
     /// When the value stops working. Drives the workspace's variable expiration handler;
     /// never deletes the row.
-    pub value_expires_at: Option<chrono::DateTime<Utc>>,
+    pub value_valid_until: Option<chrono::DateTime<Utc>>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
     #[serde(default)]

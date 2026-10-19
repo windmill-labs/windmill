@@ -290,7 +290,7 @@
 						value: v.value ?? '',
 						is_secret: v.is_secret ?? false,
 						description: v.description ?? '',
-						value_expires_at: v.value_expires_at ?? undefined
+						value_valid_until: v.value_valid_until ?? undefined
 					}
 				})
 			}

@@ -125,7 +125,7 @@ describe('deployDraft preserves on_behalf_of', () => {
 })
 
 // The deploy bodies are built field by field, so a forgotten field is dropped silently.
-describe('deployDraft variable value_expires_at', () => {
+describe('deployDraft variable value_valid_until', () => {
 	beforeEach(() => vi.clearAllMocks())
 
 	const DATE = '2027-03-15T08:30:00.000Z'
@@ -136,11 +136,11 @@ describe('deployDraft variable value_expires_at', () => {
 			value: 'v',
 			is_secret: false,
 			description: '',
-			value_expires_at: deployedExpiry,
+			value_valid_until: deployedExpiry,
 			draft: {
 				path: 'u/admin/key',
 				variable: { value: 'v', is_secret: false, description: '' },
-				value_expires_at: draftExpiry
+				value_valid_until: draftExpiry
 			}
 		} as any)
 	}
@@ -151,32 +151,32 @@ describe('deployDraft variable value_expires_at', () => {
 	it('sends a date the draft set on a variable that had none', async () => {
 		mockVariable(undefined, DATE)
 		await deployDraft('variable', 'u/admin/key', 'ws')
-		expect(updateBody().value_expires_at).toBe(DATE)
+		expect(updateBody().value_valid_until).toBe(DATE)
 	})
 
 	it('sends null when the draft cleared the deployed date', async () => {
 		mockVariable(DATE, undefined)
 		await deployDraft('variable', 'u/admin/key', 'ws')
-		expect(updateBody().value_expires_at).toBeNull()
+		expect(updateBody().value_valid_until).toBeNull()
 	})
 
 	it('omits it when the draft leaves the deployed date alone', async () => {
 		mockVariable(DATE, DATE)
 		await deployDraft('variable', 'u/admin/key', 'ws')
-		expect(updateBody().value_expires_at).toBeUndefined()
+		expect(updateBody().value_valid_until).toBeUndefined()
 	})
 
 	it('omits it when the draft spells the deployed moment differently', async () => {
 		mockVariable('2027-03-15T08:30:00Z', DATE)
 		await deployDraft('variable', 'u/admin/key', 'ws')
-		expect(updateBody().value_expires_at).toBeUndefined()
+		expect(updateBody().value_valid_until).toBeUndefined()
 	})
 
 	it('carries the date onto a draft-only variable', async () => {
 		mockVariable(undefined, DATE)
 		await deployDraft('variable', 'u/admin/key', 'ws', { draftOnly: true })
 		const body = vi.mocked(VariableService.createVariable).mock.calls[0][0].requestBody as any
-		expect(body.value_expires_at).toBe(DATE)
+		expect(body.value_valid_until).toBe(DATE)
 	})
 })
 
