@@ -536,3 +536,109 @@ async fn test_runnables_starred_pinned_first(db: Pool<Postgres>) -> anyhow::Resu
     );
     Ok(())
 }
+
+async fn star(db: &Pool<Postgres>, path: &str, kind: &str) -> anyhow::Result<()> {
+    sqlx::query(
+        "INSERT INTO favorite (usr, workspace_id, path, favorite_kind) VALUES ('test-user','test-workspace',$1,$2::favorite_kind)",
+    )
+    .bind(path)
+    .bind(kind)
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+/// The total `/runnables/counts` reports, which a home tab shows as its badge.
+async fn count_total(port: u16, query: &str) -> i64 {
+    let url = format!("http://localhost:{port}/api/w/test-workspace/runnables/counts?{query}");
+    let resp = authed(client().get(&url), "SECRET_TOKEN")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200, "counts should succeed for {query}");
+    let body: serde_json::Value = resp.json().await.unwrap();
+    body["counts"]
+        .as_object()
+        .unwrap()
+        .values()
+        .map(|v| v.as_i64().unwrap())
+        .sum()
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_runnables_starred_first_false_pages_starred_in_order(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+    seed_mixed(&base, &db).await?;
+    star(&db, "u/test-user/solo", "script").await?;
+
+    let items = list_once(port, "order_by=name&order_desc=false&starred_first=false").await;
+    assert_eq!(
+        items.last().map(String::as_str),
+        Some("script:u/test-user/solo"),
+        "without pinning, the starred row keeps its place in the name order, got {items:?}"
+    );
+    assert_eq!(items.len(), 6, "every row listed once, got {items:?}");
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_runnables_only_starred_pages_past_first(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+    seed_mixed(&base, &db).await?;
+    star(&db, "u/test-user/solo", "script").await?;
+    star(&db, "f/alpha/two", "script").await?;
+    star(&db, "f/beta/appy", "app").await?;
+
+    // One row per page, so the starred rows can only all arrive through the cursor.
+    let items = paginate_all(port, "order_by=name&order_desc=false&only_starred=true").await;
+    assert_eq!(
+        items,
+        vec![
+            "app:f/beta/appy",
+            "script:f/alpha/two",
+            "script:u/test-user/solo"
+        ],
+        "only the starred rows, in order, across pages"
+    );
+    assert_eq!(count_total(port, "only_starred=true").await, 3);
+    Ok(())
+}
+
+#[sqlx::test(fixtures("base"))]
+async fn test_runnables_only_drafts_lists_both_draft_kinds(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+    seed_mixed(&base, &db).await?;
+    // A pending draft over a deployed script, a never-deployed flow, and another
+    // user's draft, which is not the caller's.
+    sqlx::query(
+        r#"INSERT INTO draft (workspace_id, path, typ, value, email) VALUES
+           ('test-workspace', 'f/alpha/one', 'script', '{"path": "f/alpha/one", "summary": "Deploy tool"}', 'test@windmill.dev'),
+           ('test-workspace', 'u/test-user/draft_new', 'flow', '{"summary": "New flow", "value": {"modules": []}}', 'test@windmill.dev'),
+           ('test-workspace', 'f/alpha/two', 'script', '{"path": "f/alpha/two", "summary": "Cleanup job"}', 'test2@windmill.dev')"#,
+    )
+    .execute(&db)
+    .await?;
+
+    let mut items = paginate_all(port, "include_draft_only=true&only_drafts=true").await;
+    items.sort();
+    assert_eq!(
+        items,
+        vec!["flow:u/test-user/draft_new", "script:f/alpha/one"],
+        "the caller's deployed-with-draft and draft-only rows, and nothing else"
+    );
+    assert_eq!(count_total(port, "only_drafts=true").await, 2);
+    Ok(())
+}

@@ -75,6 +75,15 @@ struct ListRunnablesQuery {
     /// Also list the caller's drafts at paths with no deployed row. Off by
     /// default so picker callers stay deployed-only.
     include_draft_only: Option<bool>,
+    /// Pin the caller's starred rows ahead of the first page (default true).
+    /// False pages them with everything else, in the requested order.
+    starred_first: Option<bool>,
+    /// Only the caller's starred rows, paged normally. Lists no draft-only row,
+    /// since those cannot be starred.
+    only_starred: Option<bool>,
+    /// Only rows the caller has a draft of: draft-only rows and deployed rows
+    /// with a pending draft (`is_draft`).
+    only_drafts: Option<bool>,
 }
 
 // Absent optional fields are omitted (not serialized as null) to match the
@@ -559,7 +568,7 @@ async fn list_runnables(
     let common_where = common.join(" AND ");
     let draft_common_where = draft_common.join(" AND ");
 
-    // Keyset predicate for pages after the first (non-starred rows only). A
+    // Keyset predicate for pages after the first (the paged stream only). A
     // row-value comparison keeps the composite order; the key is cast to the
     // branch column's type.
     let keyset_sql: Option<String> = match &q.cursor {
@@ -646,6 +655,15 @@ async fn list_runnables(
     if let Some(s) = &agent_scope {
         agent_extras.push(s.clone());
     }
+    let only_starred = q.only_starred.unwrap_or(false);
+    let only_drafts = q.only_drafts.unwrap_or(false);
+    if only_drafts {
+        // The branch's own caller-draft join, the one `is_draft` reads.
+        for extras in [&mut script_extras, &mut flow_extras, &mut agent_extras] {
+            extras.push("draft.email IS NOT NULL".to_string());
+        }
+        app_extras.push("draft.path IS NOT NULL".to_string());
+    }
 
     // Draft-only rows are the caller's own work in progress: never archived, so they
     // have no place in the archived view, and carrying no labels of their own they are
@@ -656,7 +674,8 @@ async fn list_runnables(
     } else {
         OperatorBuilderRights::default()
     };
-    let include_drafts = q.include_draft_only.unwrap_or(false)
+    let include_drafts = (q.include_draft_only.unwrap_or(false) || only_drafts)
+        && !only_starred
         && (!authed.is_operator || builder.any())
         && !show_archived
         && q.label.as_ref().filter(|s| !s.is_empty()).is_none();
@@ -680,8 +699,7 @@ async fn list_runnables(
     };
 
     // Favorite filter for a branch: Some(true) = starred only, Some(false) =
-    // non-starred only, None = no filter. Both views pin starred on the first page
-    // (each is one row per path), so the paged stream always passes Some(false).
+    // non-starred only, None = no filter.
     let build_branch = |base: &str,
                         kind: &str,
                         common: &str,
@@ -777,12 +795,13 @@ async fn list_runnables(
     let mut tx = user_db.begin(&authed).await?;
     let mut items: Vec<RunnableItem> = vec![];
     let first_page = q.cursor.is_none();
+    let pin_starred = q.starred_first.unwrap_or(true) && !only_starred;
 
     // Pin starred on the first page. Both views are now one row per path (the
     // archived view filters to each path's latest row, see archived_pred), so a
     // favorite is a single row in either — the starred-first contract holds in the
     // archived view too, and the pinned first page stays bounded.
-    if first_page {
+    if first_page && pin_starred {
         // No draft branch here: a draft-only path has no favorite row (the UI won't let
         // you star one), so it would scan the caller's whole draft slice per kind to
         // return nothing. The main stream below takes them unfiltered instead.
@@ -803,8 +822,14 @@ async fn list_runnables(
         }
     }
 
-    // Main paged stream: non-starred rows (starred were pinned on the first page above).
-    let main_fav = Some(false);
+    // Main paged stream: non-starred rows when starred were pinned above.
+    let main_fav = if only_starred {
+        Some(true)
+    } else if pin_starred {
+        Some(false)
+    } else {
+        None
+    };
     let ns_branches: Vec<String> =
         ALL_KINDS
             .iter()
@@ -847,6 +872,10 @@ struct CountRunnablesQuery {
     /// Also count the caller's drafts at paths with no deployed row, matching
     /// the same flag on `/list`.
     include_draft_only: Option<bool>,
+    /// Count what `/list` returns under the same flag.
+    only_starred: Option<bool>,
+    /// Count what `/list` returns under the same flag.
+    only_drafts: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -913,12 +942,39 @@ async fn count_runnables_by_owner(
         return Ok(Json(RunnableCountsResponse { counts: HashMap::new() }));
     }
     let with_libs = q.include_without_main.unwrap_or(false) && !authed.is_operator;
+    let only_starred = q.only_starred.unwrap_or(false);
+    let only_drafts = q.only_drafts.unwrap_or(false);
 
     // Per-kind predicates shared by both passes. `alias` is the branch's table
     // alias; `binds` collects the scope values, numbered from `base + 1`.
     let kind_filters =
         |kind: &str, alias: &str, base: usize, binds: &mut Vec<String>| -> Vec<String> {
             let mut w = vec![format!("{alias}.workspace_id = $1")];
+            // The same favorite and caller-draft joins `branch_sqls` reads `starred`
+            // and `is_draft` from.
+            if only_starred {
+                binds.push(authed.username.clone());
+                w.push(format!(
+                    "EXISTS (SELECT 1 FROM favorite f WHERE f.favorite_kind = '{kind}' \
+                     AND f.workspace_id = {alias}.workspace_id AND f.path = {alias}.path \
+                     AND f.usr = ${})",
+                    base + binds.len()
+                ));
+            }
+            if only_drafts {
+                let typ = match kind {
+                    "script" => "d.typ = 'script'",
+                    "flow" => "d.typ = 'flow'",
+                    "agent" => "d.typ = 'resource'",
+                    _ => "d.typ IN ('app', 'raw_app')",
+                };
+                binds.push(authed.email.clone());
+                w.push(format!(
+                    "EXISTS (SELECT 1 FROM draft d WHERE d.workspace_id = {alias}.workspace_id \
+                     AND d.path = {alias}.path AND {typ} AND d.email = ${})",
+                    base + binds.len()
+                ));
+            }
             match kind {
                 "script" => {
                     w.push(format!("{alias}.archived = false"));
@@ -1110,7 +1166,10 @@ async fn add_draft_counts(
     q: &CountRunnablesQuery,
     counts: &mut HashMap<String, i64>,
 ) -> Result<(), Error> {
-    if !q.include_draft_only.unwrap_or(false) {
+    // Draft-only rows can't be starred, so `/list` drops them under `only_starred`.
+    if !(q.include_draft_only.unwrap_or(false) || q.only_drafts.unwrap_or(false))
+        || q.only_starred.unwrap_or(false)
+    {
         return Ok(());
     }
     // An operator has no drafts of their own, except of what they may build.

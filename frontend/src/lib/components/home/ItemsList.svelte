@@ -1,7 +1,7 @@
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { PIPELINE_DRAFT_KIND, pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
-	import { Button, Skeleton } from '$lib/components/common'
+	import { Button, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import {
 		AssetService,
 		FolderService,
@@ -20,22 +20,20 @@
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
-		ArrowDownUp,
 		Bot,
 		ChevronDown,
 		ChevronsDownUp,
 		ChevronsUpDown,
 		Code2,
 		LayoutDashboard,
-		List,
-		ListTree,
 		MoreHorizontal,
 		Tag
 	} from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import CreateActionsMenu from './CreateActionsMenu.svelte'
 	import ContentSearchInner from '$lib/components/ContentSearchInner.svelte'
-	import type { IconType, Item as MenuItem } from '$lib/utils'
+	import type { IconType } from '$lib/utils'
+	import { logFeatureUsage } from '$lib/utils/featureUsage'
 
 	import { HOME_SEARCH_SHOW_FLOW, HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
 
@@ -51,8 +49,6 @@
 	import ListFilters from './ListFilters.svelte'
 	import LabelBadge from '../common/badge/LabelBadge.svelte'
 	import { clampRows } from './clampRows'
-	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { getLocalSetting, isOwner, storeLocalSetting } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
@@ -221,7 +217,7 @@
 		starred?: boolean
 		hash?: string
 		// Fetch ordinal: the position this row arrived in from the server (which already
-		// applied the chosen order + starred-first). Sorting by it reproduces the server's
+		// applied the order). Sorting by it reproduces the server's
 		// global order EXACTLY — no client re-derivation that could disagree on collation
 		// or sub-millisecond ties and make a later page jump above shown rows.
 		ord?: number
@@ -333,18 +329,35 @@
 	// Guards against out-of-order responses: only the latest request applies.
 	let loadGen = 0
 
-	// Sort selector value -> merged-endpoint order params.
-	function sortToParams(o: SortOrder): { orderBy: 'updated' | 'name'; orderDesc: boolean } {
-		switch (o) {
-			case 'updated_asc':
-				return { orderBy: 'updated', orderDesc: false }
-			case 'name_asc':
-				return { orderBy: 'name', orderDesc: false }
-			case 'name_desc':
-				return { orderBy: 'name', orderDesc: true }
-			case 'updated_desc':
-			default:
-				return { orderBy: 'updated', orderDesc: true }
+	// The tabs over the list. Every tab lists newest edit first with no starred pinning;
+	// All shows the folder tree, the others a flat list.
+	type HomeTab = 'recent' | 'all' | 'starred' | 'drafts'
+	const TAB_SETTING_NAME = 'homeTab'
+	const homeTabs: { value: HomeTab; label: string }[] = [
+		{ value: 'recent', label: 'Recent' },
+		{ value: 'all', label: 'All' },
+		{ value: 'starred', label: 'Starred' },
+		{ value: 'drafts', label: 'Drafts' }
+	]
+	let tab = $state<HomeTab>(
+		homeTabs.find((t) => t.value === getLocalSetting(TAB_SETTING_NAME))?.value ?? 'recent'
+	)
+	function setTab(t: HomeTab) {
+		if (t === tab) return
+		tab = t
+		storeLocalSetting(TAB_SETTING_NAME, t === 'recent' ? undefined : t)
+		logFeatureUsage('home', 'tab_switch', { key: t })
+	}
+	let treeView = $derived(tab === 'all')
+
+	// The listing params every request of the open tab carries.
+	function tabParams(t: HomeTab) {
+		return {
+			orderBy: 'updated' as const,
+			orderDesc: true,
+			starredFirst: false,
+			onlyStarred: t === 'starred' ? true : undefined,
+			onlyDrafts: t === 'drafts' ? true : undefined
 		}
 	}
 
@@ -392,17 +405,15 @@
 			// replaces each open owner's rows atomically as they re-load (see
 			// loadOwnerItems), so expanded folders don't blank out mid-reorder.
 		}
-		const { orderBy, orderDesc } = sortToParams(sortOrder)
 		const gen = ++loadGen
 		// Snapshot the cursor now: a later request must not consume a cursor minted
-		// by an order/filter that has since changed.
+		// by a tab/filter that has since changed.
 		const cursor = reset ? undefined : serverCursor
 		let res: { items: RunnableItem[]; next_cursor?: string }
 		try {
 			res = await ScriptService.listRunnables({
 				workspace: ws,
-				orderBy,
-				orderDesc,
+				...tabParams(tab),
 				showArchived: archived ? true : undefined,
 				includeWithoutMain: includeWithoutMain ? true : undefined,
 				kinds: runnableKinds,
@@ -579,7 +590,6 @@
 			loaded: st?.loaded ?? false,
 			gen
 		}
-		const { orderBy, orderDesc } = sortToParams(sortOrder)
 		const prefix = `${owner}/`
 		// Only a forced refresh replaces this prefix's rows, so a re-sort swaps them without
 		// blanking the tree. Everything else merges: a nested prefix inherits rows from an
@@ -623,8 +633,7 @@
 			try {
 				res = await ScriptService.listRunnables({
 					workspace: ws,
-					orderBy,
-					orderDesc,
+					...tabParams(tab),
 					showArchived: archived ? true : undefined,
 					includeWithoutMain: includeWithoutMain ? true : undefined,
 					kinds: runnableKinds,
@@ -737,6 +746,7 @@
 		// keeping a dead path. `tick` lets the reloaded rows re-register first.
 		const renderedBefore = homeSelection.renderedKeys
 		void ownerCountsRes.refetch()
+		void tabCountsRes.refetch()
 		// Deleting a pipeline removes it from this list, which no item reload covers.
 		void pipelineFoldersRes.refetch()
 		await reloadItems()
@@ -774,45 +784,13 @@
 
 	const cmp = new Intl.Collator('en').compare
 
-	// The selected order maps to the endpoint's order_by/order_desc (see
-	// sortToParams) so it is applied server-side and stays correct across the
-	// whole workspace, not just loaded pages. Starred items are pinned on top of
-	// the first page.
-	type SortOrder = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc'
-	const SORT_SETTING_NAME = 'homeSort'
-	// `short` labels the trigger button next to the sort icon (the button is icon-only
-	// only while searching, when sorting is disabled — see below).
-	const sortOptions: { value: SortOrder; label: string }[] = [
-		{ value: 'updated_desc', label: 'Recently updated' },
-		{ value: 'updated_asc', label: 'Oldest updated' },
-		{ value: 'name_asc', label: 'Name (A-Z)' },
-		{ value: 'name_desc', label: 'Name (Z-A)' }
-	]
-	let sortOrder = $state<SortOrder>(
-		sortOptions.find((o) => o.value === getLocalSetting(SORT_SETTING_NAME))?.value ?? 'updated_desc'
-	)
-	$effect(() => {
-		storeLocalSetting(SORT_SETTING_NAME, sortOrder === 'updated_desc' ? undefined : sortOrder)
-	})
-	let sortItems: MenuItem[] = $derived(
-		sortOptions.map((o) => ({
-			displayName: o.label,
-			selected: o.value === sortOrder,
-			action: () => (sortOrder = o.value)
-		}))
-	)
 	// Preserve the endpoint's exact order rather than re-deriving it on the client:
 	// each row carries its server fetch ordinal (`ord`), which already reflects the
-	// chosen order, the (path, kind) tiebreaks, full-precision timestamps, the database
-	// collation, and starred-first pinning. Sorting by it can never disagree with the
-	// server, so a later page never jumps above shown rows on "load more". Depends on
-	// `sortOrder` only so its identity changes when the order does (re-grouping the tree,
-	// whose leaves also sort by ord); the actual reordering comes from the reload that
-	// restamps ord.
-	let compareItems = $derived.by(() => {
-		sortOrder
-		return (a: { ord?: number }, b: { ord?: number }): number => (a.ord ?? 0) - (b.ord ?? 0)
-	})
+	// order, the (path, kind) tiebreaks and full-precision timestamps. Sorting by it can
+	// never disagree with the server, so a later page never jumps above shown rows on
+	// "load more".
+	const compareItems = (a: { ord?: number }, b: { ord?: number }): number =>
+		(a.ord ?? 0) - (b.ord ?? 0)
 
 	const opts: uFuzzy.Options = {
 		sort: (info, haystack, needle) => {
@@ -849,9 +827,7 @@
 						// earliest start of match
 						start[ia] - start[ib] ||
 						// alphabetic
-						cmp(haystack[idx[ia]], haystack[idx[ib]]) +
-							(preFilteredItems?.[idx[ib]]?.starred ? 100 : 0) -
-							(preFilteredItems?.[idx[ia]]?.starred ? 100 : 0)
+						cmp(haystack[idx[ia]], haystack[idx[ib]])
 				)
 			return sortResult
 		}
@@ -868,18 +844,16 @@
 	let toolbarHeight = $state(0)
 	let chipsExpanded = $state(false)
 
-	const TREE_VIEW_SETTING_NAME = 'treeView'
-	let treeView = $state(getLocalSetting(TREE_VIEW_SETTING_NAME) == 'true')
-
 	// Pipeline entries are rendered independently of the item list, so apply the
 	// same gates the items get — otherwise a pipeline would still show under the
-	// Flows/Apps tabs, in the archived view, under a label filter, or outside a
+	// Flows/Apps kinds, in the archived view, under a label filter, or outside a
 	// selected owner. Pipelines are script-based units always at `f/<folder>`, so
 	// kind=script and the user-folder toggle always include them; kind=flow/app,
-	// archived, a label filter (pipelines carry no labels), and a non-matching
-	// owner exclude them.
+	// archived, a label filter (pipelines carry no labels), a non-matching
+	// owner, and the Starred and Drafts tabs (which list only what the endpoint
+	// matched for them) exclude them.
 	let visiblePipelineFolders = $derived.by(() => {
-		if (archived) return new Set<string>()
+		if (archived || tab === 'starred' || tab === 'drafts') return new Set<string>()
 		if (itemKind !== 'all' && itemKind !== 'script') return new Set<string>()
 		if (labelFilter != undefined) return new Set<string>()
 		if (ownerFilter == undefined) return pipelineFolders
@@ -1026,6 +1000,35 @@
 		}
 	)
 	let ownerCounts = $derived(ownerCountsRes.current)
+	let workspaceItemsCount = $derived(
+		ownerCounts ? Object.values(ownerCounts).reduce((a, b) => a + b, 0) : undefined
+	)
+	// The Starred and Drafts tab badges: the per-owner counts of the same scope as their
+	// lists, summed. Keyed on the tab too, so switching tabs refreshes them with the list.
+	let tabCountsRes = resource(
+		[() => $workspaceStore, () => archived, () => itemKind, () => includeWithoutMain, () => tab],
+		async ([ws, showArchived, kind, withoutMain]) => {
+			if (!ws || showArchived) return undefined
+			const count = async (flags: { onlyStarred?: boolean; onlyDrafts?: boolean }) => {
+				const res = await ScriptService.countRunnablesByOwner({
+					workspace: ws,
+					kinds: kind !== 'all' ? kind : undefined,
+					includeWithoutMain: withoutMain ? true : undefined,
+					...flags
+				})
+				return Object.values(res.counts).reduce((a, b) => a + b, 0)
+			}
+			try {
+				const [starred, drafts] = await Promise.all([
+					count({ onlyStarred: true }),
+					count({ onlyDrafts: true })
+				])
+				return { starred, drafts } as Partial<Record<HomeTab, number>>
+			} catch {
+				return undefined
+			}
+		}
+	)
 
 	type KindOption = {
 		value: 'all' | 'script' | 'flow' | 'app' | 'agent'
@@ -1147,10 +1150,12 @@
 
 	// The workspace itself holds nothing — no filter is narrowing the list away. It stays
 	// false until the first load resolves: a skeleton already means "loading", and the
-	// empty state must not be mistaken for one. The controls it dims stay mounted, so
-	// nothing moves when the first item lands.
+	// empty state must not be mistaken for one. Only the tabs listing everything can tell:
+	// Starred and Drafts are empty in plenty of workspaces that are not. The controls it
+	// dims stay mounted, so nothing moves when the first item lands.
 	let workspaceEmpty = $derived(
-		!loading &&
+		(tab === 'recent' || tab === 'all') &&
+			!loading &&
 			!treeCountsPending &&
 			!contentActive &&
 			activeFilters.length === 0 &&
@@ -1212,12 +1217,12 @@
 	let treeGlobalHasMore = $derived(ownerFilter != undefined && !searching ? hasMoreServer : false)
 	$effect(() => {
 		if ($userStore && $workspaceStore) {
-			;[archived, includeWithoutMain, sortOrder, searching, ownerFilter, itemKind]
-			// reloadItems (not a bare loadRunnables) so an in-place change — sort, archive,
+			;[archived, includeWithoutMain, tab, searching, ownerFilter, itemKind]
+			// reloadItems (not a bare loadRunnables) so an in-place change — archive,
 			// library, kind — reloads the global stream AND re-fetches the currently-open
-			// owners in the new order/filter, keeping folders expanded (file-explorer style)
-			// rather than collapsing them. Mode changes (owner/search) flip treeLazyMode, so
-			// reloadItems skips the re-fetch and the {#key} remount handles the reset.
+			// owners in the new filter, keeping folders expanded (file-explorer style)
+			// rather than collapsing them. Mode changes (tab/owner/search) flip treeLazyMode,
+			// so reloadItems skips the re-fetch and the {#key} remount handles the reset.
 			untrack(() => {
 				reloadItems()
 			})
@@ -1240,6 +1245,7 @@
 		const withoutMain = includeWithoutMain
 		const owner = ownerFilter
 		const kind = itemKind
+		const searchTab = tab
 		// Any term/scope change restarts search paging.
 		searchCursor = undefined
 		if (term === '' || !ws || !$userStore) return
@@ -1248,6 +1254,7 @@
 			try {
 				res = await ScriptService.listRunnables({
 					workspace: ws,
+					...tabParams(searchTab),
 					search: term,
 					showArchived: showArchived ? true : undefined,
 					includeWithoutMain: withoutMain ? true : undefined,
@@ -1267,7 +1274,8 @@
 				untrack(() => archived) !== showArchived ||
 				untrack(() => includeWithoutMain) !== withoutMain ||
 				untrack(() => ownerFilter) !== owner ||
-				untrack(() => itemKind) !== kind
+				untrack(() => itemKind) !== kind ||
+				untrack(() => tab) !== searchTab
 			)
 				return
 			mergeRunnables(res.items ?? [])
@@ -1288,6 +1296,7 @@
 		const withoutMain = includeWithoutMain
 		const owner = ownerFilter
 		const kind = itemKind
+		const searchTab = tab
 		const cursor = searchCursor
 		if (!cursor || !ws || term === '' || searchLoadingMore) return
 		searchLoadingMore = true
@@ -1295,6 +1304,7 @@
 		try {
 			res = await ScriptService.listRunnables({
 				workspace: ws,
+				...tabParams(searchTab),
 				search: term,
 				showArchived: showArchived ? true : undefined,
 				includeWithoutMain: withoutMain ? true : undefined,
@@ -1317,6 +1327,7 @@
 			untrack(() => includeWithoutMain) !== withoutMain ||
 			untrack(() => ownerFilter) !== owner ||
 			untrack(() => itemKind) !== kind ||
+			untrack(() => tab) !== searchTab ||
 			untrack(() => searchCursor) !== cursor
 		)
 			return
@@ -1778,9 +1789,6 @@
 			}
 		}
 	}
-	$effect(() => {
-		storeLocalSetting(TREE_VIEW_SETTING_NAME, treeView ? 'true' : undefined)
-	})
 	// Multi-selection + bulk actions. Published through context so the tree's
 	// nested levels don't have to carry it; `Item` is the only reader.
 	const homeSelection = new HomeSelection()
@@ -1850,70 +1858,23 @@
 				description: 'Lists of scripts, flows, and apps'
 			}}
 		>
-			{#if !loading && !contentActive && !workspaceEmpty}
-				<!-- List controls, before the searchbar: list or tree, expand/collapse (tree only),
-			     sort. Nothing to group or order on an empty workspace, so the whole row goes. -->
-				<div class="flex items-center gap-2">
-					<ToggleButtonGroup
-						selected={treeView ? 'tree' : 'list'}
-						onSelected={(v) => (treeView = v === 'tree')}
-					>
-						{#snippet children({ item })}
-							<ToggleButton
-								value="list"
-								icon={List}
-								label="List"
-								iconOnly
-								tooltip="List view"
-								size="sm"
-								{item}
-							/>
-							<ToggleButton
-								value="tree"
-								icon={ListTree}
-								label="Tree"
-								iconOnly
-								tooltip="Tree view"
-								size="sm"
-								{item}
-							/>
-						{/snippet}
-					</ToggleButtonGroup>
-					<!-- Icon only: the order's name is in the tooltip and the menu, so next to the
-					     search and the kind filter the list's own controls stay out of the way. -->
-					<DropdownV2
-						items={sortItems}
-						disabled={filter !== ''}
-						placement="bottom-start"
-						fixedHeight={false}
-					>
-						{#snippet buttonReplacement()}
-							{@const active = sortOptions.find((o) => o.value === sortOrder)}
-							<Button
-								nonCaptureEvent
-								disabled={filter !== ''}
-								iconOnly
-								unifiedSize="sm"
-								variant="default"
-								startIcon={{ icon: ArrowDownUp }}
-								title={filter !== ''
-									? 'Sorting is disabled while searching (results are ranked by relevance)'
-									: `Sort: ${active?.label ?? ''}`}
-							/>
-						{/snippet}
-					</DropdownV2>
-					{#if treeView}
-						<Button
-							unifiedSize="sm"
-							variant="default"
-							iconOnly
-							title={collapseAll ? 'Expand all' : 'Collapse all'}
-							on:click={() => (collapseAll = !collapseAll)}
-							startIcon={{ icon: collapseAll ? ChevronsUpDown : ChevronsDownUp }}
-						/>
-					{/if}
-				</div>
-			{/if}
+			<div class="flex items-center gap-2">
+				<span class="text-sm font-semibold text-emphasis whitespace-nowrap">
+					Workspace items{#if workspaceItemsCount != undefined}{' '}<span
+							class="text-hint font-normal">({workspaceItemsCount})</span
+						>{/if}
+				</span>
+				{#if !loading && !contentActive && !workspaceEmpty && treeView}
+					<Button
+						unifiedSize="sm"
+						variant="default"
+						iconOnly
+						title={collapseAll ? 'Expand all' : 'Collapse all'}
+						on:click={() => (collapseAll = !collapseAll)}
+						startIcon={{ icon: collapseAll ? ChevronsUpDown : ChevronsDownUp }}
+					/>
+				{/if}
+			</div>
 
 			<!-- basis-64: the toolbar fits Home's column on one line; narrower, this group wraps
 		     under the heading as a whole. -->
@@ -2008,9 +1969,24 @@
 					</LabelBadge>
 				</div>
 			</div>
-			<!-- Its own element, not the chips' border: it stays under the controls once the chips
-			     have scrolled away. -->
-			<div class="sticky z-10 border-b" style:top="{toolbarHeight}px"></div>
+		{/if}
+		{#if !contentActive && !workspaceEmpty}
+			<!-- Under the chips, but sticking with the controls once the chips have scrolled away.
+			     Pulled out like the rows, so a tab's label lines up with the controls above. -->
+			<div class="sticky z-10 bg-surface" style:top="{toolbarHeight}px">
+				<Tabs bind:selected={() => tab, (v) => setTab(v as HomeTab)}>
+					{#each homeTabs as t (t.value)}
+						{@const count = tabCountsRes.current?.[t.value]}
+						<Tab value={t.value} label={t.label} exact>
+							{#snippet extra()}
+								{#if count != undefined}
+									<span class="text-hint font-normal">{count}</span>
+								{/if}
+							{/snippet}
+						</Tab>
+					{/each}
+				</Tabs>
+			</div>
 		{/if}
 		{#if filteredItems?.length == 0 && !workspaceEmpty}
 			<div class="mt-10"></div>
@@ -2064,6 +2040,20 @@
 								<NoItemFound {activeFilters} />
 							{/if}
 						{/if}
+					{:else if tab === 'starred'}
+						<NoItemFound
+							{activeFilters}
+							itemsName="starred items"
+							emptyTitle="No starred items"
+							emptyHint="Star an item to find it here."
+						/>
+					{:else if tab === 'drafts'}
+						<NoItemFound
+							{activeFilters}
+							itemsName="drafts"
+							emptyTitle="No drafts"
+							emptyHint="Items you edit and have not deployed yet show up here."
+						/>
 					{:else}
 						<NoItemFound {activeFilters} />
 					{/if}
@@ -2088,7 +2078,6 @@
 						items={treeSource}
 						{collapseAll}
 						sortCompare={compareItems}
-						groupDesc={sortOrder === 'name_desc'}
 						hasMoreServer={treeGlobalHasMore}
 						onLoadMore={fetchMoreServer}
 						pipelineFolders={visiblePipelineFolders}
