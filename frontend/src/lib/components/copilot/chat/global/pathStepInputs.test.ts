@@ -42,9 +42,12 @@ describe('missingStepInputs', () => {
 		expect(missingStepInputs(next, next, schemaOf)).toEqual([])
 	})
 
-	it('leaves out the preprocessor, whose inputs the worker ignores', () => {
+	it('leaves out steps whose inputs the worker ignores', () => {
+		const onModule = { ...call('a', 'f/finance/email_finance', []), pass_flow_input_directly: true }
+		const onValue = call('b', 'f/finance/email_finance', [])
+		Object.assign(onValue.value, { pass_flow_input_directly: true })
 		const flow = {
-			modules: [],
+			modules: [onModule, onValue],
 			preprocessor_module: call('preprocessor', 'f/finance/email_finance', [])
 		}
 		expect(collectPathSteps(flow)).toEqual([])

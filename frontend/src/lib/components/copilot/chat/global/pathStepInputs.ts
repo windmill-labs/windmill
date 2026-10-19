@@ -13,9 +13,10 @@ type FlowModules = {
 
 /**
  * Every path step of a flow, nested ones included. Hub scripts are not workspace items, and a
- * step pinned to a version is not checked against the latest schema. The preprocessor is left
- * out: the worker runs it on the flow's own args and ignores its input_transforms. The walk
- * also reads stored flows, which nothing validated, so it tolerates missing fields.
+ * step pinned to a version is not checked against the latest schema. The preprocessor and any
+ * step with `pass_flow_input_directly` are left out: the worker hands them the flow's own args
+ * and ignores their input_transforms. The walk also reads stored flows, which nothing
+ * validated, so it tolerates missing fields.
  */
 export function collectPathSteps(flow: FlowModules | undefined): PathStep[] {
 	const steps: PathStep[] = []
@@ -26,6 +27,7 @@ export function collectPathSteps(flow: FlowModules | undefined): PathStep[] {
 			if (v.type === 'script' || v.type === 'flow') {
 				if (typeof v.path !== 'string' || v.path.startsWith('hub/')) continue
 				if (v.type === 'script' && v.hash) continue
+				if (passesFlowInput(m) || passesFlowInput(v)) continue
 				steps.push({
 					id: m.id,
 					kind: v.type,
@@ -46,6 +48,11 @@ export function collectPathSteps(flow: FlowModules | undefined): PathStep[] {
 	if (flow?.failure_module) visit([flow.failure_module])
 	return steps
 }
+
+// The generated client does not carry this flag; the backend accepts it on the module and
+// on a script or flow value.
+const passesFlowInput = (o: object) =>
+	(o as { pass_flow_input_directly?: boolean }).pass_flow_input_directly === true
 
 /** Required inputs without a default, which a step calling the item has to pass. */
 export function requiredInputs(schema: unknown): string[] {
