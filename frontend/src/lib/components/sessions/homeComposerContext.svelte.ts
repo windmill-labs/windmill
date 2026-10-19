@@ -1,4 +1,5 @@
 import type { ContextElement } from '$lib/components/copilot/chat/context'
+import type { BulkKind } from '$lib/components/home/homeSelection.svelte'
 
 /** Resolves once the element is in the draft, so several attach in the order given. */
 type Attach = (element: ContextElement) => Promise<void>
@@ -7,7 +8,7 @@ type Attach = (element: ContextElement) => Promise<void>
  * app, as "+" → Mention file builds it. A visual-builder app or an agent has no context
  * element, so it gets none. */
 export function itemContextElement(item: {
-	kind: string
+	kind: BulkKind
 	path: string
 	summary?: string
 	rawApp?: boolean
@@ -17,7 +18,7 @@ export function itemContextElement(item: {
 			? 'workspace_script'
 			: item.kind === 'flow'
 				? 'workspace_flow'
-				: (item.kind === 'app' && item.rawApp) || item.kind === 'raw_app'
+				: item.kind === 'app' && item.rawApp
 					? 'workspace_app'
 					: undefined
 	if (!type) return undefined

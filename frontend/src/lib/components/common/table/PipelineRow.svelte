@@ -80,6 +80,7 @@
 	{#snippet actions()}
 		{#if !$userStore?.operator}
 			<Dropdown
+				size="sm"
 				items={[
 					{
 						displayName: 'Delete',

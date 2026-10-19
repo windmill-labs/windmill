@@ -104,7 +104,7 @@
 		starter={{
 			where: 'home',
 			suggestions: starterPrompts.suggestions,
-			fewItems: starterPrompts.fewItems ?? false
+			fewItems: starterPrompts.fewItems
 		}}
 		viewTransitionNames
 		{onSent}

@@ -5,13 +5,14 @@
 		homeComposerContext,
 		itemContextElement
 	} from '$lib/components/sessions/homeComposerContext.svelte'
+	import type { BulkKind } from '$lib/components/home/homeSelection.svelte'
 
 	let {
 		kind,
 		path,
 		summary,
 		rawApp
-	}: { kind: string; path: string; summary?: string; rawApp?: boolean } = $props()
+	}: { kind: BulkKind; path: string; summary?: string; rawApp?: boolean } = $props()
 
 	let element = $derived(itemContextElement({ kind, path, summary: summary || undefined, rawApp }))
 </script>

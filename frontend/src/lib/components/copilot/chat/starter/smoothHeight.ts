@@ -35,11 +35,14 @@ export function smoothHeight(node: HTMLElement, params: SmoothHeightParams) {
 		node.style.height = `${inner.offsetHeight + borders}px`
 	}
 
-	const ro = new ResizeObserver(apply)
+	// Created on first use: most chats mount this disabled and never turn it on.
+	let ro: ResizeObserver | undefined
 	const observe = () => {
-		ro.disconnect()
+		ro?.disconnect()
 		const inner = node.firstElementChild
-		if (inner) ro.observe(inner)
+		if (!enabled || !inner) return
+		ro ??= new ResizeObserver(apply)
+		ro.observe(inner)
 	}
 	observe()
 	apply()
@@ -52,7 +55,7 @@ export function smoothHeight(node: HTMLElement, params: SmoothHeightParams) {
 			apply()
 		},
 		destroy() {
-			ro.disconnect()
+			ro?.disconnect()
 		}
 	}
 }

@@ -12,7 +12,6 @@
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
 	import { selectMenuItems, type RowSelection } from './rowSelection'
-	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import RowLabels from './RowLabels.svelte'
 	import AskAiRowButton from './AskAiRowButton.svelte'
 	import Badge from '../badge/Badge.svelte'
@@ -129,8 +128,7 @@
 			<Badge small icon={{ icon: FileJson }}>Raw</Badge>
 		{/if}
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
-		<RowLabels labels={app.labels} />
-		<InheritedLabels labels={app.inherited_labels} max={1} color="subtle" />
+		<RowLabels labels={app.labels} inherited={app.inherited_labels} />
 		<DraftBadge
 			is_draft={app.is_draft}
 			draft_only={app.draft_only}

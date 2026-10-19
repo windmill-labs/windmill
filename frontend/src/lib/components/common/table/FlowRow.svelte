@@ -36,7 +36,6 @@
 	} from 'lucide-svelte'
 	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
 	import ChatFlowBadge from '$lib/components/flows/ChatFlowBadge.svelte'
-	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import RowLabels from './RowLabels.svelte'
 	import AskAiRowButton from './AskAiRowButton.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
@@ -161,8 +160,7 @@
 			<Badge color="red" baseClass="border">archived</Badge>
 		{/if}
 		<SharedBadge canWrite={flow.canWrite} extraPerms={flow.extra_perms} />
-		<RowLabels labels={flow.labels} />
-		<InheritedLabels labels={flow.inherited_labels} max={1} color="subtle" />
+		<RowLabels labels={flow.labels} inherited={flow.inherited_labels} />
 		<DraftBadge
 			is_draft={flow.is_draft}
 			draft_only={flow.draft_only}

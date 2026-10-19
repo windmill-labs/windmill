@@ -427,28 +427,6 @@ input[type='time']::-webkit-calendar-picker-indicator {
 	z-index: -10;
 }
 
-/* Row actions shown only for the row being used: hovered, tabbed into, keyboard-selected, or
-   with one of its menus open. Opacity rather than visibility, so Tab still reaches them. Focus
-   only when visible: a menu hands focus back to its trigger on close, and a mouse user would
-   otherwise keep that row's actions up after leaving it. */
-/* A list whose rows are not ruled off from each other (Home's items). Rows mark themselves
-   with `data-list-row`; their own `border-b` stays for every other list. */
-[data-unruled] [data-list-row] {
-	border-bottom-width: 0 !important;
-	border-radius: 0.375rem !important;
-}
-
-[data-hover-actions] [data-list-row] [data-row-actions] {
-	opacity: 0;
-	transition: opacity 100ms;
-}
-[data-hover-actions] [data-list-row]:hover [data-row-actions],
-[data-hover-actions] [data-list-row]:has(:focus-visible) [data-row-actions],
-[data-hover-actions] [data-list-row][data-row-keyboard-selected] [data-row-actions],
-[data-hover-actions] [data-row-actions]:has([aria-expanded='true']) {
-	opacity: 1;
-}
-
 /* The composer's glide, defined once: the Home ↔ AI Sessions view transition below and the
    in-page move on a session's first message (the spacer under AIChatDisplay's composer) both
    read it. */

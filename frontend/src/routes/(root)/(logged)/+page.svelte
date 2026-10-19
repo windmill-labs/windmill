@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { AppService, FlowService, type OpenFlow, type Script } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { HOME_COLUMN_WIDTH } from '$lib/consts'
 	import { Alert, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -300,7 +301,7 @@
 
 	<ForkWorkspaceBanner />
 	<WorkspaceDraftsBanner />
-	<div class="max-w-[1120px] px-4 sm:px-8 md:px-8 h-fit w-full mb-6 shrink-0">
+	<div class="{HOME_COLUMN_WIDTH} px-4 sm:px-8 md:px-8 h-fit w-full mb-6 shrink-0">
 		<!-- HomeAIChat carries both the AI composer and the AI-independent CLI/MCP connect row,
 		     so it shows whenever the sessions beta is on; the composer itself is gated on the
 		     workspace inside the component, which owns its own vertical spacing

@@ -1618,21 +1618,15 @@
 					}}
 					rows={1}
 					placeholder={modePlaceholder}
-					class={twMerge(
-						'resize-none',
-						COMPOSER_FIELD_RESET,
-						CHAT_INPUT_PADDING,
-						toolbarInBox && FIELD_PADDING_WITH_TOOLBAR
-					)}
+					class={twMerge('resize-none', COMPOSER_FIELD_RESET, CHAT_INPUT_PADDING)}
 					{disabled}
 				></textarea>
-				{#if !bottomRightSnippet && !toolbarInBox}
+				{#if !bottomRightSnippet}
 					<div class="absolute bottom-1 right-1">
 						{@render sendStopButton()}
 					</div>
 				{/if}
 			</div>
-			{@render toolbarRow()}
 		</div>
 	{/if}
 	{#if toolbar && !toolbarInBox}

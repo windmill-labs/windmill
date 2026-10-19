@@ -2256,7 +2256,7 @@ export class AIChatManager implements ChatViewHost {
 		)
 	}
 
-	setAiChatInput(aiChatInput: AIChatInput | null) {
+	setAiChatInput(aiChatInput: AIChatInput) {
 		this.aiChatInput = aiChatInput
 	}
 
