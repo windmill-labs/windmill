@@ -103,7 +103,7 @@
 	let loading = $state(false)
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
-	let initialConfig: Record<string, any> | undefined = undefined
+	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let extraPerms: Record<string, boolean> = $state({})
 	// Path the permissions above were loaded for — the verdict is about the schedule as
 	// stored, not about a rename being typed into the form. `undefined` until a config has
