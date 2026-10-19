@@ -1,9 +1,11 @@
 # Workspace roles
 
 What a non-admin member may author, manage and see is its **role**. `developer` and `operator` are
-the default roles; an EE instance defines its own list in the `workspace_roles` global setting (at
-least one role), and any workspace may override a role's capabilities in
-`workspace_settings.role_overrides`, or, on EE, add roles of its own there. Workspace admin is not a
+the default roles; a licensed EE instance defines its own list in the `workspace_roles` global
+setting (at least one role), and any workspace may override a role's capabilities in
+`workspace_settings.role_overrides`, or, when licensed, add roles of its own there. Without a valid
+license (`custom_roles_enabled`) the stored list and workspace-only roles are ignored rather than
+deleted, so a member holding one of those roles has no capabilities until the license verifies. Workspace admin is not a
 role: it is the `is_admin` flag on top of whichever role a member holds, and holds everything. The
 code is `windmill_common::roles`.
 

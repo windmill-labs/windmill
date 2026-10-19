@@ -323,10 +323,19 @@ pub struct EffectiveRole {
     pub overridden: bool,
 }
 
-/// Whether this build lets an instance define its roles and a workspace add roles of its own. A
-/// CE build has `developer` and `operator`, and a workspace may still override either.
+/// Whether an instance may define its roles and a workspace add roles of its own: an EE build
+/// whose license verified. Otherwise there are `developer` and `operator`, which a workspace may
+/// still override, and a member holding any other role has no capabilities until the license is
+/// valid again. The `cfg` is load-bearing: CE's `LICENSE_KEY_VALID` is always `true`.
 pub fn custom_roles_enabled() -> bool {
-    cfg!(feature = "enterprise")
+    #[cfg(feature = "enterprise")]
+    {
+        crate::ee_oss::LICENSE_KEY_VALID.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    #[cfg(not(feature = "enterprise"))]
+    {
+        false
+    }
 }
 
 pub fn default_instance_roles() -> Vec<RoleDefinition> {
@@ -437,7 +446,7 @@ pub fn validate_overrides(instance: &[RoleDefinition], overrides: &RoleOverrides
         validate_role_name(name)?;
         if !custom_roles_enabled() && !instance.iter().any(|d| &d.name == name) {
             return Err(Error::BadRequest(format!(
-                "role `{name}` is not defined: adding workspace roles requires Windmill Enterprise Edition"
+                "role `{name}` is not defined: adding workspace roles requires a valid Windmill Enterprise Edition license"
             )));
         }
     }
@@ -768,7 +777,7 @@ pub async fn validate_instance_roles_write(
 ) -> Result<()> {
     if !custom_roles_enabled() {
         return Err(Error::BadRequest(
-            "workspace roles require Windmill Enterprise Edition".to_string(),
+            "workspace roles require a valid Windmill Enterprise Edition license".to_string(),
         ));
     }
     let current = instance_roles(db).await?;
