@@ -42,8 +42,8 @@ export const scheduleRequestSchema = z.object({
 	"paused_until": z.string().datetime({ offset: true }).describe("ISO 8601 datetime until which the schedule is paused. Schedule resumes automatically after this time").nullable().optional(),
 	"cron_version": z.string().describe("Cron parser version. Use 'v2' for extended syntax with additional features").nullable().optional(),
 	"dynamic_skip": z.string().describe("Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)").nullable().optional(),
-	"permissioned_as": z.string().describe("The user or group this schedule runs as. Used during deployment to preserve the original schedule owner.").optional(),
-	"preserve_permissioned_as": z.boolean().describe("When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it.").optional(),
+	"permissioned_as": z.string().describe("The user or group this schedule runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected.").optional(),
+	"preserve_permissioned_as": z.boolean().describe("Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true.").optional(),
 	"labels": z.array(z.string()).optional()
 })
 
@@ -87,8 +87,8 @@ export const httpTriggerRequestSchema = z.object({
 			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
 		}).describe("Conditional retry based on error or result").optional()
 	}).describe("Retry configuration for failed executions").optional(),
-	"permissioned_as": z.string().describe("The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.").optional(),
-	"preserve_permissioned_as": z.boolean().describe("When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it.").optional(),
+	"permissioned_as": z.string().describe("The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected.").optional(),
+	"preserve_permissioned_as": z.boolean().describe("Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true.").optional(),
 	"labels": z.array(z.string()).optional()
 })
 
@@ -146,8 +146,8 @@ export const websocketTriggerRequestSchema = z.object({
 			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
 		}).describe("Conditional retry based on error or result").optional()
 	}).describe("Retry configuration for failed executions").optional(),
-	"permissioned_as": z.string().describe("The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.").optional(),
-	"preserve_permissioned_as": z.boolean().describe("When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it.").optional(),
+	"permissioned_as": z.string().describe("The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected.").optional(),
+	"preserve_permissioned_as": z.boolean().describe("Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true.").optional(),
 	"labels": z.array(z.string()).optional()
 })
 
@@ -192,8 +192,8 @@ export const kafkaTriggerRequestSchema = z.object({
 			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
 		}).describe("Conditional retry based on error or result").optional()
 	}).describe("Retry configuration for failed executions").optional(),
-	"permissioned_as": z.string().describe("The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.").optional(),
-	"preserve_permissioned_as": z.boolean().describe("When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it.").optional(),
+	"permissioned_as": z.string().describe("The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected.").optional(),
+	"preserve_permissioned_as": z.boolean().describe("Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true.").optional(),
 	"labels": z.array(z.string()).optional()
 })
 
@@ -224,8 +224,8 @@ export const natsTriggerRequestSchema = z.object({
 			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
 		}).describe("Conditional retry based on error or result").optional()
 	}).describe("Retry configuration for failed executions").optional(),
-	"permissioned_as": z.string().describe("The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.").optional(),
-	"preserve_permissioned_as": z.boolean().describe("When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it.").optional(),
+	"permissioned_as": z.string().describe("The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected.").optional(),
+	"preserve_permissioned_as": z.boolean().describe("Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true.").optional(),
 	"labels": z.array(z.string()).optional()
 })
 
@@ -265,8 +265,8 @@ export const postgresTriggerRequestSchema = z.object({
 			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
 		}).describe("Conditional retry based on error or result").optional()
 	}).describe("Retry configuration for failed executions").optional(),
-	"permissioned_as": z.string().describe("The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.").optional(),
-	"preserve_permissioned_as": z.boolean().describe("When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it.").optional(),
+	"permissioned_as": z.string().describe("The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected.").optional(),
+	"preserve_permissioned_as": z.boolean().describe("Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true.").optional(),
 	"labels": z.array(z.string()).optional()
 })
 
@@ -307,8 +307,8 @@ export const mqttTriggerRequestSchema = z.object({
 			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
 		}).describe("Conditional retry based on error or result").optional()
 	}).describe("Retry configuration for failed executions").optional(),
-	"permissioned_as": z.string().describe("The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.").optional(),
-	"preserve_permissioned_as": z.boolean().describe("When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it.").optional(),
+	"permissioned_as": z.string().describe("The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected.").optional(),
+	"preserve_permissioned_as": z.boolean().describe("Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true.").optional(),
 	"labels": z.array(z.string()).optional()
 })
 
@@ -344,8 +344,8 @@ export const amqpTriggerRequestSchema = z.object({
 			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
 		}).describe("Conditional retry based on error or result").optional()
 	}).describe("Retry configuration for failed executions").optional(),
-	"permissioned_as": z.string().describe("The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.").optional(),
-	"preserve_permissioned_as": z.boolean().describe("When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it.").optional(),
+	"permissioned_as": z.string().describe("The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected.").optional(),
+	"preserve_permissioned_as": z.boolean().describe("Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true.").optional(),
 	"labels": z.array(z.string()).optional()
 })
 
@@ -375,8 +375,8 @@ export const sqsTriggerRequestSchema = z.object({
 			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
 		}).describe("Conditional retry based on error or result").optional()
 	}).describe("Retry configuration for failed executions").optional(),
-	"permissioned_as": z.string().describe("The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.").optional(),
-	"preserve_permissioned_as": z.boolean().describe("When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it.").optional(),
+	"permissioned_as": z.string().describe("The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected.").optional(),
+	"preserve_permissioned_as": z.boolean().describe("Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true.").optional(),
 	"labels": z.array(z.string()).optional()
 })
 
@@ -415,8 +415,8 @@ export const gcpTriggerRequestSchema = z.object({
 			"expr": z.string().describe("JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables")
 		}).describe("Conditional retry based on error or result").optional()
 	}).describe("Retry configuration for failed executions.").optional(),
-	"permissioned_as": z.string().describe("The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.").optional(),
-	"preserve_permissioned_as": z.boolean().describe("When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it.").optional(),
+	"permissioned_as": z.string().describe("The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected.").optional(),
+	"preserve_permissioned_as": z.boolean().describe("Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true.").optional(),
 	"labels": z.array(z.string()).optional()
 }).describe("Data for creating or updating a Google Cloud Pub/Sub trigger.")
 
@@ -478,8 +478,8 @@ export const emailTriggerRequestSchema = z.object({
 		}).describe("Conditional retry based on error or result").optional()
 	}).describe("Retry configuration for failed module executions").optional(),
 	"mode": z.enum(["enabled", "disabled", "suspended"]).describe("job trigger mode").optional(),
-	"permissioned_as": z.string().describe("The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.").optional(),
-	"preserve_permissioned_as": z.boolean().describe("When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it.").optional(),
+	"permissioned_as": z.string().describe("The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected.").optional(),
+	"preserve_permissioned_as": z.boolean().describe("Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true.").optional(),
 	"labels": z.array(z.string()).optional()
 })
 
@@ -502,7 +502,7 @@ export const resourceRequestSchema = z.object({
 	"resource_type": z.string().describe("The resource_type associated with the resource"),
 	"labels": z.array(z.string()).optional(),
 	"ws_specific": z.boolean().optional(),
-	"preserve_on_behalf_of": z.boolean().describe("ai_agent only. Keep the identity `value.on_behalf_of` names (`u/<username>`, `g/<group>`) rather than the caller's own. Honoured for admins and members of wm_deployers; otherwise every write of an agent sets it to the caller.").optional()
+	"preserve_on_behalf_of": z.boolean().describe("ai_agent only, and has no effect: the identity `value.on_behalf_of` names (`u/<username>`, `g/<group>`) is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own otherwise. Older servers keep it only when this is true.").optional()
 })
 
 export const triggerRequestSchemas = {

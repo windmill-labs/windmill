@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT default_permissioned_as FROM folder WHERE name = 'renamerules' AND workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "default_permissioned_as",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "023f6bc44b20547f72f42eb1de6deac15d1ce692bb2b949cd00e8f77439dd61a"
+}

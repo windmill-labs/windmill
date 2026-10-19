@@ -74,11 +74,11 @@ pub use feature_usage_oss as feature_usage;
 pub mod flow_conversations;
 pub mod flow_status;
 pub mod flows;
-pub mod fork_storage;
 pub mod folders;
+pub mod fork_storage;
 pub mod global_settings;
-pub mod hub_resource_types;
 pub mod guest_jwt;
+pub mod hub_resource_types;
 pub mod indexer;
 pub mod instance_config;
 pub mod job_metrics;
@@ -294,22 +294,16 @@ pub fn can_preserve_on_behalf_of(authed: &impl db::Authable) -> bool {
     authed.is_admin() || authed.groups().iter().any(|g| g == &WM_DEPLOYERS_GROUP)
 }
 
-/// Checks if on-behalf-of preservation actually happened (the target user differs from the acting user).
-/// Returns Some(target_identifier) if preservation occurred, None otherwise.
+/// The identity a write stored when it is someone other than the acting user, for the audit
+/// trail. Pass the *resolved* identity and the caller's own in the same form (`u/{username}`):
+/// a requested value or a bare username would report callers who only named themselves.
 pub fn check_on_behalf_of_preservation(
-    on_behalf_of_identifier: Option<&str>,
-    preserve: bool,
-    authed: &impl db::Authable,
+    resolved_identifier: Option<&str>,
     authed_identifier: &str,
 ) -> Option<String> {
-    if preserve && can_preserve_on_behalf_of(authed) {
-        if let Some(id) = on_behalf_of_identifier {
-            if id != authed_identifier {
-                return Some(id.to_string());
-            }
-        }
-    }
-    None
+    resolved_identifier
+        .filter(|id| *id != authed_identifier)
+        .map(str::to_string)
 }
 
 /// Resolves the identity to store when creating/updating a flow, script or app.
@@ -324,7 +318,9 @@ pub fn check_on_behalf_of_preservation(
 /// that cannot authenticate.
 ///
 /// Returns `None` when the runnable has no on-behalf-of identity, and the caller's own
-/// identity when they are not allowed to preserve someone else's.
+/// identity when they are not allowed to preserve someone else's. An identity that is sent is
+/// the request: a client that sends back the identity it loaded keeps it for an admin or
+/// deployer, and one that means to take the runnable over sends the caller's own.
 ///
 /// Resolves through the non-RLS pool and authorizes nothing itself — `authed` decides only
 /// whether preservation is allowed, and its role flags are not re-checked against `w_id`.
@@ -344,7 +340,6 @@ pub fn check_on_behalf_of_preservation(
 pub async fn resolve_on_behalf_of(
     on_behalf_of_email: Option<&str>,
     on_behalf_of: Option<&str>,
-    preserve: bool,
     authed: &impl db::Authable,
     w_id: &str,
     db: &sqlx::Pool<Postgres>,
@@ -352,11 +347,15 @@ pub async fn resolve_on_behalf_of(
     if on_behalf_of_email.is_none() && on_behalf_of.is_none() {
         return Ok(None);
     }
-    // Through the same width check as every other branch: the caller's own identity is
-    // address-shaped when they act without a `usr` row, and one too wide for a job row is no
-    // more enqueueable for naming themselves.
-    if !(preserve && can_preserve_on_behalf_of(authed)) {
-        return reject_unenqueueable(users::username_to_permissioned_as(authed.username()));
+    let own = users::username_to_permissioned_as(authed.username());
+    // Naming yourself is taken as is rather than resolved: the reserved-identity guard and the
+    // account lookups below would refuse a caller that acts without a `usr` row. Through the
+    // same width check as every other branch: one too wide for a job row is no more enqueueable
+    // for naming themselves.
+    let names_self = on_behalf_of.map_or(true, |p| p == own)
+        && on_behalf_of_email.map_or(true, |e| e == authed.email());
+    if names_self || !can_preserve_on_behalf_of(authed) {
+        return reject_unenqueueable(own);
     }
     // Reserved superadmin sentinels are rejected by name, before resolution: the lookups
     // below only reject them while no account holds their address, and the runtime grants

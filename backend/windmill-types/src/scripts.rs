@@ -570,10 +570,10 @@ pub struct NewScript {
     pub codebase: Option<String>,
     pub has_preprocessor: Option<bool>,
     pub on_behalf_of_email: Option<String>,
-    /// Authorization identity to run as, paired with `on_behalf_of_email`. Both move
-    /// together under the same `preserve_on_behalf_of` gate and must name the same user
-    /// or group; `None` has it derived from that email rather than left unset.
+    /// Authorization identity to run as, paired with `on_behalf_of_email`. Both must name
+    /// the same user or group; `None` has it derived from that email rather than left unset.
     pub on_behalf_of: Option<String>,
+    /// Accepted and ignored: an identity that is sent is the request (`resolve_on_behalf_of`).
     pub preserve_on_behalf_of: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub assets: Option<Vec<AssetWithAltAccessType>>,

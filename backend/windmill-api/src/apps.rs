@@ -574,7 +574,6 @@ pub struct CreateApp {
     pub policy: Policy,
     pub deployment_message: Option<String>,
     pub custom_path: Option<String>,
-    pub preserve_on_behalf_of: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
     /// Caller-intent flag (set by the CLI / git sync): when true, deploying
@@ -603,7 +602,6 @@ pub struct EditApp {
     pub policy: Option<Policy>,
     pub deployment_message: Option<String>,
     pub custom_path: Option<String>,
-    pub preserve_on_behalf_of: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
     /// Caller-intent flag (set by the CLI / git sync): when true, deploying
@@ -2841,8 +2839,7 @@ async fn create_app_internal<'a>(
     // a second simultaneous connection while `tx` is still checked out. The race this
     // leaves with a concurrent rename or removal, including a freed username later
     // rebinding the stored principal, is known and accepted: see `resolve_on_behalf_of`.
-    let should_preserve = app.preserve_on_behalf_of.unwrap_or(false)
-        && windmill_common::can_preserve_on_behalf_of(&authed)
+    let should_preserve = windmill_common::can_preserve_on_behalf_of(&authed)
         && (app.policy.on_behalf_of.is_some() || app.policy.on_behalf_of_email.is_some());
 
     let mut preserved_on_behalf_of: Option<String> = None;
@@ -2850,7 +2847,6 @@ async fn create_app_internal<'a>(
         app.policy.on_behalf_of = windmill_common::resolve_on_behalf_of(
             app.policy.on_behalf_of_email.as_deref(),
             app.policy.on_behalf_of.as_deref(),
-            true,
             &authed,
             w_id,
             &db,
@@ -3843,15 +3839,13 @@ async fn update_app_internal<'a>(
     // stays.
     let mut preserved_on_behalf_of: Option<String> = None;
     if let Some(npolicy) = ns.policy.as_mut() {
-        let should_preserve = ns.preserve_on_behalf_of.unwrap_or(false)
-            && windmill_common::can_preserve_on_behalf_of(&authed)
+        let should_preserve = windmill_common::can_preserve_on_behalf_of(&authed)
             && (npolicy.on_behalf_of.is_some() || npolicy.on_behalf_of_email.is_some());
 
         if should_preserve {
             npolicy.on_behalf_of = windmill_common::resolve_on_behalf_of(
                 npolicy.on_behalf_of_email.as_deref(),
                 npolicy.on_behalf_of.as_deref(),
-                true,
                 &authed,
                 w_id,
                 &db,

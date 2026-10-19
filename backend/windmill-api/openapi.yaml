@@ -15017,7 +15017,7 @@ paths:
                   type: string
                 preserve_on_behalf_of:
                   type: boolean
-                  description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
+                  description: "Has no effect: the identity the policy names (on_behalf_of / on_behalf_of_email) is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
                 labels:
                   type: array
                   items:
@@ -15070,7 +15070,7 @@ paths:
                       type: string
                     preserve_on_behalf_of:
                       type: boolean
-                      description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
+                      description: "Has no effect: the identity the policy names (on_behalf_of / on_behalf_of_email) is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
                     labels:
                       type: array
                       items:
@@ -15482,7 +15482,7 @@ paths:
                   type: string
                 preserve_on_behalf_of:
                   type: boolean
-                  description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
+                  description: "Has no effect: the identity the policy names (on_behalf_of / on_behalf_of_email) is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
                 labels:
                   type: array
                   items:
@@ -15554,7 +15554,7 @@ paths:
                   type: string
                 preserve_on_behalf_of:
                   type: boolean
-                  description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
+                  description: "Has no effect: the identity the policy names (on_behalf_of / on_behalf_of_email) is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
                 labels:
                   type: array
                   items:
@@ -15623,7 +15623,7 @@ paths:
                   type: string
                 preserve_on_behalf_of:
                   type: boolean
-                  description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
+                  description: "Has no effect: the identity the policy names (on_behalf_of / on_behalf_of_email) is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
                 labels:
                   type: array
                   items:
@@ -15676,7 +15676,7 @@ paths:
                       type: string
                     preserve_on_behalf_of:
                       type: boolean
-                      description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of value in the policy instead of overwriting it."
+                      description: "Has no effect: the identity the policy names (on_behalf_of / on_behalf_of_email) is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
                     labels:
                       type: array
                       items:
@@ -30950,7 +30950,7 @@ components:
           description: "Authorization identity to run as: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. Supply this or on_behalf_of_email; when only the address is given it is resolved to the account it names, and an address naming nobody is rejected. A pair that disagrees is rejected."
         preserve_on_behalf_of:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email / on_behalf_of pair instead of overwriting it with the caller's own identity."
+          description: "Has no effect: an on_behalf_of_email / on_behalf_of that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
         assets:
           type: array
           items:
@@ -32745,7 +32745,7 @@ components:
           type: boolean
         preserve_on_behalf_of:
           type: boolean
-          description: ai_agent only. Keep the identity `value.on_behalf_of` names (`u/<username>`, `g/<group>`) rather than the caller's own. Honoured for admins and members of wm_deployers; otherwise every write of an agent sets it to the caller.
+          description: "ai_agent only, and has no effect: the identity `value.on_behalf_of` names (`u/<username>`, `g/<group>`) is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own otherwise. Older servers keep it only when this is true."
       required:
         - path
         - value
@@ -32772,7 +32772,7 @@ components:
           type: boolean
         preserve_on_behalf_of:
           type: boolean
-          description: ai_agent only. Keep the identity `value.on_behalf_of` names (`u/<username>`, `g/<group>`) rather than the caller's own. Honoured for admins and members of wm_deployers; otherwise every write of an agent sets it to the caller.
+          description: "ai_agent only, and has no effect: the identity `value.on_behalf_of` names (`u/<username>`, `g/<group>`) is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own otherwise. Older servers keep it only when this is true."
 
     Resource:
       type: object
@@ -33280,10 +33280,10 @@ components:
           description: Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)
         permissioned_as:
           type: string
-          description: The user or group this schedule runs as. Used during deployment to preserve the original schedule owner.
+          description: "The user or group this schedule runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
         preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+          description: "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
         labels:
           type: array
           items:
@@ -33378,11 +33378,11 @@ components:
         permissioned_as:
           type: string
           nullable: true
-          description: "The user or group this schedule runs as (e.g., 'u/admin' or 'g/mygroup'). Only admins and wm_deployers can set this via preserve_permissioned_as."
+          description: "The user or group this schedule runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
         preserve_permissioned_as:
           type: boolean
           nullable: true
-          description: "If true and user is admin/wm_deployers, preserve the provided permissioned_as instead of using the deploying user's identity"
+          description: "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
         labels:
           type: array
           items:
@@ -33791,10 +33791,10 @@ components:
           description: Retry configuration for failed executions
         permissioned_as:
           type: string
-          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+          description: "The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
         preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+          description: "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
         labels:
           type: array
           items:
@@ -33897,10 +33897,10 @@ components:
           description: Retry configuration for failed executions
         permissioned_as:
           type: string
-          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+          description: "The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
         preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+          description: "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
         labels:
           type: array
           items:
@@ -34158,10 +34158,10 @@ components:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
         permissioned_as:
           type: string
-          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+          description: "The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
         preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+          description: "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
         labels:
           type: array
           items:
@@ -34236,10 +34236,10 @@ components:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
         permissioned_as:
           type: string
-          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+          description: "The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
         preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+          description: "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
         labels:
           type: array
           items:
@@ -34419,10 +34419,10 @@ components:
           description: Retry configuration for failed executions
         permissioned_as:
           type: string
-          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+          description: "The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
         preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+          description: "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
         labels:
           type: array
           items:
@@ -34485,10 +34485,10 @@ components:
           description: Retry configuration for failed executions
         permissioned_as:
           type: string
-          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+          description: "The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
         preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+          description: "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
         labels:
           type: array
           items:
@@ -34613,10 +34613,10 @@ components:
           description: Retry configuration for failed executions
         permissioned_as:
           type: string
-          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+          description: "The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
         preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+          description: "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
         labels:
           type: array
           items:
@@ -34669,10 +34669,10 @@ components:
           description: Retry configuration for failed executions
         permissioned_as:
           type: string
-          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+          description: "The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
         preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+          description: "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
         labels:
           type: array
           items:
@@ -34819,10 +34819,10 @@ components:
           description: "Retry configuration for failed executions."
         permissioned_as:
           type: string
-          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+          description: "The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
         preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+          description: "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
         labels:
           type: array
           items:
@@ -35555,10 +35555,10 @@ components:
           description: Retry configuration for failed executions
         permissioned_as:
           type: string
-          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+          description: "The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
         preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+          description: "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
         labels:
           type: array
           items:
@@ -35613,10 +35613,10 @@ components:
           description: Retry configuration for failed executions
         permissioned_as:
           type: string
-          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+          description: "The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
         preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+          description: "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
         labels:
           type: array
           items:
@@ -35785,10 +35785,10 @@ components:
           description: Retry configuration for failed executions
         permissioned_as:
           type: string
-          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+          description: "The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
         preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+          description: "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
         labels:
           type: array
           items:
@@ -35839,10 +35839,10 @@ components:
           description: Retry configuration for failed executions
         permissioned_as:
           type: string
-          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+          description: "The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
         preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+          description: "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
         labels:
           type: array
           items:
@@ -35984,10 +35984,10 @@ components:
           description: Retry configuration for failed executions
         permissioned_as:
           type: string
-          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+          description: "The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
         preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+          description: "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
         labels:
           type: array
           items:
@@ -36061,10 +36061,10 @@ components:
           description: Retry configuration for failed executions
         permissioned_as:
           type: string
-          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+          description: "The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
         preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+          description: "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
         labels:
           type: array
           items:
@@ -36176,10 +36176,10 @@ components:
           description: Retry configuration for failed executions
         permissioned_as:
           type: string
-          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+          description: "The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
         preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+          description: "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
         labels:
           type: array
           items:
@@ -36237,10 +36237,10 @@ components:
           description: Retry configuration for failed executions
         permissioned_as:
           type: string
-          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+          description: "The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
         preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+          description: "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
         labels:
           type: array
           items:
@@ -36295,10 +36295,10 @@ components:
           $ref: "#/components/schemas/TriggerMode"
         permissioned_as:
           type: string
-          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+          description: "The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
         preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+          description: "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
         labels:
           type: array
           items:
@@ -36331,10 +36331,10 @@ components:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
         permissioned_as:
           type: string
-          description: The user or group this trigger runs as. Used during deployment to preserve the original trigger owner.
+          description: "The user or group this trigger runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
         preserve_permissioned_as:
           type: boolean
-          description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+          description: "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
         labels:
           type: array
           items:
@@ -36958,7 +36958,7 @@ components:
               description: "Authorization identity to run as: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. Supply this or on_behalf_of_email; when only the address is given it is resolved to the account it names, and an address naming nobody is rejected. A pair that disagrees is rejected."
             preserve_on_behalf_of:
               type: boolean
-              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email / on_behalf_of pair instead of overwriting it with the caller's own identity."
+              description: "Has no effect: an on_behalf_of_email / on_behalf_of that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
             labels:
               type: array
               items:
@@ -37000,7 +37000,7 @@ components:
               description: "Authorization identity to run as: u/{username}, g/{group}, or a bare email when the username is itself email-shaped. Supply this or on_behalf_of_email; when only the address is given it is resolved to the account it names, and an address naming nobody is rejected. A pair that disagrees is rejected."
             preserve_on_behalf_of:
               type: boolean
-              description: "When true and the caller is a member of the 'wm_deployers' group, preserves the original on_behalf_of_email / on_behalf_of pair instead of overwriting it with the caller's own identity."
+              description: "Has no effect: an on_behalf_of_email / on_behalf_of that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
             labels:
               type: array
               items:

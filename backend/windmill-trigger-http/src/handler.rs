@@ -247,7 +247,7 @@ pub async fn create_many_http_triggers(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
-    Json(new_http_triggers): Json<Vec<TriggerData<HttpConfigRequest>>>,
+    Json(mut new_http_triggers): Json<Vec<TriggerData<HttpConfigRequest>>>,
 ) -> Result<(StatusCode, String)> {
     // Admin check for instance-wide routes is done per-trigger in insert_new_trigger_into_db
 
@@ -264,7 +264,7 @@ pub async fn create_many_http_triggers(
 
     let mut route_path_keys = Vec::with_capacity(new_http_triggers.len());
 
-    for new_http_trigger in new_http_triggers.iter() {
+    for new_http_trigger in new_http_triggers.iter_mut() {
         // Per-item write scope, matching the single-create handler. The bulk
         // endpoint must not let a path-scoped token create triggers outside it.
         check_scopes(&authed, || {
@@ -288,6 +288,14 @@ pub async fn create_many_http_triggers(
 
         let route_path_key =
             check_if_route_exist(&db, &new_http_trigger.config, &w_id, None).await?;
+
+        windmill_trigger::handler::resolve_requested_permissioned_as(
+            &mut new_http_trigger.base,
+            &authed,
+            &db,
+            &w_id,
+        )
+        .await?;
 
         route_path_keys.push(route_path_key.clone());
     }

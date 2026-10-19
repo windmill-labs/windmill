@@ -513,7 +513,6 @@ def main():
                 policy: None,
                 deployment_message: None,
                 custom_path: None,
-                preserve_on_behalf_of: None,
                 labels: None,
                 skip_draft_deletion: None,
                 allow_kind_change: None,

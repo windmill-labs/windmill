@@ -176,7 +176,7 @@ pub struct BaseTriggerData {
     /// Optional permissioned_as for deployment - when set, the trigger will run jobs as this user
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permissioned_as: Option<String>,
-    /// If true and user is admin/wm_deployers, preserve the provided permissioned_as instead of using deploying user's
+    /// Accepted and ignored: `permissioned_as` is the request (`resolve_permissioned_as`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preserve_permissioned_as: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -210,11 +210,12 @@ impl BaseTriggerData {
         self.mode = Some(mode);
     }
 
+    /// The identity to store: the one named for a caller allowed to keep it, the caller's own
+    /// otherwise. Trusts `permissioned_as` as given: the create and update handlers resolve it
+    /// through `resolve_on_behalf_of` first, which is what refuses one that names nobody.
     pub fn resolve_permissioned_as(&self, authed: &impl Authable) -> String {
         if let Some(ref permissioned_as) = self.permissioned_as {
-            if self.preserve_permissioned_as.unwrap_or(false)
-                && windmill_common::can_preserve_on_behalf_of(authed)
-            {
+            if windmill_common::can_preserve_on_behalf_of(authed) {
                 return permissioned_as.clone();
             }
         }

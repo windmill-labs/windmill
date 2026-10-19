@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, default_permissioned_as)\n           VALUES ('test-workspace', 'renamerules', 'renamerules', ARRAY[]::TEXT[], '{}', 'test-user',\n                   '[{\"path_glob\": \"jobs/**\", \"permissioned_as\": \"u/test-user-2\"},\n                     {\"path_glob\": \"**\", \"permissioned_as\": \"u/original-user\"}]')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "e0bfc08cfc122c44fcda3b53a96b9283e9b47d39e8c87f5e67490c9b849b8a8e"
+}
