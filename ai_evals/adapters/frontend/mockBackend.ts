@@ -133,6 +133,14 @@ export interface BenchmarkWorkspaceRunnables {
 	ducklakes?: string[]
 	dataMetrics?: DataMetric[]
 	jobs?: BenchmarkWorkspaceJob[]
+	drafts?: BenchmarkWorkspaceDraft[]
+}
+
+/** A user draft saved at a path, as the editor leaves one: not open in any editor. */
+export interface BenchmarkWorkspaceDraft {
+	kind: UserDraftItemKind
+	path: string
+	value: unknown
 }
 
 type BenchmarkCompletedJob = CompletedJob & { type: 'CompletedJob' }
@@ -192,6 +200,9 @@ export function registerBenchmarkWorkspaceRunnables(
 			args: seed.args,
 			result: seed.result
 		})
+	}
+	for (const draft of runnables.drafts ?? []) {
+		seedBenchmarkDraft(workspace, draft.kind, draft.path, structuredClone(draft.value))
 	}
 }
 

@@ -1,0 +1,68 @@
+{
+  "workspace": {
+    "scripts": [
+      {
+        "path": "f/finance/export_ledger",
+        "summary": "Export the general ledger for a quarter as CSV rows",
+        "language": "bun",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": { "quarter": { "type": "string", "description": "e.g. 2026-Q3" } },
+          "required": ["quarter"]
+        },
+        "content": "export async function main(quarter: string) {\n  return [{ account: '4000', amount: 125000, quarter }]\n}\n"
+      },
+      {
+        "path": "f/finance/email_finance",
+        "summary": "Email a report to the finance team",
+        "language": "bun",
+        "schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "subject": { "type": "string" },
+            "body": { "type": "string" }
+          },
+          "required": ["subject", "body"]
+        },
+        "content": "export async function main(subject: string, body: string) {\n  return { sent: true, to: 'finance@acme.test', subject }\n}\n"
+      }
+    ],
+    "drafts": [
+      {
+        "kind": "flow",
+        "path": "f/finance/quarterly_close",
+        "value": {
+          "path": "f/finance/quarterly_close",
+          "summary": "Quarterly close",
+          "description": "For a given quarter: export the general ledger, total the amounts per account, then email the per-account totals to the finance team with f/finance/email_finance.",
+          "schema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": { "quarter": { "type": "string", "description": "e.g. 2026-Q3" } },
+            "required": ["quarter"]
+          },
+          "value": {
+            "modules": [
+              {
+                "id": "a",
+                "summary": "Export the ledger",
+                "value": {
+                  "type": "script",
+                  "path": "f/finance/export_ledger",
+                  "input_transforms": { "quarter": { "type": "javascript", "expr": "flow_input.quarter" } }
+                }
+              },
+              {
+                "id": "b",
+                "summary": "TODO: total per account, then email finance with f/finance/email_finance",
+                "value": { "type": "rawscript", "language": "bun", "content": "export async function main() {\n  // TODO\n}\n", "input_transforms": {} }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

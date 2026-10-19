@@ -223,6 +223,7 @@ import {
 import { changedLineIndices, draftDeployedPatch, windowPatch } from './draftDiff'
 import { workspaceSettingsTools } from './workspaceSettingsTools'
 import { getRun, summarizeRun } from './flowRunTree'
+import { collectPathSteps, missingStepInputs, type PathStep } from './pathStepInputs'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
 import type { UserDraftItemKind } from '$lib/gen'
@@ -4206,6 +4207,12 @@ export const globalTools: SessionTool<{}>[] = [
 				{ aiProviders, aiProviderWarnings }
 			)
 			const resolved = await resolveWriteFlowInlineScripts(parsed.path, editable, ctx.workspace)
+			await assertPathStepInputs(
+				resolved,
+				ctx.workspace,
+				async () =>
+					(await loadFlowDraftValue(parsed.path, ctx.workspace).catch(() => undefined))?.flow.value
+			)
 			const result = await writeFlowDraft(
 				{
 					path: parsed.path,
@@ -6286,6 +6293,50 @@ async function resolveWriteFlowInlineScripts(
 	return resolved
 }
 
+/** The input schema of the item a path step calls, the user's draft of it first; undefined
+ * when it cannot be read, which leaves that step unchecked. */
+async function pathStepSchema(step: PathStep, workspace: string): Promise<unknown> {
+	try {
+		const item =
+			(await getGlobalDraft(workspace, step.kind, step.path)) ??
+			(await readWorkspaceItem(step.kind, step.path, workspace))
+		return step.kind === 'script' ? item.schema : (item.value as { schema?: unknown })?.schema
+	} catch {
+		return undefined
+	}
+}
+
+/** Refuses a flow write whose path steps leave out a required input of the item they call:
+ * such a step fails at run time, and the error tells the model which item to read. */
+async function assertPathStepInputs(
+	next: Parameters<typeof collectPathSteps>[0],
+	workspace: string,
+	loadPrevious: () => Promise<Parameters<typeof collectPathSteps>[0]>
+): Promise<void> {
+	const steps = collectPathSteps(next)
+	if (!steps.length) return
+	const previous = await loadPrevious()
+	const keyOf = (s: PathStep) => `${s.kind}:${s.path}`
+	const unique = [...new Map(steps.map((s) => [keyOf(s), s])).values()]
+	const schemas = new Map(
+		await Promise.all(
+			unique.map(async (s) => [keyOf(s), await pathStepSchema(s, workspace)] as const)
+		)
+	)
+	const missing = missingStepInputs(steps, collectPathSteps(previous), (s) => schemas.get(keyOf(s)))
+	if (!missing.length) return
+	throw new Error(
+		`Not saved: ${missing
+			.map(
+				(m) =>
+					`step "${m.id}" calls ${m.path} without its required input(s) ${m.missing.join(', ')}`
+			)
+			.join(
+				'; '
+			)}. Read each of these items with read_workspace_item and add its required inputs to the step's input_transforms.`
+	)
+}
+
 async function patchFlowJson(
 	args: { path: string; old_string: string; new_string: string; replace_all: boolean },
 	ctx: WriteDraftCtx
@@ -6324,6 +6375,7 @@ async function patchFlowJson(
 	const patchedEditable = validateEditableFlowJson(parsedValue, { aiProviders, aiProviderWarnings })
 	const newFlowValue = applyEditableFlowJsonToFlow(base.flow.value, patchedEditable, session)
 	finalizeUnresolvedInlineScripts(newFlowValue)
+	await assertPathStepInputs(newFlowValue, ctx.workspace, async () => base.flow.value)
 
 	const result = await writeFlowDraft(
 		{

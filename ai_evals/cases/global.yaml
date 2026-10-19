@@ -3283,3 +3283,29 @@
         - Agents page
         - agent editor
   skipJudge: true
+
+- id: global-finish-flow-draft-reuse-script
+  prompt: |-
+    Help me finish my draft of the flow f/finance/quarterly_close
+  initial: ai_evals/fixtures/frontend/global/initial/unfinished_flow_draft.json
+  runtime:
+    maxTurns: 14
+    sessionChat: true
+  validate:
+    requiredDrafts:
+      - type: flow
+        path: f/finance/quarterly_close
+        valueIncludes:
+          - f/finance/email_finance
+          - subject
+          - body
+        valueExcludes:
+          - TODO
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - keeps the existing ledger export step and the quarter input
+    - replaces the TODO step with logic that totals the exported amounts per account
+    - ends by emailing the per-account totals through the existing f/finance/email_finance script, passing its required subject and body inputs
