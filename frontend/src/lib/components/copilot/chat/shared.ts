@@ -642,6 +642,16 @@ export type ToolCodeDiff = {
 	beforeLang?: string
 }
 
+export type ToolConfirmAction =
+	| 'run'
+	| 'deploy'
+	| 'create'
+	| 'apply'
+	| 'delete'
+	| 'discard'
+	| 'rollback'
+	| 'confirm'
+
 export type ToolDisplayMessage = {
 	role: 'tool'
 	tool_call_id: string
@@ -657,6 +667,8 @@ export type ToolDisplayMessage = {
 	isQueued?: boolean
 	error?: string
 	needsConfirmation?: boolean
+	/** What the confirm button says the call will do. */
+	confirmAction?: ToolConfirmAction
 	showDetails?: boolean
 	autoCollapseDetails?: boolean
 	isStreamingArguments?: boolean
@@ -1103,6 +1115,8 @@ export async function processToolCall<T>({
 			typeof tool?.confirmationMessage === 'function'
 				? tool.confirmationMessage(args)
 				: tool?.confirmationMessage
+		const confirmAction =
+			typeof tool?.confirmAction === 'function' ? tool.confirmAction(args) : tool?.confirmAction
 
 		// preAction fires at promotion, not stream time, so its "-ing" label covers
 		// only the execution window — queued cards keep their imperative header.
@@ -1111,7 +1125,7 @@ export async function processToolCall<T>({
 
 		toolCallbacks.setToolStatus(toolCall.id, {
 			...(requiresConfirmation
-				? { content: confirmationContent ?? 'Waiting for confirmation...' }
+				? { content: confirmationContent ?? 'Waiting for confirmation...', confirmAction }
 				: {}),
 			parameters: args,
 			isLoading: true,
@@ -1287,6 +1301,8 @@ export interface Tool<T> {
 	/** Header shown on the confirmation card before the tool runs. Pass a function
 	 * to derive it from the parsed arguments (e.g. name the script being tested). */
 	confirmationMessage?: string | ((args: any) => string)
+	/** The verb on the confirm button; `confirm` when omitted. */
+	confirmAction?: ToolConfirmAction | ((args: any) => ToolConfirmAction)
 	/** Only when a card gates the call, so `fn` must not rely on it. Not awaited, so it may
 	 * not throw, and must be safe for a call the user then declines. */
 	onConfirmationRequested?: (p: { args: any; toolCallbacks: ToolCallbacks; toolId: string }) => void

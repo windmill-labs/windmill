@@ -1,5 +1,88 @@
 # Changelog
 
+## [1.841.0](https://github.com/windmill-labs/windmill/compare/v1.840.0...v1.841.0) (2026-10-18)
+
+
+### Features
+
+* let agent workers authenticate with a workload identity token ([#11858](https://github.com/windmill-labs/windmill/issues/11858)) ([be23abb](https://github.com/windmill-labs/windmill/commit/be23abb3602ed9c45f1c66c98d5f84e7676dccfa))
+* let ALLOW_PRIVATE_MCP_SERVER_URLS name the private hosts it allows ([#11869](https://github.com/windmill-labs/windmill/issues/11869)) ([5c205fa](https://github.com/windmill-labs/windmill/commit/5c205fa46915de9e5fde731a117ba8571cfa56f7))
+* probe nsjail with a real jail and add a gVisor compat mode ([#11865](https://github.com/windmill-labs/windmill/issues/11865)) ([69d36f7](https://github.com/windmill-labs/windmill/commit/69d36f77daceb25cc903c7ea014ba8d487650b18))
+
+
+### Bug Fixes
+
+* insert ApiAuthed into request extensions in no-auth mode ([#11868](https://github.com/windmill-labs/windmill/issues/11868)) ([a7561fd](https://github.com/windmill-labs/windmill/commit/a7561fd8bde5c4a766a050507c2d9b9823c08bcc))
+* reject out-of-range integer args to narrow SQL types instead of wrapping ([#11864](https://github.com/windmill-labs/windmill/issues/11864)) ([19ec5d3](https://github.com/windmill-labs/windmill/commit/19ec5d3cd8a36600c8896a895d0e566735f729a9))
+* warn when an autoscaled worker group has no tags to count ([#11859](https://github.com/windmill-labs/windmill/issues/11859)) ([8b14a78](https://github.com/windmill-labs/windmill/commit/8b14a78822f95fb045d80940dfd9197f79ea88cc))
+
+## [1.840.0](https://github.com/windmill-labs/windmill/compare/v1.839.0...v1.840.0) (2026-10-17)
+
+
+### Features
+
+* add a no_network annotation for sandboxed jobs ([#11844](https://github.com/windmill-labs/windmill/issues/11844)) ([feb7b1a](https://github.com/windmill-labs/windmill/commit/feb7b1ad906046f4cf6ea53a85506f42b1b66e93))
+* warn at worker startup when WHITELIST_ENVS forwards a secret-shaped variable ([#11838](https://github.com/windmill-labs/windmill/issues/11838)) ([16c8be2](https://github.com/windmill-labs/windmill/commit/16c8be2355b919878091769810749c54c2f0a09d))
+
+
+### Bug Fixes
+
+* keep script and flow deploys off a second pool connection ([#11843](https://github.com/windmill-labs/windmill/issues/11843)) ([2684156](https://github.com/windmill-labs/windmill/commit/268415623b515280b99bd5d9e32876868821dc4f))
+* let ALLOW_PRIVATE_AI_BASE_URLS name the private hosts it allows ([#11841](https://github.com/windmill-labs/windmill/issues/11841)) ([b0c97b3](https://github.com/windmill-labs/windmill/commit/b0c97b34caa6343db278a9c5c09228248acf970c))
+* mount python script modules into the nsjail sandbox ([#11846](https://github.com/windmill-labs/windmill/issues/11846)) ([7a8cb62](https://github.com/windmill-labs/windmill/commit/7a8cb62fa135bff04522f4bbd93aba194e33b121))
+* refuse dot segments in AI proxy paths ([#11837](https://github.com/windmill-labs/windmill/issues/11837)) ([89f36a7](https://github.com/windmill-labs/windmill/commit/89f36a73d16675fd5f0d57daa2baf616ee95cbf5))
+* run bun and npm installs under nsjail sandboxing ([#11845](https://github.com/windmill-labs/windmill/issues/11845)) ([6646c86](https://github.com/windmill-labs/windmill/commit/6646c86351f188d9b7e355dfb46e87bfa5c81846))
+* scope delete_jobs side-table deletes to the request workspace ([#11836](https://github.com/windmill-labs/windmill/issues/11836)) ([09a5911](https://github.com/windmill-labs/windmill/commit/09a59110d941a8c306a0d89e99d34d509545059f))
+* skip the fork lock when a fork creation has no storage to purge ([#11842](https://github.com/windmill-labs/windmill/issues/11842)) ([0b54ebc](https://github.com/windmill-labs/windmill/commit/0b54ebc73d3d9541d2521857adc27766c4342000))
+
+
+### Performance Improvements
+
+* clone sqlx test databases from a migrated template ([#11848](https://github.com/windmill-labs/windmill/issues/11848)) ([4ed6c1a](https://github.com/windmill-labs/windmill/commit/4ed6c1a6ce1b6d53ea9ee965214da0c3adb3f3bd))
+
+## [1.839.0](https://github.com/windmill-labs/windmill/compare/v1.838.0...v1.839.0) (2026-10-16)
+
+
+### Features
+
+* add a Require isolated forks protection rule ([#11834](https://github.com/windmill-labs/windmill/issues/11834)) ([ab4e790](https://github.com/windmill-labs/windmill/commit/ab4e790a216b92f789e130955d7cd180b394d1fe))
+* isolate fork object storage under a per-fork prefix ([#11829](https://github.com/windmill-labs/windmill/issues/11829)) ([9375805](https://github.com/windmill-labs/windmill/commit/9375805fdf7501347a4dfb37e58f1be7fa2c5658))
+* one Entra app for the Teams bot and ms_teams Graph connect ([#11718](https://github.com/windmill-labs/windmill/issues/11718)) ([e7088e7](https://github.com/windmill-labs/windmill/commit/e7088e7f4766cd662890cdf61f2b6a5a0fce06a8))
+* route python S3 client settings through the S3 proxy ([#11819](https://github.com/windmill-labs/windmill/issues/11819)) ([de340ee](https://github.com/windmill-labs/windmill/commit/de340eed6f5520414b59166f8dc16938f7ac6c36))
+
+
+### Bug Fixes
+
+* verify Bot Framework JWT on incoming Teams activities ([#11818](https://github.com/windmill-labs/windmill/issues/11818)) ([0b1935f](https://github.com/windmill-labs/windmill/commit/0b1935f251605926760565fb7693f345f1a56312))
+
+## [1.838.0](https://github.com/windmill-labs/windmill/compare/v1.837.0...v1.838.0) (2026-10-16)
+
+
+### Features
+
+* accept Ed25519-signed license keys alongside RSA ([#11810](https://github.com/windmill-labs/windmill/issues/11810)) ([33d4049](https://github.com/windmill-labs/windmill/commit/33d4049db029e1dc478b1251c562232f0127fc8a))
+* make the frontend installable as a progressive web app ([#11805](https://github.com/windmill-labs/windmill/issues/11805)) ([b86909f](https://github.com/windmill-labs/windmill/commit/b86909fc81b21447414266f47a83a43492204e50))
+* name mcp script and flow tools after their last path segment ([#11817](https://github.com/windmill-labs/windmill/issues/11817)) ([d1a13d9](https://github.com/windmill-labs/windmill/commit/d1a13d9054d5994b5ed9c0f8566b86154662caa0))
+* route dev workspace and fork jobs to their own worker groups ([#11811](https://github.com/windmill-labs/windmill/issues/11811)) ([6e565b0](https://github.com/windmill-labs/windmill/commit/6e565b0dcb0fb56b69131c262d482c82bb6c527b))
+
+
+### Bug Fixes
+
+* **ai-chat:** tell the session chat that an agent is an ai_agent resource ([#11798](https://github.com/windmill-labs/windmill/issues/11798)) ([a521548](https://github.com/windmill-labs/windmill/commit/a52154877caa5c3e473ee56c1eaf040b7da2375f))
+* emit a single email claim in job OIDC tokens ([#11804](https://github.com/windmill-labs/windmill/issues/11804)) ([2ef0c0d](https://github.com/windmill-labs/windmill/commit/2ef0c0d8e14fcd5ff1c06f6113ffaf2792b9d4c9))
+* give inline script runs their own job dir ([#11822](https://github.com/windmill-labs/windmill/issues/11822)) ([6aec448](https://github.com/windmill-labs/windmill/commit/6aec4488ebe8f377b4ea9bb4948649831cba0dbc))
+* hold mcp token references to resource reference scopes ([#11803](https://github.com/windmill-labs/windmill/issues/11803)) ([c09038b](https://github.com/windmill-labs/windmill/commit/c09038b10698042209fd6aa26c466fb53d6dc7d0))
+* let deployed low-code apps run database studio queries again ([#11816](https://github.com/windmill-labs/windmill/issues/11816)) ([7c63a30](https://github.com/windmill-labs/windmill/commit/7c63a30edd650f49eff85066dcc7916cec1b7010))
+* truncate long row titles instead of wrapping ([#11815](https://github.com/windmill-labs/windmill/issues/11815)) ([153a871](https://github.com/windmill-labs/windmill/commit/153a871550e3ae9ad6282aa59b3a4f9897fec6c1))
+* use the session workspace's user in three AI session places ([#11808](https://github.com/windmill-labs/windmill/issues/11808)) ([19fc07f](https://github.com/windmill-labs/windmill/commit/19fc07faa95a8a2247e726f9d0a2adc3cfa42bd2))
+
+## [1.837.0](https://github.com/windmill-labs/windmill/compare/v1.836.0...v1.837.0) (2026-10-15)
+
+
+### Features
+
+* agents run on behalf of their deployer ([#11430](https://github.com/windmill-labs/windmill/issues/11430)) ([0b98054](https://github.com/windmill-labs/windmill/commit/0b980546b104cf46f385133af553dfbe5f533eca))
+
 ## [1.836.0](https://github.com/windmill-labs/windmill/compare/v1.835.0...v1.836.0) (2026-10-15)
 
 

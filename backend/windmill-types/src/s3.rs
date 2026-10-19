@@ -9,6 +9,12 @@ use std::fmt;
 /// it as the primary one.
 pub const DEFAULT_STORAGE: &str = "_default_";
 
+/// The s3-proxy path segment under which a request names the storage's real bucket
+/// (`s3_proxy/_wm_bucket_/{storage}/{bucket}/{key}`), for S3 clients that address
+/// `s3://<bucket>/<key>`. Reserved like `DEFAULT_STORAGE`: a secondary storage of that name
+/// would be shadowed by the bucket-addressed routes.
+pub const BUCKET_ADDRESSED_SEGMENT: &str = "_wm_bucket_";
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct FilesystemSettings {
     pub root_path: String,

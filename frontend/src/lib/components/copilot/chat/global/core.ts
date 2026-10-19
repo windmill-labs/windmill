@@ -1648,6 +1648,10 @@ Rules:${when(
 	)}
 - Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
 ${groupMembershipRule}- Listings and reads return only what this user can see: items in folders they cannot read are hidden from you both. When an item the user names is missing, say it is not among what they can see and may be in a folder they cannot read, where someone with access can run it — never state that it does not exist or is not deployed.
+- An agent, as the Agents page lists it, is a resource of type \`ai_agent\`: read it with read_workspace_item type "resource".${when(
+		canDraftResources,
+		" You may draft a change to an agent, but never deploy or rename one here: the user reviews and deploys it from the agent's page, `/agents/edit/<path>`, so point them there."
+	)}
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".${activePreviewRule}${when(
 		canWriteAnyDraft && canDeployAnyKind,
 		`
@@ -4130,6 +4134,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'Create a new shared folder (addressable as f/<name>/) in the workspace. The current user is added as an owner.'
 		),
 		requiresConfirmation: true,
+		confirmAction: 'create',
 		confirmationMessage: 'Create folder',
 		showDetails: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
@@ -4564,6 +4569,7 @@ export const globalTools: SessionTool<{}>[] = [
 		showDetails: true,
 		showFade: true,
 		requiresConfirmation: true,
+		confirmAction: 'deploy',
 		confirmationMessage: 'Deploy draft to workspace',
 		fn: async (ctx) => {
 			const parsed = deployWorkspaceItemSchema.parse(ctx.args)
@@ -4646,6 +4652,7 @@ export const globalTools: SessionTool<{}>[] = [
 		showDetails: true,
 		showFade: true,
 		requiresConfirmation: true,
+		confirmAction: 'delete',
 		confirmationMessage: 'Delete workspace item',
 		validateBeforeConfirmation: validateDeleteWorkspaceItemTarget,
 		fn: async (ctx) => {
@@ -4665,6 +4672,7 @@ export const globalTools: SessionTool<{}>[] = [
 		showDetails: true,
 		showFade: true,
 		requiresConfirmation: true,
+		confirmAction: 'discard',
 		confirmationMessage: 'Discard draft',
 		fn: async (ctx) => {
 			const parsed = discardLocalDraftSchema.parse(ctx.args)
@@ -4760,6 +4768,7 @@ export const globalTools: SessionTool<{}>[] = [
 		),
 		showDetails: true,
 		requiresConfirmation: true,
+		confirmAction: 'create',
 		confirmationMessage: 'Create resource type',
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = createResourceTypeSchema.parse(args)
@@ -4940,6 +4949,7 @@ export const globalTools: SessionTool<{}>[] = [
 			return testRunAppRunnable(parsed, ctx)
 		},
 		requiresConfirmation: true,
+		confirmAction: 'run',
 		confirmationMessage: (args) =>
 			`Run the backend runnable "${args?.key ?? ''}" of ${pathLeaf(args?.path, 'the app')}`,
 		queuedLabel: (args) => `Test runnable "${args?.key ?? ''}" of ${args?.path ?? 'the app'}`,

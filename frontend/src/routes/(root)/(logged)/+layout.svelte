@@ -79,8 +79,11 @@
 		Home,
 		Play,
 		Search,
-		WandSparkles
+		WandSparkles,
+		ArrowLeft
 	} from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
+	import { isInstanceRoute } from '$lib/instanceRoutes'
 	import { getUserExt } from '$lib/user'
 	import { confirmPendingLoginMethod } from '$lib/lastLoginMethod'
 	import { deepEqual } from 'fast-equals'
@@ -796,6 +799,11 @@
 	}
 
 	let devOnly = $derived(page.url.pathname.startsWith('/scripts/dev'))
+	// A devops user who belongs to no workspace has no `$userStore`, and would otherwise wait on
+	// "Loading user..." forever on the instance pages their role exists for.
+	let instanceOnlyView = $derived(
+		!$workspaceStore && !!$devopsRole && isInstanceRoute(page.url.pathname)
+	)
 
 	async function loadDefaultScripts(workspace: string, user: UserExt | undefined) {
 		if (!user?.operator) {
@@ -1109,6 +1117,14 @@
 	onpointerdowncapture={closeCardOnPagePress}
 	onblur={closeCardOnFrameFocus}
 />
+
+<!-- A manifest's start_url replaces the URL a home-screen shortcut was added from, so only the
+console links it: shared pages (public apps, public runs, shared sessions, approval links) live
+outside this layout, and their shortcut must reopen the URL that is their credential. -->
+<svelte:head>
+	<link rel="manifest" href="/manifest.webmanifest" />
+	<meta name="apple-mobile-web-app-title" content="Windmill" />
+</svelte:head>
 
 <!-- Home + Runs lifted to the top of the workspace nav, sitting with Favorites
      and Search as the primary quick-access cluster. Excluded from SidebarContent
@@ -1556,6 +1572,27 @@
 				transitionClass={sidebarTransitionClass}
 				isMobile={useDrawer}
 			/>
+		</div>
+	</div>
+{:else if instanceOnlyView}
+	<!-- No workspace means no sidebar: everything in it is workspace-scoped. The header bar
+	     stays, without its workspace part: pages register their toolbars there. -->
+	<div class="flex flex-col h-screen w-full bg-surface">
+		<div class="flex items-center pl-4 border-b shrink-0">
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
+				href="/user/workspaces"
+				startIcon={{ icon: ArrowLeft }}
+			>
+				Workspaces
+			</Button>
+			<div class="flex-1 min-w-0">
+				<PageHeaderBar navHidden />
+			</div>
+		</div>
+		<div class="flex-1 min-h-0 overflow-auto">
+			{@render children?.()}
 		</div>
 	</div>
 {:else}

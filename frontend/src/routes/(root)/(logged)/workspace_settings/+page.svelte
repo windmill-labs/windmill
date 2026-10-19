@@ -524,7 +524,8 @@
 	}
 
 	const isSlackOAuthEnabled = $derived(isSlackOAuthConfigured(oauths?.slack))
-	const isTeamsOAuthEnabled = $derived(isTeamsOAuthConfigured(oauths?.teams))
+	// TODO: drop the pre-rename `teams` fallback with the backend one.
+	const isTeamsOAuthEnabled = $derived(isTeamsOAuthConfigured(oauths?.ms_teams ?? oauths?.teams))
 
 	async function editWorkspaceCommand(platform: 'slack' | 'teams'): Promise<void> {
 		if (platform === 'slack') {
