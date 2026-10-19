@@ -110,7 +110,7 @@
 		const confirmed = await confirmationModal.ask({
 			title: `Disconnect ${path}?`,
 			confirmationText: 'Disconnect',
-			children: `This deletes the ${displayName} triggers created with this account. This action cannot be undone.`
+			children: `This deletes every ${displayName} trigger that uses this account, including ones other members created. This action cannot be undone.`
 		})
 		if (!confirmed) return
 		try {
