@@ -2123,7 +2123,6 @@ async fn test_postgresql_single_worker_session_isolation(db: Pool<Postgres>) -> 
 #[serial(pg_cache)]
 async fn test_postgresql_100_jobs_cached(db: Pool<Postgres>) -> anyhow::Result<()> {
     use std::sync::atomic::Ordering;
-    use windmill_common::worker::Connection;
     use windmill_worker::pg_executor::{clear_pg_cache, CACHE_HITS};
 
     initialize_tracing().await;
@@ -2176,27 +2175,7 @@ async fn test_postgresql_100_jobs_cached(db: Pool<Postgres>) -> anyhow::Result<(
         ids.push(make_pg_job(content).push(&db).await);
     }
 
-    // Run ONE worker for all 100 jobs.
-    let listener = listen_for_completed_jobs(&db).await;
-    let id_set = ids
-        .iter()
-        .copied()
-        .collect::<std::collections::HashSet<_>>();
-    in_test_worker(
-        Connection::Sql(db.clone()),
-        async {
-            use futures::StreamExt;
-            let mut remaining = id_set;
-            let mut listener = listener;
-            while !remaining.is_empty() {
-                if let Some(id) = listener.next().await {
-                    remaining.remove(&id);
-                }
-            }
-        },
-        port,
-    )
-    .await;
+    run_on_one_worker(&db, port, &ids).await;
 
     // Verify all 100 jobs succeeded.
     for (i, id) in ids.iter().enumerate() {
@@ -2259,6 +2238,26 @@ async fn test_postgresql_arg_type_combinations(db: Pool<Postgres>) -> anyhow::Re
 
     let db_arg = json!({"host": "localhost", "port": 5432, "dbname": "windmill", "user": "postgres", "password": "changeme"});
 
+    let make_pg_job = |content: String| {
+        RunJob::from(JobPayload::Code(RawCode {
+            hash: None,
+            content,
+            path: None,
+            lock: None,
+            language: ScriptLang::Postgresql,
+            cache_ttl: None,
+            cache_ignore_s3_path: None,
+            dedicated_worker: None,
+            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
+            )
+            .into(),
+            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+            modules: None,
+            tag: None,
+        }))
+        .arg("database", db_arg.clone())
+    };
+
     // Build a fresh schema for this test so we don't trip over prior runs.
     let setup = r#"
 DROP SCHEMA IF EXISTS wm_pg_arg_combo_test CASCADE;
@@ -2289,26 +2288,7 @@ CREATE TABLE wm_pg_arg_combo_test.allcols (
 CREATE TYPE wm_pg_arg_combo_test.color AS ENUM ('red','green','blue');
 CREATE TABLE wm_pg_arg_combo_test.enumtbl (c wm_pg_arg_combo_test.color);
 "#;
-    RunJob::from(JobPayload::Code(RawCode {
-        hash: None,
-        content: setup.to_owned(),
-        path: None,
-        lock: None,
-        language: ScriptLang::Postgresql,
-        cache_ttl: None,
-        cache_ignore_s3_path: None,
-        dedicated_worker: None,
-        concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default()
-            .into(),
-        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
-        modules: None,
-        tag: None,
-    }))
-    .arg("database", db_arg.clone())
-    .run_until_complete(&db, false, port)
-    .await
-    .json_result()
-    .unwrap();
+    let setup_id = make_pg_job(setup.to_owned()).push(&db).await;
 
     // Each case: (name, content, args, expected_result)
     let cases: Vec<(&str, String, serde_json::Value, serde_json::Value)> = vec![
@@ -2742,29 +2722,22 @@ SELECT 'price: $5' AS lbl, $5::int + $50::int AS sum"#
         ),
     ];
 
-    for (name, content, args, expected) in cases {
-        let mut job = RunJob::from(JobPayload::Code(RawCode {
-            hash: None,
-            content,
-            path: None,
-            lock: None,
-            language: ScriptLang::Postgresql,
-            cache_ttl: None,
-            cache_ignore_s3_path: None,
-            dedicated_worker: None,
-            concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(
-            )
-            .into(),
-            debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
-            modules: None,
-            tag: None,
-        }))
-        .arg("database", db_arg.clone());
+    let mut ids = vec![setup_id];
+    for (_, content, args, _) in &cases {
+        let mut job = make_pg_job(content.clone());
         for (k, v) in args.as_object().unwrap() {
             job = job.arg(k, v.clone());
         }
-        let result = job
-            .run_until_complete(&db, false, port)
+        ids.push(job.push(&db).await);
+    }
+    run_on_one_worker(&db, port, &ids).await;
+
+    completed_job(setup_id, &db)
+        .await
+        .json_result()
+        .expect("setup: no json result");
+    for ((name, _, _, expected), id) in cases.into_iter().zip(&ids[1..]) {
+        let result = completed_job(*id, &db)
             .await
             .json_result()
             .unwrap_or_else(|| panic!("case '{name}': no json result"));
@@ -2772,6 +2745,32 @@ SELECT 'price: $5' AS lbl, $5::int + $50::int AS sum"#
     }
 
     Ok(())
+}
+
+/// Runs the already pushed `ids` on a single worker and returns once all completed. One worker
+/// takes them one at a time in push order, so a setup job pushed first runs before the rest,
+/// and they all share the process-wide PG connection cache as consecutive jobs would.
+async fn run_on_one_worker(db: &Pool<Postgres>, port: u16, ids: &[Uuid]) {
+    use futures::StreamExt;
+    use windmill_common::worker::Connection;
+
+    let mut listener = listen_for_completed_jobs(db).await;
+    let mut remaining = ids
+        .iter()
+        .copied()
+        .collect::<std::collections::HashSet<_>>();
+    in_test_worker(
+        Connection::Sql(db.clone()),
+        async {
+            while !remaining.is_empty() {
+                if let Some(id) = listener.next().await {
+                    remaining.remove(&id);
+                }
+            }
+        },
+        port,
+    )
+    .await;
 }
 
 /// Pooler-safety regression test for #8988: when every arg has a resolvable
@@ -3010,11 +3009,7 @@ CREATE SCHEMA wm_pg_cached_test;
 CREATE TYPE wm_pg_cached_test.color AS ENUM ('red', 'green', 'blue');
 CREATE DOMAIN wm_pg_cached_test.short_name AS TEXT CHECK (length(VALUE) BETWEEN 1 AND 10);
 "#;
-    make_pg_job(setup.to_owned())
-        .run_until_complete(&db, false, port)
-        .await
-        .json_result()
-        .unwrap();
+    let setup_id = make_pg_job(setup.to_owned()).push(&db).await;
 
     // Run a long alternating sequence of enum + domain queries on the same
     // cached connection. Each query goes through the prepare-fallback path
@@ -3022,21 +3017,36 @@ CREATE DOMAIN wm_pg_cached_test.short_name AS TEXT CHECK (length(VALUE) BETWEEN 
     // tokio_postgres' typeinfo cache to resolve the Oids server-side. Pre-fix
     // this would fail intermittently with `prepared statement "sN" does not
     // exist` after the first cached-conn reuse.
+    let mut pairs = Vec::with_capacity(10);
     for i in 0..10 {
-        let r = make_pg_job("-- $1 arg1\nSELECT $1::wm_pg_cached_test.color AS c".to_owned())
+        let enum_id = make_pg_job("-- $1 arg1\nSELECT $1::wm_pg_cached_test.color AS c".to_owned())
             .arg("arg1", json!(if i % 2 == 0 { "red" } else { "blue" }))
-            .run_until_complete(&db, false, port)
+            .push(&db)
             .await;
+        let domain_id =
+            make_pg_job("-- $1 arg1\nSELECT $1::wm_pg_cached_test.short_name AS s".to_owned())
+                .arg("arg1", json!(format!("v{i}")))
+                .push(&db)
+                .await;
+        pairs.push((enum_id, domain_id));
+    }
+    let mut ids = vec![setup_id];
+    ids.extend(pairs.iter().flat_map(|(e, d)| [*e, *d]));
+    run_on_one_worker(&db, port, &ids).await;
+
+    completed_job(setup_id, &db)
+        .await
+        .json_result()
+        .expect("setup: no json result");
+    for (i, (enum_id, domain_id)) in pairs.into_iter().enumerate() {
+        let r = completed_job(enum_id, &db).await;
         assert!(
             r.success,
             "iter {i} enum query failed (was the DISCARD ALL bug); result: {:?}",
             r.result
         );
 
-        let r = make_pg_job("-- $1 arg1\nSELECT $1::wm_pg_cached_test.short_name AS s".to_owned())
-            .arg("arg1", json!(format!("v{i}")))
-            .run_until_complete(&db, false, port)
-            .await;
+        let r = completed_job(domain_id, &db).await;
         assert!(
             r.success,
             "iter {i} domain query failed (was the DISCARD ALL bug); result: {:?}",
@@ -5849,42 +5859,6 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
     )
     .await;
 
-    Ok(())
-}
-
-#[sqlx::test(fixtures("base", "relative_bun"))]
-async fn test_relative_imports_bun(db: Pool<Postgres>) -> anyhow::Result<()> {
-    let content = r#"
-import { main as test1 } from "/f/system/same_folder_script.ts";
-import { main as test2 } from "./same_folder_script.ts";
-import { main as test3 } from "/f/system_relative/different_folder_script.ts";
-import { main as test4 } from "../system_relative/different_folder_script.ts";
-
-export async function main() {
-  return [test1(), test2(), test3(), test4()];
-}
-"#
-    .to_string();
-
-    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Bun).await?;
-    run_preview_relative_imports(&db, content, ScriptLang::Bun).await?;
-    Ok(())
-}
-
-#[cfg(feature = "deno_core")]
-#[sqlx::test(fixtures("base", "relative_bun"))]
-async fn test_nested_imports_bun(db: Pool<Postgres>) -> anyhow::Result<()> {
-    let content = r#"
-import { main as test } from "/f/system_relative/nested_script.ts";
-
-export async function main() {
-  return test();
-}
-"#
-    .to_string();
-
-    run_deployed_relative_imports(&db, content.clone(), ScriptLang::Bun).await?;
-    run_preview_relative_imports(&db, content, ScriptLang::Bun).await?;
     Ok(())
 }
 

@@ -80,8 +80,11 @@
 		Home,
 		Play,
 		Search,
-		WandSparkles
+		WandSparkles,
+		ArrowLeft
 	} from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
+	import { isInstanceRoute } from '$lib/instanceRoutes'
 	import { getUserExt } from '$lib/user'
 	import { confirmPendingLoginMethod } from '$lib/lastLoginMethod'
 	import { deepEqual } from 'fast-equals'
@@ -799,6 +802,11 @@
 	}
 
 	let devOnly = $derived(page.url.pathname.startsWith('/scripts/dev'))
+	// A devops user who belongs to no workspace has no `$userStore`, and would otherwise wait on
+	// "Loading user..." forever on the instance pages their role exists for.
+	let instanceOnlyView = $derived(
+		!$workspaceStore && !!$devopsRole && isInstanceRoute(page.url.pathname)
+	)
 
 	async function loadDefaultScripts(workspace: string, user: UserExt | undefined) {
 		if (!user?.operator) {
@@ -1567,6 +1575,27 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 				transitionClass={sidebarTransitionClass}
 				isMobile={useDrawer}
 			/>
+		</div>
+	</div>
+{:else if instanceOnlyView}
+	<!-- No workspace means no sidebar: everything in it is workspace-scoped. The header bar
+	     stays, without its workspace part: pages register their toolbars there. -->
+	<div class="flex flex-col h-screen w-full bg-surface">
+		<div class="flex items-center pl-4 border-b shrink-0">
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
+				href="/user/workspaces"
+				startIcon={{ icon: ArrowLeft }}
+			>
+				Workspaces
+			</Button>
+			<div class="flex-1 min-w-0">
+				<PageHeaderBar navHidden />
+			</div>
+		</div>
+		<div class="flex-1 min-h-0 overflow-auto">
+			{@render children?.()}
 		</div>
 	</div>
 {:else}

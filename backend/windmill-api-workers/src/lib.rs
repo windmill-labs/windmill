@@ -21,7 +21,11 @@ use windmill_common::{
     jobs::{HIDE_WORKERS_FOR_NON_ADMINS, TAGS_ARE_SENSITIVE},
     queue_metrics::{read_queue_metrics_series, QueueMetricsSeries},
     utils::{paginate, Pagination},
-    worker::{ALL_TAGS, CUSTOM_TAGS_PER_WORKSPACE, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE},
+    worker::{
+        ALL_TAGS, CUSTOM_TAGS_PER_WORKSPACE, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE,
+        DEV_WORKSPACE_ISOLATION, DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS,
+        DEV_WORKSPACE_TAG_SUFFIX,
+    },
     workspaces::workspace_with_fork_ancestors,
     DB,
 };
@@ -37,6 +41,7 @@ pub fn global_service() -> Router {
             "/is_default_tags_per_workspace",
             get(get_default_tags_per_workspace),
         )
+        .route("/dev_workspace_isolation", get(get_dev_workspace_isolation))
         .route("/get_default_tags", get(get_default_tags))
         .route("/queue_metrics", get(get_queue_metrics))
         .route("/queue_metrics_series", get(get_queue_metrics_series))
@@ -186,7 +191,18 @@ async fn exists_workers_with_tags(
                 let chain = workspace_with_fork_ancestors(&db, workspace).await?;
                 let custom_tags = CUSTOM_TAGS_PER_WORKSPACE.load();
                 let allowed_tags = custom_tags.to_string_vec(Some(&chain));
-                tags.retain(|t| allowed_tags.contains(t));
+                // A dev workspace's jobs run on the suffixed form of the tags it may use.
+                let dev_suffix = windmill_queue::tags::dev_workspace_suffix_for(workspace, &db)
+                    .await
+                    .ok()
+                    .flatten();
+                tags.retain(|t| {
+                    allowed_tags.contains(t)
+                        || dev_suffix.as_deref().is_some_and(|s| {
+                            t.strip_suffix(s)
+                                .is_some_and(|b| allowed_tags.iter().any(|a| a == b))
+                        })
+                });
             } else {
                 // No workspace provided and not superadmin - return empty
                 return Ok(Json(std::collections::HashMap::new()));
@@ -257,6 +273,22 @@ async fn get_default_tags_per_workspace() -> JsonResult<bool> {
     Ok(Json(
         DEFAULT_TAGS_PER_WORKSPACE.load(std::sync::atomic::Ordering::Relaxed),
     ))
+}
+
+#[derive(Serialize)]
+struct DevWorkspaceIsolation {
+    enabled: bool,
+    suffix: String,
+    skip_non_dev_forks: bool,
+}
+
+async fn get_dev_workspace_isolation() -> JsonResult<DevWorkspaceIsolation> {
+    Ok(Json(DevWorkspaceIsolation {
+        enabled: DEV_WORKSPACE_ISOLATION.load(std::sync::atomic::Ordering::Relaxed),
+        suffix: DEV_WORKSPACE_TAG_SUFFIX.load().to_string(),
+        skip_non_dev_forks: DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS
+            .load(std::sync::atomic::Ordering::Relaxed),
+    }))
 }
 
 async fn get_default_tags() -> JsonResult<Vec<String>> {

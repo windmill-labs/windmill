@@ -434,6 +434,7 @@ pub async fn import_completed_jobs(
 
 pub async fn import_queued_jobs(
     authed: ApiAuthed,
+    Extension(db): Extension<windmill_common::DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(jobs): Json<Vec<ExportableQueuedJob>>,
@@ -468,7 +469,9 @@ pub async fn import_queued_jobs(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    for job in jobs {
+    for mut job in jobs {
+        // A fork's admin is whoever created it, so an imported tag is as untrusted as a pushed one.
+        job.tag = windmill_queue::tags::apply_dev_workspace_suffix(job.tag, &w_id, &db).await?;
         sqlx::query!(
             r#"
             INSERT INTO v2_job (
@@ -622,6 +625,21 @@ pub async fn delete_jobs(
 
     let mut tx = user_db.begin(&authed).await?;
 
+    // job_ids are request-supplied, and resume_job, v2_job_runtime, v2_job_status,
+    // concurrency_key and zombie_job_counter have no workspace_id: keep only this workspace's
+    // jobs, or a workspace admin could erase another workspace's rows by passing its job ids.
+    // (Side-table list kept in sync with windmill_common::jobs::delete_jobs.)
+    let job_ids = sqlx::query_scalar!(
+        "SELECT id FROM v2_job WHERE workspace_id = $1 AND id = ANY($2)",
+        &w_id,
+        &job_ids
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+    if job_ids.is_empty() {
+        return Ok("No jobs to delete".to_string());
+    }
+
     let logs_deleted = sqlx::query!(
         "DELETE FROM job_logs WHERE workspace_id = $1 AND job_id = ANY($2)",
         &w_id,
@@ -690,14 +708,8 @@ pub async fn delete_jobs(
     .await?
     .rows_affected();
 
-    // job_ids are request-supplied, so scope every side-table delete to the workspace exactly
-    // like the v2_job delete below — otherwise a workspace admin could erase another
-    // workspace's side rows by passing foreign job ids. zombie_job_counter and
-    // flow_conversation_message have no workspace_id, so scope them via v2_job / their conversation.
-    // (Side-table list kept in sync with windmill_common::jobs::delete_jobs.)
     let zombie_deleted = sqlx::query!(
-        "DELETE FROM zombie_job_counter WHERE job_id IN (SELECT id FROM v2_job WHERE workspace_id = $1 AND id = ANY($2))",
-        &w_id,
+        "DELETE FROM zombie_job_counter WHERE job_id = ANY($1)",
         &job_ids
     )
     .execute(&mut *tx)

@@ -31,6 +31,12 @@ use windmill_trigger::Listener;
 
 const MAX_CONNECT_ATTEMPTS: u32 = 5;
 
+/// Unit of the connect backoff: attempt `n` waits `2^n` of it. Tests shrink it to avoid
+/// waiting out real seconds; nothing else writes it.
+#[doc(hidden)]
+pub static CONNECT_RETRY_BASE_DELAY_MS: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(1000);
+
 /// Whether a failed WebSocket connect is worth retrying: network-level IO
 /// errors and HTTP 5xx/429 handshake responses are typically transient (edge
 /// proxies like Cloudflare return 502/520 sporadically), while other errors
@@ -215,24 +221,27 @@ impl Listener for WebsocketTrigger {
                         && attempt < MAX_CONNECT_ATTEMPTS
                         && is_transient_connect_error(&err) =>
                 {
-                    let delay_secs = 1u64 << attempt;
+                    let delay = std::time::Duration::from_millis(
+                        CONNECT_RETRY_BASE_DELAY_MS.load(std::sync::atomic::Ordering::Relaxed)
+                            << attempt,
+                    );
                     tracing::warn!(
-                        "Transient error connecting to WebSocket for trigger {} (attempt {}/{}), retrying in {}s: {}",
+                        "Transient error connecting to WebSocket for trigger {} (attempt {}/{}), retrying in {:?}: {}",
                         listening_trigger.path,
                         attempt,
                         MAX_CONNECT_ATTEMPTS,
-                        delay_secs,
+                        delay,
                         err
                     );
                     update_rw_lock(
                         err_message.clone(),
                         Some(format!(
-                            "Connection attempt {}/{} failed ({}), retrying in {}s...",
-                            attempt, MAX_CONNECT_ATTEMPTS, err, delay_secs
+                            "Connection attempt {}/{} failed ({}), retrying in {:?}...",
+                            attempt, MAX_CONNECT_ATTEMPTS, err, delay
                         )),
                     )
                     .await;
-                    tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
+                    tokio::time::sleep(delay).await;
                 }
                 Err(err) => return Err(to_anyhow(err).into()),
             }

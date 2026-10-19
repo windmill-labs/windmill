@@ -23,8 +23,7 @@ use windmill_common::error::{Error, Result};
 
 use crate::{
     common::{build_command_with_isolation, resolve_nsjail_tmp_mount_block, DEV_CONF_NSJAIL},
-    is_sandboxing_enabled, is_unshare_enabled, DISABLE_NUSER, HOME_ENV, NSJAIL_AVAILABLE,
-    NSJAIL_PATH, PATH_ENV,
+    is_sandboxing_enabled, is_unshare_enabled, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
 };
 
 const NSJAIL_CONFIG_RUN_DUCKDB_CONTENT: &str = include_str!("../nsjail/run.duckdb.config.proto");
@@ -42,7 +41,9 @@ pub(crate) enum RunnerMode {
 
 /// Decided once per job, so every connection a job opens runs the same way.
 pub(crate) fn runner_mode() -> RunnerMode {
-    if cfg!(unix) && is_sandboxing_enabled() && NSJAIL_AVAILABLE.is_some() {
+    // Not gated on `NSJAIL_AVAILABLE`: a sandboxed worker whose nsjail cannot jail must fail
+    // the job, as every other jailed executor does, not run it outside the jail.
+    if cfg!(unix) && is_sandboxing_enabled() {
         RunnerMode::Jailed
     } else if is_unshare_enabled() {
         // `build_command_with_isolation` logs and runs unisolated when `unshare` is missing,
@@ -475,6 +476,7 @@ async fn spawn_runner(
             });
         }
     }
+    crate::common::apply_nsjail_gvisor_compat(&cmd)?;
     let mut child = cmd.spawn().map_err(|e| {
         Error::InternalErr(format!("Could not start the DuckDB runner ({mode:?}): {e}"))
     })?;
