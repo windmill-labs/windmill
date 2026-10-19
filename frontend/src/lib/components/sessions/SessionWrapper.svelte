@@ -297,12 +297,18 @@
 	// warm-session switch via the picker, and the moment copilot finishes
 	// loading.
 	let aiChat: AIChat | undefined = $state(undefined)
+	let seenFocusNonce = untrack(() => composerFocusRequest.nonce)
 	$effect(() => {
 		// Focus the composer when this session becomes active, or on an explicit
 		// focus request — the latter covers `+` reusing the untouched draft you're
 		// already viewing, where currentSessionId doesn't change so activation alone
 		// wouldn't re-run this.
-		void composerFocusRequest.nonce
+		const focusNonce = composerFocusRequest.nonce
+		if (focusNonce !== seenFocusNonce) {
+			// An explicit request overrides the user having left the placeholder before it.
+			seenFocusNonce = focusNonce
+			handoff = undefined
+		}
 		if (sessionState.currentSessionId !== sessionId) {
 			// The user left for another session: coming back is an activation, which focuses.
 			handoff = undefined
