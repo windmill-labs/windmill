@@ -35,7 +35,7 @@
 	import type { IconType } from '$lib/utils'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 
-	import { HOME_SEARCH_SHOW_FLOW, HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
+	import { HOME_COLUMN_WIDTH, HOME_SEARCH_SHOW_FLOW, HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
 
 	import SearchItems from '../SearchItems.svelte'
 	import FilterSearchbar, {
@@ -49,8 +49,9 @@
 	import ListFilters from './ListFilters.svelte'
 	import LabelBadge from '../common/badge/LabelBadge.svelte'
 	import { clampRows } from './clampRows'
+	import { setUnruledList } from '../common/table/unruledList'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
-	import { getLocalSetting, isOwner, storeLocalSetting } from '$lib/utils'
+	import { getLocalSetting, isOwner, pluralize, storeLocalSetting } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
@@ -74,6 +75,8 @@
 	}
 
 	let { subtab = $bindable('script'), showEditButtons = true }: Props = $props()
+
+	setUnruledList()
 
 	// Which user-folder scoping toggle (if any) this role gets. Declared before the
 	// FilterSearchbar schema and the derived filters that both read it.
@@ -1865,11 +1868,13 @@
 	</DrawerContent>
 </Drawer>
 
-<!-- The width of Home's column above it (the composer), so the page reads as one column. -->
-<CenteredPage wrapperClasses="w-full pb-6" class="max-w-[1120px] sm:px-8" handleOverflow={false}>
-	<!-- One card for the items section: its controls, its filters and its rows, the way the
-	     composer above is one box for the chat. The rows run edge to edge inside it. No
-	     `overflow-hidden` on it: the page scrolls, and that would stop the controls sticking. -->
+<CenteredPage
+	wrapperClasses="w-full pb-6"
+	class="{HOME_COLUMN_WIDTH} sm:px-8"
+	handleOverflow={false}
+>
+	<!-- The items section: its controls, its filters and its rows. No `overflow-hidden` on it:
+	     the page scrolls, and that would stop the controls sticking. -->
 	<div class="flex flex-col">
 		<div
 			bind:clientHeight={toolbarHeight}
@@ -1888,10 +1893,11 @@
 			</div>
 
 			<!-- basis-64: the toolbar fits Home's column on one line; narrower, this group wraps
-		     under the heading as a whole. -->
-			<div class="flex grow basis-64 items-center justify-end gap-2 min-w-0">
+			     under the view controls as a whole, and on a phone the search takes a row of its
+			     own above the kind filter and New. -->
+			<div class="flex flex-wrap grow basis-64 items-center justify-end gap-2 min-w-0">
 				<div
-					class="relative text-primary w-full min-w-[200px] max-w-[22rem]"
+					class="relative text-primary w-full basis-full sm:basis-auto sm:min-w-[200px] sm:max-w-[22rem]"
 					class:opacity-40={placeholderTakesOver}
 					inert={toolbarInert}
 				>
@@ -1983,7 +1989,7 @@
 		{/if}
 		{#if !contentActive && !workspaceEmpty}
 			<!-- Under the chips, but sticking with the controls once the chips have scrolled away.
-			     Pulled out like the rows, so a tab's label lines up with the controls above. -->
+			     Not pulled out like the rows: its underline spans the controls' width. -->
 			<div class="sticky z-10 bg-surface" style:top="{toolbarHeight}px">
 				<Tabs bind:selected={() => tab, (v) => setTab(v as HomeTab)}>
 					{#each homeTabs as t (t.value)}
@@ -2016,7 +2022,7 @@
 			<div class="mt-10"></div>
 		{/if}
 		<!-- Rows keep their own padding for the hover fill; pulled out by it, their content
-					     lines up with the controls above and the fill runs into the page's gutter. -->
+		     lines up with the controls above and the fill runs into the page's gutter. -->
 		<div class="sm:-mx-4">
 			{#if filterValues.val.content}
 				<!-- Content filter: swap the normal list/tree for the content-match view (the same one
@@ -2024,8 +2030,8 @@
 			     resources and matches their contents client-side — usable on any instance. Keyed by
 			     workspace so a switch remounts a fresh instance and late in-flight responses from
 			     the previous workspace can't land in it. -->
-				<!-- px-1 plus ContentSearchInner's own px-2 lines its rows up with the card's
-				     controls above. -->
+				<!-- px-1 plus ContentSearchInner's own px-2 lines its rows up with the controls
+				     above. -->
 				<div class="px-1 pb-2">
 					{#key $workspaceStore}
 						<ContentSearchInner bind:this={contentSearchEl} search={filterValues.val.content} />
@@ -2125,8 +2131,7 @@
 					/>
 				{/key}
 			{:else}
-				<!-- No lines between rows: the card holds one list, and the row hover tells them apart. -->
-				<div data-unruled data-hover-actions class="rounded-b-md" class:wm-imported={justImported}>
+				<div class:wm-imported={justImported}>
 					{#if filter === ''}
 						{#each [...visiblePipelineFolders].sort() as folder (folder)}
 							<PipelineRow {folder} onDeleted={reloadItemsAndCounts} />
@@ -2148,7 +2153,7 @@
 				</div>
 				{#if items && hasMore}
 					<span class="block px-4 py-2 border-t text-center text-xs font-normal text-secondary"
-						>{Math.min(nbDisplayed, items.length)} items{hasMoreServer && !searching
+						>{pluralize(Math.min(nbDisplayed, items.length), 'item')}{hasMoreServer && !searching
 							? ''
 							: ` out of ${items.length}`}
 						<button

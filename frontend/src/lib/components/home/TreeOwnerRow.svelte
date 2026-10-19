@@ -1,12 +1,14 @@
 <script lang="ts">
 	import { ChevronDown, ChevronUp } from 'lucide-svelte'
 	import type { Snippet } from 'svelte'
-	import { Button } from '$lib/components/common'
+	import { inUnruledList, rowRule } from '../common/table/unruledList'
+
+	const unruled = inUnruledList()
 
 	/** A row of the tree that groups others under it (a folder, a user, "Other users"): clicking
 	 * anywhere on it opens or closes what it groups. */
 	interface Props {
-		icon: any
+		icon: typeof import('lucide-svelte').Folder
 		name: string
 		opened: boolean
 		onToggle: () => void
@@ -25,8 +27,9 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	onclick={onToggle}
-	data-list-row
-	class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer hover:bg-surface-hover"
+	class="px-4 py-2 {rowRule(
+		unruled
+	)} w-full flex flex-row items-center justify-between cursor-pointer hover:bg-surface-hover"
 >
 	<div
 		class="flex flex-row items-center gap-4"
@@ -40,14 +43,16 @@
 			</div>
 		</div>
 	</div>
-	<!-- Button stops its click from reaching the row, so it toggles once on its own. -->
-	<Button
-		iconOnly
-		variant="subtle"
-		unifiedSize="xs"
-		title={toggleLabel ?? name}
+	<!-- Keyboard access only: its click bubbles to the row, which does the toggling. -->
+	<button
+		class="w-full flex flex-row-reverse"
 		aria-expanded={opened}
-		onClick={onToggle}
-		startIcon={{ icon: opened ? ChevronUp : ChevronDown }}
-	/>
+		aria-label={toggleLabel ?? name}
+	>
+		{#if opened}
+			<ChevronUp size={16} />
+		{:else}
+			<ChevronDown size={16} />
+		{/if}
+	</button>
 </div>

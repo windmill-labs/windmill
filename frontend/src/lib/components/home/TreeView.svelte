@@ -10,6 +10,7 @@
 	import { countLeaves, type FolderItem, type ItemType, type UserItem } from './treeViewUtils'
 	import { pluralize } from '$lib/utils'
 	import { Button } from '$lib/components/common'
+	import { inUnruledList, rowRule } from '../common/table/unruledList'
 
 	interface Props {
 		item: ItemType | FolderItem | UserItem
@@ -71,6 +72,8 @@
 		indent = 0,
 		leaf
 	}: Props = $props()
+
+	const unruled = inUnruledList()
 
 	let visualDepth = $derived(depth + indent)
 
@@ -324,8 +327,9 @@
 					{/each}
 					{#if effectiveMax < item.items.length}
 						<div
-							data-list-row
-							class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
+							class="px-4 py-2 {rowRule(
+								unruled
+							)} flex flex-row items-center justify-between gap-4 bg-surface-secondary"
 							style="padding-left: {(visualDepth + 1) * 16}px;"
 						>
 							<!-- Rows, not items: this slices the node's own entries, where a subfolder
@@ -362,8 +366,9 @@
 						     is the point: without them this reads as an optional extra rather than
 						     as rows still missing. -->
 							<div
-								data-list-row
-								class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
+								class="px-4 py-2 {rowRule(
+									unruled
+								)} flex flex-row items-center justify-between gap-4 bg-surface-secondary"
 								style="padding-left: {(visualDepth + 1) * 16}px;"
 							>
 								<span class="text-xs text-secondary">

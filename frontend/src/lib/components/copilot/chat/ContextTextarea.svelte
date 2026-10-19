@@ -805,8 +805,8 @@
 
 <!-- The box that opens a session grows and shrinks between its one-line and full shapes. -->
 <div
-	class={twMerge(composerBoxClass(disabled), hero && !disabled && HERO_BOX_CLASS)}
-	use:smoothHeight={{ enabled: hero && !disabled, key: oneLine }}
+	class={twMerge(composerBoxClass(disabled), hero && HERO_BOX_CLASS)}
+	use:smoothHeight={{ enabled: hero, key: oneLine }}
 >
 	<div class={oneLine ? 'flex flex-row items-center' : ''}>
 		<!-- Context chips live inside the input box, above the textarea. The snippet

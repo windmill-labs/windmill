@@ -72,7 +72,7 @@
 	import ComposerSuggestions from './starter/ComposerSuggestions.svelte'
 	import type { DraftAttachments } from './messageDraft.svelte'
 	import type { ChatStarter } from './starter/starterPrompts.svelte'
-	import { composerCollapses, isComposerOverlay } from './starter/composerCollapse'
+	import { isComposerOverlay } from './starter/composerCollapse'
 	import { smoothHeight } from './starter/smoothHeight'
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
@@ -315,8 +315,7 @@
 	/** Mention a workspace item in the draft, as "+" → Mention file does, and hand the user
 	 * the caret after it. Focusing is what opens Home's one-line composer. */
 	export async function attachContext(element: ContextElement) {
-		void aiChatInput?.addContextToSelection(element)
-		await aiChatInput?.insertMention(element.title)
+		await mentionWorkspaceItem(element)
 		aiChatInput?.focusInput()
 	}
 
@@ -557,7 +556,7 @@
 
 	function mentionWorkspaceItem(element: ContextElement) {
 		void aiChatInput?.addContextToSelection(element)
-		aiChatInput?.insertMention(element.title)
+		return aiChatInput?.insertMention(element.title)
 	}
 
 	function onFolderInputChange(e: Event) {
@@ -598,20 +597,22 @@
 	// menu it is opening.
 	let composerEl: HTMLDivElement | undefined = $state()
 	let composerOpened = $state(false)
+	const homeComposer = $derived(starterLayout && starter?.where === 'home')
+	// Anything the user has started (text, an attachment) or is in the middle of (they opened it
+	// and have not left) keeps it open, and so does a workspace small enough that the composer is
+	// the page's main way in.
 	const composerCollapsed = $derived(
-		composerCollapses({
-			onHome: starterLayout && starter?.where === 'home',
-			usable: !disabled,
-			fewItems: starter?.fewItems ?? false,
-			opened: composerOpened,
-			draftEmpty: aiChatInput?.isDraftEmpty() ?? true
-		})
+		homeComposer &&
+			!disabled &&
+			!(starter?.where === 'home' && starter.fewItems) &&
+			!composerOpened &&
+			(aiChatInput?.isDraftEmpty() ?? true)
 	)
 	function closeComposer() {
 		if (aiChatInput?.isDraftEmpty() ?? true) composerOpened = false
 	}
 	function onComposerPointerDown(e: PointerEvent) {
-		if (!composerOpened || composerEl?.contains(e.target as Node)) return
+		if (!homeComposer || !composerOpened || composerEl?.contains(e.target as Node)) return
 		if (!isComposerOverlay(e.target)) closeComposer()
 	}
 
@@ -980,12 +981,12 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		class="relative {columnClass} pb-2"
 		style:view-transition-name={viewTransitionNames ? 'composer' : undefined}
 		onfocusin={(e) => {
-			if (e.target instanceof HTMLTextAreaElement) composerOpened = true
+			if (homeComposer && e.target instanceof HTMLTextAreaElement) composerOpened = true
 		}}
 		onkeydown={(e) => {
 			// A prevented Escape closed something inside first, such as the @-mention picker.
 			if (e.key !== 'Escape' || e.defaultPrevented) return
-			if (!composerOpened || starter?.where !== 'home') return
+			if (!homeComposer || !composerOpened) return
 			closeComposer()
 			if (aiChatInput?.isDraftEmpty() ?? true) (document.activeElement as HTMLElement)?.blur()
 		}}
@@ -1053,7 +1054,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				isFirstMessage={messages.length === 0}
 				hero={starterLayout}
 				collapsed={composerCollapsed}
-				chatIcon={starterLayout && starter?.where === 'home'}
+				chatIcon={homeComposer}
 				{onSent}
 			>
 				{#snippet collapsedControls()}
@@ -1096,14 +1097,12 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 													{availableContext}
 													{selectedContext}
 													onSelect={(element) => {
-														void aiChatInput?.addContextToSelection(element)
-														aiChatInput?.insertMention(element.title)
+														void mentionWorkspaceItem(element)
 														close()
 														aiChatInput?.focusInput()
 													}}
 													onSelectWorkspaceItem={(element) => {
-														void aiChatInput?.addContextToSelection(element)
-														aiChatInput?.insertMention(element.title)
+														void mentionWorkspaceItem(element)
 														close()
 														aiChatInput?.focusInput()
 													}}
@@ -1304,8 +1303,13 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							</div>
 						{/if}
 						{#if footerMessageShown}
-							<div class="text-primary text-xs my-2 px-2">
-								<Markdown md={disabledMessage} />
+							<!-- The workspace picker stays: picking another workspace is how a chat that
+							     cannot run here becomes usable again. -->
+							<div class="flex flex-row items-center gap-x-1.5 min-w-0 flex-wrap">
+								{@render actingOn?.()}
+								<div class="text-primary text-xs my-2 px-2">
+									<Markdown md={disabledMessage} />
+								</div>
 							</div>
 						{:else}
 							<div class="flex flex-row gap-x-1.5 min-w-0 flex-wrap items-center">

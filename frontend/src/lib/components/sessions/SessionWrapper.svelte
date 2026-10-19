@@ -494,11 +494,7 @@
 								? 'This session is archived. Unarchive it from the banner above to keep working.'
 								: ''}
 						starter={opensSession
-							? {
-									where: 'session',
-									suggestions: starterPrompts.suggestions,
-									fewItems: starterPrompts.fewItems ?? false
-								}
+							? { where: 'session', suggestions: starterPrompts.suggestions }
 							: undefined}
 						viewTransitionNames={headerInPage && (opensSession || arrivingFromHomeSend())}
 						emptyHint={sessionEmptyHint}

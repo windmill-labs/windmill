@@ -72,7 +72,7 @@ export interface ChatViewHost {
 	/** Resolves to whether the draft was consumed as a turn. */
 	sendRequest: (options?: ChatSendRequestOptions) => Promise<boolean | undefined>
 	cancel: (reason?: string) => void
-	setAiChatInput: (aiChatInput: AIChatInput | null) => void
+	setAiChatInput: (aiChatInput: AIChatInput) => void
 	/** Unregisters `aiChatInput` if it is still the registered one. A host's chat can remount
 	 * elsewhere (Home hands its session to /sessions), and the new composer may register before
 	 * the old one's teardown runs. */
