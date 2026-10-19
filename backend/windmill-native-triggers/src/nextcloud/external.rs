@@ -351,7 +351,7 @@ impl External for NextCloud {
     fn error_hint(&self, status: StatusCode) -> Option<&'static str> {
         match status {
             StatusCode::UNAUTHORIZED => {
-                Some("reconnect the Nextcloud account this uses from the account picker.")
+                Some("reconnect the Nextcloud account this uses with Reconnect next to it, or ask its owner or an admin to.")
             }
             StatusCode::FORBIDDEN => Some(
                 "Nextcloud grants webhook management to administrators only, and a Windmill \

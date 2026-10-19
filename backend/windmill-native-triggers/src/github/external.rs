@@ -334,7 +334,7 @@ impl External for GitHub {
     fn error_hint(&self, status: StatusCode) -> Option<&'static str> {
         match status {
             StatusCode::UNAUTHORIZED => {
-                Some("reconnect the GitHub account this uses from the account picker.")
+                Some("reconnect the GitHub account this uses with Reconnect next to it, or ask its owner or an admin to.")
             }
             StatusCode::FORBIDDEN => Some(
                 "check that the OAuth app is authorized for the organization and that the \

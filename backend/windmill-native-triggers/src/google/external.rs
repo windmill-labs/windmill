@@ -227,7 +227,7 @@ impl External for Google {
     fn error_hint(&self, status: http::StatusCode) -> Option<&'static str> {
         match status {
             http::StatusCode::UNAUTHORIZED => {
-                Some("reconnect the Google account this uses from the account picker.")
+                Some("reconnect the Google account this uses with Reconnect next to it, or ask its owner or an admin to.")
             }
             http::StatusCode::FORBIDDEN => Some(
                 "the connected Google account is missing access to this resource or the scope the \

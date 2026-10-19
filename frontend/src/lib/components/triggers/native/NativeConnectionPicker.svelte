@@ -207,9 +207,23 @@
 		{/snippet}
 	</Select>
 	{#if locked}
-		<p class="text-2xs text-secondary">
-			The webhook is registered under this account. To use another one, create a new trigger.
-		</p>
+		{@const current = connections?.find((c) => c.path === value)}
+		<div class="flex items-center justify-between gap-2">
+			<p class="text-2xs text-secondary">
+				The webhook is registered under this account. To use another one, create a new trigger.
+			</p>
+			{#if current && canReconnect(current)}
+				<Button
+					unifiedSize="xs"
+					variant="subtle"
+					startIcon={{ icon: RefreshCw }}
+					disabled={connecting}
+					onclick={() => reconnect(current)}
+				>
+					Reconnect
+				</Button>
+			{/if}
+		</div>
 	{/if}
 	{#if unusable}
 		<Alert type="warning" title="You cannot use this connection" size="xs">
