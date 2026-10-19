@@ -9,7 +9,8 @@
 		AGENT_CHAT_SCHEMA,
 		agentChatFlow,
 		agentChatGap,
-		agentChatPath
+		agentChatPath,
+		AGENT_STEP_ID
 	} from '../conversations/agentEditorChat'
 	import { runFlowPreview } from '../utils.svelte'
 	import { goto } from '$lib/navigation'
@@ -49,7 +50,7 @@
 		keepsManagedMemory
 	} from '../agentFormFields'
 	import { toolDisplayName, type AgentTool } from '../agentToolUtils'
-	import { useAgentDraft } from '../agentDraft.svelte'
+	import { useAgentDraft, type AgentRunAs } from '../agentDraft.svelte'
 	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
@@ -100,7 +101,7 @@
 	 *  schema per tool — the linked branch deliberately loads none. Reserved in `forbiddenIds`:
 	 *  the root shares a flow-state map with the tools, so a tool of this id would lose its
 	 *  schema to the root's. */
-	const AGENT_ID = '__wm_agent_root'
+	const AGENT_ID = AGENT_STEP_ID
 
 	const draft = useAgentDraft({
 		path: () => path,
@@ -358,8 +359,8 @@
 		inputs?: Record<string, any>
 	): Promise<string | undefined> {
 		if (!agentModule) return undefined
-		// A view runs the deployed agent, which anyone who can read it may do; the editor previews
-		// the draft. Both run as the caller.
+		// A view runs the deployed agent, which anyone who can read it may do, as the server picks
+		// the identity; the editor previews the draft as the one editing it.
 		if (view && workspace) {
 			return await JobService.runAgent({
 				workspace,
@@ -455,12 +456,21 @@
 		pathErrorValue = error ?? ''
 	}
 
+	/** Who the next deploy makes the agent run as, as the "Permissioned as" line picked it. Unset
+	 *  while the line was never shown, which keeps the current identity as the line would have
+	 *  preselected it: an admin deploying without looking must not take the agent over. */
+	let runAs = $state<AgentRunAs | undefined>(undefined)
+	export function setRunAs(next: AgentRunAs) {
+		runAs = next
+	}
+
 	export function deploy(): Promise<boolean> {
 		if (pathErrorValue) {
 			sendUserToast(`Cannot deploy the agent: ${pathErrorValue}`, true)
 			return Promise.resolve(false)
 		}
-		return draft.deploy().then(async (written) => {
+		const keep = draft.onBehalfOf ? { permissionedAs: draft.onBehalfOf, preserve: true } : undefined
+		return draft.deploy(runAs ?? keep).then(async (written) => {
 			// The path the write landed on, which a rename moves off the one this editor opened.
 			if (written) await onSaved?.(written)
 			return written !== undefined

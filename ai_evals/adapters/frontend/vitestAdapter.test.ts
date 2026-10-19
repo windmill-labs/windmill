@@ -92,6 +92,11 @@ vi.mock('$lib/gen', async () => {
 		getBenchmarkCompletedJob,
 		getBenchmarkCompletedJobResultMaybe,
 		getBenchmarkDatatableSchema,
+		getBenchmarkDatatableMigrationsStatus,
+		createBenchmarkDatatableMigration,
+		upsertBenchmarkDatatableMigration,
+		runBenchmarkDatatableMigrations,
+		rollbackBenchmarkDatatableMigration,
 		getBenchmarkDraftForUser,
 		getBenchmarkFlowByPath,
 		getBenchmarkFlowAllResults,
@@ -106,6 +111,9 @@ vi.mock('$lib/gen', async () => {
 		getBenchmarkResource,
 		listBenchmarkAiProviderResources,
 		listBenchmarkPlainResources,
+		listBenchmarkResourceTypeNames,
+		queryBenchmarkResourceTypes,
+		createBenchmarkResourceType,
 		listBenchmarkApps,
 		listBenchmarkDatatables,
 		listBenchmarkDataMetrics,
@@ -400,7 +408,27 @@ vi.mock('$lib/gen', async () => {
 							schemaName: data.schemaName,
 							tableName: data.tableName
 						})
-					: actual.WorkspaceService.getDataTableTableSchema(data)
+					: actual.WorkspaceService.getDataTableTableSchema(data),
+			getDatatableMigrationsStatus: async (data: any) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkDatatableMigrationsStatus(data)
+					: actual.WorkspaceService.getDatatableMigrationsStatus(data),
+			createDatatableMigration: async (data: any) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? createBenchmarkDatatableMigration(data)
+					: actual.WorkspaceService.createDatatableMigration(data),
+			upsertDatatableMigration: async (data: any) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? upsertBenchmarkDatatableMigration(data)
+					: actual.WorkspaceService.upsertDatatableMigration(data),
+			runDatatableMigrations: async (data: any) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? runBenchmarkDatatableMigrations(data)
+					: actual.WorkspaceService.runDatatableMigrations(data),
+			rollbackDatatableMigrations: async (data: any) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? rollbackBenchmarkDatatableMigration(data)
+					: actual.WorkspaceService.rollbackDatatableMigrations(data)
 		}),
 		DataMetricService: wrapService(actual.DataMetricService, {
 			listDataMetrics: async (data: { workspace: string }) =>
@@ -462,8 +490,23 @@ vi.mock('$lib/gen', async () => {
 				}
 				return value
 			},
-			queryResourceTypes: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.ResourceService.queryResourceTypes(data)
+			queryResourceTypes: async (data: { workspace: string; text: string; limit?: number }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? queryBenchmarkResourceTypes(data.workspace, data.text, data.limit)
+					: actual.ResourceService.queryResourceTypes(data),
+			listResourceTypeNames: async (data: { workspace: string }) =>
+				listBenchmarkResourceTypeNames(data.workspace) ??
+				actual.ResourceService.listResourceTypeNames(data),
+			createResourceType: async (data: {
+				workspace: string
+				requestBody: { name: string; schema?: unknown; description?: string }
+			}) => {
+				if (!hasBenchmarkWorkspace(data.workspace)) {
+					return actual.ResourceService.createResourceType(data)
+				}
+				createBenchmarkResourceType(data.workspace, data.requestBody)
+				return `resource_type ${data.requestBody.name} created`
+			}
 		}),
 		VariableService: wrapService(actual.VariableService, {
 			existsVariable: async (data: { workspace: string; path: string }) =>

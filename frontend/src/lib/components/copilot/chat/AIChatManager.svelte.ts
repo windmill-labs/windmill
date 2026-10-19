@@ -25,6 +25,7 @@ import {
 	type ToolCallbacks,
 	type ToolDisplayMessage,
 	type UserQuestionDisplay,
+	type RunFormAnswer,
 	type RunFormDisplay,
 	type RunFormDraft,
 	type ChatJob,
@@ -49,10 +50,14 @@ import {
 import type { ScriptLintResult } from './shared'
 import { navigatorTools, prepareNavigatorSystemMessage } from './navigator/core'
 import { loadApiTools } from './api/apiTools'
-import { prepareScriptUserMessage } from './script/core'
+import {
+	prepareScriptUserMessage,
+	resolveResourceTypeSync,
+	type ResourceTypeSync
+} from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
-import { workspaceAIClients, getStreamedCompletionText } from '../lib'
+import { AI_PROVIDERS, workspaceAIClients, getStreamedCompletionText } from '../lib'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { modelSupportsVision } from '../modelConfig'
 import { getEffectiveModelContextWindow } from '../modelConfig'
@@ -168,7 +173,11 @@ import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRout
 import { appendAttachedFilesRoster } from './files/fileTools'
 import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from './planMode'
 import { PlanModeController, type PlanModeHost } from './planModeController.svelte'
-import { navigationOperatorBuilderFlows } from '$lib/operatorWriteRights'
+import {
+	navigationOperatorBuilderApps,
+	navigationOperatorBuilderFlows,
+	navigationOperatorBuilderRights
+} from '$lib/operatorWriteRights'
 
 // Compaction of the stored history: once the projected request size
 // (contextTokens — the provider's report when current, a fresh chars/4
@@ -220,7 +229,7 @@ const settledRunForm = (runForm: RunFormDisplay): RunFormDisplay =>
 type PendingRunForm = {
 	/** Absent once the loop is no longer waiting: a card restored from history still mounts
 	 * its form and still holds edits, but nothing is left to receive them. */
-	resolve?: (args: Record<string, any> | undefined) => void
+	resolve?: (answer: RunFormAnswer | undefined) => void
 	draft: RunFormDraft
 	submitting: boolean
 }
@@ -242,12 +251,12 @@ const WEB_SEARCH_ERROR_HINT =
 const REASONING_SUMMARY_WARNED_STORAGE_KEY = 'ai-chat-reasoning-summary-unverified-warned'
 
 function providerDisplayName(provider: string): string {
-	return provider === 'azure_openai' ? 'Azure OpenAI' : 'OpenAI'
+	return AI_PROVIDERS[provider as keyof typeof AI_PROVIDERS]?.label ?? 'OpenAI'
 }
 
 function reasoningSummaryUnavailableMessage(provider: string): string {
 	const verifyHint =
-		provider === 'azure_openai'
+		provider === 'azure_openai' || provider === 'azure_foundry'
 			? 'To display it, verify your organization with your provider, then reload this page.'
 			: 'To display it, verify your organization in the OpenAI platform settings (Settings > General), then reload this page.'
 	return `This model is reasoning, but your ${providerDisplayName(provider)} organization is not verified to generate reasoning summaries, so its thinking stays hidden. ${verifyHint}`
@@ -301,7 +310,9 @@ export function supportsPlanMode(mode: AIMode): boolean {
 	return PLAN_MODES.has(mode)
 }
 
+const isOperatorBuilder = fromStore(navigationOperatorBuilderRights)
 const isOperatorBuilderFlows = fromStore(navigationOperatorBuilderFlows)
+const isOperatorBuilderApps = fromStore(navigationOperatorBuilderApps)
 
 export function isAIModeVisible(mode: AIMode): boolean {
 	return mode !== AIMode.GLOBAL || isGlobalAiEnabled()
@@ -501,11 +512,17 @@ export class AIChatManager implements ChatViewHost {
 	skipResponsesApi = $state(false)
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
-	pipelineAiChatHelpers = $state<PipelineAIChatHelpers | undefined>(undefined)
+	// One per mounted pipeline editor; a session can have several folders open.
+	#pipelineEditors = new Set<PipelineAIChatHelpers>()
 	// Resolved when a pipeline editor registers its tools. open_preview(pipeline)
 	// awaits this so the model's next build_pipeline_node call can't race ahead of
 	// the async canvas mount and hit "Unknown tool call".
-	#pipelineHelpersWaiters = new Set<() => void>()
+	#pipelineHelpersWaiters = new Set<(helpers: PipelineAIChatHelpers) => void>()
+	// A session's pipeline editor unmounts whenever another tab takes the preview
+	// panel. Its tools stay offered for every folder the session opened, and a call
+	// reopens the tab through this, so a page shown in between costs no failed call.
+	#pipelineReopener: ((folder: string) => void) | undefined = undefined
+	#openedPipelineFolders = new Set<string>()
 	readonly isOpen = $derived(chatState.size > 0)
 	savedSize = $state<number>(0)
 	instructions = $state<string>('')
@@ -570,6 +587,23 @@ export class AIChatManager implements ChatViewHost {
 	 * chat card holds. Unset outside a session: a chat-bound form has nowhere else to go,
 	 * so the card hides the control rather than offering a tab that cannot run. */
 	openRunForm?: (a: { toolCallId: string; label: string }) => void
+	/** Show a DEPLOYED run's item on its own page. With `carries`, that page is handed this
+	 * call: it opens its own form on what the call proposed, and the job its Run starts is
+	 * the one the tool follows. Without it the page is only opened to look at — a
+	 * conversational flow's page has no form to confirm on — and the card keeps the run. Set
+	 * only where that page can be shown, a session's preview panel, so the card hides the
+	 * control elsewhere. */
+	openRunOnDeployedPage?: (a: {
+		toolCallId: string
+		kind: 'script' | 'flow'
+		path: string
+		summary: string
+		carries: boolean
+		/** Re-point a tab already on that page, and answer `false` rather than opening one.
+		 * For handing a call to a page the reader already has in front of them: a tab showing
+		 * something else, a run included, has no form to confirm this call on. */
+		onlyIfAlreadyOpen?: boolean
+	}) => boolean
 	closeRunForm?: (toolCallId: string) => void
 	/** Hands that tab from the form to the run it just started, in place: the tab keeps its
 	 * position in the strip and stays active if it was. */
@@ -579,11 +613,16 @@ export class AIChatManager implements ChatViewHost {
 		workspace: string
 		label: string
 	}) => void
-	/** Whether the panel holds this call's pending form. Answered off the session's tab list,
-	 * so it stays true while the user is on another tab, and per call rather than "the open
-	 * one". Read from a `$derived` — the reader subscribes to the tab list through the call.
-	 * The card hides its form on it, which is what keeps exactly one mounted per call. */
+	/** Whether the panel holds this call's pending form, on either surface. Answered off the
+	 * session's tab list, so it stays true while the user is on another tab, and per call
+	 * rather than "the open one". Read from a `$derived` — the reader subscribes to the tab
+	 * list through the call. The card folds its row on it, and a started job takes over
+	 * whichever surface was waiting. */
 	isRunFormInPreview?: (toolCallId: string) => boolean
+	/** Whether the panel holds this call on the chat's own form, as opposed to on the item's
+	 * page. The card's form is exclusive with this one alone: it is the same draft, and two
+	 * mounts of it each reorder the schema SchemaForm edits in place. */
+	isRunFormTabOpen?: (toolCallId: string) => boolean
 	openArtifact?: (artifactId: string, name: string, version?: ArtifactVersionTarget) => void
 	closeArtifact?: (artifactId: string) => void
 	#loading = $state<boolean>(false)
@@ -897,6 +936,15 @@ export class AIChatManager implements ChatViewHost {
 	// outside any turn, and waiting would resurrect the entry on reload.
 	async removeModifiedItem(itemKind: UserDraftItemKind, storagePath: string) {
 		if (!this.modifiedItems?.delete(maskKey(itemKind, storagePath))) return
+		await this.#persistModifiedItems()
+	}
+
+	// Record the items deploying a chat-modified item produced — a pipeline's
+	// scripts — so a fork review selects exactly them. Persisted at once, like a
+	// discard: the deploy can run outside any turn.
+	async recordDeployedItems(itemKind: UserDraftItemKind, storagePaths: string[]) {
+		if (!this.modifiedItems || storagePaths.length === 0) return
+		for (const p of storagePaths) this.modifiedItems.add(maskKey(itemKind, p))
 		await this.#persistModifiedItems()
 	}
 
@@ -1438,20 +1486,23 @@ export class AIChatManager implements ChatViewHost {
 			.map((s) => ({ ...s, kind: 'skill' as const }))
 	])
 
-	// The flow and script builders both write code, which the backend refuses from an operator
-	// with the builder right: leaving them reachable would only produce work that cannot be
+	// The flow, app and script builders all write code, which the backend refuses from an
+	// operator with builder rights: leaving them reachable would only produce work that cannot be
 	// deployed.
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script:
 			this.flowAiChatHelpers === undefined &&
 			this.scriptEditorOptions !== undefined &&
 			!this.disabledModes.script &&
-			!isOperatorBuilderFlows.current,
+			!isOperatorBuilder.current,
 		flow:
 			this.flowAiChatHelpers !== undefined &&
 			!this.disabledModes.flow &&
 			!isOperatorBuilderFlows.current,
-		app: this.appAiChatHelpers !== undefined && !this.disabledModes.app,
+		app:
+			this.appAiChatHelpers !== undefined &&
+			!this.disabledModes.app &&
+			!isOperatorBuilderApps.current,
 		navigator: !this.disabledModes.navigator,
 		ask: !this.disabledModes.ask,
 		API: !this.disabledModes.API,
@@ -2003,7 +2054,7 @@ export class AIChatManager implements ChatViewHost {
 		toolId: string,
 		form: RunFormDisplay,
 		opts?: { autoAccepted?: boolean }
-	): Promise<Record<string, any> | undefined> => {
+	): Promise<RunFormAnswer | undefined> => {
 		// The tool reads the schema before it asks, so a stop during that read drains the
 		// callbacks and settles the card before this runs. Installing one then would park
 		// the turn on a form the settled card no longer renders, leaving nothing able to
@@ -2020,15 +2071,32 @@ export class AIChatManager implements ChatViewHost {
 		// Ahead of the wait, not of the stop above: the caller settled this form before
 		// attaching it, so its card renders no fields and nothing here could ever resolve.
 		if (opts?.autoAccepted) {
-			return Promise.resolve(form.args)
+			return Promise.resolve({ kind: 'args' as const, args: form.args })
 		}
 		// Seeded from the caller's copy, before the card renders: the file arguments on
 		// `displayMessages` are redacted, so a draft built from those would open the form on
 		// the marker rather than on the bytes the model proposed.
 		const entry = this.#runFormEntry(toolId, form)
-		return new Promise((resolve) => {
+		const answer = new Promise<RunFormAnswer | undefined>((resolve) => {
 			this.#runForms.set(toolId, { ...entry, resolve })
 		})
+		// A tab already on this item's deployed page is where the reader would be sent anyway,
+		// so the call goes there without waiting to be asked: declining a proposal and having
+		// the agent propose another leaves that page open, and the second proposal belongs on
+		// it. Only a tab already there — opening one for every proposed run would take the
+		// panel away from whatever the reader is doing. After the resolve above is installed,
+		// since the page reads the call back through `isRunFormPending`.
+		if (form.kind === 'run' && form.path && !form.conversational) {
+			this.openRunOnDeployedPage?.({
+				toolCallId: toolId,
+				kind: form.runnableKind === 'flow' ? 'flow' : 'script',
+				path: form.path,
+				summary: form.summary || form.path,
+				carries: true,
+				onlyIfAlreadyOpen: true
+			})
+		}
+		return answer
 	}
 
 	/**
@@ -2055,6 +2123,10 @@ export class AIChatManager implements ChatViewHost {
 		this.#runFormEntry(toolId, runForm).draft
 
 	markRunFormStarted = (toolId: string) => this.#patchRunForm(toolId, { started: true })
+
+	// Nothing to patch on the card — it already carries the tool's own error — so this exists
+	// for the surfaces that confirmed the run and would otherwise wait forever for a job.
+	markRunFormEnded = (toolId: string) => this.closeRunForm?.(toolId)
 
 	// A form restored from history has an entry once it mounts, but no resolve: the loop
 	// that opened it is gone.
@@ -2089,9 +2161,33 @@ export class AIChatManager implements ChatViewHost {
 	 * leaving its submit button spinning on a run that will never start. */
 	handleRunFormSubmit = (toolId: string, args: Record<string, any>): boolean => {
 		if (!this.isRunFormPending(toolId)) return false
-		this.#settleRunForm(toolId, args)
+		this.#settleRunForm(toolId, { kind: 'args', args })
 		return true
 	}
+
+	/** The reader ran the item on its own page; the tool follows that job rather than
+	 * starting one. False when the call is no longer waiting. */
+	handleRunFormJob = (
+		toolId: string,
+		jobId: string,
+		args: Record<string, any>,
+		schema: Record<string, any>
+	): boolean => {
+		if (!this.isRunFormPending(toolId)) return false
+		// Snapshotted for the same reason the draft is: these are `$state` proxies off the
+		// page's own form, which keeps editing them after the run.
+		this.#settleRunForm(toolId, {
+			kind: 'job',
+			jobId,
+			args: ($state.snapshot(args) ?? {}) as Record<string, any>,
+			schema: ($state.snapshot(schema) ?? {}) as Record<string, any>
+		})
+		return true
+	}
+
+	/** What a parked form is waiting on, for a surface opening its own form on the same call. */
+	pendingRunFormArgs = (toolId: string): Record<string, any> | undefined =>
+		this.#runForms.get(toolId)?.draft?.args
 
 	handleRunFormCancel = (toolId: string) => {
 		// The card's own copy is settled here rather than only in the tool's fn, which a form
@@ -2115,9 +2211,10 @@ export class AIChatManager implements ChatViewHost {
 	 */
 	#settleRunForm = (
 		toolId: string,
-		submitted: Record<string, any> | undefined,
+		answer: RunFormAnswer | undefined,
 		card?: (runForm: RunFormDisplay) => Partial<ToolDisplayMessage>
 	) => {
+		const submitted = answer?.args
 		const entry = this.#runForms.get(toolId)
 		// Its draft holds whatever was typed into the form, a minted password included.
 		this.#runForms.delete(toolId)
@@ -2131,7 +2228,7 @@ export class AIChatManager implements ChatViewHost {
 			submitted ? { submitted: true } : { canceled: true },
 			cancelledArgs ? (runForm) => ({ ...card?.(runForm), parameters: cancelledArgs }) : card
 		)
-		entry?.resolve?.(submitted)
+		entry?.resolve?.(answer)
 	}
 
 	/**
@@ -2492,8 +2589,27 @@ export class AIChatManager implements ChatViewHost {
 
 	// Public because it is purely local, unlike `changeMode(GLOBAL)`, which also
 	// fires the three network refreshes.
+	setPipelineReopener = (reopen: (folder: string) => void) => {
+		this.#pipelineReopener = reopen
+	}
+
+	#pipelineFolders = (): string[] => [
+		...new Set([
+			...[...this.#pipelineEditors].map((p) => p.getFolder()),
+			...(this.#pipelineReopener ? this.#openedPipelineFolders : [])
+		])
+	]
+
+	#ensurePipeline = async (folder: string): Promise<PipelineAIChatHelpers | undefined> => {
+		const find = () => [...this.#pipelineEditors].find((p) => p.getFolder() === folder)
+		const live = find()
+		if (live || !this.#pipelineReopener) return live
+		this.#pipelineReopener(folder)
+		return (await this.waitForPipelineHelpers(folder)) ? find() : undefined
+	}
+
 	configureGlobalMode = () => {
-		const pipeline = this.pipelineAiChatHelpers
+		const hasPipelines = this.#pipelineFolders().length > 0
 		const opts = this.globalAssemblyOpts()
 		const baseHelpers: GlobalToolHelpers = {
 			// A session targets its own fixed (possibly forked) workspace, so capture it for
@@ -2525,7 +2641,14 @@ export class AIChatManager implements ChatViewHost {
 			}
 		}
 		this.#assembledTools = assembleGlobalTools(opts)
-		this.helpers = pipeline ? { ...baseHelpers, pipeline } : baseHelpers
+		this.helpers = hasPipelines
+			? {
+					...baseHelpers,
+					pipelines: () => [...this.#pipelineEditors],
+					pipelineFolders: this.#pipelineFolders,
+					ensurePipeline: this.#ensurePipeline
+				}
+			: baseHelpers
 		this.systemMessage = assembleGlobalSystemMessage(getCustomPromptParts(AIMode.GLOBAL), opts)
 		this.syncArtifactsSession()
 	}
@@ -2538,7 +2661,7 @@ export class AIChatManager implements ChatViewHost {
 		mcpServers: this.mcpServers,
 		access: this.sessionAccess,
 		sessionContext: this.sessionContextResolver?.(),
-		pipelineContext: this.pipelineAiChatHelpers?.getPipelineContext()
+		pipelineFolders: this.#pipelineFolders()
 	})
 
 	// Fetch the workspace's AI skills and, if GLOBAL mode is still active, rebuild
@@ -2629,6 +2752,9 @@ export class AIChatManager implements ChatViewHost {
 		}
 		this.systemMessage = { ...target, content: `${target.content}\n\n${section}` }
 	}
+
+	/** Resolved per send with the rest of the pre-flight; see `resolveResourceTypeSync`. */
+	resourceTypeSync: ResourceTypeSync | undefined = undefined
 
 	// Same shape as refreshGlobalSkills. Re-resolved per send rather than once for the
 	// session's life: the operating workspace can change between sends, and a transient
@@ -3136,7 +3262,8 @@ export class AIChatManager implements ChatViewHost {
 							this.contextManager.getSelectedContext(),
 							{
 								workspace: this.operatingWorkspace,
-								activePreview: this.activePreviewResolver?.()
+								activePreview: this.activePreviewResolver?.(),
+								resourceTypeSync: this.resourceTypeSync
 							}
 						)
 					}
@@ -3666,7 +3793,10 @@ export class AIChatManager implements ChatViewHost {
 				this.refreshGlobalSkills(this.operatingWorkspace ?? ''),
 				this.refreshGlobalFolderInstructions(this.operatingWorkspace ?? ''),
 				this.refreshMcpServers(this.operatingWorkspace ?? ''),
-				this.refreshSessionAccess(this.operatingWorkspace ?? '')
+				this.refreshSessionAccess(this.operatingWorkspace ?? ''),
+				resolveResourceTypeSync(this.operatingWorkspace ?? '', this.messages).then((sync) => {
+					this.resourceTypeSync = sync
+				})
 			])
 		}
 		// Stop/Escape during the beforeSend pre-flight aborted this send before any
@@ -3956,7 +4086,8 @@ export class AIChatManager implements ChatViewHost {
 						workspace: this.operatingWorkspace,
 						activePreview: this.activePreviewResolver?.(),
 						images: sentImages,
-						files: files
+						files: files,
+						resourceTypeSync: this.resourceTypeSync
 					})
 					break
 				case AIMode.APP:
@@ -4147,6 +4278,7 @@ export class AIChatManager implements ChatViewHost {
 					requestUserQuestion: this.requestUserQuestion,
 					requestRunArgs: this.requestRunArgs,
 					markRunFormStarted: this.markRunFormStarted,
+					markRunFormEnded: this.markRunFormEnded,
 					onItemModified: (kind, path) => this.recordModifiedItem(kind, path),
 					onItemDeployed: (kind, from, to) => void this.renameModifiedItem(kind, from, to),
 					onItemDiscarded: (kind, path) => void this.removeModifiedItem(kind, path),
@@ -4870,19 +5002,18 @@ export class AIChatManager implements ChatViewHost {
 	// AI edits apply directly as drafts, so there is nothing to auto-accept.
 	// Returns a cleanup that tears the registration back down.
 	setPipelineHelpers = (pipelineHelpers: PipelineAIChatHelpers) => {
-		this.pipelineAiChatHelpers = pipelineHelpers
+		this.#pipelineEditors.add(pipelineHelpers)
+		this.#openedPipelineFolders.add(pipelineHelpers.getFolder())
 		untrack(() => {
 			if (this.mode === AIMode.GLOBAL) {
 				this.configureGlobalMode()
 			}
 		})
 		// The pipeline tools are now registered — release anything awaiting them.
-		const waiters = [...this.#pipelineHelpersWaiters]
-		this.#pipelineHelpersWaiters.clear()
-		waiters.forEach((resolve) => resolve())
+		;[...this.#pipelineHelpersWaiters].forEach((notify) => notify(pipelineHelpers))
 
 		return () => {
-			this.pipelineAiChatHelpers = undefined
+			this.#pipelineEditors.delete(pipelineHelpers)
 			untrack(() => {
 				if (this.mode === AIMode.GLOBAL) {
 					this.configureGlobalMode()
@@ -4892,15 +5023,16 @@ export class AIChatManager implements ChatViewHost {
 	}
 
 	/**
-	 * Await the pipeline editor's tool registration. Resolves `true` immediately
-	 * when a pipeline editor is already mounted, or when the next one registers;
-	 * resolves `false` after `timeoutMs` if none registers (e.g. a backgrounded
-	 * session whose preview tab is not mounted, or a closed tab). Callers must
-	 * treat `false` as "tools NOT available" rather than silently reporting
-	 * success — the open_preview handler surfaces that to the model.
+	 * Await the tool registration of the pipeline editor for `folder` (any folder
+	 * when unset). Resolves `true` immediately when one is already mounted, or when
+	 * it registers; resolves `false` after `timeoutMs` if none registers (e.g. a
+	 * session whose runtime is not mounted, or a closed tab). Callers must treat
+	 * `false` as "tools NOT available" rather than silently reporting success —
+	 * the open_preview handler surfaces that to the model.
 	 */
-	waitForPipelineHelpers = (timeoutMs = 8000): Promise<boolean> => {
-		if (this.pipelineAiChatHelpers) return Promise.resolve(true)
+	waitForPipelineHelpers = (folder?: string, timeoutMs = 8000): Promise<boolean> => {
+		const matches = (p: PipelineAIChatHelpers) => folder === undefined || p.getFolder() === folder
+		if ([...this.#pipelineEditors].some(matches)) return Promise.resolve(true)
 		return new Promise<boolean>((resolve) => {
 			let settled = false
 			const finish = (registered: boolean) => {
@@ -4909,7 +5041,9 @@ export class AIChatManager implements ChatViewHost {
 				this.#pipelineHelpersWaiters.delete(onRegister)
 				resolve(registered)
 			}
-			const onRegister = () => finish(true)
+			const onRegister = (p: PipelineAIChatHelpers) => {
+				if (matches(p)) finish(true)
+			}
 			this.#pipelineHelpersWaiters.add(onRegister)
 			setTimeout(() => finish(false), timeoutMs)
 		})

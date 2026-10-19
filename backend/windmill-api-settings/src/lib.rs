@@ -29,7 +29,12 @@ mod log_cleanup;
 mod storage_usage;
 
 use windmill_api_auth::{require_devops_role, require_super_admin, ApiAuthed};
-use windmill_audit::{audit_oss::audit_log, ActionKind};
+use windmill_audit::{
+    audit_oss::audit_log,
+    instance_config::{audit_setting_write, InstanceConfigAuditor},
+    ActionKind,
+};
+use windmill_common::hub_resource_types::{self, SyncSource};
 use windmill_common::utils::HTTP_CLIENT_PERMISSIVE as HTTP_CLIENT;
 use windmill_common::DB;
 
@@ -58,10 +63,10 @@ use windmill_common::{
     error::{self, pg_error_message, JsonResult, Result},
     get_database_url,
     global_settings::{
-        ACCENT_COLOR_SETTING, AI_CONFIG_SETTING, APP_WORKSPACED_ROUTE_SETTING,
-        AUTOMATE_USERNAME_CREATION_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
-        EXTERNAL_INSTANCE_PG_SETTING,
+        ACCENT_COLOR_SETTING, AI_CONFIG_SETTING, API_BASE_URL_SETTING,
+        APP_WORKSPACED_ROUTE_SETTING, AUTOMATE_USERNAME_CREATION_SETTING,
+        CRITICAL_ALERT_MUTE_UI_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
+        DISABLE_HUB_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS, EXTERNAL_INSTANCE_PG_SETTING,
         GITHUB_APP_WEBHOOK_BASE_URL_SETTING, HTTP_ROUTE_DEFAULT_ALLOWED_ORIGINS_SETTING,
         HTTP_ROUTE_WORKSPACED_ROUTE_SETTING, HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
         INSTANCE_BANNER_SETTING, MAX_RETENTION_OVERRIDE_WORKSPACES,
@@ -127,6 +132,15 @@ async fn get_instance_ui(
     ))
 }
 
+/// Whether email notifications can go out, for the workspace admins who configure email
+/// handlers and cannot read `smtp_settings` itself (it holds the password). Asks the same
+/// resolver the senders use, so SMTP set through `SMTP_*` env vars counts too.
+async fn get_smtp_configured(Extension(db): Extension<DB>, _authed: ApiAuthed) -> JsonResult<bool> {
+    Ok(Json(
+        SMTP_ENABLED && windmill_common::server::is_smtp_configured(&db).await?,
+    ))
+}
+
 pub fn global_service() -> Router {
     #[warn(unused_mut)]
     let r = Router::new()
@@ -147,6 +161,7 @@ pub fn global_service() -> Router {
         )
         .route("/instance_config/yaml", get(get_instance_config_yaml))
         .route("/test_smtp", post(test_email))
+        .route("/smtp_configured", get(get_smtp_configured))
         .route("/test_license_key", post(test_license_key))
         .route("/send_stats", post(send_stats))
         .route("/get_stats", get(get_stats))
@@ -832,50 +847,7 @@ pub async fn set_global_setting(
     require_super_admin(&db, &authed).await?;
     let value = value.value.unwrap_or(serde_json::Value::Null);
     set_global_setting_internal(&db, key.clone(), value.clone()).await?;
-    audit_setting_write(&db, &authed, &key, Some(&value)).await
-}
-
-/// A setting is recorded by name, with its value only when that is a boolean or a number.
-/// Any other shape can carry a credential (a registry URL, a webhook, a header map), and no
-/// list of secret-bearing settings stays complete as settings are added.
-///
-/// AUTHORIZATION: records a write, checks nothing. The caller must have established that
-/// `authed` may change instance settings before performing the write this records.
-pub async fn audit_setting_write(
-    db: &DB,
-    authed: &ApiAuthed,
-    key: &str,
-    value: Option<&serde_json::Value>,
-) -> error::Result<()> {
-    let deleted = match value {
-        None | Some(serde_json::Value::Null) => true,
-        Some(serde_json::Value::String(s)) => s.trim().is_empty(),
-        Some(_) => false,
-    };
-    let recorded = match value {
-        Some(v @ (serde_json::Value::Bool(_) | serde_json::Value::Number(_))) => {
-            Some(v.to_string())
-        }
-        _ => None,
-    };
-    audit_log(
-        db,
-        authed,
-        if deleted {
-            "global_settings.delete"
-        } else {
-            "global_settings.update"
-        },
-        if deleted {
-            ActionKind::Delete
-        } else {
-            ActionKind::Update
-        },
-        "global",
-        Some(key),
-        recorded.as_deref().map(|v| [("value", v)].into()),
-    )
-    .await
+    audit_setting_write(&db, &authed, &key, Some(&value), None).await
 }
 
 async fn audit_instance_action(
@@ -944,6 +916,7 @@ pub async fn set_global_setting_internal(
 
     run_setting_pre_write_hook(db, &key, &value).await?;
 
+    let turns_on = value.as_bool() == Some(true);
     match value {
         serde_json::Value::Null => {
             if instance_config::PROTECTED_SETTINGS.contains(&key.as_str()) {
@@ -977,6 +950,21 @@ pub async fn set_global_setting_internal(
         }
     };
 
+    if key == windmill_common::global_settings::DEV_WORKSPACE_ISOLATION_SETTING {
+        windmill_common::feature_usage::log_feature_usage(
+            "dev_workspace_isolation",
+            "toggle",
+            if turns_on { "on" } else { "off" },
+        );
+    }
+    if key == windmill_common::global_settings::DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS_SETTING {
+        windmill_common::feature_usage::log_feature_usage(
+            "dev_workspace_isolation",
+            "skip_non_dev_forks_toggle",
+            if turns_on { "on" } else { "off" },
+        );
+    }
+
     if should_bump_instance_ai_revision {
         bump_instance_ai_config_revision();
     }
@@ -1003,6 +991,14 @@ async fn run_setting_pre_write_hook(
     value: &serde_json::Value,
 ) -> error::Result<()> {
     match key {
+        windmill_common::global_settings::DEV_WORKSPACE_TAG_SUFFIX_SETTING => match value {
+            serde_json::Value::Null => {}
+            serde_json::Value::String(s) if s.trim().is_empty() => {}
+            suffix => windmill_common::global_settings::validate_dev_workspace_tag_suffix(suffix)
+                .map_err(|e| {
+                error::Error::BadRequest(format!("The dev workspace tag suffix {e}"))
+            })?,
+        },
         // The instance AI config is written as an untyped blob through this generic
         // endpoint, so it never passes the typed check the workspace handler applies.
         // Rates that reach a cost total unbounded would make it negative or infinite.
@@ -1238,26 +1234,22 @@ async fn run_setting_pre_write_hook(
                 }
             }
         }
-        GITHUB_APP_WEBHOOK_BASE_URL_SETTING => {
-            // A bad value here yields a webhook GitHub can never deliver to, and the
+        GITHUB_APP_WEBHOOK_BASE_URL_SETTING | API_BASE_URL_SETTING => {
+            // A bad webhook base yields a webhook GitHub can never deliver to, and the
             // failure only shows up much later as "falling back to polling" on a
-            // repository — so reject it at the boundary instead.
+            // repository; a bad API base puts an unreachable URL in front of every user.
+            // So reject both at the boundary instead.
             match value {
                 // Clearing (delete row) is handled by the caller; allow it through.
                 serde_json::Value::Null => {}
                 serde_json::Value::String(s) if s.trim().is_empty() => {}
                 serde_json::Value::String(s) => {
-                    windmill_common::global_settings::validate_webhook_base_url(s).map_err(
-                        |e| {
-                            error::Error::BadRequest(format!(
-                                "{GITHUB_APP_WEBHOOK_BASE_URL_SETTING}: {e}"
-                            ))
-                        },
-                    )?;
+                    windmill_common::global_settings::validate_webhook_base_url(s)
+                        .map_err(|e| error::Error::BadRequest(format!("{key}: {e}")))?;
                 }
                 _ => {
                     return Err(error::Error::BadRequest(format!(
-                        "{GITHUB_APP_WEBHOOK_BASE_URL_SETTING} must be a URL string"
+                        "{key} must be a URL string"
                     )));
                 }
             }
@@ -1286,6 +1278,13 @@ async fn run_setting_pre_write_hook(
             v => windmill_common::global_settings::validate_accent_color(v)
                 .map_err(|e| error::Error::BadRequest(format!("{ACCENT_COLOR_SETTING}: {e}")))?,
         },
+        windmill_common::global_settings::AGENT_WORKLOAD_IDENTITY_ISSUERS_SETTING => {
+            if !value.is_null() {
+                let key = windmill_common::global_settings::AGENT_WORKLOAD_IDENTITY_ISSUERS_SETTING;
+                windmill_common::agent_workload_identity::validate_issuers_value(value)
+                    .map_err(|e| error::Error::BadRequest(format!("{key}: {e}")))?;
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -1370,61 +1369,17 @@ async fn set_instance_config(
                 run_setting_pre_write_hook(&db, key, value).await?;
             }
         }
+        let auditor = InstanceConfigAuditor { db: &db, author: &authed, source: None };
         // The external-instance write removes its own key from the diff.
-        let external = settings_diff
-            .upserts
-            .get(EXTERNAL_INSTANCE_PG_SETTING)
-            .cloned()
-            .map(Some)
-            .or_else(|| {
-                settings_diff
-                    .deletes
-                    .iter()
-                    .any(|k| k == EXTERNAL_INSTANCE_PG_SETTING)
-                    .then_some(None)
-            });
         windmill_common::external_instance_pg::write_external_instance_pg_from_diff(
             &db,
             &mut settings_diff,
+            &auditor,
         )
         .await?;
-        if let Some(value) = external {
-            audit_setting_write(&db, &authed, EXTERNAL_INSTANCE_PG_SETTING, value.as_ref()).await?;
-        }
-
-        // Applied and audited one setting at a time: the writes are not transactional, so a
-        // batch that fails midway must not leave the settings it did write unrecorded.
-        let instance_config::SettingsDiff { upserts, deletes, mut previous_values, unchanged_count } =
-            settings_diff;
-        let steps = upserts
-            .into_iter()
-            .map(|(k, v)| (k, Some(v)))
-            .chain(deletes.into_iter().map(|k| (k, None)))
-            .map(Some)
-            .chain(std::iter::once(None));
-        for step in steps {
-            let mut diff = instance_config::SettingsDiff::default();
-            match &step {
-                Some((key, value)) => {
-                    if let Some(previous) = previous_values.remove(key) {
-                        diff.previous_values.insert(key.clone(), previous);
-                    }
-                    match value {
-                        Some(value) => {
-                            diff.upserts.insert(key.clone(), value.clone());
-                        }
-                        None => diff.deletes.push(key.clone()),
-                    }
-                }
-                None => diff.unchanged_count = unchanged_count,
-            }
-            instance_config::apply_settings_diff(&db, &diff)
-                .await
-                .map_err(|e| error::Error::internal_err(e.to_string()))?;
-            if let Some((key, value)) = &step {
-                audit_setting_write(&db, &authed, key, value.as_ref()).await?;
-            }
-        }
+        instance_config::apply_settings_diff(&db, &settings_diff, &auditor)
+            .await
+            .map_err(|e| error::Error::internal_err(e.to_string()))?;
 
         if ai_config_changed {
             bump_instance_ai_config_revision();
@@ -1454,37 +1409,13 @@ async fn set_instance_config(
             .collect();
         let configs_diff =
             instance_config::diff_worker_configs(&current_wc, &desired_wc, ApplyMode::Merge);
-        let steps = configs_diff
-            .upserts
-            .into_iter()
-            .map(|(g, c)| (g, Some(c)))
-            .chain(configs_diff.deletes.into_iter().map(|g| (g, None)));
-        for (group, config) in steps {
-            let mut diff = instance_config::ConfigsDiff::default();
-            let (operation, action_kind) = match config {
-                Some(config) => {
-                    diff.upserts.insert(group.clone(), config);
-                    ("worker_config.update", ActionKind::Update)
-                }
-                None => {
-                    diff.deletes.push(group.clone());
-                    ("worker_config.delete", ActionKind::Delete)
-                }
-            };
-            instance_config::apply_configs_diff(&db, &diff)
-                .await
-                .map_err(|e| error::Error::internal_err(e.to_string()))?;
-            audit_log(
-                &db,
-                &authed,
-                operation,
-                action_kind,
-                "global",
-                Some(&format!("worker__{group}")),
-                None,
-            )
-            .await?;
-        }
+        instance_config::apply_configs_diff(
+            &db,
+            &configs_diff,
+            &InstanceConfigAuditor { db: &db, author: &authed, source: None },
+        )
+        .await
+        .map_err(|e| error::Error::internal_err(e.to_string()))?;
     }
 
     Ok(())
@@ -2576,95 +2507,6 @@ pub async fn get_jwks() -> JsonResult<JwksResponse> {
     Ok(Json(JwksResponse { keys: vec![] }))
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
-struct CachedResourceType {
-    #[allow(dead_code)]
-    id: i64,
-    name: String,
-    schema: Option<serde_json::Value>,
-    #[allow(dead_code)]
-    app: String,
-    description: Option<String>,
-    /// Doubly optional, and read through a wrapping deserializer: this struct also
-    /// decodes the on-disk cache, where an absent key means "written before the
-    /// column, leave the stored extension alone" and an explicit null means the hub
-    /// dropped it. Plain serde folds both into `None`.
-    #[serde(
-        default,
-        deserialize_with = "windmill_common::more_serde::double_option"
-    )]
-    format_extension: Option<Option<String>>,
-    /// Doubly optional like `format_extension`: no key leaves the stored name alone, an explicit
-    /// null (the hub naming nothing) clears it.
-    #[serde(
-        default,
-        deserialize_with = "windmill_common::more_serde::double_option"
-    )]
-    display_name: Option<Option<String>>,
-}
-
-#[derive(serde::Deserialize)]
-struct HubResourceTypeRaw {
-    id: i64,
-    name: String,
-    schema: Option<String>,
-    app: String,
-    description: Option<String>,
-    #[serde(default)]
-    format_extension: Option<String>,
-    #[serde(
-        default,
-        deserialize_with = "windmill_common::more_serde::double_option"
-    )]
-    display_name: Option<Option<String>>,
-}
-
-async fn fetch_resource_types_from_hub() -> error::Result<Vec<CachedResourceType>> {
-    let response = HTTP_CLIENT
-        .get(format!(
-            "{}/resource_types/list",
-            windmill_common::DEFAULT_HUB_BASE_URL
-        ))
-        .header("Accept", "application/json")
-        .send()
-        .await
-        .map_err(|e| error::Error::InternalErr(format!("Failed to fetch from hub: {}", e)))?;
-
-    if !response.status().is_success() {
-        return Err(error::Error::InternalErr(format!(
-            "Hub returned status {}",
-            response.status()
-        )));
-    }
-
-    let raw_types: Vec<HubResourceTypeRaw> = response
-        .json()
-        .await
-        .map_err(|e| error::Error::InternalErr(format!("Failed to parse hub response: {}", e)))?;
-
-    Ok(raw_types
-        .into_iter()
-        .filter_map(|rt| {
-            let schema = match rt.schema {
-                Some(s) => match serde_json::from_str(&s) {
-                    Ok(v) => Some(v),
-                    Err(_) => return None,
-                },
-                None => None,
-            };
-            Some(CachedResourceType {
-                id: rt.id,
-                name: rt.name,
-                schema,
-                app: rt.app,
-                description: rt.description,
-                format_extension: Some(rt.format_extension),
-                display_name: rt.display_name,
-            })
-        })
-        .collect())
-}
-
 #[derive(serde::Deserialize)]
 struct SyncResourceTypesQuery {
     name: Option<String>,
@@ -2677,118 +2519,45 @@ async fn sync_cached_resource_types(
 ) -> error::Result<String> {
     require_super_admin(&db, &authed).await?;
 
-    use windmill_common::worker::HUB_RT_CACHE_DIR;
-    let cache_path = format!("{}/resource_types.json", *HUB_RT_CACHE_DIR);
+    let outcome = hub_resource_types::sync(&db).await?;
 
-    // Manual sync is hub-first so it lands newly-published hub types on demand. The
-    // on-disk cache is only a fallback for when the hub is unreachable (airgapped
-    // installs / network error); refreshing it is left to the daily cache-rt cron and
-    // the startup sync in main.rs, which own the offline path.
-    let (resource_types, from_hub) = match fetch_resource_types_from_hub().await {
-        Ok(types) => {
-            tracing::info!("Fetched {} resource types live from the hub", types.len());
-            (types, true)
-        }
-        Err(hub_err) => {
-            tracing::warn!(
-                "Live hub fetch failed ({hub_err}), falling back to on-disk cache at {cache_path}"
-            );
-            match tokio::fs::read_to_string(&cache_path).await {
-                Ok(content) => {
-                    let parsed = serde_json::from_str::<Vec<CachedResourceType>>(&content)
-                        .map_err(|e| {
-                            error::Error::InternalErr(format!(
-                                "Failed to parse cached resource types: {}",
-                                e
-                            ))
-                        })?;
-                    (parsed, false)
-                }
-                Err(_) => return Err(hub_err),
-            }
-        }
-    };
-
-    let mut synced_count = 0;
-
-    for rt in &resource_types {
-        // A name too long for the column counts as absent, leaving the stored one alone: one bad
-        // entry must not fail the upsert and end the rest of the sync.
-        let display_name = match &rt.display_name {
-            Some(Some(name)) if name.chars().count() > 100 => None,
-            other => other.clone(),
+    if !outcome.changed.is_empty() {
+        let source = match outcome.source {
+            SyncSource::Hub => "hub",
+            SyncSource::ImageCache => "image_cache",
         };
-        let exists: Option<bool> = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM resource_type WHERE workspace_id = 'admins' AND name = $1 AND schema IS NOT DISTINCT FROM $2 AND description IS NOT DISTINCT FROM $3 AND ($5 IS NOT TRUE OR format_extension IS NOT DISTINCT FROM $4) AND ($7 IS NOT TRUE OR display_name IS NOT DISTINCT FROM $6))",
-            &rt.name,
-            rt.schema.as_ref(),
-            rt.description.as_deref(),
-            rt.format_extension.clone().flatten(),
-            rt.format_extension.is_some(),
-            display_name.clone().flatten(),
-            display_name.is_some(),
+        let changed = outcome.changed.join(", ");
+        audit_log(
+            &db,
+            &authed,
+            "resource_types.sync",
+            ActionKind::Update,
+            "admins",
+            None,
+            Some([("source", source), ("changed", changed.as_str())].into()),
         )
-        .fetch_one(&db)
         .await?;
-
-        if exists.unwrap_or(false) {
-            continue;
-        }
-
-        sqlx::query!(
-            // Whether the payload carried the key at all is what decides: present
-            // (even as null) is authoritative and may clear, absent means a cache
-            // written before the column and must leave the stored value alone.
-            "INSERT INTO resource_type (workspace_id, name, schema, description, format_extension, display_name, edited_at)
-             VALUES ('admins', $1, $2, $3, $4, $6, now())
-             ON CONFLICT (workspace_id, name) DO UPDATE
-             SET schema = EXCLUDED.schema, description = EXCLUDED.description,
-                 -- A fileset is a set of files, so it cannot also be one file.
-                 -- Create and update reject the pair; this writer bypasses both, so
-                 -- it declines the extension rather than persisting the forbidden
-                 -- combination onto a same-named local fileset.
-                 format_extension = CASE
-                     WHEN resource_type.is_fileset THEN NULL
-                     WHEN $5 THEN EXCLUDED.format_extension
-                     ELSE resource_type.format_extension END,
-                 display_name = CASE WHEN $7 THEN EXCLUDED.display_name ELSE resource_type.display_name END,
-                 edited_at = now()",
-            &rt.name,
-            rt.schema.as_ref(),
-            rt.description.as_deref(),
-            rt.format_extension.clone().flatten(),
-            rt.format_extension.is_some(),
-            display_name.clone().flatten(),
-            display_name.is_some(),
-        )
-        .execute(&db)
-        .await?;
-
-        synced_count += 1;
     }
 
     // If a specific type was requested and is still absent after syncing, surface an
     // explicit not-found instead of a silent "Synced 0". Word it by source so the
     // cache-fallback path does not claim it checked the hub.
     if let Some(name) = name.as_deref() {
-        if !resource_types.iter().any(|rt| rt.name == name) {
-            let source = if from_hub {
-                "on the hub"
-            } else {
-                "in the cached resource types (hub unreachable)"
+        if !outcome.listed.iter().any(|listed| listed == name) {
+            let source = match outcome.source {
+                SyncSource::Hub => "on the hub",
+                SyncSource::ImageCache => "in the cached resource types (hub unavailable)",
             };
             return Err(error::Error::NotFound(format!(
-                "resource type '{}' not found {}",
-                name, source
+                "resource type '{name}' not found {source}"
             )));
         }
     }
 
-    Ok(format!(
-        "Synced {} resource types ({} unchanged)",
-        synced_count,
-        resource_types.len() - synced_count
-    ))
+    Ok(match outcome.source {
+        SyncSource::Hub => outcome.summary(),
+        SyncSource::ImageCache => format!("{}, the hub being unavailable", outcome.summary()),
+    })
 }
 
 #[cfg(test)]

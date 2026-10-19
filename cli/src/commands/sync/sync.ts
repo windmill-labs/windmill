@@ -14,6 +14,7 @@ import { colors } from "@cliffy/ansi/colors";
 import { Command } from "@cliffy/command";
 import { Confirm } from "@cliffy/prompt/confirm";
 import * as log from "../../core/log.ts";
+import { SETTINGS_MANAGED_ONLY_WHEN_PRESENT } from "../../core/settings.ts";
 import * as path from "node:path";
 import { sep as SEP } from "node:path";
 import {
@@ -100,6 +101,7 @@ import {
   isCurrentWorkspaceFile,
   isItemTypeConfigured,
   isSpecificItem,
+  isCustomPathFile,
   SpecificItemsConfig,
 } from "../../core/specific_items.ts";
 import {
@@ -149,7 +151,11 @@ import {
   extractCurrentMapping,
 } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
-import { markAccessFromPolicy } from "../app/app.ts";
+import {
+  markAccessFromPolicy,
+  markIsolationFromPolicy,
+  stripEditorState,
+} from "../app/app.ts";
 import {
   APP_BACKEND_FOLDER,
   generateAppLocksInternal,
@@ -1062,7 +1068,7 @@ async function pushFilesetParentResource(
   if (cachedWsName && isWorkspaceSpecificFile(resourceFilePath)) {
     serverPath = fromWorkspaceSpecificPath(resourceFilePath, cachedWsName);
     wsSpecific = true;
-  } else if (specificItems && isSpecificItem(childPath, specificItems)) {
+  } else if (isSpecificItem(childPath, specificItems)) {
     wsSpecific = true;
   }
 
@@ -1329,6 +1335,7 @@ export function ZipFSElement(
               log.error(`Failed to parse app.yaml at path: ${p}`);
               throw error;
             }
+            stripEditorState(app);
             let inlineScripts;
             try {
               inlineScripts = extractInlineScriptsForApps(
@@ -1359,7 +1366,10 @@ export function ZipFSElement(
             }
 
             markAccessFromPolicy(app);
+            markIsolationFromPolicy(app, false);
             app.policy = undefined;
+            // Rendered as its own workspace-specific file (see below).
+            delete app.custom_path;
             yield {
               isDirectory: false,
               path: path.join(finalPath, "app.yaml"),
@@ -1377,10 +1387,10 @@ export function ZipFSElement(
               throw error;
             }
             markAccessFromPolicy(rawApp);
+            markIsolationFromPolicy(rawApp, true);
             // console.log("rawApp", rawApp);
             rawApp.policy = undefined;
-            // custom_path is derived from the file path, don't store it
-            delete rawApp?.["custom_path"];
+            delete rawApp.custom_path;
             let inlineScripts;
             const value = rawApp?.["value"];
             const runnables = value?.["runnables"] ?? {};
@@ -1837,6 +1847,24 @@ export function ZipFSElement(
         }
       }
     }
+    if (kind == "app" || kind == "raw_app") {
+      // Always workspace-specific: see isCustomPathFile.
+      const customPath = JSON.parse(await f.async("text"))?.custom_path;
+      if (customPath) {
+        const appPath = removeSuffix(p, kind == "app" ? ".app.json" : ".raw_app.json");
+        const obj = { custom_path: customPath };
+        r.push({
+          isDirectory: false,
+          path: appPath + (useYaml ? ".custom_path.yaml" : ".custom_path.json"),
+          async *getChildren() {},
+          async getContentText() {
+            return useYaml
+              ? yamlStringify(obj, yamlOptions)
+              : JSON.stringify(obj, null, 2);
+          },
+        });
+      }
+    }
     return r;
   }
   function _internal_folder(p: string, zip: JSZip): DynFSElement {
@@ -2099,7 +2127,11 @@ export async function elementsToMap(
         continue;
       }
       if (skips.skipFlows && fileType === "flow") continue;
-      if (skips.skipApps && fileType === "app") continue;
+      if (
+        skips.skipApps &&
+        (fileType === "app" || fileType === "custom_path")
+      )
+        continue;
       if (skips.skipFolders && fileType === "folder") continue;
       if (
         skips.skipWorkspaceDependencies &&
@@ -2569,6 +2601,14 @@ const isWorkspaceSettingsFile = (p: string) =>
 function stripUnappliedSettingsFields(local: any, remote: any) {
   delete local?.name;
   delete remote?.name;
+  for (const key of ["operator_settings", ...SETTINGS_MANAGED_ONLY_WHEN_PRESENT]) {
+    if (local?.[key] === undefined) delete remote?.[key];
+  }
+  // push clears an omitted mute_critical_alerts to false
+  if (local?.mute_critical_alerts == null && remote?.mute_critical_alerts === false) {
+    delete local?.mute_critical_alerts;
+    delete remote.mute_critical_alerts;
+  }
   if (local?.color == null) {
     delete local?.color;
     delete remote?.color;
@@ -2586,6 +2626,53 @@ function stripUnappliedSettingsFields(local: any, remote: any) {
   } else {
     localInvite.instance_groups_roles ??= {};
     if (remoteInvite) remoteInvite.instance_groups_roles ??= {};
+  }
+}
+
+/**
+ * A checkout made before custom paths had their own file still carries one in
+ * its app file, and a push deploys it. It compares as the workspace's
+ * custom-path file it stands for, unless that file exists, so such a checkout
+ * neither lists its app file as edited nor drops the custom path.
+ */
+function liftInFileCustomPaths(
+  localMap: Record<string, string>,
+  json: boolean,
+): void {
+  for (const key of Object.keys(localMap)) {
+    const normalized = key.replaceAll(SEP, "/");
+    const type = isRawAppFolderMetadataFile(normalized)
+      ? "raw_app"
+      : isAppFolderMetadataFile(normalized)
+        ? "app"
+        : undefined;
+    if (!type || normalized.endsWith(json ? ".yaml" : ".json")) continue;
+    const appPath = extractResourceName(normalized, type);
+    let obj: any;
+    try {
+      obj = json
+        ? JSON.parse(localMap[key])
+        : yamlParseContent(key, localMap[key]);
+    } catch {
+      continue;
+    }
+    if (!appPath || !obj || typeof obj != "object" || !("custom_path" in obj)) {
+      continue;
+    }
+    const customPath = obj.custom_path;
+    delete obj.custom_path;
+    localMap[key] = json
+      ? JSON.stringify(obj, null, 2)
+      : yamlStringify(obj, yamlOptions);
+    const fileKey =
+      appPath.replaceAll("/", SEP) +
+      (json ? ".custom_path.json" : ".custom_path.yaml");
+    if (customPath && !(fileKey in localMap)) {
+      const file = { custom_path: customPath };
+      localMap[fileKey] = json
+        ? JSON.stringify(file, null, 2)
+        : yamlStringify(file, yamlOptions);
+    }
   }
 }
 
@@ -2716,6 +2803,22 @@ export async function compareDynFSElement(
     );
   }
 
+  if (isEls1Remote === false) {
+    liftInFileCustomPaths(m1, json);
+    // `custom_path: ''` clears the deployed one, after which the export has
+    // no file to match it: an empty value with nothing deployed is in sync.
+    for (const [k, v] of Object.entries(m1)) {
+      if (!isCustomPathFile(k) || k in m2) continue;
+      let value: unknown;
+      try {
+        value = (json ? JSON.parse(v) : yamlParseContent(k, v))?.custom_path;
+      } catch {
+        continue;
+      }
+      if (!value) delete m1[k];
+    }
+  }
+
   const changes: Change[] = [];
 
   function parseYaml(k: string, v: string) {
@@ -2747,12 +2850,18 @@ export async function compareDynFSElement(
       }
       return o;
     } else {
+      let o: any;
       try {
-        return yamlParseContent(k, v);
+        o = yamlParseContent(k, v);
       } catch (error) {
         log.error(`Failed to parse YAML content at path: ${k}`);
         throw error;
       }
+      // A file tracked before the field was dropped still carries it.
+      if (path.basename(k) == "app.yaml") {
+        stripEditorState(o);
+      }
+      return o;
     }
   }
 
@@ -2859,6 +2968,11 @@ export async function compareDynFSElement(
   const remoteCodebase: Record<string, string> = {};
   for (const [k] of Object.entries(m2)) {
     if (m1[k] === undefined) {
+      // A workspace without its own custom-path file leaves the deployed one
+      // alone: a promotion never carries the target's custom path.
+      if (isEls1Remote === false && isCustomPathFile(k)) {
+        continue;
+      }
       if (
         !ignoreMetadataDeletion ||
         (!k?.endsWith(".script.yaml") && !k?.endsWith(".script.json"))
@@ -2962,8 +3076,10 @@ function getOrderFromPath(p: string) {
     return 11;
   } else if (typ == "app") {
     return 12;
-  } else if (typ == "schedule") {
+  } else if (typ == "custom_path") {
     return 13;
+  } else if (typ == "schedule") {
+    return 14;
   } else if (
     typ == "http_trigger" ||
     typ == "websocket_trigger" ||
@@ -2978,9 +3094,9 @@ function getOrderFromPath(p: string) {
     typ == "email_trigger" ||
     typ == "native_trigger"
   ) {
-    return 14;
-  } else {
     return 15;
+  } else {
+    return 16;
   }
 }
 
@@ -3830,6 +3946,7 @@ export async function pull(
     opts.skipDatatableMigrations,
     opts.defaultTs,
     opts.syncBehavior,
+    opts.includeDatatablePermissions,
   );
 
   const remote = ZipFSElement(
@@ -3900,7 +4017,7 @@ export async function pull(
         ...(change.name === "edited" && change.codebase
           ? { codebase_changed: true }
           : {}),
-        ...(specificItems && isSpecificItem(change.path, specificItems)
+        ...(isSpecificItem(change.path, specificItems)
           ? {
               workspace_specific: true,
               workspace_specific_path: getWorkspaceSpecificPath(
@@ -3949,7 +4066,7 @@ export async function pull(
       const change: Change = rawChange;
       // Determine if this file should be written to a workspace-specific path
       let targetPath = change.path;
-      if (specificItems && isSpecificItem(change.path, specificItems)) {
+      if (isSpecificItem(change.path, specificItems)) {
         const workspaceSpecificPath = getWorkspaceSpecificPath(
           change.path,
           specificItems,
@@ -4210,7 +4327,7 @@ export async function pull(
           ...(change.name === "edited" && change.codebase
             ? { codebase_changed: true }
             : {}),
-          ...(specificItems && isSpecificItem(change.path, specificItems)
+          ...(isSpecificItem(change.path, specificItems)
             ? {
                 workspace_specific: true,
                 workspace_specific_path: getWorkspaceSpecificPath(
@@ -4490,7 +4607,7 @@ function prettyChanges(
     let wsNote = "";
 
     // Check if this will be written as a workspace-specific file
-    if (specificItems && isSpecificItem(change.path, specificItems)) {
+    if (isSpecificItem(change.path, specificItems)) {
       const workspaceSpecificPath = getWorkspaceSpecificPath(
         change.path,
         specificItems,
@@ -4933,6 +5050,7 @@ export async function push(
       opts.skipDatatableMigrations,
       opts.defaultTs,
       opts.syncBehavior,
+      opts.includeDatatablePermissions,
     ))!,
     !opts.json,
     opts.defaultTs ?? "bun",
@@ -5561,7 +5679,7 @@ export async function push(
         ...(change.name === "edited" && change.codebase
           ? { codebase_changed: true }
           : {}),
-        ...(specificItems && isSpecificItem(change.path, specificItems)
+        ...(isSpecificItem(change.path, specificItems)
           ? {
               workspace_specific: true,
               workspace_specific_path: getWorkspaceSpecificPath(
@@ -5731,8 +5849,12 @@ export async function push(
       // `alreadySynced`, and a push touching several files of one bundle then
       // deploys the script once per file: several versions in a row, of which
       // only the last is the one the asset graph ends up describing.
+      // An app's files and its custom-path file group under the app path in
+      // both folder layouts, so the custom path is applied after the app.
       const basePath =
         getScriptBasePathFromModulePath(change.path) ??
+        extractResourceName(change.path, "raw_app")?.replaceAll("/", SEP) ??
+        extractResourceName(change.path, "app")?.replaceAll("/", SEP) ??
         change.path.split(".")[0];
       if (!groupedChanges.has(basePath)) {
         groupedChanges.set(basePath, []);
@@ -5822,10 +5944,14 @@ export async function push(
               changes = [deleteRawApp];
             } else {
               // The app is one bundle, so a single change re-pushes all of it.
-              // That leaves the loop exactly one change: any skip it takes for
-              // a raw-app path drops the whole app from the push, and nothing
-              // downstream records that as a failure.
-              changes.splice(1, changes.length - 1);
+              // That leaves the loop exactly one raw-app change: any skip it
+              // takes for a raw-app path drops the whole app from the push, and
+              // nothing downstream records that as a failure. The custom path
+              // is not part of the bundle and is applied after it.
+              changes = [
+                changes[0],
+                ...changes.slice(1).filter((c) => isCustomPathFile(c.path)),
+              ];
             }
           }
 
@@ -5939,6 +6065,7 @@ export async function push(
                     resourceFilePath,
                     isFileResWsSpecific ? true : undefined,
                     true,
+                    permissionedAsContext,
                   );
                 }
                 // Already-synced parents got the full content this run.
@@ -6007,7 +6134,7 @@ export async function push(
               // Check if this is a branch-specific item and get the original workspace-specific path
               let originalWorkspaceSpecificPath: string | undefined;
               const isWsSpecific =
-                specificItems && isSpecificItem(change.path, specificItems);
+                isSpecificItem(change.path, specificItems);
               if (isWsSpecific) {
                 originalWorkspaceSpecificPath = getWorkspaceSpecificPath(
                   change.path,
@@ -6036,6 +6163,7 @@ export async function push(
                       (opts.yes ?? false) || !process.stdin.isTTY,
                     skipReencrypt: opts.skipReencryptOnKeyChange,
                   },
+                  includeDatatablePermissions: opts.includeDatatablePermissions,
                   defaultTs: opts.defaultTs,
                 },
               );
@@ -6142,7 +6270,7 @@ export async function push(
               // For branch-specific items, we read from workspace-specific files but push to base server paths
               let localFilePath = change.path;
               const isAddedWsSpecific =
-                specificItems && isSpecificItem(change.path, specificItems);
+                isSpecificItem(change.path, specificItems);
               if (isAddedWsSpecific) {
                 const workspaceSpecificPath = getWorkspaceSpecificPath(
                   change.path,
@@ -6174,6 +6302,7 @@ export async function push(
                       (opts.yes ?? false) || !process.stdin.isTTY,
                     skipReencrypt: opts.skipReencryptOnKeyChange,
                   },
+                  includeDatatablePermissions: opts.includeDatatablePermissions,
                   defaultTs: opts.defaultTs,
                 },
               );
@@ -6671,7 +6800,7 @@ export async function push(
           ...(change.name === "edited" && change.codebase
             ? { codebase_changed: true }
             : {}),
-          ...(specificItems && isSpecificItem(change.path, specificItems)
+          ...(isSpecificItem(change.path, specificItems)
             ? {
                 workspace_specific: true,
                 workspace_specific_path: getWorkspaceSpecificPath(
@@ -6802,6 +6931,10 @@ const command = new Command()
   .option("--include-users", "Include syncing users")
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
+  .option(
+    "--include-datatable-permissions",
+    "With --include-settings, also sync who may connect to each data table as which role",
+  )
   .option("--include-key", "Include workspace encryption key")
   .option(
     "--keep-deleted",
@@ -6865,6 +6998,10 @@ const command = new Command()
   .option("--include-users", "Include syncing users")
   .option("--include-groups", "Include syncing groups")
   .option("--include-settings", "Include syncing workspace settings")
+  .option(
+    "--include-datatable-permissions",
+    "With --include-settings, also sync who may connect to each data table as which role",
+  )
   .option("--include-key", "Include workspace encryption key")
   .option(
     "--skip-reencrypt-on-key-change",

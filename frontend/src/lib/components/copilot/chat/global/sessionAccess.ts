@@ -1,12 +1,32 @@
+import { get } from 'svelte/store'
+import { userWorkspaces } from '$lib/stores'
+import type { OperatorSettings } from '$lib/gen'
 import { getWorkspaceRole } from '$lib/user'
+import { roleCanAuthor, roleCanDraft } from '$lib/editRights'
 import { checkDeployRules } from '$lib/utils_workspace_deploy'
 import type { SessionAccess, SessionCapability } from '../sessionCapabilities'
 
+type OperatorRights = Pick<
+	NonNullable<OperatorSettings>,
+	'builder_flows' | 'builder_apps' | 'manage_schedules' | 'manage_triggers'
+>
+
 const ALL_CAPABILITIES: SessionCapability[] = [
 	'write_draft',
+	'write_flow_draft',
+	'write_app_draft',
+	'write_schedule_draft',
+	'write_trigger_draft',
+	'write_resource_draft',
+	'write_variable_draft',
 	'run_preview',
+	'run_flow_preview',
 	'deploy',
 	'manage_code',
+	'manage_flows',
+	'manage_apps',
+	'manage_schedules',
+	'manage_triggers',
 	'admin'
 ]
 
@@ -25,18 +45,52 @@ export function capabilitiesForRole(role: {
 	isAdmin: boolean
 	operator: boolean
 	deployRulesPass: boolean
+	/** The workspace's `operator_settings`, null for a non-operator. */
+	operatorSettings?: OperatorRights | null
 }): SessionAccess {
 	const capabilities = new Set<SessionCapability>()
-	// Per-capability precedence, NOT a role ladder: drafts.rs `require_can_write_path`
-	// returns Ok on `authed.is_admin` BEFORE its operator branch, while jobs.rs
-	// `run_preview_*` and the script/flow/app handlers refuse `authed.is_operator` with no
-	// admin escape — and on the session path that flag is never cleared for an admin.
-	if (role.isAdmin || !role.operator) {
+	const user = { operator: role.operator, is_admin: role.isAdmin, is_super_admin: false }
+	const authorsCode = roleCanAuthor('script', user, role.operatorSettings)
+	const authorsFlows = roleCanAuthor('flow', user, role.operatorSettings)
+	// Drafts take the admin precedence `roleCanDraft` encodes; previews and the item handlers
+	// do not — and on the session path the operator flag is never cleared for an admin.
+	if (roleCanDraft('script', user, role.operatorSettings)) {
 		capabilities.add('write_draft')
 	}
-	if (!role.operator) {
+	if (roleCanDraft('flow', user, role.operatorSettings)) {
+		capabilities.add('write_flow_draft')
+	}
+	if (roleCanDraft('raw_app', user, role.operatorSettings)) {
+		capabilities.add('write_app_draft')
+	}
+	if (roleCanDraft('schedule', user, role.operatorSettings)) {
+		capabilities.add('write_schedule_draft')
+	}
+	if (roleCanDraft('trigger', user, role.operatorSettings)) {
+		capabilities.add('write_trigger_draft')
+	}
+	if (roleCanDraft('resource', user, role.operatorSettings)) {
+		capabilities.add('write_resource_draft')
+	}
+	if (roleCanDraft('variable', user, role.operatorSettings)) {
+		capabilities.add('write_variable_draft')
+	}
+	if (authorsCode) {
 		capabilities.add('run_preview')
 		capabilities.add('manage_code')
+	}
+	if (authorsFlows) {
+		capabilities.add('run_flow_preview')
+		capabilities.add('manage_flows')
+	}
+	if (roleCanAuthor('raw_app', user, role.operatorSettings)) {
+		capabilities.add('manage_apps')
+	}
+	if (roleCanAuthor('schedule', user, role.operatorSettings)) {
+		capabilities.add('manage_schedules')
+	}
+	if (roleCanAuthor('trigger', user, role.operatorSettings)) {
+		capabilities.add('manage_triggers')
 	}
 	// No operator term: the rules are their own gate, and the handlers that also refuse
 	// operators say so through `manage_code`. Admins bypass the rules inside the check.
@@ -63,6 +117,7 @@ export async function resolveSessionAccess(workspace: string): Promise<SessionAc
 	return capabilitiesForRole({
 		isAdmin: !!me.is_admin || !!me.is_super_admin,
 		operator: !!me.operator,
-		deployRulesPass: (await checkDeployRules(workspace, me)).ok
+		deployRulesPass: (await checkDeployRules(workspace, me)).ok,
+		operatorSettings: get(userWorkspaces).find((w) => w.id === workspace)?.operator_settings
 	})
 }

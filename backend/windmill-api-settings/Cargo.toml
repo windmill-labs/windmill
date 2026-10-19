@@ -7,13 +7,15 @@ edition.workspace = true
 [lib]
 name = "windmill_api_settings"
 path = "src/lib.rs"
+# src/ has no doctests: remove this line before adding one, or cargo test never runs it.
+doctest = false
 
 [features]
 default = []
 enterprise = ["license"]
 private = ["windmill-common/private", "windmill-audit/private"]
 parquet = ["windmill-common/parquet", "windmill-object-store/parquet"]
-license = ["dep:rsa"]
+license = ["dep:rsa", "dep:ed25519-dalek"]
 
 [dependencies]
 windmill-ai = { workspace = true, default-features = false }
@@ -38,4 +40,5 @@ uuid.workspace = true
 base64.workspace = true
 sha2.workspace = true
 rsa = { workspace = true, optional = true }
+ed25519-dalek = { workspace = true, optional = true }
 windmill-object-store.workspace = true

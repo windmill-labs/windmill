@@ -3,6 +3,8 @@
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, still take its connection as one resource-typed parameter, of a custom type holding the connection fields (base URL, account identifiers, credentials), its secret in a variable the resource references. A custom type is named `c_<name>`, which keeps it apart from a hub type synced later: the parameter takes `RT.C<Name>` in TypeScript, a `c_<name>` TypedDict in Python. A plain string parameter or a variable read inside the code only when the user asks for it: the resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records. If the instance is reported as not having synced the Windmill Hub's resource types, mention that a superadmin can sync them, since the hub has types for most services. Otherwise, or when the user prefers it to syncing, propose the resource type and ask before creating it
+- A Windmill Hub script takes a resource type the hub publishes, so on an instance that has not synced the hub's types that type is missing: say so, and that a superadmin can sync them, before asking for a resource of it. Hub scripts often declare the type inline (`type Stripe = { token: string }`), which is still the `stripe` resource type; in code you write, name it the way the language section shows (`RT.Stripe` in TypeScript) rather than copying the inline declaration
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it `main` (`Main` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no `main`: their language section shows how they take arguments
 - Where the language has a Windmill client (`wmill`), use it to interact with the platform
@@ -377,7 +379,7 @@ export async function main(url: string) {
 
 ## Pure computation: `//no_network`
 
-A native script that only transforms its inputs can declare `//no_network` in its leading comment block (right after `//native`). The runtime then refuses every connection the script attempts: `fetch` to any host, the Windmill API (so `windmill-client` calls fail too), raw sockets and unix sockets, and `WM_TOKEN` is not set. It only takes effect on native scripts: without `//native` it is ignored. Use it only when the script needs no external data beyond its arguments:
+A native script that only transforms its inputs can declare `//no_network` in its leading comment block (right after `//native`). The runtime then refuses every connection the script attempts: `fetch` to any host, the Windmill API (so `windmill-client` calls fail too), raw sockets and unix sockets, and `WM_TOKEN` is not set. Without `//native` it means something else: the script must run in an nsjail sandbox (`//sandbox`, or instance-wide sandboxing), which then loses its network, and it fails to run otherwise. Use it only when the script needs no external data beyond its arguments:
 
 ```typescript
 //native
@@ -1409,6 +1411,27 @@ Name the parameters by adding comments before the statement:
 SELECT * FROM users WHERE name = ? AND age > ?;
 ```
 
+## Array parameters
+
+Declare a list with a `[]` suffix on the element type (`(varchar[])`,
+`(int[])`), or `(array)` for an untyped one. Snowflake cannot bind an array
+directly, so Windmill binds the list as JSON text: wrap the placeholder with
+`PARSE_JSON(?)`, and cast to `ARRAY` where a function expects one.
+
+```sql
+-- ? groups (varchar[])
+SELECT o.* FROM orders o
+WHERE ARRAY_CONTAINS(o.owner_group::VARIANT, PARSE_JSON(?)::ARRAY);
+```
+
+Or join on the elements with `FLATTEN`:
+
+```sql
+-- ? groups (varchar[])
+SELECT o.* FROM orders o
+JOIN TABLE(FLATTEN(input => PARSE_JSON(?))) g ON g.value::STRING = o.owner_group;
+```
+
 ## Receiving an S3Object as a script parameter
 
 Declare the arg with type `(s3object)`. Windmill renders an S3 file picker for
@@ -1638,6 +1661,14 @@ async setProgress(percent: number, jobId?: any): Promise<void>
  * @returns Optional clamped between 0 and 100 progress value
  */
 async getProgress(jobId?: any): Promise<number | null>
+
+/**
+ * Whether the worker running this job has received its shutdown signal.
+ * A draining worker waits for its current job to finish before exiting, so a
+ * long-running script can poll this and return early to let the worker be replaced.
+ * @param jobId? Job to check, defaults to the current job
+ */
+async workerIsDraining(jobId?: string): Promise<boolean>
 
 /**
  * Set a flow user state
@@ -1898,6 +1929,9 @@ async sleep(seconds: number): Promise<void>
  * `fn`'s result is encoded as JSON and decoded back before it is returned, so
  * the round that runs the body sees the same types every replay sees: a `Date`
  * comes back as a string, a `Map` as `{}`. {@link Jsonified} is that shape.
+ * 
+ * Called from inside a task body, `fn` runs in place and nothing is
+ * checkpointed: a task is a single job and is never replayed.
  */
 async step<T>(name: string, fn: () => T | Promise<T>,): Promise<Jsonified<Awaited<T>>>
 
@@ -2311,6 +2345,18 @@ def set_progress(value: int, job_id: Optional[str] = None)
 #     Progress value (0-100) or None if not set
 def get_progress(job_id: Optional[str] = None) -> Any
 
+# Whether the worker running the job has received its shutdown signal.
+# 
+# A draining worker waits for its current job to finish before exiting. A long-running
+# script can poll this and return early so the worker can be replaced.
+# 
+# Args:
+#     job_id: Job ID (defaults to current WM_JOB_ID)
+# 
+# Returns:
+#     True if the worker running the job is draining
+def worker_is_draining(job_id: Optional[str] = None) -> bool
+
 # Set the user state of a flow at a given key
 def set_flow_user_state(key: str, value: Any) -> None
 
@@ -2324,15 +2370,31 @@ def get_flow_user_state(key: str) -> Any
 def version()
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-# initiate an S3 connection from DuckDB
+# initiate an S3 connection from DuckDB.
+# 
+# Without a resource path, the connection goes to the workspace storage through Windmill's
+# S3 proxy when that storage is S3: address it as ``s3://<bucket>/<key>`` with the
+# storage's own bucket, returned as ``s3_bucket``. Pass the resource path to connect with
+# the storage's own credentials instead.
 def get_duckdb_connection_settings(s3_resource_path: str = '') -> DuckDbConnectionSettings | None
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-# initiate an S3 connection from Polars
+# initiate an S3 connection from Polars.
+# 
+# Without a resource path, the connection goes to the workspace storage through Windmill's
+# S3 proxy when that storage is S3: address it as ``s3://<bucket>/<key>`` with the
+# storage's own bucket, returned as ``s3_bucket``. Pass the resource path to connect with
+# the storage's own credentials instead.
 def get_polars_connection_settings(s3_resource_path: str = '') -> PolarsConnectionSettings
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-# initiate an S3 connection using boto3
+# initiate an S3 connection using boto3.
+# 
+# Without a resource path, the connection goes to the workspace storage through Windmill's
+# S3 proxy when that storage is S3: pass the storage's own bucket as ``Bucket``. The proxy
+# serves object reads, writes, deletes, listing and multipart uploads of that bucket only;
+# presigned URLs, other buckets and bucket-level APIs need the storage's own credentials,
+# which passing the resource path returns.
 def get_boto3_connection_settings(s3_resource_path: str = '') -> Boto3ConnectionSettings
 
 # Load a file from the workspace s3 bucket and returns its content as bytes.
@@ -2728,7 +2790,9 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 # 
 # - **v2 (inside @workflow)**: dispatches as a checkpoint step.
 # - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
-# - **Standalone**: executes the function body directly.
+# - **Standalone, or called from inside another v2 task**: executes the
+#   function body directly. A task runs as a single job, so the tasks it
+#   calls run in that same job, without their own options.
 # 
 # A task runs as its own job, so its result is always encoded as JSON and
 # decoded back before the caller sees it: a ``datetime`` comes back as a
@@ -2814,12 +2878,15 @@ def workflow(func)
 # ``fn``'s result is encoded as JSON and decoded back before it is returned,
 # so the round that runs the body sees the same types every replay sees:
 # a ``datetime`` comes back as a string, a tuple as a list.
+# 
+# Called from inside a task body, ``fn`` runs in place and nothing is
+# checkpointed: a task is a single job and is never replayed.
 async def step(name: str, fn)
 
 # Server-side sleep — suspend the workflow for the given duration without holding a worker.
 # 
 # Inside a @workflow, the parent job suspends and auto-resumes after ``seconds``.
-# Outside a workflow, falls back to ``asyncio.sleep``.
+# Outside a workflow, or inside a task body, falls back to ``asyncio.sleep``.
 async def sleep(seconds: int)
 
 # Suspend the workflow and wait for an external approval.

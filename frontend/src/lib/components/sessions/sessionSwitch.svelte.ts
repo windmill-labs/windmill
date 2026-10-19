@@ -15,7 +15,7 @@ import {
 	type SessionTarget
 } from './sessionState.svelte'
 import { sessionTargetHref, withPreviewParams } from './sessionMode.svelte'
-import { parsePreviewItemRoute, type PreviewItemRoute } from './previewPaths'
+import { parsePipelineRoute, parsePreviewItemRoute } from './previewPaths'
 import { findMountedOpenInSessionSource } from './openInSessionContext'
 // Type-only: erased at compile time, so the component graph stays out of this
 // navigation seam (see the dynamic import in openEditorInSession).
@@ -42,10 +42,28 @@ export function rememberNavRoute(pathnameWithSearch: string): void {
 }
 
 /** An item editor the user reached session mode from, as the in-app href a new
- * session's preview can open, plus the item it edits (for naming it). */
-export type NewSessionSeed = { url: string; route: PreviewItemRoute }
+ * session's preview can open, plus what it edits (for naming it). */
+export type NewSessionSeed = { url: string; kind: string; path: string }
 
-// The item (flow, script, app) the user came to session mode from, or undefined
+/** What an editor route edits: a session target, or an unset target for an item
+ * with no in-session editor (a legacy app), which is opened by its page instead. */
+function editedAt(
+	url: string
+): { target: SessionTarget | undefined; kind: string; path: string } | undefined {
+	const folder = parsePipelineRoute(url)
+	if (folder)
+		return { target: { kind: 'pipeline', path: folder }, kind: 'pipeline', path: `f/${folder}` }
+	const route = parsePreviewItemRoute(url)
+	if (!route) return undefined
+	const kind = route.kind === 'app' ? (route.raw_app ? 'raw_app' : undefined) : route.kind
+	return {
+		target: kind ? { kind, path: route.itemPath } : undefined,
+		kind: route.kind,
+		path: route.itemPath
+	}
+}
+
+// The item (flow, script, app, pipeline) the user came to session mode from, or undefined
 // when they came from anywhere else. A "New session" asked for after arriving
 // from an item is usually a session about that item, but the arrival route
 // (`enterSessionMode`) resumes whatever session was open, so the picker offers
@@ -56,8 +74,8 @@ export type NewSessionSeed = { url: string; route: PreviewItemRoute }
 export function takeNewSessionSeed(): NewSessionSeed | undefined {
 	if (navRouteOffered) return undefined
 	navRouteOffered = true
-	const route = parsePreviewItemRoute(lastNavRoute)
-	return route ? { url: lastNavRoute, route } : undefined
+	const edited = editedAt(lastNavRoute)
+	return edited ? { url: lastNavRoute, kind: edited.kind, path: edited.path } : undefined
 }
 
 // The session entering session mode resumes: the active one if selected, else
@@ -102,8 +120,8 @@ const RESUME_IDLE_LIMIT_MS = 60 * 60 * 1000
 // enterSessionMode does. Rejects when the editor could not persist its draft,
 // so the caller can stay on the page and say so.
 export async function enterSessionModeFromNav(): Promise<void> {
-	const route = parsePreviewItemRoute(lastNavRoute)
-	if (route) {
+	const edited = editedAt(lastNavRoute)
+	if (edited) {
 		const resumable = resumableSession()
 		if (!resumable || Date.now() - sessionLastActivityAt(resumable) > RESUME_IDLE_LIMIT_MS) {
 			// The editor's own hand-off is what its "Open in AI session" button uses:
@@ -112,7 +130,7 @@ export async function enterSessionModeFromNav(): Promise<void> {
 			// workspace the item lives in. Only an item with no such editor on
 			// screen (a legacy app, a detail page) is opened by route, as last
 			// persisted, in the workspace the route was scoped to.
-			const source = findMountedOpenInSessionSource(route)
+			const source = edited.target && findMountedOpenInSessionSource(edited.target)
 			if (source) await openSourceInSession(source)
 			else await openPageInSession(lastNavRoute, workspaceParamOf(lastNavRoute))
 			return

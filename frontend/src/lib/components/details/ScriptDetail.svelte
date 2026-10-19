@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import {
 		JobService,
 		ScriptService,
@@ -46,10 +45,12 @@
 	} from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
+	import type { PendingRun } from '$lib/components/details/pendingRun'
 	import DbtRunGraph from '$lib/components/dbt/DbtRunGraph.svelte'
 	import { goto } from '$lib/navigation'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 
+	import { PLAN_MODE_MESSAGES } from '$lib/components/copilot/chat/planModeMessages'
 	import { sendUserToast } from '$lib/toast'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
@@ -104,6 +105,7 @@
 		useOperatingUser,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import {
 		buildForkEditUrl,
 		editInForkAllowed,
@@ -126,6 +128,7 @@
 		onNavigate = goto,
 		active = true,
 		embedded = false,
+		pendingRun,
 		onLoadState
 	}: {
 		/** The `[...hash]` route segment: either a script hash or a script path. */
@@ -141,6 +144,8 @@
 		/** Rendered inside a page that is not the script's own (an AI session preview tab), whose
 		 * URL this must leave alone and which a cross-workspace link must not navigate away. */
 		embedded?: boolean
+		/** A chat tool call confirmed here rather than on its card. See {@link PendingRun}. */
+		pendingRun?: PendingRun
 		/** How the load ended, for a host that renders its own state around this page.
 		 * Providing it also suppresses the "could not load" toast: a 404 here is the normal
 		 * state of a not-yet-deployed path, which the host explains in place instead. */
@@ -173,6 +178,9 @@
 			script.workspace_id == workspace &&
 			canWrite(script.path, script.extra_perms!, actingUser)
 	)
+	const editRights = useEditRights()
+	// The edit actions also need a role that authors scripts, which no operator has.
+	const canEdit = $derived(can_write && editRights.roleCanAuthor('script'))
 	let deploymentInProgress = $state(false)
 	let expandedModuleLocks: Record<string, boolean> = $state({})
 	let expandedModuleCode: Record<string, boolean> = $state({})
@@ -377,6 +385,10 @@
 		invisibleToOwner: boolean | undefined,
 		overrideTag: string | undefined
 	) {
+		// Taken before the round trip below: the call this press answers is the one it was
+		// pressed under, and a call settled meanwhile — declined, then another proposed for
+		// this same script — must not be answered with a job it never asked for.
+		const call = pendingRun
 		try {
 			runLoading = true
 			const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
@@ -402,7 +414,11 @@
 					skipPreprocessor: true
 				})
 			}
-			await onNavigate('/run/' + run + '?workspace=' + workspace)
+			// The call asked for this run; it follows the job rather than starting one, and
+			// shows it in place of this page — so navigating here as well would leave two
+			// surfaces open on the same job.
+			if (!call?.adopt(run, args, script?.schema ?? {}))
+				await onNavigate('/run/' + run + '?workspace=' + workspace)
 		} catch (err) {
 			sendUserToast(`Could not create job: ${err.body}`, true)
 		} finally {
@@ -431,6 +447,10 @@
 			console.error('Was not able to transform hash as args', e)
 		}
 	}
+	// A chat call confirmed here opens its form on what the chat proposed. Read at init like
+	// the hash above, and for the same reason; the host remounts this page when the call
+	// changes, so a tab already open on this script still builds its form from the new one.
+	if (pendingRun) args = { ...untrack(() => pendingRun.proposedArgs) }
 
 	// A dbt retry must name the run it resumes, and a job id is not something to
 	// type from memory: picking `retry` fills the field with the run this caller's
@@ -529,9 +549,9 @@
 			buttons.push({
 				label: 'Fork',
 				description: `Start a new script from a copy of this one`,
-				narrow: { dropdownOf: 'Edit' },
+				placement: { dropdownOf: 'Edit' },
 				buttonProps: {
-					href: operatingHref(`${base}/scripts/add?template=${script.path}`),
+					href: operatingHref(`/scripts/add?template=${script.path}`),
 					onClick: interceptNav(onNavigate, `/scripts/add?template=${script.path}`),
 					unifiedSize: 'md',
 					variant: 'subtle',
@@ -550,7 +570,7 @@
 			buttons.push({
 				label: editInForkLabel(workspace, $userWorkspaces),
 				description: editInForkDescription('script', workspace, $userWorkspaces),
-				narrow: { dropdownOf: 'Edit' },
+				placement: { dropdownOf: 'Edit' },
 				buttonProps: {
 					href: buildForkEditUrl('script', script.path, workspace),
 					onClick: (e: Event | undefined) => editInFork(e, script.path),
@@ -568,7 +588,7 @@
 		buttons.push({
 			label: `Runs`,
 			buttonProps: {
-				href: operatingHref(`${base}/runs/${script.path}`),
+				href: operatingHref(`/runs/${script.path}`),
 				onClick: interceptNav(onNavigate, `/runs/${script.path}`),
 				unifiedSize: 'md',
 				variant: 'subtle',
@@ -576,14 +596,14 @@
 			}
 		})
 
-		if (!script || actingUser?.operator || !can_write) {
+		if (!script || !canEdit) {
 			return buttons
 		}
 
 		if (Array.isArray(script.parent_hashes) && script.parent_hashes.length > 0) {
 			buttons.push({
 				label: `History`,
-				narrow: 'menu',
+				placement: 'menu',
 				buttonProps: {
 					onClick: () => {
 						versionsDrawerOpen = !versionsDrawerOpen
@@ -599,7 +619,8 @@
 		if (!actingUser?.operator) {
 			buttons.push({
 				label: 'Build app',
-				narrow: 'menu',
+				placement: 'menu',
+				alwaysPlaced: true,
 				buttonProps: {
 					onClick: async () => {
 						const app = createRawAppFromScript(script.path, script.summary, script.schema)
@@ -637,7 +658,7 @@
 				buttons.push({
 					label: 'Edit',
 					buttonProps: {
-						href: operatingHref(`${base}${editUrl}`),
+						href: operatingHref(editUrl),
 						onClick: interceptNav(onNavigate, editUrl),
 						unifiedSize: 'md',
 						startIcon: Pen,
@@ -867,6 +888,12 @@
 						}
 					: undefined}
 			>
+				{#snippet name_marks()}
+					<!-- Favorites are the sidebar's, which lists the navigation workspace only. -->
+					{#if workspace && script && workspace === $workspaceStore}
+						<Star kind="script" path={script.path} summary={script.summary} />
+					{/if}
+				{/snippet}
 				{#snippet trigger_badges()}
 					<TriggersBadge
 						showOnlyWithCount={true}
@@ -884,12 +911,6 @@
 						}}
 					/>
 				{/snippet}
-				{#if workspace && script}
-					<!-- Favorites are the sidebar's, which lists the navigation workspace only. -->
-					{#if workspace === $workspaceStore}
-						<Star kind="script" path={script.path} summary={script.summary} />
-					{/if}
-				{/if}
 				{#if script?.auto_kind === 'wac'}
 					<Popover notClickable>
 						{#snippet text()}
@@ -982,7 +1003,7 @@
 										<Alert type="warning" title="Not HEAD">
 											This hash is not HEAD (latest non-archived version at this path) :
 											<a
-												href="{base}/scripts/get/{topHash}?workspace={workspace}"
+												href="/scripts/get/{topHash}?workspace={workspace}"
 												onclick={interceptNav(onNavigate, `/scripts/get/${topHash}`)}
 												>Go to the HEAD of this path</a
 											>
@@ -1027,20 +1048,32 @@
 						{/if}
 
 						<div class="flex flex-col align-left">
-							{#if (script.schema && Object.keys(script.schema.properties ?? {}).length > 0) || inputSelected}
+							{#if (script.schema && Object.keys(script.schema.properties ?? {}).length > 0) || inputSelected || pendingRun}
 								{@const hasSchema =
 									script.schema && Object.keys(script.schema.properties ?? {}).length > 0}
 								<div
 									class="flex flex-row justify-between min-h-12"
 									transition:slide={{ duration: 150 }}
 								>
-									<InputSelectedBadge
-										onReject={() => {
-											savedInputsV2?.resetSelected()
-										}}
-										{inputSelected}
-									/>
-									{#if hasSchema}
+									<div class="flex flex-row items-start gap-2">
+										{#if pendingRun}
+											<InputSelectedBadge
+												inputSelected="pending_run"
+												onReject={() => pendingRun.decline()}
+											/>
+										{/if}
+										<InputSelectedBadge
+											onReject={() => {
+												savedInputsV2?.resetSelected()
+											}}
+											{inputSelected}
+										/>
+									</div>
+									<!-- Not offered while the form refuses writes: each side of this toggle
+									     mounts what the other unmounts, and a `password` field mints a
+									     variable from the literal it opens on. The form stays on whichever
+									     side it is already showing, read-only. -->
+									{#if hasSchema && !pendingRun?.planModeActive}
 										<Toggle
 											bind:checked={jsonView}
 											size="xs"
@@ -1079,7 +1112,7 @@
 								{#if Object.keys(script?.schema?.properties ?? {}).length > 0}
 									<AIFormAssistant
 										instructions={promptForAi}
-										onEditInstructions={can_write && !actingUser?.operator
+										onEditInstructions={canEdit
 											? () => onNavigate(`/scripts/edit/${script?.path}?metadata_open=true`)
 											: undefined}
 										runnableType="script"
@@ -1104,8 +1137,11 @@
 								bind:isValid
 								runnable={script}
 								runAction={runScript}
+								runRefusal={pendingRun?.planModeActive
+									? PLAN_MODE_MESSAGES.runFormRefused
+									: undefined}
 								bind:args
-								schedulable={true}
+								schedulable={!pendingRun}
 								bind:this={runForm}
 								{jsonView}
 								actions={promptForAi ? undefined : aiAssistant}

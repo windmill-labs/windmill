@@ -149,15 +149,16 @@ use crate::global_cache::pull_from_tar;
 use windmill_object_store::get_cache_object_store;
 
 use crate::{
+    check_no_network_jailed,
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file,
         read_result, render_nsjail_rlimit_as, resolve_nsjail_timeout,
-        resolve_nsjail_tmp_mount_block, start_child_process, OccupancyMetrics, StreamNotifier,
-        DEV_CONF_NSJAIL,
+        proto_str, resolve_nsjail_tmp_mount_block, start_child_process, OccupancyMetrics,
+        StreamNotifier, DEV_CONF_NSJAIL,
     },
-    get_proxy_envs_for_lang,
+    get_proxy_envs_for_lang, get_run_proxy_envs,
     handle_child::handle_child,
-    is_sandboxing_enabled, read_ee_registry,
+    is_sandboxing_enabled, nsjail_clone_newnet, read_ee_registry,
     worker_utils::ping_job_status,
     PyV, DISABLE_NUSER, HOME_ENV, INDEX_CERT, NATIVE_CERT, NSJAIL_AVAILABLE, NSJAIL_PATH,
     NSJAIL_PY_RLIMIT_AS_MB, PATH_ENV, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS,
@@ -367,7 +368,7 @@ pub async fn uv_pip_compile(
             args.extend(["--cert", cert_path]);
         }
         if *NATIVE_CERT {
-            args.extend(["--native-tls"]);
+            args.extend(["--system-certs"]);
         }
         if let Some(exclude_newer) = uv_exclude_newer.as_deref() {
             args.extend(["--exclude-newer", exclude_newer]);
@@ -775,6 +776,8 @@ pub async fn handle_python_job(
                 .to_string(),
         ));
     }
+    let jailed = is_sandboxing_enabled() || annotations.sandbox;
+    check_no_network_jailed(annotations.no_network, jailed)?;
 
     // Preview jobs may carry _TEMP_SCRIPT_REFS so relative imports resolve from
     // not-yet-deployed local content uploaded to raw_script_temp. Gated on
@@ -791,7 +794,21 @@ pub async fn handle_python_job(
         None
     };
 
-    let (py_version, mut additional_python_paths) = handle_python_deps(
+    let module_sources = windmill_parser_py_imports::module_sources(&script_path, modules.as_ref());
+    if annotations.no_network {
+        let imports = std::iter::once((script_path.as_str(), inner_content.as_str()))
+            .chain(
+                module_sources
+                    .iter()
+                    .flatten()
+                    .map(|(path, code)| (path.as_str(), code.as_str())),
+            )
+            .flat_map(|(path, code)| {
+                windmill_parser_py_imports::parse_relative_imports(code, path).unwrap_or_default()
+            });
+        crate::check_no_network_imports(imports, &script_path, modules.as_ref(), "Python")?;
+    }
+    let (py_version, mut additional_python_paths) = handle_python_deps_with_modules(
         job_dir,
         requirements_o,
         inner_content,
@@ -807,6 +824,7 @@ pub async fn handle_python_job(
         precomputed_agent_info,
         annotations.clone(),
         &temp_script_refs,
+        module_sources.as_ref(),
     )
     .await?;
 
@@ -836,6 +854,9 @@ pub async fn handle_python_job(
         );
         if annotations.sandbox {
             logs.push_str("sandbox mode (nsjail)\n");
+        }
+        if annotations.no_network {
+            logs.push_str("no network\n");
         }
         append_logs(&job.id, &job.workspace_id, logs, conn).await;
     }
@@ -1078,6 +1099,7 @@ except BaseException as e:
 
     let mut reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
+    crate::strip_no_network_token(&mut reserved_variables, annotations.no_network);
 
     // Add /tmp/windmill/cache/python_x_y_z/global-site-packages to PYTHONPATH.
     // Usefull if certain wheels needs to be preinstalled before execution.
@@ -1110,7 +1132,7 @@ except BaseException as e:
     #[cfg(windows)]
     let additional_python_paths_folders = additional_python_paths_folders.replace(":", ";");
 
-    if is_sandboxing_enabled() || annotations.sandbox {
+    if jailed {
         let shared_deps = additional_python_paths
             .into_iter()
             .map(|pp| {
@@ -1126,6 +1148,7 @@ mount {{
                 )
             })
             .join("\n");
+        let module_mounts = python_module_mounts(job_dir, &dirs, modules.as_ref());
         let nsjail_timeout =
             resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
         let _ = write_file(
@@ -1139,8 +1162,13 @@ mount {{
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{PY_INSTALL_DIR}", &*PY_INSTALL_DIR)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace(
+                    "{CLONE_NEWNET}",
+                    nsjail_clone_newnet(annotations.no_network),
+                )
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{SHARED_DEPENDENCIES}", shared_deps.as_str())
+                .replace("{MODULE_MOUNTS}", &module_mounts)
                 .replace("{GLOBAL_SITE_PACKAGES}", &global_site_packages_path)
                 .replace("{MAIN}", format!("{dirs}/{last}").as_str())
                 .replace(
@@ -1165,7 +1193,7 @@ mount {{
         job.id
     );
 
-    let child = if is_sandboxing_enabled() || annotations.sandbox {
+    let child = if jailed {
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
             .current_dir(job_dir)
@@ -1173,12 +1201,13 @@ mount {{
             // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
             .envs(reserved_variables)
             .envs(
-                get_proxy_envs_for_lang(
+                get_run_proxy_envs(
                     &ScriptLang::Python3,
                     job.kind,
                     &job.id,
                     &job.workspace_id,
                     conn,
+                    annotations.no_network,
                 )
                 .await?,
             )
@@ -1298,6 +1327,28 @@ mount {{
     }
 
     Ok(result)
+}
+
+/// nsjail mounts for a job's module files. They are written next to the main script, and the
+/// jail sees only what it mounts: without these, a module import falls through to the
+/// loader's API fetch. Keys come from the request, hence the containment check and quoting.
+fn python_module_mounts(
+    job_dir: &str,
+    dirs: &str,
+    modules: Option<&HashMap<String, windmill_common::scripts::ScriptModule>>,
+) -> String {
+    modules
+        .into_iter()
+        .flat_map(|m| m.keys())
+        .filter(|rel| crate::worker::is_contained_relative_path(rel))
+        .map(|rel| {
+            format!(
+                "mount {{\n    src: {}\n    dst: {}\n    is_bind: true\n    mandatory: false\n}}\n",
+                proto_str(&format!("{job_dir}/{dirs}/{rel}")),
+                proto_str(&format!("/tmp/{dirs}/{rel}")),
+            )
+        })
+        .join("\n")
 }
 
 /// Generate Python code to spread preprocessor args from `kwargs` into `pre_args`.
@@ -1939,6 +1990,7 @@ async fn replace_pip_secret(
     }
 }
 
+#[cfg(feature = "private")]
 pub(crate) async fn handle_python_deps(
     job_dir: &str,
     requirements_o: Option<&String>,
@@ -1955,6 +2007,45 @@ pub(crate) async fn handle_python_deps(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     annotations: PythonAnnotations,
     temp_script_refs: &Option<HashMap<String, String>>,
+) -> error::Result<(PyV, Vec<String>)> {
+    handle_python_deps_with_modules(
+        job_dir,
+        requirements_o,
+        inner_content,
+        w_id,
+        script_path,
+        job_id,
+        conn,
+        worker_name,
+        worker_dir,
+        mem_peak,
+        canceled_by,
+        occupancy_metrics,
+        precomputed_agent_info,
+        annotations,
+        temp_script_refs,
+        None,
+    )
+    .await
+}
+
+async fn handle_python_deps_with_modules(
+    job_dir: &str,
+    requirements_o: Option<&String>,
+    inner_content: &str,
+    w_id: &str,
+    script_path: &str,
+    job_id: &Uuid,
+    conn: &Connection,
+    worker_name: &str,
+    worker_dir: &str,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    precomputed_agent_info: Option<PrecomputedAgentInfo>,
+    annotations: PythonAnnotations,
+    temp_script_refs: &Option<HashMap<String, String>>,
+    module_sources: Option<&HashMap<String, String>>,
 ) -> error::Result<(PyV, Vec<String>)> {
     create_dependencies_dir(job_dir).await;
 
@@ -1984,6 +2075,7 @@ pub(crate) async fn handle_python_deps(
                         &mut locked_v,
                         &None,
                         temp_script_refs,
+                        module_sources,
                     ))
                     .await?;
 
@@ -2247,7 +2339,7 @@ async fn spawn_uv_install(
             vars.push(("TRUSTED_HOST", host));
         }
         if *NATIVE_CERT {
-            vars.push(("UV_NATIVE_TLS", "true"));
+            vars.push(("UV_SYSTEM_CERTS", "true"));
         }
         if let Some(timeout) = UV_HTTP_TIMEOUT.as_ref() {
             vars.push(("UV_HTTP_TIMEOUT", timeout.as_str()));
@@ -2371,7 +2463,7 @@ async fn spawn_uv_install(
             });
         }
         if *NATIVE_CERT {
-            command_args.extend(["--native-tls"]);
+            command_args.extend(["--system-certs"]);
         }
         // TODO:
         // Track https://github.com/astral-sh/uv/issues/6715
@@ -3673,6 +3765,25 @@ pub async fn start_worker(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn module_files_are_mounted_next_to_the_main_script() {
+        let module = |content: &str| windmill_common::scripts::ScriptModule {
+            content: content.to_string(),
+            language: windmill_common::scripts::ScriptLang::Python3,
+            lock: None,
+        };
+        let modules = HashMap::from([
+            ("lib/util.py".to_string(), module("")),
+            ("../escape.py".to_string(), module("")),
+            ("q\"uote.py".to_string(), module("")),
+        ]);
+        let mounts = super::python_module_mounts("/jobs/1", "u/admin", Some(&modules));
+        assert!(mounts.contains("src: \"/jobs/1/u/admin/lib/util.py\""), "{mounts}");
+        assert!(mounts.contains("dst: \"/tmp/u/admin/lib/util.py\""), "{mounts}");
+        assert!(!mounts.contains("escape"), "{mounts}");
+        assert!(mounts.contains("q\\\"uote.py"), "{mounts}");
+    }
+
     use super::*;
 
     #[test]

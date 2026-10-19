@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Drawer, DrawerContent } from '$lib/components/common'
-	import { base } from '$lib/base'
 	import RawAppRecordSession from '$lib/components/workspaceSettings/RawAppRecordSession.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { isMac, userPathPrefix, emptyString } from '$lib/utils'
@@ -81,7 +80,7 @@
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
-	import { pageHeader, PHONE_BAR } from '$lib/components/pageHeaderRegistry.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -207,7 +206,7 @@
 
 	let {
 		summary = $bindable(),
-		policy = $bindable(),
+		policy,
 		diffDrawer = undefined,
 		savedApp = $bindable(undefined),
 		version = $bindable(undefined),
@@ -319,20 +318,15 @@
 
 	// Top-bar responsive collapse — container width, not viewport.
 	let topbarWidth = $state(0)
-	// In the page header the buttons share the row with the breadcrumb, so they collapse sooner:
-	// the trail and the summary take ~430px of the same row, and the whole group — the menu, Diff,
-	// Jobs, Export, AI and Deploy — is ~560px.
-	const compactBelow = $derived(ownsPageHeader ? 1350 : 720)
-	const compactTopbar = $derived.by(() => {
-		const w = ownsPageHeader ? pageHeader.barWidth : topbarWidth
-		return w > 0 && w < compactBelow
-	})
-	// A phone's bar keeps the trail, the file sidebar's toggle, Diff and Deploy. AI stands down —
-	// the sidebar's own Ask AI is the way in at that width — while Jobs and the export are already
-	// in the menu, Jobs from `compactTopbar` (true at any phone width) and the export always.
-	const phoneTopbar = $derived(
-		ownsPageHeader && pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR
+	// In the page header the bar folds the buttons (`actionFolds` below), once its breadcrumb has
+	// given all it can; anywhere else this editor's own top bar is theirs alone.
+	const compactTopbar = $derived(
+		ownsPageHeader ? pageHeader.actionFold >= 1 : topbarWidth > 0 && topbarWidth < 720
 	)
+	// The second fold keeps the trail, the file sidebar's toggle, Diff and Deploy. AI stands down —
+	// the sidebar's own Ask AI is the way in at that width — while Jobs and the export are already
+	// in the menu, Jobs from `compactTopbar` (true at the second fold too) and the export always.
+	const phoneTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 2)
 
 	// Top-bar button size + bar height. Condensed (session preview) uses the
 	// smallest well-supported unified size (`sm`) so the bar is thinner.
@@ -352,8 +346,12 @@
 		saveDrawerOpen = false
 	}
 
-	async function computeTriggerables() {
-		policy = await updateRawAppPolicy(runnables, policy)
+	// Returns a copy: `policy` is the editor's own object, which the Deploy panel's
+	// instant toggles mutate in place. Reassigning it would detach the panel from the
+	// editor, so later toggles would never reach the preview. After a successful save,
+	// copy only `triggerables_v2` back so the editor's value matches what was deployed.
+	function policyWithTriggerables() {
+		return updateRawAppPolicy(runnables, policy)
 	}
 
 	async function createApp(path: string) {
@@ -364,9 +362,9 @@
 		if (!policy.execution_mode) {
 			policy.execution_mode = 'publisher'
 		}
-		await computeTriggerables()
 		try {
 			const { js, css } = await getBundle()
+			const deployedPolicy = await policyWithTriggerables()
 			await AppService.createAppRaw({
 				workspace: opWorkspace!,
 				formData: {
@@ -374,7 +372,7 @@
 						value: app,
 						path,
 						summary: summary,
-						policy,
+						policy: deployedPolicy,
 						deployment_message: deploymentMsg,
 						custom_path: customPath,
 						preserve_on_behalf_of: preserveOnBehalfOf || undefined,
@@ -384,6 +382,7 @@
 					css
 				}
 			})
+			policy.triggerables_v2 = deployedPolicy.triggerables_v2
 			// New path now exists server-side — drop the autocomplete cache so
 			// it shows up immediately instead of after the 60s TTL.
 			invalidateWorkspacePaths(opWorkspace!)
@@ -391,7 +390,7 @@
 				summary: summary,
 				value: structuredClone(stateSnapshot(app)),
 				path: path,
-				policy: policy,
+				policy: deployedPolicy,
 				custom_path: customPath,
 				labels: $state.snapshot(labels)
 			}
@@ -589,10 +588,10 @@
 			return
 		}
 		const { js, css } = await getBundle()
-		await computeTriggerables()
 		if (!policy.execution_mode) {
 			policy.execution_mode = 'publisher'
 		}
+		const deployedPolicy = await policyWithTriggerables()
 		const deployed = await AppService.updateAppRaw({
 			workspace: opWorkspace!,
 			path: appPath!,
@@ -600,7 +599,7 @@
 				app: {
 					value: app!,
 					summary: summary,
-					policy,
+					policy: deployedPolicy,
 					path: npath,
 					deployment_message: deploymentMsg,
 					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
@@ -614,12 +613,13 @@
 				css
 			}
 		})
+		policy.triggerables_v2 = deployedPolicy.triggerables_v2
 		invalidateWorkspacePaths(opWorkspace!)
 		savedApp = {
 			summary: summary,
 			value: structuredClone(stateSnapshot(app)),
 			path: npath,
-			policy,
+			policy: deployedPolicy,
 			custom_path: customPath,
 			labels: $state.snapshot(labels)
 		}
@@ -655,12 +655,13 @@
 	}
 
 	async function setPublishState(message?: string) {
-		await computeTriggerables()
+		const nextPolicy = await policyWithTriggerables()
 		await AppService.updateApp({
 			workspace: opWorkspace!,
 			path: appPath,
-			requestBody: { policy }
+			requestBody: { policy: nextPolicy }
 		})
+		policy.triggerables_v2 = nextPolicy.triggerables_v2
 		if (message) {
 			sendUserToast(message)
 		} else if (policy.execution_mode == 'anonymous') {
@@ -903,13 +904,13 @@
 				</span>
 				<span>
 					Stop recording, then <b>Download</b> the JSON. It is self-contained: open it on
-					<a href="{base}/replay" target="_blank" rel="noreferrer" class="text-blue-500 underline">
-						{base}/replay
+					<a href="/replay" target="_blank" rel="noreferrer" class="text-blue-500 underline">
+						/replay
 					</a>
 					— a public page that needs no login and can be embedded in an iframe. Host the JSON anywhere
 					it can be fetched (S3, GitHub raw, your docs site) and link
-					<span class="font-mono">{base}/replay?src=&lt;url&gt;</span> to have it load itself. Windmill
-					keeps no copy.
+					<span class="font-mono">/replay?src=&lt;url&gt;</span> to have it load itself. Windmill keeps
+					no copy.
 				</span>
 			</div>
 			<div class="flex-1 min-h-0">
@@ -950,10 +951,12 @@
 			// rename popover is open so the trail holds still as the user types.
 			kind: 'app',
 			path: pathSnapshot ?? (newEditedPath || appPath || newPath || undefined),
+			summary,
 			summaryContent: appSummary,
 			pathTrigger: rawAppPathTrigger
 		}}
 		actions={rawAppHeaderActions}
+		actionFolds={2}
 		contexts={headerContexts}
 		separator="none"
 	/>

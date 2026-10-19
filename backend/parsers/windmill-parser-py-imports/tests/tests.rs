@@ -1,7 +1,9 @@
 mod tests {
 
     use sqlx::{Pool, Postgres};
-    use windmill_parser_py_imports::parse_python_imports;
+    use windmill_parser_py_imports::{
+        parse_code_for_imports, parse_python_imports, ImportPin, NImport,
+    };
 
     #[sqlx::test(fixtures("base"))]
     async fn test_parse_python_imports(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -27,6 +29,7 @@ def main():
             &mut None,
             &None,
             &None,
+            None,
         )
         .await?;
         // println!("{}", serde_json::to_string(&r)?);
@@ -69,6 +72,7 @@ def main():
             &mut None,
             &None,
             &None,
+            None,
         )
         .await?;
         println!("{}", serde_json::to_string(&r)?);
@@ -101,6 +105,7 @@ def main():
             &mut None,
             &None,
             &None,
+            None,
         )
         .await?;
         println!("{}", serde_json::to_string(&r)?);
@@ -115,6 +120,89 @@ def main():
             ]
         );
 
+        Ok(())
+    }
+
+    fn auto(pkg: &str) -> NImport {
+        NImport::Auto { pkg: pkg.to_string(), key: None }
+    }
+
+    #[test]
+    fn test_parse_lazy_imports() -> anyhow::Result<()> {
+        let code = "
+lazy import requests
+lazy import numpy # pin: numpy==2.1.0
+lazy from pandas import DataFrame
+lazy from f.shared import helper
+lazy = 1
+
+def main():
+    pass
+";
+        assert_eq!(
+            parse_code_for_imports(code, "f/foo/bar")?,
+            vec![
+                NImport::Pin {
+                    pins: vec![ImportPin {
+                        pkg: "numpy==2.1.0".to_string(),
+                        path: "f/foo/bar".to_string()
+                    }],
+                    key: "numpy".to_string()
+                },
+                auto("pandas"),
+                auto("requests"),
+                NImport::Relative("f/shared".to_string()),
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_imports_recent_syntax_before_main() -> anyhow::Result<()> {
+        let code = r#"
+import requests
+
+type Alias = list[int]
+NAME = "x"
+D = {"a": 1}
+L = [[1], [2]]
+TEMPLATE = t"hello {NAME}"
+PEP701 = f"{D["a"]} {'\n'.join(["x"])}"
+PEP798 = [*a for a in L]
+
+try:
+    import ujson
+except ImportError, ValueError:
+    pass
+
+def main():
+    pass
+"#;
+        assert_eq!(
+            parse_code_for_imports(code, "f/foo/bar")?,
+            vec![auto("requests")]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_imports_main_lookalike_in_docstring() -> anyhow::Result<()> {
+        for example in ["def main[T](x: T):", "def main(x):"] {
+            let code = format!(
+                "\"\"\"Usage example:\n{example}\n    return x\n\"\"\"\nimport requests # pin: requests==2.32.0\n\ndef main(value: str):\n    return value\n"
+            );
+            assert_eq!(
+                parse_code_for_imports(&code, "f/foo/bar")?,
+                vec![NImport::Pin {
+                    pins: vec![ImportPin {
+                        pkg: "requests==2.32.0".to_string(),
+                        path: "f/foo/bar".to_string()
+                    }],
+                    key: "requests".to_string()
+                }],
+                "{code}"
+            );
+        }
         Ok(())
     }
 }

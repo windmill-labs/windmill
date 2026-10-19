@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import confluenceFixture from '../../fixtures/frontend/global/hub/confluence.json'
 import servicenowFixture from '../../fixtures/frontend/global/hub/servicenow.json'
 import outreachFixture from '../../fixtures/frontend/global/hub/outreach.json'
+import syncedResourceTypesFixture from '../../fixtures/frontend/global/hub/synced_resource_types.json'
 import type {
 	AppWithLastVersion,
 	CompletedJob,
@@ -98,6 +99,13 @@ export interface BenchmarkWorkspaceResource {
 	description?: string
 }
 
+/** A resource type the instance holds. */
+export interface BenchmarkWorkspaceResourceType {
+	name: string
+	schema?: unknown
+	description?: string
+}
+
 export interface BenchmarkWorkspaceJob {
 	/** Stable id so a case prompt can reference a specific run (e.g. for get_run). */
 	id?: string
@@ -118,6 +126,8 @@ export interface BenchmarkWorkspaceRunnables {
 	variables?: BenchmarkWorkspaceVariable[]
 	aiProviders?: BenchmarkWorkspaceAiProvider[]
 	resources?: BenchmarkWorkspaceResource[]
+	/** Unset means an instance synced with the hub. */
+	resourceTypes?: BenchmarkWorkspaceResourceType[]
 	datatables?: BenchmarkDatatableSeed[]
 	/** DuckLake catalog names, as `list_ducklakes` reports them. */
 	ducklakes?: string[]
@@ -326,6 +336,57 @@ export function listBenchmarkPlainResources(workspace: string): ListableResource
 		extra_perms: {},
 		edited_at: BENCHMARK_TIMESTAMP
 	}))
+}
+
+function benchmarkResourceTypes(workspace: string): BenchmarkWorkspaceResourceType[] {
+	return benchmarkWorkspaceRunnables.get(workspace)?.resourceTypes ?? syncedResourceTypes()
+}
+
+/** Resource type names of a benchmark workspace, as `ResourceService.listResourceTypeNames`
+ * returns them. Null when the workspace is not a benchmark one. */
+export function listBenchmarkResourceTypeNames(workspace: string): string[] | null {
+	if (!benchmarkWorkspaces.has(workspace)) {
+		return null
+	}
+	return benchmarkResourceTypes(workspace).map((rt) => rt.name)
+}
+
+/** Adds a resource type to a benchmark workspace, as `ResourceService.createResourceType` does,
+ * so later searches in the same case find it. */
+export function createBenchmarkResourceType(
+	workspace: string,
+	resourceType: BenchmarkWorkspaceResourceType
+): void {
+	const runnables = benchmarkWorkspaceRunnables.get(workspace)
+	if (!runnables) {
+		throw new Error(`Workspace "${workspace}" is not a benchmark workspace`)
+	}
+	const existing = benchmarkResourceTypes(workspace)
+	if (existing.some((rt) => rt.name === resourceType.name)) {
+		throw new Error(`Resource type ${resourceType.name} already exists`)
+	}
+	runnables.resourceTypes = [...existing, resourceType]
+}
+
+/** Stands in for the resource type search: a type matches when a word of the query appears in
+ * its name or description, ranked by how many do. */
+export function queryBenchmarkResourceTypes(
+	workspace: string,
+	text: string,
+	limit = 10
+): { name: string; schema?: unknown; score: number }[] {
+	const words = text
+		.toLowerCase()
+		.split(/[^a-z0-9]+/)
+		.filter((word) => word.length >= 3)
+	return benchmarkResourceTypes(workspace)
+		.map((rt) => {
+			const haystack = `${rt.name} ${rt.description ?? ''}`.toLowerCase()
+			return { name: rt.name, schema: rt.schema, score: words.filter((w) => haystack.includes(w)).length }
+		})
+		.filter((rt) => rt.score > 0)
+		.sort((a, b) => b.score - a.score)
+		.slice(0, limit)
 }
 
 /** A seeded resource with its value, as `ResourceService.getResource` returns it. Covers both
@@ -692,8 +753,136 @@ export function listBenchmarkDatatables(workspace: string): DataTableTables[] | 
 		datatable_name: datatable.datatable_name,
 		schemas: Object.fromEntries(
 			Object.entries(datatable.schemas).map(([schema, tables]) => [schema, Object.keys(tables)])
-		)
+		),
+		...(datatable.migrations_enabled && { migrations_enabled: true })
 	}))
+}
+
+// ============= Datatable migrations =============
+
+function benchmarkDatatable(workspace: string, datatableName: string): BenchmarkDatatableSeed {
+	const datatable = (benchmarkWorkspaceRunnables.get(workspace)?.datatables ?? []).find(
+		(entry) => entry.datatable_name === datatableName
+	)
+	if (!datatable) {
+		throw new Error(`datatable "${datatableName}" not found`)
+	}
+	return datatable
+}
+
+/** Run a migration body through the in-memory engine, one statement at a time and without the
+ * transaction frame, so the tables it creates show up in later reads. */
+function applyBenchmarkMigrationSql(datatable: BenchmarkDatatableSeed, sql: string): void {
+	// Split on the semicolons outside single-quoted literals.
+	for (const statement of sql.match(/(?:'(?:[^']|'')*'|[^;'])+/g) ?? []) {
+		const trimmed = statement.replace(/^\s*--.*$/gm, '').trim()
+		if (trimmed !== '' && !/^(begin|end|commit)$/i.test(trimmed)) {
+			applyDatatableSql(datatable, trimmed)
+		}
+	}
+}
+
+export function getBenchmarkDatatableMigrationsStatus(input: {
+	workspace: string
+	datatableName: string
+}) {
+	const datatable = benchmarkDatatable(input.workspace, input.datatableName)
+	if (!datatable.migrations_enabled) {
+		return { enabled: false, migrations: [] }
+	}
+	return {
+		enabled: true,
+		migrations: (datatable.migrations ?? []).map(({ applied, ...migration }) => ({
+			...migration,
+			status: applied ? ('ran' as const) : ('not_run' as const)
+		}))
+	}
+}
+
+export function createBenchmarkDatatableMigration(input: {
+	workspace: string
+	datatableName: string
+	requestBody: { name: string; code_up: string; code_down?: string }
+}) {
+	const datatable = benchmarkDatatable(input.workspace, input.datatableName)
+	if (!datatable.migrations_enabled) {
+		throw new Error(
+			`Migrations are not enabled for data table '${input.datatableName}'. Enable them first.`
+		)
+	}
+	const migrations = (datatable.migrations ??= [])
+	const timestamp = Math.max(20260101000000, ...migrations.map((m) => m.timestamp)) + 1
+	migrations.push({ timestamp, ...input.requestBody })
+	return { datatable: input.datatableName, timestamp, ...input.requestBody }
+}
+
+export function upsertBenchmarkDatatableMigration(input: {
+	workspace: string
+	datatableName: string
+	requestBody: { timestamp: number; name: string; code_up: string; code_down?: string }
+}): string {
+	const datatable = benchmarkDatatable(input.workspace, input.datatableName)
+	const migrations = (datatable.migrations ??= [])
+	const existing = migrations.find((m) => m.timestamp === input.requestBody.timestamp)
+	if (existing?.applied) {
+		throw new Error(
+			`Migration ${existing.timestamp} on data table '${input.datatableName}' has already been applied and cannot be modified`
+		)
+	}
+	if (existing) {
+		// Replaced whole, as the server does: a down left out is stored as none.
+		delete existing.code_down
+		Object.assign(existing, input.requestBody)
+	} else {
+		migrations.push({ ...input.requestBody })
+		migrations.sort((a, b) => a.timestamp - b.timestamp)
+	}
+	return `Upserted migration ${input.requestBody.timestamp} in ${input.datatableName}`
+}
+
+export function runBenchmarkDatatableMigrations(input: {
+	workspace: string
+	datatableName: string
+	upTo?: number
+	only?: number
+}) {
+	const datatable = benchmarkDatatable(input.workspace, input.datatableName)
+	const applied: { version: number; name: string }[] = []
+	for (const migration of datatable.migrations ?? []) {
+		if (
+			migration.applied ||
+			(input.only !== undefined && migration.timestamp !== input.only) ||
+			(input.only === undefined && input.upTo !== undefined && migration.timestamp > input.upTo)
+		) {
+			continue
+		}
+		applyBenchmarkMigrationSql(datatable, migration.code_up)
+		migration.applied = true
+		applied.push({ version: migration.timestamp, name: migration.name })
+	}
+	return { applied }
+}
+
+export function rollbackBenchmarkDatatableMigration(input: {
+	workspace: string
+	datatableName: string
+	only?: number
+}) {
+	const datatable = benchmarkDatatable(input.workspace, input.datatableName)
+	const last = (datatable.migrations ?? [])
+		.filter((m) => m.applied && (input.only === undefined || m.timestamp === input.only))
+		.at(-1)
+	if (!last) {
+		return { rolled_back: [] }
+	}
+	if (last.code_down === undefined) {
+		throw new Error(
+			`Cannot roll back migration ${last.timestamp} (${last.name}): it has no down migration`
+		)
+	}
+	applyBenchmarkMigrationSql(datatable, last.code_down)
+	last.applied = false
+	return { rolled_back: [{ version: last.timestamp, name: last.name }] }
 }
 
 // ============= DuckLake catalogs and declared metrics =============
@@ -1340,6 +1529,42 @@ const BENCHMARK_HUB_INTEGRATION_META: Record<
 	}
 }
 
+/** The resource type a mocked hub integration takes, as its metadata serves it. */
+function benchmarkHubIntegrationResourceType(app: string): BenchmarkWorkspaceResourceType | null {
+	const real = REAL_HUB_INTEGRATIONS.find((integration) => integration.app === app)
+	if (real) {
+		return real.resource_type
+	}
+	const entry = BENCHMARK_HUB_INTEGRATION_META[app]
+	if (!entry) {
+		return null
+	}
+	return {
+		name: app,
+		description: `${entry.display_name} credentials`,
+		schema: {
+			type: 'object',
+			required: ['apiKey'],
+			properties: {
+				apiKey: { type: 'string', description: `${entry.display_name} API key` }
+			}
+		}
+	}
+}
+
+/** What a hub-synced instance holds: common hub types, plus the one each mocked hub
+ * integration takes, so the hub and the instance agree on them. */
+function syncedResourceTypes(): BenchmarkWorkspaceResourceType[] {
+	const integrations = [
+		...REAL_HUB_INTEGRATIONS.map((integration) => integration.app),
+		...Object.keys(BENCHMARK_HUB_INTEGRATION_META)
+	]
+	return [
+		...syncedResourceTypesFixture,
+		...integrations.flatMap((app) => benchmarkHubIntegrationResourceType(app) ?? [])
+	]
+}
+
 /** Mirrors the hub's own derivation: hosts seen in the shipped scripts, whether they
  * call the provider directly, and how many there are of each kind. */
 function benchmarkDerivedFacts(app: string) {
@@ -1474,7 +1699,7 @@ export function handleBenchmarkApiFetch(url: string, init?: RequestInit): Respon
 				meta: real.meta,
 				meta_updated_at: null,
 				derived: benchmarkDerivedFacts(app),
-				resource_types: [{ id: 1, ...real.resource_type }]
+				resource_types: [{ id: 1, ...benchmarkHubIntegrationResourceType(app) }]
 			})
 		}
 		const entry = BENCHMARK_HUB_INTEGRATION_META[app]
@@ -1491,23 +1716,7 @@ export function handleBenchmarkApiFetch(url: string, init?: RequestInit): Respon
 			meta: entry.meta,
 			meta_updated_at: null,
 			derived: benchmarkDerivedFacts(app),
-			resource_types: [
-				{
-					id: 1,
-					name: app,
-					description: `${entry.display_name} credentials`,
-					schema: {
-						type: 'object',
-						required: ['apiKey'],
-						properties: {
-							apiKey: {
-								type: 'string',
-								description: `${entry.display_name} API key`
-							}
-						}
-					}
-				}
-			]
+			resource_types: [{ id: 1, ...benchmarkHubIntegrationResourceType(app) }]
 		})
 	}
 	if (path === '/api/integrations/hub/list') {

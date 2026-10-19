@@ -1,4 +1,5 @@
 import type { UserDraftItemKind, WorkspaceItemDiff } from '$lib/gen'
+import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
 
 // The "modified items mask" tracks which workspace items an AI chat touched via
 // tool calls. Each key is `${UserDraftItemKind}:${storagePath}`. UserDraftItemKind
@@ -43,6 +44,21 @@ const IDENTITY_FORK_DIFF_KINDS = new Set<ForkDiffKind>([
 export function forkDiffKindToUserDraftKind(kind: ForkDiffKind): UserDraftItemKind | undefined {
 	if (IDENTITY_FORK_DIFF_KINDS.has(kind)) return kind as UserDraftItemKind
 	return FORK_DIFF_KIND_TO_USER_DRAFT_KIND[kind]
+}
+
+// A pipeline the chat edited is masked as its folder's draft bundle, and each
+// script that bundle deploys is masked too, so a fork review selects exactly
+// those. The session's changes list shows deployed scripts of a masked
+// pipeline's folder as that pipeline's one row — any of them, since a script's
+// mask entry does not say whether a pipeline deploy or the chat put it there.
+export function foldedIntoPipelineRow(
+	mask: ReadonlySet<string>,
+	kind: UserDraftItemKind,
+	path: string
+): boolean {
+	if (kind !== 'script') return false
+	const folder = path.match(/^f\/([^/]+)\//)?.[1]
+	return !!folder && mask.has(maskKey(PIPELINE_DRAFT_KIND, pipelineBundlePath(folder)))
 }
 
 // True when a fork-comparison diff names an item present in the chat-modified mask.

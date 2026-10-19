@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use windmill_api_auth::{require_super_admin, ApiAuthed};
 use windmill_common::DB;
@@ -52,6 +52,23 @@ pub(crate) async fn change_workspace_id(
         require_super_admin(&db, &authed).await?;
     } else {
         require_admin(authed.is_admin, &authed.username)?;
+    }
+
+    // An isolating fork's objects live under a prefix derived from its id: under a new id it
+    // would see none of them, and descendants would lose them from their read-through.
+    let isolates_storage = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM fork_storage_namespace WHERE workspace_id = $1)",
+        &old_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+    if isolates_storage {
+        return Err(Error::BadRequest(
+            "This workspace isolates its object storage from its parent under a prefix derived \
+             from its id, so its id cannot be changed"
+                .to_string(),
+        ));
     }
 
     let mut tx = db.begin().await?;
@@ -868,11 +885,21 @@ pub(crate) async fn change_workspace_id(
         "Re-pushing jobs for {} enabled schedules",
         enabled_schedule_paths.len()
     );
-    for schedule_path in &enabled_schedule_paths {
-        if let Some(schedule) = get_schedule_opt(&mut *tx, &rw.new_id, schedule_path).await? {
-            tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
+    windmill_queue::tags::carry_lineage_over_rename(&old_id, &rw.new_id, &db).await?;
+    let new_id = &rw.new_id;
+    let repushed = async {
+        for schedule_path in &enabled_schedule_paths {
+            if let Some(schedule) = get_schedule_opt(&mut *tx, new_id, schedule_path).await? {
+                tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
+            }
         }
+        Ok::<_, Error>(tx)
     }
+    .await;
+    if repushed.is_err() {
+        windmill_queue::tags::invalidate_fork_parent_cache(new_id);
+    }
+    let mut tx = repushed?;
 
     // After every workspace_settings write above: fork cleanup locks a settings row before the
     // registry, so taking the registry first here would deadlock with it.
@@ -1099,6 +1126,34 @@ pub(crate) async fn delete_workspace(
             tracing::warn!("deleting workspace {w_id}: preparing ducklake cleanup: {e:#}");
             vec![]
         });
+    // A child fork reads through to this fork's prefix, or to the one this fork shares, and a
+    // child sharing the storage writes into it: deleting this link would destroy the child's
+    // data, or leave its chain without the isolating fork, writing the root's own keys. Under the
+    // lock forking this workspace takes, so no child can commit between the check and the delete.
+    windmill_common::workspaces::lock_fork_datatables(&mut tx, &w_id).await?;
+    let chain = windmill_common::workspaces::workspace_with_fork_ancestors(&db, &w_id).await?;
+    let isolating_with_children = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM fork_storage_namespace WHERE workspace_id = ANY($1))
+            AND EXISTS (SELECT 1 FROM workspace WHERE parent_workspace_id = $2)",
+        &chain,
+        &w_id
+    )
+    .fetch_one(&mut *tx)
+    .await?
+    .unwrap_or(false);
+    if isolating_with_children {
+        return Err(Error::BadRequest(format!(
+            "the forks of {w_id} reach its fork chain's isolated object storage through it: \
+             delete them first"
+        )));
+    }
+    // Nothing can reach a deleted fork's prefix once it is gone, so it is always purged.
+    let fork_storage_purges = prepare_fork_storage_purges(&db, &w_id, None)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!("deleting workspace {w_id}: preparing storage purge: {e:#}");
+            vec![]
+        });
 
     sqlx::query!("DELETE FROM ai_agent_memory WHERE workspace_id = $1", &w_id)
         .execute(&mut *tx)
@@ -1299,6 +1354,13 @@ pub(crate) async fn delete_workspace(
     .execute(&mut *tx)
     .await?;
 
+    sqlx::query!(
+        "DELETE FROM runnable_job_stats WHERE workspace_id = $1",
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
     // If this workspace is itself a dev workspace, deleting it dissolves the pairing, so also drop
     // the parent prod's reserved dev_workspace_lock (mirrors detach_dev_workspace) — otherwise prod
     // stays locked against direct deploy/forking with no dev workspace left to make changes in.
@@ -1361,6 +1423,14 @@ pub(crate) async fn delete_workspace(
             "deleted workspace {w_id}: ducklake namespace cleanup: {}",
             e.msg
         );
+    }
+    match purge_fork_storages_unless_live(&db, &w_id, fork_storage_purges).await {
+        Ok(errors) => {
+            for e in errors {
+                tracing::warn!("deleted workspace {w_id}: storage purge: {e}");
+            }
+        }
+        Err(e) => tracing::warn!("deleted workspace {w_id}: storage purge: {e:#}"),
     }
 
     if let Some(parent) = dev_lock_parent {
@@ -1479,20 +1549,39 @@ pub async fn drop_forked_datatable_databases(
         serde_json::from_value(datatable_config).unwrap_or_default();
 
     let mut errors: Vec<String> = Vec::new();
+    // Data tables cloned from one database share its copy, which is dropped once for all of them.
+    // Keyed by where the database lives too: copies on other clusters or servers can share a name.
+    let mut dropped_dbs: HashSet<(String, Option<u16>, String)> = HashSet::new();
+    // Only a clone is droppable, and a clone is terminal by construction: a kept data table is a
+    // pointer at the parent's database, which this fork does not own.
+    let cloned_database = |name: &str| {
+        datatables
+            .get(name)
+            .filter(|dt| dt.forked_from.is_some())
+            .and_then(|dt| dt.database.as_ref())
+    };
 
     for dt_name in &req.datatable_names {
-        // Only a clone is droppable, and a clone is terminal by construction: a kept data table is
-        // a pointer at the parent's database, which this fork does not own.
-        let database = match datatables.get(dt_name) {
-            Some(dt) if dt.forked_from.is_some() => match dt.database.as_ref() {
-                Some(database) => database,
-                None => continue,
-            },
-            _ => continue,
+        let Some(database) = cloned_database(dt_name) else {
+            continue;
         };
 
         if database.resource_type.is_windmill_managed() {
             let db_to_drop = &database.resource_path;
+            let cluster = database.resource_type.as_ref().to_string();
+            if !dropped_dbs.insert((cluster, None, db_to_drop.clone())) {
+                continue;
+            }
+            let sharing: Vec<String> = req
+                .datatable_names
+                .iter()
+                .filter(|name| {
+                    cloned_database(name).is_some_and(|d| {
+                        d.resource_type == database.resource_type && &d.resource_path == db_to_drop
+                    })
+                })
+                .cloned()
+                .collect();
             if !db_to_drop.starts_with("wm_fork_") {
                 errors.push(format!(
                     "Refusing to drop instance database '{}' for datatable://{}:  name does not start with 'wm_fork_'",
@@ -1506,12 +1595,8 @@ pub async fn drop_forked_datatable_databases(
             // A task of its own, so a client going away cannot stop it between dropping the
             // database and committing the entry's removal.
             let dropped = tokio::spawn({
-                let (db, w_id, dt_name, db_to_drop) = (
-                    db.clone(),
-                    w_id.clone(),
-                    dt_name.clone(),
-                    db_to_drop.clone(),
-                );
+                let (db, w_id, sharing, db_to_drop) =
+                    (db.clone(), w_id.clone(), sharing.clone(), db_to_drop.clone());
                 let resource_type = database.resource_type;
                 async move {
                     let mut tx = db.begin().await?;
@@ -1520,26 +1605,29 @@ pub async fn drop_forked_datatable_databases(
                     // rename this entry, or point another one here, either side of the check below.
                     windmill_common::workspaces::lock_fork_datatables(&mut tx, &w_id).await?;
                     // The snapshot above was read unlocked: a save committing since could have
-                    // repointed this entry, and the entry is removed below whatever it names by then.
-                    let current = sqlx::query_scalar::<_, Option<serde_json::Value>>(
-                        "SELECT datatable->'datatables'->$2 FROM workspace_settings
-                     WHERE workspace_id = $1 FOR UPDATE",
-                    )
-                    .bind(&w_id)
-                    .bind(&dt_name)
-                    .fetch_optional(&mut *tx)
-                    .await?
-                    .flatten()
-                    .and_then(|v| serde_json::from_value::<DataTable>(v).ok());
-                    if !current.is_some_and(|dt| {
-                        dt.forked_from.is_some()
-                            && dt.database.is_some_and(|d| {
-                                d.resource_type == resource_type && d.resource_path == db_to_drop
-                            })
-                    }) {
-                        return Err(Error::BadRequest(
-                            "the data table changed while it was being cleaned up".to_string(),
-                        ));
+                    // repointed these entries, and they are removed below whatever they name by then.
+                    for dt_name in &sharing {
+                        let current = sqlx::query_scalar::<_, Option<serde_json::Value>>(
+                            "SELECT datatable->'datatables'->$2 FROM workspace_settings
+                         WHERE workspace_id = $1 FOR UPDATE",
+                        )
+                        .bind(&w_id)
+                        .bind(dt_name)
+                        .fetch_optional(&mut *tx)
+                        .await?
+                        .flatten()
+                        .and_then(|v| serde_json::from_value::<DataTable>(v).ok());
+                        if !current.is_some_and(|dt| {
+                            dt.forked_from.is_some()
+                                && dt.database.is_some_and(|d| {
+                                    d.resource_type == resource_type
+                                        && d.resource_path == db_to_drop
+                                })
+                        }) {
+                            return Err(Error::BadRequest(format!(
+                                "data table '{dt_name}' changed while it was being cleaned up"
+                            )));
+                        }
                     }
                     let external = resource_type
                         == windmill_common::workspaces::DataTableCatalogResourceType::ExternalInstance;
@@ -1557,11 +1645,13 @@ pub async fn drop_forked_datatable_databases(
                     )
                     .await?;
                     // Before the entry is removed: child fork pointers are found through it.
-                    let uses = windmill_common::workspaces::managed_database_uses(
+                    let names: Vec<&str> = sharing.iter().map(String::as_str).collect();
+                    let uses = windmill_common::workspaces::managed_database_uses_except(
                         &mut tx,
                         resource_type,
                         &db_to_drop,
-                        Some((w_id.as_str(), dt_name.as_str())),
+                        &w_id,
+                        &names,
                     )
                     .await?;
                     if !uses.is_empty() {
@@ -1572,20 +1662,22 @@ pub async fn drop_forked_datatable_databases(
                     }
                     // The entry goes with the database: a fork this one is cloned into afterwards
                     // must not inherit a pointer at a data table whose database is gone.
-                    sqlx::query(
-                        "UPDATE workspace_settings SET datatable = datatable #- ARRAY['datatables', $2]
-                         WHERE workspace_id = $1",
-                    )
-                    .bind(&w_id)
-                    .bind(&dt_name)
-                    .execute(&mut *tx)
-                    .await?;
+                    for dt_name in &sharing {
+                        sqlx::query(
+                            "UPDATE workspace_settings SET datatable = datatable #- ARRAY['datatables', $2]
+                             WHERE workspace_id = $1",
+                        )
+                        .bind(&w_id)
+                        .bind(dt_name)
+                        .execute(&mut *tx)
+                        .await?;
+                    }
                     if external {
                         // Checks the uses of the database itself, and unregisters it.
                         windmill_common::external_instance_pg::drop_external_instance_database_unchecked(
                             &mut tx,
                             &db_to_drop,
-                            Some((w_id.as_str(), dt_name.as_str())),
+                            sharing.first().map(|name| (w_id.as_str(), name.as_str())),
                         )
                         .await?;
                     } else {
@@ -1608,10 +1700,38 @@ pub async fn drop_forked_datatable_databases(
             if let Err(e) = dropped {
                 errors.push(format!(
                     "Could not drop instance database '{}' for datatable://{}: {}",
-                    db_to_drop, dt_name, e
+                    db_to_drop,
+                    sharing.join(", datatable://"),
+                    e
                 ));
             }
         } else {
+            // Clones on one resource share its copy, which stays while any of them is kept. Only
+            // clones: a kept entry naming the resource cannot be put in the request.
+            let mut kept: Vec<&String> = datatables
+                .iter()
+                .filter(|(name, dt)| {
+                    !req.datatable_names.contains(name)
+                        && dt.forked_from.is_some()
+                        && dt.database.as_ref().is_some_and(|d| {
+                            d.resource_type == database.resource_type
+                                && d.resource_path == database.resource_path
+                        })
+                })
+                .map(|(name, _)| name)
+                .collect();
+            if !kept.is_empty() {
+                kept.sort();
+                errors.push(format!(
+                    "Could not drop the database of datatable://{dt_name}: it is still used by data \
+                     tables {}",
+                    kept.iter()
+                        .map(|name| format!("'{name}'"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+                continue;
+            }
             let fork_pg = match crate::workspaces::resolve_pg_source_checked(
                 &db,
                 &user_db,
@@ -1664,6 +1784,9 @@ pub async fn drop_forked_datatable_databases(
                     "Refusing to drop resource database '{}' for datatable://{}: name does not start with 'wm_fork_'",
                     db_to_drop, dt_name
                 ));
+                continue;
+            }
+            if !dropped_dbs.insert((parent_pg.host.clone(), parent_pg.port, db_to_drop.clone())) {
                 continue;
             }
 
@@ -2236,6 +2359,114 @@ async fn delete_fork_ducklake_data(
     Err(Error::internal_err(
         "object storage support (parquet feature) is not compiled in".to_string(),
     ))
+}
+
+/// A storage a fork isolated, resolved while its `$res:` still exists.
+pub(crate) struct PreparedForkStoragePurge {
+    storage: String,
+    store: std::result::Result<(windmill_types::s3::LargeFileStorage, serde_json::Value), String>,
+}
+
+/// Read-only: one entry per `fork_storage_namespace` row of `w_id`. `res_fallback_w_id` as in
+/// [`prepare_fork_ducklake_cleanups`].
+pub(crate) async fn prepare_fork_storage_purges(
+    db: &DB,
+    w_id: &str,
+    res_fallback_w_id: Option<&str>,
+) -> Result<Vec<PreparedForkStoragePurge>> {
+    let rows = sqlx::query!(
+        "SELECT storage, storage_ref FROM fork_storage_namespace WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_all(db)
+    .await?;
+    let mut prepared = Vec::with_capacity(rows.len());
+    for row in rows {
+        let storage = Some(row.storage.as_str()).filter(|s| !s.is_empty());
+        let store = resolve_fork_storage(db, w_id, res_fallback_w_id, storage, &row.storage_ref)
+            .await
+            .map_err(|e| e.to_string());
+        prepared.push(PreparedForkStoragePurge { storage: row.storage, store });
+    }
+    Ok(prepared)
+}
+
+/// [`purge_fork_storages`] under the lock same-id fork creation takes, unless a workspace with
+/// that id exists again: the rows are then the new fork's, and its creation already purged the
+/// ones it found.
+pub(crate) async fn purge_fork_storages_unless_live(
+    db: &DB,
+    w_id: &str,
+    prepared: Vec<PreparedForkStoragePurge>,
+) -> Result<Vec<String>> {
+    // The lock only orders a purge against a same-id fork write; with nothing to purge, waiting
+    // on it would only hold fork creation's answer behind such a write.
+    if prepared.is_empty() {
+        return Ok(vec![]);
+    }
+    let mut lock = db.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtext('fork:' || $1))")
+        .bind(w_id)
+        .execute(&mut *lock)
+        .await?;
+    let live = sqlx::query_scalar!(
+        "SELECT EXISTS (SELECT 1 FROM workspace WHERE id = $1)",
+        w_id
+    )
+    .fetch_one(&mut *lock)
+    .await?
+    .unwrap_or(false);
+    let errors = if live {
+        vec![]
+    } else {
+        purge_fork_storages(db, w_id, prepared).await
+    };
+    lock.commit().await?;
+    Ok(errors)
+}
+
+/// Delete everything under the fork's `__wm_forks/<segment>/` in each prepared storage, then its
+/// registry row. Returns one message per storage that could not be purged; its row survives.
+async fn purge_fork_storages(
+    db: &DB,
+    w_id: &str,
+    prepared: Vec<PreparedForkStoragePurge>,
+) -> Vec<String> {
+    let area = format!(
+        "{}/{}",
+        windmill_common::workspaces::FORK_DUCKLAKE_DATA_DIR,
+        windmill_common::workspaces::fork_data_dir_segment(w_id)
+    );
+    let mut errors = vec![];
+    for p in prepared {
+        let name = if p.storage.is_empty() {
+            "default storage"
+        } else {
+            p.storage.as_str()
+        };
+        let purged = match p.store {
+            Ok((lfs, value)) => delete_fork_ducklake_data(lfs, value, &area)
+                .await
+                .map_err(|e| e.to_string()),
+            Err(e) => Err(e),
+        };
+        if let Err(e) = purged {
+            errors.push(format!("{name}: {e}"));
+            continue;
+        }
+        if let Err(e) = sqlx::query!(
+            "DELETE FROM fork_storage_namespace WHERE workspace_id = $1 AND storage = $2",
+            w_id,
+            p.storage
+        )
+        .execute(db)
+        .await
+        {
+            errors.push(format!("{name}: removing registry row: {e}"));
+        }
+    }
+    windmill_common::fork_storage::invalidate_fork_storage_keys_cache(w_id);
+    errors
 }
 
 /// Destroying an ATTACHED dev workspace (or its data environments) must be a prod-admin

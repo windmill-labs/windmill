@@ -41,6 +41,8 @@ export type ColumnDef = {
 	children?: ColumnDef[]
 	// DBExplorer
 	ignored?: boolean
+	/** False when the column cannot be filtered on, e.g. a nested value. */
+	filterable?: boolean
 	hideInsert?: boolean
 	editable?: boolean
 	overrideDefaultValue?: boolean

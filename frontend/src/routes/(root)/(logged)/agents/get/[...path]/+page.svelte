@@ -2,11 +2,11 @@
 	import { page } from '$app/state'
 	import { FlaskConical, FormInput, MessageSquare, Pen } from 'lucide-svelte'
 	import { resource } from 'runed'
-	import { base } from '$lib/base'
 	import { goto } from '$lib/navigation'
 	import { copilotInfo } from '$lib/aiStore'
 	import AgentEvalsModal from '$lib/components/flows/content/AgentEvalsModal.svelte'
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
+	import OnBehalfOfBadge from '$lib/components/details/OnBehalfOfBadge.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
@@ -15,10 +15,13 @@
 	import AgentEditorHost from '$lib/components/flows/content/AgentEditorHost.svelte'
 	import AgentConfigModal from '$lib/components/flows/content/AgentConfigModal.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
+	import { Alert } from '$lib/components/common'
 	import { keepsManagedMemory } from '$lib/components/flows/agentFormFields'
 	import { agentMenuItems, deleteAgent } from '$lib/components/flows/agentActions'
+	import AgentHistory from '$lib/components/flows/AgentHistory.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/toast'
 
 	/**
 	 * The deployed agent, as a flow's or a script's page shows theirs: a way to run it, a chat when
@@ -39,11 +42,27 @@
 	let configModal: AgentConfigModal | undefined = $state(undefined)
 	let shareModal: ShareModal | undefined = $state(undefined)
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state(undefined)
+	let history: AgentHistory | undefined = $state(undefined)
 	let deleteOpen = $state(false)
 	let evalsModal: AgentEvalsModal | undefined = $state(undefined)
+	let runForm: RunForm | undefined = $state(undefined)
+	let isValid = $state(true)
+
+	// Cmd/Ctrl+Enter runs the form, as on a script's or a flow's page. The form stays mounted, hidden,
+	// while the chat shows, and the chat's composer owns the key then.
+	function onKeyDown(event: KeyboardEvent) {
+		if (event.defaultPrevented || event.key !== 'Enter' || !(event.ctrlKey || event.metaKey)) return
+		if (!runForm || testPane?.mode === 'chat') return
+		if (isValid) {
+			event.preventDefault()
+			runForm.run()
+		} else {
+			sendUserToast('Please fix errors before running', true)
+		}
+	}
 
 	async function remove() {
-		if (ws && (await deleteAgent(ws, path))) await goto(`${base}/?kind=agent`)
+		if (ws && (await deleteAgent(ws, path))) await goto('/?kind=agent')
 	}
 
 	// The workspace's, so a path change never waits on it and a menu never outlives its path.
@@ -61,6 +80,7 @@
 					deployUiSettings: deployUiSettings.current,
 					onPermissions: () => shareModal?.openDrawer?.(path, 'resource'),
 					onDeploy: () => deploymentDrawer?.openDrawer(path, 'resource'),
+					onHistory: () => history?.open(),
 					onDelete: () => (deleteOpen = true)
 				}).map((item) => ({
 					label: item.displayName,
@@ -75,6 +95,7 @@
 
 <ShareModal bind:this={shareModal} />
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
+<AgentHistory bind:this={history} {path} canRestore={canEdit} onRestored={() => reloaded++} />
 <ConfirmationModal
 	open={deleteOpen}
 	title="Delete agent"
@@ -87,6 +108,8 @@
 >
 	<span>Every flow that links {path} will fail at its agent step once it is deleted.</span>
 </ConfirmationModal>
+
+<svelte:window onkeydown={onKeyDown} />
 
 <main class="h-full w-full flex flex-col">
 	<!-- `labels`: the pen saves every field it shows in one write, so the labels it shows have to be
@@ -103,7 +126,7 @@
 			? async (newPath) => {
 					// A rename moves the page; a summary saved in place has to be read again, since
 					// what is shown here came from the load this page keys on.
-					if (newPath !== path) await goto(`${base}/agents/get/${newPath}`)
+					if (newPath !== path) await goto(`/agents/get/${newPath}`)
 					else reloaded++
 				}
 			: undefined}
@@ -127,13 +150,18 @@
 								variant: 'accent',
 								unifiedSize: 'md',
 								startIcon: Pen,
-								href: `${base}/agents/edit/${path}`
+								href: `/agents/edit/${path}`
 							}
 						}
 					]
 				: [])
 		]}
 	>
+		<OnBehalfOfBadge
+			onBehalfOf={config?.run_on_behalf_of ? agent?.onBehalfOf : undefined}
+			onBehalfOfEmail={undefined}
+			kind="agent"
+		/>
 		{#snippet leading_actions()}
 			<!-- Only an agent that keeps the conversation can chat: without managed memory every
 			     message would be answered alone, so it is run from its inputs with nothing to switch. -->
@@ -180,6 +208,14 @@
 				onOpenConfig={() => configModal?.open()}
 			>
 				{#snippet viewForm({ schema, run, loading, actions })}
+					{#if config && !chatAvailable}
+						<Alert type="info" size="xs" title="Managed memory is off" class="mb-4">
+							Each run is answered on its own inputs, so this agent has no chat. That suits reusing
+							it as a step in a flow.{canEdit
+								? ' Turn on managed memory in its configuration to chat with it.'
+								: ''}
+						</Alert>
+					{/if}
 					<RunForm
 						runnable={{ schema, path }}
 						runAction={run}
@@ -188,6 +224,8 @@
 						autofocus
 						{loading}
 						{actions}
+						bind:isValid
+						bind:this={runForm}
 					/>
 				{/snippet}
 			</AgentEditorHost>

@@ -23,13 +23,16 @@ RUN apt-get -y update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-RUN git clone -b master --single-branch https://github.com/google/nsjail.git . && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800
+COPY docker/nsjail-patches/ /nsjail-patches/
+RUN git clone -b master --single-branch https://github.com/google/nsjail.git . && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800 \
+    && git apply /nsjail-patches/*.patch
 RUN make
 
 FROM ${DEBIAN_IMAGE}
 
 ARG APP=/usr/src/app
 ARG LATEST_STABLE_PY=3.12.13
+ARG NEW_INSTANCE_PY=3.13.16
 
 # UV configuration
 ENV UV_CACHE_DIR=/tmp/windmill/cache/uv
@@ -58,13 +61,14 @@ RUN curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmo
 ENV TZ=Etc/UTC
 
 # Install UV
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.11.24/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.13.0/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
 
 # Preinstall python runtime to temp location (will copy with world-writable perms later)
 # --compile-bytecode precompiles the stdlib to .pyc so jobs don't recompile it on every run
 # under the read-only nsjail runtime mount (uv >= 0.9.25). The copy below MUST preserve
 # timestamps or Python's mtime-based .pyc invalidation discards these compiled files.
 RUN UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $LATEST_STABLE_PY --compile-bytecode
+RUN UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $NEW_INSTANCE_PY --compile-bytecode
 
 # Copy to final location with world-writable permissions for arbitrary UID support
 RUN mkdir -p /tmp/windmill/cache && \

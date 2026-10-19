@@ -23,6 +23,18 @@ pub const MIN_VERSION_SUPPORTS_BUN_LOCKFILE_V2: VC = vc(1, 794, 0, "Bun v2 lockf
 // them, so a restriction set while one is live is silently ignored on the jobs it runs. Must
 // name the release this ships in.
 pub const MIN_VERSION_SUPPORTS_JOB_TOKEN_SCOPES: VC = vc(1, 822, 0, "Restricted job tokens");
+// Gates writing AES-256-GCM workspace ciphertext and the background pass that rewrites the
+// stored secret variables. Reading it ships one release earlier (1.831), so a rollback to
+// that release still reads every secret; below it, secrets written after the switch stay
+// unreadable until rolled forward. Only worker versions are seen here, not servers.
+// Also gates widening `variable.value`, which needs every process to retire the connections
+// the widening poisons (`db::retire_connections_opened_before_now`): that also ships in 1.832.
+pub const MIN_VERSION_SUPPORTS_AEAD_SECRETS: VC = vc(1, 832, 0, "AES-GCM secret encryption");
+// A renewed license key replaces the one every process reads, and a worker that predates
+// Ed25519 support rejects an Ed25519-signed key and stops pulling jobs, so renewal only offers
+// to accept one once this is met. Only worker versions are seen here, not servers. Must name
+// the release this ships in.
+pub const MIN_VERSION_SUPPORTS_ED25519_LICENSE: VC = vc(1, 838, 0, "Ed25519 license keys");
 pub const MIN_VERSION_SUPPORTS_NODE_DEBOUNCING: VC = vc(1, 658, 0, "Flow node debouncing");
 pub const MIN_VERSION_SUPPORTS_TOKEN_HASH: VC = vc(1, 659, 0, "Token hash storage");
 pub const MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: VC = vc(1, 602, 0, "Sync jobs debouncing");

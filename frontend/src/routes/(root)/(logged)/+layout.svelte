@@ -7,6 +7,7 @@
 		AssetService,
 		FlowService,
 		OpenAPI,
+		ResourceService,
 		ScriptService,
 		SettingService,
 		UserService,
@@ -78,14 +79,18 @@
 		Home,
 		Play,
 		Search,
-		WandSparkles
+		WandSparkles,
+		ArrowLeft
 	} from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
+	import { isInstanceRoute } from '$lib/instanceRoutes'
 	import { getUserExt } from '$lib/user'
 	import { confirmPendingLoginMethod } from '$lib/lastLoginMethod'
 	import { deepEqual } from 'fast-equals'
 	import { twMerge } from 'tailwind-merge'
 	import { navDetached } from '$lib/components/sidebar/navDetached.svelte'
 	import { navHandleSlot } from '$lib/components/sidebar/navHandlePlacement.svelte'
+	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 	import PageHeaderBar from '$lib/components/PageHeaderBar.svelte'
 	import { BAR_HEIGHT_PX, pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { sidebarPageAllowed } from '$lib/components/sidebar/operatorRoutes'
@@ -102,18 +107,17 @@
 	import InstanceUiSync from '$lib/components/InstanceUiSync.svelte'
 	import { onDestroy, setContext, untrack } from 'svelte'
 	import { cubicOut } from 'svelte/easing'
-	import { base } from '$app/paths'
 	import { Menubar, Tooltip } from '$lib/components/meltComponents'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
 	import SessionPicker from '$lib/components/sessions/SessionPicker.svelte'
 	import SessionModeSwitch from '$lib/components/sessions/SessionModeSwitch.svelte'
-	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
+	import { isGlobalAiEnabled, sessionsAllowedFor } from '$lib/components/copilot/chat/global/gate'
 	import { copilotInfo } from '$lib/aiStore'
 	import {
-		isPageItemListPath,
+		isPreviewListPath,
 		parsePreviewItemRoute,
-		stripBase
+		barePath
 	} from '$lib/components/sessions/previewPaths'
 	import { rememberNavRoute } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { sessionState } from '$lib/components/sessions/sessionState.svelte'
@@ -300,11 +304,10 @@
 	// Session mode is route-derived: the rail shows the sessions sidebar on the
 	// /sessions page and the workspace navigation everywhere else. The switch
 	// (SessionModeSwitch) just navigates in and out of that route.
-	// The route decides, except for an operator: /sessions refuses them, so handing their
-	// sidebar over to a session list would offer what the page behind it is declining.
-	let sessionMode = $derived(
-		page.url.pathname.startsWith(base + '/sessions') && !$userStore?.operator
-	)
+	// An operator without the opt-in (`gate.ts`) is refused by /sessions, so their sidebar is not
+	// handed over to a session list the page behind it declines, and they keep the docked chat.
+	const sessionsAllowed = $derived(sessionsAllowedFor($userStore?.operator))
+	let sessionMode = $derived(page.url.pathname.startsWith('/sessions') && sessionsAllowed)
 	// Session mode points the bottom settings entry at the open session's own
 	// workspace. An unsent draft hasn't committed one yet, so it falls back to
 	// the family root.
@@ -326,12 +329,10 @@
 	// A workspace that hid the assistant (`ai_config.copilot_disabled`) loses both entry
 	// points: the Workspace ⇄ Sessions switch and the legacy Ask-AI button.
 	const sessionsSwitchShown = $derived(
-		globalAiEnabled && !$copilotInfo.workspaceDisabled && !$userStore?.operator
+		globalAiEnabled && sessionsAllowed && !$copilotInfo.workspaceDisabled
 	)
-	// The legacy pane's entry point. An operator keeps that pane whatever the beta gate says
-	// (`disableAi` above), so the sidebar must still offer them a way into it.
 	const askAiShown = $derived(
-		(!globalAiEnabled || $userStore?.operator) && !$copilotInfo.workspaceDisabled
+		(!globalAiEnabled || !sessionsAllowed) && !$copilotInfo.workspaceDisabled
 	)
 
 	if (page.status == 404) {
@@ -471,7 +472,7 @@
 			}
 			// A list page mounts in process too, where its rows open as tabs of their own.
 			const listUrl = navigation.to?.url
-			if (listUrl && isPageItemListPath(stripBase(listUrl.pathname))) {
+			if (listUrl && isPreviewListPath(barePath(listUrl.pathname))) {
 				navigation.cancel()
 				const u = new URL(listUrl.href)
 				u.searchParams.delete('nomenubar')
@@ -518,8 +519,11 @@
 	function pointerInMenu(): boolean {
 		return !!document.querySelector('[role="menu"]:hover')
 	}
+	// A click on the handle pins the card: it then outlives the pointer leaving. Only meaningful
+	// while open — every open from closed starts unpinned.
+	let menuPinned = $state(false)
 	const { debounced: schedulePeekClose, clearDebounce: cancelPeekClose } = debounce(() => {
-		if (!peeksOnHover) return
+		if (!peeksOnHover || menuPinned) return
 		if (pointerInMenu()) {
 			schedulePeekClose()
 			return
@@ -532,10 +536,56 @@
 	const floatBand = $derived(pageHeader.content?.barRightInset != null)
 
 	// The handle and the edge band both open the card this layout owns.
-	navHandleSlot.setOpener(() => (menuOpen = true), {
-		schedule: schedulePeekClose,
-		cancel: cancelPeekClose
-	})
+	navHandleSlot.setOpener(
+		() => {
+			if (!menuOpen) menuPinned = false
+			menuOpen = true
+		},
+		{ schedule: schedulePeekClose, cancel: cancelPeekClose },
+		{
+			isOpen: () => menuOpen,
+			isPinned: () => menuPinned,
+			pin: () => (menuPinned = true),
+			close: () => (menuOpen = false)
+		}
+	)
+
+	// The open card is dismissed by any press on the page, and that press still reaches its target:
+	// a layer that caught it would cost every dismissal a second click. Only presses inside the page
+	// column count — the card itself and the menus it portals to `body` sit outside it — and the
+	// handle toggles the card itself. Capture phase, so a target that stops propagation still closes it.
+	let pageColumn: HTMLElement | undefined = $state()
+	function closeCardOnPagePress(e: PointerEvent) {
+		if (!menuOpen || !useDrawer) return
+		const target = e.target
+		if (!(target instanceof Element) || !pageColumn?.contains(target)) return
+		if (target.closest('[data-nav-handle]')) return
+		menuOpen = false
+	}
+	// A press inside an iframe (a session's preview) never reaches this window; focus moving into one does.
+	function closeCardOnFrameFocus() {
+		if (!menuOpen || !useDrawer) return
+		setTimeout(() => {
+			if (document.activeElement instanceof HTMLIFrameElement) menuOpen = false
+		})
+	}
+
+	const viewportOverlays = overlayStack()
+	function onWindowKeydown(e: KeyboardEvent) {
+		onSearchShortcutBeforeLoad(e)
+		if (e.key !== 'Escape' || !menuOpen || !useDrawer) return
+		// Read now: the overlay this Esc closes is off the stack by the time the timeout runs.
+		if (viewportOverlays.val.length > 0) return
+		// This listener is attached before any drawer's or menu's, which mount later: wait for
+		// them, so an Esc that closes one of those leaves the card open.
+		setTimeout(() => {
+			if (e.defaultPrevented || document.querySelector('[role="menu"]:not([hidden])')) return
+			const focusInCard = !!document.activeElement?.closest('[data-nav-card]')
+			menuOpen = false
+			// The closed card is inert and would drop focus to `body`.
+			if (focusInCard) document.querySelector<HTMLElement>('[data-nav-handle] button')?.focus()
+		})
+	}
 
 	// Set once the user docks or detaches, so the rail that mounts from then on skips its
 	// app-entry animation (`wm-sidebar-in`) and only plays `railMorph`.
@@ -624,6 +674,11 @@
 			workspace: $workspaceStore ?? '',
 			starredOnly: true
 		})
+		const agents = await ResourceService.listResource({
+			workspace: $workspaceStore ?? '',
+			resourceType: 'ai_agent',
+			starredOnly: true
+		})
 		const assets = await AssetService.listFavoriteAssets({ workspace: $workspaceStore ?? '' })
 		favoriteManager.current = [
 			...scripts.map((s) => ({
@@ -643,6 +698,12 @@
 				path: f.path,
 				href: getFavoriteHref(f.path, 'app'),
 				kind: 'app' as const
+			})),
+			...agents.map((a) => ({
+				label: a.description || getFavoriteLabel(a.path, 'agent'),
+				path: a.path,
+				href: getFavoriteHref(a.path, 'agent'),
+				kind: 'agent' as const
 			})),
 			...assets.map((a) => ({
 				label: getFavoriteLabel(a.path, 'asset'),
@@ -722,7 +783,7 @@
 		// Remember the last navigation-mode route so exiting session mode returns
 		// the user where they were rather than to the home page.
 		const to = n.to?.url
-		if (to && !to.pathname.startsWith(base + '/sessions')) {
+		if (to && !to.pathname.startsWith('/sessions')) {
 			rememberNavRoute(to.pathname + to.search)
 		}
 	})
@@ -737,7 +798,12 @@
 		}
 	}
 
-	let devOnly = $derived(page.url.pathname.startsWith(base + '/scripts/dev'))
+	let devOnly = $derived(page.url.pathname.startsWith('/scripts/dev'))
+	// A devops user who belongs to no workspace has no `$userStore`, and would otherwise wait on
+	// "Loading user..." forever on the instance pages their role exists for.
+	let instanceOnlyView = $derived(
+		!$workspaceStore && !!$devopsRole && isInstanceRoute(page.url.pathname)
+	)
 
 	async function loadDefaultScripts(workspace: string, user: UserExt | undefined) {
 		if (!user?.operator) {
@@ -891,7 +957,7 @@
 	$effect(() => {
 		const ws = $workspaceStore
 		const ready = sessionState.hydrated && $usersWorkspaceStore !== undefined
-		if (globalAiEnabled && ready && ws && !$userStore?.operator) {
+		if (globalAiEnabled && sessionsAllowed && ready && ws) {
 			untrack(() => restoreSessionBackups(ws))
 		}
 	})
@@ -1045,7 +1111,20 @@
 	})
 </script>
 
-<svelte:window bind:innerWidth onkeydown={onSearchShortcutBeforeLoad} />
+<svelte:window
+	bind:innerWidth
+	onkeydown={onWindowKeydown}
+	onpointerdowncapture={closeCardOnPagePress}
+	onblur={closeCardOnFrameFocus}
+/>
+
+<!-- A manifest's start_url replaces the URL a home-screen shortcut was added from, so only the
+console links it: shared pages (public apps, public runs, shared sessions, approval links) live
+outside this layout, and their shortcut must reopen the URL that is their credential. -->
+<svelte:head>
+	<link rel="manifest" href="/manifest.webmanifest" />
+	<meta name="apple-mobile-web-app-title" content="Windmill" />
+</svelte:head>
 
 <!-- Home + Runs lifted to the top of the workspace nav, sitting with Favorites
      and Search as the primary quick-access cluster. Excluded from SidebarContent
@@ -1054,7 +1133,7 @@
 	<MenuLink
 		class="!text-xs"
 		label="Home"
-		href={`${base}/`}
+		href="/"
 		icon={Home}
 		isCollapsed={collapsed}
 		aiId="sidebar-menu-link-home"
@@ -1063,7 +1142,7 @@
 	<MenuLink
 		class="!text-xs"
 		label="Runs"
-		href={`${base}/runs`}
+		href="/runs"
 		icon={Play}
 		disabled={!sidebarPageAllowed(
 			$userStore?.operator,
@@ -1369,20 +1448,18 @@
 					inert={!menuOpen}
 					role="dialog"
 				>
-					<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 					<!-- The card floats over the page, inset and rounded. Over an app it is not: the app
 					     owns the window, and the sidebar revealed beside it reads as the panel the header
 					     sits on — flush to the left and bottom edges, square, with one border down its
 					     right side. -->
-					<!-- This outside-click catcher starts where the card does rather than at the top of
-					     the viewport: it would otherwise cover the header's toggle, whose hover opened the
-					     card, and swallow the click meant to put the sidebar back. -->
+					<!-- The frame spans the page only to position the card; it lets every press through
+					     (closeCardOnPagePress dismisses the card). -->
 					<div
-						class={classNames('fixed left-0 right-0 bottom-0 flex z-40', 'pl-1 pb-2')}
+						class={classNames(
+							'fixed left-0 right-0 bottom-0 flex z-40 pointer-events-none',
+							'pl-1 pb-2'
+						)}
 						style:top="{navHandleSlot.cardTop}px"
-						onclick={(e) => {
-							if (e.target === e.currentTarget) menuOpen = false
-						}}
 					>
 						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<div
@@ -1394,7 +1471,7 @@
 								schedulePeekClose()
 							}}
 							class={classNames(
-								'relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-300 transform shadow-lg overflow-hidden rounded-lg border',
+								'pointer-events-auto relative flex-1 flex flex-col max-w-min w-full bg-surface transition ease-in-out duration-300 transform shadow-lg overflow-hidden rounded-lg border',
 								menuOpen ? 'translate-x-0' : '-translate-x-[calc(100%+0.5rem)]'
 							)}
 						>
@@ -1420,7 +1497,7 @@
 				</div>
 			{/if}
 		{/if}
-		<div class="flex flex-col h-full w-full relative">
+		<div bind:this={pageColumn} class="flex flex-col h-full w-full relative">
 			<!-- Not gated on `$enterpriseLicense`: it paints the cached accent before the license
 			     resolves, and checks the license itself. -->
 			<InstanceUiSync />
@@ -1488,13 +1565,34 @@
 			<AiChatLayout
 				{children}
 				noPadding={devOnly || menuHidden}
-				disableAi={globalAiEnabled && !$userStore?.operator ? true : sessionMode}
+				disableAi={globalAiEnabled && sessionsAllowed ? true : sessionMode}
 				loadAiConfig={!sessionMode}
-				showSessionsBetaBanner={!$userStore?.operator}
+				showSessionsBetaBanner={sessionsAllowed}
 				sidebarWidth={railWidth}
 				transitionClass={sidebarTransitionClass}
 				isMobile={useDrawer}
 			/>
+		</div>
+	</div>
+{:else if instanceOnlyView}
+	<!-- No workspace means no sidebar: everything in it is workspace-scoped. The header bar
+	     stays, without its workspace part: pages register their toolbars there. -->
+	<div class="flex flex-col h-screen w-full bg-surface">
+		<div class="flex items-center pl-4 border-b shrink-0">
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
+				href="/user/workspaces"
+				startIcon={{ icon: ArrowLeft }}
+			>
+				Workspaces
+			</Button>
+			<div class="flex-1 min-w-0">
+				<PageHeaderBar navHidden />
+			</div>
+		</div>
+		<div class="flex-1 min-h-0 overflow-auto">
+			{@render children?.()}
 		</div>
 	</div>
 {:else}

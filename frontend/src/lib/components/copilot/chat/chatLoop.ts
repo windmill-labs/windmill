@@ -10,6 +10,7 @@ import { getCompletion, parseOpenAICompletion, providerSupportsWebSearch } from 
 import {
 	resolveEffectiveReasoning,
 	resolveRequestReasoning,
+	usesOpenAIResponsesApi,
 	type ReasoningProviderModel
 } from '../reasoningRegistry'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
@@ -427,8 +428,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 
 		const pendingUserMessage = getPendingUserMessage?.()
 
-		const isOpenAI =
-			modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai'
+		const isOpenAI = usesOpenAIResponsesApi(modelProvider.provider, modelProvider.model)
 		const isAnthropic = usesAnthropicMessagesApi(modelProvider.provider, modelProvider.model)
 		// Resolve effort once in chat context (applies the default-on level for
 		// capable models, and the provider-native disable token for an explicit
@@ -453,7 +453,8 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		const parseOptions = {
 			workspace,
 			provider: modelProvider.provider,
-			onTokenUsage: reportUsage
+			onTokenUsage: reportUsage,
+			live: () => ({ tools: config.tools, helpers: config.helpers })
 		}
 
 		if (isOpenAI) {

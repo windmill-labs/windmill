@@ -490,7 +490,7 @@ async fn list_user_usage(
             "
     SELECT usr.email, usage.executions
         FROM usr, LATERAL (
-            SELECT COALESCE(SUM(c.duration_ms + 1000)/1000 , 0)::BIGINT executions
+            SELECT COALESCE(SUM(COALESCE((c.extras->>'wac_last_segment_ms')::bigint, c.duration_ms) + 1000)/1000 , 0)::BIGINT executions
                 FROM v2_job_completed c JOIN v2_job j USING (id)
                 WHERE j.workspace_id = $1
                 AND j.kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow')
@@ -2117,6 +2117,15 @@ async fn change_user_email(
         &new_principal,
         &old_principal
     )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        "UPDATE resource SET value = jsonb_set(value, '{on_behalf_of}', to_jsonb($1::text))
+         WHERE resource_type = 'ai_agent' AND value->>'on_behalf_of' = $2",
+    )
+    .bind(&new_principal)
+    .bind(&old_principal)
     .execute(&mut *tx)
     .await?;
 

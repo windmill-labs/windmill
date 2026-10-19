@@ -5,6 +5,7 @@ import { instanceBannerFormError } from './instanceBanner'
 import { ACCENT_COLOR_SETTING, parseAccentColor } from '$lib/accentColor'
 import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
 import { writable } from 'svelte/store'
+import { OidcService } from '$lib/gen'
 
 /**
  * Bumped after instance settings are successfully saved. Settings whose display
@@ -76,6 +77,7 @@ export interface Setting {
 		| 'retention_overrides'
 		| 'instance_banner'
 		| 'accent_color'
+		| 'agent_workload_identity_issuers'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -175,8 +177,7 @@ export function isValidWebhookBaseUrl(value: unknown): boolean {
 	return (
 		(url.protocol === 'http:' || url.protocol === 'https:') &&
 		url.host !== '' &&
-		// Userinfo would end up in the per-repository receiver stored in workspace
-		// settings, which workspace admins can read.
+		// Userinfo would end up in URLs that users who are not instance admins can read.
 		url.username === '' &&
 		url.password === '' &&
 		// Tested on the raw string, not `url.search`/`url.hash`: those are `''` for a
@@ -187,6 +188,8 @@ export function isValidWebhookBaseUrl(value: unknown): boolean {
 		// `new URL` silently percent-encodes a space in the path, where the server
 		// rejects it outright.
 		!/\s/.test(trimmed) &&
+		// Shell-active characters: the URL is pasted into commands users copy.
+		!/[$`'"\\;&|<>(){}*!]/.test(trimmed) &&
 		!trimmed.endsWith('/')
 	)
 }
@@ -207,7 +210,29 @@ export const settings: Record<string, Setting[]> = {
 				(value?.startsWith('http') &&
 					value.includes('://') &&
 					!value?.endsWith('/') &&
-					!value?.endsWith(' '))
+					!value?.endsWith(' ')),
+			advancedToggle: {
+				label: 'The API is served on a different url than the UI',
+				onChange(values) {
+					values['api_base_url'] = values['api_base_url'] == null ? '' : null
+					return values
+				},
+				checked: (values) => values['api_base_url'] != null
+			}
+		},
+		{
+			label: 'API base url',
+			description:
+				'Base url shown to users for the endpoints external clients call (webhooks, HTTP routes, push trigger endpoints, the CLI remote), without trailing slash. Leave empty to show the url the UI is browsed on. Set it when the API is served on a separate domain or behind an API gateway. If that url does not also serve the UI, the CLI must authenticate with a token rather than the browser login.',
+			key: 'api_base_url',
+			fieldType: 'text',
+			placeholder: 'https://api.windmill.company.com',
+			storage: 'setting',
+			ee_only: '',
+			hiddenIfNull: true,
+			error:
+				'API base url must be an http:// or https:// url with a host, no embedded username or password, no query string or fragment, no shell metacharacters, and no trailing slash',
+			isValid: isValidWebhookBaseUrl
 		},
 		{
 			label: 'Email domain',
@@ -354,6 +379,15 @@ export const settings: Record<string, Setting[]> = {
 				value === null ||
 				value === '' ||
 				parseAccentColor(value) !== undefined
+		},
+		{
+			label: 'Sync resource types from the hub daily',
+			description:
+				'Every day, the server updates the resource types of the admins workspace from the Hub, overwriting local edits to the types the Hub also defines. Superadmins can also sync them on demand with "Sync resource types with Hub".',
+			key: 'sync_hub_resource_types_daily',
+			fieldType: 'boolean',
+			storage: 'setting',
+			hideInQuickSetup: true
 		}
 	],
 	Jobs: [
@@ -797,24 +831,27 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		}
 	],
+	'Agent workers': [
+		{
+			label: 'Workload identity issuers',
+			key: 'agent_workload_identity_issuers',
+			description:
+				'An issuer lets an agent worker authenticate with a short-lived token its platform issues it (a Kubernetes projected service account token, a SPIFFE JWT-SVID, ...) in place of an agent token: point AGENT_IDENTITY_TOKEN_FILE at it. The token must be signed by a trusted issuer, carry its audience, and match a rule, which decides the worker group and tags the agent may serve. <a href="https://www.windmill.dev/docs/core_concepts/agent_workers">Learn more</a>',
+			fieldType: 'agent_workload_identity_issuers',
+			storage: 'setting',
+			ee_only: ''
+		}
+	],
 	'DB Health': [],
+	'OIDC signing': [],
 	Registries: [
 		{
 			label: 'Instance Python Version',
 			description: 'Default python version for newly deployed scripts',
 			key: 'instance_python_version',
 			fieldType: 'select_python',
-			// To change latest stable version:
-			// 1. Change placeholder in instanceSettings.ts
-			// 2. Change LATEST_STABLE_PY in dockerfile
-			// 3. Change #[default] annotation for PyVersion in backend
-			placeholder: '3.10,3.11,3.12,3.13',
+			placeholder: '3.10,3.11,3.12,3.13,3.14,3.15',
 			select_items: [
-				{
-					label: 'Latest Stable',
-					value: 'default',
-					tooltip: 'python-3.12'
-				},
 				{
 					label: '3.10'
 				},
@@ -826,6 +863,12 @@ export const settings: Record<string, Setting[]> = {
 				},
 				{
 					label: '3.13'
+				},
+				{
+					label: '3.14'
+				},
+				{
+					label: '3.15'
 				}
 			],
 			storage: 'setting'
@@ -1223,7 +1266,7 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: '',
 			error:
-				'Webhook base url must be an http:// or https:// url with a host, no embedded username or password, no query string or fragment, and no trailing slash',
+				'Webhook base url must be an http:// or https:// url with a host, no embedded username or password, no query string or fragment, no shell metacharacters, and no trailing slash',
 			isValid: isValidWebhookBaseUrl
 		}
 	],
@@ -1305,6 +1348,20 @@ export const instanceSettingsNavigationGroups = [
 				label: 'SCIM/SAML',
 				aiId: 'instance-settings-scim-saml',
 				aiDescription: 'Instance SCIM/SAML settings',
+				isEE: true
+			},
+			{
+				id: 'agent_workers',
+				label: 'Agent workers',
+				aiId: 'instance-settings-agent-workers',
+				aiDescription: 'Workload identity issuers agent workers can authenticate with',
+				isEE: true
+			},
+			{
+				id: 'oidc_signing',
+				label: 'OIDC signing',
+				aiId: 'instance-settings-oidc-signing',
+				aiDescription: 'Keys that sign and verify the OIDC tokens Windmill issues',
 				isEE: true
 			}
 		]
@@ -1463,6 +1520,8 @@ export const tabToCategoryMap: Record<string, string> = {
 	github_enterprise_app: 'GitHub App',
 	websocket: 'WebSocket',
 	db_health: 'DB Health',
+	oidc_signing: 'OIDC signing',
+	agent_workers: 'Agent workers',
 	lsp: 'LSP'
 }
 
@@ -1470,6 +1529,30 @@ export const tabToAuthSubTab: Record<string, 'sso' | 'oauth' | 'scim'> = {
 	sso: 'sso',
 	oauth: 'oauth',
 	scim_saml: 'scim'
+}
+
+/**
+ * "OIDC signing" is listed only on instances that sign with an external signer: its page
+ * says nothing actionable elsewhere.
+ */
+export function listedNavigationGroups<G extends { items: { id: string }[] }>(
+	groups: G[],
+	externalOidcSigner: boolean
+): G[] {
+	if (externalOidcSigner) return groups
+	return groups.map((group) => ({
+		...group,
+		items: group.items.filter((item) => item.id !== 'oidc_signing')
+	}))
+}
+
+/** The status endpoint is EE only: call it once the license is known. */
+export async function usesExternalOidcSigner(): Promise<boolean> {
+	try {
+		return (await OidcService.getOidcSigningStatus()).mode === 'external'
+	} catch {
+		return false
+	}
 }
 
 // Navigation groups for the initial setup flow (no Users tab)
@@ -1500,6 +1583,8 @@ export const categoryToTabMap: Record<string, string> = {
 	'GitHub App': 'github_enterprise_app',
 	WebSocket: 'websocket',
 	'DB Health': 'db_health',
+	'OIDC signing': 'oidc_signing',
+	'Agent workers': 'agent_workers',
 	LSP: 'lsp'
 }
 

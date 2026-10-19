@@ -8,6 +8,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import QueueMetricsDrawer from '$lib/components/QueueMetricsDrawer.svelte'
+	import HeaviestScriptsDrawer from '$lib/components/HeaviestScriptsDrawer.svelte'
 	import ManageTagsDrawer from '$lib/components/ManageTagsDrawer.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
@@ -15,6 +16,8 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceGroup from '$lib/components/WorkerGroup.svelte'
+	import DevWorkspaceIsolation from '$lib/components/DevWorkspaceIsolation.svelte'
+	import { devWorkspaceListenSuffix, withDevSuffix } from '$lib/devWorkspaceTags'
 	import {
 		WorkerService,
 		type WorkerPing,
@@ -34,6 +37,7 @@
 	import { displayDate, groupBy, pluralize, retrieveCommonWorkerPrefix, truncate } from '$lib/utils'
 	import {
 		ExternalLink,
+		Gauge,
 		LineChart,
 		Loader2,
 		Plus,
@@ -493,6 +497,7 @@
 	}
 
 	let queueMetricsDrawer: QueueMetricsDrawer | undefined = $state(undefined)
+	let heaviestScriptsDrawer: HeaviestScriptsDrawer | undefined = $state(undefined)
 	let manageTagsDrawer: ManageTagsDrawer | undefined = $state(undefined)
 	let selectedTab: string = $state('default')
 
@@ -597,13 +602,20 @@
 		if (!config || !config.worker_tags || config.worker_tags.length === 0) cols += 1 // Worker tags
 		if ((!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole))
 			cols += 2 // Last job, Occupancy rate
-		if ($superadmin || $devopsRole) cols += 1 // Repl
+		if (replAvailable) cols += 1 // Repl
 		return cols
 	})
+	// The REPL runs its commands as jobs in the selected workspace, which a devops user who
+	// belongs to no workspace does not have (see `isInstanceRoute`).
+	let replAvailable = $derived(($superadmin || $devopsRole) && !!$workspaceStore)
 </script>
 
 {#if $superadmin || $devopsRole}
 	<QueueMetricsDrawer bind:this={queueMetricsDrawer} />
+	<HeaviestScriptsDrawer
+		bind:this={heaviestScriptsDrawer}
+		workerGroups={groupedWorkers.map(([name]) => name)}
+	/>
 	<ManageTagsDrawer
 		bind:this={manageTagsDrawer}
 		bind:defaultTagPerWorkspace
@@ -778,6 +790,19 @@
 						<Button
 							unifiedSize="md"
 							variant="default"
+							startIcon={{
+								icon: Gauge
+							}}
+							on:click={() => {
+								heaviestScriptsDrawer?.openDrawer(selectedTab)
+							}}
+						>
+							Heaviest scripts
+						</Button>
+
+						<Button
+							unifiedSize="md"
+							variant="default"
 							startIcon={{ icon: Plus }}
 							on:click={() => {
 								newHttpAgentWorkerDrawer?.toggleDrawer?.()
@@ -884,6 +909,23 @@
 				</Alert>
 			{/if}
 
+			{#if $superadmin || $devopsRole}
+				<DevWorkspaceIsolation
+					{workerGroups}
+					liveWorkers={Object.fromEntries(
+						groupedWorkers.map(([name, instances]) => [
+							name,
+							instances.flatMap(([_, pings]) => pings.filter((p) => (p.last_ping ?? 0) < 15)).length
+						])
+					)}
+					canEdit={!!$superadmin}
+					onConfigureGroup={(name) => {
+						selectedTab = name
+						shouldAutoOpenDrawer = name
+					}}
+				/>
+			{/if}
+
 			{#if workers != undefined}
 				{#if groupedWorkers.length == 0}
 					<p>No workers seem to be available</p>
@@ -983,7 +1025,7 @@
 									<Cell head>Limits</Cell>
 									<Cell head>Version</Cell>
 									<Cell head>Status</Cell>
-									{#if $superadmin || $devopsRole}
+									{#if replAvailable}
 										<Cell head>
 											Repl
 											<Tooltip>
@@ -1022,11 +1064,17 @@
 											</Cell>
 										</tr>
 										{#if workers}
-											{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage, native_mode }}
+											{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage, native_mode, draining }}
 												{@const isWorkerAlive = isWorkerMaybeAlive(last_ping)}
 												{@const tagMismatchInfo = getTagMismatchInfo(
 													custom_tags,
-													config?.worker_tags
+													config?.serves_dev_workspaces === true &&
+														config?.dedicated_worker == undefined &&
+														!config?.dedicated_workers?.length
+														? config?.worker_tags?.map((t: string) =>
+																withDevSuffix(t, $devWorkspaceListenSuffix)
+															)
+														: config?.worker_tags
 												)}
 												<tr class={groupIdx % 2 == 1 ? 'bg-surface-secondary/50' : ''}>
 													<Cell class="text-primary" first>
@@ -1087,6 +1135,15 @@
 															{#if native_mode}
 																<Badge color="blue" small>Native</Badge>
 															{/if}
+															{#if draining}
+																<MeltTooltip>
+																	<Badge color="yellow" small>Draining</Badge>
+																	{#snippet text()}
+																		This worker received a shutdown signal. It no longer pulls jobs
+																		and exits once its current job is done.
+																	{/snippet}
+																</MeltTooltip>
+															{/if}
 														</div>
 													</Cell>
 													{#if !config || !config.worker_tags || config.worker_tags.length === 0}
@@ -1098,12 +1155,16 @@
 													<Cell class="text-secondary">{jobs_executed}</Cell>
 													{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
 														<Cell class="text-secondary">
-															{#if last_job_id}
+															<!-- The run page switches to the job's workspace, which strands a
+															     devops user who belongs to none of them. -->
+															{#if last_job_id && $workspaceStore}
 																<a href={`/run/${last_job_id}?workspace=${last_job_workspace_id}`}>
 																	View last job
 																	<ExternalLink size={12} class="inline-block" />
 																</a>
 																<br />
+																{last_job_workspace_id}
+															{:else if last_job_id}
 																{last_job_workspace_id}
 															{/if}
 														</Cell>
@@ -1223,7 +1284,7 @@
 															<div class="text-2xs text-hint">{pingText}</div>
 														</div>
 													</Cell>
-													{#if $superadmin || $devopsRole}
+													{#if replAvailable}
 														<Cell class="text-secondary">
 															<Button
 																unifiedSize="sm"
@@ -1293,8 +1354,8 @@
 					{/if}
 				</div>
 				<div class="pb-8"></div>
-				<!-- Agent worker groups don't have autoscaling -->
-				{#if worker_group?.[2] === false}
+				<!-- An agent worker group is only autoscaled when it has a config row -->
+				{#if worker_group?.[2] === false || (workerGroups ?? {})[selectedTab]}
 					<AutoscalingEvents worker_group={selectedTab} />
 				{/if}
 			{:else}

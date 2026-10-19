@@ -1631,7 +1631,17 @@ pub async fn update_flow_status_after_job_completion_internal(
                 Some(t) => {
                     let no_args = HashMap::new();
                     let args = PushArgs::from(fetched_args.as_ref().unwrap_or(&no_args));
-                    resolve_push_tag(t, &args, &flow_job.workspace_id, db).await
+                    match resolve_push_tag(t, &args, &flow_job.workspace_id, db).await {
+                        Some(t) => Some(
+                            windmill_queue::tags::apply_dev_workspace_suffix(
+                                t,
+                                &flow_job.workspace_id,
+                                db,
+                            )
+                            .await?,
+                        ),
+                        None => None,
+                    }
                 }
                 None => None,
             };
@@ -2097,7 +2107,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             )
             .await?;
             let duration = if success {
-                let (_, duration) = add_completed_job(
+                let (_, span) = add_completed_job(
                     db,
                     &cflow_job,
                     true,
@@ -2111,9 +2121,9 @@ pub async fn update_flow_status_after_job_completion_internal(
                     false,
                 )
                 .await?;
-                duration
+                span.duration_ms
             } else {
-                let (_, duration) = add_completed_job(
+                let (_, span) = add_completed_job(
                     db,
                     &cflow_job,
                     false,
@@ -2131,7 +2141,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                     false,
                 )
                 .await?;
-                duration
+                span.duration_ms
             };
             flow_job_duration = flow_job
                 .started_at
@@ -2210,7 +2220,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                             None
                         },
                         has_triggered_error_handler: has_triggered_error_handler || is_failure_step,
-                        recovered_by_child: failure_step_recovers || (recovered_by_child && !success),
+                        recovered_by_child: failure_step_recovers
+                            || (recovered_by_child && !success),
                     },
                 ));
             }
@@ -2440,6 +2451,7 @@ async fn advance_flow_status(
             v2_job.trigger_kind as \"trigger_kind: TriggerKindLabel\",
             v2_job.visible_to_owner,
             NULL as permissioned_as_end_user_email,
+            NULL::boolean as viewer_data_access,
             job_perms.job_token_scopes",
         flow,
         &step_path as &[&str],
@@ -3283,8 +3295,17 @@ pub(crate) fn resolve_flow_step_tag(
     workspace_id: &str,
     preserve_step_tags: bool,
     step_tag: Option<&str>,
+    // The suffix of a dev workspace's flow tag, if any: its flows run on the generic tag suffixed,
+    // and their steps are suffixed when pushed.
+    dev_suffix: Option<&str>,
 ) -> Option<String> {
-    if is_preprocessor_step || flow_tag == "flow" || flow_tag == format!("flow-{}", workspace_id) {
+    let generic_flow_tag = dev_suffix
+        .and_then(|s| flow_tag.strip_suffix(s))
+        .unwrap_or(flow_tag);
+    if is_preprocessor_step
+        || generic_flow_tag == "flow"
+        || generic_flow_tag == format!("flow-{}", workspace_id)
+    {
         step_tag.map(str::to_string)
     } else if preserve_step_tags && step_tag.is_some_and(|t| !t.is_empty()) {
         step_tag.map(str::to_string)
@@ -3362,7 +3383,14 @@ mod tag_resolution_tests {
         // Parent flow on a custom tag, step declares its own tag, preserve disabled:
         // the step inherits the flow tag (historical behavior).
         assert_eq!(
-            resolve_flow_step_tag(false, "worker-group-A", "w1", false, Some("worker-group-B")),
+            resolve_flow_step_tag(
+                false,
+                "worker-group-A",
+                "w1",
+                false,
+                Some("worker-group-B"),
+                None
+            ),
             Some("worker-group-A".to_string())
         );
     }
@@ -3372,7 +3400,14 @@ mod tag_resolution_tests {
         // The exact customer scenario: a sub-flow tagged worker-group-B run as a step of a
         // flow tagged worker-group-A now runs on worker-group-B when preserve_step_tags is on.
         assert_eq!(
-            resolve_flow_step_tag(false, "worker-group-A", "w1", true, Some("worker-group-B")),
+            resolve_flow_step_tag(
+                false,
+                "worker-group-A",
+                "w1",
+                true,
+                Some("worker-group-B"),
+                None
+            ),
             Some("worker-group-B".to_string())
         );
     }
@@ -3380,12 +3415,12 @@ mod tag_resolution_tests {
     #[test]
     fn untagged_step_inherits_flow_tag_even_when_preserve_enabled() {
         assert_eq!(
-            resolve_flow_step_tag(false, "worker-group-A", "w1", true, None),
+            resolve_flow_step_tag(false, "worker-group-A", "w1", true, None, None),
             Some("worker-group-A".to_string())
         );
         // An empty tag counts as "no tag" and still inherits.
         assert_eq!(
-            resolve_flow_step_tag(false, "worker-group-A", "w1", true, Some("")),
+            resolve_flow_step_tag(false, "worker-group-A", "w1", true, Some(""), None),
             Some("worker-group-A".to_string())
         );
     }
@@ -3394,16 +3429,38 @@ mod tag_resolution_tests {
     fn generic_flow_tag_always_uses_step_tag() {
         for flow_tag in ["flow", "flow-w1"] {
             assert_eq!(
-                resolve_flow_step_tag(false, flow_tag, "w1", false, Some("worker-group-B")),
+                resolve_flow_step_tag(false, flow_tag, "w1", false, Some("worker-group-B"), None),
                 Some("worker-group-B".to_string())
             );
         }
     }
 
     #[test]
+    fn dev_workspace_flow_on_suffixed_generic_tag_uses_step_tag() {
+        for flow_tag in ["flow-dev", "flow-w1-dev"] {
+            assert_eq!(
+                resolve_flow_step_tag(false, flow_tag, "w1", false, Some("gpu"), Some("-dev")),
+                Some("gpu".to_string())
+            );
+        }
+        // In a root workspace `flow-dev` is a custom tag the steps inherit.
+        assert_eq!(
+            resolve_flow_step_tag(false, "flow-dev", "w1", false, Some("gpu"), None),
+            Some("flow-dev".to_string())
+        );
+    }
+
+    #[test]
     fn preprocessor_step_uses_step_tag() {
         assert_eq!(
-            resolve_flow_step_tag(true, "worker-group-A", "w1", false, Some("worker-group-B")),
+            resolve_flow_step_tag(
+                true,
+                "worker-group-A",
+                "w1",
+                false,
+                Some("worker-group-B"),
+                None
+            ),
             Some("worker-group-B".to_string())
         );
     }
@@ -4653,6 +4710,9 @@ async fn push_next_flow_job(
             &flow_job.workspace_id,
             flow.preserve_step_tags,
             payload_tag.tag.as_deref(),
+            windmill_queue::tags::dev_flow_tag_suffix(&flow_job.workspace_id, &flow_job.tag, db)
+                .await?
+                .as_deref(),
         );
 
         // A step whose inputs failed to evaluate, or whose `$flow_expr[...]` tag failed to resolve,
@@ -4793,10 +4853,8 @@ async fn push_next_flow_job(
             // narrows that further.
             windmill_common::scopes::intersect_job_token_scopes(
                 flow_job.job_token_scopes.as_deref(),
-                windmill_common::scopes::step_job_token_scopes(
-                    module.job_token_scopes.as_deref(),
-                )
-                .as_deref(),
+                windmill_common::scopes::step_job_token_scopes(module.job_token_scopes.as_deref())
+                    .as_deref(),
             )
             .as_deref(),
         )

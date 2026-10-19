@@ -240,6 +240,18 @@ def set_progress(value: int, job_id: Optional[str] = None)
 #     Progress value (0-100) or None if not set
 def get_progress(job_id: Optional[str] = None) -> Any
 
+# Whether the worker running the job has received its shutdown signal.
+# 
+# A draining worker waits for its current job to finish before exiting. A long-running
+# script can poll this and return early so the worker can be replaced.
+# 
+# Args:
+#     job_id: Job ID (defaults to current WM_JOB_ID)
+# 
+# Returns:
+#     True if the worker running the job is draining
+def worker_is_draining(job_id: Optional[str] = None) -> bool
+
 # Set the user state of a flow at a given key
 def set_flow_user_state(key: str, value: Any) -> None
 
@@ -253,15 +265,31 @@ def get_flow_user_state(key: str) -> Any
 def version()
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-# initiate an S3 connection from DuckDB
+# initiate an S3 connection from DuckDB.
+# 
+# Without a resource path, the connection goes to the workspace storage through Windmill's
+# S3 proxy when that storage is S3: address it as ``s3://<bucket>/<key>`` with the
+# storage's own bucket, returned as ``s3_bucket``. Pass the resource path to connect with
+# the storage's own credentials instead.
 def get_duckdb_connection_settings(s3_resource_path: str = '') -> DuckDbConnectionSettings | None
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-# initiate an S3 connection from Polars
+# initiate an S3 connection from Polars.
+# 
+# Without a resource path, the connection goes to the workspace storage through Windmill's
+# S3 proxy when that storage is S3: address it as ``s3://<bucket>/<key>`` with the
+# storage's own bucket, returned as ``s3_bucket``. Pass the resource path to connect with
+# the storage's own credentials instead.
 def get_polars_connection_settings(s3_resource_path: str = '') -> PolarsConnectionSettings
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-# initiate an S3 connection using boto3
+# initiate an S3 connection using boto3.
+# 
+# Without a resource path, the connection goes to the workspace storage through Windmill's
+# S3 proxy when that storage is S3: pass the storage's own bucket as ``Bucket``. The proxy
+# serves object reads, writes, deletes, listing and multipart uploads of that bucket only;
+# presigned URLs, other buckets and bucket-level APIs need the storage's own credentials,
+# which passing the resource path returns.
 def get_boto3_connection_settings(s3_resource_path: str = '') -> Boto3ConnectionSettings
 
 # Load a file from the workspace s3 bucket and returns its content as bytes.
@@ -657,7 +685,9 @@ def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 # 
 # - **v2 (inside @workflow)**: dispatches as a checkpoint step.
 # - **v1 (WM_JOB_ID set, no @workflow)**: dispatches via HTTP API.
-# - **Standalone**: executes the function body directly.
+# - **Standalone, or called from inside another v2 task**: executes the
+#   function body directly. A task runs as a single job, so the tasks it
+#   calls run in that same job, without their own options.
 # 
 # A task runs as its own job, so its result is always encoded as JSON and
 # decoded back before the caller sees it: a ``datetime`` comes back as a
@@ -743,12 +773,15 @@ def workflow(func)
 # ``fn``'s result is encoded as JSON and decoded back before it is returned,
 # so the round that runs the body sees the same types every replay sees:
 # a ``datetime`` comes back as a string, a tuple as a list.
+# 
+# Called from inside a task body, ``fn`` runs in place and nothing is
+# checkpointed: a task is a single job and is never replayed.
 async def step(name: str, fn)
 
 # Server-side sleep — suspend the workflow for the given duration without holding a worker.
 # 
 # Inside a @workflow, the parent job suspends and auto-resumes after ``seconds``.
-# Outside a workflow, falls back to ``asyncio.sleep``.
+# Outside a workflow, or inside a task body, falls back to ``asyncio.sleep``.
 async def sleep(seconds: int)
 
 # Suspend the workflow and wait for an external approval.

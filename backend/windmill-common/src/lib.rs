@@ -27,6 +27,7 @@ use scripts::ScriptLang;
 use sqlx::{Acquire, Postgres};
 
 pub mod agent_workers;
+pub mod agent_workload_identity;
 pub mod apps;
 pub mod assets;
 pub mod audit;
@@ -73,8 +74,10 @@ pub use feature_usage_oss as feature_usage;
 pub mod flow_conversations;
 pub mod flow_status;
 pub mod flows;
+pub mod fork_storage;
 pub mod folders;
 pub mod global_settings;
+pub mod hub_resource_types;
 pub mod guest_jwt;
 pub mod indexer;
 pub mod instance_config;
@@ -101,6 +104,8 @@ pub mod oauth2;
 pub mod oidc_ee;
 #[cfg(all(feature = "enterprise", feature = "openidconnect"))]
 pub mod oidc_oss;
+#[cfg(all(feature = "enterprise", feature = "openidconnect", feature = "private"))]
+pub mod oidc_signer_ee;
 #[cfg(feature = "private")]
 pub mod otel_ee;
 pub mod otel_oss;
@@ -123,6 +128,7 @@ pub mod query_builders;
 pub mod queue;
 pub mod queue_metrics;
 pub mod result_stream;
+pub mod runnable_job_stats;
 pub mod runnable_settings;
 pub mod runnables;
 pub mod schedule;
@@ -153,6 +159,7 @@ pub mod wac;
 pub mod webhook;
 pub mod worker;
 pub mod worker_group_job_stats;
+pub mod workspace_crypt;
 pub mod workspaces;
 
 pub const DEFAULT_MAX_CONNECTIONS_SERVER: u32 = 50;
@@ -165,6 +172,9 @@ pub const DEFAULT_SERVICE_LOG_RETENTION_SECS: i64 = 60 * 60 * 24 * 14; // 2 week
 pub const DEFAULT_OTEL_TRACES_RETENTION_SECS: i64 = 60 * 60 * 24 * 7; // 1 week retention period for HTTP request spans
 pub const DEFAULT_AI_SHARED_ARTIFACT_RETENTION_SECS: i64 = 60 * 60 * 24 * 30;
 pub const WM_DEPLOYERS_GROUP: &str = "wm_deployers";
+/// Groups Windmill creates lazily (`ON CONFLICT DO NOTHING`) and grants permissions to before
+/// they exist; a member who created one first would inherit those grants.
+pub const RESERVED_GROUP_NAMES: &[&str] = &["error_handler", "success_handler", "slack", "teams"];
 
 /// A century. Every consumer has to survive `now - retention`, and the ceilings are much lower
 /// than an `i64`: `DateTime` subtraction panics past year 262143, and the `(<n> s)::interval`

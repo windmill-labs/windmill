@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS v2_job_queue_workspace_scheduled_for;

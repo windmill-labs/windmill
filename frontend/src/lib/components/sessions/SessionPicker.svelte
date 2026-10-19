@@ -60,13 +60,12 @@
 	import MenuButton, { sidebarClasses } from '$lib/components/sidebar/MenuButton.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
-	import { userWorkspaces, workspaceStore } from '$lib/stores'
+	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { workspaceIsFork } from '$lib/utils/workspaceHierarchy'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { currentWorkspaceRootId, workspaceRootId } from './sessionScope.svelte'
 	import { page } from '$app/state'
-	import { base } from '$app/paths'
 	import DevWorkspaceBadge from '$lib/components/DevWorkspaceBadge.svelte'
 	import {
 		dateBucket,
@@ -119,7 +118,7 @@
 
 	// Only highlight the active session while the sessions page is open — elsewhere
 	// `currentSessionId` lingers but no row should appear selected.
-	const onSessionsPage = $derived(page.url.pathname.startsWith(`${base}/sessions`))
+	const onSessionsPage = $derived(page.url.pathname.startsWith('/sessions'))
 	const sessionActive = $derived(onSessionsPage)
 
 	interface Props {
@@ -221,7 +220,7 @@
 	// Workspace tree scoped to the current family (root + its forks), so the rail
 	// only shows the workspaces in the family we're in — not every workspace.
 	const workspaceTreeItems = $derived.by(() => {
-		const all = buildWorkspaceHierarchy($userWorkspaces)
+		const all = buildWorkspaceHierarchy($userWorkspaces, $userStore?.email)
 		const currentRoot = $currentWorkspaceRootId
 		if (!currentRoot) return all
 		return all.filter((i) => workspaceRootId(i.workspace.id, $userWorkspaces) === currentRoot)
@@ -1338,8 +1337,8 @@
 	bind:open={seedOfferOpen}
 	kind="X"
 	enterConfirms={false}
-	title="Keep this {seedOffer?.route.kind ?? 'item'} in the new session?"
-	description="You came here from {seedOffer?.route.itemPath ?? ''}."
+	title="Keep this {seedOffer?.kind ?? 'item'} in the new session?"
+	description="You came here from {seedOffer?.path ?? ''}."
 >
 	<p class="text-sm text-secondary">
 		Keeping it opens it in the preview, so the chat starts with it as context.

@@ -5,6 +5,9 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use windmill_common::db::DB;
 use windmill_common::error::{Error, Result};
+use windmill_common::ssrf::{PrivateHostAllowance, SsrfValidationError, ValidatedTarget};
+
+const ALLOW_PRIVATE_AI_BASE_URLS_ENV: &str = "ALLOW_PRIVATE_AI_BASE_URLS";
 
 /// Deserializes an Option<String> where empty strings become None.
 /// Use with `#[serde(default, deserialize_with = "empty_string_as_none")]`
@@ -20,10 +23,10 @@ where
 
 lazy_static::lazy_static! {
     static ref OPENAI_AZURE_BASE_PATH: Option<String> = std::env::var("OPENAI_AZURE_BASE_PATH").ok();
-    pub static ref ALLOW_PRIVATE_AI_BASE_URLS: bool = std::env::var("ALLOW_PRIVATE_AI_BASE_URLS")
-        .ok()
-        .map(|v| v == "true" || v == "1")
-        .unwrap_or(false);
+    /// Covers every AI base URL, whoever supplied it: the workspace or instance AI config, a
+    /// resource a member picked, or an inline resource value sent to the proxy.
+    pub static ref ALLOW_PRIVATE_AI_BASE_URLS: PrivateHostAllowance =
+        PrivateHostAllowance::from_env(ALLOW_PRIVATE_AI_BASE_URLS_ENV);
     /// Drops the cache breakpoints from agent-step requests on every Anthropic platform,
     /// not just the one that motivates it: a Google Cloud project can have explicit prompt
     /// caching turned off (by request to Cloud support), and Vertex then rejects any request
@@ -131,6 +134,23 @@ pub enum AIProvider {
     Cloudflare,
 }
 
+/// Check an AI endpoint URL against the SSRF rules, allowing the private hosts
+/// `ALLOW_PRIVATE_AI_BASE_URLS` names. Callers that connect next pin the returned target.
+pub async fn validate_ai_url(url: &str) -> Result<ValidatedTarget> {
+    windmill_common::ssrf::validate_url_for_ssrf_allowing(url, &ALLOW_PRIVATE_AI_BASE_URLS)
+        .await
+        .map_err(|e| match e {
+            // Only a private target is fixed by the env var; for a malformed URL or bad
+            // scheme the hint would send users the wrong way (issue #9171).
+            e @ SsrfValidationError::Private { .. } => Error::BadRequest(format!(
+                "{e}. To use a private/internal AI endpoint, add its host (host, host:port or \
+                 CIDR range) to the comma-separated {ALLOW_PRIVATE_AI_BASE_URLS_ENV} environment \
+                 variable, or set it to true to allow every private host"
+            )),
+            e => Error::from(e),
+        })
+}
+
 /// The Workers AI models URL of a Cloudflare account. The id goes into the path, so it is held to
 /// the characters an account id has rather than trusted to stay inside its segment.
 pub fn cloudflare_workers_ai_base_url(account_id: Option<&str>) -> Result<String> {
@@ -161,22 +181,7 @@ impl AIProvider {
     /// Get the base URL for the AI provider
     pub async fn get_base_url(&self, resource_base_url: Option<String>, db: &DB) -> Result<String> {
         if let Some(base_url) = resource_base_url {
-            if !*ALLOW_PRIVATE_AI_BASE_URLS {
-                use windmill_common::ssrf::SsrfValidationError;
-                windmill_common::ssrf::validate_url_for_ssrf(&base_url)
-                    .await
-                    .map_err(|e| match e {
-                        // The env-var hint is only actionable when the URL is
-                        // well-formed but blocked for targeting a private
-                        // address. For a malformed URL or bad scheme, surface
-                        // the real error so users fix the URL (issue #9171).
-                        e @ SsrfValidationError::Private { .. } => Error::BadRequest(format!(
-                            "{e}. If you need to use private/internal AI endpoints, \
-                             set the ALLOW_PRIVATE_AI_BASE_URLS=true environment variable"
-                        )),
-                        e => Error::from(e),
-                    })?;
-            }
+            validate_ai_url(&base_url).await?;
             return Ok(base_url);
         }
 

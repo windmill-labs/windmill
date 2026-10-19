@@ -7,6 +7,8 @@ edition.workspace = true
 [lib]
 name = "windmill_mcp"
 path = "src/lib.rs"
+# src/ has no doctests: remove this line before adding one, or cargo test never runs it.
+doctest = false
 
 [features]
 default = []
@@ -22,6 +24,7 @@ serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 rmcp.workspace = true
+sse-stream = "0.2"
 sqlx = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }

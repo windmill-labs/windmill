@@ -245,6 +245,43 @@ pub async fn unclaimable_run_lineage(
     Ok(referenced)
 }
 
+/// `WM_END_USER_EMAIL` of a run started through a `/jobs/run*` route. `WM_EMAIL` names the
+/// runnable's `on_behalf_of` identity when it has one, so this is the only place the caller's
+/// address reaches the job. A job's own `WM_TOKEN` passes on the end user of that job, and a run
+/// a trigger fired has no end user.
+pub async fn run_end_user_email(
+    db: &DB,
+    w_id: &str,
+    authed: &ApiAuthed,
+    trigger: Option<&TriggerMetadata>,
+) -> error::Result<Option<String>> {
+    if trigger.is_some() {
+        return Ok(None);
+    }
+    match authed.job_id {
+        Some(job_id) => Ok(windmill_common::auth::get_job_perms(db, &job_id, w_id)
+            .await?
+            .and_then(|p| p.end_user_email)),
+        None => Ok(Some(authed.email.clone())),
+    }
+}
+
+/// [`run_end_user_email`] of an inline run of the caller's own code, and whether its data table
+/// connections are made as that end user: they are when the calling job's are, since the code is
+/// that job's own.
+pub async fn run_inline_preview_end_user(
+    db: &DB,
+    w_id: &str,
+    authed: &ApiAuthed,
+) -> error::Result<(Option<String>, bool)> {
+    match authed.job_id {
+        Some(job_id) => Ok(windmill_common::auth::get_job_perms(db, &job_id, w_id)
+            .await?
+            .map_or((None, false), |p| (p.end_user_email, p.viewer_data_access))),
+        None => Ok((Some(authed.email.clone()), false)),
+    }
+}
+
 #[cfg(feature = "enterprise")]
 pub async fn check_license_key_valid() -> error::Result<()> {
     use windmill_common::ee_oss::LICENSE_KEY_VALID;
@@ -909,6 +946,7 @@ pub async fn handle_chat_conversation_messages(
         w_id,
         flow_path,
         &authed.username,
+        authed.is_admin,
         &user_message,
         memory_id,
         is_test,
@@ -1013,6 +1051,7 @@ pub async fn run_flow<'c>(
         )
     };
 
+    let end_user_email = run_end_user_email(db, w_id, authed, trigger.as_ref()).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(db, authed).await?;
     let (uuid, mut tx) = push(
         &db,
@@ -1048,7 +1087,7 @@ pub async fn run_flow<'c>(
         None,
         push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(trigger),
         run_query.suspended_mode,
         scope_ceiling.as_deref(),
@@ -1244,6 +1283,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         )
     };
 
+    let end_user_email = run_end_user_email(&db, &w_id, &authed, trigger.as_ref()).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = push(
         &db,
@@ -1277,7 +1317,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         },
         push_authed.as_ref(),
         false,
-        None,
+        end_user_email,
         authed.trigger_or_fallback(trigger),
         run_query.suspended_mode,
         scope_ceiling.as_deref(),

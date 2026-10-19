@@ -24,7 +24,6 @@ vi.mock('$app/navigation', () => ({
 	afterNavigate: vi.fn(),
 	beforeNavigate: vi.fn()
 }))
-vi.mock('$app/paths', () => ({ base: '', assets: '' }))
 
 const mocks = vi.hoisted(() => ({
 	getCurrentModel: vi.fn(),
@@ -329,6 +328,54 @@ describe('AIChatManager run form', () => {
 			spare: '<hidden>',
 			note: 'goodbye'
 		})
+	})
+
+	// Only a deployed item has a page with a form to confirm on: a test run executes the
+	// draft being written, and a chat-enabled flow's page is a conversation. Routing either
+	// there would park the call on a page that can never answer it.
+	it('hands a deployed run to a page already open, and nothing else', async () => {
+		const manager = new AIChatManager()
+		const routed: any[] = []
+		manager.openRunOnDeployedPage = (a) => {
+			routed.push(a)
+			return true
+		}
+
+		void manager.requestRunArgs('call_run', {
+			path: 'f/a/b',
+			kind: 'run',
+			runnableKind: 'flow',
+			summary: 'Plain flow',
+			schema: {},
+			args: {}
+		})
+		void manager.requestRunArgs('call_test', {
+			path: 'f/a/b',
+			kind: 'test',
+			schema: {},
+			args: {}
+		})
+		void manager.requestRunArgs('call_chat', {
+			path: 'f/a/c',
+			kind: 'run',
+			conversational: true,
+			schema: {},
+			args: {}
+		})
+
+		expect(routed).toEqual([
+			{
+				toolCallId: 'call_run',
+				kind: 'flow',
+				path: 'f/a/b',
+				summary: 'Plain flow',
+				carries: true,
+				// Never opens a tab of its own: the reader did not ask for one here.
+				onlyIfAlreadyOpen: true
+			}
+		])
+		// Routed after the form is installed, so the page finds the call the moment it mounts.
+		expect(manager.isRunFormPending('call_run')).toBe(true)
 	})
 
 	// Stopping the turn is the form's other way out, and it settles cards through
@@ -4329,11 +4376,15 @@ describe('DOM selector chips scoped by app path', () => {
 describe('AIChatManager.waitForPipelineHelpers', () => {
 	function fakePipelineHelpers(): PipelineAIChatHelpers {
 		return {
+			getFolder: () => 'f',
+			hasDrafts: () => false,
 			getPipelineContext: () => ({ folder: 'f', mode: 'edit', nodes: [], assets: [] }),
 			getNodeBody: async () => undefined,
 			proposeNode: async () => ({ path: '', detectedReads: [], detectedWrites: [] }),
 			editNode: async () => ({ detectedReads: [], detectedWrites: [] }),
 			removeProposedNode: async () => {},
+			unconfiguredTriggers: async () => [],
+			setNodeTrigger: async () => ({ path: '', replaced: false }),
 			testNode: async () => undefined
 		}
 	}
@@ -4341,16 +4392,28 @@ describe('AIChatManager.waitForPipelineHelpers', () => {
 	it('resolves true immediately when a pipeline editor is already registered', async () => {
 		const manager = new AIChatManager()
 		manager.setPipelineHelpers(fakePipelineHelpers())
-		await expect(manager.waitForPipelineHelpers(1000)).resolves.toBe(true)
+		await expect(manager.waitForPipelineHelpers(undefined, 1000)).resolves.toBe(true)
 	})
 
 	it('resolves true once a pipeline editor registers', async () => {
 		const manager = new AIChatManager()
 		let outcome: boolean | undefined
-		const wait = manager.waitForPipelineHelpers(1000).then((v) => (outcome = v))
+		const wait = manager.waitForPipelineHelpers(undefined, 1000).then((v) => (outcome = v))
 		await Promise.resolve()
 		expect(outcome).toBeUndefined()
 		manager.setPipelineHelpers(fakePipelineHelpers())
+		await wait
+		expect(outcome).toBe(true)
+	})
+
+	it('waits for the editor of the requested folder, not any editor', async () => {
+		const manager = new AIChatManager()
+		manager.setPipelineHelpers(fakePipelineHelpers())
+		let outcome: boolean | undefined
+		const wait = manager.waitForPipelineHelpers('sales', 1000).then((v) => (outcome = v))
+		await Promise.resolve()
+		expect(outcome).toBeUndefined()
+		manager.setPipelineHelpers({ ...fakePipelineHelpers(), getFolder: () => 'sales' })
 		await wait
 		expect(outcome).toBe(true)
 	})
@@ -4360,7 +4423,7 @@ describe('AIChatManager.waitForPipelineHelpers', () => {
 	// than silently claim success.
 	it('resolves false after the timeout when no editor ever registers', async () => {
 		const manager = new AIChatManager()
-		await expect(manager.waitForPipelineHelpers(10)).resolves.toBe(false)
+		await expect(manager.waitForPipelineHelpers(undefined, 10)).resolves.toBe(false)
 	})
 })
 

@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { JobService, type Job } from '$lib/gen'
-	import { base } from '$lib/base'
 	import {
 		displayDate,
 		truncateRev,
@@ -260,14 +259,14 @@
 				<Tooltip>
 					{#snippet text()}
 						This job was run on worker:
-						<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
+						<a href={`/runs/?job_kinds=all&worker=${job?.worker}`}>
 							{job?.worker}
 						</a>
 						<br />
 						<WorkerHostname worker={job.worker!} minTs={job?.['created_at']} />
 					{/snippet}
 					<a
-						href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}
+						href={`/runs/?job_kinds=all&worker=${job?.worker}`}
 						target="_blank"
 						rel="noopener noreferrer"
 						class="flex items-center gap-1 text-primary"
@@ -304,7 +303,7 @@
 				Triggered by
 			{/if}
 			<a
-				href={`${base}/run/${job.parent_job}?workspace=${$operatingWorkspace}`}
+				href={`/run/${job.parent_job}?workspace=${$operatingWorkspace}`}
 				target="_blank"
 				rel="noopener noreferrer"
 				class="flex items-center gap-1"
@@ -324,7 +323,7 @@
 						icon: Link,
 						action: () =>
 							navigator.clipboard.writeText(
-								`${window.location.origin}${base}/run/${job.id}?workspace=${job.workspace_id}`
+								`${window.location.origin}/run/${job.id}?workspace=${job.workspace_id}`
 							)
 					},
 					{
@@ -385,7 +384,7 @@
 						<span class="text-secondary flex-shrink-0">Job ID</span>
 						<span class="text-primary">
 							<a
-								href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}
+								href={`/run/${job.id}?workspace=${job.workspace_id}`}
 								target="_blank"
 								rel="noopener noreferrer"
 								class="flex items-center gap-1 min-w-0"
@@ -476,7 +475,7 @@
 								{@const stem = job.job_kind === 'script' ? 'scripts' : 'flows'}
 								{@const isScript = job.job_kind === 'script'}
 								{@const viewHref = isScript
-									? `${base}/${stem}/get/${job?.script_hash}`
+									? `/${stem}/get/${job?.script_hash}`
 									: flowPathToHref(job?.script_path ?? '')}
 								<a
 									href={viewHref}
@@ -515,7 +514,7 @@
 										variant="subtle"
 										disabled={togglingResolution}
 										onClick={() => setResolution(false)}
-										title="Show this run as a failure again"
+										title="Show this run as unhandled again"
 									>
 										Unresolve
 									</Button>
@@ -526,7 +525,7 @@
 												size="xs2"
 												variant="subtle"
 												nonCaptureEvent
-												title="Mark this failure as handled"
+												title="Mark this run as handled"
 											>
 												Mark resolved
 											</Button>
@@ -534,8 +533,7 @@
 										{#snippet content({ close })}
 											<div class="p-3 flex flex-col gap-2 w-80">
 												<p class="text-xs text-secondary">
-													Resolving keeps the run a failure but stops it showing as one in the runs
-													list.
+													Resolving keeps the run's status but marks it as handled in the runs list.
 												</p>
 												<TextInput
 													bind:value={resolutionNote}
@@ -632,7 +630,7 @@
 								<span class="text-secondary flex-shrink-0">Job ID</span>
 								<span class="text-primary">
 									<a
-										href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}
+										href={`/run/${job.id}?workspace=${job.workspace_id}`}
 										target="_blank"
 										rel="noopener noreferrer"
 										class="flex items-center gap-1 min-w-0"

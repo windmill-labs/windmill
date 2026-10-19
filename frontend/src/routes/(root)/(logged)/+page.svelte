@@ -20,7 +20,6 @@
 		LayoutDashboard
 	} from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
-	import { base } from '$lib/base'
 
 	import ItemsList from '$lib/components/home/ItemsList.svelte'
 	import PickHubApp from '$lib/components/flows/pickers/PickHubApp.svelte'
@@ -194,7 +193,7 @@
 				</div>
 			</Button>
 			<Button
-				href="{base}/scripts/add?hub={encodeURIComponent(codeViewerObj?.path ?? '')}"
+				href="/scripts/add?hub={encodeURIComponent(codeViewerObj?.path ?? '')}"
 				startIcon={{ icon: GitFork }}
 				variant="accent"
 				size="xs"
@@ -231,7 +230,7 @@
 			</Button>
 
 			<Button
-				href="{base}/flows/add?hub={flowViewerFlow?.flow?.id}"
+				href="/flows/add?hub={flowViewerFlow?.flow?.id}"
 				startIcon={{ icon: GitFork }}
 				variant="accent"
 				size="xs"
@@ -273,7 +272,7 @@
 			</Button>
 
 			<Button
-				href="{base}/apps/add?hub={appViewerApp?.app?.id}"
+				href="/apps/add?hub={appViewerApp?.app?.id}"
 				startIcon={{ icon: GitFork }}
 				variant="accent"
 				disabled={appViewerApp == undefined}

@@ -451,6 +451,15 @@ lazy_static::lazy_static! {
     pub static ref FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX: AtomicBool = AtomicBool::new(false);
     pub static ref PREVIEW_TAGS_OVERRIDE: AtomicBool = AtomicBool::new(false);
     pub static ref DEPENDENCY_JOB_TAG: arc_swap::ArcSwap<Option<String>> = arc_swap::ArcSwap::from_pointee(None);
+    /// Whether the jobs of dev workspaces and forks are queued on suffixed tags.
+    pub static ref DEV_WORKSPACE_ISOLATION: AtomicBool = AtomicBool::new(false);
+    /// Whether a fork whose lineage holds no dev workspace runs on its parent's workers.
+    pub static ref DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS: AtomicBool = AtomicBool::new(false);
+    /// The suffix of those tags. Groups serving dev workspaces listen with it whether isolation is
+    /// on or not, so turning it off leaves no job already queued on a suffixed tag unserved.
+    pub static ref DEV_WORKSPACE_TAG_SUFFIX: arc_swap::ArcSwap<String> = arc_swap::ArcSwap::from_pointee(DEFAULT_DEV_WORKSPACE_TAG_SUFFIX.to_string());
+    /// Whether this process's worker group serves dev workspaces, set when its config is loaded.
+    pub static ref WORKER_SERVES_DEV_WORKSPACES: AtomicBool = AtomicBool::new(false);
 
     pub static ref MAX_TIMEOUT: u64 = std::env::var("TIMEOUT")
     .ok()
@@ -814,7 +823,8 @@ fn format_pull_query(peek: String) -> String {
             j.timeout, j.flow_step_id, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
             j.script_entrypoint_override, j.preprocessed, p.job_token_scopes, COALESCE(pj.runnable_path, j.args->>'_FLOW_PATH') as parent_runnable_path,
             COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
-            p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
+            p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email,
+            p.viewer_data_access
         FROM q, j
             LEFT JOIN v2_job_status f USING (id)
             LEFT JOIN job_perms p ON p.job_id = j.id
@@ -1189,6 +1199,7 @@ pub struct RlangAnnotations {
     pub renv_verbose: bool,
     pub renv_install_verbose: bool,
     pub sandbox: bool,
+    pub no_network: bool,
 }
 
 #[annotations("#")]
@@ -1201,7 +1212,10 @@ pub struct PythonAnnotations {
     pub py311: bool,
     pub py312: bool,
     pub py313: bool,
+    pub py314: bool,
+    pub py315: bool,
     pub sandbox: bool,
+    pub no_network: bool,
 }
 
 #[annotations("//")]
@@ -1312,6 +1326,7 @@ impl SqlAnnotations {
 pub struct BashAnnotations {
     pub docker: bool,
     pub sandbox: bool,
+    pub no_network: bool,
 }
 
 impl BashAnnotations {
@@ -1783,6 +1798,76 @@ pub fn get_cpu_period() -> Option<i64> {
     Some(100000)
 }
 
+/// Bucket bounds in bytes, 16 MiB to 32 GiB, shared by the Prometheus and OTel job
+/// peak-memory histograms so the two exports stay comparable.
+pub const JOB_MEMORY_PEAK_BUCKETS: [f64; 12] = {
+    let mut buckets = [0.0; 12];
+    let mut i = 0;
+    while i < 12 {
+        buckets[i] = (16u64 << (20 + i)) as f64;
+        i += 1;
+    }
+    buckets
+};
+
+/// Cumulative CPU accounting of the worker's cgroup. The throttling fields stay at 0
+/// when the cgroup has no CPU controller, which is also what an unthrottled one reports.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct CpuStat {
+    pub usage_usec: u64,
+    pub nr_periods: u64,
+    pub nr_throttled: u64,
+    pub throttled_usec: u64,
+}
+
+#[cfg(not(windows))]
+fn cpu_stat_field(stat: &str, key: &str) -> Option<u64> {
+    stat.lines().find_map(|line| {
+        let (k, v) = line.split_once(' ')?;
+        (k == key).then(|| v.trim().parse().ok()).flatten()
+    })
+}
+
+#[cfg(not(windows))]
+fn parse_cgroup_v2_cpu_stat(stat: &str) -> Option<CpuStat> {
+    Some(CpuStat {
+        usage_usec: cpu_stat_field(stat, "usage_usec")?,
+        nr_periods: cpu_stat_field(stat, "nr_periods").unwrap_or(0),
+        nr_throttled: cpu_stat_field(stat, "nr_throttled").unwrap_or(0),
+        throttled_usec: cpu_stat_field(stat, "throttled_usec").unwrap_or(0),
+    })
+}
+
+/// cgroup v1 splits the same figures over two controllers and counts time in nanoseconds.
+#[cfg(not(windows))]
+fn parse_cgroup_v1_cpu_stat(cpuacct_usage: &str, stat: &str) -> Option<CpuStat> {
+    Some(CpuStat {
+        usage_usec: cpuacct_usage.trim().parse::<u64>().ok()? / 1000,
+        nr_periods: cpu_stat_field(stat, "nr_periods").unwrap_or(0),
+        nr_throttled: cpu_stat_field(stat, "nr_throttled").unwrap_or(0),
+        throttled_usec: cpu_stat_field(stat, "throttled_time").unwrap_or(0) / 1000,
+    })
+}
+
+#[cfg(not(windows))]
+pub fn get_cpu_stat() -> Option<CpuStat> {
+    const V1_USAGE: &str = "/sys/fs/cgroup/cpuacct/cpuacct.usage";
+    if Path::new(V1_USAGE).exists() {
+        parse_cgroup_v1_cpu_stat(
+            &std::fs::read_to_string(V1_USAGE).ok()?,
+            &std::fs::read_to_string("/sys/fs/cgroup/cpu/cpu.stat").unwrap_or_default(),
+        )
+    } else {
+        let cgroup_path = get_cgroupv2_path()?;
+        parse_cgroup_v2_cpu_stat(&std::fs::read_to_string(format!("{cgroup_path}/cpu.stat")).ok()?)
+    }
+}
+
+#[cfg(windows)]
+pub fn get_cpu_stat() -> Option<CpuStat> {
+    None
+}
+
 /// CPUs the process is allowed to run on, ignoring any bandwidth quota — the count
 /// Go's `NumCPU` reports. `available_parallelism` cannot stand in for it: that folds
 /// the quota in, so a fraction of a CPU makes it report a single-core machine.
@@ -1952,6 +2037,7 @@ pub enum PingType {
     MainLoop,
     Job,
     InitScript,
+    Draining,
 }
 #[derive(Serialize, Deserialize)]
 pub struct Ping {
@@ -1974,6 +2060,8 @@ pub struct Ping {
     pub occupancy_rate_30m: Option<f32>,
     pub job_isolation: Option<String>,
     pub native_mode: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draining: Option<bool>,
     pub ping_type: PingType,
 }
 pub async fn update_ping_http(
@@ -2026,6 +2114,7 @@ pub async fn update_ping_http(
                 insert_ping.memory,
                 insert_ping.job_isolation,
                 insert_ping.native_mode.unwrap_or(false),
+                insert_ping.draining,
                 db,
             )
             .await?;
@@ -2054,7 +2143,18 @@ pub async fn update_ping_http(
             )
             .await?
         }
+        PingType::Draining => set_worker_draining_query(worker_name, db).await?,
     }
+    Ok(())
+}
+
+pub async fn set_worker_draining_query(worker_name: &str, db: &DB) -> anyhow::Result<()> {
+    sqlx::query!(
+        "UPDATE worker_ping SET draining = true WHERE worker = $1",
+        worker_name
+    )
+    .execute(db)
+    .await?;
     Ok(())
 }
 
@@ -2135,14 +2235,22 @@ pub async fn fetch_raw_script_from_app_query(
     loc: &'static Location<'_>,
 ) -> error::Result<RawScript> {
     sqlx::query!(
-        "SELECT lock, code FROM app_script WHERE id = $1 LIMIT 1",
+        "SELECT lock, code, modules AS \"modules: serde_json::Value\"
+         FROM app_script WHERE id = $1 LIMIT 1",
         id,
     )
     .fetch_optional(db)
     .await
     .map_err(Into::into)
     .and_then(unwrap_or_error(&loc, "Application script", id))
-    .map(|r| RawScript { content: r.code, lock: r.lock, meta: None, modules: None })
+    .and_then(|r| {
+        Ok(RawScript {
+            content: r.code,
+            lock: r.lock,
+            meta: None,
+            modules: r.modules.map(serde_json::from_value).transpose()?,
+        })
+    })
 }
 
 /// Returns the number of jobs the row already accounted for: non-zero when a worker of the
@@ -2156,6 +2264,9 @@ pub async fn fetch_raw_script_from_app_query(
 /// `started_at` and `jobs_executed` are the only two columns carried over, being the
 /// continuity itself — plus `ip` for as long as `ip` is `None`, which means the external IP
 /// lookup has not resolved yet and the predecessor's address is still the best guess.
+///
+/// `draining` is `Some(false)` from a worker starting up and `None` from one re-registering
+/// mid-life, which must leave alone a flag its own shutdown may have set in the meantime.
 pub async fn insert_ping_query(
     worker_instance: &str,
     worker_name: &str,
@@ -2169,6 +2280,7 @@ pub async fn insert_ping_query(
     memory: Option<i64>,
     job_isolation: Option<String>,
     native_mode: bool,
+    draining: Option<bool>,
     db: &DB,
 ) -> anyhow::Result<i32> {
     // A NULL `ip` means the external IP lookup is still in flight; a later ping fills it in, and
@@ -2176,8 +2288,8 @@ pub async fn insert_ping_query(
     // lookup that has failed reports `external_ip::UNRETRIEVABLE_IP`, which does overwrite it. The
     // literal below must stay equal to `external_ip::UNKNOWN_IP`.
     let previous_jobs_executed = sqlx::query_scalar!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode) VALUES ($1, $2, COALESCE($3, 'NO IP'), $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (worker)
-        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation, native_mode, draining) VALUES ($1, $2, COALESCE($3, 'NO IP'), $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($13, false)) ON CONFLICT (worker)
+        DO UPDATE set ping_at = now(), worker_instance = EXCLUDED.worker_instance, ip = COALESCE($3, worker_ping.ip), custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_worker = EXCLUDED.dedicated_worker, dedicated_workers = EXCLUDED.dedicated_workers, wm_version = EXCLUDED.wm_version, vcpus = COALESCE(EXCLUDED.vcpus, worker_ping.vcpus), memory = COALESCE(EXCLUDED.memory, worker_ping.memory), job_isolation = EXCLUDED.job_isolation, native_mode = EXCLUDED.native_mode, current_job_id = NULL, current_job_workspace_id = NULL, draining = COALESCE($13, worker_ping.draining)
         RETURNING jobs_executed",
         worker_instance,
         worker_name,
@@ -2191,6 +2303,7 @@ pub async fn insert_ping_query(
         memory,
         job_isolation.as_deref(),
         native_mode,
+        draining,
         )
         .fetch_one(db)
         .await?;
@@ -2317,8 +2430,55 @@ pub async fn update_worker_ping_main_loop_query(
 // occupancy_rate = $3, memory_usage = $4, wm_memory_usage = $5, vcpus = COALESCE($7, vcpus),
 // memory = COALESCE($8, memory), occupancy_rate_15s = $9, occupancy_rate_5m = $10, occupancy_rate_30m = $11 WHERE worker = $6",
 
-const MAX_TAG_LEN: usize = 50;
+/// The length of `v2_job.tag`.
+pub const MAX_TAG_LEN: usize = 50;
 const HASH_SUFFIX_LEN: usize = 16;
+
+pub const DEFAULT_DEV_WORKSPACE_TAG_SUFFIX: &str = "-dev";
+
+/// The suffix new jobs of dev workspaces and forks get, `None` while isolation is off.
+pub fn dev_workspace_tag_suffix() -> Option<String> {
+    DEV_WORKSPACE_ISOLATION
+        .load(std::sync::atomic::Ordering::Relaxed)
+        .then(|| DEV_WORKSPACE_TAG_SUFFIX.load().to_string())
+}
+
+/// Whether a workspace's jobs are isolated, given that it has a parent or a generated fork id
+/// (`is_dev_or_fork`) and whether a dev workspace is on its ancestor chain, itself included
+/// (`in_dev_lineage`). Leaves out only the forks of a non-dev workspace, and only when the
+/// instance opts out of isolating them.
+pub fn is_isolated_workspace(is_dev_or_fork: bool, in_dev_lineage: bool) -> bool {
+    is_dev_or_fork
+        && (in_dev_lineage
+            || !DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS
+                .load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// Worker tags are pasted into the pull queries as SQL literals and listed comma-separated, so
+/// the suffix must not carry a quote, a comma or whitespace.
+pub fn is_valid_dev_workspace_tag_suffix(suffix: &str) -> bool {
+    !suffix.is_empty()
+        && suffix.len() <= 32
+        && suffix
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
+/// `tag` as the workers serving dev workspaces listen to it. Idempotent, because a tag inherited
+/// from a dev job (a flow step, an agent's tool) already carries the suffix.
+pub fn with_dev_workspace_suffix(tag: &str, suffix: &str) -> String {
+    if tag.ends_with(suffix) {
+        tag.to_string()
+    } else {
+        format!("{tag}{suffix}")
+    }
+}
+
+/// Whether `tag` has the shape of a [`dedicated_worker_tag`] too long to keep whole. Its prefix
+/// alone does not tell whose it is: two workspaces may share it.
+pub fn is_hashed_dedicated_worker_tag(tag: &str) -> bool {
+    tag.len() == MAX_TAG_LEN && tag.as_bytes().get(MAX_TAG_LEN - 1 - HASH_SUFFIX_LEN) == Some(&b'#')
+}
 
 pub fn dedicated_worker_tag(workspace_id: &str, path: &str) -> String {
     let full_tag = format!("{}:{}", workspace_id, path);
@@ -2480,8 +2640,32 @@ pub async fn load_worker_config(
         })
         .unwrap_or_else(|| DEFAULT_TAGS.clone());
 
+    // A group serving dev workspaces listens to the suffixed form of its tags only, so it never
+    // takes a root workspace's job. Dedicated workers are placed by hand and keep their tags.
+    let dev_suffix = (config.serves_dev_workspaces == Some(true)
+        && dedicated_worker.is_none()
+        && dedicated_workers.is_none())
+    .then(|| DEV_WORKSPACE_TAG_SUFFIX.load().to_string());
+    WORKER_SERVES_DEV_WORKSPACES.store(dev_suffix.is_some(), std::sync::atomic::Ordering::Relaxed);
+    let worker_tags = match &dev_suffix {
+        Some(suffix) => worker_tags
+            .iter()
+            .map(|t| with_dev_workspace_suffix(t, suffix))
+            .unique()
+            .collect_vec(),
+        None => worker_tags,
+    };
+
     let mut priority_tags_sorted: Vec<PriorityTags> = Vec::new();
-    let priority_tags_map = config.priority_tags.unwrap_or_else(HashMap::new);
+    let priority_tags_map: HashMap<String, u8> = match &dev_suffix {
+        Some(suffix) => config
+            .priority_tags
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(t, p)| (with_dev_workspace_suffix(&t, suffix), p))
+            .collect(),
+        None => config.priority_tags.unwrap_or_else(HashMap::new),
+    };
     if priority_tags_map.len() > 0 {
         let mut all_tags_set: HashSet<String> = HashSet::from_iter(worker_tags.clone());
 
@@ -2627,6 +2811,93 @@ pub fn load_whitelist_env_vars_from_env() -> std::vec::IntoIter<String> {
         .into_iter()
 }
 
+/// Warns, by name only, about each `WHITELIST_ENVS` entry that looks like a credential:
+/// every job on the worker can read what is listed there.
+pub fn warn_secret_shaped_whitelist_envs() {
+    for name in load_whitelist_env_vars_from_env().sorted().unique() {
+        let value = std::env::var(&name).unwrap_or_default();
+        if looks_like_secret(&name, &value) {
+            tracing::warn!(
+                "WHITELIST_ENVS forwards {name}, which looks like a secret, to every job on \
+                this worker, where any script can read it. Store it as a secret variable or \
+                resource, or in a secret backend, and remove it from WHITELIST_ENVS"
+            );
+        }
+    }
+}
+
+fn looks_like_secret(name: &str, value: &str) -> bool {
+    const SECRET_WORDS: &[&str] = &[
+        "TOKEN",
+        "TOKENS",
+        "SECRET",
+        "SECRETS",
+        "PASSWORD",
+        "PASSWD",
+        "KEY",
+        "APIKEY",
+        "CREDENTIAL",
+        "CREDENTIALS",
+        "AUTH",
+        "PRIVATE",
+    ];
+    let name_matches = name
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|word| SECRET_WORDS.contains(&word.to_ascii_uppercase().as_str()));
+    if name_matches {
+        return true;
+    }
+
+    let value = value.trim();
+    let is_private_pem = value.contains("-----BEGIN ") && value.contains("PRIVATE KEY-----");
+    let is_jwt = value.starts_with("eyJ") && {
+        let parts: Vec<&str> = value.split('.').collect();
+        parts.len() == 3
+            && parts.iter().all(|p| {
+                !p.is_empty()
+                    && p.chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '=')
+            })
+    };
+    let has_url_password = url::Url::parse(value).is_ok_and(|u| u.password().is_some());
+    is_private_pem || is_jwt || has_url_password || is_high_entropy(value)
+}
+
+/// A single token whose longest run between separators is 24+ chars mixing letters and digits
+/// with more than 4 bits of entropy per char: above what hex digests, UUIDs and words reach.
+/// Scoring the whole value instead flags pod names and cloud resource paths, whose entropy
+/// grows with their length.
+fn is_high_entropy(value: &str) -> bool {
+    if !value
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "+/=_-".contains(c))
+    {
+        return false;
+    }
+    let Some(run) = value.split(['-', '_', '/']).max_by_key(|s| s.len()) else {
+        return false;
+    };
+    if run.len() < 24
+        || !run.chars().any(|c| c.is_ascii_digit())
+        || !run.chars().any(|c| c.is_ascii_alphabetic())
+    {
+        return false;
+    }
+    let mut counts = HashMap::<char, usize>::new();
+    for c in run.chars() {
+        *counts.entry(c).or_default() += 1;
+    }
+    let len = run.len() as f64;
+    let entropy: f64 = counts
+        .values()
+        .map(|&n| {
+            let p = n as f64 / len;
+            -p * p.log2()
+        })
+        .sum();
+    entropy > 4.0
+}
+
 pub fn load_env_vars(
     iter: impl Iterator<Item = String>,
     env_vars_static: &HashMap<String, String>,
@@ -2677,6 +2948,7 @@ pub struct WorkerConfigOpt {
     pub native_mode: Option<bool>,
     pub object_store_cache_config: Option<serde_json::Value>,
     pub paused: Option<bool>,
+    pub serves_dev_workspaces: Option<bool>,
 }
 
 impl Default for WorkerConfigOpt {
@@ -2697,6 +2969,7 @@ impl Default for WorkerConfigOpt {
             native_mode: Default::default(),
             object_store_cache_config: Default::default(),
             paused: Default::default(),
+            serves_dev_workspaces: Default::default(),
         }
     }
 }
@@ -2799,9 +3072,14 @@ pub fn lockfile_line_has_continuation(line: &str) -> bool {
 pub enum PyVAlias {
     Py310 = 10,
     Py311,
+    // Frozen: what a lock with no `# py:` line runs on, and what the server writes into
+    // `instance_python_version` for an instance that never chose one. Raise `NEW_INSTANCE`
+    // instead, which existing instances never pick up.
     #[default]
     Py312,
     Py313,
+    Py314,
+    Py315,
 }
 
 impl Into<pep440_rs::Version> for PyVAlias {
@@ -2817,15 +3095,32 @@ impl Into<u32> for PyVAlias {
 }
 
 impl PyVAlias {
+    /// What the server writes into `instance_python_version` when it initializes an instance.
+    /// Raising it also means the images must keep preinstalling every earlier value, or
+    /// instances that started on one download their runtime on first use.
+    pub const NEW_INSTANCE: PyVAlias = PyVAlias::Py313;
+
     pub fn all<T: From<PyVAlias>>() -> Vec<T> {
         use PyVAlias::*;
-        vec![Py310.into(), Py311.into(), Py312.into(), Py313.into()]
+        vec![
+            Py310.into(),
+            Py311.into(),
+            Py312.into(),
+            Py313.into(),
+            Py314.into(),
+            Py315.into(),
+        ]
     }
+    /// `MAJOR.MINOR`, the form the instance settings store.
+    pub fn version_string(self) -> String {
+        format!("{}.{}", self.major(), self as u32)
+    }
+
     // Get MAJOR part of alias. (semver: MAJOR.MINOR.PATCH)
     fn major(&self) -> u32 {
         use PyVAlias::*;
         match self {
-            Py310 | Py311 | Py312 | Py313 => 3,
+            Py310 | Py311 | Py312 | Py313 | Py314 | Py315 => 3,
             // Py400 | Py401 => 4
         }
     }
@@ -2840,6 +3135,8 @@ impl PyVAlias {
             "311" => Some(Py311),
             "312" => Some(Py312),
             "313" => Some(Py313),
+            "314" => Some(Py314),
+            "315" => Some(Py315),
             _ => None,
         }
     }
@@ -2898,6 +3195,84 @@ pub fn try_parse_locked_python_version_from_requirements<S: AsRef<str>>(
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    #[test]
+    fn whitelist_env_secret_heuristic() {
+        let cases = [
+            ("GITHUB_TOKEN", "x", true),
+            ("aws_secret_access_key", "", true),
+            ("DB-PASSWORD", "x", true),
+            ("OPENAI_APIKEY", "x", true),
+            ("MY_CREDENTIALS", "x", true),
+            ("PRIVATE_REGISTRY", "x", true),
+            ("MONKEY", "banana", false),
+            ("KEYCLOAK_URL", "https://kc.example.com", false),
+            ("TOKENIZER_PATH", "/opt/tok", false),
+            (
+                "SSH_CFG",
+                "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n-----END OPENSSH PRIVATE KEY-----",
+                true,
+            ),
+            (
+                "CA_CERT",
+                "-----BEGIN CERTIFICATE-----\nabc\n-----END CERTIFICATE-----",
+                false,
+            ),
+            (
+                "JWT_LIKE",
+                "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl",
+                true,
+            ),
+            ("DB_URL", "postgres://user:hunter2@db:5432/app", true),
+            ("PROXY", "http://proxy.local:3128", false),
+            ("PROXY_USER", "http://bob@proxy.local:3128", false),
+            ("OPAQUE", "app_51HxQ2vLk9Tq8ZpR3mNcY7wB4aD6eF0gJ", true),
+            ("GIT_SHA", "3f786850e387550fdab836ed7e6dc881de23001b", false),
+            ("RUN_ID", "123e4567-e89b-12d3-a456-426614174000", false),
+            (
+                "SOME_PATH",
+                "/usr/local/lib/python3.11/site-packages/x1",
+                false,
+            ),
+            ("REGION", "eu-west-1", false),
+            ("HOSTNAME", "windmill-workers-7d9f8c6b5-x2k4p", false),
+            (
+                "TOPIC",
+                "projects/my-gcp-project-123/locations/europe-west1",
+                false,
+            ),
+        ];
+        for (name, value, expected) in cases {
+            assert_eq!(looks_like_secret(name, value), expected, "{name}={value}");
+        }
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn cgroup_cpu_stat_is_normalized_to_microseconds() {
+        let v2 = "usage_usec 2500000\nuser_usec 2000000\nsystem_usec 500000\n\
+                  nr_periods 40\nnr_throttled 7\nthrottled_usec 350000\nnr_bursts 0\n";
+        let expected = CpuStat {
+            usage_usec: 2_500_000,
+            nr_periods: 40,
+            nr_throttled: 7,
+            throttled_usec: 350_000,
+        };
+        assert_eq!(parse_cgroup_v2_cpu_stat(v2), Some(expected));
+
+        let v1_stat = "nr_periods 40\nnr_throttled 7\nthrottled_time 350000000\n";
+        assert_eq!(
+            parse_cgroup_v1_cpu_stat("2500000000\n", v1_stat),
+            Some(expected)
+        );
+
+        // No CPU controller: usage is still reported, throttling reads as zero.
+        assert_eq!(
+            parse_cgroup_v2_cpu_stat("usage_usec 12\nuser_usec 8\nsystem_usec 4\n"),
+            Some(CpuStat { usage_usec: 12, ..Default::default() })
+        );
+        assert_eq!(parse_cgroup_v2_cpu_stat("nr_periods 40\n"), None);
+    }
 
     #[test]
     fn datatable_role_is_read_from_the_leading_comment_block() {
@@ -3460,6 +3835,22 @@ mod tests {
         let combined = SqlAnnotations::parse("-- prepare\n-- raw_output\nSELECT 1");
         assert!(combined.raw_output);
         assert!(combined.prepare);
+    }
+
+    #[test]
+    fn test_no_network_annotation() {
+        assert!(PythonAnnotations::parse("# sandbox\n# no_network\ndef main(): pass").no_network);
+        assert!(!PythonAnnotations::parse("# sandbox\ndef main(): pass").no_network);
+        assert!(RlangAnnotations::parse("#no_network\nmain <- function() {}").no_network);
+        assert!(
+            TypeScriptAnnotations::parse("// no_network\nexport function main() {}").no_network
+        );
+        let bash = "# sandbox alpine\n# no_network\necho hi";
+        assert!(BashAnnotations::parse(bash).no_network);
+        assert_eq!(
+            BashAnnotations::sandbox_image(bash),
+            Some("alpine".to_string())
+        );
     }
 
     #[test]

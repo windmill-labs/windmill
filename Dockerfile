@@ -18,7 +18,9 @@ RUN apt-get -y update \
     pkg-config=1.8.* \
     protobuf-compiler=3.21.*
 
-RUN git clone -b master --single-branch https://github.com/google/nsjail.git . && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800
+COPY docker/nsjail-patches/ /nsjail-patches/
+RUN git clone -b master --single-branch https://github.com/google/nsjail.git . && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800 \
+    && git apply /nsjail-patches/*.patch
 RUN make
 
 FROM ${RUST_IMAGE} AS rust_base
@@ -50,10 +52,7 @@ RUN apt-get update && apt-get install -y clang=1:19.0* libclang-dev=1:19.0* cmak
 
 COPY ./backend/windmill-duckdb-ffi-internal .
 
-# The `duckdb` crate comes from a git dependency (a fork carrying an engine patch),
-# which cargo checks out under $CARGO_HOME/git rather than the registry cache.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     cargo build --release -p windmill_duckdb_ffi_internal
 
@@ -83,7 +82,6 @@ COPY /python-client/docs/ /frontend/static/pydocs/
 
 RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
-ARG VITE_BASE_URL ""
 # Must be declared for the build-arg to reach the bundle. See frontend/svelte.config.js.
 ARG WM_BUILD_VERSION=""
 # Read more about macro in docker/dev.nu
@@ -153,11 +151,12 @@ ARG WITH_HELM=true
 ARG WITH_GIT=true
 ARG features=""
 
-# To change latest stable version:
-# 1. Change placeholder in instanceSettings.ts
-# 2. Change LATEST_STABLE_PY in dockerfile
-# 3. Change #[default] annotation for PyVersion in backend
+# Instances keep the Python version they were initialized with, so both are preinstalled:
+# LATEST_STABLE_PY is what instances initialized before the version was raised are on
+# (PyVAlias::default() in the backend), NEW_INSTANCE_PY the one new instances start on
+# (PyVAlias::NEW_INSTANCE). When raising the latter, keep installing every earlier value.
 ARG LATEST_STABLE_PY=3.12
+ARG NEW_INSTANCE_PY=3.13
 ENV UV_PYTHON_INSTALL_DIR=/tmp/windmill/cache/py_runtime
 ENV UV_PYTHON_PREFERENCE=only-managed
 
@@ -242,7 +241,7 @@ ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
 # Install UV
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.11.24/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.13.0/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
 
 # Preinstall python runtimes to temp build location (will copy with world-writable perms later)
 # --compile-bytecode precompiles the stdlib to .pyc so jobs don't recompile it on every run
@@ -250,11 +249,17 @@ RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releas
 # timestamps or Python's mtime-based .pyc invalidation discards these compiled files.
 RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install 3.11 --compile-bytecode
 RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $LATEST_STABLE_PY --compile-bytecode
+RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $NEW_INSTANCE_PY --compile-bytecode
 
 
 RUN curl -sL https://deb.nodesource.com/setup_24.x | bash -
 RUN apt-get -y update && apt-get install -y --no-install-recommends curl procps nodejs awscli && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# The npm bundled with nodejs is replaced by a pinned one: it is what `//npm` scripts install with
+# (NPM_PATH=/usr/bin/npm). npm 12 skips dependency install scripts not covered by an allowScripts
+# policy (package.json or .npmrc).
+RUN npm install -g npm@12.2.0 && npm cache clean --force
 
 # go build is slower the first time it is ran, so we prewarm it in the build
 # This mirrors Windmill's Go wrapper structure: main.go imports inner package, uses encoding/json, os, fmt
@@ -285,9 +290,8 @@ ENV TZ=Etc/UTC
 
 COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
-COPY --from=windmill_duckdb_ffi_internal_builder /windmill-duckdb-ffi-internal/target/release/libwindmill_duckdb_ffi_internal.so ${APP}/libwindmill_duckdb_ffi_internal.so
-
-COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
+# DuckDB jobs run in this binary, which the worker looks for next to its own.
+COPY --from=windmill_duckdb_ffi_internal_builder /windmill-duckdb-ffi-internal/target/release/windmill_duckdb_runner ${APP}/windmill_duckdb_runner
 
 COPY --from=oven/bun:1.4.0 /usr/local/bin/bun /usr/bin/bun
 

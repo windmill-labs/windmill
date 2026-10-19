@@ -1,9 +1,12 @@
-import { base } from '$app/paths'
 import type { SessionTarget } from './sessionState.svelte'
+import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
 
 // Maps a session's editor target to the canonical full-page Windmill route.
 export function sessionTargetHref(target: SessionTarget | undefined): string | undefined {
 	if (!target) return undefined
+	if (target.kind === 'pipeline') {
+		return `/pipeline/${encodeURIComponent(normalizePipelineFolder(target.path))}`
+	}
 	const seg =
 		target.kind === 'script'
 			? 'scripts/edit'
@@ -13,12 +16,12 @@ export function sessionTargetHref(target: SessionTarget | undefined): string | u
 					? 'apps_raw/edit'
 					: undefined
 	if (!seg) return undefined
-	return `${base}/${seg}/${target.path}`
+	return `/${seg}/${target.path}`
 }
 
 // Point a preview tab's URL at a place inside the previewed editor (the flow
 // step to select). The params are not part of the item's identity — every tab
-// resolver strips the query (see previewRouter's stripBase) — so they only ever
+// resolver strips the query (see previewRouter's barePath) — so they only ever
 // steer where the editor opens. No-op without params.
 export function withPreviewParams(
 	url: string | undefined,

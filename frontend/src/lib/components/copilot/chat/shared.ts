@@ -571,6 +571,10 @@ export type RunFormDisplay = {
 	/** What is being run, for the noun the card says it in.
 	 * Absent on cards recorded before flows had a form, which were all scripts. */
 	runnableKind?: 'script' | 'flow'
+	/** The deployed page of this item is a conversation, not a run form — a chat-enabled
+	 * flow. Its page can be opened to look at, but it has no form to confirm this call on, so
+	 * the card keeps the run. */
+	conversational?: boolean
 	/** Of whatever version is about to run: the deployed script, or the draft a test
 	 * previews. Only the rendered form reads it, so it is dropped once one of the flags
 	 * below unmounts that form: kept, every settled card would carry a copy of the schema
@@ -606,6 +610,16 @@ export type RunFormDisplay = {
 /** What a run form is being filled with while it waits. Held by the chat manager, not by
  * the form, so the chat card and the preview pane edit one draft rather than two copies.
  * The schema rides along because SchemaForm binds and reorders it. */
+/** How a parked run form is answered. `args` for a form the tool then runs itself; `job` for
+ * a run the reader already started on the item's own page, which the tool follows instead. */
+export type RunFormAnswer =
+	| { kind: 'args'; args: Record<string, any> }
+	/** A job another surface already started. Its `args` are what that surface sent, already
+	 * coerced and minted by its own form, so they are reported rather than processed, and
+	 * `schema` is the one it ran against — which redaction needs, since it only visits the
+	 * leaves a schema declares. */
+	| { kind: 'job'; jobId: string; args: Record<string, any>; schema: Record<string, any> }
+
 export type RunFormDraft = {
 	args: Record<string, any>
 	schema: Record<string, any>
@@ -834,6 +848,13 @@ async function callTool<T>({
 }): Promise<string> {
 	const tool = tools.find((t) => t.def.function.name === functionName)
 	if (!tool) {
+		// The pipeline tools exist only while a pipeline editor is mounted, and change_mode
+		// cannot mount one, so the generic hint would send the model probing.
+		if (/_pipeline_node$|^get_pipeline_graph$/.test(functionName)) {
+			throw new Error(
+				`${functionName} is not available yet: no pipeline editor is open for this chat. Call open_preview(kind="pipeline", path="<folder>") first and wait for its result; once it reports the editor open, the pipeline tools are callable. Do not fall back to write_script.`
+			)
+		}
 		throw new Error(
 			`Unknown tool call: ${functionName}. Probably not in the correct mode, use the change_mode tool to switch to the correct mode.`
 		)
@@ -924,22 +945,33 @@ type ToolCallStatus =
 	| 'blocked_plan_mode'
 	| 'held_for_instructions'
 
+/** Re-reads the chat loop's current tools and helpers. A call earlier in the same
+ * response can register tools (open_preview mounting the pipeline editor, change_mode),
+ * so a later call in that batch must resolve against the live set, not the snapshot the
+ * response was requested with. */
+export type LiveToolSet = () => { tools: Tool<any>[]; helpers: any }
+
 export async function processToolCall<T>({
-	tools,
+	tools: snapshotTools,
 	toolCall,
-	helpers,
+	helpers: snapshotHelpers,
 	toolCallbacks,
 	workspace,
-	messages = []
+	messages = [],
+	live
 }: {
 	tools: Tool<T>[]
 	toolCall: ChatCompletionMessageFunctionToolCall
 	helpers: T
+	live?: LiveToolSet
 	toolCallbacks: ToolCallbacks
 	workspace?: string
 	/** The conversation so far, for which folder instructions it already carries. */
 	messages?: readonly ChatCompletionMessageParam[]
 }): Promise<ChatCompletionMessageParam> {
+	const current = live?.()
+	const tools: Tool<T>[] = current?.tools ?? snapshotTools
+	const helpers: T = current ? current.helpers : snapshotHelpers
 	const tool = tools.find((t) => t.def.function.name === toolCall.function.name)
 	const workspaceId = workspace ?? get(workspaceStore) ?? ''
 
@@ -1419,9 +1451,14 @@ export interface ToolCallbacks {
 		toolId: string,
 		form: RunFormDisplay,
 		opts?: { autoAccepted?: boolean }
-	) => Promise<Record<string, any> | undefined>
+	) => Promise<RunFormAnswer | undefined>
 	/** The submitted form's job is queued. Wired alongside requestRunArgs. */
 	markRunFormStarted?: (toolId: string) => void
+	/** The submitted form will never produce a job: the server refused it, a sensitive
+	 * argument could not be stored, or plan mode blocked it after the arguments were handed
+	 * over. The mirror of `markRunFormStarted`, and the only way a surface that confirmed the
+	 * run can tell that it is over — the call settles with neither a job nor a cancellation. */
+	markRunFormEnded?: (toolId: string) => void
 	/** Records a workspace item the tool call created/edited/deleted, by its
 	 * canonical (itemKind, storagePath). Session chats wire this to accumulate the
 	 * chat's modified-items mask; the global side-panel chat omits it (no-op). */
@@ -1709,6 +1746,9 @@ function parseResourceTypeSchema(schema: unknown): unknown {
 		return schema
 	}
 }
+
+export const HUB_SYNC_INSTRUCTIONS =
+	'Tell the user: no resource of a missing type can be created until a superadmin syncs resource types from the hub, with "Sync resource types with Hub" in the Add resource dialog of the Resources page.'
 
 export const getHubIntegrationTool = {
 	requires: NONE,

@@ -150,6 +150,7 @@ beforeEach(async () => {
 	__resetMirrorForTesting()
 	pushMock.mockReset()
 	listMock.mockReset()
+	listMock.mockResolvedValue({ enabled: true, sessions: [] })
 	pullMock.mockReset()
 	chatImport.unavailable = false
 	chatImport.pruneFails = false
@@ -316,6 +317,30 @@ describe('sessionMirror flush', () => {
 		expect((await __syncRowsForTesting(EMAIL)).some((r) => r.id === 'sr')).toBe(false)
 	})
 
+	it('asks a workspace it has not heard from before sending it a transcript', async () => {
+		const s: Session = { id: 'sp', name: 'session-1', createdAt: 1, workspace_id: 'ws' }
+		sessionState.sessions = [s]
+		await putSession(s)
+		const { ApiError } = await import('$lib/gen')
+		listMock.mockRejectedValueOnce(
+			new ApiError({ method: 'GET', url: '' } as never, { status: 404 } as never, 'no resource')
+		)
+		await __flushForTesting()
+		expect(listMock).toHaveBeenCalledTimes(1)
+		expect(pushMock).not.toHaveBeenCalled()
+		expect(await pendingDirty()).toEqual(['sp'])
+
+		// A page that heard the workspace keeps backups pushes without asking again.
+		__resetMirrorForTesting()
+		pushMock.mockResolvedValue({ enabled: true, results: [{ id: 'sp' }] })
+		await __flushForTesting()
+		await putSession({ ...s, summary: 'changed' })
+		await __flushForTesting()
+		expect(listMock).toHaveBeenCalledTimes(2)
+		expect(pushMock).toHaveBeenCalledTimes(2)
+		expect(await pendingDirty()).toEqual([])
+	})
+
 	it('keeps the marks when the push fails, and stops for a workspace without storage', async () => {
 		const s: Session = { id: 's2', name: 'session-2', createdAt: 1, workspace_id: 'ws' }
 		const never: Session = { id: 's2b', name: 'session-3', createdAt: 2, workspace_id: 'ws' }
@@ -355,11 +380,11 @@ describe('sessionMirror flush', () => {
 
 		// Backups an admin turns on again elsewhere are noticed once the page's memory of
 		// them being off expires, with nothing else prompting it: the removal goes then.
-		listMock.mockResolvedValue({ enabled: true, sessions: [] })
+		listMock.mockClear()
 		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 's2' }] })
 		await vi.waitFor(() => expect(pushMock).toHaveBeenCalledTimes(4), { timeout: 3000 })
 		expect(pushMock.mock.calls[3][0].requestBody.removed).toEqual(['s2'])
-		await vi.waitFor(() => expect(listMock).toHaveBeenCalledTimes(1))
+		await vi.waitFor(() => expect(listMock).toHaveBeenCalled())
 		await __settleForTesting()
 		expect(pendingKeys()).toEqual([])
 	})
@@ -426,7 +451,7 @@ describe('sessionMirror flush', () => {
 		await __flushForTesting()
 		expect(pushMock).toHaveBeenCalledTimes(2)
 
-		listMock.mockResolvedValue({ enabled: true, sessions: [] })
+		listMock.mockClear()
 		pushMock.mockResolvedValueOnce({ enabled: true, results: [{ id: 'so' }] })
 		usersWorkspaceStore.set({ email: EMAIL, workspaces: [] } as never)
 		backupSettingsChanged('ws')

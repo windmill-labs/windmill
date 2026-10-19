@@ -104,3 +104,72 @@ describe('PipelineEditorState.handleDraftPersist — read capture', () => {
 		expect(pe.drafts.get('f/x/n')?.inputAssets).toBeUndefined()
 	})
 })
+
+describe('PipelineEditorState trigger drafts', () => {
+	it('follow their script draft: renamed with it, discarded with it', () => {
+		const pe = new PipelineEditorState()
+		pe.drafts = new Map([['f/x/n', draft('SELECT 1')]])
+		pe.setTriggerDraft({ kind: 'kafka', config: { path: 'f/x/n_kafka', script_path: 'f/x/n' } })
+		pe.setTriggerDraft({ kind: 'schedule', config: { path: 'f/x/nightly', script_path: 'f/x/n' } })
+
+		pe.retargetTriggerDrafts('f/x/n', 'f/x/m')
+		// A default `<script>_<kind>` name follows the script; a chosen one stays.
+		expect([...pe.triggerDrafts.keys()].sort()).toEqual([
+			'kafka:f/x/m_kafka',
+			'schedule:f/x/nightly'
+		])
+		expect([...pe.triggerDrafts.values()].every((d) => d.config.script_path === 'f/x/m')).toBe(true)
+
+		pe.drafts = new Map([['f/x/m', draft('SELECT 1')]])
+		pe.discardDraft('f/x/m')
+		expect(pe.triggerDrafts.size).toBe(0)
+	})
+
+	it('refuse a path another draft holds, but let a draft keep its own', () => {
+		const pe = new PipelineEditorState()
+		const a = { kind: 'kafka' as const, config: { path: 'f/x/k', script_path: 'f/x/a' } }
+		expect(pe.setTriggerDraft(a)).toBe(true)
+		expect(
+			pe.setTriggerDraft({ kind: 'kafka', config: { path: 'f/x/k', script_path: 'f/x/b' } })
+		).toBe(false)
+		expect(pe.triggerDrafts.get('kafka:f/x/k')?.config.script_path).toBe('f/x/a')
+		expect(pe.setTriggerDraft({ ...a, config: { ...a.config, topics: ['t'] } }, 'kafka:f/x/k')).toBe(
+			true
+		)
+	})
+
+	it('refuse a script rename that moves a default name onto another draft', () => {
+		const pe = new PipelineEditorState()
+		pe.setTriggerDraft({ kind: 'kafka', config: { path: 'f/x/a_kafka', script_path: 'f/x/a' } })
+		pe.setTriggerDraft({ kind: 'kafka', config: { path: 'f/x/b_kafka', script_path: 'f/x/c' } })
+		expect(pe.retargetTriggerDrafts('f/x/a', 'f/x/b')).toBe('f/x/b_kafka')
+		expect([...pe.triggerDrafts.keys()].sort()).toEqual(['kafka:f/x/a_kafka', 'kafka:f/x/b_kafka'])
+	})
+})
+
+describe('PipelineEditorState.liveEditPath', () => {
+	const base = { path: 'f/x/n', language: 'duckdb', content: 'SELECT 1' } as PipelineDraft['script']
+
+	it('counts an open deployed script with unsaved edits, until it has a draft', () => {
+		const pe = new PipelineEditorState()
+		pe.liveContent = { scriptPath: 'f/x/n', content: 'SELECT 1', base }
+		expect(pe.liveEditPath).toBeUndefined()
+		pe.liveContent = { scriptPath: 'f/x/n', content: 'SELECT 2', base }
+		expect(pe.liveEditPath).toBe('f/x/n')
+		pe.drafts = new Map([['f/x/n', draft('SELECT 2')]])
+		expect(pe.liveEditPath).toBeUndefined()
+	})
+})
+
+describe('PipelineEditorState.closePane', () => {
+	it("leaves no open buffer behind for autosave to bring back once the draft is gone", async () => {
+		const pe = new PipelineEditorState()
+		const base = { path: 'f/x/n', language: 'duckdb', content: 'SELECT 1' } as PipelineDraft['script']
+		pe.selection = { kind: 'runnable', runnable_kind: 'script', path: 'f/x/n' }
+		pe.liveContent = { scriptPath: 'f/x/n', content: 'SELECT 2', base }
+		expect(await pe.closePane()).toBe('f/x/n')
+		expect(pe.selection).toBeUndefined()
+		expect(pe.liveEditPath).toBeUndefined()
+		expect(pe.liveContent.scriptPath).toBeUndefined()
+	})
+})

@@ -10,7 +10,6 @@
 	import { msToReadableTime } from '$lib/utils'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import { JobService, type CompletedJob, type Job } from '$lib/gen'
-	import { base } from '$lib/base'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import ChatCollapsibleCard from './ChatCollapsibleCard.svelte'
 	import RunArgsFormDisplay from './RunArgsFormDisplay.svelte'
@@ -102,7 +101,16 @@
 						canceled ||
 						(chatJob !== undefined && ['success', 'failure', 'canceled'].includes(chatJob.status)))
 	)
-	const running = $derived(!pending && !settled)
+	// The form is answered but no job exists yet: the round trip that creates it, or a start
+	// that is about to fail. Saying Running here would claim a job before there is one.
+	const starting = $derived(!pending && !settled && !ran)
+	const running = $derived(!pending && !settled && ran)
+	// A new job is registered as `queued` with no snapshot, so until the first poll returns one
+	// its status is a placeholder, not something seen: the row keeps saying Starting.
+	const unseen = $derived(running && !chatJob?.job)
+	// The job exists but no worker has taken it. Still `running` for everything that only needs
+	// a live job (cancel, logs); only the row tells the two apart. As fresh as the last poll.
+	const waiting = $derived(running && !unseen && chatJob?.status === 'queued')
 	// The job the card is about has not been read yet, or could not be: no pane has anything
 	// to show, but the call's own result still has.
 	const jobPending = $derived(Boolean(inspected) && !inspectedJob)
@@ -170,7 +178,17 @@
 	// Inspecting is done the moment the tool returned, whatever the run it looked at is
 	// still doing — the tense belongs to the call, not to its subject.
 	const verb = $derived(
-		inspected ? 'Inspected' : running ? verbs.present : settled && ran ? verbs.past : verbs.future
+		inspected
+			? 'Inspected'
+			: starting || unseen
+				? 'Starting'
+				: waiting
+					? ''
+					: running
+						? verbs.present
+						: settled && ran
+							? verbs.past
+							: verbs.future
 	)
 
 	// Being cancelled is an outcome like any other, and it is the one the card has to say out
@@ -205,14 +223,31 @@
 	const autoTab = $derived(hasOutcome ? 'outcome' : ran ? 'logs' : 'input')
 	const activeTab = $derived(steered && tabs.some((t) => t.value === steered) ? steered : autoTab)
 
+	// The panel mounts the chat's own form on this call, so the card must not mount a second
+	// one: two views binding the one draft would each reorder the schema SchemaForm edits in
+	// place. Only the form is exclusive. A run shows in both, and collapsing the row or
+	// closing the tab is the user's own way out of seeing it twice.
+	const formInPreview = $derived(
+		pending && (aiChatManager.isRunFormTabOpen?.(message.tool_call_id) ?? false)
+	)
+	// A deployed page holding the call builds its own form from a copy of the proposal, so it
+	// shares no draft and this card keeps a working one. The row folds instead, and expanding
+	// it is how the reader runs from the transcript without going to the page.
+	const carriedByPage = $derived(
+		pending && !formInPreview && (aiChatManager.isRunFormInPreview?.(message.tool_call_id) ?? false)
+	)
+
 	// Keyed by call id: a bare flag would carry one card's collapse onto the next message
 	// reusing this instance. Open by default, since the run is what was asked for —
 	// except for an inspection, which is usually a step in the reasoning rather than
 	// the answer, and which pays a fetch for being opened. A run cancelled before it started
-	// is closed too: the row already says Cancelled, and there is no run to show.
+	// is closed too: the row already says Cancelled, and there is no run to show. So is a call
+	// whose page is on screen, which is the copy the reader is looking at.
 	let toggled = $state<{ id: string; open: boolean } | undefined>(undefined)
 	const expanded = $derived(
-		toggled?.id === message.tool_call_id ? toggled.open : !inspected && (ran || !canceled)
+		toggled?.id === message.tool_call_id
+			? toggled.open
+			: !inspected && (ran || !canceled) && !carriedByPage
 	)
 
 	$effect(() => {
@@ -266,14 +301,6 @@
 			logsReq.cancel()
 		}
 	})
-
-	// The panel mounts the chat's own form on this call, so the card must not mount a second
-	// one: two views binding the one draft would each reorder the schema SchemaForm edits in
-	// place. Only the form is exclusive. A run shows in both, and collapsing the row or
-	// closing the tab is the user's own way out of seeing it twice.
-	const formInPreview = $derived(
-		pending && (aiChatManager.isRunFormInPreview?.(message.tool_call_id) ?? false)
-	)
 
 	// The three moments a run moves the card — a tab arrives, the selection follows it, the body
 	// changes under it — are staggered rather than landing in one frame, which is what makes the
@@ -331,12 +358,28 @@
 	// keeps no timers at all.
 	let now = $state(Date.now())
 	$effect(() => {
-		if (!running || !chatJob) return
+		if (!running || unseen || waiting || !chatJob) return
+		// `now` last moved whenever the card mounted or a previous run stopped ticking, so the
+		// job's first frame would otherwise read as a negative elapsed time.
+		now = Date.now()
 		const timer = setInterval(() => (now = Date.now()), 500)
 		return () => clearInterval(timer)
 	})
 
-	const elapsed = $derived(chatJob ? msToReadableTime(now - chatJob.createdAt, 2) : '')
+	// The clock counts from when a worker took the job, as `duration_ms` does, so the time in the
+	// queue never shows as run time. The server's own `started_at - created_at` is added to the
+	// local creation time rather than reading `started_at` against the browser's clock, which
+	// can be off from the server's by more than the run lasts.
+	const runStartedAt = $derived.by(() => {
+		if (!chatJob) return undefined
+		const j = chatJob.job
+		const queuedMs =
+			j?.started_at && j.created_at ? Date.parse(j.started_at) - Date.parse(j.created_at) : NaN
+		return chatJob.createdAt + (Number.isFinite(queuedMs) ? Math.max(0, queuedMs) : 0)
+	})
+	const elapsed = $derived(
+		runStartedAt !== undefined ? msToReadableTime(Math.max(0, now - runStartedAt), 2) : ''
+	)
 	const duration = $derived(
 		chatJob?.durationMs !== undefined ? msToReadableTime(chatJob.durationMs, 2) : ''
 	)
@@ -370,27 +413,52 @@
 	// has no time to give, so its outcome takes the slot — as a word, never "Not run", which
 	// stutters against the "Run <name>" label beside it.
 	const outcome = $derived(failed ? 'Failed' : canceled ? 'Cancelled' : 'Done')
-	const statusTime = $derived(running ? elapsed : duration || outcome)
+	// No job seen yet, so no time and no outcome: the verb already says Starting. A queued job has
+	// no run time either, and says why in the slot, in the queued hue, in place of the verb.
+	const statusTime = $derived(
+		starting || unseen
+			? ''
+			: waiting
+				? 'Waiting for a worker ·'
+				: running
+					? elapsed
+					: duration || outcome
+	)
 
 	// What the preview button opens changes with the card: the form while the call is still
 	// waiting on one, the run once a job exists. Neither, and there is nothing to open, so
 	// the button is not drawn at all — a form has nowhere to go outside a session, and a
 	// call cancelled before Run never became a run.
+	// A deployed run can be confirmed on the item's own page instead of on this card: the page
+	// takes over the call, so Run there is Run here. A test run has no deployed page — it
+	// executes the draft being written — so it keeps the chat's own form tab.
+	const asDeployedPage = $derived(
+		pending && runForm?.kind === 'run' && !!path && !!aiChatManager.openRunOnDeployedPage
+	)
 	const previewTarget = $derived(
 		pending
-			? aiChatManager.openRunForm
-				? ('form' as const)
-				: undefined
+			? asDeployedPage
+				? ('deployed' as const)
+				: aiChatManager.openRunForm
+					? ('form' as const)
+					: undefined
 			: job
 				? ('run' as const)
 				: undefined
 	)
+	// A conversational flow's page has no run form, so opening it is all it can offer: the
+	// run stays on this card, where there is one to confirm.
+	const carries = $derived(asDeployedPage && !runForm?.conversational)
 	const previewTitle = $derived(
 		previewTarget === 'form'
 			? `Open this form in the preview panel: ${path}`
-			: aiChatManager.openRunInPreview
-				? `Open this run in the preview panel: ${path || runnableName}`
-				: `Open this run in a new tab: ${path || runnableName}`
+			: previewTarget === 'deployed'
+				? carries
+					? `Open the deployed ${runnableKind === 'flow' ? 'flow' : 'script'} and confirm this run there: ${path}`
+					: `Open the deployed ${runnableKind === 'flow' ? 'flow' : 'script'}: ${path}`
+				: aiChatManager.openRunInPreview
+					? `Open this run in the preview panel: ${path || runnableName}`
+					: `Open this run in a new tab: ${path || runnableName}`
 	)
 
 	function openPreview() {
@@ -399,12 +467,22 @@
 			aiChatManager.openRunForm?.({ toolCallId: message.tool_call_id, label })
 			return
 		}
+		if (previewTarget === 'deployed') {
+			aiChatManager.openRunOnDeployedPage?.({
+				toolCallId: message.tool_call_id,
+				kind: runnableKind === 'flow' ? 'flow' : 'script',
+				path,
+				summary: label,
+				carries
+			})
+			return
+		}
 		if (!job) return
 		// Outside a session there is no panel, so the run opens where the jobs tray sends it.
 		if (aiChatManager.openRunInPreview) {
 			aiChatManager.openRunInPreview({ jobId: job.jobId, workspace: job.workspace, label })
 		} else {
-			window.open(`${base}/run/${job.jobId}?workspace=${job.workspace}`, '_blank', 'noreferrer')
+			window.open(`/run/${job.jobId}?workspace=${job.workspace}`, '_blank', 'noreferrer')
 		}
 	}
 </script>
@@ -416,7 +494,7 @@
 {#snippet status()}
 	<!-- An inspection reports nothing here: the card is a snapshot the chat will never
 	     update, so a status on it would be frozen at whatever the run happened to be. -->
-	{#if !pending && !inspected}
+	{#if !pending && !inspected && statusTime}
 		<span class={twMerge('shrink-0 whitespace-nowrap text-2xs font-medium', statusClass)}>
 			{statusTime}
 		</span>
@@ -432,6 +510,7 @@
 		title={previewTitle}
 		onOpen={openPreview}
 		kindIcon={false}
+		mode={previewTarget === 'deployed' ? 'view' : 'edit'}
 	/>
 {/snippet}
 
@@ -591,7 +670,7 @@
 													: 'No logs.'}
 										</p>
 									{/if}
-									{#if running && !inspected}
+									{#if running && !waiting && !inspected}
 										<div class="mt-1 flex items-center gap-1.5 text-2xs text-tertiary">
 											<Loader2 class="h-3 w-3 animate-spin" />
 											streaming

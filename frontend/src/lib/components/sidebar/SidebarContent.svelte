@@ -41,7 +41,6 @@
 	import DiscordIcon from '../icons/brands/Discord.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { base } from '$lib/base'
 	import { page } from '$app/state'
 	import SideBarNotification from './SideBarNotification.svelte'
 	import KafkaIcon from '../icons/triggers/KafkaIcon.svelte'
@@ -227,7 +226,7 @@
 		NAV_PAGES.filter((p) => p.label in MAIN_MENU_EXTRAS)
 			.map((p) => ({
 				label: p.label,
-				href: p.path === '/' ? `${base}/` : `${base}${p.path}`,
+				href: p.path === '/' ? `/` : `${p.path}`,
 				icon: p.icon,
 				disabled: p.operatorKey ? !allows(p.operatorKey) : false,
 				...MAIN_MENU_EXTRAS[p.label]
@@ -341,7 +340,7 @@
 			label: config?.serviceDisplayName || service,
 			href: `/native_triggers/${service}`,
 			icon: icon,
-			disabled: $userStore?.operator,
+			disabled: !allows('triggers'),
 			kind: service,
 			aiId: `sidebar-menu-link-${service}`,
 			aiDescription: `Button to navigate to ${config?.serviceDisplayName || service} triggers`
@@ -353,7 +352,7 @@
 	let triggerMenuLinks = $derived([
 		{
 			label: 'Schedules',
-			href: `${base}/schedules`,
+			href: '/schedules',
 			icon: Calendar,
 			disabled: !SIDEBAR_SHOW_SCHEDULES || !allows('schedules'),
 			aiId: 'sidebar-menu-link-schedules',
@@ -367,6 +366,10 @@
 		allTriggerLinks.filter((link) => {
 			return !page.url.pathname.includes(link.href) && !$usedTriggerKinds.includes(link.kind)
 		})
+	)
+	let showAddTriggerMenu = $derived(extraTriggerLinks.length > 0 && allows('triggers'))
+	let showTriggersGroup = $derived(
+		showAddTriggerMenu || triggerMenuLinks.some((link) => !link.disabled)
 	)
 	// Admins, superadmins, and fork creators reach workspace settings (the latter
 	// for the fork members screen; see isForkOwner / backend authorize_fork_owner_add_user).
@@ -399,7 +402,7 @@
 					? [
 							{
 								label: 'Workspace',
-								href: `${base}/workspace_settings`,
+								href: '/workspace_settings',
 								icon: FolderCog,
 								aiId: 'sidebar-menu-link-workspace',
 								aiDescription: 'Button to navigate to workspace settings',
@@ -437,7 +440,7 @@
 		},
 		{
 			label: 'Workers',
-			href: `${base}/workers`,
+			href: '/workers',
 			icon: ServerCog,
 			disabled: !allows('workers'),
 			aiId: 'sidebar-menu-link-workers',
@@ -452,7 +455,7 @@
 					subItems: [
 						{
 							label: 'Audit logs',
-							href: `${base}/audit_logs`,
+							href: '/audit_logs',
 							icon: Eye,
 							aiId: 'sidebar-menu-link-audit-logs',
 							aiDescription: 'Button to navigate to audit logs'
@@ -461,7 +464,7 @@
 							? [
 									{
 										label: 'Service logs',
-										href: `${base}/service_logs`,
+										href: '/service_logs',
 										icon: Logs,
 										aiId: 'sidebar-menu-link-service-logs',
 										aiDescription: 'Button to navigate to service logs'
@@ -486,7 +489,7 @@
 				}
 			: {
 					label: 'Audit logs',
-					href: `${base}/audit_logs`,
+					href: '/audit_logs',
 					icon: Eye,
 					disabled: !allows('audit_logs'),
 					aiId: 'sidebar-menu-link-audit-logs',
@@ -503,6 +506,8 @@
 					<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 				{/each}
 			</div>
+		{/if}
+		{#if showMain && showTriggersGroup}
 			<div class="pt-4">
 				{#if isCollapsed}
 					<div class="text-secondary text-[0.5rem] uppercase transition-opacity opacity-0">
@@ -530,7 +535,7 @@
 								{#each triggerMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
 									<MenuLink class="!text-xs" {...menuLink} {isCollapsed} />
 								{/each}
-								{#if extraTriggerLinks.length > 0 && allows('triggers')}
+								{#if showAddTriggerMenu}
 									<Menu {createMenu} usePointerDownOutside>
 										{#snippet triggr({ trigger })}
 											<MeltButton

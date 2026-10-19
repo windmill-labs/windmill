@@ -12,7 +12,6 @@
 	import type { GitSyncRepository } from './GitSyncContext.svelte'
 	import GitSyncModalManager from './GitSyncModalManager.svelte'
 	import { enterpriseLicense, workspaceStore, userWorkspaces } from '$lib/stores'
-	import { base } from '$lib/base'
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { apiErrorMessage } from '$lib/utils'
@@ -108,7 +107,7 @@
 	const devPairingHref = $derived.by(() => {
 		const parent = currentWorkspace?.parent_workspace_id
 		if (!parent || !$userWorkspaces?.some((w) => w.id === parent)) return undefined
-		return `${base}/workspace_settings?workspace=${parent}&tab=dev_workspace`
+		return `/workspace_settings?workspace=${parent}&tab=dev_workspace`
 	})
 
 	const repositories = $derived(gitSyncContext?.repositories ?? [])

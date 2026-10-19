@@ -7,6 +7,8 @@ edition.workspace = true
 [lib]
 name = "windmill_worker"
 path = "src/lib.rs"
+# src/ has no doctests: remove this line before adding one, or cargo test never runs it.
+doctest = false
 
 [features]
 default = []
@@ -39,7 +41,7 @@ nu = ["dep:windmill-parser-nu"]
 java = ["dep:windmill-parser-java"]
 ruby = ["dep:windmill-parser-ruby"]
 rlang = ["dep:windmill-parser-r"]
-duckdb = ["dep:libloading"]
+duckdb = []
 quickjs = ["windmill-jseval/quickjs", "windmill-queue/quickjs"]
 bedrock = ["windmill-ai/bedrock"]
 
@@ -143,7 +145,6 @@ backon.workspace = true
 pep440_rs.workspace = true
 process-wrap.workspace = true
 async-once-cell.workspace = true
-libloading = { workspace = true, optional = true }
 
 opentelemetry-proto = { workspace = true, optional = true }
 opentelemetry = { workspace = true, optional = true }

@@ -45,8 +45,8 @@ mod deno_executor;
 mod docker_v2;
 #[cfg(feature = "duckdb")]
 mod duckdb_executor;
-#[cfg(all(feature = "duckdb", feature = "private"))]
-mod duckdb_isolation_ee;
+#[cfg(feature = "duckdb")]
+mod duckdb_runner;
 mod global_cache;
 mod go_executor;
 mod graphql_executor;
@@ -62,6 +62,7 @@ pub mod memory_ee;
 pub mod memory_oss;
 #[cfg(feature = "mysql")]
 mod mysql_executor;
+mod nsjail_compat;
 #[cfg(feature = "nu")]
 mod nu_executor;
 #[cfg(feature = "oracledb")]
@@ -81,6 +82,7 @@ mod prepare_deps;
 mod python_executor;
 #[cfg(feature = "python")]
 mod python_versions;
+mod resource_metrics;
 pub mod result_processor;
 #[cfg(feature = "rust")]
 mod rust_executor;

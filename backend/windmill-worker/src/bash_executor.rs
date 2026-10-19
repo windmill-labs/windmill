@@ -39,15 +39,16 @@ const NSJAIL_CONFIG_RUN_BASH_CONTENT: &str = include_str!("../nsjail/run.bash.co
 use crate::handle_child::run_future_with_polling_update_job_poller;
 
 use crate::{
+    check_no_network_jailed,
     common::{
         build_args_map, build_command_with_isolation, get_reserved_variables, raw_to_string,
         read_file, read_file_content, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block,
         start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
-    get_proxy_envs_for_lang,
+    get_proxy_envs_for_lang, get_run_proxy_envs,
     handle_child::handle_child,
-    is_sandboxing_enabled, DISABLE_NUSER, HOME_ENV, NSJAIL_AVAILABLE, NSJAIL_PATH, PATH_ENV,
-    TRACING_PROXY_CA_CERT_PATH,
+    is_sandboxing_enabled, nsjail_clone_newnet, DISABLE_NUSER, HOME_ENV, NSJAIL_AVAILABLE,
+    NSJAIL_PATH, PATH_ENV, TRACING_PROXY_CA_CERT_PATH,
 };
 use windmill_common::client::AuthedClient;
 use windmill_common::scripts::ScriptLang;
@@ -94,6 +95,7 @@ pub async fn handle_bash_job(
     if let Some(image) = windmill_common::worker::BashAnnotations::sandbox_image(content) {
         return crate::docker_v2::handle_docker_v2_job(
             &image,
+            annotation.no_network,
             mem_peak,
             canceled_by,
             job,
@@ -115,6 +117,13 @@ pub async fn handle_bash_job(
     // `ssh_target` resource instead of on this worker. The OSS build returns a
     // clear "enterprise feature" error from the stub.
     if let Some(ssh_path) = windmill_common::worker::BashAnnotations::ssh_target(content) {
+        if annotation.no_network {
+            return Err(Error::ExecutionErr(
+                "Script has the `no_network` annotation, which a remote `#ssh` host cannot \
+                honor. Refusing to run it with network."
+                    .to_string(),
+            ));
+        }
         return crate::ssh_executor_oss::handle_ssh_bash_job(
             &ssh_path,
             mem_peak,
@@ -139,12 +148,28 @@ pub async fn handle_bash_job(
         ));
     }
 
+    // Init/periodic scripts need full system access without isolation
+    let is_regular_job = job
+        .runnable_path
+        .as_ref()
+        .map(|x| {
+            !x.starts_with(INIT_SCRIPT_PATH_PREFIX) && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX)
+        })
+        .unwrap_or(true);
+
+    // Use nsjail if globally enabled OR if script has #sandbox annotation
+    let nsjail = (is_sandboxing_enabled() || annotation.sandbox) && is_regular_job;
+    check_no_network_jailed(annotation.no_network, nsjail)?;
+
     let mut logs1 = "\n\n--- BASH CODE EXECUTION ---\n".to_string();
     if annotation.docker {
         logs1.push_str("docker mode\n");
     }
     if annotation.sandbox {
         logs1.push_str("sandbox mode (nsjail)\n");
+    }
+    if annotation.no_network {
+        logs1.push_str("no network\n");
     }
     append_logs(&job.id, &job.workspace_id, logs1, &conn).await;
 
@@ -204,6 +229,7 @@ exit $exit_status
     let mut reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
     reserved_variables.insert("RUST_LOG".to_string(), "info".to_string());
+    crate::strip_no_network_token(&mut reserved_variables, annotation.no_network);
 
     let args = build_args_map(job, client, conn).await?.map(Json);
     let job_args = if args.is_some() {
@@ -237,18 +263,6 @@ exit $exit_status
         vec![]
     };
 
-    // Check if this is a regular job (not init or periodic script)
-    // Init/periodic scripts need full system access without isolation
-    let is_regular_job = job
-        .runnable_path
-        .as_ref()
-        .map(|x| {
-            !x.starts_with(INIT_SCRIPT_PATH_PREFIX) && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX)
-        })
-        .unwrap_or(true);
-
-    // Use nsjail if globally enabled OR if script has #sandbox annotation
-    let nsjail = (is_sandboxing_enabled() || annotation.sandbox) && is_regular_job;
     let child = if nsjail {
         let nsjail_timeout =
             resolve_nsjail_timeout(conn, &job.workspace_id, job.id, job.timeout).await;
@@ -258,6 +272,7 @@ exit $exit_status
             &NSJAIL_CONFIG_RUN_BASH_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{CLONE_NEWNET}", nsjail_clone_newnet(annotation.no_network))
                 .replace("{SHARED_MOUNT}", shared_mount)
                 .replace("{TRACING_PROXY_CA_CERT_PATH}", &*TRACING_PROXY_CA_CERT_PATH)
                 .replace("#{DEV}", DEV_CONF_NSJAIL)
@@ -281,12 +296,13 @@ exit $exit_status
             .env_clear()
             .envs(reserved_variables)
             .envs(
-                get_proxy_envs_for_lang(
+                get_run_proxy_envs(
                     &ScriptLang::Bash,
                     job.kind,
                     &job.id,
                     &job.workspace_id,
                     conn,
+                    annotation.no_network,
                 )
                 .await?,
             )

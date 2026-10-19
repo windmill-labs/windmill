@@ -122,6 +122,83 @@ describe('deployDraft preserves on_behalf_of', () => {
 			})
 		)
 	})
+
+	it('agent: claims the deployed identity, which its draft never carries', async () => {
+		vi.mocked(ResourceService.getResource).mockResolvedValueOnce({
+			path: 'f/support/triage_agent',
+			resource_type: 'ai_agent',
+			value: { system_prompt: 'deployed', on_behalf_of: 'u/alice' },
+			draft: { path: 'f/support/triage_agent', args: { system_prompt: 'drafted' } }
+		} as any)
+
+		expect(await deployDraft('resource', 'f/support/triage_agent', 'ws')).toEqual({ success: true })
+		expect(ResourceService.updateResource).toHaveBeenCalledWith(
+			expect.objectContaining({
+				requestBody: expect.objectContaining({
+					value: { system_prompt: 'drafted', on_behalf_of: 'u/alice' },
+					preserve_on_behalf_of: true
+				})
+			})
+		)
+	})
+})
+
+// The backend skips the dependency job when `lock` is set, so a draft that inherited the
+// deployed lock would deploy new content against the old lockfile.
+describe('deployDraft: script lock', () => {
+	beforeEach(() => vi.clearAllMocks())
+
+	it('never sends the draft lock, so the backend relocks', async () => {
+		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
+			hash: 'v1',
+			draft: {
+				path: 'f/admin/fetch',
+				content: 'import requests',
+				lock: 'certifi==2024.1.1',
+				lock_error_logs: 'old error'
+			}
+		} as any)
+
+		await deployDraft('script', 'f/admin/fetch', 'ws')
+		const body = vi.mocked(ScriptService.createScript).mock.calls[0][0].requestBody
+		expect(body).not.toHaveProperty('lock')
+		expect(body).not.toHaveProperty('lock_error_logs')
+	})
+
+	it('flow: drops the lock of a step whose code differs from the deployed one only', async () => {
+		const step = (id: string, content: string) => ({
+			id,
+			value: { type: 'rawscript', language: 'python3', content, lock: 'requests==2.0' }
+		})
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
+			value: { modules: [step('edited', 'import requests'), step('kept', 'import requests')] },
+			draft: {
+				path: 'f/admin/flow',
+				value: { modules: [step('edited', 'import yaml'), step('kept', 'import requests')] }
+			}
+		} as any)
+
+		await deployDraft('flow', 'f/admin/flow', 'ws')
+		const [edited, kept] = vi.mocked(FlowService.updateFlow).mock.calls[0][0].requestBody.value
+			.modules as any[]
+		expect(edited.value).not.toHaveProperty('lock')
+		expect(kept.value.lock).toBe('requests==2.0')
+	})
+
+	// A never-deployed flow is often a copy or an import, whose locks match its code.
+	it('flow: keeps every lock when nothing is deployed to compare against', async () => {
+		const step = { id: 'copied', value: { type: 'rawscript', content: 'x', lock: 'requests==2.0' } }
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
+			no_deployed: true,
+			value: { modules: [step] },
+			draft: { path: 'f/admin/copy', value: { modules: [step] } }
+		} as any)
+
+		await deployDraft('flow', 'f/admin/copy', 'ws', { draftOnly: true })
+		const [copied] = vi.mocked(FlowService.createFlow).mock.calls[0][0].requestBody.value
+			.modules as any[]
+		expect(copied.value.lock).toBe('requests==2.0')
+	})
 })
 
 // The resource branch reads the item again when the deploy lands, and falls back to the deployed

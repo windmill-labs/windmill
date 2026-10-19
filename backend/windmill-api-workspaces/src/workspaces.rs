@@ -515,6 +515,11 @@ struct CreateWorkspaceFork {
     /// fork namespace + read-defer.
     #[serde(default)]
     shared_ducklakes: Vec<String>,
+    /// Workspace storages the fork reads and writes at the parent's keys (`_default_` for the
+    /// primary one). Every other storage is isolated: the fork writes under its own prefix
+    /// and reads through to the parent's objects.
+    #[serde(default)]
+    shared_storages: Vec<String>,
     /// Create the fork as a persistent dev workspace: the id is not required to carry the
     /// `wm-fork-` prefix, and at most one dev workspace may exist per parent.
     #[serde(default)]
@@ -1765,6 +1770,43 @@ async fn set_slack_oauth_config(
             "Both client ID and client secret are required".to_string(),
         ));
     }
+    // A settings.yaml pulled by `wmill sync` holds the secret encrypted, and a CLI that
+    // predates the settings document pushes it here as it reads it. One encrypted under another
+    // workspace's key keeps the stored secret, as the settings document does, so that CLI's push
+    // does not abort over it.
+    let mut req = req;
+    if let Some(ciphertext) = req
+        .slack_oauth_client_secret
+        .strip_prefix(windmill_common::variables::SETTINGS_ENCRYPTED_PREFIX)
+    {
+        match windmill_common::variables::build_crypt(&db, &w_id)
+            .await?
+            .decrypt_str(ciphertext)
+        {
+            Ok(plain) => req.slack_oauth_client_secret = plain,
+            Err(_) => {
+                let stored = sqlx::query_scalar!(
+                    "SELECT slack_oauth_client_secret FROM workspace_settings WHERE workspace_id = $1",
+                    &w_id
+                )
+                .fetch_optional(&db)
+                .await?
+                .flatten();
+                tracing::warn!(
+                    workspace_id = %w_id,
+                    "Slack client secret left unchanged: it is encrypted with another workspace's key"
+                );
+                match stored {
+                    Some(stored) => req.slack_oauth_client_secret = stored,
+                    None => {
+                        return Ok("Slack OAuth config left unchanged: the client secret is \
+                                   encrypted with another workspace's key"
+                            .to_string())
+                    }
+                }
+            }
+        }
+    }
 
     let mut tx = db.begin().await?;
 
@@ -2094,6 +2136,38 @@ async fn edit_dbt_warehouses(
     Ok("Updated the workspace's dbt warehouses".to_string())
 }
 
+/// A fork's isolated storage is purged at deletion from the storage recorded at creation: under
+/// another location, its objects would outlive the fork untracked, and a same-id fork would
+/// read them.
+async fn reject_isolated_storage_repoint(
+    tx: &mut Transaction<'_, Postgres>,
+    w_id: &str,
+    new_lfs: &serde_json::Value,
+) -> Result<()> {
+    let rows = sqlx::query!(
+        "SELECT storage, storage_ref FROM fork_storage_namespace WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    for row in rows {
+        let new_ref = windmill_common::fork_storage::lfs_entry(new_lfs, &row.storage)
+            .and_then(windmill_common::workspaces::lfs_entry_storage_ref);
+        if new_ref.is_some_and(|r| r != row.storage_ref) {
+            let name = if row.storage.is_empty() {
+                windmill_types::s3::DEFAULT_STORAGE
+            } else {
+                row.storage.as_str()
+            };
+            return Err(Error::BadRequest(format!(
+                "storage `{name}` is isolated from the parent in this fork, so where it points \
+                 cannot be changed"
+            )));
+        }
+    }
+    Ok(())
+}
+
 async fn edit_large_file_storage_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -2131,6 +2205,15 @@ async fn edit_large_file_storage_config(
                 windmill_types::s3::DEFAULT_STORAGE
             )));
         }
+        if lfs_config
+            .secondary_storage
+            .contains_key(windmill_types::s3::BUCKET_ADDRESSED_SEGMENT)
+        {
+            return Err(Error::BadRequest(format!(
+                "`{}` is reserved by the S3 proxy and cannot name a secondary storage",
+                windmill_types::s3::BUCKET_ADDRESSED_SEGMENT
+            )));
+        }
 
         if !windmill_common::workspaces::filesystem_storage_allowed() {
             let named = std::iter::once(("primary storage", &lfs_config.large_file_storage)).chain(
@@ -2152,6 +2235,7 @@ async fn edit_large_file_storage_config(
         let serialized_lfs_config =
             serde_json::to_value::<LargeFileStorageWithSecondary>(lfs_config)
                 .map_err(|err| Error::internal_err(err.to_string()))?;
+        reject_isolated_storage_repoint(&mut tx, &w_id, &serialized_lfs_config).await?;
 
         // A workspace whose AI session backups fell back to the instance store leaves it
         // here: the generation moves on, so nothing it left in any instance store is read
@@ -2248,6 +2332,9 @@ struct DataTableListItem {
     /// at its parent. Its permissions apply here, and only its admins may edit them.
     #[serde(skip_serializing_if = "Option::is_none")]
     governing_workspace_id: Option<String>,
+    /// The workspace owning the database this entry points at, when it is not this workspace.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    database_workspace_id: Option<String>,
     /// Whether the governing entry is under roles.
     permissioned: bool,
 }
@@ -2277,6 +2364,8 @@ async fn list_datatables(
             resource_path: database.resource_path.clone(),
             governing_workspace_id: (governing.governing_workspace_id() != w_id)
                 .then(|| governing.governing_workspace_id().to_string()),
+            database_workspace_id: (governing.workspace_id != w_id)
+                .then(|| governing.workspace_id.clone()),
             permissioned: governing.datatable.permissions.is_some(),
         });
     }
@@ -2325,6 +2414,9 @@ struct DataTableTables {
     /// What the role the listing connected as may create.
     can_create_schema: bool,
     creatable_schemas: Vec<String>,
+    /// Whether its schema is kept as versioned migrations, which a change made with plain SQL
+    /// would bypass.
+    migrations_enabled: bool,
 }
 
 #[derive(Deserialize)]
@@ -2570,8 +2662,17 @@ async fn list_one_datatable_tables(
         default_role: windmill_common::datatable_roles::ADMIN_DATATABLE_ROLE.to_string(),
         can_create_schema: false,
         creatable_schemas: vec![],
+        migrations_enabled: false,
     };
     let result: Result<()> = async {
+        // Read from the workspace settings alone, so it is known even when the database is not
+        // reachable.
+        entry.migrations_enabled = crate::datatable_migrations::datatable_migrations_enabled(
+            db,
+            w_id,
+            &entry.datatable_name,
+        )
+        .await?;
         let governing = resolve_governing_datatable(db, w_id, &entry.datatable_name).await?;
         entry.instance = governing.role_cluster().is_some();
         let usable =
@@ -3582,6 +3683,97 @@ pub(crate) async fn pg_import_dump(target_db: &PgDatabase, dump_file: &DumpFile)
     Ok(())
 }
 
+/// Carry the source database's own settings (`ALTER DATABASE ... SET`) over to a copy. `pg_dump`
+/// only emits them with `--create`, so a copy otherwise resolves unqualified names, its
+/// `_wm_migrations` included, through the server's default `search_path` rather than the source's.
+/// A setting the copy's connection may not set is skipped with a warning rather than failing it.
+/// Called once nothing else writes to the copy, which a copied read-only default would refuse.
+pub(crate) async fn copy_database_settings(
+    db: &DB,
+    source: &PgDatabase,
+    target: &PgDatabase,
+) -> Result<()> {
+    let (source_client, connection) = source.connect(Some(db)).await?;
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable connection error: {}", e);
+        }
+    });
+    let settings: Vec<String> = source_client
+        .query(
+            "SELECT unnest(setconfig) FROM pg_db_role_setting WHERE setrole = 0 \
+             AND setdatabase = (SELECT oid FROM pg_database WHERE datname = current_database())",
+            &[],
+        )
+        .await
+        .map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to read the settings of database '{}': {}",
+                source.dbname,
+                pg_error_message(&e)
+            ))
+        })?
+        .iter()
+        .map(|row| row.get(0))
+        .collect();
+    drop(source_client);
+    if settings.is_empty() {
+        return Ok(());
+    }
+
+    let (mut client, connection) = target.connect(Some(db)).await?;
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable connection error: {}", e);
+        }
+    });
+    let quoted_db = render_db_quoted_identifier(&target.dbname, DbType::Postgresql);
+    for setting in settings {
+        let Some((name, value)) = setting.split_once('=') else {
+            continue;
+        };
+        if name.is_empty()
+            || !name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+        {
+            tracing::warn!(
+                "Not copying database setting '{name}' to '{}'",
+                target.dbname
+            );
+            continue;
+        }
+        let quoted_name = name
+            .split('.')
+            .map(|part| render_db_quoted_identifier(part, DbType::Postgresql))
+            .collect::<Vec<_>>()
+            .join(".");
+        // `FROM CURRENT` takes the value in the stored text form, which `SET name TO value` would
+        // need re-quoted per setting type. Set transaction-locally: a session-wide `role` or
+        // `default_transaction_read_only` would make every later `ALTER DATABASE` fail.
+        let applied = async {
+            let tx = client.transaction().await?;
+            tx.execute("SELECT set_config($1, $2, true)", &[&name, &value])
+                .await?;
+            tx.batch_execute(&format!(
+                "ALTER DATABASE {quoted_db} SET {quoted_name} FROM CURRENT"
+            ))
+            .await?;
+            tx.commit().await
+        }
+        .await;
+        if let Err(e) = applied {
+            tracing::warn!(
+                "Could not copy setting '{name}' of database '{}' to '{}': {}",
+                source.dbname,
+                target.dbname,
+                pg_error_message(&e)
+            );
+        }
+    }
+    Ok(())
+}
+
 #[derive(Deserialize)]
 struct CreatePgDatabaseRequest {
     /// The datatable source to determine connection info: 'datatable://name' or '$res:path'
@@ -3845,12 +4037,33 @@ async fn import_pg_database(
     // the ACLs are user intent (`REVOKE ... FROM PUBLIC`) and dropping them widens access.
     let no_acl = target_kind.is_some() || source_kind.is_some();
 
+    // Only a database made to be a copy takes on the source's bookkeeping and settings: without an
+    // override the target is a data table's own live database, whose settings are its owner's.
+    let fresh_copy = req.target_dbname_override.is_some();
+    let migrations_lock = if schema_only && fresh_copy {
+        Some(
+            crate::datatable_migrations::lock_migration_runs_on(&db, &source_pg, &req.source)
+                .await?,
+        )
+    } else {
+        None
+    };
     let dump_file = pg_dump_database(
         &source_pg,
         PgDumpOptions { schema_only, no_owner: true, no_acl, ..Default::default() },
     )
     .await?;
+    let applied = match migrations_lock {
+        Some(client) => Some(crate::datatable_migrations::read_applied_migrations(&client).await?),
+        None => None,
+    };
     pg_import_dump(&target_pg, &dump_file).await?;
+    if let Some(applied) = applied {
+        crate::datatable_migrations::write_applied_migrations(&db, &target_pg, &applied).await?;
+    }
+    if fresh_copy {
+        copy_database_settings(&db, &source_pg, &target_pg).await?;
+    }
     if let Some(tx) = fork_lock {
         tx.commit().await?;
     }
@@ -6317,8 +6530,8 @@ async fn set_encryption_key(
 async fn reencrypt_git_sync_secrets(
     conn: &mut sqlx::PgConnection,
     w_id: &str,
-    old: &magic_crypt::MagicCrypt256,
-    new: &magic_crypt::MagicCrypt256,
+    old: &windmill_common::variables::WorkspaceCrypt,
+    new: &windmill_common::variables::WorkspaceCrypt,
 ) -> Result<()> {
     let Some((mut credentials, mut git_sync)) =
         sqlx::query_as::<_, (serde_json::Value, Option<serde_json::Value>)>(
@@ -6969,7 +7182,7 @@ async fn clone_workspace_data(
     clone_resource_types(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone resources
-    clone_resources(tx, source_workspace_id, target_workspace_id).await?;
+    clone_resources(tx, source_workspace_id, target_workspace_id, authed).await?;
 
     // Clone variables (including external secret backend replication)
     clone_variables(tx, db, source_workspace_id, target_workspace_id).await?;
@@ -7506,18 +7719,30 @@ async fn clone_resource_types(
     Ok(())
 }
 
+/// An agent's value carries the identity it runs as, re-pointed at the fork's creator when they
+/// may not preserve someone else's, as `clone_apps` does an app's policy. The rest is swept by
+/// `repoint_unresolvable_cloned_identities` once the fork's membership is final.
 async fn clone_resources(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
+    authed: &ApiAuthed,
 ) -> Result<()> {
+    let repoint = (!windmill_common::can_preserve_on_behalf_of(authed))
+        .then(|| username_to_permissioned_as(&authed.username));
     sqlx::query!(
         "INSERT INTO resource (workspace_id, path, value, description, resource_type, extra_perms, edited_at, created_by)
-         SELECT $2, path, value, description, resource_type, extra_perms, edited_at, created_by
+         SELECT $2, path,
+                CASE WHEN $3::text IS NOT NULL AND resource_type = 'ai_agent'
+                          AND jsonb_typeof(value) = 'object' AND value ? 'on_behalf_of'
+                     THEN jsonb_set(value, '{on_behalf_of}', to_jsonb($3::text))
+                     ELSE value END,
+                description, resource_type, extra_perms, edited_at, created_by
          FROM resource
          WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
+        repoint,
     )
     .execute(&mut **tx)
     .await?;
@@ -8004,6 +8229,18 @@ async fn repoint_unresolvable_cloned_identities(
         .await?;
     }
 
+    sqlx::query(&format!(
+        "UPDATE resource SET value = jsonb_set(value, '{{on_behalf_of}}', to_jsonb($2::text))
+         WHERE workspace_id = $1 AND resource_type = 'ai_agent'
+           AND jsonb_typeof(value) = 'object' AND value ? 'on_behalf_of'
+           AND NOT ({})",
+        principal_resolves_sql("(value->>'on_behalf_of')")
+    ))
+    .bind(target_workspace_id)
+    .bind(&principal)
+    .execute(&mut **tx)
+    .await?;
+
     // `email` is still written for workers that predate `permissioned_as`.
     sqlx::query(&format!(
         "UPDATE schedule SET permissioned_as = $2, email = $3
@@ -8386,7 +8623,7 @@ async fn clone_apps(
 
     // Clone app scripts with recomputed hashes
     let app_scripts = sqlx::query!(
-        "SELECT app, hash, lock, code, code_sha256
+        "SELECT id, app, hash, lock, code, code_sha256, modules
          FROM app_script
          WHERE app = ANY(SELECT id FROM app WHERE workspace_id = $1)",
         source_workspace_id
@@ -8394,32 +8631,102 @@ async fn clone_apps(
     .fetch_all(&mut **tx)
     .await?;
 
+    let mut app_script_id_mapping: HashMap<i64, i64> = HashMap::new();
     for app_script in app_scripts {
         if let Some(&new_app_id) = app_id_mapping.get(&app_script.app) {
-            // Recompute hash using app_id, code_sha256, and lock
+            // Recompute hash using app_id, code_sha256, lock and modules
             let mut hasher = Sha256::new();
             hasher.update(new_app_id.to_be_bytes());
             hasher.update(hex::decode(&app_script.code_sha256)?);
             if let Some(lock) = &app_script.lock {
                 hasher.update(lock.as_bytes());
             }
+            if let Some(modules) = &app_script.modules {
+                hasher.update(modules.to_string());
+            }
             let new_hash = hex::encode(hasher.finalize());
 
-            sqlx::query!(
-                "INSERT INTO app_script (app, hash, lock, code, code_sha256)
-                 VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
+            let new_id = sqlx::query_scalar!(
+                "INSERT INTO app_script (app, hash, lock, code, code_sha256, modules)
+                 VALUES ($1, $2, $3, $4, $5, $6)
+                 ON CONFLICT (hash) DO UPDATE SET app = EXCLUDED.app -- trivial update to return the id
+                 RETURNING id",
                 new_app_id,
                 new_hash,
                 app_script.lock,
                 app_script.code,
                 app_script.code_sha256,
+                app_script.modules,
             )
-            .execute(&mut **tx)
+            .fetch_one(&mut **tx)
             .await?;
+            app_script_id_mapping.insert(app_script.id, new_id);
         }
     }
 
+    // A version's lite value is what points each inline script at its `app_script` row (lock and
+    // modules). Without it the fork serves the full value, whose inline scripts carry no id and
+    // so run as bare code: no lock, and no modules for a raw app's sibling imports. Every
+    // version, not just `versions.last()`: the fork's `versions` is rebuilt from all rows above,
+    // so its current one can be a row the parent's array never listed.
+    let source_versions: Vec<i64> = version_id_mapping.keys().copied().collect();
+    let lite_versions = sqlx::query!(
+        "SELECT id, value AS \"value!: serde_json::Value\" FROM app_version_lite WHERE id = ANY($1)",
+        &source_versions,
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    let (mut lite_ids, mut lite_values) = (vec![], vec![]);
+    for lite in lite_versions {
+        let Some(&new_version_id) = version_id_mapping.get(&lite.id) else {
+            continue;
+        };
+        let mut value = lite.value;
+        // Lite inline scripts have no code of their own, so one left without a row cannot run.
+        if !remap_app_script_ids(&mut value, &app_script_id_mapping) {
+            continue;
+        }
+        if let Some(object) = value.as_object_mut() {
+            object.insert("version".to_string(), serde_json::json!(new_version_id));
+        }
+        lite_ids.push(new_version_id);
+        lite_values.push(value);
+    }
+    sqlx::query!(
+        "INSERT INTO app_version_lite (id, value)
+         SELECT * FROM UNNEST($1::bigint[], $2::jsonb[])
+         ON CONFLICT (id) DO NOTHING",
+        &lite_ids,
+        &lite_values,
+    )
+    .execute(&mut **tx)
+    .await?;
+
     Ok(app_id_mapping)
+}
+
+/// Points every `inlineScript.id` of a cloned lite app value at the fork's copy of that row.
+/// False when some id has no copy.
+fn remap_app_script_ids(value: &mut serde_json::Value, mapping: &HashMap<i64, i64>) -> bool {
+    match value {
+        serde_json::Value::Object(object) => {
+            if let Some(serde_json::Value::Object(script)) = object.get_mut("inlineScript") {
+                if let Some(old_id) = script.get("id").and_then(serde_json::Value::as_i64) {
+                    let Some(new_id) = mapping.get(&old_id) else {
+                        return false;
+                    };
+                    script.insert("id".to_string(), serde_json::json!(new_id));
+                }
+            }
+            object
+                .values_mut()
+                .all(|child| remap_app_script_ids(child, mapping))
+        }
+        serde_json::Value::Array(array) => array
+            .iter_mut()
+            .all(|child| remap_app_script_ids(child, mapping)),
+        _ => true,
+    }
 }
 
 async fn clone_raw_apps(
@@ -8595,6 +8902,7 @@ async fn create_workspace_fork_branch(
     {
         return Err(Error::PermissionDenied(msg));
     }
+    enforce_isolated_forks(&db, &authed, &w_id, &nw).await?;
 
     // Two-phase create for git-synced workspaces: this endpoint only creates the git branch(es) and
     // validates up front; it does NOT create the workspace row. The caller follows up with
@@ -8804,11 +9112,12 @@ async fn apply_forked_datatable(
     fdt: &ForkedDatatableInfo,
     copy: &crate::datatable_clone::MadeCopy,
 ) -> Result<()> {
-    windmill_common::validate_dbname(&fdt.new_dbname)?;
-    if !fdt.new_dbname.starts_with("wm_fork_") {
+    // Not `fdt.new_dbname`: a data table sharing its database with an earlier one shares its copy.
+    let dbname = copy.dbname.as_str();
+    windmill_common::validate_dbname(dbname)?;
+    if !dbname.starts_with("wm_fork_") {
         return Err(Error::BadRequest(format!(
-            "Forked datatable database name '{}' must start with 'wm_fork_'",
-            fdt.new_dbname
+            "Forked datatable database name '{dbname}' must start with 'wm_fork_'"
         )));
     }
     // Held until the fork commits, as the permissions save holds them: the source moved onto
@@ -8897,27 +9206,27 @@ async fn apply_forked_datatable(
 
     if database.resource_type == DataTableCatalogResourceType::ExternalInstance {
         windmill_common::external_instance_pg::ensure_external_instance_database_registered(
-            tx,
-            &fdt.new_dbname,
+            tx, dbname,
         )
         .await?;
     }
     if database.resource_type.is_windmill_managed() {
         // Held until the fork commits, as every save newly naming a database takes it: none may
         // claim the copy between the check below and this fork's entry landing on it.
-        windmill_common::datatable_roles::lock_instance_databases_governance(
-            &mut **tx,
-            [fdt.new_dbname.as_str()],
-        )
-        .await?;
+        windmill_common::datatable_roles::lock_instance_databases_governance(&mut **tx, [dbname])
+            .await?;
     }
+    // The data tables after the first on a shared copy find it named by the first, and the
+    // resource it is reached through already pointed at it.
+    let first_on_copy = copy.names.first() == Some(&fdt.name);
     if database.resource_type.is_windmill_managed()
+        && first_on_copy
         && !windmill_api_auth::is_super_admin_authed(db, authed).await?
     {
         windmill_common::ensure_fork_database_available_to(
             &mut **tx,
             database.resource_type,
-            &fdt.new_dbname,
+            dbname,
             parent_w_id,
         )
         .await?;
@@ -8928,7 +9237,7 @@ async fn apply_forked_datatable(
         // on the same cluster as its source, so it keeps the source's kind.
         let new_database = serde_json::json!({
             "resource_type": database.resource_type,
-            "resource_path": &fdt.new_dbname,
+            "resource_path": dbname,
         });
         sqlx::query(
             r#"UPDATE workspace_settings
@@ -8942,7 +9251,7 @@ async fn apply_forked_datatable(
         .bind(new_database)
         .execute(&mut **tx)
         .await?;
-    } else {
+    } else if first_on_copy {
         // Resource: point it at the copy and mark it ws_specific. What the settings clone carried is
         // the source's resource and variables as they are now, which an edit made while the copy
         // was being made can have changed, and changed back: the clone has to be what the copy's
@@ -8965,7 +9274,7 @@ async fn apply_forked_datatable(
         )
         .bind(forked_w_id)
         .bind(resource_path)
-        .bind(&fdt.new_dbname)
+        .bind(dbname)
         .execute(&mut **tx)
         .await?;
 
@@ -9306,6 +9615,25 @@ async fn create_workspace_fork(
             i.msg
         );
     }
+    // Unlike a dropped lake's files, a deleted fork's objects are live to a same-id fork: it
+    // reads its own prefix first.
+    let leftover_storages = crate::workspaces_extra::prepare_fork_storage_purges(
+        &db,
+        &nw.id,
+        Some(&parent_workspace_id),
+    )
+    .await?;
+    let storage_issues =
+        crate::workspaces_extra::purge_fork_storages_unless_live(&db, &nw.id, leftover_storages)
+            .await?;
+    if !storage_issues.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "a previously deleted workspace with id '{}' left objects in its fork prefix that \
+             could not be deleted: {}; retry once the storage is reachable again",
+            nw.id,
+            storage_issues.join("; ")
+        )));
+    }
 
     #[cfg(not(feature = "enterprise"))]
     _check_nb_of_workspaces(&db).await?;
@@ -9325,6 +9653,7 @@ async fn create_workspace_fork(
     {
         return Err(Error::PermissionDenied(msg));
     }
+    enforce_isolated_forks(&db, &authed, &parent_workspace_id, &nw).await?;
 
     if nw.is_dev_workspace {
         ensure_dev_parent_can_host_dev(&db, &parent_workspace_id).await?;
@@ -9699,6 +10028,185 @@ fn copy_requests(
         .collect()
 }
 
+/// Under `RequireIsolatedForks` on `parent`, refuse a fork that would leave any of its data
+/// shared: a shared storage or lake, or a data table not cloned (`Keep original` points the fork
+/// at the parent's database).
+async fn enforce_isolated_forks(
+    db: &DB,
+    authed: &ApiAuthed,
+    parent: &str,
+    nw: &CreateWorkspaceFork,
+) -> Result<()> {
+    let Some(msg) = isolation_required(db, authed, parent).await? else {
+        return Ok(());
+    };
+    let mut shared: Vec<String> = nw
+        .shared_storages
+        .iter()
+        .map(|s| format!("storage `{s}`"))
+        .chain(
+            nw.shared_ducklakes
+                .iter()
+                .map(|l| format!("ducklake `{l}`")),
+        )
+        .collect();
+    shared.extend(
+        kept_parent_datatables(db, parent, &nw.forked_datatables)
+            .await?
+            .into_iter()
+            .map(|name| format!("data table `{name}`")),
+    );
+    refuse_shared(msg, shared)
+}
+
+/// The rule's message when `RequireIsolatedForks` on `parent` binds `authed`.
+async fn isolation_required(db: &DB, authed: &ApiAuthed, parent: &str) -> Result<Option<String>> {
+    match check_user_against_rule(
+        parent,
+        &ProtectionRuleKind::RequireIsolatedForks,
+        AuditAuthorable::username(authed),
+        &authed.groups,
+        authed.is_admin,
+        db,
+    )
+    .await?
+    {
+        RuleCheckResult::Blocked(msg) => Ok(Some(msg)),
+        RuleCheckResult::Allowed => Ok(None),
+    }
+}
+
+/// `parent`'s own data tables that `forked` leaves as pointers at its database. An entry whose
+/// database another workspace owns is not `parent`'s data, so the rule does not cover it.
+async fn kept_parent_datatables(
+    db: &DB,
+    parent: &str,
+    forked: &[ForkedDatatableInfo],
+) -> Result<Vec<String>> {
+    Ok(
+        windmill_common::workspaces::resolve_workspace_governing_datatables(db, parent)
+            .await?
+            .into_iter()
+            .filter(|(_, governing)| governing.workspace_id == parent)
+            .filter(|(name, _)| {
+                !forked.iter().any(|d| {
+                    &d.name == name
+                        && matches!(
+                            d.fork_behavior,
+                            Some(
+                                DataTableForkBehavior::SchemaOnly
+                                    | DataTableForkBehavior::SchemaAndData
+                            )
+                        )
+                })
+            })
+            .map(|(name, _)| name)
+            .collect(),
+    )
+}
+
+fn refuse_shared(msg: String, shared: Vec<String>) -> Result<()> {
+    if shared.is_empty() {
+        return Ok(());
+    }
+    Err(Error::PermissionDenied(format!(
+        "{msg}. Shared in this request: {}. Only a bypasser of the rule can fork while one of \
+         them cannot be isolated",
+        shared.join(", ")
+    )))
+}
+
+/// Record every storage of the fork's cloned settings as isolated, except `shared` ones.
+/// Isolation is a per-fork-creation choice, never inherited: a fork of a shared fork is
+/// isolated unless it asks otherwise.
+async fn isolate_fork_storages(
+    tx: &mut Transaction<'_, Postgres>,
+    fork_id: &str,
+    shared: &[String],
+    shared_ducklakes: &[String],
+) -> Result<()> {
+    use windmill_common::fork_storage::{lfs_entry, registry_storage_name};
+
+    let settings = sqlx::query!(
+        "SELECT large_file_storage, ducklake FROM workspace_settings WHERE workspace_id = $1",
+        fork_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    let (lfs, ducklake) = settings
+        .map(|s| (s.large_file_storage, s.ducklake))
+        .unwrap_or_default();
+    let lfs = lfs.filter(|v| v.get("type").is_some());
+
+    // A shared lake keeps the parent's data path: its files must land at the parent's keys, or
+    // the parent's catalog would point at objects in the fork's prefix, purged with the fork.
+    if lfs.is_some() {
+        for lake in shared_ducklakes {
+            let lake_storage = ducklake
+                .as_ref()
+                .and_then(|d| {
+                    d.get("ducklakes")?
+                        .get(lake)?
+                        .get("storage")?
+                        .get("storage")
+                })
+                .and_then(|s| s.as_str());
+            let storage = registry_storage_name(lake_storage);
+            if !shared
+                .iter()
+                .any(|s| registry_storage_name(Some(s)) == storage)
+            {
+                return Err(Error::BadRequest(format!(
+                    "ducklake `{lake}` is shared with the parent, so the storage holding its \
+                     data (`{}`) must be shared too",
+                    lake_storage.unwrap_or(windmill_types::s3::DEFAULT_STORAGE)
+                )));
+            }
+        }
+    }
+    let mut storages: Vec<&str> = vec![];
+    if let Some(lfs) = &lfs {
+        storages.push("");
+        if let Some(secondary) = lfs.get("secondary_storage").and_then(|s| s.as_object()) {
+            storages.extend(secondary.keys().map(String::as_str));
+        }
+    }
+    for name in shared {
+        if !storages.contains(&registry_storage_name(Some(name))) {
+            return Err(Error::BadRequest(format!(
+                "cannot share storage `{name}` with the parent: no such storage in the workspace \
+                 settings"
+            )));
+        }
+    }
+    let Some(lfs) = &lfs else {
+        return Ok(());
+    };
+    for storage in storages {
+        if shared
+            .iter()
+            .any(|s| registry_storage_name(Some(s)) == storage)
+        {
+            continue;
+        }
+        let Some(storage_ref) =
+            lfs_entry(lfs, storage).and_then(windmill_common::workspaces::lfs_entry_storage_ref)
+        else {
+            continue;
+        };
+        sqlx::query!(
+            "INSERT INTO fork_storage_namespace (workspace_id, storage, storage_ref)
+             VALUES ($1, $2, $3)",
+            fork_id,
+            storage,
+            storage_ref
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
 /// Write the fork, with its data tables pointed at `copies`.
 async fn write_workspace_fork(
     db: DB,
@@ -9721,6 +10229,17 @@ async fn write_workspace_fork(
     // Also before the external cluster's lifecycle lock, which finalizing an external copy takes:
     // fork cleanup takes the two in this order.
     windmill_common::workspaces::lock_fork_datatables(&mut tx, &parent_workspace_id).await?;
+    // Data table edits take the lock above: one committed since the creation check would reach
+    // this fork as a pointer at the parent's database.
+    if let Some(msg) = isolation_required(&db, &authed, &parent_workspace_id).await? {
+        let kept = kept_parent_datatables(&db, &parent_workspace_id, &nw.forked_datatables).await?;
+        refuse_shared(
+            msg,
+            kept.into_iter()
+                .map(|name| format!("data table `{name}`"))
+                .collect(),
+        )?;
+    }
 
     if nw.is_dev_workspace {
         // The checks above ran outside a transaction, so the parent's eligibility and the chain's
@@ -9902,9 +10421,12 @@ async fn write_workspace_fork(
 
     // Update forked datatable settings to point to new databases
     for fdt in &nw.forked_datatables {
-        let copy = copies.iter().find(|c| c.name == fdt.name).ok_or_else(|| {
-            Error::internal_err(format!("No copy was made of data table '{}'", fdt.name))
-        })?;
+        let copy = copies
+            .iter()
+            .find(|c| c.names.contains(&fdt.name))
+            .ok_or_else(|| {
+                Error::internal_err(format!("No copy was made of data table '{}'", fdt.name))
+            })?;
         apply_forked_datatable(
             &db,
             &mut tx,
@@ -9961,6 +10483,14 @@ async fn write_workspace_fork(
         }
     }
 
+    isolate_fork_storages(
+        &mut tx,
+        &forked_id,
+        &nw.shared_storages,
+        &nw.shared_ducklakes,
+    )
+    .await?;
+
     // Lock the parent ("prod") so edits are funneled through this dev workspace.
     let locked_prod = nw.is_dev_workspace && (nw.lock_prod_deploy || nw.lock_prod_forking);
     if locked_prod {
@@ -9978,7 +10508,7 @@ async fn write_workspace_fork(
         .map(|c| {
             format!(
                 "{} ({})",
-                c.name,
+                c.names.join(" + "),
                 match c.behavior {
                     DataTableForkBehavior::SchemaOnly => "schema_only",
                     _ => "schema_and_data",
@@ -10008,6 +10538,9 @@ async fn write_workspace_fork(
         .await?;
     }
     tx.commit().await?;
+    // Same for a mapping cached before the isolation rows were visible: identity, writing the
+    // root's keys.
+    windmill_common::fork_storage::invalidate_fork_storage_keys_cache(&forked_id);
 
     // A pre-creation lookup could have cached an EMPTY ancestor chain for this id, which
     // would bypass ducklake fork isolation for the TTL. The same lookup could have cached the id
@@ -10724,20 +11257,10 @@ async fn archive_workspace(
 
     if let Some(prod) = dev_lock_parent {
         windmill_common::workspaces::invalidate_protection_rules_cache(&prod);
-        // The teardown above cleared `is_dev_workspace`, which is what let this workspace keep its
-        // own id for tag routing; it and every fork resolving through it now land on an ancestor.
-        // Only a dev workspace reaches here, so archiving anything else needs no sweep.
-        windmill_queue::tags::invalidate_fork_parent_cache(&w_id);
-        for id in windmill_common::workspaces::list_fork_descendants(&db, &w_id)
-            .await
-            .unwrap_or_default()
-        {
-            windmill_queue::tags::invalidate_fork_parent_cache(&id);
-        }
-        if let Err(e) = windmill_queue::tags::notify_fork_lineage_reset(&db).await {
-            tracing::warn!("failed to broadcast fork lineage change: {e:#}");
-        }
     }
+    // The tag lineage reads `deleted` (an archived ancestor counts as dev lineage), and a dev
+    // workspace's teardown above also cleared `is_dev_workspace`.
+    reset_tag_lineage(&db, &w_id).await;
 
     Ok(format!(
         "Archived workspace {}, disabled {} schedules, canceled {} jobs and deleted {} tokens",
@@ -10838,8 +11361,24 @@ async fn unarchive_workspace(
     )
     .await?;
     tx.commit().await?;
+    reset_tag_lineage(&db, &w_id).await;
 
     Ok(format!("Unarchived workspace {}", &w_id))
+}
+
+/// Drops the tag lineage cached for `w_id` and every fork resolving through it, here and on every
+/// replica, after a change to a field the lineage reads.
+async fn reset_tag_lineage(db: &DB, w_id: &str) {
+    windmill_queue::tags::invalidate_fork_parent_cache(w_id);
+    for id in windmill_common::workspaces::list_fork_descendants(db, w_id)
+        .await
+        .unwrap_or_default()
+    {
+        windmill_queue::tags::invalidate_fork_parent_cache(&id);
+    }
+    if let Err(e) = windmill_queue::tags::notify_fork_lineage_reset(db).await {
+        tracing::warn!("failed to broadcast fork lineage change: {e:#}");
+    }
 }
 
 /// Whether the instance is configured to suppress the email notifications sent
@@ -11608,9 +12147,12 @@ struct ChangeOperatorSettings {
     /// withdraw or grant the right on every push.
     ///
     /// `builder_flows` lets every operator of this workspace compose flows out of already-deployed
-    /// runnables, and makes each of them consume a full author seat instead of half of one.
+    /// runnables, `builder_apps` full-code apps. Either makes each operator consume a full author
+    /// seat instead of half of one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     builder_flows: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    builder_apps: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     manage_schedules: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -11626,9 +12168,10 @@ async fn update_operator_settings(
     require_admin(authed.is_admin, &authed.username)?;
 
     // Every operator of the workspace turns into a full seat, which an offline license may not
-    // cover. It is a no-op delta when the right is already on.
+    // cover. Either right costs the same seat, so this prices "any", and it is a no-op delta when
+    // one of them is already on.
     #[cfg(feature = "enterprise")]
-    if settings.builder_flows == Some(true) {
+    if settings.builder_flows == Some(true) || settings.builder_apps == Some(true) {
         if let Some(msg) =
             windmill_common::ee_oss::check_seat_cap_for_operator_builder(&db, &w_id).await?
         {
@@ -13702,17 +14245,18 @@ async fn compare_two_flows(
     });
 }
 
-/// The policy minus the identity pair. Deploying cannot converge a difference there — the
-/// target recomputes the identity from the deployer's own choice, which offers its current
-/// value, the deployer, or a typed-in one, never the source's — so listing an app for it
-/// alone leaves an entry no deploy can clear. `script` and `flow` compare no identity either.
-fn policy_without_identity(policy: &serde_json::Value) -> serde_json::Value {
-    let mut policy = policy.clone();
-    if let Some(obj) = policy.as_object_mut() {
+/// An app's policy or an agent's value minus the identity it carries. Deploying cannot converge
+/// a difference there — the target recomputes the identity from the deployer's own choice, which
+/// offers its current value, the deployer, or a typed-in one, never the source's — so listing an
+/// item for it alone leaves an entry no deploy can clear. `script` and `flow` compare no identity
+/// either.
+fn without_identity(value: &serde_json::Value) -> serde_json::Value {
+    let mut value = value.clone();
+    if let Some(obj) = value.as_object_mut() {
         obj.remove("on_behalf_of");
         obj.remove("on_behalf_of_email");
     }
-    policy
+    value
 }
 
 async fn compare_two_apps(
@@ -13755,7 +14299,7 @@ async fn compare_two_apps(
     // Check metadata and content differences
     if let (Some(source), Some(target)) = (&source_app, &target_app) {
         if source.summary != target.summary
-            || policy_without_identity(&source.policy) != policy_without_identity(&target.policy)
+            || without_identity(&source.policy) != without_identity(&target.policy)
             || source.value != target.value
             || source.raw_app != target.raw_app
         {
@@ -13833,7 +14377,14 @@ async fn compare_two_resources(
 
     // Check metadata differences
     if let (Some(source), Some(target)) = (&source_resource, &target_resource) {
-        if source.value != target.value
+        let agent = source.resource_type == "ai_agent" && target.resource_type == "ai_agent";
+        let values_differ = if agent {
+            source.value.as_ref().map(without_identity)
+                != target.value.as_ref().map(without_identity)
+        } else {
+            source.value != target.value
+        };
+        if values_differ
             || source.description != target.description
             || source.resource_type != target.resource_type
         {
@@ -14719,4 +15270,155 @@ async fn set_ws_specific(
         "Set workspace-specific={} for {} {}",
         body.value, body.item_kind, body.path
     ))
+}
+
+/// A setting the workspace settings document writes, each through the endpoint that owns it,
+/// so applying a document validates, audits and has the side effects of the matching UI save.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsEdit {
+    Webhook,
+    AutoInvite,
+    InstanceGroups,
+    ErrorHandler,
+    SuccessHandler,
+    LargeFileStorage,
+    GitSync,
+    DefaultScripts,
+    DefaultApp,
+    Color,
+    OperatorSettings,
+    Datatable,
+    SlackCommand,
+    SetSlackOAuth,
+    DeleteSlackOAuth,
+    Ducklake,
+    DbtWarehouses,
+    DeployUi,
+    GuestAccess,
+    GuestJwtKey,
+    PublicAppRateLimit,
+    AddAdminsAndDevelopersToForks,
+    /// Body: `{ datatable, permissioned, default_role, roles: [{ id, tenants }] }`, role ids.
+    DatatablePermissions,
+    CreateProtectionRule,
+    /// Body: the update request plus `rule_name`, the rule it updates.
+    UpdateProtectionRule,
+    /// Body: `{ name }`.
+    DeleteProtectionRule,
+}
+
+fn settings_edit_body<T: serde::de::DeserializeOwned>(
+    edit: SettingsEdit,
+    body: serde_json::Value,
+) -> Result<Json<T>> {
+    serde_json::from_value(body)
+        .map(Json)
+        .map_err(|e| Error::BadRequest(format!("Invalid value for {edit:?}: {e}")))
+}
+
+/// Returns the endpoint's JSON response, or `null` for one that answers with prose.
+pub async fn apply_settings_edit(
+    authed: ApiAuthed,
+    db: DB,
+    w_id: String,
+    edit: SettingsEdit,
+    body: serde_json::Value,
+) -> Result<serde_json::Value> {
+    use SettingsEdit::*;
+    let a = authed.clone();
+    let (d, p) = (Extension(db), Path(w_id));
+    match edit {
+        Webhook => edit_webhook(a, d, p, authed, settings_edit_body(edit, body)?).await?,
+        AutoInvite => edit_auto_invite(a, d, p, settings_edit_body(edit, body)?).await?,
+        InstanceGroups => edit_instance_groups(a, d, p, settings_edit_body(edit, body)?).await?,
+        ErrorHandler => {
+            edit_error_handler(a, d, p, authed, settings_edit_body(edit, body)?).await?
+        }
+        SuccessHandler => edit_success_handler(a, d, p, settings_edit_body(edit, body)?).await?,
+        LargeFileStorage => {
+            edit_large_file_storage_config(a, d, p, authed, settings_edit_body(edit, body)?).await?
+        }
+        GitSync => edit_git_sync_config(a, d, p, authed, settings_edit_body(edit, body)?).await?,
+        DefaultScripts => {
+            edit_default_scripts(a, d, p, authed, settings_edit_body(edit, body)?).await?
+        }
+        #[cfg(feature = "enterprise")]
+        DefaultApp => edit_default_app(a, d, p, authed, settings_edit_body(edit, body)?).await?,
+        #[cfg(not(feature = "enterprise"))]
+        DefaultApp => edit_default_app(a, d, p, settings_edit_body(edit, body)?).await?,
+        Color => change_workspace_color(a, p, d, settings_edit_body(edit, body)?).await?,
+        OperatorSettings => {
+            update_operator_settings(a, p, d, settings_edit_body(edit, body)?).await?
+        }
+        Datatable => {
+            let Json(result) =
+                edit_datatable_config(a, d, p, authed, settings_edit_body(edit, body)?).await?;
+            return serde_json::to_value(result).map_err(|e| Error::internal_err(e.to_string()));
+        }
+        SlackCommand => {
+            edit_slack_command(a, d, p, authed, settings_edit_body(edit, body)?).await?
+        }
+        SetSlackOAuth => set_slack_oauth_config(a, d, p, settings_edit_body(edit, body)?).await?,
+        DeleteSlackOAuth => delete_slack_oauth_config(a, d, p).await?,
+        Ducklake => edit_ducklake_config(a, d, p, authed, settings_edit_body(edit, body)?).await?,
+        DbtWarehouses => {
+            edit_dbt_warehouses(a, d, p, authed, settings_edit_body(edit, body)?).await?
+        }
+        #[cfg(feature = "enterprise")]
+        DeployUi => edit_deploy_ui_config(a, d, p, authed, settings_edit_body(edit, body)?).await?,
+        #[cfg(not(feature = "enterprise"))]
+        DeployUi => edit_deploy_ui_config(a, d, p).await?,
+        GuestAccess => edit_guest_access(a, d, p, settings_edit_body(edit, body)?).await?,
+        GuestJwtKey => edit_guest_jwt_key(a, d, p, settings_edit_body(edit, body)?).await?,
+        PublicAppRateLimit => {
+            edit_public_app_rate_limit(d, p, a, settings_edit_body(edit, body)?).await?
+        }
+        AddAdminsAndDevelopersToForks => {
+            edit_add_admins_and_developers_to_forks(a, d, p, settings_edit_body(edit, body)?)
+                .await?
+        }
+        #[cfg(all(feature = "private", feature = "enterprise"))]
+        DatatablePermissions => {
+            #[derive(Deserialize)]
+            struct Body {
+                datatable: String,
+                #[serde(flatten)]
+                req: crate::datatable_permissions_ee::SetDatatablePermissions,
+            }
+            let Json(Body { datatable, req }) = settings_edit_body(edit, body)?;
+            crate::datatable_permissions_oss::set_datatable_permissions(
+                a,
+                d,
+                Path((p.0, datatable)),
+                Json(req),
+            )
+            .await?
+        }
+        #[cfg(not(all(feature = "private", feature = "enterprise")))]
+        DatatablePermissions => {
+            crate::datatable_permissions_oss::set_datatable_permissions(a).await?
+        }
+        CreateProtectionRule => {
+            create_protection_rule(a, d, p, settings_edit_body(edit, body)?).await?
+        }
+        UpdateProtectionRule => {
+            #[derive(Deserialize)]
+            struct Body {
+                rule_name: String,
+                #[serde(flatten)]
+                req: UpdateProtectionRuleRequest,
+            }
+            let Json(Body { rule_name, req }) = settings_edit_body(edit, body)?;
+            update_protection_rule(a, d, Path((p.0, rule_name)), Json(req)).await?
+        }
+        DeleteProtectionRule => {
+            #[derive(Deserialize)]
+            struct Body {
+                name: String,
+            }
+            let Json(Body { name }) = settings_edit_body(edit, body)?;
+            delete_protection_rule(a, d, Path((p.0, name))).await?
+        }
+    };
+    Ok(serde_json::Value::Null)
 }

@@ -124,8 +124,10 @@ lazy_static::lazy_static! {
                 if std::env::var("BASE_INTERNAL_URL").is_err() {
                     panic!("BASE_INTERNAL_URL is required in agent mode")
                 }
-                if std::env::var("AGENT_TOKEN").is_err() {
-                    println!("AGENT_TOKEN is not passed. This is required for the agent to work and contains the JWT to authenticate with the server.")
+                if std::env::var("AGENT_TOKEN").is_err()
+                    && std::env::var(crate::agent_workers::AGENT_IDENTITY_TOKEN_FILE_ENV).is_err()
+                {
+                    println!("Neither AGENT_TOKEN nor AGENT_IDENTITY_TOKEN_FILE is passed. One is required for the agent to authenticate with the server.")
                 }
 
                 #[cfg(not(feature = "enterprise"))]
@@ -281,6 +283,9 @@ pub fn sanitize_db_error(e: sqlx::Error) -> Error {
         return Error::from(e);
     };
     match db_err.code().as_deref() {
+        Some("23514") if db_err.constraint() == Some("variable_value_length") => {
+            Error::BadRequest("A field exceeds its maximum length".to_string())
+        }
         // check_violation — `proper_id` / `proper_name` and friends
         Some("23514") => Error::BadRequest(
             "Invalid path or name: it does not match the required format".to_string(),

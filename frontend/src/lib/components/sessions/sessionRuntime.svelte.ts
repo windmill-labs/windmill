@@ -1,10 +1,12 @@
 import { SvelteMap } from 'svelte/reactivity'
+import type { PendingRun } from '$lib/components/details/pendingRun'
 import { get } from 'svelte/store'
-import { base } from '$lib/base'
 import { invalidate as invalidateWorkspaceItems } from '$lib/components/workspacePicker'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { AIChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 import { PipelineEditorState } from '$lib/components/assets/AssetGraph/pipelineEditorState.svelte'
+import { PIPELINE_DRAFT_KIND, pipelineBundlePath, pipelineLocalMirrorKey } from '$lib/pipelinePaths'
+import type { DeployResult } from '$lib/utils_workspace_deploy'
 import { initFlow } from '$lib/components/flows/flowStore.svelte'
 import {
 	ApiError,
@@ -29,7 +31,12 @@ type SavedFlow = Omit<Flow & UserDraftOverlay, 'draft'> & { draft?: Flow }
 import type { HiddenRunnable } from '$lib/components/apps/types'
 import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
-import { react19Template, STARTER_RUNNABLES } from '$lib/components/raw_apps/templates'
+import {
+	BUILDER_FRAMEWORK_TEMPLATES,
+	react19Template,
+	STARTER_RUNNABLES
+} from '$lib/components/raw_apps/templates'
+import { operatorBuilderAppsIn, workspaceListLoaded } from '$lib/operatorWriteRights'
 import { random_adj } from '$lib/components/random_positive_adjetive'
 import { copilotWorkspace } from '$lib/aiStore'
 import { loadCopilot } from '$lib/components/copilot/loadCopilot'
@@ -71,6 +78,8 @@ import {
 	promptSafe,
 	parseRunFormRoute,
 	resolvePreviewTab,
+	pendingRunIdOf,
+	slotShowsPage,
 	type PreviewSlot
 } from './previewRouter'
 import { normalizePipelineFolder } from '$lib/utils/pipelineFolder'
@@ -102,6 +111,7 @@ import {
 	type RawAppRunsProvider,
 	type RawAppScreenshotRequester
 } from '$lib/components/raw_apps/utils'
+import { resolveGlobalDraftStoragePathByKind } from '$lib/components/copilot/chat/global/userDraftAdapter'
 import type {
 	RawAppDomQuery,
 	RawAppDomRequester,
@@ -134,6 +144,12 @@ export interface LoadSlot {
 }
 
 export type SessionTargetKind = 'flow' | 'script' | 'raw_app'
+
+/** What a mounted pipeline editor view offers the rest of the session. */
+export interface PipelineView {
+	/** Deploy all of the folder's drafts; failures stay drafts and are shown in the view. */
+	deployAll(): Promise<DeployResult>
+}
 
 // The live runtime value a raw-app editor cell binds. Legacy drag-and-drop apps
 // are intentionally NOT hosted in the session preview (only code-based raw apps).
@@ -207,9 +223,17 @@ export interface SessionRuntime {
 	// (renderer) and the open_preview/get_preview_status tools cross it, so the
 	// tab model has exactly one live copy.
 	readonly previewTabs: SessionPreviewTabs
-	// Pipeline target state — persists across editor hide/show (the pane unmounts
-	// on hide, so this can't be component-local) and across session switches.
-	readonly pipelineEditorState: PipelineEditorState
+	// Pipeline editor state per folder — persists across editor remounts and
+	// session switches, so it can't be component-local. Created on first use.
+	pipelineEditor(folder: string): PipelineEditorState
+	// A mounted pipeline editor view offers its deploy here; returns the unregister.
+	registerPipelineView(folder: string, view: PipelineView): () => void
+	// Deploy a folder's pipeline drafts through its editor tab, opening the tab if
+	// needed: the tab hydrates the drafts and shows what deployed and what failed.
+	deployPipeline(folder: string): Promise<DeployResult>
+	// Drop a folder's in-memory drafts once its draft bundle is discarded, so an
+	// open or later-mounted editor does not save them back.
+	forgetPipelineDrafts(folder: string): Promise<void>
 	// Per-(kind, path) editor cells (content/baseline stores + load slot), created
 	// on demand. Each editable preview tab resolves its own cell, so several items
 	// stay live at once.
@@ -226,6 +250,8 @@ export interface SessionRuntime {
 	 * viewer refetches when this changes — it reads the deployed version from the
 	 * API, so nothing else tells it the editor beside it just published. */
 	deployedRevision(kind: SessionTargetKind, path: string): number
+	/** The chat tool call a viewer tab was opened to answer, named by that tab's own url. */
+	pendingRunFor(toolCallId: string): PendingRun | undefined
 	/** Record that a preview tab landed on `url`. Fires for a newly opened tab and
 	 * for an existing one switched to the other side of its item. */
 	logTabUsage(url: string): void
@@ -450,14 +476,7 @@ function createRuntime(session: Session): SessionRuntime {
 		// point those at a page the user cannot see.
 		const tab = owner?.displayedTab
 		if (!tab) return undefined
-		const slotKind = resolvePreviewTab(tab.url).kind
-		if (
-			slotKind !== 'iframe' &&
-			slotKind !== 'pageitem' &&
-			slotKind !== 'pagelist' &&
-			slotKind !== 'viewer'
-		)
-			return undefined
+		if (!slotShowsPage(resolvePreviewTab(tab.url).kind)) return undefined
 		return previewLocationContext(whereIs(tab))
 	}
 	// Pre-flight: materialise the (still-transient) session, then commit
@@ -573,17 +592,37 @@ function createRuntime(session: Session): SessionRuntime {
 			// Only persist a real width; undefined means "never resized" (defaults to 50).
 			if (snap.previewSize != null) setSessionPreviewSize(session.id, snap.previewSize)
 		},
+		// Closing a tab that carried a call is not a refusal: the card still has the form.
 		onTabsChanged: pruneEditorCells,
 		onTabOpened: logTabUsage
 	})
 
-	// Let the jobs tray open a run in this session's preview panel (as an iframe
-	// tab over the run page). The global side-panel chat leaves this unset and
+	/** The call a viewer tab was opened to answer, for the page that renders it. Built from
+	 * the id the tab carries rather than from state of our own, so there is nothing to keep in
+	 * step: the tab names the call, and the manager says whether it is still waiting. */
+	function pendingRunFor(toolCallId: string): PendingRun | undefined {
+		if (!manager.isRunFormPending(toolCallId)) return undefined
+		return {
+			toolCallId,
+			// Read here, so the page's `$derived` rebuilds when the posture changes under it.
+			planModeActive: manager.planModeActive,
+			// A getter, not a value: the page reads it once, when it builds the form, and this
+			// object is rebuilt on every keystroke of the card's draft otherwise.
+			get proposedArgs() {
+				return manager.pendingRunFormArgs(toolCallId) ?? {}
+			},
+			adopt: (jobId, args, schema) => manager.handleRunFormJob(toolCallId, jobId, args, schema),
+			decline: () => manager.handleRunFormCancel(toolCallId)
+		}
+	}
+
+	// Let the jobs tray open a run in this session's preview panel (as a tab on
+	// the run's page). The global side-panel chat leaves this unset and
 	// falls back to a new browser tab.
 	manager.openRunInPreview = ({ jobId, workspace, label }) => {
 		previewTabs.open({
 			type: 'page',
-			href: `${base}/run/${jobId}?workspace=${workspace}`,
+			href: `/run/${jobId}?workspace=${workspace}`,
 			label
 		})
 	}
@@ -594,15 +633,89 @@ function createRuntime(session: Session): SessionRuntime {
 	manager.openRunForm = ({ toolCallId, label }) => {
 		previewTabs.open({ type: 'runform', toolCallId, label })
 	}
-	manager.closeRunForm = (toolCallId) => previewTabs.closeRunForm(toolCallId)
-	manager.showRunInPlaceOfForm = ({ toolCallId, jobId, workspace }) => {
-		previewTabs.retargetRunForm(toolCallId, `${base}/run/${jobId}?workspace=${workspace}`)
+	// Show a deployed run on the item's own page. With `carries`, that page answers the call:
+	// the job its Run starts is the one the tool follows.
+	manager.openRunOnDeployedPage = ({
+		toolCallId,
+		kind,
+		path,
+		summary,
+		carries,
+		onlyIfAlreadyOpen
+	}) => {
+		// Through the shared adapter: a session target spells a code-based app `raw_app` and a
+		// workspace item spells it `app` with a flag, and one place should know that.
+		const target = previewTargetForSessionTarget(kind, path)
+		if (target?.type !== 'item') return false
+		const viewTarget = {
+			...target,
+			item: { ...target.item, summary },
+			mode: 'view' as const,
+			pendingRunId: carries ? toolCallId : undefined
+		}
+		// Re-pointed rather than focused: the url is what hands the tab the call, and
+		// rebuilding it also drops whatever version the reader had pinned.
+		const open = previewTabs.tabs.find((t) => {
+			const slot = resolvePreviewTab(t.url)
+			return slot.kind === 'viewer' && slot.viewerKind === kind && slot.path === path
+		})
+		if (open) {
+			// An unasked-for hand-off goes only to the page the reader already has in front of
+			// them. `navigate` below re-points the tab, which reloads it and rebuilds its url:
+			// on a tab they cannot see that silently drops whatever they had typed into its
+			// form and leaves the call on an off-screen page, and on a pinned one it moves them
+			// off the version they chose. Declining leaves the call on the card, which can run
+			// it. A reader who presses Preview is asking for all of that.
+			if (
+				onlyIfAlreadyOpen &&
+				(previewTabs.activeId !== open.id ||
+					previewTabs.collapsed ||
+					new URL(open.url, 'http://x').searchParams.get('version'))
+			) {
+				return false
+			}
+			previewTabs.navigate(viewTarget, open.id)
+			// `navigate` re-points a tab in place and nothing more, while the call is about to
+			// tell the reader the page is open. `open` would have brought it forward and shown
+			// the panel; this path has to do both itself.
+			previewTabs.select(open.id)
+			previewTabs.setCollapsed(false)
+		} else {
+			// Only the item's own page carries a form for this call, so a caller routing a call
+			// that was not asked to open anything gets a no rather than a new tab.
+			if (onlyIfAlreadyOpen) return false
+			previewTabs.open(viewTarget)
+		}
+		return true
 	}
-	// Read off the tab list rather than the slot's lifecycle: a tab the user has switched
-	// away from is unmounted but still open, and the card must keep its form hidden until it
-	// is closed. A resolver, like activePreviewResolver: the reader's own $derived subscribes
-	// to `tabs` through it, and the runtime is not inside an effect root to push from.
+	manager.closeRunForm = (toolCallId) => {
+		// A page carrying the call outlives it, and stops carrying it because the call stops
+		// being pending. Only the chat's own form tab, which is the call, goes with it.
+		previewTabs.closeRunForm(toolCallId)
+	}
+	manager.showRunInPlaceOfForm = ({ toolCallId, jobId, workspace }) => {
+		const runHref = `/run/${jobId}?workspace=${workspace}`
+		// Either surface the call was waiting on becomes the run it started, in place.
+		const carrying = previewTabs.tabs.find((t) => pendingRunIdOf(t.url) === toolCallId)
+		if (carrying) previewTabs.retargetById(carrying.id, runHref)
+		previewTabs.retargetRunForm(toolCallId, runHref)
+	}
+	// Both read off the tab list rather than the slot's lifecycle: a tab the user has switched
+	// away from is unmounted but still open. Resolvers, like activePreviewResolver: the
+	// reader's own $derived subscribes to `tabs` through them, and the runtime is not inside
+	// an effect root to push from. So a tab closed or re-pointed hands the card back whatever
+	// it had given up.
+	// Either surface — the chat's own form in a tab, or the item's page carrying the call.
 	manager.isRunFormInPreview = (toolCallId) =>
+		previewTabs.tabs.some(
+			(t) =>
+				parseRunFormRoute(t.url)?.toolCallId === toolCallId || pendingRunIdOf(t.url) === toolCallId
+		)
+	// The chat's own form alone. The card's form is exclusive with this one and no other:
+	// both bind the one draft, and SchemaForm reorders in place the schema it is handed, so a
+	// second mount reorders it again. A page builds its own form from a copy of the proposal
+	// and shares nothing, so the card keeps its form while a page carries the call.
+	manager.isRunFormTabOpen = (toolCallId) =>
 		previewTabs.tabs.some((t) => parseRunFormRoute(t.url)?.toolCallId === toolCallId)
 
 	manager.openArtifact = (id, name, version) => {
@@ -618,10 +731,78 @@ function createRuntime(session: Session): SessionRuntime {
 	// picker lists, so changeMode's network refreshes would fire once per listing.
 	manager.configureGlobalMode()
 
-	// Pipeline target state lives on the runtime (not the PipelineEditorView
-	// component) so the in-session drafts survive hide/show of the editor pane —
-	// the pane unmounts on hide, and a component-local store would be discarded.
-	const pipelineEditorState = new PipelineEditorState()
+	const pipelineEditors = new Map<string, PipelineEditorState>()
+	function pipelineEditor(folder: string): PipelineEditorState {
+		const key = normalizePipelineFolder(folder)
+		let editor = pipelineEditors.get(key)
+		if (!editor) {
+			editor = new PipelineEditorState()
+			editor.folder = key
+			pipelineEditors.set(key, editor)
+		}
+		return editor
+	}
+
+	const pipelineViews = new Map<string, PipelineView>()
+	const pipelineViewWaiters = new Map<string, Set<(view: PipelineView) => void>>()
+	function registerPipelineView(folder: string, view: PipelineView): () => void {
+		const key = normalizePipelineFolder(folder)
+		pipelineViews.set(key, view)
+		const waiters = pipelineViewWaiters.get(key)
+		pipelineViewWaiters.delete(key)
+		waiters?.forEach((notify) => notify(view))
+		return () => {
+			if (pipelineViews.get(key) === view) pipelineViews.delete(key)
+		}
+	}
+	function pipelineViewFor(folder: string, timeoutMs = 15000): Promise<PipelineView | undefined> {
+		const mounted = pipelineViews.get(folder)
+		if (mounted) return Promise.resolve(mounted)
+		return new Promise((resolve) => {
+			const waiters = pipelineViewWaiters.get(folder) ?? new Set()
+			pipelineViewWaiters.set(folder, waiters)
+			const notify = (view: PipelineView) => {
+				clearTimeout(timer)
+				resolve(view)
+			}
+			const timer = setTimeout(() => {
+				waiters.delete(notify)
+				resolve(undefined)
+			}, timeoutMs)
+			waiters.add(notify)
+		})
+	}
+	manager.setPipelineReopener((folder) => {
+		const target = previewTargetForSessionTarget('pipeline', folder)
+		if (target) previewTabs.open(target)
+	})
+	async function deployPipeline(folder: string): Promise<DeployResult> {
+		const key = normalizePipelineFolder(folder)
+		const target = previewTargetForSessionTarget('pipeline', key)
+		if (target) previewTabs.open(target)
+		const view = await pipelineViewFor(key)
+		if (!view) return { success: false, error: `The pipeline editor for f/${key} did not open.` }
+		return view.deployAll()
+	}
+	async function forgetPipelineDrafts(folder: string): Promise<void> {
+		const key = normalizePipelineFolder(folder)
+		const editor = pipelineEditors.get(key)
+		if (editor) {
+			// The open pane saves its edits back as a draft when it closes: let it, then
+			// drop that draft with the rest, or it would come back afterwards.
+			await editor.closePane()
+			editor.drafts = new Map()
+			editor.triggerDrafts = new Map()
+			editor.clearLiveOverlays()
+		}
+		// The editor's crash mirror, which its load falls back to when the DB has
+		// no draft: left behind, it would restore what was just discarded.
+		try {
+			localStorage.removeItem(pipelineLocalMirrorKey(key))
+		} catch {
+			// Storage unavailable: nothing was mirrored either.
+		}
+	}
 
 	const runtimeLogRequesters = new Map<string, RawAppRuntimeLogRequester>()
 	// appPath → requester, one entry per mounted raw-app preview tab.
@@ -635,10 +816,14 @@ function createRuntime(session: Session): SessionRuntime {
 		sessionId: session.id,
 		manager,
 		previewTabs,
-		pipelineEditorState,
+		pipelineEditor,
+		registerPipelineView,
+		deployPipeline,
+		forgetPipelineDrafts,
 		flowCell,
 		loadedEditorPath,
 		deployedRevision,
+		pendingRunFor,
 		logTabUsage,
 
 		async loadFlow(workspace: string, path: string, force = false) {
@@ -965,15 +1150,19 @@ function createRuntime(session: Session): SessionRuntime {
 			} catch (err) {
 				if (seedIfMissing && !deployedOnly && err instanceof ApiError && err.status === 404) {
 					const user = get(userStore)
+					// A builder can save no inline runnable, so the regular starter could never be saved.
+					await workspaceListLoaded()
+					const builder = operatorBuilderAppsIn(workspace)
 					saved.val = undefined
 					store.val = {
-						files: { ...react19Template },
-						runnables: structuredClone(STARTER_RUNNABLES),
+						files: { ...(builder ? BUILDER_FRAMEWORK_TEMPLATES.react19 : react19Template) },
+						runnables: builder ? {} : structuredClone(STARTER_RUNNABLES),
 						data: { ...DEFAULT_DATA },
 						policy: {
 							on_behalf_of: user?.username.includes('@') ? user.username : `u/${user?.username}`,
 							on_behalf_of_email: user?.email,
-							execution_mode: 'publisher'
+							execution_mode: 'publisher',
+							sandbox: true
 						},
 						summary: '',
 						path,
@@ -1034,7 +1223,7 @@ function createRuntime(session: Session): SessionRuntime {
 		},
 		async requestRuntimeLogs(limit, appPath) {
 			const path =
-				appPath ??
+				(appPath && draftStoragePath(session, 'raw_app', appPath)) ??
 				activeDomAppPath ??
 				(runtimeLogRequesters.size === 1 ? [...runtimeLogRequesters.keys()][0] : undefined)
 			if (path === undefined) {
@@ -1070,7 +1259,7 @@ function createRuntime(session: Session): SessionRuntime {
 			// its element's app even when another tab is now visible), else the
 			// active preview, else the only one open.
 			const path =
-				query.appPath ??
+				(query.appPath && draftStoragePath(session, 'raw_app', query.appPath)) ??
 				activeDomAppPath ??
 				(domRequesters.size === 1 ? [...domRequesters.keys()][0] : undefined)
 			if (path === undefined) return undefined
@@ -1165,6 +1354,18 @@ export function disposeRuntime(sessionId: string) {
 
 export function listRuntimes(): SessionRuntime[] {
 	return Array.from(runtimes.values())
+}
+
+/** A pipeline deleted outside the session: every live session on its workspace
+ * drops what it holds of it. Its in-memory drafts would otherwise keep showing the
+ * pipeline in the preview, and autosave would write the deleted draft back. */
+export function forgetDeletedPipeline(workspace: string, folder: string): void {
+	const key = normalizePipelineFolder(folder)
+	for (const runtime of runtimes.values()) {
+		if (runtime.manager.operatingWorkspace !== workspace) continue
+		void runtime.forgetPipelineDrafts(key)
+		void runtime.manager.removeModifiedItem(PIPELINE_DRAFT_KIND, pipelineBundlePath(key))
+	}
 }
 
 export function getRuntime(sessionId: string): SessionRuntime | undefined {
@@ -1274,6 +1475,18 @@ export function removeSession(sessionId: string): void {
 	deleteSessionState(sessionId)
 }
 
+// The chat calls a new item by its chosen name while its draft is stored at
+// `draft_<uuid>`; resolve the name the way the chat's write tools do.
+function draftStoragePath(
+	session: Session,
+	kind: 'script' | 'flow' | 'raw_app',
+	path: string
+): string {
+	return session.workspace_id
+		? resolveGlobalDraftStoragePathByKind(session.workspace_id, kind, path)
+		: path
+}
+
 // Register the global open_preview tool handler once at module load. It
 // dispatches to the *calling* session (sessionId threaded from the tool ctx),
 // falling back to the UI-active session only when none was passed — so a
@@ -1289,7 +1502,10 @@ setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path, mode }) =
 	if (!session) {
 		return 'Error: no active session to open the preview in.'
 	}
-	const target = previewTargetForSessionTarget(kind, path)
+	const target = previewTargetForSessionTarget(
+		kind,
+		mode === 'view' || kind === 'pipeline' ? path : draftStoragePath(session, kind, path)
+	)
 	if (!target) {
 		return `Error: ${kind} targets cannot be shown in the preview panel.`
 	}
@@ -1305,8 +1521,8 @@ setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path, mode }) =
 	// "Unknown tool call" error on the first node it tries to build.
 	if (kind === 'pipeline') {
 		const folder = normalizePipelineFolder(path)
-		const ready = await runtime.manager.waitForPipelineHelpers()
-		// A backgrounded session's preview tab does not mount, so its editor never
+		const ready = await runtime.manager.waitForPipelineHelpers(folder)
+		// A session whose page is not mounted never mounts the editor, so it never
 		// registers — don't claim success, or the model calls build_pipeline_node
 		// into the void. Tell it the tools aren't available and how to recover.
 		if (!ready) {
@@ -1316,7 +1532,7 @@ setOpenPreviewHandler(async ({ sessionId: callerSessionId, kind, path, mode }) =
 		// off the owner path twice over) is rejected by build_pipeline_node.
 		return `${
 			result.status === 'focused' ? 'Focused the' : 'Opened the'
-		} pipeline editor for folder "${folder}" in the side panel. Its nodes go at paths under \`f/${folder}/\` (e.g. \`f/${folder}/<node_name>\`).`
+		} pipeline editor for folder "${folder}" in the side panel. build_pipeline_node, edit_pipeline_node and the other pipeline tools are now in your tool list: call them in your next step. Its nodes go at paths under \`f/${folder}/\` (e.g. \`f/${folder}/<node_name>\`).`
 	}
 	return result.status === 'focused'
 		? `A preview tab is already showing ${kind} "${path}" — focused it.`

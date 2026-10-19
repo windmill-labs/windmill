@@ -5,7 +5,6 @@
 		aiAgentModuleDependencies,
 		collectTransformRefs
 	} from './deployDependencies'
-	import { base } from '$lib/base'
 	import { enterpriseLicense, superadmin } from '$lib/stores'
 	import {
 		AppService,
@@ -111,16 +110,22 @@
 		return needsOnBehalfOfSelection(kind, sourceOnBehalfOfInfo[statusPath])
 	}
 
+	/** Triggers and agents record who they run as by principal, the rest by address. */
+	function usesPrincipal(kind: Kind): boolean {
+		return kind === 'trigger' || kind === 'resource'
+	}
+
 	/**
 	 * Get the on_behalf_of value for deployment based on user's choice.
-	 * Returns an email for flows/scripts/apps, or permissioned_as (u/username, g/group) for triggers/schedules.
+	 * Returns an email for flows/scripts/apps, or permissioned_as (u/username, g/group) for
+	 * triggers/schedules and agents.
 	 */
 	function getOnBehalfOfForDeploy(statusPath: string, kind: Kind): string | undefined {
 		const choice = onBehalfOfChoice[statusPath]
 		if (choice === 'target') return targetOnBehalfOfInfo[statusPath]
 		if (choice === 'custom') {
 			const details = customOnBehalfOf[statusPath]
-			return kind === 'trigger' ? details?.permissionedAs : details?.email
+			return usesPrincipal(kind) ? details?.permissionedAs : details?.email
 		}
 		// 'me' or undefined = don't pass, backend will use deploying user's identity
 		return undefined
@@ -135,7 +140,7 @@
 		statusPath: string,
 		kind: Kind
 	): string | undefined {
-		if (kind === 'trigger' || onBehalfOfChoice[statusPath] !== 'custom') return undefined
+		if (usesPrincipal(kind) || onBehalfOfChoice[statusPath] !== 'custom') return undefined
 		return customOnBehalfOf[statusPath]?.permissionedAs
 	}
 
@@ -206,7 +211,7 @@
 
 		// Fetch on_behalf_of_email for flows, scripts, apps, and triggers from both workspaces
 		for (const dep of sortedSet.filter((d) =>
-			['flow', 'script', 'app', 'trigger'].includes(d.kind)
+			['flow', 'script', 'app', 'trigger', 'resource'].includes(d.kind)
 		)) {
 			const key = computeStatusPath(dep.kind, dep.path)
 			let source: string | undefined
@@ -538,7 +543,7 @@
 	>
 {:else}
 	<Alert type="info" title="Shareable page"
-		>Share this <a href="{base}/deploy/{kind}/{initialPath}">link</a> to have another properly permissioned
+		>Share this <a href="/deploy/{kind}/{initialPath}">link</a> to have another properly permissioned
 		user do the deployment</Alert
 	>
 
@@ -580,7 +585,7 @@
 				connection={remoteStatus?.connection}
 				returnTo={kind === 'trigger'
 					? undefined
-					: `${base}/deploy/${kind}/${initialPath}?workspace=${encodeURIComponent($operatingWorkspace!)}`}
+					: `/deploy/${kind}/${initialPath}?workspace=${encodeURIComponent($operatingWorkspace!)}`}
 				onChange={loadDestinations}
 			/>
 		</div>

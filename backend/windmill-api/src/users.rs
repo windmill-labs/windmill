@@ -198,6 +198,7 @@ async fn set_password(
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     authed: ApiAuthed,
+    Tokened { token }: Tokened,
     OptJobAuthed { job_id, .. }: OptJobAuthed,
     Json(ep): Json<EditPassword>,
 ) -> Result<String> {
@@ -206,7 +207,15 @@ async fn set_password(
     // (GHSA-hfh4-cx4h-3fcr).
     forbid_elevated_job_token(&db, &authed.email, job_id).await?;
     let email = authed.email.clone();
-    crate::users_oss::set_password(db, argon2, authed, &email, ep).await
+    let res = crate::users_oss::set_password(db.clone(), argon2, authed, &email, ep).await?;
+    sqlx::query!(
+        "DELETE FROM token WHERE email = $1 AND label = 'session' AND token_hash != $2",
+        &email,
+        windmill_common::auth::hash_token(&token)
+    )
+    .execute(&db)
+    .await?;
+    Ok(res)
 }
 
 async fn set_password_of_user(
@@ -219,7 +228,14 @@ async fn set_password_of_user(
 ) -> Result<String> {
     require_super_admin(&db, &authed).await?;
     forbid_superadmin_job_token(&db, &authed.email, job_id).await?;
-    crate::users_oss::set_password(db, argon2, authed, &email, ep).await
+    let res = crate::users_oss::set_password(db.clone(), argon2, authed, &email, ep).await?;
+    sqlx::query!(
+        "DELETE FROM token WHERE email = $1 AND label = 'session'",
+        &email
+    )
+    .execute(&db)
+    .await?;
+    Ok(res)
 }
 
 #[derive(Deserialize)]
@@ -281,8 +297,21 @@ async fn rename_user(
     // keeps a like-named member of some other workspace out of it.
     if let Some(old_username) = old_instance_username.filter(|u| *u != ru.new_username) {
         let old_principal = windmill_common::users::username_to_permissioned_as(&old_username);
-        let new_principal =
-            windmill_common::users::username_to_permissioned_as(&ru.new_username);
+        let new_principal = windmill_common::users::username_to_permissioned_as(&ru.new_username);
+        // An agent records no address, so a workspace where the name is a member's own is
+        // left to the per-workspace sweep: there the principal is that member.
+        sqlx::query(
+            "UPDATE resource SET value = jsonb_set(value, '{on_behalf_of}', to_jsonb($1::text))
+             WHERE resource_type = 'ai_agent' AND value->>'on_behalf_of' = $2
+               AND NOT EXISTS (SELECT 1 FROM usr
+                               WHERE usr.workspace_id = resource.workspace_id
+                                 AND usr.username = $3)",
+        )
+        .bind(&new_principal)
+        .bind(&old_principal)
+        .bind(&old_username)
+        .execute(&mut *tx)
+        .await?;
         sqlx::query!(
             "UPDATE app SET policy = jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb($1::text))
              WHERE policy->>'on_behalf_of' = $2 AND policy->>'on_behalf_of_email' = $3",
@@ -798,6 +827,17 @@ async fn update_username_in_workpsace<'c>(
         old_username,
         w_id
     )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query(
+        "UPDATE resource SET value = jsonb_set(value, '{on_behalf_of}', to_jsonb('u/' || $1))
+         WHERE resource_type = 'ai_agent' AND value->>'on_behalf_of' = ('u/' || $2)
+           AND workspace_id = $3",
+    )
+    .bind(new_username)
+    .bind(old_username)
+    .bind(w_id)
     .execute(&mut **tx)
     .await?;
 

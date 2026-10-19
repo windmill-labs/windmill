@@ -20,13 +20,16 @@ pub fn parse_wmill_sdk_sql_assets(
         Ok(mut sql_assets) => {
             if let Some(schema) = schema {
                 for asset in &mut sql_assets.assets {
-                    if asset.kind == kind && asset.path.starts_with(asset_name) {
-                        asset.path = format!(
-                            "{}/{}.{}",
-                            asset_name,
-                            schema,
-                            &asset.path[asset_name.len() + 1..]
-                        );
+                    if asset.kind != kind {
+                        continue;
+                    }
+                    // A statement can name the database alone, with no table to qualify.
+                    let table = asset
+                        .path
+                        .strip_prefix(asset_name)
+                        .and_then(|rest| rest.strip_prefix('/'));
+                    if let Some(table) = table {
+                        asset.path = format!("{asset_name}/{schema}.{table}");
                     }
                 }
             }

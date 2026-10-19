@@ -5,6 +5,8 @@ export declare const FLOW_BASE: string;
 export declare const RESOURCES_BASE: string;
 export declare const RAW_APP_BASE: string;
 export declare const PIPELINE_BASE: string;
+export declare const DATATABLE_BASE: string;
+export declare const WORKSPACE_SETTINGS_BASE: string;
 export declare const WORKFLOW_AS_CODE_BASE: string;
 export declare const FLOW_CHAT_SPECIAL_MODULES: string;
 export declare const SDK_TYPESCRIPT: string;

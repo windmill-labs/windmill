@@ -34,10 +34,14 @@ export async function buildPermissionedAsContext(
     return undefined;
   }
   const user = await wmill.whoami({ workspace });
+  // A superadmin acts as admin in every workspace, so the backend preserves
+  // ownership for them even when their own `usr` row there is not an admin.
   const userIsAdminOrDeployer =
-    user.is_admin || (user.groups ?? []).includes("wm_deployers");
+    user.is_admin ||
+    user.is_super_admin ||
+    (user.groups ?? []).includes("wm_deployers");
   log.debug(
-    `permissioned_as: user=${user.email}, is_admin=${user.is_admin}, groups=${JSON.stringify(user.groups)}, isAdminOrDeployer=${userIsAdminOrDeployer}`
+    `permissioned_as: user=${user.email}, is_admin=${user.is_admin}, is_super_admin=${user.is_super_admin}, groups=${JSON.stringify(user.groups)}, isAdminOrDeployer=${userIsAdminOrDeployer}`
   );
   return {
     userCache: new Map(),
@@ -246,6 +250,18 @@ export async function preCheckPermissionedAs(
       if (match) {
         currentOwner = match[1];
       }
+    } else if (typeStr === "resource") {
+      // An agent with `run_on_behalf_of` runs as someone, and the file never says who.
+      if (
+        /["']?resource_type["']?\s*:\s*["']?ai_agent\b/.test(beforeContent) &&
+        /["']?run_on_behalf_of["']?\s*:\s*true\b/.test(beforeContent)
+      ) {
+        wouldChangeItems.push({
+          path: change.path,
+          currentOwner: "(agent owner)",
+        });
+      }
+      continue;
     } else if (typeStr.endsWith("_trigger")) {
       wouldChangeItems.push({
         path: change.path,

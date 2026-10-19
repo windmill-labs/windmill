@@ -73,6 +73,20 @@ export function getPipelinePrompt(): string {
   ].filter(Boolean).join('\n\n');
 }
 
+// Helper for data table schema changes, migrations and permissions (chat consumers)
+export function getDatatablePrompt(): string {
+  return [
+    prompts.DATATABLE_BASE
+  ].filter(Boolean).join('\n\n');
+}
+
+// Helper for the workspace settings document (chat consumers)
+export function getWorkspaceSettingsPrompt(): string {
+  return [
+    prompts.WORKSPACE_SETTINGS_BASE
+  ].filter(Boolean).join('\n\n');
+}
+
 // Helper to get the datatable SQL SDK reference (wmill.datatable()).
 // Pass a language to get only that SDK; omit it to get both.
 export function getDatatableSdkReference(language?: string): string {

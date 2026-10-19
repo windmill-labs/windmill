@@ -11,7 +11,8 @@
 	// can't be read), so a selectable version always exists in the table.
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { Table2, History, Columns3 } from 'lucide-svelte'
+	import { Table2, History, Columns3, Database } from 'lucide-svelte'
+	import DBManagerContent from '$lib/components/DBManagerContent.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { resource } from 'runed'
 	import { fetchDucklakeSnapshots } from '$lib/components/dbOps'
@@ -31,7 +32,7 @@
 	}
 	let { path, workspace, schemaCanEvolve = true }: Props = $props()
 
-	let tab = $state<'partitions' | 'history' | 'schema'>('partitions')
+	let tab = $state<'data' | 'partitions' | 'history' | 'schema'>('data')
 	// The user's explicit snapshot pick (undefined until they click a row).
 	let selectedVersion = $state<number | undefined>(undefined)
 
@@ -72,24 +73,28 @@
 </script>
 
 <div class="flex flex-col h-full">
-	{#if !qualifiedTable}
-		<!-- Catalog-level ducklake node (no table segment, e.g. `ducklake://main`):
-		     snapshot history / time-travel are per-table, so only the partition
-		     grid applies here. -->
-		<PartitionStatusGrid {path} {workspace} />
-	{:else}
-		<div class="flex items-center gap-2 px-3 py-2 border-b shrink-0">
-			<ToggleButtonGroup selected={tab} on:selected={(e) => (tab = e.detail)}>
-				{#snippet children({ item })}
-					<ToggleButton size="sm" value="partitions" label="Partitions" icon={Table2} {item} />
+	<div class="flex items-center gap-2 px-3 py-2 border-b shrink-0">
+		<ToggleButtonGroup selected={tab} on:selected={(e) => (tab = e.detail)}>
+			{#snippet children({ item })}
+				<ToggleButton size="sm" value="data" label="Data" icon={Database} {item} />
+				<ToggleButton size="sm" value="partitions" label="Partitions" icon={Table2} {item} />
+				<!-- Snapshot history and time-travel are per table: a catalog-level node
+				     (`ducklake://main`, no table segment) has only its data and partitions. -->
+				{#if qualifiedTable}
 					<ToggleButton size="sm" value="schema" label="Schema" icon={Columns3} {item} />
 					<ToggleButton size="sm" value="history" label="History" icon={History} {item} />
-				{/snippet}
-			</ToggleButtonGroup>
-		</div>
+				{/if}
+			{/snippet}
+		</ToggleButtonGroup>
+	</div>
 
-		<div class="flex-1 min-h-0">
-			{#if tab === 'partitions'}
+	<div class="flex-1 min-h-0">
+		{#if tab === 'data' && parsed}
+			<!-- Keyed on the asset: the manager opens its table once, on mount. -->
+			{#key path}
+				<DBManagerContent input={parsed} {workspace} />
+			{/key}
+		{:else if tab === 'partitions' || !qualifiedTable}
 				<PartitionStatusGrid {path} {workspace} />
 			{:else if tab === 'schema'}
 				<SchemaHistoryPanel {path} {workspace} canEvolve={schemaCanEvolve} />
@@ -117,7 +122,6 @@
 						</Pane>
 					</Splitpanes>
 				</div>
-			{/if}
-		</div>
-	{/if}
+		{/if}
+	</div>
 </div>

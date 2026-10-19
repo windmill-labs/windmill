@@ -12,7 +12,23 @@ import { clearUser } from './logout'
 describe('clearUser', () => {
 	beforeEach(() => {
 		sessionStorage.clear()
+		localStorage.clear()
 		vi.clearAllMocks()
+	})
+
+	it('drops credential-bearing localStorage entries and keeps preferences', async () => {
+		const credentialKeys = ['oauth-callback', 'mcp-oauth-callback', 'test_dev_token']
+		for (const key of credentialKeys) {
+			localStorage.setItem(key, 'a-token')
+		}
+		localStorage.setItem('dark-mode', 'true')
+
+		await clearUser()
+
+		for (const key of credentialKeys) {
+			expect(localStorage.getItem(key)).toBeNull()
+		}
+		expect(localStorage.getItem('dark-mode')).toBe('true')
 	})
 
 	// Logging out while impersonating must not leave the impersonator's own token behind.

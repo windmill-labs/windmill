@@ -211,7 +211,7 @@
 		<!-- The icon slot itself: the kind icon until the row is hovered (or
 		     selection mode is on), the checkbox from then on. Both are stacked in a
 		     fixed 16px box and swapped with visibility so nothing shifts. -->
-		<div class="shrink relative w-4 h-4">
+		<div class="shrink-0 relative w-4 h-4">
 			<div
 				class={twMerge(
 					'absolute inset-0',
@@ -260,12 +260,12 @@
 		</div>
 	{/if}
 
-	{#if canFavorite && (kind == 'app' || kind == 'raw_app' || kind == 'script' || kind == 'flow')}
-		<div class="center-center h-full text-xs font-semibold text-secondary w-9">
+	{#if canFavorite && (kind == 'app' || kind == 'raw_app' || kind == 'script' || kind == 'flow' || kind == 'agent')}
+		<div class="center-center h-full text-xs font-semibold text-secondary w-9 shrink-0">
 			<Star {kind} {path} {workspaceId} {summary} />
 		</div>
 	{:else}
-		<div class="w-9"></div>
+		<div class="w-9 shrink-0"></div>
 	{/if}
 
 	<div data-row-actions class="flex gap-1 items-center justify-end pr-2">
@@ -275,25 +275,26 @@
 
 {#snippet rowContent(withIcon: boolean)}
 	{#if withIcon}
-		<div class="shrink">
+		<div class="shrink-0">
 			<RowIcon {kind} {triggerKind} />
 		</div>
 	{/if}
 	<div class="grow min-w-0">
-		<div
-			class={twMerge(
-				'text-emphasis flex-wrap text-left text-xs font-semibold',
-				titleBadge ? 'inline-flex items-center gap-2' : ''
-			)}
-		>
+		<div class="text-emphasis flex items-center gap-2 text-left text-xs font-semibold">
 			{#if customSummary}
-				{@render customSummary?.()}
-			{:else if marked}
-				{@html marked}
+				<div class="min-w-0">{@render customSummary()}</div>
 			{:else}
-				{!summary || summary.length == 0 ? displayPath : summary}
+				<span class="truncate" title={summary || displayPath}>
+					{#if marked}
+						{@html marked}
+					{:else}
+						{!summary || summary.length == 0 ? displayPath : summary}
+					{/if}
+				</span>
 			{/if}
-			{@render titleBadge?.()}
+			{#if titleBadge}
+				<span class="shrink-0">{@render titleBadge()}</span>
+			{/if}
 		</div>
 		<div class="text-hint text-3xs truncate text-left font-normal" title={path}>
 			{#if pathDisplay}

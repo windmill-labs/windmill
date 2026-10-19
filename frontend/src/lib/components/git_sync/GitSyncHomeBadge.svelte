@@ -31,7 +31,6 @@
 	import BitbucketIcon from '$lib/components/icons/BitbucketIcon.svelte'
 	import AzureIcon from '$lib/components/icons/AzureIcon.svelte'
 	import { superadmin, userStore, workspaceStore } from '$lib/stores'
-	import { base } from '$lib/base'
 	import { Button, ButtonType } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
@@ -360,7 +359,7 @@
 								<div class="flex flex-col">
 									{#each repo.jobs as job (job.id)}
 										<a
-											href="{base}/run/{job.id}?workspace={$workspaceStore}"
+											href="/run/{job.id}?workspace={$workspaceStore}"
 											class="flex items-center gap-2 rounded px-1.5 py-1 hover:bg-surface-hover"
 										>
 											{#if job.type === 'QueuedJob'}
@@ -389,7 +388,7 @@
 						</div>
 					{/each}
 					<a
-						href="{base}/runs?job_kinds=deploymentcallbacks&workspace={$workspaceStore}"
+						href="/runs?job_kinds=deploymentcallbacks&workspace={$workspaceStore}"
 						class="text-accent hover:underline"
 					>
 						All sync jobs
@@ -408,7 +407,7 @@
 							variant="default"
 							unifiedSize="sm"
 							startIcon={{ icon: Settings }}
-							href="{base}/workspace_settings?tab=git_sync"
+							href="/workspace_settings?tab=git_sync"
 						>
 							Git Sync settings
 						</Button>
@@ -442,7 +441,7 @@
 						<Button variant="subtle" unifiedSize="sm" startIcon={{ icon: EyeOff }} onClick={hide}>
 							Hide
 						</Button>
-						<Button variant="accent" unifiedSize="sm" href="{base}/workspace_settings?tab=git_sync">
+						<Button variant="accent" unifiedSize="sm" href="/workspace_settings?tab=git_sync">
 							Set up Git Sync
 						</Button>
 					</div>

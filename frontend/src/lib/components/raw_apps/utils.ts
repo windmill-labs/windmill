@@ -1,4 +1,4 @@
-import type { ScriptLang } from '../../gen/types.gen'
+import type { ScriptLang, ScriptModule } from '../../gen/types.gen'
 import type { Schema } from '../../common'
 import { schemaToTsType } from '../../schema'
 import { isRunnableByName, isRunnableByPath, type RunnableWithFields } from '../apps/inputType'
@@ -10,11 +10,55 @@ import { appSourceToDraftValue, normalizeRawAppData } from './rawAppDraftValue'
 
 type RunnableWithInlineScript = RunnableWithFields & {
 	inlineScript?: InlineScript & { language: ScriptLang }
+	viewer_data_access?: boolean
 }
 export type Runnable = RunnableWithInlineScript | undefined
 
 export type RawApp = {
 	files: string[]
+}
+
+function moduleExtension(language: ScriptLang | undefined): string | undefined {
+	if (language === 'bun' || language === 'bunnative') return 'ts'
+	if (language === 'python3') return 'py'
+	return undefined
+}
+
+/** Ids of the sibling runnables `content` imports as `./<id>` (TS) or `.<id>` (Python). */
+function siblingImports(content: string, ext: string): string[] {
+	const pattern =
+		ext === 'ts'
+			? /(?:from|import)\s*['"]\.\/([^'"/]+?)(?:\.ts)?['"]/g
+			: /^\s*from\s+\.([A-Za-z_]\w*)\s+import\b/gm
+	return Array.from(content.matchAll(pattern), (m) => m[1])
+}
+
+/**
+ * The app's other inline runnables that runnable `id` imports, directly or through one
+ * another, as the modules its preview ships with so those imports resolve to the
+ * editor's code. Deploy stores the same set on the runnable.
+ */
+export function rawAppPreviewModules(
+	runnables: Record<string, Runnable>,
+	id: string
+): Record<string, ScriptModule> | undefined {
+	const own = runnables[id]?.inlineScript
+	const ext = moduleExtension(own?.language)
+	if (!own || !ext) return undefined
+	const modules: Record<string, ScriptModule> = {}
+	const queue = siblingImports(own.content, ext)
+	while (queue.length > 0) {
+		const siblingId = queue.pop()!
+		const key = `${siblingId}.${ext}`
+		const inlineScript = runnables[siblingId]?.inlineScript
+		// `main.ts` is the Bun entrypoint's own file, so no module may take that name. The
+		// runnable itself is kept when a cycle reaches it: the entrypoint is not under its id.
+		if (key in modules || key === 'main.ts') continue
+		if (!inlineScript || moduleExtension(inlineScript.language) !== ext) continue
+		modules[key] = { content: inlineScript.content, language: inlineScript.language }
+		queue.push(...siblingImports(inlineScript.content, ext))
+	}
+	return Object.keys(modules).length > 0 ? modules : undefined
 }
 
 // Server-managed columns the deployed app row (getAppByPath) carries but the
@@ -293,7 +337,6 @@ export function unsandboxedRawAppHtml(
 <html>
 <head>
 	<meta charset="UTF-8" />
-	<title>App</title>
 	<!-- Before the app's own stylesheet, so a bundle that wants a margin can still set one: the
 	     browser default of 8px would otherwise frame every app with a gap it never asked for. -->
 	<style>html, body { margin: 0; }</style>
@@ -318,6 +361,21 @@ export function unsandboxedRawAppHtml(
 			history.pushState = function () { _ps.apply(this, arguments); notifyParent(); };
 			history.replaceState = function () { _rs.apply(this, arguments); notifyParent(); };
 			setTimeout(notifyParent, 0);
+
+			// The parent shows the app's document.title in its tab. This document has no
+			// <title> of its own: document.title reads the first one, so a placeholder would
+			// shadow the one a framework (React 19, react-helmet) appends.
+			var lastTitle = '';
+			new MutationObserver(function () {
+				var t = document.title;
+				if (t === lastTitle) return;
+				lastTitle = t;
+				try {
+					if (window.parent !== window) {
+						window.parent.postMessage({ type: 'windmill:title', title: t }, '*');
+					}
+				} catch (_) {}
+			}).observe(document.head, { childList: true, subtree: true, characterData: true });
 		})();
 	</script>
 </head>

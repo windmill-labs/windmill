@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.827.0
+  version: 1.841.0
   title: Windmill API
 
   contact:
@@ -1919,7 +1919,7 @@ paths:
 
   /settings/instance_ui:
     get:
-      summary: get the instance-wide announcement banner and accent color
+      summary: get the instance-wide announcement banner, accent color and API base url
       description: |
         Readable by any authenticated user; every page load reads it. Each value
         is the raw stored setting, or null when unset.
@@ -1928,7 +1928,7 @@ paths:
         - setting
       responses:
         "200":
-          description: the instance_banner and accent_color settings
+          description: the instance_banner, accent_color and api_base_url settings
           content:
             application/json:
               schema:
@@ -1936,6 +1936,7 @@ paths:
                 properties:
                   instance_banner: {}
                   accent_color: {}
+                  api_base_url: {}
 
   /settings_u/ruff_config:
     get:
@@ -1969,6 +1970,24 @@ paths:
           content:
             application/json:
               schema: {}
+
+  /settings/smtp_configured:
+    get:
+      summary: whether instance SMTP is configured
+      description: |
+        Readable by any authenticated user. True when this build can send email
+        and SMTP is set, either in the smtp_settings instance setting or through
+        the SMTP_* environment variables.
+      operationId: getSmtpConfigured
+      tags:
+        - setting
+      responses:
+        "200":
+          description: whether email notifications can be sent
+          content:
+            application/json:
+              schema:
+                type: boolean
 
   /settings/test_smtp:
     post:
@@ -5165,6 +5184,107 @@ paths:
                   - has_instance_ai_config
                   - uses_instance_ai_config
 
+  /w/{workspace}/workspaces/settings_document:
+    get:
+      summary: get the workspace settings document
+      description: >-
+        The workspace's settings in the layout of the settings.yaml that `wmill sync` writes.
+        Admin only.
+      operationId: getWorkspaceSettingsDocument
+      x-mcp-tool: true
+      x-mcp-tool-include-query-params: []
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: secrets
+          description: >-
+            How secrets are written: `redacted` (the default) replaces each set secret with
+            `__SENSITIVE_AND_UNCHANGED__`; `encrypted` writes it encrypted with the workspace key,
+            prefixed with `$encrypted:`.
+          in: query
+          schema:
+            type: string
+            enum: [redacted, encrypted]
+      responses:
+        "200":
+          description: the settings document
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+    post:
+      summary: apply a workspace settings document
+      description: >-
+        Applies a settings document, each setting through the endpoint that owns it. Admin only.
+      operationId: applyWorkspaceSettingsDocument
+      x-mcp-tool: true
+      x-mcp-instructions: "Send only the top-level keys to change, each whole as getWorkspaceSettingsDocument returns it: a key the document omits is left as it is, and a key set to null clears it. Keep `__SENSITIVE_AND_UNCHANGED__` for a secret you were not given. Call with dry_run true first, show the user the changes and apply only once they agree."
+      x-mcp-tool-include-fields:
+        - document
+        - dry_run
+      x-mcp-tool-opaque-fields:
+        - document
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                document:
+                  description: >-
+                    The settings to apply, in the layout of the document. A secret given as
+                    `__SENSITIVE_AND_UNCHANGED__` keeps its stored value; one prefixed with
+                    `$encrypted:` is decrypted with the workspace key.
+                  type: object
+                  additionalProperties: true
+                replace:
+                  description: >-
+                    Clear the settings `wmill sync push` clears when settings.yaml omits them.
+                    Otherwise a setting the document omits is left as it is.
+                  type: boolean
+                dry_run:
+                  description: Only compute the changes, without applying them.
+                  type: boolean
+              required:
+                - document
+      responses:
+        "200":
+          description: the changes, applied unless dry_run
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  changes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key:
+                          type: string
+                        before: {}
+                        after: {}
+                      required:
+                        - key
+                        - before
+                        - after
+                  applied:
+                    type: boolean
+                  warnings:
+                    type: array
+                    items:
+                      type: string
+                required:
+                  - changes
+                  - applied
+
   /w/{workspace}/workspaces/get_copilot_settings_state:
     get:
       summary: get copilot settings state
@@ -5520,6 +5640,9 @@ paths:
                       type: string
                     governing_workspace_id:
                       type: string
+                    database_workspace_id:
+                      type: string
+                      description: The workspace owning the database this entry points at, when it is not this workspace.
                     permissioned:
                       type: boolean
 
@@ -5567,6 +5690,9 @@ paths:
                   type: boolean
                 default_role:
                   type: string
+                  description: >-
+                    The id of one of `roles`, `admin` (the default), or `$none` for no default
+                    role: a connection that names no role then holds its viewer's roles only.
                 roles:
                   type: array
                   items:
@@ -5945,6 +6071,12 @@ paths:
           schema:
             type: integer
             format: int64
+        - name: schema
+          in: query
+          required: false
+          description: apply only the pending migrations whose `-- schemas` annotation declares this schema
+          schema:
+            type: string
       responses:
         "200":
           description: applied migrations
@@ -7434,6 +7566,72 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/TruncatedToken"
+
+  /oidc/signing_status:
+    get:
+      summary: what signs OIDC tokens and the keys the JWKS serves (ee only, superadmin)
+      operationId: getOidcSigningStatus
+      tags:
+        - oidc
+      responses:
+        "200":
+          description: OIDC signing status
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - mode
+                  - keys
+                properties:
+                  mode:
+                    type: string
+                    enum: [database, file, external]
+                  keys:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - alg
+                        - state
+                        - source
+                      properties:
+                        kid:
+                          type: string
+                        alg:
+                          type: string
+                        state:
+                          type: string
+                          enum: [pending, active, retired, published]
+                        source:
+                          type: string
+                          enum: [signer, database, file, publish_dir]
+                  signer:
+                    type: object
+                    description: set when an external signer is configured
+                    required:
+                      - breaker
+                      - max_rps
+                      - current_rps
+                    properties:
+                      last_refresh_success:
+                        type: string
+                        format: date-time
+                      last_refresh_error:
+                        type: string
+                      breaker:
+                        type: string
+                        enum: [closed, open, half_open]
+                      max_rps:
+                        type: number
+                      current_rps:
+                        type: number
+                      keys_from_store:
+                        type: boolean
+                        description: the keys served are those stored by the last accepted listing, the signer has not answered this server yet
+                      tls_files_error:
+                        type: string
+                        description: why the mTLS files on disk are not the ones in use
 
   /w/{workspace}/oidc/token/{audience}:
     post:
@@ -9279,6 +9477,12 @@ paths:
           required: false
           schema:
             type: boolean
+        - name: starred_only
+          description: Only the `ai_agent` resources the caller starred
+          in: query
+          required: false
+          schema:
+            type: boolean
       responses:
         "200":
           description: resource list
@@ -10924,6 +11128,37 @@ paths:
                     description: "`saved` only, upsert or delete: where the write landed. Differs from the URL path when the item had moved away from it; the editor follows it there. Absent when a delete found nothing to remove and the caller cannot read the path it moved to."
                 required: [status, current_timestamp]
 
+  /w/{workspace}/drafts/delete_for_user/{kind}/{path}:
+    post:
+      summary: delete another user's draft, or every draft at a path (admin only)
+      description: Delete the draft a given user holds at a path, or, without `username`, every draft at that path (the legacy ownerless one and the caller's own included). Workspace admins / superadmins only, and only for script, flow, app and raw_app drafts. Unlike a discard of one's own draft through `drafts/update`, this returns 404 when nothing was deleted.
+      operationId: deleteDraftForUser
+      tags:
+        - draft
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: kind
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/UserDraftItemKind"
+        - $ref: "#/components/parameters/ScriptPath"
+        - name: username
+          in: query
+          required: false
+          description: Workspace username of the draft owner. Omit to delete every user's draft at the path.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: draft(s) deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+        "404":
+          description: no matching draft at that path
+
   /w/{workspace}/drafts/move/{kind}/{path}:
     post:
       summary: move the current user's draft-only item to another path
@@ -11180,6 +11415,34 @@ paths:
             application/json:
               schema:
                 type: boolean
+
+  /workers/dev_workspace_isolation:
+    get:
+      summary: get whether the jobs of dev workspaces and forks run on their own worker groups
+      operationId: getDevWorkspaceIsolation
+      tags:
+        - worker
+      responses:
+        "200":
+          description: dev workspace isolation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                    description: whether new jobs of dev workspaces and forks are queued on suffixed tags
+                  suffix:
+                    type: string
+                    description: the suffix of those tags, which worker groups serving dev workspaces listen with
+                  skip_non_dev_forks:
+                    type: boolean
+                    description: whether forks of a workspace that is not a dev workspace, nor under one, run on their parent's workers instead
+                required:
+                  - enabled
+                  - suffix
+                  - skip_non_dev_forks
 
   /w/{workspace}/workspace_dependencies/create:
     post:
@@ -12664,7 +12927,7 @@ paths:
 
   /w/{workspace}/runnables/list:
     get:
-      summary: list runnables (scripts, flows, apps) merged, ordered and keyset-paginated
+      summary: list runnables (scripts, flows, apps, agents) merged, ordered and keyset-paginated
       operationId: listRunnables
       tags:
         - script
@@ -12681,7 +12944,7 @@ paths:
         - $ref: "#/components/parameters/OrderDesc"
         - name: kinds
           in: query
-          description: comma-separated subset of script,flow,app (default all)
+          description: comma-separated subset of script,flow,app,agent (default all)
           schema:
             type: string
         - name: show_archived
@@ -12755,7 +13018,7 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: kinds
           in: query
-          description: comma-separated subset of script,flow,app (default all)
+          description: comma-separated subset of script,flow,app,agent (default all)
           schema:
             type: string
         - name: include_without_main
@@ -14445,6 +14708,168 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/ai/shared_sessions/share:
+    post:
+      summary: share an AI session transcript by link
+      description: >
+        Stores a read-only snapshot of the session that members of the workspace can open by
+        id, or anyone with the link once it is public. Sharing the same session again updates
+        that snapshot and keeps its id.
+      operationId: shareAiSession
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - session_id
+                - name
+                - message_count
+                - snapshot
+              properties:
+                session_id:
+                  type: string
+                  description: the session's id in the author's browser
+                name:
+                  type: string
+                is_public:
+                  type: boolean
+                  description: left as it is on an existing share when absent; a new share starts private
+                message_count:
+                  type: integer
+                  minimum: 0
+                snapshot:
+                  type: object
+                  additionalProperties: true
+      responses:
+        "200":
+          description: the shared snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SharedAiSessionInfo"
+
+  /w/{workspace}/ai/shared_sessions/status:
+    get:
+      summary: get the calling user's share of one of their AI sessions
+      operationId: getAiSessionShareStatus
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: session_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: the share, if any
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  share:
+                    $ref: "#/components/schemas/SharedAiSessionInfo"
+
+  /w/{workspace}/ai/shared_sessions/set_public/{id}:
+    post:
+      summary: make a shared AI session public, or reserve it to workspace members
+      operationId: setAiSessionSharePublic
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - is_public
+              properties:
+                is_public:
+                  type: boolean
+      responses:
+        "200":
+          description: the updated share
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SharedAiSessionInfo"
+
+  /w/{workspace}/ai_u/shared_sessions/get/{id}:
+    get:
+      summary: get a shared AI session
+      description: >
+        A public share is served without authentication; any other one only to a member of
+        the workspace.
+      operationId: getSharedAiSession
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: the shared session
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SharedAiSessionInfo"
+                  - type: object
+                    required:
+                      - snapshot
+                      - can_unshare
+                    properties:
+                      snapshot:
+                        type: object
+                        additionalProperties: true
+                      can_unshare:
+                        type: boolean
+                        description: whether the caller authored the share or is a workspace admin
+
+  /w/{workspace}/ai/shared_sessions/delete/{id}:
+    delete:
+      summary: stop sharing an AI session
+      operationId: unshareAiSession
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: share deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/apps/get_data/v/{secretWithExtension}:
     get:
       summary: get raw app data by
@@ -15368,6 +15793,12 @@ paths:
                       type: integer
                     tag:
                       type: string
+                    modules:
+                      type: object
+                      nullable: true
+                      description: "Additional modules keyed by relative file path. Honored in preview only: a deployed app runs the modules stored with its runnable."
+                      additionalProperties:
+                        $ref: "#/components/schemas/ScriptModule"
                   required:
                     - content
                     - language
@@ -15396,6 +15827,14 @@ paths:
                   description: "Map of relative-import script path -> temp storage hash. Only honored for inline-script (raw_code) execution so app dev resolves those imports from not-yet-deployed local content."
                   additionalProperties:
                     type: string
+                on_behalf_of:
+                  type: string
+                  nullable: true
+                  description: "Preview mode (force_viewer_static_fields set) only: run as this identity (an email, `u/<username>` or `g/<group>`) instead of the caller. Naming anyone other than yourself requires being an admin or a member of wm_deployers."
+                viewer_data_access:
+                  type: boolean
+                  nullable: true
+                  description: "Preview mode only: the inline runnable's viewer_data_access policy setting (run mode reads it from the deployed policy)."
               required:
                 - args
                 - component
@@ -15871,6 +16310,9 @@ paths:
   /w/{workspace}/jobs/run/batch_rerun_jobs:
     post:
       summary: re-run multiple jobs
+      description: >-
+        Re-runs each job and marks every failed or canceled original that was re-run as
+        resolved, with the new job's id in its note. Operators re-run without resolving.
       operationId: batchReRunJobs
       tags:
         - job
@@ -16372,8 +16814,9 @@ paths:
       summary: run a saved AI agent
       description: |
         Runs the `ai_agent` resource at `path` as stored, for any caller who can read it
-        (operators included), as the caller, who needs access to the agent's AI resource and to
-        whatever its tools use. With `memory_id`, the run is a turn
+        (operators included). The run is the caller's, or the agent's `on_behalf_of` when its
+        `run_on_behalf_of` is set; the caller's inputs may then not reference variables or
+        resources. With `memory_id`, the run is a turn
         of the caller's conversation with the agent; without, a single run.
       operationId: runAgent
       tags:
@@ -16632,6 +17075,7 @@ paths:
         - job
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/OrderDesc"
         - $ref: "#/components/parameters/CreatedBy"
         - $ref: "#/components/parameters/Label"
         - $ref: "#/components/parameters/Worker"
@@ -16664,8 +17108,8 @@ paths:
             type: boolean
         - name: resolved
           description: >-
-            filter on whether a failure has been marked as handled. true keeps only
-            resolved failures, false hides them
+            filter on whether a failed or canceled run has been marked as handled. true
+            keeps only resolved runs, false hides them
           in: query
           schema:
             type: boolean
@@ -16976,8 +17420,8 @@ paths:
             type: boolean
         - name: resolved
           description: >-
-            filter on whether a failure has been marked as handled. true keeps only
-            resolved failures, false hides them
+            filter on whether a failed or canceled run has been marked as handled. true
+            keeps only resolved runs, false hides them
           in: query
           schema:
             type: boolean
@@ -17163,8 +17607,8 @@ paths:
             type: boolean
         - name: resolved
           description: >-
-            filter on whether a failure has been marked as handled. true keeps only
-            resolved failures, false hides them
+            filter on whether a failed or canceled run has been marked as handled. true
+            keeps only resolved runs, false hides them
           in: query
           schema:
             type: boolean
@@ -17321,6 +17765,27 @@ paths:
             application/json:
               schema:
                 type: string
+
+  /w/{workspace}/jobs/worker_is_draining/{id}:
+    get:
+      summary: whether the worker running this job is draining
+      description: |
+        True once the worker running the job has received its shutdown signal. The worker
+        still waits for the job to finish, so a long-running job can poll this to exit early.
+        False when the job is not currently running on a worker.
+      operationId: workerIsDraining
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: whether the worker running this job is draining
+          content:
+            application/json:
+              schema:
+                type: boolean
 
   /w/{workspace}/jobs_u/get_logs/{id}:
     get:
@@ -18001,11 +18466,12 @@ paths:
 
   /w/{workspace}/jobs/completed/resolve:
     post:
-      summary: mark failed jobs as resolved
+      summary: mark failed or canceled jobs as resolved
       description: >-
-        Marks failed jobs as handled so triage surfaces stop showing them as failures.
-        The job status itself is unchanged. Returns the ids actually resolved: ids that
-        are not visible to the caller or did not fail are silently skipped.
+        Marks failed or canceled jobs as handled so triage surfaces stop showing them as
+        unhandled. The job status itself is unchanged. Returns the ids actually resolved: ids
+        that are not visible to the caller or neither failed nor were canceled are silently
+        skipped.
       operationId: resolveCompletedJobs
       tags:
         - job
@@ -23502,6 +23968,54 @@ paths:
                     - id
                     - values
 
+  /workers/runnable_stats:
+    get:
+      summary: get resource usage per runnable and worker group over a time window (require devops role)
+      operationId: getRunnableStats
+      tags:
+        - worker
+      parameters:
+        - name: window_secs
+          in: query
+          required: false
+          description: how far back to read, in seconds (defaults to one day, capped at the 30-day retention)
+          schema:
+            type: integer
+        - name: worker_group
+          in: query
+          required: false
+          description: only the jobs run by this worker group
+          schema:
+            type: string
+        - name: workspace
+          in: query
+          required: false
+          description: only the jobs of this workspace
+          schema:
+            type: string
+        - name: order_by
+          in: query
+          required: false
+          description: "what the rows are ranked by, descending (default: total_duration)"
+          schema:
+            type: string
+            enum: [total_duration, max_memory, cpu]
+        - name: limit
+          in: query
+          required: false
+          description: number of rows to return (default 100, at most 1000)
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: resource usage per runnable and worker group, heaviest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RunnableStats"
+
   /workers/queue_metrics_series:
     get:
       summary: get the queue metrics of a time window, as a bounded line per tag
@@ -24353,7 +24867,7 @@ paths:
                   type: string
                 favorite_kind:
                   type: string
-                  enum: [flow, app, script, raw_app, asset]
+                  enum: [flow, app, script, raw_app, asset, agent]
       responses:
         "200":
           description: star item
@@ -24376,7 +24890,7 @@ paths:
                   type: string
                 favorite_kind:
                   type: string
-                  enum: [flow, app, script, raw_app, asset]
+                  enum: [flow, app, script, raw_app, asset, agent]
       responses:
         "200":
           description: unstar item
@@ -24736,6 +25250,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/S3Resource"
+
+  /w/{workspace}/job_helpers/v2/s3_proxy_bucket:
+    get:
+      summary: Returns the bucket S3 clients name to reach a workspace storage
+        through the S3 proxy, or null when that storage is not S3
+      operationId: s3ProxyBucket
+      tags:
+        - helpers
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: storage
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The storage's bucket
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bucket:
+                    type: string
+                    nullable: true
 
   /w/{workspace}/job_helpers/test_connection:
     get:
@@ -25209,9 +25748,12 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/TablePreviewS3ResourcePath"
+        - $ref: "#/components/parameters/TablePreviewFilters"
       responses:
         "200":
-          description: Parquet Preview
+          description: >
+            Parquet Preview: `columns`, `column_types` (Arrow type names) and `rows`.
           content:
             application/json: {}
 
@@ -25236,6 +25778,13 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/TablePreviewS3ResourcePath"
+        - name: csv_separator
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/TablePreviewCsvHasHeader"
+        - $ref: "#/components/parameters/TablePreviewFilters"
       responses:
         "200":
           description: Table count
@@ -25284,13 +25833,20 @@ paths:
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/TablePreviewS3ResourcePath"
         - name: csv_separator
           in: query
           schema:
             type: string
+        - $ref: "#/components/parameters/TablePreviewCsvHasHeader"
+        - $ref: "#/components/parameters/TablePreviewFilters"
       responses:
         "200":
-          description: Csv Preview
+          description: >
+            Csv Preview: `columns`, `column_types` (Arrow type names), `rows`, and the
+            `csv_separator` the file was read with, guessed from its first bytes when
+            none is given.
+            A `.jsonl` or `.ndjson` file is read as newline-delimited JSON.
           content:
             application/json: {}
 
@@ -25798,8 +26354,8 @@ paths:
             type: boolean
         - name: resolved
           description: >-
-            filter on whether a failure has been marked as handled. true keeps only
-            resolved failures, false hides them
+            filter on whether a failed or canceled run has been marked as handled. true
+            keeps only resolved runs, false hides them
           in: query
           schema:
             type: boolean
@@ -27648,6 +28204,28 @@ components:
       name: workspace
       in: path
       required: true
+      schema:
+        type: string
+    TablePreviewS3ResourcePath:
+      name: s3_resource_path
+      description: Read the file from this object storage resource instead of the workspace storage.
+      in: query
+      schema:
+        type: string
+    TablePreviewCsvHasHeader:
+      name: csv_has_header
+      description: Whether the first CSV line names the columns. Defaults to true.
+      in: query
+      schema:
+        type: boolean
+    TablePreviewFilters:
+      name: filters
+      description: >
+        JSON object, column name to filter. A number column takes an optional comparison
+        operator and a number (`>=10`), a boolean column a boolean, and any other column a
+        case-insensitive substring, or `=value` for an exact match. A `search_term` without
+        a `search_col` matches any column, case-insensitively.
+      in: query
       schema:
         type: string
     HubPublishFolder:
@@ -29897,6 +30475,31 @@ components:
         - shared_at
         - expires_at
 
+    SharedAiSessionInfo:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        is_public:
+          type: boolean
+        message_count:
+          type: integer
+        created_by:
+          type: string
+        shared_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - is_public
+        - message_count
+        - created_by
+        - shared_at
+
     InstanceAIProviderSummary:
       type: object
       properties:
@@ -30009,9 +30612,10 @@ components:
       description: |
         A row in the merged runnables listing. `type` is the discriminator;
         kind-specific fields (hash/language/kind for scripts, execution_mode/
-        version for apps) are present only for that kind. `edited_at` is the
-        unified last-updated time (a script's created_at, a flow/app's edit
-        time).
+        version for apps, agent_memory/ws_specific for agents) are present only
+        for that kind. An agent is an `ai_agent` resource whose description is
+        reported as `summary`. `edited_at` is the unified last-updated time (a
+        script's created_at, a flow/app/agent's edit time).
       properties:
         type:
           type: string
@@ -30019,6 +30623,7 @@ components:
             - script
             - flow
             - app
+            - agent
         path:
           type: string
         summary:
@@ -30086,6 +30691,11 @@ components:
         version:
           type: integer
           format: int64
+        agent_memory:
+          description: agent-only. The agent's `memory` setting.
+        ws_specific:
+          type: boolean
+          description: agent-only. Whether the agent is workspace-specific, which keeps it out of deploys to other workspaces.
       required:
         - type
         - path
@@ -30691,7 +31301,7 @@ components:
           type: boolean
         resolved:
           type: boolean
-          description: whether this failure has been marked as handled
+          description: whether this failed or canceled run has been marked as handled
         resolved_by:
           type: string
           description: >-
@@ -31710,6 +32320,7 @@ components:
             - "resource_types.create"
             - "resource_types.update"
             - "resource_types.delete"
+            - "resource_types.sync"
             - "schedule.create"
             - "schedule.setenabled"
             - "schedule.edit"
@@ -32057,6 +32668,14 @@ components:
           description: "Map of relative-import script path -> temp storage hash so the preview job resolves those imports from not-yet-deployed local content instead of the deployed script"
           additionalProperties:
             type: string
+        on_behalf_of:
+          type: string
+          nullable: true
+          description: "Run the preview as this identity (an email, `u/<username>` or `g/<group>`) instead of the caller. Naming anyone other than yourself requires being an admin or a member of wm_deployers."
+        viewer_data_access:
+          type: boolean
+          nullable: true
+          description: "Data table and object storage access as the caller rather than as the job's identity, as a full-code app's inline runnable flagged viewer_data_access does for its viewer."
       required:
         - args
 
@@ -32124,6 +32743,9 @@ components:
             type: string
         ws_specific:
           type: boolean
+        preserve_on_behalf_of:
+          type: boolean
+          description: ai_agent only. Keep the identity `value.on_behalf_of` names (`u/<username>`, `g/<group>`) rather than the caller's own. Honoured for admins and members of wm_deployers; otherwise every write of an agent sets it to the caller.
       required:
         - path
         - value
@@ -32148,6 +32770,9 @@ components:
             type: string
         ws_specific:
           type: boolean
+        preserve_on_behalf_of:
+          type: boolean
+          description: ai_agent only. Keep the identity `value.on_behalf_of` names (`u/<username>`, `g/<group>`) rather than the caller's own. Honoured for admins and members of wm_deployers; otherwise every write of an agent sets it to the caller.
 
     Resource:
       type: object
@@ -34575,6 +35200,7 @@ components:
           type: boolean
         default_role:
           type: string
+          description: A role id, `admin`, or `$none` when the data table has no default role.
         roles:
           type: array
           items:
@@ -35853,6 +36479,45 @@ components:
               `u/<username>`, `g/<groupname>`, or an email that exists in this
               workspace.
 
+    RunnableStats:
+      type: object
+      description: >
+        Resource usage of the jobs of one runnable on one worker group. Memory and CPU are
+        only known for jobs run as a subprocess; memory is the peak of the job's main process.
+      properties:
+        workspace_id:
+          type: string
+        runnable_path:
+          type: string
+          description: path of the script or flow step; `<adhoc>` gathers previews and other runs without a stable path
+        worker_group:
+          type: string
+        job_count:
+          type: integer
+        total_duration_ms:
+          type: integer
+        max_memory_peak:
+          type: integer
+          description: highest peak memory of a job, in kB
+        sum_memory_peak:
+          type: integer
+          description: sum of the peak memory of the jobs that have one, in kB
+        memory_sample_count:
+          type: integer
+          description: number of jobs that have a peak memory reading
+        total_cpu_ms:
+          type: integer
+      required:
+        - workspace_id
+        - runnable_path
+        - worker_group
+        - job_count
+        - total_duration_ms
+        - max_memory_peak
+        - sum_memory_peak
+        - memory_sample_count
+        - total_cpu_ms
+
     WorkerPing:
       type: object
       properties:
@@ -35901,6 +36566,9 @@ components:
           type: string
         native_mode:
           type: boolean
+        draining:
+          type: boolean
+          description: the worker received its shutdown signal and exits once its current job is done
       required:
         - worker
         - worker_instance
@@ -36013,6 +36681,11 @@ components:
           items:
             type: string
           description: "Lake names the fork SHARES with the parent (reads and writes the parent's lake directly). Every lake not listed gets the default isolated fork namespace with read-defer to the parent."
+        shared_storages:
+          type: array
+          items:
+            type: string
+          description: "Workspace storages the fork SHARES with the parent (`_default_` for the primary one): it reads and writes the parent's objects directly. Every storage not listed is isolated: the fork writes under its own prefix and reads through to the parent's objects."
         is_dev_workspace:
           type: boolean
           description: "Create the fork as a persistent dev workspace (id not required to carry the wm-fork- prefix; at most one per parent)"
@@ -36358,6 +37031,10 @@ components:
           description: "Map of relative-import script path -> temp storage hash, propagated to each flow step so inline-script relative imports resolve from not-yet-deployed local content instead of the deployed script"
           additionalProperties:
             type: string
+        on_behalf_of:
+          type: string
+          nullable: true
+          description: "Run the preview as this identity (an email, `u/<username>` or `g/<group>`) instead of the caller. Naming anyone other than yourself requires being an admin or a member of wm_deployers."
 
       required:
         - value
@@ -36454,7 +37131,8 @@ components:
             the app bundle so `windmill-client` calls run as the viewer. Must
             be a subset of the server's curated allowlist (jobs:run, jobs:read,
             users:read, resources:read, variables:read, flow_conversations:read,
-            flow_conversations:write).
+            flow_conversations:write). Every such token can call whoami without
+            consent, whether `users:read` is declared or not.
 
     ListableApp:
       type: object
@@ -37050,6 +37728,15 @@ components:
             - ran
             - not_run
             - unknown
+        schemas:
+          type: array
+          description: the schemas its `-- schemas` annotation declares; absent when it applies to the whole database
+          items:
+            type: string
+        blocked_by:
+          type: integer
+          format: int64
+          description: when not run, the earliest pending migration that must be applied first; when run, the latest applied migration that must be rolled back first
     DataTableSchema:
       type: object
       required: [datatable_name, schemas]
@@ -37083,6 +37770,7 @@ components:
           default_role,
           can_create_schema,
           creatable_schemas,
+          migrations_enabled,
         ]
       properties:
         datatable_name:
@@ -37116,6 +37804,9 @@ components:
           description: the schemas the role the listing connected as may create in
           items:
             type: string
+        migrations_enabled:
+          type: boolean
+          description: whether its schema is kept as versioned migrations, which a change made with plain SQL would bypass
 
     DataTableTableSchema:
       type: object
@@ -37863,6 +38554,9 @@ components:
         builder_flows:
           type: boolean
           description: Whether operators can compose flows out of existing runnables (consumes a full seat). Omitting the field leaves the stored value unchanged.
+        builder_apps:
+          type: boolean
+          description: Whether operators can compose full-code apps out of existing runnables (consumes a full seat). Omitting the field leaves the stored value unchanged.
         manage_schedules:
           type: boolean
           description: Whether operators can create, edit and delete schedules. Granted unless withdrawn; omitting the field leaves the stored value unchanged.
@@ -38493,6 +39187,7 @@ components:
         - RestrictAnonymousAppDeployment
         - RestrictPublicRunSharing
         - RestrictGuestAppDeployment
+        - RequireIsolatedForks
     RuleBypasserGroups:
       type: array
       description: Groups that can bypass this ruleset

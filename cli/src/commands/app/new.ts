@@ -85,21 +85,6 @@ const app = mount(App, { target: document.getElementById("root")! });
 export default app;
 `;
 
-const appVue = `<template>
-  <h1>Hello {{ msg }}</h1>
-</template>
-
-<script setup>
-import { ref } from 'vue';
-const msg = ref('world');
-</script>`;
-
-const indexVue = `import { createApp } from 'vue'
-import App from './App.vue'
-import "./index.css";
-
-createApp(App).mount('#root')`;
-
 const indexCss = `body {
     margin: 0;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -174,21 +159,6 @@ const templates: Record<string, FrameworkTemplate> = {
 }`,
     },
   },
-  vue: {
-    name: "Vue 3",
-    files: {
-      "/index.ts": indexVue,
-      "/App.vue": appVue,
-      "/index.css": indexCss,
-      "/package.json": `{
-    "dependencies": {
-        "core-js": "3.26.1",
-        "vue": "3.5.13",
-        "windmill-client": "^1"
-    }
-}`,
-    },
-  },
 };
 
 /**
@@ -251,7 +221,7 @@ interface DataConfig {
   schema?: string;
 }
 
-type FrameworkKey = "react19" | "react18" | "svelte5" | "vue";
+type FrameworkKey = "react19" | "react18" | "svelte5";
 
 interface NewAppOptions extends GlobalOptions {
   /** App summary (short description). Skips the prompt when provided. */
@@ -384,7 +354,7 @@ async function newApp(opts: NewAppOptions) {
   }
 
   // Ask for framework (skipped if --framework is provided)
-  const VALID_FRAMEWORKS: FrameworkKey[] = ["react19", "react18", "svelte5", "vue"];
+  const VALID_FRAMEWORKS: FrameworkKey[] = ["react19", "react18", "svelte5"];
   let framework: string;
   if (opts.framework !== undefined) {
     if (!VALID_FRAMEWORKS.includes(opts.framework)) {
@@ -403,7 +373,6 @@ async function newApp(opts: NewAppOptions) {
         { name: "React 19 (Recommended)", value: "react19" },
         { name: "React 18", value: "react18" },
         { name: "Svelte 5", value: "svelte5" },
-        { name: "Vue 3", value: "vue" },
       ],
     });
   }
@@ -624,6 +593,7 @@ CREATE SCHEMA IF NOT EXISTS ${schemaName};
   // Create raw_app.yaml with data configuration
   const rawAppConfig: Record<string, unknown> = {
     summary,
+    sandbox: true,
   };
 
   // Add data configuration if present
@@ -900,7 +870,7 @@ const command = new Command()
   )
   .option(
     "--framework <framework:string>",
-    "Framework template: react19 | react18 | svelte5 | vue. Skips the prompt when provided. Triggers non-interactive mode."
+    "Framework template: react19 | react18 | svelte5. Skips the prompt when provided. Triggers non-interactive mode."
   )
   .option(
     "--datatable <datatable:string>",

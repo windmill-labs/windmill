@@ -12,10 +12,10 @@ interface BundleOptions {
 }
 
 /** Every entry point a raw app may have, most specific first, with the
- * framework's preferred one promoted — Svelte and Vue mount from a `.ts`. */
+ * framework's preferred one promoted — Svelte mounts from a `.ts`. */
 function entryPointFor(appDir: string): string {
   const frameworks = detectFrameworks(appDir);
-  const candidates = frameworks.svelte || frameworks.vue
+  const candidates = frameworks.svelte
     ? ["index.ts", "index.tsx", "index.js"]
     : ["index.tsx", "index.ts", "index.js"];
   const entry = candidates.find((c) => fs.existsSync(path.join(appDir, c)));

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import SharedBadge from '$lib/components/SharedBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
@@ -33,7 +32,7 @@
 </script>
 
 <Row
-	href="{base}/apps_raw/get/{app.path}"
+	href="/apps_raw/get/{app.path}"
 	kind="raw_app"
 	{keyboardSelected}
 	{marked}

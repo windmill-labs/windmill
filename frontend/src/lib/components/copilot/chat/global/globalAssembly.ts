@@ -12,7 +12,7 @@ import {
 	type SessionPromptContext
 } from './core'
 import { createMcpTools } from './mcpTools'
-import { getPipelinePromptSection, pipelineTools, type PipelineContext } from '../pipeline/core'
+import { getPipelinePromptSection, pipelineTools } from '../pipeline/core'
 import { getFolderInstructionsPromptSection, type FolderInstruction } from '../folderInstructions'
 
 // Derived, not retyped: an option added to prepareGlobalSystemMessage is reachable
@@ -21,7 +21,8 @@ import { getFolderInstructionsPromptSection, type FolderInstruction } from '../f
 // directly — would get it.
 export type GlobalAssemblyOpts = NonNullable<Parameters<typeof prepareGlobalSystemMessage>[1]> & {
 	sessionContext?: SessionPromptContext
-	pipelineContext?: PipelineContext
+	/** Folders of the open pipeline editors; the pipeline tools and prompt come with any. */
+	pipelineFolders?: readonly string[]
 	folderInstructions?: readonly FolderInstruction[]
 }
 
@@ -34,8 +35,8 @@ export function assembleGlobalSystemMessage(
 	if (opts.sessionContext) {
 		systemMessage.content += getSessionContextPromptSection(opts.sessionContext, opts.access)
 	}
-	if (opts.pipelineContext) {
-		systemMessage.content += getPipelinePromptSection(opts.pipelineContext, opts.access)
+	if (opts.pipelineFolders?.length) {
+		systemMessage.content += getPipelinePromptSection(opts.pipelineFolders, opts.access)
 	}
 	return systemMessage
 }
@@ -43,7 +44,7 @@ export function assembleGlobalSystemMessage(
 export function assembleGlobalTools(opts: GlobalAssemblyOpts): SessionTool<any>[] {
 	return [
 		...globalToolsFor({ sessionPreview: opts.previewTools ?? false }),
-		...(opts.pipelineContext ? pipelineTools : []),
+		...(opts.pipelineFolders?.length ? pipelineTools : []),
 		...createMcpTools(opts.mcpServers ?? [])
 	]
 }
