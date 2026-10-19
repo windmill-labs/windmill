@@ -42,9 +42,10 @@
 
 	type State = 'error' | 'warning' | 'running' | 'ok' | 'never'
 	type Provider = 'github' | 'gitlab' | 'bitbucket' | 'azure'
+	type SyncJob = Job & { pull: boolean }
 	type RepoStatus = {
 		path: string
-		jobs: Job[]
+		jobs: SyncJob[]
 		state: State
 		problem?: string
 		lastSyncAt?: string
@@ -66,12 +67,13 @@
 
 	const config = resource(
 		() => workspace,
-		async (workspace) => {
+		async (workspace, _prev, { signal }) => {
 			if (!workspace) return undefined
 			const [settings, eligibility] = await Promise.all([
 				WorkspaceService.getSettings({ workspace }),
 				WorkspaceService.getGitSyncEnabled({ workspace })
 			])
+			dropIfSuperseded(signal)
 			return {
 				workspace,
 				repos: (settings.git_sync?.repositories ?? []).filter((r) => r.git_repo_resource_path),
@@ -79,8 +81,8 @@
 			}
 		}
 	)
-	// resource() does not order responses, so one fetched for the previous workspace can land
-	// last, and hiding must drop the loaded config at once.
+	// The previous workspace's config stays loaded until the new one lands, and hiding must drop
+	// it at once.
 	const current = $derived(config.current?.workspace === workspace ? config.current : undefined)
 
 	let pollTimer: ReturnType<typeof setTimeout> | undefined
@@ -91,31 +93,67 @@
 		clearTimeout(pollTimer)
 	})
 
+	// resource() stores every response, even one a newer request has superseded, so a fetcher
+	// drops its own result once its signal is aborted (runed ignores an AbortError).
+	function dropIfSuperseded(signal: AbortSignal) {
+		if (signal.aborted) throw new DOMException('Superseded', 'AbortError')
+	}
+
+	function syncQueries(repo: GitRepositorySettings) {
+		const full = repo.git_repo_resource_path
+		const bare = full.replace(/^\$res:/, '')
+		// A PR diff check is a pull job too, with `dry_run: true`, and it applies nothing, so it must
+		// not count as a sync. The list returns no args to filter on, so each query pins one real
+		// kind instead: pulls by `dry_run: false`, and deploy pushes by `use_individual_branch`,
+		// which every push sets and no pull does.
+		return [
+			{
+				kinds: 'deploymentcallback',
+				args: { repo_url_resource_path: bare, dry_run: false },
+				pull: true
+			},
+			{
+				kinds: 'deploymentcallback',
+				args: { repo_url_resource_path: bare, use_individual_branch: true },
+				pull: false
+			},
+			{
+				kinds: 'deploymentcallback',
+				args: { repo_url_resource_path: bare, use_individual_branch: false },
+				pull: false
+			},
+			// Pull and Push from the Git Sync settings run the hub script directly, naming the
+			// repository with its `$res:` prefix.
+			{
+				kinds: 'script_hub',
+				args: { repo_url_resource_path: full, dry_run: false, pull: true },
+				pull: true
+			},
+			{
+				kinds: 'script_hub',
+				args: { repo_url_resource_path: full, dry_run: false, pull: false },
+				pull: false
+			}
+		]
+	}
+
 	const jobs = resource(
 		() => current,
-		async (config) => {
+		async (config, _prev, { signal }) => {
 			clearTimeout(pollTimer)
 			if (!config?.repos.length) return undefined
 			const lists = await Promise.all(
 				config.repos.map(async (repo) => {
-					// A PR diff check is a pull job too, with `dry_run: true`, and it applies nothing, so
-					// it must not count as a sync. The list returns no args to filter on, so each query
-					// pins one real kind instead: pulls by `dry_run: false`, and pushes by
-					// `use_individual_branch`, which every push sets and no pull does.
-					const repoPath = repo.git_repo_resource_path.replace(/^\$res:/, '')
-					const kinds = [
-						{ dry_run: false },
-						{ use_individual_branch: true },
-						{ use_individual_branch: false }
-					]
 					const lists = await Promise.all(
-						kinds.map((kind) =>
-							JobService.listJobs({
-								workspace: config.workspace,
-								jobKinds: 'deploymentcallback',
-								args: JSON.stringify({ repo_url_resource_path: repoPath, ...kind }),
-								perPage: JOBS_PER_REPO
-							})
+						syncQueries(repo).map(async (query) =>
+							(
+								await JobService.listJobs({
+									workspace: config.workspace,
+									jobKinds: query.kinds,
+									args: JSON.stringify(query.args),
+									perPage: JOBS_PER_REPO
+								})
+							).map((job): SyncJob => Object.assign(job, { pull: query.pull }))
 						)
 					)
 					return lists
@@ -124,6 +162,7 @@
 						.slice(0, JOBS_PER_REPO)
 				})
 			)
+			dropIfSuperseded(signal)
 			// Followed only while something is in flight, so an idle homepage makes no requests.
 			if (!destroyed && lists.some((list) => list.some((job) => job.type === 'QueuedJob'))) {
 				pollTimer = setTimeout(() => jobs.refetch(), POLL_MS)
@@ -145,7 +184,19 @@
 			.trim()
 			.match(/^(?:([a-z+]+):\/\/)?(?:[^@/]+@)?([^/:]+)(?::(\d+))?[:/](.+?)(?:\.git)?\/?$/i)
 		if (!m) return {}
-		const [, scheme, hostname, port, repoPath] = m
+		const scheme = m[1]
+		const port = m[3]
+		let hostname = m[2]
+		let repoPath = m[4]
+		// Azure DevOps serves SSH from its own host, under a v3/ path the web does not use.
+		const azureSsh = repoPath.match(/^v3\/([^/]+)\/([^/]+)\/([^/]+)$/)
+		if (azureSsh && hostname.toLowerCase() === 'ssh.dev.azure.com') {
+			hostname = 'dev.azure.com'
+			repoPath = `${azureSsh[1]}/${azureSsh[2]}/_git/${azureSsh[3]}`
+		} else if (azureSsh && hostname.toLowerCase() === 'vs-ssh.visualstudio.com') {
+			hostname = `${azureSsh[1]}.visualstudio.com`
+			repoPath = `${azureSsh[2]}/_git/${azureSsh[3]}`
+		}
 		const host = hostname.toLowerCase()
 		const provider: Provider | undefined = host.includes('github')
 			? 'github'
@@ -188,11 +239,12 @@
 	// Separate from the jobs so polling does not refetch every repository resource.
 	const remotes = resource(
 		() => current,
-		async (config) => {
+		async (config, _prev, { signal }) => {
 			if (!config?.repos.length) return undefined
 			const found = await Promise.all(
 				config.repos.map((repo) => repoRemote(config.workspace, repo).catch(() => ({})))
 			)
+			dropIfSuperseded(signal)
 			return {
 				workspace: config.workspace,
 				byRepo: Object.fromEntries(
@@ -217,7 +269,7 @@
 		return Math.round((expiry - today) / 86_400_000)
 	}
 
-	function repoStatus(repo: GitRepositorySettings, repoJobs: Job[]): RepoStatus {
+	function repoStatus(repo: GitRepositorySettings, repoJobs: SyncJob[]): RepoStatus {
 		const path = repo.git_repo_resource_path.replace(/^\$res:/, '')
 		const latest = repoJobs[0]
 		const lastSuccess = repoJobs.find((j) => j.type === 'CompletedJob' && j.success)
@@ -279,10 +331,6 @@
 			never: 'Never synced'
 		}[overall]
 	)
-
-	function isPull(job: Job): boolean {
-		return job.script_path?.includes('git-sync-init-repository') ?? false
-	}
 
 	function hide() {
 		if ($workspaceStore) setGitSyncHomeBadgeHidden($workspaceStore, true)
@@ -395,7 +443,7 @@
 											{:else}
 												<XCircle size={12} class="shrink-0 text-red-500" />
 											{/if}
-											{#if isPull(job)}
+											{#if job.pull}
 												<ArrowDownToLine size={12} class="shrink-0 text-secondary" />
 												<span class="text-primary">Pull</span>
 											{:else}

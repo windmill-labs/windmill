@@ -17,7 +17,10 @@
 	import { apiErrorMessage } from '$lib/utils'
 	import { untrack } from 'svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { isGitSyncHomeBadgeHidden, setGitSyncHomeBadgeHidden } from './gitSyncHomeBadgeVisibility.svelte'
+	import {
+		isGitSyncHomeBadgeHidden,
+		setGitSyncHomeBadgeHidden
+	} from './gitSyncHomeBadgeVisibility.svelte'
 
 	// Create context reactively based on workspaceStore
 	const gitSyncContext = $derived($workspaceStore ? setGitSyncContext($workspaceStore) : null)
@@ -250,7 +253,8 @@
 			}
 			options={{
 				right: 'Show Git Sync status on my homepage',
-				rightTooltip: 'Only you see this setting. Admins see the badge in the homepage header.'
+				rightTooltip:
+					'Applies to you, in this browser. Admins see the badge in the homepage header.'
 			}}
 		/>
 	{/if}
