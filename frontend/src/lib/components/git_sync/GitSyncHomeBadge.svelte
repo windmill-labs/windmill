@@ -84,7 +84,12 @@
 	const current = $derived(config.current?.workspace === workspace ? config.current : undefined)
 
 	let pollTimer: ReturnType<typeof setTimeout> | undefined
-	onDestroy(() => clearTimeout(pollTimer))
+	// A response still in flight at teardown must not schedule a poll nothing would ever clear.
+	let destroyed = false
+	onDestroy(() => {
+		destroyed = true
+		clearTimeout(pollTimer)
+	})
 
 	const jobs = resource(
 		() => current,
@@ -120,7 +125,7 @@
 				})
 			)
 			// Followed only while something is in flight, so an idle homepage makes no requests.
-			if (lists.some((list) => list.some((job) => job.type === 'QueuedJob'))) {
+			if (!destroyed && lists.some((list) => list.some((job) => job.type === 'QueuedJob'))) {
 				pollTimer = setTimeout(() => jobs.refetch(), POLL_MS)
 			}
 			return {
