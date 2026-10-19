@@ -40,6 +40,7 @@
 	// The JSON last read from or written to `$values[KEY]`, to tell our own writes from external
 	// ones (the async load, Save, Discard) and re-hydrate only on the latter.
 	let lastSynced: string | undefined = undefined
+	let lastDisabled: boolean | undefined = undefined
 
 	function toRows(v: unknown): Row[] {
 		const list = Array.isArray(v) && v.length > 0 ? (v as RoleDefinition[]) : DEFAULT_INSTANCE_ROLES
@@ -63,10 +64,16 @@
 
 	$effect(() => {
 		const cur = JSON.stringify($values[KEY] ?? null)
-		if (cur === lastSynced) return
+		// The license loads after the values, so `disabled` flipping re-hydrates too.
+		if (cur === lastSynced && disabled === lastDisabled) return
 		lastSynced = cur
+		lastDisabled = disabled
 		const open = new Set(rows.filter((r) => r.open).map((r) => r.name))
-		rows = toRows($values[KEY]).map((r) => ({ ...r, open: open.has(r.name) }))
+		// Without a valid license the server applies the defaults and only keeps the stored list.
+		rows = toRows(disabled ? undefined : $values[KEY]).map((r) => ({
+			...r,
+			open: open.has(r.name)
+		}))
 	})
 
 	$effect(() => {
@@ -105,9 +112,17 @@
 
 <div class="flex flex-col gap-3">
 	{#if disabled}
-		<Alert type="info" size="xs" title="Custom workspace roles require Windmill Enterprise Edition">
+		<Alert
+			type="info"
+			size="xs"
+			title="Custom workspace roles require a valid Windmill Enterprise Edition license"
+		>
 			Every workspace has the two default roles below. A workspace admin can still adjust what they
 			allow in that workspace's settings.
+			{#if serialize(toRows($values[KEY])) !== undefined}
+				The roles defined earlier are kept and apply again once the license is valid; until then a
+				member holding one of them has no capabilities.
+			{/if}
 		</Alert>
 	{/if}
 	<span class="text-xs text-secondary">

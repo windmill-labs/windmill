@@ -27,12 +27,16 @@
 		disablePortal = false
 	}: Props = $props()
 
-	const items = $derived.by(() => {
-		const list = roleItems(roles, { admin })
-		// Keep a value the list no longer has visible, rather than showing nothing selected.
-		if (value && !list.some((i) => i.value === value)) list.push({ label: value, value })
-		return list
-	})
+	const known = $derived(roleItems(roles, { admin }))
+	// A role the workspace no longer defines (removed, or custom without a valid license) grants
+	// nothing; it stays visible rather than showing nothing selected.
+	const missing = $derived(value && !known.some((i) => i.value === value) ? value : undefined)
+	const undefinedValue = $derived(roles ? missing : undefined)
+	const items = $derived(
+		missing
+			? [...known, { label: undefinedValue ? `${missing} (inactive)` : missing, value: missing }]
+			: known
+	)
 
 	let picks = $state(0)
 
@@ -51,7 +55,7 @@
 	}
 </script>
 
-{#if items.length <= 4}
+{#if items.length <= 4 && !undefinedValue}
 	<!-- The group keeps its own selection, so it is remounted after each pick: a pick the parent
 	     refuses then shows `value` again instead of the refused one. -->
 	{#key picks}

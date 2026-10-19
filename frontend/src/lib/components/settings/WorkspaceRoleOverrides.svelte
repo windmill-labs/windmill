@@ -141,7 +141,10 @@
 	// A role that starts authoring moves each member from half a seat to a full one. One that
 	// falls back to an unknown instance value may, so it is confirmed too.
 	const newAuthorRoles = $derived(
-		[...instanceRoles.map((r) => r.name), ...workspaceOnlyNames].filter((name) => {
+		[
+			...instanceRoles.map((r) => r.name),
+			...(data?.custom_roles_enabled ? workspaceOnlyNames : [])
+		].filter((name) => {
 			const before = data?.roles.find((r) => r.name === name)?.capabilities
 			if (before && isAuthor(before)) return false
 			return isAuthor(effectiveFor(name)) || authoringUnknown(name)
@@ -203,6 +206,7 @@
 	{@const { base, unknown } = baseFor(name)}
 	{@const caps = applyCapabilitiesPatch(base, draft.get(name)?.capabilities)}
 	{@const overridden = Object.hasOwn(cleanedDraft, name)}
+	{@const inactive = !role && !data?.custom_roles_enabled}
 	<div class="flex flex-col rounded-md border bg-surface-tertiary">
 		<div class="flex items-center gap-2 p-2">
 			<div class="flex flex-col w-40 shrink-0 min-w-0">
@@ -216,18 +220,24 @@
 				{#if overridden}
 					<Badge color="blue" verySmall>Overridden here</Badge>
 				{/if}
+			{:else if inactive}
+				<Badge color="orange" verySmall>Inactive without a license</Badge>
 			{:else}
 				<Badge color="indigo" verySmall>This workspace only</Badge>
 			{/if}
-			<span class="text-2xs text-secondary truncate grow">{summary(caps)}</span>
-			<Button
-				variant="subtle"
-				unifiedSize="sm"
-				startIcon={{ icon: open.get(name) ? ChevronDown : ChevronRight }}
-				onclick={() => open.set(name, !open.get(name))}
-			>
-				Capabilities
-			</Button>
+			<span class="text-2xs text-secondary truncate grow">
+				{inactive ? 'No capabilities until the license is valid' : summary(caps)}
+			</span>
+			{#if !inactive}
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					startIcon={{ icon: open.get(name) ? ChevronDown : ChevronRight }}
+					onclick={() => open.set(name, !open.get(name))}
+				>
+					Capabilities
+				</Button>
+			{/if}
 			{#if role}
 				<Button
 					variant="subtle"
@@ -255,7 +265,7 @@
 		{#if errors[name] && !open.get(name)}
 			<span class="text-2xs text-red-600 dark:text-red-400 px-2 pb-2">{errors[name]}</span>
 		{/if}
-		{#if open.get(name)}
+		{#if open.get(name) && !inactive}
 			<div class="border-t p-3 flex flex-col gap-3">
 				<div class="flex items-center gap-2">
 					<span class="text-xs font-semibold text-emphasis w-24">Label</span>
@@ -345,8 +355,14 @@
 					removed.
 				</span>
 			{:else}
-				<Alert type="info" size="xs" title="Adding roles requires Windmill Enterprise Edition">
-					This workspace can adjust what the default roles allow.
+				<Alert
+					type="info"
+					size="xs"
+					title="Adding roles requires a valid Windmill Enterprise Edition license"
+				>
+					This workspace can adjust what the default roles allow. Roles added earlier are kept and
+					apply again once the license is valid; until then a member holding one of them has no
+					capabilities.
 				</Alert>
 			{/if}
 		</div>
