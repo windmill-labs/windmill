@@ -35,7 +35,8 @@
 
 	function sameDestination(a: OpenInSessionSource | undefined, b: OpenInSessionSource | undefined) {
 		if (!a || !b) return false
-		if (a.target && b.target) return a.target.kind === b.target.kind && a.target.path === b.target.path
+		if (a.target && b.target)
+			return a.target.kind === b.target.kind && a.target.path === b.target.path
 		return !!a.page && !!b.page && a.page() === b.page()
 	}
 </script>
@@ -81,7 +82,8 @@
 		 * toggle). Never rendered inside the session panel. */
 		fallback?: Snippet
 		/** For a button inside a page whose header can carry the same hand-off: while the header
-		 * does, this renders nothing but the fallback, so the hand-off has one place on screen. An
+		 * does, this renders nothing, so the hand-off has one place on screen. The fallback still
+		 * renders for a user who opted out of sessions, since the header then offers nothing. An
 		 * editor in a drawer opened on another item keeps its own button. */
 		deferToHeader?: boolean
 	} = $props()

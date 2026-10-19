@@ -1104,9 +1104,6 @@
 			{#if restartStep !== undefined && canRestart(restart)}
 				{@render flowRestartButton(restart, restartStep, 'button')}
 			{/if}
-			{#if embedded}
-				<OpenInSessionButton source={sessionOpen} btnProps={{ unifiedSize: 'sm' }} />
-			{/if}
 			<Dropdown items={menuItems} customWidth={260}>
 				{#snippet buttonReplacement()}
 					<Button
