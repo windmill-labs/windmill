@@ -25,6 +25,8 @@ Open-source platform for internal tools, workflows, API integrations, background
 ## Documentation
 
 - **Validation**: `docs/validation.md` — what checks to run based on what you changed
+- **Backend test suite cost**: `docs/test-suite-cost.md`, on how the `cargo test` suite spends CI
+  time and what makes a test cheap, with the review's item IDs. Read before adding backend tests.
 - **Unreleased SDK changes**: `docs/wac-sdk-e2e.md` — exercising a client change on a real worker
 - **Agent workers**: `docs/agent-worker-e2e.md` — building and running one locally. An agent
   reaches the DB only through the API, so `Connection::Http` paths are never taken by a plain
