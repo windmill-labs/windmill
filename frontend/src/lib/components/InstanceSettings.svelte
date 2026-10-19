@@ -307,6 +307,8 @@
 	const connectConfigTemplates: Record<string, any> = Object.fromEntries(
 		Object.entries(oauthConnectRegistry)
 			.filter(([, cfg]) => cfg && typeof cfg === 'object' && 'connect_config_template' in cfg)
+			// ms_teams takes its tenant from the pinned Teams tile; the backend fills the URLs.
+			.filter(([name]) => name !== 'ms_teams')
 			.map(([name, cfg]) => [name, (cfg as any).connect_config_template])
 	)
 
@@ -326,6 +328,12 @@
 	// instance name + its registry template (substituting {instance} into the
 	// URLs). Replaces the old per-provider setup functions.
 	function setupTemplatedOauthUrls() {
+		// The backend falls back to the pre-rename `teams` key when `ms_teams` is absent, so
+		// turning the Teams tile off (ms_teams saved before, gone now) has to drop both.
+		// TODO: remove with the backend fallback.
+		if (oauths && initialOauths?.['ms_teams'] && !oauths['ms_teams'] && oauths['teams']) {
+			delete oauths['teams']
+		}
 		for (const [name, tmpl] of Object.entries(connectConfigTemplates)) {
 			if (!oauths?.[name]) continue
 			const key = tmpl.extra_params_key ?? 'instance'
@@ -1196,6 +1204,12 @@
 			{#if $enterpriseLicense}
 				<OidcSigningStatus />
 			{/if}
+		{:else if category == 'Agent workers'}
+			<SettingsPageHeader
+				title="Agent workers"
+				description="Optional. Agent workers authenticate with the agent token (AGENT_TOKEN) you create on the Workers page with New agent worker, which needs nothing set here. Add an issuer only to also accept workload identity tokens."
+				link="https://www.windmill.dev/docs/core_concepts/agent_workers"
+			/>
 		{:else if category == 'Auth/OAuth/SAML'}
 			<AuthSettings
 				bind:oauths

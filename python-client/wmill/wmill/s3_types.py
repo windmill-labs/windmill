@@ -57,6 +57,7 @@ class PolarsConnectionSettings(dict):
     """Polars S3 connection settings containing S3FS args and storage options."""
     s3fs_args: S3FsArgs
     storage_options: StorageOptions
+    s3_bucket: Optional[str]
 
     def __getattr__(self, attr):
         return _item_as_attr(self, attr)
@@ -78,6 +79,7 @@ class Boto3ConnectionSettings(dict):
 class DuckDbConnectionSettings(dict):
     """DuckDB S3 connection settings as a configuration string."""
     connection_settings_str: str
+    s3_bucket: Optional[str]
 
     def __getattr__(self, attr):
         return _item_as_attr(self, attr)

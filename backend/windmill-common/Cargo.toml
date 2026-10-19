@@ -46,6 +46,7 @@ chrono.workspace = true
 chrono-tz.workspace = true
 hex.workspace = true
 async-trait.workspace = true
+http.workspace = true
 reqwest-middleware = { workspace = true }
 reqwest-retry = { workspace = true }
 rand.workspace = true
@@ -110,6 +111,7 @@ strum.workspace = true
 strum_macros.workspace = true
 windmill-types.workspace = true
 url.workspace = true
+ipnet.workspace = true
 urlencoding.workspace = true
 async-recursion.workspace = true
 pep440_rs.workspace = true

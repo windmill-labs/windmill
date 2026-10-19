@@ -137,7 +137,9 @@ export async function getResource(
       return undefined;
     } else {
       throw Error(
-        `Resource not found at ${path} or not visible to you: ${e.body}`
+        e.status === undefined
+          ? `Could not reach the Windmill API to get resource ${path}: ${e.message ?? e}`
+          : `Resource not found at ${path} or not visible to you: ${e.body}`
       );
     }
   }
@@ -831,7 +833,9 @@ export async function getVariable(path: string): Promise<string> {
     return await VariableService.getVariableValue({ workspace, path });
   } catch (e: any) {
     throw Error(
-      `Variable not found at ${path} or not visible to you: ${e.body}`
+      e.status === undefined
+        ? `Could not reach the Windmill API to get variable ${path}: ${e.message ?? e}`
+        : `Variable not found at ${path} or not visible to you: ${e.body}`
     );
   }
 }

@@ -18,7 +18,9 @@ RUN apt-get -y update \
     pkg-config=1.8.* \
     protobuf-compiler=3.21.*
 
-RUN git clone -b master --single-branch https://github.com/google/nsjail.git . && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800
+COPY docker/nsjail-patches/ /nsjail-patches/
+RUN git clone -b master --single-branch https://github.com/google/nsjail.git . && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800 \
+    && git apply /nsjail-patches/*.patch
 RUN make
 
 FROM ${RUST_IMAGE} AS rust_base
@@ -253,6 +255,11 @@ RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_r
 RUN curl -sL https://deb.nodesource.com/setup_24.x | bash -
 RUN apt-get -y update && apt-get install -y --no-install-recommends curl procps nodejs awscli && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# The npm bundled with nodejs is replaced by a pinned one: it is what `//npm` scripts install with
+# (NPM_PATH=/usr/bin/npm). npm 12 skips dependency install scripts not covered by an allowScripts
+# policy (package.json or .npmrc).
+RUN npm install -g npm@12.2.0 && npm cache clean --force
 
 # go build is slower the first time it is ran, so we prewarm it in the build
 # This mirrors Windmill's Go wrapper structure: main.go imports inner package, uses encoding/json, os, fmt

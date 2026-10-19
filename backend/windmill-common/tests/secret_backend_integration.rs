@@ -3,24 +3,26 @@
 //! These tests require:
 //! 1. A PostgreSQL database (handled by sqlx test framework)
 //! 2. A running HashiCorp Vault instance
-//! 3. The RUN_VAULT_TESTS=1 environment variable to be set
+//!
+//! They are `#[ignore]`d, so a plain `cargo test` skips them without creating a
+//! database; pass `--ignored` to run them.
 //!
 //! Environment variables:
-//! - RUN_VAULT_TESTS=1  - Required to run the tests
 //! - VAULT_ADDR         - Vault server address (default: http://127.0.0.1:8200)
 //! - VAULT_TOKEN        - Static token for static token tests (default: test-root-token)
 //! - BASE_URL           - Windmill instance URL for JWT tests (default: http://localhost:8000)
 //!
 //! Run tests (static token mode):
 //! ```bash
-//! RUN_VAULT_TESTS=1 VAULT_TOKEN=your-token cargo test -p windmill \
-//!     secret_backend_integration --features private,enterprise -- --nocapture
+//! VAULT_TOKEN=your-token cargo test -p windmill-common \
+//!     --test secret_backend_integration --features private,enterprise -- --ignored --nocapture
 //! ```
 //!
 //! Run tests (JWT mode - requires Windmill instance running for JWKS endpoint):
 //! ```bash
-//! RUN_VAULT_TESTS=1 BASE_URL=http://localhost:8000 cargo test -p windmill \
-//!     secret_backend_integration --features private,enterprise,openidconnect -- --nocapture
+//! BASE_URL=http://localhost:8000 cargo test -p windmill-common \
+//!     --test secret_backend_integration --features private,enterprise,openidconnect \
+//!     -- --ignored --nocapture
 //! ```
 
 #[cfg(all(feature = "private", feature = "enterprise"))]
@@ -62,27 +64,11 @@ mod tests {
         }
     }
 
-    fn should_run_vault_tests() -> bool {
-        std::env::var("RUN_VAULT_TESTS")
-            .map(|v| v == "1" || v.to_lowercase() == "true")
-            .unwrap_or(false)
-    }
-
     #[cfg(feature = "openidconnect")]
     async fn setup_base_url() {
         let base_url =
             std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:8000".to_string());
         windmill_common::BASE_URL.store(std::sync::Arc::new(base_url));
-    }
-
-    macro_rules! skip_if_no_vault {
-        () => {
-            if !should_run_vault_tests() {
-                println!("Skipping test: RUN_VAULT_TESTS=1 not set");
-                println!("To run vault tests: RUN_VAULT_TESTS=1 cargo test ...");
-                return;
-            }
-        };
     }
 
     fn vault_settings_static_token() -> VaultSettings {
@@ -120,9 +106,8 @@ mod tests {
 
     /// Test Vault connection with static token
     #[sqlx::test(migrations = "../migrations", fixtures("base", "secret_backend"))]
+    #[ignore = "requires a Vault server at VAULT_ADDR"]
     async fn test_vault_connection_static_token(db: Pool<Postgres>) {
-        skip_if_no_vault!();
-
         let settings = vault_settings_static_token();
         println!("Testing Vault connection with static token...");
         println!("  Address: {}", settings.address);
@@ -138,9 +123,8 @@ mod tests {
 
     /// Test basic CRUD operations with static token
     #[sqlx::test(migrations = "../migrations", fixtures("base", "secret_backend"))]
+    #[ignore = "requires a Vault server at VAULT_ADDR"]
     async fn test_vault_crud_static_token(_db: Pool<Postgres>) {
-        skip_if_no_vault!();
-
         let settings = vault_settings_static_token();
         let backend = VaultBackend::new(settings);
 
@@ -199,8 +183,8 @@ mod tests {
     /// Test Vault connection with JWT authentication
     #[cfg(feature = "openidconnect")]
     #[sqlx::test(migrations = "../migrations", fixtures("base", "secret_backend"))]
+    #[ignore = "requires a Vault server at VAULT_ADDR and a Windmill instance at BASE_URL"]
     async fn test_vault_connection_jwt(db: Pool<Postgres>) {
-        skip_if_no_vault!();
         setup_base_url().await;
 
         let settings = vault_settings_jwt();
@@ -224,8 +208,8 @@ mod tests {
     /// Test basic CRUD operations with JWT authentication
     #[cfg(feature = "openidconnect")]
     #[sqlx::test(migrations = "../migrations", fixtures("base", "secret_backend"))]
+    #[ignore = "requires a Vault server at VAULT_ADDR and a Windmill instance at BASE_URL"]
     async fn test_vault_crud_jwt(db: Pool<Postgres>) {
-        skip_if_no_vault!();
         setup_base_url().await;
 
         let settings = vault_settings_jwt();
@@ -269,9 +253,8 @@ mod tests {
 
     /// Test migration from database to Vault
     #[sqlx::test(migrations = "../migrations", fixtures("base", "secret_backend"))]
+    #[ignore = "requires a Vault server at VAULT_ADDR"]
     async fn test_migrate_db_to_vault(db: Pool<Postgres>) {
-        skip_if_no_vault!();
-
         let settings = vault_settings_static_token();
 
         test_vault_connection(&settings, Some(&db))
@@ -331,9 +314,8 @@ mod tests {
 
     /// Test migration from Vault back to database
     #[sqlx::test(migrations = "../migrations", fixtures("base", "secret_backend"))]
+    #[ignore = "requires a Vault server at VAULT_ADDR"]
     async fn test_migrate_vault_to_db(db: Pool<Postgres>) {
-        skip_if_no_vault!();
-
         let settings = vault_settings_static_token();
 
         test_vault_connection(&settings, Some(&db))
@@ -396,8 +378,8 @@ mod tests {
 
     /// Test renaming a variable path in Vault
     #[sqlx::test(migrations = "../migrations", fixtures("base", "secret_backend"))]
+    #[ignore = "requires a Vault server at VAULT_ADDR"]
     async fn test_variable_rename(db: Pool<Postgres>) {
-        skip_if_no_vault!();
         let _ = &db; // suppress unused warning
 
         let settings = vault_settings_static_token();
@@ -468,9 +450,8 @@ mod tests {
 
     /// Test full round-trip: DB -> Vault -> DB with verification
     #[sqlx::test(migrations = "../migrations", fixtures("base", "secret_backend"))]
+    #[ignore = "requires a Vault server at VAULT_ADDR"]
     async fn test_full_round_trip(db: Pool<Postgres>) {
-        skip_if_no_vault!();
-
         let settings = vault_settings_static_token();
 
         test_vault_connection(&settings, Some(&db))
@@ -532,9 +513,8 @@ mod tests {
 
     /// Test that workspace isolation is maintained
     #[sqlx::test(migrations = "../migrations", fixtures("base", "secret_backend"))]
+    #[ignore = "requires a Vault server at VAULT_ADDR"]
     async fn test_workspace_isolation(db: Pool<Postgres>) {
-        skip_if_no_vault!();
-
         let settings = vault_settings_static_token();
         let backend = VaultBackend::new(settings.clone());
 
