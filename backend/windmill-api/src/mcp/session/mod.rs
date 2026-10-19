@@ -360,13 +360,16 @@ fn guarded_url(
         return Err(refused());
     }
     // Runs of deployed items by path only: the preview routes take code, so they are writes.
-    let runs_deployed = method == "POST"
+    // A run also stores its secret arguments as expiring variables; the write tools that
+    // could create other variables are not offered to a read-and-run token.
+    let run_writes = method == "POST"
         && ["jobs/run/p/", "jobs/run/f/"]
             .iter()
-            .any(|run| route.starts_with(&format!("/w/{w_id}/{run}")));
+            .any(|run| route.starts_with(&format!("/w/{w_id}/{run}")))
+        || method == "POST" && route == format!("/w/{w_id}/variables/create");
     let held_to_reads = match access {
         SessionAccess::Full => false,
-        SessionAccess::ReadAndRun => !runs_deployed,
+        SessionAccess::ReadAndRun => !run_writes,
         SessionAccess::ReadOnly => true,
     };
     if held_to_reads {
@@ -576,6 +579,9 @@ mod tests {
         assert!(url("POST", "/w/ws/jobs/run/f/u/a/b", ReadAndRun).is_ok());
         assert!(url("POST", "/w/ws/jobs/run/preview", ReadAndRun).is_err());
         assert!(url("POST", "/w/ws/drafts/update", ReadAndRun).is_err());
+        assert!(url("POST", "/w/ws/variables/create", ReadAndRun).is_ok());
+        assert!(url("POST", "/w/ws/variables/update/u/a/b", ReadAndRun).is_err());
+        assert!(url("POST", "/w/ws/variables/create", ReadOnly).is_err());
     }
 
     #[test]
