@@ -65,6 +65,7 @@
 		escapeBehavior?: EscapeBehaviorType
 		enableFlyTransition?: boolean
 		onKeyDown?: (e: KeyboardEvent) => void
+		onOpen?: () => void
 		onClose?: () => void
 		class?: string
 		/**
@@ -105,6 +106,7 @@
 		escapeBehavior = 'close',
 		enableFlyTransition = false,
 		onKeyDown = () => {},
+		onOpen = () => {},
 		onClose = () => {},
 		class: className = '',
 		targetId = undefined,
@@ -140,7 +142,9 @@
 		onOpenChange: ({ curr, next }) => {
 			if (curr != next) {
 				dispatch('openChange', next)
-				if (!next) {
+				if (next) {
+					onOpen()
+				} else {
 					onClose()
 				}
 			}

@@ -17,6 +17,8 @@
 	import { sendUserToast } from '$lib/toast'
 	import { apiErrorMessage } from '$lib/utils'
 	import { untrack } from 'svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import { isGitSyncHomeBadgeHidden, setGitSyncHomeBadgeHidden } from './gitSyncHomeBadgeVisibility.svelte'
 
 	// Create context reactively based on workspaceStore
 	const gitSyncContext = $derived($workspaceStore ? setGitSyncContext($workspaceStore) : null)
@@ -238,6 +240,21 @@
 			{/if}
 		{/snippet}
 	</SettingsPageHeader>
+	{#if $workspaceStore && (gitSyncAllowed || hasConfiguredRepos)}
+		<!-- Per user and per workspace, like the badge's own Hide: it is this admin's homepage. -->
+		<Toggle
+			class="mb-4"
+			size="xs"
+			bind:checked={
+				() => !isGitSyncHomeBadgeHidden($workspaceStore!),
+				(show) => setGitSyncHomeBadgeHidden($workspaceStore!, !show)
+			}
+			options={{
+				right: 'Show Git Sync status on my homepage',
+				rightTooltip: 'Only you see this setting. Admins see the badge in the homepage header.'
+			}}
+		/>
+	{/if}
 	<Alert type="info" title="Only new updates trigger git sync">
 		Only new changes matching the filters will trigger a git sync. You still need to initialize the
 		repo to the desired state first.
@@ -289,7 +306,8 @@
 					{#if promotionRows.length > 0}
 						<!-- The two kinds deploy differently, so the list says which is which rather than
 						     leaving it to each row's own line. -->
-						<div class="px-4 pt-3 pb-1 text-2xs font-semibold text-hint">Promotion repositories</div>
+						<div class="px-4 pt-3 pb-1 text-2xs font-semibold text-hint">Promotion repositories</div
+						>
 						{#each promotionRows as { repo, idx } (idx)}
 							{@render repoRow(repo, idx)}
 						{/each}

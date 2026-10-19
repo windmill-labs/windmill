@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { AppService, FlowService, type OpenFlow, type Script } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { superadmin, userStore, workspaceStore } from '$lib/stores'
 	import { Alert, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -10,7 +10,15 @@
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import PickHubFlow from '$lib/components/flows/pickers/PickHubFlow.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
-	import { ExternalLink, GitFork, Globe2, Loader2, Code, LayoutDashboard } from 'lucide-svelte'
+	import {
+		ExternalLink,
+		GitBranch,
+		GitFork,
+		Globe2,
+		Loader2,
+		Code,
+		LayoutDashboard
+	} from 'lucide-svelte'
 	import { hubBaseUrlStore } from '$lib/stores'
 	import { base } from '$lib/base'
 
@@ -29,6 +37,13 @@
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { z } from 'zod'
 	import HomeAIChat from '$lib/components/home/HomeAIChat.svelte'
+	import HomeHeaderMenu from '$lib/components/home/HomeHeaderMenu.svelte'
+	import { HomeHeaderMenu as HomeHeaderMenuState } from '$lib/components/home/homeHeaderMenuState.svelte'
+	import GitSyncHomeBadge from '$lib/components/git_sync/GitSyncHomeBadge.svelte'
+	import {
+		isGitSyncHomeBadgeHidden,
+		setGitSyncHomeBadgeHidden
+	} from '$lib/components/git_sync/gitSyncHomeBadgeVisibility.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import { onMount, untrack } from 'svelte'
 	import OperatorTour from '$lib/components/tutorials/OperatorTour.svelte'
@@ -93,6 +108,22 @@
 	}
 
 	let showCreateButtons = $state(false)
+
+	const headerMenu = new HomeHeaderMenuState()
+	// The way back once the Git Sync badge is hidden, offered to the admins who see that badge.
+	headerMenu.register('git-sync', () =>
+		($userStore?.is_admin || $superadmin) &&
+		$workspaceStore &&
+		isGitSyncHomeBadgeHidden($workspaceStore)
+			? [
+					{
+						displayName: 'Show Git Sync status',
+						icon: GitBranch,
+						action: () => $workspaceStore && setGitSyncHomeBadgeHidden($workspaceStore, false)
+					}
+				]
+			: []
+	)
 
 	// A workspace switch keeps this page mounted and swaps its contents under the reader, which
 	// the mount animation below never covers. Replay it by hand instead of keying the page on the
@@ -280,8 +311,11 @@
 	</DrawerContent>
 </Drawer>
 
-{#snippet editRuleBadge()}
-	<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
+{#snippet workspaceBadges()}
+	<div class="flex items-center gap-1">
+		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showCreateButtons = v)} />
+		<GitSyncHomeBadge />
+	</div>
 {/snippet}
 
 <div
@@ -289,9 +323,11 @@
 	class="wm-page-in flex flex-col w-full h-full overflow-y-auto items-center"
 	style="scrollbar-gutter: stable both-edges;"
 >
-	<!-- Where edits to this workspace are made is a fact about the workspace, so it sits in the
-	     header with the workspace's own name rather than above the list. -->
-	<PageHeaderContent actions={editRuleBadge} />
+	<!-- Where edits to this workspace are made, and whether it syncs to Git, are facts about the
+	     workspace, so they sit in the header with the workspace's own name rather than above the
+	     list. -->
+	<PageHeaderContent actions={workspaceBadges} />
+	<HomeHeaderMenu menu={headerMenu} />
 
 	<ForkWorkspaceBanner />
 	<WorkspaceDraftsBanner />
@@ -301,7 +337,7 @@
 		     workspace inside the component, which owns its own vertical spacing
 		     because the hero and the bare connect row want different amounts of it. -->
 		{#if isGlobalAiEnabled()}
-			<HomeAIChat />
+			<HomeAIChat {headerMenu} />
 		{/if}
 
 		{#if $workspaceStore == 'admins'}
