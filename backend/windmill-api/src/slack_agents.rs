@@ -854,8 +854,8 @@ async fn answer(
 
     // Read at each message: who can ask follows the agent's last deploy.
     let share = sqlx::query!(
-        "SELECT r.value->'run_on_behalf_of' = 'true'::jsonb
-                    AND r.value->'slack_anyone' = 'true'::jsonb AS \"anyone!\",
+        "SELECT COALESCE(r.value->'run_on_behalf_of' = 'true'::jsonb
+                    AND r.value->'slack_anyone' = 'true'::jsonb, false) AS \"anyone!\",
                 r.value->>'on_behalf_of' AS on_behalf_of
          FROM slack_agent_channel c
          JOIN resource r ON r.workspace_id = c.workspace_id AND r.path = c.agent_path
