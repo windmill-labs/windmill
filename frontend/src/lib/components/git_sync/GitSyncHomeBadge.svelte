@@ -100,38 +100,33 @@
 	}
 
 	function syncQueries(repo: GitRepositorySettings) {
-		const full = repo.git_repo_resource_path
-		const bare = full.replace(/^\$res:/, '')
-		// A PR diff check is a pull job too, with `dry_run: true`, and it applies nothing, so it must
-		// not count as a sync. The list returns no args to filter on, so each query pins one real
-		// kind instead: pulls by `dry_run: false`, and deploy pushes by `use_individual_branch`,
-		// which every push sets and no pull does.
+		// Every sync job names its repository without `$res:`: the server strips it, and the Git Sync
+		// settings strip it when they load, before their Pull and Push run the hub script directly.
+		const repoPath = repo.git_repo_resource_path.replace(/^\$res:/, '')
+		// A PR diff check or a preview is a pull job too, with `dry_run: true`, and it applies
+		// nothing, so it must not count as a sync. The list returns no args to filter on, so each
+		// query pins one real kind instead: pulls, automatic (`deploymentcallback`) or manual
+		// (`script_hub`), by `dry_run: false, pull: true`; manual pushes by `pull: false`; and
+		// deploy pushes by `use_individual_branch`, which every push sets and no pull does.
 		return [
 			{
-				kinds: 'deploymentcallback',
-				args: { repo_url_resource_path: bare, dry_run: false },
-				pull: true
-			},
-			{
-				kinds: 'deploymentcallback',
-				args: { repo_url_resource_path: bare, use_individual_branch: true },
-				pull: false
-			},
-			{
-				kinds: 'deploymentcallback',
-				args: { repo_url_resource_path: bare, use_individual_branch: false },
-				pull: false
-			},
-			// Pull and Push from the Git Sync settings run the hub script directly, naming the
-			// repository with its `$res:` prefix.
-			{
-				kinds: 'script_hub',
-				args: { repo_url_resource_path: full, dry_run: false, pull: true },
+				kinds: 'deploymentcallback,script_hub',
+				args: { repo_url_resource_path: repoPath, dry_run: false, pull: true },
 				pull: true
 			},
 			{
 				kinds: 'script_hub',
-				args: { repo_url_resource_path: full, dry_run: false, pull: false },
+				args: { repo_url_resource_path: repoPath, dry_run: false, pull: false },
+				pull: false
+			},
+			{
+				kinds: 'deploymentcallback',
+				args: { repo_url_resource_path: repoPath, use_individual_branch: true },
+				pull: false
+			},
+			{
+				kinds: 'deploymentcallback',
+				args: { repo_url_resource_path: repoPath, use_individual_branch: false },
 				pull: false
 			}
 		]
