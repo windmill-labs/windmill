@@ -1276,8 +1276,9 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 			     Search / workspace items / instance settings) are spaced by the
 			     scroll area's gap rather than each scrolling on its own. -->
 			<SidebarScrollArea color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
-				<!-- Section 1: Home/Runs + Favorites + Search -->
-				<div class="px-2 pt-1 flex flex-col gap-1">
+				<!-- Section 1: Home/Runs + Favorites + Search. Without the switch row above,
+				     Home is the top row and pt-2 centers its h-8 in the page header's h-12. -->
+				<div class="px-2 flex flex-col gap-1 {!embedded && sessionsSwitchShown ? 'pt-1' : 'pt-2'}">
 					{@render quickLinks(collapsed)}
 					<Menubar class="flex flex-col gap-1">
 						{#snippet children({ createMenu })}
