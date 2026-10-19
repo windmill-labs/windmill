@@ -7,7 +7,11 @@ import {
   validatePath,
 } from "../../core/context.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
-import { buildPermissionedAsContext } from "../../core/permissioned_as.ts";
+import {
+  buildPermissionedAsContext,
+  legacyPusherEmail,
+  warnRunAsNotCarried,
+} from "../../core/permissioned_as.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 import { writeFile, stat, mkdir } from "node:fs/promises";
 import { Buffer } from "node:buffer";
@@ -647,16 +651,27 @@ export async function handleFile(
     // workspace tarball strips it); it only ever travels back from the remote row.
     delete (typed as any)?.on_behalf_of;
 
-    if (permissionedAsContext?.userIsAdminOrDeployer && hasOnBehalfOf) {
-      if (remote && remote.on_behalf_of_email) {
-        requestBodyCommon.on_behalf_of_email = remote.on_behalf_of_email;
-        (requestBodyCommon as any).on_behalf_of = (
-          remote as any
-        ).on_behalf_of;
-        (requestBodyCommon as any).preserve_on_behalf_of = true;
-        log.info(`Preserving ${remote.on_behalf_of_email} as on_behalf_of for script ${remotePath}`);
+    if (permissionedAsContext && hasOnBehalfOf) {
+      if (remote?.on_behalf_of_email) {
+        if (permissionedAsContext.userIsAdminOrDeployer) {
+          requestBodyCommon.on_behalf_of_email = remote.on_behalf_of_email;
+          (requestBodyCommon as any).on_behalf_of = (
+            remote as any
+          ).on_behalf_of;
+          (requestBodyCommon as any).preserve_on_behalf_of = true;
+          log.info(`Preserving ${remote.on_behalf_of_email} as on_behalf_of for script ${remotePath}`);
+        } else {
+          // The run-as identity becomes the pusher's, as the pre-push check announced. It has
+          // to be named: a script deployed with none runs without one.
+          requestBodyCommon.on_behalf_of_email = permissionedAsContext.userEmail;
+        }
+      } else if (!remote && !typed?.on_behalf_of_email) {
+        warnRunAsNotCarried("script", remotePath);
       }
-      // On create: backend applies folder defaults — no client-side resolution needed
+    } else if (!permissionedAsContext && typed?.on_behalf_of_email) {
+      requestBodyCommon.on_behalf_of_email = await legacyPusherEmail(
+        workspace.workspaceId
+      );
     }
 
     if (remote) {

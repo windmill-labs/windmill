@@ -30,7 +30,11 @@ import { FSFSElement, elementsToMap, ignoreF } from "../sync/sync.ts";
 import { Flow } from "../../../gen/types.gen.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
-import { buildPermissionedAsContext } from "../../core/permissioned_as.ts";
+import {
+  buildPermissionedAsContext,
+  legacyPusherEmail,
+  warnRunAsNotCarried,
+} from "../../core/permissioned_as.ts";
 import {
   collectPathScriptPaths,
   replaceInlineScripts,
@@ -260,14 +264,23 @@ export async function pushFlow(
     on_behalf_of?: string;
     preserve_on_behalf_of?: boolean;
   } = {};
-  if (permissionedAsContext?.userIsAdminOrDeployer && hasOnBehalfOf) {
-    if (flow && flow.on_behalf_of_email) {
-      preserveFields.on_behalf_of_email = flow.on_behalf_of_email;
-      preserveFields.on_behalf_of = (flow as any).on_behalf_of;
-      preserveFields.preserve_on_behalf_of = true;
-      log.info(`Preserving ${flow.on_behalf_of_email} as on_behalf_of for flow ${remotePath}`);
+  if (permissionedAsContext && hasOnBehalfOf) {
+    if (flow?.on_behalf_of_email) {
+      if (permissionedAsContext.userIsAdminOrDeployer) {
+        preserveFields.on_behalf_of_email = flow.on_behalf_of_email;
+        preserveFields.on_behalf_of = (flow as any).on_behalf_of;
+        preserveFields.preserve_on_behalf_of = true;
+        log.info(`Preserving ${flow.on_behalf_of_email} as on_behalf_of for flow ${remotePath}`);
+      } else {
+        // The run-as identity becomes the pusher's, as the pre-push check announced. It has
+        // to be named: a flow deployed with none runs without one.
+        preserveFields.on_behalf_of_email = permissionedAsContext.userEmail;
+      }
+    } else if (!flow && !localFlow.on_behalf_of_email) {
+      warnRunAsNotCarried("flow", remotePath);
     }
-    // On create: backend applies folder defaults — no client-side resolution needed
+  } else if (!permissionedAsContext && localFlow.on_behalf_of_email) {
+    preserveFields.on_behalf_of_email = await legacyPusherEmail(workspace);
   }
 
   // extra_perms is synced independently via /acls/* (see applyExtraPermsDiff)

@@ -50,6 +50,38 @@ export async function buildPermissionedAsContext(
   };
 }
 
+const pusherEmails = new Map<string, Promise<string>>();
+
+/**
+ * Below syncBehavior v1 a push hands every script or flow it deploys to whoever ran it. The
+ * backend keeps the identity a deploy names, so the address a v0 file carries is replaced by
+ * the pusher's own: sent as it is, it would stay, or fail to resolve in another workspace.
+ */
+export function legacyPusherEmail(workspace: string): Promise<string> {
+  let email = pusherEmails.get(workspace);
+  if (!email) {
+    email = wmill.whoami({ workspace }).then((u) => u.email);
+    pusherEmails.set(workspace, email);
+  }
+  return email;
+}
+
+/**
+ * From syncBehavior v1 a script or flow file says only *that* it runs on behalf of someone,
+ * never who, so a push creating it has no identity to send. It is created without one unless
+ * a folder `default_permissioned_as` rule matches; the pusher is not substituted, since a
+ * deploy token is often an admin the runnable never ran as.
+ */
+export function warnRunAsNotCarried(kind: "script" | "flow", path: string): void {
+  log.warn(
+    colors.yellow(
+      `${kind} ${path} runs on behalf of someone in the source, but the file does not say who: ` +
+        `it is created without a run-as identity unless a folder default_permissioned_as rule matches. ` +
+        `Set one with \`wmill ${kind} set-permissioned-as ${path} <email>\`.`
+    )
+  );
+}
+
 async function ensureUserCache(
   workspace: string,
   cache: Map<string, { username: string; email: string }>

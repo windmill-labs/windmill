@@ -542,6 +542,7 @@ async function mergeWorkspaces(
   }
   let successCount = 0;
   let failCount = 0;
+  let mergerEmail: string | undefined;
   // Datatable migrations deployed (not deleted) into the target. Deploying a
   // migration only upserts its definition — the target schema is unchanged until
   // the migration is run — so offer to run them afterwards (like the push path).
@@ -578,6 +579,19 @@ async function mergeWorkspaces(
           diff.path,
           workspaceFrom
         );
+      } else if (
+        (diff.kind === "script" || diff.kind === "flow") &&
+        (await getOnBehalfOf(
+          provider,
+          diff.kind as DeployKind,
+          diff.path,
+          workspaceFrom
+        ))
+      ) {
+        // Without the flag every item is deployed as the merger, and a script or flow has to
+        // be told so: one deployed naming no identity runs without one.
+        mergerEmail ??= (await wmill.whoami({ workspace: workspaceTo })).email;
+        onBehalfOf = mergerEmail;
       }
 
       result = await deployItem(
