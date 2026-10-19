@@ -44,12 +44,13 @@ describe('missingStepInputs', () => {
 
 	it('leaves out steps whose inputs the worker ignores', () => {
 		const onModule = { ...call('a', 'f/finance/email_finance', []), pass_flow_input_directly: true }
+		// The worker reads only the module's flag, so this step still runs on its input_transforms.
 		const onValue = call('b', 'f/finance/email_finance', [])
 		Object.assign(onValue.value, { pass_flow_input_directly: true })
 		const flow = {
 			modules: [onModule, onValue],
 			preprocessor_module: call('preprocessor', 'f/finance/email_finance', [])
 		}
-		expect(collectPathSteps(flow)).toEqual([])
+		expect(collectPathSteps(flow).map((s) => s.id)).toEqual(['b'])
 	})
 })
