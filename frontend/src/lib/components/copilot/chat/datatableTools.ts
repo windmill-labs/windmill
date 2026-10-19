@@ -344,6 +344,7 @@ export function getDatatableTools(): SessionTool<{}>[] {
 			requires: RUN_PREVIEW,
 			def: getExecDatatableSqlToolDef(),
 			requiresConfirmation: true,
+			confirmAction: 'run',
 			confirmationMessage: 'Execute SQL on datatable',
 			queuedLabel: (args) => `Execute SQL on "${args?.datatable_name ?? 'datatable'}"`,
 			showDetails: true,
