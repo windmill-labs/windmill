@@ -19,6 +19,25 @@ pub struct ProxyBuildArgs<'a> {
     pub credentials: &'a ProviderCredentials,
 }
 
+/// Refuses a client-supplied proxy path that could resolve outside the provider's base
+/// path once appended to it. URL parsing treats `\` as `/`, drops tabs and newlines, trims
+/// spaces and ends the path at `?` or `#`, so `.\t./`, `..\`, `.. ` and `..?x` climb a
+/// segment like `../`. The path arrives decoded once, so any `%` left is a second encoding
+/// (`%2e`, `%2f`) that the URL parser or a gateway in front of the provider may decode again.
+pub fn validate_proxy_path(path: &str) -> Result<()> {
+    let invalid = || Error::BadRequest(format!("Invalid AI proxy path: {path}"));
+    if path
+        .chars()
+        .any(|c| matches!(c, '\\' | ' ' | '?' | '#' | '%') || c.is_control())
+        || path
+            .split('/')
+            .any(|segment| segment == "." || segment == "..")
+    {
+        return Err(invalid());
+    }
+    Ok(())
+}
+
 /// Provider-specific request produced by proxy request builders.
 #[derive(Clone, Debug)]
 pub struct ProxyRequest {
@@ -268,6 +287,39 @@ mod tests {
             oidc_role_arn: None,
             platform: AIPlatform::Standard,
             custom_headers: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn proxy_path_refuses_dot_segments() {
+        for path in [
+            "chat/completions",
+            "v1/messages",
+            "models",
+            "openai/deployments/gpt-4.1/chat/completions",
+            "a..b/c",
+        ] {
+            assert!(validate_proxy_path(path).is_ok(), "{path}");
+        }
+        for path in [
+            "../key/info",
+            "..",
+            "models/../../key/info",
+            "./x",
+            "%2e%2e/key/info",
+            "%2E./key/info",
+            ".%2E/key/info",
+            "..\\key/info",
+            ".\t./key/info",
+            "..\n/key/info",
+            ".. ",
+            "..?x=1",
+            "..#f",
+            "%2e%2e?x",
+            "..%2fkey/info",
+            "%2e%2e%2fkey",
+        ] {
+            assert!(validate_proxy_path(path).is_err(), "{path:?}");
         }
     }
 

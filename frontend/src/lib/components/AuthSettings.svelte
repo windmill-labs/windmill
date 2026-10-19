@@ -90,7 +90,6 @@
 		'visma',
 		'sage_intacct',
 		'spotify',
-		'teams',
 		'zoho',
 		'xero',
 		'apify',
@@ -98,7 +97,8 @@
 		'salesforce',
 		'outreach',
 		'notion',
-		'hubspot'
+		'hubspot',
+		'asana'
 	]
 	// Providers whose registry entry (`backend/oauth_connect.json`) carries a
 	// `sandbox` URL block. Each one gets a sibling `<name>_sandbox` dropdown
@@ -120,6 +120,8 @@
 	const connectConfigTemplates: Record<string, any> = Object.fromEntries(
 		Object.entries(oauthConnectRegistry)
 			.filter(([, cfg]) => cfg && typeof cfg === 'object' && 'connect_config_template' in cfg)
+			// ms_teams has the pinned Teams tile instead: its tenant field fills the template.
+			.filter(([name]) => name !== 'ms_teams')
 			.map(([name, cfg]) => [name, (cfg as any).connect_config_template])
 	)
 	const windmillBuiltinsTemplated = Object.keys(connectConfigTemplates)
@@ -490,12 +492,13 @@
 			<div class="h-1"></div>
 			<OAuthSetting login={false} name="slack" bind:value={oauths['slack']} />
 			<div class="h-6"></div>
-			<OAuthSetting login={false} name="teams" eeOnly={true} bind:value={oauths['teams']} />
+			<OAuthSetting login={false} name="ms_teams" bind:value={oauths['ms_teams']} />
 			<div class="h-6"></div>
 
 			{#each Object.keys(oauths) as k}
 				{#if oauths[k] && !(oauths[k] && 'login_config' in oauths[k])}
-					{#if !['slack', 'teams'].includes(k) && oauths[k]}
+					<!-- 'teams' is the pre-rename key of ms_teams, kept for rolling upgrades -->
+					{#if !['slack', 'ms_teams', 'teams'].includes(k) && oauths[k]}
 						{@const IconComponent = getOAuthProviderIcon(k) as any}
 						{@const headerLabel = k.endsWith('_sandbox')
 							? `${k.slice(0, -'_sandbox'.length)} (sandbox)`
