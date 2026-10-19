@@ -1799,9 +1799,6 @@ async fn rebase_draft(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     };
     let your_changes = unified_patch("fork-base", "your-draft", &theirs, &ours, 4);
 
-    let kind = draft_kind(item_type, None).ok_or_else(no_draft)?;
-    delete_draft(ctx, &kind, path, draft.created_at.as_deref()).await?;
-
     let (diff, tools, version) = match item_type {
         "script" => (
             "a diff",
@@ -1829,7 +1826,23 @@ async fn rebase_draft(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     );
     put(&mut out, head_key, head);
     out.insert("your_changes".into(), json!(your_changes));
-    Ok(pretty(&Value::Object(out)))
+    let result = pretty(&Value::Object(out));
+    // The diff is the only copy of the draft once it is discarded: a result the server
+    // would truncate must keep the draft instead.
+    if result.len() > windmill_mcp::server::MAX_TOOL_RESULT_BYTES {
+        let editor = match item_type {
+            "script" => "/scripts/edit",
+            "flow" => "/flows/edit",
+            _ => "/apps_raw/edit",
+        };
+        return Err(format!(
+            "The draft of \"{path}\" differs from the version it was forked from by more than a tool result can hold, so it was kept as is. Ask the user to reconcile it with the latest deployed version ({version}) in the editor: {}",
+            ctx.page_url(&format!("{editor}/{path}"))
+        ));
+    }
+    let kind = draft_kind(item_type, None).ok_or_else(no_draft)?;
+    delete_draft(ctx, &kind, path, draft.created_at.as_deref()).await?;
+    Ok(result)
 }
 
 #[cfg(test)]

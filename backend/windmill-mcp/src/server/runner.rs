@@ -71,7 +71,7 @@ use http::request::Parts as HttpParts;
 /// Maximum size in bytes for tool result text content.
 /// Anthropic enforces a 25,000 token limit per tool result.
 /// At ~3.5 bytes/token, 87,500 bytes is a safe upper bound.
-const MAX_TOOL_RESULT_BYTES: usize = 87_500;
+pub const MAX_TOOL_RESULT_BYTES: usize = 87_500;
 
 pub(super) fn truncate_tool_result(text: String) -> String {
     if text.len() <= MAX_TOOL_RESULT_BYTES {
