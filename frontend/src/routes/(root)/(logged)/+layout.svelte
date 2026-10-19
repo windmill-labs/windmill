@@ -1575,9 +1575,10 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 		</div>
 	</div>
 {:else if instanceOnlyView}
-	<!-- No workspace means no sidebar: everything in it is workspace-scoped. -->
+	<!-- No workspace means no sidebar: everything in it is workspace-scoped. The header bar
+	     stays, without its workspace part: pages register their toolbars there. -->
 	<div class="flex flex-col h-screen w-full bg-surface">
-		<div class="flex items-center px-4 py-2 border-b shrink-0">
+		<div class="flex items-center pl-4 border-b shrink-0">
 			<Button
 				variant="subtle"
 				unifiedSize="sm"
@@ -1586,6 +1587,9 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 			>
 				Workspaces
 			</Button>
+			<div class="flex-1 min-w-0">
+				<PageHeaderBar navHidden />
+			</div>
 		</div>
 		<div class="flex-1 min-h-0 overflow-auto">
 			{@render children?.()}
