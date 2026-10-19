@@ -30,6 +30,8 @@
 			href: string
 			kind: FavoriteKind
 		}[] = $state([])
+		/** Bumped once a star or unstar has reached the server, for lists that query favorites. */
+		changes = $state(0)
 
 		async unstar(path: string, favorite_kind: FavoriteKind, workspaceId?: string) {
 			this.current = this.current.filter(
@@ -40,6 +42,7 @@
 				workspace: workspaceId ?? get(workspaceStore)!,
 				requestBody: { path, favorite_kind }
 			})
+			this.changes++
 		}
 
 		async star(path: string, favorite_kind: FavoriteKind, workspaceId?: string, summary?: string) {
@@ -50,6 +53,7 @@
 				workspace: workspaceId ?? get(workspaceStore)!,
 				requestBody: { path, favorite_kind }
 			})
+			this.changes++
 		}
 
 		isStarred(path: string, favorite_kind: string) {

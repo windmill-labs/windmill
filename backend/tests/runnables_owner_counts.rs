@@ -205,6 +205,37 @@ async fn test_runnable_counts_match_rls_listing(db: Pool<Postgres>) -> anyhow::R
         "duplicate kinds must not double the counts"
     );
 
+    // The Starred and Drafts tab badges add their own binds after the scope ones, in
+    // both the folder-prefix pass and the share pass. The pipeline member counts here:
+    // those tabs list it as a row. f/secret/hidden is starred but unreadable.
+    sqlx::query(
+        "INSERT INTO favorite (usr, workspace_id, path, favorite_kind) VALUES
+         ('test-user-2', 'test-workspace', 'f/team/s1', 'script'),
+         ('test-user-2', 'test-workspace', 'f/team/step', 'script'),
+         ('test-user-2', 'test-workspace', 'f/secret/shared_to_user', 'script'),
+         ('test-user-2', 'test-workspace', 'f/secret/hidden', 'script')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        r#"INSERT INTO draft (workspace_id, path, typ, value, email) VALUES
+           ('test-workspace', 'f/team/s2', 'script', '{"path": "f/team/s2"}', 'test2@windmill.dev'),
+           ('test-workspace', 'f/secret/shared_to_group', 'script', '{"path": "f/secret/shared_to_group"}', 'test2@windmill.dev'),
+           ('test-workspace', 'f/team/fl1', 'flow', '{"path": "f/team/fl1"}', 'test@windmill.dev')"#,
+    )
+    .execute(&db)
+    .await?;
+    assert_eq!(
+        counts_endpoint_q(port, "SECRET_TOKEN_2", "only_starred=true").await,
+        HashMap::from([("f/team".to_string(), 2), ("f/secret".to_string(), 1)]),
+        "the caller's readable favorites, through the folder grant and the direct share"
+    );
+    assert_eq!(
+        counts_endpoint_q(port, "SECRET_TOKEN_2", "only_drafts=true").await,
+        HashMap::from([("f/team".to_string(), 1), ("f/secret".to_string(), 1)]),
+        "the caller's own drafts, not another user's"
+    );
+
     // Operators see flows and apps like anyone else; only library scripts are hidden
     // from them. (test-user-3 has no grants, so their own space is the whole story.)
     sqlx::query("UPDATE usr SET operator = true WHERE workspace_id = 'test-workspace' AND username = 'test-user-3'")

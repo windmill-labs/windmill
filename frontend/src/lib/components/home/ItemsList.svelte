@@ -63,6 +63,8 @@
 	import PipelineRow from '../common/table/PipelineRow.svelte'
 	import BulkActionsBar from './BulkActionsBar.svelte'
 	import { HomeSelection, setHomeSelection, toBulkItem } from './homeSelection.svelte'
+	import { favoriteManager } from '../sidebar/FavoriteMenu.svelte'
+	import { scopedValue, tagged } from '$lib/utils/scopedValue'
 
 	const editRights = useEditRights()
 
@@ -349,6 +351,11 @@
 		logFeatureUsage('home', 'tab_switch', { key: t })
 	}
 	let treeView = $derived(tab === 'all')
+	// Recent and All fold a pipeline's member scripts into its folder's Pipeline entry.
+	// Starred and Drafts show no pipeline entries, so there a member is a row of its own.
+	function foldsPipelines(t: HomeTab) {
+		return t === 'recent' || t === 'all'
+	}
 
 	// The listing params every request of the open tab carries.
 	function tabParams(t: HomeTab) {
@@ -448,7 +455,7 @@
 		for (const it of res.items ?? []) {
 			if (it.type === 'script') {
 				// Pipeline-member scripts are folded into their pipeline entry.
-				if (it.auto_kind === 'pipeline') {
+				if (it.auto_kind === 'pipeline' && foldsPipelines(tab)) {
 					const m = effectivePath(it).match(/^f\/([^/]+)\//)
 					if (m) memberFolders.add(m[1])
 					continue
@@ -489,7 +496,7 @@
 		const memberFolders = new Set(pipelineMemberFolders)
 		let changed = false
 		for (const it of newItems) {
-			if (it.type === 'script' && it.auto_kind === 'pipeline') {
+			if (it.type === 'script' && it.auto_kind === 'pipeline' && foldsPipelines(tab)) {
 				const m = it.path.match(/^f\/([^/]+)\//)
 				if (m) memberFolders.add(m[1])
 				continue
@@ -1004,31 +1011,43 @@
 		ownerCounts ? Object.values(ownerCounts).reduce((a, b) => a + b, 0) : undefined
 	)
 	// The Starred and Drafts tab badges: the per-owner counts of the same scope as their
-	// lists, summed. Keyed on the tab too, so switching tabs refreshes them with the list.
+	// lists, summed. A star change re-reads them without blanking them, since it is in the
+	// resource's key but not in the scope the result is tagged with.
+	let tabCountsScope = $derived(
+		$workspaceStore && !archived
+			? JSON.stringify([$workspaceStore, itemKind, includeWithoutMain])
+			: undefined
+	)
+	const fetchTabCounts = tagged(async (scope: string) => {
+		const [ws, kind, withoutMain] = JSON.parse(scope) as [string, string, boolean]
+		const count = async (flags: { onlyStarred?: boolean; onlyDrafts?: boolean }) => {
+			const res = await ScriptService.countRunnablesByOwner({
+				workspace: ws,
+				kinds: kind !== 'all' ? kind : undefined,
+				includeWithoutMain: withoutMain ? true : undefined,
+				...flags
+			})
+			return Object.values(res.counts).reduce((a, b) => a + b, 0)
+		}
+		const [starred, drafts] = await Promise.all([
+			count({ onlyStarred: true }),
+			count({ onlyDrafts: true })
+		])
+		return { starred, drafts } as Partial<Record<HomeTab, number>>
+	})
 	let tabCountsRes = resource(
-		[() => $workspaceStore, () => archived, () => itemKind, () => includeWithoutMain, () => tab],
-		async ([ws, showArchived, kind, withoutMain]) => {
-			if (!ws || showArchived) return undefined
-			const count = async (flags: { onlyStarred?: boolean; onlyDrafts?: boolean }) => {
-				const res = await ScriptService.countRunnablesByOwner({
-					workspace: ws,
-					kinds: kind !== 'all' ? kind : undefined,
-					includeWithoutMain: withoutMain ? true : undefined,
-					...flags
-				})
-				return Object.values(res.counts).reduce((a, b) => a + b, 0)
-			}
+		[() => tabCountsScope, () => favoriteManager.changes],
+		async ([scope]) => {
+			if (!scope) return undefined
 			try {
-				const [starred, drafts] = await Promise.all([
-					count({ onlyStarred: true }),
-					count({ onlyDrafts: true })
-				])
-				return { starred, drafts } as Partial<Record<HomeTab, number>>
+				return await fetchTabCounts(scope)
 			} catch {
 				return undefined
 			}
 		}
 	)
+	const scopedTabCounts = scopedValue<Partial<Record<HomeTab, number>>>()
+	let tabCounts = $derived(scopedTabCounts(tabCountsScope, tabCountsRes.current))
 
 	type KindOption = {
 		value: 'all' | 'script' | 'flow' | 'app' | 'agent'
@@ -1217,7 +1236,9 @@
 	let treeGlobalHasMore = $derived(ownerFilter != undefined && !searching ? hasMoreServer : false)
 	$effect(() => {
 		if ($userStore && $workspaceStore) {
+			// Starred lists favorites, so a star change there re-reads it.
 			;[archived, includeWithoutMain, tab, searching, ownerFilter, itemKind]
+			if (tab === 'starred') void favoriteManager.changes
 			// reloadItems (not a bare loadRunnables) so an in-place change — archive,
 			// library, kind — reloads the global stream AND re-fetches the currently-open
 			// owners in the new filter, keeping folders expanded (file-explorer style)
@@ -1864,16 +1885,6 @@
 							class="text-hint font-normal">({workspaceItemsCount})</span
 						>{/if}
 				</span>
-				{#if !loading && !contentActive && !workspaceEmpty && treeView}
-					<Button
-						unifiedSize="sm"
-						variant="default"
-						iconOnly
-						title={collapseAll ? 'Expand all' : 'Collapse all'}
-						on:click={() => (collapseAll = !collapseAll)}
-						startIcon={{ icon: collapseAll ? ChevronsUpDown : ChevronsDownUp }}
-					/>
-				{/if}
 			</div>
 
 			<!-- basis-64: the toolbar fits Home's column on one line; narrower, this group wraps
@@ -1976,7 +1987,7 @@
 			<div class="sticky z-10 bg-surface" style:top="{toolbarHeight}px">
 				<Tabs bind:selected={() => tab, (v) => setTab(v as HomeTab)}>
 					{#each homeTabs as t (t.value)}
-						{@const count = tabCountsRes.current?.[t.value]}
+						{@const count = tabCounts?.[t.value]}
 						<Tab value={t.value} label={t.label} exact>
 							{#snippet extra()}
 								{#if count != undefined}
@@ -1985,6 +1996,19 @@
 							{/snippet}
 						</Tab>
 					{/each}
+					<!-- The open tab's own actions, at the end of the strip. -->
+					<div class="ml-auto flex items-center gap-1 pl-2">
+						{#if !loading && treeView}
+							<Button
+								unifiedSize="sm"
+								variant="subtle"
+								on:click={() => (collapseAll = !collapseAll)}
+								startIcon={{ icon: collapseAll ? ChevronsUpDown : ChevronsDownUp }}
+							>
+								{collapseAll ? 'Expand all' : 'Collapse all'}
+							</Button>
+						{/if}
+					</div>
 				</Tabs>
 			</div>
 		{/if}

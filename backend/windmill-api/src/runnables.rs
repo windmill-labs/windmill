@@ -978,18 +978,23 @@ async fn count_runnables_by_owner(
             match kind {
                 "script" => {
                     w.push(format!("{alias}.archived = false"));
-                    // `pipeline` members are always excluded: the tree folds them into
-                    // their folder's single "Pipeline" entry and never lists them as
-                    // rows, so counting them would promise items that never appear.
-                    // `lib` follows the caller's include_without_main, as in the listing.
-                    let mut hidden = vec!["'pipeline'"];
+                    // `pipeline` members are excluded except under only_starred/only_drafts:
+                    // elsewhere the list folds them into their folder's single "Pipeline"
+                    // entry and never shows them as rows, while the Starred and Drafts tabs
+                    // list them individually. `lib` follows include_without_main, as in the listing.
+                    let mut hidden = vec![];
+                    if !(only_starred || only_drafts) {
+                        hidden.push("'pipeline'");
+                    }
                     if !with_libs {
                         hidden.push("'lib'");
                     }
-                    w.push(format!(
-                        "({alias}.auto_kind IS NULL OR {alias}.auto_kind NOT IN ({}))",
-                        hidden.join(", ")
-                    ));
+                    if !hidden.is_empty() {
+                        w.push(format!(
+                            "({alias}.auto_kind IS NULL OR {alias}.auto_kind NOT IN ({}))",
+                            hidden.join(", ")
+                        ));
+                    }
                     if let Some(s) = scope_path_predicate(&authed, "scripts", alias, base, binds) {
                         w.push(s);
                     }
@@ -1217,16 +1222,20 @@ async fn add_draft_counts(
             ];
             if *kind == "script" {
                 // Same rule as the deployed count, over the `auto_kind` the editor
-                // stamped into the draft: a pipeline member is folded into its
-                // pipeline entry rather than listed, and `lib` follows the caller.
-                let mut hidden = vec!["'pipeline'"];
+                // stamped into the draft.
+                let mut hidden = vec![];
+                if !q.only_drafts.unwrap_or(false) {
+                    hidden.push("'pipeline'");
+                }
                 if !with_libs {
                     hidden.push("'lib'");
                 }
-                w.push(format!(
-                    "(d.value->>'auto_kind' IS NULL OR d.value->>'auto_kind' NOT IN ({}))",
-                    hidden.join(", ")
-                ));
+                if !hidden.is_empty() {
+                    w.push(format!(
+                        "(d.value->>'auto_kind' IS NULL OR d.value->>'auto_kind' NOT IN ({}))",
+                        hidden.join(", ")
+                    ));
+                }
             }
             if let Some(s) = scope_path_predicate(authed, domain, "d", 2, &mut binds) {
                 w.push(s);
