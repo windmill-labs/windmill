@@ -568,6 +568,7 @@ export const pipelineTools: SessionTool<PipelineToolHelpers>[] = [
 		requires: RUN_PREVIEW,
 		def: testPipelineNodeToolDef,
 		requiresConfirmation: true,
+		confirmAction: 'run',
 		confirmationMessage: 'Run pipeline node',
 		showDetails: true,
 		autoCollapseDetails: false,
