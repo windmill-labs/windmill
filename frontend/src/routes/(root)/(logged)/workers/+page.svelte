@@ -602,9 +602,12 @@
 		if (!config || !config.worker_tags || config.worker_tags.length === 0) cols += 1 // Worker tags
 		if ((!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole))
 			cols += 2 // Last job, Occupancy rate
-		if ($superadmin || $devopsRole) cols += 1 // Repl
+		if (replAvailable) cols += 1 // Repl
 		return cols
 	})
+	// The REPL runs its commands as jobs in the selected workspace, which a devops user who
+	// belongs to no workspace does not have (see `isInstanceRoute`).
+	let replAvailable = $derived(($superadmin || $devopsRole) && !!$workspaceStore)
 </script>
 
 {#if $superadmin || $devopsRole}
@@ -1022,7 +1025,7 @@
 									<Cell head>Limits</Cell>
 									<Cell head>Version</Cell>
 									<Cell head>Status</Cell>
-									{#if $superadmin || $devopsRole}
+									{#if replAvailable}
 										<Cell head>
 											Repl
 											<Tooltip>
@@ -1152,12 +1155,16 @@
 													<Cell class="text-secondary">{jobs_executed}</Cell>
 													{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
 														<Cell class="text-secondary">
-															{#if last_job_id}
+															<!-- The run page switches to the job's workspace, which strands a
+															     devops user who belongs to none of them. -->
+															{#if last_job_id && $workspaceStore}
 																<a href={`/run/${last_job_id}?workspace=${last_job_workspace_id}`}>
 																	View last job
 																	<ExternalLink size={12} class="inline-block" />
 																</a>
 																<br />
+																{last_job_workspace_id}
+															{:else if last_job_id}
 																{last_job_workspace_id}
 															{/if}
 														</Cell>
@@ -1277,7 +1284,7 @@
 															<div class="text-2xs text-hint">{pingText}</div>
 														</div>
 													</Cell>
-													{#if $superadmin || $devopsRole}
+													{#if replAvailable}
 														<Cell class="text-secondary">
 															<Button
 																unifiedSize="sm"

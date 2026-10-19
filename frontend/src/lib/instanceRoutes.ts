@@ -1,7 +1,7 @@
 /**
- * Pages that read only instance-level endpoints, so a devops user can open them without
- * belonging to any workspace. Devops grants no workspace access, so a page added here must not
- * call a workspace-scoped endpoint or read `$workspaceStore`/`$userStore` to render.
+ * Pages a devops user can open without belonging to any workspace. Devops grants no workspace
+ * access, so such a page renders with `$workspaceStore` and `$userStore` unset and must hide
+ * whatever needs them (a workspace-scoped call or a link into a workspace) rather than break.
  */
 const INSTANCE_ROUTES = ['/workers', '/service_logs']
 
