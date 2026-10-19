@@ -456,6 +456,34 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
         "the response returns the address written through from the principal"
     );
 
+    // Empty strings are how clients and exports say "no identity chosen": the creator's.
+    let resp = authed(client().post(format!("{base}/apps/create")), "SECRET_TOKEN")
+        .json(&new_app_with_on_behalf_of(
+            "u/test-user/app_empty_identity",
+            Some(""),
+            Some(""),
+            false,
+        ))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        201,
+        "an empty identity is not a named one: {}",
+        resp.text().await?
+    );
+    let policy = sqlx::query_scalar!(
+        "SELECT policy FROM app WHERE path = $1 AND workspace_id = $2",
+        "u/test-user/app_empty_identity",
+        "test-workspace"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        policy.get("on_behalf_of").and_then(|v| v.as_str()),
+        Some("u/test-user")
+    );
+
     // ========================================
     // 8. App: Deployer preserves on_behalf_of
     // ========================================

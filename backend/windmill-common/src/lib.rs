@@ -310,14 +310,15 @@ pub fn check_on_behalf_of_preservation(
 /// principal) is theirs. A write requesting only the caller has chosen nobody, so on create a
 /// folder's `default_permissioned_as` still applies to it — the run-as pickers start on "me",
 /// and a rule made to give a folder's runnables a service identity must not lose to that.
+/// An empty half names nobody: clients and exports send `""` for "no identity chosen".
 pub fn names_only_caller(
     on_behalf_of_email: Option<&str>,
     on_behalf_of: Option<&str>,
     authed: &impl db::Authable,
 ) -> bool {
     let own = users::username_to_permissioned_as(authed.username());
-    on_behalf_of.map_or(true, |p| p == own)
-        && on_behalf_of_email.map_or(true, |e| e == authed.email())
+    on_behalf_of.map_or(true, |p| p.is_empty() || p == own)
+        && on_behalf_of_email.map_or(true, |e| e.is_empty() || e == authed.email())
 }
 
 /// Resolves the identity to store when creating/updating a flow, script or app.
@@ -371,6 +372,8 @@ pub async fn resolve_on_behalf_of(
     {
         return reject_unenqueueable(own);
     }
+    let on_behalf_of_email = on_behalf_of_email.filter(|e| !e.is_empty());
+    let on_behalf_of = on_behalf_of.filter(|p| !p.is_empty());
     // Reserved superadmin sentinels are rejected by name, before resolution: the lookups
     // below only reject them while no account holds their address, and the runtime grants
     // superadmin on these emails by string comparison alone.
