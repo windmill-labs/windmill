@@ -1508,7 +1508,8 @@
 				{onKeyDown}
 				className={twMerge(
 					oneLine ? '!pl-4 !pr-2 !py-3' : toolbarInBox ? FIELD_PADDING_WITH_TOOLBAR : '',
-					chatIcon && '!pl-2'
+					// A set line height, not the font's own: the chat icon is placed against it.
+					chatIcon && '!pl-2 !leading-5'
 				)}
 			>
 				{#snippet leading()}
@@ -1617,21 +1618,15 @@
 					}}
 					rows={1}
 					placeholder={modePlaceholder}
-					class={twMerge(
-						'resize-none',
-						COMPOSER_FIELD_RESET,
-						CHAT_INPUT_PADDING,
-						toolbarInBox && FIELD_PADDING_WITH_TOOLBAR
-					)}
+					class={twMerge('resize-none', COMPOSER_FIELD_RESET, CHAT_INPUT_PADDING)}
 					{disabled}
 				></textarea>
-				{#if !bottomRightSnippet && !toolbarInBox}
+				{#if !bottomRightSnippet}
 					<div class="absolute bottom-1 right-1">
 						{@render sendStopButton()}
 					</div>
 				{/if}
 			</div>
-			{@render toolbarRow()}
 		</div>
 	{/if}
 	{#if toolbar && !toolbarInBox}

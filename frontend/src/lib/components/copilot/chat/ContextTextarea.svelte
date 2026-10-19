@@ -805,18 +805,22 @@
 
 <!-- The box that opens a session grows and shrinks between its one-line and full shapes. -->
 <div
-	class={twMerge(composerBoxClass(disabled), hero && !disabled && HERO_BOX_CLASS)}
-	use:smoothHeight={{ enabled: hero && !disabled, key: oneLine }}
+	class={twMerge(composerBoxClass(disabled), hero && HERO_BOX_CLASS)}
+	use:smoothHeight={{ enabled: hero, key: oneLine }}
 >
 	<div class={oneLine ? 'flex flex-row items-center' : ''}>
 		<!-- Context chips live inside the input box, above the textarea. The snippet
 	     self-guards (renders nothing when empty) so no blank row appears. -->
 		{@render leading?.()}
 		{#if chatIcon}
-			<!-- The same mark as the "open in chat" buttons. On the field's first line: centred on the
-			     one-line box, level with the first line of text once it opens. -->
-			<div class="flex {oneLine ? 'flex-1 min-w-0 items-center' : 'items-start'}">
-				<MessagesSquare size={16} class="shrink-0 ml-4 text-ai {oneLine ? '' : 'mt-3.5'}" />
+			<!-- The same mark as the "open in chat" buttons, centred on the field's first text line in
+			     both shapes: the slot is that line (1px border + 12px padding down, 20px tall), so it
+			     relies on the field's `!py-3`/`!pt-3` and the `leading-5` set alongside `chatIcon`.
+			     Centring on the field box instead follows its autosized height, which varies. -->
+			<div class="flex items-start {oneLine ? 'flex-1 min-w-0' : ''}">
+				<span class="flex items-center h-5 mt-[13px] ml-4 shrink-0">
+					<MessagesSquare size={16} class="text-ai" />
+				</span>
 				{@render field()}
 			</div>
 		{:else}

@@ -47,6 +47,7 @@
 	{/snippet}
 	{#snippet actions()}
 		<Dropdown
+			size="sm"
 			items={async () => {
 				let { path } = app
 

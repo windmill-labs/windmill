@@ -3,7 +3,9 @@
 	import TreeView from './TreeView.svelte'
 	import { countLeaves, groupItems, type ItemType, type UserItem } from './treeViewUtils'
 	import { Button } from '$lib/components/common'
-	import { ChevronDown, ChevronUp, Users } from 'lucide-svelte'
+	import { Users } from 'lucide-svelte'
+	import TreeOwnerRow from './TreeOwnerRow.svelte'
+	import { inUnruledList, rowRule } from '../common/table/unruledList'
 	import { getLocalSetting, pluralize, storeLocalSetting } from '$lib/utils'
 
 	interface Props {
@@ -40,7 +42,7 @@
 		onExpandOwner?: (owner: string, more?: boolean, opts?: { all?: boolean }) => void
 		onCollapseOwner?: (owner: string) => void
 		showEditButton?: boolean
-		/** Off where the tree sits in a card of its host's, which already draws the frame. */
+		/** Off where the tree is part of its host's list rather than a box of its own (Home). */
 		framed?: boolean
 		// Tuck every user space but `selfUsername`'s into one collapsible "Other users" row
 		// under it. Only for browsing: a search or filter must not hide its matches behind
@@ -72,6 +74,8 @@
 		groupOtherUsers = false,
 		leaf
 	}: Props = $props()
+
+	const unruled = inUnruledList()
 
 	// How many root nodes render at once. A root node is a collapsed owner row that
 	// fetches nothing until expanded, so a large slice costs a row each and no request
@@ -283,48 +287,25 @@
 	<!-- Every row draws its own border-b, so the last one would double the frame's bottom border.
 	     Pulling the content 1px down puts that border under the frame, where overflow-hidden
 	     clips it, whichever row (collapsed owner, leaf, expanded subtree) ends the list. -->
-	<!-- Unframed, the tree is part of a card that separates nothing between its rows. -->
-	<div
-		data-unruled={framed ? undefined : true}
-		data-hover-actions={framed ? undefined : true}
-		class="{framed ? 'border rounded-md bg-surface-tertiary' : 'rounded-b-md'} overflow-hidden"
-	>
+	<div class="{framed ? 'border rounded-md bg-surface-tertiary' : ''} overflow-hidden">
 		<div class="-mb-px">
 			{#each rows.slice(0, nbDisplayed) as row (row.kind === 'otherUsers' ? 'other_users' : 'folderName' in row.node ? `f__${row.node.folderName}` : 'username' in row.node ? `u__${row.node.username}` : `i__${row.node.type}__${row.node.path}`)}
 				{#if row.kind === 'otherUsers'}
 					<!-- Same shape as an owner row, so it reads as part of the tree. It only reveals
 				     the user rows under it: each still loads its own items when opened. -->
-					<!-- svelte-ignore a11y_click_events_have_key_events -->
-					<!-- svelte-ignore a11y_no_static_element_interactions -->
-					<div
-						onclick={toggleOtherUsers}
-						data-list-row
-						class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer hover:bg-surface-hover"
+					<TreeOwnerRow
+						icon={Users}
+						name="Other users"
+						opened={otherUsersOpen}
+						onToggle={toggleOtherUsers}
+						toggleLabel={otherUsersOpen ? 'Hide other users' : 'Show other users'}
 					>
-						<div class="flex flex-row items-center gap-4">
-							<Users size={16} class="text-secondary" />
-							<div>
-								<span class="whitespace-nowrap text-xs text-emphasis font-semibold"
-									>Other users</span
-								>
-								<div class="text-2xs font-normal text-secondary whitespace-nowrap">
-									({pluralize(otherUsers.length, 'user')}{otherUsersItemCount != undefined
-										? ` · ${pluralize(otherUsersItemCount, 'item')}`
-										: ''})
-								</div>
-							</div>
-						</div>
-						<Button
-							iconOnly
-							unifiedSize="xs"
-							variant="subtle"
-							startIcon={{ icon: otherUsersOpen ? ChevronUp : ChevronDown }}
-							title={otherUsersOpen ? 'Hide other users' : 'Show other users'}
-							aria-label="Other users"
-							aria-expanded={otherUsersOpen}
-							onClick={toggleOtherUsers}
-						/>
-					</div>
+						{#snippet detail()}
+							({pluralize(otherUsers.length, 'user')}{otherUsersItemCount != undefined
+								? ` · ${pluralize(otherUsersItemCount, 'item')}`
+								: ''})
+						{/snippet}
+					</TreeOwnerRow>
 					{#if otherUsersOpen}
 						<!-- Ranked after every root owner, so opening this row can't push folders out
 					     of what "expand all" auto-loads. -->
@@ -333,8 +314,9 @@
 						{/each}
 						{#if nbOtherUsersDisplayed < otherUsers.length}
 							<div
-								data-list-row
-								class="pl-8 pr-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
+								class="pl-8 pr-4 py-2 {rowRule(
+									unruled
+								)} flex flex-row items-center justify-between gap-4 bg-surface-secondary"
 							>
 								<span class="text-xs text-secondary">
 									Showing {nbOtherUsersDisplayed} of {otherUsers.length} users

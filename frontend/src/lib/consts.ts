@@ -10,6 +10,9 @@ export const DEFAULT_WEBHOOK_TYPE: 'async' | 'sync' = 'async'
 
 export const HOME_SHOW_HUB = true
 
+/** The width of Home's one column: the composer and the items list below it. */
+export const HOME_COLUMN_WIDTH = 'max-w-[1120px]'
+
 export const HOME_SHOW_CREATE_FLOW = true
 export const HOME_SEARCH_SHOW_FLOW = true
 

@@ -3,13 +3,14 @@
 	import { createEventDispatcher, onDestroy, untrack, type Snippet } from 'svelte'
 	import ResizeTransitionWrapper from '$lib/components/common/ResizeTransitionWrapper.svelte'
 
-	import { ChevronDown, ChevronUp, Folder, FolderTree, User } from 'lucide-svelte'
+	import { Folder, FolderTree, User } from 'lucide-svelte'
+	import TreeOwnerRow from './TreeOwnerRow.svelte'
 	import PipelineRow from '../common/table/PipelineRow.svelte'
 	import Item from './Item.svelte'
 	import { countLeaves, type FolderItem, type ItemType, type UserItem } from './treeViewUtils'
-	import { twMerge } from 'tailwind-merge'
 	import { pluralize } from '$lib/utils'
 	import { Button } from '$lib/components/common'
+	import { inUnruledList, rowRule } from '../common/table/unruledList'
 
 	interface Props {
 		item: ItemType | FolderItem | UserItem
@@ -71,6 +72,8 @@
 		indent = 0,
 		leaf
 	}: Props = $props()
+
+	const unruled = inUnruledList()
 
 	let visualDepth = $derived(depth + indent)
 
@@ -262,57 +265,30 @@
 
 {#if isFolder(item) || isUser(item)}
 	<div>
-		<!-- svelte-ignore a11y_click_events_have_key_events -->
-		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div
-			onclick={toggleOwner}
-			data-list-row
-			class="px-4 py-2 border-b w-full flex flex-row items-center justify-between cursor-pointer hover:bg-surface-hover"
+		<TreeOwnerRow
+			icon={isUser(item) ? User : depth === 0 ? Folder : FolderTree}
+			name={isUser(item) ? `u/${item.username}` : `${depth === 0 ? 'f/' : ''}${item.folderName}`}
+			{opened}
+			onToggle={toggleOwner}
+			indent={visualDepth * 16}
 		>
-			<div
-				class={twMerge('flex flex-row items-center gap-4 text-sm font-semibold')}
-				style={visualDepth > 0 ? `padding-left: ${visualDepth * 16}px;` : ''}
-			>
-				<div class="flex justify-center items-center">
-					{#if isUser(item)}
-						<User size={16} class="text-secondary" />
-					{:else if depth === 0}
-						<Folder size={16} class="text-secondary" />
-					{:else}
-						<FolderTree size={16} class="text-secondary" />
-					{/if}
-				</div>
-
-				<div>
-					<span class="whitespace-nowrap text-xs text-emphasis font-semibold">
-						{#if isUser(item)}u/{item.username}{:else}{#if depth === 0}f/{/if}{item.folderName}{/if}
-					</span>
-					<div class="text-2xs font-normal text-secondary whitespace-nowrap">
-						{#if ownerCount != undefined}
-							({pluralize(ownerCount, ' item')})
-						{:else if isLazyOwner && !ownerState?.loaded}
-							<!-- Lazy owner not expanded yet and no count for it: its true item count
-							     is unknown until loaded, so showing "(0 items)" would be misleading. -->
-							&nbsp;
-						{:else if nodeHasMore}
-							<!-- Partial: this node still has pages to load (its own once it has been
-							     loaded directly, otherwise its ancestor's), so what is grouped under
-							     it is only what has arrived so far. -->
-							({loadedHere}+ items)
-						{:else}
-							({pluralize(loadedHere, ' item')})
-						{/if}
-					</div>
-				</div>
-			</div>
-			<button class="w-full flex flex-row-reverse">
-				{#if opened}
-					<ChevronUp size={16} />
+			{#snippet detail()}
+				{#if ownerCount != undefined}
+					({pluralize(ownerCount, ' item')})
+				{:else if isLazyOwner && !ownerState?.loaded}
+					<!-- Lazy owner not expanded yet and no count for it: its true item count
+					     is unknown until loaded, so showing "(0 items)" would be misleading. -->
+					&nbsp;
+				{:else if nodeHasMore}
+					<!-- Partial: this node still has pages to load (its own once it has been
+					     loaded directly, otherwise its ancestor's), so what is grouped under
+					     it is only what has arrived so far. -->
+					({loadedHere}+ items)
 				{:else}
-					<ChevronDown size={16} />
+					({pluralize(loadedHere, ' item')})
 				{/if}
-			</button>
-		</div>
+			{/snippet}
+		</TreeOwnerRow>
 		<!-- ResizeObserver, not a slide: a freshly-opened owner fetches its rows, so its height
 		     changes twice (open-empty, then rows land) and a slide would only animate the first. -->
 		<ResizeTransitionWrapper vertical innerClass="w-full">
@@ -351,8 +327,9 @@
 					{/each}
 					{#if effectiveMax < item.items.length}
 						<div
-							data-list-row
-							class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
+							class="px-4 py-2 {rowRule(
+								unruled
+							)} flex flex-row items-center justify-between gap-4 bg-surface-secondary"
 							style="padding-left: {(visualDepth + 1) * 16}px;"
 						>
 							<!-- Rows, not items: this slices the node's own entries, where a subfolder
@@ -389,8 +366,9 @@
 						     is the point: without them this reads as an optional extra rather than
 						     as rows still missing. -->
 							<div
-								data-list-row
-								class="px-4 py-2 border-b flex flex-row items-center justify-between gap-4 bg-surface-secondary"
+								class="px-4 py-2 {rowRule(
+									unruled
+								)} flex flex-row items-center justify-between gap-4 bg-surface-secondary"
 								style="padding-left: {(visualDepth + 1) * 16}px;"
 							>
 								<span class="text-xs text-secondary">

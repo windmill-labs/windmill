@@ -25,8 +25,7 @@
 		type Scope
 	} from '$lib/components/sessions/PreviewRouterPicker.svelte'
 	import { goto } from '$lib/navigation'
-	import { resource } from 'runed'
-	import { WorkspaceService } from '$lib/gen'
+	import { useWorkspaceAiHidden } from '$lib/components/copilot/workspaceAiHidden.svelte'
 	import SessionWrapper from '$lib/components/sessions/SessionWrapper.svelte'
 	import PreviewTabHost from '$lib/components/sessions/PreviewTabHost.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
@@ -45,7 +44,6 @@
 	import { enterSessionMode } from '$lib/components/sessions/sessionSwitch.svelte'
 	import type { SessionPreviewTabs } from '$lib/components/sessions/sessionPreviewTabs.svelte'
 	import { userStore, userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
-	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import {
 		getOrCreateRuntime,
 		getRuntime,
@@ -325,45 +323,15 @@
 		(activeSession ? getEffectiveWorkspaceId(activeSession) : undefined) ?? $workspaceStore
 	)
 
-	// Whether that workspace hid the AI assistant (`ai_config.copilot_disabled`). Read
-	// directly rather than from `copilotInfo`: that store holds whichever workspace loaded
-	// last, and the gate below unmounts the session wrapper that would refresh it, so a
-	// hidden verdict would stick across session and workspace switches. Tagged with its
-	// workspace and guarded against a superseded response like the protection-rules
-	// resource: runed keeps the previous `current` while a new source loads, so a switch
-	// would otherwise be judged on the previous workspace's verdict. A failed read leaves
-	// the page usable, as an unloaded config does everywhere else.
-	const workspaceAiHidden = resource(
-		() => previewWorkspace,
-		async (workspace, _prev, { signal }) => {
-			if (!workspace) return { workspace, hidden: false }
-			let hidden = false
-			try {
-				hidden = (await WorkspaceService.getCopilotInfo({ workspace })).copilot_disabled === true
-			} catch (e) {
-				console.error(`Failed to read the AI config of workspace ${workspace}:`, e)
-			}
-			// The generated client can't take an abort signal, so drop a superseded response here.
-			if (signal.aborted) throw new DOMException('superseded', 'AbortError')
-			return { workspace, hidden }
-		}
-	)
-	// Only a verdict for the workspace currently judged counts; `undefined` means it has not
-	// landed yet.
-	const aiHiddenVerdict = $derived.by(() => {
-		const current = workspaceAiHidden.current
-		if (current && current.workspace === previewWorkspace) return current.hidden
-		// The AI config already loaded for this very workspace (by Home, on the way here) carries
-		// the same flag. Tagged with its workspace, so it is never another workspace's verdict.
-		return previewWorkspace && $copilotWorkspace === previewWorkspace
-			? $copilotInfo.workspaceDisabled
-			: undefined
-	})
+	// Whether that workspace hid the AI assistant. The gate below unmounts the session wrapper
+	// that would refresh `copilotInfo`, so the verdict is read for the workspace itself.
+	const workspaceAiHidden = useWorkspaceAiHidden(() => previewWorkspace)
+	const aiHiddenVerdict = $derived(workspaceAiHidden.hidden)
 	// The full loader is for the page's first verdict only. Later, picking another workspace in
-	// "Acting on" leaves the session on screen, inert until its verdict lands (the resource
-	// keeps the previous one meanwhile): covering it for a request reads as the page reloading.
+	// "Acting on" leaves the session on screen, inert until its verdict lands: covering it for
+	// a request reads as the page reloading.
 	const firstVerdictPending = $derived(
-		aiHiddenVerdict === undefined && workspaceAiHidden.current === undefined
+		aiHiddenVerdict === undefined && !workspaceAiHidden.settledOnce
 	)
 
 	// Lazy-mount gate: a tab's content only renders once its key lands here (on
@@ -1290,8 +1258,9 @@
 			{:else if aiHiddenVerdict}
 				<!-- The workspace hid the assistant, and the sidebar switch with it, so only a
 				     direct URL or a session acting on such a workspace lands here. -->
+				<!-- Centred like the loader above: the page header overlays this pane's top edge. -->
 				<div
-					class="absolute inset-0 z-20 bg-surface p-8 flex flex-col items-start gap-3 text-secondary text-sm"
+					class="absolute inset-0 z-20 bg-surface p-8 flex flex-col items-center justify-center gap-3 text-secondary text-sm text-center"
 				>
 					<p class="text-primary font-medium">AI Sessions are hidden in this workspace</p>
 					<p>A workspace admin hid AI sessions in the workspace settings.</p>

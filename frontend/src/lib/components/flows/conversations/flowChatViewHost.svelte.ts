@@ -570,7 +570,7 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	}
 	// Typed off the interface: a Svelte component's own type resolves differently
 	// across import specifiers, and the two would then not be assignable.
-	#aiChatInput: Parameters<ChatViewHost['setAiChatInput']>[0] = null
+	#aiChatInput: Parameters<ChatViewHost['setAiChatInput']>[0] | null = null
 	setAiChatInput: ChatViewHost['setAiChatInput'] = (aiChatInput) =>
 		// Called from the composer's mount effect, and taking what a turn handed back reads the
 		// draft it writes: tracked, that would rerun the effect and hand it back again.

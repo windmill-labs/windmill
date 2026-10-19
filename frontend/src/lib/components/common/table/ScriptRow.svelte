@@ -50,7 +50,6 @@
 	import WacExportDrawer from '$lib/components/scripts/WacExportDrawer.svelte'
 	import { Drawer, DrawerContent } from '..'
 	import NoMainFuncBadge from '$lib/components/NoMainFuncBadge.svelte'
-	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import RowLabels from './RowLabels.svelte'
 	import AskAiRowButton from './AskAiRowButton.svelte'
 	import Popover from '$lib/components/Popover.svelte'
@@ -209,8 +208,7 @@
 			>
 		{/if}
 		<SharedBadge canWrite={script.canWrite} extraPerms={script.extra_perms} />
-		<RowLabels labels={script.labels} />
-		<InheritedLabels labels={script.inherited_labels} max={1} color="subtle" />
+		<RowLabels labels={script.labels} inherited={script.inherited_labels} />
 		<!-- Last, so the draft badges line up down the list whatever labels each row has. -->
 		<DraftBadge
 			is_draft={script.is_draft}
