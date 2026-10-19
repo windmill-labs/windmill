@@ -303,7 +303,11 @@
 		// already viewing, where currentSessionId doesn't change so activation alone
 		// wouldn't re-run this.
 		void composerFocusRequest.nonce
-		if (sessionState.currentSessionId !== sessionId) return
+		if (sessionState.currentSessionId !== sessionId) {
+			// The user left for another session: coming back is an activation, which focuses.
+			handoff = undefined
+			return
+		}
 		if (!aiChat) return
 		if (!$copilotInfo.enabled) return
 		const chat = aiChat
