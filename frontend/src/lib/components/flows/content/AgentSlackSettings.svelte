@@ -120,7 +120,42 @@
 
 {#if draft.state}
 	<div class="flex flex-col gap-4">
-		<Label label="Slack channels">
+		<Label label="Who can ask in its channels">
+			<ToggleButtonGroup
+				bind:selected={
+					() => (obo && draft.state?.args.slack_anyone ? 'anyone' : 'members'),
+					(v) => {
+						if (!draft.state) return
+						draft.state.args.slack_anyone = v === 'anyone' || undefined
+						// Anyone there runs it as its identity, so there must be one.
+						if (v === 'anyone') draft.state.args.run_on_behalf_of = true
+					}
+				}
+				disabled={readOnly}
+				noWFull
+			>
+				{#snippet children({ item })}
+					<ToggleButton
+						value="members"
+						label={obo ? `Workspace members, as ${runsAs}` : 'Workspace members, as themselves'}
+						tooltip={`Members who can read the agent, matched by their Slack email. ${obo ? `They run it as ${runsAs}, as they would in Windmill.` : 'Each runs it with their own permissions, as they would in Windmill.'}`}
+						showTooltipIcon
+						{item}
+						small
+					/>
+					<ToggleButton
+						value="anyone"
+						label="Anyone, as {runsAs}"
+						tooltip={`Everyone in these channels, people without a Windmill account included, runs it as ${runsAs}. ${obo ? '' : 'Turns on Run on behalf of, which also applies to runs from Windmill and the API. '}Applies when you deploy.`}
+						showTooltipIcon
+						{item}
+						small
+					/>
+				{/snippet}
+			</ToggleButtonGroup>
+		</Label>
+		<div class="flex flex-col gap-2 rounded-md border p-3">
+			<span class="text-xs font-semibold text-emphasis">Channels</span>
 			<div class="flex flex-col gap-2">
 				{#if draft.noDeployed}
 					<span class="text-2xs text-hint">Deploy the agent to share it in Slack channels.</span>
@@ -152,7 +187,7 @@
 								options={{
 									right: 'Default',
 									rightTooltip:
-										"Answers the bot's mentions and /windmill commands in this channel that name no agent, which then no longer reach the workspace's command script there. Only workspace admins can turn it on."
+										'Answers bot mentions in this channel that name no agent. Admins only.'
 								}}
 							/>
 							{#if !readOnly}
@@ -208,7 +243,9 @@
 								</Button>
 							</div>
 						{/if}
-						<span class="text-2xs text-hint">Channel changes apply at once.</span>
+						<span class="text-2xs text-hint"
+							>Channels are not saved with the agent: changes apply directly.</span
+						>
 					{:else if !readOnly}
 						<span class="text-2xs text-hint">
 							Slack can't be reached or was connected without AI agents; the agent's page says why.
@@ -216,40 +253,6 @@
 					{/if}
 				{/if}
 			</div>
-		</Label>
-		<Label label="Who can ask in these channels">
-			<ToggleButtonGroup
-				bind:selected={
-					() => (obo && draft.state?.args.slack_anyone ? 'anyone' : 'members'),
-					(v) => {
-						if (!draft.state) return
-						draft.state.args.slack_anyone = v === 'anyone' || undefined
-						// Anyone there runs it as its identity, so there must be one.
-						if (v === 'anyone') draft.state.args.run_on_behalf_of = true
-					}
-				}
-				disabled={readOnly}
-				noWFull
-			>
-				{#snippet children({ item })}
-					<ToggleButton
-						value="members"
-						label={obo ? `Workspace members, as ${runsAs}` : 'Workspace members, as themselves'}
-						tooltip={`Members who can read the agent, matched by their Slack email. ${obo ? `They run it as ${runsAs}, as they would in Windmill.` : 'Each runs it with their own permissions, as they would in Windmill.'}`}
-						showTooltipIcon
-						{item}
-						small
-					/>
-					<ToggleButton
-						value="anyone"
-						label="Anyone, as {runsAs}"
-						tooltip={`Everyone in these channels, people without a Windmill account included, runs it as ${runsAs}. ${obo ? '' : 'Turns on Run on behalf of, which also applies to runs from Windmill and the API. '}Applies when you deploy.`}
-						showTooltipIcon
-						{item}
-						small
-					/>
-				{/snippet}
-			</ToggleButtonGroup>
-		</Label>
+		</div>
 	</div>
 {/if}

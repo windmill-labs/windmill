@@ -13733,7 +13733,7 @@ paths:
                   type: string
                 is_default:
                   type: boolean
-                  description: whether the agent answers messages in the channel that name no agent
+                  description: whether the agent answers bot mentions in the channel that name no agent
               required:
                 - channel_id
                 - channel_name
@@ -30049,7 +30049,7 @@ components:
           type: string
         is_default:
           type: boolean
-          description: whether the agent answers messages in the channel that name no agent
+          description: whether the agent answers bot mentions in the channel that name no agent
       required:
         - channel_id
         - channel_name

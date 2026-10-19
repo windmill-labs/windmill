@@ -7,7 +7,7 @@
 //! channel is the trust boundary, as Slack decides who is in it, and everyone runs it as that
 //! identity, who agreed to it by deploying the agent so. Who may share it is then only who may
 //! edit it. A message reaches an agent when it names it (`+name` or `~name`), when its thread was
-//! started with it, or when it is its channel's default. Anything else goes to the workspace's
+//! started with it, or, for a mention, when it is its channel's default. Anything else goes to the workspace's
 //! command script as before, or, where there is none, is answered with the agents shared there.
 //! One Slack thread is one conversation per person: a run's tool results are its asker's to see,
 //! and a shared conversation would hand them to whoever replies next.
@@ -443,18 +443,15 @@ async fn slack_call(
     Ok(res)
 }
 
-/// A message addressed to Windmill, from a mention, a direct message or `/windmill`.
+/// A message addressed to Windmill: a bot mention or a direct message.
 pub struct SlackMessage {
     pub team_id: String,
     pub channel_id: String,
     pub user_id: String,
     /// With the bot mention stripped, still escaped the way Slack sends it.
     pub text: String,
-    /// The message's own ts; `None` for a slash command, which has no message to reply under.
-    pub ts: Option<String>,
+    pub ts: String,
     pub thread_ts: Option<String>,
-    /// A slash command's, where it can be answered when the bot cannot post in the channel.
-    pub response_url: Option<String>,
     /// Whether this request's Slack signature was verified. Carried from the check rather than
     /// re-read from the setting, which can be enabled between the two.
     pub signed: bool,
@@ -483,7 +480,7 @@ pub async fn try_answer(db: &DB, msg: SlackMessage) -> Result<bool> {
     }
     let text = decode_entities(&msg.text);
     let (name, question) = split_agent_name(&text);
-    let thread_root = msg.thread_ts.clone().or_else(|| msg.ts.clone());
+    let thread_root = msg.thread_ts.clone().unwrap_or_else(|| msg.ts.clone());
 
     // Only a workspace still connected to the team answers: disconnecting keeps its bot token.
     let shared = sqlx::query_as!(
@@ -497,24 +494,21 @@ pub async fn try_answer(db: &DB, msg: SlackMessage) -> Result<bool> {
     )
     .fetch_all(db)
     .await?;
-    let thread = match &thread_root {
-        Some(root) => sqlx::query!(
-            "SELECT workspace_id, agent_path FROM slack_thread_agent
-             WHERE slack_team_id = $1 AND channel_id = $2 AND thread_ts = $3",
-            msg.team_id,
-            msg.channel_id,
-            root
-        )
-        .fetch_optional(db)
-        .await?
-        // A thread's agent answers only while it is still shared here.
-        .and_then(|t| {
-            shared
-                .iter()
-                .find(|s| s.workspace_id == t.workspace_id && s.agent_path == t.agent_path)
-        }),
-        None => None,
-    };
+    let thread = sqlx::query!(
+        "SELECT workspace_id, agent_path FROM slack_thread_agent
+         WHERE slack_team_id = $1 AND channel_id = $2 AND thread_ts = $3",
+        msg.team_id,
+        msg.channel_id,
+        thread_root
+    )
+    .fetch_optional(db)
+    .await?
+    // A thread's agent answers only while it is still shared here.
+    .and_then(|t| {
+        shared
+            .iter()
+            .find(|s| s.workspace_id == t.workspace_id && s.agent_path == t.agent_path)
+    });
 
     let named = name.filter(|_| !shared.is_empty()).map(|name| {
         let matches = shared
@@ -567,9 +561,9 @@ pub async fn try_answer(db: &DB, msg: SlackMessage) -> Result<bool> {
 
     // Recorded before answering, so a follow-up sent while the first answer is on its way
     // already finds its agent.
-    if let (Route::Agent(path), Some(root)) = (&route, &thread_root) {
+    if let Route::Agent(path) = &route {
         if let Err(e) =
-            record_thread_agent(db, &msg.team_id, &msg.channel_id, root, &w_id, path).await
+            record_thread_agent(db, &msg.team_id, &msg.channel_id, &thread_root, &w_id, path).await
         {
             tracing::warn!("Could not record the Slack thread's agent: {e:#}");
         }
@@ -585,20 +579,18 @@ async fn start_answer(
     question: &str,
     msg: SlackMessage,
 ) -> Result<bool> {
-    if let Some(ts) = &msg.ts {
-        let first = sqlx::query_scalar!(
-            "INSERT INTO slack_answered_message (slack_team_id, channel_id, ts)
-             VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING true",
-            msg.team_id,
-            msg.channel_id,
-            ts
-        )
-        .fetch_optional(db)
-        .await?
-        .is_some();
-        if !first {
-            return Ok(true);
-        }
+    let first = sqlx::query_scalar!(
+        "INSERT INTO slack_answered_message (slack_team_id, channel_id, ts)
+         VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING true",
+        msg.team_id,
+        msg.channel_id,
+        msg.ts
+    )
+    .fetch_optional(db)
+    .await?
+    .is_some();
+    if !first {
+        return Ok(true);
     }
     if matches!(route, Route::Agent(_)) {
         windmill_common::feature_usage::log_feature_usage("slack_agent", "invoked", source);
@@ -784,50 +776,7 @@ async fn answer(
         return Ok(());
     }
 
-    // A slash command leaves no message to thread under, so the question is posted first.
-    let thread_root = match msg.thread_ts.clone().or_else(|| msg.ts.clone()) {
-        Some(ts) => ts,
-        None => {
-            // Special mentions (`<!channel>`, `<!here>`) defused: posted by the bot, they would
-            // notify the whole channel on the asker's behalf.
-            let echoed = msg.text.replace("<!", "&lt;!");
-            let posted = slack_call(
-                &token,
-                "chat.postMessage",
-                &[
-                    ("channel", channel.clone()),
-                    ("text", format!("<@{}>: {}", msg.user_id, echoed)),
-                ],
-            )
-            .await;
-            match posted {
-                Ok(posted) => posted["ts"].as_str().unwrap_or_default().to_string(),
-                Err(e) => {
-                    let not_member = ["not_in_channel", "channel_not_found"]
-                        .iter()
-                        .any(|code| e.to_string().contains(code));
-                    if let (true, Some(url)) = (not_member, &msg.response_url) {
-                        let _ = HTTP_CLIENT
-                            .post(url)
-                            .json(&serde_json::json!({
-                                "text": "Add the Windmill bot to this conversation to ask agents here."
-                            }))
-                            .send()
-                            .await;
-                    }
-                    return Err(e);
-                }
-            }
-        }
-    };
-    // A slash command's thread root exists only now, so its agent could not be recorded before.
-    if let (Route::Agent(path), None) = (&route, msg.thread_ts.as_ref().or(msg.ts.as_ref())) {
-        if let Err(e) =
-            record_thread_agent(db, &msg.team_id, &channel, &thread_root, w_id, path).await
-        {
-            tracing::warn!("Could not record the Slack thread's agent: {e:#}");
-        }
-    }
+    let thread_root = msg.thread_ts.clone().unwrap_or_else(|| msg.ts.clone());
     let reply = Reply::start(&token, &channel, &thread_root).await?;
 
     let email = match asker {

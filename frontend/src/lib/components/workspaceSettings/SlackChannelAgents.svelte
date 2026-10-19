@@ -16,8 +16,8 @@
 	<div class="flex flex-col gap-2">
 		<span class="text-xs font-semibold text-emphasis">Agents shared in Slack</span>
 		<span class="text-xs text-secondary">
-			Mentions of the bot and <code>/windmill</code> commands in a channel go to its default agent, not
-			to the command script. Share an agent or change its channels from the agent's page.
+			Bot mentions that name no agent go to the channel's default agent. Share an agent or change
+			its channels from its settings.
 		</span>
 		<div class="flex flex-col gap-1">
 			{#each channels.current as channel (channel.channel_id + channel.agent_path)}
