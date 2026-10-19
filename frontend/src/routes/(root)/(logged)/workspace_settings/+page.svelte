@@ -172,10 +172,10 @@
 	let useCustomSlackApp: boolean = $state(false)
 	// Opt-in: Slack refuses a connection asking for a scope its app doesn't declare. An agent's page
 	// links here with `agents=true`.
-	let slackAgents = $state($page.url.searchParams.get('agents') !== 'false')
+	let slackAgents = $state($page.url.searchParams.get('agents') === 'true')
 	let slackAppType: 'instance' | 'workspace' = $state('instance')
 	// Agents verify Slack's requests with the server's signing secret, which only the instance's
-	// Slack app is signed with, so the opt-in is offered for that app alone.
+	// Slack app is signed with, so the toggle is offered for that app alone.
 	let slackAgentsScopes = $derived(slackAgents && slackAppType === 'instance')
 	const slackAgentsStatus = resource(
 		() => (slackAgentsScopes ? $workspaceStore : undefined),

@@ -147,7 +147,9 @@ async fn agent_identity(
     .await?;
     tx.commit().await?;
     let row = row.ok_or_else(|| Error::NotFound(format!("Agent {path} not found")))?;
-    let runs_as = row.on_behalf_of.filter(|_| row.run_on_behalf_of == Some(true));
+    let runs_as = row
+        .on_behalf_of
+        .filter(|_| row.run_on_behalf_of == Some(true));
     let anyone = runs_as.is_some() && row.slack_anyone == Some(true);
     Ok((runs_as, anyone))
 }

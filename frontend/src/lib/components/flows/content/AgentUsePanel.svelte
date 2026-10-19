@@ -163,7 +163,7 @@
 
 						<div class="flex flex-col gap-2">
 							<div class="flex items-center justify-between gap-2">
-								<span class="text-xs font-semibold text-emphasis">Shared in these channels</span>
+								<span class="text-xs font-semibold text-emphasis">Ask it in Slack</span>
 								{#if canShare}
 									<Button
 										variant="default"
@@ -175,46 +175,40 @@
 								{/if}
 							</div>
 							{#if channels.length === 0}
-								<span class="text-xs text-hint">Not shared in any channel of {slackTeamName}.</span>
+								<span class="text-2xs text-hint">Not shared in any channel of {slackTeamName}.</span
+								>
 							{:else}
-								<span class="text-xs text-secondary">
-									{#if anyone}
-										Anyone in them can ask it, as <b>{runsAs}</b>.
-									{:else if runsAs}
-										Workspace members who can read it can ask it, as <b>{runsAs}</b>.
-									{:else}
-										Workspace members who can read it can ask it, each as themselves.
-									{/if}
-								</span>
-								<div class="flex flex-wrap gap-1">
-									{#each channels as channel (channel.channel_id)}
-										<Badge small
-											>#{channel.channel_name}{channel.is_default ? ' · default' : ''}</Badge
-										>
-									{/each}
-								</div>
-							{/if}
-						</div>
-
-						{#if channels.length > 0}
-							<div class="flex flex-col gap-1">
-								<span class="text-xs font-semibold text-emphasis">Ask it by name</span>
-								<span class="text-xs text-secondary">
-									In those channels, mention the bot and start your message with the agent's name.
-									Follow-ups in the same thread that mention the bot go to the same agent.
-								</span>
-								<div class="flex items-center gap-2 mt-1">
-									<code class="text-xs bg-surface-secondary rounded px-2 py-1"
+								<div class="flex items-center gap-2">
+									<code
+										class="text-2xs font-mono text-emphasis bg-surface-secondary rounded px-2 py-1"
 										>@{botName ?? '<Slack app name>'} {handle} your question</code
 									>
 									<CopyButton value={handle} title="Copy {handle}" />
 									<Tooltip>
 										{handle} matches the last part of the agent's path. Use the whole path,
 										<code>+{agentPath}</code>, when two agents shared in a channel have that name.
+										Replies in the thread that mention the bot go to the same agent, no name needed.
 									</Tooltip>
 								</div>
-							</div>
-						{/if}
+								<div class="flex flex-wrap items-center gap-1">
+									<span class="text-2xs text-hint">in</span>
+									{#each channels as channel (channel.channel_id)}
+										<Badge small
+											>#{channel.channel_name}{channel.is_default ? ' · default' : ''}</Badge
+										>
+									{/each}
+								</div>
+								<span class="text-2xs text-hint">
+									{#if anyone}
+										Anyone in these channels can ask it, with {runsAs}'s permissions.
+									{:else if runsAs}
+										Workspace members can ask it, with {runsAs}'s permissions.
+									{:else}
+										Workspace members can ask it, with their own permissions.
+									{/if}
+								</span>
+							{/if}
+						</div>
 					{/if}
 				</TabContent>
 
