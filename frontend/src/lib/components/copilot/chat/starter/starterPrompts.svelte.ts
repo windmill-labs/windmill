@@ -1,5 +1,6 @@
 import { onboardingProfile, type StarterPrompt } from '$lib/onboardingProfile'
 import { userStore } from '$lib/stores'
+import { scopedKey } from '$lib/userScopedStorage'
 import { fromStore, get } from 'svelte/store'
 import { resource } from 'runed'
 import {
@@ -31,8 +32,8 @@ export class StarterPrompts {
 	#invite = $state<StarterPrompt[]>()
 	#user = fromStore(userStore)
 	#workspace: () => string | undefined
-	#items: { readonly current: ItemsSignal | undefined }
-	#others: { readonly current: ComposerSignals | undefined }
+	#items: { readonly current: Tagged<ItemsSignal> | undefined }
+	#others: { readonly current: Tagged<ComposerSignals> | undefined }
 
 	/** `workspace`: where the session acts. */
 	constructor(workspace: () => string | undefined) {
@@ -40,15 +41,29 @@ export class StarterPrompts {
 		void onboardingProfile().then((p) => {
 			if (p?.starter_prompts?.length) this.#invite = p.starter_prompts
 		})
-		this.#items = resource(workspace, async (ws) => (ws ? itemsSignal(ws) : undefined))
+		// runed keeps whichever fetch settles last, so after a workspace or account switch an
+		// earlier fetch can land on top of the current one: each answer carries what it is for.
+		this.#items = resource(
+			() => this.#tag,
+			async (tag) => {
+				const ws = this.#workspace()
+				return ws ? { tag, value: await itemsSignal(ws) } : undefined
+			}
+		)
 		this.#others = resource(
 			() => {
-				const ws = workspace()
 				const role = this.#role
-				return ws && role ? { ws, role } : undefined
+				return role ? { tag: this.#tag, role } : undefined
 			},
-			async (key) => (key ? otherSignals(key.ws, key.role) : undefined)
+			async (key) => {
+				const ws = this.#workspace()
+				return key && ws ? { tag: key.tag, value: await otherSignals(ws, key.role) } : undefined
+			}
 		)
+	}
+
+	get #tag(): string {
+		return `${this.#workspace()}\0${this.#user.current?.email}`
 	}
 
 	/** Undefined until the user is known. The user is read for Home's workspace, so a session
@@ -68,13 +83,19 @@ export class StarterPrompts {
 	 * does not wait on them. */
 	get #itemsSignal(): ItemsSignal | undefined {
 		const ws = this.#workspace()
-		return this.#items.current ?? (ws ? settledItems.get(ws) : undefined)
+		const current = this.#items.current
+		if (current?.tag === this.#tag) return current.value
+		const key = ws && userKey(`${ws}:items`)
+		return key ? settledItems.get(key) : undefined
 	}
 
 	get #otherSignals(): ComposerSignals | undefined {
 		const ws = this.#workspace()
 		const role = this.#role
-		return this.#others.current ?? (ws && role ? settledOthers.get(othersKey(ws, role)) : undefined)
+		const current = this.#others.current
+		if (current?.tag === this.#tag) return current.value
+		const key = ws && role && userKey(othersKey(ws, role))
+		return key ? settledOthers.get(key) : undefined
 	}
 
 	/** Shown once the item list and every other signal have answered, so pills do not
@@ -97,6 +118,12 @@ export class StarterPrompts {
 }
 
 type ItemsSignal = Pick<ComposerSignals, 'itemCount' | 'myDraft' | 'failedDeploy'>
+type Tagged<T> = { tag: string; value: T }
+
+/** Every cache below is per account: the item signal names the reader's private draft. A key
+ * is taken when a request starts, so one that settles after an account switch cannot answer for
+ * the next account; with no account known yet, nothing is cached. */
+const userKey = (key: string) => scopedKey(`composerSignals:${key}`)
 
 const settledItems = new Map<string, ItemsSignal>()
 const settledOthers = new Map<string, ComposerSignals>()
@@ -110,7 +137,8 @@ const requests = new Map<string, { at: number; request: Promise<unknown> }>()
 const REUSE_MS = 30_000
 
 /** One request per workspace and signal, shared by every caller; a failure is not kept. */
-function dedupe<T>(key: string, send: () => Promise<T>): Promise<T> {
+function dedupe<T>(key: string | undefined, send: () => Promise<T>): Promise<T> {
+	if (!key) return send()
 	const kept = requests.get(key)
 	if (kept && Date.now() - kept.at < REUSE_MS) return kept.request as Promise<T>
 	const request = send()
@@ -142,9 +170,10 @@ export async function readComposerSignals(
 }
 
 async function itemsSignal(workspace: string): Promise<ItemsSignal> {
+	const key = userKey(`${workspace}:items`)
 	try {
-		const signal = await dedupe(`${workspace}:items`, () => fetchItems(workspace))
-		settledItems.set(workspace, signal)
+		const signal = await dedupe(key, () => fetchItems(workspace))
+		if (key) settledItems.set(key, signal)
 		return signal
 	} catch (e) {
 		// Unknown reads as a full workspace: a collapsed composer is the quieter mistake.
@@ -189,8 +218,9 @@ function composerItem(item: RunnableItem, path = item.path): ComposerItem {
 
 /** Every signal the role may ask for besides the item list, each absent if it fails. */
 async function otherSignals(workspace: string, role: ComposerRole): Promise<ComposerSignals> {
+	const settledKey = userKey(othersKey(workspace, role))
 	const ask = <T>(name: string, send: () => Promise<T>) =>
-		dedupe(`${workspace}:${name}`, send).catch((e) => {
+		dedupe(userKey(`${workspace}:${name}`), send).catch((e) => {
 			console.error(`Could not read ${name} for the composer's suggestions:`, e)
 			return undefined
 		})
@@ -212,7 +242,7 @@ async function otherSignals(workspace: string, role: ComposerRole): Promise<Comp
 		hasErrorHandler: settings && !!settings.error_handler,
 		liveWorkers: workers?.length
 	}
-	settledOthers.set(othersKey(workspace, role), signals)
+	if (settledKey) settledOthers.set(settledKey, signals)
 	return signals
 }
 
