@@ -188,7 +188,9 @@
 								</span>
 								<div class="flex flex-wrap gap-1">
 									{#each channels as channel (channel.channel_id)}
-										<Badge small>#{channel.channel_name}{channel.is_default ? ' · default' : ''}</Badge>
+										<Badge small
+											>#{channel.channel_name}{channel.is_default ? ' · default' : ''}</Badge
+										>
 									{/each}
 								</div>
 							{/if}

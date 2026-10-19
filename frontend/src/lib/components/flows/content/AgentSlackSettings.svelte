@@ -20,14 +20,21 @@
 		/** The deployed path; channels are shared for an agent that exists. */
 		path: string
 		workspace: string | undefined
+		/** Who the next deploy makes the agent run as, when it runs on behalf of someone. */
+		nextRunAs: string | undefined
 	}
 
-	let { draft, path, workspace }: Props = $props()
+	let { draft, path, workspace, nextRunAs }: Props = $props()
 
 	let readOnly = $derived(!draft.canWrite)
 	let obo = $derived(!!draft.state?.args.run_on_behalf_of)
-	/** Who the agent runs as once deployed: its identity, or whoever deploys it turning it on. */
-	let runsAs = $derived(obo ? (draft.onBehalfOf ?? 'you') : 'you')
+	let runsAs = $derived(
+		readOnly
+			? (draft.onBehalfOf ?? 'its run-as user')
+			: !nextRunAs || nextRunAs === `u/${$userStore?.username}`
+				? 'you'
+				: nextRunAs
+	)
 	let isAdmin = $derived(!!$userStore?.is_admin)
 
 	const slack = resource(

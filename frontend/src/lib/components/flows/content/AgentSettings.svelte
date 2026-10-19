@@ -10,6 +10,7 @@
 	import PermissionedAsLine from '$lib/components/triggers/PermissionedAsLine.svelte'
 	import AgentSlackSettings from './AgentSlackSettings.svelte'
 	import { WorkspaceService } from '$lib/gen'
+	import { userStore } from '$lib/stores'
 	import type { AgentDraftHandle, AgentRunAs } from '../agentDraft.svelte'
 
 	/** An agent's own settings, laid out as the top of the resource editor: what it is saved as
@@ -28,6 +29,15 @@
 	let { draft, path, workspace, error = $bindable(), onRunAsChange = undefined }: Props = $props()
 
 	let readOnly = $derived(!draft.canWrite)
+	// As the deploy resolves it: the deployer, unless one who may keep another picked them.
+	let pickedRunAs = $state<AgentRunAs | undefined>(undefined)
+	let nextRunAs = $derived(
+		pickedRunAs?.preserve && pickedRunAs.permissionedAs
+			? pickedRunAs.permissionedAs
+			: $userStore?.username
+				? `u/${$userStore.username}`
+				: undefined
+	)
 	// Only a workspace that deploys somewhere has anything to keep an agent out of.
 	const deployTo = resource(
 		() => workspace,
@@ -93,12 +103,14 @@
 					permissionedAs={draft.onBehalfOf}
 					path={draft.state.path}
 					disabled={readOnly}
-					onPermissionedAsChange={(permissionedAs, preserve) =>
-						onRunAsChange?.({ permissionedAs, preserve })}
+					onPermissionedAsChange={(permissionedAs, preserve) => {
+						pickedRunAs = { permissionedAs, preserve }
+						onRunAsChange?.(pickedRunAs)
+					}}
 				/>
 			{/if}
 		</div>
-		<AgentSlackSettings {draft} {path} {workspace} />
+		<AgentSlackSettings {draft} {path} {workspace} {nextRunAs} />
 		{#if deployTo.current}
 			<Label label="Workspace specific" tooltip="Keeps this agent out of deploys to prod/staging.">
 				<Toggle bind:checked={draft.state.wsSpecific} disabled={readOnly} />

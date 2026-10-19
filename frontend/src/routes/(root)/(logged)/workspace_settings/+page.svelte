@@ -172,7 +172,7 @@
 	let useCustomSlackApp: boolean = $state(false)
 	// Opt-in: Slack refuses a connection asking for a scope its app doesn't declare. An agent's page
 	// links here with `agents=true`.
-	let slackAgents = $state($page.url.searchParams.get('agents') === 'true')
+	let slackAgents = $state($page.url.searchParams.get('agents') !== 'false')
 	let slackAppType: 'instance' | 'workspace' = $state('instance')
 	// Agents verify Slack's requests with the server's signing secret, which only the instance's
 	// Slack app is signed with, so the opt-in is offered for that app alone.
@@ -1745,54 +1745,46 @@
 										{#snippet workspaceConfig()}
 											<!-- Workspace OAuth Configuration Section -->
 											{#if !slack_team_name}
-												<div class="flex flex-col gap-1">
-													<!-- Show toggle buttons for app type selection -->
-													<ToggleButtonGroup bind:selected={slackAppType}>
-														{#snippet children({ item })}
-															<ToggleButton
-																{item}
-																value="instance"
-																label="Instance specific Slack app"
-															/>
-															<ToggleButton
-																{item}
-																value="workspace"
-																label="Workspace specific Slack app"
-															/>
-														{/snippet}
-													</ToggleButtonGroup>
-													<div class="text-2xs text-hint"
-														>Use the Slack app configured at the instance level if you want to use
-														the same Slack app for all workspaces. Configure your Slack app here if
-														you want to use a specific Slack app for this workspace.</div
-													>
-												</div>
-												{#if slackAppType === 'instance'}
-													<div class="flex flex-col gap-2 mt-2">
+												<div class="flex flex-col gap-4 pb-3">
+													<div class="flex flex-col gap-1">
+														<ToggleButtonGroup bind:selected={slackAppType}>
+															{#snippet children({ item })}
+																<ToggleButton
+																	{item}
+																	value="instance"
+																	label="Instance specific Slack app"
+																/>
+																<ToggleButton
+																	{item}
+																	value="workspace"
+																	label="Workspace specific Slack app"
+																/>
+															{/snippet}
+														</ToggleButtonGroup>
+														<div class="text-2xs text-hint"
+															>Use the Slack app configured at the instance level if you want to use
+															the same Slack app for all workspaces. Configure your Slack app here
+															if you want to use a specific Slack app for this workspace.</div
+														>
+													</div>
+													{#if slackAppType === 'instance'}
 														<Toggle
 															size="xs"
 															bind:checked={slackAgents}
-															options={{ right: 'Let AI agents answer in Slack' }}
+															options={{
+																right: 'Let AI agents answer in Slack',
+																rightTooltip:
+																	'Lets editors share agents in Slack channels, where people ask them by mentioning the bot. Needs users:read, users:read.email and channels:read on the Slack app.'
+															}}
 														/>
-														{#if slackAgents}
-															<Alert
-																type="info"
-																size="xs"
-																title="Agents answer only where they're shared"
-															>
-																Share an agent in Slack channels from its settings. The workspace
-																members in those channels can then ask it, or anyone there if its
-																settings allow it.
-															</Alert>
-														{/if}
 														{#if slackAgentsStatus.current?.signing_secret_set === false}
 															<Alert type="warning" size="xs" title="Agents won't answer yet">
 																An instance admin needs to set the Slack app's signing secret as the
 																<code>SLACK_SIGNING_SECRET</code> environment variable.
 															</Alert>
 														{/if}
-													</div>
-												{/if}
+													{/if}
+												</div>
 											{/if}
 											{#if slackOAuthConfigLoaded}
 												<!-- Show saved config with delete button -->
