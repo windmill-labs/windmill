@@ -6,6 +6,7 @@
 	import { copilotInfo } from '$lib/aiStore'
 	import AgentEvalsModal from '$lib/components/flows/content/AgentEvalsModal.svelte'
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
+	import OnBehalfOfBadge from '$lib/components/details/OnBehalfOfBadge.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
@@ -156,6 +157,11 @@
 				: [])
 		]}
 	>
+		<OnBehalfOfBadge
+			onBehalfOf={config?.run_on_behalf_of ? agent?.onBehalfOf : undefined}
+			onBehalfOfEmail={undefined}
+			kind="agent"
+		/>
 		{#snippet leading_actions()}
 			<!-- Only an agent that keeps the conversation can chat: without managed memory every
 			     message would be answered alone, so it is run from its inputs with nothing to switch. -->

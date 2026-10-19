@@ -1211,6 +1211,28 @@ describe('global AI tools', () => {
 		expect(raw).not.toContain('db_draft_input')
 	})
 
+	// The flow read is rebuilt field by field for the model, so a field missing there is
+	// silently absent and reads as "shared with nobody".
+	it('reports who a deployed flow is shared with', async () => {
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
+			path: 'f/flows/shared',
+			summary: 'Shared flow',
+			value: { modules: [] },
+			schema: {},
+			extra_perms: { 'g/finance': false }
+		} as any)
+
+		const item = JSON.parse(
+			await callGlobalTool('read_workspace_item', {
+				type: 'flow',
+				path: 'f/flows/shared',
+				version: 'deployed'
+			})
+		)
+
+		expect(item.extraPerms).toEqual({ 'g/finance': false })
+	})
+
 	it('redacts variable draft values when reading workspace items', async () => {
 		await callGlobalTool('write_variable', {
 			path: 'f/secrets/api_key',
@@ -4773,6 +4795,39 @@ describe('global AI tools', () => {
 		).resolves.toBe(code)
 	})
 
+	// The worker reuses a non-empty step lock, so an edited step keeping its lock deploys
+	// against the old dependencies.
+	it('set_flow_module_code drops the lock of the edited step only', async () => {
+		const step = (id: string) => ({
+			id,
+			value: {
+				type: 'rawscript',
+				language: 'python3',
+				content: 'import requests',
+				lock: 'requests==2.0',
+				input_transforms: {}
+			}
+		})
+		seedBackendDraft('flow', 'f/flows/locked', {
+			path: 'f/flows/locked',
+			summary: 'f',
+			description: '',
+			value: { modules: [step('edited'), step('untouched')] },
+			schema: {}
+		})
+
+		await callGlobalTool('set_flow_module_code', {
+			path: 'f/flows/locked',
+			module_id: 'edited',
+			code: 'import yaml'
+		})
+
+		const [edited, untouched] = getBackendDraft('flow', 'f/flows/locked').value.modules
+		expect(edited.value.content).toBe('import yaml')
+		expect(edited.value).not.toHaveProperty('lock')
+		expect(untouched.value.lock).toBe('requests==2.0')
+	})
+
 	it('warns about every empty rawscript body (top-level, nested, preprocessor, failure) and skips populated ones', async () => {
 		const result = JSON.parse(
 			await callGlobalTool('write_flow', {
@@ -7376,7 +7431,7 @@ describe('prepareGlobalSystemMessage', () => {
 			})
 			expect(content).toContain('As a workspace admin you can write to any existing folder.')
 			expect(content).toContain(
-				'Folders here include `f/marketing`, `f/data_engineering` (you can also write to others not listed).'
+				'Folders here include `f/marketing`, `f/data_engineering` (you can also write to others not listed; list_workspace_items with type "folder" lists them all).'
 			)
 			expect(content).toContain(
 				'If the user names a folder, use it; if they explicitly ask for a new folder, create it with `create_folder`; otherwise ask them which folder to use rather than guessing or creating one unprompted.'

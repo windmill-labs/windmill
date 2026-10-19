@@ -73,7 +73,12 @@ pub fn check_route_access(
                         .to_string(),
                 ));
             }
-            if required_domain == ScopeDomain::Users && suffix != "users/whoami" {
+            if required_domain == ScopeDomain::Users {
+                // Whoami returns what the bundle already has in `window.ctx`, so it
+                // needs no declared scope.
+                if suffix == "users/whoami" {
+                    return Ok(());
+                }
                 return Err(Error::PermissionDenied(
                     "Access denied. A raw app frontend SDK token can only read the viewer's own identity."
                         .to_string(),
@@ -418,8 +423,9 @@ pub fn guest_session_scopes(app_path: &str) -> windmill_common::error::Result<Ve
     ])
 }
 
-/// Sentinel in raw-app SDK tokens. Grants nothing; `check_route_access` uses it
-/// to narrow the declared scopes to what the viewer's prompt promised.
+/// Sentinel in raw-app SDK tokens. `check_route_access` uses it to narrow the
+/// declared scopes to what the viewer's prompt promised; the only thing it grants
+/// is the bearer's own `users/whoami`.
 pub const RAW_APP_SDK_SENTINEL: &str = "raw_app_sdk";
 
 pub fn has_raw_app_sdk_sentinel(scopes: Option<&[String]>) -> bool {

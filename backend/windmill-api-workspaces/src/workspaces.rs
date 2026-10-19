@@ -515,6 +515,11 @@ struct CreateWorkspaceFork {
     /// fork namespace + read-defer.
     #[serde(default)]
     shared_ducklakes: Vec<String>,
+    /// Workspace storages the fork reads and writes at the parent's keys (`_default_` for the
+    /// primary one). Every other storage is isolated: the fork writes under its own prefix
+    /// and reads through to the parent's objects.
+    #[serde(default)]
+    shared_storages: Vec<String>,
     /// Create the fork as a persistent dev workspace: the id is not required to carry the
     /// `wm-fork-` prefix, and at most one dev workspace may exist per parent.
     #[serde(default)]
@@ -2131,6 +2136,38 @@ async fn edit_dbt_warehouses(
     Ok("Updated the workspace's dbt warehouses".to_string())
 }
 
+/// A fork's isolated storage is purged at deletion from the storage recorded at creation: under
+/// another location, its objects would outlive the fork untracked, and a same-id fork would
+/// read them.
+async fn reject_isolated_storage_repoint(
+    tx: &mut Transaction<'_, Postgres>,
+    w_id: &str,
+    new_lfs: &serde_json::Value,
+) -> Result<()> {
+    let rows = sqlx::query!(
+        "SELECT storage, storage_ref FROM fork_storage_namespace WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    for row in rows {
+        let new_ref = windmill_common::fork_storage::lfs_entry(new_lfs, &row.storage)
+            .and_then(windmill_common::workspaces::lfs_entry_storage_ref);
+        if new_ref.is_some_and(|r| r != row.storage_ref) {
+            let name = if row.storage.is_empty() {
+                windmill_types::s3::DEFAULT_STORAGE
+            } else {
+                row.storage.as_str()
+            };
+            return Err(Error::BadRequest(format!(
+                "storage `{name}` is isolated from the parent in this fork, so where it points \
+                 cannot be changed"
+            )));
+        }
+    }
+    Ok(())
+}
+
 async fn edit_large_file_storage_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -2168,6 +2205,15 @@ async fn edit_large_file_storage_config(
                 windmill_types::s3::DEFAULT_STORAGE
             )));
         }
+        if lfs_config
+            .secondary_storage
+            .contains_key(windmill_types::s3::BUCKET_ADDRESSED_SEGMENT)
+        {
+            return Err(Error::BadRequest(format!(
+                "`{}` is reserved by the S3 proxy and cannot name a secondary storage",
+                windmill_types::s3::BUCKET_ADDRESSED_SEGMENT
+            )));
+        }
 
         if !windmill_common::workspaces::filesystem_storage_allowed() {
             let named = std::iter::once(("primary storage", &lfs_config.large_file_storage)).chain(
@@ -2189,6 +2235,7 @@ async fn edit_large_file_storage_config(
         let serialized_lfs_config =
             serde_json::to_value::<LargeFileStorageWithSecondary>(lfs_config)
                 .map_err(|err| Error::internal_err(err.to_string()))?;
+        reject_isolated_storage_repoint(&mut tx, &w_id, &serialized_lfs_config).await?;
 
         // A workspace whose AI session backups fell back to the instance store leaves it
         // here: the generation moves on, so nothing it left in any instance store is read
@@ -2285,6 +2332,9 @@ struct DataTableListItem {
     /// at its parent. Its permissions apply here, and only its admins may edit them.
     #[serde(skip_serializing_if = "Option::is_none")]
     governing_workspace_id: Option<String>,
+    /// The workspace owning the database this entry points at, when it is not this workspace.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    database_workspace_id: Option<String>,
     /// Whether the governing entry is under roles.
     permissioned: bool,
 }
@@ -2314,6 +2364,8 @@ async fn list_datatables(
             resource_path: database.resource_path.clone(),
             governing_workspace_id: (governing.governing_workspace_id() != w_id)
                 .then(|| governing.governing_workspace_id().to_string()),
+            database_workspace_id: (governing.workspace_id != w_id)
+                .then(|| governing.workspace_id.clone()),
             permissioned: governing.datatable.permissions.is_some(),
         });
     }
@@ -7130,7 +7182,7 @@ async fn clone_workspace_data(
     clone_resource_types(tx, source_workspace_id, target_workspace_id).await?;
 
     // Clone resources
-    clone_resources(tx, source_workspace_id, target_workspace_id).await?;
+    clone_resources(tx, source_workspace_id, target_workspace_id, authed).await?;
 
     // Clone variables (including external secret backend replication)
     clone_variables(tx, db, source_workspace_id, target_workspace_id).await?;
@@ -7667,18 +7719,30 @@ async fn clone_resource_types(
     Ok(())
 }
 
+/// An agent's value carries the identity it runs as, re-pointed at the fork's creator when they
+/// may not preserve someone else's, as `clone_apps` does an app's policy. The rest is swept by
+/// `repoint_unresolvable_cloned_identities` once the fork's membership is final.
 async fn clone_resources(
     tx: &mut Transaction<'_, Postgres>,
     source_workspace_id: &str,
     target_workspace_id: &str,
+    authed: &ApiAuthed,
 ) -> Result<()> {
+    let repoint = (!windmill_common::can_preserve_on_behalf_of(authed))
+        .then(|| username_to_permissioned_as(&authed.username));
     sqlx::query!(
         "INSERT INTO resource (workspace_id, path, value, description, resource_type, extra_perms, edited_at, created_by)
-         SELECT $2, path, value, description, resource_type, extra_perms, edited_at, created_by
+         SELECT $2, path,
+                CASE WHEN $3::text IS NOT NULL AND resource_type = 'ai_agent'
+                          AND jsonb_typeof(value) = 'object' AND value ? 'on_behalf_of'
+                     THEN jsonb_set(value, '{on_behalf_of}', to_jsonb($3::text))
+                     ELSE value END,
+                description, resource_type, extra_perms, edited_at, created_by
          FROM resource
          WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
+        repoint,
     )
     .execute(&mut **tx)
     .await?;
@@ -8164,6 +8228,18 @@ async fn repoint_unresolvable_cloned_identities(
         .execute(&mut **tx)
         .await?;
     }
+
+    sqlx::query(&format!(
+        "UPDATE resource SET value = jsonb_set(value, '{{on_behalf_of}}', to_jsonb($2::text))
+         WHERE workspace_id = $1 AND resource_type = 'ai_agent'
+           AND jsonb_typeof(value) = 'object' AND value ? 'on_behalf_of'
+           AND NOT ({})",
+        principal_resolves_sql("(value->>'on_behalf_of')")
+    ))
+    .bind(target_workspace_id)
+    .bind(&principal)
+    .execute(&mut **tx)
+    .await?;
 
     // `email` is still written for workers that predate `permissioned_as`.
     sqlx::query(&format!(
@@ -8826,6 +8902,7 @@ async fn create_workspace_fork_branch(
     {
         return Err(Error::PermissionDenied(msg));
     }
+    enforce_isolated_forks(&db, &authed, &w_id, &nw).await?;
 
     // Two-phase create for git-synced workspaces: this endpoint only creates the git branch(es) and
     // validates up front; it does NOT create the workspace row. The caller follows up with
@@ -9538,6 +9615,25 @@ async fn create_workspace_fork(
             i.msg
         );
     }
+    // Unlike a dropped lake's files, a deleted fork's objects are live to a same-id fork: it
+    // reads its own prefix first.
+    let leftover_storages = crate::workspaces_extra::prepare_fork_storage_purges(
+        &db,
+        &nw.id,
+        Some(&parent_workspace_id),
+    )
+    .await?;
+    let storage_issues =
+        crate::workspaces_extra::purge_fork_storages_unless_live(&db, &nw.id, leftover_storages)
+            .await?;
+    if !storage_issues.is_empty() {
+        return Err(Error::BadRequest(format!(
+            "a previously deleted workspace with id '{}' left objects in its fork prefix that \
+             could not be deleted: {}; retry once the storage is reachable again",
+            nw.id,
+            storage_issues.join("; ")
+        )));
+    }
 
     #[cfg(not(feature = "enterprise"))]
     _check_nb_of_workspaces(&db).await?;
@@ -9557,6 +9653,7 @@ async fn create_workspace_fork(
     {
         return Err(Error::PermissionDenied(msg));
     }
+    enforce_isolated_forks(&db, &authed, &parent_workspace_id, &nw).await?;
 
     if nw.is_dev_workspace {
         ensure_dev_parent_can_host_dev(&db, &parent_workspace_id).await?;
@@ -9931,6 +10028,185 @@ fn copy_requests(
         .collect()
 }
 
+/// Under `RequireIsolatedForks` on `parent`, refuse a fork that would leave any of its data
+/// shared: a shared storage or lake, or a data table not cloned (`Keep original` points the fork
+/// at the parent's database).
+async fn enforce_isolated_forks(
+    db: &DB,
+    authed: &ApiAuthed,
+    parent: &str,
+    nw: &CreateWorkspaceFork,
+) -> Result<()> {
+    let Some(msg) = isolation_required(db, authed, parent).await? else {
+        return Ok(());
+    };
+    let mut shared: Vec<String> = nw
+        .shared_storages
+        .iter()
+        .map(|s| format!("storage `{s}`"))
+        .chain(
+            nw.shared_ducklakes
+                .iter()
+                .map(|l| format!("ducklake `{l}`")),
+        )
+        .collect();
+    shared.extend(
+        kept_parent_datatables(db, parent, &nw.forked_datatables)
+            .await?
+            .into_iter()
+            .map(|name| format!("data table `{name}`")),
+    );
+    refuse_shared(msg, shared)
+}
+
+/// The rule's message when `RequireIsolatedForks` on `parent` binds `authed`.
+async fn isolation_required(db: &DB, authed: &ApiAuthed, parent: &str) -> Result<Option<String>> {
+    match check_user_against_rule(
+        parent,
+        &ProtectionRuleKind::RequireIsolatedForks,
+        AuditAuthorable::username(authed),
+        &authed.groups,
+        authed.is_admin,
+        db,
+    )
+    .await?
+    {
+        RuleCheckResult::Blocked(msg) => Ok(Some(msg)),
+        RuleCheckResult::Allowed => Ok(None),
+    }
+}
+
+/// `parent`'s own data tables that `forked` leaves as pointers at its database. An entry whose
+/// database another workspace owns is not `parent`'s data, so the rule does not cover it.
+async fn kept_parent_datatables(
+    db: &DB,
+    parent: &str,
+    forked: &[ForkedDatatableInfo],
+) -> Result<Vec<String>> {
+    Ok(
+        windmill_common::workspaces::resolve_workspace_governing_datatables(db, parent)
+            .await?
+            .into_iter()
+            .filter(|(_, governing)| governing.workspace_id == parent)
+            .filter(|(name, _)| {
+                !forked.iter().any(|d| {
+                    &d.name == name
+                        && matches!(
+                            d.fork_behavior,
+                            Some(
+                                DataTableForkBehavior::SchemaOnly
+                                    | DataTableForkBehavior::SchemaAndData
+                            )
+                        )
+                })
+            })
+            .map(|(name, _)| name)
+            .collect(),
+    )
+}
+
+fn refuse_shared(msg: String, shared: Vec<String>) -> Result<()> {
+    if shared.is_empty() {
+        return Ok(());
+    }
+    Err(Error::PermissionDenied(format!(
+        "{msg}. Shared in this request: {}. Only a bypasser of the rule can fork while one of \
+         them cannot be isolated",
+        shared.join(", ")
+    )))
+}
+
+/// Record every storage of the fork's cloned settings as isolated, except `shared` ones.
+/// Isolation is a per-fork-creation choice, never inherited: a fork of a shared fork is
+/// isolated unless it asks otherwise.
+async fn isolate_fork_storages(
+    tx: &mut Transaction<'_, Postgres>,
+    fork_id: &str,
+    shared: &[String],
+    shared_ducklakes: &[String],
+) -> Result<()> {
+    use windmill_common::fork_storage::{lfs_entry, registry_storage_name};
+
+    let settings = sqlx::query!(
+        "SELECT large_file_storage, ducklake FROM workspace_settings WHERE workspace_id = $1",
+        fork_id
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    let (lfs, ducklake) = settings
+        .map(|s| (s.large_file_storage, s.ducklake))
+        .unwrap_or_default();
+    let lfs = lfs.filter(|v| v.get("type").is_some());
+
+    // A shared lake keeps the parent's data path: its files must land at the parent's keys, or
+    // the parent's catalog would point at objects in the fork's prefix, purged with the fork.
+    if lfs.is_some() {
+        for lake in shared_ducklakes {
+            let lake_storage = ducklake
+                .as_ref()
+                .and_then(|d| {
+                    d.get("ducklakes")?
+                        .get(lake)?
+                        .get("storage")?
+                        .get("storage")
+                })
+                .and_then(|s| s.as_str());
+            let storage = registry_storage_name(lake_storage);
+            if !shared
+                .iter()
+                .any(|s| registry_storage_name(Some(s)) == storage)
+            {
+                return Err(Error::BadRequest(format!(
+                    "ducklake `{lake}` is shared with the parent, so the storage holding its \
+                     data (`{}`) must be shared too",
+                    lake_storage.unwrap_or(windmill_types::s3::DEFAULT_STORAGE)
+                )));
+            }
+        }
+    }
+    let mut storages: Vec<&str> = vec![];
+    if let Some(lfs) = &lfs {
+        storages.push("");
+        if let Some(secondary) = lfs.get("secondary_storage").and_then(|s| s.as_object()) {
+            storages.extend(secondary.keys().map(String::as_str));
+        }
+    }
+    for name in shared {
+        if !storages.contains(&registry_storage_name(Some(name))) {
+            return Err(Error::BadRequest(format!(
+                "cannot share storage `{name}` with the parent: no such storage in the workspace \
+                 settings"
+            )));
+        }
+    }
+    let Some(lfs) = &lfs else {
+        return Ok(());
+    };
+    for storage in storages {
+        if shared
+            .iter()
+            .any(|s| registry_storage_name(Some(s)) == storage)
+        {
+            continue;
+        }
+        let Some(storage_ref) =
+            lfs_entry(lfs, storage).and_then(windmill_common::workspaces::lfs_entry_storage_ref)
+        else {
+            continue;
+        };
+        sqlx::query!(
+            "INSERT INTO fork_storage_namespace (workspace_id, storage, storage_ref)
+             VALUES ($1, $2, $3)",
+            fork_id,
+            storage,
+            storage_ref
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
 /// Write the fork, with its data tables pointed at `copies`.
 async fn write_workspace_fork(
     db: DB,
@@ -9953,6 +10229,17 @@ async fn write_workspace_fork(
     // Also before the external cluster's lifecycle lock, which finalizing an external copy takes:
     // fork cleanup takes the two in this order.
     windmill_common::workspaces::lock_fork_datatables(&mut tx, &parent_workspace_id).await?;
+    // Data table edits take the lock above: one committed since the creation check would reach
+    // this fork as a pointer at the parent's database.
+    if let Some(msg) = isolation_required(&db, &authed, &parent_workspace_id).await? {
+        let kept = kept_parent_datatables(&db, &parent_workspace_id, &nw.forked_datatables).await?;
+        refuse_shared(
+            msg,
+            kept.into_iter()
+                .map(|name| format!("data table `{name}`"))
+                .collect(),
+        )?;
+    }
 
     if nw.is_dev_workspace {
         // The checks above ran outside a transaction, so the parent's eligibility and the chain's
@@ -10196,6 +10483,14 @@ async fn write_workspace_fork(
         }
     }
 
+    isolate_fork_storages(
+        &mut tx,
+        &forked_id,
+        &nw.shared_storages,
+        &nw.shared_ducklakes,
+    )
+    .await?;
+
     // Lock the parent ("prod") so edits are funneled through this dev workspace.
     let locked_prod = nw.is_dev_workspace && (nw.lock_prod_deploy || nw.lock_prod_forking);
     if locked_prod {
@@ -10243,6 +10538,9 @@ async fn write_workspace_fork(
         .await?;
     }
     tx.commit().await?;
+    // Same for a mapping cached before the isolation rows were visible: identity, writing the
+    // root's keys.
+    windmill_common::fork_storage::invalidate_fork_storage_keys_cache(&forked_id);
 
     // A pre-creation lookup could have cached an EMPTY ancestor chain for this id, which
     // would bypass ducklake fork isolation for the TTL. The same lookup could have cached the id
@@ -10959,20 +11257,10 @@ async fn archive_workspace(
 
     if let Some(prod) = dev_lock_parent {
         windmill_common::workspaces::invalidate_protection_rules_cache(&prod);
-        // The teardown above cleared `is_dev_workspace`, which is what let this workspace keep its
-        // own id for tag routing; it and every fork resolving through it now land on an ancestor.
-        // Only a dev workspace reaches here, so archiving anything else needs no sweep.
-        windmill_queue::tags::invalidate_fork_parent_cache(&w_id);
-        for id in windmill_common::workspaces::list_fork_descendants(&db, &w_id)
-            .await
-            .unwrap_or_default()
-        {
-            windmill_queue::tags::invalidate_fork_parent_cache(&id);
-        }
-        if let Err(e) = windmill_queue::tags::notify_fork_lineage_reset(&db).await {
-            tracing::warn!("failed to broadcast fork lineage change: {e:#}");
-        }
     }
+    // The tag lineage reads `deleted` (an archived ancestor counts as dev lineage), and a dev
+    // workspace's teardown above also cleared `is_dev_workspace`.
+    reset_tag_lineage(&db, &w_id).await;
 
     Ok(format!(
         "Archived workspace {}, disabled {} schedules, canceled {} jobs and deleted {} tokens",
@@ -11073,8 +11361,24 @@ async fn unarchive_workspace(
     )
     .await?;
     tx.commit().await?;
+    reset_tag_lineage(&db, &w_id).await;
 
     Ok(format!("Unarchived workspace {}", &w_id))
+}
+
+/// Drops the tag lineage cached for `w_id` and every fork resolving through it, here and on every
+/// replica, after a change to a field the lineage reads.
+async fn reset_tag_lineage(db: &DB, w_id: &str) {
+    windmill_queue::tags::invalidate_fork_parent_cache(w_id);
+    for id in windmill_common::workspaces::list_fork_descendants(db, w_id)
+        .await
+        .unwrap_or_default()
+    {
+        windmill_queue::tags::invalidate_fork_parent_cache(&id);
+    }
+    if let Err(e) = windmill_queue::tags::notify_fork_lineage_reset(db).await {
+        tracing::warn!("failed to broadcast fork lineage change: {e:#}");
+    }
 }
 
 /// Whether the instance is configured to suppress the email notifications sent
@@ -13941,17 +14245,18 @@ async fn compare_two_flows(
     });
 }
 
-/// The policy minus the identity pair. Deploying cannot converge a difference there — the
-/// target recomputes the identity from the deployer's own choice, which offers its current
-/// value, the deployer, or a typed-in one, never the source's — so listing an app for it
-/// alone leaves an entry no deploy can clear. `script` and `flow` compare no identity either.
-fn policy_without_identity(policy: &serde_json::Value) -> serde_json::Value {
-    let mut policy = policy.clone();
-    if let Some(obj) = policy.as_object_mut() {
+/// An app's policy or an agent's value minus the identity it carries. Deploying cannot converge
+/// a difference there — the target recomputes the identity from the deployer's own choice, which
+/// offers its current value, the deployer, or a typed-in one, never the source's — so listing an
+/// item for it alone leaves an entry no deploy can clear. `script` and `flow` compare no identity
+/// either.
+fn without_identity(value: &serde_json::Value) -> serde_json::Value {
+    let mut value = value.clone();
+    if let Some(obj) = value.as_object_mut() {
         obj.remove("on_behalf_of");
         obj.remove("on_behalf_of_email");
     }
-    policy
+    value
 }
 
 async fn compare_two_apps(
@@ -13994,7 +14299,7 @@ async fn compare_two_apps(
     // Check metadata and content differences
     if let (Some(source), Some(target)) = (&source_app, &target_app) {
         if source.summary != target.summary
-            || policy_without_identity(&source.policy) != policy_without_identity(&target.policy)
+            || without_identity(&source.policy) != without_identity(&target.policy)
             || source.value != target.value
             || source.raw_app != target.raw_app
         {
@@ -14072,7 +14377,14 @@ async fn compare_two_resources(
 
     // Check metadata differences
     if let (Some(source), Some(target)) = (&source_resource, &target_resource) {
-        if source.value != target.value
+        let agent = source.resource_type == "ai_agent" && target.resource_type == "ai_agent";
+        let values_differ = if agent {
+            source.value.as_ref().map(without_identity)
+                != target.value.as_ref().map(without_identity)
+        } else {
+            source.value != target.value
+        };
+        if values_differ
             || source.description != target.description
             || source.resource_type != target.resource_type
         {

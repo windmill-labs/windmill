@@ -1,0 +1,47 @@
+name: "nsjail startup probe"
+
+mode: ONCE
+hostname: "probe"
+log_level: WARNING
+time_limit: 10
+
+# Same namespaces and rlimit handling as the job profiles (nsjail's default rlimits, a cgroup
+# namespace, the user namespace unless DISABLE_NUSER): a worker whose kernel or runtime refuses
+# any of them cannot run jobs either.
+clone_newnet: false
+clone_newuser: {CLONE_NEWUSER}
+
+skip_setsid: true
+keep_caps: false
+mount_proc: true
+
+mount {
+    src: "/bin"
+    dst: "/bin"
+	is_bind: true
+}
+mount {
+    src: "/lib"
+    dst: "/lib"
+	is_bind: true
+}
+mount {
+    src: "/lib64"
+    dst: "/lib64"
+	is_bind: true
+    mandatory: false
+}
+mount {
+    src: "/usr"
+    dst: "/usr"
+	is_bind: true
+}
+mount {
+    dst: "/tmp"
+    fstype: "tmpfs"
+    rw: true
+}
+
+exec_bin {
+    path: "/bin/true"
+}

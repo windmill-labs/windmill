@@ -26,7 +26,7 @@ use windmill_queue::MiniPulledJob;
 use windmill_queue::{append_logs, CanceledBy};
 
 use crate::common::{
-    build_args_values, get_reserved_variables, s3_mode_args_to_worker_data,
+    build_args_values, get_reserved_variables, narrow_sql_int, s3_mode_args_to_worker_data,
     s3_stream_and_upload_with_logs, OccupancyMetrics,
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
@@ -398,13 +398,13 @@ fn json_value_to_sql<'a>(
             query.bind(b.to_owned());
         }
         Value::Number(n) if n.is_u64() && arg_t == "tinyint" => {
-            query.bind(n.as_u64().unwrap().to_owned() as u8)
+            query.bind(narrow_sql_int::<u8, _>(n.as_u64().unwrap(), "tinyint")?)
         }
         Value::Number(n) if n.is_i64() && arg_t == "smallint" => {
-            query.bind(n.as_i64().unwrap().to_owned() as i16)
+            query.bind(narrow_sql_int::<i16, _>(n.as_i64().unwrap(), "smallint")?)
         }
         Value::Number(n) if n.is_i64() && arg_t == "int" => {
-            query.bind(n.as_i64().unwrap().to_owned() as i32)
+            query.bind(narrow_sql_int::<i32, _>(n.as_i64().unwrap(), "int")?)
         }
         Value::Number(n) if n.is_i64() && arg_t == "bigint" => {
             query.bind(n.as_i64().unwrap().to_owned() as i64)

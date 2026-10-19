@@ -16,6 +16,8 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceGroup from '$lib/components/WorkerGroup.svelte'
+	import DevWorkspaceIsolation from '$lib/components/DevWorkspaceIsolation.svelte'
+	import { devWorkspaceListenSuffix, withDevSuffix } from '$lib/devWorkspaceTags'
 	import {
 		WorkerService,
 		type WorkerPing,
@@ -600,9 +602,12 @@
 		if (!config || !config.worker_tags || config.worker_tags.length === 0) cols += 1 // Worker tags
 		if ((!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole))
 			cols += 2 // Last job, Occupancy rate
-		if ($superadmin || $devopsRole) cols += 1 // Repl
+		if (replAvailable) cols += 1 // Repl
 		return cols
 	})
+	// The REPL runs its commands as jobs in the selected workspace, which a devops user who
+	// belongs to no workspace does not have (see `isInstanceRoute`).
+	let replAvailable = $derived(($superadmin || $devopsRole) && !!$workspaceStore)
 </script>
 
 {#if $superadmin || $devopsRole}
@@ -904,6 +909,23 @@
 				</Alert>
 			{/if}
 
+			{#if $superadmin || $devopsRole}
+				<DevWorkspaceIsolation
+					{workerGroups}
+					liveWorkers={Object.fromEntries(
+						groupedWorkers.map(([name, instances]) => [
+							name,
+							instances.flatMap(([_, pings]) => pings.filter((p) => (p.last_ping ?? 0) < 15)).length
+						])
+					)}
+					canEdit={!!$superadmin}
+					onConfigureGroup={(name) => {
+						selectedTab = name
+						shouldAutoOpenDrawer = name
+					}}
+				/>
+			{/if}
+
 			{#if workers != undefined}
 				{#if groupedWorkers.length == 0}
 					<p>No workers seem to be available</p>
@@ -1003,7 +1025,7 @@
 									<Cell head>Limits</Cell>
 									<Cell head>Version</Cell>
 									<Cell head>Status</Cell>
-									{#if $superadmin || $devopsRole}
+									{#if replAvailable}
 										<Cell head>
 											Repl
 											<Tooltip>
@@ -1046,7 +1068,13 @@
 												{@const isWorkerAlive = isWorkerMaybeAlive(last_ping)}
 												{@const tagMismatchInfo = getTagMismatchInfo(
 													custom_tags,
-													config?.worker_tags
+													config?.serves_dev_workspaces === true &&
+														config?.dedicated_worker == undefined &&
+														!config?.dedicated_workers?.length
+														? config?.worker_tags?.map((t: string) =>
+																withDevSuffix(t, $devWorkspaceListenSuffix)
+															)
+														: config?.worker_tags
 												)}
 												<tr class={groupIdx % 2 == 1 ? 'bg-surface-secondary/50' : ''}>
 													<Cell class="text-primary" first>
@@ -1127,12 +1155,16 @@
 													<Cell class="text-secondary">{jobs_executed}</Cell>
 													{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
 														<Cell class="text-secondary">
-															{#if last_job_id}
+															<!-- The run page switches to the job's workspace, which strands a
+															     devops user who belongs to none of them. -->
+															{#if last_job_id && $workspaceStore}
 																<a href={`/run/${last_job_id}?workspace=${last_job_workspace_id}`}>
 																	View last job
 																	<ExternalLink size={12} class="inline-block" />
 																</a>
 																<br />
+																{last_job_workspace_id}
+															{:else if last_job_id}
 																{last_job_workspace_id}
 															{/if}
 														</Cell>
@@ -1252,7 +1284,7 @@
 															<div class="text-2xs text-hint">{pingText}</div>
 														</div>
 													</Cell>
-													{#if $superadmin || $devopsRole}
+													{#if replAvailable}
 														<Cell class="text-secondary">
 															<Button
 																unifiedSize="sm"
@@ -1322,8 +1354,8 @@
 					{/if}
 				</div>
 				<div class="pb-8"></div>
-				<!-- Agent worker groups don't have autoscaling -->
-				{#if worker_group?.[2] === false}
+				<!-- An agent worker group is only autoscaled when it has a config row -->
+				{#if worker_group?.[2] === false || (workerGroups ?? {})[selectedTab]}
 					<AutoscalingEvents worker_group={selectedTab} />
 				{/if}
 			{:else}

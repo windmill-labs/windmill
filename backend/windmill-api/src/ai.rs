@@ -37,8 +37,8 @@ use windmill_ai::providers::{
     },
 };
 use windmill_ai::proxy::{
-    fim::maybe_transform_fim_request, proxy_execution_mode, ProxyBuildArgs, ProxyExecutionMode,
-    ProxyRequest,
+    fim::maybe_transform_fim_request, proxy_execution_mode, validate_proxy_path, ProxyBuildArgs,
+    ProxyExecutionMode, ProxyRequest,
 };
 use windmill_ai::retry::send_with_retries;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
@@ -166,27 +166,14 @@ fn ai_http_client_builder() -> reqwest::ClientBuilder {
 /// after the check (DNS-rebinding TOCTOU).
 ///
 /// Returns the shared pooled [`HTTP_CLIENT`] unchanged when there is nothing to
-/// pin — an IP-literal host, or a deployment that opted into private AI
-/// endpoints via `ALLOW_PRIVATE_AI_BASE_URLS`. The same opt-out and error hint
-/// as `get_base_url` apply, so the guard here is consistent with save-time
+/// pin — an IP-literal host, or a host `ALLOW_PRIVATE_AI_BASE_URLS` allows
+/// by name or wholesale. The same allowlist and error hint as `get_base_url`
+/// apply, so the guard here is consistent with save-time
 /// validation while additionally closing the connect-time window.
 async fn pinned_ai_client_for(url: &str) -> Result<std::borrow::Cow<'static, Client>> {
     use std::borrow::Cow;
-    use windmill_common::ssrf::SsrfValidationError;
 
-    if *windmill_ai::ai_providers::ALLOW_PRIVATE_AI_BASE_URLS {
-        return Ok(Cow::Borrowed(&HTTP_CLIENT));
-    }
-
-    let target = windmill_common::ssrf::validate_url_for_ssrf(url)
-        .await
-        .map_err(|e| match e {
-            e @ SsrfValidationError::Private { .. } => Error::BadRequest(format!(
-                "{e}. If you need to use private/internal AI endpoints, \
-                 set the ALLOW_PRIVATE_AI_BASE_URLS=true environment variable"
-            )),
-            e => Error::from(e),
-        })?;
+    let target = windmill_ai::ai_providers::validate_ai_url(url).await?;
 
     if target.pinned_addrs().is_empty() {
         return Ok(Cow::Borrowed(&HTTP_CLIENT));
@@ -713,6 +700,10 @@ pub fn workspaced_service() -> Router {
         .nest(
             "/shared_artifacts",
             crate::ai_shared_artifacts::workspaced_service(),
+        )
+        .nest(
+            "/shared_sessions",
+            crate::ai_shared_sessions::workspaced_service(),
         );
 
     #[cfg(feature = "bedrock")]
@@ -1099,6 +1090,7 @@ async fn global_proxy(
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
+    validate_proxy_path(&ai_path)?;
     let provider = headers
         .get("X-Provider")
         .map(|v| v.to_str().unwrap_or("").to_string());
@@ -1217,6 +1209,7 @@ async fn proxy(
     headers: HeaderMap,
     mut body: Bytes,
 ) -> impl IntoResponse {
+    validate_proxy_path(&ai_path)?;
     let provider = headers
         .get("X-Provider")
         .map(|v| v.to_str().unwrap_or("").to_string());

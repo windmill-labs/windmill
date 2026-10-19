@@ -946,6 +946,7 @@ pub async fn handle_chat_conversation_messages(
         w_id,
         flow_path,
         &authed.username,
+        authed.is_admin,
         &user_message,
         memory_id,
         is_test,

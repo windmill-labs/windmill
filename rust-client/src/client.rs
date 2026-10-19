@@ -412,6 +412,7 @@ impl Windmill {
                     resource_type: resource_type.to_owned(),
                     labels: None,
                     ws_specific: None,
+                    preserve_on_behalf_of: None,
                 },
                 // Some(true),
                 None,
@@ -429,6 +430,7 @@ impl Windmill {
                     resource_type: Some(resource_type.to_owned()),
                     labels: None,
                     ws_specific: None,
+                    preserve_on_behalf_of: None,
                 },
             )
             .await?;

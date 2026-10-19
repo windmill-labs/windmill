@@ -325,6 +325,7 @@ async fn test_new_turns_wait_for_conversation_cleanup_and_recreate(
                     WS,
                     "f/flow",
                     "test-user",
+                    false,
                     "hi again",
                     conv_id,
                     false,
@@ -527,6 +528,16 @@ async fn test_jobs_export_delete_is_workspace_scoped(db: Pool<Postgres>) -> anyh
     let other_job = Uuid::new_v4();
     insert_job(&db, "ws-other", other_job).await?;
     seed_side_rows(&db, "ws-other", other_job).await?;
+    // A queued flow's per-job tables, which carry no workspace_id of their own.
+    for sql in [
+        "INSERT INTO v2_job_queue (id, workspace_id, scheduled_for) VALUES ($1, 'ws-other', now())",
+        "INSERT INTO v2_job_runtime (id) VALUES ($1)",
+        "INSERT INTO v2_job_status (id) VALUES ($1)",
+        "INSERT INTO resume_job (id, job, flow) VALUES (gen_random_uuid(), $1, $1)",
+        "INSERT INTO concurrency_key (key, job_id) VALUES ('k', $1)",
+    ] {
+        sqlx::query(sql).bind(other_job).execute(&db).await?;
+    }
 
     // A test-workspace admin calls the purge endpoint with the FOREIGN job id.
     let server = ApiServer::start(db.clone()).await?;
@@ -551,5 +562,20 @@ async fn test_jobs_export_delete_is_workspace_scoped(db: Pool<Postgres>) -> anyh
         (1, 1, 1, 1),
         "jobs_export purge crossed workspaces: dispatch_event={de} flow_conversation_message={fcm} zombie_job_counter={zombie} v2_job={job}"
     );
+    for table_col in [
+        "v2_job_queue WHERE id",
+        "v2_job_runtime WHERE id",
+        "v2_job_status WHERE id",
+        "resume_job WHERE job",
+        "concurrency_key WHERE job_id",
+    ] {
+        let n = count(
+            &db,
+            &format!("SELECT count(*) FROM {table_col} = $1"),
+            other_job,
+        )
+        .await?;
+        assert_eq!(n, 1, "jobs_export purge crossed workspaces: {table_col}");
+    }
     Ok(())
 }
