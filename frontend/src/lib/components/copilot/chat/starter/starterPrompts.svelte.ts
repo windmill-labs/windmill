@@ -73,7 +73,8 @@ export class StarterPrompts {
 
 	get #otherSignals(): ComposerSignals | undefined {
 		const ws = this.#workspace()
-		return this.#others.current ?? (ws ? settledOthers.get(ws) : undefined)
+		const role = this.#role
+		return this.#others.current ?? (ws && role ? settledOthers.get(othersKey(ws, role)) : undefined)
 	}
 
 	/** Shown once the item list and every other signal have answered, so pills do not
@@ -99,6 +100,10 @@ type ItemsSignal = Pick<ComposerSignals, 'itemCount' | 'myDraft' | 'failedDeploy
 
 const settledItems = new Map<string, ItemsSignal>()
 const settledOthers = new Map<string, ComposerSignals>()
+/** A role sends only some requests, so an answer stands in only for a role that sends the same
+ * ones: the prefetch can run before the user is known and read fewer signals. */
+const othersKey = (workspace: string, role: ComposerRole) =>
+	`${workspace}:${role.workspaceAdmin}:${role.instanceAdmin}`
 const requests = new Map<string, { at: number; request: Promise<unknown> }>()
 /** How long an answer is reused before a mount asks again: long enough to cover the prefetch
  * that preceded the mount, short enough that returning to Home sees what changed. */
@@ -207,7 +212,7 @@ async function otherSignals(workspace: string, role: ComposerRole): Promise<Comp
 		hasErrorHandler: settings && !!settings.error_handler,
 		liveWorkers: workers?.length
 	}
-	settledOthers.set(workspace, signals)
+	settledOthers.set(othersKey(workspace, role), signals)
 	return signals
 }
 

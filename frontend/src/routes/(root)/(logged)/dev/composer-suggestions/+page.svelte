@@ -224,9 +224,8 @@
 								<span class="text-xs text-primary">{field.label}</span>
 								<TextInput
 									bind:value={() => form[field.key], (v) => (form[field.key] = String(v ?? ''))}
-									placeholder="absent"
 									size="sm"
-									inputProps={{ type: 'number', min: 0 }}
+									inputProps={{ type: 'number', min: 0, placeholder: 'absent' }}
 								/>
 								<span class="text-2xs text-hint">{field.hint}</span>
 							</label>
@@ -244,11 +243,15 @@
 					</div>
 					<label class="flex flex-col gap-1">
 						<span class="text-xs text-primary">My latest draft (path)</span>
-						<TextInput bind:value={form.draftPath} placeholder="none" size="sm" />
+						<TextInput bind:value={form.draftPath} size="sm" inputProps={{ placeholder: 'none' }} />
 					</label>
 					<label class="flex flex-col gap-1">
 						<span class="text-xs text-primary">Latest failed deploy (path)</span>
-						<TextInput bind:value={form.deployPath} placeholder="none" size="sm" />
+						<TextInput
+							bind:value={form.deployPath}
+							size="sm"
+							inputProps={{ placeholder: 'none' }}
+						/>
 					</label>
 				</section>
 			</div>

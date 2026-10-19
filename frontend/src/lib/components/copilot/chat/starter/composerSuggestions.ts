@@ -15,9 +15,9 @@ export type ComposerItem = { kind: string; path: string; name: string }
 export type ComposerSignals = {
 	/** Capped at the page the list call reads. */
 	itemCount?: number
-	/** The reader's most recently updated draft. */
+	/** The reader's draft among the items the list call reads, the most recently updated. */
 	myDraft?: ComposerItem
-	/** The most recently updated item whose last deploy failed. */
+	/** Among the same items, the most recently updated one whose last deploy failed. */
 	failedDeploy?: ComposerItem
 	/** Runs that failed in the last 24 hours. */
 	failedRuns?: number
