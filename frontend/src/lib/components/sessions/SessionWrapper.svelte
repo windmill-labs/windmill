@@ -107,8 +107,15 @@
 	// The composer's text before AIChat mounts, typed into the placeholder, and then the real
 	// composer's initial draft.
 	let draftText = $state(armedAtInit ? '' : (restoredDraftPrompt ?? ''))
-	// The placeholder's caret while it has focus, given to the real composer when it mounts.
-	let handoffSelection: ComposerSelection | undefined = undefined
+	// What the first focus after the swap does: put the caret where the placeholder had it, or,
+	// when null, leave focus where the user moved it while the chat loaded. Undefined when the
+	// placeholder never had focus.
+	let handoff: ComposerSelection | null | undefined = undefined
+	// The swap waits for an IME composition to end: the new field would not carry it over.
+	let placeholderComposing = $state(false)
+	// The placeholder's text counts as unsent input, like the real composer's draft, so the page
+	// does not evict this session's chat (and the text with it) while it waits for the chat code.
+	const PLACEHOLDER_DRAFT_KEY = 'composer-placeholder'
 
 	// Drawn once, and shared by the placeholder and the real composer so the text survives the swap.
 	const suggestionPick = Math.random()
@@ -300,8 +307,9 @@
 		if (!aiChat) return
 		if (!$copilotInfo.enabled) return
 		const chat = aiChat
-		const selection = handoffSelection
-		handoffSelection = undefined
+		const selection = handoff
+		handoff = undefined
+		if (selection === null) return
 		setTimeout(() => chat.focusInput(selection), 0)
 	})
 
@@ -312,6 +320,7 @@
 	const showChat = $derived.by(() => {
 		chatShown ||=
 			!!aiChatComponent.current &&
+			!placeholderComposing &&
 			(sessionState.currentSessionId !== sessionId ||
 				$copilotWorkspace === (actingWorkspaceId ?? $workspaceStore))
 		return chatShown
@@ -531,7 +540,11 @@
 					{:else}
 						<!-- AIChatDisplay's layout, so the composer stays put when the chat replaces it:
 						     its transcript area, its column, and its footer row's height. -->
-						<div class="flex flex-col h-full">
+						<div
+							class="flex flex-col h-full"
+							{@attach () => () =>
+								runtime.manager.setComposerHasDraft(PLACEHOLDER_DRAFT_KEY, false)}
+						>
 							{#if runtime.manager.displayMessages.length > 0}
 								<div class="flex-1 min-h-0"></div>
 							{/if}
@@ -543,6 +556,7 @@
 										(text) => {
 											draftText = text
 											setSessionDraftPrompt(sessionId, text)
+											runtime.manager.setComposerHasDraft(PLACEHOLDER_DRAFT_KEY, text.trim() !== '')
 										}
 									}
 									placeholder={runtime.manager.displayMessages.length > 0
@@ -550,7 +564,8 @@
 										: composerPlaceholder}
 									disabled={isUnavailable || !!session.archived}
 									autofocus={sessionState.currentSessionId === sessionId && !covered}
-									onSelectionChange={(selection) => (handoffSelection = selection)}
+									onSelectionChange={(selection) => (handoff = selection ?? null)}
+									onCompositionChange={(composing) => (placeholderComposing = composing)}
 								/>
 								<div class="mt-1 h-5"></div>
 							</div>

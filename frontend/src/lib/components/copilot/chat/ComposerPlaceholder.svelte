@@ -16,14 +16,17 @@
 		placeholder,
 		disabled = false,
 		autofocus = false,
-		onSelectionChange
+		onSelectionChange,
+		onCompositionChange
 	}: {
 		value: string
 		placeholder?: string
 		disabled?: boolean
 		autofocus?: boolean
-		/** The caret while the field has focus, undefined once the user leaves it. */
+		/** The caret while the field has focus, undefined once the user moves to another element. */
 		onSelectionChange?: (selection: ComposerSelection | undefined) => void
+		/** Whether an IME composition is in progress: replacing the field then would lose it. */
+		onCompositionChange?: (composing: boolean) => void
 	} = $props()
 
 	function trackSelection(e: Event & { currentTarget: HTMLTextAreaElement }) {
@@ -59,12 +62,17 @@
 				onpointerup={trackSelection}
 				onblur={(e) => {
 					// Unmounting the focused field blurs it, while still connected; that is the hand-off,
-					// not the user leaving. The field is detached by the time a microtask runs.
+					// not the user leaving. The field is detached by the time a microtask runs. A window
+					// blur leaves the field the active element, so it is not the user leaving either.
 					const field = e.currentTarget
 					queueMicrotask(() => {
-						if (field.isConnected) onSelectionChange?.(undefined)
+						if (field.isConnected && document.activeElement !== field) {
+							onSelectionChange?.(undefined)
+						}
 					})
 				}}
+				oncompositionstart={() => onCompositionChange?.(true)}
+				oncompositionend={() => onCompositionChange?.(false)}
 				onkeydown={(e) => {
 					// Enter sends in the real composer; here it must not add a newline to the draft.
 					if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) e.preventDefault()
