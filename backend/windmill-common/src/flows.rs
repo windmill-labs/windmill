@@ -286,45 +286,56 @@ pub struct LinkedAgent {
     pub bound_inputs: Vec<(String, Vec<String>)>,
 }
 
-/// A builder's step may bind only the tool inputs its linked agent leaves to the model: those the
-/// model could be prompted to fill anyway. An input the agent fills is part of what its author
-/// wrote, and the step's binding would replace it at run time.
+/// A builder's step may bind only the tool inputs its linked agent leaves open, passing them what
+/// it could pass a deployed runnable's inputs. An input the agent fills is part of what its author
+/// wrote, and the step's binding would replace it at run time. Every tool sharing an id is
+/// checked, as the overlay binds them all.
 pub fn check_bound_agent_inputs_are_open(
     agent: &str,
     tools: &[AgentTool],
     bound_inputs: &[(String, Vec<String>)],
 ) -> Result<(), Error> {
     for (tool_id, keys) in bound_inputs {
-        let Some(ToolValue::FlowModule(value)) =
-            tools.iter().find(|t| &t.id == tool_id).map(|t| &t.value)
-        else {
-            continue;
-        };
-        let input_transforms = match value {
-            FlowModuleValue::Script { input_transforms, .. }
-            | FlowModuleValue::RawScript { input_transforms, .. }
-            | FlowModuleValue::FlowScript { input_transforms, .. }
-            | FlowModuleValue::Flow { input_transforms, .. }
-            | FlowModuleValue::AIAgent { input_transforms, .. }
-            | FlowModuleValue::AIDecision { input_transforms, .. } => input_transforms,
-            // Fail closed on a tool kind whose inputs this does not know how to read.
-            _ => {
-                return Err(Error::PermissionDenied(format!(
-                    "Tool {tool_id} of agent {agent} takes no inputs a builder can set"
-                )))
-            }
-        };
-        if let Some(key) = keys
-            .iter()
-            .find(|k| input_transforms.get(*k).is_some_and(|t| t.is_completed()))
-        {
-            return Err(Error::PermissionDenied(format!(
-                "Input {key} of tool {tool_id} is set by agent {agent}, so a builder cannot \
-                 change it. Bind only the inputs the agent leaves to the model."
-            )));
+        for tool in tools.iter().filter(|t| &t.id == tool_id) {
+            check_tool_inputs_are_open(agent, tool_id, &tool.value, keys)?;
         }
     }
     Ok(())
+}
+
+fn check_tool_inputs_are_open(
+    agent: &str,
+    tool_id: &str,
+    value: &ToolValue,
+    keys: &[String],
+) -> Result<(), Error> {
+    let ToolValue::FlowModule(value) = value else {
+        return Ok(());
+    };
+    let input_transforms = match value {
+        FlowModuleValue::Script { input_transforms, .. }
+        | FlowModuleValue::RawScript { input_transforms, .. }
+        | FlowModuleValue::FlowScript { input_transforms, .. }
+        | FlowModuleValue::Flow { input_transforms, .. }
+        | FlowModuleValue::AIAgent { input_transforms, .. }
+        | FlowModuleValue::AIDecision { input_transforms, .. } => input_transforms,
+        // Fail closed on a tool kind whose inputs this does not know how to read.
+        _ => {
+            return Err(Error::PermissionDenied(format!(
+                "Tool {tool_id} of agent {agent} takes no inputs a builder can set"
+            )))
+        }
+    };
+    match keys
+        .iter()
+        .find(|k| input_transforms.get(*k).is_some_and(|t| t.is_completed()))
+    {
+        Some(key) => Err(Error::PermissionDenied(format!(
+            "Input {key} of tool {tool_id} is set by agent {agent}, so a builder cannot \
+             change it. Bind only the inputs the agent leaves to the model."
+        ))),
+        None => Ok(()),
+    }
 }
 
 fn check_module_is_composition_only(
@@ -554,8 +565,11 @@ mod tests {
 
     #[test]
     fn bound_agent_inputs_must_be_left_to_the_model() {
-        let tools: Vec<AgentTool> = serde_json::from_value(serde_json::json!([{"id": "t",
-            "value": {"tool_type": "flowmodule", "type": "rawscript", "content": "x",
+        // Two tools share the id: the overlay binds both, so the second's `query` counts.
+        let tools: Vec<AgentTool> = serde_json::from_value(serde_json::json!([
+            {"id": "t", "value": {"tool_type": "flowmodule", "type": "rawscript", "content": "x",
+                "language": "bun", "input_transforms": {}}},
+            {"id": "t", "value": {"tool_type": "flowmodule", "type": "rawscript", "content": "x",
                 "language": "bun", "input_transforms": {
                     "query": {"type": "static", "value": "SELECT 1"},
                     "limit": {"type": "ai"},

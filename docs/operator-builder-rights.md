@@ -40,10 +40,12 @@ permissions:
   is safe because of the agent rule below: an agent's tools are either a developer's code or
   passed this same check when an operator saved them. Two things keep it safe:
   - The step's `tool_inputs` replace a tool's inputs at run time, including the ones the agent's
-    author set, which the model never sees. A builder's step may bind only the inputs the agent
-    leaves to the model (`check_bound_agent_inputs_are_open`, on `InputTransform::is_completed`,
-    the same test that hides an input from the model), so it adds nothing a prompt could not.
-    The flow editor shows a builder only those inputs.
+    author set. A builder's step may bind only the inputs the agent leaves open
+    (`check_bound_agent_inputs_are_open`, on `InputTransform::is_completed`), and the flow editor
+    shows a builder only those. What it binds there, a `$var:` or a JavaScript expression
+    included, is what its own steps may already pass a deployed runnable; an input the author set
+    stays theirs. The check runs on the flow's write, so a tool or input the agent gains later is
+    open to a binding written before it, like the retyped path below.
   - The worker refuses a linked path whose resource is no longer an `ai_agent`
     (`get_agent_value`). Only writes of an agent are checked, so a path retyped, or recreated as
     another type, after the link was approved would otherwise run whatever `tools` it now holds.
