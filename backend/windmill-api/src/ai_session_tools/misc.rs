@@ -6,8 +6,11 @@ use futures::future::join_all;
 use serde_json::{json, Map, Value};
 use windmill_common::utils::HTTP_CLIENT;
 
+use super::chat::Effect;
+use super::workspace::api_message;
 use super::{
-    array, enc, is_not_found, opt_str_arg, pretty, str_arg, truthy, Ctx, ToolResult, SCHEMAS,
+    array, enc, is_not_found, js_head, opt_str_arg, pretty, str_arg, truthy, Ctx, ToolResult,
+    SCHEMAS,
 };
 
 pub(super) const TOOLS: &[&str] = &[
@@ -28,7 +31,7 @@ pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult 
     match name {
         "search_hub_scripts" => search_hub_scripts(ctx, args).await,
         "get_hub_integration" => get_hub_integration(ctx, args).await,
-        "search_npm_packages" => search_npm_packages(args).await,
+        "search_npm_packages" => search_npm_packages(ctx, args).await,
         "search_docs" => search_docs(ctx, args).await,
         "read_docs_page" => read_docs_page(ctx, args).await,
         "search_resource_types" => search_resource_types(ctx, args).await,
@@ -348,48 +351,154 @@ async fn get_hub_integration(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 // ---------------------------------------------------------------------------
 
 const NPM_SCORE_THRESHOLD: f64 = 1000.0;
-/// The session caps a package's readme and types at 1% of its model's context window
-/// each. The caller's model is unknown here, so this is 1% of the window the session
-/// assumes for an unknown model (128000).
+/// A package's readme and types are each capped at 1% of the model's context window. The
+/// chat sends its own model's cap; an MCP client's model is unknown, so this is 1% of the
+/// window assumed for an unknown model (128000).
 const NPM_TEXT_LIMIT: usize = 1280;
-
-fn take_chars(text: &str, limit: usize) -> String {
-    text.chars().take(limit).collect()
-}
 
 async fn fetch(url: &str) -> Result<reqwest::Response, reqwest::Error> {
     HTTP_CLIENT.get(url).send().await
 }
 
-/// The package's declared entry declaration file. The session walks every `.d.ts` of the
-/// package in the browser and keeps the same number of characters of the result.
-async fn npm_package_types(name: &str, version: &str) -> Option<String> {
-    let base = format!("https://unpkg.com/{name}@{version}");
-    let manifest: Value = fetch(&format!("{base}/package.json"))
-        .await
-        .ok()?
-        .error_for_status()
-        .ok()?
-        .json()
-        .await
-        .ok()?;
-    let entry = ["types", "typings"]
-        .iter()
-        .find_map(|key| manifest.get(key)?.as_str())
-        .unwrap_or("index.d.ts")
-        .trim_start_matches("./");
-    let types = fetch(&format!("{base}/{entry}"))
-        .await
-        .ok()?
-        .error_for_status()
-        .ok()?
-        .text()
-        .await
-        .ok()?;
-    Some(format!("// /node_modules/{name}/{entry}\n{types}"))
+/// Where a package's files come from: the public CDN, or the workspace's npm proxy, which
+/// is the authoritative source once the instance names a registry of its own. Each falls
+/// back to the other.
+struct NpmSources<'a> {
+    ctx: &'a Ctx<'a>,
+    proxy_first: bool,
 }
 
-async fn npm_search(query: &str) -> Result<Vec<Value>, String> {
+impl NpmSources<'_> {
+    async fn new<'a>(ctx: &'a Ctx<'a>) -> NpmSources<'a> {
+        let proxy_first = ctx
+            .get(&ctx.ws("npm_proxy/config"))
+            .await
+            .is_ok_and(|config| truthy(config.get("registry_configured")));
+        NpmSources { ctx, proxy_first }
+    }
+
+    async fn json(&self, cdn: String, proxy: String) -> Option<Value> {
+        let via_cdn = || async {
+            let response = fetch(&cdn).await.ok()?.error_for_status().ok()?;
+            response.json::<Value>().await.ok()
+        };
+        let via_proxy = || async { self.ctx.get(&self.ctx.ws(&proxy)).await.ok() };
+        if self.proxy_first {
+            match via_proxy().await {
+                Some(v) => Some(v),
+                None => via_cdn().await,
+            }
+        } else {
+            match via_cdn().await {
+                Some(v) => Some(v),
+                None => via_proxy().await,
+            }
+        }
+    }
+
+    async fn text(&self, cdn: String, proxy: String) -> Option<String> {
+        let via_cdn = || async {
+            let response = fetch(&cdn).await.ok()?.error_for_status().ok()?;
+            response.text().await.ok()
+        };
+        let via_proxy = || async {
+            self.ctx
+                .request("GET", &self.ctx.ws(&proxy), None)
+                .await
+                .ok()
+        };
+        if self.proxy_first {
+            match via_proxy().await {
+                Some(v) => Some(v),
+                None => via_cdn().await,
+            }
+        } else {
+            match via_cdn().await {
+                Some(v) => Some(v),
+                None => via_proxy().await,
+            }
+        }
+    }
+
+    /// `tag` as an exact version; one with two dots already is one.
+    async fn version(&self, module: &str, tag: &str) -> Option<String> {
+        if tag.split('.').count() >= 3 {
+            return Some(tag.to_string());
+        }
+        let resolved = self
+            .json(
+                format!("https://data.jsdelivr.com/v1/package/resolve/npm/{module}@{tag}"),
+                format!("npm_proxy/resolve/{}?tag={}", enc(module), enc(tag)),
+            )
+            .await?;
+        resolved.get("version")?.as_str().map(String::from)
+    }
+
+    /// The `.d.ts` files of `module` at `version`, in the order its file tree lists them.
+    async fn dts_files(&self, module: &str, version: &str) -> Option<Vec<String>> {
+        let tree = self
+            .json(
+                format!("https://data.jsdelivr.com/v1/package/npm/{module}@{version}/flat"),
+                format!("npm_proxy/filetree/{}/{}", enc(module), enc(version)),
+            )
+            .await?;
+        Some(
+            array(tree.get("files"))
+                .iter()
+                .filter_map(|f| f.get("name")?.as_str())
+                .filter(|name| name.ends_with(".d.ts"))
+                .map(String::from)
+                .collect(),
+        )
+    }
+}
+
+/// `@bla/foo` → `bla__foo`, the DefinitelyTyped name of a scoped package.
+fn dt_name(name: &str) -> String {
+    match name.strip_prefix('@') {
+        Some(scoped) if scoped.contains('/') => scoped.replacen('/', "__", 1),
+        _ => name.to_string(),
+    }
+}
+
+/// Every declaration file of the package, or of its `@types` package when it ships none,
+/// each headed by the path it would have under `node_modules`.
+async fn npm_package_types(sources: &NpmSources<'_>, name: &str, version: &str) -> String {
+    let mut module = name.to_string();
+    let mut prefix = format!("/node_modules/{name}");
+    let mut version = match sources.version(name, version).await {
+        Some(version) => version,
+        None => return String::new(),
+    };
+    let mut files = sources.dts_files(name, &version).await.unwrap_or_default();
+    if files.is_empty() {
+        module = format!("@types/{}", dt_name(name));
+        prefix = format!("/node_modules/@types/{}", dt_name(name));
+        let Some(dt_version) = sources.version(&module, "latest").await else {
+            return String::new();
+        };
+        version = dt_version;
+        files = sources
+            .dts_files(&module, &version)
+            .await
+            .unwrap_or_default();
+    }
+    let contents = join_all(files.iter().map(|file| {
+        sources.text(
+            format!("https://cdn.jsdelivr.net/npm/{module}@{version}{file}"),
+            format!("npm_proxy/file/{}/{}{file}", enc(&module), enc(&version)),
+        )
+    }))
+    .await;
+    files
+        .iter()
+        .zip(contents)
+        .filter_map(|(file, code)| Some(format!("// {prefix}{file}\n{}", code?)))
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+async fn npm_search(ctx: &Ctx<'_>, query: &str, limit: usize) -> Result<Vec<Value>, String> {
     let data: Value = fetch(&format!(
         "https://registry.npmjs.org/-/v1/search?text={}&size=2",
         enc(query)
@@ -414,26 +523,29 @@ async fn npm_search(query: &str) -> Result<Vec<Value>, String> {
                 package.get("version").and_then(Value::as_str),
             ))
         });
+    let sources = &NpmSources::new(ctx).await;
     Ok(join_all(packages.map(|(name, version)| async move {
         let documentation = match fetch(&format!("https://unpkg.com/{name}/readme.md")).await {
             Ok(response) => response.text().await.unwrap_or_default(),
             Err(_) => String::new(),
         };
-        let types = npm_package_types(name, version.unwrap_or("latest"))
-            .await
-            .unwrap_or_default();
+        let types = npm_package_types(sources, name, version.unwrap_or("latest")).await;
         json!({
             "package": name,
-            "documentation": take_chars(&documentation, NPM_TEXT_LIMIT),
-            "types": take_chars(&types, NPM_TEXT_LIMIT),
+            "documentation": js_head(&documentation, limit),
+            "types": js_head(&types, limit),
         })
     }))
     .await)
 }
 
-async fn search_npm_packages(args: &Value) -> ToolResult {
+async fn search_npm_packages(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let query = str_arg(args, "query")?;
-    Ok(match npm_search(query).await {
+    let limit = ctx
+        .chat
+        .and_then(|chat| chat.npm_text_limit)
+        .unwrap_or(NPM_TEXT_LIMIT);
+    Ok(match npm_search(ctx, query, limit).await {
         Ok(results) => Value::Array(results).to_string(),
         Err(e) => {
             tracing::warn!("npm package search failed: {e}");
@@ -454,7 +566,10 @@ fn docs_text(result: Result<Value, String>, action: &str) -> String {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string(),
-        Err(e) => format!("Failed to {action}: {e}, pursuing with the user request..."),
+        Err(e) => format!(
+            "Failed to {action}: {}, pursuing with the user request...",
+            api_message(&e)
+        ),
     }
 }
 
@@ -466,6 +581,11 @@ async fn search_docs(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         );
     }
     let result = ctx.get(&format!("/docs/search?query={}", enc(query))).await;
+    if let Ok(response) = &result {
+        let mut facts = Map::new();
+        facts.insert("result_count".into(), array(response.get("results")).len().into());
+        ctx.effect(Effect::Facts(facts));
+    }
     Ok(docs_text(result, "search documentation"))
 }
 
@@ -661,7 +781,7 @@ async fn create_folder(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
                 "success": true,
                 "message": format!("Created folder `f/{name}`. You can now write items to `f/{name}/<name>`.")
             }),
-            Err(error) => json!({ "success": false, "error": error }),
+            Err(error) => json!({ "success": false, "error": api_message(&error) }),
         }
         .to_string(),
     )

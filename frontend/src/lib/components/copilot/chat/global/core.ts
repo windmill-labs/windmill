@@ -101,7 +101,8 @@ import {
 } from '../flow/editableFlowJson'
 import {
 	getAiAgentProviderCatalog,
-	getAiAgentProviderCatalogFor
+	getAiAgentProviderCatalogFor,
+	getAiAgentProviderCatalogForRefs
 } from '../flow/aiAgentProviderCatalog'
 import {
 	formatAiAgentProviderWarnings,
@@ -283,6 +284,21 @@ import {
 	saveGlobalAppDraft,
 	type DraftPersistResult
 } from './userDraftAdapter'
+import {
+	applySessionToolEffects,
+	applyStatusEffects,
+	callSessionTool,
+	runOnServer,
+	runServerTool,
+	type SessionToolEffect
+} from './backendSessionTools'
+import {
+	dbSchemaServerTool,
+	readDocsPageServerTool,
+	searchDocsServerTool,
+	searchHubScriptsServerTool,
+	searchNpmPackagesServerTool
+} from './serverTools'
 import { findModuleInFlow } from '$lib/components/flows/flowTree'
 import { DRAFT_CONFLICT_RESULT, DRAFT_SAVE_FAILED_RESULT } from '../draftWriteResults'
 import {
@@ -3040,41 +3056,26 @@ export const readSkillTool: SessionTool<{}> = {
 		const parsed = readSkillSchema.parse(args)
 		const name = skillNameFromPath(parsed.path)
 		toolCallbacks.setToolStatus(toolId, { content: `Reading skill "${name}"...` })
-		try {
-			// The prompt lists the skills in play, but the tool takes a path the model
-			// composed, so what may be read is checked here rather than assumed. Against
-			// the listing, not just the off-switch: any other path is now enabled too,
-			// and without this the tool reads any resource holding a string `content` —
-			// the user's own access, but not what "load a skill" says it does.
-			const isSkill = (await listSkillResources(workspace)).skills.some(
-				(s) => s.path === parsed.path
-			)
-			if (!isSkill || !isSkillEnabled(workspace, parsed.path)) {
-				toolCallbacks.setToolStatus(toolId, { content: `Skill "${name}" is not available` })
-				return `"${parsed.path}" is not one of the skills available to this chat. Only the paths listed under "Skills" in the system prompt can be read.`
-			}
-			// Bounded here rather than in the reader: any `ai_skill` resource is in play,
-			// including ones written through git sync or the resource editor
-			// that never passed the authoring form's limits, and an unbounded body
-			// would exhaust the context on one tool call. The editor reads the same
-			// resource untruncated, so opening a long skill cannot rewrite it short.
-			const instructions = truncateForPrompt(
-				await readSkillBody(workspace, parsed.path),
-				MAX_SKILL_INSTRUCTIONS_LENGTH
-			)
+		const { text } = await runOnServer('read_skill', workspace, args, {
+			skill_enabled: isSkillEnabled(workspace, parsed.path)
+		})
+		const failed = text.match(
+			/^Failed to read skill ".*?": (.*)\. Check the path against the Skills list in the system prompt\.$/s
+		)
+		if (failed) {
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Error reading skill "${name}"`,
+				error: failed[1]
+			})
+		} else if (text.startsWith('Skill: ')) {
 			toolCallbacks.setToolStatus(toolId, { content: `Read skill "${name}"` })
 			// Whether a skill is actually reached for. No key: the path is
 			// workspace-authored text.
 			logFeatureUsage('ai_session', 'skill_read', { workspace })
-			return `Skill: ${parsed.path}\n\nInstructions:\n${instructions}`
-		} catch (e) {
-			const msg = e instanceof Error ? e.message : String(e)
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Error reading skill "${name}"`,
-				error: msg
-			})
-			return `Failed to read skill "${parsed.path}": ${msg}. Check the path against the Skills list in the system prompt.`
+		} else {
+			toolCallbacks.setToolStatus(toolId, { content: `Skill "${name}" is not available` })
 		}
+		return text
 	}
 }
 
@@ -3852,11 +3853,11 @@ export const globalTools: SessionTool<{}>[] = [
 			return getInstructions(parsed.subject, parsed.language, ctx.workspace, composeOnly)
 		}
 	},
-	createSearchHubScriptsTool(false),
+	searchHubScriptsServerTool,
 	getHubIntegrationTool,
-	searchNpmPackagesTool,
-	searchDocsTool,
-	readDocsPageTool,
+	searchNpmPackagesServerTool,
+	searchDocsServerTool,
+	readDocsPageServerTool,
 	{
 		requires: NONE,
 		def: createToolDef(
@@ -4009,76 +4010,13 @@ export const globalTools: SessionTool<{}>[] = [
 		),
 		planModeSafe: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-			const parsed = listWorkspaceItemsSchema.parse(args)
-			const accessTypes = (parsed.types ?? []).filter(isAccessType)
-			const itemTypes = (parsed.types ?? []).filter((t): t is WorkspaceItemType => !isAccessType(t))
-			// Asking only for folders or groups must not fall back to the default scripts and flows.
-			const types =
-				accessTypes.length > 0 && itemTypes.length === 0 ? [] : getRequestedTypes(itemTypes)
-			const limit = parsed.limit ?? 50
+			listWorkspaceItemsSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing workspace items...' })
-
-			const accessRows = (
-				await listAccessEntities(
-					accessTypes,
-					workspace,
-					Math.min(limit, MAX_LIST_LIMIT),
-					parsed.page
-				)
-			).filter((row) => itemMatches(row, parsed.query))
-
-			const byKey = new Map<string, WorkspaceItem>()
-			const workspaceItems = await listWorkspaceItems(
-				types,
-				workspace,
-				parsed.path_prefix,
-				Math.min(limit, MAX_LIST_LIMIT),
-				parsed.page
-			)
-			for (const item of workspaceItems) {
-				byKey.set(getWorkspaceItemKey(item.type, item.path, item.triggerKind), item)
-			}
-
-			// Drafts are not paginated server-side; overlay them on page 1 only,
-			// capped at `limit` per type, so results stay bounded and later pages
-			// never repeat a page-1 item as its draft twin. Chat draft counts are
-			// small — past the cap, a narrower path_prefix still finds any draft
-			// (it filters before the cap; query filters after).
-			if ((parsed.page ?? 1) === 1) {
-				const draftCountByType = new Map<string, number>()
-				const prefix = parsed.path_prefix
-				for (const draft of await listGlobalDrafts(workspace)) {
-					if (!types.includes(draft.type)) continue
-					// A draft's staged name is often not where it is stored: the editor parks
-					// a new script, flow or app at a generated `draft_<uuid>` path, and a
-					// rename stages the new name over the old path. The server drops
-					// draft-only rows under any narrowing filter, leaving this pass their
-					// only source, so either name has to satisfy the prefix.
-					if (prefix && !draft.path.startsWith(prefix) && !draft.draftPath?.startsWith(prefix))
-						continue
-					const count = draftCountByType.get(draft.type) ?? 0
-					if (count >= limit) continue
-					draftCountByType.set(draft.type, count + 1)
-					byKey.set(getWorkspaceItemKey(draft.type, draft.path, draft.triggerKind), {
-						...draft,
-						value: undefined,
-						schema: undefined
-					})
-				}
-			}
-
-			// No cross-type truncation: each type is already capped at `limit` rows by
-			// its own list call, and slicing the concatenation would silently drop the
-			// later types' rows while their next page skips past them.
-			const results = [
-				...Array.from(byKey.values()).filter((item) => itemMatches(item, parsed.query)),
-				...accessRows
-			]
-
+			const { text } = await runOnServer('list_workspace_items', workspace, args)
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Listed ${results.length} workspace item(s)`
+				content: `Listed ${JSON.parse(text).length} workspace item(s)`
 			})
-			return JSON.stringify(results, null, 2)
+			return text
 		}
 	},
 	{
@@ -4089,13 +4027,13 @@ export const globalTools: SessionTool<{}>[] = [
 			'List the data pipelines of the workspace: each folder holding at least one pipeline script, with its number of scripts. A pipeline is named by its folder, not by an item path.'
 		),
 		planModeSafe: true,
-		fn: async ({ workspace, toolId, toolCallbacks }) => {
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing data pipelines...' })
-			const pipelines = await AssetService.listPipelineFolders({ workspace })
+			const { text } = await runOnServer('list_pipelines', workspace, args)
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Listed ${pipelines.length} data pipeline(s)`
+				content: `Listed ${JSON.parse(text).length} data pipeline(s)`
 			})
-			return JSON.stringify(pipelines)
+			return text
 		}
 	},
 	{
@@ -4109,50 +4047,21 @@ export const globalTools: SessionTool<{}>[] = [
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = readWorkspaceItemSchema.parse(args)
 			const { type } = parsed
+			toolCallbacks.setToolStatus(toolId, { content: `Reading ${type} "${parsed.path}"...` })
+			const { text } = await runOnServer('read_workspace_item', workspace, args)
+			const read = JSON.parse(text)
 			if (isAccessType(type)) {
-				toolCallbacks.setToolStatus(toolId, { content: `Reading ${type} "${parsed.path}"...` })
-				const entity = await readAccessEntity(type, parsed.path, workspace)
-				toolCallbacks.setToolStatus(toolId, { content: `Read ${type} "${entity.name}"` })
-				return JSON.stringify(entity, null, 2)
-			}
-			if (type === 'trigger' && !parsed.trigger_kind) {
-				const message = 'trigger_kind is required when type is trigger.'
-				toolCallbacks.setToolStatus(toolId, { content: message, error: message })
-				return JSON.stringify({ success: false, error: message })
-			}
-			const draft =
-				parsed.version === 'deployed' || isHubPath(parsed.path)
-					? null
-					: await getGlobalDraft(workspace, type, parsed.path, parsed.trigger_kind)
-			if (draft) {
+				toolCallbacks.setToolStatus(toolId, { content: `Read ${type} "${read.name}"` })
+			} else if (read.success === false) {
+				toolCallbacks.setToolStatus(toolId, { content: read.error, error: read.error })
+			} else {
 				toolCallbacks.setToolStatus(toolId, {
-					content: `Read draft ${type} "${parsed.path}"`
+					content: read.isDraft
+						? `Read draft ${type} "${parsed.path}"`
+						: `Read ${type} "${parsed.path}"`
 				})
-				// The mode reported is the draft's, which is what deploying it will write. The
-				// deployed app's own mode is a different question, asked with version:
-				// "deployed", and must not be fetched here.
-				const executionMode =
-					type === 'app'
-						? await describeAppExposure(
-								workspace,
-								(draft.value as AppDraftValue)?.policy?.execution_mode
-							)
-						: undefined
-				return JSON.stringify(serializeWorkspaceItemForRead({ ...draft, executionMode }), null, 2)
 			}
-
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Reading ${type} "${parsed.path}"...`
-			})
-			const item = await readWorkspaceItem(
-				type,
-				parsed.path,
-				workspace,
-				parsed.trigger_kind,
-				parsed.version === 'deployed'
-			)
-			toolCallbacks.setToolStatus(toolId, { content: `Read ${type} "${parsed.path}"` })
-			return JSON.stringify(serializeWorkspaceItemForRead(item), null, 2)
+			return text
 		}
 	},
 	{
@@ -4175,28 +4084,26 @@ export const globalTools: SessionTool<{}>[] = [
 				return JSON.stringify({ success: false, error })
 			}
 			toolCallbacks.setToolStatus(toolId, { content: `Creating folder \`f/${parsed.name}\`...` })
-			try {
-				await FolderService.createFolder({
-					workspace,
-					requestBody: { name: parsed.name, summary: parsed.summary }
+			const { text } = await runOnServer('create_folder', workspace, args)
+			const created = JSON.parse(text)
+			if (!created.success) {
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Error: ${created.error}`,
+					error: created.error
 				})
-				// Reflect the new folder for the rest of the session without a refetch, crediting
-				// the workspace it was created in: crediting the ambient one instead would hide
-				// it from the prompt that needs it.
-				const role = await roleForWorkspace(workspace)
-				if (role.kind === 'resolved') {
-					const user = role.user
-					if (!user.folders) user.folders = []
-					if (!user.folders.includes(parsed.name)) user.folders.push(parsed.name)
-				}
-				const message = `Created folder \`f/${parsed.name}\`. You can now write items to \`f/${parsed.name}/<name>\`.`
-				toolCallbacks.setToolStatus(toolId, { content: message })
-				return JSON.stringify({ success: true, message })
-			} catch (e) {
-				const error = e instanceof Error ? e.message : String(e)
-				toolCallbacks.setToolStatus(toolId, { content: `Error: ${error}`, error })
-				return JSON.stringify({ success: false, error })
+				return text
 			}
+			// Reflect the new folder for the rest of the session without a refetch, crediting
+			// the workspace it was created in: crediting the ambient one instead would hide
+			// it from the prompt that needs it.
+			const role = await roleForWorkspace(workspace)
+			if (role.kind === 'resolved') {
+				const user = role.user
+				if (!user.folders) user.folders = []
+				if (!user.folders.includes(parsed.name)) user.folders.push(parsed.name)
+			}
+			toolCallbacks.setToolStatus(toolId, { content: created.message })
+			return text
 		}
 	},
 	{
@@ -4207,7 +4114,9 @@ export const globalTools: SessionTool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeScriptSchema.parse(ctx.args)
-			return writeScriptDraft(parsed, ctx)
+			return runDraftWrite('write_script', ctx, {
+				pending: `Saving script "${parsed.path}" as a draft…`
+			})
 		}
 	},
 	{
@@ -4218,38 +4127,9 @@ export const globalTools: SessionTool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeFlowSchema.parse(ctx.args)
-			const modules = parseOptionalJsonArg(parsed.modules, 'modules')
-			const aiProviders = await getAiAgentProviderCatalogFor(ctx.workspace, modules)
-			const aiProviderWarnings: string[] = []
-			const editable = validateEditableFlowJson(
-				{
-					modules,
-					schema: parseOptionalJsonArg(parsed.schema, 'schema'),
-					preprocessor_module: parseOptionalJsonArg(
-						parsed.preprocessor_module,
-						'preprocessor_module'
-					),
-					failure_module: parseOptionalJsonArg(parsed.failure_module, 'failure_module'),
-					groups: parseOptionalJsonArg(parsed.groups, 'groups'),
-					notes: parseOptionalJsonArg(parsed.notes, 'notes')
-				},
-				{ aiProviders, aiProviderWarnings }
-			)
-			const resolved = await resolveWriteFlowInlineScripts(parsed.path, editable, ctx.workspace)
-			const result = await writeFlowDraft(
-				{
-					path: parsed.path,
-					summary: parsed.summary,
-					description: parsed.description,
-					flow: editableFlowToDraftValue(resolved),
-					preserveBaseValueSettings: true
-				},
-				ctx
-			)
-			return (
-				appendEmptyInlineScriptWarning(result, resolved) +
-				formatAiAgentProviderWarnings(aiProviderWarnings)
-			)
+			return runDraftWrite('write_flow', ctx, {
+				pending: `Saving flow "${parsed.path}" as a draft…`
+			})
 		}
 	},
 	{
@@ -4275,7 +4155,9 @@ export const globalTools: SessionTool<{}>[] = [
 			if (dropped.length) {
 				throw new Error(describeDroppedScheduleOptions(dropped))
 			}
-			return writeScheduleDraft(parsed, ctx)
+			return runDraftWrite('write_schedule', ctx, {
+				pending: `Saving schedule "${parsed.path}" as a draft…`
+			})
 		}
 	},
 	{
@@ -4303,7 +4185,9 @@ export const globalTools: SessionTool<{}>[] = [
 						.join('; ')}`
 				)
 			}
-			return writeTriggerDraft({ ...parsed, config: config.data }, ctx)
+			return runDraftWrite('write_trigger', ctx, {
+				pending: `Saving trigger "${(config.data as { path: string }).path}" as a draft…`
+			})
 		}
 	},
 	{
@@ -4341,7 +4225,7 @@ export const globalTools: SessionTool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = editScriptSchema.parse(ctx.args)
-			return editScript(parsed, ctx)
+			return runDraftWrite('edit_script', ctx, { pending: `Editing script "${parsed.path}"...` })
 		}
 	},
 	{
@@ -4356,7 +4240,7 @@ export const globalTools: SessionTool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = patchFlowJsonSchema.parse(ctx.args)
-			return patchFlowJson(parsed, ctx)
+			return runDraftWrite('patch_flow_json', ctx, { pending: `Patching flow "${parsed.path}"...` })
 		}
 	},
 	{
@@ -4450,24 +4334,14 @@ export const globalTools: SessionTool<{}>[] = [
 		planModeSafe: true,
 		showDetails: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
-			const parsed = listRunsSchema.parse(args)
+			listRunsSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing runs...' })
-			const jobs = await JobService.listJobs({
-				workspace,
-				scriptPathExact: parsed.path,
-				createdBy: parsed.created_by,
-				label: parsed.label,
-				success: parsed.success,
-				running: parsed.running,
-				perPage: parsed.limit ?? 30
-			})
-			const runs = jobs.map(summarizeRun)
-			const result = JSON.stringify(runs, null, 2)
+			const { text } = await runOnServer('list_runs', workspace, args)
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Listed ${runs.length} run(s)`,
-				result
+				content: `Listed ${JSON.parse(text).length} run(s)`,
+				result: text
 			})
-			return result
+			return text
 		}
 	},
 	{
@@ -4479,39 +4353,20 @@ export const globalTools: SessionTool<{}>[] = [
 		),
 		planModeSafe: true,
 		showDetails: true,
-		fn: async ({ toolId, toolCallbacks }) => {
+		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			toolCallbacks.setToolStatus(toolId, { content: 'Listing workers...' })
-			const pings = await WorkerService.listWorkers({ perPage: WORKER_PAGE_SIZE })
-			if (pings.length === 0) {
-				// Both role stores resolve asynchronously, and an unloaded one must not read as
-				// an absent role — that hedges the answer this branch exists to give plainly.
-				// No-ops once they hold a value.
-				await refreshSuperadmin()
-				const hiddenFromCaller = !get(superadmin) && !get(devopsRole)
-				const message = hiddenFromCaller ? NO_WORKERS_VISIBLE_MESSAGE : NO_WORKERS_CONNECTED_MESSAGE
-				toolCallbacks.setToolStatus(toolId, {
-					content: hiddenFromCaller ? 'No workers visible' : 'No workers connected',
-					result: message
-				})
-				return message
-			}
-			const workers = pings.map((w) => ({
-				worker: w.worker,
-				worker_group: w.worker_group,
-				custom_tags: w.custom_tags,
-				last_ping: w.last_ping,
-				jobs_executed: w.jobs_executed
-			}))
-			const note =
-				workers.length === WORKER_PAGE_SIZE
-					? `Only the first ${WORKER_PAGE_SIZE} workers are listed; more may be connected.`
-					: undefined
-			const result = JSON.stringify({ workers, ...(note ? { note } : {}) }, null, 2)
+			const { text } = await runOnServer('list_workers', workspace, args)
+			const noneShown =
+				text === NO_WORKERS_VISIBLE_MESSAGE
+					? 'No workers visible'
+					: text === NO_WORKERS_CONNECTED_MESSAGE
+						? 'No workers connected'
+						: undefined
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Listed ${workers.length} worker(s)`,
-				result
+				content: noneShown ?? `Listed ${JSON.parse(text).workers.length} worker(s)`,
+				result: text
 			})
-			return result
+			return text
 		}
 	},
 	{
@@ -4530,7 +4385,8 @@ export const globalTools: SessionTool<{}>[] = [
 					? `Fetching result of step ${parsed.step} in run ${parsed.id}...`
 					: `Inspecting run ${parsed.id}...`
 			})
-			const { text, jobId } = await getRun(workspace, parsed.id, parsed.step)
+			const { text, effects } = await runOnServer('get_run', workspace, args)
+			const jobId = effects.flatMap((e) => (e.type === 'inspected_run' ? [e.job_id] : []))[0]
 			toolCallbacks.setToolStatus(toolId, {
 				content: parsed.step
 					? `Fetched result of step ${parsed.step} in run ${parsed.id}`
@@ -4555,21 +4411,20 @@ export const globalTools: SessionTool<{}>[] = [
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = cancelJobSchema.parse(args)
 			toolCallbacks.setToolStatus(toolId, { content: `Canceling job ${parsed.id}...` })
-			try {
-				await JobService.cancelQueuedJob({ workspace, id: parsed.id, requestBody: {} })
-			} catch (e) {
-				const msg = e instanceof Error ? e.message : 'Unknown error'
-				toolCallbacks.setToolStatus(toolId, {
-					content: `Could not cancel job ${parsed.id}`,
-					error: msg
-				})
-				return `Failed to cancel job ${parsed.id}: ${msg}. It may have already finished.`
-			}
+			const { text } = await runOnServer('cancel_job', workspace, args)
+			const failed = text.match(
+				/^Failed to cancel job .*?: (.*)\. It may have already finished\.$/s
+			)
 			// The tray's background poller will pick up the canceled state (updating
 			// its status + Job snapshot together); a bare status patch here would leave
 			// the badge stale and stop the poller. Just report to the model.
-			toolCallbacks.setToolStatus(toolId, { content: `Canceled job ${parsed.id}` })
-			return `Job ${parsed.id} was canceled.`
+			toolCallbacks.setToolStatus(
+				toolId,
+				failed
+					? { content: `Could not cancel job ${parsed.id}`, error: failed[1] }
+					: { content: `Canceled job ${parsed.id}` }
+			)
+			return text
 		}
 	},
 	{
@@ -4629,7 +4484,7 @@ export const globalTools: SessionTool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = rebaseDraftSchema.parse(ctx.args)
-			return rebaseDraft(parsed, ctx)
+			return runDraftWrite('rebase_draft', ctx, { draftLabel: parsed.path })
 		}
 	},
 	{
@@ -4702,7 +4557,18 @@ export const globalTools: SessionTool<{}>[] = [
 		confirmationMessage: 'Discard draft',
 		fn: async (ctx) => {
 			const parsed = discardLocalDraftSchema.parse(ctx.args)
-			return discardLocalDraft(parsed, ctx)
+			return runDraftWrite('discard_local_draft', ctx, {
+				draftLabel: parsed.path,
+				// The chat's touch on the item is undone — drop it from the mask so a
+				// pre-existing deployed item doesn't keep reading as this chat's edit.
+				onSaved: (effects) => {
+					for (const effect of effects) {
+						if (effect.type === 'draft_delete') {
+							ctx.toolCallbacks.onItemDiscarded?.(effect.kind, effect.storage_path)
+						}
+					}
+				}
+			})
 		}
 	},
 	{
@@ -4718,7 +4584,9 @@ export const globalTools: SessionTool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeResourceSchema.parse(ctx.args)
-			return writeResourceDraft(parsed, ctx)
+			return runDraftWrite('write_resource', ctx, {
+				pending: `Saving resource "${parsed.path}" as a draft…`
+			})
 		}
 	},
 	{
@@ -4734,7 +4602,9 @@ export const globalTools: SessionTool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeVariableSchema.parse(ctx.args)
-			return writeVariableDraft(parsed, ctx)
+			return runDraftWrite('write_variable', ctx, {
+				pending: `Saving variable "${parsed.path}" as a draft…`
+			})
 		}
 	},
 	{
@@ -4750,36 +4620,13 @@ export const globalTools: SessionTool<{}>[] = [
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Searching resource types for "${parsed.query}"...`
 			})
-			const { resourceTypes, note } = await searchResourceTypes(
-				parsed.query,
-				workspace,
-				parsed.limit ?? 5
-			)
+			const { text } = await runOnServer('search_resource_types', workspace, args)
+			// The listing is pretty-printed JSON, which holds no blank line; a note follows one.
+			const found = JSON.parse(text.split('\n\n')[0]).length
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Found ${resourceTypes.length} resource type(s) for "${parsed.query}"`
+				content: `Found ${found} resource type(s) for "${parsed.query}"`
 			})
-			const listing = JSON.stringify(
-				resourceTypes.map((rt) => ({
-					name: rt.name,
-					schema: rt.schema
-				})),
-				null,
-				2
-			)
-			// On an unsynced instance the dedicated type is only missing until a sync, so its note
-			// replaces the "no dedicated type" one, which would have the model create a duplicate.
-			if (note) {
-				return `${listing}\n\n${note}`
-			}
-			// The search is semantic and always returns its closest types, so a miss reads
-			// like a hit unless the absence is spelled out.
-			const words = (parsed.query.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter(
-				(w) => w.length >= 3
-			)
-			const named = resourceTypes.some((rt) => words.some((w) => rt.name.toLowerCase().includes(w)))
-			return named || words.length === 0
-				? listing
-				: `${listing}\n\nNo resource type name contains "${parsed.query}": these are only the nearest matches, so no dedicated type exists. Searching again with synonyms will not find one — use a fitting generic type above, or create a custom c_<name> type.`
+			return text
 		}
 	},
 	{
@@ -4797,32 +4644,18 @@ export const globalTools: SessionTool<{}>[] = [
 		confirmationMessage: 'Create resource type',
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = createResourceTypeSchema.parse(args)
-			// The prefix the Add resource type form adds unless an admin turns it off: a hub type
-			// of the same name, synced later, would otherwise clash with this one.
-			const name = parsed.name.startsWith('c_') ? parsed.name : `c_${parsed.name}`
-			await ResourceService.createResourceType({
-				workspace,
-				requestBody: {
-					name,
-					description: parsed.description,
-					schema: parsed.schema
-				}
-			})
+			const { text } = await runOnServer('create_resource_type', workspace, args)
 			// Forms show a resource picker only for a type in this cached list, so a script
 			// written against the new type would otherwise get a plain object input.
 			resourceTypesStore.set(undefined)
+			const name = parsed.name.startsWith('c_') ? parsed.name : `c_${parsed.name}`
 			toolCallbacks.setToolStatus(toolId, { content: `Created resource type ${name}` })
-			return JSON.stringify({
-				success: true,
-				message: `Created resource type ${name}. Refer to it by this name.`
-			})
+			return text
 		}
 	},
-	createDbSchemaTool<{}>({
-		description:
-			'Fetch the schema (tables and columns) of a database resource by its path. Supports postgresql, mysql, ms_sql_server, snowflake and bigquery resources.',
-		updateEditorCache: false
-	}),
+	dbSchemaServerTool(
+		'Fetch the schema (tables and columns) of a database resource by its path. Supports postgresql, mysql, ms_sql_server, snowflake and bigquery resources.'
+	),
 	{
 		requires: NONE,
 		def: createToolDef(
@@ -4833,7 +4666,10 @@ export const globalTools: SessionTool<{}>[] = [
 		planModeSafe: true,
 		fn: async (ctx) => {
 			const parsed = readFlowModuleCodeSchema.parse(ctx.args)
-			return readFlowModuleCode(parsed, ctx)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+				content: `Reading inline script for module "${parsed.module_id}" from flow "${parsed.path}"...`
+			})
+			return (await runServerTool('read_flow_module_code', ctx)).text
 		}
 	},
 	{
@@ -4848,7 +4684,9 @@ export const globalTools: SessionTool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = setFlowModuleCodeSchema.parse(ctx.args)
-			return setFlowModuleCode(parsed, ctx)
+			return runDraftWrite('set_flow_module_code', ctx, {
+				pending: `Updating inline script for module "${parsed.module_id}" in flow "${parsed.path}"...`
+			})
 		}
 	},
 	{
@@ -4864,8 +4702,8 @@ export const globalTools: SessionTool<{}>[] = [
 		showDetails: true,
 		showFade: true,
 		fn: async (ctx) => {
-			const parsed = initAppSchema.parse(ctx.args)
-			return initApp(parsed, ctx)
+			initAppSchema.parse(ctx.args)
+			return runDraftWrite('init_app', ctx, { app: true })
 		}
 	},
 	{
@@ -4878,7 +4716,10 @@ export const globalTools: SessionTool<{}>[] = [
 		planModeSafe: true,
 		fn: async (ctx) => {
 			const parsed = readAppFileSchema.parse(ctx.args)
-			return readAppFile(parsed, ctx)
+			ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+				content: `Reading ${resolveAppFileTarget(parsed.file_path).filePath} from app "${parsed.path}"...`
+			})
+			return (await runServerTool('read_app_file', ctx)).text
 		}
 	},
 	{
@@ -4891,7 +4732,12 @@ export const globalTools: SessionTool<{}>[] = [
 		planModeSafe: true,
 		fn: async (ctx) => {
 			const parsed = searchAppSchema.parse(ctx.args)
-			return searchApp(parsed, ctx)
+			if (parsed.query.length > 0) {
+				ctx.toolCallbacks.setToolStatus(ctx.toolId, {
+					content: `Searching app "${parsed.path}" for "${parsed.query}"...`
+				})
+			}
+			return (await runServerTool('search_app', ctx)).text
 		}
 	},
 	{
@@ -4906,7 +4752,10 @@ export const globalTools: SessionTool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeAppFileSchema.parse(ctx.args)
-			return writeAppFile(parsed, ctx)
+			return runDraftWrite('write_app_file', ctx, {
+				app: true,
+				pending: `Writing ${resolveAppFileTarget(parsed.file_path).filePath} to app "${parsed.path}"...`
+			})
 		}
 	},
 	{
@@ -4918,7 +4767,10 @@ export const globalTools: SessionTool<{}>[] = [
 		),
 		fn: async (ctx) => {
 			const parsed = deleteAppFileSchema.parse(ctx.args)
-			return deleteAppFile(parsed, ctx)
+			return runDraftWrite('delete_app_file', ctx, {
+				app: true,
+				pending: `Deleting ${resolveAppFileTarget(parsed.file_path).filePath} from app "${parsed.path}"...`
+			})
 		}
 	},
 	{
@@ -4933,7 +4785,10 @@ export const globalTools: SessionTool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = patchAppFileSchema.parse(ctx.args)
-			return patchAppFile(parsed, ctx)
+			return runDraftWrite('patch_app_file', ctx, {
+				app: true,
+				pending: `Patching ${resolveAppFileTarget(parsed.file_path).filePath} in app "${parsed.path}"...`
+			})
 		}
 	},
 	{
@@ -4949,7 +4804,10 @@ export const globalTools: SessionTool<{}>[] = [
 		showFade: true,
 		fn: async (ctx) => {
 			const parsed = writeAppRunnableSchema.parse(ctx.args)
-			return writeAppRunnable(parsed, ctx)
+			return runDraftWrite('write_app_runnable', ctx, {
+				app: true,
+				pending: `Writing runnable "${parsed.key}" to app "${parsed.path}"...`
+			})
 		}
 	},
 	{
@@ -4961,7 +4819,10 @@ export const globalTools: SessionTool<{}>[] = [
 		),
 		fn: async (ctx) => {
 			const parsed = deleteAppRunnableSchema.parse(ctx.args)
-			return deleteAppRunnable(parsed, ctx)
+			return runDraftWrite('delete_app_runnable', ctx, {
+				app: true,
+				pending: `Removing runnable "${parsed.key}" from app "${parsed.path}"...`
+			})
 		}
 	},
 	{
@@ -5906,6 +5767,127 @@ function finishDraftWrite(
 		null,
 		2
 	)
+}
+
+/**
+ * A draft write run on the server. The server builds the value from the draft the browser
+ * holds (or the server's), and the chat saves it through its own draft store, so an open
+ * editor, its auto-save toggle and its conflict dialog behave as when the browser built it.
+ * A conflict or failed save replaces the server's text, which assumed the save went through.
+ */
+async function runDraftWrite(
+	name: string,
+	ctx: WriteDraftCtx & { args: unknown },
+	opts: {
+		/** The card's label while the call runs. */
+		pending?: string
+		/** A write of one of the app's files and runnables, which names its own success. */
+		app?: boolean
+		/** What a failed delete names the draft as, in the error the model reads. */
+		draftLabel?: string
+		/** Runs once the call's writes and deletes are saved. */
+		onSaved?: (effects: SessionToolEffect[]) => void
+	} = {}
+): Promise<string> {
+	const { workspace, toolId, toolCallbacks } = ctx
+	if (opts.pending) toolCallbacks.setToolStatus(toolId, { content: opts.pending })
+	const context: Record<string, unknown> = { session: !!(ctx.sessionId ?? sessionIdFromCtx(ctx)) }
+	let response = await callSessionTool(workspace, name, ctx.args, context)
+	// A flow whose AI steps name their provider is checked against the catalog the chat
+	// builds for its prompt; the server asks for it only then, and writes nothing until sent.
+	const needed = response.effects.flatMap((e) =>
+		e.type === 'needs_ai_provider_catalog' ? [e.resource_refs] : []
+	)[0]
+	if (needed) {
+		context.ai_provider_catalog = await getAiAgentProviderCatalogForRefs(workspace, needed)
+		response = await callSessionTool(workspace, name, ctx.args, context)
+	}
+	const afterSave = response.effects.flatMap((e) =>
+		e.type === 'status' && e.after_save ? [e] : []
+	)
+	applyStatusEffects(
+		response.effects.filter((e) => !(e.type === 'status' && e.after_save)),
+		ctx
+	)
+	if (response.is_error) throw new Error(response.text)
+	for (const effect of response.effects) {
+		if (effect.type === 'draft_write' && effect.kind === 'script') {
+			await inferScriptDraftSchema(effect.value as NewScript)
+		}
+	}
+	const applied = await applySessionToolEffects(
+		workspace,
+		response.effects,
+		(storagePath) => opts.draftLabel ?? storagePath
+	)
+	if (applied.deleteFailure) throw new Error(applied.deleteFailure.message)
+	const savedStatuses = () => {
+		for (const { type: _, after_save: __, ...patch } of afterSave) {
+			toolCallbacks.setToolStatus(toolId, patch)
+		}
+	}
+	const result = applied.writes[0]
+	if (!result) {
+		opts.onSaved?.(response.effects)
+		savedStatuses()
+		return response.text
+	}
+	const failure = draftWriteFailure(result, ctx)
+	if (failure) {
+		const suffix = response.effects.flatMap((e) =>
+			e.type === 'facts' && typeof e.text_suffix === 'string' ? [e.text_suffix] : []
+		)[0]
+		return failure + (suffix ?? '')
+	}
+	const diff = response.effects.flatMap((e) => (e.type === 'code_diff' ? [e] : []))[0]
+	if (diff) {
+		const lang = diff.file_path
+			? appFileEditorLang(diff.file_path)
+			: scriptLangToEditorLang((diff.language ?? undefined) as ScriptLang | undefined)
+		const beforeLang = diff.before_file_path ? appFileEditorLang(diff.before_file_path) : lang
+		toolCallbacks.setToolStatus(toolId, {
+			codeDiff: {
+				before: diff.before,
+				after: diff.after,
+				lang,
+				...(beforeLang !== lang ? { beforeLang } : {})
+			}
+		})
+	}
+	toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
+	maybeAttachPreviewCard(ctx, result.itemKind, result.item.path)
+	opts.onSaved?.(response.effects)
+	if (opts.app) {
+		savedStatuses()
+		return response.text
+	}
+	const written = JSON.parse(response.text.split('\n\nAI agent provider warnings:\n')[0])
+	const stored = result.item
+	toolCallbacks.setToolStatus(toolId, {
+		content: `${written.message.startsWith('Updated') ? 'Updated' : 'Created'} ${stored.type} "${stored.path}" as a draft`,
+		result: `Saved as draft`
+	})
+	savedStatuses()
+	// A script's schema is inferred here, after the server answered: its item is the saved one.
+	return stored.type === 'script'
+		? JSON.stringify({ ...written, item: stored }, null, 2)
+		: response.text
+}
+
+/** Infer a script draft's schema with the editor's own parsers, into the schema its base
+ * carries, as the editor does at save: `inferArgs` re-seeds each arg from the properties it is
+ * handed, and those are the only copy of `password`, enums, formats and titles. A clone, so a
+ * parse failure leaves the previous schema rather than half of one. */
+async function inferScriptDraftSchema(draft: NewScript): Promise<void> {
+	try {
+		const schema = structuredClone(
+			draft.schema?.properties ? draft.schema : emptySchema()
+		) as Schema
+		await inferArgs(draft.language, draft.content, schema)
+		draft.schema = schema
+	} catch (e) {
+		console.error('Failed to infer script schema before saving draft', e)
+	}
 }
 
 // Per-draft-kind knowledge for the shared write skeleton. `fetchDeployed` returns

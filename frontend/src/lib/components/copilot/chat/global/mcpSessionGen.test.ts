@@ -1,5 +1,5 @@
 /**
- * Generates what the Windmill MCP server's toolset (backend/windmill-api/src/mcp/session)
+ * Generates what the Windmill MCP server's toolset (backend/windmill-api/src/ai_session_tools)
  * shows a model, from the same definitions an AI session uses: tool names, descriptions and
  * input schemas, the system prompt, and the `get_instructions` texts. The server implements
  * the tools in Rust; everything the model reads comes from here, so the two cannot drift
@@ -19,10 +19,14 @@ import {
 	prepareGlobalSystemMessage
 } from './core'
 import type { ScriptLang } from '$lib/gen'
-import { FRAMEWORK_TEMPLATES, STARTER_RUNNABLES } from '$lib/components/raw_apps/templates'
+import {
+	BUILDER_FRAMEWORK_TEMPLATES,
+	FRAMEWORK_TEMPLATES,
+	STARTER_RUNNABLES
+} from '$lib/components/raw_apps/templates'
 
 const OUT_DIR = fileURLToPath(
-	new URL('../../../../../../../backend/windmill-api/src/mcp/session/gen/', import.meta.url)
+	new URL('../../../../../../../backend/windmill-api/src/ai_session_tools/gen/', import.meta.url)
 )
 
 // Sentences that describe the chat's run form, which an MCP client does not have. Each
@@ -216,10 +220,15 @@ async function generate(): Promise<Record<string, string>> {
 			index[subject][language ?? ''] = id
 		}
 	}
-	// What `init_app` seeds a new raw app with.
+	// What `init_app` seeds a new raw app with; an operator with builder rights starts from
+	// a static page, since they can save no inline runnable.
 	files['app_templates.json'] =
 		JSON.stringify(
-			{ templates: FRAMEWORK_TEMPLATES, starter_runnables: STARTER_RUNNABLES },
+			{
+				templates: FRAMEWORK_TEMPLATES,
+				builder_templates: BUILDER_FRAMEWORK_TEMPLATES,
+				starter_runnables: STARTER_RUNNABLES
+			},
 			null,
 			'\t'
 		) + '\n'

@@ -9,6 +9,7 @@ use serde_json::{json, Map, Value};
 use super::workspace::{
     api_message, get_draft, infer_script_schema, load_flow, load_script, path_enc,
 };
+use super::chat::Effect;
 use super::{enc, js_head, js_len, js_tail, opt_str_arg, pretty, str_arg, truthy, Ctx, ToolResult};
 
 pub(super) const TOOLS: &[&str] = &[
@@ -196,7 +197,10 @@ pub(super) async fn finish_run(
     tool_args: &Value,
 ) -> ToolResult {
     let id = started.map_err(|e| format!("Failed to execute {action}: {}", api_message(&e)))?;
-    let run_page = format!("\n\nRun page: {}", ctx.page_url(&format!("/run/{id}")));
+    let run_page = ctx
+        .link(&format!("/run/{id}"))
+        .map(|url| format!("\n\nRun page: {url}"))
+        .unwrap_or_default();
     let Some(job) = wait_job(ctx, &id, wait_budget(tool_args), true).await else {
         return Ok(format!("{}{run_page}", backgrounded_summary(&id, label)));
     };
@@ -665,7 +669,7 @@ fn flow_preview_value(flow: &Value) -> Value {
     let mut value = flow.get("value").cloned().unwrap_or_else(|| json!({}));
     if let (Some(groups), Some(map)) = (flow.get("groups"), value.as_object_mut()) {
         if groups.is_null() {
-            map.remove("groups");
+            map.shift_remove("groups");
         } else {
             map.insert("groups".into(), groups.clone());
         }
@@ -810,7 +814,7 @@ const AGENT_OVERRIDE_KEYS: [&str; 2] = ["model", "reasoning_effort"];
 /// Older spellings of two agent inputs, read as the current ones.
 fn migrate_agent_transforms(transforms: &mut Map<String, Value>) {
     if !transforms.contains_key("user_attachments") {
-        if let Some(images) = transforms.remove("user_images") {
+        if let Some(images) = transforms.shift_remove("user_images") {
             transforms.insert("user_attachments".into(), images);
         }
     }
@@ -840,7 +844,7 @@ fn migrate_agent_transforms(transforms: &mut Map<String, Value>) {
         }
         _ => {}
     }
-    transforms.remove("messages_context_length");
+    transforms.shift_remove("messages_context_length");
 }
 
 /// The inputs a test run of an agent step takes, in the agent form's order, and the
@@ -963,7 +967,7 @@ fn inline_agent_draft(module: &mut Value, drafts: &HashMap<String, Value>) {
         .as_str()
         .and_then(|agent| drafts.get(normalize_agent_ref(agent)));
     if let (Some(draft), Some(map)) = (draft, value.as_object_mut()) {
-        map.remove("agent");
+        map.shift_remove("agent");
         let mut transforms = Map::new();
         for (key, arg) in draft.as_object().into_iter().flatten() {
             if key != "tools" && !AGENT_HISTORY_KEYS.contains(&key.as_str()) {
@@ -1578,7 +1582,7 @@ impl<'a> RunTree<'a> {
         run_overrides: &Map<String, Value>,
     ) -> Value {
         let mut run = self.shape_step(0, heads, None);
-        let steps = run.remove("steps");
+        let steps = run.shift_remove("steps");
         let kind = self.entries[0]["kind"].as_str().unwrap_or_default();
         // The server labels every depth-0 job "Flow", a plain script run included.
         if steps.is_none() && kind != "flow" && kind != "flowpreview" {
@@ -1587,8 +1591,8 @@ impl<'a> RunTree<'a> {
         // A replacement result supersedes the tree entry's head. Without one the head
         // stays: it is a real prefix of a payload too big to be read whole.
         if run_overrides.contains_key("result") {
-            run.remove("result");
-            run.remove("result_total_chars");
+            run.shift_remove("result");
+            run.shift_remove("result_total_chars");
         }
         for (key, value) in run_overrides {
             run.insert(key.clone(), value.clone());
@@ -1690,7 +1694,11 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             results_route(STEP_RESULT_MAX_CHARS),
             enc(step)
         );
-        return Ok(step_result(&ctx.get(&route).await?, step));
+        let response = ctx.get(&route).await?;
+        if let Some(job_id) = finished_step_job(&response) {
+            ctx.effect(Effect::InspectedRun { job_id: job_id.to_string() });
+        }
+        return Ok(step_result(&response, step));
     }
 
     // Only the job read is load-bearing: logs and the step tree each answer part of
@@ -1707,11 +1715,12 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         ctx.get(&tree_route),
     );
     let results = results.unwrap_or_else(|_| json!({ "entries": [] }));
-    Ok(format!(
-        "{}\n\nRun page: {}",
-        shape_run(id, &job?, logs, &results),
-        ctx.page_url(&format!("/run/{}", enc(id)))
-    ))
+    let run = shape_run(id, &job?, logs, &results);
+    ctx.effect(Effect::InspectedRun { job_id: id.to_string() });
+    Ok(match ctx.link(&format!("/run/{}", enc(id))) {
+        Some(url) => format!("{run}\n\nRun page: {url}"),
+        None => run,
+    })
 }
 
 /// A run as `get_run` reports it: its summary, args, result and logs around the step
@@ -1719,7 +1728,7 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 /// empty log.
 fn shape_run(id: &str, job: &Value, logs: Result<String, String>, results: &Value) -> String {
     let mut run = summarize_run(job);
-    run.remove("id");
+    run.shift_remove("id");
     // Why a run ended badly.
     for (key, source) in [
         ("canceled_by", "canceled_by"),
@@ -1766,6 +1775,19 @@ fn shape_run(id: &str, job: &Value, logs: Result<String, String>, results: &Valu
 }
 
 /// One step's result in full, from the single entry the server resolved its address to.
+/// The job a step address resolved to, once it finished: what the card renders.
+fn finished_step_job(response: &Value) -> Option<&str> {
+    if response["step_error"].as_str().is_some_and(|e| !e.is_empty()) {
+        return None;
+    }
+    let entry = response["entries"].get(0)?;
+    let status = entry["status"].as_str().unwrap_or_default();
+    if matches!(status, "running" | "queued" | "suspended") {
+        return None;
+    }
+    entry["job_id"].as_str()
+}
+
 fn step_result(response: &Value, step: &str) -> String {
     if let Some(error) = response["step_error"].as_str().filter(|e| !e.is_empty()) {
         let hidden = if truthy(response.get("scope_filtered")) {

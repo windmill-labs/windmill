@@ -449,9 +449,12 @@ async fn list_datatable_migrations(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let version = version_arg(args)?;
     let status = match migrations_status(ctx, datatable_name).await {
         Ok(status) => status,
-        Err(e) => return Ok(format!("Error listing migrations: {e}")),
+        Err(e) => {
+            return Ok(ctx.failed(format!("Error listing migrations: {}", api_message(&e))))
+        }
     };
     if !truthy(status.get("enabled")) {
+        ctx.status(format!("Migrations are not enabled on \"{datatable_name}\""));
         return Ok(format!("Migrations are not enabled on datatable \"{datatable_name}\": its schema is changed with plain SQL and there is no history to list. Enabling them is a workspace admin's decision, made in Workspace settings → Data Tables."));
     }
     let migrations = array(status.get("migrations"));
@@ -474,16 +477,24 @@ async fn list_datatable_migrations(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         if truthy(status.get("error")) {
             out.insert("error".into(), status["error"].clone());
         }
+        ctx.status(format!(
+            "Listed {} migration(s) of \"{datatable_name}\"",
+            migrations.len()
+        ));
         return Ok(pretty(&Value::Object(out)));
     };
     let Some(migration) = migrations
         .iter()
         .find(|m| m["timestamp"].as_i64() == Some(version))
     else {
-        return Ok(format!(
+        return Ok(ctx.failed(format!(
             "No migration {version} on datatable \"{datatable_name}\""
-        ));
+        )));
     };
+    ctx.status(format!(
+        "Read migration {}",
+        migration_label(&version.into(), &migration["name"])
+    ));
     let mut out = Map::new();
     out.insert("version".into(), version.into());
     out.insert("name".into(), migration["name"].clone());
@@ -605,11 +616,14 @@ async fn create_datatable_migration(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     }
     let version = match save_migration(ctx, datatable_name, version, definition).await {
         Ok(Ok(version)) => version,
-        Ok(Err(message)) => return Ok(message),
-        Err(e) => return Ok(format!("Error saving migration: {}", api_message(&e))),
+        Ok(Err(message)) => return Ok(ctx.failed(message)),
+        Err(e) => {
+            return Ok(ctx.failed(format!("Error saving migration: {}", api_message(&e))))
+        }
     };
     let label = format!("{version} ({name})");
     if args.get("apply") == Some(&Value::Bool(false)) {
+        ctx.status(format!("Saved migration {label} as pending"));
         return Ok(format!(
             "Saved migration {label} as pending. It is not applied yet."
         ));
@@ -619,19 +633,27 @@ async fn create_datatable_migration(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let own_scope = (!scope.is_empty()).then_some(scope.as_slice());
     let earlier = match earlier_pending(ctx, datatable_name, version, own_scope).await {
         Ok(earlier) => earlier,
-        Err(e) => return Ok(format!("Saved migration {label} as pending, but could not check what else is pending, so it was not applied: {e}")),
+        Err(e) => return Ok(ctx.failed(format!("Saved migration {label} as pending, but could not check what else is pending, so it was not applied: {}", api_message(&e)))),
     };
     if !earlier.is_empty() {
+        ctx.status(format!(
+            "Saved migration {label}; {} earlier migration(s) still pending",
+            earlier.len()
+        ));
         return Ok(format!("Saved migration {label} as pending without applying it: earlier migrations are not applied yet ({}) and it may depend on them. Tell the user, then apply them all in order with run_datatable_migrations.", earlier.join(", ")));
     }
 
+    ctx.status(format!("Applying migration {label}..."));
     let run = format!(
         "{}?only={version}",
         migrations_path(ctx, "run_datatable_migrations", datatable_name)
     );
     Ok(match post_migrations(ctx, &run).await {
-        Ok(_) => format!("Applied migration {label} on datatable \"{datatable_name}\"."),
-        Err(e) => format!("Migration {label} is saved but failed to apply: {e}. It stays pending and blocks later migrations. If nothing of it was applied, fix it by calling this tool again with version {version}; otherwise, or to drop it, tell the user, who can edit or delete it in Workspace settings → Data Tables."),
+        Ok(_) => {
+            ctx.status(format!("Applied migration {label}"));
+            format!("Applied migration {label} on datatable \"{datatable_name}\".")
+        }
+        Err(e) => ctx.failed(format!("Migration {label} is saved but failed to apply: {}. It stays pending and blocks later migrations. If nothing of it was applied, fix it by calling this tool again with version {version}; otherwise, or to drop it, tell the user, who can edit or delete it in Workspace settings → Data Tables.", api_message(&e))),
     })
 }
 
@@ -642,8 +664,13 @@ async fn run_datatable_migrations(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         Ok(result) => {
             let applied = array(result.get("applied"));
             if applied.is_empty() {
+                ctx.status("No pending migration to apply");
                 format!("No pending migration to apply on datatable \"{datatable_name}\".")
             } else {
+                ctx.status(format!(
+                    "Applied {} migration(s) on \"{datatable_name}\"",
+                    applied.len()
+                ));
                 format!(
                     "Applied {} migration(s) on datatable \"{datatable_name}\": {}.",
                     applied.len(),
@@ -651,7 +678,7 @@ async fn run_datatable_migrations(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
                 )
             }
         }
-        Err(e) => format!("Error applying migrations: {e}. Migrations before the failing one may have been applied: list them to see."),
+        Err(e) => ctx.failed(format!("Error applying migrations: {}. Migrations before the failing one may have been applied: list them to see.", api_message(&e))),
     })
 }
 
@@ -663,12 +690,16 @@ async fn rollback_datatable_migration(ctx: &Ctx<'_>, args: &Value) -> ToolResult
         migrations_path(ctx, "rollback_datatable_migrations", datatable_name)
     );
     Ok(match post_migrations(ctx, &path).await {
-        Ok(result) if array(result.get("rolled_back")).is_empty() => format!("Migration {version} is not applied on datatable \"{datatable_name}\", so there is nothing to roll back."),
-        Ok(result) => format!(
-            "Rolled back migration {} on datatable \"{datatable_name}\". It is pending again.",
-            labels(result.get("rolled_back"))
-        ),
-        Err(e) => format!("Error rolling back: {e}"),
+        Ok(result) if array(result.get("rolled_back")).is_empty() => {
+            ctx.status(format!("Migration {version} is not applied"));
+            format!("Migration {version} is not applied on datatable \"{datatable_name}\", so there is nothing to roll back.")
+        }
+        Ok(result) => {
+            let label = labels(result.get("rolled_back"));
+            ctx.status(format!("Rolled back migration {label}"));
+            format!("Rolled back migration {label} on datatable \"{datatable_name}\". It is pending again.")
+        }
+        Err(e) => ctx.failed(format!("Error rolling back: {}", api_message(&e))),
     })
 }
 

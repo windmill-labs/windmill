@@ -545,7 +545,7 @@ async fn deploy_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     }
 
     // The baseline keeps a draft saved since the read above from being deleted undeployed.
-    delete_draft(ctx, &kind, path, draft.created_at.as_deref()).await?;
+    delete_draft(ctx, &kind, path, draft.created_at.as_deref(), true).await?;
 
     let note = note.map(|note| format!(" {note}")).unwrap_or_default();
     Ok(mutation_result(
@@ -553,7 +553,7 @@ async fn deploy_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         item_type,
         path,
         trigger_kind,
-        deployed_page(item_type, path).map(|page| ctx.page_url(&page)),
+        deployed_page(item_type, path).and_then(|page| ctx.link(&page)),
     ))
 }
 
@@ -597,7 +597,7 @@ async fn delete_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         .await?;
     }
     if let Some(kind) = draft_kind(item_type, trigger_kind) {
-        delete_draft(ctx, &kind, path, None).await?;
+        delete_draft(ctx, &kind, path, None, false).await?;
     }
     Ok(mutation_result(
         format!(

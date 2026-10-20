@@ -10,6 +10,7 @@ import {
 	type ChatJobResultFormat
 } from './shared'
 import { NONE, RUN_PREVIEW, type SessionTool } from './sessionCapabilities'
+import { runOnServer } from './global/backendSessionTools'
 
 /**
  * Workspace-scoped datatable tools, with no app whitelist and no creation policy.
@@ -254,22 +255,16 @@ export function getDatatableTools(): SessionTool<{}>[] {
 			planModeSafe: true,
 			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 				toolCallbacks.setToolStatus(toolId, { content: 'Listing datatables...' })
-				try {
-					const parsedArgs = getListDatatablesSchema().parse(args ?? {})
-					if (parsedArgs.role !== undefined && parsedArgs.datatable_name === undefined) {
-						throw new Error('`role` needs `datatable_name`, the datatable it is a role of')
-					}
-					const metadata = await listDatatables(
-						workspace,
-						parsedArgs.datatable_name,
-						parsedArgs.role
-					)
-					if (metadata.length === 0) {
-						toolCallbacks.setToolStatus(toolId, {
-							content: 'No datatables configured — set one up in workspace settings'
-						})
-						return NO_DATATABLES_CONFIGURED_MESSAGE
-					}
+				getListDatatablesSchema().parse(args ?? {})
+				const { text } = await runOnServer('list_datatables', workspace, args ?? {})
+				if (text === NO_DATATABLES_CONFIGURED_MESSAGE) {
+					toolCallbacks.setToolStatus(toolId, {
+						content: 'No datatables configured — set one up in workspace settings'
+					})
+				} else if (text.startsWith('Error listing datatables: ')) {
+					toolCallbacks.setToolStatus(toolId, { content: text, error: text })
+				} else {
+					const metadata: DataTableTables[] = JSON.parse(text)
 					const totalTables = metadata.reduce(
 						(acc, datatable) =>
 							acc +
@@ -279,24 +274,8 @@ export function getDatatableTools(): SessionTool<{}>[] {
 					toolCallbacks.setToolStatus(toolId, {
 						content: `Listed ${metadata.length} datatable(s) with ${totalTables} table(s)`
 					})
-					// Only what the model acts on: the roles it may pass, not the creation privileges
-					// the manager's UI gates on.
-					return JSON.stringify(
-						metadata.map((d) => ({
-							datatable_name: d.datatable_name,
-							schemas: d.schemas,
-							...(d.error && { error: d.error }),
-							...(d.migrations_enabled && { migrations_enabled: true }),
-							...(d.permissioned && { usable_roles: d.usable_roles, default_role: d.default_role })
-						})),
-						null,
-						2
-					)
-				} catch (e) {
-					const errorMsg = `Error listing datatables: ${e instanceof Error ? e.message : String(e)}`
-					toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
-					return errorMsg
 				}
+				return text
 			}
 		},
 		{
@@ -308,35 +287,17 @@ export function getDatatableTools(): SessionTool<{}>[] {
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Getting schema for ${parsedArgs.datatable_name}.${parsedArgs.schema_name}.${parsedArgs.table_name}...`
 				})
-				try {
-					const columns = await getDatatableColumns(
-						workspace,
-						parsedArgs.datatable_name,
-						parsedArgs.schema_name,
-						parsedArgs.table_name,
-						parsedArgs.role
-					)
-					toolCallbacks.setToolStatus(toolId, {
-						content: `Retrieved schema for ${parsedArgs.schema_name}.${parsedArgs.table_name}`
-					})
-					return JSON.stringify(
-						{
-							datatable_name: parsedArgs.datatable_name,
-							schema_name: parsedArgs.schema_name,
-							table_name: parsedArgs.table_name,
-							columns
-						},
-						null,
-						2
-					)
-				} catch (e) {
-					const raw = e instanceof Error ? e.message : String(e)
-					const errorMsg = isDatatableNotConfiguredError(raw)
-						? datatableNotConfiguredMessage(parsedArgs.datatable_name)
-						: `Error getting table schema: ${raw}`
-					toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
-					return errorMsg
-				}
+				const { text } = await runOnServer('get_datatable_table_schema', workspace, args)
+				const failed =
+					text.startsWith('Error getting table schema: ') ||
+					text === datatableNotConfiguredMessage(parsedArgs.datatable_name)
+				toolCallbacks.setToolStatus(
+					toolId,
+					failed
+						? { content: text, error: text }
+						: { content: `Retrieved schema for ${parsedArgs.schema_name}.${parsedArgs.table_name}` }
+				)
+				return text
 			}
 		},
 		{

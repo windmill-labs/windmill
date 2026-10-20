@@ -13,11 +13,10 @@ use super::workspace::{
     get_draft, item_exists, normalize_app_draft, path_enc, persist_draft, Persist,
 };
 use super::{
-    bool_arg, js_head, js_len, matches_glob, opt_str_arg, pretty, str_arg, truthy, Ctx, ToolResult,
+    bool_arg, js_head, js_len, matches_glob, opt_str_arg, pretty, put, str_arg, truthy, Ctx,
+    ToolResult,
 };
 
-// `init_app` is dispatched below but stays out of this list until `gen/app_templates.json`
-// is emitted by the generator.
 pub(super) const TOOLS: &[&str] = &[
     "init_app",
     "read_app_file",
@@ -214,23 +213,28 @@ async fn load_app(ctx: &Ctx<'_>, path: &str) -> Result<Loaded, String> {
     Ok(Loaded { value: app_source_to_draft_value(&app, Some(&app)), last_sync })
 }
 
-/// What the backend requires of a draft from an operator with builder rights: sandboxed,
-/// never in viewer mode, and running as nobody but its builder.
-async fn conform_builder_policy(ctx: &Ctx<'_>, value: &mut Value) {
+/// Whether the caller is an operator the workspace lets compose apps out of deployed
+/// runnables. They can save no inline runnable.
+async fn builds_apps(ctx: &Ctx<'_>) -> bool {
     if !ctx.auth.is_operator {
-        return;
+        return false;
     }
     let Ok(memberships) = ctx.get("/workspaces/users").await else {
-        return;
+        return false;
     };
-    let builder = memberships
+    memberships
         .get("workspaces")
         .and_then(Value::as_array)
         .and_then(|list| list.iter().find(|w| text_of(w, "id") == Some(ctx.w_id)))
         .and_then(|w| w.get("operator_settings"))
         .and_then(|s| s.get("builder_apps"))
-        == Some(&Value::Bool(true));
-    if !builder {
+        == Some(&Value::Bool(true))
+}
+
+/// What the backend requires of a draft from an operator with builder rights: sandboxed,
+/// never in viewer mode, and running as nobody but its builder.
+async fn conform_builder_policy(ctx: &Ctx<'_>, value: &mut Value) {
+    if !builds_apps(ctx).await {
         return;
     }
     let policy = object_mut(value, "policy");
@@ -272,9 +276,10 @@ async fn save_app(
             let mut out = Map::new();
             out.insert("success".into(), json!(true));
             out.insert("message".into(), json!(message));
-            out.insert(
-                "preview_url".into(),
-                json!(ctx.page_url(&format!("/apps_raw/edit/{path}"))),
+            put(
+                &mut out,
+                "preview_url",
+                ctx.link(&format!("/apps_raw/edit/{path}")).map(Value::from),
             );
             if let Some(warning) = warning {
                 out.insert("warning".into(), json!(warning));
@@ -388,9 +393,6 @@ fn app_table_ref(datatable: &str, schema: Option<&str>, reference: &str) -> Stri
 async fn init_app(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let path = str_arg(args, "path")?;
     let framework = str_arg(args, "framework")?;
-    let template = APP_TEMPLATES["templates"]
-        .get(framework)
-        .ok_or_else(|| format!("Invalid framework \"{framework}\""))?;
 
     if get_draft(ctx, "raw_app", path).await?.is_some() {
         return Err(format!(
@@ -403,13 +405,28 @@ async fn init_app(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         ));
     }
 
+    ctx.status(format!(
+        "Saving app \"{path}\" draft ({framework} template)…"
+    ));
+    // A builder can save no inline runnable, so they start from a static page instead of the tour.
+    let builder = builds_apps(ctx).await;
+    let template = APP_TEMPLATES[if builder {
+        "builder_templates"
+    } else {
+        "templates"
+    }]
+    .get(framework)
+    .ok_or_else(|| format!("Invalid framework \"{framework}\""))?;
     let starters = &APP_TEMPLATES["starter_runnables"];
     let mut value = Map::new();
     if let Some(summary) = opt_str_arg(args, "summary") {
         value.insert("summary".into(), json!(summary));
     }
     value.insert("files".into(), template.clone());
-    value.insert("runnables".into(), starters.clone());
+    value.insert(
+        "runnables".into(),
+        if builder { json!({}) } else { starters.clone() },
+    );
     value.insert("policy".into(), json!({ "sandbox": true }));
     let data = args.get("data").filter(|d| truthy(Some(d)));
     let schema = data.and_then(|d| text_of(d, "schema"));
@@ -447,10 +464,15 @@ async fn init_app(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         Some(schema) => format!(" Its data config names schema \"{schema}\" of data table \"{datatable}\" without creating it: if it does not exist yet, create it before the tables that go in it."),
         None => String::new(),
     };
+    let start = if builder {
+        "The template is a static page with no runnables: replace its UI, and add only deployed scripts and flows, by path.".to_string()
+    } else {
+        format!("The template is a demo tour with starter runnables {}: replace its UI and delete the runnables the app does not need (delete_app_runnable).", starter_keys.join(", "))
+    };
     let message = format!(
-        "Initialized a per-user draft app \"{path}\" from the {framework} template (saved server-side, not a deployed workspace item). The template is a demo tour with starter runnables {}: replace its UI and delete the runnables the app does not need (delete_app_runnable). Use write_app_file / write_app_runnable to evolve it.{data_note}",
-        starter_keys.join(", ")
+        "Initialized a per-user draft app \"{path}\" from the {framework} template (saved server-side, not a deployed workspace item). {start} Use write_app_file / write_app_runnable to evolve it.{data_note}"
     );
+    ctx.status_after_save(format!("Saved app \"{path}\" draft ({framework})"), Some("Saved as draft"));
     save_app(ctx, path, value, None, message, None).await
 }
 
@@ -505,6 +527,7 @@ async fn read_app_file(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             inline_runnable_content(&value, key, extension, path)?.0
         }
     };
+    ctx.status(format!("Read {}", target.file_path()));
     let int = |name: &str| args.get(name).and_then(Value::as_i64);
     Ok(format_file_read(content, int("offset"), int("limit")))
 }
@@ -563,7 +586,7 @@ fn search_files(
     query: &str,
     file_glob: Option<&str>,
     max_matches: i64,
-) -> String {
+) -> (String, usize, usize) {
     let needle = query.to_lowercase();
     files.sort_by(|a, b| locale_compare(&a.0, &b.0));
     if let Some(glob) = file_glob {
@@ -599,7 +622,7 @@ fn search_files(
     }
 
     if total == 0 {
-        return format!(
+        let text = format!(
             "No matches. Try a broader or differently-spelled term{}.",
             if file_glob.is_some() {
                 ", or drop the file_glob"
@@ -607,6 +630,7 @@ fn search_files(
                 ""
             }
         );
+        return (text, 0, 0);
     }
 
     let plural = |n: usize, one: &str, many: &str| {
@@ -663,7 +687,7 @@ fn search_files(
                 .to_string(),
         );
     }
-    out.join("\n")
+    (out.join("\n"), total, file_count)
 }
 
 async fn search_app(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
@@ -679,12 +703,18 @@ async fn search_app(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         .unwrap_or(SEARCH_DEFAULT_MAX_MATCHES)
         .min(SEARCH_MAX_MATCHES_CEILING);
     let file_glob = opt_str_arg(args, "file_glob").filter(|glob| !glob.is_empty());
-    Ok(search_files(
-        searchable_files(&value),
-        query,
-        file_glob,
-        max_matches,
-    ))
+    let (text, total, files) =
+        search_files(searchable_files(&value), query, file_glob, max_matches);
+    ctx.status(if total == 0 {
+        format!("No matches for \"{query}\"")
+    } else {
+        format!(
+            "Found {total} match{} in {files} file{}",
+            if total == 1 { "" } else { "es" },
+            if files == 1 { "" } else { "s" }
+        )
+    });
+    Ok(text)
 }
 
 // ---------------------------------------------------------------------------
@@ -700,6 +730,13 @@ async fn write_app_file(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     assert_not_generated(&file_path)?;
 
     let Loaded { mut value, last_sync } = load_app(ctx, path).await?;
+    let before = value
+        .get("files")
+        .and_then(|files| text_of(files, &file_path))
+        .unwrap_or_default()
+        .to_string();
+    ctx.file_diff(&before, content, &file_path, &file_path);
+    ctx.status_after_save(format!("Updated {file_path} in app \"{path}\""), Some("Saved as draft"));
     object_mut(&mut value, "files").insert(file_path.clone(), json!(content));
     let message = format!("Updated draft app \"{path}\" with frontend file \"{file_path}\".");
     save_app(ctx, path, value, last_sync.as_deref(), message, None).await
@@ -713,14 +750,18 @@ async fn delete_app_file(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     assert_not_generated(&file_path)?;
 
     let Loaded { mut value, last_sync } = load_app(ctx, path).await?;
-    if object_mut(&mut value, "files")
-        .shift_remove(&file_path)
-        .is_none()
-    {
+    let Some(removed) = object_mut(&mut value, "files").shift_remove(&file_path) else {
         return Err(format!(
             "Frontend file \"{file_path}\" not found in app \"{path}\"."
         ));
-    }
+    };
+    ctx.file_diff(
+        removed.as_str().unwrap_or_default(),
+        "",
+        &file_path,
+        &file_path,
+    );
+    ctx.status_after_save(format!("Removed {file_path} from app \"{path}\""), Some("Saved as draft"));
     let message = format!("Removed \"{file_path}\" from draft app \"{path}\".");
     save_app(ctx, path, value, last_sync.as_deref(), message, None).await
 }
@@ -746,11 +787,14 @@ async fn patch_app_file(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
                     format!("Frontend file \"{file_path}\" not found in app \"{path}\".")
                 })?;
             let updated = find_and_replace(current, old, new, replace_all, &label)?;
+            ctx.file_diff(current, &updated, file_path, file_path);
             object_mut(&mut value, "files").insert(file_path.clone(), json!(updated));
         }
         Target::Backend { key, extension, .. } => {
             let (current, runnable) = inline_runnable_content(&value, key, extension, path)?;
             let updated = find_and_replace(current, old, new, replace_all, &label)?;
+            let file_path = target.file_path();
+            ctx.file_diff(current, &updated, &file_path, &file_path);
             let language = runnable
                 .get("inlineScript")
                 .and_then(|s| s.get("language"))
@@ -762,6 +806,7 @@ async fn patch_app_file(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             object_mut(&mut value, "runnables").insert(key.clone(), runnable);
         }
     }
+    ctx.status_after_save(format!("Patched {} in app \"{path}\"", target.file_path()), Some("Saved as draft"));
     let message = format!(
         "Patched \"{}\" in draft app \"{path}\".",
         target.file_path()
@@ -850,6 +895,45 @@ fn build_persisted_runnable(input: &Value, existing: Option<&Value>) -> Result<V
     Ok(Value::Object(out))
 }
 
+/// An inline runnable's code; none for one that names a workspace or hub item.
+fn inline_code(runnable: Option<&Value>) -> Option<&str> {
+    let runnable = runnable?;
+    matches!(text_of(runnable, "type"), Some("inline" | "runnableByName")).then(|| {
+        runnable
+            .get("inlineScript")
+            .and_then(|s| text_of(s, "content"))
+            .unwrap_or_default()
+    })
+}
+
+/// The card's diff of a runnable's code. A runnable that references an item has no code
+/// of its own to diff.
+fn runnable_diff(ctx: &Ctx<'_>, key: &str, before: Option<&Value>, after: Option<&Value>) {
+    let (before_code, after_code) = (inline_code(before), inline_code(after));
+    if (before_code.is_none() && after_code.is_none()) || (after.is_some() && after_code.is_none())
+    {
+        return;
+    }
+    let file = |runnable: Option<&Value>| {
+        format!(
+            "backend/{key}/main.{}",
+            runnable.map_or("ts", inline_extension)
+        )
+    };
+    let after_file = file(after.or(before));
+    let before_file = if before_code.is_none() {
+        after_file.clone()
+    } else {
+        file(before)
+    };
+    ctx.file_diff(
+        before_code.unwrap_or_default(),
+        after_code.unwrap_or_default(),
+        &after_file,
+        &before_file,
+    );
+}
+
 /// Whether the script or flow a path runnable names is deployed. None when it names
 /// neither, or the probe failed: the answer only annotates a write.
 async fn path_target_deployed(ctx: &Ctx<'_>, runnable: &Value) -> Option<bool> {
@@ -869,6 +953,8 @@ async fn write_app_runnable(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let Loaded { mut value, last_sync } = load_app(ctx, path).await?;
     let existing = value.get("runnables").and_then(|r| r.get(key));
     let persisted = build_persisted_runnable(input, existing)?;
+    runnable_diff(ctx, key, existing, Some(&persisted));
+    ctx.status_after_save(format!("Updated runnable \"{key}\" in app \"{path}\""), Some("Saved as draft"));
     let warning = match path_target_deployed(ctx, &persisted).await {
         Some(false) => Some(format!(
             "This runnable points at an item that is NOT deployed (\"{key}\" → {} \"{}\"), so it fails at runtime — a path runnable runs the deployed item, never a draft. Offer to deploy just that item with deploy_workspace_item; the app itself does not need deploying, since the preview runs its draft.",
@@ -887,14 +973,13 @@ async fn delete_app_runnable(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let path = str_arg(args, "path")?;
     let key = str_arg(args, "key")?;
     let Loaded { mut value, last_sync } = load_app(ctx, path).await?;
-    if object_mut(&mut value, "runnables")
-        .shift_remove(key)
-        .is_none()
-    {
+    let Some(removed) = object_mut(&mut value, "runnables").shift_remove(key) else {
         return Err(format!(
             "Backend runnable \"{key}\" not found in app \"{path}\"."
         ));
-    }
+    };
+    runnable_diff(ctx, key, Some(&removed), None);
+    ctx.status_after_save(format!("Removed runnable \"{key}\" from app \"{path}\""), Some("Saved as draft"));
     recompute_policy(&mut value);
     let message = format!("Removed runnable \"{key}\" from draft app \"{path}\".");
     save_app(ctx, path, value, last_sync.as_deref(), message, None).await
@@ -1092,15 +1177,15 @@ mod tests {
             ("/App.tsx".to_string(), "foo".to_string()),
         ];
         assert_eq!(
-            search_files(files.clone(), "foo", None, 100),
+            search_files(files.clone(), "foo", None, 100).0,
             "3 matches in 2 files\n/App.tsx\n  1: foo\n/b.ts\n  1: one\n  2: Foo()\n  3: foo()\n  4: four\n  5: five"
         );
         assert_eq!(
-            search_files(files.clone(), "foo", Some("*.ts"), 1),
+            search_files(files.clone(), "foo", Some("*.ts"), 1).0,
             "2 matches in 1 file (showing the first 1; narrow with file_glob or a more specific query)\n/b.ts\n  1: one\n  2: Foo()\n  3: foo()\n  4: four"
         );
         assert_eq!(
-            search_files(files, "nope", Some("*.ts"), 100),
+            search_files(files, "nope", Some("*.ts"), 100).0,
             "No matches. Try a broader or differently-spelled term, or drop the file_glob."
         );
     }

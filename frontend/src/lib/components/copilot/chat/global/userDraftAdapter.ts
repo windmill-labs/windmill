@@ -36,7 +36,7 @@ const TRIGGER_KIND_BY_DRAFT_KIND = Object.fromEntries(
 	])
 ) as Partial<Record<UserDraftItemKind, TriggerKind>>
 
-const GLOBAL_DRAFT_KINDS = [
+export const GLOBAL_DRAFT_KINDS = [
 	'script',
 	'flow',
 	'raw_app',
@@ -425,6 +425,22 @@ export async function persistGlobalDraft(
 	const itemKind = itemKindFor(type, opts.triggerKind)
 	if (!itemKind) throw new Error(`Unsupported draft type "${type}".`)
 	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
+	return persistDraftAt(workspace, itemKind, storagePath, value, opts)
+}
+
+/** `persistGlobalDraft` at a resolved storage key. `lastSync` is the server row the value
+ * was built on when it was read from the server rather than from a cell: the save detects
+ * a conflict against it, as a read through `fetchBackendDraftValue` records. */
+export async function persistDraftAt(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	storagePath: string,
+	value: unknown,
+	opts: { force?: boolean; lastSync?: string | null } = {}
+): Promise<DraftPersistResult> {
+	if (opts.lastSync) {
+		UserDraftDbSyncer.recordRemoteSync({ workspace, itemKind, path: storagePath }, opts.lastSync)
+	}
 	UserDraft.seed(itemKind, storagePath, value, { workspace })
 	await UserDraftDbSyncer.save({
 		workspace,
@@ -440,7 +456,7 @@ export async function persistGlobalDraft(
 		displayPath,
 		isLiveDraft
 	)
-	if (!item) throw new Error(`Could not synthesize ${type} draft "${path}".`)
+	if (!item) throw new Error(`Could not synthesize ${itemKind} draft "${storagePath}".`)
 	// A failed save (network/5xx) is recorded in the syncer's failure map, not
 	// thrown — so check it before reporting success, else a write tool would tell
 	// the chat "saved" while the DB-backed source of truth was never updated.
@@ -591,6 +607,20 @@ export async function deleteGlobalDraft(
 	const itemKind = itemKindFor(type, triggerKind)
 	if (!itemKind) return
 	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
+	await deleteDraftAt(workspace, itemKind, storagePath, path, options)
+}
+
+/** `deleteGlobalDraft` at a resolved storage key; `path` names the draft in its errors. */
+export async function deleteDraftAt(
+	workspace: string,
+	itemKind: UserDraftItemKind,
+	storagePath: string,
+	path: string,
+	options: DeleteGlobalDraftOptions & { lastSync?: string | null } = {}
+): Promise<void> {
+	if (options.lastSync) {
+		UserDraftDbSyncer.recordRemoteSync({ workspace, itemKind, path: storagePath }, options.lastSync)
+	}
 	const liveDraft = UserDraft.getLiveEditorDraft(itemKind, { workspace })
 	if (options.preserveLiveDraft && liveDraft?.storagePath === storagePath) {
 		UserDraft.remove(itemKind, storagePath, { workspace })

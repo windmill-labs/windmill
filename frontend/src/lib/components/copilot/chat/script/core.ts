@@ -26,7 +26,7 @@ import { createWorkspaceMutationTools } from '../workspaceTools'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getEffectiveModelContextWindow } from '../../modelConfig'
 import type { ReviewChangesOpts } from '../monaco-adapter'
-import { copilotInfo, getCurrentModel } from '$lib/aiStore'
+import { copilotInfo, getCurrentModel, tryGetCurrentModel } from '$lib/aiStore'
 import { get } from 'svelte/store'
 import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/metadata'
 import { scriptLangToEditorLang } from '$lib/scripts'
@@ -599,6 +599,19 @@ type PackageSearchResult = {
 	package: string
 	documentation: string
 	types: string
+}
+
+/** How many characters of a package's readme, and of its types, fit the current model;
+ * undefined without one, which leaves the server its default. */
+export function npmTextLimit(): number | undefined {
+	const model = tryGetCurrentModel()
+	if (!model) return undefined
+	const modelContextWindow = getEffectiveModelContextWindow(
+		model.provider,
+		model.model,
+		get(copilotInfo).contextWindowPerModel
+	)
+	return Math.floor((modelContextWindow * DOCS_CONTEXT_PERCENTAGE) / 100)
 }
 
 const packagesSearchCache = new Map<string, PackageSearchResult[]>()
