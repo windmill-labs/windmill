@@ -760,10 +760,10 @@
 			editRights.canEditItem(isScriptJob ? 'script' : 'flow', job?.script_path ?? '', {})
 	)
 	// Opens the deployed runnable at this job's path, like Edit — unlike "View script", which pins
-	// the hash this run executed. Same gate as Edit: where direct deployment is off, the way in is
-	// "Edit in fork".
+	// the hash this run executed. Not gated on edit rights: a session also reads and explains, and
+	// the server still refuses a deploy the user has no right to.
 	const sessionOpen: OpenInSessionSource | undefined = $derived(
-		canEdit && showEditButton
+		(job?.job_kind === 'script' || job?.job_kind === 'flow') && job?.script_path
 			? {
 					target: { kind: isScriptJob ? 'script' : 'flow', path: job?.script_path ?? '' },
 					workspaceId: workspaceId ?? undefined
@@ -1335,9 +1335,6 @@
 						title="Edit"
 						startIcon={{ icon: Pen }}>Edit</Button
 					>
-					{#if embedded}
-						<OpenInSessionButton source={sessionOpen} btnProps={{ unifiedSize: 'sm' }} />
-					{/if}
 				{/if}
 				{#if !showEditButton && !isCloudHosted() && editInForkAllowed(workspaceId, $userWorkspaces)}
 					<Button
@@ -1353,6 +1350,9 @@
 						startIcon={{ icon: Pen }}>{editInForkLabel(workspaceId, $userWorkspaces)}</Button
 					>
 				{/if}
+			{/if}
+			{#if embedded}
+				<OpenInSessionButton source={sessionOpen} btnProps={{ unifiedSize: 'sm' }} />
 			{/if}
 		{/if}
 		{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}

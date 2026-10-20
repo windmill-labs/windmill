@@ -531,7 +531,8 @@
 	// autosave still inside its debounce has to land first.
 	async function persistDraftsForSession(): Promise<void> {
 		const workspace = $workspaceStore
-		if (!workspace) return
+		// An operator only views the pipeline, so there is no draft of theirs to save.
+		if (!workspace || isOperator) return
 		await tick()
 		const draft = { workspace, itemKind: PIPELINE_DRAFT_KIND, path: pipelineDraftPath }
 		await UserDraftDbSyncer.flush(draft)
@@ -551,15 +552,11 @@
 		bypassNavigationGuard = true
 	}
 
-	const sessionOpen: OpenInSessionSource | undefined = $derived(
-		isOperator
-			? undefined
-			: {
-					target: { kind: 'pipeline', path: folder },
-					workspaceId: $workspaceStore ?? undefined,
-					beforeOpen: persistDraftsForSession
-				}
-	)
+	const sessionOpen: OpenInSessionSource = $derived({
+		target: { kind: 'pipeline', path: folder },
+		workspaceId: $workspaceStore ?? undefined,
+		beforeOpen: persistDraftsForSession
+	})
 	// Lets the navigation rail's session switch open this pipeline, with its drafts.
 	setOpenInSessionHandoff({ source: () => sessionOpen })
 
