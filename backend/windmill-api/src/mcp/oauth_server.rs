@@ -405,7 +405,12 @@ pub async fn oauth_token(
     let committed = tx.commit().await;
     match (res, committed) {
         (Ok(res), Ok(())) => Ok(res),
-        (Err(e), _) => Err(e),
+        (Err(e), committed) => {
+            if let Err(ce) = committed {
+                tracing::error!("Failed to commit rejected MCP OAuth exchange: {}", ce);
+            }
+            Err(e)
+        }
         (Ok(_), Err(e)) => Err(db_error(e)),
     }
 }

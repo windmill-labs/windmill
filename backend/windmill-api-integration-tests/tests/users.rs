@@ -1092,7 +1092,8 @@ async fn test_set_password_revokes_mcp_oauth_grants(db: Pool<Postgres>) -> anyho
     let mut waiting = false;
     for _ in 0..100 {
         waiting = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted)",
+            "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted
+             AND database = (SELECT oid FROM pg_database WHERE datname = current_database()))",
         )
         .fetch_one(&db)
         .await?;
