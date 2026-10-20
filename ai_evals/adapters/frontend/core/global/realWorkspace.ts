@@ -4,9 +4,10 @@
 import { randomUUID } from "node:crypto";
 import type { WindmillBackendSettings } from "../../../../core/windmillBackendSettings";
 import type { EvalCaseProfile } from "../../../../core/types";
-import type {
-  BenchmarkDatatableSeed,
-  BenchmarkWorkspaceRunnables,
+import {
+  syncedResourceTypes,
+  type BenchmarkDatatableSeed,
+  type BenchmarkWorkspaceRunnables,
 } from "../../mockBackend";
 import { WindmillBackendClient } from "../../windmillBackend";
 import { buildWorkspaceId } from "../../workspaceId";
@@ -215,7 +216,13 @@ async function seed(
   workspace: string,
   fixtures: BenchmarkWorkspaceRunnables,
 ): Promise<string | undefined> {
-  for (const rt of fixtures.resourceTypes ?? []) {
+  // A fixture that sets no `resourceTypes` stands for an instance synced with the hub,
+  // which an eval backend usually is not; the types the instance already holds stay its own.
+  const held = new Set<string>(await api("GET", "resources/type/listnames"));
+  const resourceTypes = (fixtures.resourceTypes ?? syncedResourceTypes()).filter(
+    (rt) => !held.has(rt.name),
+  );
+  for (const rt of resourceTypes) {
     await api("POST", "resources/type/create", {
       name: rt.name,
       schema: rt.schema ?? {},

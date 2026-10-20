@@ -794,7 +794,9 @@ function benchmarkHubIntegrationResourceType(app: string): BenchmarkWorkspaceRes
 
 /** What a hub-synced instance holds: common hub types, plus the one each mocked hub
  * integration takes, so the hub and the instance agree on them. */
-function syncedResourceTypes(): BenchmarkWorkspaceResourceType[] {
+/** The resource types of an instance synced with the hub, what a fixture that sets no
+ * `resourceTypes` stands for. */
+export function syncedResourceTypes(): BenchmarkWorkspaceResourceType[] {
 	const integrations = [
 		...REAL_HUB_INTEGRATIONS.map((integration) => integration.app),
 		...Object.keys(BENCHMARK_HUB_INTEGRATION_NAMES)
