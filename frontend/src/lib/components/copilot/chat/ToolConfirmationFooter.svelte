@@ -34,10 +34,11 @@
 	}
 </script>
 
-<div class={twMerge('flex flex-row items-center justify-end gap-2', className)}>
+<!-- font-main: the tool cards around it are font-mono, which reads as bold on a button label. -->
+<div class={twMerge('flex flex-row items-center justify-end gap-2 font-main', className)}>
 	<Button
 		variant="default"
-		size="xs"
+		unifiedSize="sm"
 		destructive={rejectDestructive}
 		startIcon={rejectIcon ? { icon: rejectIcon } : undefined}
 		on:click={() => respond(false)}
@@ -46,7 +47,7 @@
 	</Button>
 	<Button
 		variant="accent"
-		size="xs"
+		unifiedSize="sm"
 		startIcon={confirmIcon ? { icon: confirmIcon } : undefined}
 		on:click={() => respond(true)}
 	>
