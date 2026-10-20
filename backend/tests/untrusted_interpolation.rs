@@ -220,7 +220,6 @@ async fn recovery_handler_resolves_nothing_the_schedule_jobs_wrote(
     let success = json!({"leak": "$var:u/test-user/secret", "ok": {"$match": "$USD"}});
     windmill_queue::jobs_ee::handle_recovered_schedule(
         &db,
-        db.begin().await?,
         job_id,
         "u/test-user/schedule",
         "u/test-user/flaky",
