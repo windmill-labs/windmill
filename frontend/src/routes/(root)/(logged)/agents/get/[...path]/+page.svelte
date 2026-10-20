@@ -18,7 +18,7 @@
 	import AgentEditorHost from '$lib/components/flows/content/AgentEditorHost.svelte'
 	import AgentConfigModal from '$lib/components/flows/content/AgentConfigModal.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
-	import { Alert, Tab, TabContent, Tabs } from '$lib/components/common'
+	import { Alert, Tab, Tabs } from '$lib/components/common'
 	import { keepsManagedMemory } from '$lib/components/flows/agentFormFields'
 	import { agentMenuItems, deleteAgent } from '$lib/components/flows/agentActions'
 	import AgentHistory from '$lib/components/flows/AgentHistory.svelte'
@@ -50,6 +50,7 @@
 	let evalsModal: AgentEvalsModal | undefined = $state(undefined)
 	let clientWidth = $state(window.innerWidth)
 	let mobileTab = $state('agent')
+	let wide = $derived(clientWidth >= 1024)
 
 	const slack = resource(
 		() => ({ workspace: ws, path }),
@@ -63,7 +64,7 @@
 	// while the chat shows, and the chat's composer owns the key then.
 	function onKeyDown(event: KeyboardEvent) {
 		if (event.defaultPrevented || event.key !== 'Enter' || !(event.ctrlKey || event.metaKey)) return
-		if (!runForm || testPane?.mode === 'chat') return
+		if (!runForm || testPane?.mode === 'chat' || (!wide && mobileTab !== 'agent')) return
 		if (isValid) {
 			event.preventDefault()
 			runForm.run()
@@ -208,42 +209,30 @@
 			{/if}
 		{/snippet}
 	</DetailPageHeader>
-	<div class="flex-1 min-h-0" bind:clientWidth>
-		<!-- Below `lg` the split would squeeze the chat, so the panel gets a tab of its own, as on a
-		     script's or a flow's page. -->
-		{#if clientWidth >= 1024}
-			<Splitpanes>
-				<Pane size={65} minSize={50}>
-					{@render agentPane()}
+	<!-- Below `lg` the split would squeeze the chat, so the panel gets a tab of its own, as on a
+	     script's or a flow's page. It covers the agent rather than replacing it: unmounting the
+	     host destroys the chat and any turn in flight, so the agent pane keeps one parent at
+	     every width. -->
+	{#if !wide && ws && config}
+		<Tabs bind:selected={mobileTab} wrapperClass="flex-none no-scrollbar">
+			<Tab value="agent" label={testPane?.mode === 'chat' ? 'Chat' : 'Run form'} />
+			<Tab value="use" label={chatAvailable ? 'API and Slack' : 'API'} />
+		</Tabs>
+	{/if}
+	<div class="relative flex-1 min-h-0" bind:clientWidth>
+		<Splitpanes>
+			<Pane size={wide ? 65 : 100} minSize={50}>
+				{@render agentPane()}
+			</Pane>
+			{#if wide && ws && config}
+				<Pane size={35} minSize={15}>
+					{@render usePane(ws)}
 				</Pane>
-				{#if ws && config}
-					<Pane size={35} minSize={15}>
-						{@render usePane(ws)}
-					</Pane>
-				{/if}
-			</Splitpanes>
-		{:else}
-			<div class="h-full flex flex-col">
-				<Tabs bind:selected={mobileTab} wrapperClass="flex-none no-scrollbar">
-					<Tab value="agent" label={testPane?.mode === 'chat' ? 'Chat' : 'Run form'} />
-					{#if ws && config}
-						<Tab value="use" label={chatAvailable ? 'API and Slack' : 'API'} />
-					{/if}
-					{#snippet content()}
-						<div class="grow min-h-0">
-							<!-- The chat holds its conversation in component state, so leaving the tab must
-							     not unmount it. -->
-							<TabContent value="agent" alwaysMounted class="h-full">
-								{@render agentPane()}
-							</TabContent>
-							{#if ws && config}
-								<TabContent value="use" class="h-full">
-									{@render usePane(ws)}
-								</TabContent>
-							{/if}
-						</div>
-					{/snippet}
-				</Tabs>
+			{/if}
+		</Splitpanes>
+		{#if !wide && ws && config}
+			<div class={['absolute inset-0 z-10 bg-surface', mobileTab !== 'use' && 'hidden']}>
+				{@render usePane(ws)}
 			</div>
 		{/if}
 	</div>
@@ -262,8 +251,8 @@
 			{#snippet viewForm({ schema, run, loading, actions })}
 				{#if config && !chatAvailable}
 					<Alert type="info" size="xs" title="Managed memory is off" class="mb-4">
-						Each run is answered on its own inputs, so this agent has no chat. That suits
-						reusing it as a step in a flow.{canEdit
+						Each run is answered on its own inputs, so this agent has no chat. That suits reusing it
+						as a step in a flow.{canEdit
 							? ' Turn on managed memory in its configuration to chat with it.'
 							: ''}
 					</Alert>
