@@ -58,6 +58,8 @@ const TRUNCATED: &str = "… [truncated]";
 
 pub(super) struct Skill {
     pub path: String,
+    /// Listed in the MCP instructions; the chat builds its own prompt.
+    #[cfg_attr(not(feature = "mcp"), allow(dead_code))]
     pub description: String,
 }
 
@@ -107,7 +109,9 @@ async fn read_skill(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         Err(e) => return Ok(read_failed(ctx, path, api_message(&e))),
     };
     // The chat's user can switch a skill off for that chat, a setting their browser holds.
-    let switched_off = ctx.chat.is_some_and(|chat| !chat.skill_enabled.unwrap_or(true));
+    let switched_off = ctx
+        .chat
+        .is_some_and(|chat| !chat.skill_enabled.unwrap_or(true));
     if !listed || switched_off {
         let (available, listing) = match ctx.surface {
             Surface::Chat => ("available to this chat", "the system prompt"),
