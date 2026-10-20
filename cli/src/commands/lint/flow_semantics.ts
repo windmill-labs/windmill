@@ -12,9 +12,9 @@ const WEBSEARCH_ENABLED_NAME = "__wm_web_search";
 // The worker's `*_ENABLED_NAME`s: built-in tools, each named by its reserved name.
 const BUILTIN_ENABLED_NAMES = new Set([
   WEBSEARCH_ENABLED_NAME,
-  "__wm_approval",
+  "__wm_question",
 ]);
-const BUILTIN_TOOL_TYPES = new Set(["websearch", "approval"]);
+const BUILTIN_TOOL_TYPES = new Set(["websearch", "question"]);
 
 // `forbiddenIds` in frontend/src/lib/components/flows/idUtils.ts.
 const RESERVED_IDS = new Set([

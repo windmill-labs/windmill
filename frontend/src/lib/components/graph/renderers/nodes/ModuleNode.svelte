@@ -34,6 +34,7 @@
 		{ type: 'mcp_tool_call', singular: 'MCP call', plural: 'MCP calls' },
 		{ type: 'web_search', singular: 'web search', plural: 'web searches' },
 		{ type: 'approval', singular: 'approval request', plural: 'approval requests' },
+		{ type: 'question', singular: 'question', plural: 'questions' },
 		{ type: 'message', singular: 'message', plural: 'messages' }
 	] as const
 

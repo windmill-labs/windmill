@@ -132,6 +132,8 @@
 		/** Lets the agent's Tools section add a tool through the graph's own insert path. */
 		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
 		toolDescription?: string | undefined
+		/** The tool's `requires_approval` setting; only an agent tool has one. */
+		toolRequiresApproval?: boolean
 		siblingToolNames?: string[]
 	}
 
@@ -152,6 +154,7 @@
 		staticOnly = false,
 		flowModuleSchemaMap = undefined,
 		toolDescription = $bindable(undefined),
+		toolRequiresApproval = $bindable(),
 		siblingToolNames = undefined
 	}: Props = $props()
 
@@ -864,6 +867,7 @@
 			on:reload={reloadModule}
 			bind:summary={flowModule.summary}
 			bind:description={toolDescription}
+			bind:requiresApproval={toolRequiresApproval}
 			{isAgentTool}
 			{siblingToolNames}
 		>

@@ -32,7 +32,7 @@ import {
 	createAiDecisionTool,
 	createMcpTool,
 	createWebsearchTool,
-	createApprovalTool,
+	createQuestionTool,
 	newAiDecisionInputTransforms,
 	newFlowModuleAgentTool,
 	SPECIAL_TOOL_KINDS,
@@ -588,8 +588,8 @@ export async function insertNewModuleAtIndex(
 		const websearchTool = createWebsearchTool(module.id)
 		;(modules as AgentTool[]).splice(index, 0, websearchTool)
 		return modules as AgentTool[]
-	} else if (toolKind === 'approvalTool') {
-		;(modules as AgentTool[]).splice(index, 0, createApprovalTool(module.id))
+	} else if (toolKind === 'questionTool') {
+		;(modules as AgentTool[]).splice(index, 0, createQuestionTool(module.id))
 		return modules as AgentTool[]
 	} else if (toolKind === 'aiAgentTool') {
 		// Create AI Agent tool (nested agent)

@@ -15,8 +15,8 @@
 	let job = $state<Job | undefined>(undefined)
 	const pending = $derived(pendingAgentApproval(job))
 
-	// The stream only says the approval tool was called; the request to answer, and the job
-	// that answers it, are on the flow's status.
+	// The stream only says a call is running; the request to answer, and the job that answers
+	// it, are on the flow's status.
 	$effect(() => {
 		const args = { workspace, id: jobId }
 		let stopped = false

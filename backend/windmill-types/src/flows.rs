@@ -388,7 +388,7 @@ impl FlowValue {
                             ToolValue::FlowModule(module_value) => cb(module_value, &tool.id)?,
                             ToolValue::Mcp(_)
                             | ToolValue::Websearch(_)
-                            | ToolValue::Approval(_) => {}
+                            | ToolValue::Question(_) => {}
                         }
                     }
                 }
@@ -931,6 +931,10 @@ pub struct AgentTool {
     /// Caps the token of this tool's jobs, on top of the agent step's own restriction.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job_token_scopes: Option<Vec<String>>,
+    /// A person approves each call before it runs; the agent waits without holding a worker.
+    /// Flow module and MCP tools only.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub requires_approval: bool,
     pub value: ToolValue,
 }
 
@@ -960,7 +964,7 @@ impl From<&AgentTool> for Option<FlowModule> {
                 job_token_scopes: tool.job_token_scopes.clone(),
                 ..Default::default()
             }),
-            ToolValue::Mcp(_) | ToolValue::Websearch(_) | ToolValue::Approval(_) => None,
+            ToolValue::Mcp(_) | ToolValue::Websearch(_) | ToolValue::Question(_) => None,
         }
     }
 }
@@ -971,7 +975,7 @@ pub enum ToolValue {
     FlowModule(FlowModuleValue),
     Mcp(McpToolValue),
     Websearch(WebsearchToolValue),
-    Approval(ApprovalToolValue),
+    Question(QuestionToolValue),
 }
 
 // Custom deserializer for backward compatibility with old flows
@@ -990,7 +994,7 @@ impl<'de> Deserialize<'de> for ToolValue {
             FlowModule(FlowModuleValue),
             Mcp(McpToolValue),
             Websearch(WebsearchToolValue),
-            Approval(ApprovalToolValue),
+            Question(QuestionToolValue),
         }
 
         if let Ok(tagged) = TaggedToolValue::deserialize(&content) {
@@ -998,7 +1002,7 @@ impl<'de> Deserialize<'de> for ToolValue {
                 TaggedToolValue::FlowModule(v) => ToolValue::FlowModule(v),
                 TaggedToolValue::Mcp(v) => ToolValue::Mcp(v),
                 TaggedToolValue::Websearch(v) => ToolValue::Websearch(v),
-                TaggedToolValue::Approval(v) => ToolValue::Approval(v),
+                TaggedToolValue::Question(v) => ToolValue::Question(v),
             });
         }
 
@@ -1024,10 +1028,10 @@ pub struct McpToolValue {
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct WebsearchToolValue {}
 
-/// Lets the agent stop and wait for a person to approve or reject what it is about to do.
+/// Lets the agent stop and wait for a person to answer a question it asks.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
-pub struct ApprovalToolValue {
-    /// Seconds to wait for an answer before the request is reported to the model as timed out.
+pub struct QuestionToolValue {
+    /// Seconds to wait for an answer before the question is reported to the model as timed out.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u32>,
 }

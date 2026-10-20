@@ -250,9 +250,9 @@
 					<!-- A nested agent cannot park, so the worker drops it from its roster. -->
 					{#if !nestedAgent}
 						<TopLevelNode
-							label="Request approval"
+							label="Ask a question"
 							onSelect={() => {
-								dispatch('pickApprovalTool')
+								dispatch('pickQuestionTool')
 								dispatch('close')
 							}}
 						/>

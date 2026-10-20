@@ -108,7 +108,7 @@
 				)}
 				on:pickMcpTool={() => (onAddTool?.({ kind: 'mcpTool' }), close())}
 				on:pickWebsearchTool={() => (onAddTool?.({ kind: 'websearchTool' }), close())}
-				on:pickApprovalTool={() => (onAddTool?.({ kind: 'approvalTool' }), close())}
+				on:pickQuestionTool={() => (onAddTool?.({ kind: 'questionTool' }), close())}
 				on:pickAiAgentTool={() => (onAddTool?.({ kind: 'aiAgentTool' }), close())}
 				on:pickAiDecisionTool={() => (onAddTool?.({ kind: 'aiDecisionTool' }), close())}
 			/>

@@ -12,11 +12,11 @@ export const WEBSEARCH_ENABLED_NAME = '__wm_web_search'
 
 /** Tools the worker answers itself rather than by running a module. None is named by its
  *  `summary`: each has a reserved `enabledName` (mirroring the `*_ENABLED_NAME`s in the worker),
- *  and the model sees a fixed name the worker picks. `approval` parks the agent until someone
+ *  and the model sees a fixed name the worker picks. `question` parks the agent until someone
  *  answers (`windmill-worker/src/ai/pause.rs`). */
 export const BUILTIN_TOOLS = {
 	websearch: { label: 'Web search', enabledName: WEBSEARCH_ENABLED_NAME },
-	approval: { label: 'Request approval', enabledName: '__wm_approval' }
+	question: { label: 'Ask a question', enabledName: '__wm_question' }
 } as const
 export type BuiltinToolType = keyof typeof BUILTIN_TOOLS
 
@@ -71,7 +71,7 @@ export function getToolNameError(
 export const SPECIAL_TOOL_KINDS = [
 	'mcpTool',
 	'websearchTool',
-	'approvalTool',
+	'questionTool',
 	'aiAgentTool',
 	'aiDecisionTool'
 ] as const
@@ -265,8 +265,8 @@ export function createWebsearchTool(id: string): WebsearchTool {
 	}
 }
 
-export function createApprovalTool(id: string): AgentTool {
-	return { id, summary: BUILTIN_TOOLS.approval.label, value: { tool_type: 'approval' } }
+export function createQuestionTool(id: string): AgentTool {
+	return { id, summary: BUILTIN_TOOLS.question.label, value: { tool_type: 'question' } }
 }
 
 /**

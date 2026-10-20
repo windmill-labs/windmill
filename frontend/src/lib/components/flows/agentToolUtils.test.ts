@@ -50,10 +50,10 @@ describe('toolEnabledName', () => {
 		)
 	})
 
-	it("names the approval tool by the worker's reserved name", () => {
+	it("names the question tool by the worker's reserved name", () => {
 		expect(
-			toolEnabledName({ id: 't', summary: 'label', value: { tool_type: 'approval' } } as any)
-		).toBe('__wm_approval')
-		expect(getToolNameError('__wm_approval')).toBe(`'__wm_approval' is a reserved name`)
+			toolEnabledName({ id: 't', summary: 'label', value: { tool_type: 'question' } } as any)
+		).toBe('__wm_question')
+		expect(getToolNameError('__wm_question')).toBe(`'__wm_question' is a reserved name`)
 	})
 })

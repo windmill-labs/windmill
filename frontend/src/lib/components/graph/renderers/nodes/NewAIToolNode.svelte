@@ -106,11 +106,11 @@
 					})
 					close()
 				}}
-				on:pickApprovalTool={() => {
+				on:pickQuestionTool={() => {
 					data.eventHandlers.insert({
 						index: -1,
 						agentId: data.agentModuleId,
-						kind: 'approvalTool'
+						kind: 'questionTool'
 					})
 					close()
 				}}

@@ -28,6 +28,7 @@
 	import { getToolNameError } from '$lib/components/flows/agentToolUtils'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import autosize from '$lib/autosize'
+	import Toggle from '$lib/components/Toggle.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -38,6 +39,8 @@
 		title?: string | undefined
 		summary?: string | undefined
 		description?: string | undefined
+		/** An agent tool's `requires_approval` setting. */
+		requiresApproval?: boolean
 		/** Static one-line explanation of what this kind of step does. Not the editable
 		 *  `description`, which is the AI-tool prompt the user writes. */
 		subtitle?: string | undefined
@@ -53,6 +56,7 @@
 		title = undefined,
 		summary = $bindable(undefined),
 		description = $bindable(undefined),
+		requiresApproval = $bindable(),
 		subtitle = undefined,
 		subtitleDocLink = undefined,
 		children,
@@ -292,5 +296,15 @@
 			placeholder="Tool description (optional): tells the AI when and how to use this tool"
 			class="w-full text-xs resize-none"
 		></textarea>
+		<Toggle
+			size="xs"
+			textClass="text-xs font-normal text-primary"
+			bind:checked={() => requiresApproval ?? false, (v) => (requiresApproval = v)}
+			options={{
+				right: 'Require approval',
+				rightTooltip:
+					'Each call waits for someone to approve or reject it from the run page or the chat, without holding a worker. Other calls in the same turn run right away. A rejected call is reported to the agent as not run.'
+			}}
+		/>
 	{/if}
 </div>

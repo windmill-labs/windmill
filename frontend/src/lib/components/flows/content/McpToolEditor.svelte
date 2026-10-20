@@ -31,6 +31,7 @@
 	import McpConnect from '$lib/components/mcp/McpConnect.svelte'
 	import type { FlowEditorContext } from '../types'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import Toggle from '$lib/components/Toggle.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -126,6 +127,19 @@
 					/>
 				</Label>
 			</div>
+			<Toggle
+				size="xs"
+				textClass="text-xs font-normal text-primary"
+				disabled={noEditor}
+				bind:checked={
+					() => tool.requires_approval ?? false, (v) => (tool.requires_approval = v || undefined)
+				}
+				options={{
+					right: 'Require approval',
+					rightTooltip:
+						'Each call waits for someone to approve or reject it from the run page or the chat, without holding a worker. Other calls in the same turn run right away. A rejected call is reported to the agent as not run.'
+				}}
+			/>
 
 			<Section label="Available Tools">
 				{#snippet action()}

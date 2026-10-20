@@ -156,40 +156,49 @@ older editor baked into `memory` stays a fallback behind the run's id until the 
 *Keep as memory id* or *Use the run's memory id*. In a chat flow it is dropped on save, since the
 conversation id always took precedence there.
 
-## Approval tool
+## Approval and questions
 
-The built-in `approval` tool type parks the agent rather than run anything: the model calls
-`request_approval` with a message. It lives in `windmill-worker/src/ai/pause.rs`.
+Two things park the agent rather than run: a call of a tool with `requires_approval` (flow module
+and MCP tools), and a call of the built-in `question` tool, which the model sees as `ask_question`.
+Both live in `windmill-worker/src/ai/pause.rs`.
 
-- **Park.** A turn that calls `request_approval` runs nothing else: its other calls are refused, so
-  nothing the request may be about happens before the answer. The worker stores the conversation,
-  actions, usage, accumulated stream and next iteration in `ai_agent_checkpoint`, then parks the
-  agent's own queue row with `suspend_wac_parent`: `suspend = 1`, `suspend_until` at the approval
-  timeout (the tool's `timeout`, default 1800s). The job is not completed, its worker is free, and
-  the flow stays on the step.
+- **Park.** In a turn that calls such tools, every other call runs right away. The calls that
+  require approval are gathered into one request, answered together; a question is its own request,
+  so a turn that also asks for approval has its question refused, as is a second question. The
+  worker stores the conversation, actions, usage, accumulated stream, next iteration and the
+  waiting calls in `ai_agent_checkpoint`, then parks the agent's own queue row with
+  `suspend_wac_parent`: `suspend = 1`, `suspend_until` at the timeout (1800s for an approval, the
+  question tool's `timeout` otherwise). The job is not completed, its worker is free, and the flow
+  stays on the step.
 - **Answer.** `resume_suspended` with the agent job's id already treats a self-suspended job like a
   WAC approval: it inserts the `resume_job` row and decrements, or zeroes on a rejection, the
-  agent's own `suspend`. The run page offers Approve/Reject from the pending `approval` agent
-  action, and so does a chat flow's chat, above the composer while the turn's top-level agent step
-  waits (it polls the turn's flow job only when a top-level agent step has the tool or links a
-  saved agent, read off the flow rather than the stream, which a non-streaming agent leaves empty). Both
-  send that request's `call_id` in the payload. There are no signed resume URLs, Slack or Teams messages, approval page or approver
-  conditions for it: whoever can answer a suspended step without conditions can answer it.
+  agent's own `suspend`. The run page offers the form from the pending `approval` or `question`
+  agent action (Approve/Reject with the calls and their arguments, or a text answer), and so does a
+  chat flow's chat, above the composer while the turn's top-level agent step waits (it polls the
+  turn's flow job only when a top-level agent step has such a tool or links a saved agent, read off
+  the flow rather than the stream, which a non-streaming agent leaves empty). Both send that
+  request's `call_id` in the payload. There are no signed resume URLs, Slack or Teams messages,
+  approval page or approver conditions for it: whoever can answer a suspended step without
+  conditions can answer it.
 - **Resume.** The suspended pull takes the row back and `run_agent` finds the checkpoint. In one
   transaction it zeroes `suspend`, so `resume_suspended` refuses answers while the agent runs, and
-  reads the unread `resume_job` rows. The first one naming the parked call (or naming none) answers
-  it; one naming an earlier request, from a page left open, is read and ignored, and the agent parks
-  again for the time left. With no answer past the timeout, the call is answered as timed out. The
-  agent then skips memory and the prompt and continues the loop. The step's stream continues at the
-  offset the first segment reached. Resolution is live here too: a linked agent edited while parked resumes with its new
-  definition.
+  reads the unread `resume_job` rows. The first one naming the parked request (or naming none)
+  answers it; one naming an earlier request, from a page left open, is read and ignored, and the
+  agent parks again for the time left. Approved calls then run as any call would; rejected ones,
+  and those still unanswered at the timeout, are answered as not run, with the approver's comment.
+  A call whose tool left the roster while parked is answered as no longer available. The agent
+  then skips memory and the prompt and continues the loop. The step's stream continues at the
+  offset the first segment reached. Resolution is live here too: a linked agent edited while
+  parked resumes with its new definition.
 - **Cleanup.** The checkpoint row stays while the job is queued, so a job restarted after its
-  worker died resumes from it. The monitor deletes rows whose job left the queue; the table has no
+  worker died resumes from it, and reads the same answer again: approved calls that ran before
+  the worker died run again. The monitor deletes rows whose job left the queue; the table has no
   foreign key, since one would lock `v2_job_queue` on every write.
-- **Limits.** A nested agent tool is never offered the tool: it writes no flow status, and its
-  parent holds a worker while it runs. The banner at the top of the run page shows only a request
-  from a top-level step, as does the chat; one from a step inside a loop or branch is answered from
-  its graph node. The chat transcript of a chat flow records neither the request nor its answer.
+- **Limits.** A nested agent tool is never offered the question tool or a tool that requires
+  approval: it writes no flow status, and its parent holds a worker while it runs. The banner at the
+  top of the run page shows only a request from a top-level step, as does the chat; one from a step
+  inside a loop or branch is answered from its graph node. The chat transcript of a chat flow
+  records neither the request nor its answer.
 
 ## Drafts
 

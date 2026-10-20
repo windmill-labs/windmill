@@ -11,7 +11,7 @@
 		Repeat,
 		Scale,
 		Square,
-		UserCheck,
+		MessageCircleQuestion,
 		Zap
 	} from 'lucide-svelte'
 	import type { ComponentType } from 'svelte'
@@ -56,7 +56,7 @@
 		Pi: { icon: BotIcon, iconClass: 'text-ai' },
 		MCP: { icon: Plug },
 		'Web Search': { icon: Globe },
-		'Request approval': { icon: UserCheck }
+		'Ask a question': { icon: MessageCircleQuestion }
 	}
 
 	const config = $derived(iconMap[label])

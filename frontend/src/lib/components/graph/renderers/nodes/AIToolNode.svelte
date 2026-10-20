@@ -15,6 +15,7 @@
 	export const AI_TOOL_MESSAGE_PREFIX = '_wm_ai_agent_message'
 	export const AI_WEBSEARCH_PREFIX = '_wm_ai_websearch'
 	export const AI_APPROVAL_PREFIX = '_wm_ai_approval'
+	export const AI_QUESTION_PREFIX = '_wm_ai_question'
 
 	const ROW_WIDTH = 275
 	const NEW_TOOL_NODE_WIDTH = 50
@@ -54,8 +55,8 @@
 				return action.module_id === tool.moduleId
 			case 'web_search':
 				return tool.type === 'websearch'
-			case 'approval':
-				return tool.type === 'approval'
+			case 'question':
+				return tool.type === 'question'
 			case 'mcp_tool_call':
 				// One MCP node stands for a whole server and many function names, so the server path
 				// is the only join that holds. The worker strips `$res:` before building the action,
@@ -64,6 +65,8 @@
 					tool.type === 'mcp' &&
 					bareResourcePath(action.resource_path) === bareResourcePath(tool.resourcePath)
 				)
+			// The calls it holds are decorated by their own actions once they run.
+			case 'approval':
 			case 'message':
 				return false
 		}
@@ -86,6 +89,8 @@
 				return AI_WEBSEARCH_PREFIX + '-' + agentModuleId + '-' + idx
 			case 'approval':
 				return AI_APPROVAL_PREFIX + '-' + agentModuleId + '-' + idx
+			case 'question':
+				return AI_QUESTION_PREFIX + '-' + agentModuleId + '-' + idx
 			case 'message':
 				return getToolCallId(idx, agentModuleId)
 		}
@@ -193,7 +198,10 @@
 					} else if (a.type === 'web_search') {
 						return { id, name: 'Web Search', type: 'websearch' }
 					} else if (a.type === 'approval') {
-						return { id, name: BUILTIN_TOOLS.approval.label, type: 'approval' }
+						const names = a.calls.map((call) => call.function_name).join(', ')
+						return { id, name: `Approval: ${names}`, type: 'approval' }
+					} else if (a.type === 'question') {
+						return { id, name: BUILTIN_TOOLS.question.label, type: 'question' }
 					} else {
 						return { id, name: 'Message' }
 					}
@@ -318,6 +326,7 @@
 		Bot,
 		Globe,
 		MessageCircle,
+		MessageCircleQuestion,
 		Play,
 		Plug,
 		Scale,
@@ -425,6 +434,8 @@
 					<Globe size={16} class="ml-1 shrink-0" />
 				{:else if data.type === 'approval'}
 					<UserCheck size={16} class="ml-1 shrink-0" />
+				{:else if data.type === 'question'}
+					<MessageCircleQuestion size={16} class="ml-1 shrink-0" />
 				{:else if data.type === 'mcp'}
 					<Plug size={16} class="ml-1 shrink-0" />
 				{:else if data.type === 'aiagent'}

@@ -90,10 +90,10 @@ export function buildAgentTrace(messages: AgentMessage[]): AgentTraceEntry[] {
 			entries.push({ kind: 'search' })
 			continue
 		}
-		if (action?.type === 'approval') {
+		if (action?.type === 'question') {
 			entries.push({
 				kind: 'tool',
-				name: 'Request approval',
+				name: 'Ask a question',
 				args: message.tool_call_id ? argsByCallId.get(message.tool_call_id) : undefined,
 				result: contentText(message.content)
 			})
