@@ -10,6 +10,7 @@ import {
 } from "../utils/resource_folders.ts";
 import { deploysWithRawApp } from "../utils/app_files.ts";
 import { parseSyncBehavior } from "./conf.ts";
+import { minimatch } from "minimatch";
 
 export interface PermissionedAsContext {
   userCache: Map<string, { username: string; email: string }>;
@@ -50,20 +51,57 @@ export async function buildPermissionedAsContext(
   };
 }
 
-const pusherEmails = new Map<string, Promise<string>>();
+const deployers = new Map<string, Promise<{ email: string; canPreserve: boolean }>>();
+const folderRules = new Map<string, Promise<Array<{ path_glob: string; permissioned_as: string }>>>();
+
+function deployer(workspace: string) {
+  let d = deployers.get(workspace);
+  if (!d) {
+    d = wmill.whoami({ workspace }).then((u) => ({
+      email: u.email,
+      canPreserve: u.is_admin || !!u.is_super_admin || (u.groups ?? []).includes("wm_deployers"),
+    }));
+    deployers.set(workspace, d);
+  }
+  return d;
+}
+
+async function folderRuleMatches(workspace: string, path: string): Promise<boolean> {
+  const m = path.match(/^f\/([^/]+)\/(.+)$/);
+  if (!m) return false;
+  const key = `${workspace}/${m[1]}`;
+  let rules = folderRules.get(key);
+  if (!rules) {
+    rules = wmill
+      .getFolder({ workspace, name: m[1] })
+      .then((f) => (f as any).default_permissioned_as ?? [])
+      .catch(() => []);
+    folderRules.set(key, rules);
+  }
+  return (await rules).some((r) => {
+    try {
+      return minimatch(m[2], r.path_glob);
+    } catch {
+      return false;
+    }
+  });
+}
 
 /**
- * Below syncBehavior v1 a push hands every script or flow it deploys to whoever ran it. The
- * backend keeps the identity a deploy names, so the address a v0 file carries is replaced by
- * the pusher's own: sent as it is, it would stay, or fail to resolve in another workspace.
+ * Below syncBehavior v1, and in `workspace merge` without `--preserve-on-behalf-of`, a script or
+ * flow is handed to whoever deploys it. The backend keeps the identity a deploy names, so the
+ * address the item carries is replaced by the deployer's: sent as it is, it would stay, or fail
+ * to resolve in another workspace. A create that a folder `default_permissioned_as` rule applies
+ * to names nobody instead, since naming the deployer would override the rule.
  */
-export function legacyPusherEmail(workspace: string): Promise<string> {
-  let email = pusherEmails.get(workspace);
-  if (!email) {
-    email = wmill.whoami({ workspace }).then((u) => u.email);
-    pusherEmails.set(workspace, email);
-  }
-  return email;
+export async function deployerRunAs(
+  workspace: string,
+  path: string,
+  creating: boolean
+): Promise<string | undefined> {
+  const d = await deployer(workspace);
+  if (creating && d.canPreserve && (await folderRuleMatches(workspace, path))) return undefined;
+  return d.email;
 }
 
 /**

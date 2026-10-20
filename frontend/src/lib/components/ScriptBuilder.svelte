@@ -124,6 +124,7 @@
 	import DebounceLimit from './flows/DebounceLimit.svelte'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import OnBehalfOfSelector, { type OnBehalfOfChoice } from './OnBehalfOfSelector.svelte'
+	import { useFolderDefaultRunAs } from './useFolderDefaultPermissionedAs.svelte'
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
@@ -279,6 +280,20 @@
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
 	let customOnBehalfOfEmail: string = $state('')
 	let myPermissionedAs = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)
+	// The rule applies on a script's first deploy only.
+	const folderDefault = useFolderDefaultRunAs(
+		() => (!savedScript || savedScript.no_deployed === true ? script.path : undefined),
+		() => opWorkspace,
+		{
+			get: () => script,
+			set: (permissionedAs) => {
+				script.on_behalf_of = permissionedAs
+				script.on_behalf_of_email = undefined
+				onBehalfOfChoice = undefined
+			}
+		}
+	)
+	let runsOnBehalfOf = $derived(Boolean(script.on_behalf_of_email || script.on_behalf_of))
 
 	let metadataOpen = $state(
 		!untrack(() => neverShowMeta) &&
@@ -2133,9 +2148,9 @@
 											<span class="inline-flex gap-2">
 												<Toggle
 													size="sm"
-													checked={Boolean(script.on_behalf_of_email)}
+													checked={runsOnBehalfOf}
 													on:change={() => {
-														if (script.on_behalf_of_email) {
+														if (runsOnBehalfOf) {
 															script.on_behalf_of_email = undefined
 															script.on_behalf_of = undefined
 															onBehalfOfChoice = undefined
@@ -2148,7 +2163,7 @@
 														right: `Run on behalf of ${canPreserve ? 'a specified user' : 'last editor'}`
 													}}
 												/>
-												{#if script.on_behalf_of_email && canPreserve}
+												{#if runsOnBehalfOf && canPreserve}
 													&rarr; <OnBehalfOfSelector
 														targetWorkspace={opWorkspace ?? ''}
 														targetValue={originalOnBehalfOfEmail}
@@ -2175,7 +2190,15 @@
 														{canPreserve}
 														customValue={customOnBehalfOfEmail}
 														isDeployment={false}
+														folderDefault={folderDefault.value}
 													/>
+												{:else if !runsOnBehalfOf && folderDefault.value}
+													<span class="text-xs text-tertiary">
+														The folder rule sets <span class="font-medium"
+															>{folderDefault.value}</span
+														>
+														on first deploy
+													</span>
 												{:else if script.on_behalf_of_email && !canPreserve}
 													<span class="text-xs text-tertiary">
 														Currently: <span class="font-medium"

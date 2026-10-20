@@ -6,6 +6,7 @@
 	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import { userStore } from '$lib/stores'
 	import { AlertTriangle } from 'lucide-svelte'
+	import { untrack } from 'svelte'
 	import {
 		useOperatingUser,
 		useOperatingWorkspace
@@ -63,10 +64,13 @@
 	// On creation with no folder default, default to "me". When the folder default
 	// loads async, transition to undefined so OnBehalfOfSelector's auto-select applies
 	// the folder default. Skip if the user has already made an explicit selection.
+	// The default is sent as shown: naming nobody would let the server apply a rule this
+	// editor did not see, so a save could land on an identity other than the one displayed.
 	$effect(() => {
 		if (userHasSelected) return
 		if (permissionedAs === undefined && !folderDefault.value) {
 			onBehalfOfChoice = 'me'
+			if (canPreserve && !disabled) untrack(() => onPermissionedAsChange(myPermissionedAs))
 		} else {
 			onBehalfOfChoice = undefined
 		}
@@ -113,7 +117,7 @@
 			onPermissionedAsChange(details.permissionedAs)
 		} else {
 			customPermissionedAs = undefined
-			onPermissionedAsChange(undefined)
+			onPermissionedAsChange(myPermissionedAs)
 		}
 	}
 </script>

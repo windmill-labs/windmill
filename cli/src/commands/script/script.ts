@@ -9,7 +9,7 @@ import {
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 import {
   buildPermissionedAsContext,
-  legacyPusherEmail,
+  deployerRunAs,
   warnRunAsNotCarried,
 } from "../../core/permissioned_as.ts";
 import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
@@ -669,8 +669,10 @@ export async function handleFile(
         warnRunAsNotCarried("script", remotePath);
       }
     } else if (!permissionedAsContext && typed?.on_behalf_of_email) {
-      requestBodyCommon.on_behalf_of_email = await legacyPusherEmail(
-        workspace.workspaceId
+      requestBodyCommon.on_behalf_of_email = await deployerRunAs(
+        workspace.workspaceId,
+        remotePath,
+        !remote
       );
     }
 

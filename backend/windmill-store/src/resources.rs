@@ -2493,7 +2493,7 @@ async fn resolve_agent_on_behalf_of(
         return Ok(());
     }
     if created
-        && windmill_common::names_only_caller(None, requested.as_deref(), authed)
+        && windmill_common::names_nobody(None, requested.as_deref())
         && windmill_common::can_preserve_on_behalf_of(authed)
     {
         if let Some((_, folder_default)) =

@@ -790,11 +790,8 @@ async fn create_flow(
     // cron::Schedule::from_str(&ns.schedule).map_err(|e| error::Error::BadRequest(e.to_string()))?;
     let authed = maybe_refresh_folders(&nf.path, &w_id, authed, &db).await;
 
-    if windmill_common::names_only_caller(
-        nf.on_behalf_of_email.as_deref(),
-        nf.on_behalf_of.as_deref(),
-        &authed,
-    ) && windmill_common::can_preserve_on_behalf_of(&authed)
+    if windmill_common::names_nobody(nf.on_behalf_of_email.as_deref(), nf.on_behalf_of.as_deref())
+        && windmill_common::can_preserve_on_behalf_of(&authed)
     {
         if let Some((default_email, default_permissioned_as)) =
             windmill_common::folders::resolve_folder_default_on_behalf_of(&db, &w_id, &nf.path)

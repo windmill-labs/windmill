@@ -15,6 +15,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Path from '$lib/components/Path.svelte'
+	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import { computeSecretUrl } from './appDeploy.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import EEOnly from '$lib/components/EEOnly.svelte'
@@ -157,6 +158,25 @@
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
 	let customOnBehalfOfEmail: string = $state('')
 	let myOnBehalfOf = $derived(actingUser?.username ? `u/${actingUser.username}` : undefined)
+	// A new app starts on the folder rule its path matches, or on the deployer, and deploys
+	// what is shown: naming nobody would let the server apply a rule this picker did not see.
+	const folderDefault = useFolderDefaultPermissionedAs(
+		() => (newApp ? newEditedPath : undefined),
+		() => opWs
+	)
+	let defaultChosen = false
+	$effect(() => {
+		const rule = folderDefault.value
+		if (!newApp || !canPreserve || folderDefault.loading) return
+		untrack(() => {
+			if (onBehalfOfChoice !== undefined && !defaultChosen) return
+			defaultChosen = true
+			onBehalfOfChoice = rule ? 'custom' : 'me'
+			customOnBehalfOfEmail = rule ?? ''
+			policy.on_behalf_of = rule ?? myOnBehalfOf
+			policy.on_behalf_of_email = rule ? undefined : $userStore?.email
+		})
+	})
 	// Without the right to preserve, the backend runs the redeployed app as the deployer whatever
 	// the policy says, as it does for "me".
 	let deployOnBehalfOf = $derived.by(() => {
@@ -332,6 +352,7 @@
 					targetValue={savedOnBehalfOfEmail}
 					selected={onBehalfOfChoice}
 					onSelect={(choice, details) => {
+						defaultChosen = false
 						onBehalfOfChoice = choice
 						if (choice === 'me') {
 							policy.on_behalf_of_email = $userStore?.email
@@ -353,6 +374,7 @@
 					isDeployment={false}
 					myPermissionedAs={myOnBehalfOf}
 					readOnlyWithoutPreserve
+					folderDefault={folderDefault.value}
 				/>
 				{#if onBehalfOfWillChange}
 					<AlertTriangle class="w-3.5 h-3.5 text-yellow-500" />

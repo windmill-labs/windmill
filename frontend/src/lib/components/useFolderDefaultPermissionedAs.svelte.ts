@@ -1,6 +1,7 @@
 import { FolderService } from '$lib/gen'
 import { Minimatch } from 'minimatch'
 import { resource } from 'runed'
+import { untrack } from 'svelte'
 import { workspaceStore, userStore } from '$lib/stores'
 
 /**
@@ -70,4 +71,37 @@ export function useFolderDefaultPermissionedAs(
 			return folderResource.loading
 		}
 	}
+}
+
+/**
+ * Seeds a new script's or flow's run-as with the folder rule its path matches, so the editor
+ * shows, and the deploy sends, the identity the rule would give it. The principal is sent
+ * alone; the server derives the address. An identity the user or a seed chose is left alone,
+ * and one seeded here is cleared again once the path stops matching.
+ */
+export function useFolderDefaultRunAs(
+	newPathGetter: () => string | undefined,
+	wsGetter: () => string | undefined,
+	runAs: {
+		get: () => { on_behalf_of_email?: string; on_behalf_of?: string }
+		set: (permissionedAs: string | undefined) => void
+	}
+) {
+	const folderDefault = useFolderDefaultPermissionedAs(newPathGetter, wsGetter)
+	let seeded: string | undefined = undefined
+	$effect(() => {
+		const rule = folderDefault.value
+		untrack(() => {
+			if (rule === seeded) return
+			const current = runAs.get()
+			const ours =
+				seeded === undefined
+					? !current.on_behalf_of_email && !current.on_behalf_of
+					: current.on_behalf_of === seeded
+			if (!ours) return
+			seeded = rule
+			runAs.set(rule)
+		})
+	})
+	return folderDefault
 }

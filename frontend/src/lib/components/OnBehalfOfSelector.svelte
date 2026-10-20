@@ -166,7 +166,7 @@
 	})
 
 	const isFolderDefaultSelected = $derived(
-		selected === 'custom' && folderDefault !== undefined && customValue === folderDefault
+		selected === 'custom' && folderDefault !== undefined && customDisplayName === folderDefault
 	)
 
 	function openModal() {

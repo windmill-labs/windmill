@@ -521,8 +521,7 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
         "a rule naming an address stores the principal it names, which is what carries that          user's groups and folders"
     );
 
-    // 5b'. Naming only yourself is not a choice: the run-as pickers start on "me", so the rule
-    // still applies; naming someone else is, and wins over it.
+    // 5b'. Naming anyone, yourself included, wins over the rule: only naming nobody takes it.
     let mut named_self = new_flow("f/prodfolder/jobs/flow_named_self");
     named_self["on_behalf_of_email"] = json!("test@windmill.dev");
     let mut named_other = new_flow("f/prodfolder/jobs/flow_named_other");
@@ -549,8 +548,8 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
         identity("f/prodfolder/jobs/flow_named_self")
             .await?
             .as_deref(),
-        Some("g/wm_deployers"),
-        "a flow naming only its creator takes the folder default"
+        Some("u/test-user"),
+        "a flow naming its creator keeps them"
     );
     assert_eq!(
         identity("f/prodfolder/jobs/flow_named_other")

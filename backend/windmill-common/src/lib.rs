@@ -306,11 +306,16 @@ pub fn check_on_behalf_of_preservation(
         .map(str::to_string)
 }
 
-/// Whether a requested identity names nobody but the caller: every half given (an address, a
-/// principal) is theirs. A write requesting only the caller has chosen nobody, so on create a
-/// folder's `default_permissioned_as` still applies to it — the run-as pickers start on "me",
-/// and a rule made to give a folder's runnables a service identity must not lose to that.
-/// An empty half names nobody: clients and exports send `""` for "no identity chosen".
+/// Whether a requested identity names nobody: no half (an address, a principal) is given. Only
+/// such a write takes a folder's `default_permissioned_as` on create; naming anyone, the caller
+/// included, is a choice the rule must not override. An empty half names nobody: clients and
+/// exports send `""` for "no identity chosen".
+pub fn names_nobody(on_behalf_of_email: Option<&str>, on_behalf_of: Option<&str>) -> bool {
+    on_behalf_of.map_or(true, str::is_empty) && on_behalf_of_email.map_or(true, str::is_empty)
+}
+
+/// Whether a requested identity names nobody but the caller: every half given is theirs (see
+/// `names_nobody` for the empty half).
 pub fn names_only_caller(
     on_behalf_of_email: Option<&str>,
     on_behalf_of: Option<&str>,

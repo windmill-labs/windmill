@@ -32,7 +32,7 @@ import { applyExtraPermsDiff } from "../../core/extra_perms.ts";
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 import {
   buildPermissionedAsContext,
-  legacyPusherEmail,
+  deployerRunAs,
   warnRunAsNotCarried,
 } from "../../core/permissioned_as.ts";
 import {
@@ -280,7 +280,7 @@ export async function pushFlow(
       warnRunAsNotCarried("flow", remotePath);
     }
   } else if (!permissionedAsContext && localFlow.on_behalf_of_email) {
-    preserveFields.on_behalf_of_email = await legacyPusherEmail(workspace);
+    preserveFields.on_behalf_of_email = await deployerRunAs(workspace, remotePath, !flow);
   }
 
   // extra_perms is synced independently via /acls/* (see applyExtraPermsDiff)

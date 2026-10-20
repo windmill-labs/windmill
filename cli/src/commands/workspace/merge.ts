@@ -17,6 +17,7 @@ import {
   type TriggerDeployKind,
 } from "../../../windmill-utils-internal/src/deploy.ts";
 import { offerToRunNewMigrations } from "../datatable_migrations.ts";
+import { deployerRunAs } from "../../core/permissioned_as.ts";
 
 // ---------------------------------------------------------------------------
 // Provider adapter — wraps CLI's standalone API functions
@@ -542,7 +543,6 @@ async function mergeWorkspaces(
   }
   let successCount = 0;
   let failCount = 0;
-  let mergerEmail: string | undefined;
   // Datatable migrations deployed (not deleted) into the target. Deploying a
   // migration only upserts its definition — the target schema is unchanged until
   // the migration is run — so offer to run them afterwards (like the push path).
@@ -590,8 +590,9 @@ async function mergeWorkspaces(
       ) {
         // Without the flag every item is deployed as the merger, and a script or flow has to
         // be told so: one deployed naming no identity runs without one.
-        mergerEmail ??= (await wmill.whoami({ workspace: workspaceTo })).email;
-        onBehalfOf = mergerEmail;
+        const existsInTarget =
+          direction === "to-parent" ? diff.exists_in_source : diff.exists_in_fork;
+        onBehalfOf = await deployerRunAs(workspaceTo, diff.path, !existsInTarget);
       }
 
       result = await deployItem(
