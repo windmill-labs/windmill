@@ -416,7 +416,11 @@ pub(super) async fn list_drafts(ctx: &Ctx<'_>) -> Result<Vec<Value>, String> {
         drafts.insert(item_key(item_type, path, trigger_kind), Value::Object(item));
     }
     // The browser's cells carry edits the rows may not have yet, and win.
-    for cell in ctx.chat.map(|chat| chat.cells.as_slice()).unwrap_or_default() {
+    for cell in ctx
+        .chat
+        .map(|chat| chat.cells.as_slice())
+        .unwrap_or_default()
+    {
         let Some(Value::Object(mut item)) =
             shown_draft_item(ctx, &cell.kind, &cell.storage_path, &cell.value)
         else {
@@ -1290,7 +1294,13 @@ pub(super) fn unified_patch(
 fn deployed_item(item_type: &str, trigger_kind: Option<&str>, row: &Value) -> Value {
     let mut item = Map::new();
     item.insert("type".into(), json!(item_type));
-    put(&mut item, "triggerKind", trigger_kind.map(Value::from));
+    put(
+        &mut item,
+        "triggerKind",
+        trigger_kind
+            .filter(|_| item_type == "trigger")
+            .map(Value::from),
+    );
     put(&mut item, "path", row.get("path").cloned());
     let mut is_draft = false;
     match item_type {
@@ -1644,8 +1654,7 @@ async fn write_script_draft(
 ) -> ToolResult {
     // A session builds pipeline nodes into the folder's pipeline draft; a script draft
     // written here never reaches the pipeline graph, and saving the pipeline drops it.
-    if ctx.in_session()
-        && windmill_common::assets::parse_pipeline_annotations(content).in_pipeline
+    if ctx.in_session() && windmill_common::assets::parse_pipeline_annotations(content).in_pipeline
     {
         let folder = path
             .strip_prefix("f/")
@@ -1707,8 +1716,7 @@ async fn write_script_draft(
         let code = if content.is_empty() { " " } else { content };
         // A language this build cannot parse, or code that does not parse yet, keeps
         // the schema the draft had.
-        let schema =
-            infer_script_schema(language, code, Some(&previous), None).unwrap_or(previous);
+        let schema = infer_script_schema(language, code, Some(&previous), None).unwrap_or(previous);
         draft.insert("schema".into(), schema);
     }
     ctx.code_diff(&before, content, Some(language));
@@ -1834,8 +1842,9 @@ async fn rebase_draft(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         .as_ref()
         .map_or_else(|| "undefined".to_string(), js_str);
     if base.is_some() && base == head {
-        let message =
-            format!("Draft \"{path}\" is already based on the latest deployed version ({head_text}).");
+        let message = format!(
+            "Draft \"{path}\" is already based on the latest deployed version ({head_text})."
+        );
         ctx.status(message.clone());
         let mut out = Map::new();
         out.insert("success".into(), json!(true));

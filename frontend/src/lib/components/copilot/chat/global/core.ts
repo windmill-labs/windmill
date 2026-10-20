@@ -38,10 +38,7 @@ import { enabledToolNames, type AgentTool } from '$lib/components/flows/agentToo
 import { evalValue } from '$lib/components/flows/utils.svelte'
 import { quickjsReady } from '$lib/utils/quickjsEval.svelte'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
-import {
-	STARTER_RUNNABLES,
-	type FrameworkKey
-} from '$lib/components/raw_apps/templates'
+import { STARTER_RUNNABLES, type FrameworkKey } from '$lib/components/raw_apps/templates'
 import {
 	coerceArgsToSchema,
 	dropUndeclaredArgs,
@@ -52,9 +49,7 @@ import {
 } from '$lib/components/job_args'
 import { processSecretArgs } from '$lib/components/secretArgUtils'
 import { PLAN_MODE_MESSAGES } from '../planModeMessages'
-import {
-	DEFAULT_DATA as DEFAULT_RAW_APP_DATA,
-} from '$lib/components/raw_apps/dataTableRefUtils'
+import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
 import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
 import { sanitizeAttachmentName, textLineCount, type AttachedTextFile } from '../textFileUtils'
@@ -65,28 +60,20 @@ import { isCloudHosted } from '$lib/cloud'
 import { BROWSER } from 'esm-env'
 import {
 	FLOW_VALUE_SETTINGS_KEYS,
+	validateFlowModules,
+	validateOptionalFlowModule
 } from '../flow/editableFlowJson'
 import {
 	getAiAgentProviderCatalog,
 	getAiAgentProviderCatalogForRefs
 } from '../flow/aiAgentProviderCatalog'
-import {
-	formatAiAgentProvidersPrompt
-} from '../flow/aiAgentProviders'
-import {
-} from '../flow/inlineScriptsUtils'
-import {
-	resourceTypeSyncBlock,
-	type ResourceTypeSync
-} from '../script/core'
+import { formatAiAgentProvidersPrompt } from '../flow/aiAgentProviders'
+import {} from '../flow/inlineScriptsUtils'
+import { resourceTypeSyncBlock, type ResourceTypeSync } from '../script/core'
 import type { McpServer } from './mcpTools'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { isSkillEnabled } from '../skills/enabledSkills'
-import {
-	listSkillResources,
-	skillNameFromPath,
-	truncateChars,
-} from '../skills/skillResources'
+import { listSkillResources, skillNameFromPath, truncateChars } from '../skills/skillResources'
 import { MAX_SKILL_DESCRIPTION_LENGTH } from '../skills/skillMd'
 import {
 	getDatatablePrompt,
@@ -4762,6 +4749,17 @@ async function runDraftWrite(
 		ctx
 	)
 	if (response.is_error) throw new Error(response.text)
+	// The server only checks that a flow's steps deserialize, which fills in what the openflow
+	// schema requires (an input's `expr`, a step's `id`); a step missing one would save and fail
+	// at run time.
+	for (const effect of response.effects) {
+		if (effect.type === 'draft_write' && effect.kind === 'flow') {
+			const flow = (effect.value as { value?: Record<string, unknown> }).value ?? {}
+			validateFlowModules(flow.modules)
+			validateOptionalFlowModule(flow.preprocessor_module, 'preprocessor_module')
+			validateOptionalFlowModule(flow.failure_module, 'failure_module')
+		}
+	}
 	opts.afterServer?.()
 	for (const effect of response.effects) {
 		if (effect.type === 'draft_write' && effect.kind === 'script') {

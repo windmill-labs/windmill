@@ -24,6 +24,7 @@ import {
 	FRAMEWORK_TEMPLATES,
 	STARTER_RUNNABLES
 } from '$lib/components/raw_apps/templates'
+import { RESOURCE_TYPE_WORDS } from '$lib/components/resourceTypeDisplay'
 
 const OUT_DIR = fileURLToPath(
 	new URL('../../../../../../../backend/windmill-api/src/ai_session_tools/gen/', import.meta.url)
@@ -196,7 +197,10 @@ async function generate(): Promise<Record<string, string>> {
 	const tools = toolDefs()
 	const files: Record<string, string> = {
 		'tools.json': JSON.stringify(tools, null, '\t') + '\n',
-		'prompt.json': JSON.stringify(promptParts(), null, '\t') + '\n'
+		'prompt.json': JSON.stringify(promptParts(), null, '\t') + '\n',
+		// How a slug's words read, for matching a query against a hub integration the hub
+		// gives no display name.
+		'display_words.json': JSON.stringify(RESOURCE_TYPE_WORDS, null, '\t') + '\n'
 	}
 	const languages: (ScriptLang | undefined)[] = [
 		undefined,

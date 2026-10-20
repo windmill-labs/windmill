@@ -115,6 +115,8 @@ jobs:
         run: |
           mkdir -p ../ai_evals/logs
           ./target/debug/windmill > ../ai_evals/logs/windmill.log 2>&1 &
+          # The global suite's datatable cases run SQL on the `postgresql` tag, a native worker's.
+          MODE=worker WORKER_GROUP=native PORT=8001 ./target/debug/windmill > ../ai_evals/logs/windmill-native.log 2>&1 &
           for i in $(seq 1 60); do
             curl -sf http://localhost:8000/api/version > /dev/null 2>&1 && break
             sleep 2

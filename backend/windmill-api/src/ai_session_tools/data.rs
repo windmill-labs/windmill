@@ -131,6 +131,9 @@ async fn list_datatables(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             if truthy(d.get("error")) {
                 out.insert("error".into(), d["error"].clone());
             }
+            if truthy(d.get("migrations_enabled")) {
+                out.insert("migrations_enabled".into(), Value::Bool(true));
+            }
             if truthy(d.get("permissioned")) {
                 for key in ["usable_roles", "default_role"] {
                     if let Some(v) = d.get(key) {
@@ -455,12 +458,12 @@ async fn list_datatable_migrations(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let version = version_arg(args)?;
     let status = match migrations_status(ctx, datatable_name).await {
         Ok(status) => status,
-        Err(e) => {
-            return Ok(ctx.failed(format!("Error listing migrations: {}", api_message(&e))))
-        }
+        Err(e) => return Ok(ctx.failed(format!("Error listing migrations: {}", api_message(&e)))),
     };
     if !truthy(status.get("enabled")) {
-        ctx.status(format!("Migrations are not enabled on \"{datatable_name}\""));
+        ctx.status(format!(
+            "Migrations are not enabled on \"{datatable_name}\""
+        ));
         return Ok(format!("Migrations are not enabled on datatable \"{datatable_name}\": its schema is changed with plain SQL and there is no history to list. Enabling them is a workspace admin's decision, made in Workspace settings → Data Tables."));
     }
     let migrations = array(status.get("migrations"));
@@ -623,9 +626,7 @@ async fn create_datatable_migration(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let version = match save_migration(ctx, datatable_name, version, definition).await {
         Ok(Ok(version)) => version,
         Ok(Err(message)) => return Ok(ctx.failed(message)),
-        Err(e) => {
-            return Ok(ctx.failed(format!("Error saving migration: {}", api_message(&e))))
-        }
+        Err(e) => return Ok(ctx.failed(format!("Error saving migration: {}", api_message(&e)))),
     };
     let label = format!("{version} ({name})");
     if args.get("apply") == Some(&Value::Bool(false)) {

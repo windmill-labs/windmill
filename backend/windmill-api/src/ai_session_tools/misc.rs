@@ -1,6 +1,7 @@
 //! Lookups that touch no draft: hub, docs, npm, resource types, workers, folders.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
 
 use futures::future::join_all;
 use serde_json::{json, Map, Value};
@@ -93,12 +94,37 @@ async fn hub_integrations(ctx: &Ctx<'_>) -> Vec<Value> {
     }
 }
 
+/// The frontend's `RESOURCE_TYPE_WORDS`: how a slug word reads where capitalizing gets it
+/// wrong, some into several words (`gcloud` -> `Google Cloud`).
+static DISPLAY_WORDS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("gen/display_words.json"))
+        .expect("gen/display_words.json is valid")
+});
+
+/// What the frontend's `integrationDisplayName` calls a slug the hub names nothing.
+fn slug_display_name(slug: &str) -> String {
+    slug.split(['_', '-'])
+        .filter(|w| !w.is_empty())
+        .map(|w| {
+            DISPLAY_WORDS
+                .get(&w.to_ascii_lowercase())
+                .cloned()
+                .unwrap_or_else(|| w.to_string())
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// A token matches a whole word of the slug or display name, or extends one from four
 /// characters on: a bare substring test makes `for` hit sales*for*ce.
 fn token_matches_integration(token: &str, integration: &Value) -> bool {
     let name = integration.get("name").and_then(Value::as_str);
-    let display_name = integration.get("display_name").and_then(Value::as_str);
-    let words: Vec<String> = [name, display_name]
+    let display_name = integration
+        .get("display_name")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| name.map(slug_display_name));
+    let words: Vec<String> = [name, display_name.as_deref()]
         .into_iter()
         .flatten()
         .flat_map(words)
@@ -257,8 +283,9 @@ async fn get_hub_integration(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         Ok(doc) => doc,
         Err(e) => {
             // Only a 404 means the integration is absent. Reporting a timeout the same
-            // way would teach the model that a real integration does not exist.
-            let error = if is_not_found(&e) {
+            // way would teach the model that a real integration does not exist. No slug holds
+            // a `/`, and the route refuses one as malformed rather than absent.
+            let error = if is_not_found(&e) || integration.contains('/') {
                 format!("No hub metadata for \"{integration}\".")
             } else {
                 format!("Could not reach the hub for \"{integration}\"; it may still exist. Read its scripts instead, or try again.")
@@ -583,7 +610,10 @@ async fn search_docs(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let result = ctx.get(&format!("/docs/search?query={}", enc(query))).await;
     if let Ok(response) = &result {
         let mut facts = Map::new();
-        facts.insert("result_count".into(), array(response.get("results")).len().into());
+        facts.insert(
+            "result_count".into(),
+            array(response.get("results")).len().into(),
+        );
         ctx.effect(Effect::Facts(facts));
     }
     Ok(docs_text(result, "search documentation"))
@@ -810,6 +840,12 @@ mod tests {
             ["salesforce"]
         );
         assert_eq!(suggest_hub_integrations(&integrations, "s3 bucket"), ["s3"]);
+        // With no display name from the hub, the slug reads as the frontend labels it.
+        let unnamed = vec![json!({ "name": "gcloud", "display_name": null })];
+        assert_eq!(
+            suggest_hub_integrations(&unnamed, "deploy to google cloud"),
+            ["gcloud"]
+        );
     }
 
     #[test]

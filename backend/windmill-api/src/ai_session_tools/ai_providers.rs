@@ -409,3 +409,37 @@ pub(super) fn format_warnings(warnings: &[String]) -> String {
     }
     format!("\n\nAI agent provider warnings:\n{}", warnings.join("\n"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn agent(model: &str) -> Value {
+        json!([{ "id": "a", "value": { "type": "aiagent", "input_transforms": { "provider": {
+            "type": "static",
+            "value": { "kind": "openai", "resource": "$res:u/x/oai", "model": model }
+        } } } }])
+    }
+
+    fn catalog(models_are_live: bool) -> Catalog {
+        serde_json::from_value(json!({
+            "resourcesAreComplete": true,
+            "options": [{
+                "kind": "openai", "resourceRef": "$res:u/x/oai", "modelsAreLive": models_are_live,
+                "customEndpoint": false, "models": { "ids": ["gpt-a"], "complete": true }
+            }]
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn only_a_live_complete_listing_rules_out_a_model() {
+        let mut warnings = vec![];
+        assert!(validate(&agent("gpt-z"), Some(&catalog(true)), &mut warnings).is_err());
+
+        assert!(validate(&agent("gpt-z"), Some(&catalog(false)), &mut warnings).is_ok());
+        assert!(validate(&agent("gpt-z"), None, &mut warnings).is_ok());
+        assert!(validate(&agent("gpt-a"), Some(&catalog(true)), &mut warnings).is_ok());
+        assert!(warnings.is_empty());
+    }
+}
