@@ -189,7 +189,8 @@ that backend needs:
   allows two workspaces besides `admins`, so attempts past that wait for a free slot;
 - an EE backend for fixtures whose `user` is not the admin: CE cannot create users, so there
   the backend runs the case as the admin, and only the prompt describes the fixture user;
-- network access to the hub, which the hub tools reach through the backend.
+- network access to the hub, which the hub tools reach through the backend, and the
+  `embedding` cargo feature, without which `search_hub_scripts` has no index to search.
 
 A fixture's `jobs` become completed preview runs with the given id, path, args, logs and
 outcome; `createdBy` is not reproduced. Its `resourceTypes` are created as workspace types,
