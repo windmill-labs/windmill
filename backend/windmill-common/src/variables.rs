@@ -37,9 +37,9 @@ pub fn arg_needs_interpolation(json: &str) -> bool {
 }
 
 /// Whether the worker would interpolate `arg`, which an untrusted user controls on a job that
-/// runs as someone else; `true` for an argument that cannot be read.
+/// runs as someone else; `true` for one that cannot be read and may hold a reference.
 pub fn untrusted_arg_interpolates(arg: &str) -> bool {
-    decoded(arg).map_or(true, |v| interpolates(&v))
+    may_reference(arg) && decoded(arg).map_or(true, |v| interpolates(&v))
 }
 
 /// `args`, which an untrusted user controls on a job that runs as someone else, with every one the
@@ -50,6 +50,9 @@ pub fn omit_untrusted_interpolation(
 ) -> HashMap<String, Box<RawValue>> {
     args.into_iter()
         .map(|(k, v)| {
+            if !may_reference(v.get()) {
+                return (k, v);
+            }
             let v = match decoded(v.get()) {
                 Some(d) if !interpolates(&d) => v,
                 Some(mut d) => {
@@ -63,6 +66,12 @@ pub fn omit_untrusted_interpolation(
             (k, v)
         })
         .collect()
+}
+
+/// Without a `$`, spelled out or escaped, an argument holds no reference however jsonb rewrites
+/// it, so it needs no decoding, even one serde_json cannot read.
+fn may_reference(arg: &str) -> bool {
+    arg.contains('$') || arg.contains("\\u")
 }
 
 /// `arg` as its jsonb column will hold it: the NUL stripped as `push` strips it, escapes decoded,
@@ -1111,6 +1120,7 @@ mod tests {
             assert!(out.contains("omitted for security reasons"), "{hit}: {out}");
         }
         assert!(omit(r#"{"n": 1e400, "r": "$var:x"}"#).contains("could not be checked"));
+        assert_eq!(omit(r#"{"n": 1e400}"#), r#"{"n": 1e400}"#);
     }
     use crate::error::Error;
     use crate::workspace_crypt::WorkspaceCrypt;
