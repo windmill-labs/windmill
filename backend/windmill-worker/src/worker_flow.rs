@@ -110,8 +110,8 @@ lazy_static::lazy_static! {
 
 /// Helper function to write itered data to separate table
 /// Returns None if data was written to separate table, Some(itered) if it should be stored in JSONB
-async fn write_itered_to_db(
-    db: &DB,
+async fn write_itered_to_db<'c>(
+    db: impl sqlx::PgExecutor<'c>,
     job_id: Uuid,
     itered: &Vec<Box<RawValue>>,
 ) -> error::Result<Option<Vec<Box<RawValue>>>> {
@@ -4784,7 +4784,8 @@ async fn push_next_flow_job(
         {
             // A step with its own on-behalf-of carries a cached dispatch address, up to one
             // notify poll stale; accepted, see `get_email_from_permissioned_as`.
-            let is_super_admin = windmill_common::auth::is_super_admin_email(db, email).await?;
+            let is_super_admin =
+                windmill_common::auth::is_super_admin_email(&mut *tx, email).await?;
             check_tag_written_as_available_for_push(
                 db,
                 &flow_job.workspace_id,
@@ -5050,7 +5051,7 @@ async fn push_next_flow_job(
 
             // Conditionally write itered to separate table if all workers support it
             // Returns None if written to table, Some(itered) if should be in JSONB
-            let itered_for_status = write_itered_to_db(db, flow_job.id, &itered).await?;
+            let itered_for_status = write_itered_to_db(&mut *tx, flow_job.id, &itered).await?;
 
             FlowStatusModule::InProgress {
                 job: uuid,

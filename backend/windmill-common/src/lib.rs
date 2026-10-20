@@ -2443,6 +2443,10 @@ pub fn get_latest_deployed_hash_for_path<'e>(
                             ScriptHash(hash),
                         );
                     } else {
+                        // Release the user-db connection first: holding it while taking a
+                        // second one from the same pool starves the pool under a burst of
+                        // requests for paths the caller cannot see.
+                        drop(conn);
                         let mut conn = db2.acquire().await?;
                         let exists = get_latest_script_hash(&mut *conn, script_path, w_id)
                             .await?
@@ -2847,6 +2851,7 @@ where
                             CachedFlowPath(path.to_string()),
                         );
                     } else {
+                        drop(conn);
                         let mut conn = db.acquire().await?;
                         let exists = get_latest_flow_version_for_path(&mut *conn, w_id, path)
                             .await?
