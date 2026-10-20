@@ -298,7 +298,8 @@
 	async function useInFlow() {
 		const state = draft?.state
 		const at = target
-		if (!draft || !state || !at) return
+		const workspace = ws
+		if (!draft || !state || !at || !workspace) return
 		openingFlow = true
 		try {
 			if (draft.noDeployed) {
@@ -306,6 +307,7 @@
 				// sync, so an autosave still pending cannot write it back.
 				const sync = draft.sync
 				await openAgentInFlow({
+					workspace,
 					path: state.path,
 					config: state.args,
 					inline: true,
@@ -325,7 +327,7 @@
 					handOff = undefined
 				}
 			}
-			await openAgentInFlow({ path, config, inline: false })
+			await openAgentInFlow({ workspace, path, config, inline: false })
 		} finally {
 			openingFlow = false
 		}

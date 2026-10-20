@@ -1,5 +1,6 @@
 import { Copy, Eye, FileUp, History, List, Shield, Trash } from 'lucide-svelte'
-import { ResourceService, type AiAgent, type OpenFlow } from '$lib/gen'
+import { DraftService, ResourceService, type AiAgent, type OpenFlow } from '$lib/gen'
+import { mintDraftPath } from '$lib/mintDraftPath'
 import { keepsManagedMemory } from './agentFormFields'
 import type { AIAgentConfig } from './agentResourceUtils'
 import { AGENT_CHAT_SCHEMA } from './conversations/agentEditorChat'
@@ -30,6 +31,7 @@ export async function deleteAgent(workspace: string, path: string): Promise<bool
  * `beforeOpen` runs once the flow is handed over, and a throw from it keeps the page where it is.
  */
 export async function openAgentInFlow(opts: {
+	workspace: string
 	path: string
 	config: AIAgentConfig
 	inline: boolean
@@ -47,25 +49,34 @@ export async function openAgentInFlow(opts: {
 	const value = opts.inline ? inlineAgentDraft(linked, opts.config) : linked
 	// An inlined agent brings its tools' ids, which the step's own must not repeat.
 	const id = nextId({}, { summary: '', value: { modules: [{ id: '', value }] } })
-	const flow: OpenFlow = {
+	const flow: OpenFlow & { path: string; description: string; extra_perms: {} } = {
+		path: opts.path,
 		summary: '',
+		description: '',
+		extra_perms: {},
 		value: {
 			...(keepsManagedMemory(opts.config.memory) ? { chat_input_enabled: true } : {}),
 			modules: [{ id, value }]
 		},
 		schema: AGENT_CHAT_SCHEMA
 	}
-	// The new flow editor's fork handoff, which seeds the flow and its path. A full load: on a
-	// client-side one the editor reads the current page's URL hash as the flow to seed instead.
+	// Saved as a draft before anything is let go, so the flow outlives a refresh of its editor: a
+	// new flow's editor writes nothing until its first edit. The editor opens it as it opens any
+	// draft-only flow, in the workspace named here rather than the one navigation last stored.
+	const draftPath = mintDraftPath()
 	try {
-		localStorage.setItem('fork_flow', JSON.stringify({ flow, path: opts.path }))
+		await DraftService.updateDraft({
+			workspace: opts.workspace,
+			kind: 'flow',
+			path: draftPath,
+			requestBody: { value: flow }
+		})
 		await opts.beforeOpen?.()
 	} catch (err) {
-		localStorage.removeItem('fork_flow')
 		sendUserToast(`Could not open the flow editor: ${err}`, true)
 		return
 	}
-	window.location.assign('/flows/add?fork=true')
+	await goto(`/flows/edit/${draftPath}?workspace=${encodeURIComponent(opts.workspace)}`)
 }
 
 /** An agent's menu, as its home row and its page both show it. */
