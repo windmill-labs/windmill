@@ -9,7 +9,6 @@ vi.mock('$lib/userScopedStorage', () => ({
 	scopedKey: (base: string) => (account.email ? `${base}::${account.email}` : undefined)
 }))
 vi.mock('$lib/onboardingProfile', () => ({ onboardingProfile: async () => undefined }))
-vi.mock('$lib/components/sidebar/FavoriteMenu.svelte', () => ({ favoriteManager: { current: [] } }))
 vi.mock('$lib/gen', () => ({
 	ScriptService: { listRunnables },
 	ResourceService: { listResource },

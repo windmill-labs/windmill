@@ -1,5 +1,5 @@
 import { onboardingProfile, type StarterPrompt } from '$lib/onboardingProfile'
-import { userStore, workspaceStore } from '$lib/stores'
+import { userStore } from '$lib/stores'
 import { canEditItem } from '$lib/editRights'
 import { scopedKey } from '$lib/userScopedStorage'
 import { fromStore, get } from 'svelte/store'
@@ -11,7 +11,6 @@ import {
 	type ListableResource,
 	type RunnableItem
 } from '$lib/gen'
-import { favoriteManager } from '$lib/components/sidebar/FavoriteMenu.svelte'
 import {
 	CHANNEL_TYPES,
 	composerSuggestions,
@@ -199,20 +198,12 @@ async function fetchSignals(workspace: string): Promise<ComposerSignals> {
 		app: pick(deployed.find((i) => i.type === 'app' && i.raw_app && editable(i))),
 		agent: pick(deployed.find((i) => i.type === 'agent')),
 		folderItem: pick(deployed.find((i) => i.path.startsWith('f/'))),
-		favorite: sidebarFavorite(workspace) ?? pick(starred),
+		favorite: pick(starred),
 		database:
 			resources && newest(resources.filter((r) => Object.hasOwn(DATABASE_TYPES, r.resource_type))),
 		channel: resources && (preferredChannel(resources) ?? (complete ? null : undefined)),
 		dataTables
 	}
-}
-
-/** The sidebar loads favorites for Home's workspace only, and may not have yet: they are read
- * once, when the lists answer, so a late load cannot reshuffle pills already shown. */
-function sidebarFavorite(workspace: string): ComposerItem | undefined {
-	if (get(workspaceStore) !== workspace) return undefined
-	const f = favoriteManager.current.find((f) => f.kind === 'script' || f.kind === 'flow')
-	return f && { kind: f.kind, path: f.path, name: f.label }
 }
 
 /** The workspace's databases and channels; unknown when the list fails, which fires none of

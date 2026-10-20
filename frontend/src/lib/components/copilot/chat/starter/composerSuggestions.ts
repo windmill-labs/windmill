@@ -59,7 +59,7 @@ export const CHANNEL_TYPES: Record<
 }
 
 /** What the workspace looks like now: read from the composer's item, resource and data table
- * lists, plus the reader's favorites. An absent field fires no rule. A `null` channel and an
+ * lists. An absent field fires no rule. A `null` channel and an
  * empty `dataTables` mean the list answered and holds none, which fires the pills that teach
  * the missing piece. */
 export type ComposerSignals = {
@@ -77,11 +77,14 @@ export type ComposerSignals = {
 	agent?: ComposerItem
 	/** Among the same items, the most recently updated one in a folder. */
 	folderItem?: ComposerItem
-	/** A script or flow the reader starred. */
+	/** Among the same items, a script or flow the reader starred. The sidebar's favorites are
+	 * not used: they name no workspace, so after a switch they can still be the last one's. */
 	favorite?: ComposerItem
-	/** The most recently edited database connection. */
+	/** Among the connections the resource list reads (one page, ordered by path), the most
+	 * recently edited database. */
 	database?: ComposerResource
-	/** The connection a job would send a message through, the most preferred type first. */
+	/** Among the same connections, the one a job would send a message through, the most
+	 * preferred type first. */
 	channel?: ComposerResource | null
 	/** The workspace's data tables, `main` first. */
 	dataTables?: string[]
