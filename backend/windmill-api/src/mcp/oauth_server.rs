@@ -234,7 +234,7 @@ fn supported_scopes() -> Vec<String> {
         "mcp:endpoints:*".to_string(),
         "mcp:read_only".to_string(),
         "mcp:read_run".to_string(),
-        "mcp:no_endpoints".to_string(),
+        "mcp:runnables_as_tools".to_string(),
     ]
 }
 

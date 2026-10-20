@@ -1,20 +1,19 @@
 <script lang="ts" module>
 	export type McpAccess = 'read' | 'read_run' | 'full' | 'selected'
 
-	/** Withholds the API endpoint tools the per-workspace URLs would otherwise add, so a
-	 *  token reaches no more there than its access level says. */
-	export const NO_ENDPOINTS = 'mcp:no_endpoints'
+	/** Marks a selection, so the per-workspace URLs add no API endpoint tools to it. */
+	export const RUNNABLES_AS_TOOLS = 'mcp:runnables_as_tools'
 
 	const ACCESS_SCOPES: Record<Exclude<McpAccess, 'selected'>, string[]> = {
-		read: ['mcp:all', 'mcp:read_only', NO_ENDPOINTS],
-		read_run: ['mcp:all', 'mcp:read_run', NO_ENDPOINTS],
+		read: ['mcp:all', 'mcp:read_only'],
+		read_run: ['mcp:all', 'mcp:read_run'],
 		full: ['mcp:all']
 	}
 
 	/** The access a token's MCP scopes give: `mcp:all` and how it is narrowed, or else a
 	 *  selection of scripts, flows and endpoints. */
 	export function mcpAccessOf(scopes: string[]): McpAccess {
-		scopes = scopes.filter((s) => s !== NO_ENDPOINTS)
+		scopes = scopes.filter((s) => s !== RUNNABLES_AS_TOOLS)
 		if (!scopes.includes('mcp:all')) return scopes.length > 0 ? 'selected' : 'full'
 		if (scopes.includes('mcp:read_only')) return 'read'
 		if (scopes.includes('mcp:read_run')) return 'read_run'
@@ -51,14 +50,17 @@
 	access = initialAccess
 	const initialSelection =
 		initialAccess === 'selected'
-			? initialScopes.filter((s) => s !== NO_ENDPOINTS).join(' ')
+			? initialScopes.filter((s) => s !== RUNNABLES_AS_TOOLS).join(' ')
 			: undefined
 	let selection = $state(initialSelection ?? 'mcp:favorites')
 
 	$effect(() => {
 		scopes =
 			access === 'selected' || access === undefined
-				? [...selection.split(' ').filter((s) => s.length > 0 && s !== NO_ENDPOINTS), NO_ENDPOINTS]
+				? [
+						...selection.split(' ').filter((s) => s.length > 0 && s !== RUNNABLES_AS_TOOLS),
+						RUNNABLES_AS_TOOLS
+					]
 				: ACCESS_SCOPES[access]
 	})
 

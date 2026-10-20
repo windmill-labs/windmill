@@ -1324,7 +1324,7 @@ mod tests {
     #[test]
     fn a_selection_without_endpoints_gets_none() {
         // The scope withholds them on every URL, as the server does on `/api/mcp`.
-        let selection = cfg(&["mcp:favorites", "mcp:endpoints:*", "mcp:no_endpoints"]);
+        let selection = cfg(&["mcp:favorites", "mcp:endpoints:*", "mcp:runnables_as_tools"]);
         assert!(!endpoint_tool_in_scope(&selection, &ep("listJobs", "GET")));
         assert!(
             authorize_endpoint_call(&selection, &ep("listJobs", "GET"), &mut json!({}), false)
