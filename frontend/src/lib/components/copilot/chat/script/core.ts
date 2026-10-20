@@ -32,8 +32,10 @@ import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/me
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getScriptPrompt, getWorkflowAsCodePrompt } from '$system_prompts'
 
-// Score threshold for npm packages search filtering
-const SCORE_THRESHOLD = 1000
+// The registry's best match is kept, and the runner-up only when it scores this share of it:
+// the scores have no fixed scale (a descriptive query's right answer can score a few hundred, a
+// package's own name thousands), so a match is judged against the best one.
+const NPM_RUNNER_UP_SHARE = 0.6
 // percentage of the context window for documentation of npm packages
 const DOCS_CONTEXT_PERCENTAGE = 1
 // percentage of the context window for types of npm packages
@@ -625,8 +627,9 @@ export async function searchExternalIntegrationResources(args: { query: string }
 			`https://registry.npmjs.org/-/v1/search?text=${encodeURIComponent(args.query)}&size=2`
 		)
 		const data = await result.json()
+		const best = Math.max(0, ...data.objects.map((r: PackageSearchQuery) => r.searchScore))
 		const filtered = data.objects.filter(
-			(r: PackageSearchQuery) => r.searchScore >= SCORE_THRESHOLD
+			(r: PackageSearchQuery) => r.searchScore >= best * NPM_RUNNER_UP_SHARE
 		)
 
 		const model = getCurrentModel()

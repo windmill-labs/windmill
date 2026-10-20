@@ -377,7 +377,10 @@ async fn get_hub_integration(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 // npm
 // ---------------------------------------------------------------------------
 
-const NPM_SCORE_THRESHOLD: f64 = 1000.0;
+/// The registry's best match is kept, and the runner-up only when it scores this share of it:
+/// the scores have no fixed scale (a descriptive query's right answer can score a few hundred,
+/// a package's own name thousands), so a match is judged against the best one.
+const NPM_RUNNER_UP_SHARE: f64 = 0.6;
 /// A package's readme and types are each capped at 1% of the model's context window. The
 /// chat sends its own model's cap; an MCP client's model is unknown, so this is 1% of the
 /// window assumed for an unknown model (128000).
@@ -542,6 +545,15 @@ async fn npm_package_types(
     parts.join("\n\n")
 }
 
+fn confident_npm_matches(objects: &[Value]) -> Vec<&Value> {
+    let score = |o: &Value| o.get("searchScore").and_then(Value::as_f64).unwrap_or(0.0);
+    let best = objects.iter().map(score).fold(0.0, f64::max);
+    objects
+        .iter()
+        .filter(|o| score(o) >= best * NPM_RUNNER_UP_SHARE)
+        .collect()
+}
+
 async fn npm_search(ctx: &Ctx<'_>, query: &str, limit: usize) -> Result<Vec<Value>, String> {
     let data: Value = fetch(&format!(
         "https://registry.npmjs.org/-/v1/search?text={}&size=2",
@@ -552,14 +564,12 @@ async fn npm_search(ctx: &Ctx<'_>, query: &str, limit: usize) -> Result<Vec<Valu
     .json()
     .await
     .map_err(|e| e.to_string())?;
-    let packages = data
+    let objects = data
         .get("objects")
         .and_then(Value::as_array)
-        .ok_or("no `objects` in the registry answer")?
-        .iter()
-        .filter(|o| {
-            o.get("searchScore").and_then(Value::as_f64).unwrap_or(0.0) >= NPM_SCORE_THRESHOLD
-        })
+        .ok_or("no `objects` in the registry answer")?;
+    let packages = confident_npm_matches(objects)
+        .into_iter()
         .filter_map(|o| {
             let package = o.get("package")?;
             Some((
@@ -837,6 +847,25 @@ async fn create_folder(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn npm_matches_are_judged_against_the_best_one() {
+        let names = |scores: &[f64]| {
+            let objects: Vec<Value> = scores
+                .iter()
+                .enumerate()
+                .map(|(i, s)| json!({ "searchScore": s, "package": { "name": i.to_string() } }))
+                .collect();
+            confident_npm_matches(&objects)
+                .iter()
+                .map(|o| o["package"]["name"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        };
+        // A descriptive query's right answer scores a few hundred; a weak runner-up is dropped.
+        assert_eq!(names(&[815.0, 454.0]), ["0"]);
+        assert_eq!(names(&[419.0, 384.0]), ["0", "1"]);
+        assert!(names(&[]).is_empty());
+    }
 
     #[test]
     fn suggestions_rank_by_matched_words() {
