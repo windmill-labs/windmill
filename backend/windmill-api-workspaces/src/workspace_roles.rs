@@ -91,6 +91,11 @@ pub(crate) async fn write_role_overrides(
 ) -> Result<()> {
     let instance = instance_roles(db).await?;
     roles::validate_overrides(&instance, &overrides)?;
+    roles::check_frozen_overrides(
+        &instance,
+        &roles::load_role_overrides(db, w_id).await?,
+        &overrides,
+    )?;
 
     let previous = roles::workspace_roles(db, w_id).await?;
     let removed: Vec<String> = previous

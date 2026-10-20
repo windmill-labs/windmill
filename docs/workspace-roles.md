@@ -3,9 +3,11 @@
 What a non-admin member may author, manage and see is its **role**. `developer` and `operator` are
 the default roles; a licensed EE instance defines its own list in the `workspace_roles` global
 setting (at least one role), and any workspace may override a role's capabilities in
-`workspace_settings.role_overrides`, or, when licensed, add roles of its own there. Without a valid
-license (`custom_roles_enabled`) the stored list and workspace-only roles are ignored rather than
-deleted, so a member holding one of those roles has no capabilities until the license verifies. Workspace admin is not a
+`workspace_settings.role_overrides`, or, when licensed, add roles of its own there. A lapsed
+license freezes them rather than dropping them (`custom_roles_enabled`): the stored list and the
+workspace-only roles keep applying, writes that change them are refused, and resetting the list to
+the defaults or removing a workspace-only role stays open. Falling back to the defaults instead
+would hand a restricted `developer` everything. Workspace admin is not a
 role: it is the `is_admin` flag on top of whichever role a member holds, and holds everything. The
 code is `windmill_common::roles`.
 

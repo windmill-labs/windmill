@@ -323,10 +323,16 @@ pub struct EffectiveRole {
     pub overridden: bool,
 }
 
-/// Whether an instance may define its roles and a workspace add roles of its own: an EE build
-/// whose license verified. Otherwise there are `developer` and `operator`, which a workspace may
-/// still override, and a member holding any other role has no capabilities until the license is
-/// valid again. The `cfg` is load-bearing: CE's `LICENSE_KEY_VALID` is always `true`.
+/// Whether stored instance roles and workspace-only roles apply: on any EE build. A CE build has
+/// `developer` and `operator`, which a workspace may still override.
+fn custom_roles_built() -> bool {
+    cfg!(feature = "enterprise")
+}
+
+/// Whether instance roles and workspace-only roles may be changed: an EE build whose license
+/// verified. A lapsed license freezes them instead of dropping them, since falling back to the
+/// defaults would hand a restricted `developer` everything. The `cfg` is load-bearing: CE's
+/// `LICENSE_KEY_VALID` is always `true`.
 pub fn custom_roles_enabled() -> bool {
     #[cfg(feature = "enterprise")]
     {
@@ -419,7 +425,7 @@ pub fn effective_roles(
             overridden: ovr.is_some(),
         });
     }
-    if custom_roles_enabled() {
+    if custom_roles_built() {
         let mut extra: Vec<_> = overrides
             .iter()
             .filter(|(n, _)| !instance.iter().any(|d| &d.name == *n))
@@ -444,14 +450,34 @@ pub fn effective_roles(
 pub fn validate_overrides(instance: &[RoleDefinition], overrides: &RoleOverrides) -> Result<()> {
     for name in overrides.keys() {
         validate_role_name(name)?;
-        if !custom_roles_enabled() && !instance.iter().any(|d| &d.name == name) {
+        if !custom_roles_built() && !instance.iter().any(|d| &d.name == name) {
             return Err(Error::BadRequest(format!(
-                "role `{name}` is not defined: adding workspace roles requires a valid Windmill Enterprise Edition license"
+                "role `{name}` is not defined: adding workspace roles requires Windmill Enterprise Edition"
             )));
         }
     }
     for r in effective_roles(instance, overrides)? {
         r.capabilities.validate(&r.name)?;
+    }
+    Ok(())
+}
+
+/// Refuses, while [`custom_roles_enabled`] is false, a `role_overrides` write that adds, edits or
+/// relabels a workspace-only role. Removing one, and overriding instance roles, stay allowed.
+pub fn check_frozen_overrides(
+    instance: &[RoleDefinition],
+    previous: &RoleOverrides,
+    next: &RoleOverrides,
+) -> Result<()> {
+    if custom_roles_enabled() {
+        return Ok(());
+    }
+    for (name, o) in next {
+        if !instance.iter().any(|d| &d.name == name) && previous.get(name) != Some(o) {
+            return Err(Error::BadRequest(format!(
+                "changing workspace role `{name}` requires a valid Windmill Enterprise Edition license"
+            )));
+        }
     }
     Ok(())
 }
@@ -516,7 +542,7 @@ async fn instance_roles_on(conn: &mut sqlx::PgConnection) -> Result<Arc<Vec<Role
     if let Some(roles) = cached_instance_roles() {
         return Ok(roles);
     }
-    let roles = if custom_roles_enabled() {
+    let roles = if custom_roles_built() {
         let stored = sqlx::query_scalar!(
             "SELECT value FROM global_settings WHERE name = $1",
             WORKSPACE_ROLES_SETTING
@@ -775,16 +801,18 @@ pub async fn validate_instance_roles_write(
     db: &DB,
     value: Option<&serde_json::Value>,
 ) -> Result<()> {
-    if !custom_roles_enabled() {
-        return Err(Error::BadRequest(
-            "workspace roles require a valid Windmill Enterprise Edition license".to_string(),
-        ));
-    }
     let current = instance_roles(db).await?;
     let next = match value {
         None | Some(serde_json::Value::Null) => default_instance_roles(),
         Some(v) => parse_instance_roles(v)?,
     };
+    // Resetting stays open so a downgraded instance can always drop the setting.
+    if !custom_roles_enabled() && *current != next && next != default_instance_roles() {
+        return Err(Error::BadRequest(
+            "changing workspace roles requires a valid Windmill Enterprise Edition license"
+                .to_string(),
+        ));
+    }
     for removed in current
         .iter()
         .filter(|r| !next.iter().any(|n| n.name == r.name))
