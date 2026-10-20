@@ -85,29 +85,35 @@ vi.mock('@codingame/monaco-vscode-languages-service-override', () => ({
 
 vi.mock('$lib/components/vscode', () => ({}))
 
-// list_workers reads the superadmin/devops stores to tell "no worker connected" from "workers
-// hidden from you". The harness never logs the frontend in, so a case declares the role with
-// `instanceAdmin`; the stores go back to unknown when that case ends, so the role cannot leak
-// into a later case that reads them.
-vi.mock('$lib/refreshUser', async () => {
-	const actual = await vi.importActual<any>('$lib/refreshUser')
-	const { superadmin, devopsRole } = await import('$lib/stores')
-	const { benchmarkInstanceAdmin, onBenchmarkWorkspaceUnregistered } = await import('./mockBackend')
-	onBenchmarkWorkspaceUnregistered((runnables) => {
-		if (runnables?.instanceAdmin === undefined) return
-		superadmin.set(undefined)
-		devopsRole.set(undefined)
-	})
-	const refreshSuperadmin = Object.assign(
-		async (opts?: { force?: boolean }) => {
-			const admin = benchmarkInstanceAdmin()
-			if (admin === undefined) return actual.refreshSuperadmin(opts)
-			superadmin.set(admin ? 'admin@windmill.dev' : false)
-			devopsRole.set(admin ? 'admin@windmill.dev' : false)
-		},
-		{ cancel: () => {} }
+// get_db_schema reads a database's tables by running a query job; a benchmark database
+// answers with the tables its fixture seeds instead.
+vi.mock('$lib/components/apps/components/display/dbtable/metadata', async () => {
+	const actual = await vi.importActual<any>(
+		'$lib/components/apps/components/display/dbtable/metadata'
 	)
-	return { ...actual, refreshSuperadmin }
+	const { getBenchmarkDbSchemaSeed } = await import('./mockBackend')
+	const { stringifySchema } = await import('$lib/components/copilot/lib')
+	const { resourceTypeToLang } = await import(
+		'$lib/components/apps/components/display/dbtable/utils'
+	)
+	return {
+		...actual,
+		getDbSchemas: async (
+			resourceType: string,
+			resourcePath: string,
+			workspace: string | undefined,
+			...rest: unknown[]
+		) => {
+			const seed = workspace ? getBenchmarkDbSchemaSeed(workspace, resourcePath) : null
+			if (!seed) return actual.getDbSchemas(resourceType, resourcePath, workspace, ...rest)
+			const dbSchema = {
+				lang: resourceTypeToLang(seed.resourceType),
+				schema: seed.schema,
+				publicOnly: !!seed.schema.public
+			}
+			return { ...dbSchema, stringified: stringifySchema(dbSchema) }
+		}
+	}
 })
 
 vi.mock('$lib/gen', async () => {
@@ -119,8 +125,6 @@ vi.mock('$lib/gen', async () => {
 		listBenchmarkWorkers,
 		listBenchmarkSchedules,
 		getBenchmarkSchedule,
-		getBenchmarkWorkspaceSettingsDocument,
-		applyBenchmarkWorkspaceSettingsDocument,
 		getBenchmarkDatatableSchema,
 		getBenchmarkDatatableMigrationsStatus,
 		createBenchmarkDatatableMigration,
@@ -413,14 +417,6 @@ vi.mock('$lib/gen', async () => {
 					: actual.JobService.getFlowAllResults(data)
 		}),
 		WorkspaceService: wrapService(actual.WorkspaceService, {
-			getWorkspaceSettingsDocument: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace)
-					? getBenchmarkWorkspaceSettingsDocument(data.workspace)
-					: actual.WorkspaceService.getWorkspaceSettingsDocument(data),
-			applyWorkspaceSettingsDocument: async (data: any) =>
-				hasBenchmarkWorkspace(data.workspace)
-					? applyBenchmarkWorkspaceSettingsDocument(data)
-					: actual.WorkspaceService.applyWorkspaceSettingsDocument(data),
 			getCopilotInfo: async (data: { workspace: string }) =>
 				hasBenchmarkWorkspace(data.workspace)
 					? (getBenchmarkAiConfig(data.workspace) ?? {})

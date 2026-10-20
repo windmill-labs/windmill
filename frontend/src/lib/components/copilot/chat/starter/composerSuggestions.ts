@@ -10,8 +10,33 @@ export type ComposerRole = { operator: boolean; workspaceAdmin: boolean; instanc
 
 export type ComposerItem = { kind: string; path: string; name: string }
 
-/** What the workspace and the instance look like now. A field is absent when its request
- * failed or the role may not send it, and an absent field fires no rule. */
+/** A connection the workspace holds; `type` is its resource type. */
+export type ComposerResource = { type: string; path: string; name: string }
+
+/** Below this many items the workspace is new enough that building leads. */
+export const FEW_ITEMS = 10
+
+/** The databases whose tables the chat can read (`get_db_schema`), by resource type. */
+export const DATABASE_TYPES: Record<string, string> = {
+	postgresql: 'Postgres',
+	mysql: 'MySQL',
+	ms_sql_server: 'SQL Server',
+	snowflake: 'Snowflake',
+	bigquery: 'BigQuery'
+}
+
+/** Where a job can send a message, by resource type, most preferred first. */
+export const CHANNEL_TYPES: Record<string, { to: string; send: string }> = {
+	slack: { to: 'to Slack', send: 'post it to Slack' },
+	ms_teams_webhook: { to: 'to Teams', send: 'post it to Microsoft Teams' },
+	discord_webhook: { to: 'to Discord', send: 'post it to Discord' },
+	telegram: { to: 'to Telegram', send: 'send it on Telegram' },
+	gmail: { to: 'by email', send: 'email it' },
+	smtp: { to: 'by email', send: 'email it' }
+}
+
+/** What the workspace looks like now: read from the composer's item and resource lists, plus
+ * the reader's favorites. An absent field fires no rule. */
 export type ComposerSignals = {
 	/** Capped at the page the list call reads. */
 	itemCount?: number
@@ -19,40 +44,46 @@ export type ComposerSignals = {
 	myDraft?: ComposerItem
 	/** Among the same items, the most recently updated one whose last deploy failed. */
 	failedDeploy?: ComposerItem
-	/** Runs that failed in the last 24 hours. */
-	failedRuns?: number
-	queue?: { waiting: number; suspended: number }
-	hasErrorHandler?: boolean
-	/** Workers that pinged in the last 5 minutes. */
-	liveWorkers?: number
+	/** Among the same items, the most recently updated flow outside the reader's user folder. */
+	sharedFlow?: ComposerItem
+	/** A script or flow the reader starred. */
+	favorite?: ComposerItem
+	/** The most recently edited database connection. */
+	database?: ComposerResource
+	/** The connection a job would send a message through, the most preferred type first. */
+	channel?: ComposerResource
 }
 
+/** Each example shows a different piece of Windmill: a schedule, an approval step, a webhook. */
 const BUILD_EXAMPLES: ComposerSuggestion[] = [
 	{
 		mode: 'build',
-		label: 'Sync Salesforce',
-		prompt: 'Sync new Salesforce leads into a postgres table every hour'
-	},
-	{
-		mode: 'build',
-		label: 'Weekly Slack report',
-		prompt: 'Generate a weekly sales report from postgres and post it to Slack every Monday'
-	},
-	{
-		mode: 'build',
-		label: 'Ban Discord users',
+		label: 'Daily metrics to Slack',
 		prompt:
-			'Build a workflow that triggers on a Discord message, checks for offensive language using an LLM, and possibly block them'
+			"Every weekday at 9am, query postgres for yesterday's signups and revenue and post a summary to the #metrics Slack channel"
+	},
+	{
+		mode: 'build',
+		label: 'Approve refunds in Slack',
+		prompt:
+			'Build a flow that asks for approval in Slack before issuing a refund in Stripe, and only refunds if someone approves'
+	},
+	{
+		mode: 'build',
+		label: 'Triage tickets to Slack',
+		prompt:
+			'When a support ticket arrives by webhook, classify its urgency with an LLM and post the urgent ones to the #support Slack channel'
 	}
 ]
 
 const MAX_SUGGESTIONS = 4
-/** From this many jobs waiting, the queue reads as backed up. */
-const BACKED_UP = 10
 const MAX_NAME = 32
 
-/** Up to four suggestions, most pressing first: an empty workspace's build examples, then
- * incidents, the reader's own unfinished work, admin setup, and fillers for the role. */
+/** Up to four suggestions, most pressing first: the reader's own unfinished work, then pills
+ * naming what the workspace holds, the build examples while it is empty, and checks for the
+ * role. A prompt names the exact item or connection path: the chat cannot list resources by
+ * type, so "our database" would leave it guessing. The checks claim nothing about the
+ * workspace, so they read the same whether or not anything is wrong. */
 export function composerSuggestions(
 	signals: ComposerSignals,
 	role: ComposerRole
@@ -61,30 +92,12 @@ export function composerSuggestions(
 	const use = (label: string, prompt: string) => out.push({ mode: 'use', label, prompt })
 	const build = (label: string, prompt: string) => out.push({ mode: 'build', label, prompt })
 	const empty = signals.itemCount === 0
+	const few = signals.itemCount !== undefined && signals.itemCount < FEW_ITEMS
+	const { database, channel } = signals
+	// Operators can neither build nor read a database's tables.
+	const builder = !role.operator
 
-	if (empty && !role.operator) out.push(...BUILD_EXAMPLES)
-
-	if (role.instanceAdmin && signals.liveWorkers === 0)
-		use(
-			"No worker has pinged in 5 minutes. What's wrong?",
-			'No worker has pinged in the last 5 minutes, so no job can run. Find out what is wrong with the workers and how to bring them back.'
-		)
-	const failed = signals.failedRuns ?? 0
-	if (failed > 0)
-		use(
-			failed === 1 ? 'Why did a run fail today?' : `Why did ${failed} runs fail today?`,
-			'Which runs failed in this workspace in the last 24 hours, and why?'
-		)
-	const queue = signals.queue
-	if (queue && (queue.waiting >= BACKED_UP || queue.suspended > 0)) {
-		const waiting = queue.waiting + queue.suspended
-		use(
-			waiting === 1 ? 'Why is a job waiting?' : `Why are ${waiting} jobs waiting?`,
-			`${waiting === 1 ? 'A job is' : `${waiting} jobs are`} waiting in this workspace's queue, ${queue.suspended} of them suspended. Why, and what would unblock them?`
-		)
-	}
-
-	if (!role.operator) {
+	if (builder) {
 		const draft = signals.myDraft
 		if (draft)
 			build(
@@ -99,28 +112,78 @@ export function composerSuggestions(
 			)
 	}
 
-	// A workspace with nothing in it has nothing to report on or guard yet.
+	const summary = few && builder && database && channel ? { database, channel } : undefined
+	const dailySummary = () => {
+		if (!summary) return
+		const db = summary.database
+		const send = CHANNEL_TYPES[summary.channel.type]
+		build(
+			`Daily ${shortName(db.name)} summary ${send.to}`,
+			`Every weekday at 9am, summarize yesterday's activity in the ${DATABASE_TYPES[db.type]} database ${db.path} and ${send.send} with the resource ${summary.channel.path}`
+		)
+	}
+	const explore = () => {
+		if (!builder || !database) return
+		use(
+			`What's in ${shortName(database.name)}?`,
+			`Look at the tables in the ${DATABASE_TYPES[database.type]} database ${database.path} and tell me what data it holds.`
+		)
+	}
+	const walkThrough = () => {
+		const flow = signals.sharedFlow
+		if (!flow) return
+		use(
+			`Walk me through ${shortName(flow.name)}`,
+			`Walk me through what the flow ${flow.path} does, step by step.`
+		)
+	}
+	const run = () => {
+		const favorite = signals.favorite
+		if (!favorite) return
+		use(`Run ${shortName(favorite.name)}`, `Run the ${favorite.kind} ${favorite.path} for me.`)
+	}
+
+	// Building leads while the workspace is new; once it holds work, what is there leads. An
+	// operator mostly runs what others built.
+	if (few) {
+		dailySummary()
+		explore()
+	}
+	if (role.operator) {
+		run()
+		walkThrough()
+	} else {
+		walkThrough()
+		run()
+	}
+	if (!few) explore()
+
+	if (empty && builder) {
+		const [dailyMetrics, ...others] = BUILD_EXAMPLES
+		out.push(...(summary ? others : [dailyMetrics, ...others]))
+	}
+
+	// A workspace with nothing in it has nothing to check yet. Keep these to what the chat's
+	// tools can answer: its run listing has no date filter and stops at 100 runs, so a prompt
+	// naming a period ("today", "this week") gets a guess.
 	if (!empty) {
-		if (role.workspaceAdmin && signals.hasErrorHandler === false)
-			build(
-				'Set up an error handler for this workspace',
-				'This workspace has no error handler. Help me set one up so that failed runs notify us.'
-			)
 		if (role.instanceAdmin)
 			use(
-				'Are the workers keeping up with the queue?',
-				'Are the workers keeping up with the queue? Compare how long jobs wait before they start with how busy each worker group is.'
+				'Check worker health',
+				'Are the workers healthy and keeping up with the queue? Compare how long jobs wait before they start with how busy each worker group is.'
 			)
-		// Only questions the chat's tools can answer: it reads no critical alerts, and its run
-		// listing has no date filter and stops at 100 runs, so "this week" totals are guesses.
 		if (role.workspaceAdmin)
 			use(
-				'Which schedules keep failing?',
-				'Which schedules in this workspace keep failing, and why?'
+				'Check the schedules',
+				'Do any schedules in this workspace keep failing? If so, which ones and why?'
 			)
 		use(
-			'How healthy were the last runs?',
-			'Look at the last runs in this workspace: how many succeeded, which failed, and is anything getting slower?'
+			'Check recent runs',
+			'Look at the recent runs in this workspace: did any fail, and why? Is anything getting slower?'
+		)
+		use(
+			'Check the run queue',
+			"Is anything stuck in this workspace's queue? Which jobs are waiting or suspended, and why?"
 		)
 	}
 

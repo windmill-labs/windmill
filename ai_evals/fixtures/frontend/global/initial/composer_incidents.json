@@ -1,6 +1,5 @@
 {
   "workspace": {
-    "instanceAdmin": true,
     "scripts": [
       {
         "path": "f/billing/charge_cards",

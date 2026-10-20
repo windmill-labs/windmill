@@ -3288,68 +3288,11 @@
 # The prompts the pills under Home's composer put in the box
 # (frontend/src/lib/components/copilot/chat/starter/composerSuggestions.ts), word for word.
 # A pill is only worth offering if the session chat can act on its prompt, so each one is
-# pinned here against a workspace in the state that makes the pill appear.
+# pinned here against a workspace where the prompt has something to find.
 
-- id: global-composer-no-worker
+- id: global-composer-run-queue
   prompt: |-
-    No worker has pinged in the last 5 minutes, so no job can run. Find out what is wrong with the workers and how to bring them back.
-  initial: ai_evals/fixtures/frontend/global/initial/composer_no_workers.json
-  runtime:
-    maxTurns: 8
-    sessionChat: true
-  validate:
-    draftCountExactly: 0
-  toolExpect:
-    requiredToolsUsed:
-      - list_workers
-    forbiddenToolsUsed:
-      - deploy_workspace_item
-      - delete_workspace_item
-  assistantExpect:
-    requiredMentionsAnyOf:
-      - - no worker
-        - no workers
-        - zero workers
-        - 0 workers
-        - not a single worker
-    # The hedge list_workers gives a caller who may not see workers; an instance admin
-    # must get the plain answer instead.
-    forbiddenMentions:
-      - visibility may be restricted
-      - may be hidden from you
-  skipJudge: true
-  judgeChecklist:
-    - confirms from list_workers that no worker is connected rather than assuming it
-    - explains that queued runs stay queued until a worker starts, and how to start or restart workers
-
-- id: global-composer-failed-runs
-  prompt: |-
-    Which runs failed in this workspace in the last 24 hours, and why?
-  initial: ai_evals/fixtures/frontend/global/initial/composer_incidents.json
-  runtime:
-    maxTurns: 8
-    sessionChat: true
-  validate:
-    draftCountExactly: 0
-  toolExpect:
-    requiredToolsUsed:
-      - list_runs
-    forbiddenToolsUsed:
-      - deploy_workspace_item
-      - delete_workspace_item
-  assistantExpect:
-    requiredMentionsAnyOf:
-      - - charge_cards
-      - - insufficient funds
-        - declined
-  skipJudge: true
-  judgeChecklist:
-    - names f/billing/charge_cards as the failing script, from the returned runs
-    - gives the cause from the logs (card declined, insufficient funds)
-
-- id: global-composer-jobs-waiting
-  prompt: |-
-    13 jobs are waiting in this workspace's queue, 1 of them suspended. Why, and what would unblock them?
+    Is anything stuck in this workspace's queue? Which jobs are waiting or suspended, and why?
   initial: ai_evals/fixtures/frontend/global/initial/composer_incidents.json
   runtime:
     maxTurns: 10
@@ -3399,33 +3342,9 @@
     - reads the failed dependency job's logs to find that pandsa cannot be resolved
     - corrects the misspelled pandsa import to pandas and leaves the rest of the script as it was
 
-- id: global-composer-error-handler
+- id: global-composer-worker-health
   prompt: |-
-    This workspace has no error handler. Help me set one up so that failed runs notify us.
-  initial: ai_evals/fixtures/frontend/global/initial/composer_no_error_handler.json
-  runtime:
-    maxTurns: 12
-    sessionChat: true
-    userAnswers:
-      - Use the existing f/ops/notify_on_failure script, it posts to our #ops Slack channel
-  validate:
-    draftCountExactly: 0
-  toolExpect:
-    requiredToolsUsed:
-      - set_workspace_settings
-    toolCallArgs:
-      - tool: set_workspace_settings
-        field: yaml
-        stringIncludesAnyOf:
-          - script/f/ops/notify_on_failure
-  skipJudge: true
-  judgeChecklist:
-    - sets the workspace error_handler to the existing script f/ops/notify_on_failure
-    - does not write a new notification script when one already exists
-
-- id: global-composer-workers-keeping-up
-  prompt: |-
-    Are the workers keeping up with the queue? Compare how long jobs wait before they start with how busy each worker group is.
+    Are the workers healthy and keeping up with the queue? Compare how long jobs wait before they start with how busy each worker group is.
   initial: ai_evals/fixtures/frontend/global/initial/composer_incidents.json
   runtime:
     maxTurns: 10
@@ -3447,9 +3366,9 @@
     - reads the connected workers and the queued runs instead of guessing
     - points out that the gpu-renderer runs wait because no worker serves that tag
 
-- id: global-composer-failing-schedules
+- id: global-composer-schedules
   prompt: |-
-    Which schedules in this workspace keep failing, and why?
+    Do any schedules in this workspace keep failing? If so, which ones and why?
   initial: ai_evals/fixtures/frontend/global/initial/composer_incidents.json
   runtime:
     maxTurns: 10
@@ -3472,9 +3391,9 @@
     - names f/billing/charge_cards_every_minute as the failing schedule, not import_orders_hourly
     - gives the cause from its runs' logs (card declined, insufficient funds)
 
-- id: global-composer-run-health
+- id: global-composer-recent-runs
   prompt: |-
-    Look at the last runs in this workspace: how many succeeded, which failed, and is anything getting slower?
+    Look at the recent runs in this workspace: did any fail, and why? Is anything getting slower?
   initial: ai_evals/fixtures/frontend/global/initial/composer_incidents.json
   runtime:
     maxTurns: 8
@@ -3490,8 +3409,180 @@
   assistantExpect:
     requiredMentionsAnyOf:
       - - charge_cards
-      - - import_orders
+      - - insufficient funds
+        - declined
   skipJudge: true
   judgeChecklist:
-    - counts the succeeded and failed runs from the returned data
-    - names charge_cards as the one failing, and does not invent a slowdown
+    - names charge_cards as the failing script and gives the cause from its logs
+    - does not invent a slowdown the run durations do not show
+
+# The empty-workspace examples, sent as the composer sends them. The workspace holds nothing,
+# so the model has to stage what it needs; one answer covers a question about the Slack setup.
+- id: global-composer-example-daily-metrics
+  prompt: |-
+    Every weekday at 9am, query postgres for yesterday's signups and revenue and post a summary to the #metrics Slack channel
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 16
+    sessionChat: true
+    userAnswers:
+      - Use placeholders for the postgres and Slack connections, I'll fill them in later
+  validate:
+    draftCountAtLeast: 1
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - stages a script or flow that queries postgres for the previous day's signups and revenue
+    - posts the summary to the #metrics Slack channel
+    - runs it on a schedule at 9am on weekdays only
+
+- id: global-composer-example-refund-approval
+  prompt: |-
+    Build a flow that asks for approval in Slack before issuing a refund in Stripe, and only refunds if someone approves
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 16
+    sessionChat: true
+    userAnswers:
+      - Use placeholders for the Stripe and Slack connections, I'll fill them in later
+  validate:
+    requiredDrafts:
+      - type: flow
+        valueIncludes:
+          - suspend
+  toolExpect:
+    requiredToolsUsed:
+      - write_flow
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - posts an approval request to Slack before any refund is issued
+    - suspends the flow on an approval step and continues only once someone approves
+    - issues the refund through Stripe only on approval, never when it is rejected
+
+- id: global-composer-example-ticket-triage
+  prompt: |-
+    When a support ticket arrives by webhook, classify its urgency with an LLM and post the urgent ones to the #support Slack channel
+  initial: ai_evals/fixtures/frontend/global/initial/user_admin_empty.json
+  runtime:
+    maxTurns: 16
+    sessionChat: true
+    userAnswers:
+      - Use placeholders for the LLM and Slack connections, I'll fill them in later
+  validate:
+    draftCountAtLeast: 1
+  toolExpect:
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - stages a script or flow that takes the ticket as the input a webhook delivers
+    - classifies the ticket's urgency with an LLM call; an `aidecision` step (Windmill's built-in LLM decision, with `choice` or `noul` questions) counts
+    - posts only the urgent tickets to the #support Slack channel
+
+# The pills that name what an established workspace holds: a teammate's flow, a starred
+# script, a connected database and channel.
+- id: global-composer-walk-through-flow
+  prompt: |-
+    Walk me through what the flow f/billing/charge_customers does, step by step.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_connected_workspace.json
+  runtime:
+    maxTurns: 6
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - read_workspace_item
+    forbiddenToolsUsed:
+      - write_flow
+      - patch_flow_json
+      - deploy_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - due today
+        - invoices due
+        - fetch_due
+      - - receipt
+  skipJudge: true
+  judgeChecklist:
+    - reads the flow and describes its three steps in order
+
+- id: global-composer-run-favorite
+  prompt: |-
+    Run the script f/ops/check_ssl_expiry for me.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_connected_workspace.json
+  runtime:
+    maxTurns: 8
+    sessionChat: true
+    userAnswers:
+      - windmill.dev
+  validate:
+    draftCountExactly: 0
+  # The script needs a domain the prompt does not give. Opening the run form for the user to
+  # fill and asking for the domain in chat are both right, so neither is pinned; what is pinned
+  # is that the deployed script is read and nothing is previewed or written.
+  toolExpect:
+    requiredToolsUsed:
+      - read_workspace_item
+    forbiddenToolsUsed:
+      - test_run_script
+      - write_script
+      - deploy_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - domain
+  # Running produces no draft, and the judge cannot observe runs; validate via tool use.
+  skipJudge: true
+  judgeChecklist:
+    - reads the deployed script and either opens its run form or asks for the domain it needs
+
+- id: global-composer-explore-database
+  prompt: |-
+    Look at the tables in the Postgres database f/data/warehouse and tell me what data it holds.
+  initial: ai_evals/fixtures/frontend/global/initial/composer_connected_workspace.json
+  runtime:
+    maxTurns: 6
+    sessionChat: true
+  validate:
+    draftCountExactly: 0
+  toolExpect:
+    requiredToolsUsed:
+      - get_db_schema
+    forbiddenToolsUsed:
+      - write_script
+      - deploy_workspace_item
+  assistantExpect:
+    requiredMentionsAnyOf:
+      - - customers
+      - - invoices
+      - - signups
+  skipJudge: true
+  judgeChecklist:
+    - reads the warehouse schema and names its customers, invoices and signups tables
+
+- id: global-composer-daily-summary
+  prompt: |-
+    Every weekday at 9am, summarize yesterday's activity in the Postgres database f/data/warehouse and post it to Slack with the resource f/team/slack
+  initial: ai_evals/fixtures/frontend/global/initial/composer_connected_workspace.json
+  runtime:
+    maxTurns: 16
+    sessionChat: true
+    userAnswers:
+      - Post it in #metrics, with new signups, new invoices and what they add up to
+  validate:
+    draftCountAtLeast: 1
+  toolExpect:
+    # "Yesterday's activity" means whatever the tables hold, so they are read first.
+    requiredToolsUsed:
+      - get_db_schema
+    forbiddenToolsUsed:
+      - deploy_workspace_item
+      - delete_workspace_item
+  judgeChecklist:
+    - queries the warehouse's real tables (signups, invoices) for the previous day through f/data/warehouse
+    - posts the summary to Slack through the resource f/team/slack
+    - runs on a schedule at 9am on weekdays only

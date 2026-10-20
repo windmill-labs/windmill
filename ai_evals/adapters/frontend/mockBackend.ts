@@ -100,6 +100,14 @@ export interface BenchmarkWorkspaceResource {
 	resource_type: string
 	value?: Record<string, unknown>
 	description?: string
+	/** A database's tables, as `get_db_schema` reads them: schema, table, then column. */
+	dbSchema?: Record<string, Record<string, Record<string, BenchmarkDbColumn>>>
+}
+
+export interface BenchmarkDbColumn {
+	type: string
+	required: boolean
+	default?: string
 }
 
 /** A resource type the instance holds. */
@@ -165,12 +173,7 @@ export interface BenchmarkWorkspaceRunnables {
 	jobs?: BenchmarkWorkspaceJob[]
 	/** The instance's workers. Unset falls through to the real backend's; `[]` is none. */
 	workers?: BenchmarkWorkspaceWorker[]
-	/** Whether the user is an instance admin (superadmin and devops), which decides what
-	 * `list_workers` concludes from an empty list. */
-	instanceAdmin?: boolean
 	schedules?: BenchmarkWorkspaceSchedule[]
-	/** The workspace settings document (`get_workspace_settings` reads it). */
-	workspaceSettings?: Record<string, unknown>
 }
 
 type BenchmarkCompletedJob = CompletedJob & { type: 'CompletedJob' }
@@ -184,8 +187,6 @@ const benchmarkJobs = new Map<
 	string,
 	{ workspace: string; job: BenchmarkCompletedJob | BenchmarkQueuedJob }
 >()
-// What set_workspace_settings applied, per workspace, so a case can be checked against it.
-const benchmarkWorkspaceSettings = new Map<string, Record<string, unknown>>()
 
 function benchmarkJobKey(workspace: string, jobId: string): string {
 	return `${workspace}::${jobId}`
@@ -196,7 +197,6 @@ export function resetBenchmarkMockBackend(): void {
 	benchmarkWorkspaceRunnables.clear()
 	benchmarkJobs.clear()
 	benchmarkDrafts.clear()
-	benchmarkWorkspaceSettings.clear()
 }
 
 // Stand-in for FolderService.createFolder so the global create_folder tool runs in
@@ -250,27 +250,12 @@ export function registerBenchmarkWorkspaceRunnables(
 			durationMs: seed.durationMs
 		})
 	}
-	if (runnables.workspaceSettings) {
-		benchmarkWorkspaceSettings.set(workspace, structuredClone(runnables.workspaceSettings))
-	}
-}
-
-const unregisterListeners: Array<(runnables: BenchmarkWorkspaceRunnables | undefined) => void> = []
-
-/** Runs when a benchmark workspace is torn down, with the fixtures it was seeded with. */
-export function onBenchmarkWorkspaceUnregistered(
-	listener: (runnables: BenchmarkWorkspaceRunnables | undefined) => void
-): void {
-	unregisterListeners.push(listener)
 }
 
 export function unregisterBenchmarkWorkspace(workspace: string): void {
-	const runnables = benchmarkWorkspaceRunnables.get(workspace)
 	benchmarkWorkspaces.delete(workspace)
 	benchmarkWorkspaceRunnables.delete(workspace)
-	benchmarkWorkspaceSettings.delete(workspace)
 	clearBenchmarkDrafts(workspace)
-	for (const listener of unregisterListeners) listener(runnables)
 	for (const [jobId, entry] of benchmarkJobs.entries()) {
 		if (entry.workspace === workspace) {
 			benchmarkJobs.delete(jobId)
@@ -465,6 +450,15 @@ export function queryBenchmarkResourceTypes(
  * seed kinds, so it agrees with `existsResource` and `listResource` — both of those report AI
  * providers too, and a case that lists resources and then reads one by path would otherwise get
  * a row it cannot fetch. */
+/** The tables a fixture seeds for a database resource; `null` when it seeds none. */
+export function getBenchmarkDbSchemaSeed(
+	workspace: string,
+	path: string
+): { resourceType: string; schema: NonNullable<BenchmarkWorkspaceResource['dbSchema']> } | null {
+	const seed = benchmarkWorkspaceRunnables.get(workspace)?.resources?.find((r) => r.path === path)
+	return seed?.dbSchema ? { resourceType: seed.resource_type, schema: seed.dbSchema } : null
+}
+
 export function getBenchmarkResource(workspace: string, path: string): Resource | null {
 	const runnables = benchmarkWorkspaceRunnables.get(workspace)
 	const seed = runnables?.resources?.find((entry) => entry.path === path)
@@ -704,24 +698,16 @@ export function getBenchmarkFlowAllResults(workspace: string, jobId: string) {
 	}
 }
 
-// ============= Workers, schedules, workspace settings =============
+// ============= Workers, schedules =============
 
-/** The registered benchmark workspace whose fixtures define `key`. `listWorkers` and
- * `globalWhoami` name no workspace, so they answer from whichever case seeded one: run
- * cases that seed workers or `instanceAdmin` one at a time if their seeds differ. */
-function benchmarkRunnablesDefining(
-	key: 'workers' | 'instanceAdmin'
-): BenchmarkWorkspaceRunnables | undefined {
-	for (const workspace of benchmarkWorkspaces) {
-		const runnables = benchmarkWorkspaceRunnables.get(workspace)
-		if (runnables?.[key] !== undefined) return runnables
-	}
-	return undefined
-}
-
-/** Mirror `WorkerService.listWorkers`; `null` when no case seeded workers. */
+/** Mirror `WorkerService.listWorkers`; `null` when no case seeded workers. Workers name no
+ * workspace, so this answers from whichever case seeded them: run cases whose worker seeds
+ * differ one at a time. */
 export function listBenchmarkWorkers(): WorkerPing[] | null {
-	const workers = benchmarkRunnablesDefining('workers')?.workers
+	let workers: BenchmarkWorkspaceWorker[] | undefined
+	for (const workspace of benchmarkWorkspaces) {
+		workers ??= benchmarkWorkspaceRunnables.get(workspace)?.workers
+	}
 	if (!workers) return null
 	return workers.map((w) => ({
 		worker: w.worker,
@@ -734,11 +720,6 @@ export function listBenchmarkWorkers(): WorkerPing[] | null {
 		jobs_executed: w.jobs_executed ?? 0,
 		wm_version: 'benchmark'
 	}))
-}
-
-/** Whether a seeded case runs as an instance admin; `undefined` when none says. */
-export function benchmarkInstanceAdmin(): boolean | undefined {
-	return benchmarkRunnablesDefining('instanceAdmin')?.instanceAdmin
 }
 
 function buildBenchmarkSchedule(workspace: string, s: BenchmarkWorkspaceSchedule): Schedule {
@@ -767,36 +748,6 @@ export function listBenchmarkSchedules(workspace: string): Schedule[] {
 export function getBenchmarkSchedule(workspace: string, path: string): Schedule | null {
 	const s = benchmarkWorkspaceRunnables.get(workspace)?.schedules?.find((e) => e.path === path)
 	return s ? buildBenchmarkSchedule(workspace, s) : null
-}
-
-/** Mirror `WorkspaceService.getWorkspaceSettingsDocument`; an unseeded workspace has an
- * empty document. */
-export function getBenchmarkWorkspaceSettingsDocument(workspace: string): Record<string, unknown> {
-	return structuredClone(benchmarkWorkspaceSettings.get(workspace) ?? {})
-}
-
-/** Mirror `WorkspaceService.applyWorkspaceSettingsDocument` for a partial document: each
- * top-level key replaces the stored one, `null` clears it. */
-export function applyBenchmarkWorkspaceSettingsDocument(input: {
-	workspace: string
-	requestBody: { document: Record<string, unknown>; dry_run?: boolean }
-}): {
-	changes: Array<{ key: string; before: unknown; after: unknown }>
-	applied: boolean
-} {
-	const current = benchmarkWorkspaceSettings.get(input.workspace) ?? {}
-	const changes = Object.entries(input.requestBody.document)
-		.filter(([key, after]) => JSON.stringify(current[key] ?? null) !== JSON.stringify(after ?? null))
-		.map(([key, after]) => ({ key, before: current[key] ?? null, after: after ?? null }))
-	if (!input.requestBody.dry_run) {
-		const next = { ...current }
-		for (const { key, after } of changes) {
-			if (after === null) delete next[key]
-			else next[key] = structuredClone(after)
-		}
-		benchmarkWorkspaceSettings.set(input.workspace, next)
-	}
-	return { changes, applied: !input.requestBody.dry_run }
 }
 
 // ============= Drafts (per-user, DB-backed in production) =============

@@ -9,7 +9,9 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import ComposerSuggestions from '$lib/components/copilot/chat/starter/ComposerSuggestions.svelte'
 	import {
+		CHANNEL_TYPES,
 		composerSuggestions,
+		DATABASE_TYPES,
 		type ComposerRole,
 		type ComposerSignals
 	} from '$lib/components/copilot/chat/starter/composerSuggestions'
@@ -28,80 +30,79 @@
 	// Every field as the form holds it: a blank field is an absent signal, which fires no rule.
 	type Form = {
 		itemCount: string
-		failedRuns: string
-		waiting: string
-		suspended: string
-		liveWorkers: string
-		errorHandler: 'absent' | 'set' | 'unset'
 		draftPath: string
 		deployPath: string
+		sharedFlowPath: string
+		favoritePath: string
+		databasePath: string
+		databaseType: string
+		channelPath: string
+		channelType: string
 	}
 	const BLANK: Form = {
 		itemCount: '',
-		failedRuns: '',
-		waiting: '',
-		suspended: '',
-		liveWorkers: '',
-		errorHandler: 'absent',
 		draftPath: '',
-		deployPath: ''
+		deployPath: '',
+		sharedFlowPath: '',
+		favoritePath: '',
+		databasePath: '',
+		databaseType: 'postgresql',
+		channelPath: '',
+		channelType: 'slack'
 	}
 	const PRESETS: Record<string, Partial<Form>> = {
-		'Empty workspace': { itemCount: '0', liveWorkers: '3', errorHandler: 'unset' },
-		Quiet: {
-			itemCount: '10',
-			failedRuns: '0',
-			waiting: '0',
-			suspended: '0',
-			liveWorkers: '3',
-			errorHandler: 'set'
+		'Empty workspace': { itemCount: '0' },
+		'Empty, connected': {
+			itemCount: '0',
+			databasePath: 'f/data/main_db',
+			channelPath: 'f/team/slack'
 		},
-		'On fire': {
-			itemCount: '10',
-			failedRuns: '14',
-			waiting: '120',
-			suspended: '2',
-			liveWorkers: '0',
-			errorHandler: 'unset'
-		},
+		'Has items': { itemCount: '25' },
 		'Own work': {
-			itemCount: '10',
-			failedRuns: '0',
-			liveWorkers: '3',
-			errorHandler: 'unset',
+			itemCount: '25',
 			draftPath: 'f/billing/sync_invoices',
 			deployPath: 'u/admin/etl_nightly'
 		},
-		'Signals failed': { itemCount: '10' }
+		Established: {
+			itemCount: '25',
+			sharedFlowPath: 'f/billing/charge_customers',
+			favoritePath: 'f/ops/check_ssl_expiry',
+			databasePath: 'f/data/main_db'
+		}
 	}
+	type PathKey = 'draftPath' | 'deployPath' | 'sharedFlowPath' | 'favoritePath'
+	const PATH_FIELDS: { key: PathKey; label: string }[] = [
+		{ key: 'draftPath', label: 'My latest draft (flow path)' },
+		{ key: 'deployPath', label: 'Latest failed deploy (script path)' },
+		{ key: 'sharedFlowPath', label: 'Newest shared flow (path)' },
+		{ key: 'favoritePath', label: 'Favorite (script path)' }
+	]
+	const DATABASE_ITEMS = Object.entries(DATABASE_TYPES).map(([value, label]) => ({ value, label }))
+	const CHANNEL_ITEMS = Object.keys(CHANNEL_TYPES).map((value) => ({ value, label: value }))
 
 	let roleName = $state<RoleName>('instanceAdmin')
-	let form = $state<Form>({ ...BLANK, ...PRESETS['Quiet'] })
+	let form = $state<Form>({ ...BLANK, ...PRESETS['Has items'] })
 	let workspace = $state<string | undefined>($workspaceStore ?? undefined)
 	let loading = $state(false)
-	let loadError = $state<string>()
 	let picked = $state<string>()
 
 	const num = (s: string) => (s.trim() === '' || isNaN(Number(s)) ? undefined : Number(s))
 
 	const item = (kind: string, path: string) =>
 		path.trim() ? { kind, path: path.trim(), name: path.trim().split('/').pop()! } : undefined
+	const connection = (type: string, path: string) => {
+		const i = item(type, path)
+		return i && { type: i.kind, path: i.path, name: i.name }
+	}
 
-	const signals: ComposerSignals = $derived.by(() => {
-		const waiting = num(form.waiting)
-		const suspended = num(form.suspended)
-		return {
-			itemCount: num(form.itemCount),
-			failedRuns: num(form.failedRuns),
-			queue:
-				waiting === undefined && suspended === undefined
-					? undefined
-					: { waiting: waiting ?? 0, suspended: suspended ?? 0 },
-			liveWorkers: num(form.liveWorkers),
-			hasErrorHandler: form.errorHandler === 'absent' ? undefined : form.errorHandler === 'set',
-			myDraft: item('flow', form.draftPath),
-			failedDeploy: item('script', form.deployPath)
-		}
+	const signals: ComposerSignals = $derived({
+		itemCount: num(form.itemCount),
+		myDraft: item('flow', form.draftPath),
+		failedDeploy: item('script', form.deployPath),
+		sharedFlow: item('flow', form.sharedFlowPath),
+		favorite: item('script', form.favoritePath),
+		database: connection(form.databaseType, form.databasePath),
+		channel: connection(form.channelType, form.channelPath)
 	})
 	const suggestions = $derived(composerSuggestions(signals, ROLES[roleName]))
 
@@ -110,43 +111,25 @@
 		picked = undefined
 	}
 
-	const str = (n: number | undefined) => (n === undefined ? '' : String(n))
-
-	// Reads with the selected role, so a role the logged-in user does not hold gets the
-	// requests it would send refused, and those signals come back blank.
 	async function loadWorkspace() {
 		if (!workspace) return
 		loading = true
-		loadError = undefined
-		try {
-			const s = await readComposerSignals(workspace, ROLES[roleName])
-			form = {
-				itemCount: str(s.itemCount),
-				failedRuns: str(s.failedRuns),
-				waiting: str(s.queue?.waiting),
-				suspended: str(s.queue?.suspended),
-				liveWorkers: str(s.liveWorkers),
-				errorHandler:
-					s.hasErrorHandler === undefined ? 'absent' : s.hasErrorHandler ? 'set' : 'unset',
-				draftPath: s.myDraft?.path ?? '',
-				deployPath: s.failedDeploy?.path ?? ''
-			}
-			picked = undefined
-		} catch (e) {
-			loadError = String(e)
-		} finally {
-			loading = false
+		// A failed list reads as 10 items with nothing of yours; the console says why.
+		const s = await readComposerSignals(workspace)
+		form = {
+			itemCount: String(s.itemCount ?? ''),
+			draftPath: s.myDraft?.path ?? '',
+			deployPath: s.failedDeploy?.path ?? '',
+			sharedFlowPath: s.sharedFlow?.path ?? '',
+			favoritePath: s.favorite?.path ?? '',
+			databasePath: s.database?.path ?? '',
+			databaseType: s.database?.type ?? BLANK.databaseType,
+			channelPath: s.channel?.path ?? '',
+			channelType: s.channel?.type ?? BLANK.channelType
 		}
+		picked = undefined
+		loading = false
 	}
-
-	type NumberKey = Exclude<keyof Form, 'errorHandler' | 'draftPath' | 'deployPath'>
-	const NUMBER_FIELDS: { key: NumberKey; label: string; hint: string }[] = [
-		{ key: 'itemCount', label: 'Items', hint: '0 is empty; the list reads at most 10' },
-		{ key: 'failedRuns', label: 'Failed runs (24h)', hint: 'everyone' },
-		{ key: 'waiting', label: 'Jobs waiting', hint: 'pill from 10' },
-		{ key: 'suspended', label: 'Jobs suspended', hint: 'pill from 1' },
-		{ key: 'liveWorkers', label: 'Live workers (5 min)', hint: 'instance admin; pill at 0' }
-	]
 </script>
 
 {#if import.meta.env.DEV}
@@ -154,9 +137,8 @@
 		<div class="flex flex-col gap-1">
 			<h1 class="text-lg font-semibold text-emphasis">Composer suggestions</h1>
 			<p class="text-xs text-secondary">
-				The pills <code>composerSuggestions(signals, role)</code> returns. A blank field is a signal
-				that failed or that the role may not read. Invitation prompts, which replace all of these, are
-				not simulated.
+				The pills <code>composerSuggestions(signals, role)</code> returns. A blank path means no such
+				item. Invitation prompts, which replace all of these, are not simulated.
 			</p>
 		</div>
 
@@ -195,12 +177,8 @@
 							Load signals
 						</Button>
 					</div>
-					{#if loadError}
-						<p class="text-2xs text-red-500">{loadError}</p>
-					{/if}
 					<p class="text-2xs text-hint">
-						Fills the form with what the starter would read there for the role above. Answers are
-						reused for 30 s.
+						Fills the form with what the starter would read there. Answers are reused for 30 s.
 					</p>
 				</section>
 
@@ -218,41 +196,49 @@
 
 				<section class="flex flex-col gap-3">
 					<h2 class="text-xs font-semibold text-emphasis">Signals</h2>
-					<div class="grid grid-cols-2 gap-3">
-						{#each NUMBER_FIELDS as field (field.key)}
-							<label class="flex flex-col gap-1">
-								<span class="text-xs text-primary">{field.label}</span>
-								<TextInput
-									bind:value={() => form[field.key], (v) => (form[field.key] = String(v ?? ''))}
-									size="sm"
-									inputProps={{ type: 'number', min: 0, placeholder: 'absent' }}
-								/>
-								<span class="text-2xs text-hint">{field.hint}</span>
-							</label>
-						{/each}
+					<label class="flex flex-col gap-1">
+						<span class="text-xs text-primary">Items</span>
+						<TextInput
+							bind:value={() => form.itemCount, (v) => (form.itemCount = String(v ?? ''))}
+							size="sm"
+							inputProps={{ type: 'number', min: 0, placeholder: 'absent' }}
+						/>
+						<span class="text-2xs text-hint">0 is empty, under 10 is new; the list reads 25</span>
+					</label>
+					{#each PATH_FIELDS as field (field.key)}
+						<label class="flex flex-col gap-1">
+							<span class="text-xs text-primary">{field.label}</span>
+							<TextInput
+								bind:value={() => form[field.key], (v) => (form[field.key] = String(v ?? ''))}
+								size="sm"
+								inputProps={{ placeholder: 'none' }}
+							/>
+						</label>
+					{/each}
+					<div class="flex flex-col gap-1">
+						<span class="text-xs text-primary">Database (type and path)</span>
+						<div class="flex flex-row gap-2">
+							<Select class="w-40" items={DATABASE_ITEMS} bind:value={form.databaseType} />
+							<TextInput
+								class="grow"
+								bind:value={form.databasePath}
+								size="sm"
+								inputProps={{ placeholder: 'none' }}
+							/>
+						</div>
 					</div>
 					<div class="flex flex-col gap-1">
-						<span class="text-xs text-primary">Error handler (workspace admins)</span>
-						<ToggleButtonGroup bind:selected={form.errorHandler}>
-							{#snippet children({ item })}
-								<ToggleButton value="absent" label="Absent" {item} />
-								<ToggleButton value="set" label="Set" {item} />
-								<ToggleButton value="unset" label="Not set" {item} />
-							{/snippet}
-						</ToggleButtonGroup>
+						<span class="text-xs text-primary">Channel (type and path)</span>
+						<div class="flex flex-row gap-2">
+							<Select class="w-40" items={CHANNEL_ITEMS} bind:value={form.channelType} />
+							<TextInput
+								class="grow"
+								bind:value={form.channelPath}
+								size="sm"
+								inputProps={{ placeholder: 'none' }}
+							/>
+						</div>
 					</div>
-					<label class="flex flex-col gap-1">
-						<span class="text-xs text-primary">My latest draft (path)</span>
-						<TextInput bind:value={form.draftPath} size="sm" inputProps={{ placeholder: 'none' }} />
-					</label>
-					<label class="flex flex-col gap-1">
-						<span class="text-xs text-primary">Latest failed deploy (path)</span>
-						<TextInput
-							bind:value={form.deployPath}
-							size="sm"
-							inputProps={{ placeholder: 'none' }}
-						/>
-					</label>
 				</section>
 			</div>
 
