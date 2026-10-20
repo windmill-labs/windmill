@@ -23,7 +23,7 @@
 	import { agentMenuItems, deleteAgent } from '$lib/components/flows/agentActions'
 	import AgentHistory from '$lib/components/flows/AgentHistory.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
-	import { roleCapabilities, workspaceStore } from '$lib/stores'
+	import { roleCapabilities, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 
 	/**
@@ -40,7 +40,9 @@
 	let testPane = $derived(host?.testPaneHandle())
 	let config = $derived(agent?.state?.args)
 	let chatAvailable = $derived(keepsManagedMemory(config?.memory))
-	let canEdit = $derived(config != undefined && (agent?.canWrite ?? false) && $roleCapabilities.code)
+	let canEdit = $derived(
+		config != undefined && (agent?.canWrite ?? false) && $roleCapabilities.code
+	)
 
 	let configModal: AgentConfigModal | undefined = $state(undefined)
 	let shareModal: ShareModal | undefined = $state(undefined)
