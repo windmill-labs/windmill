@@ -157,11 +157,11 @@ fn pattern_covers(caller: &str, requested: &str) -> bool {
             && requested_base.as_bytes().get(prefix.len()) == Some(&b'/'))
 }
 
-/// Parse MCP scopes from token scope strings
 /// Withholds the endpoint tools on every URL, so a token reaches no more than its access
 /// level says.
 pub const NO_ENDPOINTS_SCOPE: &str = "mcp:no_endpoints";
 
+/// Parse MCP scopes from token scope strings
 pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, String> {
     let mut config = McpScopeConfig::default();
 

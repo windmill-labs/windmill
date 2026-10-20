@@ -70,6 +70,7 @@
 		if (open) {
 			untrack(() => {
 				labelValue = initialLabel ?? ''
+				mcpTouched = false
 			})
 		}
 	})
