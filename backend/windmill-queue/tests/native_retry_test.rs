@@ -339,7 +339,7 @@ mod native_retry {
         //    -> failure: handler child must NOT count as a recovery
         // f: root fails, only a WAC inline child (unmarked) succeeds
         //    -> failure: WAC inline child must NOT count as a recovery
-        // d: the current occurrence (excluded by `j.id != $4`)
+        // d: the current occurrence (excluded with any later one by the created_at bound)
         let (a, b, c, e, f, d) = (
             Uuid::new_v4(),
             Uuid::new_v4(),
@@ -371,7 +371,8 @@ mod native_retry {
                 ))
              FROM v2_job j JOIN v2_job_completed USING (id)
              WHERE j.workspace_id = $1 AND trigger_kind = 'schedule' AND trigger = $2
-                AND parent_job IS NULL AND runnable_path = $3 AND j.id != $4
+                AND parent_job IS NULL AND runnable_path = $3
+                AND j.created_at < (SELECT created_at FROM v2_job WHERE id = $4)
              ORDER BY created_at DESC",
         )
         .bind(WS)
