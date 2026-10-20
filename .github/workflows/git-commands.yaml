@@ -69,12 +69,24 @@ jobs:
           ref: ${{ github.event.issue.pull_request.head.ref }}
           fetch-depth: 0
 
+      - name: Read EE ref
+        id: ee
+        run: |
+          if [ -f backend/ee-repo-ref.txt ]; then
+            echo "ref=$(tr -d '[:space:]' < backend/ee-repo-ref.txt)" >> "$GITHUB_OUTPUT"
+          else
+            echo "Warning: ee-repo-ref.txt not found, using default branch"
+          fi
+
+      # The PR's own build code runs below, so the EE token must not stay in .git/config.
       - name: Checkout windmill-ee-private
         uses: actions/checkout@v3
         with:
           repository: windmill-labs/windmill-ee-private
           path: windmill-ee-private
+          ref: ${{ steps.ee.outputs.ref }}
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+          persist-credentials: false
 
       # Setup Rust toolchain
       - uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -107,18 +119,6 @@ jobs:
           git config --local user.name "windmill-internal-app[bot]"
           git config pull.rebase true
           git pull origin $BRANCH_NAME
-
-          # Checkout the correct windmill-ee-private commit from ee-repo-ref.txt
-          if [ -f backend/ee-repo-ref.txt ]; then
-            EE_REF=$(cat backend/ee-repo-ref.txt | tr -d '[:space:]')
-            echo "Checking out windmill-ee-private at commit: $EE_REF"
-            cd windmill-ee-private
-            git fetch origin $EE_REF
-            git checkout $EE_REF
-            cd ..
-          else
-            echo "Warning: ee-repo-ref.txt not found, using default branch"
-          fi
 
           mkdir -p frontend/build
           cd backend
@@ -274,6 +274,7 @@ jobs:
           repository: windmill-labs/windmill-ee-private
           path: windmill-ee-private
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+          persist-credentials: false
 
       - name: Get last commit hash of private-repo
         id: get-commit-hash

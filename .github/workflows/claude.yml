@@ -24,11 +24,49 @@ jobs:
       username: ${{ github.event.comment.user.login || github.event.review.user.login || github.event.issue.user.login }}
     secrets: inherit
 
-  claude-code-action:
+  # The agent runs with unrestricted Bash and reads PR text anyone can write, so a job
+  # that references WINDMILL_EE_PRIVATE_ACCESS hands it that token: the runner holds
+  # every secret its job references (a skipped step's included) in process memory. EE is
+  # therefore checked out only in a separate job, and only for PRs whose head branch
+  # lives in this repo; forks, issues and token-less runs take the job without it.
+  pr-info:
     needs: [check-access]
     if: |
       needs.check-access.outputs.authorized == 'true' ||
       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association || github.event.review.author_association || github.event.issue.author_association)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      ee_repo_ref: ${{ steps.pr.outputs.ee_repo_ref }}
+    steps:
+      # The EE ref is read from the PR head's backend/ee-repo-ref.txt (via the API, so it
+      # reflects the PR's EE pin regardless of which ref the agent job checks out).
+      - name: Resolve EE ref for same-repo PRs
+        id: pr
+        env:
+          HAS_EE_TOKEN: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS != '' }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+        run: |
+          if [ "$HAS_EE_TOKEN" != "true" ] || [ -z "$PR_NUMBER" ]; then
+            exit 0
+          fi
+          # Fails for a plain issue, which gets no EE.
+          PR=$(gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER") || exit 0
+          # head.repo is null when the fork was deleted.
+          if [ "$(jq -r '.head.repo.full_name' <<<"$PR")" != "${{ github.repository }}" ]; then
+            echo "PR head is not in this repo; running without EE."
+            exit 0
+          fi
+          HEAD_SHA=$(jq -r '.head.sha' <<<"$PR")
+          REF=$(gh api "repos/${{ github.repository }}/contents/backend/ee-repo-ref.txt?ref=$HEAD_SHA" --jq .content | base64 -d | tr -d '[:space:]') || true
+          echo "ee_repo_ref=$REF" >> "$GITHUB_OUTPUT"
+
+  claude-code-action-ee:
+    needs: [pr-info]
+    if: needs.pr-info.outputs.ee_repo_ref != ''
     runs-on: ubicloud-standard-8
     permissions:
       contents: write
@@ -40,44 +78,56 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          persist-credentials: false
 
       # Make the EE source (the *_ee.rs files in the companion repo) available so the
       # reviewer can see EE-only code (e.g. windmill-queue/src/jobs_ee.rs), not just the
-      # CE surface. The EE ref is read from the PR head's backend/ee-repo-ref.txt (via the
-      # API, so it reflects the PR's EE pin regardless of which ref is checked out here).
-      - name: Check EE access
-        id: ee
-        env:
-          EE_TOKEN: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
-        run: |
-          if [ -z "$EE_TOKEN" ] || [ -z "$PR_NUMBER" ]; then
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          HEAD_SHA=$(gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER" --jq .head.sha)
-          REF=$(gh api "repos/${{ github.repository }}/contents/backend/ee-repo-ref.txt?ref=$HEAD_SHA" --jq .content | base64 -d | tr -d '[:space:]')
-          if [ -z "$REF" ]; then
-            echo "available=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=true" >> "$GITHUB_OUTPUT"
-            echo "ee_repo_ref=$REF" >> "$GITHUB_OUTPUT"
-          fi
-
+      # CE surface.
       - name: Checkout EE repository
-        if: steps.ee.outputs.available == 'true'
         uses: actions/checkout@v4
         with:
           repository: windmill-labs/windmill-ee-private
           path: ./windmill-ee-private
-          ref: ${{ steps.ee.outputs.ee_repo_ref }}
+          ref: ${{ needs.pr-info.outputs.ee_repo_ref }}
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Substitute EE code
-        if: steps.ee.outputs.available == 'true'
         run: ./backend/substitute_ee_code.sh --copy --dir ./windmill-ee-private
+
+      - name: Run Claude PR Action
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          allowed_bots: "windmill-internal-app[bot]"
+          trigger_phrase: "/ai"
+          settings: |
+            {
+              "env": {
+                "SQLX_OFFLINE": "true"
+              }
+            }
+          claude_args: |
+            --allowedTools "Bash,WebFetch,WebSearch"
+            --model claude-opus-5-5
+
+  claude-code-action:
+    needs: [pr-info]
+    if: needs.pr-info.outputs.ee_repo_ref == ''
+    runs-on: ubicloud-standard-8
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      # claude-code-action installs its own git credential, so checkout's is not needed.
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Run Claude PR Action
         uses: anthropics/claude-code-action@v1

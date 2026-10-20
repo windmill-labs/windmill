@@ -120,6 +120,7 @@ jobs:
           ref: ${{ steps.ee.outputs.ee_repo_ref }}
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Substitute EE code
         if: steps.ee.outputs.available == 'true'
