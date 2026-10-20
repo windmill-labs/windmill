@@ -206,7 +206,7 @@
 	{@const { base, unknown } = baseFor(name)}
 	{@const caps = applyCapabilitiesPatch(base, draft.get(name)?.capabilities)}
 	{@const overridden = Object.hasOwn(cleanedDraft, name)}
-	{@const inactive = !role && !data?.custom_roles_enabled}
+	{@const frozen = !role && !data?.custom_roles_enabled}
 	<div class="flex flex-col rounded-md border bg-surface-tertiary">
 		<div class="flex items-center gap-2 p-2">
 			<div class="flex flex-col w-40 shrink-0 min-w-0">
@@ -220,24 +220,22 @@
 				{#if overridden}
 					<Badge color="blue" verySmall>Overridden here</Badge>
 				{/if}
-			{:else if inactive}
-				<Badge color="orange" verySmall>Inactive without a license</Badge>
+			{:else if frozen}
+				<Badge color="orange" verySmall>Read-only without a license</Badge>
 			{:else}
 				<Badge color="indigo" verySmall>This workspace only</Badge>
 			{/if}
 			<span class="text-2xs text-secondary truncate grow">
-				{inactive ? 'No capabilities until the license is valid' : summary(caps)}
+				{summary(caps)}
 			</span>
-			{#if !inactive}
-				<Button
-					variant="subtle"
-					unifiedSize="sm"
-					startIcon={{ icon: open.get(name) ? ChevronDown : ChevronRight }}
-					onclick={() => open.set(name, !open.get(name))}
-				>
-					Capabilities
-				</Button>
-			{/if}
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
+				startIcon={{ icon: open.get(name) ? ChevronDown : ChevronRight }}
+				onclick={() => open.set(name, !open.get(name))}
+			>
+				Capabilities
+			</Button>
 			{#if role}
 				<Button
 					variant="subtle"
@@ -265,7 +263,7 @@
 		{#if errors[name] && !open.get(name)}
 			<span class="text-2xs text-red-600 dark:text-red-400 px-2 pb-2">{errors[name]}</span>
 		{/if}
-		{#if open.get(name) && !inactive}
+		{#if open.get(name)}
 			<div class="border-t p-3 flex flex-col gap-3">
 				<div class="flex items-center gap-2">
 					<span class="text-xs font-semibold text-emphasis w-24">Label</span>
@@ -275,6 +273,7 @@
 							value={draft.get(name)?.label ?? ''}
 							inputProps={{
 								placeholder: role?.label ?? name,
+								disabled: frozen,
 								'aria-label': 'Label in this workspace',
 								oninput: (e) => setLabel(name, e.currentTarget.value)
 							}}
@@ -288,6 +287,7 @@
 					baseName={role ? 'instance' : 'default'}
 					setText={role ? 'Overridden' : 'Set'}
 					inheritedText={role ? 'From instance' : 'Default'}
+					disabled={frozen}
 					onchange={(p) => setPatch(name, p)}
 				/>
 			</div>
@@ -360,9 +360,8 @@
 					size="xs"
 					title="Adding roles requires a valid Windmill Enterprise Edition license"
 				>
-					This workspace can adjust what the default roles allow. Roles added earlier are kept and
-					apply again once the license is valid; until then a member holding one of them has no
-					capabilities.
+					This workspace can still override what the instance roles allow. Roles added here earlier
+					keep applying but are read-only; they can still be removed.
 				</Alert>
 			{/if}
 		</div>

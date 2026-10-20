@@ -344,7 +344,7 @@
 		     them). -->
 		<RetentionPeriodOverrides {values} disabled={!$enterpriseLicense || loading} />
 	{:else if setting.fieldType == 'workspace_roles'}
-		<WorkspaceRolesSetting {values} disabled={!$enterpriseLicense || loading} />
+		<WorkspaceRolesSetting {values} {loading} unlicensed={!$enterpriseLicense} />
 	{:else}
 		<SettingCard
 			label={setting.key === 'disable_stats'

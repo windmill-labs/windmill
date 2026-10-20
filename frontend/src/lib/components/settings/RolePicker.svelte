@@ -28,8 +28,8 @@
 	}: Props = $props()
 
 	const known = $derived(roleItems(roles, { admin }))
-	// A role the workspace no longer defines (removed, or custom without a valid license) grants
-	// nothing; it stays visible rather than showing nothing selected.
+	// A role the workspace no longer defines grants nothing; it stays visible rather than showing
+	// nothing selected.
 	const missing = $derived(value && !known.some((i) => i.value === value) ? value : undefined)
 	const undefinedValue = $derived(roles ? missing : undefined)
 	const items = $derived(

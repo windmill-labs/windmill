@@ -15,15 +15,26 @@
 		isEmptyPatch,
 		workspaceRolesErrors
 	} from '$lib/workspaceRoles'
-	import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Plus, Trash2 } from 'lucide-svelte'
+	import {
+		ArrowDown,
+		ArrowUp,
+		ChevronDown,
+		ChevronRight,
+		Plus,
+		RotateCcw,
+		Trash2
+	} from 'lucide-svelte'
 
 	interface Props {
 		values: Writable<Record<string, any>>
-		/** Read-only, showing the stored or default list: CE, or still loading. */
-		disabled?: boolean
+		loading?: boolean
+		/** Without a valid license the stored list keeps applying but can only be reset. */
+		unlicensed?: boolean
 	}
 
-	let { values, disabled = false }: Props = $props()
+	let { values, loading = false, unlicensed = false }: Props = $props()
+
+	const disabled = $derived(loading || unlicensed)
 
 	const KEY = 'workspace_roles'
 
@@ -40,7 +51,6 @@
 	// The JSON last read from or written to `$values[KEY]`, to tell our own writes from external
 	// ones (the async load, Save, Discard) and re-hydrate only on the latter.
 	let lastSynced: string | undefined = undefined
-	let lastDisabled: boolean | undefined = undefined
 
 	function toRows(v: unknown): Row[] {
 		const list = Array.isArray(v) && v.length > 0 ? (v as RoleDefinition[]) : DEFAULT_INSTANCE_ROLES
@@ -64,13 +74,10 @@
 
 	$effect(() => {
 		const cur = JSON.stringify($values[KEY] ?? null)
-		// The license loads after the values, so `disabled` flipping re-hydrates too.
-		if (cur === lastSynced && disabled === lastDisabled) return
+		if (cur === lastSynced) return
 		lastSynced = cur
-		lastDisabled = disabled
 		const open = new Set(rows.filter((r) => r.open).map((r) => r.name))
-		// Without a valid license the server applies the defaults and only keeps the stored list.
-		rows = toRows(disabled ? undefined : $values[KEY]).map((r) => ({
+		rows = toRows($values[KEY]).map((r) => ({
 			...r,
 			open: open.has(r.name)
 		}))
@@ -111,17 +118,26 @@
 </script>
 
 <div class="flex flex-col gap-3">
-	{#if disabled}
+	{#if unlicensed}
 		<Alert
 			type="info"
 			size="xs"
-			title="Custom workspace roles require a valid Windmill Enterprise Edition license"
+			title="Changing workspace roles requires a valid Windmill Enterprise Edition license"
 		>
-			Every workspace has the two default roles below. A workspace admin can still adjust what they
+			The roles below keep applying as they are. A workspace admin can still override what they
 			allow in that workspace's settings.
-			{#if serialize(toRows($values[KEY])) !== undefined}
-				The roles defined earlier are kept and apply again once the license is valid; until then a
-				member holding one of them has no capabilities.
+			{#if serialize(rows) !== undefined}
+				<div class="mt-2">
+					<Button
+						variant="default"
+						unifiedSize="sm"
+						startIcon={{ icon: RotateCcw }}
+						disabled={loading}
+						onclick={() => ($values[KEY] = undefined)}
+					>
+						Reset to the default roles
+					</Button>
+				</div>
 			{/if}
 		</Alert>
 	{/if}
