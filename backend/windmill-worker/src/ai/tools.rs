@@ -2,8 +2,9 @@ use crate::ai::pause::{start_pause, PendingPause};
 use crate::ai::stream_event_processor::StreamEventProcessor;
 use crate::ai::utils::{
     add_message_to_conversation, execute_mcp_tool, get_step_name_from_flow,
-    is_completed_input_transform, update_flow_status_module_with_actions,
-    update_flow_status_module_with_actions_success, FlowContext,
+    is_completed_input_transform, set_flow_status_module_action_success_at,
+    update_flow_status_module_with_actions, update_flow_status_module_with_actions_success,
+    FlowContext,
 };
 use crate::common::{get_root_job_id, OccupancyMetrics};
 use crate::result_processor::handle_non_flow_job_error;
@@ -14,6 +15,7 @@ use crate::worker_flow::{
 use crate::{create_job_dir, handle_queued_job, JobCompletedSender};
 use anyhow::Context;
 use mappable_rc::Marc;
+use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::Json;
 use std::{collections::HashMap, sync::Arc, time::Duration};
@@ -142,9 +144,11 @@ pub async fn execute_tool_calls(
             final_content,
             used_structured_output_tool,
             pause: pause.ok(),
+            started: Vec::new(),
         });
     }
 
+    let mut started = Vec::new();
     let mut calls = tool_calls.iter().peekable();
     while let Some(tool_call) = calls.next() {
         // Stream tool call progress
@@ -170,6 +174,25 @@ pub async fn execute_tool_calls(
                 tool_call_id: Some(tool_call.id.clone()),
                 ..Default::default()
             });
+            // The answer ends the turn, but the history can be sent again after a background
+            // result, and a provider refuses a call left unanswered.
+            for skipped in calls.by_ref() {
+                messages.push(OpenAIMessage {
+                    role: "tool".to_string(),
+                    content: Some(OpenAIContent::Text(
+                        "Not run: the structured answer ended this turn.".to_string(),
+                    )),
+                    tool_call_id: Some(skipped.id.clone()),
+                    ..Default::default()
+                });
+            }
+            // An action like a text answer's: the run page matches tagged messages to actions by
+            // position, and with background tools a run can go on after this answer.
+            actions.push(AgentAction::Message {});
+            if let Some(parent_job) = ctx.parent_job {
+                update_flow_status_module_with_actions(ctx.db, parent_job, actions).await?;
+                update_flow_status_module_with_actions_success(ctx.db, parent_job, true).await?;
+            }
             messages.push(OpenAIMessage {
                 role: "assistant".to_string(),
                 content: Some(OpenAIContent::Text(tool_call.function.arguments.clone())),
@@ -207,6 +230,11 @@ pub async fn execute_tool_calls(
                     final_events_str,
                 )
                 .await?;
+            } else if tool.module.is_some() && tool.background {
+                started.push(
+                    start_background_tool(&mut ctx, tool_call, tool, actions, &mut messages)
+                        .await?,
+                );
             } else if tool.module.is_some() {
                 let mut batch = vec![(tool_call, tool)];
                 while let Some(next_call) = calls.peek() {
@@ -219,6 +247,7 @@ pub async fn execute_tool_calls(
                         t.def.function.name == next_call.function.name
                             && t.mcp_source.is_none()
                             && t.module.is_some()
+                            && !t.background
                     }) else {
                         break;
                     };
@@ -243,7 +272,13 @@ pub async fn execute_tool_calls(
         }
     }
 
-    Ok(ToolCallsOutcome { messages, final_content, used_structured_output_tool, pause: None })
+    Ok(ToolCallsOutcome {
+        messages,
+        final_content,
+        used_structured_output_tool,
+        pause: None,
+        started,
+    })
 }
 
 pub struct ToolCallsOutcome {
@@ -252,6 +287,156 @@ pub struct ToolCallsOutcome {
     pub used_structured_output_tool: bool,
     /// The turn asked for approval: the agent parks, its other calls refused.
     pub pause: Option<PendingPause>,
+    /// Background tool calls this turn started.
+    pub started: Vec<BackgroundJob>,
+}
+
+/// A background tool call, answered when its job started and still owed its result.
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub(crate) struct BackgroundJob {
+    pub call_id: String,
+    pub function_name: String,
+    pub arguments: String,
+    pub module_id: String,
+    pub job_id: Uuid,
+    /// Its position in the run's actions, which is where its outcome is recorded.
+    pub action_index: usize,
+    /// A nested agent's result is an envelope; the model gets its `output`.
+    pub is_agent: bool,
+}
+
+/// A background job that finished: whether it succeeded, and what the model is told it returned.
+pub(crate) struct FinishedBackgroundJob {
+    pub job: BackgroundJob,
+    pub success: bool,
+    pub content: String,
+}
+
+impl FinishedBackgroundJob {
+    /// What the model reads. Its call was answered when the job started, so the result comes as a
+    /// message of its own, tagged with the call's action for the run's trace.
+    pub fn message(&self) -> OpenAIMessage {
+        let job = &self.job;
+        let outcome = if self.success { "finished" } else { "failed" };
+        OpenAIMessage {
+            role: "user".to_string(),
+            content: Some(OpenAIContent::Text(format!(
+                "Background tool `{}` (call {}, job {}) {outcome}. Result:\n{}",
+                job.function_name, job.call_id, job.job_id, self.content
+            ))),
+            agent_action: Some(AgentAction::ToolCall {
+                job_id: job.job_id,
+                function_name: job.function_name.clone(),
+                module_id: job.module_id.clone(),
+            }),
+            ..Default::default()
+        }
+    }
+
+    /// The chat transcript row, shaped like a foreground tool's.
+    pub fn chat_row(&self) -> (String, MessageExtras) {
+        let job = &self.job;
+        let content = if self.success {
+            format!("Used {} tool", job.function_name)
+        } else {
+            format!("Error executing {}", job.function_name)
+        };
+        let extras = MessageExtras {
+            tool_arguments: Some(job.arguments.clone()),
+            tool_result: Some(self.content.clone()),
+            ..Default::default()
+        };
+        (content, extras)
+    }
+}
+
+/// Take the background jobs that have finished out of `running`.
+pub(crate) async fn take_finished_background_jobs(
+    db: &DB,
+    workspace_id: &str,
+    running: &mut Vec<BackgroundJob>,
+) -> Result<Vec<FinishedBackgroundJob>, Error> {
+    let ids: Vec<Uuid> = running.iter().map(|b| b.job_id).collect();
+    let completed: Vec<(Uuid, bool, Option<Json<Box<RawValue>>>)> = sqlx::query_as(
+        "SELECT id, status = 'success', result FROM v2_job_completed
+         WHERE workspace_id = $1 AND id = ANY($2)",
+    )
+    .bind(workspace_id)
+    .bind(&ids)
+    .fetch_all(db)
+    .await?;
+    let mut finished = Vec::with_capacity(completed.len());
+    for (id, success, result) in completed {
+        let Some(index) = running.iter().position(|b| b.job_id == id) else {
+            continue;
+        };
+        let job = running.remove(index);
+        let result = result
+            .map(|r| r.0)
+            .unwrap_or_else(|| to_raw_value(&serde_json::Value::Null));
+        let content = if job.is_agent && success {
+            extract_ai_agent_output(&result).unwrap_or_else(|| result.get().to_string())
+        } else {
+            result.get().to_string()
+        };
+        finished.push(FinishedBackgroundJob { job, success, content });
+    }
+    // Call order, so a run reads the same however the completions raced.
+    finished.sort_by_key(|f| f.job.action_index);
+    Ok(finished)
+}
+
+async fn start_background_tool(
+    ctx: &mut ToolExecutionContext<'_>,
+    tool_call: &OpenAIToolCall,
+    tool: &Tool,
+    actions: &mut Vec<AgentAction>,
+    messages: &mut Vec<OpenAIMessage>,
+) -> Result<BackgroundJob, Error> {
+    let job_id = ulid::Ulid::new().into();
+    // Never reserved for this worker: it is busy with the agent, which may park before the job
+    // is pulled.
+    enqueue_windmill_tool(ctx, tool_call, tool, actions, job_id, false).await?;
+    let action_index = actions.len() - 1;
+    if let Some(parent_job) = ctx.parent_job {
+        set_flow_status_module_action_success_at(ctx.db, parent_job, action_index, None).await?;
+    }
+    let content = format!(
+        "Started in the background as job {job_id}. Its result arrives in a later message: keep \
+         working meanwhile, or finish your answer and you will continue once it is in."
+    );
+    messages.push(OpenAIMessage {
+        role: "tool".to_string(),
+        content: Some(OpenAIContent::Text(content.clone())),
+        tool_call_id: Some(tool_call.id.clone()),
+        agent_action: actions.last().cloned(),
+        ..Default::default()
+    });
+    let extras = MessageExtras {
+        tool_arguments: Some(tool_call.function.arguments.clone()),
+        tool_result: Some(content),
+        ..Default::default()
+    };
+    let row = format!("Started {} in the background", tool_call.function.name);
+    add_tool_message_to_chat(ctx, Some(job_id), &row, true, Some(extras)).await;
+    Ok(BackgroundJob {
+        call_id: tool_call.id.clone(),
+        function_name: tool_call.function.name.clone(),
+        arguments: tool_call.function.arguments.clone(),
+        module_id: tool
+            .module
+            .as_ref()
+            .map(|m| m.id.clone())
+            .unwrap_or_default(),
+        job_id,
+        action_index,
+        is_agent: tool.module.as_ref().is_some_and(|module| {
+            matches!(
+                module.get_value(),
+                Ok(FlowModuleValue::AIAgent { .. } | FlowModuleValue::AIDecision { .. })
+            )
+        }),
+    })
 }
 
 /// Whether the model wrote an argument the tool's job would interpolate with the agent's token,
@@ -432,6 +617,7 @@ async fn enqueue_windmill_tool(
     tool_call: &OpenAIToolCall,
     tool: &Tool,
     actions: &mut Vec<AgentAction>,
+    job_id: Uuid,
     reserved: bool,
 ) -> Result<(Uuid, bool), Error> {
     // Regular Windmill tools must have a module
@@ -439,7 +625,6 @@ async fn enqueue_windmill_tool(
         Error::internal_err(format!("Tool {} has no module", tool_call.function.name))
     })?;
 
-    let job_id = ulid::Ulid::new().into();
     actions.push(AgentAction::ToolCall {
         job_id,
         function_name: tool_call.function.name.clone(),
@@ -903,7 +1088,9 @@ async fn execute_windmill_tools(
                     .await?;
             }
         }
-        let (id, reserved) = enqueue_windmill_tool(ctx, call, tool, actions, index == 0).await?;
+        let job_id = ulid::Ulid::new().into();
+        let (id, reserved) =
+            enqueue_windmill_tool(ctx, call, tool, actions, job_id, index == 0).await?;
         job_ids.push(id);
         if reserved {
             let job = get_mini_pulled_job(ctx.db, &id)

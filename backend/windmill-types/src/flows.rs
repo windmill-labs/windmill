@@ -931,6 +931,10 @@ pub struct AgentTool {
     /// Caps the token of this tool's jobs, on top of the agent step's own restriction.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job_token_scopes: Option<Vec<String>>,
+    /// The agent is answered as soon as the tool's job starts, and gets its result in a later
+    /// message once it finishes. Only a flow module tool can run in the background.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub background: bool,
     pub value: ToolValue,
 }
 

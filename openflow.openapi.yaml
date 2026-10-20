@@ -1018,6 +1018,9 @@ components:
           items:
             type: string
           description: "Scopes the token of this tool's jobs is restricted to, on top of the agent step's own restriction: a tool can only narrow it."
+        background:
+          type: boolean
+          description: "Flowmodule tools only. The agent is answered as soon as the tool's job starts and keeps working; the job's result reaches it in a later message. If the agent finishes its answer first, it stops without holding a worker until the job is done, then continues with the result."
         value:
           $ref: '#/components/schemas/ToolValue'
       required:
@@ -1537,6 +1540,8 @@ components:
                   - type
         agent_actions_success:
           type: array
+          description: The outcome of each agent action, by position. null while a background tool call is still running.
           items:
             type: boolean
+            nullable: true
       required: [type]

@@ -6,6 +6,8 @@
 		title?: string | undefined
 		summary?: string | undefined
 		description?: string | undefined
+		/** An agent tool's `background` setting. */
+		background?: boolean
 		subtitle?: string | undefined
 		subtitleDocLink?: string | undefined
 		noEditor: boolean
@@ -22,6 +24,7 @@
 		title = undefined,
 		summary = $bindable(undefined),
 		description = $bindable(undefined),
+		background = $bindable(),
 		subtitle = undefined,
 		subtitleDocLink = undefined,
 		noEditor,
@@ -45,6 +48,7 @@
 				{title}
 				bind:summary
 				bind:description
+				bind:background
 				{subtitle}
 				{subtitleDocLink}
 				{flowModuleValue}
