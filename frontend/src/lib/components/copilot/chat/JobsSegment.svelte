@@ -6,7 +6,6 @@
 	import SessionStatusPopover from '$lib/components/sessions/SessionStatusPopover.svelte'
 	import { zIndexes } from '$lib/zIndexes'
 	import JobStatusIcon from '$lib/components/runs/JobStatusIcon.svelte'
-	import FlowStatusWaitingForEvents from '$lib/components/FlowStatusWaitingForEvents.svelte'
 	import { ChevronUp, Hourglass, ThumbsUp, TimerOff } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
 	import { JobService, type Job } from '$lib/gen'
@@ -244,6 +243,11 @@
 	let approvalOpen = $state(false)
 	let approvalLabel = $state('')
 	let approvalJob = $state<Job | undefined>(undefined)
+	// Loaded with the job, not with this segment: the approval form reaches the code editor, and
+	// the sessions page renders this segment on load.
+	let FlowStatusWaitingForEvents = $state.raw<
+		typeof import('$lib/components/FlowStatusWaitingForEvents.svelte').default | undefined
+	>(undefined)
 
 	async function openApproval(job: ChatJob) {
 		approvalLabel = job.label
@@ -252,12 +256,16 @@
 		try {
 			// The stored snapshot is trimmed; the approval form needs the full job
 			// (flow_status + raw_flow), so fetch it fresh.
-			const full = await JobService.getJob({
-				workspace: job.workspace,
-				id: job.jobId,
-				noLogs: true,
-				noCode: true
-			})
+			const [full, form] = await Promise.all([
+				JobService.getJob({
+					workspace: job.workspace,
+					id: job.jobId,
+					noLogs: true,
+					noCode: true
+				}),
+				import('$lib/components/FlowStatusWaitingForEvents.svelte')
+			])
+			FlowStatusWaitingForEvents = form.default
 			if (deriveChatJobStatus(full) === 'suspended') {
 				approvalJob = full
 			} else {
@@ -383,7 +391,7 @@
 			bind:open={approvalOpen}
 			minZIndex={zIndexes.monacoEditorSuggestions + 1}
 		>
-			{#if approvalJob}
+			{#if approvalJob && FlowStatusWaitingForEvents}
 				<FlowStatusWaitingForEvents
 					job={approvalJob}
 					workspaceId={approvalJob.workspace_id}
