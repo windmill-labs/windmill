@@ -844,7 +844,10 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			     has none: there the composer is one control among the page's. -->
 			{#if centreComposer}
 				<div class="flex-1 min-h-0 flex flex-col justify-end">
-					<div class={columnClass}>
+					<div
+						class={columnClass}
+						style:view-transition-name={viewTransitionNames ? 'greeting' : undefined}
+					>
 						<SessionGreeting />
 					</div>
 				</div>
