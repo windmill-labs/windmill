@@ -270,7 +270,6 @@
 	let args: Record<string, any> = $state(untrack(() => initialArgs)) // Test args input
 	let selectedInputTab: 'main' | 'preprocessor' | 'diagram' = $state('main')
 	let hasPreprocessor = $state(false)
-	let preserveOnBehalfOf = $state(false)
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
 	let isDeployer = $derived(actingUser?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
@@ -817,7 +816,6 @@
 					deployment_message: deploymentMsg || undefined,
 					on_behalf_of_email: script.on_behalf_of_email,
 					on_behalf_of: script.on_behalf_of,
-					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
 					assets: script.assets,
 					modules: script.modules,
 					labels: script.labels,
@@ -2140,7 +2138,6 @@
 														if (script.on_behalf_of_email) {
 															script.on_behalf_of_email = undefined
 															script.on_behalf_of = undefined
-															preserveOnBehalfOf = false
 															onBehalfOfChoice = undefined
 														} else {
 															script.on_behalf_of_email = $userStore?.email
@@ -2162,19 +2159,16 @@
 																script.on_behalf_of_email = $userStore?.email
 																script.on_behalf_of = myPermissionedAs
 																customOnBehalfOfEmail = ''
-																preserveOnBehalfOf = false
 															} else if (choice === 'target') {
 																// Keep the saved pair. A script that has no recorded principal yet
 																// sends the email alone and the backend derives one from it.
 																script.on_behalf_of_email = originalOnBehalfOfEmail
 																script.on_behalf_of = originalOnBehalfOfPermissionedAs
 																customOnBehalfOfEmail = ''
-																preserveOnBehalfOf = true
 															} else if (choice === 'custom' && details) {
 																script.on_behalf_of_email = details.email
 																script.on_behalf_of = details.permissionedAs
 																customOnBehalfOfEmail = details.email
-																preserveOnBehalfOf = true
 															}
 														}}
 														kind="script"

@@ -15,7 +15,7 @@
 		/** Current permissioned_as value from the trigger (e.g., 'u/admin') */
 		permissionedAs: string | undefined
 		/** Callback when user changes the permissioned_as selection */
-		onPermissionedAsChange: (permissionedAs: string | undefined, preserve: boolean) => void
+		onPermissionedAsChange: (permissionedAs: string | undefined) => void
 		/**
 		 * Item path (e.g. `f/prod/my_trigger`). When provided and the user is an
 		 * admin/wm_deployers member, the component fetches the parent folder's
@@ -89,7 +89,7 @@
 	)
 
 	// For non-admin users editing a trigger owned by someone else: signal that
-	// permissioned_as will change to the current user (backend ignores preserve for non-admins).
+	// permissioned_as will change to the current user (the backend gives non-admins their own).
 	// Only fires when there's an actual change (DB value differs from current user).
 	$effect(() => {
 		if (
@@ -98,7 +98,7 @@
 			permissionedAs !== undefined &&
 			permissionedAs !== myPermissionedAs
 		) {
-			onPermissionedAsChange(undefined, false)
+			onPermissionedAsChange(undefined)
 		}
 	})
 
@@ -107,13 +107,13 @@
 		onBehalfOfChoice = choice
 		if (choice === 'target') {
 			customPermissionedAs = undefined
-			onPermissionedAsChange(permissionedAs, true)
+			onPermissionedAsChange(permissionedAs)
 		} else if (choice === 'custom' && details) {
 			customPermissionedAs = details.permissionedAs
-			onPermissionedAsChange(details.permissionedAs, true)
+			onPermissionedAsChange(details.permissionedAs)
 		} else {
 			customPermissionedAs = undefined
-			onPermissionedAsChange(undefined, false)
+			onPermissionedAsChange(undefined)
 		}
 	}
 </script>

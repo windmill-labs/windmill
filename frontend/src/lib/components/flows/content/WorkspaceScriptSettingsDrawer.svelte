@@ -77,7 +77,7 @@
 			// parent_hash without auto_parent is an optimistic-concurrency guard: if the
 			// script was deployed elsewhere while the drawer was open, the save fails
 			// loudly (non-linear lineage) instead of silently reverting that deploy.
-			// preserve_on_behalf_of/skip_draft_deletion keep a settings-only save from
+			// The script's own on_behalf_of and skip_draft_deletion keep a settings-only save from
 			// hijacking the execution identity or discarding the author's code draft.
 			await ScriptService.createScript({
 				workspace: opWs!,
@@ -89,7 +89,6 @@
 					lock: script.lock,
 					concurrency_key: emptyString(script.concurrency_key) ? undefined : script.concurrency_key,
 					debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
-					preserve_on_behalf_of: true,
 					skip_draft_deletion: true
 				}
 			})

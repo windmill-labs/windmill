@@ -149,7 +149,6 @@
 	let deploymentLoading = $state(false)
 	let permissionedAs = $state<string | undefined>(undefined)
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
-	let preservePermissionedAs = $state(false)
 	let creatingSlot: boolean = $state(false)
 	let creatingPublication: boolean = $state(false)
 	let pg14: boolean = $derived(postgresVersion.startsWith('14'))
@@ -366,7 +365,6 @@
 			mode = defaultValues?.mode ?? 'enabled'
 			permissionedAs = undefined
 			selectedPermissionedAs = undefined
-			preservePermissionedAs = false
 			originalConfig = undefined
 			if (opts.draftConfig) await loadTriggerConfig(opts.draftConfig)
 		} finally {
@@ -395,8 +393,7 @@
 			error_handler_args,
 			retry,
 			mode,
-			permissioned_as: selectedPermissionedAs,
-			preserve_permissioned_as: preservePermissionedAs || undefined
+			permissioned_as: selectedPermissionedAs
 		}
 		return cfg
 	}
@@ -425,7 +422,6 @@
 		mode = cfg?.mode ?? 'enabled'
 		permissionedAs = cfg?.permissioned_as
 		selectedPermissionedAs = cfg?.permissioned_as
-		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
 	/**
@@ -714,9 +710,8 @@
 			{permissionedAs}
 			disabled={!can_write}
 			{path}
-			onPermissionedAsChange={(pa, preserve) => {
+			onPermissionedAsChange={(pa) => {
 				selectedPermissionedAs = pa
-				preservePermissionedAs = preserve
 			}}
 		/>
 		<div class="flex flex-col gap-4">

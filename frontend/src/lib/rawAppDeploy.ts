@@ -77,7 +77,6 @@ export async function deployRawAppValue({
 				deployment_message: deploymentMessage,
 				// custom_path changes require admin (see deployRawAppDraft).
 				custom_path: isAdmin ? (customPath ?? '') : undefined,
-				preserve_on_behalf_of: policy.on_behalf_of ? true : undefined,
 				allow_kind_change: allowKindChange || undefined
 			},
 			js: bundle.js,
@@ -142,11 +141,7 @@ export async function deployRawAppDraft(
 					summary,
 					policy,
 					deployment_message: deploymentMessage,
-					custom_path: isAdmin ? (value.custom_path ?? '') : undefined,
-					// The backend keeps the policy's on_behalf_of for an admin or deployer
-					// (`can_preserve_on_behalf_of`); the flag is for servers that keep it
-					// only when told to.
-					preserve_on_behalf_of: policy.on_behalf_of ? true : undefined
+					custom_path: isAdmin ? (value.custom_path ?? '') : undefined
 				},
 				js: bundle.js,
 				css: bundle.css
@@ -162,9 +157,7 @@ export async function deployRawAppDraft(
 					summary,
 					policy,
 					deployment_message: deploymentMessage,
-					custom_path: value.custom_path,
-					// Preserve the policy's on_behalf_of (see update branch above).
-					preserve_on_behalf_of: policy.on_behalf_of ? true : undefined
+					custom_path: value.custom_path
 				},
 				js: bundle.js,
 				css: bundle.css

@@ -196,10 +196,10 @@ function snapshotDraftValue<V>(value: V | undefined): V | undefined {
 
 /**
  * Top-level fields IGNORED when diffing a draft against its deployed
- * baseline. `permissioned_as` / `preserve_permissioned_as` are deploy
- * run-as directives, not draft content, and the editor round-trips them
- * asymmetrically (`preserve_…` rebuilt as `!!cfg.permissioned_as` on load
- * but `|| undefined` on build) — keeping them produces a phantom banner.
+ * baseline. `permissioned_as` is a deploy run-as directive, not draft
+ * content; `preserve_permissioned_as` is its legacy flag, which drafts
+ * saved by older versions still carry — keeping either produces a phantom
+ * banner.
  *
  * The rest are server-managed read-time metadata that ride along on the
  * loaded deployed payload but never appear in the editor's draft content, so

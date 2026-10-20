@@ -201,8 +201,7 @@ export async function saveHttpRouteFromCfg(
 		error_handler_args: routeCfg.error_handler_path ? routeCfg.error_handler_args : undefined,
 		retry: routeCfg.retry,
 		mode: routeCfg.mode,
-		permissioned_as: routeCfg.permissioned_as,
-		preserve_permissioned_as: routeCfg.preserve_permissioned_as
+		permissioned_as: routeCfg.permissioned_as
 	}
 	try {
 		if (edit) {

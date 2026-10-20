@@ -9224,11 +9224,7 @@ async function deployDraft(
 								value: rawAppValue,
 								summary,
 								policy,
-								deployment_message: deploymentMessage,
-								// The backend keeps the policy's on_behalf_of for an admin or deployer
-								// (`can_preserve_on_behalf_of`); the flag is for servers that keep it
-								// only when told to.
-								preserve_on_behalf_of: policy.on_behalf_of ? true : undefined
+								deployment_message: deploymentMessage
 							},
 							js: bundle.js,
 							css: bundle.css
@@ -9244,9 +9240,7 @@ async function deployDraft(
 								summary,
 								policy,
 								deployment_message: deploymentMessage,
-								custom_path: appValue.custom_path,
-								// Preserve the policy's on_behalf_of (see update branch above).
-								preserve_on_behalf_of: policy.on_behalf_of ? true : undefined
+								custom_path: appValue.custom_path
 							},
 							js: bundle.js,
 							css: bundle.css

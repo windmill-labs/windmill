@@ -127,7 +127,6 @@ export async function savePostgresTriggerFromCfg(
 			publication: config.publication,
 			mode: config.mode,
 			permissioned_as: config.permissioned_as,
-			preserve_permissioned_as: config.preserve_permissioned_as,
 			...errorHandlerAndRetries
 		}
 		if (edit) {

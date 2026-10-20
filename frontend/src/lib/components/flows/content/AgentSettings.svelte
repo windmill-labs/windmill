@@ -32,11 +32,7 @@
 	// As the deploy resolves it: the deployer, unless one who may keep another picked them.
 	let pickedRunAs = $state<AgentRunAs | undefined>(undefined)
 	let nextRunAs = $derived(
-		pickedRunAs?.preserve && pickedRunAs.permissionedAs
-			? pickedRunAs.permissionedAs
-			: $userStore?.username
-				? `u/${$userStore.username}`
-				: undefined
+		pickedRunAs?.permissionedAs ?? ($userStore?.username ? `u/${$userStore.username}` : undefined)
 	)
 	// Only a workspace that deploys somewhere has anything to keep an agent out of.
 	const deployTo = resource(
@@ -122,8 +118,8 @@
 						permissionedAs={draft.onBehalfOf}
 						path={draft.state.path}
 						disabled={readOnly}
-						onPermissionedAsChange={(permissionedAs, preserve) => {
-							pickedRunAs = { permissionedAs, preserve }
+						onPermissionedAsChange={(permissionedAs) => {
+							pickedRunAs = { permissionedAs }
 							onRunAsChange?.(pickedRunAs)
 						}}
 					/>

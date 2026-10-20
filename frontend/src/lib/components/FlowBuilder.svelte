@@ -192,8 +192,6 @@
 
 	let initialPathStore = writable(initialPath)
 
-	// For preserve_on_behalf_of feature
-	let preserveOnBehalfOf = writable(false)
 	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
 	let savedOnBehalfOfPermissionedAs = writable<string | undefined>(savedFlow?.on_behalf_of)
 
@@ -658,7 +656,6 @@
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
 						on_behalf_of: flow.on_behalf_of,
-						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels,
 						// Sent explicitly: an omitted field keeps the deployed value.
@@ -712,7 +709,6 @@
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
 						on_behalf_of: flow.on_behalf_of,
-						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels,
 						// Sent explicitly: an omitted field keeps the deployed value.
@@ -990,7 +986,6 @@
 		flowInputEditorState: flowInputEditorStateStore,
 		modulesTestStates,
 		outputPickerOpenFns,
-		preserveOnBehalfOf,
 		savedOnBehalfOfEmail,
 		savedOnBehalfOfPermissionedAs,
 		opWorkspace: () => opWorkspace

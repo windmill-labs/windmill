@@ -4685,10 +4685,9 @@ describe('global AI tools', () => {
 		expect(workspaceOff.message).not.toContain('identity provider')
 	})
 
-	it('forwards preserve_on_behalf_of when the deployed policy carries an on_behalf_of', async () => {
-		// A server that keeps the policy's on_behalf_of only with the flag would reset it
-		// to the deploying user; this chat path has no on-behalf-of selector, so it must
-		// preserve whatever the carried policy already holds.
+	it('sends back the on_behalf_of the deployed policy carries', async () => {
+		// A policy sent without it gives the app to the deploying user; this chat path has no
+		// on-behalf-of selector, so it must send back whatever the carried policy holds.
 		vi.mocked(AppService.existsApp).mockResolvedValueOnce(true)
 		seedBackendDraft(
 			'raw_app',
@@ -4713,7 +4712,9 @@ describe('global AI tools', () => {
 		expect(AppService.updateAppRaw).toHaveBeenCalledWith(
 			expect.objectContaining({
 				formData: expect.objectContaining({
-					app: expect.objectContaining({ preserve_on_behalf_of: true })
+					app: expect.objectContaining({
+						policy: expect.objectContaining({ on_behalf_of: 'u/alice' })
+					})
 				})
 			})
 		)

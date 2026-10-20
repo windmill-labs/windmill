@@ -108,7 +108,6 @@
 	let deploymentLoading = $state(false)
 	let permissionedAs = $state<string | undefined>(undefined)
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
-	let preservePermissionedAs = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
@@ -233,7 +232,6 @@
 			mode = defaultValues?.mode ?? 'enabled'
 			permissionedAs = undefined
 			selectedPermissionedAs = undefined
-			preservePermissionedAs = false
 			originalConfig = undefined
 			if (opts.draftConfig) await loadTriggerConfig(opts.draftConfig as Partial<EmailTrigger>)
 		} finally {
@@ -265,7 +263,6 @@
 		mode = cfg?.mode ?? 'enabled'
 		permissionedAs = cfg?.permissioned_as
 		selectedPermissionedAs = cfg?.permissioned_as
-		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
 	/**
@@ -343,8 +340,7 @@
 			error_handler_args,
 			retry,
 			mode,
-			permissioned_as: selectedPermissionedAs,
-			preserve_permissioned_as: preservePermissionedAs || undefined
+			permissioned_as: selectedPermissionedAs
 		}
 
 		return nCfg
@@ -418,9 +414,8 @@
 			{permissionedAs}
 			disabled={!can_write}
 			{path}
-			onPermissionedAsChange={(pa, preserve) => {
+			onPermissionedAsChange={(pa) => {
 				selectedPermissionedAs = pa
-				preservePermissionedAs = preserve
 			}}
 		/>
 		<div class="flex flex-col gap-12">

@@ -53,7 +53,6 @@
 		newEditedPath = $bindable(),
 		newPath,
 		hideSecretUrl = false,
-		preserveOnBehalfOf = $bindable(false),
 		labels = $bindable(),
 		rawApp = false,
 		newApp = false,
@@ -75,7 +74,6 @@
 		newEditedPath: string
 		newPath: string
 		hideSecretUrl?: boolean
-		preserveOnBehalfOf?: boolean
 		labels?: string[] | undefined
 		// Only raw apps are offered the `wm_coep` embedding hint: on a classic
 		// (low-code) app COEP breaks no-CORP cross-origin subresources (external
@@ -339,17 +337,14 @@
 							policy.on_behalf_of_email = $userStore?.email
 							policy.on_behalf_of = `u/${$userStore?.username}`
 							customOnBehalfOfEmail = ''
-							preserveOnBehalfOf = false
 						} else if (choice === 'target') {
 							policy.on_behalf_of_email = savedOnBehalfOfEmail
 							policy.on_behalf_of = savedOnBehalfOf
 							customOnBehalfOfEmail = ''
-							preserveOnBehalfOf = true
 						} else if (choice === 'custom' && details) {
 							policy.on_behalf_of_email = details.email
 							policy.on_behalf_of = details.permissionedAs
 							customOnBehalfOfEmail = details.email
-							preserveOnBehalfOf = true
 						}
 					}}
 					kind="app"

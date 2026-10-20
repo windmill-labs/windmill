@@ -494,10 +494,7 @@ export async function deployDraft(
 					...rest,
 					path: scriptPath,
 					parent_hash: r.hash,
-					deployment_message: deploymentMessage,
-					// Deploy the draft's on-behalf-of as-is: the backend keeps it for an admin or
-					// deployer (can_preserve_on_behalf_of); older servers only with this flag.
-					preserve_on_behalf_of: rest.on_behalf_of_email ? true : undefined
+					deployment_message: deploymentMessage
 				}
 			})
 			// Then deploy any draft trigger edits, so they aren't dropped with the draft.
@@ -524,9 +521,6 @@ export async function deployDraft(
 				visible_to_runner_only: d.visible_to_runner_only,
 				on_behalf_of_email: d.on_behalf_of_email,
 				on_behalf_of: d.on_behalf_of,
-				// Same as scripts and apps: older servers keep on_behalf_of_email only with
-				// this flag.
-				preserve_on_behalf_of: d.on_behalf_of_email ? true : undefined,
 				labels: d.labels,
 				job_token_scopes: d.job_token_scopes,
 				deployment_message: deploymentMessage
@@ -578,11 +572,9 @@ export async function deployDraft(
 				// for a never-deployed app parked at a `u/{user}/draft_{uuid}` storage key.
 				path: draftPath ?? r.path ?? path,
 				custom_path: isAdmin ? (r.custom_path ?? '') : undefined,
-				deployment_message: deploymentMessage,
 				// The draft carries no on-behalf-of selector — the policy comes straight
-				// from the deployed app. Its on_behalf_of is kept for an admin or deployer
-				// (older servers only with this flag, gated by can_preserve_on_behalf_of).
-				preserve_on_behalf_of: policy?.on_behalf_of ? true : undefined
+				// from the deployed app, whose on_behalf_of is kept for an admin or deployer.
+				deployment_message: deploymentMessage
 			}
 			// Same as flows: draft-only apps have no app row → create;
 			// drafts on a deployed app update it.
@@ -674,7 +666,6 @@ export async function deployDraft(
 					requestBody: {
 						path: d.path ?? path,
 						value: agentObo ? { ...(d.args ?? {}), on_behalf_of: agentObo } : (d.args ?? {}),
-						preserve_on_behalf_of: agentObo ? true : undefined,
 						description: d.description ?? '',
 						labels: d.labels,
 						ws_specific: d.wsSpecific

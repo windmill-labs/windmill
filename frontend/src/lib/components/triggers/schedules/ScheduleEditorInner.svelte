@@ -128,7 +128,6 @@
 	let saveDraftHandler: ((cfg: Record<string, any>) => boolean) | undefined = $state(undefined)
 	let permissionedAs = $state<string | undefined>(undefined)
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
-	let preservePermissionedAs = $state(false)
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const wsId = $derived($operatingWorkspace)
@@ -300,7 +299,6 @@
 			await setScheduleHandler(s)
 			permissionedAs = undefined
 			selectedPermissionedAs = undefined
-			preservePermissionedAs = false
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -408,7 +406,6 @@
 		tag = cfg.tag
 		permissionedAs = cfg.permissioned_as
 		selectedPermissionedAs = cfg.permissioned_as
-		preservePermissionedAs = !!cfg.permissioned_as
 
 		loading = false
 	}
@@ -484,8 +481,7 @@
 			paused_until: paused_until,
 			cron_version: cronVersion,
 			extra_perms: extraPerms,
-			permissioned_as: selectedPermissionedAs,
-			preserve_permissioned_as: preservePermissionedAs || undefined
+			permissioned_as: selectedPermissionedAs
 		}
 	}
 
@@ -593,9 +589,8 @@
 			{permissionedAs}
 			disabled={!can_write}
 			{path}
-			onPermissionedAsChange={(pa, preserve) => {
+			onPermissionedAsChange={(pa) => {
 				selectedPermissionedAs = pa
-				preservePermissionedAs = preserve
 			}}
 		/>
 		<div class="flex flex-col gap-8">

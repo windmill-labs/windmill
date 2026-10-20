@@ -257,7 +257,6 @@
 	let debugAppDrawerOpen = $state(false)
 	let lazyDrawerOpen = $state(false)
 	let deploymentMsg = $state('')
-	let preserveOnBehalfOf = $state(false)
 
 	// Top-bar responsive collapse — container width, not viewport.
 	let topbarWidth = $state(0)
@@ -296,7 +295,6 @@
 					policy,
 					deployment_message: deploymentMsg,
 					custom_path: customPath,
-					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
 					labels
 				}
 			})
@@ -416,7 +414,6 @@
 				// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
 				custom_path:
 					$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined,
-				preserve_on_behalf_of: preserveOnBehalfOf || undefined,
 				labels
 			}
 		})
@@ -958,7 +955,6 @@
 			bind:customPathError
 			bind:pathError
 			bind:newEditedPath
-			bind:preserveOnBehalfOf
 			bind:labels
 			hideSecretUrl={false}
 		/>

@@ -201,9 +201,8 @@ describe('applyRetarget', () => {
 		// the backend keeps whatever the trigger is set to.
 		expect(state.updatedTriggers[0].body).not.toHaveProperty('enabled')
 		// Nor run it as whoever picked the credential: a trigger states its identity as
-		// `permissioned_as`, which the backend keeps only when told to preserve it.
+		// `permissioned_as`, which has to be sent back for the backend to keep it.
 		expect(state.updatedTriggers[0].body.permissioned_as).toBe('u/service_account')
-		expect(state.updatedTriggers[0].body.preserve_permissioned_as).toBe(true)
 		expect(state.deletedResources).toEqual([FROM])
 	})
 
