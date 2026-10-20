@@ -249,15 +249,19 @@
 		})
 	})
 
-	// Only a turn whose agent called the approval tool reads its flow's status. The built-in tool
-	// is `request_approval`, suffixed when a flow tool already holds that name.
-	const approvalJobId = $derived.by(() => {
-		const { runningJobId, messages } = chatHost.state
-		const asked = messages.some(
-			(m) => m.pending && m.tool?.status === 'running' && m.tool.name.startsWith('request_approval')
-		)
-		return asked ? runningJobId : undefined
-	})
+	// Only a flow that can ask for approval reads its running turn's status. Read off the flow,
+	// not the stream: an agent that does not stream sends no tool call. A linked agent's tools
+	// are not loaded here, so it counts; only a top-level step's request is answered from the chat.
+	const mayRequestApproval = $derived(
+		(flowModules ?? []).some((module) => {
+			const value = module.value as any
+			return (
+				value?.type === 'aiagent' &&
+				(!!value.agent || value.tools?.some((tool: any) => tool?.value?.tool_type === 'approval'))
+			)
+		})
+	)
+	const approvalJobId = $derived(mayRequestApproval ? chatHost.state.runningJobId : undefined)
 
 	// Older pages load when the reader reaches the top; the viewport stays where it was.
 	let scrollElement = $state<HTMLDivElement | undefined>(undefined)
