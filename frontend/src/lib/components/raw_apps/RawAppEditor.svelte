@@ -543,7 +543,9 @@ addEventListener('message', function (e) {
 			call: "createRoot(document.getElementById('root')!).render(<App />)"
 		}
 	})
-	let logsCollapsed = $state(untrack(() => compact))
+	// Folded when the editor opens on the preview alone, where the log matters only on a
+	// failed build (the Preview tab turns red then); shown beside the code in split view.
+	let logsCollapsed = $state(untrack(() => !defaultSplitWithPreview || compact))
 	let logsDiv: HTMLDivElement | undefined = $state(undefined)
 	$effect(() => {
 		if (logsDiv && logs && !logsCollapsed) {
