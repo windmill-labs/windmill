@@ -28,8 +28,8 @@ pub struct McpScopeConfig {
     /// `mcp:read_only`: reads alone, as the token's read-only flag does. An OAuth grant
     /// carries scopes and no flag, so this is how a sign-in asks for read-only access.
     pub read_only: bool,
-    /// Set by the server, not by a scope: on `/api/mcp` a selection is its scripts and flows
-    /// as tools and nothing else, the API being the full toolset's job there.
+    /// No endpoint tools on any URL: set by `mcp:no_endpoints`, which every token the access
+    /// picker mints below full access carries, and by the server on `/api/mcp` for a selection.
     pub no_endpoints: bool,
 }
 
@@ -97,6 +97,9 @@ impl McpScopeConfig {
         if self.read_run && !(requested.read_run || requested.read_only) {
             return false;
         }
+        if self.no_endpoints && !requested.no_endpoints {
+            return false;
+        }
         if self.all {
             return true;
         }
@@ -155,6 +158,10 @@ fn pattern_covers(caller: &str, requested: &str) -> bool {
 }
 
 /// Parse MCP scopes from token scope strings
+/// Withholds the endpoint tools on every URL, so a token reaches no more than its access
+/// level says.
+pub const NO_ENDPOINTS_SCOPE: &str = "mcp:no_endpoints";
+
 pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, String> {
     let mut config = McpScopeConfig::default();
 
@@ -216,6 +223,11 @@ pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, String> {
 
         if scope == "mcp:read_only" {
             config.read_only = true;
+            continue;
+        }
+
+        if scope == NO_ENDPOINTS_SCOPE {
+            config.no_endpoints = true;
             continue;
         }
 
@@ -478,5 +490,14 @@ mod tests {
         assert!(read_run.contains(&cfg(&["mcp:all", "mcp:read_only"])));
         let read_only = cfg(&["mcp:all", "mcp:read_only"]);
         assert!(!read_only.contains(&cfg(&["mcp:all", "mcp:read_run"])));
+    }
+
+    #[test]
+    fn test_no_endpoints_scope_only_narrows() {
+        let fenced = cfg(&["mcp:favorites", "mcp:no_endpoints"]);
+        assert!(fenced.no_endpoints);
+        assert!(fenced.contains(&cfg(&["mcp:favorites", "mcp:no_endpoints"])));
+        assert!(!fenced.contains(&cfg(&["mcp:favorites"])));
+        assert!(cfg(&["mcp:all"]).contains(&fenced));
     }
 }

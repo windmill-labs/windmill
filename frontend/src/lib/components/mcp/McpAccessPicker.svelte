@@ -1,15 +1,20 @@
 <script lang="ts" module>
 	export type McpAccess = 'read' | 'read_run' | 'full' | 'selected'
 
+	/** Withholds the API endpoint tools the per-workspace URLs would otherwise add, so a
+	 *  token reaches no more there than its access level says. */
+	export const NO_ENDPOINTS = 'mcp:no_endpoints'
+
 	const ACCESS_SCOPES: Record<Exclude<McpAccess, 'selected'>, string[]> = {
-		read: ['mcp:all', 'mcp:read_only'],
-		read_run: ['mcp:all', 'mcp:read_run'],
+		read: ['mcp:all', 'mcp:read_only', NO_ENDPOINTS],
+		read_run: ['mcp:all', 'mcp:read_run', NO_ENDPOINTS],
 		full: ['mcp:all']
 	}
 
 	/** The access a token's MCP scopes give: `mcp:all` and how it is narrowed, or else a
 	 *  selection of scripts, flows and endpoints. */
 	export function mcpAccessOf(scopes: string[]): McpAccess {
+		scopes = scopes.filter((s) => s !== NO_ENDPOINTS)
 		if (!scopes.includes('mcp:all')) return scopes.length > 0 ? 'selected' : 'full'
 		if (scopes.includes('mcp:read_only')) return 'read'
 		if (scopes.includes('mcp:read_run')) return 'read_run'
@@ -44,13 +49,16 @@
 
 	const initialAccess = mcpAccessOf(initialScopes)
 	access = initialAccess
-	const initialSelection = initialAccess === 'selected' ? initialScopes.join(' ') : undefined
+	const initialSelection =
+		initialAccess === 'selected'
+			? initialScopes.filter((s) => s !== NO_ENDPOINTS).join(' ')
+			: undefined
 	let selection = $state(initialSelection ?? 'mcp:favorites')
 
 	$effect(() => {
 		scopes =
 			access === 'selected' || access === undefined
-				? selection.split(' ').filter((s) => s.length > 0)
+				? [...selection.split(' ').filter((s) => s.length > 0 && s !== NO_ENDPOINTS), NO_ENDPOINTS]
 				: ACCESS_SCOPES[access]
 	})
 
@@ -85,7 +93,7 @@
 					{item}
 					value="read_run"
 					label="Read and run"
-					tooltip="Explore, and run deployed scripts and flows. Nothing is changed."
+					tooltip="Explore, and run deployed scripts and flows. The client changes nothing itself; the scripts and flows it runs can."
 				/>
 				<ToggleButton
 					{item}
