@@ -663,7 +663,7 @@ pub async fn validate_operator_composed_flow(
         }
     }
 
-    if refs.runnables.is_empty() && refs.pinned_scripts.is_empty() {
+    if refs.runnables.is_empty() && refs.pinned_scripts.is_empty() && refs.agents.is_empty() {
         return Ok(());
     }
     // A flow can step through the same script thirty times; this runs on every write, preview and
@@ -720,8 +720,55 @@ pub async fn validate_operator_composed_flow(
             )));
         }
     }
+    refs.agents.sort();
+    refs.agents.dedup();
+    for path in &refs.agents {
+        let readable = sqlx::query_scalar!(
+            "SELECT EXISTS(SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2 AND resource_type = 'ai_agent')",
+            w_id,
+            path,
+        )
+        .fetch_one(&mut *tx)
+        .await?
+        .unwrap_or(false);
+        if !readable {
+            return Err(Error::PermissionDenied(format!(
+                "Agent {path} does not exist or is not readable by you"
+            )));
+        }
+    }
     tx.commit().await?;
     Ok(())
+}
+
+/// What an operator must pass to store an `ai_agent` resource, deployed or as a draft. Its tools
+/// run in the agent's own runs and in every flow step linking it, so it is held to the rules of
+/// a composed flow, under the same right.
+pub async fn validate_operator_agent(
+    value: &serde_json::Value,
+    authed: &ApiAuthed,
+    db: &DB,
+    user_db: &UserDB,
+    w_id: &str,
+) -> error::Result<()> {
+    check_operator_can_build(db, w_id, true, BuilderKind::Flows, "write AI agents").await?;
+    let tools = value
+        .get("tools")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!([]));
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({"modules": [{
+        "id": "agent",
+        "value": {"type": "aiagent", "input_transforms": {}, "tools": tools}
+    }]}))
+    .map_err(|e| Error::BadRequest(format!("Invalid agent tools: {e}")))?;
+    validate_operator_composed_flow(&flow, &None, authed, db, user_db, w_id)
+        .await
+        .map_err(|e| match e {
+            Error::PermissionDenied(msg) => {
+                Error::PermissionDenied(msg.replace("edit this flow", "edit this agent"))
+            }
+            e => e,
+        })
 }
 
 async fn create_flow(

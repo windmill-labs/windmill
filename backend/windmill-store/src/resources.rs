@@ -1296,7 +1296,7 @@ async fn create_resource(
     )
     .await?;
 
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = user_db.clone().begin(&authed).await?;
 
     let update_if_exists = q.update_if_exists.unwrap_or(false);
     if !update_if_exists {
@@ -1309,6 +1309,7 @@ async fn create_resource(
             &mut tx,
             &authed,
             &db,
+            &user_db,
             &w_id,
             &resource.path,
             &res_value,
@@ -2180,7 +2181,7 @@ async fn update_resource(
     )
     .await?;
 
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = user_db.clone().begin(&authed).await?;
 
     if let Some(npath) = ns.path.clone() {
         if npath != path {
@@ -2294,6 +2295,7 @@ async fn update_resource(
                 &mut tx,
                 &authed,
                 &db,
+                &user_db,
                 &w_id,
                 ns.path.as_deref().unwrap_or(path),
                 &nvalue,
@@ -2481,16 +2483,24 @@ async fn update_resource_value(
 /// `run_on_behalf_of` is set: then the writer's own, unless one allowed to keep the one the value
 /// names asks to, and a folder's default for a new agent. The value is written by anyone who can
 /// write the agent, so the key it arrives with is only a request.
+///
+/// Every write of an agent passes here, so this is also where an operator's is held to the
+/// composed-flow rules: a flow step linking the agent runs its tools unchecked.
 async fn resolve_agent_on_behalf_of(
     tx: &mut Transaction<'_, Postgres>,
     authed: &ApiAuthed,
     db: &DB,
+    user_db: &UserDB,
     w_id: &str,
     path: &str,
     value: &mut serde_json::Value,
     preserve: bool,
     created: bool,
 ) -> Result<()> {
+    if authed.is_operator {
+        windmill_api_flows::flows::validate_operator_agent(value, authed, db, user_db, w_id)
+            .await?;
+    }
     let Some(obj) = value.as_object_mut() else {
         return Ok(());
     };
@@ -2569,6 +2579,7 @@ async fn resolve_agent_raw_value(
     tx: &mut Transaction<'_, Postgres>,
     authed: &ApiAuthed,
     db: &DB,
+    user_db: &UserDB,
     w_id: &str,
     path: &str,
     value: &RawValue,
@@ -2576,7 +2587,18 @@ async fn resolve_agent_raw_value(
     created: bool,
 ) -> Result<Box<RawValue>> {
     let mut parsed: serde_json::Value = serde_json::from_str(value.get())?;
-    resolve_agent_on_behalf_of(tx, authed, db, w_id, path, &mut parsed, preserve, created).await?;
+    resolve_agent_on_behalf_of(
+        tx,
+        authed,
+        db,
+        user_db,
+        w_id,
+        path,
+        &mut parsed,
+        preserve,
+        created,
+    )
+    .await?;
     Ok(serde_json::value::to_raw_value(&parsed)?)
 }
 
@@ -2619,7 +2641,8 @@ async fn set_resource_value(
         .fetch_optional(&mut *tx)
         .await?;
         if resource_type.as_deref() == Some("ai_agent") {
-            resolve_agent_on_behalf_of(&mut tx, authed, db, w_id, path, v, false, false).await?;
+            resolve_agent_on_behalf_of(&mut tx, authed, db, user_db, w_id, path, v, false, false)
+                .await?;
         }
     }
 

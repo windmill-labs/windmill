@@ -1,8 +1,8 @@
 # Operator builder rights
 
 Two workspace settings, `operator_settings.builder_flows` and `operator_settings.builder_apps`,
-that let every operator of that workspace compose flows and full-code apps out of runnables that
-already exist. Neither lets them author backend code or run arbitrary code on a worker, the
+that let every operator of that workspace compose flows (and AI agents, under the flow right) and
+full-code apps out of runnables that already exist. Neither lets them author backend code or run arbitrary code on a worker, the
 boundary the operator role draws. The app right does let them write the app's frontend code,
 which runs in the viewer's browser and is why that right rests on sandbox isolation.
 
@@ -32,12 +32,13 @@ anything that carries code. Three of its rules exist because the obvious walk mi
   past it.
 - **An AI agent step's `tools`.** `ToolValue::FlowModule` wraps a whole `FlowModuleValue`, so a
   tool can be a raw script.
-- **An AI agent step's `agent` link.** A linked agent resolves its tools from an `ai_agent`
-  resource at run time, and operators may write resources, so the tool list is outside this check
-  and can be swapped for a raw script after the flow is approved.
-
 It also returns what a value-only walk cannot authorize, for the caller to check against its own
 permissions:
+
+- **every agent a step links**. A linked agent resolves its tools from its `ai_agent` resource at
+  run time, outside this walk, so the link is allowed only to an agent the builder can read. That
+  is safe because of the agent rule below: an agent's tools are either a developer's code or
+  passed this same check when an operator saved them.
 
 - **the worker tags the steps pin**, or a builder routes a job onto a privileged worker group;
 - **every runnable a step references**. `script_to_payload` resolves a step's path with the root DB
@@ -60,6 +61,17 @@ Call it on every write **and** every preview: `run_preview_flow_job` and
 `push_flow_dependencies_job` both take a request-supplied flow value, so leaving either out makes
 it the way to run what the write path refuses. A flow draft goes through `validate_operator_flow`
 too: a developer who loads a builder's draft in the editor runs its code as themselves.
+
+## Agents
+
+An agent is an `ai_agent` resource, and operators may write resources, so `builder_flows` is also
+the right to build agents. Without it an operator writes no agent at all. Its tools run in the
+agent's own runs, which take only inputs and run what is stored, and in every flow step linking
+it. So `validate_operator_agent` holds an operator's agent to the composed-flow rules by checking
+its tools as the tools of a one-step flow. It is called from `resolve_agent_on_behalf_of`, which
+every write of an agent's value passes through: create, update, retype, update-value and version
+restore. An operator's resource draft is checked the same way when it is an agent, by its own type
+or by the deployed row's. A new route that writes an agent's value must go through that function.
 
 The same reasoning applies to a builder-authored app, with one extra step. `execute_component`
 resolves the runnable it runs on the root handle, so `validate_operator_composed_app` checks every

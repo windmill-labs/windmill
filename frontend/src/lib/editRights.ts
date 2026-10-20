@@ -38,9 +38,9 @@ type OperatorRights =
  * in a workspace with these `operator_settings`: the role half of every check against the item
  * handlers. Saving a draft is `roleCanDraft`'s rule, and which items they may write is
  * `canEditItem`'s other half. For an operator:
- * - code (scripts, low-code apps, agents, pipelines): never;
- * - flows and full-code apps: where the workspace grants `builder_flows` / `builder_apps`
- *   (`check_operator_can_build`);
+ * - code (scripts, low-code apps, pipelines): never;
+ * - flows and agents, full-code apps: where the workspace grants `builder_flows` /
+ *   `builder_apps` (`check_operator_can_build`);
  * - schedules and triggers: unless the workspace set `manage_*` to false — a withdrawable
  *   right, so an unset key grants it (docs/operator-write-rights.md);
  * - resources, variables and groups: always, their permissions alone decide.
@@ -53,6 +53,7 @@ export function roleCanAuthor(
 	if (!user?.operator) return true
 	switch (kind) {
 		case 'flow':
+		case 'agent':
 		case 'raw_app':
 			return builderGrants(kind, operatorSettings)
 		case 'schedule':
@@ -72,8 +73,9 @@ export function roleCanAuthor(
  * Whether the user may save drafts of `kind` — what every session editor and the chat's draft
  * tools write. Mirrors drafts.rs `require_can_write_path`, which differs from the item handlers
  * both ways: it admits an admin before its operator branch, and an operator drafts only the kinds
- * they could deploy — resources and variables always, flows and full-code apps under their builder
- * right, schedules and triggers under the manage rights.
+ * they could deploy — resources and variables always, flows, agents and full-code apps under their
+ * builder right, schedules and triggers under the manage rights. An agent draft is a resource
+ * draft, which the server checks as an agent's deploy (drafts.rs).
  */
 export function roleCanDraft(
 	kind: EditKind,
@@ -83,6 +85,7 @@ export function roleCanDraft(
 	if (user?.is_admin || user?.is_super_admin || !user?.operator) return true
 	switch (kind) {
 		case 'flow':
+		case 'agent':
 		case 'raw_app':
 			return builderGrants(kind, operatorSettings)
 		case 'schedule':
@@ -98,7 +101,8 @@ export function roleCanDraft(
 
 function builderGrants(kind: EditKind, operatorSettings: OperatorRights): boolean {
 	return (
-		(kind === 'flow' && operatorSettings?.builder_flows === true) ||
+		// An agent's tools are checked as a composed flow's steps are, under the same right.
+		((kind === 'flow' || kind === 'agent') && operatorSettings?.builder_flows === true) ||
 		(kind === 'raw_app' && operatorSettings?.builder_apps === true)
 	)
 }

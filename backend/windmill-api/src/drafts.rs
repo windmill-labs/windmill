@@ -495,6 +495,43 @@ async fn update_draft(
         }
     }
 
+    // An agent draft is held to the rules of its deploy, as a flow draft is: a developer who
+    // tests it in the agent editor runs its tools as themselves.
+    if authed.is_operator && kind == UserDraftItemKind::Resource {
+        if let Some(value) = &req.value {
+            #[derive(Deserialize)]
+            struct ResourceDraft {
+                #[serde(default)]
+                args: serde_json::Value,
+                resource_type: Option<String>,
+            }
+            let draft: ResourceDraft = serde_json::from_str(&strip_json_nul(value.0.get()))
+                .map_err(|e| Error::BadRequest(format!("Invalid resource draft: {e}")))?;
+            let is_agent = match draft.resource_type.as_deref() {
+                Some(t) => t == "ai_agent",
+                // A draft of a deployed resource may leave its type to the deployed row.
+                None => sqlx::query_scalar!(
+                    "SELECT EXISTS(SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2 AND resource_type = 'ai_agent')",
+                    &w_id,
+                    path,
+                )
+                .fetch_one(&db)
+                .await?
+                .unwrap_or(false),
+            };
+            if is_agent {
+                windmill_api_flows::flows::validate_operator_agent(
+                    &draft.args,
+                    &authed,
+                    &db,
+                    &user_db,
+                    &w_id,
+                )
+                .await?;
+            }
+        }
+    }
+
     // A raw-app draft carries the app value and its policy side by side.
     if authed.is_operator && kind == UserDraftItemKind::RawApp {
         if let Some(value) = &req.value {

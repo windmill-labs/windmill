@@ -252,8 +252,8 @@ pub async fn resolve_modules(
 /// modules, every branch, and the `tools` of an AI agent step.
 ///
 /// Returns what the caller still has to authorize against its own permissions, which this
-/// value-only walk cannot: every runnable the steps reference, the worker tags they pin, and the
-/// `(path, hash)` pairs of version-pinned steps. See [`ComposedFlowRefs`] for why each one is not
+/// value-only walk cannot: every runnable and linked agent the steps reference, the worker tags
+/// they pin, and the `(path, hash)` pairs of version-pinned steps. See [`ComposedFlowRefs`] for why each one is not
 /// already settled by the walk.
 pub fn check_flow_is_composition_only(value: &FlowValue) -> Result<ComposedFlowRefs, Error> {
     let mut refs = ComposedFlowRefs::default();
@@ -276,6 +276,8 @@ pub struct ComposedFlowRefs {
     pub runnables: Vec<(bool, String)>,
     /// Version-pinned script steps, as `(path, hash)`.
     pub pinned_scripts: Vec<(String, ScriptHash)>,
+    /// The `ai_agent` resource paths that agent steps link.
+    pub agents: Vec<String>,
 }
 
 fn check_module_is_composition_only(
@@ -344,11 +346,14 @@ fn check_module_value_is_composition_only(
             check_branches_are_composition_only(branches, id, refs)?
         }
         FlowModuleValue::AIAgent { tools, tag, agent, .. } => {
-            // A linked agent resolves its tools from an `ai_agent` resource at run time, and
-            // operators may write resources, so those tools are outside this check: the list can
-            // be swapped for a raw script after the flow is deployed.
-            if agent.is_some() {
-                return refuse("links an AI agent resource, whose tools live outside the flow");
+            // A linked agent's tools are resolved from its resource at run time, outside this
+            // walk. That is safe only because an operator's every write of an agent passes this
+            // same check (`validate_operator_agent`), as a developer's agent is code they wrote.
+            if let Some(agent) = agent {
+                let path = agent
+                    .trim_start_matches("$res:")
+                    .trim_start_matches("res://");
+                refs.agents.push(path.to_string());
             }
             push_tag(tag);
             for tool in tools {
@@ -477,15 +482,21 @@ mod tests {
 
     #[test]
     fn composition_check_rejects_code_reachable_through_an_ai_agent() {
-        for value in [
-            serde_json::json!({"modules": [{"id": "a", "value": {"type": "aiagent",
-                "input_transforms": {}, "tools": [{"id": "t", "value": {"tool_type": "flowmodule",
-                    "type": "rawscript", "content": "x", "language": "bun"}}]}}]}),
-            serde_json::json!({"modules": [{"id": "a", "value": {"type": "aiagent",
-                "input_transforms": {}, "tools": [], "agent": "$res:f/x/agent"}}]}),
-        ] {
-            assert!(check_flow_is_composition_only(&flow(value)).is_err());
-        }
+        let value = serde_json::json!({"modules": [{"id": "a", "value": {"type": "aiagent",
+            "input_transforms": {}, "tools": [{"id": "t", "value": {"tool_type": "flowmodule",
+                "type": "rawscript", "content": "x", "language": "bun"}}]}}]});
+        assert!(check_flow_is_composition_only(&flow(value)).is_err());
+    }
+
+    /// A builder may link only an agent they can read, which the walk cannot know: it has to
+    /// surface the path for the caller to check.
+    #[test]
+    fn composition_check_reports_linked_agents() {
+        let refs = check_flow_is_composition_only(&flow(serde_json::json!({"modules": [{
+            "id": "a", "value": {"type": "aiagent", "input_transforms": {}, "tools": [],
+                "agent": "$res:f/x/agent"}}]})))
+        .unwrap();
+        assert_eq!(refs.agents, vec!["f/x/agent".to_string()]);
     }
 
     #[test]

@@ -21,9 +21,12 @@ function user(overrides: Partial<UserExt>): UserExt {
 }
 
 describe('edit rights', () => {
-	it('lets a builder operator author flows and nothing else', () => {
+	it('lets a builder operator author flows and agents and nothing else', () => {
 		const builder = { builder_flows: true }
 		expect(roleCanAuthor('flow', user({}), builder)).toBe(true)
+		expect(roleCanAuthor('agent', user({}), builder)).toBe(true)
+		expect(roleCanDraft('agent', user({}), builder)).toBe(true)
+		expect(roleCanAuthor('agent', user({}), { builder_apps: true })).toBe(false)
 		expect(roleCanAuthor('script', user({}), builder)).toBe(false)
 		expect(roleCanAuthor('flow', user({}), undefined)).toBe(false)
 		expect(roleCanDraft('raw_app', user({}), builder)).toBe(false)

@@ -313,5 +313,103 @@ async fn test_operator_builder_flows_boundary(db: Pool<Postgres>) -> anyhow::Res
         resp.text().await?
     );
 
+    check_builder_agents(&db, &api, &c).await
+}
+
+/// An agent is a resource an operator may otherwise write, and its stored tools run as they are,
+/// so only the flow right opens it, and every write of one, drafts included, is checked like a
+/// composed flow. Part of the boundary test: the right is read through a process-global cache
+/// keyed by workspace id, which a second test in this binary would race.
+async fn check_builder_agents(
+    db: &Pool<Postgres>,
+    api: &str,
+    c: &reqwest::Client,
+) -> anyhow::Result<()> {
+    let tool = |mut value: serde_json::Value| {
+        value["tool_type"] = json!("flowmodule");
+        value["input_transforms"] = json!({});
+        json!({"tools": [{"id": "t", "summary": "t", "value": value}]})
+    };
+    let composed = tool(json!({"type": "script", "path": "u/operator/some_script"}));
+    let inline = tool(json!({"type": "rawscript", "content": "echo x", "language": "bash"}));
+    let agent = |path: &str, value: &serde_json::Value| json!({"path": path, "resource_type": "ai_agent", "value": value});
+
+    set_builder(db, false).await?;
+    let resp = c
+        .post(format!("{api}/resources/create"))
+        .json(&agent("u/operator/a1", &composed))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "an operator without the builder right must not write an agent"
+    );
+
+    set_builder(db, true).await?;
+    let resp = c
+        .post(format!("{api}/resources/create"))
+        .json(&agent("u/operator/a1", &inline))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "a builder must not save an agent with an inline tool"
+    );
+    let resp = c
+        .post(format!("{api}/resources/create"))
+        .json(&agent("u/operator/a1", &composed))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    let resp = c
+        .post(format!("{api}/resources/update_value/u/operator/a1"))
+        .json(&json!({"value": inline}))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "a builder must not swap an agent's tools for inline code"
+    );
+    // A draft of a deployed agent may leave its type to the deployed row.
+    let resp = c
+        .post(format!("{api}/drafts/update/resource/u/operator/a1"))
+        .json(&json!({"value": {"args": inline, "description": ""}, "force": true}))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "a builder must not draft an agent with an inline tool"
+    );
+
+    let linking = |path: &str, agent: &str| {
+        json!({"path": path, "summary": "", "description": "", "schema": {},
+            "value": {"modules": [{"id": "a", "value": {"type": "aiagent",
+                "input_transforms": {}, "tools": [], "agent": format!("$res:{agent}")}}]}})
+    };
+    let resp = c
+        .post(format!("{api}/flows/create"))
+        .json(&linking("u/operator/agent_f1", "u/operator/a1"))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "a builder must be able to link a readable agent: {}",
+        resp.text().await?
+    );
+    let resp = c
+        .post(format!("{api}/flows/create"))
+        .json(&linking("u/operator/agent_f2", "u/alice/agent"))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "a builder must not link an agent it cannot read"
+    );
+
     Ok(())
 }

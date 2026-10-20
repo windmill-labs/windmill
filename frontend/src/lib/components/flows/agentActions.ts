@@ -25,7 +25,7 @@ export function agentMenuItems(agent: {
 	/** Never deployed: no resource yet to hold permissions or to deploy onward. */
 	draftOnly?: boolean
 	wsSpecific?: boolean
-	/** Hides what an operator has no page for, as on a flow's menu. */
+	/** Hides what an operator has no page or right for, as on a flow's menu. */
 	operator?: boolean
 	/** Undefined until loaded, when nothing is offered for deploy. */
 	deployUiSettings: WorkspaceDeployUISettings | undefined
@@ -35,6 +35,7 @@ export function agentMenuItems(agent: {
 	onDelete: (event?: MouseEvent) => void
 }): Item[] {
 	const deployable =
+		!agent.operator &&
 		!agent.wsSpecific &&
 		!agent.draftOnly &&
 		isDeployable('resource', agent.path, agent.deployUiSettings)
