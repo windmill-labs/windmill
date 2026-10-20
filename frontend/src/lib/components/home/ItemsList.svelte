@@ -2014,7 +2014,7 @@
 			</div>
 			<!-- Its own element, not the chips' border: it stays under the controls once the chips
 			     have scrolled away. -->
-			<div class="sticky z-10 border-b sm:-mx-4" style:top="{toolbarHeight}px"></div>
+			<div class="sticky z-10 border-b" style:top="{toolbarHeight}px"></div>
 		{/if}
 		{#if filteredItems?.length == 0 && !workspaceEmpty}
 			<div class="mt-10"></div>

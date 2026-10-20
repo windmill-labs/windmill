@@ -875,7 +875,9 @@
 			}}
 			{placeholder}
 			class={twMerge(
-				'textarea-input resize-none caret-black dark:caret-white overflow-clip',
+				// `no-default-style`: the global input rule paints `surface-input` with `!important`
+				// and outranks `!bg-transparent`, so the field showed as a band on a hero box.
+				'textarea-input no-default-style block resize-none caret-black dark:caret-white overflow-clip',
 				COMPOSER_FIELD_RESET,
 				CHAT_INPUT_PADDING,
 				className

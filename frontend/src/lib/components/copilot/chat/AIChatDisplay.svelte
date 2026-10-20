@@ -1389,6 +1389,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					<div class="pt-2">
 						<ComposerSuggestions
 							suggestions={starter.suggestions}
+							wrap={starter.where === 'session'}
 							onPick={(prompt) => aiChatInput?.setText(prompt)}
 						/>
 					</div>

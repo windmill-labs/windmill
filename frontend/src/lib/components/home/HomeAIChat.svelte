@@ -201,6 +201,7 @@
 				<DropdownV2
 					placement="bottom-end"
 					size="sm"
+					customWidth={240}
 					items={[
 						// The menu shows here only while the bar is narrow, which includes every phone,
 						// where the composer has no room for its own unpin button.
