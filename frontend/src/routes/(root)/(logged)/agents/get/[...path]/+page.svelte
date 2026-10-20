@@ -49,7 +49,9 @@
 	let deleteOpen = $state(false)
 	let evalsModal: AgentEvalsModal | undefined = $state(undefined)
 	let clientWidth = $state(window.innerWidth)
-	let mobileTab = $state('agent')
+	let pickedMobileTab = $state('agent')
+	// The page is reused across agents, and an agent without managed memory has no Slack tab.
+	let mobileTab = $derived(pickedMobileTab === 'slack' && !chatAvailable ? 'api' : pickedMobileTab)
 	let wide = $derived(clientWidth >= 1024)
 
 	const slack = resource(
@@ -214,7 +216,10 @@
 	     unmounting the host destroys the chat and any turn in flight, so the agent pane keeps one
 	     parent at every width. -->
 	{#if !wide && ws && config}
-		<Tabs bind:selected={mobileTab} wrapperClass="flex-none no-scrollbar">
+		<Tabs
+			bind:selected={() => mobileTab, (t) => (pickedMobileTab = t)}
+			wrapperClass="flex-none no-scrollbar"
+		>
 			<Tab value="agent" label={testPane?.mode === 'chat' ? 'Chat' : 'Run form'} />
 			<Tab value="api" label="API" />
 			{#if chatAvailable}
