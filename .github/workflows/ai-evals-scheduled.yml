@@ -105,14 +105,17 @@ jobs:
           SQLX_OFFLINE: true
           CARGO_BUILD_JOBS: 12
           RUSTFLAGS: ""
-        # The global suite's hub cases search through the hub embeddings index.
-        run: cargo build --features quickjs,embedding
+        # The global suite's hub cases search the hub embeddings index; its trigger cases
+        # write HTTP triggers, whose routes the feature mounts.
+        run: cargo build --features quickjs,embedding,http_trigger
 
       - name: Start Windmill
         working-directory: ./backend
         env:
           DATABASE_URL: postgres://postgres:changeme@localhost:5432/windmill
           RUST_LOG: info
+          # Each global case seeds resource types and waits until the search indexes them.
+          RESOURCE_TYPE_EMBEDDINGS_CHECK_INTERVAL_SECS: "2"
         run: |
           mkdir -p ../ai_evals/logs
           ./target/debug/windmill > ../ai_evals/logs/windmill.log 2>&1 &

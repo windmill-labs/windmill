@@ -36,6 +36,7 @@ const DATATABLE_PG_URL =
   process.env.WMILL_AI_EVAL_DATATABLE_PG_URL ??
   "postgres://postgres:changeme@localhost:5432/postgres";
 const ROOT_PG_RESOURCE = "$res:u/admin/ai_evals_pg_root";
+const RESOURCE_TYPE_INDEX_WAIT_MS = 120_000;
 const WORKSPACE_SLOT_WAIT_MS = 30 * 60_000;
 const EVAL_USER_PASSWORD = "ai-evals-user";
 
@@ -228,6 +229,20 @@ async function seed(
       schema: rt.schema ?? {},
       description: rt.description ?? "",
     });
+  }
+  // The resource type search reads an index the server rebuilds every
+  // RESOURCE_TYPE_EMBEDDINGS_CHECK_INTERVAL_SECS: a case must not start before it holds them.
+  const last = resourceTypes[resourceTypes.length - 1]?.name;
+  for (const deadline = Date.now() + RESOURCE_TYPE_INDEX_WAIT_MS; last; ) {
+    const found: { name: string }[] = await api(
+      "GET",
+      `embeddings/query_resource_types?text=${encodeURIComponent(last)}&limit=10`,
+    );
+    if (found.some((rt) => rt.name === last)) break;
+    if (Date.now() > deadline) {
+      throw new Error(`the resource type search never found the seeded "${last}"`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
   for (const script of fixtures.scripts ?? []) {
     await api("POST", "scripts/create", {
@@ -449,11 +464,14 @@ async function seedDatatable(
       datatables: {
         [seed.datatable_name]: {
           database: { resource_type: "postgresql", resource_path: "u/admin/ai_evals_datatable" },
-          ...(seed.migrations_enabled ? { migrations_enabled: true } : {}),
         },
       },
     },
   });
+  // A new datatable keeps its schema as migrations; a fixture says when this one does not.
+  if (!seed.migrations_enabled) {
+    await api("POST", `workspaces/disable_datatable_migrations/${seed.datatable_name}`);
+  }
   const target = `datatable://${seed.datatable_name}`;
   for (const migration of seed.migrations ?? []) {
     await api("POST", `workspaces/upsert_datatable_migration/${seed.datatable_name}`, {

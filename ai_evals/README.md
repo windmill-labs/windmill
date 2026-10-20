@@ -190,11 +190,17 @@ that backend needs:
 - an EE backend for fixtures whose `user` is not the admin: CE cannot create users, so there
   the backend runs the case as the admin, and only the prompt describes the fixture user;
 - network access to the hub, which the hub tools reach through the backend, and the
-  `embedding` cargo feature, without which `search_hub_scripts` has no index to search.
+  `embedding` cargo feature, without which `search_hub_scripts` has no index to search;
+- the `http_trigger` cargo feature, which mounts the routes HTTP trigger drafts are checked
+  against;
+- `RESOURCE_TYPE_EMBEDDINGS_CHECK_INTERVAL_SECS` set low (CI uses 2): each attempt seeds the
+  hub's resource types into its workspace and waits until the resource type search sees them,
+  which takes up to that interval (60 s by default).
 
 A fixture's `jobs` become completed preview runs with the given id, path, args, logs and
 outcome; `createdBy` is not reproduced. Its `resourceTypes` are created as workspace types,
-alongside whatever types the instance already holds.
+alongside whatever types the instance already holds; a fixture that sets none gets the types
+of an instance synced with the hub.
 
 `runtime.userAnswers` scripts the user's side of `askUserQuestion` in a global case: one
 answer per question, in the order they are asked, and a question past the last answer is
