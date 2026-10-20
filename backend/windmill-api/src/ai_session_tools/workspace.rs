@@ -1124,8 +1124,9 @@ pub(super) fn finish_draft_write(ctx: &Ctx<'_>, item: &Value, existed: bool) -> 
         json!(format!("{verb} {item_type} \"{path}\" as a per-user draft (saved server-side, visible only to this user — not a deployed workspace item). It was not deployed.")),
     );
     let value = item.get("value").unwrap_or(&Value::Null);
+    // The chat opens the draft in its own panel; an MCP client only has the link.
     if let Some(page) = draft_page(item_type, path, value) {
-        out.insert("url".into(), json!(ctx.page_url(&page)));
+        put(&mut out, "url", ctx.link(&page).map(Value::from));
     }
     // A flow is not echoed back: the model just sent it. A variable comes back redacted.
     match item_type {

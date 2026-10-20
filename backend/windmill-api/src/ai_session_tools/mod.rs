@@ -1,5 +1,5 @@
 //! The AI session's GLOBAL toolset, run on the server for both of its callers: the
-//! in-app chat (`POST /w/{workspace}/ai_session/tools/{name}`) and the Windmill MCP
+//! in-app chat (`POST /w/{workspace}/ai_session_tools/{name}`) and the Windmill MCP
 //! server (`/api/mcp`, tokens with `mcp:all`).
 //!
 //! Everything a model reads here — tool names, descriptions, input schemas, the
@@ -242,9 +242,26 @@ impl<'a> Ctx<'a> {
     }
 }
 
+/// The total timeout of the HTTP client the in-process router replaces.
+const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 impl Ctx<'_> {
     /// Call the API as the caller. `path` follows `/api`; a non-2xx answer is the error.
     pub async fn request(&self, method: &str, path: &str, body: Option<Value>) -> ToolResult {
+        self.request_within(method, path, body, REQUEST_TIMEOUT)
+            .await
+    }
+
+    /// `request` for a route that waits on jobs of its own, like the datatable migration
+    /// routes: each job is bounded server-side, so the default budget would cut a long one
+    /// off midway.
+    pub async fn request_within(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<Value>,
+        timeout: std::time::Duration,
+    ) -> ToolResult {
         let url = guarded_url(self.base_internal_url, self.w_id, method, path, self.access)?;
         // No route scope: this server only admits `mcp:all`, several routes (hub, embeddings)
         // map to none, and `guarded_url` is what keeps a call on its route. The tag fence
@@ -264,8 +281,11 @@ impl Ctx<'_> {
             .get(self.base_internal_url)
             .cloned();
         let (status, text) = match router {
-            Some(router) => self.call_router(router, method, &url, body, scopes).await?,
-            None => self.call_http(method, &url, body, scopes).await?,
+            Some(router) => {
+                self.call_router(router, method, &url, body, scopes, timeout)
+                    .await?
+            }
+            None => self.call_http(method, &url, body, scopes, timeout).await?,
         };
         if status.is_success() {
             Ok(text)
@@ -287,6 +307,7 @@ impl Ctx<'_> {
         url: &str,
         body: Option<Value>,
         scopes: Option<Vec<String>>,
+        timeout: std::time::Duration,
     ) -> Result<(http::StatusCode, String), String> {
         use tower::ServiceExt;
         let parsed = reqwest::Url::parse(url).map_err(|e| e.to_string())?;
@@ -314,8 +335,7 @@ impl Ctx<'_> {
             None => axum::body::Body::empty(),
         };
         let request = request.body(body).map_err(|e| e.to_string())?;
-        // The total timeout of the HTTP client this replaces.
-        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        tokio::time::timeout(timeout, async {
             let response = router.oneshot(request).await.map_err(|e| e.to_string())?;
             let status = response.status();
             let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
@@ -334,6 +354,7 @@ impl Ctx<'_> {
         url: &str,
         body: Option<Value>,
         scopes: Option<Vec<String>>,
+        timeout: std::time::Duration,
     ) -> Result<(http::StatusCode, String), String> {
         let method = http::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
         let token = self
@@ -343,7 +364,8 @@ impl Ctx<'_> {
             .map_err(|e| e.to_string())?;
         let mut request = crate::HTTP_CLIENT
             .request(method, url)
-            .header("Authorization", format!("Bearer {token}"));
+            .header("Authorization", format!("Bearer {token}"))
+            .timeout(timeout);
         if let Some(body) = body {
             request = request.json(&body);
         }

@@ -318,9 +318,13 @@ async fn migrations_status(ctx: &Ctx<'_>, datatable_name: &str) -> Result<Value,
 }
 
 /// `POST` without a body: applying and rolling back take their target from the query.
+/// The migration routes run each migration as a job and wait for it, `TIMEOUT_WAIT_RESULT`
+/// (600 s by default) apiece, so a run of several outlasts any per-request budget.
+const MIGRATION_RUN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3600);
+
 async fn post_migrations(ctx: &Ctx<'_>, path: &str) -> Result<Value, String> {
     let text = ctx
-        .request("POST", path, None)
+        .request_within("POST", path, None, MIGRATION_RUN_TIMEOUT)
         .await
         .map_err(|e| api_message(&e).to_string())?;
     serde_json::from_str(&text).map_err(|e| format!("unexpected response: {e}"))

@@ -53,12 +53,22 @@ export async function createRealWorkspace(input: {
   user?: GlobalUserFixture;
   profile?: EvalCaseProfile;
 }): Promise<RealWorkspace> {
+  // Job ids are unique across the instance, and a case prompt can name a fixture job by its
+  // id: attempts that seed the same ids take turns, each holding them until it is deleted.
+  const releaseJobIds = await holdJobIds(
+    (input.fixtures.jobs ?? []).flatMap((job) => (job.id ? [job.id] : [])),
+  );
   const client = new WindmillBackendClient(input.settings);
   baseUrl = input.settings.baseUrl;
-  adminToken = await client.getToken();
   const id = buildWorkspaceId(input.caseId, input.attempt);
   const api = apiFor(client, id);
-  await createWorkspace(api, id);
+  try {
+    adminToken = await client.getToken();
+    await createWorkspace(api, id);
+  } catch (error) {
+    releaseJobIds();
+    throw error;
+  }
   let datatableDb: string | undefined;
   const dispose = async () => {
     activeWorkspaces.delete(id);
@@ -70,6 +80,7 @@ export async function createRealWorkspace(input: {
       ).catch(() => undefined);
     }
     await api("DELETE", `/workspaces/delete/${id}`).catch(() => undefined);
+    releaseJobIds();
   };
   try {
     activeWorkspaces.set(id, adminToken);
@@ -85,6 +96,18 @@ export async function createRealWorkspace(input: {
     await dispose();
     throw error;
   }
+}
+
+/** Job id -> the turn of the last attempt that asked for it. */
+const jobIdTurns = new Map<string, Promise<void>>();
+
+async function holdJobIds(ids: string[]): Promise<() => void> {
+  let release!: () => void;
+  const turn = new Promise<void>((resolve) => (release = resolve));
+  const previous = ids.map((id) => jobIdTurns.get(id) ?? Promise.resolve());
+  for (const id of ids) jobIdTurns.set(id, turn);
+  await Promise.all(previous);
+  return release;
 }
 
 type Api = (method: string, path: string, body?: unknown) => Promise<any>;

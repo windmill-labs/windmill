@@ -2100,7 +2100,6 @@ fn shape_run(id: &str, job: &Value, logs: Result<String, String>, results: &Valu
     shape_flow_run_tree(results, &run)
 }
 
-/// One step's result in full, from the single entry the server resolved its address to.
 /// The job a step address resolved to, once it finished: what the card renders.
 fn finished_step_job(response: &Value) -> Option<&str> {
     if response["step_error"]
@@ -2117,6 +2116,7 @@ fn finished_step_job(response: &Value) -> Option<&str> {
     entry["job_id"].as_str()
 }
 
+/// One step's result in full, from the single entry the server resolved its address to.
 fn step_result(response: &Value, step: &str) -> String {
     if let Some(error) = response["step_error"].as_str().filter(|e| !e.is_empty()) {
         let hidden = if truthy(response.get("scope_filtered")) {

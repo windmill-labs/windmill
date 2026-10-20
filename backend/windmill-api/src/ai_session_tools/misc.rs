@@ -10,7 +10,7 @@ use windmill_common::utils::HTTP_CLIENT;
 use super::chat::Effect;
 use super::workspace::api_message;
 use super::{
-    array, enc, is_not_found, js_head, opt_str_arg, pretty, str_arg, truthy, Ctx, ToolResult,
+    array, enc, is_not_found, js_head, js_len, opt_str_arg, pretty, str_arg, truthy, Ctx, ToolResult,
     SCHEMAS,
 };
 
@@ -490,7 +490,17 @@ fn dt_name(name: &str) -> String {
 
 /// Every declaration file of the package, or of its `@types` package when it ships none,
 /// each headed by the path it would have under `node_modules`.
-async fn npm_package_types(sources: &NpmSources<'_>, name: &str, version: &str) -> String {
+/// Files fetched at once, as the browser's type acquisition did.
+const NPM_TYPES_CONCURRENCY: usize = 6;
+
+/// The package's declarations joined in order, fetched only until they reach `limit`
+/// characters: only that head is returned, and `@types/lodash` alone has hundreds of files.
+async fn npm_package_types(
+    sources: &NpmSources<'_>,
+    name: &str,
+    version: &str,
+    limit: usize,
+) -> String {
     let mut module = name.to_string();
     let mut prefix = format!("/node_modules/{name}");
     let mut version = match sources.version(name, version).await {
@@ -510,19 +520,26 @@ async fn npm_package_types(sources: &NpmSources<'_>, name: &str, version: &str) 
             .await
             .unwrap_or_default();
     }
-    let contents = join_all(files.iter().map(|file| {
-        sources.text(
-            format!("https://cdn.jsdelivr.net/npm/{module}@{version}{file}"),
-            format!("npm_proxy/file/{}/{}{file}", enc(&module), enc(&version)),
-        )
-    }))
-    .await;
-    files
-        .iter()
-        .zip(contents)
-        .filter_map(|(file, code)| Some(format!("// {prefix}{file}\n{}", code?)))
-        .collect::<Vec<_>>()
-        .join("\n\n")
+    let mut parts: Vec<String> = Vec::new();
+    for batch in files.chunks(NPM_TYPES_CONCURRENCY) {
+        let contents = join_all(batch.iter().map(|file| {
+            sources.text(
+                format!("https://cdn.jsdelivr.net/npm/{module}@{version}{file}"),
+                format!("npm_proxy/file/{}/{}{file}", enc(&module), enc(&version)),
+            )
+        }))
+        .await;
+        parts.extend(
+            batch
+                .iter()
+                .zip(contents)
+                .filter_map(|(file, code)| Some(format!("// {prefix}{file}\n{}", code?))),
+        );
+        if js_len(&parts.join("\n\n")) >= limit {
+            break;
+        }
+    }
+    parts.join("\n\n")
 }
 
 async fn npm_search(ctx: &Ctx<'_>, query: &str, limit: usize) -> Result<Vec<Value>, String> {
@@ -556,7 +573,7 @@ async fn npm_search(ctx: &Ctx<'_>, query: &str, limit: usize) -> Result<Vec<Valu
             Ok(response) => response.text().await.unwrap_or_default(),
             Err(_) => String::new(),
         };
-        let types = npm_package_types(sources, name, version.unwrap_or("latest")).await;
+        let types = npm_package_types(sources, name, version.unwrap_or("latest"), limit).await;
         json!({
             "package": name,
             "documentation": js_head(&documentation, limit),
