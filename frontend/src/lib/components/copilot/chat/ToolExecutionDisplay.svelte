@@ -3,7 +3,6 @@
 		Loader2,
 		ChevronRight,
 		XCircle,
-		Play,
 		ClipboardList,
 		Check,
 		CircleMinus,
@@ -43,6 +42,7 @@
 	import RunScriptCard from './RunScriptCard.svelte'
 	import ToolDiffCard from './ToolDiffCard.svelte'
 	import { hasToolCodeDiff } from './toolCodeDiff'
+	import { TOOL_CONFIRM_ACTIONS } from './toolConfirmAction'
 	import WebSearchSourcesDisplay from './WebSearchSourcesDisplay.svelte'
 	import ExpandableImage from '$lib/components/common/image/ExpandableImage.svelte'
 	import McpServerIcon from '$lib/components/mcp/McpServerIcon.svelte'
@@ -92,6 +92,8 @@
 	// The preview pane's renderers, so a model-written link opens in a new tab either way.
 	const planPlugins = [gfmPlugin(), { renderer: { pre: CodeDisplay, a: LinkRenderer } }]
 
+	const confirmAction = $derived(TOOL_CONFIRM_ACTIONS[message.confirmAction ?? 'confirm'])
+
 	const hasParameters = $derived(
 		message.parameters !== undefined && Object.keys(message.parameters).length > 0
 	)
@@ -118,7 +120,7 @@
 	// stream, while it waits on the user, and once it has an error or details to keep in view.
 	// The user's toggle lives in state keyed by call id: the `message` prop is replaced on every
 	// chat update, so an override written onto a derived would be recomputed away. A pending
-	// confirmation wins over it, since the Run/Reject footer renders inside the card.
+	// confirmation wins over it, since the confirm/reject footer renders inside the card.
 	let toggled = $state<{ id: string | undefined; open: boolean } | undefined>(undefined)
 	const isExpanded = $derived(
 		Boolean(message.isLoading && message.needsConfirmation) ||
@@ -285,7 +287,7 @@
 			</div>
 			<!-- Collapsed: the buttons stand on their own rather than boxing empty space. -->
 		{:else if message.needsConfirmation}
-			{@render confirmFooter('py-1 font-main')}
+			{@render confirmFooter('py-1')}
 		{/if}
 	</div>
 {:else}
@@ -373,8 +375,8 @@
 				toolCallId={message.tool_call_id}
 				rejectIcon={XCircle}
 				rejectDestructive
-				confirmLabel="Run"
-				confirmIcon={Play}
+				confirmLabel={confirmAction.label}
+				confirmIcon={confirmAction.icon}
 			/>
 
 			<!-- Logs and Result - hide while streaming -->

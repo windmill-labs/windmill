@@ -1611,10 +1611,9 @@ async fn edit_slack_command(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(es): Json<EditCommandScript>,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
     let mut tx = db.begin().await?;
 
     if es.slack_command_script.is_some() {
@@ -1981,10 +1980,9 @@ async fn edit_webhook(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(ew): Json<EditWebhook>,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
 
     if *CLOUD_HOSTED {
         return Err(Error::BadRequest(
@@ -2098,10 +2096,9 @@ async fn edit_dbt_warehouses(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(new_config): Json<EditDbtWarehouses>,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
     let new_config = new_config.dbt_warehouses;
     if let Some(map) = new_config.as_ref() {
         for (name, cfg) in map.iter() {
@@ -2172,10 +2169,9 @@ async fn edit_large_file_storage_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(new_config): Json<EditLargeFileStorageConfig>,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
 
     let mut tx = db.begin().await?;
 
@@ -4127,10 +4123,9 @@ async fn edit_ducklake_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, email, .. }: ApiAuthed,
     Json(new_config): Json<EditDucklakeConfig>,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
     let is_superadmin = require_super_admin(&db, &authed).await.is_ok();
 
     // Lake names end up interpolated in `ATTACH 'ducklake://<name>'`,
@@ -4256,8 +4251,8 @@ async fn edit_ducklake_config(
         &w_id,
         &new_config.settings.ducklakes,
         &old_ducklakes,
-        &username,
-        &email,
+        &authed.username,
+        &authed.email,
     )
     .await?;
 
@@ -4285,10 +4280,9 @@ async fn edit_datatable_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(mut new_config): Json<EditDataTableConfig>,
 ) -> JsonResult<EditDataTableConfigResult> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
     let is_superadmin = require_super_admin(&db, &authed).await.is_ok();
 
     let mut tx = db.begin().await?;
@@ -5023,10 +5017,9 @@ async fn edit_git_sync_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(new_config): Json<EditGitSyncConfig>,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
     check_git_sync_access(&db, &w_id).await?;
 
     let mut tx = db.begin().await?;
@@ -5277,10 +5270,9 @@ async fn edit_git_sync_repository(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(mut new_config): Json<EditGitSyncRepository>,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
     check_git_sync_access(&db, &w_id).await?;
 
     // Validate the resource path format
@@ -5500,10 +5492,9 @@ async fn delete_git_sync_repository(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(request): Json<DeleteGitSyncRepositoryRequest>,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
 
     // No check_git_sync_access here — admins should always be able to delete/clean up repos
     if request.git_repo_resource_path.is_empty() {
@@ -5653,10 +5644,9 @@ async fn edit_deploy_ui_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(new_config): Json<EditDeployUIConfig>,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
 
     let mut tx = db.begin().await?;
     let args_for_audit = format!("{:?}", new_config.deploy_ui_settings);
@@ -5872,10 +5862,9 @@ async fn edit_default_scripts(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(new_config): Json<Option<serde_json::Value>>,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
 
     let mut tx = db.begin().await?;
 
@@ -5946,7 +5935,6 @@ async fn edit_default_app(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(new_config): Json<EditDefaultApp>,
 ) -> Result<String> {
     #[cfg(not(feature = "enterprise"))]
@@ -5957,7 +5945,7 @@ async fn edit_default_app(
         ));
     }
 
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
 
     let mut tx = db.begin().await?;
 
@@ -6039,10 +6027,9 @@ async fn edit_error_handler(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(ee): Json<EditErrorHandler>,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
 
     // Normalize to new format (handles both old CLI and new CLI requests)
     let ee = ee.into_normalized();
@@ -11012,10 +10999,9 @@ async fn edit_workspace(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(ew): Json<EditWorkspace>,
 ) -> Result<String> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
     let mut tx = db.begin().await?;
     sqlx::query!(
         "UPDATE workspace SET name = $1, owner = $2 WHERE id = $3",
@@ -15325,26 +15311,19 @@ pub async fn apply_settings_edit(
     body: serde_json::Value,
 ) -> Result<serde_json::Value> {
     use SettingsEdit::*;
-    let a = authed.clone();
+    let a = authed;
     let (d, p) = (Extension(db), Path(w_id));
     match edit {
-        Webhook => edit_webhook(a, d, p, authed, settings_edit_body(edit, body)?).await?,
+        Webhook => edit_webhook(a, d, p, settings_edit_body(edit, body)?).await?,
         AutoInvite => edit_auto_invite(a, d, p, settings_edit_body(edit, body)?).await?,
         InstanceGroups => edit_instance_groups(a, d, p, settings_edit_body(edit, body)?).await?,
-        ErrorHandler => {
-            edit_error_handler(a, d, p, authed, settings_edit_body(edit, body)?).await?
-        }
+        ErrorHandler => edit_error_handler(a, d, p, settings_edit_body(edit, body)?).await?,
         SuccessHandler => edit_success_handler(a, d, p, settings_edit_body(edit, body)?).await?,
         LargeFileStorage => {
-            edit_large_file_storage_config(a, d, p, authed, settings_edit_body(edit, body)?).await?
+            edit_large_file_storage_config(a, d, p, settings_edit_body(edit, body)?).await?
         }
-        GitSync => edit_git_sync_config(a, d, p, authed, settings_edit_body(edit, body)?).await?,
-        DefaultScripts => {
-            edit_default_scripts(a, d, p, authed, settings_edit_body(edit, body)?).await?
-        }
-        #[cfg(feature = "enterprise")]
-        DefaultApp => edit_default_app(a, d, p, authed, settings_edit_body(edit, body)?).await?,
-        #[cfg(not(feature = "enterprise"))]
+        GitSync => edit_git_sync_config(a, d, p, settings_edit_body(edit, body)?).await?,
+        DefaultScripts => edit_default_scripts(a, d, p, settings_edit_body(edit, body)?).await?,
         DefaultApp => edit_default_app(a, d, p, settings_edit_body(edit, body)?).await?,
         Color => change_workspace_color(a, p, d, settings_edit_body(edit, body)?).await?,
         OperatorSettings => {
@@ -15352,20 +15331,16 @@ pub async fn apply_settings_edit(
         }
         Datatable => {
             let Json(result) =
-                edit_datatable_config(a, d, p, authed, settings_edit_body(edit, body)?).await?;
+                edit_datatable_config(a, d, p, settings_edit_body(edit, body)?).await?;
             return serde_json::to_value(result).map_err(|e| Error::internal_err(e.to_string()));
         }
-        SlackCommand => {
-            edit_slack_command(a, d, p, authed, settings_edit_body(edit, body)?).await?
-        }
+        SlackCommand => edit_slack_command(a, d, p, settings_edit_body(edit, body)?).await?,
         SetSlackOAuth => set_slack_oauth_config(a, d, p, settings_edit_body(edit, body)?).await?,
         DeleteSlackOAuth => delete_slack_oauth_config(a, d, p).await?,
-        Ducklake => edit_ducklake_config(a, d, p, authed, settings_edit_body(edit, body)?).await?,
-        DbtWarehouses => {
-            edit_dbt_warehouses(a, d, p, authed, settings_edit_body(edit, body)?).await?
-        }
+        Ducklake => edit_ducklake_config(a, d, p, settings_edit_body(edit, body)?).await?,
+        DbtWarehouses => edit_dbt_warehouses(a, d, p, settings_edit_body(edit, body)?).await?,
         #[cfg(feature = "enterprise")]
-        DeployUi => edit_deploy_ui_config(a, d, p, authed, settings_edit_body(edit, body)?).await?,
+        DeployUi => edit_deploy_ui_config(a, d, p, settings_edit_body(edit, body)?).await?,
         #[cfg(not(feature = "enterprise"))]
         DeployUi => edit_deploy_ui_config(a, d, p).await?,
         GuestAccess => edit_guest_access(a, d, p, settings_edit_body(edit, body)?).await?,
