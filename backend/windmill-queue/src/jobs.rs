@@ -6200,6 +6200,38 @@ pub async fn push<'c, 'd>(
     .await
 }
 
+/// Reads a flow version through the pool unless the caller handed `push` its own transaction,
+/// which may hold that version uncommitted. Opening a transaction just for this read would hold
+/// its connection while `push` still writes the runnable settings through the pool.
+async fn fetch_pushed_flow_version(
+    tx: &mut PushIsolationLevel<'_>,
+    db: &Pool<Postgres>,
+    version: i64,
+) -> error::Result<Arc<FlowData>> {
+    // Do not use the lite version unless all workers are updated.
+    let lite =
+        !(*DISABLE_FLOW_SCRIPT || (!MIN_VERSION_IS_AT_LEAST_1_432.met().await && !*CLOUD_HOSTED));
+    // Fallback to the original version if the lite version is not found.
+    // This also prevent a race condition where the flow is run just after deploy and
+    // the lite version is still being created.
+    macro_rules! fetch {
+        ($e:expr) => {
+            if lite {
+                match cache::flow::fetch_version_lite($e, version).await {
+                    Ok(data) => Ok(data),
+                    Err(_) => cache::flow::fetch_version($e, version).await,
+                }
+            } else {
+                cache::flow::fetch_version($e, version).await
+            }
+        };
+    }
+    match tx {
+        PushIsolationLevel::Transaction(ntx) => fetch!(&mut **ntx),
+        PushIsolationLevel::Isolated(..) | PushIsolationLevel::IsolatedRoot(_) => fetch!(db),
+    }
+}
+
 // #[instrument(level = "trace", skip_all)]
 async fn push_inner<'c, 'd>(
     db: &Pool<Postgres>,
@@ -7078,22 +7110,7 @@ async fn push_inner<'c, 'd>(
             labels,
             job_token_scopes,
         } => {
-            let mut ntx = tx.into_tx().await?;
-            // Do not use the lite version unless all workers are updated.
-            let data = if *DISABLE_FLOW_SCRIPT
-                || (!MIN_VERSION_IS_AT_LEAST_1_432.met().await && !*CLOUD_HOSTED)
-            {
-                cache::flow::fetch_version(&mut *ntx, version).await
-            } else {
-                // Fallback to the original version if the lite version is not found.
-                // This also prevent a race condition where the flow is run just after deploy and
-                // the lite version is still being created.
-                match cache::flow::fetch_version_lite(&mut *ntx, version).await {
-                    Ok(data) => Ok(data),
-                    Err(_) => cache::flow::fetch_version(&mut *ntx, version).await,
-                }
-            }?;
-            tx = PushIsolationLevel::Transaction(ntx);
+            let data = fetch_pushed_flow_version(&mut tx, db, version).await?;
 
             let mut value = data.value().clone();
             refuse_step_scopes_on_outdated_workers(&value).await?;
@@ -7463,6 +7480,19 @@ async fn push_inner<'c, 'd>(
         crate::tags::apply_dev_workspace_suffix(tag, workspace_id, db).await?
     };
 
+    // Before `into_tx`: these write through the pool on a cache miss, and a burst of pushes each
+    // holding its transaction would then wait on each other for a second connection. They stay
+    // off `tx` because they are cached as written, which a rollback would undo.
+    let runnable_settings_handle = windmill_common::runnable_settings::insert_rs(
+        RunnableSettings {
+            debouncing_settings: debouncing_settings.insert_cached(db).await?,
+            concurrency_settings: concurrency_settings.insert_cached(db).await?,
+            retry_settings: retry_settings.insert_cached(db).await?,
+        },
+        db,
+    )
+    .await?;
+
     let mut tx = tx.into_tx().await?;
 
     let job_id: Uuid = if let Some(job_id) = job_id {
@@ -7641,16 +7671,6 @@ async fn push_inner<'c, 'd>(
     } else {
         (job_kind, scheduled_for_o)
     };
-
-    let runnable_settings_handle = windmill_common::runnable_settings::insert_rs(
-        RunnableSettings {
-            debouncing_settings: debouncing_settings.insert_cached(db).await?,
-            concurrency_settings: concurrency_settings.insert_cached(db).await?,
-            retry_settings: retry_settings.insert_cached(db).await?,
-        },
-        db,
-    )
-    .await?;
 
     let (guarded_concurrent_limit, guarded_concurrency_time_window_s) =
         if windmill_common::runnable_settings::min_version_supports_runnable_settings_v0().await {
