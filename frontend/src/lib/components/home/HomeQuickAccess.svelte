@@ -15,6 +15,7 @@
 		type FavoriteKind
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
 	import { recentItems, type RecentKind } from './recentItems.svelte'
+	import HomeSectionLabel from './HomeSectionLabel.svelte'
 
 	interface Props {
 		workspace: string
@@ -207,9 +208,7 @@
 
 {#if entries.length > 0}
 	<section class="flex flex-col gap-2 px-4 sm:px-0 pb-4">
-		<h2 class="text-2xs font-semibold uppercase tracking-wide text-secondary">
-			Favorites & recent
-		</h2>
+		<HomeSectionLabel class="-mb-1">Favorites & recent</HomeSectionLabel>
 		<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
 			{#each shown as { item, favorite } (item.kind + '/' + item.path)}
 				{@render card(item, favorite)}
