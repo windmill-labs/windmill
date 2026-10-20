@@ -99,6 +99,8 @@ pub struct Input {
     success: bool,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     is_preview: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parent_job: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow)]
@@ -109,6 +111,7 @@ pub struct CompletedJobMini {
     created_by: String,
     success: bool,
     is_preview: bool,
+    parent_job: Option<Uuid>,
 }
 
 #[derive(Deserialize)]
@@ -145,12 +148,6 @@ async fn get_input_history(
         "".to_string()
     };
 
-    let include_non_root = if g.include_non_root.unwrap_or(false) {
-        ""
-    } else {
-        "AND parent_job IS NULL"
-    };
-
     // A scheduled runnable with a dynamic-skip handler (or a scheduled script with
     // native retry) is wrapped in a synthetic `singlestepflow`, so its runs land under
     // that kind rather than `flow`/`script` (see windmill-queue schedule.rs). Such a
@@ -179,18 +176,37 @@ async fn get_input_history(
     // are highly correlated.
     let inner_limit = 2 * (per_page + offset);
 
-    let sql = &format!(
-        "SELECT id, completed_at, created_by, args, success, is_preview FROM (\
-            SELECT id, v2_job_completed.completed_at, created_by, 'null'::jsonb as args, \
+    let recent = |parent_filter: &str| {
+        format!(
+            "(SELECT id, v2_job_completed.completed_at, created_by, 'null'::jsonb as args, \
             status = 'success' as success, \
-            kind IN ('preview', 'flowpreview') as is_preview \
+            kind IN ('preview', 'flowpreview') as is_preview, parent_job \
             FROM v2_job JOIN v2_job_completed USING (id) \
             WHERE v2_job.workspace_id = $3 AND {} = $1 AND kind = any($2) \
             AND v2_job.script_entrypoint_override IS NULL {singlestepflow_filter} \
-            {args_query} AND v2_job_completed.status != 'skipped' {include_non_root} \
-            ORDER BY v2_job.created_at DESC LIMIT $4\
+            {args_query} AND v2_job_completed.status != 'skipped' {parent_filter} \
+            ORDER BY v2_job.created_at DESC LIMIT $4)",
+            r.runnable_type.column_name(),
+        )
+    };
+
+    // Root and child runs are read separately: the runnable_path indexes on v2_job are each
+    // partial on one side of parent_job, so a single scan over both cannot walk created_at
+    // in index order and would sort every run of the path.
+    let inner = if g.include_non_root.unwrap_or(false) {
+        format!(
+            "{} UNION ALL {}",
+            recent("AND parent_job IS NULL"),
+            recent("AND parent_job IS NOT NULL")
+        )
+    } else {
+        recent("AND parent_job IS NULL")
+    };
+
+    let sql = &format!(
+        "SELECT id, completed_at, created_by, args, success, is_preview, parent_job FROM (\
+            {inner}\
         ) t ORDER BY completed_at DESC LIMIT $5 OFFSET $6",
-        r.runnable_type.column_name(),
     );
 
     let query = sqlx::query_as::<_, CompletedJobMini>(sql);
@@ -257,6 +273,7 @@ async fn get_input_history(
             is_public: true,
             success: row.success,
             is_preview: row.is_preview,
+            parent_job: row.parent_job,
         });
     }
 
@@ -357,6 +374,7 @@ async fn list_saved_inputs(
             is_public: row.is_public,
             success: true,
             is_preview: false,
+            parent_job: None,
         })
     }
 

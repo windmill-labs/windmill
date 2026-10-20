@@ -15,6 +15,7 @@
 		placement?: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end'
 		limitPayloadSize?: boolean
 		searchArgs?: Record<string, any> | undefined
+		includeFlowSteps?: boolean
 	}
 
 	let {
@@ -24,7 +25,8 @@
 		showAuthor = false,
 		placement = 'bottom-start',
 		limitPayloadSize = false,
-		searchArgs = undefined
+		searchArgs = undefined,
+		includeFlowSteps = false
 	}: Props = $props()
 
 	let infiniteList: InfiniteList | undefined = $state(undefined)
@@ -60,6 +62,7 @@
 				page,
 				perPage,
 				includePreview: true,
+				includeNonRoot: includeFlowSteps,
 				args: searchArgs ? JSON.stringify(searchArgs) : undefined
 			})
 

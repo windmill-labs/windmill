@@ -12,6 +12,7 @@
 	import SchemaForm from './SchemaForm.svelte'
 	import MultiSelect from './select/MultiSelect.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
+	import Toggle from './Toggle.svelte'
 	const dispatch = createEventDispatcher()
 
 	interface Props {
@@ -70,6 +71,8 @@
 
 	let searchArgsFields = $state([] as string[])
 
+	let includeFlowSteps = $state(false)
+
 	let emptySearchArgs = $derived(Object.keys(appliedSearchArgs).length === 0)
 
 	let filteredSchema = $derived({
@@ -84,7 +87,19 @@
 		<Pane class="px-4 py-4 h-full" size={65}>
 			<Section label="History" wrapperClass="h-full" small={true}>
 				{#snippet action()}
-					<div class="flex space-x-2">
+					<div class="flex items-center space-x-2">
+						<Toggle
+							size="xs"
+							bind:checked={includeFlowSteps}
+							options={{
+								right: 'Flow steps',
+								rightTooltip: 'Also list runs where this was a step of another flow'
+							}}
+							on:change={async () => {
+								await tick()
+								historicInputs?.refresh(true)
+							}}
+						/>
 						<Popover
 							class="w-fit"
 							usePointerDownOutside
@@ -175,6 +190,7 @@
 						selectArgs(e.detail?.args, e.detail ? 'history' : undefined)
 					}}
 					searchArgs={emptySearchArgs ? undefined : appliedSearchArgs}
+					{includeFlowSteps}
 					showAuthor
 					placement="top-end"
 				/>
