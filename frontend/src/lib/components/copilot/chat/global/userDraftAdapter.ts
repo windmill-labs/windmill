@@ -375,22 +375,6 @@ async function fetchBackendDraftValue(
 	return resp.value ?? undefined
 }
 
-// Draft VALUE for a write merge: cell-if-present (the user's freshest in-tab
-// edits) else the current user's backend draft.
-export async function readGlobalDraftValue<V>(
-	workspace: string,
-	type: WorkspaceItemType,
-	path: string,
-	triggerKind?: TriggerKind
-): Promise<V | undefined> {
-	const itemKind = itemKindFor(type, triggerKind)
-	if (!itemKind) return undefined
-	const storagePath = resolveDraftStoragePath(workspace, itemKind, path)
-	const cell = UserDraft.get<V>(itemKind, storagePath, { workspace })
-	if (cell !== undefined) return cell
-	return (await fetchBackendDraftValue(workspace, itemKind, storagePath)) as V | undefined
-}
-
 // `itemKind` + `storagePath` are the canonical identity of the persisted draft
 // (NOT item.path, which is the friendly display path). Callers use them to record
 // the chat's modified-items mask.

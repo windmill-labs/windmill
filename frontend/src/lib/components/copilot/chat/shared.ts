@@ -1713,41 +1713,6 @@ const getHubIntegrationToolDef = createToolDef(
 	'Read how one integration works before writing code against it: the resource type it takes, its auth fields, and its most-used scripts as examples. For an integration a search marked `documented` it also returns provider knowledge checked against the live API: pagination, enums, error codes and gotchas.'
 )
 
-/** Enough to show the integration's idiom; search_hub_scripts is the way to find
- * a specific one. */
-const MAX_INTEGRATION_EXAMPLES = 5
-
-/** How the authored notes were checked — method, per-surface confidence, the instance
- * used — is provenance for a human reviewing the hub, and up to a third of the
- * document. The verdict and any fields it flags as shaky are the parts a caller can
- * act on, so those stay. */
-function withoutProvenance(meta: unknown): unknown {
-	if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) {
-		return meta
-	}
-	const { validation, ...rest } = meta as Record<string, unknown>
-	const kept = Object.fromEntries(
-		Object.entries((validation as Record<string, unknown> | undefined) ?? {}).filter(
-			([key]) => key === 'status' || key === 'low_confidence_fields'
-		)
-	)
-	return Object.keys(kept).length ? { ...rest, validation: kept } : rest
-}
-
-/** The hub keeps a resource type's schema in a text column and hands it back as a
- * JSON string, so parse it rather than passing an escaped blob to the model.
- * Anything already structured goes through untouched. */
-function parseResourceTypeSchema(schema: unknown): unknown {
-	if (typeof schema !== 'string') {
-		return schema
-	}
-	try {
-		return JSON.parse(schema)
-	} catch {
-		return schema
-	}
-}
-
 export const HUB_SYNC_INSTRUCTIONS =
 	'Tell the user: no resource of a missing type can be created until a superadmin syncs resource types from the hub, with "Sync resource types with Hub" in the Add resource dialog of the Resources page.'
 

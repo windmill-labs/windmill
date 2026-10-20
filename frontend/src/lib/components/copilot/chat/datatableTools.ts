@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { WorkspaceService, type CompletedJob } from '$lib/gen'
+import type { CompletedJob } from '$lib/gen'
 import type { DataTableTables } from '$lib/gen/types.gen'
 import {
 	createToolDef,
@@ -27,41 +27,6 @@ import { callSessionTool, runOnServer } from './global/backendSessionTools'
 const memo = <T>(factory: () => T): (() => T) => {
 	let cached: T | undefined
 	return () => (cached ??= factory())
-}
-
-// ============= Pure workspace-scoped operations =============
-
-/** List the datatables configured in the workspace, with their schema/table names: all of them as
- * their default role, or only `datatableName`, as `role` when one is given. */
-export async function listDatatables(
-	workspace: string,
-	datatableName?: string,
-	role?: string
-): Promise<DataTableTables[]> {
-	if (datatableName === undefined) return await WorkspaceService.listDataTableTables({ workspace })
-	return await WorkspaceService.listDataTableTables({
-		workspace,
-		datatableName,
-		...(role !== undefined && { roleFor: datatableName, role })
-	})
-}
-
-/** Get the columns (column_name -> compact_type) of one datatable table. */
-export async function getDatatableColumns(
-	workspace: string,
-	datatableName: string,
-	schemaName: string,
-	tableName: string,
-	role?: string
-): Promise<Record<string, string>> {
-	const schema = await WorkspaceService.getDataTableTableSchema({
-		workspace,
-		datatableName,
-		schemaName,
-		tableName,
-		role
-	})
-	return schema.columns
 }
 
 // ============= Error helpers =============

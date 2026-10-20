@@ -1,15 +1,11 @@
 import { randomUUID } from '$lib/utils/uuid'
 import {
 	AppService,
-	AssetService,
 	AzureTriggerService,
 	EmailTriggerService,
 	FlowService,
-	FolderService,
 	GcpTriggerService,
-	GroupService,
 	HttpTriggerService,
-	JobService,
 	KafkaTriggerService,
 	MqttTriggerService,
 	AmqpTriggerService,
@@ -21,44 +17,28 @@ import {
 	SqsTriggerService,
 	VariableService,
 	WebsocketTriggerService,
-	WorkerService,
 	WorkspaceService
 } from '$lib/gen'
-import { createTwoFilesPatch } from 'diff'
 import { deepEqual } from 'fast-equals'
 import { promptSafe, type ArtifactVersionTarget } from '$lib/components/sessions/previewRouter'
 import { canDraftItem, roleCanDraft } from '$lib/editRights'
 import { $ScriptLang } from '$lib/gen/schemas.gen'
 import type {
-	AppWithLastVersion,
-	CreateResource,
 	CreateVariable,
-	Flow,
 	FlowModule,
 	FlowValue,
-	ListableApp,
-	ListableResource,
-	ListableVariable,
-	NewSchedule,
 	NewScript,
-	Resource,
-	Schedule,
-	Script,
 	ScriptLang
 } from '$lib/gen/types.gen'
 import { loadSchemaFromModule, memoryPropertyFor } from '$lib/components/flows/flowInfers'
 import { linkedAgentStepSchema } from '$lib/components/flows/agentResourceUtils'
 import { AGENT_FIELDS, initialVisibleAgentFields } from '$lib/components/flows/agentFormFields'
-import { withAgentDrafts } from '$lib/components/flows/linkedAgentDrafts'
 import { resolveLinkedAgentTools } from '$lib/components/flows/flowState'
 import { enabledToolNames, type AgentTool } from '$lib/components/flows/agentToolUtils'
 import { evalValue } from '$lib/components/flows/utils.svelte'
-import { dropStaleStepLocks } from '$lib/components/flows/staleStepLocks'
 import { quickjsReady } from '$lib/utils/quickjsEval.svelte'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
 import {
-	BUILDER_FRAMEWORK_TEMPLATES,
-	FRAMEWORK_TEMPLATES,
 	STARTER_RUNNABLES,
 	type FrameworkKey
 } from '$lib/components/raw_apps/templates'
@@ -71,15 +51,10 @@ import {
 	stripFileArgs
 } from '$lib/components/job_args'
 import { processSecretArgs } from '$lib/components/secretArgUtils'
-import { parsePipelineAnnotations } from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
 import { PLAN_MODE_MESSAGES } from '../planModeMessages'
 import {
 	DEFAULT_DATA as DEFAULT_RAW_APP_DATA,
-	formatDataTableRef
 } from '$lib/components/raw_apps/dataTableRefUtils'
-import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
-import { conformBuilderAppPolicy } from '$lib/components/raw_apps/builderAppPolicy'
-import { operatorBuilderAppsIn } from '$lib/operatorWriteRights'
 import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
 import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
 import { sanitizeAttachmentName, textLineCount, type AttachedTextFile } from '../textFileUtils'
@@ -89,33 +64,19 @@ import { isChromiumBrowser } from '$lib/utils'
 import { isCloudHosted } from '$lib/cloud'
 import { BROWSER } from 'esm-env'
 import {
-	applyEditableFlowJsonToFlow,
-	buildEditableFlowJson,
-	EDITABLE_FLOW_STRUCTURAL_KEYS,
-	type EditableFlowJson,
 	FLOW_VALUE_SETTINGS_KEYS,
-	pickFlowValueSettings,
-	finalizeUnresolvedInlineScripts,
-	restoreSpecialRawscriptModule,
-	validateEditableFlowJson
 } from '../flow/editableFlowJson'
 import {
 	getAiAgentProviderCatalog,
-	getAiAgentProviderCatalogFor,
 	getAiAgentProviderCatalogForRefs
 } from '../flow/aiAgentProviderCatalog'
 import {
-	formatAiAgentProviderWarnings,
 	formatAiAgentProvidersPrompt
 } from '../flow/aiAgentProviders'
 import {
-	createInlineScriptSession,
-	findUnresolvedInlineScriptRefs
 } from '../flow/inlineScriptsUtils'
 import {
 	resourceTypeSyncBlock,
-	searchNpmPackagesTool,
-	searchResourceTypes,
 	type ResourceTypeSync
 } from '../script/core'
 import type { McpServer } from './mcpTools'
@@ -123,12 +84,10 @@ import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { isSkillEnabled } from '../skills/enabledSkills'
 import {
 	listSkillResources,
-	readSkillBody,
 	skillNameFromPath,
 	truncateChars,
-	truncateForPrompt
 } from '../skills/skillResources'
-import { MAX_SKILL_DESCRIPTION_LENGTH, MAX_SKILL_INSTRUCTIONS_LENGTH } from '../skills/skillMd'
+import { MAX_SKILL_DESCRIPTION_LENGTH } from '../skills/skillMd'
 import {
 	getDatatablePrompt,
 	getWorkspaceSettingsPrompt,
@@ -156,20 +115,16 @@ import {
 	getHubIntegrationTool,
 	executeTestRun,
 	findAndReplace,
-	isHubPath,
 	SPECIAL_MODULE_IDS,
 	type CreatedResourceTriggerKind,
 	type PreviewCardKind,
 	type RunFormAnswer,
 	type RunFormDisplay,
 	type ToolCallbacks,
-	type ToolCodeDiff,
 	type ToolDisplayAction
 } from '../shared'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { appFileEditorLang } from '../appFileEditorLang'
-import { searchDocsTool, readDocsPageTool } from '../docs/core'
-import { createDbSchemaTool } from '../script/core'
 import type { ContextElement } from '../context'
 import { getDatatableTools } from '../datatableTools'
 import { getDatatableMigrationTools } from '../datatableMigrationTools'
@@ -178,7 +133,6 @@ import { fileTools } from '../files/fileTools'
 import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
 import { artifactTools } from '../artifacts/artifactTools'
 import type { SessionArtifactsStore } from '../artifacts/artifactsState.svelte'
-import type { Runnable } from '$lib/components/apps/inputType'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
 import type { Schema } from '$lib/common'
@@ -190,15 +144,9 @@ import {
 	variableRequestSchema
 } from '../workspaceToolsZod.gen'
 import {
-	getWorkspaceItemKey,
 	TRIGGER_KINDS,
 	type AppDraftValue,
-	type FlowDraftValue,
-	type ResourceDraftState,
 	type TriggerKind,
-	type TriggerRequestBody,
-	type VariableDraftState,
-	type WorkspaceItem,
 	type WorkspaceItemType
 } from './workspaceItems'
 import {
@@ -212,7 +160,6 @@ import {
 	workspaceStore
 } from '$lib/stores'
 import { getWorkspaceRole, type RoleLookup } from '$lib/user'
-import { refreshSuperadmin } from '$lib/refreshUser'
 import { resourceTypesStore } from '$lib/components/resourceTypesStore'
 import { get } from 'svelte/store'
 import {
@@ -222,7 +169,6 @@ import {
 } from '$lib/utils_draft_deploy'
 import { changedLineIndices, draftDeployedPatch, windowPatch } from './draftDiff'
 import { workspaceSettingsTools } from './workspaceSettingsTools'
-import { getRun, summarizeRun } from './flowRunTree'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
 import type { UserDraftItemKind } from '$lib/gen'
@@ -275,12 +221,8 @@ import {
 	getGlobalDraft,
 	getGlobalDraftStoragePath,
 	itemKindFor,
-	listGlobalDrafts,
-	persistGlobalDraft,
-	readGlobalDraftValue,
 	readLocalDraftCellByKind,
 	resolveGlobalDraftStoragePathByKind,
-	saveGlobalAppDraft,
 	type DraftPersistResult
 } from './userDraftAdapter'
 import {
@@ -298,7 +240,6 @@ import {
 	searchHubScriptsServerTool,
 	searchNpmPackagesServerTool
 } from './serverTools'
-import { findModuleInFlow } from '$lib/components/flows/flowTree'
 import { DRAFT_CONFLICT_RESULT, DRAFT_SAVE_FAILED_RESULT } from '../draftWriteResults'
 import {
 	computeDiffParts,
@@ -610,102 +551,6 @@ const writeFlowSchema = z.object({
 	override: draftOverrideField
 })
 
-// modules/preprocessor_module/failure_module can carry rawscript `content`, whose
-// quotes and newlines are the usual reason the JSON string fails to parse.
-const FLOW_CODE_BEARING_FIELDS = new Set(['modules', 'preprocessor_module', 'failure_module'])
-
-function parseOptionalJsonArg(value: unknown, field: string): unknown {
-	if (value === undefined || value === null) {
-		return value
-	}
-
-	try {
-		return typeof value === 'string' ? JSON.parse(value) : value
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error)
-		const hint = FLOW_CODE_BEARING_FIELDS.has(field)
-			? ' A rawscript "content" string with multi-line code or quotes is the usual cause. Instead of inlining large code, create the rawscript module with empty content ("") and fill its body with set_flow_module_code afterwards.'
-			: ''
-		throw new Error(`Invalid JSON for ${field}: ${message}${hint}`)
-	}
-}
-
-/**
- * Rawscript bodies are fragile to embed inside the `modules` JSON string: the
- * code's quotes and newlines have to survive three levels of escaping (tool-call
- * arguments -> modules string -> content string) and the model routinely mangles
- * them. So a module may be saved with empty (or `inline_script.` placeholder)
- * content; return the ids that still need a body filled out-of-band with
- * `set_flow_module_code`.
- */
-function emptyInlineScriptModuleIds(editable: EditableFlowJson): string[] {
-	const value: FlowValue = {
-		modules: editable.modules,
-		preprocessor_module: editable.preprocessor_module ?? undefined,
-		failure_module: editable.failure_module ?? undefined
-	}
-	const session = createInlineScriptSession()
-	buildEditableFlowJson({ value, schema: editable.schema }, session)
-	return Object.entries(session.getAll())
-		.filter(([, content]) => content.trim() === '' || /^inline_script\./.test(content))
-		.map(([id]) => id)
-}
-
-/**
- * Fold the empty-body warning into a flow write tool's JSON result — but only
- * when the save actually succeeded. `writeFlowDraft` reports
- * conflicts/persistence errors as `{ success: false }` rather than throwing;
- * telling the model to fill code on a flow that was never saved would send it
- * after a stale or nonexistent draft.
- */
-function appendEmptyInlineScriptWarning(result: string, editable: EditableFlowJson): string {
-	const emptyIds = emptyInlineScriptModuleIds(editable)
-	if (emptyIds.length === 0) {
-		return result
-	}
-	let parsed: { success?: unknown; message?: unknown }
-	try {
-		parsed = JSON.parse(result)
-	} catch {
-		return result
-	}
-	if (parsed.success !== true || typeof parsed.message !== 'string') {
-		return result
-	}
-	const list = emptyIds.map((id) => `"${id}"`).join(', ')
-	parsed.message += `\n\nWarning: inline scripts ${list} have no code yet. Fill each one with set_flow_module_code(path, module_id, code) — do not re-send the whole flow.`
-	return JSON.stringify(parsed, null, 2)
-}
-
-function editableFlowToDraftValue(editable: EditableFlowJson): FlowDraftValue {
-	const value: FlowValue = {
-		...pickFlowValueSettings(editable),
-		modules: editable.modules,
-		preprocessor_module: editable.preprocessor_module ?? undefined,
-		failure_module: editable.failure_module ?? undefined,
-		groups: editable.groups ?? undefined,
-		notes: editable.notes ?? undefined
-	}
-	return {
-		value,
-		schema: editable.schema,
-		groups: editable.groups
-	}
-}
-
-function flowDraftAsEditableInput(flowDraft: FlowDraftValue): {
-	value: FlowValue
-	schema?: Record<string, any> | null | undefined
-} {
-	return {
-		value:
-			flowDraft.groups === undefined
-				? flowDraft.value
-				: { ...flowDraft.value, groups: flowDraft.groups ?? undefined },
-		schema: flowDraft.schema
-	}
-}
-
 const writeScheduleSchema = scheduleRequestSchema.extend({ override: draftOverrideField })
 
 const writeScheduleToolSchema = buildScheduleToolSchema().extend({ override: draftOverrideField })
@@ -760,8 +605,6 @@ const writeVariableSchema = variableRequestSchema.extend({
 		.describe('The description of the variable. Omit it to keep the current description.'),
 	override: draftOverrideField
 })
-
-type WriteVariableArgs = z.infer<typeof writeVariableSchema>
 
 const searchResourceTypesSchema = z.object({
 	query: z
@@ -833,7 +676,6 @@ const NO_WORKERS_VISIBLE_MESSAGE =
 	'Tell the user you cannot see any workers and that worker visibility may be restricted for your account, and suggest they check the Workers page themselves if they can open it, or ask a workspace admin otherwise. Never state that no workers are online or that the instance has none.'
 const NO_WORKERS_CONNECTED_MESSAGE =
 	'No workers are connected to this instance (none pinged in the last 5 minutes). Queued runs will stay queued until a worker starts.'
-const WORKER_PAGE_SIZE = 100
 
 const deleteWorkspaceItemSchema = z.object({
 	type: itemTypeSchema,
@@ -1856,335 +1698,7 @@ ${mcpServers.map((s) => `- ${s.path}`).join('\n')}
 	}`
 }
 
-const DEFAULT_LIST_TYPES = ['script', 'flow'] as const satisfies readonly WorkspaceItemType[]
-
-function getRequestedTypes(types: WorkspaceItemType[] | undefined): WorkspaceItemType[] {
-	return types && types.length > 0 ? types : [...DEFAULT_LIST_TYPES]
-}
-
-function itemMatches(
-	item: Pick<WorkspaceItem, 'path' | 'summary'>,
-	query: string | undefined
-): boolean {
-	const normalized = query?.trim().toLowerCase()
-	if (!normalized) return true
-	return (
-		item.path.toLowerCase().includes(normalized) ||
-		(item.summary?.toLowerCase().includes(normalized) ?? false)
-	)
-}
-
-function scriptToItem(script: Script | NewScript, includeValue: boolean): WorkspaceItem {
-	return {
-		type: 'script',
-		path: script.path,
-		summary: script.summary,
-		language: script.language,
-		value: includeValue ? script.content : undefined,
-		schema: includeValue ? (script as Script).schema : undefined,
-		// Listings with includeDraftOnly synthesize rows for editor drafts that
-		// have no deployed counterpart — label those honestly.
-		isDraft: (script as Script).draft_only ?? false
-	}
-}
-
-function flowToItem(flow: Flow, includeValue: boolean): WorkspaceItem {
-	return {
-		type: 'flow',
-		path: flow.path,
-		summary: flow.summary,
-		value: includeValue
-			? { value: flow.value, schema: flow.schema, groups: flow.value.groups ?? null }
-			: undefined,
-		isDraft: (flow as Flow & { draft_only?: boolean }).draft_only ?? false
-	}
-}
-
-/**
- * Turn a flow workspace item into the compact response we send to the model:
- * rawscript content is replaced with `inline_script.<moduleId>` placeholders.
- * The model retrieves real content via `read_flow_module_code` and edits it via
- * `set_flow_module_code`. `patch_flow_json` operates on this compact view too,
- * so structural edits never have to traverse inline script bodies.
- */
-function serializeWorkspaceItemForRead(item: WorkspaceItem): unknown {
-	if (item.type === 'variable') {
-		return {
-			type: 'variable',
-			path: item.path,
-			summary: item.summary,
-			isSecret: item.isSecret,
-			extraPerms: item.extraPerms,
-			isDraft: item.isDraft
-		}
-	}
-
-	if (
-		item.type === 'app' &&
-		item.value &&
-		typeof item.value === 'object' &&
-		'files' in item.value
-	) {
-		return {
-			type: 'app',
-			path: item.path,
-			summary: item.summary,
-			value: summarizeAppValue(item.value as AppDraftValue),
-			rawApp: item.rawApp,
-			executionMode: item.executionMode,
-			extraPerms: item.extraPerms,
-			isDraft: item.isDraft
-		}
-	}
-
-	if (item.type !== 'flow' || !item.value) return item
-	const flowDraft = item.value as FlowDraftValue
-	const session = createInlineScriptSession()
-	const editable = buildEditableFlowJson(flowDraftAsEditableInput(flowDraft), session)
-	return {
-		type: 'flow',
-		path: item.path,
-		summary: item.summary,
-		value: editable,
-		extraPerms: item.extraPerms,
-		isDraft: item.isDraft
-	}
-}
-
-function scheduleToItem(schedule: Schedule, includeValue: boolean): WorkspaceItem {
-	return {
-		type: 'schedule',
-		path: schedule.path,
-		summary: schedule.summary ?? undefined,
-		value: includeValue ? (schedule as unknown as WorkspaceItem['value']) : undefined,
-		isDraft: false
-	}
-}
-
-function resourceToItem(resource: ListableResource, includeValue: boolean): WorkspaceItem {
-	return {
-		type: 'resource',
-		path: resource.path,
-		summary: resource.description,
-		value: includeValue ? (resource as unknown as WorkspaceItem['value']) : undefined,
-		isDraft: false
-	}
-}
-
-function variableToItem(variable: ListableVariable): WorkspaceItem {
-	// Never exposes a value to the chat, secret or not — the user reveals one in the
-	// variable editor (audited). Metadata only.
-	return {
-		type: 'variable',
-		path: variable.path,
-		summary: variable.description,
-		isSecret: variable.is_secret,
-		isDraft: false
-	}
-}
-
 // ============= App helpers =============
-
-type BackendRunnableInput = z.infer<typeof backendRunnableSchema>
-
-type PersistedRunnable = {
-	name: string
-	type: 'inline' | 'path' | 'runnableByName' | 'runnableByPath'
-	runType?: 'script' | 'flow' | 'hubscript'
-	path?: string
-	inlineScript?: { language: string; content: string }
-	fields?: Record<string, any>
-	schema?: any
-	[key: string]: any
-}
-
-function convertPersistedToBackendRunnable(
-	persisted: PersistedRunnable | undefined,
-	key: string
-): BackendRunnableInput | undefined {
-	if (!persisted) return undefined
-
-	const out: BackendRunnableInput = {
-		name: persisted.name ?? key,
-		type: 'inline'
-	}
-
-	if (persisted.type === 'inline' || persisted.type === 'runnableByName') {
-		out.type = 'inline'
-		if (persisted.inlineScript) {
-			let language = persisted.inlineScript.language
-			if (language === 'nativets' || language === 'deno') language = 'bun'
-			out.inlineScript = {
-				language: language as 'bun' | 'python3',
-				content: persisted.inlineScript.content ?? ''
-			}
-		}
-		if (persisted.viewer_data_access === true) out.viewerDataAccess = true
-	} else if (persisted.type === 'path' || persisted.type === 'runnableByPath') {
-		if (persisted.runType === 'flow') out.type = 'flow'
-		else if (persisted.runType === 'hubscript') out.type = 'hubscript'
-		else out.type = 'script'
-		out.path = persisted.path
-	}
-
-	if (persisted.fields) {
-		const staticInputs: Record<string, any> = {}
-		for (const [k, v] of Object.entries(persisted.fields)) {
-			if (v && typeof v === 'object' && (v as any).type === 'static') {
-				staticInputs[k] = (v as any).value
-			}
-		}
-		if (Object.keys(staticInputs).length > 0) out.staticInputs = staticInputs
-	}
-
-	return out
-}
-
-function buildPersistedRunnable(
-	input: BackendRunnableInput,
-	existing: PersistedRunnable | undefined
-): PersistedRunnable {
-	const fields = input.staticInputs
-		? Object.fromEntries(
-				Object.entries(input.staticInputs).map(([k, v]) => [
-					k,
-					{ type: 'static', value: v, fieldType: 'object' }
-				])
-			)
-		: (existing?.fields ?? {})
-
-	// Converting between kinds must drop the other kind's fields. Every consumer dispatches on
-	// `type` (isRunnableByName / isRunnableByPath), so a leftover does not change which code
-	// runs — it contradicts it: a runnable reported back as inline still names a flow in
-	// `path`, and that is what the model reads on its next turn.
-	const {
-		runType: _runType,
-		path: _path,
-		inlineScript: _inlineScript,
-		viewer_data_access: carriedAsViewer,
-		...carried
-	}: Partial<PersistedRunnable> = existing ?? {}
-	const viewerDataAccess = input.viewerDataAccess ?? carriedAsViewer === true
-
-	// `schema` describes the item a path runnable points at, so it only survives while that
-	// target is unchanged. Carried across a retarget it types `backend.<key>(args)` from the
-	// previous item's inputs, because hiddenRunnableToTsType reads it for the path branch.
-	const sameTarget =
-		(existing?.type === 'path' || existing?.type === 'runnableByPath') &&
-		existing?.runType === input.type &&
-		existing?.path === input.path
-
-	if (input.type === 'inline') {
-		if (!input.inlineScript) {
-			throw new Error('inlineScript is required when runnable type is "inline".')
-		}
-		return {
-			...carried,
-			name: input.name,
-			type: 'inline',
-			inlineScript: {
-				content: input.inlineScript.content,
-				language: input.inlineScript.language
-			},
-			...(viewerDataAccess && { viewer_data_access: true }),
-			fields
-		}
-	}
-
-	if (!input.path) {
-		throw new Error('path is required when runnable type is "script", "flow", or "hubscript".')
-	}
-	return {
-		...carried,
-		name: input.name,
-		type: 'path',
-		runType: input.type,
-		path: input.path,
-		fields,
-		schema: sameTarget ? (existing?.schema ?? {}) : {}
-	}
-}
-
-type AppFrontendFileMetadata = {
-	path: string
-	size: number
-}
-
-type AppBackendRunnableMetadata = {
-	key: string
-	name: string
-	type: BackendRunnableInput['type']
-	path?: string
-	language?: 'bun' | 'python3'
-	contentSize?: number
-	staticInputKeys?: string[]
-}
-
-type AppMetadata = {
-	frontend: AppFrontendFileMetadata[]
-	backend: AppBackendRunnableMetadata[]
-	data?: any
-}
-
-type LoadedAppDraftValue = {
-	value: AppDraftValue
-}
-
-function summarizeAppValue(value: AppDraftValue): AppMetadata {
-	const frontend: AppFrontendFileMetadata[] = Object.entries(value.files).map(
-		([path, content]) => ({
-			path,
-			size: typeof content === 'string' ? content.length : 0
-		})
-	)
-	const backend: AppBackendRunnableMetadata[] = Object.entries(value.runnables).map(
-		([key, runnable]) => {
-			const converted = convertPersistedToBackendRunnable(runnable as PersistedRunnable, key)
-			const staticInputKeys = converted?.staticInputs
-				? Object.keys(converted.staticInputs)
-				: undefined
-			return {
-				key,
-				name: converted?.name ?? key,
-				type: converted?.type ?? 'inline',
-				...(converted?.path && { path: converted.path }),
-				...(converted?.inlineScript && {
-					language: converted.inlineScript.language,
-					contentSize: converted.inlineScript.content.length
-				}),
-				...(staticInputKeys && staticInputKeys.length > 0 && { staticInputKeys })
-			}
-		}
-	)
-	return {
-		frontend,
-		backend,
-		...(value.data && { data: value.data })
-	}
-}
-
-function appToItem(app: ListableApp | AppWithLastVersion, includeValue: boolean): WorkspaceItem {
-	return {
-		type: 'app',
-		path: app.path,
-		summary: app.summary,
-		value: includeValue ? ((app as AppWithLastVersion).value as AppDraftValue) : undefined,
-		// The server omits this flag rather than sending false, so its absence in the
-		// response is a known false — not a value this listing failed to fetch.
-		rawApp: app.raw_app ?? false,
-		isDraft: false
-	}
-}
-
-const GENERATED_APP_FILE_PATHS = new Set(['/wmill.d.ts'])
-
-function assertNotGeneratedAppFile(filePath: string): void {
-	if (GENERATED_APP_FILE_PATHS.has(filePath)) {
-		throw new Error(
-			`"${filePath}" is generated automatically from backend runnables and cannot be modified directly.`
-		)
-	}
-}
 
 type AppFileTarget =
 	| { kind: 'frontend'; filePath: string }
@@ -2207,102 +1721,7 @@ function resolveAppFileTarget(rawPath: string): AppFileTarget {
 	}
 }
 
-function getInlineScriptExtension(runnable: PersistedRunnable | undefined): 'ts' | 'py' {
-	return runnable?.inlineScript?.language === 'python3' ? 'py' : 'ts'
-}
-
-/**
- * Resolve a backend file target to its inline script body, validating that the
- * runnable exists, is inline, and matches the requested file extension. Throws
- * with a clear message otherwise.
- */
-function getInlineRunnableContent(
-	value: AppDraftValue,
-	target: { kind: 'backend'; filePath: string; key: string; extension: 'ts' | 'py' },
-	appPath: string
-): { content: string; runnable: PersistedRunnable } {
-	const runnable = value.runnables[target.key] as PersistedRunnable | undefined
-	if (!runnable) {
-		throw new Error(`Backend runnable "${target.key}" not found in app "${appPath}".`)
-	}
-	if (runnable.type !== 'inline' && runnable.type !== 'runnableByName') {
-		throw new Error(
-			`Runnable "${target.key}" is not inline. Use read_workspace_item on the referenced ${runnable.runType ?? 'item'} instead.`
-		)
-	}
-	const expected = getInlineScriptExtension(runnable)
-	if (target.extension !== expected) {
-		throw new Error(
-			`Runnable "${target.key}" language is ${expected}. Use backend/${target.key}/main.${expected}.`
-		)
-	}
-	return { content: runnable.inlineScript?.content ?? '', runnable }
-}
-
-// appSourceToDraftValue drops a low-code app's `grid`, so converting one here would stage a
-// code-app draft at its path: a false picture of the app that every later read answers from,
-// and a deploy the server then refuses.
-async function getRawAppByPath(workspace: string, path: string): Promise<AppWithLastVersion> {
-	const app = await AppService.getAppByPath({ workspace, path })
-	// Only an explicit false: the draft-only branch of get_app carries no version, and so
-	// no `raw_app`, and must not read as low-code.
-	if (app.raw_app === false) {
-		throw new Error(
-			`"${path}" is a low-code app. This chat only edits code-based apps — open it in the app editor instead.`
-		)
-	}
-	return app
-}
-
-async function loadAppValueForRead(path: string, workspace: string): Promise<AppDraftValue> {
-	const draft = await getGlobalDraft(workspace, 'app', path)
-	if (draft && draft.value && typeof draft.value === 'object' && 'files' in draft.value) {
-		return draft.value as AppDraftValue
-	}
-
-	const app = await getRawAppByPath(workspace, path)
-	return appSourceToDraftValue(app, app)
-}
-
-async function loadAppDraftValue(path: string, workspace: string): Promise<LoadedAppDraftValue> {
-	const draft = await getGlobalDraft(workspace, 'app', path)
-	if (draft && draft.value && typeof draft.value === 'object' && 'files' in draft.value) {
-		return { value: draft.value as AppDraftValue }
-	}
-
-	const app = await getRawAppByPath(workspace, path)
-	return { value: appSourceToDraftValue(app, app) }
-}
-
-async function saveAppDraft(
-	workspace: string,
-	path: string,
-	value: AppDraftValue
-): Promise<DraftPersistResult> {
-	if (operatorBuilderAppsIn(workspace)) {
-		const role = await roleForWorkspace(workspace)
-		value.policy ??= {}
-		conformBuilderAppPolicy(value.policy, role.kind === 'resolved' ? role.user : undefined)
-	}
-	return saveGlobalAppDraft(workspace, path, value)
-}
-
 type TriggerLike = { path: string; summary?: string | null }
-
-function triggerToItem(
-	kind: TriggerKind,
-	trigger: TriggerLike,
-	includeValue: boolean
-): WorkspaceItem {
-	return {
-		type: 'trigger',
-		triggerKind: kind,
-		path: trigger.path,
-		summary: trigger.summary ?? undefined,
-		value: includeValue ? (trigger as unknown as WorkspaceItem['value']) : undefined,
-		isDraft: false
-	}
-}
 
 type TriggerService = {
 	exists(args: { workspace: string; path: string }): Promise<boolean>
@@ -2422,284 +1841,6 @@ async function guestAccessIsLive(workspace: string): Promise<boolean | undefined
 		return undefined
 	}
 	return !!(usage.available && usage.instance_enabled && settings.guest_access_enabled)
-}
-
-/** Who may open an app, from the mode stored on it. An app sits in `guest` mode whether
- * or not anyone is admitted by it, so reporting the mode bare would say strangers can
- * open an app that admits members only. Say it is inert rather than hide it, as the
- * app's deploy settings do. */
-async function describeAppExposure(
-	workspace: string,
-	mode: string | undefined
-): Promise<string | undefined> {
-	if (mode !== 'guest' || (await guestAccessIsLive(workspace)) !== false) {
-		return mode
-	}
-	return 'guest, but inert: the instance or workspace admits no guest, so this app admits members only'
-}
-
-async function readWorkspaceItem(
-	type: WorkspaceItemType,
-	path: string,
-	workspace: string,
-	triggerKind?: TriggerKind,
-	deployedOnly = false
-): Promise<WorkspaceItem> {
-	switch (type) {
-		case 'script': {
-			// Hub scripts are not workspace items: search_hub_scripts hands back
-			// `hub/<version>/<app>/<slug>` paths, which getScriptByPath cannot resolve.
-			if (isHubPath(path)) {
-				const hub = await ScriptService.getHubScriptByPath({ path })
-				return {
-					type: 'script',
-					path,
-					summary: hub.summary,
-					language: hub.language as ScriptLang,
-					value: hub.content,
-					schema: hub.schema,
-					isDraft: false
-				}
-			}
-			// Prefer the DB draft (newer than the deployed version) when one exists,
-			// unless the caller explicitly asked for the deployed state.
-			const script = await ScriptService.getScriptByPath({
-				workspace,
-				path,
-				getDraft: !deployedOnly
-			})
-			const draft = deployedOnly ? undefined : (script.draft as Script | undefined)
-			return { ...scriptToItem(draft ?? script, true), extraPerms: script.extra_perms }
-		}
-		case 'flow': {
-			// Prefer the DB draft (newer than the deployed version) when one exists,
-			// unless the caller explicitly asked for the deployed state.
-			const flow = await FlowService.getFlowByPath({ workspace, path, getDraft: !deployedOnly })
-			const draft = deployedOnly ? undefined : (flow.draft as Flow | undefined)
-			return { ...flowToItem(draft ?? flow, true), extraPerms: flow.extra_perms }
-		}
-		case 'schedule': {
-			const schedule = await ScheduleService.getSchedule({ workspace, path })
-			return { ...scheduleToItem(schedule, true), extraPerms: schedule.extra_perms }
-		}
-		case 'trigger': {
-			if (!triggerKind) {
-				throw new Error('trigger_kind is required when type is trigger.')
-			}
-			const trigger = await triggerServices[triggerKind].get({ workspace, path })
-			return {
-				...triggerToItem(triggerKind, trigger, true),
-				extraPerms: (trigger as { extra_perms?: Record<string, boolean> }).extra_perms
-			}
-		}
-		case 'resource': {
-			const resource = await ResourceService.getResource({ workspace, path })
-			return { ...resourceToItem(resource, true), extraPerms: resource.extra_perms }
-		}
-		case 'variable': {
-			// Never expose the value, even when read directly. Pass decryptSecret=false
-			// to avoid materializing secret values server-side.
-			const variable = await VariableService.getVariable({
-				workspace,
-				path,
-				decryptSecret: false
-			})
-			return { ...variableToItem(variable), extraPerms: variable.extra_perms }
-		}
-		case 'app': {
-			// Returns lightweight metadata only — file/runnable contents come via read_app_file.
-			const app = await AppService.getAppByPath({ workspace, path })
-			// A grid is not files and runnables: summarizing one reports an empty app. Name the
-			// kind instead.
-			const executionMode = await describeAppExposure(workspace, app.policy?.execution_mode)
-			if (app.raw_app === false) {
-				return {
-					type: 'app',
-					path: app.path,
-					summary: app.summary,
-					rawApp: false,
-					executionMode,
-					extraPerms: app.extra_perms,
-					isDraft: false
-				}
-			}
-			const value = appSourceToDraftValue(app)
-			const metadata = summarizeAppValue(value)
-			return {
-				type: 'app',
-				path: app.path,
-				summary: value.summary,
-				value: metadata as unknown as AppDraftValue,
-				rawApp: app.raw_app,
-				executionMode,
-				extraPerms: app.extra_perms,
-				isDraft: false
-			}
-		}
-	}
-}
-
-// Accepts the `f/<name>` / `g/<name>` form the model sees in extra_perms keys and paths.
-function accessEntityName(type: AccessType, path: string): string {
-	const prefix = type === 'folder' ? 'f/' : 'g/'
-	const name = path.startsWith(prefix) ? path.slice(prefix.length) : path
-	return name.replace(/\/+$/, '')
-}
-
-async function readAccessEntity(type: AccessType, path: string, workspace: string) {
-	const name = accessEntityName(type, path)
-	if (type === 'folder') {
-		const folder = await FolderService.getFolder({ workspace, name })
-		return {
-			type,
-			name: folder.name,
-			summary: folder.summary,
-			owners: folder.owners,
-			extraPerms: folder.extra_perms,
-			defaultPermissionedAs: folder.default_permissioned_as
-		}
-	}
-	const group = await GroupService.getGroup({ workspace, name })
-	return {
-		type,
-		name: group.name,
-		summary: group.summary,
-		members: group.members,
-		extraPerms: group.extra_perms
-	}
-}
-
-type AccessEntityRow = {
-	type: AccessType
-	path: string
-	summary?: string
-	owners?: string[]
-	extraPerms?: Record<string, boolean>
-}
-
-// Group rows omit members: the list endpoint does not return them.
-async function listAccessEntities(
-	types: AccessType[],
-	workspace: string,
-	perPage: number,
-	page?: number
-): Promise<AccessEntityRow[]> {
-	const rows: AccessEntityRow[] = []
-	if (types.includes('folder')) {
-		for (const f of await FolderService.listFolders({ workspace, perPage, page })) {
-			rows.push({
-				type: 'folder',
-				path: f.name,
-				summary: f.summary,
-				owners: f.owners,
-				extraPerms: f.extra_perms
-			})
-		}
-	}
-	if (types.includes('group')) {
-		for (const g of await GroupService.listGroups({ workspace, perPage, page })) {
-			rows.push({ type: 'group', path: g.name, summary: g.summary, extraPerms: g.extra_perms })
-		}
-	}
-	return rows
-}
-
-async function listWorkspaceItems(
-	types: WorkspaceItemType[],
-	workspace: string,
-	pathPrefix: string | undefined,
-	perPage: number,
-	page?: number
-): Promise<WorkspaceItem[]> {
-	const items: WorkspaceItem[] = []
-
-	if (types.includes('script')) {
-		const scripts = await ScriptService.listScripts({
-			workspace,
-			pathStart: pathPrefix,
-			perPage,
-			page,
-			includeDraftOnly: true,
-			withoutDescription: true
-		})
-		for (const script of scripts) items.push(scriptToItem(script, false))
-	}
-
-	if (types.includes('flow')) {
-		const flows = await FlowService.listFlows({
-			workspace,
-			pathStart: pathPrefix,
-			perPage,
-			page,
-			includeDraftOnly: true,
-			withoutDescription: true
-		})
-		for (const flow of flows) items.push(flowToItem(flow, false))
-	}
-
-	if (types.includes('schedule')) {
-		const schedules = await ScheduleService.listSchedules({
-			workspace,
-			pathStart: pathPrefix,
-			perPage,
-			page
-		})
-		for (const schedule of schedules) items.push(scheduleToItem(schedule, false))
-	}
-
-	if (types.includes('trigger')) {
-		for (const kind of TRIGGER_KINDS) {
-			let triggers: Awaited<ReturnType<(typeof triggerServices)[typeof kind]['list']>>
-			try {
-				triggers = await triggerServices[kind].list({
-					workspace,
-					pathStart: pathPrefix,
-					perPage,
-					page
-				})
-			} catch (err) {
-				// A trigger kind whose backend routes aren't compiled in (e.g. email
-				// without smtp+private, or an EE kind on CE) 404s here; skip only that
-				// so one unavailable kind doesn't drop the whole listing. Any other
-				// failure (auth, 5xx, network) is real and must surface.
-				if ((err as { status?: number } | undefined)?.status === 404) continue
-				throw err
-			}
-			for (const trigger of triggers) items.push(triggerToItem(kind, trigger, false))
-		}
-	}
-
-	if (types.includes('resource')) {
-		const resources = await ResourceService.listResource({
-			workspace,
-			pathStart: pathPrefix,
-			perPage,
-			page
-		})
-		for (const resource of resources) items.push(resourceToItem(resource, false))
-	}
-
-	if (types.includes('variable')) {
-		const variables = await VariableService.listVariable({
-			workspace,
-			pathStart: pathPrefix,
-			perPage,
-			page
-		})
-		for (const variable of variables) items.push(variableToItem(variable))
-	}
-
-	if (types.includes('app')) {
-		const apps = await AppService.listApps({
-			workspace,
-			pathStart: pathPrefix,
-			perPage,
-			page
-		})
-		for (const app of apps) items.push(appToItem(app, false))
-	}
-
-	return items
 }
 
 // The get_instructions builders below add global mode's tools and draft rules on top of the shared
@@ -4538,7 +3679,25 @@ export const globalTools: SessionTool<{}>[] = [
 		validateBeforeConfirmation: validateDeleteWorkspaceItemTarget,
 		fn: async (ctx) => {
 			const parsed = deleteWorkspaceItemSchema.parse(ctx.args)
-			return deleteWorkspaceItem(parsed, ctx)
+			const { type, path } = parsed
+			return runDraftWrite('delete_workspace_item', ctx, {
+				// A trigger named without its kind is refused before anything starts.
+				pending:
+					type === 'trigger' && !parsed.trigger_kind ? undefined : `Deleting ${type} "${path}"...`,
+				draftLabel: path,
+				// Deployed state changed: cached fork comparisons involving this workspace are no
+				// longer trustworthy, whether or not the draft cleanup then succeeds.
+				afterServer: () => invalidateWorkspaceComparison(ctx.workspace),
+				// Recorded in the chat's modified-items mask: in a fork this leaves a reviewable
+				// "removed" diff vs the parent, scoped to this chat.
+				onSaved: (effects) => {
+					for (const effect of effects) {
+						if (effect.type === 'draft_delete') {
+							ctx.toolCallbacks.onItemModified?.(effect.kind, effect.storage_path)
+						}
+					}
+				}
+			})
 		}
 	},
 	{
@@ -5462,152 +4621,6 @@ export function setDeployedInSessionHandler(handler: DeployedInSessionHandler | 
 	deployedInSessionHandler = handler
 }
 
-type DraftConfig = Record<string, any>
-type ScheduleDraftConfig = NewSchedule & DraftConfig
-type TriggerDraftConfig = TriggerRequestBody & DraftConfig & { path: string }
-
-function stripBackendMetadata<T extends DraftConfig>(value: T): T {
-	const draft = structuredClone(value)
-	delete draft.workspace_id
-	delete draft.edited_by
-	delete draft.edited_at
-	delete draft.email
-	delete draft.error
-	return draft
-}
-
-function mergeDraftConfig<T extends DraftConfig>(
-	base: T | undefined,
-	overrides: DraftConfig,
-	path: string
-): T {
-	return {
-		...(base ? stripBackendMetadata(base) : {}),
-		...structuredClone(overrides),
-		path
-	} as unknown as T
-}
-
-function resourceToDraftState(resource: Resource): ResourceDraftState {
-	return {
-		path: resource.path,
-		description: resource.description ?? '',
-		args: structuredClone((resource.value ?? {}) as Record<string, any>),
-		labels: resource.labels ?? undefined,
-		wsSpecific: resource.ws_specific ?? false,
-		resource_type: resource.resource_type
-	}
-}
-
-function createResourceToDraftState(
-	args: CreateResource,
-	base?: ResourceDraftState
-): ResourceDraftState {
-	return {
-		...base,
-		path: args.path,
-		description: args.description ?? base?.description ?? '',
-		args: structuredClone((args.value ?? base?.args ?? {}) as Record<string, any>),
-		labels: args.labels ?? base?.labels,
-		wsSpecific: args.ws_specific ?? base?.wsSpecific ?? false,
-		resource_type: args.resource_type ?? base?.resource_type
-	}
-}
-
-function variableToDraftState(variable: ListableVariable): VariableDraftState {
-	// An OAuth variable's value is owned by the refresh flow, and `get_variable` hands back
-	// a freshly refreshed LIVE token for an expired one even under decryptSecret: false
-	// (variables.rs checks is_expired first). Drop it here, at the boundary: carrying it
-	// into a draft would pin a rotating value to a static one on the next deploy.
-	const oauthManaged = variable.is_oauth || variable.account != null
-	return {
-		path: variable.path,
-		variable: {
-			value: oauthManaged ? '' : (variable.value ?? ''),
-			is_secret: variable.is_secret,
-			description: variable.description ?? ''
-		},
-		labels: variable.labels ?? undefined,
-		wsSpecific: variable.ws_specific ?? false,
-		// `get_variable` sends these as explicit nulls; carrying a null through would add
-		// `account: null` / `expires_at: null` to the draft and to every diff the user
-		// reviews. Undefined drops out of the JSON instead.
-		account: variable.account ?? undefined,
-		is_oauth: variable.is_oauth ?? undefined,
-		expires_at: variable.expires_at ?? undefined
-	}
-}
-
-function resolveVariableWrite(
-	args: WriteVariableArgs,
-	base?: VariableDraftState
-): {
-	is_secret: boolean
-	value: string
-	description: string
-} {
-	if (base === undefined && (args.value === undefined || args.is_secret === undefined)) {
-		throw new Error(
-			`Variable "${args.path}" does not exist yet, so creating it requires both value and is_secret.`
-		)
-	}
-	const is_secret = args.is_secret ?? base?.variable.is_secret ?? false
-	// '' is the sentinel for "nothing staged" in a secret draft, so it cannot also mean
-	// "set the secret to empty". Refusing it matters because a model reaching for a
-	// placeholder — the habit this schema change removes — would otherwise wipe the secret.
-	if (is_secret && args.value === '') {
-		throw new Error(
-			`An empty string is not a valid value for secret variable "${args.path}". Omit value to keep the stored secret, or pass the real new one.`
-		)
-	}
-	// Securing one needs a value too when it holds none: the deploy would send no `value`
-	// (nothing is staged) and the backend refuses an is_secret change without one. Saying
-	// so here keeps the model from having to interpret that error.
-	if (
-		is_secret &&
-		base?.variable.is_secret === false &&
-		(args.value ?? base.variable.value) === ''
-	) {
-		throw new Error(
-			`Cannot make variable "${args.path}" secret without a value: it currently holds an empty one, so there would be nothing to encrypt. Pass the value it should hold.`
-		)
-	}
-	// Un-securing always needs a new plaintext value. An `$encrypted:` marker is no
-	// help: the deploy endpoints only decrypt it while the target stays secret, so
-	// carrying it into a non-secret variable would store the marker as the value.
-	if (is_secret === false && base?.variable.is_secret === true && args.value === undefined) {
-		throw new Error(
-			`Cannot turn secret variable "${args.path}" into a non-secret one without a value: its stored value cannot be read, so it would be replaced by an empty one. Pass the new plaintext value, or leave is_secret unset to keep it secret.`
-		)
-	}
-	return {
-		is_secret,
-		value: args.value ?? base?.variable.value ?? '',
-		description: args.description ?? base?.variable.description ?? ''
-	}
-}
-
-function createVariableToDraftState(
-	args: WriteVariableArgs,
-	base?: VariableDraftState
-): VariableDraftState {
-	const { is_secret, value, description } = resolveVariableWrite(args, base)
-	return {
-		...base,
-		path: args.path,
-		variable: {
-			value,
-			is_secret,
-			description
-		},
-		labels: args.labels ?? base?.labels,
-		wsSpecific: args.ws_specific ?? base?.wsSpecific ?? false,
-		account: args.account ?? base?.account,
-		is_oauth: args.is_oauth ?? base?.is_oauth,
-		expires_at: args.expires_at ?? base?.expires_at
-	}
-}
-
 // The deploy body for a variable that does not exist yet.
 function buildVariableCreateRequestBody(draftValue: CreateVariable): CreateVariable {
 	const requestBody = structuredClone(draftValue)
@@ -5638,12 +4651,6 @@ function buildVariableUpdateRequestBody(
 	// shared deployer. A value changed elsewhere since the draft was created is therefore
 	// overwritten; closing that needs a stale-draft guard for variables on all three paths.
 	return { ...rest, value }
-}
-
-function startDraftWrite(ctx: WriteDraftCtx, type: WorkspaceItemType, path: string): void {
-	ctx.toolCallbacks.setToolStatus(ctx.toolId, {
-		content: `Saving ${type} "${path}" as a draft…`
-	})
 }
 
 // Conflict / save-failure handling shared by the kind write tools and the app
@@ -5712,62 +4719,6 @@ function maybeAttachPreviewCard(
 	ctx.toolCallbacks.setToolStatus(ctx.toolId, { previewCard: { kind, path } })
 }
 
-// App write tools build varied success messages but share the same conflict /
-// save-failure handling; `onSaved` supplies the per-tool status + message.
-function finishAppDraftWrite(
-	result: DraftPersistResult,
-	ctx: WriteDraftCtx,
-	onSaved: () => { content: string; message: string; warning?: string },
-	codeDiff?: ToolCodeDiff
-): string {
-	const failure = draftWriteFailure(result, ctx)
-	if (failure) return failure
-	if (codeDiff) ctx.toolCallbacks.setToolStatus(ctx.toolId, { codeDiff })
-	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
-	maybeAttachPreviewCard(ctx, result.itemKind, result.item.path)
-	const { content, message, warning } = onSaved()
-	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content, result: 'Saved as draft' })
-	return JSON.stringify({ success: true, message, warning }, null, 2)
-}
-
-function finishDraftWrite(
-	result: DraftPersistResult,
-	existed: boolean,
-	ctx: WriteDraftCtx,
-	codeDiff?: ToolCodeDiff
-): string {
-	const failure = draftWriteFailure(result, ctx)
-	if (failure) return failure
-	if (codeDiff) ctx.toolCallbacks.setToolStatus(ctx.toolId, { codeDiff })
-	ctx.toolCallbacks.onItemModified?.(result.itemKind, result.storagePath)
-	maybeAttachPreviewCard(ctx, result.itemKind, result.item.path)
-	const stored = result.item
-	const verb = existed ? 'Updated' : 'Created'
-	// Don't echo the flow value back: the model just sent it in the write call,
-	// so reflecting the (large) compact flow JSON only burns tokens. Variables
-	// echo a redacted item; everything else round-trips its small payload.
-	const serializedItem =
-		stored.type === 'flow'
-			? undefined
-			: stored.type === 'variable'
-				? serializeWorkspaceItemForRead(stored)
-				: stored
-
-	ctx.toolCallbacks.setToolStatus(ctx.toolId, {
-		content: `${verb} ${stored.type} "${stored.path}" as a draft`,
-		result: `Saved as draft`
-	})
-	return JSON.stringify(
-		{
-			success: true,
-			message: `${verb} ${stored.type} "${stored.path}" as a per-user draft (saved server-side, visible only to this user — not a deployed workspace item). It was not deployed.`,
-			item: serializedItem
-		},
-		null,
-		2
-	)
-}
-
 /**
  * A draft write run on the server. The server builds the value from the draft the browser
  * holds (or the server's), and the chat saves it through its own draft store, so an open
@@ -5786,6 +4737,8 @@ async function runDraftWrite(
 		draftLabel?: string
 		/** Runs once the call's writes and deletes are saved. */
 		onSaved?: (effects: SessionToolEffect[]) => void
+		/** Runs once the server call succeeded, before its drafts are saved. */
+		afterServer?: () => void
 	} = {}
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
@@ -5809,6 +4762,7 @@ async function runDraftWrite(
 		ctx
 	)
 	if (response.is_error) throw new Error(response.text)
+	opts.afterServer?.()
 	for (const effect of response.effects) {
 		if (effect.type === 'draft_write' && effect.kind === 'script') {
 			await inferScriptDraftSchema(effect.value as NewScript)
@@ -5889,307 +4843,6 @@ async function inferScriptDraftSchema(draft: NewScript): Promise<void> {
 	}
 }
 
-// Per-draft-kind knowledge for the shared write skeleton. `fetchDeployed` returns
-// the deployed item already shaped as a draft value (e.g. script with parent_hash)
-// so `buildDraft` treats a draft base and a deployed base identically; a `base` of
-// undefined is the create-from-scratch case.
-type WriteSpec<T, A> = {
-	probe: (workspace: string, path: string) => Promise<boolean>
-	fetchDeployed: (workspace: string, path: string) => Promise<T>
-	buildDraft: (base: T | undefined, args: A, path: string) => T | Promise<T>
-}
-
-async function writeDraft<T, A>(
-	spec: WriteSpec<T, A>,
-	type: WorkspaceItemType,
-	path: string,
-	args: A,
-	ctx: WriteDraftCtx,
-	opts: {
-		triggerKind?: TriggerKind
-		override?: boolean
-		codeDiff?: ToolCodeDiff | ((base: T | undefined, draft: T) => ToolCodeDiff | undefined)
-	} = {}
-): Promise<string> {
-	const { workspace } = ctx
-	startDraftWrite(ctx, type, path)
-
-	const existingDraft = await readGlobalDraftValue<T>(workspace, type, path, opts.triggerKind)
-	let base = existingDraft
-	let existed = existingDraft !== undefined
-	if (base === undefined && (await spec.probe(workspace, path))) {
-		base = await spec.fetchDeployed(workspace, path)
-		existed = true
-	}
-
-	const draft = await spec.buildDraft(base, args, path)
-
-	const result = await persistGlobalDraft(workspace, type, path, draft, {
-		triggerKind: opts.triggerKind,
-		force: opts.override
-	})
-	const codeDiff = typeof opts.codeDiff === 'function' ? opts.codeDiff(base, draft) : opts.codeDiff
-	return finishDraftWrite(result, existed, ctx, codeDiff)
-}
-
-type ScriptDraftArgs = {
-	path: string
-	summary?: string
-	language: ScriptLang
-	content: string
-	override?: boolean
-}
-
-const SCRIPT_SPEC: WriteSpec<NewScript, ScriptDraftArgs> = {
-	probe: (workspace, path) => ScriptService.existsScriptByPath({ workspace, path }),
-	fetchDeployed: async (workspace, path) => {
-		// The deployed lock describes the deployed content, not the draft's; the deploy recomputes it.
-		const {
-			lock: _lock,
-			lock_error_logs: _lockErrorLogs,
-			...existing
-		} = await ScriptService.getScriptByPath({ workspace, path })
-		return { ...(existing as unknown as NewScript), parent_hash: existing.hash }
-	},
-	buildDraft: async (base, args, path) => {
-		const draft: NewScript = base
-			? {
-					...structuredClone(base),
-					path,
-					summary: args.summary ?? base.summary,
-					content: args.content,
-					language: args.language
-				}
-			: {
-					path,
-					summary: args.summary ?? '',
-					description: '',
-					content: args.content,
-					schema: emptySchema(),
-					is_template: false,
-					language: args.language,
-					kind: 'script'
-				}
-		// Into the schema the base carries, as the editor does at save: `inferArgs` re-seeds
-		// each arg from the properties it is handed, and those are the only copy of
-		// `password`, enums, formats and titles — no parser emits them. A clone, so a parse
-		// failure leaves the previous schema rather than half of one.
-		try {
-			const schema = structuredClone(
-				draft.schema?.properties ? draft.schema : emptySchema()
-			) as Schema
-			await inferArgs(draft.language, draft.content, schema)
-			draft.schema = schema
-		} catch (e) {
-			console.error('Failed to infer script schema before saving draft', e)
-		}
-		return draft
-	}
-}
-
-function writeScriptDraft(
-	args: ScriptDraftArgs,
-	ctx: WriteDraftCtx,
-	codeDiff?: ToolCodeDiff
-): Promise<string> {
-	// A session builds pipeline nodes into the folder's pipeline draft; a script draft
-	// written here never reaches the pipeline graph, and saving the pipeline drops it.
-	if (
-		(ctx.sessionId ?? sessionIdFromCtx(ctx)) &&
-		parsePipelineAnnotations(args.content).inPipeline
-	) {
-		const folder = args.path.match(/^f\/([^/]+)\//)?.[1] ?? '<folder>'
-		throw new Error(
-			`"${args.path}" is a data pipeline node (its source starts with the pipeline annotation). In a session, pipeline nodes are not script drafts: call open_preview(kind="pipeline", path="${folder}") if that folder's pipeline editor is not open yet, then use build_pipeline_node (new node) or edit_pipeline_node (existing node). Nothing was written.`
-		)
-	}
-	return writeDraft(SCRIPT_SPEC, 'script', args.path, args, ctx, {
-		override: args.override,
-		codeDiff:
-			codeDiff ??
-			((base, draft) => ({
-				before: base?.content ?? '',
-				after: draft.content,
-				lang: scriptLangToEditorLang(draft.language)
-			}))
-	})
-}
-
-type FlowDraftArgs = {
-	path: string
-	summary?: string
-	description?: string
-	flow: FlowDraftValue
-	override?: boolean
-	/** Carry over the base value's non-structural fields (chat_input_enabled,
-	 * same_worker, ...) into the new value. Set by write_flow, whose arguments
-	 * cannot express them; patch_flow_json passes the full value state instead. */
-	preserveBaseValueSettings?: boolean
-}
-
-const FLOW_STRUCTURAL_VALUE_KEYS = new Set<string>(EDITABLE_FLOW_STRUCTURAL_KEYS)
-
-const FLOW_SPEC: WriteSpec<Flow, FlowDraftArgs> = {
-	probe: (workspace, path) => FlowService.existsFlowByPath({ workspace, path }),
-	fetchDeployed: (workspace, path) => FlowService.getFlowByPath({ workspace, path }),
-	buildDraft: (base, args, path) => {
-		const value = structuredClone(args.flow.value)
-		if (args.flow.groups !== undefined && args.flow.groups !== null) {
-			value.groups = structuredClone(args.flow.groups)
-		}
-		if (args.preserveBaseValueSettings && base?.value) {
-			for (const [key, fieldValue] of Object.entries(base.value)) {
-				if (
-					!FLOW_STRUCTURAL_VALUE_KEYS.has(key) &&
-					(value as Record<string, unknown>)[key] === undefined
-				) {
-					;(value as Record<string, unknown>)[key] = structuredClone(fieldValue)
-				}
-			}
-		}
-		// Also checked at deploy; dropped here too because a test run of the draft reads the locks.
-		dropStaleStepLocks(value, base?.value)
-		return base
-			? {
-					...structuredClone(base),
-					path,
-					summary: args.summary ?? base.summary,
-					description: args.description ?? base.description,
-					value,
-					schema: args.flow.schema ?? base.schema
-				}
-			: {
-					path,
-					summary: args.summary ?? '',
-					description: args.description ?? '',
-					value,
-					schema: args.flow.schema ?? emptySchema(),
-					edited_by: '',
-					edited_at: '',
-					archived: false,
-					extra_perms: {}
-				}
-	}
-}
-
-function writeFlowDraft(args: FlowDraftArgs, ctx: WriteDraftCtx): Promise<string> {
-	return writeDraft(FLOW_SPEC, 'flow', args.path, args, ctx, { override: args.override })
-}
-
-const SCHEDULE_SPEC: WriteSpec<ScheduleDraftConfig, NewSchedule & { override?: boolean }> = {
-	probe: (workspace, path) => ScheduleService.existsSchedule({ workspace, path }),
-	fetchDeployed: async (workspace, path) =>
-		(await ScheduleService.getSchedule({ workspace, path })) as ScheduleDraftConfig,
-	buildDraft: (base, args, path) => {
-		// `override` is a tool-only conflict-resolution flag, not schedule config —
-		// strip it so mergeDraftConfig doesn't clone it into the persisted draft.
-		const { override: _override, ...config } = args
-		return mergeDraftConfig<ScheduleDraftConfig>(base, config as DraftConfig, path)
-	}
-}
-
-function writeScheduleDraft(
-	args: NewSchedule & { override?: boolean },
-	ctx: WriteDraftCtx
-): Promise<string> {
-	return writeDraft(SCHEDULE_SPEC, 'schedule', args.path, args, ctx, { override: args.override })
-}
-
-function triggerWriteSpec(kind: TriggerKind): WriteSpec<TriggerDraftConfig, TriggerDraftConfig> {
-	const service = triggerServices[kind]
-	return {
-		probe: (workspace, path) => service.exists({ workspace, path }),
-		fetchDeployed: async (workspace, path) =>
-			(await service.get({ workspace, path })) as TriggerDraftConfig,
-		buildDraft: (base, config, path) => {
-			const draft = mergeDraftConfig<TriggerDraftConfig>(base, config, path)
-			if (kind === 'email') {
-				// workspaced_local_part maps to a NOT NULL column but is optional in the
-				// tool schema. Default on the merged draft (not the incoming config) so an
-				// omitted field keeps the existing trigger's value instead of resetting it.
-				const email = draft as TriggerDraftConfig & { workspaced_local_part?: boolean }
-				email.workspaced_local_part = email.workspaced_local_part ?? false
-			}
-			return draft
-		}
-	}
-}
-
-function writeTriggerDraft(
-	args: { kind: TriggerKind; config: unknown; override?: boolean },
-	ctx: WriteDraftCtx
-): Promise<string> {
-	const config = args.config as TriggerDraftConfig
-	return writeDraft(triggerWriteSpec(args.kind), 'trigger', config.path, config, ctx, {
-		triggerKind: args.kind,
-		override: args.override
-	})
-}
-
-const RESOURCE_SPEC: WriteSpec<ResourceDraftState, CreateResource & { override?: boolean }> = {
-	probe: (workspace, path) => ResourceService.existsResource({ workspace, path }),
-	fetchDeployed: async (workspace, path) =>
-		resourceToDraftState(await ResourceService.getResource({ workspace, path })),
-	buildDraft: (base, args) => createResourceToDraftState(args, base)
-}
-
-function writeResourceDraft(
-	args: CreateResource & { override?: boolean },
-	ctx: WriteDraftCtx
-): Promise<string> {
-	return writeDraft(RESOURCE_SPEC, 'resource', args.path, args, ctx, { override: args.override })
-}
-
-const VARIABLE_SPEC: WriteSpec<VariableDraftState, WriteVariableArgs> = {
-	probe: (workspace, path) => VariableService.existsVariable({ workspace, path }),
-	fetchDeployed: async (workspace, path) =>
-		variableToDraftState(
-			await VariableService.getVariable({ workspace, path, decryptSecret: false })
-		),
-	buildDraft: (base, args) => createVariableToDraftState(args, base)
-}
-
-function writeVariableDraft(args: WriteVariableArgs, ctx: WriteDraftCtx): Promise<string> {
-	// A variable's value is never interpolated, so "$var:<its own path>" as the value
-	// is always the model echoing the reference syntax back instead of a real value.
-	if (args.value === `$var:${args.path}`) {
-		throw new Error(
-			`"${args.value}" is not a valid value for variable "${args.path}" — it is a self-reference. Omit value to keep the current one.`
-		)
-	}
-	return writeDraft(VARIABLE_SPEC, 'variable', args.path, args, ctx, { override: args.override })
-}
-
-async function loadScriptForEdit(
-	path: string,
-	workspace: string
-): Promise<{
-	content: string
-	language: ScriptLang
-	summary?: string
-	schema?: Record<string, any>
-}> {
-	const draft = await getGlobalDraft(workspace, 'script', path)
-	if (draft) {
-		if (typeof draft.value !== 'string' || !draft.language) {
-			throw new Error(`Draft script "${path}" is missing content or language.`)
-		}
-		return {
-			content: draft.value,
-			language: draft.language,
-			summary: draft.summary,
-			schema: draft.schema as Record<string, any> | undefined
-		}
-	}
-	const script = await ScriptService.getScriptByPath({ workspace, path })
-	return {
-		content: script.content,
-		language: script.language,
-		summary: script.summary,
-		schema: script.schema as Record<string, any> | undefined
-	}
-}
-
 /** The fields a test form offers, for code that may never have been deployed. The stored
  * schema wins wherever it declares fields — a draft's or the deployed script's; one that
  * declares nothing, or that speaks for an entrypoint other than the one about to run, is
@@ -6215,222 +4868,8 @@ async function schemaForTestRun(script: {
 	return schema as unknown as Record<string, any>
 }
 
-async function editScript(
-	args: { path: string; old_string: string; new_string: string; replace_all: boolean },
-	ctx: WriteDraftCtx
-): Promise<string> {
-	const { path, old_string: oldString, new_string: newString, replace_all: replaceAll } = args
-	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: `Editing script "${path}"...` })
-
-	const base = await loadScriptForEdit(path, ctx.workspace)
-	const updated = findAndReplace(base.content, oldString, newString, replaceAll, 'script source')
-	return writeScriptDraft(
-		{
-			path,
-			summary: base.summary,
-			language: base.language,
-			content: updated
-		},
-		ctx,
-		{ before: base.content, after: updated, lang: scriptLangToEditorLang(base.language) }
-	)
-}
-
-async function loadFlowDraftValue(
-	path: string,
-	workspace: string
-	// `isDraft` says which of the two this came from. Reported here because the draft lookup
-	// is a request of its own: a caller that needs to know would otherwise repeat it.
-): Promise<{ flow: FlowDraftValue; summary?: string; isDraft: boolean }> {
-	const draft = await getGlobalDraft(workspace, 'flow', path)
-	if (draft) {
-		if (draft.value === undefined || typeof draft.value === 'string') {
-			throw new Error(`Draft flow "${path}" has no value.`)
-		}
-		return { flow: draft.value as FlowDraftValue, summary: draft.summary, isDraft: true }
-	}
-	const flow = await FlowService.getFlowByPath({ workspace, path })
-	return {
-		flow: { value: flow.value, schema: flow.schema, groups: flow.value.groups ?? null },
-		summary: flow.summary,
-		isDraft: false
-	}
-}
-
-/**
- * `write_flow` accepts `inline_script.<id>` placeholders so the model can
- * overwrite a flow without re-sending (or even reading) unchanged rawscript
- * bodies. Resolve them against the current draft/deployed flow: an id with a
- * stored body keeps it, a new module's own-id placeholder becomes an empty body
- * (to fill via set_flow_module_code), and anything else rejects the write.
- */
-async function resolveWriteFlowInlineScripts(
-	path: string,
-	editable: EditableFlowJson,
-	workspace: string
-): Promise<EditableFlowJson> {
-	const specials = [editable.preprocessor_module, editable.failure_module].filter(
-		(module): module is FlowModule => module != null
-	)
-	const hasPlaceholders =
-		findUnresolvedInlineScriptRefs(editable.modules).length > 0 ||
-		findUnresolvedInlineScriptRefs(specials).length > 0
-	if (!hasPlaceholders) {
-		return editable
-	}
-
-	const session = createInlineScriptSession()
-	if (
-		(await getGlobalDraft(workspace, 'flow', path)) ||
-		(await FlowService.existsFlowByPath({ workspace, path }))
-	) {
-		const base = await loadFlowDraftValue(path, workspace)
-		buildEditableFlowJson(flowDraftAsEditableInput(base.flow), session)
-	}
-	const resolved: EditableFlowJson = {
-		...editable,
-		modules: session.restoreInlineScriptReferences(editable.modules),
-		preprocessor_module: restoreSpecialRawscriptModule(editable.preprocessor_module, session),
-		failure_module: restoreSpecialRawscriptModule(editable.failure_module, session)
-	}
-	finalizeUnresolvedInlineScripts(resolved)
-	return resolved
-}
-
-async function patchFlowJson(
-	args: { path: string; old_string: string; new_string: string; replace_all: boolean },
-	ctx: WriteDraftCtx
-): Promise<string> {
-	const { path, old_string: oldString, new_string: newString, replace_all: replaceAll } = args
-	ctx.toolCallbacks.setToolStatus(ctx.toolId, { content: `Patching flow "${path}"...` })
-
-	// Operate on the compact (placeholders-for-rawscript) view so inline script
-	// bodies don't appear in the JSON the model sees or patches. Real script
-	// content is preserved through the patch via the InlineScriptSession; the
-	// model uses set_flow_module_code to change inline script bodies.
-	const base = await loadFlowDraftValue(path, ctx.workspace)
-	const session = createInlineScriptSession()
-	const editable = buildEditableFlowJson(flowDraftAsEditableInput(base.flow), session)
-	const currentJson = JSON.stringify(editable)
-	const updatedJson = findAndReplace(
-		currentJson,
-		oldString,
-		newString,
-		replaceAll,
-		'compact flow JSON'
-	)
-	let parsedValue: unknown
-	try {
-		parsedValue = JSON.parse(updatedJson)
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error)
-		throw new Error(`Invalid JSON after replacement: ${message}`)
-	}
-
-	const aiProviders = await getAiAgentProviderCatalogFor(
-		ctx.workspace,
-		(parsedValue as { modules?: unknown } | null)?.modules
-	)
-	const aiProviderWarnings: string[] = []
-	const patchedEditable = validateEditableFlowJson(parsedValue, { aiProviders, aiProviderWarnings })
-	const newFlowValue = applyEditableFlowJsonToFlow(base.flow.value, patchedEditable, session)
-	finalizeUnresolvedInlineScripts(newFlowValue)
-
-	const result = await writeFlowDraft(
-		{
-			path,
-			summary: base.summary,
-			flow: {
-				...base.flow,
-				value: newFlowValue,
-				schema: patchedEditable.schema,
-				groups: patchedEditable.groups
-			}
-		},
-		ctx
-	)
-	// Warn from the restored value, not patchedEditable — the compact view holds
-	// placeholders for every rawscript, so only post-restore content shows which
-	// modules still need bodies filled via set_flow_module_code.
-	return (
-		appendEmptyInlineScriptWarning(result, {
-			...patchedEditable,
-			modules: newFlowValue.modules,
-			preprocessor_module: newFlowValue.preprocessor_module ?? null,
-			failure_module: newFlowValue.failure_module ?? null
-		}) + formatAiAgentProviderWarnings(aiProviderWarnings)
-	)
-}
-
-async function readFlowModuleCode(
-	args: { path: string; module_id: string },
-	ctx: WriteDraftCtx
-): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
-	toolCallbacks.setToolStatus(toolId, {
-		content: `Reading inline script for module "${args.module_id}" from flow "${args.path}"...`
-	})
-	const base = await loadFlowDraftValue(args.path, workspace)
-	const session = createInlineScriptSession()
-	buildEditableFlowJson(flowDraftAsEditableInput(base.flow), session)
-	const content = session.get(args.module_id)
-	if (content === undefined) {
-		throw new Error(
-			`Module "${args.module_id}" is not an inline rawscript in flow "${args.path}". (Path runnables, branches, and loops have no inline script content; use patch_flow_json to inspect them.)`
-		)
-	}
-	toolCallbacks.setToolStatus(toolId, {
-		content: `Read code of step ${flowStepName(base.flow.value, args.module_id)}`
-	})
-	return content
-}
-
-async function setFlowModuleCode(
-	args: { path: string; module_id: string; code: string },
-	ctx: WriteDraftCtx
-): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
-	toolCallbacks.setToolStatus(toolId, {
-		content: `Updating inline script for module "${args.module_id}" in flow "${args.path}"...`
-	})
-	const base = await loadFlowDraftValue(args.path, workspace)
-	const session = createInlineScriptSession()
-	const editable = buildEditableFlowJson(flowDraftAsEditableInput(base.flow), session)
-	if (!session.has(args.module_id)) {
-		throw new Error(
-			`Module "${args.module_id}" is not an inline rawscript in flow "${args.path}". Use patch_flow_json or write_flow for structural changes.`
-		)
-	}
-	session.set(args.module_id, args.code)
-	const newFlowValue = applyEditableFlowJsonToFlow(base.flow.value, editable, session)
-	const result = await writeFlowDraft(
-		{
-			path: args.path,
-			summary: base.summary,
-			flow: { ...base.flow, value: newFlowValue }
-		},
-		ctx
-	)
-	// Several code edits of one flow read as identical rows under the generic flow label.
-	if (JSON.parse(result).success) {
-		toolCallbacks.setToolStatus(toolId, {
-			content: `Updated code of step ${flowStepName(base.flow.value, args.module_id)}`
-		})
-	}
-	return result
-}
-
-function flowStepName(flow: FlowValue, moduleId: string): string {
-	const summary = findModuleInFlow(flow, moduleId)?.summary
-	return summary ? `${moduleId} "${summary}"` : moduleId
-}
-
 function normalizeTestRunArgs(args: Record<string, any> | null | undefined): Record<string, any> {
 	return args ?? {}
-}
-
-function flowDraftValueForPreview(flowDraft: FlowDraftValue): FlowValue {
-	return flowDraftAsEditableInput(flowDraft).value
 }
 
 /**
@@ -6441,47 +4880,6 @@ function flowDraftValueForPreview(flowDraft: FlowDraftValue): FlowValue {
  */
 export function chatMemoryId(value: FlowValue): string | undefined {
 	return value.chat_input_enabled ? randomUUID() : undefined
-}
-
-async function loadScriptForFlowStep(
-	moduleValue: { path: string; hash?: string },
-	workspace: string
-): Promise<{ content: string; language: ScriptLang; schema?: Record<string, any> }> {
-	const draft = await getGlobalDraft(workspace, 'script', moduleValue.path)
-	if (draft) {
-		if (typeof draft.value !== 'string' || !draft.language) {
-			throw new Error(`Draft script "${moduleValue.path}" is missing content or language.`)
-		}
-		return {
-			content: draft.value,
-			language: draft.language,
-			// The draft's own: no parser emits `password`, so a schema rebuilt from the content
-			// would offer a secret argument as a plain field and take the literal into the job.
-			schema: draft.schema as Record<string, any> | undefined
-		}
-	}
-
-	const script = moduleValue.hash
-		? await ScriptService.getScriptByHash({ workspace, hash: moduleValue.hash })
-		: await ScriptService.getScriptByPath({ workspace, path: moduleValue.path })
-	return {
-		content: script.content,
-		language: script.language,
-		schema: script.schema as Record<string, any> | undefined
-	}
-}
-
-async function loadSubflowForFlowStep(
-	path: string,
-	workspace: string
-): Promise<{ previewValue?: FlowValue; schema?: Record<string, any> }> {
-	const nestedFlow = await loadFlowDraftValue(path, workspace)
-	return {
-		// Only a draft is previewed; a deployed subflow is run by path, as its parent flow
-		// would run it. The schema describes whichever of the two that leaves.
-		previewValue: nestedFlow.isDraft ? flowDraftValueForPreview(nestedFlow.flow) : undefined,
-		schema: nestedFlow.flow.schema ?? undefined
-	}
 }
 
 /**
@@ -7099,211 +5497,11 @@ async function testRunFlowStepByPath(
 	)
 }
 
-/** The `data.tables` entry for a table named without its data table (`schema:table`,
- * `schema.table` or `table`), which models write for a table of the app's own data table.
- * A bare name is a table of the app's own schema. */
-function appTableRef(datatable: string, schema: string | undefined, ref: string): string {
-	if (ref.includes('/')) return ref
-	const sep = ref.includes(':') ? ':' : '.'
-	const at = ref.indexOf(sep)
-	return formatDataTableRef(
-		at === -1
-			? { datatable, schema, table: ref }
-			: { datatable, schema: ref.slice(0, at), table: ref.slice(at + 1) }
-	)
-}
-
-async function initApp(
-	args: {
-		path: string
-		summary?: string
-		framework: FrameworkKey
-		data?: { datatable: string; schema?: string; tables?: string[] }
-	},
-	ctx: WriteDraftCtx
-): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
-	const { path, summary, framework, data } = args
-
-	if (await getGlobalDraft(workspace, 'app', path)) {
-		throw new Error(
-			`A draft for app "${path}" already exists. Use write_app_file / write_app_runnable to modify it, or delete the existing draft first.`
-		)
-	}
-	if (await AppService.existsApp({ workspace, path })) {
-		throw new Error(
-			`An app already exists at "${path}". Use read_workspace_item + write_app_file / write_app_runnable to modify it.`
-		)
-	}
-
-	toolCallbacks.setToolStatus(toolId, {
-		content: `Saving app "${path}" draft (${framework} template)…`
-	})
-
-	// A builder can save no inline runnable, so they start from a static page instead of the tour.
-	const builder = operatorBuilderAppsIn(workspace)
-	const value: AppDraftValue = {
-		summary,
-		files: { ...(builder ? BUILDER_FRAMEWORK_TEMPLATES : FRAMEWORK_TEMPLATES)[framework] },
-		runnables: builder ? {} : structuredClone(STARTER_RUNNABLES),
-		policy: { sandbox: true },
-		...(data && {
-			data: {
-				tables: (data.tables ?? []).map((ref) => appTableRef(data.datatable, data.schema, ref)),
-				datatable: data.datatable,
-				schema: data.schema
-			}
-		})
-	}
-	await recomputeAppPolicy(value)
-	const result = await saveAppDraft(workspace, path, value)
-	return finishAppDraftWrite(result, ctx, () => ({
-		content: `Saved app "${path}" draft (${framework})`,
-		message: `Initialized a per-user draft app "${path}" from the ${framework} template (saved server-side, not a deployed workspace item). ${builder ? 'The template is a static page with no runnables: replace its UI, and add only deployed scripts and flows, by path.' : `The template is a demo tour with starter runnables ${Object.keys(STARTER_RUNNABLES).join(', ')}: replace its UI and delete the runnables the app does not need (delete_app_runnable).`} Use write_app_file / write_app_runnable to evolve it.${data?.schema ? ` Its data config names schema "${data.schema}" of data table "${data.datatable}" without creating it: if it does not exist yet, create it before the tables that go in it.` : ''}`
-	}))
-}
-
-// read_app_file caps: a large frontend file or inline runnable would otherwise
-// enter context in full and persist for the rest of the session. Default to a
-// head slice with a pointer to page further; the model widens with offset/limit.
-// The char budget is a hard ceiling on a single read: a selected line window over
-// it is truncated and the model is told to narrow the line range. There is no
-// char-level paging, so a single line longer than the budget can't be read past —
-// add paging here if minified/long-line files must be fully readable.
-const READ_APP_FILE_DEFAULT_LINE_LIMIT = 1500
-const READ_APP_FILE_CHAR_BUDGET = 50_000
-
-type AppFileSlice = {
-	body: string
-	startLine: number
-	endLine: number
-	requestedStartLine: number
-	totalLines: number
-	lineWindowChars: number
-	charTruncated: boolean
-	truncated: boolean
-}
-
-function sliceAppFileForRead(content: string, offset?: number, limit?: number): AppFileSlice {
-	const lines = content.split('\n')
-	const totalLines = lines.length
-	const requestedStartLine = offset ?? 1
-	const start = Math.min(Math.max(requestedStartLine - 1, 0), totalLines)
-	const lineLimit = limit ?? READ_APP_FILE_DEFAULT_LINE_LIMIT
-	const end = Math.min(start + lineLimit, totalLines)
-	const selectedBody = lines.slice(start, end).join('\n')
-	const lineWindowChars = selectedBody.length
-	const body = selectedBody.slice(0, READ_APP_FILE_CHAR_BUDGET)
-	const charTruncated = lineWindowChars > READ_APP_FILE_CHAR_BUDGET
-
-	return {
-		body,
-		startLine: start + 1,
-		endLine: end,
-		requestedStartLine,
-		totalLines,
-		lineWindowChars,
-		charTruncated,
-		truncated: start > 0 || end < totalLines || charTruncated
-	}
-}
-
-function formatAppFileReadRangeLabel(slice: AppFileSlice): string {
-	const lineRange = `lines ${slice.startLine}-${slice.endLine} of ${slice.totalLines}`
-	if (!slice.charTruncated) {
-		return lineRange
-	}
-	return `${lineRange}, truncated to the first ${READ_APP_FILE_CHAR_BUDGET} of ${slice.lineWindowChars} chars`
-}
-
-// Small files (returned whole, starting at line 1) keep the raw body so
-// patch_app_file's exact-match stays trivial; truncated/windowed reads get a
-// one-line annotation describing the range (not part of the file).
-function formatAppFileReadResult(slice: AppFileSlice): string {
-	// offset past the last line: report it plainly instead of a backwards range.
-	if (slice.requestedStartLine > slice.totalLines) {
-		return `offset ${slice.requestedStartLine} is past the end of the file (${slice.totalLines} lines).`
-	}
-	if (!slice.truncated && slice.startLine === 1) {
-		return slice.body
-	}
-
-	let more = ''
-	if (slice.charTruncated) {
-		more = ` Reached the ${READ_APP_FILE_CHAR_BUDGET}-char limit; re-read with a smaller limit (fewer lines). If a single line exceeds the limit the file is likely minified and not readable this way.`
-	} else if (slice.endLine < slice.totalLines) {
-		more = ` Call read_app_file again with offset=${slice.endLine + 1} to continue.`
-	}
-	// No tool-name/path prefix: the model already has them from the call args. The
-	// range line orients it; the body follows after a blank line.
-	return `${formatAppFileReadRangeLabel(slice)}.${more}\n\n${slice.body}`
-}
-
-async function readAppFile(
-	args: {
-		path: string
-		file_path: string
-		offset?: number
-		limit?: number
-	},
-	ctx: WriteDraftCtx
-): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
-	const target = resolveAppFileTarget(args.file_path)
-	toolCallbacks.setToolStatus(toolId, {
-		content: `Reading ${target.filePath} from app "${args.path}"...`
-	})
-
-	const value = await loadAppValueForRead(args.path, workspace)
-
-	let content: string
-	if (target.kind === 'frontend') {
-		const frontend = value.files[target.filePath]
-		if (frontend === undefined) {
-			throw new Error(`Frontend file "${target.filePath}" not found in app "${args.path}".`)
-		}
-		content = frontend
-	} else {
-		content = getInlineRunnableContent(value, target, args.path).content
-	}
-
-	const slice = sliceAppFileForRead(content, args.offset, args.limit)
-
-	toolCallbacks.setToolStatus(toolId, { content: `Read ${target.filePath}` })
-	return formatAppFileReadResult(slice)
-}
-
-// search_app caps: a single query must stay sparse and cheap even when it hits a
-// minified bundle or a 5k-line data module. Per-line and total-output caps bound
-// the result the same way read_app_file's char budget bounds one file read; the
-// match cap keeps a broad query from flooding context instead of locating it.
-const SEARCH_APP_DEFAULT_MAX_MATCHES = 100
-const SEARCH_APP_MAX_MATCHES_CEILING = 200
 const SEARCH_APP_MAX_LINE_CHARS = 200
 const SEARCH_APP_TOTAL_CHAR_BUDGET = 12_000
 // Fixed surrounding-context window per match, kept off the tool schema to keep it
 // lean. Bump if matches need more context than the line ± this.
 const SEARCH_APP_CONTEXT_LINES = 2
-
-type AppSearchableFile = { filePath: string; content: string }
-
-// The files search_app scans: frontend files (minus generated ones) plus inline
-// backend runnables, each addressed exactly as read_app_file expects so a match
-// row's path can be passed straight back to read_app_file.
-function collectSearchableAppFiles(value: AppDraftValue): AppSearchableFile[] {
-	const files: AppSearchableFile[] = []
-	for (const [filePath, content] of Object.entries(value.files)) {
-		if (GENERATED_APP_FILE_PATHS.has(filePath)) continue
-		if (typeof content === 'string') files.push({ filePath, content })
-	}
-	for (const [key, runnable] of Object.entries(value.runnables)) {
-		const persisted = runnable as PersistedRunnable | undefined
-		const content = persisted?.inlineScript?.content
-		if (typeof content !== 'string') continue
-		files.push({ filePath: `backend/${key}/main.${getInlineScriptExtension(persisted)}`, content })
-	}
-	return files
-}
 
 // Minimal glob: * = any chars except '/', ** = any chars, ? = single non-slash.
 // A pattern without '/' matches the file name only (ripgrep-style), so "*.tsx"
@@ -7324,270 +5522,6 @@ function appFileMatchesGlob(filePath: string, glob: string): boolean {
 	}
 }
 
-type AppSearchMatch = { filePath: string; line: number; text: string }
-
-async function searchApp(
-	args: {
-		path: string
-		query: string
-		file_glob?: string
-		max_matches?: number
-	},
-	ctx: WriteDraftCtx
-): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
-	const query = args.query
-	if (query.length === 0) {
-		throw new Error('search_app requires a non-empty query.')
-	}
-	toolCallbacks.setToolStatus(toolId, {
-		content: `Searching app "${args.path}" for "${query}"...`
-	})
-
-	const value = await loadAppValueForRead(args.path, workspace)
-	const maxMatches = Math.min(
-		args.max_matches ?? SEARCH_APP_DEFAULT_MAX_MATCHES,
-		SEARCH_APP_MAX_MATCHES_CEILING
-	)
-	const contextLines = SEARCH_APP_CONTEXT_LINES
-	const needle = query.toLowerCase()
-
-	let files = collectSearchableAppFiles(value).sort((a, b) => a.filePath.localeCompare(b.filePath))
-	if (args.file_glob) {
-		files = files.filter((f) => appFileMatchesGlob(f.filePath, args.file_glob as string))
-	}
-
-	const matches: AppSearchMatch[] = []
-	let totalMatchCount = 0
-	// Cap on matching LINES, not pushed rows — each match expands to its context
-	// window, so counting rows would make `max_matches`/"showing the first N" wrong.
-	let renderedMatchCount = 0
-	let fileCount = 0
-	let truncated = false
-	for (const file of files) {
-		const lines = file.content.split('\n')
-		let fileHadMatch = false
-		for (let i = 0; i < lines.length; i++) {
-			if (!lines[i].toLowerCase().includes(needle)) continue
-			totalMatchCount++
-			// Count the file on its first match, before the render cap, so the
-			// "N matches in M files" header counts every file with the symbol — not
-			// only the ones whose matches landed in the rendered slice (find-all-usages).
-			fileHadMatch = true
-			if (renderedMatchCount >= maxMatches) {
-				truncated = true
-				continue
-			}
-			renderedMatchCount++
-			const lo = Math.max(0, i - contextLines)
-			const hi = Math.min(lines.length - 1, i + contextLines)
-			for (let j = lo; j <= hi; j++) {
-				matches.push({ filePath: file.filePath, line: j + 1, text: lines[j] })
-			}
-		}
-		if (fileHadMatch) fileCount++
-	}
-
-	if (totalMatchCount === 0) {
-		toolCallbacks.setToolStatus(toolId, { content: `No matches for "${query}"` })
-		return `No matches. Try a broader or differently-spelled term${
-			args.file_glob ? ', or drop the file_glob' : ''
-		}.`
-	}
-
-	// No tool-name/query prefix: the model already has them from the call args.
-	const header = `${totalMatchCount} match${
-		totalMatchCount === 1 ? '' : 'es'
-	} in ${fileCount} file${fileCount === 1 ? '' : 's'}${
-		truncated
-			? ` (showing the first ${maxMatches}; narrow with file_glob or a more specific query)`
-			: ''
-	}`
-
-	const out: string[] = [header]
-	let currentFile = ''
-	let budgetSpent = header.length
-	let budgetHit = false
-	const seen = new Set<string>()
-	for (const m of matches) {
-		// context windows of adjacent matches overlap — show each source line once.
-		const dedupeKey = `${m.filePath}:${m.line}`
-		if (seen.has(dedupeKey)) continue
-		seen.add(dedupeKey)
-		const text =
-			m.text.length > SEARCH_APP_MAX_LINE_CHARS
-				? `${m.text.slice(0, SEARCH_APP_MAX_LINE_CHARS)}… [line truncated]`
-				: m.text
-		const fileHeader = m.filePath === currentFile ? '' : `${m.filePath}\n`
-		const row = `${fileHeader}  ${m.line}: ${text}`
-		if (budgetSpent + row.length + 1 > SEARCH_APP_TOTAL_CHAR_BUDGET) {
-			budgetHit = true
-			break
-		}
-		if (fileHeader) currentFile = m.filePath
-		out.push(row)
-		budgetSpent += row.length + 1
-	}
-	if (budgetHit) {
-		out.push(
-			`… output truncated at the context budget — narrow with file_glob or a more specific query.`
-		)
-	}
-
-	toolCallbacks.setToolStatus(toolId, {
-		content: `Found ${totalMatchCount} match${totalMatchCount === 1 ? '' : 'es'} in ${fileCount} file${
-			fileCount === 1 ? '' : 's'
-		}`
-	})
-	return out.join('\n')
-}
-
-async function writeAppFile(
-	args: { path: string; file_path: string; content: string },
-	ctx: WriteDraftCtx
-): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
-	const target = resolveAppFileTarget(args.file_path)
-	if (target.kind !== 'frontend') {
-		throw new Error(
-			`write_app_file only writes frontend files. Use write_app_runnable to set inline backend script content.`
-		)
-	}
-	assertNotGeneratedAppFile(target.filePath)
-
-	toolCallbacks.setToolStatus(toolId, {
-		content: `Writing ${target.filePath} to app "${args.path}"...`
-	})
-
-	const { value } = await loadAppDraftValue(args.path, workspace)
-	const before = value.files[target.filePath] ?? ''
-	value.files = { ...value.files, [target.filePath]: args.content }
-	const result = await saveAppDraft(workspace, args.path, value)
-	return finishAppDraftWrite(
-		result,
-		ctx,
-		() => ({
-			content: `Updated ${target.filePath} in app "${args.path}"`,
-			message: `Updated draft app "${args.path}" with frontend file "${target.filePath}".`
-		}),
-		{ before, after: args.content, lang: appFileEditorLang(target.filePath) }
-	)
-}
-
-async function deleteAppFile(
-	args: { path: string; file_path: string },
-	ctx: WriteDraftCtx
-): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
-	const target = resolveAppFileTarget(args.file_path)
-	if (target.kind !== 'frontend') {
-		throw new Error(
-			`delete_app_file only deletes frontend files. Use delete_app_runnable for backend runnables.`
-		)
-	}
-	assertNotGeneratedAppFile(target.filePath)
-
-	toolCallbacks.setToolStatus(toolId, {
-		content: `Deleting ${target.filePath} from app "${args.path}"...`
-	})
-
-	const { value } = await loadAppDraftValue(args.path, workspace)
-	if (!(target.filePath in value.files)) {
-		throw new Error(`Frontend file "${target.filePath}" not found in app "${args.path}".`)
-	}
-	const { [target.filePath]: removed, ...remaining } = value.files
-	value.files = remaining
-	const result = await saveAppDraft(workspace, args.path, value)
-	return finishAppDraftWrite(
-		result,
-		ctx,
-		() => ({
-			content: `Removed ${target.filePath} from app "${args.path}"`,
-			message: `Removed "${target.filePath}" from draft app "${args.path}".`
-		}),
-		{ before: removed, after: '', lang: appFileEditorLang(target.filePath) }
-	)
-}
-
-async function patchAppFile(
-	args: {
-		path: string
-		file_path: string
-		old_string: string
-		new_string: string
-		replace_all: boolean
-	},
-	ctx: WriteDraftCtx
-): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
-	const {
-		path,
-		file_path: filePath,
-		old_string: oldString,
-		new_string: newString,
-		replace_all: replaceAll
-	} = args
-	const target = resolveAppFileTarget(filePath)
-	if (target.kind === 'frontend') {
-		assertNotGeneratedAppFile(target.filePath)
-	}
-
-	toolCallbacks.setToolStatus(toolId, {
-		content: `Patching ${target.filePath} in app "${path}"...`
-	})
-
-	const { value } = await loadAppDraftValue(path, workspace)
-	let currentContent: string
-	let runnable: PersistedRunnable | undefined
-
-	if (target.kind === 'frontend') {
-		const existing = value.files[target.filePath]
-		if (existing === undefined) {
-			throw new Error(`Frontend file "${target.filePath}" not found in app "${path}".`)
-		}
-		currentContent = existing
-	} else {
-		const resolved = getInlineRunnableContent(value, target, path)
-		currentContent = resolved.content
-		runnable = resolved.runnable
-	}
-
-	const updated = findAndReplace(
-		currentContent,
-		oldString,
-		newString,
-		replaceAll,
-		`${target.filePath} content`
-	)
-
-	if (target.kind === 'frontend') {
-		value.files = { ...value.files, [target.filePath]: updated }
-	} else {
-		value.runnables = {
-			...value.runnables,
-			[target.key]: {
-				...runnable!,
-				inlineScript: {
-					language:
-						runnable!.inlineScript?.language ?? (target.extension === 'py' ? 'python3' : 'bun'),
-					content: updated
-				}
-			}
-		}
-	}
-
-	const result = await saveAppDraft(workspace, path, value)
-	return finishAppDraftWrite(
-		result,
-		ctx,
-		() => ({
-			content: `Patched ${target.filePath} in app "${path}"`,
-			message: `Patched "${target.filePath}" in draft app "${path}".`
-		}),
-		{ before: currentContent, after: updated, lang: appFileEditorLang(target.filePath) }
-	)
-}
-
 async function recomputeAppPolicy(value: AppDraftValue): Promise<void> {
 	const policy = (await updateRawAppPolicy(
 		value.runnables as any,
@@ -7597,67 +5531,6 @@ async function recomputeAppPolicy(value: AppDraftValue): Promise<void> {
 		policy.execution_mode = 'publisher'
 	}
 	value.policy = policy
-}
-
-async function writeAppRunnable(
-	args: { path: string; key: string; runnable: BackendRunnableInput },
-	ctx: WriteDraftCtx
-): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
-	const { path, key, runnable: input } = args
-	toolCallbacks.setToolStatus(toolId, {
-		content: `Writing runnable "${key}" to app "${path}"...`
-	})
-
-	const { value } = await loadAppDraftValue(path, workspace)
-	const existing = value.runnables[key] as PersistedRunnable | undefined
-	const persisted = buildPersistedRunnable(input, existing)
-	value.runnables = { ...value.runnables, [key]: persisted }
-	await recomputeAppPolicy(value)
-	const undeployed = await undeployedRunnableTargets(workspace, { [key]: persisted })
-	const result = await saveAppDraft(workspace, path, value)
-	return finishAppDraftWrite(
-		result,
-		ctx,
-		() => ({
-			content: `Updated runnable "${key}" in app "${path}"`,
-			message: `Updated draft app "${path}" with runnable "${key}".`,
-			warning: undeployed.length
-				? `This runnable points at an item that is NOT deployed (${undeployed[0]}), so it fails at runtime — ` +
-					`a path runnable runs the deployed item, never a draft. Offer to deploy just that item with ` +
-					`deploy_workspace_item; the app itself does not need deploying, since the preview runs its draft.`
-				: undefined
-		}),
-		inlineRunnableDiff(key, existing, persisted)
-	)
-}
-
-function inlineRunnableCode(runnable: PersistedRunnable | undefined): string | undefined {
-	return runnable?.type === 'inline' || runnable?.type === 'runnableByName'
-		? (runnable.inlineScript?.content ?? '')
-		: undefined
-}
-
-// A runnable that references a workspace or hub item has no code of its own to diff.
-function inlineRunnableDiff(
-	key: string,
-	before: PersistedRunnable | undefined,
-	after: PersistedRunnable | undefined
-): ToolCodeDiff | undefined {
-	const beforeCode = inlineRunnableCode(before)
-	const afterCode = inlineRunnableCode(after)
-	if (beforeCode === undefined && afterCode === undefined) return undefined
-	if (after !== undefined && afterCode === undefined) return undefined
-	const lang = (runnable: PersistedRunnable | undefined) =>
-		appFileEditorLang(`backend/${key}/main.${getInlineScriptExtension(runnable)}`)
-	const afterLang = lang(after ?? before)
-	const beforeLang = beforeCode === undefined ? afterLang : lang(before)
-	return {
-		before: beforeCode ?? '',
-		after: afterCode ?? '',
-		lang: afterLang,
-		...(beforeLang !== afterLang ? { beforeLang } : {})
-	}
 }
 
 /**
@@ -7692,35 +5565,6 @@ async function testRunAppRunnable(
 		detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
 		label: `${path} / ${key}`
 	})
-}
-
-async function deleteAppRunnable(
-	args: { path: string; key: string },
-	ctx: WriteDraftCtx
-): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
-	const { path, key } = args
-	toolCallbacks.setToolStatus(toolId, {
-		content: `Removing runnable "${key}" from app "${path}"...`
-	})
-
-	const { value } = await loadAppDraftValue(path, workspace)
-	if (!(key in value.runnables)) {
-		throw new Error(`Backend runnable "${key}" not found in app "${path}".`)
-	}
-	const { [key]: removed, ...remaining } = value.runnables
-	value.runnables = remaining
-	await recomputeAppPolicy(value)
-	const result = await saveAppDraft(workspace, path, value)
-	return finishAppDraftWrite(
-		result,
-		ctx,
-		() => ({
-			content: `Removed runnable "${key}" from app "${path}"`,
-			message: `Removed runnable "${key}" from draft app "${path}".`
-		}),
-		inlineRunnableDiff(key, removed as PersistedRunnable, undefined)
-	)
 }
 
 const triggerLabels: Record<TriggerKind, string> = {
@@ -7784,51 +5628,6 @@ function createOpenVariableAction(path: string): ToolDisplayAction {
 	}
 }
 
-async function discardLocalDraft(
-	args: { type: WorkspaceItemType; path: string; trigger_kind?: TriggerKind },
-	ctx: WriteDraftCtx
-): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
-	const { type, path, trigger_kind: triggerKind } = args
-
-	if (type === 'trigger' && !triggerKind) {
-		throw new Error('trigger_kind is required when discarding a trigger draft.')
-	}
-
-	const draft = await getGlobalDraft(workspace, type, path, triggerKind)
-	if (!draft) {
-		throw new Error(`No draft found for ${type} "${path}".`)
-	}
-
-	await deleteGlobalDraft(workspace, type, path, triggerKind)
-
-	// The chat's touch on the item is undone — drop it from the mask so a
-	// pre-existing deployed item doesn't keep reading as this chat's edit.
-	const discardedKind = itemKindFor(type, triggerKind)
-	if (discardedKind) {
-		toolCallbacks.onItemDiscarded?.(
-			discardedKind,
-			getGlobalDraftStoragePath(workspace, type, path, triggerKind)
-		)
-	}
-
-	toolCallbacks.setToolStatus(toolId, {
-		content: `Discarded ${type} "${path}" draft`,
-		result: 'Draft discarded'
-	})
-	return JSON.stringify(
-		{
-			success: true,
-			message: `Discarded the draft for ${type} "${path}". The deployed workspace item was not changed.`,
-			type,
-			path,
-			triggerKind
-		},
-		null,
-		2
-	)
-}
-
 // A draft started from an older deploy would silently overwrite whatever was
 // deployed since. Block the deploy and point the model at rebase_draft, unless it
 // explicitly forces the overwrite. `base`/`head` undefined ⇒ can't tell ⇒ allow.
@@ -7846,249 +5645,6 @@ function assertDraftBasedOnLatest(
 			`discard the stale draft and get your changes back as a diff, then re-apply them (the new draft ` +
 			`re-bases onto the latest version) and deploy. To deploy as-is and replace the newer version, call ` +
 			`deploy_workspace_item again with force: true.`
-	)
-}
-
-// Discard a stale draft and return its own changes (vs the fork base) as a diff so
-// the model can re-apply them on the latest deploy. Discarding rather than resetting
-// keeps the base pointer honest (the next write re-bases on the current head) and
-// fails safe: a premature deploy hits "no draft" instead of silently shipping the
-// latest unchanged.
-async function rebaseDraft(
-	args: { type: WorkspaceItemType; path: string },
-	ctx: WriteDraftCtx
-): Promise<string> {
-	switch (args.type) {
-		case 'script':
-			return rebaseScriptDraft(args.path, ctx)
-		case 'flow':
-			return rebaseFlowDraft(args.path, ctx)
-		case 'app':
-			return rebaseAppDraft(args.path, ctx)
-		default:
-			throw new Error('rebase_draft currently supports scripts, flows, and apps.')
-	}
-}
-
-async function rebaseScriptDraft(path: string, ctx: WriteDraftCtx): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
-
-	const draft = await getGlobalDraft(workspace, 'script', path)
-	if (!draft || typeof draft.value !== 'string' || !draft.language) {
-		throw new Error(`No script draft found for "${path}".`)
-	}
-	if (!(await ScriptService.existsScriptByPath({ workspace, path }))) {
-		throw new Error(`Script "${path}" is not deployed; there is no newer version to rebase onto.`)
-	}
-
-	const latest = await ScriptService.getScriptByPath({ workspace, path })
-	const baseHash = draft.parentHash
-	if (baseHash && baseHash === latest.hash) {
-		const message = `Draft "${path}" is already based on the latest deployed version (${latest.hash}).`
-		toolCallbacks.setToolStatus(toolId, { content: message })
-		return JSON.stringify({ success: true, alreadyLatest: true, latest_hash: latest.hash, message })
-	}
-
-	toolCallbacks.setToolStatus(toolId, { content: `Rebasing draft "${path}" onto latest...` })
-
-	// Capture the draft's own changes (vs its fork base) BEFORE discarding — this
-	// diff is the only clean record of what to replay. Best-effort: if the base
-	// version is gone, diff against empty so the full draft is surfaced.
-	let baseContent = ''
-	if (baseHash) {
-		try {
-			baseContent = (await ScriptService.getScriptByHash({ workspace, hash: baseHash })).content
-		} catch (e) {
-			console.error(`rebase_draft: could not fetch base version ${baseHash} for "${path}"`, e)
-		}
-	}
-	const yourChanges = createTwoFilesPatch(
-		'fork-base',
-		'your-draft',
-		baseContent,
-		draft.value,
-		'',
-		''
-	)
-
-	// Discard the stale draft rather than resetting it to latest: the next write
-	// re-bases on the current head, and a premature deploy fails cleanly ("no
-	// draft") instead of silently shipping the latest unchanged and losing the work.
-	await deleteGlobalDraft(workspace, 'script', path)
-
-	toolCallbacks.setToolStatus(toolId, {
-		content: `Discarded stale draft "${path}"`,
-		result: 'Rebased'
-	})
-	return JSON.stringify(
-		{
-			success: true,
-			message:
-				`Discarded the stale draft for "${path}". Your changes are in "your_changes" (a diff against the ` +
-				`version you forked from). Re-apply them with edit_script / write_script — the new draft will be ` +
-				`based on the latest deployed version (hash ${latest.hash}) — then deploy.`,
-			latest_hash: latest.hash,
-			your_changes: yourChanges
-		},
-		null,
-		2
-	)
-}
-
-async function rebaseFlowDraft(path: string, ctx: WriteDraftCtx): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
-
-	const draft = await getGlobalDraft(workspace, 'flow', path)
-	if (!draft || draft.value === undefined || typeof draft.value === 'string') {
-		throw new Error(`No flow draft found for "${path}".`)
-	}
-	if (!(await FlowService.existsFlowByPath({ workspace, path }))) {
-		throw new Error(`Flow "${path}" is not deployed; there is no newer version to rebase onto.`)
-	}
-
-	const latest = await FlowService.getFlowByPath({ workspace, path })
-	const baseVersion = draft.parentVersionId
-	if (baseVersion != null && baseVersion === latest.version_id) {
-		const message = `Draft "${path}" is already based on the latest deployed version (${latest.version_id}).`
-		toolCallbacks.setToolStatus(toolId, { content: message })
-		return JSON.stringify({
-			success: true,
-			alreadyLatest: true,
-			latest_version: latest.version_id,
-			message
-		})
-	}
-
-	toolCallbacks.setToolStatus(toolId, { content: `Rebasing draft "${path}" onto latest...` })
-
-	// The draft's own changes vs its fork-base flow value, as a JSON diff for the
-	// model to replay. Best-effort: skip if the base version can't be fetched.
-	let baseValue: unknown = {}
-	if (baseVersion != null) {
-		try {
-			baseValue = (await FlowService.getFlowVersion({ workspace, version: baseVersion })).value
-		} catch (e) {
-			console.error(
-				`rebase_draft: could not fetch base flow version ${baseVersion} for "${path}"`,
-				e
-			)
-		}
-	}
-	const oursValue = (draft.value as FlowDraftValue).value
-	const yourChanges = createTwoFilesPatch(
-		'fork-base',
-		'your-draft',
-		JSON.stringify(baseValue, null, 2),
-		JSON.stringify(oursValue, null, 2),
-		'',
-		''
-	)
-
-	// Discard the stale draft (see rebaseScriptDraft): the next write re-bases on
-	// the current head, and a premature deploy fails cleanly instead of shipping
-	// the latest unchanged.
-	await deleteGlobalDraft(workspace, 'flow', path)
-
-	toolCallbacks.setToolStatus(toolId, {
-		content: `Discarded stale draft "${path}"`,
-		result: 'Rebased'
-	})
-	return JSON.stringify(
-		{
-			success: true,
-			message:
-				`Discarded the stale draft for "${path}". Your changes are in "your_changes" (a JSON diff against ` +
-				`the version you forked from). Re-apply them with the flow edit tools — the new draft will be ` +
-				`based on the latest deployed version (version ${latest.version_id}) — then deploy.`,
-			latest_version: latest.version_id,
-			your_changes: yourChanges
-		},
-		null,
-		2
-	)
-}
-
-async function rebaseAppDraft(path: string, ctx: WriteDraftCtx): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
-
-	const draft = await getGlobalDraft(workspace, 'app', path)
-	if (!draft || !draft.value || typeof draft.value === 'string' || !('files' in draft.value)) {
-		throw new Error(`No app draft found for "${path}".`)
-	}
-	if (!(await AppService.existsApp({ workspace, path }))) {
-		throw new Error(`App "${path}" is not deployed; there is no newer version to rebase onto.`)
-	}
-
-	const deployed = await AppService.getAppByPath({ workspace, path })
-	const headVersion = deployed.versions?.[deployed.versions.length - 1]
-	const baseVersion = draft.parentVersionId
-	if (baseVersion != null && baseVersion === headVersion) {
-		const message = `Draft "${path}" is already based on the latest deployed version (${headVersion}).`
-		toolCallbacks.setToolStatus(toolId, { content: message })
-		return JSON.stringify({
-			success: true,
-			alreadyLatest: true,
-			latest_version: headVersion,
-			message
-		})
-	}
-
-	toolCallbacks.setToolStatus(toolId, { content: `Rebasing draft "${path}" onto latest...` })
-
-	// The draft's own changes vs its fork-base app source, as a JSON diff for the
-	// model to replay. Best-effort: skip if the base version can't be fetched.
-	const oursValue = draft.value as AppDraftValue
-	let baseSource: Pick<AppDraftValue, 'files' | 'runnables' | 'data'> = {
-		files: {},
-		runnables: {},
-		data: undefined
-	}
-	if (baseVersion != null) {
-		try {
-			const baseApp = await AppService.getAppByVersion({ workspace, id: baseVersion })
-			const base = appSourceToDraftValue(baseApp, baseApp)
-			baseSource = { files: base.files, runnables: base.runnables, data: base.data }
-		} catch (e) {
-			console.error(
-				`rebase_draft: could not fetch base app version ${baseVersion} for "${path}"`,
-				e
-			)
-		}
-	}
-	const yourChanges = createTwoFilesPatch(
-		'fork-base',
-		'your-draft',
-		JSON.stringify(baseSource, null, 2),
-		JSON.stringify(
-			{ files: oursValue.files, runnables: oursValue.runnables, data: oursValue.data },
-			null,
-			2
-		),
-		'',
-		''
-	)
-
-	// Discard the stale draft (see rebaseScriptDraft): the next write re-projects
-	// the deployed app into a fresh draft (re-pinning parent_version to the head),
-	// and a premature deploy fails cleanly instead of shipping the latest unchanged.
-	await deleteGlobalDraft(workspace, 'app', path)
-
-	toolCallbacks.setToolStatus(toolId, {
-		content: `Discarded stale draft "${path}"`,
-		result: 'Rebased'
-	})
-	return JSON.stringify(
-		{
-			success: true,
-			message:
-				`Discarded the stale draft for "${path}". Your changes are in "your_changes" (a JSON diff against ` +
-				`the version you forked from). Re-apply them with the app edit tools — the new draft will be based ` +
-				`on the latest deployed version (version ${headVersion}) — then deploy.`,
-			latest_version: headVersion,
-			your_changes: yourChanges
-		},
-		null,
-		2
 	)
 }
 
@@ -9283,17 +6839,13 @@ async function validateDeleteWorkspaceItemTarget(args: {
 	// Wave a malformed call through so it still fails with the canonical schema error.
 	const parsed = deleteWorkspaceItemSchema.safeParse(args.args)
 	if (!parsed.success) return undefined
-	const { type, path, trigger_kind: triggerKind } = parsed.data
+	const { type, trigger_kind: triggerKind } = parsed.data
 	if (type === 'trigger' && !triggerKind) return undefined
 
-	const { workspace } = args
-	if (await deployedItemExists(workspace, type, path, triggerKind)) return undefined
-
-	const draft = await getGlobalDraft(workspace, type, path, triggerKind)
-	return draft
-		? `No deployed ${type} at "${path}" — it only exists as a draft, so there is nothing to delete ` +
-				`from the workspace. Call discard_local_draft with the same arguments to remove the draft.`
-		: `No ${type} at "${path}": neither a deployed item nor a draft. Nothing to delete.`
+	const { text } = await runOnServer('delete_workspace_item', args.workspace, args.args, {
+		check_only: true
+	})
+	return text || undefined
 }
 
 /**
@@ -9362,79 +6914,6 @@ async function deployedItemExists(
 		case 'app':
 			return AppService.existsApp({ workspace, path })
 	}
-}
-
-async function deleteWorkspaceItem(
-	args: { type: WorkspaceItemType; path: string; trigger_kind?: TriggerKind },
-	ctx: WriteDraftCtx
-): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
-	const { type, path, trigger_kind: triggerKind } = args
-
-	if (type === 'trigger' && !triggerKind) {
-		throw new Error('trigger_kind is required when deleting a trigger.')
-	}
-
-	toolCallbacks.setToolStatus(toolId, {
-		content: `Deleting ${type} "${path}"...`
-	})
-
-	switch (type) {
-		case 'script':
-			await ScriptService.deleteScriptByPath({ workspace, path })
-			break
-		case 'flow':
-			await FlowService.deleteFlowByPath({ workspace, path })
-			break
-		case 'schedule':
-			await ScheduleService.deleteSchedule({ workspace, path })
-			break
-		case 'trigger':
-			await triggerServices[triggerKind!].delete({ workspace, path })
-			break
-		case 'resource':
-			await ResourceService.deleteResource({ workspace, path })
-			break
-		case 'variable':
-			await VariableService.deleteVariable({ workspace, path })
-			break
-		case 'app':
-			await AppService.deleteApp({ workspace, path })
-			break
-	}
-
-	// Deployed state changed — cached fork comparisons involving this workspace
-	// are no longer trustworthy (same rule as deploy success). Before the
-	// draft cleanup: a cleanup failure must not leave stale comparisons.
-	invalidateWorkspaceComparison(workspace)
-	await deleteGlobalDraft(workspace, type, path, triggerKind)
-
-	// Record the deletion in the chat's modified-items mask. In a fork this leaves a
-	// reviewable "removed" diff vs the parent that stays scoped to this chat. Keyed
-	// by the same (itemKind, storagePath) as writes so it joins the draft/fork lists.
-	const deletedKind = itemKindFor(type, triggerKind)
-	if (deletedKind) {
-		toolCallbacks.onItemModified?.(
-			deletedKind,
-			getGlobalDraftStoragePath(workspace, type, path, triggerKind)
-		)
-	}
-
-	toolCallbacks.setToolStatus(toolId, {
-		content: `Deleted ${type} "${path}"`,
-		result: 'Deleted'
-	})
-	return JSON.stringify(
-		{
-			success: true,
-			message: `Deleted ${type} "${path}" from the workspace. Any matching draft was also cleared.`,
-			type,
-			path,
-			triggerKind
-		},
-		null,
-		2
-	)
 }
 
 export function prepareGlobalSystemMessage(
