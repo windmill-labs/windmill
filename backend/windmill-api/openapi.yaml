@@ -13646,6 +13646,188 @@ paths:
                 items:
                   $ref: "#/components/schemas/FlowConversation"
 
+  /w/{workspace}/slack_agents/channels:
+    get:
+      summary: list the Slack channels this workspace's agents are shared in
+      operationId: listSlackAgentChannels
+      tags:
+        - slack_agents
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: each agent shared in a channel, with whether it is the channel's default
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SlackAgentChannel"
+
+  /w/{workspace}/slack_agents/available_channels:
+    get:
+      summary: list the connected Slack workspace's public channels
+      operationId: listAvailableSlackChannels
+      tags:
+        - slack_agents
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: cursor
+          description: the next_cursor of the previous page
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: a page of public channels
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  channels:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                        - id
+                        - name
+                  next_cursor:
+                    type: string
+                required:
+                  - channels
+
+  /w/{workspace}/slack_agents/status:
+    get:
+      summary: whether agents can answer in Slack on this instance
+      operationId: getSlackAgentsStatus
+      tags:
+        - slack_agents
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: the instance's readiness for agents in Slack
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  signing_secret_set:
+                    type: boolean
+                    description: agents answer in Slack only when the server has the Slack app's signing secret (SLACK_SIGNING_SECRET)
+                required:
+                  - signing_secret_set
+
+  /w/{workspace}/slack_agents/agent_channels/{path}:
+    get:
+      summary: the Slack channels an agent is shared in, and whether the caller can share it
+      operationId: getAgentSlackChannels
+      tags:
+        - slack_agents
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: the agent's Slack channels
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  slack_team_name:
+                    type: string
+                    description: the connected Slack workspace; absent when Slack is not connected
+                  signing_secret_set:
+                    type: boolean
+                    description: agents answer in Slack only when the server has the Slack app's signing secret (SLACK_SIGNING_SECRET)
+                  bot_name:
+                    type: string
+                    description: the bot's Slack handle; absent when Slack can't be reached
+                  missing_scopes:
+                    type: array
+                    items:
+                      type: string
+                    description: agent scopes the workspace's Slack connection lacks, so it must be reconnected with AI agents enabled
+                  runs_as:
+                    type: string
+                    description: who the agent runs as (its on_behalf_of); absent unless it runs on behalf of someone
+                  anyone:
+                    type: boolean
+                    description: whether anyone in its channels can ask it (its slack_anyone, kept only while it runs on behalf of someone), rather than workspace members only
+                  can_share:
+                    type: boolean
+                    description: whether the caller can change the agent's channels, as anyone who can edit it can
+                  channels:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SlackAgentChannel"
+                required:
+                  - channels
+                  - signing_secret_set
+                  - missing_scopes
+                  - anyone
+                  - can_share
+    post:
+      summary: share an agent in a Slack channel, or change how it answers there
+      description: the workspace members in the channel whose Slack email matches and who can read the agent can then ask it, or anyone there when its settings say so (slack_anyone, with run_on_behalf_of). Needs edit access to the agent; making it the channel's default takes an admin.
+      operationId: shareAgentInSlackChannel
+      tags:
+        - slack_agents
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channel_id:
+                  type: string
+                channel_name:
+                  type: string
+                is_default:
+                  type: boolean
+                  description: whether the agent answers bot mentions in the channel that name no agent
+              required:
+                - channel_id
+                - channel_name
+      responses:
+        "200":
+          description: agent shared
+          content:
+            text/plain:
+              schema:
+                type: string
+    delete:
+      summary: stop sharing an agent in a Slack channel
+      operationId: unshareAgentFromSlackChannel
+      tags:
+        - slack_agents
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+        - name: channel_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: agent no longer shared there
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/flow_conversations/update/{conversation_id}:
     post:
       summary: rename flow conversation
@@ -29943,6 +30125,24 @@ components:
           description: Cells the baseline has no score for, so a column the baseline never ran shows as unscored rather than as a spurious difference.
         definition_changed:
           type: boolean
+
+    SlackAgentChannel:
+      type: object
+      properties:
+        channel_id:
+          type: string
+        channel_name:
+          type: string
+        agent_path:
+          type: string
+        is_default:
+          type: boolean
+          description: whether the agent answers bot mentions in the channel that name no agent
+      required:
+        - channel_id
+        - channel_name
+        - agent_path
+        - is_default
 
     FlowConversation:
       type: object

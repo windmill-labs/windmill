@@ -20,15 +20,18 @@ export const clampRows: Action<HTMLElement, ClampRowsOptions> = (node, initial) 
 		for (const item of items) item.hidden = false
 		if (toggle) toggle.hidden = true
 
-		const lines = [...new Set(items.map((item) => item.offsetTop))].sort((a, b) => a - b)
+		// Every position is read before any item is hidden: reading one after a write forces a
+		// layout per item, quadratic in the number of chips.
+		const tops = items.map((item) => item.offsetTop)
+		const lines = [...new Set(tops)].sort((a, b) => a - b)
 		if (lines.length <= options.rows || !toggle) return
 		toggle.hidden = false
 		if (options.expanded) return
 
 		const lastLine = lines[options.rows - 1]
-		for (const item of items) {
-			if (item.offsetTop > lastLine && !item.hasAttribute('data-selected')) item.hidden = true
-		}
+		items.forEach((item, i) => {
+			if (tops[i] > lastLine && !item.hasAttribute('data-selected')) item.hidden = true
+		})
 		const hideable = items.filter((item) => !item.hidden && !item.hasAttribute('data-selected'))
 		while (toggle.offsetTop > lastLine && hideable.length) hideable.pop()!.hidden = true
 	}

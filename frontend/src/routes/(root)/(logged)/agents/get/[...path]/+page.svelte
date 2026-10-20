@@ -1,10 +1,13 @@
 <script lang="ts">
 	import { page } from '$app/state'
 	import { FlaskConical, FormInput, MessageSquare, Pen } from 'lucide-svelte'
+	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { resource } from 'runed'
 	import { goto } from '$lib/navigation'
 	import { copilotInfo } from '$lib/aiStore'
 	import AgentEvalsModal from '$lib/components/flows/content/AgentEvalsModal.svelte'
+	import AgentUsePanel from '$lib/components/flows/content/AgentUsePanel.svelte'
+	import { SlackAgentsService } from '$lib/gen'
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
 	import OnBehalfOfBadge from '$lib/components/details/OnBehalfOfBadge.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -45,6 +48,13 @@
 	let history: AgentHistory | undefined = $state(undefined)
 	let deleteOpen = $state(false)
 	let evalsModal: AgentEvalsModal | undefined = $state(undefined)
+	let clientWidth = $state(window.innerWidth)
+
+	const slack = resource(
+		() => ({ workspace: ws, path }),
+		async ({ workspace, path }) =>
+			workspace ? await SlackAgentsService.getAgentSlackChannels({ workspace, path }) : undefined
+	)
 	let runForm: RunForm | undefined = $state(undefined)
 	let isValid = $state(true)
 
@@ -197,39 +207,64 @@
 			{/if}
 		{/snippet}
 	</DetailPageHeader>
-	<div class="flex-1 min-h-0">
-		{#key `${ws}:${path}:${reloaded}`}
-			<AgentEditorHost
-				bind:this={host}
-				{path}
-				workspace={ws}
-				enableAi={$copilotInfo.enabled}
-				view
-				onOpenConfig={() => configModal?.open()}
-			>
-				{#snippet viewForm({ schema, run, loading, actions })}
-					{#if config && !chatAvailable}
-						<Alert type="info" size="xs" title="Managed memory is off" class="mb-4">
-							Each run is answered on its own inputs, so this agent has no chat. That suits reusing
-							it as a step in a flow.{canEdit
-								? ' Turn on managed memory in its configuration to chat with it.'
-								: ''}
-						</Alert>
-					{/if}
-					<RunForm
-						runnable={{ schema, path }}
-						runAction={run}
-						schedulable={false}
-						detailed={false}
-						autofocus
-						{loading}
-						{actions}
-						bind:isValid
-						bind:this={runForm}
+	<div class="flex-1 min-h-0" bind:clientWidth>
+		<Splitpanes>
+			<Pane size={65} minSize={50}>
+				{#key `${ws}:${path}:${reloaded}`}
+					<AgentEditorHost
+						bind:this={host}
+						{path}
+						workspace={ws}
+						enableAi={$copilotInfo.enabled}
+						view
+						onOpenConfig={() => configModal?.open()}
+					>
+						{#snippet viewForm({ schema, run, loading, actions })}
+							{#if config && !chatAvailable}
+								<Alert type="info" size="xs" title="Managed memory is off" class="mb-4">
+									Each run is answered on its own inputs, so this agent has no chat. That suits
+									reusing it as a step in a flow.{canEdit
+										? ' Turn on managed memory in its configuration to chat with it.'
+										: ''}
+								</Alert>
+							{/if}
+							<RunForm
+								runnable={{ schema, path }}
+								runAction={run}
+								schedulable={false}
+								detailed={false}
+								autofocus
+								{loading}
+								{actions}
+								bind:isValid
+								bind:this={runForm}
+							/>
+						{/snippet}
+					</AgentEditorHost>
+				{/key}
+			</Pane>
+			<!-- ponytail: no panel below `lg`, where the split would squeeze the chat; give it a tab
+			     there, as a script's page does, once people use it from small screens. -->
+			{#if ws && config && clientWidth >= 1024}
+				<Pane size={35} minSize={15}>
+					<AgentUsePanel
+						agentPath={path}
+						workspace={ws}
+						isAdmin={!!($userStore?.is_admin || $userStore?.is_super_admin)}
+						chat={chatAvailable}
+						slackLoading={slack.loading && !slack.current}
+						slackTeamName={slack.current?.slack_team_name}
+						botName={slack.current?.bot_name}
+						missingScopes={slack.current?.missing_scopes ?? []}
+						signingSecretSet={slack.current?.signing_secret_set ?? true}
+						runsAs={slack.current?.runs_as}
+						anyone={slack.current?.anyone ?? false}
+						canShare={slack.current?.can_share ?? false}
+						channels={slack.current?.channels ?? []}
 					/>
-				{/snippet}
-			</AgentEditorHost>
-		{/key}
+				</Pane>
+			{/if}
+		</Splitpanes>
 	</div>
 </main>
 

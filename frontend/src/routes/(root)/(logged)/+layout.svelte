@@ -332,6 +332,8 @@
 	const sessionsSwitchShown = $derived(
 		globalAiEnabled && sessionsAllowed && !$copilotInfo.workspaceDisabled
 	)
+	// The rail's top row; the nav below it pads to the page header's height when it is absent.
+	const switchRowShown = $derived(!embedded && sessionsSwitchShown)
 	const askAiShown = $derived(
 		(!globalAiEnabled || !sessionsAllowed) && !$copilotInfo.workspaceDisabled
 	)
@@ -1258,7 +1260,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 		<!-- Top row: the workspace ⇄ sessions switch, level with the page header's own
 		     row so the two read as one band. The workspace picker itself lives in that
 		     header, which is why nothing names the workspace here. -->
-		{#if !embedded && sessionsSwitchShown}
+		{#if switchRowShown}
 			<div
 				class="flex-shrink-0 px-2 gap-1 flex {collapsed
 					? 'flex-col items-center py-2'
@@ -1287,8 +1289,10 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 			     Search / workspace items / instance settings) are spaced by the
 			     scroll area's gap rather than each scrolling on its own. -->
 			<SidebarScrollArea color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
-				<!-- Section 1: Home/Runs + Favorites + Search -->
-				<div class="px-2 pt-1 flex flex-col gap-1">
+				<!-- Section 1: Home/Runs + Favorites + Search. Without the switch row above,
+				     Home is the top row and pt-2 centers its h-8 in the page header's h-12
+				     beside the docked rail. -->
+				<div class="px-2 flex flex-col gap-1 {switchRowShown ? 'pt-1' : 'pt-2'}">
 					{@render quickLinks(collapsed)}
 					<Menubar class="flex flex-col gap-1">
 						{#snippet children({ createMenu })}

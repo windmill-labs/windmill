@@ -309,6 +309,7 @@ function setToolError(toolCallbacks: ToolCallbacks, toolId: string, error: unkno
 const createScheduleTool: Tool<any> = {
 	def: createScheduleToolDef,
 	requiresConfirmation: true,
+	confirmAction: 'create',
 	confirmationMessage: 'Create schedule',
 	showDetails: true,
 	showFade: true,
@@ -418,6 +419,7 @@ async function resolveEmailTriggerAvailability(): Promise<EmailTriggerAvailabili
 const createTriggerTool: Tool<any> = {
 	def: createTriggerToolDef,
 	requiresConfirmation: true,
+	confirmAction: 'create',
 	confirmationMessage: 'Create trigger',
 	showDetails: true,
 	showFade: true,
