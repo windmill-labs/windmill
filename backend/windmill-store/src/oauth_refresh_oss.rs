@@ -134,12 +134,16 @@ where
         }
     };
 
-    // Store at every variable of the account before marking it fresh, so no reader of any of
-    // them sees the account fresh with the old token. A failed store already marks the account
-    // for a retry; the rotated refresh token must still be saved, or the next refresh sends one
-    // the provider has revoked.
+    // The lifetime runs from the exchange, not from the end of the stores below.
+    let expires_at = windmill_common::utils::now_from_db(db).await?
+        + chrono::Duration::try_seconds(token.expires_in).unwrap_or_default();
+
+    // Store at every secret variable of the account before marking it fresh, so no reader of
+    // any of them sees the account fresh with the old token. A failed store already marks the
+    // account for a retry; the rotated refresh token must still be saved, or the next refresh
+    // sends one the provider has revoked.
     let mut paths = sqlx::query_scalar!(
-        "SELECT path FROM variable WHERE workspace_id = $1 AND account = $2",
+        "SELECT path FROM variable WHERE workspace_id = $1 AND account = $2 AND is_secret",
         w_id,
         id
     )
@@ -159,12 +163,12 @@ where
     }
     sqlx::query!(
         "UPDATE account SET refresh_token = COALESCE($1, refresh_token),
-            expires_at = CASE WHEN $2 THEN now() + make_interval(secs => $3) ELSE expires_at END,
+            expires_at = CASE WHEN $2 THEN $3 ELSE expires_at END,
             refresh_error = CASE WHEN $2 THEN NULL ELSE refresh_error END
          WHERE workspace_id = $4 AND id = $5 AND refresh_token = $6",
         token.refresh_token,
         stored.is_ok(),
-        token.expires_in as f64,
+        expires_at,
         w_id,
         id,
         used,

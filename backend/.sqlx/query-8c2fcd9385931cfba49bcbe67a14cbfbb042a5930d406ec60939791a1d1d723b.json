@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT path FROM variable WHERE workspace_id = $1 AND account = $2",
+  "query": "SELECT path FROM variable WHERE workspace_id = $1 AND account = $2 AND is_secret",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       false
     ]
   },
-  "hash": "75b04e4060c98781c319aa72b31aa7f81c48f732511609e9b949db7144f7c02a"
+  "hash": "8c2fcd9385931cfba49bcbe67a14cbfbb042a5930d406ec60939791a1d1d723b"
 }
