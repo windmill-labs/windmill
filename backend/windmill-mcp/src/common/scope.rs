@@ -28,8 +28,8 @@ pub struct McpScopeConfig {
     /// `mcp:read_only`: reads alone, as the token's read-only flag does. An OAuth grant
     /// carries scopes and no flag, so this is how a sign-in asks for read-only access.
     pub read_only: bool,
-    /// Set by the server, not by a scope: on `/api/mcp` a selection is its scripts and flows
-    /// as tools and nothing else, the API being the full toolset's job there.
+    /// No endpoint tools on any URL: set by `mcp:read_only`, `mcp:read_run` and
+    /// `mcp:runnables_as_tools`, and by the server on `/api/mcp` for a selection.
     pub no_endpoints: bool,
 }
 
@@ -97,6 +97,9 @@ impl McpScopeConfig {
         if self.read_run && !(requested.read_run || requested.read_only) {
             return false;
         }
+        if self.no_endpoints && !requested.no_endpoints {
+            return false;
+        }
         if self.all {
             return true;
         }
@@ -153,6 +156,10 @@ fn pattern_covers(caller: &str, requested: &str) -> bool {
         || (requested_base.starts_with(prefix)
             && requested_base.as_bytes().get(prefix.len()) == Some(&b'/'))
 }
+
+/// Marks a selection made as "scripts and flows as tools": it gets no endpoint tools on any
+/// URL, which an older selection, carrying none of the newer scopes, still does.
+pub const RUNNABLES_AS_TOOLS_SCOPE: &str = "mcp:runnables_as_tools";
 
 /// Parse MCP scopes from token scope strings
 pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, String> {
@@ -211,11 +218,18 @@ pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, String> {
 
         if scope == "mcp:read_run" {
             config.read_run = true;
+            config.no_endpoints = true;
             continue;
         }
 
         if scope == "mcp:read_only" {
             config.read_only = true;
+            config.no_endpoints = true;
+            continue;
+        }
+
+        if scope == RUNNABLES_AS_TOOLS_SCOPE {
+            config.no_endpoints = true;
             continue;
         }
 
@@ -478,5 +492,16 @@ mod tests {
         assert!(read_run.contains(&cfg(&["mcp:all", "mcp:read_only"])));
         let read_only = cfg(&["mcp:all", "mcp:read_only"]);
         assert!(!read_only.contains(&cfg(&["mcp:all", "mcp:read_run"])));
+    }
+
+    #[test]
+    fn test_runnables_as_tools_scope_only_narrows() {
+        let fenced = cfg(&["mcp:favorites", "mcp:runnables_as_tools"]);
+        assert!(fenced.no_endpoints);
+        assert!(cfg(&["mcp:all", "mcp:read_only"]).no_endpoints);
+        assert!(cfg(&["mcp:all", "mcp:read_run"]).no_endpoints);
+        assert!(fenced.contains(&cfg(&["mcp:favorites", "mcp:runnables_as_tools"])));
+        assert!(!fenced.contains(&cfg(&["mcp:favorites"])));
+        assert!(cfg(&["mcp:all"]).contains(&fenced));
     }
 }

@@ -78,7 +78,9 @@
 					pickedWorkspaces = [workspaces[0].value]
 				}
 			})
-			.catch(() => {
+			.catch((e) => {
+				// Logged out: the root layout is already sending the browser to the login page.
+				if (e?.status === 401) return
 				sendUserToast('Failed to load workspaces', true)
 			})
 			.finally(() => {

@@ -137,6 +137,7 @@ export function getDatatableMigrationTools(): SessionTool<{}>[] {
 			requires: RUN_PREVIEW,
 			def: getCreateMigrationToolDef(),
 			requiresConfirmation: true,
+			confirmAction: (args) => (args?.apply === false ? 'create' : 'apply'),
 			confirmationMessage: (args) =>
 				`${args?.version === undefined ? 'Create' : 'Rewrite'}${args?.apply === false ? '' : ' and apply'} data table migration`,
 			queuedLabel: (args) => `Write migration "${args?.name ?? ''}"`,
@@ -153,6 +154,7 @@ export function getDatatableMigrationTools(): SessionTool<{}>[] {
 			requires: RUN_PREVIEW,
 			def: getRunMigrationsToolDef(),
 			requiresConfirmation: true,
+			confirmAction: 'apply',
 			confirmationMessage: 'Apply pending data table migrations',
 			queuedLabel: (args) => `Apply migrations on "${args?.datatable_name ?? 'datatable'}"`,
 			showDetails: true,
@@ -168,6 +170,7 @@ export function getDatatableMigrationTools(): SessionTool<{}>[] {
 			requires: RUN_PREVIEW,
 			def: getRollbackMigrationToolDef(),
 			requiresConfirmation: true,
+			confirmAction: 'rollback',
 			confirmationMessage: (args) => `Roll back data table migration ${args?.version ?? ''}`,
 			queuedLabel: (args) => `Roll back migration ${args?.version ?? ''}`,
 			showDetails: true,

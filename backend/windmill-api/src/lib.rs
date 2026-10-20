@@ -164,6 +164,9 @@ mod scim_oss;
 mod scripts;
 mod secret_backend_ext;
 mod service_logs;
+// Answering in Slack is only reached from the EE Slack event handlers.
+#[cfg_attr(not(all(feature = "oauth2", feature = "private")), allow(dead_code))]
+mod slack_agents;
 mod slack_approvals;
 #[cfg(all(feature = "smtp", feature = "private"))]
 pub mod smtp_server_ee;
@@ -258,6 +261,11 @@ lazy_static::lazy_static! {
     pub static ref SLACK_OAUTH_SCOPES: String = std::env::var("SLACK_OAUTH_SCOPES")
         .unwrap_or_else(|_| "commands,chat:write,chat:write.public,channels:join,files:write,app_mentions:read,im:history,im:read".to_string());
 }
+
+/// Added to `SLACK_OAUTH_SCOPES` when a workspace connects with AI agents enabled: whether a
+/// message's sender is a person of the team and, for agents that run as their asker, their email,
+/// and the channel picker. Opt-in, as a Slack app must declare every scope it is asked for.
+pub const SLACK_AGENT_SCOPES: &[&str] = &["users:read", "users:read.email", "channels:read"];
 
 // Compliance with cloud events spec.
 pub async fn add_webhook_allowed_origin(
@@ -698,6 +706,7 @@ pub async fn run_server(
                         .nest("/embeddings", embeddings::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
+                        .nest("/slack_agents", slack_agents::workspaced_service())
                         .nest("/runnables", runnables::workspaced_service())
                         .nest(
                             "/workspace_dependencies",

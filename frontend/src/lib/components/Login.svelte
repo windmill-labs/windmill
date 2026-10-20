@@ -350,9 +350,10 @@
 				} else {
 					goto(resolvedRd ?? '/')
 				}
-				// See (root)/+layout.svelte for why /projects/import skips the picker.
+				// See (root)/+layout.svelte for why these skip the picker.
 			} else if (
 				resolvedRd?.startsWith('/user/workspaces') ||
+				resolvedRd?.startsWith('/oauth/mcp_authorize') ||
 				resolvedRd?.startsWith('/projects/import')
 			) {
 				goto(resolvedRd)

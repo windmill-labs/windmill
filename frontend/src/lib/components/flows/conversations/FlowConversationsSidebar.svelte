@@ -306,7 +306,7 @@
 		<div class="p-1">
 			<Button
 				unifiedSize="md"
-				startIcon={{ icon: MessageCircle }}
+				startIcon={{ icon: MessageCircle, classes: 'ml-[2px]' }}
 				onClick={() => (expanded = true)}
 				title="{items.length} conversation{items.length !== 1 ? 's' : ''}{totalUnread > 0
 					? `, ${totalUnread} unread`

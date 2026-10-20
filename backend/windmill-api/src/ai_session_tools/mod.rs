@@ -209,6 +209,9 @@ pub(crate) struct Ctx<'a> {
     pub chat: Option<&'a chat::ChatContext>,
     /// What the call changed that the chat has to apply: its editors, cards and drafts.
     pub effects: std::sync::Mutex<Vec<chat::Effect>>,
+    /// Minted once per tool call: every JWT the API sees is cached by the auth layer, and a
+    /// tool can make dozens of calls, which would evict other users' cached sessions.
+    pub jwt: tokio::sync::OnceCell<String>,
 }
 
 impl<'a> Ctx<'a> {
@@ -227,6 +230,7 @@ impl<'a> Ctx<'a> {
             surface: Surface::Mcp,
             chat: None,
             effects: Default::default(),
+            jwt: Default::default(),
         }
     }
 
@@ -293,7 +297,9 @@ impl Ctx<'_> {
             Some(q) => format!("{}?{q}", &parsed.path()[at..]),
             None => parsed.path()[at..].to_string(),
         };
-        let token = mint_caller_jwt(self.w_id, self.auth, scopes)
+        let token = self
+            .jwt
+            .get_or_try_init(|| mint_caller_jwt(self.w_id, self.auth, scopes))
             .await
             .map_err(|e| e.to_string())?;
         let mut request = http::Request::builder()
@@ -330,7 +336,9 @@ impl Ctx<'_> {
         scopes: Option<Vec<String>>,
     ) -> Result<(http::StatusCode, String), String> {
         let method = http::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
-        let token = mint_caller_jwt(self.w_id, self.auth, scopes)
+        let token = self
+            .jwt
+            .get_or_try_init(|| mint_caller_jwt(self.w_id, self.auth, scopes))
             .await
             .map_err(|e| e.to_string())?;
         let mut request = crate::HTTP_CLIENT
@@ -440,13 +448,16 @@ fn guarded_url(
         return Err(refused());
     }
     // Runs of deployed items by path only: the preview routes take code, so they are writes.
-    let runs_deployed = method == "POST"
+    // A run also stores its secret arguments as expiring variables; the write tools that
+    // could create other variables are not offered to a read-and-run token.
+    let run_writes = method == "POST"
         && ["jobs/run/p/", "jobs/run/f/"]
             .iter()
-            .any(|run| route.starts_with(&format!("/w/{w_id}/{run}")));
+            .any(|run| route.starts_with(&format!("/w/{w_id}/{run}")))
+        || method == "POST" && route == format!("/w/{w_id}/variables/create");
     let held_to_reads = match access {
         SessionAccess::Full => false,
-        SessionAccess::ReadAndRun => !runs_deployed,
+        SessionAccess::ReadAndRun => !run_writes,
         SessionAccess::ReadOnly => true,
     };
     if held_to_reads {
@@ -685,6 +696,9 @@ mod tests {
         assert!(url("POST", "/w/ws/jobs/run/f/u/a/b", ReadAndRun).is_ok());
         assert!(url("POST", "/w/ws/jobs/run/preview", ReadAndRun).is_err());
         assert!(url("POST", "/w/ws/drafts/update", ReadAndRun).is_err());
+        assert!(url("POST", "/w/ws/variables/create", ReadAndRun).is_ok());
+        assert!(url("POST", "/w/ws/variables/update/u/a/b", ReadAndRun).is_err());
+        assert!(url("POST", "/w/ws/variables/create", ReadOnly).is_err());
     }
 
     #[test]

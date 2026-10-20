@@ -597,7 +597,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         let scopes = auth.scopes().unwrap_or(&[]);
         let mut scope_config =
             parse_mcp_scopes(scopes).map_err(|e| ErrorData::internal_error(e, None))?;
-        scope_config.no_endpoints = no_endpoints;
+        scope_config.no_endpoints |= no_endpoints;
 
         // v1 has no read-and-run access: such a token reads only.
         let read_only = auth.read_only() || scope_config.read_run || scope_config.read_only;
@@ -627,7 +627,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         let scopes = auth.scopes().unwrap_or(&[]);
         let mut scope_config =
             parse_mcp_scopes(scopes).map_err(|e| ErrorData::internal_error(e, None))?;
-        scope_config.no_endpoints = no_endpoints;
+        scope_config.no_endpoints |= no_endpoints;
         let read_only = auth.read_only() || scope_config.read_run || scope_config.read_only;
 
         let args = request.arguments.map(Value::Object).unwrap_or(Value::Null);
@@ -1323,8 +1323,8 @@ mod tests {
 
     #[test]
     fn a_selection_without_endpoints_gets_none() {
-        let mut selection = cfg(&["mcp:favorites", "mcp:endpoints:*"]);
-        selection.no_endpoints = true;
+        // The scope withholds them on every URL, as the server does on `/api/mcp`.
+        let selection = cfg(&["mcp:favorites", "mcp:endpoints:*", "mcp:runnables_as_tools"]);
         assert!(!endpoint_tool_in_scope(&selection, &ep("listJobs", "GET")));
         assert!(
             authorize_endpoint_call(&selection, &ep("listJobs", "GET"), &mut json!({}), false)

@@ -465,7 +465,7 @@ async fn write_draft(
     )
     .await?;
     Ok(match persisted {
-        Persist::Saved(item) => finish_draft_write(&item, existed),
+        Persist::Saved(item) => finish_draft_write(ctx, &item, existed),
         Persist::Failed(text) => text,
     })
 }

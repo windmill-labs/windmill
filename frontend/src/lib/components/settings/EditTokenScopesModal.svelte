@@ -6,7 +6,7 @@
 	import Modal from '../common/modal/Modal.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import ScopesPicker from './ScopesPicker.svelte'
-	import McpAccessPicker from '../mcp/McpAccessPicker.svelte'
+	import McpAccessPicker, { mcpAccessOf } from '../mcp/McpAccessPicker.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -45,11 +45,21 @@
 	let mcpScopes = $state<string[]>([])
 	let saving = $state(false)
 
-	// The access picker knows nothing of the workspace list, so it is carried over as is:
-	// dropping it would widen the token to every workspace.
+	// The access picker re-derives a token's scopes from what it can show, which drops what it
+	// does not model (an old token's endpoint list, say). So they are rewritten only once the
+	// user has used the picker; until then the token keeps exactly the scopes it had.
+	let mcpTouched = $state(false)
+	// Carried over as is, the picker knowing nothing of them: dropping the workspace list
+	// would widen the token to every workspace.
 	const isWorkspaceList = (s: string) => s.startsWith('mcp:workspaces:')
+	const keptAside = (s: string) =>
+		isWorkspaceList(s) || (mcpAccessOf(mcpScopes) !== 'selected' && s.startsWith('mcp:hub:'))
 	const scopesToSave = $derived(
-		isMcp ? [...mcpScopes, ...(initialScopes ?? []).filter(isWorkspaceList)] : pickedScopes
+		isMcp
+			? mcpTouched
+				? [...mcpScopes, ...(initialScopes ?? []).filter(keptAside)]
+				: (initialScopes ?? [])
+			: pickedScopes
 	)
 
 	// Seed the label field from the token whenever the modal opens or the token
@@ -60,6 +70,7 @@
 		if (open) {
 			untrack(() => {
 				labelValue = initialLabel ?? ''
+				mcpTouched = false
 			})
 		}
 	})
@@ -131,11 +142,17 @@
 			{/if}
 			{#key tokenPrefix}
 				{#if isMcp}
-					<McpAccessPicker
-						workspaceId={mcpWorkspaceId}
-						initialScopes={(initialScopes ?? []).filter((s) => !isWorkspaceList(s))}
-						bind:scopes={mcpScopes}
-					/>
+					<div
+						role="group"
+						onpointerdown={() => (mcpTouched = true)}
+						onkeydown={() => (mcpTouched = true)}
+					>
+						<McpAccessPicker
+							workspaceId={mcpWorkspaceId}
+							initialScopes={(initialScopes ?? []).filter((s) => !isWorkspaceList(s))}
+							bind:scopes={mcpScopes}
+						/>
+					</div>
 				{:else}
 					<ScopesPicker
 						mode="standard"

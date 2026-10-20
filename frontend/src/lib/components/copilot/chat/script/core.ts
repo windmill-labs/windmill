@@ -1020,6 +1020,7 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 		})
 	},
 	requiresConfirmation: true,
+	confirmAction: 'run',
 	confirmationMessage: 'Run a test of the current script',
 	showDetails: true,
 	autoCollapseDetails: false

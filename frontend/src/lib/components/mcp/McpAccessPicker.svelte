@@ -1,6 +1,9 @@
 <script lang="ts" module>
 	export type McpAccess = 'read' | 'read_run' | 'full' | 'selected'
 
+	/** Marks a selection, so the per-workspace URLs add no API endpoint tools to it. */
+	export const RUNNABLES_AS_TOOLS = 'mcp:runnables_as_tools'
+
 	const ACCESS_SCOPES: Record<Exclude<McpAccess, 'selected'>, string[]> = {
 		read: ['mcp:all', 'mcp:read_only'],
 		read_run: ['mcp:all', 'mcp:read_run'],
@@ -10,6 +13,7 @@
 	/** The access a token's MCP scopes give: `mcp:all` and how it is narrowed, or else a
 	 *  selection of scripts, flows and endpoints. */
 	export function mcpAccessOf(scopes: string[]): McpAccess {
+		scopes = scopes.filter((s) => s !== RUNNABLES_AS_TOOLS)
 		if (!scopes.includes('mcp:all')) return scopes.length > 0 ? 'selected' : 'full'
 		if (scopes.includes('mcp:read_only')) return 'read'
 		if (scopes.includes('mcp:read_run')) return 'read_run'
@@ -44,13 +48,19 @@
 
 	const initialAccess = mcpAccessOf(initialScopes)
 	access = initialAccess
-	const initialSelection = initialAccess === 'selected' ? initialScopes.join(' ') : undefined
+	const initialSelection =
+		initialAccess === 'selected'
+			? initialScopes.filter((s) => s !== RUNNABLES_AS_TOOLS).join(' ')
+			: undefined
 	let selection = $state(initialSelection ?? 'mcp:favorites')
 
 	$effect(() => {
 		scopes =
 			access === 'selected' || access === undefined
-				? selection.split(' ').filter((s) => s.length > 0)
+				? [
+						...selection.split(' ').filter((s) => s.length > 0 && s !== RUNNABLES_AS_TOOLS),
+						RUNNABLES_AS_TOOLS
+					]
 				: ACCESS_SCOPES[access]
 	})
 
@@ -85,7 +95,7 @@
 					{item}
 					value="read_run"
 					label="Read and run"
-					tooltip="Explore, and run deployed scripts and flows. Nothing is changed."
+					tooltip="Explore, and run deployed scripts and flows. The client changes nothing itself; the scripts and flows it runs can."
 				/>
 				<ToggleButton
 					{item}

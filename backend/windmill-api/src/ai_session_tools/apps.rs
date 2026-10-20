@@ -279,7 +279,8 @@ async fn save_app(
             put(
                 &mut out,
                 "preview_url",
-                ctx.link(&format!("/apps_raw/edit/{path}")).map(Value::from),
+                ctx.link(&format!("/apps_raw/edit/{path}?view=preview&nomenubar=true"))
+                    .map(Value::from),
             );
             if let Some(warning) = warning {
                 out.insert("warning".into(), json!(warning));
@@ -469,8 +470,14 @@ async fn init_app(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     } else {
         format!("The template is a demo tour with starter runnables {}: replace its UI and delete the runnables the app does not need (delete_app_runnable).", starter_keys.join(", "))
     };
+    // The chat opens the app in its own panel; an MCP client only has the link.
+    let open_preview = if ctx.link("/").is_some() {
+        " Open preview_url in a browser the user can see from this conversation if you have one, and otherwise give them the link: its live preview follows every later edit."
+    } else {
+        ""
+    };
     let message = format!(
-        "Initialized a per-user draft app \"{path}\" from the {framework} template (saved server-side, not a deployed workspace item). {start} Use write_app_file / write_app_runnable to evolve it.{data_note}"
+        "Initialized a per-user draft app \"{path}\" from the {framework} template (saved server-side, not a deployed workspace item). {start} Use write_app_file / write_app_runnable to evolve it.{data_note}{open_preview}"
     );
     ctx.status_after_save(format!("Saved app \"{path}\" draft ({framework})"), Some("Saved as draft"));
     save_app(ctx, path, value, None, message, None).await
