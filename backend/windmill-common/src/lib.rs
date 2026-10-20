@@ -2338,13 +2338,13 @@ pub async fn legacy_on_behalf_of_email(
 
 /// Shared by [`ScriptHashInfo::on_behalf_of`] and [`FlowVersionInfo::on_behalf_of`].
 ///
-/// Reads identity data through the non-RLS pool and enforces nothing itself: it answers who a
-/// row already says it runs as. Callers must have authorized `w_id` — and the row they read it
+/// Reads identity tables, which carry no RLS (a user transaction reads them as the pool does),
+/// and enforces nothing itself: it answers who a row already says it runs as. Callers must have authorized `w_id` — and the row they read it
 /// from — before dispatching a job with what it returns.
-pub async fn on_behalf_of_from_permissioned_as(
+pub async fn on_behalf_of_from_permissioned_as<'c>(
     permissioned_as: Option<&str>,
     w_id: &str,
-    db: &DB,
+    db: impl sqlx::PgExecutor<'c>,
 ) -> error::Result<Option<jobs::OnBehalfOf>> {
     let Some(permissioned_as) = permissioned_as else {
         return Ok(None);
@@ -3034,9 +3034,8 @@ async fn get_latest_flow_version_for_path<'e, E: sqlx::PgExecutor<'e>>(
     Ok(version)
 }
 
-pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
-    db: E,
-    db2: &DB,
+pub async fn get_latest_hash_for_path(
+    db: &mut sqlx::PgConnection,
     w_id: &str,
     script_path: &str,
     require_locked: bool,
@@ -3067,13 +3066,13 @@ pub async fn get_latest_hash_for_path<'c, E: sqlx::PgExecutor<'c>>(
             w_id,
             require_locked
         )
-        .fetch_optional(db)
+        .fetch_optional(&mut *db)
         .await?;
 
     let script = utils::not_found_if_none(r_o, "script", script_path)?;
 
     let on_behalf_of =
-        on_behalf_of_from_permissioned_as(script.on_behalf_of.as_deref(), w_id, db2).await?;
+        on_behalf_of_from_permissioned_as(script.on_behalf_of.as_deref(), w_id, db).await?;
 
     Ok((
         scripts::ScriptHash(script.hash),
