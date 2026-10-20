@@ -79,11 +79,8 @@ where
     .await?
     .ok_or_else(|| Error::NotFound(format!("Account {id} not found")))?;
 
-    let refreshed_meanwhile = if force {
-        Some(row.expires_at) != seen_expiry
-    } else {
-        !row.expired
-    };
+    // A failed store moves `expires_at` too, into the past: only a fresh account counts.
+    let refreshed_meanwhile = !row.expired && (!force || Some(row.expires_at) != seen_expiry);
     if refreshed_meanwhile {
         return current_token(db, w_id, path).await;
     }
@@ -118,20 +115,48 @@ where
             .execute(db)
             .await?
             .rows_affected();
-            // Another process rotated the refresh token first, so the one we sent was spent.
+            // Another process rotated the refresh token first, so the one we sent was spent:
+            // its token is the one to serve, unless storing it failed too.
             if recorded == 0 {
-                return current_token(db, w_id, path).await;
+                let expired = sqlx::query_scalar!(
+                    "SELECT now() > expires_at AS \"expired!\" FROM account
+                     WHERE workspace_id = $1 AND id = $2",
+                    w_id,
+                    id
+                )
+                .fetch_optional(db)
+                .await?;
+                if expired == Some(false) {
+                    return current_token(db, w_id, path).await;
+                }
             }
             return Err(Error::BadRequest(format!("Error refreshing token: {msg}")));
         }
     };
 
-    // Store before marking the account fresh, so no reader sees it fresh with the old token.
-    // A failed store already marks the account for a retry; the rotated refresh token must
-    // still be saved, or the next refresh sends one the provider has revoked.
-    let stored =
-        crate::secret_backend_ext::store_oauth_token_value(db, w_id, path, &token.access_token)
-            .await;
+    // Store at every variable of the account before marking it fresh, so no reader of any of
+    // them sees the account fresh with the old token. A failed store already marks the account
+    // for a retry; the rotated refresh token must still be saved, or the next refresh sends one
+    // the provider has revoked.
+    let mut paths = sqlx::query_scalar!(
+        "SELECT path FROM variable WHERE workspace_id = $1 AND account = $2",
+        w_id,
+        id
+    )
+    .fetch_all(db)
+    .await?;
+    if !paths.iter().any(|p| p == path) {
+        paths.push(path.to_string());
+    }
+    let mut stored = Ok(());
+    for p in &paths {
+        stored =
+            crate::secret_backend_ext::store_oauth_token_value(db, w_id, p, &token.access_token)
+                .await;
+        if stored.is_err() {
+            break;
+        }
+    }
     sqlx::query!(
         "UPDATE account SET refresh_token = COALESCE($1, refresh_token),
             expires_at = CASE WHEN $2 THEN now() + make_interval(secs => $3) ELSE expires_at END,
