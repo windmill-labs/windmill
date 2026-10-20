@@ -917,19 +917,32 @@ pub async fn handle_ai_agent_job(
     // constrain a shared resource); don't advertise them — invoking one would only fail the depth
     // check as a third level.
     let tools = if direct_parent_job_kind == JobKind::AIAgent {
+        // A nested agent writes no flow status, so nothing would show a question or an approval
+        // request, and its parent agent holds a worker while it waits: it cannot park either. A
+        // tool that requires approval is dropped rather than run unapproved.
+        let (dropped, tools): (Vec<_>, Vec<_>) =
+            tools.into_iter().partition(|t| t.requires_approval);
+        if !dropped.is_empty() {
+            let names: Vec<&str> = dropped
+                .iter()
+                .map(|t| tool_enabled_name(t).unwrap_or(&t.id))
+                .collect();
+            let message = format!(
+                "Tools that require approval are left out of an agent used as a tool, which cannot \
+                 wait for an answer: {}\n",
+                names.join(", ")
+            );
+            append_logs(&job.id, &job.workspace_id, message, conn).await;
+        }
         tools
             .into_iter()
-            // A nested agent writes no flow status, so nothing would show a question or an
-            // approval request, and its parent agent holds a worker while it waits: it cannot park
-            // either. A tool that requires approval is dropped rather than run unapproved.
             .filter(|t| {
-                !t.requires_approval
-                    && !matches!(
-                        &t.value,
-                        ToolValue::FlowModule(
-                            FlowModuleValue::AIAgent { .. } | FlowModuleValue::AIDecision { .. }
-                        ) | ToolValue::Question(_)
-                    )
+                !matches!(
+                    &t.value,
+                    ToolValue::FlowModule(
+                        FlowModuleValue::AIAgent { .. } | FlowModuleValue::AIDecision { .. }
+                    ) | ToolValue::Question(_)
+                )
             })
             .collect()
     } else {

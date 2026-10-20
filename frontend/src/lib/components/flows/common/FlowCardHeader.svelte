@@ -303,7 +303,7 @@
 			options={{
 				right: 'Require approval',
 				rightTooltip:
-					'Each call waits for someone to approve or reject it from the run page or the chat, without holding a worker. Other calls in the same turn run right away. A rejected call is reported to the agent as not run.'
+					'Each call waits for someone to approve or reject it from the run page or the chat, without holding a worker. Other calls in the same turn run right away. A rejected call is reported to the agent as not run. An agent used as a tool of another agent cannot wait, so it leaves such tools out.'
 			}}
 		/>
 	{/if}
