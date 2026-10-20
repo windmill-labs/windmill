@@ -872,7 +872,7 @@ async fn write_flow_draft(ctx: &Ctx<'_>, write: FlowWrite<'_>) -> ToolResult {
         Persist::Saved(item) => item,
         Persist::Failed(text) => return Ok(text),
     };
-    let result = finish_draft_write(&item, existed);
+    let result = finish_draft_write(ctx, &item, existed);
     if empty_scripts.is_empty() {
         return Ok(result);
     }

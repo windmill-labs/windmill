@@ -1016,7 +1016,22 @@ pub(super) async fn persist_draft(
     Ok(Persist::Failed(pretty(&failure)))
 }
 
-pub(super) fn finish_draft_write(item: &Value, existed: bool) -> String {
+/// Whether a resource's draft or deployed value is an AI agent, which has its own page.
+pub(super) fn is_agent(value: &Value) -> bool {
+    value.get("resource_type").and_then(Value::as_str) == Some("ai_agent")
+}
+
+/// The editor that shows the user's draft: a detail page shows only the deployed version.
+fn draft_page(item_type: &str, path: &str, value: &Value) -> Option<String> {
+    Some(match item_type {
+        "script" => format!("/scripts/edit/{path}?nomenubar=true"),
+        "flow" => format!("/flows/edit/{path}?nomenubar=true"),
+        "resource" if is_agent(value) => format!("/agents/edit/{path}?nomenubar=true"),
+        _ => return None,
+    })
+}
+
+pub(super) fn finish_draft_write(ctx: &Ctx<'_>, item: &Value, existed: bool) -> String {
     let text = |key: &str| item.get(key).and_then(Value::as_str).unwrap_or_default();
     let (item_type, path) = (text("type"), text("path"));
     let verb = if existed { "Updated" } else { "Created" };
@@ -1026,6 +1041,10 @@ pub(super) fn finish_draft_write(item: &Value, existed: bool) -> String {
         "message".into(),
         json!(format!("{verb} {item_type} \"{path}\" as a per-user draft (saved server-side, visible only to this user — not a deployed workspace item). It was not deployed.")),
     );
+    let value = item.get("value").unwrap_or(&Value::Null);
+    if let Some(page) = draft_page(item_type, path, value) {
+        out.insert("url".into(), json!(ctx.page_url(&page)));
+    }
     // A flow is not echoed back: the model just sent it. A variable comes back redacted.
     match item_type {
         "flow" => {}
@@ -1620,7 +1639,7 @@ async fn write_script_draft(
     )
     .await?;
     Ok(match persisted {
-        Persist::Saved(item) => finish_draft_write(&item, existed),
+        Persist::Saved(item) => finish_draft_write(ctx, &item, existed),
         Persist::Failed(text) => text,
     })
 }

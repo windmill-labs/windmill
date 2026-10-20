@@ -469,12 +469,13 @@ fn mutation_result(
 }
 
 /// Where a deployed item is seen in Windmill.
-fn deployed_page(item_type: &str, path: &str) -> Option<String> {
+fn deployed_page(item_type: &str, path: &str, value: &Value) -> Option<String> {
     Some(match item_type {
         "script" => format!("/scripts/get/{path}"),
         "flow" => format!("/flows/get/{path}"),
         "app" => format!("/apps_raw/get/{path}"),
         "variable" => format!("/variables#{path}"),
+        "resource" if super::workspace::is_agent(value) => format!("/agents/get/{path}"),
         "resource" => format!("/resources#/resource/{path}"),
         "schedule" => format!("/schedules#{path}"),
         _ => return None,
@@ -553,7 +554,7 @@ async fn deploy_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         item_type,
         path,
         trigger_kind,
-        deployed_page(item_type, path).map(|page| ctx.page_url(&page)),
+        deployed_page(item_type, path, value).map(|page| ctx.page_url(&page)),
     ))
 }
 

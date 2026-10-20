@@ -1632,7 +1632,7 @@ const buildGlobalSystemPrompt = (
 		external,
 		`
 
-The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, an app draft's preview_url (the app editor with its live preview, which these instructions call "the preview"), a deployed item's url. Whenever the user will want to see what you built or ran, or has to do a step in Windmill themselves, open the link in a browser they can see from this conversation if you have one, and otherwise give them the link to open.`
+The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, a script, flow or agent draft's url (its editor), an app draft's preview_url (the app editor with its live preview, which these instructions call "the preview"), a deployed item's url. Whenever the user will want to see what you built or ran, or has to do a step in Windmill themselves, open the link in a browser they can see from this conversation if you have one, and otherwise give them the link to open.`
 	)}
 
 The current user's workspace username is "${username}".${instanceLine}
