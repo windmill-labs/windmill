@@ -381,10 +381,12 @@ fn check_module_value_is_composition_only(
                 let path = agent
                     .trim_start_matches("$res:")
                     .trim_start_matches("res://");
-                refs.agents.push(LinkedAgent {
-                    path: path.to_string(),
-                    bound_tools: tool_inputs.keys().cloned().collect(),
-                });
+                // Sorted: the caller dedupes the walk on this list, and a self-linking agent would
+                // otherwise come back in a new hash order on every visit.
+                let mut bound_tools: Vec<String> = tool_inputs.keys().cloned().collect();
+                bound_tools.sort();
+                refs.agents
+                    .push(LinkedAgent { path: path.to_string(), bound_tools });
             }
             push_tag(tag);
             for tool in tools {

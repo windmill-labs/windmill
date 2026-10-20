@@ -421,6 +421,16 @@ async fn check_builder_agents(
     .bind(&inline)
     .execute(db)
     .await?;
+    let resp = c
+        .post(format!("{api}/flows/create"))
+        .json(&linking("u/operator/agent_f4", "u/operator/dev_agent"))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "a builder must be able to link a developer's agent as authored: {}",
+        resp.text().await?
+    );
     let mut bound = linking("u/operator/agent_f3", "u/operator/dev_agent");
     bound["value"]["modules"][0]["value"]["tool_inputs"] = json!({"t": {}});
     let resp = c
