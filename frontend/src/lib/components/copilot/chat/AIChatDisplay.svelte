@@ -978,7 +978,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">
 				<Button
 					startIcon={{ icon: CheckIcon }}
-					size="xs"
+					unifiedSize="sm"
 					variant="default"
 					btnClasses="bg-green-500 hover:bg-green-600 text-white hover:text-white"
 					onclick={() => {
@@ -990,7 +990,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				<div class="rounded bg-surface">
 					<Button
 						startIcon={{ icon: XIcon }}
-						size="xs"
+						unifiedSize="sm"
 						variant="default"
 						btnClasses="dark:opacity-50 opacity-60 hover:opacity-100"
 						onclick={() => {
