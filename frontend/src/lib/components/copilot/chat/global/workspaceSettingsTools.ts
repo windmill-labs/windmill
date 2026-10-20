@@ -105,6 +105,7 @@ export const workspaceSettingsTools: SessionTool<{}>[] = [
 			'Change workspace settings. Keys the yaml omits are left as they are. The user reviews the changes before they apply. Read get_instructions subject "workspace_settings" before your first change.'
 		),
 		requiresConfirmation: true,
+		confirmAction: 'apply',
 		confirmationMessage: 'Change workspace settings',
 		cancellationMessage: 'The user declined: no setting was changed.',
 		showDetails: true,

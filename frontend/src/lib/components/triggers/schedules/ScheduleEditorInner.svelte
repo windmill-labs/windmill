@@ -103,7 +103,7 @@
 	let loading = $state(false)
 	let drawerLoading = $state(true)
 	let showLoading = $state(false)
-	let initialConfig: Record<string, any> | undefined = undefined
+	let initialConfig = $state<Record<string, any> | undefined>(undefined)
 	let extraPerms: Record<string, boolean> = $state({})
 	// Path the permissions above were loaded for — the verdict is about the schedule as
 	// stored, not about a rename being typed into the form. `undefined` until a config has
@@ -281,7 +281,7 @@
 			schedule = s?.schedule ?? '0 0 12 * *'
 			initialSchedule = schedule
 			timezone = s?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone
-			paused_until = s?.paused_until ?? undefined
+			paused_until = asPicked(s?.paused_until)
 			showPauseUntil = paused_until !== undefined
 			summary = s?.summary ?? ''
 			labels = s?.labels ?? undefined
@@ -372,6 +372,12 @@
 		}
 	}
 
+	// The draft check compares as text and the picker writes `.000Z`: spell the stored time
+	// the same, or a time changed and changed back reads as unsaved (`…:00Z` vs `…:00.000Z`).
+	function asPicked(time: string | null | undefined): string | undefined {
+		return time ? new Date(time).toISOString() : undefined
+	}
+
 	async function loadScheduleCfg(cfg: Record<string, any>): Promise<void> {
 		loading = true
 
@@ -382,7 +388,7 @@
 		schedule = cfg.schedule
 		initialSchedule = schedule
 		timezone = cfg.timezone
-		paused_until = cfg.paused_until
+		paused_until = asPicked(cfg.paused_until)
 		showPauseUntil = paused_until !== undefined
 		summary = cfg.summary ?? ''
 		labels = cfg.labels ?? undefined
