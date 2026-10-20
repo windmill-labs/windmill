@@ -42,7 +42,6 @@ use windmill_common::{
 /// Helper to fetch metadata for a schedule's script or flow
 async fn get_schedule_metadata<'c>(
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
-    db: &DB,
     schedule: &Schedule,
 ) -> Result<(
     Option<String>,     // tag
@@ -78,7 +77,12 @@ async fn get_schedule_metadata<'c>(
         Ok((
             flow_info.tag.clone(),
             None,
-            flow_info.on_behalf_of(&schedule.workspace_id, db).await?,
+            windmill_common::on_behalf_of_from_permissioned_as(
+                flow_info.on_behalf_of.as_deref(),
+                &schedule.workspace_id,
+                &mut **tx,
+            )
+            .await?,
             None,
             Some(version),
             parsed_retry,
@@ -106,7 +110,6 @@ async fn get_schedule_metadata<'c>(
             _job_token_scopes,
         ) = windmill_common::get_latest_hash_for_path(
             &mut **tx,
-            db,
             &schedule.workspace_id,
             &schedule.script_path,
             false,
@@ -117,6 +120,10 @@ async fn get_schedule_metadata<'c>(
     }
 }
 
+/// Read through `tx` rather than `db`: every caller holds `tx` open on the same pool, so a
+/// second checkout here starves it when a burst of schedules fires at once. `tx` may run as
+/// `windmill_user` (schedule and flow API); the identity and runnable-settings tables read
+/// through it carry no RLS, so they resolve the same as on the pool.
 pub async fn push_scheduled_job<'c>(
     db: &DB,
     mut tx: Transaction<'c, Postgres>,
@@ -319,7 +326,7 @@ pub async fn push_scheduled_job<'c>(
 
         // Get metadata from the scheduled script/flow for tag, timeout, etc.
         let (tag, timeout, on_behalf_of, hash, flow_version, retry) =
-            get_schedule_metadata(&mut tx, db, schedule).await?;
+            get_schedule_metadata(&mut tx, schedule).await?;
 
         (
             JobPayload::SingleStepFlow {
@@ -373,7 +380,12 @@ pub async fn push_scheduled_job<'c>(
         )
         .warn_after_seconds_with_sql(1, "get_flow_version_info_from_version".to_string())
         .await?;
-        let on_behalf_of = flow_info.on_behalf_of(&schedule.workspace_id, db).await?;
+        let on_behalf_of = windmill_common::on_behalf_of_from_permissioned_as(
+            flow_info.on_behalf_of.as_deref(),
+            &schedule.workspace_id,
+            &mut *tx,
+        )
+        .await?;
         let FlowVersionInfo { version, tag, dedicated_worker, labels, job_token_scopes, .. } =
             flow_info;
 
@@ -453,7 +465,6 @@ pub async fn push_scheduled_job<'c>(
             job_token_scopes,
         ) = windmill_common::get_latest_hash_for_path(
             &mut *tx,
-            db,
             &schedule.workspace_id,
             &schedule.script_path,
             false,
@@ -461,17 +472,11 @@ pub async fn push_scheduled_job<'c>(
         .warn_after_seconds_with_sql(1, "get_latest_hash_for_path".to_string())
         .await?;
 
-        // NB: read on the non-RLS pool (`db`), not `tx`. push_scheduled_job is
-        // also invoked with an RLS user_db transaction (api-schedule/api-flows),
-        // under which these lookups would resolve against the caller's row
-        // visibility rather than the full table. The dual-connection here is
-        // intentional and required for correctness.
+        let rs =
+            windmill_common::runnable_settings::from_handle(runnable_settings_handle, &mut *tx)
+                .await?;
         let (debouncing_settings, concurrency_settings) =
-            windmill_common::runnable_settings::prefetch_cached_from_handle(
-                runnable_settings_handle,
-                db,
-            )
-            .await?;
+            windmill_common::runnable_settings::prefetch_cached_tx(&rs, &mut tx).await?;
 
         if schedule.retry.is_some() {
             let parsed_retry = serde_json::from_value::<Retry>(schedule.retry.clone().unwrap())
@@ -598,7 +603,7 @@ pub async fn push_scheduled_job<'c>(
         let resolved_email = windmill_common::users::get_email_from_permissioned_as(
             &permissioned_as,
             &schedule.workspace_id,
-            db,
+            &mut *tx,
         )
         .await?;
         (resolved_email, permissioned_as, authed, false)
@@ -621,7 +626,7 @@ pub async fn push_scheduled_job<'c>(
     };
 
     if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
-        let is_super_admin = windmill_common::auth::is_super_admin_email(db, &email).await?;
+        let is_super_admin = windmill_common::auth::is_super_admin_email(&mut *tx, &email).await?;
         crate::check_tag_available_for_push(
             db,
             &schedule.workspace_id,

@@ -773,6 +773,14 @@ pub async fn update_flow_status_after_job_completion_internal(
             _ => false,
         };
 
+        // `args` is read from the pool: resolve it before the tx for every branch under it that
+        // may need it, or a burst of completions each holds a connection while waiting for one.
+        if current_module.is_some_and(|m| m.stop_after_all_iters_if.is_some())
+            || (continue_on_error && (!success || stop_early))
+        {
+            args.as_ref().await;
+        }
+
         let mut tx = db.begin().await?;
 
         add_time!(bench, "process module status START");

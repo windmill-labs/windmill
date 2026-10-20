@@ -297,9 +297,14 @@ pub async fn generate_approval_token(
     job_id: uuid::Uuid,
     db: &DB,
 ) -> crate::error::Result<String> {
+    let key = get_workspace_key(w_id, db).await?;
+    approval_token_from_key(&key, job_id)
+}
+
+/// The token [`generate_approval_token`] mints, from a workspace key already in hand.
+pub fn approval_token_from_key(key: &str, job_id: uuid::Uuid) -> crate::error::Result<String> {
     use hmac::{Hmac, Mac};
     use sha2::Sha256;
-    let key = get_workspace_key(w_id, db).await?;
     let mut mac = Hmac::<Sha256>::new_from_slice(key.as_bytes())
         .map_err(|e| crate::Error::internal_err(format!("HMAC key error: {e}")))?;
     mac.update(job_id.as_bytes());
