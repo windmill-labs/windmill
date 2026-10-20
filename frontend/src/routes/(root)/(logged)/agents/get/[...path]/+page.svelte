@@ -209,20 +209,23 @@
 			{/if}
 		{/snippet}
 	</DetailPageHeader>
-	<!-- Below `lg` the split would squeeze the chat, so the panel gets a tab of its own, as on a
-	     script's or a flow's page. It covers the agent rather than replacing it: unmounting the
-	     host destroys the chat and any turn in flight, so the agent pane keeps one parent at
-	     every width. -->
+	<!-- Below `lg` the split would squeeze the chat, so the panel's sections become tabs of the
+	     page, as on a script's or a flow's page. They cover the agent rather than replacing it:
+	     unmounting the host destroys the chat and any turn in flight, so the agent pane keeps one
+	     parent at every width. -->
 	{#if !wide && ws && config}
 		<Tabs bind:selected={mobileTab} wrapperClass="flex-none no-scrollbar">
 			<Tab value="agent" label={testPane?.mode === 'chat' ? 'Chat' : 'Run form'} />
-			<Tab value="use" label={chatAvailable ? 'API and Slack' : 'API'} />
+			<Tab value="api" label="API" />
+			{#if chatAvailable}
+				<Tab value="slack" label="Slack" />
+			{/if}
 		</Tabs>
 	{/if}
 	<div class="relative flex-1 min-h-0" bind:clientWidth>
 		<Splitpanes>
 			<Pane size={wide ? 65 : 100} minSize={50}>
-				<div class="h-full" inert={!wide && mobileTab === 'use'}>
+				<div class="h-full" inert={!wide && mobileTab !== 'agent'}>
 					{@render agentPane()}
 				</div>
 			</Pane>
@@ -233,8 +236,8 @@
 			{/if}
 		</Splitpanes>
 		{#if !wide && ws && config}
-			<div class={['absolute inset-0 z-10 bg-surface', mobileTab !== 'use' && 'hidden']}>
-				{@render usePane(ws)}
+			<div class={['absolute inset-0 z-10 bg-surface', mobileTab === 'agent' && 'hidden']}>
+				{@render usePane(ws, mobileTab === 'slack' ? 'slack' : 'api')}
 			</div>
 		{/if}
 	</div>
@@ -275,7 +278,7 @@
 	{/key}
 {/snippet}
 
-{#snippet usePane(ws: string)}
+{#snippet usePane(ws: string, section?: 'api' | 'slack')}
 	<AgentUsePanel
 		agentPath={path}
 		workspace={ws}
@@ -290,6 +293,7 @@
 		anyone={slack.current?.anyone ?? false}
 		canShare={slack.current?.can_share ?? false}
 		channels={slack.current?.channels ?? []}
+		{section}
 	/>
 {/snippet}
 
