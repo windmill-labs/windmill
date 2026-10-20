@@ -216,7 +216,7 @@
 			"type": "object",
 			"properties": {
 				"subject": {
-					"description": "What to get authoring instructions for: a workspace item type (script, flow, resource, app), \"pipeline\" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or \"datatable\" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, or \"workspace_settings\" for the keys and rules of the workspace settings (admins only). Schedules, triggers, and variables don't need instructions — their tool schemas describe everything.",
+					"description": "What to get authoring instructions for: a workspace item type (script, flow, resource, app), \"pipeline\" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or \"datatable\" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, or \"workspace_settings\" for the keys and rules of the workspace settings (admins only). Schedules, triggers, and variables don't need instructions — their tool schemas describe everything. \"rules\" returns the full rules for working in this workspace, which the instructions you received on connecting only summarize.",
 					"type": "string",
 					"enum": [
 						"script",
@@ -225,7 +225,8 @@
 						"app",
 						"datatable",
 						"pipeline",
-						"workspace_settings"
+						"workspace_settings",
+						"rules"
 					]
 				},
 				"language": {

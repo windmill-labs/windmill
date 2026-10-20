@@ -12,6 +12,9 @@ pub(super) const TOOLS: &[&str] = &["get_instructions", "read_skill"];
 
 pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult {
     match name {
+        "get_instructions" if str_arg(args, "subject")? == "rules" => {
+            Ok(super::instructions::full_instructions(ctx).await)
+        }
         "get_instructions" => get_instructions(ctx, args),
         "read_skill" => read_skill(ctx, args).await,
         _ => unreachable!("{name} is not a guidance tool"),
