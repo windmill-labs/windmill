@@ -60,7 +60,12 @@ async function useAgentInFlow(workspace: string, path: string): Promise<void> {
 	}
 	// The new flow editor's fork handoff, which seeds the flow and its path. A full load: on a
 	// client-side one the agent page's own URL hash would be read as the flow to seed instead.
-	localStorage.setItem('fork_flow', JSON.stringify({ flow, path }))
+	try {
+		localStorage.setItem('fork_flow', JSON.stringify({ flow, path }))
+	} catch (err) {
+		sendUserToast(`Could not open the flow editor: ${err}`, true)
+		return
+	}
 	window.location.assign('/flows/add?fork=true')
 }
 
