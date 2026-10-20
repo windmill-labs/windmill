@@ -274,7 +274,9 @@ async fn save_app(
             out.insert("message".into(), json!(message));
             out.insert(
                 "preview_url".into(),
-                json!(ctx.page_url(&format!("/apps_raw/edit/{path}"))),
+                json!(ctx.page_url(&format!(
+                    "/apps_raw/edit/{path}?view=preview&nomenubar=true"
+                ))),
             );
             if let Some(warning) = warning {
                 out.insert("warning".into(), json!(warning));

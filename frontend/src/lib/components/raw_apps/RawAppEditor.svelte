@@ -156,6 +156,10 @@
 		 * still toggle the mode after mount; this prop only seeds the
 		 * initial state. */
 		defaultSplitWithPreview?: boolean
+		/** Open on the preview alone, with the file sidebar and the build logs retracted,
+		 * whatever the width, as a narrow container does. The saved sidebar preference is
+		 * left as it is. */
+		compact?: boolean
 		/** User-typed path when it differs from `savedApp.path`. The route injects
 		 *  it as `draft_path` so the home row shows the friendly name, not `draft_{uuid}`. */
 		pendingDraftPath?: string | undefined
@@ -230,6 +234,7 @@
 		autosaveWorkspace = undefined,
 		autosavePath = undefined,
 		defaultSplitWithPreview = true,
+		compact = false,
 		pendingDraftPath = $bindable(undefined),
 		onDetails,
 		onResetToDeployed,
@@ -538,7 +543,7 @@ addEventListener('message', function (e) {
 			call: "createRoot(document.getElementById('root')!).render(<App />)"
 		}
 	})
-	let logsCollapsed = $state(false)
+	let logsCollapsed = $state(untrack(() => compact))
 	let logsDiv: HTMLDivElement | undefined = $state(undefined)
 	$effect(() => {
 		if (logsDiv && logs && !logsCollapsed) {
@@ -566,7 +571,7 @@ addEventListener('message', function (e) {
 	let activeTabId: string = $state(PREVIEW_TAB_ID)
 	// Seed from the prop, then own the state locally so the user's toggle
 	// after mount sticks even if the prop reference changes.
-	let splitWithPreview: boolean = $state(untrack(() => defaultSplitWithPreview))
+	let splitWithPreview: boolean = $state(untrack(() => defaultSplitWithPreview && !compact))
 	const activeTabKind = $derived<'file' | 'runnable' | 'preview'>(
 		activeTabId === PREVIEW_TAB_ID
 			? 'preview'
@@ -840,7 +845,7 @@ addEventListener('message', function (e) {
 		const w = rootWidth
 		if (appliedNarrowDefault || w <= 0) return
 		appliedNarrowDefault = true
-		if (w < NARROW_PX) {
+		if (compact || w < NARROW_PX) {
 			splitWithPreview = false
 			sidebarCollapsed.setWithoutPersist(true)
 		}
