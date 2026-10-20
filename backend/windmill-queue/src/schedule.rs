@@ -120,10 +120,10 @@ async fn get_schedule_metadata<'c>(
     }
 }
 
-/// Read through `tx` rather than `db`: every caller holds `tx` open on the same pool, so a
-/// second checkout here starves it when a burst of schedules fires at once. `tx` may run as
-/// `windmill_user` (schedule and flow API); the identity and runnable-settings tables read
-/// through it carry no RLS, so they resolve the same as on the pool.
+/// Read identity and runnable settings through `tx` rather than `db`: every caller holds `tx`
+/// open on the same pool, so a second checkout per tick starves it when a burst of schedules
+/// fires at once. `tx` may run as `windmill_user` (schedule and flow API); those tables carry
+/// no RLS, so they resolve the same as on the pool.
 pub async fn push_scheduled_job<'c>(
     db: &DB,
     mut tx: Transaction<'c, Postgres>,

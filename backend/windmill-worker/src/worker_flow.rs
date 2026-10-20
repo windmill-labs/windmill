@@ -328,6 +328,25 @@ fn get_stop_after_if_data(stop_after_if: Option<&StopAfterIf>) -> (bool, Option<
     return (false, None, false);
 }
 
+/// Takes the caller's executor: under the status-update tx a pool read would wait on a second
+/// connection, which a burst of completions holding every one never frees.
+async fn fetch_flow_args<'c>(
+    db: impl sqlx::PgExecutor<'c>,
+    flow: Uuid,
+) -> Result<HashMap<String, Box<RawValue>>, sqlx::Error> {
+    let args = sqlx::query_scalar!(
+        r#"
+            SELECT args AS "args: Json<HashMap<String, Box<RawValue>>>"
+            FROM v2_job
+            WHERE id = $1
+            "#,
+        flow
+    )
+    .fetch_one(db)
+    .await;
+    args.map(|flow_args| flow_args.map(|flow_args| flow_args.0).unwrap_or_default())
+}
+
 async fn get_id_ctx_for_expr<'c>(
     expr: &str,
     flow: uuid::Uuid,
@@ -633,22 +652,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             }
         };
 
-        let args = Arc::pin(Lazy::new(async move {
-            let args = sqlx::query_scalar!(
-                r#"
-            SELECT args AS "args: Json<HashMap<String, Box<RawValue>>>"
-            FROM v2_job
-            WHERE id = $1
-            "#,
-                flow
-            )
-            .fetch_one(db)
-            .await;
-            let args =
-                args.map(|flow_args| flow_args.map(|flow_args| flow_args.0).unwrap_or_default());
-
-            args
-        }));
+        let args = Arc::pin(Lazy::new(fetch_flow_args(db, flow)));
 
         let from_result_to_args = |args: &Result<HashMap<String, Box<RawValue>>, sqlx::Error>| {
             let args = args
@@ -772,14 +776,6 @@ pub async fn update_flow_status_after_job_completion_internal(
             }
             _ => false,
         };
-
-        // `args` is read from the pool: resolve it before the tx for every branch under it that
-        // may need it, or a burst of completions each holds a connection while waiting for one.
-        if current_module.is_some_and(|m| m.stop_after_all_iters_if.is_some())
-            || (continue_on_error && (!success || stop_early))
-        {
-            args.as_ref().await;
-        }
 
         let mut tx = db.begin().await?;
 
@@ -1000,7 +996,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         .as_ref()
                         .and_then(|x| x.stop_after_all_iters_if.as_ref())
                     {
-                        let args = from_result_to_args(args.as_ref().await.get_ref())?;
+                        let args = from_result_to_args(&fetch_flow_args(&mut *tx, flow).await)?;
                         // Isolate the reads in a savepoint on the same connection: the
                         // caller below swallows our error and keeps using `tx`, so a DB
                         // read failure must not leave the outer transaction aborted (that
@@ -1235,7 +1231,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         .as_ref()
                         .and_then(|x| x.stop_after_all_iters_if.as_ref())
                     {
-                        let args = from_result_to_args(args.as_ref().await.get_ref())?;
+                        let args = from_result_to_args(&fetch_flow_args(&mut *tx, flow).await)?;
 
                         // See the matching savepoint comment above: isolate the reads so a
                         // DB read failure (whose error the caller swallows) cannot abort
@@ -1337,7 +1333,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             .unwrap_or_default();
 
                         tracing::info!("update flow status on retry: {retry:#?} ");
-                        let args = from_result_to_args(args.as_ref().await.get_ref())?;
+                        let args = from_result_to_args(&fetch_flow_args(&mut *tx, flow).await)?;
 
                         evaluate_retry(
                             &retry,
