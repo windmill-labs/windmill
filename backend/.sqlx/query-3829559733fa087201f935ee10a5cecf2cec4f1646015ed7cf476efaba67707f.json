@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT mcp_server_url, is_workspace_integration, client, refresh_token, grant_type,\n            cc_client_id, cc_client_secret, cc_token_url, scopes,\n            COALESCE(now() > expires_at, false) AS \"expired!\"\n         FROM account WHERE workspace_id = $1 AND id = $2",
+  "query": "SELECT mcp_server_url, is_workspace_integration, client, refresh_token, grant_type,\n            cc_client_id, cc_client_secret, cc_token_url, scopes, expires_at,\n            now() > expires_at AS \"expired!\"\n         FROM account WHERE workspace_id = $1 AND id = $2",
   "describe": {
     "columns": [
       {
@@ -50,6 +50,11 @@
       },
       {
         "ordinal": 9,
+        "name": "expires_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
         "name": "expired!",
         "type_info": "Bool"
       }
@@ -70,8 +75,9 @@
       true,
       true,
       true,
+      false,
       null
     ]
   },
-  "hash": "14fe6f14097cd5821484c474cccac9b7e4175fed18586af2f6eeaa58a8d5b18f"
+  "hash": "3829559733fa087201f935ee10a5cecf2cec4f1646015ed7cf476efaba67707f"
 }

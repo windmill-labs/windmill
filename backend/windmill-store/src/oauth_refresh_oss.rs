@@ -34,8 +34,9 @@ lazy_static::lazy_static! {
 /// call, and every write here is a single autocommit statement. Concurrent refreshers of one
 /// account are serialized within a process, and across processes the account is only
 /// committed if its refresh token is still the one exchanged, so a rotated refresh token is
-/// never overwritten by a stale one. Without `force`, an account found fresh once the lock is
-/// held is not refreshed again. Callers must have authorized `w_id`/`path`/`id`.
+/// never overwritten by a stale one. An account refreshed by someone else while we waited for
+/// the lock is not refreshed again: without `force` any fresh account counts, with it only one
+/// whose expiry moved since we asked. Callers must have authorized `w_id`/`path`/`id`.
 pub(crate) async fn refresh_account_token<F, Fut>(
     db: &DB,
     w_id: &str,
@@ -48,6 +49,18 @@ where
     F: FnOnce(RefreshAccount) -> Fut,
     Fut: Future<Output = Result<RefreshedToken, RefreshError>>,
 {
+    let seen_expiry = if force {
+        sqlx::query_scalar!(
+            "SELECT expires_at FROM account WHERE workspace_id = $1 AND id = $2",
+            w_id,
+            id
+        )
+        .fetch_optional(db)
+        .await?
+    } else {
+        None
+    };
+
     let lock = REFRESH_LOCKS
         .entry((w_id.to_string(), id))
         .or_default()
@@ -56,8 +69,8 @@ where
 
     let row = sqlx::query!(
         "SELECT mcp_server_url, is_workspace_integration, client, refresh_token, grant_type,
-            cc_client_id, cc_client_secret, cc_token_url, scopes,
-            COALESCE(now() > expires_at, false) AS \"expired!\"
+            cc_client_id, cc_client_secret, cc_token_url, scopes, expires_at,
+            now() > expires_at AS \"expired!\"
          FROM account WHERE workspace_id = $1 AND id = $2",
         w_id,
         id,
@@ -66,8 +79,12 @@ where
     .await?
     .ok_or_else(|| Error::NotFound(format!("Account {id} not found")))?;
 
-    // Refreshed by whoever held the lock or committed before us.
-    if !force && !row.expired {
+    let refreshed_meanwhile = if force {
+        Some(row.expires_at) != seen_expiry
+    } else {
+        !row.expired
+    };
+    if refreshed_meanwhile {
         return current_token(db, w_id, path).await;
     }
 
@@ -134,9 +151,9 @@ where
     Ok(token.access_token)
 }
 
-/// Whether account `id` is visible through `user_conn` (a user transaction, so under RLS):
-/// what authorizes a refresh asked for by account id rather than through a variable the
-/// caller has already read.
+/// Whether account `id` exists in `w_id`, read through the caller's user transaction. `account`
+/// carries no RLS, so this gates nothing beyond the workspace the caller is already authorized
+/// for: a refresh asked for by account id is scoped by that membership, not by ownership.
 pub async fn account_visible(
     user_conn: &mut sqlx::PgConnection,
     w_id: &str,

@@ -103,26 +103,15 @@ async fn connect_mcp_client(
 
             if let Some(info) = token_info {
                 if let (Some(account_id), Some(true)) = (info.account_id, info.is_expired) {
-                    let mut tx = user_db.clone().begin(authed).await?;
-                    let visible = windmill_store::oauth_refresh_oss::account_visible(
-                        &mut *tx, w_id, account_id,
+                    if let Err(e) = crate::oauth2_oss::_refresh_token(
+                        token_var_path,
+                        w_id,
+                        account_id,
+                        db,
+                        false,
                     )
-                    .await?;
-                    tx.commit().await?;
-                    let refreshed = if visible {
-                        crate::oauth2_oss::_refresh_token(
-                            token_var_path,
-                            w_id,
-                            account_id,
-                            db,
-                            false,
-                        )
-                        .await
-                        .map(|_| ())
-                    } else {
-                        Err(Error::NotFound(format!("Account {account_id} not found")))
-                    };
-                    if let Err(e) = refreshed {
+                    .await
+                    {
                         tracing::warn!(
                         "Failed to refresh token for MCP resource: {}. Proceeding with possibly expired token.",
                         e
