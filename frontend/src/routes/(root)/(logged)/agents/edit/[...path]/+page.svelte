@@ -7,6 +7,7 @@
 	import { openAgentEditor } from '$lib/components/flows/agentEditorStore.svelte'
 	import { recentItems } from '$lib/components/home/recentItems.svelte'
 	import { workspaceStore } from '$lib/stores'
+	import { ResourceService } from '$lib/gen'
 
 	let path = $derived(page.params.path ?? '')
 	/** Set by `/agents/add` on the path it minted: a missing agent there is a new one, not an error. */
@@ -16,11 +17,24 @@
 		const target = { path, isNew }
 		untrack(() => {
 			openAgentEditor(target)
-			// The agent loads inside the editor, so it is recorded from the route, without a
-			// summary: its Home card shows the path. A new one has no page to open yet.
-			if (!isNew && $workspaceStore) recentItems.record($workspaceStore, { kind: 'agent', path })
+			if (!isNew) recordRecent(target.path)
 		})
 	})
+
+	// The agent loads inside the editor, so it is read again here. Only a deployed agent is
+	// recorded: a draft-only one 404s, and has no page for Home's card to open.
+	async function recordRecent(agentPath: string) {
+		const workspace = $workspaceStore
+		if (!workspace) return
+		try {
+			const agent = await ResourceService.getResource({ workspace, path: agentPath })
+			recentItems.record(workspace, {
+				kind: 'agent',
+				path: agentPath,
+				summary: agent.description
+			})
+		} catch {}
+	}
 </script>
 
 <div class="h-full w-full">

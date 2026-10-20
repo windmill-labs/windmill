@@ -6,7 +6,7 @@ export type RecentItem = {
 	kind: RecentKind
 	path: string
 	summary?: string
-	/** Epoch ms of the last time the item was opened. */
+	/** Epoch ms of the last time the item was opened in its editor. */
 	at: number
 }
 

@@ -218,7 +218,7 @@
 		starred?: boolean
 		hash?: string
 		// Fetch ordinal: the position this row arrived in from the server (which already
-		// applied the chosen order + starred-first). Sorting by it reproduces the server's
+		// applied its order + starred-first). Sorting by it reproduces the server's
 		// global order EXACTLY — no client re-derivation that could disagree on collation
 		// or sub-millisecond ties and make a later page jump above shown rows.
 		ord?: number
@@ -348,15 +348,15 @@
 	}
 
 	// The merged, server-ordered, keyset-paginated source. `reset` reloads from
-	// the first page (order/filter change or workspace switch); otherwise it
+	// the first page (filter change or workspace switch); otherwise it
 	// appends the next page. Every kind arrives interleaved and are split into
 	// the existing per-kind arrays so the downstream pipeline is unchanged.
 	async function loadRunnables(reset: boolean): Promise<void> {
 		const ws = $workspaceStore
 		if (!ws || !$userStore) return
-		// Only the very first load shows the skeleton; reorder/filter reloads keep
-		// the toolbar and current items visible (they're replaced on arrival) so the
-		// sort control itself doesn't flicker out when you use it.
+		// Only the very first load shows the skeleton; filter reloads keep the toolbar
+		// and current items visible (they're replaced on arrival) so the filter control
+		// itself doesn't flicker out when you use it.
 		// An append (load-more) needs a live cursor. If there isn't one — the stream
 		// is exhausted, or a reset just cleared it and its page-1 response hasn't
 		// landed — bail so a load-more can't append a fresh page-1 onto the old
@@ -366,15 +366,15 @@
 		if (reset) {
 			serverCursor = undefined
 			hasMoreServer = false
-			// Note: this resets only the global/flat stream. The lazy tree's own store
+			// Note: this resets only the global stream. The lazy tree's own store
 			// (treeOwnerItems/ownerLoad/openOwners) is managed separately — a mode change
-			// clears it (see the treeKey effect), while an in-place sort/filter change
+			// clears it (see the treeKey effect), while an in-place filter change
 			// replaces each open owner's rows atomically as they re-load (see
-			// loadOwnerItems), so expanded folders don't blank out mid-reorder.
+			// loadOwnerItems), so expanded folders don't blank out mid-reload.
 		}
 		const gen = ++loadGen
 		// Snapshot the cursor now: a later request must not consume a cursor minted
-		// by an order/filter that has since changed.
+		// by a filter that has since changed.
 		const cursor = reset ? undefined : serverCursor
 		let res: { items: RunnableItem[]; next_cursor?: string }
 		try {
@@ -464,7 +464,7 @@
 			}
 			if (have.has(itemKey(it))) continue
 			// Appended after the browse window; a higher ord keeps them after it (search
-			// itself ranks by relevance, so this ordinal only matters if sort resumes).
+			// itself ranks by relevance, so this ordinal only matters once it is cleared).
 			const mapped = { ...mapRunnable(it), ord: fetchOrd++ }
 			if (it.type === 'script') s.push(mapped as TableScript)
 			else if (it.type === 'flow') f.push(mapped as TableFlow)
@@ -488,9 +488,9 @@
 	//
 	// Rows for every prefix live in ONE store (`treeOwnerItems`), never in the global
 	// browse arrays: those advance by a single `serverCursor`, so out-of-window rows there
-	// would make the flat stream non-contiguous and duplicate once pagination reached them.
+	// would make the global stream non-contiguous and duplicate once pagination reached them.
 	//
-	// `treeGen` ties every request to the active scope (order/archived/library/kind/
+	// `treeGen` ties every request to the active scope (archived/library/kind/
 	// workspace); a reset bumps it so an in-flight response from a stale scope is dropped.
 	type OwnerLoadState = {
 		cursor?: string
@@ -499,7 +499,7 @@
 		loaded: boolean
 		gen: number
 	}
-	// Rows per request when loading a prefix in the tree. Larger than the flat list's
+	// Rows per request when loading a prefix in the tree. Larger than the global stream's
 	// page because a tree row is a single line and a folder is opened to see what it
 	// holds — most folders come in whole on the first click.
 	const OWNER_PAGE_SIZE = 300
@@ -530,7 +530,7 @@
 
 	// `owner` is the full prefix a node covers: `f/<folder>`, `u/<username>`, or any
 	// folder under one. `force` re-fetches its first page even if already loaded (a
-	// re-sort / re-filter reload uses it to refresh the loaded rows in place); `all`
+	// re-filter reload uses it to refresh the loaded rows in place); `all`
 	// keeps paging until the prefix's stream is exhausted instead of stopping at a page.
 	async function loadOwnerItems(
 		owner: string,
@@ -546,7 +546,7 @@
 		openOwners.add(owner)
 		const st = ownerLoad[owner]
 		// Only a load for the CURRENT generation blocks a new one. A load left in flight
-		// by a superseded generation (treeGen bumped on a sort/filter reload) has already
+		// by a superseded generation (treeGen bumped on a filter reload) has already
 		// been invalidated, so it must not wedge the owner as permanently loading.
 		if (st?.loading && st.gen === treeGen) return
 		if (!force && (more ? !st?.hasMore : st?.loaded)) return
@@ -559,7 +559,7 @@
 			gen
 		}
 		const prefix = `${owner}/`
-		// Only a forced refresh replaces this prefix's rows, so a re-sort swaps them without
+		// Only a forced refresh replaces this prefix's rows, so a reload swaps them without
 		// blanking the tree. Everything else merges: a nested prefix inherits rows from an
 		// ancestor's pages, and one page of its own can cover fewer of them than are shown —
 		// replacing would delete rows on the click meant to add them.
@@ -629,7 +629,7 @@
 				sendUserToast(`Failed to load ${owner}: ${e?.body ?? e?.message ?? e}`, true)
 				return
 			}
-			// The scope moved on while this was in flight (order/archive/library/kind/
+			// The scope moved on while this was in flight (archive/library/kind/
 			// workspace changed and reset the tree); drop the response so stale rows from
 			// another scope can't appear under the current one.
 			if (gen !== treeGen) return
@@ -661,13 +661,13 @@
 	}
 	// Reload the merged list once and re-fetch the owners that are currently expanded so
 	// they don't go blank. Used both for row mutations (create/edit/archive/move/share)
-	// and for in-place scope changes (sort/archive/library/kind): those keep the tree in
+	// and for in-place scope changes (archive/library/kind): those keep the tree in
 	// lazy mode (treeKey unchanged, so folders stay open like a file explorer), and the
-	// re-fetch reloads each open owner's items in the new order/filter. When a mode
+	// re-fetch reloads each open owner's items under the new filter. When a mode
 	// change (owner/search) has switched the tree out of lazy mode, there's nothing to
 	// re-fetch — the tree remounts and groups the global stream instead.
 	async function reloadItems(): Promise<void> {
-		// Invalidate any in-flight owner loads from the previous sort/filter so their
+		// Invalidate any in-flight owner loads from the previous filter so their
 		// late responses can't overwrite the fresh ones.
 		treeGen++
 		const toReload = treeLazyMode ? [...openOwners] : []
@@ -703,7 +703,7 @@
 	}
 
 	// For row mutations (create/delete/move/archive), which also change how many
-	// runnables an owner holds. A scope change (sort/archive/kind/…) doesn't go
+	// runnables an owner holds. A scope change (archive/kind/…) doesn't go
 	// through here: the counts resource keys on those itself.
 	async function reloadItemsAndCounts(): Promise<void> {
 		// The answer can change with the rows: archiving the last item leaves the listing empty
@@ -1138,7 +1138,7 @@
 		const s = new Set<string>()
 		// Always inject your own personal space (u/<you>): list_usernames can be empty
 		// (you may not be a listed workspace member) yet u/<you> still holds runnables,
-		// and it must not vanish under a name sort whose first page is all folders.
+		// and it must not vanish when the first page holds none of its rows.
 		if ($userStore?.username) s.add($userStore.username)
 		// Other users only when no user-folder restriction is active.
 		if (!filterUserFolders) {
@@ -1149,10 +1149,11 @@
 	})
 	// The bottom "load more" only pages the *global* stream, which in lazy mode holds
 	// folder rows the tree ignores (folders come from the store and are all injected
-	// already) — so surfacing it there is confusing. Restrict it to scoped mode, where
-	// it pages within the selected owner. In lazy mode each folder paginates within
-	// itself; users past the window are reached via their owner chip.
-	let treeGlobalHasMore = $derived(ownerFilter != undefined && !searching ? hasMoreServer : false)
+	// already) — so surfacing it there is confusing. Offer it wherever the tree groups that
+	// stream instead: a selected owner pages within it, and a label filter with no owner
+	// matches against it, so later pages hold matches the first one lacks. In lazy mode each
+	// folder paginates within itself; users past the window are reached via their owner chip.
+	let treeGlobalHasMore = $derived(!treeLazyMode && !searching ? hasMoreServer : false)
 	$effect(() => {
 		if ($userStore && $workspaceStore) {
 			;[archived, includeWithoutMain, searching, ownerFilter, itemKind]
@@ -1364,13 +1365,13 @@
 	)
 	// Remount identity: only a *mode* change (workspace, selected owner, entering/leaving
 	// search, label filter) restructures the tree, so only those key the {#key} remount.
-	// A sort/archive/library/kind change keeps the same lazy tree and is applied in place
+	// An archive/library/kind change keeps the same lazy tree and is applied in place
 	// by reloadItems re-fetching the open owners — so expanded folders don't collapse when
-	// you re-sort (searching is a boolean so per-keystroke query changes don't remount).
+	// you change it (searching is a boolean so per-keystroke query changes don't remount).
 	let treeKey = $derived(`${$workspaceStore}|${ownerFilter}|${searching}|${labelFilter}`)
 	// A mode change restructures the tree (it remounts on treeKey), so the lazy owner
 	// store is stale — clear it here (the global reset no longer does). An in-place
-	// sort/filter change leaves treeKey unchanged, so the store survives and its owners
+	// filter change leaves treeKey unchanged, so the store survives and its owners
 	// are refreshed in place instead of blanking.
 	$effect(() => {
 		treeKey
@@ -1692,7 +1693,7 @@
 			{:else}
 				<!-- Remount the tree on a MODE change only (treeKey = owner/search/label):
 			     expanded folders (their `opened` state is local to each TreeView) collapse
-			     and re-load fresh for the new mode. An in-place order/archive/library/kind
+			     and re-load fresh for the new mode. An in-place archive/library/kind
 			     change keeps treeKey stable, so folders stay open and refresh via
 			     reloadItems instead (see loadOwnerItems). -->
 				{#key treeKey}
