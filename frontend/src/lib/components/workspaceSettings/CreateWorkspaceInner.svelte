@@ -1112,7 +1112,7 @@
 							<span class="text-2xs text-secondary">(optional but recommended)</span>
 						</label>
 
-						<ToggleButtonGroup bind:selected>
+						<ToggleButtonGroup bind:selected wrap>
 							{#snippet children({ item })}
 								<ToggleButton value="openai" label="OpenAI" {item} />
 								<ToggleButton value="anthropic" label="Anthropic" {item} />
@@ -1123,6 +1123,7 @@
 						<div class="flex flex-row gap-1">
 							<input
 								id="ai-key"
+								class="flex-1 min-w-0"
 								type="password"
 								autocomplete="new-password"
 								bind:value={aiKey}
