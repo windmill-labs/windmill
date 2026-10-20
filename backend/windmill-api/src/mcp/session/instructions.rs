@@ -1,7 +1,5 @@
 //! The instructions a client receives on connecting: the session's system prompt as
-//! rendered for an external client (`gen/prompt.json`), filled in for the caller. It is the
-//! condensed form, since a client may keep only the first 4096 characters; the full one is
-//! the `get_instructions` subject "rules". What
+//! rendered for an external client (`gen/prompt.json`), filled in for the caller. What
 //! differs per workspace is cut out of it, so a connection spanning several workspaces
 //! gets the rest up front and each workspace's part from `get_workspace_context`.
 
@@ -16,9 +14,7 @@ use super::{guidance::list_skills, Ctx};
 /// and the sections appended when the workspace has something to put there.
 #[derive(Deserialize)]
 struct PromptParts {
-    /// The condensed prompt a client gets on connecting.
     base: String,
-    full_base: String,
     folder_guidance: FolderGuidance,
     skills_header: String,
     skill_line: String,
@@ -124,22 +120,12 @@ async fn appendix(ctx: &Ctx<'_>) -> String {
     text
 }
 
-fn render(base: &str, auth: &crate::db::ApiAuthed) -> String {
-    base.replace("{{folder_guidance}}", &folder_guidance(auth))
-        .replace("{{username}}", auth.username())
-}
-
-/// The condensed prompt, for a connection that reaches one workspace.
+/// The whole prompt, for a connection that reaches one workspace.
 pub(in crate::mcp) async fn session_instructions(ctx: &Ctx<'_>) -> String {
-    let mut prompt = render(&PARTS.base, ctx.auth);
-    prompt.push_str(&appendix(ctx).await);
-    prompt
-}
-
-/// The whole prompt for one workspace, which the condensed one points to as the
-/// `get_instructions` subject "rules".
-pub(super) async fn full_instructions(ctx: &Ctx<'_>) -> String {
-    let mut prompt = render(&PARTS.full_base, ctx.auth);
+    let mut prompt = PARTS
+        .base
+        .replace("{{folder_guidance}}", &folder_guidance(ctx.auth))
+        .replace("{{username}}", ctx.auth.username());
     prompt.push_str(&appendix(ctx).await);
     prompt
 }

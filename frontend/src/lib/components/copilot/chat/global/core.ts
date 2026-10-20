@@ -1489,10 +1489,7 @@ const buildGlobalSystemPrompt = (
 	access?: SessionAccess,
 	// The prompt as an external MCP client reads it: the same rules, minus the tools and
 	// surfaces only the Windmill UI has (pages, the run form, questions, the open editor).
-	external = false,
-	// The opening, the path conventions and the core rules only: an MCP client may keep just
-	// the first 4096 characters of its instructions, and get_instructions serves the rest.
-	condensed = false
+	external = false
 ) => {
 	// Each `can*` mirrors the capability the matching tools declare in `requires`, so a
 	// rule cannot outlive the tool it describes. An unresolved profile keeps every block.
@@ -1600,7 +1597,7 @@ const buildGlobalSystemPrompt = (
 				get(enterpriseLicense) ? 'Enterprise Edition' : 'Community Edition'
 			}. Use that to judge whether a feature is available before promising it.`
 		: ''
-	// The rules the condensed prompt keeps, shared with the full one so the two cannot drift.
+	// The core rules, placed differently for an MCP client (see `coreRules`).
 	const draftsOnlyRule = when(
 		canWriteAnyDraft,
 		`
@@ -1686,23 +1683,17 @@ Path conventions:
 		canCreateFolder && !canWriteAnyDraft,
 		'\n- You can create a shared folder with `create_folder` when the user explicitly asks for one. You cannot create anything inside it here, so do not offer to.'
 	)}`
-	if (condensed) {
-		// The pointer comes before the folder list, whose length grows with the workspace.
-		return `${intro}
-
-These instructions are the essentials. get_instructions with subject "rules" returns the full rules: read them before your first change and whenever these do not settle how to proceed, then get the subject of what you are building before writing it.${paths}
-
-Rules:${draftsOnlyRule}
+	// An MCP client may keep only the first 4096 characters of its instructions, so there
+	// these rules come before the path conventions and are left out of the later list.
+	const coreRules = `${draftsOnlyRule}
 ${findItemsRule}${deployRule}${when(canWriteDraft, `\n${instructionsRule}`)}${when(
-			canRunPreview && canWriteDraft,
-			`\n${testDraftRule}`
-		)}${runRule}`
-	}
+		canRunPreview && canWriteDraft,
+		`\n${testDraftRule}`
+	)}${runRule}`
 
-	return `${intro}${paths}
+	return `${intro}${when(external, `\n\nRules:${coreRules}`)}${paths}
 
-Rules:${draftsOnlyRule}
-${findItemsRule}
+${external ? 'More rules:' : `Rules:${draftsOnlyRule}\n${findItemsRule}`}
 ${groupMembershipRule}- Listings and reads return only what this user can see: items in folders they cannot read are hidden from you both. When an item the user names is missing, say it is not among what they can see and may be in a folder they cannot read, where someone with access can run it — never state that it does not exist or is not deployed.
 - An agent, as the Agents page lists it, is a resource of type \`ai_agent\`: read it with read_workspace_item type "resource".${when(
 		canDraftResources,
@@ -1711,7 +1702,7 @@ ${groupMembershipRule}- Listings and reads return only what this user can see: i
 		!external,
 		`
 - If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".`
-	)}${activePreviewRule}${deployRule}${when(
+	)}${activePreviewRule}${when(!external, deployRule)}${when(
 		canWriteAnyDraft,
 		`
 - To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft).${when(
@@ -1745,12 +1736,10 @@ ${groupMembershipRule}- Listings and reads return only what this user can see: i
 - Hub scripts are prebuilt, vetted integrations for third-party services, hosted outside the workspace under \`hub/<version>/<app>/<name>\` paths. Check search_hub_scripts before hand-writing code against a third-party API, even when the user never mentions the hub; read a result with read_workspace_item type "script" and its hub path to get its code, language, and input schema. Use what you find in whichever way fits: reference the hub path directly from a flow module or app runnable when a script already does the job, copy it into a workspace draft and adapt it when it is close (note the source hub path in a comment at the top of the code), or take it as a worked example and write your own. A script that does not do what the user asked is still worth reading when it is the only example of that integration: pass its \`integration\` back to search_hub_scripts to list that integration's other scripts with their descriptions, or use the \`suggested_integrations\` a search hands back when it finds nothing.
 - Before writing your own code against an integration the hub covers, call get_hub_integration with its slug: it returns the resource type to take, its auth fields and the integration's most-used scripts, which beats inferring them from script bodies. Call it for the integration you are about to write against, whichever it is. A search marks an integration \`documented\` when the hub additionally holds provider knowledge checked against the live API — pagination, enums, error codes and gotchas — so read that closely where it appears rather than trusting your own memory of the API.
 - If you have a web search tool and the hub does not cover a third-party API, search for the vendor's own API documentation rather than writing its endpoints and auth from memory, and link the page you relied on. Reserve it for external APIs: search_docs answers questions about Windmill itself.
-${when(canCreateResourceType, `- create_resource_type creates a resource type the workspace lacks. ${external ? 'Show the user the schema you propose and create it once they agree.' : 'The user confirms the schema in the call itself, so that is where you propose it rather than asking first in chat.'}\n`)}${when(!canCreateResourceType, '- This user cannot create a resource type here, in chat or on the Resources page, since the workspace refuses their direct deployment: when one is needed, give them its name and JSON Schema to pass to a workspace admin, who can add it.\n')}${when(canRunPreview, '- Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).\n')}${instructionsRule}
-${pipelineBullet}`
+${when(canCreateResourceType, `- create_resource_type creates a resource type the workspace lacks. ${external ? 'Show the user the schema you propose and create it once they agree.' : 'The user confirms the schema in the call itself, so that is where you propose it rather than asking first in chat.'}\n`)}${when(!canCreateResourceType, '- This user cannot create a resource type here, in chat or on the Resources page, since the workspace refuses their direct deployment: when one is needed, give them its name and JSON Schema to pass to a workspace admin, who can add it.\n')}${when(canRunPreview, '- Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).\n')}${when(!external, `${instructionsRule}\n`)}${pipelineBullet}`
 	)}${when(
 		canRunPreview && canWriteDraft,
-		`
-${testDraftRule}
+		`${when(!external, `\n${testDraftRule}`)}
 - Do the same for a raw app: run test_run_app_runnable on each backend runnable you wrote or changed before saying the app works. A bundle that compiles proves nothing about whether the runnables run. An inline runnable executes the app's draft code; a path runnable executes the DEPLOYED script/flow it names, so a path runnable aimed at something you have not deployed fails here — that failure is the point: report it and offer to deploy that one target. The app itself does not need deploying to be tested.`
 	)}${when(
 		buildsFlows && (!access || access.has('run_flow_preview')),
@@ -1767,7 +1756,7 @@ ${testDraftRule}
 		canWriteDraft && !external,
 		`
 - Do not offer or open the Compare & Deploy page for normal draft review. Only use open_page with page "compare" when the user explicitly asks to deploy a forked workspace's changes to its parent workspace.`
-	)}${runRule}${when(
+	)}${when(!external, runRule)}${when(
 		!external,
 		`
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
@@ -9559,8 +9548,6 @@ export function prepareGlobalSystemMessage(
 		access?: SessionAccess
 		/** Render for an external MCP client rather than the Windmill chat. */
 		external?: boolean
-		/** Only the opening, the path conventions and the core rules (see `buildGlobalSystemPrompt`). */
-		condensed?: boolean
 	}
 ): ChatCompletionSystemMessageParam {
 	const user = opts?.user ?? get(userStore)
@@ -9580,8 +9567,7 @@ export function prepareGlobalSystemMessage(
 		opts?.skills ?? [],
 		opts?.mcpServers ?? [],
 		opts?.access,
-		opts?.external ?? false,
-		opts?.condensed ?? false
+		opts?.external ?? false
 	)
 	if (instructions?.workspace?.trim()) {
 		content = `${content}\n\nWORKSPACE INSTRUCTIONS (configured by a workspace admin, shared by everyone in this workspace — you cannot modify these):\n${instructions.workspace.trim()}`

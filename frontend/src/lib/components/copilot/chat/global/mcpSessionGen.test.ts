@@ -61,23 +61,6 @@ const DESCRIPTION_REWRITES: [tool: string, from: string, to: string][] = [
 // A rewrite only proves its old sentence is still there; this catches one added next to it.
 const CHAT_ONLY_PROMISE = /argument form|the user (confirms|reviews|approves)/i
 
-/** The MCP server sends a condensed prompt on connecting and serves the full one as the
- * `get_instructions` subject "rules", which the chat (holding the full prompt) has no use for. */
-function withRulesSubject(parameters: any) {
-	const subject = parameters.properties.subject
-	return {
-		...parameters,
-		properties: {
-			...parameters.properties,
-			subject: {
-				...subject,
-				description: `${subject.description} "rules" returns the full rules for working in this workspace, which the instructions you received on connecting only summarize.`,
-				enum: [...subject.enum, 'rules']
-			}
-		}
-	}
-}
-
 function toolDefs() {
 	return globalToolsFor({ sessionPreview: false }).map((tool) => {
 		const fn = tool.def.function
@@ -95,7 +78,7 @@ function toolDefs() {
 		return {
 			name: fn.name,
 			description,
-			parameters: fn.name === 'get_instructions' ? withRulesSubject(fn.parameters) : fn.parameters,
+			parameters: fn.parameters,
 			// The session's own read-only marker: what plan mode lets through.
 			read_only: tool.planModeSafe === true
 		}
@@ -126,23 +109,31 @@ function suffixOf(longer: string, base: string, what: string): string {
 	return longer.slice(base.length)
 }
 
-/** The prompt with a `{{folder_guidance}}` slot, and the guidance once per folder situation. */
-function withFolderSlot(condensed: boolean) {
-	const render = (user: Parameters<typeof prompt>[0]) => prompt(user, { condensed })
+function promptParts() {
+	const member = prompt({ is_admin: false, folders: [WRITABLE] })
+	const skills = suffixOf(
+		prompt(
+			{ is_admin: false, folders: [WRITABLE] },
+			{ skills: [{ path: '{{skill_path}}', name: '', description: '{{skill_description}}' }] }
+		),
+		member,
+		'the skills section'
+	)
+	const skillLine = skills.split('\n').pop()!
 	// The folder guidance differs per workspace, so it is cut out of the prompt: the server
 	// puts it back for a single workspace, and serves it from `get_workspace_context` otherwise.
-	const withoutFolders = render({ is_admin: false })
+	const withoutFolders = prompt({ is_admin: false })
 	const variants = {
-		admin: render({ is_admin: true, folders: [WRITABLE] }),
-		admin_no_folders: render({ is_admin: true, folders: [] }),
-		member: render({ is_admin: false, folders: [WRITABLE] }),
-		member_no_folders: render({ is_admin: false, folders: [] }),
-		member_readonly: render({
+		admin: prompt({ is_admin: true, folders: [WRITABLE] }),
+		admin_no_folders: prompt({ is_admin: true, folders: [] }),
+		member,
+		member_no_folders: prompt({ is_admin: false, folders: [] }),
+		member_readonly: prompt({
 			is_admin: false,
 			folders: [WRITABLE],
 			folders_read: [WRITABLE, READONLY]
 		}),
-		member_no_folders_readonly: render({ is_admin: false, folders: [], folders_read: [READONLY] })
+		member_no_folders_readonly: prompt({ is_admin: false, folders: [], folders_read: [READONLY] })
 	}
 	let at: number | undefined
 	const folder_guidance = Object.fromEntries(
@@ -159,31 +150,7 @@ function withFolderSlot(condensed: boolean) {
 	)
 	return {
 		base: withoutFolders.slice(0, at) + '{{folder_guidance}}' + withoutFolders.slice(at),
-		folder_guidance
-	}
-}
-
-function promptParts() {
-	const member = prompt({ is_admin: false, folders: [WRITABLE] })
-	const skills = suffixOf(
-		prompt(
-			{ is_admin: false, folders: [WRITABLE] },
-			{ skills: [{ path: '{{skill_path}}', name: '', description: '{{skill_description}}' }] }
-		),
-		member,
-		'the skills section'
-	)
-	const skillLine = skills.split('\n').pop()!
-	const condensed = withFolderSlot(true)
-	const full = withFolderSlot(false)
-	if (JSON.stringify(condensed.folder_guidance) !== JSON.stringify(full.folder_guidance)) {
-		throw new Error('the condensed and full prompts no longer share their folder guidance')
-	}
-	// The condensed prompt is what a client gets on connecting; get_instructions serves the full one.
-	return {
-		base: condensed.base,
-		full_base: full.base,
-		folder_guidance: full.folder_guidance,
+		folder_guidance,
 		skills_header: skills.slice(0, skills.length - skillLine.length),
 		skill_line: skillLine,
 		workspace_instructions: suffixOf(
