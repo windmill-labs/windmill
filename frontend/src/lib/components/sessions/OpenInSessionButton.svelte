@@ -103,7 +103,7 @@
 			prefersSessionHandoff(actingUser?.operator)
 	)
 	const show = $derived(
-		handoff && !(deferToHeader && sameDestination(pageHeader.session?.source, source))
+		handoff && !(deferToHeader && sameDestination(pageHeader.sessionSource, source))
 	)
 
 	// Not $state: only read inside open() as a re-entrancy latch, never rendered.

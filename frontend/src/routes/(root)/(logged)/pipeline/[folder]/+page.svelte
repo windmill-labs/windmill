@@ -119,7 +119,9 @@
 	import PipelineDeployTriggersModal from '$lib/components/assets/AssetGraph/PipelineDeployTriggersModal.svelte'
 	import { onMount, tick, untrack } from 'svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
-	import type { OpenInSessionSource } from '$lib/components/sessions/OpenInSessionButton.svelte'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { setOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import {
@@ -2332,6 +2334,10 @@
 			.filter((r) => r.usage_kind === 'script' && r.in_pipeline)
 			.map((r) => r.path)
 	)
+	// What the bar shows of the page's main actions: the session button goes right before them.
+	const saveAllShown = $derived(mode === 'edit' && pendingCount > 0)
+	const runPipelineShown = $derived(!isOperator && allPipelineScripts.length > 0 && !runInMenu)
+
 	// Run the whole pipeline: hand every script to the bounded-cascade engine,
 	// which topo-orders them (roots first) and fans downstream — i.e. run + all
 	// downstream from every source at once. Reuses the same per-hop launch/poll
@@ -2950,6 +2956,9 @@
 				     dependency order (roots first, cascading downstream) over the
 				     displayed graph — deployed in View, draft-overlaid in Edit. -->
 				{#if !runInMenu}
+					{#if !saveAllShown}
+						{@render sessionButton()}
+					{/if}
 					<Button
 						variant="accent-secondary"
 						unifiedSize="sm"
@@ -2972,7 +2981,8 @@
 			{#if mode === 'edit' && saveErrors.size > 0}
 				<PipelineDeployErrors errors={saveErrors} bind:open={saveErrorsOpen} />
 			{/if}
-			{#if mode === 'edit' && pendingCount > 0}
+			{#if saveAllShown}
+				{@render sessionButton()}
 				<Button
 					variant="accent"
 					unifiedSize="sm"
@@ -3009,7 +3019,15 @@
 				/>
 			{/if}
 			<DropdownV2 size="sm" items={overflowMenuItems} />
+			{#if !saveAllShown && !runPipelineShown}
+				{@render sessionButton()}
+			{/if}
 	</div>
+{/snippet}
+
+{#snippet sessionButton()}
+	<!-- Right before the page's main action: Save all while there are drafts, else Run pipeline. -->
+	<OpenInSessionButton source={sessionOpen} />
 {/snippet}
 
 <div class="flex flex-col h-full">

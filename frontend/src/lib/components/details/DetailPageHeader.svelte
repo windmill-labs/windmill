@@ -15,7 +15,9 @@
 		operatingWorkspaceContextEntry,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
-	import type { OpenInSessionSource } from '$lib/components/sessions/OpenInSessionButton.svelte'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -295,8 +297,15 @@
 			unifiedSize={size}
 		/>
 	{/if}
-	{#each barButtons as btn (btn.label)}
+	<!-- The session button goes right before the last bar button, the one the page is for (Edit). -->
+	{#if ownsPageHeader && barButtons.length === 0}
+		<OpenInSessionButton source={sessionSource} />
+	{/if}
+	{#each barButtons as btn, i (btn.label)}
 		{@const dropdownItems = dropdownItemsOf(btn)}
+		{#if ownsPageHeader && i === barButtons.length - 1}
+			<OpenInSessionButton source={sessionSource} />
+		{/if}
 		<Button
 			{...btn.buttonProps}
 			startIcon={{ icon: btn.buttonProps.startIcon }}

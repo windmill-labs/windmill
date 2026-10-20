@@ -78,6 +78,7 @@
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
+	import OpenInSessionButton from './sessions/OpenInSessionButton.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import type { Trigger } from './triggers/utils'
 	import { deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
@@ -913,6 +914,7 @@
 				}
 			: undefined
 	)
+	const headerSessionOpen = $derived(aiBuilderShown ? sessionOpen : undefined)
 
 	// Reaches the AI entry point in a step's inline-editor toolbar, which the
 	// recursive module wrapper sits too deep under to be handed a prop. `selected`
@@ -1607,7 +1609,7 @@
 								: undefined
 					}}
 					actions={flowHeaderActions}
-					sessionSource={aiBuilderShown ? sessionOpen : undefined}
+					sessionSource={headerSessionOpen}
 					actionFolds={2}
 					contexts={headerContexts}
 					separator="none"
@@ -1790,6 +1792,7 @@
 					{@render previewButtons()}
 				{/if}
 
+				<OpenInSessionButton source={headerSessionOpen} />
 				<DeployButton
 					on:save={async ({ detail }) => await handleSaveFlow(detail)}
 					{loading}

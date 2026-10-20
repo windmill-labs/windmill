@@ -19,6 +19,9 @@
 	} from '$lib/components/handlerDraft.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { WORKSPACE_SETTINGS_PATH } from '$lib/components/sessions/previewPaths'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -1532,6 +1535,13 @@
 	const tabLabel = $derived(
 		navigationGroups.flatMap((g) => g.items).find((i) => i.id === tab)?.label
 	)
+
+	const sessionSource: OpenInSessionSource = $derived({
+		// Read at click time: the tab lives in the query, so the preview opens on the pane the user
+		// is looking at.
+		page: () => WORKSPACE_SETTINGS_PATH + window.location.search,
+		workspaceId: $workspaceStore ?? undefined
+	})
 </script>
 
 <CenteredPage wrapperClasses="pb-0 h-full" handleOverflow={false} class="flex flex-col h-full">
@@ -1546,12 +1556,7 @@
 					? { parent: 'Workspace settings', label: tabLabel }
 					: undefined}
 			actions={settingsActions}
-			sessionSource={{
-				// Read at click time: the tab lives in the query, so the preview opens on the pane
-				// the user is looking at.
-				page: () => WORKSPACE_SETTINGS_PATH + window.location.search,
-				workspaceId: $workspaceStore ?? undefined
-			}}
+			{sessionSource}
 			actionFolds={1}
 			separator="always"
 		/>
@@ -2535,8 +2540,8 @@ export async function main(
 		{/key}
 	{/if}
 	{#if $superadmin}
-		<!-- Goes into a menu on a phone, where the AI session button the bar ends the row with
-		     would otherwise squeeze the breadcrumb under these controls. -->
+		<!-- Goes into a menu on a phone, where the AI session button that ends the row would
+		     otherwise squeeze the breadcrumb under these controls. -->
 		{#if pageHeader.actionFold >= 1}
 			<DropdownV2
 				size="sm"
@@ -2548,6 +2553,8 @@ export async function main(
 			</Button>
 		{/if}
 	{/if}
+	<!-- No main action on this page: the session button ends the row. -->
+	<OpenInSessionButton source={sessionSource} />
 {/snippet}
 
 <style>

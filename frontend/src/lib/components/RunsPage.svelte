@@ -36,6 +36,9 @@
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { RUNS_PATH } from '$lib/components/sessions/previewPaths'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { computeJobKinds, useJobsLoader } from '$lib/components/runs/useJobsLoader.svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
 	import BatchLoadProgress from '$lib/components/BatchLoadProgress.svelte'
@@ -654,6 +657,14 @@
 	// instead.
 	const fold = $derived(hosted ? 0 : pageHeader.actionFold)
 	const filterBelow = $derived(fold >= 2)
+
+	const sessionSource: OpenInSessionSource = $derived({
+		// The filters are shallow-routed, so the search has to come off `window.location` at click
+		// time — `page.url` never sees them. Always the canonical `/runs`: only that is a recognized
+		// preview page, and the `/runs/<path>` route mirrors its path into `?path=` anyway.
+		page: () => RUNS_PATH + window.location.search,
+		workspaceId: $operatingWorkspace ?? undefined
+	})
 </script>
 
 {#snippet runsHint()}
@@ -875,6 +886,10 @@
 			bind:value={_timeframe.val}
 		/>
 	</div>
+	{#if !hosted}
+		<!-- No main action on this page: the session button ends the row. -->
+		<OpenInSessionButton source={sessionSource} />
+	{/if}
 {/snippet}
 
 <ConfirmationModal
@@ -957,14 +972,7 @@
 			<PageHeaderContent
 				afterName={runsHint}
 				actions={headerActions}
-				sessionSource={{
-					// The filters are shallow-routed, so the search has to come off `window.location`
-					// at click time — `page.url` never sees them. Always the canonical `/runs`: only
-					// that is a recognized preview page, and the `/runs/<path>` route mirrors its path
-					// into `?path=` anyway.
-					page: () => RUNS_PATH + window.location.search,
-					workspaceId: $operatingWorkspace ?? undefined
-				}}
+				{sessionSource}
 				actionFolds={2}
 				belowBar={filterRow}
 				belowBarFold={2}

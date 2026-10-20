@@ -23,7 +23,9 @@
 	import { isWorkflowAsCode } from './graph/wacToFlow'
 	import AIFormSettings from './copilot/AIFormSettings.svelte'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './copilot/chat/script/core'
-	import type { OpenInSessionSource } from './sessions/OpenInSessionButton.svelte'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from './sessions/OpenInSessionButton.svelte'
 	import {
 		defaultScripts,
 		enterpriseLicense,
@@ -2606,6 +2608,9 @@
 				{@render settingsButton()}
 			{/if}
 
+			{#if ownsPageHeader}
+				<OpenInSessionButton source={headerSessionOpen()} />
+			{/if}
 			<DeployButton
 				loading={!fullyLoaded}
 				{loadingSave}

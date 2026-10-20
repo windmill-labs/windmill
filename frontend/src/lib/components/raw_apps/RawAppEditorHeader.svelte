@@ -1178,8 +1178,9 @@
 	<!-- Draws nothing in the bar: it is the export drawer, opened from the menu's Export entry
 	     through this instance. -->
 	<AppExportButton bind:this={appExport} />
-	{#if !phoneTopbar}
-		<OpenInSessionButton source={sessionOpen} deferToHeader>
+	<!-- Right before Deploy, in the page header too, where it stays at every fold. -->
+	{#if ownsPageHeader || !phoneTopbar}
+		<OpenInSessionButton source={sessionOpen}>
 			{#snippet fallback()}
 				<Button
 					unifiedSize={headerBtnSize}

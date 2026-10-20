@@ -15,7 +15,6 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 	import BreadcrumbNavPicker from './BreadcrumbNavPicker.svelte'
 	import { BAR_HEIGHT, pageHeader, PHONE_BAR } from './pageHeaderRegistry.svelte'
 	import ContextBridge from './ContextBridge.svelte'
-	import OpenInSessionButton from './sessions/OpenInSessionButton.svelte'
 	import { afterNavigate } from '$app/navigation'
 	import { twMerge } from 'tailwind-merge'
 	import { onDestroy } from 'svelte'
@@ -34,8 +33,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 
 	const content = $derived(pageHeader.content)
 	const actions = $derived(pageHeader.actions)
-	const session = $derived(pageHeader.session)
-	const hasActions = $derived(actions.length > 0 || !!session)
+	const hasActions = $derived(actions.length > 0)
 
 	const item = $derived(content?.item)
 	const section = $derived(content?.section)
@@ -350,18 +348,6 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 						{/key}
 					</svelte:boundary>
 				{/each}
-				{#if session}
-					<!-- Inside the actions box so the bar measures it with the row it ends. -->
-					<svelte:boundary
-						onerror={(e) => console.error('page header: session button failed to render', e)}
-					>
-						{#key session.contexts}
-							<ContextBridge contexts={session.contexts}>
-								<OpenInSessionButton source={session.source} />
-							</ContextBridge>
-						{/key}
-					</svelte:boundary>
-				{/if}
 			</div>
 		{/if}
 

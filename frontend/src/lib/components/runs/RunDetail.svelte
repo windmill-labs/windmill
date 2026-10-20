@@ -1116,6 +1116,7 @@
 					/>
 				{/snippet}
 			</Dropdown>
+			<OpenInSessionButton source={sessionOpen} />
 		{:else}
 			{@render runActionsRow()}
 		{/if}
@@ -1351,10 +1352,11 @@
 					>
 				{/if}
 			{/if}
-			{#if embedded}
-				<OpenInSessionButton source={sessionOpen} btnProps={{ unifiedSize: 'sm' }} />
-			{/if}
 		{/if}
+		<OpenInSessionButton
+			source={sessionOpen}
+			btnProps={embedded ? { unifiedSize: 'sm' } : undefined}
+		/>
 		{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
 			<Button
 				href={viewHref}
