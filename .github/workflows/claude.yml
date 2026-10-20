@@ -29,6 +29,7 @@ jobs:
   # every secret its job references (a skipped step's included) in process memory. EE is
   # therefore checked out only in a separate job, and only for PRs whose head branch
   # lives in this repo; forks, issues and token-less runs take the job without it.
+  # Comments on a same-repo PR still reach the EE job; that exposure remains.
   pr-info:
     needs: [check-access]
     if: |

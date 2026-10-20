@@ -69,11 +69,16 @@ jobs:
           ref: ${{ github.event.issue.pull_request.head.ref }}
           fetch-depth: 0
 
+      # issue_comment payloads carry no PR head, so the checkout above is the default
+      # branch; read the pin from the PR branch itself.
       - name: Read EE ref
         id: ee
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
         run: |
-          if [ -f backend/ee-repo-ref.txt ]; then
-            echo "ref=$(tr -d '[:space:]' < backend/ee-repo-ref.txt)" >> "$GITHUB_OUTPUT"
+          BRANCH=$(gh pr view ${{ github.event.issue.number }} --json headRefName --jq .headRefName)
+          if REF=$(git show "origin/$BRANCH:backend/ee-repo-ref.txt" 2>/dev/null); then
+            echo "ref=$(tr -d '[:space:]' <<<"$REF")" >> "$GITHUB_OUTPUT"
           else
             echo "Warning: ee-repo-ref.txt not found, using default branch"
           fi
