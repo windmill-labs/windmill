@@ -21,6 +21,7 @@
 		layout="page"
 		enableAi={$copilotInfo.enabled}
 		owns={(t) => t.host === undefined}
+		startInSettings={page.url.searchParams.get('settings') === 'true'}
 		onClose={(deployed) => goto(deployed ? `/agents/get/${path}` : `/?kind=agent`)}
 		onDeployed={(saved) =>
 			// Replaced, not pushed, when this URL stopped naming what it opens: Back would otherwise

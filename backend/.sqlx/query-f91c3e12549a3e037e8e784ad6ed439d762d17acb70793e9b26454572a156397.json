@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT workspace_id, slack_command_script IS NOT NULL AS \"has_script!\"\n         FROM workspace_settings WHERE slack_team_id = $1\n         ORDER BY slack_command_script IS NOT NULL DESC LIMIT 2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "has_script!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "f91c3e12549a3e037e8e784ad6ed439d762d17acb70793e9b26454572a156397"
+}
