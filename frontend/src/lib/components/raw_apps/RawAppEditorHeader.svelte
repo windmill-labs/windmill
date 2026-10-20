@@ -329,8 +329,8 @@
 	// export are already in the menu, Jobs from `compactTopbar` (true at the second fold too) and
 	// the export always.
 	const phoneTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 2)
-	// The third fold leaves the autosave indicator as its icon, so the AI session button the bar
-	// ends the row with still fits beside Deploy on a phone.
+	// The third fold leaves the autosave indicator as its icon, so the AI session button still fits
+	// right before Deploy on a phone.
 	const narrowTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 3)
 	// The last fold, for the narrowest phones: the file sidebar's toggle joins the menu, which is
 	// then the way back to a collapsed sidebar.
@@ -1178,10 +1178,11 @@
 	<!-- Draws nothing in the bar: it is the export drawer, opened from the menu's Export entry
 	     through this instance. -->
 	<AppExportButton bind:this={appExport} />
-	<!-- Right before Deploy, in the page header too, where it stays at every fold. -->
-	{#if ownsPageHeader || !phoneTopbar}
-		<OpenInSessionButton source={sessionOpen}>
-			{#snippet fallback()}
+	<!-- Right before Deploy at every fold; only the opted-out docked-chat toggle gives way on a
+	     phone. -->
+	<OpenInSessionButton source={sessionOpen}>
+		{#snippet fallback()}
+			{#if !phoneTopbar}
 				<Button
 					unifiedSize={headerBtnSize}
 					variant="default"
@@ -1192,9 +1193,9 @@
 				>
 					AI
 				</Button>
-			{/snippet}
-		</OpenInSessionButton>
-	{/if}
+			{/if}
+		{/snippet}
+	</OpenInSessionButton>
 	<Button
 		loading={loading.save}
 		startIcon={{ icon: Save }}

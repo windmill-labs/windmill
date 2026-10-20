@@ -220,8 +220,8 @@
 	// second fold holds the trail and one button. Diff and Settings join the menu that compact
 	// already shows, and Deploy stays out: it is what this page is for.
 	const phoneTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 2)
-	// The third fold leaves the autosave indicator as its icon, so the AI session button the bar
-	// ends the row with still fits beside Deploy on a phone.
+	// The third fold leaves the autosave indicator as its icon, so the AI session button still fits
+	// right before Deploy on a phone.
 	const narrowTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 3)
 
 	// The workspace this editor operates on: deploy, save-draft, trigger loading
