@@ -82,6 +82,8 @@
 				}
 			]
 		>
+		/** Drawn under the configuration, where it ends. */
+		configFooter?: import('svelte').Snippet
 	}
 
 	let {
@@ -94,7 +96,8 @@
 		isNew = false,
 		view = false,
 		onOpenConfig = undefined,
-		viewForm = undefined
+		viewForm = undefined,
+		configFooter = undefined
 	}: Props = $props()
 
 	/** The one module the editor edits. Standalone (no `agent` key) so `initFlowState` loads a
@@ -588,6 +591,7 @@
 						(v) => agentValue && (agentValue.input_transforms = v)
 					}
 				/>
+				{@render configFooter?.()}
 			</PropPickerWrapper>
 		</div>
 	{/snippet}

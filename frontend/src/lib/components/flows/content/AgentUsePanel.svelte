@@ -15,6 +15,10 @@
 	import { userStore } from '$lib/stores'
 	import { copyToClipboard, generateRandomString } from '$lib/utils'
 	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
+	import { copilotInfo } from '$lib/aiStore'
+	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
+	import { openEditorInSession } from '$lib/components/sessions/sessionSwitch.svelte'
+	import { mintDraftPath } from '$lib/mintDraftPath'
 	import {
 		curlExample,
 		fetchExample,
@@ -89,6 +93,21 @@
 	)
 	let apiTab = $state('prompt')
 	let tsFlavor = $state('react')
+
+	// Built in an AI session, as a new app from home is: the raw-app guidance knows how to chat with
+	// a saved agent, so the prompt only names it.
+	let canBuildApp = $derived($copilotInfo.enabled && prefersSessionHandoff($userStore?.operator))
+	function buildApp() {
+		openEditorInSession(
+			{ kind: 'raw_app', path: mintDraftPath() },
+			workspace,
+			{ new_draft: 'true' },
+			{
+				seedPrompt: `Build a chat app over the AI agent \`${agentPath}\`.`,
+				autoSend: true
+			}
+		)
+	}
 </script>
 
 <UserSettings
@@ -104,6 +123,7 @@
 		<Tab value="api" label="API" />
 		{#if chat}
 			<Tab value="slack" label="Slack" />
+			<Tab value="app" label="App" />
 		{/if}
 
 		{#snippet content()}
@@ -210,6 +230,24 @@
 							{/if}
 						</div>
 					{/if}
+				</TabContent>
+
+				<TabContent value="app" class="flex flex-col gap-4 p-4">
+					<span class="text-xs text-secondary">
+						A chat app for your team, built by AI with Windmill's chat SDK. It keeps each person's
+						conversations, and you can shape it like any other app.
+					</span>
+					<div>
+						<Button
+							unifiedSize="sm"
+							variant="default"
+							disabled={!canBuildApp}
+							title={canBuildApp ? undefined : 'Needs Windmill AI and AI sessions'}
+							onClick={buildApp}
+						>
+							Build a chat app
+						</Button>
+					</div>
 				</TabContent>
 
 				<TabContent value="api" class="flex flex-col gap-6 p-4">

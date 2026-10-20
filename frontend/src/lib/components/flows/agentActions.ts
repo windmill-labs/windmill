@@ -1,10 +1,9 @@
 import { Copy, Eye, FileUp, History, List, Shield, Trash } from 'lucide-svelte'
 import { ResourceService, type AiAgent, type OpenFlow } from '$lib/gen'
-import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 import { keepsManagedMemory } from './agentFormFields'
+import type { AIAgentConfig } from './agentResourceUtils'
 import { AGENT_CHAT_SCHEMA } from './conversations/agentEditorChat'
-import { workspaceStore } from '$lib/stores'
-import { get } from 'svelte/store'
+import { inlineAgentDraft } from './linkedAgentDrafts'
 import { sendUserToast } from '$lib/toast'
 import { copyToClipboard, type Item } from '$lib/utils'
 import { isDeployable } from '$lib/utils_deployable'
@@ -24,45 +23,41 @@ export async function deleteAgent(workspace: string, path: string): Promise<bool
 }
 
 /**
- * Opens a new flow at the agent's own path whose one step links the agent, so pre- and
- * post-processing can be added around it while the agent stays the one place it is configured.
- * The flow chats when the agent keeps the conversation, as the agent's own page does.
+ * Opens a new flow whose one step is the agent, reading the message and files from the flow's
+ * inputs, and chatting when the agent keeps the conversation. The step links the deployed agent
+ * at `path`, or with `inline` carries `config` itself, for an agent that was never deployed.
+ * `beforeOpen` runs once the flow is handed over, and a throw from it keeps the page where it is.
  */
-async function useAgentInFlow(workspace: string, path: string): Promise<void> {
-	let chat: boolean
-	try {
-		const value = await ResourceService.getResourceValue({ workspace, path })
-		chat = keepsManagedMemory((value as { memory?: unknown } | undefined)?.memory)
-	} catch (err) {
-		sendUserToast(`Could not read agent ${path}: ${err}`, true)
-		return
-	}
+export async function openAgentInFlow(opts: {
+	path: string
+	config: AIAgentConfig
+	inline: boolean
+	beforeOpen?: () => Promise<unknown>
+}): Promise<void> {
+	const linked = {
+		type: 'aiagent',
+		agent: opts.path,
+		tools: [],
+		input_transforms: {
+			user_message: { type: 'javascript', expr: 'flow_input.user_message' },
+			user_attachments: { type: 'javascript', expr: 'flow_input.user_attachments' }
+		}
+	} as AiAgent & { agent: string }
 	const flow: OpenFlow = {
 		summary: '',
 		value: {
-			...(chat ? { chat_input_enabled: true } : {}),
-			modules: [
-				{
-					id: 'a',
-					value: {
-						type: 'aiagent',
-						agent: path,
-						tools: [],
-						input_transforms: {
-							user_message: { type: 'javascript', expr: 'flow_input.user_message' },
-							user_attachments: { type: 'javascript', expr: 'flow_input.user_attachments' }
-						}
-					} as AiAgent
-				}
-			]
+			...(keepsManagedMemory(opts.config.memory) ? { chat_input_enabled: true } : {}),
+			modules: [{ id: 'a', value: opts.inline ? inlineAgentDraft(linked, opts.config) : linked }]
 		},
 		schema: AGENT_CHAT_SCHEMA
 	}
 	// The new flow editor's fork handoff, which seeds the flow and its path. A full load: on a
-	// client-side one the agent page's own URL hash would be read as the flow to seed instead.
+	// client-side one the editor reads the current page's URL hash as the flow to seed instead.
 	try {
-		localStorage.setItem('fork_flow', JSON.stringify({ flow, path }))
+		localStorage.setItem('fork_flow', JSON.stringify({ flow, path: opts.path }))
+		await opts.beforeOpen?.()
 	} catch (err) {
+		localStorage.removeItem('fork_flow')
 		sendUserToast(`Could not open the flow editor: ${err}`, true)
 		return
 	}
@@ -110,21 +105,7 @@ export function agentMenuItems(agent: {
 									action: () => goto(`/audit_logs?resource=${agent.path}`)
 								}
 							]),
-					{ displayName: 'Copy path', icon: Copy, action: () => copyToClipboard(agent.path) },
-					...(agent.operator
-						? []
-						: [
-								{
-									displayName: 'Use in a flow',
-									description: 'A new flow at the same path, with this agent as its step',
-									icon: BarsStaggered,
-									iconProps: { style: 'fill: currentColor;' },
-									action: () => {
-										const workspace = get(workspaceStore)
-										if (workspace) useAgentInFlow(workspace, agent.path)
-									}
-								}
-							])
+					{ displayName: 'Copy path', icon: Copy, action: () => copyToClipboard(agent.path) }
 				]),
 		{
 			displayName: 'Permissions',

@@ -152,6 +152,33 @@ const chat = useWindmillChat({ flowPath: 'f/support/assistant' })
 
 `@windmill-labs/chat-sdk/ai-sdk` gives a `ChatTransport` for the Vercel AI SDK's `useChat`, `@windmill-labs/chat-sdk/assistant-ui` a runtime for assistant-ui. The flow must be deployed, not a draft. A sandboxed app needs `jobs:run` in its frontend SDK scopes, plus `flow_conversations:write` for the conversation sidebar; without them the chat keeps history in the browser.
 
+A saved AI agent (an `ai_agent` resource with managed memory) is a chat backend too, without a flow. Its conversations are filed under `<agent path>.chat`, and each turn runs the agent itself, with the conversation id as its memory:
+
+```tsx
+import { detectRawApp } from '@windmill-labs/chat-sdk'
+import { useWindmillChat } from '@windmill-labs/chat-sdk/react'
+
+const AGENT = 'f/support/triage'
+const app = detectRawApp()!
+
+const chat = useWindmillChat({
+  flowPath: `${AGENT}.chat`,
+  run: async (args, { conversationId, signal }) => {
+    const res = await fetch(`${app.baseUrl}/api/w/${app.workspace}/jobs/run/agent/${AGENT}?memory_id=${conversationId}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json', ...(app.token ? { Authorization: `Bearer ${app.token}` } : {}) },
+      body: JSON.stringify(args),
+      signal
+    })
+    if (!res.ok) throw new Error(await res.text())
+    return (await res.text()).trim() // the job id
+  }
+})
+```
+
+Viewers need permission to read the agent. The same scopes apply to a sandboxed app.
+
 ## Backend runnables
 
 Each runnable has a unique key (used to call it from the frontend) and one of four types:

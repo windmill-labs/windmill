@@ -25,6 +25,9 @@
 		showAgentEditorView
 	} from '../agentEditorStore.svelte'
 	import { agentConfigToInputTransforms } from '../agentResourceUtils'
+	import { openAgentInFlow } from '../agentActions'
+	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
+	import { userStore } from '$lib/stores'
 	import { publishLinkedAgentTools } from '../flowState'
 	import { linkedModulesForAgent, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
 	import AgentEditorHost from './AgentEditorHost.svelte'
@@ -265,20 +268,67 @@
 
 	let deployingFor = $state<WriteTarget | undefined>(undefined)
 
-	async function onDeploy() {
+	async function onDeploy(): Promise<boolean> {
 		saving = true
 		deployingFor = currentWriteTarget()
 		try {
-			await host?.deploy()
+			return (await host?.deploy()) ?? false
 		} finally {
 			saving = false
 			deployingFor = undefined
 		}
 	}
 
+	/** The path the last deploy wrote. */
+	let lastSavedPath: string | undefined = undefined
+
+	// Only where the agent stands alone: opened from a flow's step, it is already in one.
+	let offerFlow = $derived(
+		target?.host === undefined &&
+			draft?.state != undefined &&
+			!draft.loading &&
+			!readOnly &&
+			!refused &&
+			!$userStore?.operator
+	)
+	let openingFlow = $state(false)
+
+	async function useInFlow() {
+		const state = draft?.state
+		const at = target
+		const workspace = ws
+		if (!draft || !state || !at || !workspace) return
+		openingFlow = true
+		try {
+			if (draft.noDeployed) {
+				// Never a workspace item: it becomes the flow's step, and its draft goes. A path still
+				// the minted one names nothing, so the flow takes a friendly name of its own.
+				await openAgentInFlow({
+					path: state.path === at.path ? '' : state.path,
+					config: state.args,
+					inline: true,
+					beforeOpen: () => ResourceService.deleteResource({ workspace, path: at.path })
+				})
+				return
+			}
+			// The flow links the deployed agent, so it has to run what is shown here.
+			const config = state.args
+			let path = at.path
+			if (draft.sync.hasDraft) {
+				lastSavedPath = undefined
+				if (!(await onDeploy()) || !lastSavedPath) return
+				path = lastSavedPath
+			}
+			await openAgentInFlow({ path, config, inline: false })
+		} finally {
+			openingFlow = false
+		}
+	}
+
 	/** What a successful deploy has to reconcile. `savedPath` is the path it wrote, which a rename
 	 *  moves off the one the editor opened. */
 	async function onSaved(savedPath: string) {
+		lastSavedPath = savedPath
 		const at = deployingFor ?? currentWriteTarget()
 		// Before the rename is announced: it finds the steps to refresh under the old path.
 		const reconciled = reconcile(at, savedPath)
@@ -583,7 +633,38 @@
 			onSelectTool={(id) => showAgentEditorTool(id)}
 			{onSaved}
 			isNew={target?.isNew}
+			configFooter={offerFlow ? flowFooter : undefined}
 		/>
+	{/snippet}
+
+	{#snippet flowFooter()}
+		<div
+			class="mx-4 mb-8 flex flex-wrap items-center justify-between gap-3 rounded-md border border-border-light p-3"
+		>
+			<div class="flex min-w-0 flex-col gap-0.5 text-xs">
+				<span class="font-medium text-emphasis">
+					Need steps before or after the agent, approvals or triggers?
+				</span>
+				<span class="text-secondary">
+					{#if draft?.noDeployed}
+						It becomes the step of a new flow, and this draft is discarded.
+					{:else if draft?.sync.hasDraft}
+						Your changes are deployed, then a new flow links this agent.
+					{:else}
+						A new flow links this agent, which stays configured here.
+					{/if}
+				</span>
+			</div>
+			<Button
+				unifiedSize="sm"
+				variant="default"
+				startIcon={{ icon: BarsStaggered, props: { style: 'fill: currentColor;' } }}
+				loading={openingFlow}
+				onClick={useInFlow}
+			>
+				{draft?.sync.hasDraft && !draft.noDeployed ? 'Deploy and use in a flow' : 'Use in a flow'}
+			</Button>
+		</div>
 	{/snippet}
 
 	{#snippet settingsFields()}
