@@ -55,21 +55,3 @@ SELECT workspace_id,
 FROM workspace_settings
 WHERE role_overrides ? 'operator'
 ON CONFLICT DO NOTHING;
-
--- Role capabilities are authorization decisions read through a per-process cache; every replica
--- has to drop its entry when a workspace changes them.
-CREATE OR REPLACE FUNCTION notify_role_overrides_change()
-RETURNS TRIGGER AS $$
-BEGIN
-    INSERT INTO notify_event (channel, payload)
-    VALUES ('notify_role_overrides_change', NEW.workspace_id);
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-DROP TRIGGER IF EXISTS role_overrides_change_trigger ON workspace_settings;
-CREATE TRIGGER role_overrides_change_trigger
-AFTER UPDATE OF role_overrides ON workspace_settings
-FOR EACH ROW
-WHEN (OLD.role_overrides IS DISTINCT FROM NEW.role_overrides)
-EXECUTE FUNCTION notify_role_overrides_change();

@@ -97,10 +97,10 @@ dozen menu entries that open it.
 
 These rights are now capabilities of a member's role (`docs/workspace-roles.md`), and the legacy
 operator settings write them as an override of the `operator` role. The roles cache is per process,
-so withdrawing a right has to reach every replica: an `AFTER UPDATE OF role_overrides` trigger
-writes a `notify_role_overrides_change` row and `process_notify_event` drops the entry. Keep both
-ends if you touch either, or a workspace that withdrew a right keeps authorizing writes on every
-other replica until its own entry expires.
+so withdrawing a right has to reach every replica: `write_role_overrides` calls
+`roles::notify_role_overrides_change` in its transaction and `process_notify_event` drops the
+entry. A new writer of `role_overrides` has to call it too, or a workspace that withdrew a right
+keeps authorizing writes on every other replica until its own entry expires.
 
 ## Granted unless withdrawn
 

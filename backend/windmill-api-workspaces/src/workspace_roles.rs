@@ -123,6 +123,7 @@ pub(crate) async fn write_role_overrides(
     )
     .execute(&mut *tx)
     .await?;
+    roles::notify_role_overrides_change(&mut tx, w_id).await?;
     if let Some(settings) = &operator_settings {
         sqlx::query!(
             "UPDATE workspace_settings

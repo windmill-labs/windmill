@@ -725,6 +725,23 @@ pub fn invalidate_workspace_roles_cache(workspace_id: &str) {
     WORKSPACE_ROLES.remove(workspace_id);
 }
 
+pub const ROLE_OVERRIDES_CHANGE_CHANNEL: &str = "notify_role_overrides_change";
+
+/// Tells every replica to drop its cached roles for the workspace. Call it in the transaction
+/// that writes `role_overrides`: a replica that missed it keeps authorizing whatever the workspace
+/// just withdrew until its entry expires.
+pub async fn notify_role_overrides_change(
+    conn: &mut sqlx::PgConnection,
+    workspace_id: &str,
+) -> Result<()> {
+    sqlx::query("INSERT INTO notify_event (channel, payload) VALUES ($1, $2)")
+        .bind(ROLE_OVERRIDES_CHANGE_CHANNEL)
+        .bind(workspace_id)
+        .execute(conn)
+        .await?;
+    Ok(())
+}
+
 pub fn invalidate_all_roles_cache() {
     INSTANCE_ROLES.clear();
     WORKSPACE_ROLES.clear();

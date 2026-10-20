@@ -117,6 +117,16 @@ async fn test_operator_builder_flows_boundary(db: Pool<Postgres>) -> anyhow::Res
         .send()
         .await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let notified: Vec<String> =
+        sqlx::query_scalar("SELECT payload FROM notify_event WHERE channel = $1")
+            .bind(windmill_common::roles::ROLE_OVERRIDES_CHANGE_CHANNEL)
+            .fetch_all(&db)
+            .await?;
+    assert_eq!(
+        notified,
+        vec![WS.to_string()],
+        "other replicas drop their cached roles only through this event"
+    );
 
     let resp = c
         .post(format!("{api}/flows/create"))

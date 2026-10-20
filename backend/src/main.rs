@@ -1681,7 +1681,9 @@ async fn process_notify_event(
             windmill_common::variables::CUSTOM_ENVS_CACHE.remove(payload);
         }
         // Written by the legacy operator settings mirror, always alongside a role override.
-        "notify_operator_settings_change" | "notify_role_overrides_change" => {
+        c if c == "notify_operator_settings_change"
+            || c == windmill_common::roles::ROLE_OVERRIDES_CHANGE_CHANNEL =>
+        {
             tracing::info!(
                 "Role overrides change detected, invalidating workspace roles cache: {}",
                 payload
