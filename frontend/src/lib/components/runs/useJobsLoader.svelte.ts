@@ -942,6 +942,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		perPage
 		showSchedules
 		showFutureJobs
+		includeFlowSteps
 		clearTimeout(paramChangeTimeout)
 		paramChangePromise?.cancel()
 		paramChangeTimeout = setTimeout(() => {

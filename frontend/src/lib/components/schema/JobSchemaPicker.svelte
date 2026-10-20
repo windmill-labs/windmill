@@ -1,6 +1,7 @@
 <script lang="ts">
 	import SchemaPickerRow from './SchemaPickerRow.svelte'
 	import { ExternalLink, Workflow } from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -60,14 +61,15 @@
 			{/if}
 			{#if job.parent_job}
 				<div class="center-center">
-					<a
+					<Button
+						variant="subtle"
+						unifiedSize="xs"
+						iconOnly
+						startIcon={{ icon: Workflow }}
 						target="_blank"
 						href="/run/{job.parent_job}?workspace={$operatingWorkspace}"
-						class="text-secondary px-1"
 						title="Ran as a flow step: see the parent flow run in a new tab"
-					>
-						<Workflow size={16} />
-					</a>
+					/>
 				</div>
 			{/if}
 			<div class="center-center">

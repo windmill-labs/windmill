@@ -165,3 +165,77 @@ async fn insert_singlestepflow(
     .await?;
     Ok(id)
 }
+
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_input_history_include_non_root(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let parent = uuid::Uuid::new_v4();
+    let root_run = insert_script_run(&db, None).await?;
+    let step_run = insert_script_run(&db, Some(parent)).await?;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!(
+        "http://localhost:{port}/api/w/test-workspace/inputs/history\
+         ?runnable_id=f/test/step&runnable_type=ScriptPath"
+    );
+
+    let history = |query: &'static str| {
+        let url = format!("{base}{query}");
+        async move {
+            let resp = authed(client().get(url)).send().await?;
+            let status = resp.status().as_u16();
+            let body = resp.text().await?;
+            assert_2xx(status, &body, "GET /inputs/history");
+            anyhow::Ok(serde_json::from_str::<Vec<serde_json::Value>>(&body)?)
+        }
+    };
+    let ids = |inputs: &[serde_json::Value]| {
+        inputs
+            .iter()
+            .filter_map(|i| i["id"].as_str().map(String::from))
+            .collect::<std::collections::HashSet<_>>()
+    };
+
+    let default = history("").await?;
+    assert_eq!(ids(&default), [root_run.to_string()].into());
+
+    let all = history("&include_non_root=true").await?;
+    assert_eq!(
+        ids(&all),
+        [root_run.to_string(), step_run.to_string()].into()
+    );
+    for input in &all {
+        let expected = (input["id"] == step_run.to_string()).then(|| parent.to_string());
+        assert_eq!(input["parent_job"].as_str().map(String::from), expected);
+    }
+
+    Ok(())
+}
+
+// Insert a completed script run at path f/test/step, as a flow step when `parent_job` is set.
+async fn insert_script_run(
+    db: &Pool<Postgres>,
+    parent_job: Option<uuid::Uuid>,
+) -> anyhow::Result<uuid::Uuid> {
+    let id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO v2_job (id, workspace_id, tag, created_by, permissioned_as, \
+         permissioned_as_email, kind, runnable_path, parent_job, same_worker, visible_to_owner) \
+         VALUES ($1, 'test-workspace', 'deno', 'test-user', 'u/test-user', \
+         'test@windmill.dev', 'script', 'f/test/step', $2, false, true)",
+    )
+    .bind(id)
+    .bind(parent_job)
+    .execute(db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO v2_job_completed (id, workspace_id, duration_ms, deleted, status) \
+         VALUES ($1, 'test-workspace', 1, false, 'success')",
+    )
+    .bind(id)
+    .execute(db)
+    .await?;
+    Ok(id)
+}
