@@ -50,6 +50,7 @@
 	import ToolGroupDisplay from './ToolGroupDisplay.svelte'
 	import { chatItemKey, groupToolRuns } from './toolGroups'
 	import AIChatInput from './AIChatInput.svelte'
+	import { STARTER_PLACEHOLDER, type ComposerSelection } from './composerBox'
 	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import QueuedMessageChip from './QueuedMessageChip.svelte'
 	import JobsSegment from './JobsSegment.svelte'
@@ -76,7 +77,6 @@
 	import { smoothHeight } from './starter/smoothHeight'
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
-	const STARTER_PLACEHOLDER = 'Ask about this workspace, or describe what to build…'
 	const chatHost = getChatViewHost()
 	// The skill and MCP menus take an AIChatManager itself, which the seam deliberately
 	// doesn't carry. They render only under GLOBAL, which a non-copilot host never sets.
@@ -308,8 +308,8 @@
 		chatHost.sendRequest({ instructions: suggestion })
 	}
 
-	export function focusInput() {
-		aiChatInput?.focusInput()
+	export function focusInput(selection?: ComposerSelection) {
+		aiChatInput?.focusInput(selection)
 	}
 
 	/** Mention a workspace item in the draft, as "+" → Mention file does, and hand the user

@@ -13,7 +13,12 @@
 	import { AIMode } from './AIChatManager.svelte'
 	import { CHAT_INPUT_PADDING, getAiChatManager } from './aiChatManagerContext'
 	import { getChatViewHost } from './chatViewHost'
-	import { composerBoxClass, COMPOSER_FIELD_RESET } from './composerBox'
+	import {
+		composerBoxClass,
+		COMPOSER_FIELD_RESET,
+		globalComposerSuggestion,
+		type ComposerSelection
+	} from './composerBox'
 
 	// The send button sits in the toolbar row, not over the field, so the text needs no
 	// room reserved on its right, and the row right below it stands in for most of its
@@ -156,44 +161,12 @@
 	const oneLine = $derived(hero && collapsed)
 	const toolbarInBox = $derived(!!toolbar && hero)
 
-	// GLOBAL-mode suggestion pool. We pick one at mount-time so each new
-	// session lands on a different prompt; the choice stays stable for
-	// the lifetime of this input so the placeholder doesn't shuffle as
-	// the user is reading it.
-	const GLOBAL_PLACEHOLDER_SUGGESTIONS = [
-		'Write a hello-world flow',
-		'Create a script that lists files in an S3 bucket',
-		'Build a CRUD app for a customer table',
-		'Schedule a daily cleanup of old runs',
-		'Wrap an existing script into a flow with retries',
-		'Add an HTTP trigger to an existing script',
-		'Generate a report from a SQL query and email it',
-		'Create a Postgres resource and a script that queries it',
-		'Refactor a script to add error handling',
-		'List my workspace flows and scripts'
-	]
-	// An operator authors nothing, so nothing above is theirs to ask for; one with the
-	// workspace's builder right can compose flows out of deployed scripts as well.
-	const OPERATOR_PLACEHOLDER_SUGGESTIONS = [
-		'List my workspace flows and scripts',
-		'Show the runs that failed today and why',
-		'Find the script that sends a report and run it',
-		'Rerun the last failed run of a flow'
-	]
-	const BUILDER_PLACEHOLDER_SUGGESTIONS = [
-		...OPERATOR_PLACEHOLDER_SUGGESTIONS,
-		'Compose a flow that chains two deployed scripts'
-	]
+	// Picked at mount-time so each new session lands on a different prompt.
 	const permissions = useSessionPermissions(() => chatHost.operatingWorkspace)
 	const suggestionPick = Math.random()
-	const globalSuggestion = $derived.by(() => {
-		const pool = permissions.canOpenEditor('script')
-			? GLOBAL_PLACEHOLDER_SUGGESTIONS
-			: permissions.canOpenEditor('flow')
-				? BUILDER_PLACEHOLDER_SUGGESTIONS
-				: OPERATOR_PLACEHOLDER_SUGGESTIONS
-		return pool[Math.floor(suggestionPick * pool.length)]
-	})
+	const globalSuggestion = $derived(
+		globalComposerSuggestion(suggestionPick, permissions.canOpenEditor)
+	)
 
 	// Generate mode-specific placeholder
 	const modePlaceholder = $derived.by(() => {
@@ -706,11 +679,14 @@
 		return draft.isEmpty
 	}
 
-	export function focusInput() {
+	export function focusInput(selection?: ComposerSelection) {
 		if (isContextEnabledMode) {
-			contextTextareaComponent?.focus()
+			contextTextareaComponent?.focus(selection)
 		} else {
 			instructionsTextareaComponent?.focus()
+			if (selection) {
+				instructionsTextareaComponent?.setSelectionRange(selection.start, selection.end)
+			}
 		}
 	}
 

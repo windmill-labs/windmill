@@ -1,5 +1,10 @@
 <script lang="ts">
-	import { composerBoxClass, COMPOSER_FIELD_RESET, HERO_BOX_CLASS } from './composerBox'
+	import {
+		composerBoxClass,
+		COMPOSER_FIELD_RESET,
+		HERO_BOX_CLASS,
+		type ComposerSelection
+	} from './composerBox'
 	import { smoothHeight } from './starter/smoothHeight'
 	import { MessagesSquare } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
@@ -775,8 +780,11 @@
 		prevMentionedTitles = cur
 	})
 
-	export function focus() {
+	export function focus(selection?: ComposerSelection) {
 		textarea?.focus()
+		if (selection) {
+			textarea?.setSelectionRange(selection.start, selection.end)
+		}
 	}
 
 	// Wipe after dispatching a send: pre-zero `prevMentionedTitles` so the effect

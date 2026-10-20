@@ -373,42 +373,42 @@ async fn get_variable(
         explain_variable_perm_error(&path, &w_id, &db, Some(&authed)).await?;
         unreachable!()
     } else {
+        drop(tx);
         explain_variable_perm_error(&path, &w_id, &db, Some(&authed)).await?;
         unreachable!()
     };
 
     let decrypt_secret = q.decrypt_secret.unwrap_or(true);
 
-    let r = if variable.is_secret {
-        if decrypt_secret {
-            audit_log(
-                &mut *tx,
-                &authed,
-                "variables.decrypt_secret",
-                ActionKind::Execute,
-                &w_id,
-                Some(&variable.path),
-                None,
-            )
-            .await?;
-        }
+    if variable.is_secret && decrypt_secret {
+        audit_log(
+            &mut *tx,
+            &authed,
+            "variables.decrypt_secret",
+            ActionKind::Execute,
+            &w_id,
+            Some(&variable.path),
+            None,
+        )
+        .await?;
+    }
+    // Everything below reads the pool: holding this connection meanwhile would make each
+    // concurrent request wait on a second one.
+    tx.commit().await?;
 
+    let r = if variable.is_secret {
         let value = variable.value.unwrap_or_else(|| "".to_string());
         ListableVariable {
             value: if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
                 #[cfg(feature = "oauth2")]
                 {
-                    let refresh_tx = db
-                        .begin()
-                        .await
-                        .map_err(|e| Error::InternalErr(e.to_string()))?;
                     Some(
                         crate::oauth_refresh_oss::_refresh_token(
-                            refresh_tx,
                             &variable.path,
                             &w_id,
                             variable.account.unwrap(),
                             &db,
+                            false,
                         )
                         .await?,
                     )
@@ -416,7 +416,6 @@ async fn get_variable(
                 #[cfg(not(feature = "oauth2"))]
                 return Err(Error::internal_err("Require oauth2 feature".to_string()));
             } else if !value.is_empty() && decrypt_secret {
-                let _ = tx.commit().await;
                 // Use secret backend for decryption (supports both DB and Vault)
                 Some(get_secret_value(&db, &w_id, &variable.path, &value).await?)
             } else if q.include_encrypted.unwrap_or(false) {
@@ -1543,17 +1542,12 @@ pub async fn get_value_internal<'a>(
         if variable.is_expired.unwrap_or(false) && variable.account.is_some() {
             #[cfg(feature = "oauth2")]
             {
-                let db = db_with_opt_authed.db();
-                let refresh_tx = db
-                    .begin()
-                    .await
-                    .map_err(|e| Error::InternalErr(e.to_string()))?;
                 crate::oauth_refresh_oss::_refresh_token(
-                    refresh_tx,
                     &variable.path,
                     &w_id,
                     variable.account.unwrap(),
-                    db,
+                    db_with_opt_authed.db(),
+                    false,
                 )
                 .await?
             }
