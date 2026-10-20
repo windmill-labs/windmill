@@ -59,7 +59,7 @@ pub(crate) fn approval_tool(timeout_secs: u32, existing: &[ToolDef]) -> Tool {
                 name: find_unique_tool_name("request_approval", Some(existing)),
                 description: Some(
                     "Ask a person to approve or reject something before you do it. This run stops \
-                     until someone answers from the flow's run page or the request times out, then \
+                     until someone answers from the flow's run page or chat, or the request times out, then \
                      resumes with the answer as this tool's result: whether it was approved, by \
                      whom, and any comment. Do not call it alongside other tools you depend on in \
                      the same turn."

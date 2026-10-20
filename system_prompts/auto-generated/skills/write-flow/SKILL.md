@@ -156,7 +156,7 @@ value:
 An `aiagent` module runs an LLM that can call tools. Each entry of `value.tools` is a module-shaped
 object with an extra `value.tool_type`: `flowmodule` for a script/flow tool, `mcp` for an MCP server
 tool, `websearch` for web search, `approval` for a built-in `request_approval` tool (the agent stops,
-without holding a worker, until someone approves or rejects from the run page; optional
+without holding a worker, until someone approves or rejects from the run page or the chat; optional
 `value.timeout` in seconds, default 1800).
 
 ```json

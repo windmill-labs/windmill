@@ -17,7 +17,7 @@
 	<div class="flex flex-col gap-6 overflow-auto p-4" style="scrollbar-gutter: stable">
 		<Alert title="The agent asks before it acts" type="info">
 			The agent can call <code>request_approval</code> with a message. The run stops without holding
-			a worker until someone approves or rejects it from the run page, then the agent continues with
+			a worker until someone approves or rejects it from the run page or the chat, then the agent continues with
 			the answer and any comment.
 		</Alert>
 		<Label

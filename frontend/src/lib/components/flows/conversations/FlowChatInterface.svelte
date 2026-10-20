@@ -22,6 +22,7 @@
 	} from './agentAttachmentInput'
 	import { deepEqual } from 'fast-equals'
 	import FlowChatModelSettings from './FlowChatModelSettings.svelte'
+	import FlowChatApproval from './FlowChatApproval.svelte'
 	import {
 		agentModelGap,
 		chatLinkedAgentPaths,
@@ -248,6 +249,16 @@
 		})
 	})
 
+	// Only a turn whose agent called the approval tool reads its flow's status. The built-in tool
+	// is `request_approval`, suffixed when a flow tool already holds that name.
+	const approvalJobId = $derived.by(() => {
+		const { runningJobId, messages } = chatHost.state
+		const asked = messages.some(
+			(m) => m.pending && m.tool?.status === 'running' && m.tool.name.startsWith('request_approval')
+		)
+		return asked ? runningJobId : undefined
+	})
+
 	// Older pages load when the reader reaches the top; the viewport stays where it was.
 	let scrollElement = $state<HTMLDivElement | undefined>(undefined)
 	let loadingOlder = false
@@ -296,6 +307,14 @@
 			{/if}
 		{/if}
 	</div>
+{/snippet}
+
+{#snippet approvalPreface()}
+	{#if approvalJobId && workspace}
+		{#key approvalJobId}
+			<FlowChatApproval {workspace} jobId={approvalJobId} />
+		{/key}
+	{/if}
 {/snippet}
 
 {#snippet footerSettings()}
@@ -351,6 +370,7 @@
 		hideModeSelector
 		{wideLayout}
 		{emptyHint}
+		inputPreface={approvalPreface}
 		footerSettings={modalSchema || showModelButton || extraSettings ? footerSettings : undefined}
 		placeholder="Send a message to run the {subject}"
 		disabled={deploymentInProgress || !!modelGap || !!wrongKindReason}

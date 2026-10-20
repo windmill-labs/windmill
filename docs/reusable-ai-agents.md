@@ -170,7 +170,9 @@ The built-in `approval` tool type parks the agent rather than run anything: the 
 - **Answer.** `resume_suspended` with the agent job's id already treats a self-suspended job like a
   WAC approval: it inserts the `resume_job` row and decrements, or zeroes on a rejection, the
   agent's own `suspend`. The run page offers Approve/Reject from the pending `approval` agent
-  action, and sends that request's `call_id` in the payload. There are no signed resume URLs, Slack or Teams messages, approval page or approver
+  action, and so does a chat flow's chat, above the composer while the turn's top-level agent step
+  waits (it reads the turn's flow job only once the stream shows a `request_approval*` call). Both
+  send that request's `call_id` in the payload. There are no signed resume URLs, Slack or Teams messages, approval page or approver
   conditions for it: whoever can answer a suspended step without conditions can answer it.
 - **Resume.** The suspended pull takes the row back and `run_agent` finds the checkpoint. In one
   transaction it zeroes `suspend`, so `resume_suspended` refuses answers while the agent runs, and
@@ -185,8 +187,8 @@ The built-in `approval` tool type parks the agent rather than run anything: the 
   foreign key, since one would lock `v2_job_queue` on every write.
 - **Limits.** A nested agent tool is never offered the tool: it writes no flow status, and its
   parent holds a worker while it runs. The banner at the top of the run page shows only a request
-  from a top-level step; one from a step inside a loop or branch is answered from its graph node.
-  The chat transcript of a chat flow records neither the request nor its answer.
+  from a top-level step, as does the chat; one from a step inside a loop or branch is answered from
+  its graph node. The chat transcript of a chat flow records neither the request nor its answer.
 
 ## Drafts
 

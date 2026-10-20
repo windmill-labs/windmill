@@ -1,3 +1,20 @@
+<script lang="ts" module>
+	import type { Job } from '$lib/gen'
+
+	/** The approval a flow's current agent step is parked on: the step stays in progress while
+	 *  its own job waits. */
+	export function pendingAgentApproval(job: Job | undefined) {
+		const mod = job?.flow_status?.modules?.[job?.flow_status?.step]
+		const actions = mod?.agent_actions
+		if (mod?.type !== 'InProgress' || !mod.job || !actions?.length) return undefined
+		const last = actions[actions.length - 1]
+		if (last.type !== 'approval' || mod.agent_actions_success?.[actions.length - 1] !== undefined) {
+			return undefined
+		}
+		return { agentJobId: mod.job, action: last }
+	}
+</script>
+
 <script lang="ts">
 	import { JobService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
