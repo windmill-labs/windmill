@@ -17,6 +17,7 @@
 	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import { copilotInfo } from '$lib/aiStore'
 	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { openEditorInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { mintDraftPath } from '$lib/mintDraftPath'
 	import { sendUserToast } from '$lib/toast'
@@ -97,7 +98,12 @@
 
 	// Built in an AI session, as a new app from home is: the raw-app guidance knows how to chat with
 	// a saved agent, so the prompt only names it.
-	let canBuildApp = $derived($copilotInfo.enabled && prefersSessionHandoff($userStore?.operator))
+	const editRights = useEditRights(() => workspace)
+	let canBuildApp = $derived(
+		$copilotInfo.enabled &&
+			prefersSessionHandoff($userStore?.operator) &&
+			editRights.roleCanAuthor('raw_app')
+	)
 	function buildApp() {
 		openEditorInSession(
 			{ kind: 'raw_app', path: mintDraftPath() },
