@@ -54,14 +54,14 @@
 		actions.forEach((action, index) => {
 			const entry = tally.get(action.type) ?? { count: 0, pending: 0 }
 			entry.count++
-			// A missing entry in the parallel success array means the action is still running.
+			// A missing or null entry in the parallel success array means the action is still running.
 			const success = agentState?.agent_actions_success?.[index]
-			if (success === undefined) entry.pending++
+			if (success == null) entry.pending++
 			else if (!success) failed++
 			tally.set(action.type, entry)
 			if (action.type !== 'message') {
 				calls++
-				if (success === undefined) pending++
+				if (success == null) pending++
 			}
 		})
 		const detail: string[] = []

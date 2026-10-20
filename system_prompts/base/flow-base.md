@@ -70,7 +70,10 @@ An `aiagent` module runs an LLM that can call tools. Each entry of `value.tools`
 object with an extra `value.tool_type`: `flowmodule` for a script/flow tool, `mcp` for an MCP server
 tool, `websearch` for web search, `approval` for a built-in `request_approval` tool (the agent stops,
 without holding a worker, until someone approves or rejects from the run page or the chat; optional
-`value.timeout` in seconds, default 1800).
+`value.timeout` in seconds, default 1800). Set `background: true` on a `flowmodule` tool that runs
+long: the agent is answered as soon as its job starts and keeps working, and gets the result in a
+later message, waiting for it without holding a worker if it finishes its answer first. Prefer it to
+having the agent start jobs through a script or `runScriptByPath`, whose results it cannot wait on.
 
 ```json
 {

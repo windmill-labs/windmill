@@ -4478,6 +4478,17 @@ pub async fn monitor_db(
         }
     };
 
+    // Every pass: a parked AI agent waits on this for its background tool jobs.
+    let wake_ai_agents_f = async {
+        if server_mode && !initial_load {
+            if let Some(db) = conn.as_sql() {
+                if let Err(e) = wake_ai_agents_with_finished_background_jobs(&db).await {
+                    tracing::error!("Error waking AI agents on background jobs: {:?}", e);
+                }
+            }
+        }
+    };
+
     // run every 30 iterations (~5min at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
     let stranded_jobs_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(30) {
@@ -4631,6 +4642,7 @@ pub async fn monitor_db(
         pipeline_freshness_watchdog_f,
         reconcile_unarmed_schedules_f,
         stranded_jobs_f,
+        wake_ai_agents_f,
     );
 }
 
@@ -7716,6 +7728,26 @@ async fn cleanup_job_result_stream_orphaned_jobs(db: &DB) -> error::Result<()> {
     if total > 0 {
         tracing::info!("Cleaned up {total} orphaned job_result_stream_v2 rows");
         vacuum_after_sweep(db, "job_result_stream_v2").await;
+    }
+    Ok(())
+}
+
+/// Zero the `suspend` of each parked AI agent with a completed job in its `waiting_on`, so the
+/// suspended pull takes it back. Each job is listed by one park only, and an agent no longer
+/// parked (`suspend_until` cleared by its pull) is left alone.
+async fn wake_ai_agents_with_finished_background_jobs(db: &DB) -> error::Result<()> {
+    let woken = sqlx::query(
+        "UPDATE v2_job_queue q SET suspend = 0
+         FROM ai_agent_checkpoint c
+         WHERE c.waiting_on <> '{}' AND q.id = c.job_id
+           AND q.suspend > 0 AND q.suspend_until IS NOT NULL
+           AND EXISTS (SELECT 1 FROM v2_job_completed jc WHERE jc.id = ANY(c.waiting_on))",
+    )
+    .execute(db)
+    .await?
+    .rows_affected();
+    if woken > 0 {
+        tracing::info!("Woke {woken} AI agents whose background tool jobs finished");
     }
     Ok(())
 }
