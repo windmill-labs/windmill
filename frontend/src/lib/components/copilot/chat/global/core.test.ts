@@ -2381,6 +2381,29 @@ describe('global AI tools', () => {
 	// the same rows and the same values as the flow editor's own step test. A setting the step
 	// leaves alone is not offered at all, so a mounted widget cannot invent a value for it: an
 	// `enabled_tools` the form synthesized empty would advertise none of the agent's tools.
+	it('test_run_step refuses a linked agent whose unsaved edit is in conflict', async () => {
+		await quickjsReady()
+		stubRun({
+			runnable_kind: 'flow',
+			module: { id: 'ask', value: { type: 'aiagent', agent: '$res:f/agents/support', tools: [] } }
+		})
+		const conflictSpy = vi
+			.spyOn(UserDraftDbSyncer, 'getConflict')
+			.mockReturnValue({ conflict: { serverTimestamp: '2026', localLastSync: null } } as any)
+
+		const raw = await withCompletedTestJob(() =>
+			callGlobalTool('test_run_step', {
+				path: 'f/flows/agent-step',
+				stepId: 'ask',
+				args: {}
+			}).catch((e) => String(e))
+		)
+
+		expect(raw).toMatch(/f\/agents\/support .*edited elsewhere/)
+		expect(startedRun()).toBeUndefined()
+		conflictSpy.mockRestore()
+	})
+
 	it("test_run_step opens an aiagent step on the step's own configuration", async () => {
 		// Loaded outside the fake timers the run waits under, which its loader never sees fire.
 		await quickjsReady()

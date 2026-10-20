@@ -32,6 +32,7 @@ import type {
 } from '$lib/gen/types.gen'
 import { loadSchemaFromModule, memoryPropertyFor } from '$lib/components/flows/flowInfers'
 import { linkedAgentStepSchema } from '$lib/components/flows/agentResourceUtils'
+import { fetchAgentWithDraft, linkedAgentPaths } from '$lib/components/flows/linkedAgentDrafts'
 import { AGENT_FIELDS, initialVisibleAgentFields } from '$lib/components/flows/agentFormFields'
 import { resolveLinkedAgentTools } from '$lib/components/flows/flowState'
 import { enabledToolNames, type AgentTool } from '$lib/components/flows/agentToolUtils'
@@ -5512,8 +5513,21 @@ async function testRunFlowStepByPath(
 			autoAcceptable: true,
 			background: args.background,
 			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
-			startJob: (submitted) =>
-				startPreparedRun('test_run_step', ctx, prepared.target, submitted, agentForm?.schema.order)
+			startJob: async (submitted) => {
+				// The server merges each linked agent's stored draft into the step; an edit still
+				// parked in the browser, or one that failed to save, would leave it running the
+				// older configuration.
+				for (const path of linkedAgentPaths({ modules: [module] } as FlowValue)) {
+					await fetchAgentWithDraft(path, workspace)
+				}
+				return startPreparedRun(
+					'test_run_step',
+					ctx,
+					prepared.target,
+					submitted,
+					agentForm?.schema.order
+				)
+			}
 		},
 		ctx
 	)
