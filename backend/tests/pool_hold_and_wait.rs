@@ -119,7 +119,9 @@ async fn schedule_handlers_run_on_one_connection(db: Pool<Postgres>) -> anyhow::
     .execute(&db)
     .await?;
 
-    // The previous occurrence failed, so this successful one is a recovery.
+    // The previous occurrence failed, so this successful one is a recovery. The handlers run
+    // once the completion has committed, when the next tick may already have completed: a
+    // later occurrence must not count as history, or its success would hide the recovery.
     let insert_job =
         "INSERT INTO v2_job (id, workspace_id, created_by, created_at, permissioned_as,
             permissioned_as_email, kind, runnable_id, runnable_path, script_lang, tag,
@@ -127,21 +129,24 @@ async fn schedule_handlers_run_on_one_connection(db: Pool<Postgres>) -> anyhow::
          VALUES ($1, 'test-workspace', 'test-user', now() - $2 * interval '1 minute', 'u/test-user',
             'test@windmill.dev', 'script', 12349, 'f/system/failing_script', 'bun', 'bun', true,
             $3, 'schedule')";
-    let failed = uuid::Uuid::new_v4();
-    sqlx::query(insert_job)
-        .bind(failed)
-        .bind(1.0)
-        .bind(SCHEDULE)
+    for (minutes_ago, status) in [(1.0, "failure"), (-1.0, "success")] {
+        let id = uuid::Uuid::new_v4();
+        sqlx::query(insert_job)
+            .bind(id)
+            .bind(minutes_ago)
+            .bind(SCHEDULE)
+            .execute(&db)
+            .await?;
+        sqlx::query(
+            "INSERT INTO v2_job_completed (id, workspace_id, duration_ms, result, started_at,
+                completed_at, status)
+             VALUES ($1, 'test-workspace', 1, '{}', now(), now(), $2::job_status)",
+        )
+        .bind(id)
+        .bind(status)
         .execute(&db)
         .await?;
-    sqlx::query(
-        "INSERT INTO v2_job_completed (id, workspace_id, duration_ms, result, started_at,
-            completed_at, status)
-         VALUES ($1, 'test-workspace', 1, '{\"error\": \"Failed\"}', now(), now(), 'failure')",
-    )
-    .bind(failed)
-    .execute(&db)
-    .await?;
+    }
 
     let running = uuid::Uuid::new_v4();
     sqlx::query(insert_job)
