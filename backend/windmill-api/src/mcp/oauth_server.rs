@@ -399,9 +399,9 @@ pub async fn oauth_token(
     let res = if req.grant_type == "authorization_code" {
         handle_authorization_code_grant(&mut tx, &req).await
     } else {
-        handle_refresh_token_grant(&db, &mut tx, &req).await
+        handle_refresh_token_grant(&mut tx, &req).await
     };
-    // Committed even on error: a failed exchange still consumes its code or refresh token.
+    // Committed on error too, so a rejected exchange still consumes its code or refresh token.
     let committed = tx.commit().await;
     match (res, committed) {
         (Ok(res), Ok(())) => Ok(res),
@@ -538,7 +538,6 @@ async fn handle_authorization_code_grant(
 
 /// Handle refresh_token grant type with token rotation and theft detection
 async fn handle_refresh_token_grant(
-    db: &DB,
     tx: &mut sqlx::PgConnection,
     req: &TokenRequest,
 ) -> std::result::Result<Json<TokenResponse>, OAuthTokenError> {
@@ -577,7 +576,7 @@ async fn handle_refresh_token_grant(
                  WHERE refresh_token = $1 AND used_at IS NOT NULL",
                 refresh_token_value
             )
-            .fetch_optional(db)
+            .fetch_optional(&mut *tx)
             .await
             {
                 tracing::warn!("Refresh token reuse detected, revoking family {:?}", family);
@@ -585,7 +584,7 @@ async fn handle_refresh_token_grant(
                     "UPDATE mcp_oauth_refresh_token SET revoked = TRUE WHERE token_family = $1",
                     family
                 )
-                .execute(db)
+                .execute(&mut *tx)
                 .await;
             }
             return Err(OAuthTokenError::invalid_grant("Invalid refresh token"));

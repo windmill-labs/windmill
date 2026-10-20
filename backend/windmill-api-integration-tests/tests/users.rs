@@ -1089,8 +1089,9 @@ async fn test_set_password_revokes_mcp_oauth_grants(db: Pool<Postgres>) -> anyho
         .json(&json!({"password": "new-test-password-123"}))
         .send(),
     );
+    let mut waiting = false;
     for _ in 0..100 {
-        let waiting: bool = sqlx::query_scalar(
+        waiting = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted)",
         )
         .fetch_one(&db)
@@ -1100,6 +1101,10 @@ async fn test_set_password_revokes_mcp_oauth_grants(db: Pool<Postgres>) -> anyho
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
+    assert!(
+        waiting,
+        "the password change never waited on the grant lock"
+    );
     sqlx::raw_sql(
         "INSERT INTO token (token_hash, token_prefix, email, label, expiration)
          VALUES (encode(sha256('MCP_ROTATED_TOKEN'::bytea), 'hex'), 'MCP_ROTATE', 'test2@windmill.dev',
