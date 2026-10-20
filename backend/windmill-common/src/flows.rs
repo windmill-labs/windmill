@@ -276,8 +276,36 @@ pub struct ComposedFlowRefs {
     pub runnables: Vec<(bool, String)>,
     /// Version-pinned script steps, as `(path, hash)`.
     pub pinned_scripts: Vec<(String, ScriptHash)>,
-    /// The `ai_agent` resource paths that agent steps link.
-    pub agents: Vec<String>,
+    /// The `ai_agent` resources that agent steps link.
+    pub agents: Vec<LinkedAgent>,
+}
+
+/// An agent step's link, with the ids of the agent's tools whose inputs the step overrides.
+pub struct LinkedAgent {
+    pub path: String,
+    pub bound_tools: Vec<String>,
+}
+
+/// The tools of a linked agent whose inputs a builder's step overrides, checked as the builder's
+/// own steps: binding a tool's inputs is composing its runnable, whoever wrote the agent.
+pub fn check_bound_agent_tools_are_composition_only(
+    agent: &str,
+    tools: &[AgentTool],
+    bound_tools: &[String],
+    refs: &mut ComposedFlowRefs,
+) -> Result<(), Error> {
+    for tool in tools.iter().filter(|t| bound_tools.contains(&t.id)) {
+        if let ToolValue::FlowModule(value) = &tool.value {
+            check_module_value_is_composition_only(value, &tool.id, refs).map_err(|_| {
+                Error::PermissionDenied(format!(
+                    "Tool {} of agent {agent} has code a builder may not compose, so a builder \
+                     cannot set its inputs. Leave them to the agent.",
+                    tool.id
+                ))
+            })?;
+        }
+    }
+    Ok(())
 }
 
 fn check_module_is_composition_only(
@@ -345,7 +373,7 @@ fn check_module_value_is_composition_only(
         FlowModuleValue::BranchAll { branches, .. } => {
             check_branches_are_composition_only(branches, id, refs)?
         }
-        FlowModuleValue::AIAgent { tools, tag, agent, .. } => {
+        FlowModuleValue::AIAgent { tools, tag, agent, tool_inputs, .. } => {
             // A linked agent's tools are resolved from its resource at run time, outside this
             // walk. That is safe only because an operator's every write of an agent passes this
             // same check (`validate_operator_agent`), as a developer's agent is code they wrote.
@@ -353,7 +381,10 @@ fn check_module_value_is_composition_only(
                 let path = agent
                     .trim_start_matches("$res:")
                     .trim_start_matches("res://");
-                refs.agents.push(path.to_string());
+                refs.agents.push(LinkedAgent {
+                    path: path.to_string(),
+                    bound_tools: tool_inputs.keys().cloned().collect(),
+                });
             }
             push_tag(tag);
             for tool in tools {
@@ -494,9 +525,10 @@ mod tests {
     fn composition_check_reports_linked_agents() {
         let refs = check_flow_is_composition_only(&flow(serde_json::json!({"modules": [{
             "id": "a", "value": {"type": "aiagent", "input_transforms": {}, "tools": [],
-                "agent": "$res:f/x/agent"}}]})))
+                "agent": "$res:f/x/agent", "tool_inputs": {"t": {}}}}]})))
         .unwrap();
-        assert_eq!(refs.agents, vec!["f/x/agent".to_string()]);
+        assert_eq!(refs.agents[0].path, "f/x/agent");
+        assert_eq!(refs.agents[0].bound_tools, vec!["t".to_string()]);
     }
 
     #[test]

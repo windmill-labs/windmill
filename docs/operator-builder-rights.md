@@ -38,7 +38,13 @@ permissions:
 - **every agent a step links**. A linked agent resolves its tools from its `ai_agent` resource at
   run time, outside this walk, so the link is allowed only to an agent the builder can read. That
   is safe because of the agent rule below: an agent's tools are either a developer's code or
-  passed this same check when an operator saved them.
+  passed this same check when an operator saved them. Two things keep it safe:
+  - The step's `tool_inputs` override the inputs the agent's author set on its tools, so each tool
+    a builder's step binds is loaded under the builder's permissions and checked as one of their
+    own steps.
+  - The worker refuses a linked path whose resource is no longer an `ai_agent`
+    (`get_agent_value`). Only writes of an agent are checked, so a path retyped, or recreated as
+    another type, after the link was approved would otherwise run whatever `tools` it now holds.
 
 - **the worker tags the steps pin**, or a builder routes a job onto a privileged worker group;
 - **every runnable a step references**. `script_to_payload` resolves a step's path with the root DB

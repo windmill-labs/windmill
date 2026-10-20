@@ -411,5 +411,28 @@ async fn check_builder_agents(
         "a builder must not link an agent it cannot read"
     );
 
+    // A developer's agent may run inline code, and linking it runs it as authored; binding the
+    // inputs of such a tool would override what its author fixed.
+    sqlx::query(
+        "INSERT INTO resource (workspace_id, path, value, resource_type, created_by)
+         VALUES ($1, 'u/operator/dev_agent', $2, 'ai_agent', 'alice')",
+    )
+    .bind(WS)
+    .bind(&inline)
+    .execute(db)
+    .await?;
+    let mut bound = linking("u/operator/agent_f3", "u/operator/dev_agent");
+    bound["value"]["modules"][0]["value"]["tool_inputs"] = json!({"t": {}});
+    let resp = c
+        .post(format!("{api}/flows/create"))
+        .json(&bound)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "a builder must not bind the inputs of an inline tool in a linked agent"
+    );
+
     Ok(())
 }

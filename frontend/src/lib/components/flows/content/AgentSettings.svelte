@@ -130,8 +130,11 @@
 				{/if}
 			</div>
 		</Section>
-		<Section label="Slack">
-			<AgentSlackSettings {draft} {path} {workspace} {nextRunAs} />
-		</Section>
+		<!-- Operators cannot share agents in Slack, builder rights or not (slack_agents.rs). -->
+		{#if !$userStore?.operator}
+			<Section label="Slack">
+				<AgentSlackSettings {draft} {path} {workspace} {nextRunAs} />
+			</Section>
+		{/if}
 	</div>
 {/if}
