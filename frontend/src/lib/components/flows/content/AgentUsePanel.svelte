@@ -19,6 +19,7 @@
 	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
 	import { openEditorInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { mintDraftPath } from '$lib/mintDraftPath'
+	import { sendUserToast } from '$lib/toast'
 	import {
 		curlExample,
 		fetchExample,
@@ -106,7 +107,7 @@
 				seedPrompt: `Build a chat app over the AI agent \`${agentPath}\`.`,
 				autoSend: true
 			}
-		)
+		).catch((err) => sendUserToast(`Could not start building the app: ${err}`, true))
 	}
 </script>
 

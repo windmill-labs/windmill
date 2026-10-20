@@ -159,14 +159,17 @@ import { detectRawApp } from '@windmill-labs/chat-sdk'
 import { useWindmillChat } from '@windmill-labs/chat-sdk/react'
 
 const AGENT = 'f/support/triage'
-const app = detectRawApp()!
 
 const chat = useWindmillChat({
   flowPath: `${AGENT}.chat`,
   run: async (args, { conversationId, signal }) => {
+    // The app's Windmill and credential, as the SDK finds them: the viewer's session, or a
+    // sandboxed app's token, sent without cookies since a sandbox has an opaque origin.
+    const app = detectRawApp()
+    if (!app) throw new Error('Not running inside a Windmill app')
     const res = await fetch(`${app.baseUrl}/api/w/${app.workspace}/jobs/run/agent/${AGENT}?memory_id=${conversationId}`, {
       method: 'POST',
-      credentials: 'include',
+      credentials: app.token ? 'omit' : 'same-origin',
       headers: { 'Content-Type': 'application/json', ...(app.token ? { Authorization: `Bearer ${app.token}` } : {}) },
       body: JSON.stringify(args),
       signal

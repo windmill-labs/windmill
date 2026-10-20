@@ -4,6 +4,7 @@ import { keepsManagedMemory } from './agentFormFields'
 import type { AIAgentConfig } from './agentResourceUtils'
 import { AGENT_CHAT_SCHEMA } from './conversations/agentEditorChat'
 import { inlineAgentDraft } from './linkedAgentDrafts'
+import { nextId } from './flowModuleNextId'
 import { sendUserToast } from '$lib/toast'
 import { copyToClipboard, type Item } from '$lib/utils'
 import { isDeployable } from '$lib/utils_deployable'
@@ -43,11 +44,14 @@ export async function openAgentInFlow(opts: {
 			user_attachments: { type: 'javascript', expr: 'flow_input.user_attachments' }
 		}
 	} as AiAgent & { agent: string }
+	const value = opts.inline ? inlineAgentDraft(linked, opts.config) : linked
+	// An inlined agent brings its tools' ids, which the step's own must not repeat.
+	const id = nextId({}, { summary: '', value: { modules: [{ id: '', value }] } })
 	const flow: OpenFlow = {
 		summary: '',
 		value: {
 			...(keepsManagedMemory(opts.config.memory) ? { chat_input_enabled: true } : {}),
-			modules: [{ id: 'a', value: opts.inline ? inlineAgentDraft(linked, opts.config) : linked }]
+			modules: [{ id, value }]
 		},
 		schema: AGENT_CHAT_SCHEMA
 	}

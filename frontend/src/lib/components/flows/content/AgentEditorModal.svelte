@@ -27,7 +27,7 @@
 	import { agentConfigToInputTransforms } from '../agentResourceUtils'
 	import { openAgentInFlow } from '../agentActions'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
-	import { userStore } from '$lib/stores'
+	import { useEditRights } from '$lib/operatorWriteRights'
 	import { publishLinkedAgentTools } from '../flowState'
 	import { linkedModulesForAgent, linkedToolsScope } from '../linkedAgentToolsStore.svelte'
 	import AgentEditorHost from './AgentEditorHost.svelte'
@@ -279,35 +279,37 @@
 		}
 	}
 
-	/** The path the last deploy wrote. */
-	let lastSavedPath: string | undefined = undefined
-
-	// Only where the agent stands alone: opened from a flow's step, it is already in one.
+	const editRights = useEditRights(() => ws)
+	// Only where the agent stands alone: opened from a flow's step, it is already in one. Linking
+	// a deployed agent as it is only reads it.
 	let offerFlow = $derived(
 		target?.host === undefined &&
 			draft?.state != undefined &&
 			!draft.loading &&
-			!readOnly &&
 			!refused &&
-			!$userStore?.operator
+			editRights.roleCanAuthor('flow') &&
+			(!readOnly || (!draft.noDeployed && !draft.sync.hasDraft))
 	)
 	let openingFlow = $state(false)
+	/** Set while a deploy is followed by the flow's page: the page loads next, so the deploy's own
+	 *  navigation would race it. Holds the path the deploy wrote. */
+	let handOff = $state<{ savedPath?: string } | undefined>(undefined)
 
 	async function useInFlow() {
 		const state = draft?.state
 		const at = target
-		const workspace = ws
-		if (!draft || !state || !at || !workspace) return
+		if (!draft || !state || !at) return
 		openingFlow = true
 		try {
 			if (draft.noDeployed) {
-				// Never a workspace item: it becomes the flow's step, and its draft goes. A path still
-				// the minted one names nothing, so the flow takes a friendly name of its own.
+				// Never a workspace item: it becomes the flow's step, and its draft goes. Through the
+				// sync, so an autosave still pending cannot write it back.
+				const sync = draft.sync
 				await openAgentInFlow({
-					path: state.path === at.path ? '' : state.path,
+					path: state.path,
 					config: state.args,
 					inline: true,
-					beforeOpen: () => ResourceService.deleteResource({ workspace, path: at.path })
+					beforeOpen: async () => sync.discard(at.path, undefined)
 				})
 				return
 			}
@@ -315,9 +317,13 @@
 			const config = state.args
 			let path = at.path
 			if (draft.sync.hasDraft) {
-				lastSavedPath = undefined
-				if (!(await onDeploy()) || !lastSavedPath) return
-				path = lastSavedPath
+				handOff = {}
+				try {
+					if (!(await onDeploy()) || !handOff.savedPath) return
+					path = handOff.savedPath
+				} finally {
+					handOff = undefined
+				}
 			}
 			await openAgentInFlow({ path, config, inline: false })
 		} finally {
@@ -328,7 +334,10 @@
 	/** What a successful deploy has to reconcile. `savedPath` is the path it wrote, which a rename
 	 *  moves off the one the editor opened. */
 	async function onSaved(savedPath: string) {
-		lastSavedPath = savedPath
+		if (handOff) {
+			handOff.savedPath = savedPath
+			return
+		}
 		const at = deployingFor ?? currentWriteTarget()
 		// Before the rename is announced: it finds the steps to refresh under the old path.
 		const reconciled = reconcile(at, savedPath)
