@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { WandSparkles } from 'lucide-svelte'
 	import Button from '../button/Button.svelte'
 	import {
 		homeComposerContext,
@@ -21,11 +20,11 @@
 	<Button
 		variant="subtle"
 		unifiedSize="sm"
-		btnClasses="!text-ai"
-		startIcon={{ icon: WandSparkles }}
-		title="Add to the chat above"
+		btnClasses="!text-ai font-medium"
+		title="Add to context"
+		aria-label="Add to context"
 		onClick={() => element && homeComposerContext.attach(element)}
 	>
-		Ask AI
+		+@
 	</Button>
 {/if}

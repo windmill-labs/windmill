@@ -1032,15 +1032,24 @@
 		value: 'all' | 'script' | 'flow' | 'app' | 'agent'
 		label: string
 		icon?: IconType
+		/** The kind's colour in the rows (`RowIcon`). */
+		iconClass?: string
 	}
 	const kindOptions: KindOption[] = [
 		{ value: 'all', label: 'All kinds' },
-		{ value: 'script', label: 'Scripts', icon: Code2 },
+		{ value: 'script', label: 'Scripts', icon: Code2, iconClass: 'text-blue-500' },
 		...(HOME_SEARCH_SHOW_FLOW
-			? [{ value: 'flow', label: 'Flows', icon: BarsStaggered } satisfies KindOption]
+			? [
+					{
+						value: 'flow',
+						label: 'Flows',
+						icon: BarsStaggered,
+						iconClass: 'text-teal-500'
+					} satisfies KindOption
+				]
 			: []),
-		{ value: 'app', label: 'Apps', icon: LayoutDashboard },
-		{ value: 'agent', label: 'Agents', icon: Bot }
+		{ value: 'app', label: 'Apps', icon: LayoutDashboard, iconClass: 'text-orange-500' },
+		{ value: 'agent', label: 'Agents', icon: Bot, iconClass: 'text-violet-500' }
 	]
 	function setItemKind(v: KindOption['value']) {
 		// itemKind is derived from the shared filter object (which URL-syncs itself); `all`
@@ -1056,6 +1065,7 @@
 		kindOptions.map((o) => ({
 			displayName: o.label,
 			icon: o.icon,
+			iconProps: o.iconClass ? { class: `shrink-0 ${o.iconClass}` } : undefined,
 			selected: itemKind === o.value,
 			action: () => setItemKind(o.value)
 		}))
@@ -1842,12 +1852,12 @@
 	class="{HOME_COLUMN_WIDTH} sm:px-8"
 	handleOverflow={false}
 >
-	<!-- The items section: its controls, its filters and its rows. No `overflow-hidden` on it:
-	     the page scrolls, and that would stop the controls sticking. -->
-	<div class="flex flex-col">
+	<!-- The items section, one card: its controls, its filters and its rows. No `overflow-hidden`
+	     on it: the page scrolls, and that would stop the controls sticking. -->
+	<div class="flex flex-col bg-surface-tertiary border border-border-light rounded-lg">
 		<div
 			bind:clientHeight={toolbarHeight}
-			class="sticky top-0 z-10 bg-surface flex flex-wrap gap-2 items-center justify-between px-4 sm:-mx-4 py-3 shrink-0"
+			class="sticky top-0 z-10 bg-surface-tertiary rounded-t-lg flex flex-wrap gap-2 items-center justify-between px-5 py-3 shrink-0"
 			use:triggerableByAI={{
 				id: 'home-items-list',
 				description: 'Lists of scripts, flows, and apps'
@@ -1953,7 +1963,9 @@
 									unifiedSize="md"
 									variant="default"
 									title="Filter by kind"
-									startIcon={active?.icon ? { icon: active.icon } : undefined}
+									startIcon={active?.icon
+										? { icon: active.icon, classes: active.iconClass }
+										: undefined}
 									endIcon={{ icon: ChevronDown }}
 								>
 									{active?.label ?? 'All kinds'}
@@ -1984,7 +1996,7 @@
 		     ListFilters' own mount-time URL read at the param the filter instance syncs, so
 		     the two writers agree. No `syncQuery`: the filter instance owns the URL. -->
 			<div
-				class="gap-x-2 gap-y-0.5 w-full flex flex-wrap px-4 sm:px-0 pb-3"
+				class="gap-x-2 gap-y-0.5 w-full flex flex-wrap px-5 pb-3"
 				use:clampRows={{ rows: 2, expanded: chipsExpanded }}
 			>
 				<ListFilters
@@ -2014,14 +2026,14 @@
 			</div>
 			<!-- Its own element, not the chips' border: it stays under the controls once the chips
 			     have scrolled away. -->
-			<div class="sticky z-10 border-b" style:top="{toolbarHeight}px"></div>
+			<div class="sticky z-10 border-b mx-5" style:top="{toolbarHeight}px"></div>
 		{/if}
 		{#if filteredItems?.length == 0 && !workspaceEmpty}
 			<div class="mt-10"></div>
 		{/if}
-		<!-- Rows keep their own padding for the hover fill; pulled out by it, their content
-		     lines up with the controls above and the fill runs into the page's gutter. -->
-		<div class="sm:-mx-4">
+		<!-- Inset so a row's hover fill clears the card's border; the controls above take the same
+		     extra 4px, so they line up with the rows' content. -->
+		<div class="px-1">
 			{#if filterValues.val.content}
 				<!-- Content filter: swap the normal list/tree for the content-match view (the same one
 			     used by the Ctrl-K "Content" modal). It loads the workspace's scripts/flows/apps/
