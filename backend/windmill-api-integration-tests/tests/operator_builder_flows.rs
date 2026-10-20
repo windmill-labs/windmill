@@ -384,6 +384,18 @@ async fn check_builder_agents(
         403,
         "a builder must not draft an agent with an inline tool"
     );
+    // Deploying a draft over an agent keeps the row's type, whatever type the draft names.
+    let resp = c
+        .post(format!("{api}/drafts/update/resource/u/operator/a1"))
+        .json(&json!({"value": {"args": inline, "description": "", "resource_type": "object"},
+            "force": true}))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        403,
+        "a builder must not draft inline tools over an agent under another type"
+    );
 
     let linking = |path: &str, agent: &str| {
         json!({"path": path, "summary": "", "description": "", "schema": {},
@@ -411,37 +423,44 @@ async fn check_builder_agents(
         "a builder must not link an agent it cannot read"
     );
 
-    // A developer's agent may run inline code, and linking it runs it as authored; binding the
-    // inputs of such a tool would override what its author fixed.
+    // A developer's agent may run inline code, and linking it runs it as authored. A step may bind
+    // the inputs the agent leaves to the model, never one its author set.
+    let mut dev_agent = inline.clone();
+    dev_agent["tools"][0]["value"]["input_transforms"] = json!({
+        "set": {"type": "static", "value": "fixed"}, "open": {"type": "ai"}});
     sqlx::query(
         "INSERT INTO resource (workspace_id, path, value, resource_type, created_by)
          VALUES ($1, 'u/operator/dev_agent', $2, 'ai_agent', 'alice')",
     )
     .bind(WS)
-    .bind(&inline)
+    .bind(&dev_agent)
     .execute(db)
     .await?;
+    let binding = |path: &str, input: &str| {
+        let mut flow = linking(path, "u/operator/dev_agent");
+        flow["value"]["modules"][0]["value"]["tool_inputs"] =
+            json!({"t": {input: {"type": "static", "value": "bound"}}});
+        flow
+    };
     let resp = c
         .post(format!("{api}/flows/create"))
-        .json(&linking("u/operator/agent_f4", "u/operator/dev_agent"))
+        .json(&binding("u/operator/agent_f4", "open"))
         .send()
         .await?;
     assert!(
         resp.status().is_success(),
-        "a builder must be able to link a developer's agent as authored: {}",
+        "a builder must be able to bind an input the agent leaves open: {}",
         resp.text().await?
     );
-    let mut bound = linking("u/operator/agent_f3", "u/operator/dev_agent");
-    bound["value"]["modules"][0]["value"]["tool_inputs"] = json!({"t": {}});
     let resp = c
         .post(format!("{api}/flows/create"))
-        .json(&bound)
+        .json(&binding("u/operator/agent_f3", "set"))
         .send()
         .await?;
     assert_eq!(
         resp.status(),
         403,
-        "a builder must not bind the inputs of an inline tool in a linked agent"
+        "a builder must not override an input the agent's author set"
     );
 
     Ok(())

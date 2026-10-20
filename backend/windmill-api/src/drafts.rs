@@ -507,18 +507,16 @@ async fn update_draft(
             }
             let draft: ResourceDraft = serde_json::from_str(&strip_json_nul(value.0.get()))
                 .map_err(|e| Error::BadRequest(format!("Invalid resource draft: {e}")))?;
-            let is_agent = match draft.resource_type.as_deref() {
-                Some(t) => t == "ai_agent",
-                // A draft of a deployed resource may leave its type to the deployed row.
-                None => sqlx::query_scalar!(
+            // Whatever type the draft names, deploying it over a deployed agent keeps the row's type.
+            let is_agent = draft.resource_type.as_deref() == Some("ai_agent")
+                || sqlx::query_scalar!(
                     "SELECT EXISTS(SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2 AND resource_type = 'ai_agent')",
                     &w_id,
                     path,
                 )
                 .fetch_one(&db)
                 .await?
-                .unwrap_or(false),
-            };
+                .unwrap_or(false);
             if is_agent {
                 let mut tx = user_db.clone().begin(&authed).await?;
                 windmill_api_flows::flows::validate_operator_agent(

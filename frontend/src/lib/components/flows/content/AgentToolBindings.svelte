@@ -16,6 +16,7 @@
 	} from '../agentToolUtils'
 	import { flowLocalAgentSchema, toolInputOverrides } from '../agentResourceUtils'
 	import { loadSchemaFromModule } from '../flowInfers'
+	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
 
 	let {
 		tools,
@@ -35,6 +36,29 @@
 	} = $props()
 
 	let flowTools = $derived(tools.filter(isFlowModuleTool))
+	const operatorBuilderFlows = useOperatorBuilderFlows()
+
+	/** Mirrors the backend's `InputTransform::is_completed`: an input the agent fills is hidden from
+	 *  the model, and the server refuses a builder's binding of it. */
+	function isSetByAgent(transform: InputTransform | undefined): boolean {
+		if (transform?.type === 'static') {
+			return transform.value !== undefined && transform.value !== null
+		}
+		return transform?.type === 'javascript' && !!transform.expr?.trim()
+	}
+
+	/** A builder binds only the inputs the agent leaves to the model. */
+	function shownSchema(tool: FlowModuleTool): any {
+		const schema = schemas[tool.id]
+		if (!$operatorBuilderFlows || !schema?.properties) return schema
+		const base = baseInputs(tool)
+		const keep = Object.keys(schema.properties).filter((k) => !isSetByAgent(base[k]))
+		return {
+			...schema,
+			properties: Object.fromEntries(keep.map((k) => [k, schema.properties[k]])),
+			required: (schema.required ?? []).filter((k: string) => keep.includes(k))
+		}
+	}
 
 	function baseInputs(tool: FlowModuleTool): Record<string, InputTransform> {
 		return ((tool.value as { input_transforms?: Record<string, InputTransform> })
@@ -182,7 +206,7 @@
 				{:else if schemas[tool.id] !== undefined && localArgs[tool.id] !== undefined}
 					<InputTransformSchemaForm
 						class="px-3 pt-1"
-						schema={schemas[tool.id]}
+						schema={shownSchema(tool)}
 						{pickableProperties}
 						{extraLib}
 						{workspace}

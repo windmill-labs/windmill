@@ -660,48 +660,36 @@ async fn authorize_composed_flow(
 ) -> error::Result<()> {
     let mut refs = windmill_common::flows::check_flow_is_composition_only(value)?;
 
-    // A builder links only an agent it can read, and the tools whose inputs a step binds are
-    // composed by that step: they add what they reference to what is authorized below. A bound tool
-    // may itself link an agent, so the list grows while it is walked.
-    if !refs.agents.is_empty() {
-        let mut seen = std::collections::HashSet::new();
-        let mut i = 0;
-        while i < refs.agents.len() {
-            let path = refs.agents[i].path.clone();
-            let bound_tools = refs.agents[i].bound_tools.clone();
-            i += 1;
-            if !seen.insert((path.clone(), bound_tools.clone())) {
-                continue;
-            }
-            let value = sqlx::query_scalar!(
-                "SELECT value AS \"value: sqlx::types::Json<serde_json::Value>\"
+    // A builder links only an agent it can read, and binds only the tool inputs it leaves open.
+    for agent in &refs.agents {
+        let path = &agent.path;
+        let value = sqlx::query_scalar!(
+            "SELECT value AS \"value: sqlx::types::Json<serde_json::Value>\"
                  FROM resource WHERE workspace_id = $1 AND path = $2 AND resource_type = 'ai_agent'",
-                w_id,
-                &path,
-            )
-            .fetch_optional(&mut **tx)
-            .await?
-            .ok_or_else(|| {
-                Error::PermissionDenied(format!(
-                    "Agent {path} does not exist or is not readable by you"
-                ))
-            })?;
-            if bound_tools.is_empty() {
-                continue;
-            }
-            let tools: Vec<windmill_common::flows::AgentTool> = value
-                .and_then(|v| v.0.get("tools").cloned())
-                .map(serde_json::from_value)
-                .transpose()
-                .map_err(|e| Error::BadRequest(format!("Invalid tools in agent {path}: {e}")))?
-                .unwrap_or_default();
-            windmill_common::flows::check_bound_agent_tools_are_composition_only(
-                &path,
-                &tools,
-                &bound_tools,
-                &mut refs,
-            )?;
+            w_id,
+            path,
+        )
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| {
+            Error::PermissionDenied(format!(
+                "Agent {path} does not exist or is not readable by you"
+            ))
+        })?;
+        if agent.bound_inputs.is_empty() {
+            continue;
         }
+        let tools: Vec<windmill_common::flows::AgentTool> = value
+            .and_then(|v| v.0.get("tools").cloned())
+            .map(serde_json::from_value)
+            .transpose()
+            .map_err(|e| Error::BadRequest(format!("Invalid tools in agent {path}: {e}")))?
+            .unwrap_or_default();
+        windmill_common::flows::check_bound_agent_inputs_are_open(
+            path,
+            &tools,
+            &agent.bound_inputs,
+        )?;
     }
 
     // A tag is how a step picks the worker group it runs on: unauthorized, a builder could route

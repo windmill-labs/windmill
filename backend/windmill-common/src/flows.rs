@@ -280,29 +280,48 @@ pub struct ComposedFlowRefs {
     pub agents: Vec<LinkedAgent>,
 }
 
-/// An agent step's link, with the ids of the agent's tools whose inputs the step overrides.
+/// An agent step's link, with the tool inputs the step binds, keyed by tool id.
 pub struct LinkedAgent {
     pub path: String,
-    pub bound_tools: Vec<String>,
+    pub bound_inputs: Vec<(String, Vec<String>)>,
 }
 
-/// The tools of a linked agent whose inputs a builder's step overrides, checked as the builder's
-/// own steps: binding a tool's inputs is composing its runnable, whoever wrote the agent.
-pub fn check_bound_agent_tools_are_composition_only(
+/// A builder's step may bind only the tool inputs its linked agent leaves to the model: those the
+/// model could be prompted to fill anyway. An input the agent fills is part of what its author
+/// wrote, and the step's binding would replace it at run time.
+pub fn check_bound_agent_inputs_are_open(
     agent: &str,
     tools: &[AgentTool],
-    bound_tools: &[String],
-    refs: &mut ComposedFlowRefs,
+    bound_inputs: &[(String, Vec<String>)],
 ) -> Result<(), Error> {
-    for tool in tools.iter().filter(|t| bound_tools.contains(&t.id)) {
-        if let ToolValue::FlowModule(value) = &tool.value {
-            check_module_value_is_composition_only(value, &tool.id, refs).map_err(|_| {
-                Error::PermissionDenied(format!(
-                    "Tool {} of agent {agent} has code a builder may not compose, so a builder \
-                     cannot set its inputs. Leave them to the agent.",
-                    tool.id
-                ))
-            })?;
+    for (tool_id, keys) in bound_inputs {
+        let Some(ToolValue::FlowModule(value)) =
+            tools.iter().find(|t| &t.id == tool_id).map(|t| &t.value)
+        else {
+            continue;
+        };
+        let input_transforms = match value {
+            FlowModuleValue::Script { input_transforms, .. }
+            | FlowModuleValue::RawScript { input_transforms, .. }
+            | FlowModuleValue::FlowScript { input_transforms, .. }
+            | FlowModuleValue::Flow { input_transforms, .. }
+            | FlowModuleValue::AIAgent { input_transforms, .. }
+            | FlowModuleValue::AIDecision { input_transforms, .. } => input_transforms,
+            // Fail closed on a tool kind whose inputs this does not know how to read.
+            _ => {
+                return Err(Error::PermissionDenied(format!(
+                    "Tool {tool_id} of agent {agent} takes no inputs a builder can set"
+                )))
+            }
+        };
+        if let Some(key) = keys
+            .iter()
+            .find(|k| input_transforms.get(*k).is_some_and(|t| t.is_completed()))
+        {
+            return Err(Error::PermissionDenied(format!(
+                "Input {key} of tool {tool_id} is set by agent {agent}, so a builder cannot \
+                 change it. Bind only the inputs the agent leaves to the model."
+            )));
         }
     }
     Ok(())
@@ -381,12 +400,12 @@ fn check_module_value_is_composition_only(
                 let path = agent
                     .trim_start_matches("$res:")
                     .trim_start_matches("res://");
-                // Sorted: the caller dedupes the walk on this list, and a self-linking agent would
-                // otherwise come back in a new hash order on every visit.
-                let mut bound_tools: Vec<String> = tool_inputs.keys().cloned().collect();
-                bound_tools.sort();
+                let bound_inputs = tool_inputs
+                    .iter()
+                    .map(|(tool, inputs)| (tool.clone(), inputs.keys().cloned().collect()))
+                    .collect();
                 refs.agents
-                    .push(LinkedAgent { path: path.to_string(), bound_tools });
+                    .push(LinkedAgent { path: path.to_string(), bound_inputs });
             }
             push_tag(tag);
             for tool in tools {
@@ -530,7 +549,30 @@ mod tests {
                 "agent": "$res:f/x/agent", "tool_inputs": {"t": {}}}}]})))
         .unwrap();
         assert_eq!(refs.agents[0].path, "f/x/agent");
-        assert_eq!(refs.agents[0].bound_tools, vec!["t".to_string()]);
+        assert_eq!(refs.agents[0].bound_inputs, vec![("t".to_string(), vec![])]);
+    }
+
+    #[test]
+    fn bound_agent_inputs_must_be_left_to_the_model() {
+        let tools: Vec<AgentTool> = serde_json::from_value(serde_json::json!([{"id": "t",
+            "value": {"tool_type": "flowmodule", "type": "rawscript", "content": "x",
+                "language": "bun", "input_transforms": {
+                    "query": {"type": "static", "value": "SELECT 1"},
+                    "limit": {"type": "ai"},
+                    "note": {"type": "static", "value": null}}}}]))
+        .unwrap();
+        let bind = |keys: &[&str]| {
+            check_bound_agent_inputs_are_open(
+                "f/x/agent",
+                &tools,
+                &[(
+                    "t".to_string(),
+                    keys.iter().map(|k| k.to_string()).collect(),
+                )],
+            )
+        };
+        assert!(bind(&["limit", "note", "absent"]).is_ok());
+        assert!(bind(&["limit", "query"]).is_err());
     }
 
     #[test]

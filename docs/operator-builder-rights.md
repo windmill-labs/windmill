@@ -39,9 +39,11 @@ permissions:
   run time, outside this walk, so the link is allowed only to an agent the builder can read. That
   is safe because of the agent rule below: an agent's tools are either a developer's code or
   passed this same check when an operator saved them. Two things keep it safe:
-  - The step's `tool_inputs` override the inputs the agent's author set on its tools, so each tool
-    a builder's step binds is loaded under the builder's permissions and checked as one of their
-    own steps.
+  - The step's `tool_inputs` replace a tool's inputs at run time, including the ones the agent's
+    author set, which the model never sees. A builder's step may bind only the inputs the agent
+    leaves to the model (`check_bound_agent_inputs_are_open`, on `InputTransform::is_completed`,
+    the same test that hides an input from the model), so it adds nothing a prompt could not.
+    The flow editor shows a builder only those inputs.
   - The worker refuses a linked path whose resource is no longer an `ai_agent`
     (`get_agent_value`). Only writes of an agent are checked, so a path retyped, or recreated as
     another type, after the link was approved would otherwise run whatever `tools` it now holds.
@@ -76,8 +78,11 @@ agent's own runs, which take only inputs and run what is stored, and in every fl
 it. So `validate_operator_agent` holds an operator's agent to the composed-flow rules by checking
 its tools as the tools of a one-step flow. It is called from `resolve_agent_on_behalf_of`, which
 every write of an agent's value passes through: create, update, retype, update-value and version
-restore. An operator's resource draft is checked the same way when it is an agent, by its own type
-or by the deployed row's. A new route that writes an agent's value must go through that function.
+restore. An operator's resource draft is checked the same way when it names `ai_agent` **or** an
+agent is deployed at its path, whatever type the draft names: deploying a draft from the resource
+editor keeps the row's type. A draft saved before an agent is created at its path is not
+re-checked when someone else deploys it. A new route that writes an agent's value must go through
+that function.
 
 The same reasoning applies to a builder-authored app, with one extra step. `execute_component`
 resolves the runnable it runs on the root handle, so `validate_operator_composed_app` checks every
