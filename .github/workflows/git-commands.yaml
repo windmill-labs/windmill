@@ -125,6 +125,13 @@ jobs:
           git config pull.rebase true
           git pull origin $BRANCH_NAME
 
+          # EE was checked out at the pin read before this pull; a push in between can
+          # move it, and the EE checkout holds no credential to fetch the new one.
+          if [ -f backend/ee-repo-ref.txt ] && [ "$(tr -d '[:space:]' < backend/ee-repo-ref.txt)" != "$(git -C windmill-ee-private rev-parse HEAD)" ]; then
+            echo "ee-repo-ref.txt changed during the run; re-run /updatesqlx"
+            false
+          fi
+
           mkdir -p frontend/build
           cd backend
           cargo install sqlx-cli --version 0.8.5

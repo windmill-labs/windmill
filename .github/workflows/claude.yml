@@ -67,7 +67,7 @@ jobs:
 
   claude-code-action-ee:
     needs: [pr-info]
-    if: needs.pr-info.outputs.ee_repo_ref != ''
+    if: needs.pr-info.result == 'success' && needs.pr-info.outputs.ee_repo_ref != ''
     runs-on: ubicloud-standard-8
     permissions:
       contents: write
@@ -115,7 +115,7 @@ jobs:
 
   claude-code-action:
     needs: [pr-info]
-    if: needs.pr-info.outputs.ee_repo_ref == ''
+    if: needs.pr-info.result == 'success' && needs.pr-info.outputs.ee_repo_ref == ''
     runs-on: ubicloud-standard-8
     permissions:
       contents: write
