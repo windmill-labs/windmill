@@ -1373,6 +1373,10 @@
 	// store is stale — clear it here (the global reset no longer does). An in-place
 	// filter change leaves treeKey unchanged, so the store survives and its owners
 	// are refreshed in place instead of blanking.
+	// A selected owner or label narrows the tree to what matches, so its folders open on
+	// the way in and close again on the way out; in between, expand/collapse stays the
+	// user's. Closed again because "expand all" in the lazy tree loads every owner it opens.
+	let wasScoped = false
 	$effect(() => {
 		treeKey
 		untrack(() => {
@@ -1380,6 +1384,9 @@
 			ownerLoad = {}
 			treeOwnerItems = []
 			openOwners = new Set()
+			const scoped = ownerFilter != undefined || labelFilter != undefined
+			if (scoped !== wasScoped) collapseAll = !scoped
+			wasScoped = scoped
 		})
 	})
 	$effect(() => {
@@ -1501,10 +1508,11 @@
 	class="{HOME_COLUMN_WIDTH} sm:px-8"
 	handleOverflow={false}
 >
-	<!-- Any search or filter narrows the list to an answer, so the shortcuts step aside
-	     for it rather than sit above its results (or above its empty state). -->
-	{#if activeFilters.length === 0 && !contentActive && !workspaceEmpty && $workspaceStore}
-		<HomeQuickAccess workspace={$workspaceStore} />
+	<!-- The shortcuts are the user's own, not a view of the list, so the list's filters leave
+	     them be. A search is a question about the whole workspace: they step aside for its
+	     answer rather than sit above its results (or above its empty state). -->
+	{#if !searching && !contentActive && !workspaceEmpty && $workspaceStore}
+		<HomeQuickAccess workspace={$workspaceStore} {showEditButtons} />
 	{/if}
 	<!-- The items section, one card: its controls, its filters and its rows. No `overflow-hidden`
 	     on it: the page scrolls, and that would stop the controls sticking. -->

@@ -4,20 +4,39 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import { userStore } from '$lib/stores'
+	import { AppService } from '$lib/gen'
 	import { copyToClipboard, type Item } from '$lib/utils'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import Star from '$lib/components/Star.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
-	import { favoriteManager, getFavoriteHref } from '$lib/components/sidebar/FavoriteMenu.svelte'
+	import {
+		favoriteManager,
+		getFavoriteHref,
+		type FavoriteKind
+	} from '$lib/components/sidebar/FavoriteMenu.svelte'
 	import { recentItems, type RecentKind } from './recentItems.svelte'
 
 	interface Props {
 		workspace: string
+		/** Cleared where direct-deploy protection hides the rows' edit actions. */
+		showEditButtons?: boolean
 	}
 
-	let { workspace }: Props = $props()
+	let { workspace, showEditButtons = true }: Props = $props()
 
-	type Entry = { kind: RecentKind; path: string; title: string; at?: number }
+	type Entry = {
+		kind: RecentKind
+		/** The kind its favorite is stored under: every app, raw ones included, stars as `app`
+		 * (AppRow, and the app listing's starred join), so a raw app's must not be `raw_app`. */
+		starKind: FavoriteKind
+		path: string
+		title: string
+		at?: number
+	}
+
+	function asStarKind(kind: RecentKind): FavoriteKind {
+		return kind === 'raw_app' ? 'app' : kind
+	}
 
 	const RECENT_COUNT = 6
 	// Three rows of the three-column grid.
@@ -27,26 +46,37 @@
 	// editor opened without write access says so itself.
 	const editRights = useEditRights()
 
-	function routeBase(item: Entry): string {
-		return item.kind === 'raw_app' ? 'apps_raw' : `${item.kind}s`
+	// A favorite app arrives as plain `app` (the layout lists apps without their subtype), and
+	// `/apps/edit` mounts the low-code editor whatever it opens, so the editor routes ask which
+	// one it is, once, when its menu opens.
+	async function editorKind(item: Entry): Promise<RecentKind> {
+		if (item.kind !== 'app') return item.kind
+		try {
+			const app: any = await AppService.getAppLiteByPath({ workspace, path: item.path })
+			return app?.raw_app ? 'raw_app' : 'app'
+		} catch {
+			return 'app'
+		}
 	}
 
 	// The row menus' actions that need nothing but the kind and path. Moving, deleting,
 	// deploying and sharing need the full item and the row's own drawers, so they stay there.
-	function menuItems(item: Entry, favorite: boolean): Item[] {
+	async function menuItems(item: Entry, favorite: boolean): Promise<Item[]> {
 		const operator = !!$userStore?.operator
+		const kind = await editorKind(item)
+		const base = kind === 'raw_app' ? 'apps_raw' : `${kind}s`
 		return [
 			{
 				displayName: 'Edit',
 				icon: Pen,
-				href: `/${routeBase(item)}/edit/${item.path}`,
-				hide: !editRights.roleCanAuthor(item.kind)
+				href: `/${base}/edit/${item.path}`,
+				hide: !showEditButtons || !editRights.roleCanAuthor(kind)
 			},
 			{
 				displayName: 'Duplicate/Fork',
 				icon: GitFork,
-				href: `/${routeBase(item)}/add?template=${item.path}`,
-				hide: operator || item.kind === 'agent'
+				href: `/${base}/add?template=${item.path}`,
+				hide: !showEditButtons || operator || kind === 'agent'
 			},
 			{
 				displayName: 'View runs',
@@ -68,8 +98,8 @@
 				separatorTop: true,
 				action: () =>
 					favorite
-						? favoriteManager.unstar(item.path, item.kind, workspace)
-						: favoriteManager.star(item.path, item.kind, workspace, item.title)
+						? favoriteManager.unstar(item.path, item.starKind, workspace)
+						: favoriteManager.star(item.path, item.starKind, workspace, item.title)
 			},
 			{
 				displayName: 'Remove from recent',
@@ -84,17 +114,23 @@
 	// so they stay in the sidebar's menu.
 	let favorites: Entry[] = $derived(
 		favoriteManager.current.flatMap((f) =>
-			f.kind === 'asset' ? [] : [{ kind: f.kind, path: f.path, title: f.label }]
+			f.kind === 'asset' ? [] : [{ kind: f.kind, starKind: f.kind, path: f.path, title: f.label }]
 		)
 	)
 	// Favorites first, then what was edited lately; a starred item is listed once, as a favorite.
 	let entries: { item: Entry; favorite: boolean }[] = $derived.by(() => {
-		const starred = new Set(favorites.map((f) => `${f.kind}/${f.path}`))
+		const starred = new Set(favorites.map((f) => `${asStarKind(f.kind)}/${f.path}`))
 		const recent = recentItems
 			.list(workspace)
-			.filter((r) => !starred.has(`${r.kind}/${r.path}`))
+			.filter((r) => !starred.has(`${asStarKind(r.kind)}/${r.path}`))
 			.slice(0, RECENT_COUNT)
-			.map((r) => ({ kind: r.kind, path: r.path, title: r.summary || r.path, at: r.at }))
+			.map((r) => ({
+				kind: r.kind,
+				starKind: asStarKind(r.kind),
+				path: r.path,
+				title: r.summary || r.path,
+				at: r.at
+			}))
 		return [
 			...favorites.map((item) => ({ item, favorite: true })),
 			...recent.map((item) => ({ item, favorite: false }))
@@ -138,7 +174,7 @@
 		<!-- The star sits after the title, as on the tree's rows: a set one stays, an unset one
 		     shows on hover or focus. -->
 		<Star
-			kind={item.kind}
+			kind={item.starKind}
 			path={item.path}
 			workspaceId={workspace}
 			summary={item.title}
