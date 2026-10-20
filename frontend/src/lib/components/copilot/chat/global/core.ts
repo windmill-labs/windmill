@@ -1598,7 +1598,12 @@ const buildGlobalSystemPrompt = (
 			}. Use that to judge whether a feature is available before promising it.`
 		: ''
 
-	return `${external ? 'You are working in a Windmill workspace through its MCP server.' : "You are Windmill's global workspace assistant."}
+	return `${external ? 'You are working in a Windmill workspace through its MCP server.' : "You are Windmill's global workspace assistant."}${when(
+		external,
+		`
+
+The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, an app draft's preview_url (the app editor with its live preview, which these instructions call "the preview"), a deployed item's url. Whenever the user will want to see what you built or ran, or has to do a step in Windmill themselves, open the link in a browser they can see from this conversation if you have one, and otherwise give them the link to open.`
+	)}
 
 The current user's workspace username is "${username}".${instanceLine}
 
@@ -1718,10 +1723,6 @@ ${pipelineBullet}`
 		`
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Carry over every filter the user described — Runs takes the page's whole filter set (time window, path, user, folder, label, tag, worker, trigger kind, args/result, ...), so don't drop a criterion just because it wasn't in the request's main clause. Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
 - Whenever you ask the user to perform a manual step in the UI — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its editor, or the page's filters otherwise). Never just describe where to click.`
-	)}${when(
-		external,
-		`
-- The user sees no Windmill preview next to this conversation: "the preview" in these instructions is the app editor's, which preview_url opens. Run results carry a run page link, app draft writes a preview_url (the editor on the user's draft, with its live preview), and deploys the deployed item's url. Give the user that link whenever they will want to look at what you built or ran, and when they have to do a step in Windmill themselves.`
 	)}${when(
 		canWriteDraft && !external,
 		`

@@ -448,7 +448,7 @@ async fn init_app(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         None => String::new(),
     };
     let message = format!(
-        "Initialized a per-user draft app \"{path}\" from the {framework} template (saved server-side, not a deployed workspace item). The template is a demo tour with starter runnables {}: replace its UI and delete the runnables the app does not need (delete_app_runnable). Use write_app_file / write_app_runnable to evolve it.{data_note}",
+        "Initialized a per-user draft app \"{path}\" from the {framework} template (saved server-side, not a deployed workspace item). The template is a demo tour with starter runnables {}: replace its UI and delete the runnables the app does not need (delete_app_runnable). Use write_app_file / write_app_runnable to evolve it.{data_note} Open preview_url in a browser the user can see from this conversation if you have one, and otherwise give them the link: its live preview follows every later edit.",
         starter_keys.join(", ")
     );
     save_app(ctx, path, value, None, message, None).await
