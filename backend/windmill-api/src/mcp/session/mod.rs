@@ -186,6 +186,9 @@ pub(super) struct Ctx<'a> {
     pub access: SessionAccess,
     /// The scheme and host the MCP client reached, when known.
     pub origin: Option<&'a str>,
+    /// Minted once per tool call: every JWT the API sees is cached by the auth layer, and a
+    /// tool can make dozens of calls, which would evict other users' cached sessions.
+    pub jwt: tokio::sync::OnceCell<String>,
 }
 
 impl Ctx<'_> {
@@ -245,7 +248,9 @@ impl Ctx<'_> {
             Some(q) => format!("{}?{q}", &parsed.path()[at..]),
             None => parsed.path()[at..].to_string(),
         };
-        let token = mint_caller_jwt(self.w_id, self.auth, scopes)
+        let token = self
+            .jwt
+            .get_or_try_init(|| mint_caller_jwt(self.w_id, self.auth, scopes))
             .await
             .map_err(|e| e.message.to_string())?;
         let mut request = http::Request::builder()

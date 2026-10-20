@@ -88,6 +88,7 @@ impl WindmillBackend {
             base_internal_url: &self.base_internal_url,
             access,
             origin: None,
+            jwt: Default::default(),
         }
     }
 

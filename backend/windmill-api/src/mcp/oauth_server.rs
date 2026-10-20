@@ -232,6 +232,9 @@ fn supported_scopes() -> Vec<String> {
         "mcp:scripts:*".to_string(),
         "mcp:flows:*".to_string(),
         "mcp:endpoints:*".to_string(),
+        "mcp:read_only".to_string(),
+        "mcp:read_run".to_string(),
+        "mcp:no_endpoints".to_string(),
     ]
 }
 
@@ -1023,10 +1026,14 @@ pub async fn gateway_oauth_approve(
     Json(form): Json<GatewayApprovalForm>,
 ) -> Result<Json<ApprovalResponse>> {
     let mut scope = form.scope;
+    let mut workspace_ids = form.workspace_ids;
+    if workspace_ids.is_empty() {
+        workspace_ids.extend(form.workspace_id);
+    }
     let workspace_id = if form.all_workspaces {
         None
     } else {
-        match form.workspace_ids.as_slice() {
+        match workspace_ids.as_slice() {
             [] => {
                 return Err(Error::BadRequest(
                     "Pick at least one workspace, or all of them".to_string(),
@@ -1070,6 +1077,9 @@ pub struct GatewayApprovalForm {
     pub code_challenge_method: String,
     #[serde(default)]
     pub workspace_ids: Vec<String>,
+    /// The single workspace a consent page loaded before `workspace_ids` existed sends.
+    #[serde(default)]
+    pub workspace_id: Option<String>,
     /// Every workspace the user is a member of, including ones they join later.
     #[serde(default)]
     pub all_workspaces: bool,
