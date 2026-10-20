@@ -22,6 +22,7 @@
 	} from './agentAttachmentInput'
 	import { deepEqual } from 'fast-equals'
 	import FlowChatModelSettings from './FlowChatModelSettings.svelte'
+	import FlowChatApproval from './FlowChatApproval.svelte'
 	import {
 		agentModelGap,
 		chatLinkedAgentPaths,
@@ -248,6 +249,20 @@
 		})
 	})
 
+	// Only a flow that can ask for approval reads its running turn's status. Read off the flow,
+	// not the stream: an agent that does not stream sends no tool call. A linked agent's tools
+	// are not loaded here, so it counts; only a top-level step's request is answered from the chat.
+	const mayRequestApproval = $derived(
+		(flowModules ?? []).some((module) => {
+			const value = module.value as any
+			return (
+				value?.type === 'aiagent' &&
+				(!!value.agent || value.tools?.some((tool: any) => tool?.value?.tool_type === 'approval'))
+			)
+		})
+	)
+	const approvalJobId = $derived(mayRequestApproval ? chatHost.state.runningJobId : undefined)
+
 	// Older pages load when the reader reaches the top; the viewport stays where it was.
 	let scrollElement = $state<HTMLDivElement | undefined>(undefined)
 	let loadingOlder = false
@@ -296,6 +311,14 @@
 			{/if}
 		{/if}
 	</div>
+{/snippet}
+
+{#snippet approvalPreface()}
+	{#if approvalJobId && workspace}
+		{#key approvalJobId}
+			<FlowChatApproval {workspace} jobId={approvalJobId} />
+		{/key}
+	{/if}
 {/snippet}
 
 {#snippet footerSettings()}
@@ -351,6 +374,7 @@
 		hideModeSelector
 		{wideLayout}
 		{emptyHint}
+		inputPreface={approvalPreface}
 		footerSettings={modalSchema || showModelButton || extraSettings ? footerSettings : undefined}
 		placeholder="Send a message to run the {subject}"
 		disabled={deploymentInProgress || !!modelGap || !!wrongKindReason}

@@ -32,6 +32,7 @@ export type InsertKind =
 	| 'aidecision'
 	| 'mcpTool'
 	| 'websearchTool'
+	| 'approvalTool'
 	| 'aiAgentTool'
 	| 'aiDecisionTool'
 

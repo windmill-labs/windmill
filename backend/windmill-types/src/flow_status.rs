@@ -218,6 +218,13 @@ pub enum AgentAction {
     },
     Message {},
     WebSearch {},
+    /// The agent is parked until someone answers; it is answered once its
+    /// `agent_actions_success` entry is written.
+    Approval {
+        call_id: String,
+        message: String,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    },
 }
 
 #[derive(Serialize, Debug, Clone)]

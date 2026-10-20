@@ -80,6 +80,8 @@ export interface ChatState {
   history: HistoryMode
   loadingMessages: boolean
   hasMoreMessages: boolean
+  /** The flow job the running turn follows, once it is known. */
+  runningJobId?: string
 }
 
 export type TokenSource = string | (() => string | Promise<string>)
