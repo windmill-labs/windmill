@@ -3,7 +3,7 @@
 
 use axum::{extract::Path, routing::post, Extension, Json, Router};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use windmill_api_auth::is_effectively_unscoped;
 use windmill_common::error::{Error, JsonResult};
 
@@ -91,6 +91,27 @@ pub(crate) struct ChatContext {
     /// asked for it with `needs_ai_provider_catalog`.
     #[serde(default)]
     pub ai_provider_catalog: Option<super::ai_providers::Catalog>,
+    /// A run tool called in two phases around the chat's own argument form: `prepare`
+    /// resolves what will run, `start` queues it with the arguments the form settled on.
+    #[serde(default)]
+    pub run: Option<RunPhase>,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "phase", rename_all = "snake_case")]
+pub(crate) enum RunPhase {
+    Prepare,
+    Start {
+        /// What `prepare` resolved, so the run is the version the form was shown for;
+        /// absent for a tool with no form, which resolves and starts in one call.
+        #[serde(default)]
+        target: Option<super::runs::RunTarget>,
+        #[serde(default)]
+        args: Map<String, Value>,
+        /// An agent step's form rows, each fed from the run's arguments.
+        #[serde(default)]
+        form_keys: Vec<String>,
+    },
 }
 
 #[derive(Deserialize)]
@@ -226,7 +247,13 @@ impl super::Ctx<'_> {
     }
 
     /// `code_diff` of an app file, whose language its path gives.
-    pub(super) fn file_diff(&self, before: &str, after: &str, file_path: &str, before_file_path: &str) {
+    pub(super) fn file_diff(
+        &self,
+        before: &str,
+        after: &str,
+        file_path: &str,
+        before_file_path: &str,
+    ) {
         self.effect(Effect::CodeDiff {
             before: before.to_string(),
             after: after.to_string(),

@@ -1,8 +1,6 @@
 import { z } from 'zod'
 import { WorkspaceService, type CompletedJob } from '$lib/gen'
 import type { DataTableTables } from '$lib/gen/types.gen'
-import { runScript } from '$lib/components/jobs/utils'
-import { datatableReference } from '$lib/components/dbTypes'
 import {
 	createToolDef,
 	executeTestRun,
@@ -10,7 +8,7 @@ import {
 	type ChatJobResultFormat
 } from './shared'
 import { NONE, RUN_PREVIEW, type SessionTool } from './sessionCapabilities'
-import { runOnServer } from './global/backendSessionTools'
+import { callSessionTool, runOnServer } from './global/backendSessionTools'
 
 /**
  * Workspace-scoped datatable tools, with no app whitelist and no creation policy.
@@ -301,7 +299,7 @@ export function getDatatableTools(): SessionTool<{}>[] {
 			}
 		},
 		{
-			// `runScript` below goes through /jobs/run/preview, which jobs.rs refuses operators.
+			// The query runs as a /jobs/run/preview job, which jobs.rs refuses operators.
 			requires: RUN_PREVIEW,
 			def: getExecDatatableSqlToolDef(),
 			requiresConfirmation: true,
@@ -315,15 +313,13 @@ export function getDatatableTools(): SessionTool<{}>[] {
 				// tray (and honors `background`) instead of blocking the chat turn,
 				// while keeping the datatable-specific result/error shaping.
 				return executeTestRun({
-					jobStarter: () =>
-						runScript({
-							workspace,
-							requestBody: {
-								language: 'postgresql',
-								content: parsedArgs.sql,
-								args: { database: datatableReference(name, parsedArgs.role) }
-							}
-						}),
+					jobStarter: async () => {
+						const response = await callSessionTool(workspace, 'exec_datatable_sql', args, {
+							run: { phase: 'start' }
+						})
+						if (response.is_error) throw new Error(response.text)
+						return response.text
+					},
 					workspace,
 					toolCallbacks,
 					toolId,

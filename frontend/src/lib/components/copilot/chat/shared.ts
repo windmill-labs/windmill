@@ -2488,6 +2488,18 @@ async function loadDeployedScriptForFlowStep(
 	}
 }
 
+/** What a test run of an AI decision step supplies: the state. The provider and questions
+ * are the step's own. */
+export function decisionStepRunSchema(): Record<string, any> {
+	return {
+		$schema: 'https://json-schema.org/draft/2020-12/schema',
+		type: 'object',
+		properties: { state: AI_DECISION_SCHEMA.properties.state },
+		required: ['state'],
+		order: ['state']
+	}
+}
+
 export async function resolveFlowStepRun({
 	flowValue,
 	stepId,
@@ -2629,14 +2641,7 @@ export async function resolveFlowStepRun({
 			// Run alone as a one-step flow preview, as the editor's step test does: the inputs given here
 			// override the step's own, so a state that reads an earlier step can be passed directly.
 			runnableKind: 'flow',
-			// What a run supplies: the state. The provider and questions are the step's own.
-			schema: {
-				$schema: 'https://json-schema.org/draft/2020-12/schema',
-				type: 'object',
-				properties: { state: AI_DECISION_SCHEMA.properties.state },
-				required: ['state'],
-				order: ['state']
-			},
+			schema: decisionStepRunSchema(),
 			startMessage: `Starting test run of AI decision step "${stepId}"...`,
 			startJob: async (args) =>
 				JobService.runFlowPreview({

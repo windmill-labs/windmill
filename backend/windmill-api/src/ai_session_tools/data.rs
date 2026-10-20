@@ -5,7 +5,10 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde_json::{json, Map, Value};
 
-use super::runs::{backgrounded_summary, run_script_preview, wait_budget, wait_job};
+use super::runs::{
+    backgrounded_summary, run_script_preview, run_tool, start_run, wait_budget, wait_job, Resolved,
+    RunTarget,
+};
 use super::workspace::{api_message, path_enc};
 use super::{array, enc, js_str, non_null, opt_str_arg, pretty, str_arg, truthy, Ctx, ToolResult};
 
@@ -221,30 +224,33 @@ async fn exec_datatable_sql(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let name = str_arg(args, "datatable_name")?;
     let sql = str_arg(args, "sql")?;
     let role = role_arg(args)?;
-    let failed = |e: String| format!("Failed to execute test run: {e}");
-
-    let database = match role {
-        None => format!("datatable://{name}"),
-        // A stored name holding a `?` is read whole by the server, so a role cannot follow it.
-        Some(role) if name.contains('?') => {
-            return Err(failed(format!("Data table '{name}' has a '?' in its name, so it can only be used here as its default role. Rename it to connect as role '{role}'.")));
-        }
-        Some(role) => format!("datatable://{name}?role={role}"),
+    let resolved = async {
+        Ok(Resolved {
+            target: RunTarget::DatatableSql {
+                datatable: name.to_string(),
+                sql: sql.to_string(),
+                role: role.map(String::from),
+            },
+            schema: None,
+            code: None,
+            lang: None,
+            summary: None,
+            runnable_kind: "script",
+            start_message: format!("Executing SQL on \"{name}\"..."),
+            conversational: false,
+            module: None,
+        })
     };
-    let id = run_script_preview(
-        ctx,
-        None,
-        "postgresql",
-        sql,
-        json!({ "database": database }),
-    )
+    run_tool(ctx, args, resolved, async |resolved: Resolved| {
+        let id = start_run(ctx, &resolved.target, Map::new(), &[])
+            .await
+            .map_err(|e| format!("Failed to execute test run: {e}"))?;
+        match wait_job(ctx, &id, wait_budget(args), false).await {
+            Some(job) => Ok(format_datatable_sql_completion(&job, name)),
+            None => Ok(backgrounded_summary(&id, &format!("SQL · {name}"))),
+        }
+    })
     .await
-    .map_err(failed)?;
-
-    match wait_job(ctx, &id, wait_budget(args), false).await {
-        Some(job) => Ok(format_datatable_sql_completion(&job, name)),
-        None => Ok(backgrounded_summary(&id, &format!("SQL · {name}"))),
-    }
 }
 
 fn format_datatable_sql_completion(job: &Value, datatable_name: &str) -> String {

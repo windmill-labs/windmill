@@ -152,12 +152,11 @@ import {
 import {
 	createToolDef,
 	droppedOptionKeys,
-	createSearchHubScriptsTool,
+	decisionStepRunSchema,
 	getHubIntegrationTool,
 	executeTestRun,
 	findAndReplace,
 	isHubPath,
-	resolveFlowStepRun,
 	SPECIAL_MODULE_IDS,
 	type CreatedResourceTriggerKind,
 	type PreviewCardKind,
@@ -6555,45 +6554,82 @@ function pathLeaf(path: unknown, fallback: string): string {
 	return p.split('/').filter(Boolean).pop() || p || fallback
 }
 
+/** What a run tool runs and what its form shows for it, as the server resolved it. */
+type PreparedRun = {
+	/** Handed back to `startPreparedRun`, so the run is the version the form was shown for. */
+	target: unknown
+	schema: Record<string, any> | null
+	code: string | null
+	lang: ScriptLang | null
+	summary: string | null
+	runnable_kind: 'script' | 'flow'
+	start_message: string
+	conversational: boolean
+	module: FlowModule | null
+}
+
+async function prepareRun(
+	name: string,
+	ctx: WriteDraftCtx & { args: unknown }
+): Promise<PreparedRun> {
+	const response = await callSessionTool(ctx.workspace, name, ctx.args, {
+		run: { phase: 'prepare' }
+	})
+	applyStatusEffects(response.effects, ctx)
+	if (response.is_error) throw new Error(response.text)
+	return JSON.parse(response.text)
+}
+
+/** Queue a run on the server and answer its job id. `target` absent resolves it there. */
+async function startPreparedRun(
+	name: string,
+	ctx: WriteDraftCtx & { args: unknown },
+	target: unknown,
+	args: Record<string, any>,
+	formKeys?: readonly string[]
+): Promise<string> {
+	const response = await callSessionTool(ctx.workspace, name, ctx.args, {
+		run: { phase: 'start', target, args, form_keys: formKeys ?? [] }
+	})
+	if (response.is_error) throw new Error(response.text)
+	return response.text
+}
+
 async function testRunScriptByPath(
 	args: z.infer<typeof testRunScriptSchema>,
-	ctx: WriteDraftCtx
+	ctx: WriteDraftCtx & { args: unknown }
 ): Promise<string> {
-	const { workspace } = ctx
-	const script = await loadScriptForEdit(args.path, workspace)
-	const schema = await schemaForTestRun(script)
+	const prepared = await prepareRun('test_run_script', ctx)
+	const code = prepared.code ?? ''
+	const lang = prepared.lang!
+	const schema = await schemaForTestRun({
+		content: code,
+		language: lang,
+		schema: prepared.schema ?? undefined
+	})
 
 	return runThroughForm(
 		{
 			path: args.path,
 			schema,
-			summary: script.summary,
+			summary: prepared.summary ?? undefined,
 			kind: 'test',
-			code: script.content,
-			lang: script.language,
+			code,
+			lang,
 			// Never "deployed" here: the code about to run is the draft the model is still
 			// writing, and a line telling it to re-read the deployed schema would send it
 			// to the wrong version.
 			schemaNoun: 'script',
 			toolName: 'test_run_script',
 			proposed: args.args,
-			startMessage: `Running test for script "${args.path}"...`,
+			startMessage: prepared.start_message,
 			contextName: 'script',
 			// Its own loop: the model is told to test and iterate, so the posture answers the
 			// form with what it opened with rather than parking the loop on a card.
 			autoAcceptable: true,
 			background: args.background,
 			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
-			startJob: (submitted) =>
-				JobService.runScriptPreview({
-					workspace,
-					requestBody: {
-						path: args.path,
-						content: script.content,
-						args: submitted,
-						language: script.language
-					}
-				})
+			startJob: (submitted) => startPreparedRun('test_run_script', ctx, prepared.target, submitted)
 		},
 		ctx
 	)
@@ -6899,38 +6935,27 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 
 async function runDeployedScript(
 	args: z.infer<typeof runScriptSchema>,
-	ctx: WriteDraftCtx
+	ctx: WriteDraftCtx & { args: unknown }
 ): Promise<string> {
-	const { workspace } = ctx
-	// No getDraft: this runs the script as it is live, so the form has to offer the
-	// inputs the live version accepts and not a draft's.
-	const script = await ScriptService.getScriptByPath({ workspace, path: args.path })
+	// The deployed version, not a draft: the form has to offer the inputs the live version accepts.
+	const prepared = await prepareRun('run_script', ctx)
 	return runThroughForm(
 		{
 			path: args.path,
-			schema: (script.schema as Record<string, any>) ?? {},
-			summary: script.summary,
+			schema: prepared.schema ?? {},
+			summary: prepared.summary ?? undefined,
 			kind: 'run',
 			schemaNoun: 'deployed',
 			toolName: 'run_script',
 			proposed: args.args,
-			startMessage: `Running "${args.path}"...`,
+			startMessage: prepared.start_message,
 			contextName: 'script',
 			// Bypassable like a test run: the posture is the user's standing answer, and a form
 			// it parks on is a card nobody is watching.
 			autoAcceptable: true,
 			background: args.background,
 			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
-			startJob: (submitted) =>
-				JobService.runScriptByPath({
-					workspace,
-					path: args.path,
-					requestBody: submitted,
-					// As the script's own run page does: the form fills the main input schema, and a
-					// preprocessor would take these arguments for a webhook body and hand the script
-					// its own output instead.
-					skipPreprocessor: true
-				})
+			startJob: (submitted) => startPreparedRun('run_script', ctx, prepared.target, submitted)
 		},
 		ctx
 	)
@@ -6938,44 +6963,29 @@ async function runDeployedScript(
 
 async function runDeployedFlow(
 	args: z.infer<typeof runFlowSchema>,
-	ctx: WriteDraftCtx
+	ctx: WriteDraftCtx & { args: unknown }
 ): Promise<string> {
-	const { workspace } = ctx
 	// No live editor is driven here as a test run drives one: that editor holds the draft, and a
 	// deployed run painted into its graph would show steps that are not the ones running.
-	const flow = await FlowService.getFlowByPath({ workspace, path: args.path })
+	const prepared = await prepareRun('run_flow', ctx)
 	return runThroughForm(
 		{
 			path: args.path,
-			schema: (flow.schema as Record<string, any>) ?? {},
-			summary: flow.summary,
+			schema: prepared.schema ?? {},
+			summary: prepared.summary ?? undefined,
 			kind: 'run',
 			// Its deployed page is a conversation with no run form, so the card keeps this run.
-			conversational: flow.value?.chat_input_enabled ?? false,
+			conversational: prepared.conversational,
 			// No code/lang: the dynamic-option pickers come from the deployed flow, not an inline copy.
 			schemaNoun: 'deployed',
 			toolName: 'run_flow',
 			proposed: args.args,
-			startMessage: `Running "${args.path}"...`,
+			startMessage: prepared.start_message,
 			contextName: 'flow',
 			autoAcceptable: true,
 			background: args.background,
 			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
-			startJob: (submitted) =>
-				JobService.runFlowByPath({
-					workspace,
-					path: args.path,
-					requestBody: submitted,
-					// A chat-enabled flow is refused without one, and it names a conversation rather
-					// than being a flow argument, so nothing in `args` could carry it. A fresh id:
-					// this run is its own conversation on the flow's page, not a turn appended to
-					// one someone is reading there.
-					memoryId: chatMemoryId(flow.value),
-					// As the flow's own run page does: the form fills the main input schema, and a
-					// preprocessor would take these arguments for a webhook body and hand the flow
-					// its own output instead.
-					skipPreprocessor: true
-				})
+			startJob: (submitted) => startPreparedRun('run_flow', ctx, prepared.target, submitted)
 		},
 		ctx
 	)
@@ -6983,20 +6993,18 @@ async function runDeployedFlow(
 
 async function testRunFlowByPath(
 	args: z.infer<typeof testRunFlowSchema>,
-	ctx: WriteDraftCtx
+	ctx: WriteDraftCtx & { args: unknown }
 ): Promise<string> {
-	const { workspace } = ctx
-	// The schema must be in hand before the form is built, and the value rides along from the
-	// same read so the fields and the previewed flow are one version. With an editor open on
-	// this path this reads its in-memory cell rather than the network.
-	const flow = await loadFlowDraftValue(args.path, workspace)
-	const schema = (flow.flow.schema as Record<string, any> | null | undefined) ?? {}
+	// The schema must be in hand before the form is built, and the value rides along in the same
+	// target so the fields and the previewed flow are one version.
+	const prepared = await prepareRun('test_run_flow', ctx)
+	const schema = prepared.schema ?? {}
 
 	return runThroughForm(
 		{
 			path: args.path,
 			schema,
-			summary: flow.summary,
+			summary: prepared.summary ?? undefined,
 			kind: 'test',
 			// A flow's dynamic-option pickers are one script stored on the schema itself, which is
 			// where the editor's own test form reads them from (FlowPreviewContent).
@@ -7007,7 +7015,7 @@ async function testRunFlowByPath(
 			schemaNoun: 'flow',
 			toolName: 'test_run_flow',
 			proposed: args.args,
-			startMessage: `Starting flow test run for "${args.path}"...`,
+			startMessage: prepared.start_message,
 			contextName: 'flow',
 			// The model is told to test and iterate, so the bypass posture answers the form.
 			autoAcceptable: true,
@@ -7021,16 +7029,7 @@ async function testRunFlowByPath(
 				if (jobId) {
 					return jobId
 				}
-				const value = flowDraftValueForPreview(flow.flow)
-				return JobService.runFlowPreview({
-					workspace,
-					memoryId: args.memory_id ?? chatMemoryId(value),
-					requestBody: {
-						path: args.path,
-						value,
-						args: submitted
-					}
-				})
+				return startPreparedRun('test_run_flow', ctx, prepared.target, submitted)
 			}
 		},
 		ctx
@@ -7039,44 +7038,36 @@ async function testRunFlowByPath(
 
 async function testRunFlowStepByPath(
 	args: z.infer<typeof testRunStepSchema>,
-	ctx: WriteDraftCtx
+	ctx: WriteDraftCtx & { args: unknown }
 ): Promise<string> {
-	const { workspace, toolId, toolCallbacks } = ctx
-	const flow = await loadFlowDraftValue(args.path, workspace)
-	const resolved = await resolveFlowStepRun({
-		flowValue: flowDraftValueForPreview(flow.flow),
-		stepId: args.stepId,
-		workspace,
-		toolCallbacks,
-		toolId,
-		loadScript: loadScriptForFlowStep,
-		loadSubflow: loadSubflowForFlowStep,
-		flowPath: args.path,
-		withAgentDrafts: (value) => withAgentDrafts(value, workspace)
-	})
+	const { workspace } = ctx
+	const prepared = await prepareRun('test_run_step', ctx)
+	const module = prepared.module!
 
 	// The module resolution landed on, not the id that was asked for: the job's entrypoint
 	// override reads the same value, and a form built for the other entrypoint offers fields
 	// the run will not take.
-	const isPreprocessor = resolved.module.id === SPECIAL_MODULE_IDS.PREPROCESSOR
+	const isPreprocessor = module.id === SPECIAL_MODULE_IDS.PREPROCESSOR
 	// The step's own inputs, never the flow's: a step is fed by its input transforms, so the
 	// flow's schema names arguments this job would ignore and omits the ones it takes.
 	const agentForm =
-		resolved.module.value.type === 'aiagent'
-			? await agentStepRunForm(resolved.module, workspace, args.args)
+		module.value.type === 'aiagent'
+			? await agentStepRunForm(module, workspace, args.args)
 			: undefined
 	const schema =
 		agentForm?.schema ??
-		(resolved.code != undefined && resolved.lang
+		(prepared.code != undefined && prepared.lang
 			? await schemaForTestRun({
-					content: resolved.code,
-					language: resolved.lang,
-					schema: resolved.schema,
+					content: prepared.code,
+					language: prepared.lang,
+					schema: prepared.schema ?? undefined,
 					entrypoint: isPreprocessor ? 'preprocessor' : undefined
 				})
-			: (resolved.schema ?? {}))
+			: module.value.type === 'aidecision'
+				? decisionStepRunSchema()
+				: (prepared.schema ?? {}))
 
-	const stepSummary = resolved.module.summary
+	const stepSummary = module.summary
 	return runThroughForm(
 		{
 			// The flow: a step has no path of its own, and this is what the status and cancel
@@ -7086,24 +7077,23 @@ async function testRunFlowStepByPath(
 			schema,
 			summary: stepSummary ? `step "${args.stepId}": ${stepSummary}` : `step "${args.stepId}"`,
 			kind: 'test',
-			code: resolved.code ?? schema['x-windmill-dyn-select-code'],
-			lang: resolved.lang ?? schema['x-windmill-dyn-select-lang'],
+			code: prepared.code ?? schema['x-windmill-dyn-select-code'],
+			lang: prepared.lang ?? schema['x-windmill-dyn-select-lang'],
 			// Never "deployed": a step test previews the draft flow, and the step's target may
 			// itself be a draft.
 			schemaNoun: 'step',
 			toolName: 'test_run_step',
 			proposed: agentForm?.args ?? args.args,
-			startMessage: resolved.startMessage,
-			contextName: resolved.runnableKind,
+			startMessage: prepared.start_message,
+			contextName: prepared.runnable_kind,
 			noun: 'step',
 			label: `step ${args.stepId}`,
 			// The model is told to test and iterate, so the bypass posture answers the form.
 			autoAcceptable: true,
 			background: args.background,
 			detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),
-			startJob: agentForm
-				? (submitted) => resolved.startJob(submitted, agentForm.schema.order)
-				: resolved.startJob
+			startJob: (submitted) =>
+				startPreparedRun('test_run_step', ctx, prepared.target, submitted, agentForm?.schema.order)
 		},
 		ctx
 	)
@@ -7677,75 +7667,26 @@ function inlineRunnableDiff(
  */
 async function testRunAppRunnable(
 	args: z.infer<typeof testRunAppRunnableSchema>,
-	ctx: WriteDraftCtx
+	ctx: WriteDraftCtx & { args: unknown }
 ): Promise<string> {
 	const { workspace, toolId, toolCallbacks } = ctx
 	const { path, key } = args
-
-	const { value } = await loadAppDraftValue(path, workspace)
-	const runnable = value.runnables?.[key] as PersistedRunnable | undefined
-	if (!runnable) {
-		const known = Object.keys(value.runnables ?? {})
-		throw new Error(
-			`App "${path}" has no backend runnable "${key}".` +
-				(known.length ? ` Available runnables: ${known.join(', ')}.` : '')
-		)
-	}
-
-	// Copied, not aliased: the ctx pass below writes into it.
-	const testArgs = { ...normalizeTestRunArgs(args.args) }
-	// Setting force_viewer_static_fields is what puts execute_component in preview
-	// mode (apps.rs `is_preview`), which is what makes inline draft code run at all.
-	// It must be sent even when the runnable has no static fields.
-	const staticFields = Object.fromEntries(
-		Object.entries(runnable.fields ?? {})
-			.filter(([, field]) => field?.type === 'static')
-			.map(([name, field]) => [name, field?.value])
-	)
-	// A ctx-bound input is filled by the server from `$ctx:<prop>`, exactly as
-	// RawAppBackgroundRunner does before executing. Without this the argument arrives
-	// missing and the runnable fails for a reason that has nothing to do with its code.
-	for (const [name, field] of Object.entries(runnable.fields ?? {})) {
-		if (field?.type === 'ctx' && field?.ctx) testArgs[name] = `$ctx:${field.ctx}`
-	}
-	// The server encrypts a queued argument only when its name is in this list
-	// (apps.rs wraps it as `$encrypted:` with a job-scoped key). Omitting it writes a
-	// `sensitive` field's real value into job args as plaintext, readable by anyone
-	// with run access. Same filter the editor preview applies.
-	const sensitiveInputs = Object.entries(runnable.fields ?? {})
-		.filter(([, field]) => field?.type === 'user' && field?.sensitive)
-		.map(([name]) => name)
-
-	// Imported lazily: statically pulling the apps module graph into the chat's
-	// import chain drags the whole app-editor runtime in behind it.
-	const { executeRunnable } = await import(
-		'$lib/components/apps/components/helpers/executeRunnable'
-	)
-
+	const prepared = await prepareRun('test_run_app_runnable', ctx)
 	return executeTestRun({
 		jobStarter: () =>
-			executeRunnable(
-				runnable as unknown as Runnable,
-				workspace,
-				undefined,
-				get(userStore)?.username,
-				path,
-				key,
-				{
-					component: key,
-					args: testArgs,
-					force_viewer_static_fields: staticFields,
-					force_viewer_sensitive_inputs: sensitiveInputs.length ? sensitiveInputs : undefined
-				},
-				undefined
+			startPreparedRun(
+				'test_run_app_runnable',
+				ctx,
+				prepared.target,
+				normalizeTestRunArgs(args.args)
 			),
 		workspace,
 		toolCallbacks,
 		toolId,
-		startMessage: `Running backend runnable "${key}" of app "${path}"...`,
+		startMessage: prepared.start_message,
 		// A path runnable pointing at a flow really does queue a flow job, so the
 		// failure path can offer get_run's step tree; everything else is a script job.
-		contextName: runnable.runType === 'flow' ? 'flow' : 'script',
+		contextName: prepared.runnable_kind,
 		completionName: 'backend runnable',
 		background: args.background,
 		detachAfterMs: waitSecondsToDetachMs(args.wait_seconds),

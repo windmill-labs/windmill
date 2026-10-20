@@ -7,10 +7,10 @@ use std::sync::LazyLock;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 
-use super::runs::finish_run;
+use super::runs::{finish_run, run_tool, start_run, Resolved, RunTarget};
 use super::workspace::{
     api_message, app_source_to_draft_value, deployed_item_exists, find_and_replace, get_deployed,
-    get_draft, item_exists, normalize_app_draft, path_enc, persist_draft, Persist,
+    get_draft, item_exists, normalize_app_draft, persist_draft, Persist,
 };
 use super::{
     bool_arg, js_head, js_len, matches_glob, opt_str_arg, pretty, put, str_arg, truthy, Ctx,
@@ -990,7 +990,12 @@ async fn delete_app_runnable(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 // ---------------------------------------------------------------------------
 
 /// The `execute_component` body that runs a runnable the way the editor preview does.
-fn execute_component_body(app_path: &str, key: &str, runnable: &Value, args: &Value) -> Value {
+pub(super) fn execute_component_body(
+    app_path: &str,
+    key: &str,
+    runnable: &Value,
+    args: &Value,
+) -> Value {
     let fields = entries(runnable, "fields");
     let mut test_args = args.as_object().cloned().unwrap_or_default();
     let mut static_fields = Map::new();
@@ -1081,9 +1086,7 @@ fn execute_component_body(app_path: &str, key: &str, runnable: &Value, args: &Va
     Value::Object(body)
 }
 
-async fn test_run_app_runnable(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
-    let path = str_arg(args, "path")?;
-    let key = str_arg(args, "key")?;
+async fn resolve_app_runnable(ctx: &Ctx<'_>, path: &str, key: &str) -> Result<Resolved, String> {
     let value = load_app(ctx, path).await?.value;
     let runnables = entries(&value, "runnables");
     let Some(runnable) = runnables.get(key).filter(|r| truthy(Some(r))) else {
@@ -1097,35 +1100,44 @@ async fn test_run_app_runnable(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             }
         ));
     };
-
-    let body = execute_component_body(
-        path,
-        key,
-        runnable,
-        args.get("args").unwrap_or(&Value::Null),
-    );
-    let id = ctx
-        .request(
-            "POST",
-            &ctx.ws(&format!("apps_u/execute_component/{}", path_enc(path))),
-            Some(body),
-        )
-        .await
-        .map_err(|e| {
-            let message = api_message(&e);
-            let message = if js_len(message) > MAX_TOOL_ERROR_LENGTH {
-                format!("{}... (truncated)", js_head(message, MAX_TOOL_ERROR_LENGTH))
-            } else {
-                message.to_string()
-            };
-            format!("Failed to execute test run: {message}")
-        })?;
-    let id = id.trim().trim_matches('"').to_string();
-
     // A path runnable aimed at a flow queues a flow job, whose steps are worth a look.
     let is_flow = text_of(runnable, "runType") == Some("flow");
-    let label = format!("{path} / {key}");
-    finish_run(ctx, Ok(id), &label, is_flow, "test", args).await
+    Ok(Resolved {
+        target: RunTarget::AppRunnable {
+            app_path: path.to_string(),
+            key: key.to_string(),
+            runnable: runnable.clone(),
+        },
+        schema: None,
+        code: None,
+        lang: None,
+        summary: None,
+        runnable_kind: if is_flow { "flow" } else { "script" },
+        start_message: format!("Running backend runnable \"{key}\" of app \"{path}\"..."),
+        conversational: false,
+        module: None,
+    })
+}
+
+async fn test_run_app_runnable(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let path = str_arg(args, "path")?;
+    let key = str_arg(args, "key")?;
+    run_tool(ctx, args, resolve_app_runnable(ctx, path, key), async |resolved: Resolved| {
+        let run_args = args.get("args").and_then(Value::as_object).cloned().unwrap_or_default();
+        let id = start_run(ctx, &resolved.target, run_args, &[])
+            .await
+            .map_err(|message| {
+                let message = if js_len(&message) > MAX_TOOL_ERROR_LENGTH {
+                    format!("{}... (truncated)", js_head(&message, MAX_TOOL_ERROR_LENGTH))
+                } else {
+                    message
+                };
+                format!("Failed to execute test run: {message}")
+            })?;
+        let label = format!("{path} / {key}");
+        finish_run(ctx, Ok(id), &label, resolved.runnable_kind == "flow", "test", args).await
+    })
+    .await
 }
 
 #[cfg(test)]
