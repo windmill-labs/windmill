@@ -20,22 +20,19 @@
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
-		ArrowDownUp,
 		Bot,
 		ChevronDown,
 		ChevronsDownUp,
 		ChevronsUpDown,
 		Code2,
 		LayoutDashboard,
-		List,
-		ListTree,
 		MoreHorizontal,
 		Tag
 	} from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import CreateActionsMenu from './CreateActionsMenu.svelte'
 	import ContentSearchInner from '$lib/components/ContentSearchInner.svelte'
-	import type { IconType, Item as MenuItem } from '$lib/utils'
+	import type { IconType } from '$lib/utils'
 
 	import { HOME_COLUMN_WIDTH, HOME_SEARCH_SHOW_FLOW, HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
 
@@ -52,22 +49,19 @@
 	import LabelBadge from '../common/badge/LabelBadge.svelte'
 	import { clampRows } from './clampRows'
 	import { setUnruledList } from '../common/table/unruledList'
-	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
-	import { getLocalSetting, isOwner, pluralize, storeLocalSetting } from '$lib/utils'
+	import { isOwner } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
-	import Item from './Item.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
 	import { effectivePath, type ItemType } from './treeViewUtils'
 	import { tick, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
-	import PipelineRow from '../common/table/PipelineRow.svelte'
 	import BulkActionsBar from './BulkActionsBar.svelte'
-	import { HomeSelection, setHomeSelection, toBulkItem } from './homeSelection.svelte'
+	import { HomeSelection, setHomeSelection } from './homeSelection.svelte'
+	import HomeQuickAccess from './HomeQuickAccess.svelte'
 
 	const editRights = useEditRights()
 
@@ -328,28 +322,11 @@
 
 	let loading = $state(true)
 
-	let nbDisplayed = $state(15)
-
 	// Keyset cursor for the next browse page; null once the stream is exhausted.
 	let serverCursor: string | undefined = undefined
 	let hasMoreServer = $state(false)
 	// Guards against out-of-order responses: only the latest request applies.
 	let loadGen = 0
-
-	// Sort selector value -> merged-endpoint order params.
-	function sortToParams(o: SortOrder): { orderBy: 'updated' | 'name'; orderDesc: boolean } {
-		switch (o) {
-			case 'updated_asc':
-				return { orderBy: 'updated', orderDesc: false }
-			case 'name_asc':
-				return { orderBy: 'name', orderDesc: false }
-			case 'name_desc':
-				return { orderBy: 'name', orderDesc: true }
-			case 'updated_desc':
-			default:
-				return { orderBy: 'updated', orderDesc: true }
-		}
-	}
 
 	function mapRunnable(it: RunnableItem): TableScript | TableFlow | TableApp | TableAgent {
 		const base = {
@@ -395,7 +372,6 @@
 			// replaces each open owner's rows atomically as they re-load (see
 			// loadOwnerItems), so expanded folders don't blank out mid-reorder.
 		}
-		const { orderBy, orderDesc } = sortToParams(sortOrder)
 		const gen = ++loadGen
 		// Snapshot the cursor now: a later request must not consume a cursor minted
 		// by an order/filter that has since changed.
@@ -404,8 +380,8 @@
 		try {
 			res = await ScriptService.listRunnables({
 				workspace: ws,
-				orderBy,
-				orderDesc,
+				orderBy: 'updated',
+				orderDesc: true,
 				showArchived: archived ? true : undefined,
 				includeWithoutMain: includeWithoutMain ? true : undefined,
 				kinds: runnableKinds,
@@ -582,7 +558,6 @@
 			loaded: st?.loaded ?? false,
 			gen
 		}
-		const { orderBy, orderDesc } = sortToParams(sortOrder)
 		const prefix = `${owner}/`
 		// Only a forced refresh replaces this prefix's rows, so a re-sort swaps them without
 		// blanking the tree. Everything else merges: a nested prefix inherits rows from an
@@ -626,8 +601,8 @@
 			try {
 				res = await ScriptService.listRunnables({
 					workspace: ws,
-					orderBy,
-					orderDesc,
+					orderBy: 'updated',
+					orderDesc: true,
 					showArchived: archived ? true : undefined,
 					includeWithoutMain: includeWithoutMain ? true : undefined,
 					kinds: runnableKinds,
@@ -777,43 +752,14 @@
 
 	const cmp = new Intl.Collator('en').compare
 
-	// The selected order maps to the endpoint's order_by/order_desc (see
-	// sortToParams) so it is applied server-side and stays correct across the
-	// whole workspace, not just loaded pages. Starred items are pinned on top of
-	// the first page.
-	type SortOrder = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc'
-	const SORT_SETTING_NAME = 'homeSort'
-	const sortOptions: { value: SortOrder; label: string }[] = [
-		{ value: 'updated_desc', label: 'Recently updated' },
-		{ value: 'updated_asc', label: 'Oldest updated' },
-		{ value: 'name_asc', label: 'Name (A-Z)' },
-		{ value: 'name_desc', label: 'Name (Z-A)' }
-	]
-	let sortOrder = $state<SortOrder>(
-		sortOptions.find((o) => o.value === getLocalSetting(SORT_SETTING_NAME))?.value ?? 'updated_desc'
-	)
-	$effect(() => {
-		storeLocalSetting(SORT_SETTING_NAME, sortOrder === 'updated_desc' ? undefined : sortOrder)
-	})
-	let sortItems: MenuItem[] = $derived(
-		sortOptions.map((o) => ({
-			displayName: o.label,
-			selected: o.value === sortOrder,
-			action: () => (sortOrder = o.value)
-		}))
-	)
-	// Preserve the endpoint's exact order rather than re-deriving it on the client:
-	// each row carries its server fetch ordinal (`ord`), which already reflects the
-	// chosen order, the (path, kind) tiebreaks, full-precision timestamps, the database
-	// collation, and starred-first pinning. Sorting by it can never disagree with the
-	// server, so a later page never jumps above shown rows on "load more". Depends on
-	// `sortOrder` only so its identity changes when the order does (re-grouping the tree,
-	// whose leaves also sort by ord); the actual reordering comes from the reload that
-	// restamps ord.
-	let compareItems = $derived.by(() => {
-		sortOrder
-		return (a: { ord?: number }, b: { ord?: number }): number => (a.ord ?? 0) - (b.ord ?? 0)
-	})
+	// Preserve the endpoint's exact order (most recently updated first, starred pinned on top
+	// of the first page) rather than re-deriving it on the client: each row carries its server
+	// fetch ordinal (`ord`), which already reflects the (path, kind) tiebreaks, full-precision
+	// timestamps and the database collation. Sorting by it can never disagree with the server,
+	// so a later page never jumps above shown rows on "load more".
+	function compareItems(a: { ord?: number }, b: { ord?: number }): number {
+		return (a.ord ?? 0) - (b.ord ?? 0)
+	}
 
 	const opts: uFuzzy.Options = {
 		sort: (info, haystack, needle) => {
@@ -868,9 +814,6 @@
 
 	let toolbarHeight = $state(0)
 	let chipsExpanded = $state(false)
-
-	const TREE_VIEW_SETTING_NAME = 'treeView'
-	let treeView = $state(getLocalSetting(TREE_VIEW_SETTING_NAME) == 'true')
 
 	// Pipeline entries are rendered independently of the item list, so apply the
 	// same gates the items get — otherwise a pipeline would still show under the
@@ -991,15 +934,12 @@
 	// search (see the reload effect below). Only the label filter and fuzzy ranking
 	// stay client-side over the loaded pages, so they don't reload here.
 	let searching = $derived(filter !== '')
-	// Lazy owner tree is active only in the tree view when browsing all (no owner
-	// selected, no search, no label filter): every folder AND user shows as a top-level
-	// node and paginates on expand, its items coming from the separate `treeOwnerItems`
-	// store. In the flat view, or a selected owner / active search / label filter, the
-	// lazy store is unused (the flat list and reloadItems must not touch it), so this is
-	// false and those views group the global loaded window instead.
-	let treeLazyMode = $derived(
-		treeView && !searching && ownerFilter == undefined && labelFilter == undefined
-	)
+	// Lazy owner tree is active only when browsing all (no owner selected, no search, no
+	// label filter): every folder AND user shows as a top-level node and paginates on
+	// expand, its items coming from the separate `treeOwnerItems` store. With a selected
+	// owner / active search / label filter, the lazy store is unused (reloadItems must not
+	// touch it), so this is false and the tree groups the global loaded window instead.
+	let treeLazyMode = $derived(!searching && ownerFilter == undefined && labelFilter == undefined)
 	// How many runnables each owner (`f/<folder>` / `u/<user>`) holds for this user,
 	// in one request. It labels every tree node up front — a lazy owner's own count is
 	// unknown until it's expanded — and lets both the tree and the owner chips drop the
@@ -1079,16 +1019,8 @@
 		treeLazyMode && ownerCountsRes.current == undefined && ownerCountsRes.loading
 	)
 
-	// An import just landed, so the rows about to replace the empty state are all new: they
-	// fade in one after another rather than appearing as a finished list. Cleared on a timer
-	// because nothing else marks the end — the reload resolves before the rows animate.
-	let justImported = $state(false)
-	let justImportedTimer: ReturnType<typeof setTimeout> | undefined
 	function onImported() {
 		reloadItemsAndCounts()
-		justImported = true
-		clearTimeout(justImportedTimer)
-		justImportedTimer = setTimeout(() => (justImported = false), 2500)
 	}
 
 	// The hub import, owned here rather than by either entry point: the empty state's link and
@@ -1185,6 +1117,8 @@
 	 * tell leaves it live as the fallback.
 	 */
 	let toolbarInert = $derived(placeholderTakesOver && !archivedUnknown)
+	// Expand/collapse: nothing to group on an empty workspace.
+	let listControls = $derived(!loading && !workspaceEmpty)
 
 	// Owners the counts found the user has something in, split by kind. They cover
 	// what the folder/username lists miss: an item shared individually out of a
@@ -1216,17 +1150,15 @@
 	// The bottom "load more" only pages the *global* stream, which in lazy mode holds
 	// folder rows the tree ignores (folders come from the store and are all injected
 	// already) — so surfacing it there is confusing. Restrict it to scoped mode, where
-	// it pages within the selected owner. In lazy mode the footer instead reveals more
-	// root nodes purely client-side (nbDisplayed) when there are more than are shown,
-	// and each folder paginates within itself; users past the window are reached via
-	// their owner chip.
+	// it pages within the selected owner. In lazy mode each folder paginates within
+	// itself; users past the window are reached via their owner chip.
 	let treeGlobalHasMore = $derived(ownerFilter != undefined && !searching ? hasMoreServer : false)
 	$effect(() => {
 		if ($userStore && $workspaceStore) {
-			;[archived, includeWithoutMain, sortOrder, searching, ownerFilter, itemKind]
-			// reloadItems (not a bare loadRunnables) so an in-place change — sort, archive,
-			// library, kind — reloads the global stream AND re-fetches the currently-open
-			// owners in the new order/filter, keeping folders expanded (file-explorer style)
+			;[archived, includeWithoutMain, searching, ownerFilter, itemKind]
+			// reloadItems (not a bare loadRunnables) so an in-place change — archive, library,
+			// kind — reloads the global stream AND re-fetches the currently-open owners
+			// under the new filter, keeping folders expanded (file-explorer style)
 			// rather than collapsing them. Mode changes (owner/search) flip treeLazyMode, so
 			// reloadItems skips the re-fetch and the {#key} remount handles the reset.
 			untrack(() => {
@@ -1333,8 +1265,6 @@
 			return
 		mergeRunnables(res.items ?? [])
 		searchCursor = res.next_cursor
-		// Reveal the freshly fetched matches instead of leaving them behind the display cap.
-		nbDisplayed += 30
 	}
 
 	let combinedItems = $derived(
@@ -1437,9 +1367,7 @@
 	// A sort/archive/library/kind change keeps the same lazy tree and is applied in place
 	// by reloadItems re-fetching the open owners — so expanded folders don't collapse when
 	// you re-sort (searching is a boolean so per-keystroke query changes don't remount).
-	let treeKey = $derived(
-		`${treeView}|${$workspaceStore}|${ownerFilter}|${searching}|${labelFilter}`
-	)
+	let treeKey = $derived(`${$workspaceStore}|${ownerFilter}|${searching}|${labelFilter}`)
 	// A mode change restructures the tree (it remounts on treeKey), so the lazy owner
 	// store is stale — clear it here (the global reset no longer does). An in-place
 	// sort/filter change leaves treeKey unchanged, so the store survives and its owners
@@ -1453,33 +1381,20 @@
 			openOwners = new Set()
 		})
 	})
-	let displayedItems = $derived((items ?? []).slice(0, nbDisplayed))
 	$effect(() => {
 		items && resetScroll()
 	})
 
-	let selectedIndex: number = $state(-1)
-	// More to show: either loaded items not yet sliced in, or the server has further
-	// browse pages (not while searching — the browse cursor is paused then; further
-	// search matches load on demand via searchCursor / "Load more results").
-	let hasMore = $derived(
-		items != undefined && (items.length > nbDisplayed || (hasMoreServer && !searching))
-	)
-	let loadMoreIndex = $derived(displayedItems.length)
-	let loadMoreEl: HTMLButtonElement | undefined = $state()
-	let pendingAutoSelect = $state(true)
 	let firstWorkspaceRun = true
 	$effect(() => {
 		$workspaceStore
-		pendingAutoSelect = true
 		if (firstWorkspaceRun) {
 			firstWorkspaceRun = false
 			return
 		}
 		// On workspace switch, melt-ui restores focus to the workspace-picker trigger
-		// button asynchronously after the menu closes. Without overriding it, pressing
-		// an arrow key would re-open / re-highlight the workspace picker instead of
-		// moving the items-list selection. Run several times to win the focus race.
+		// button asynchronously after the menu closes. Run several times to win the focus
+		// race and hand the keyboard back to the search.
 		const focusSearch = () => {
 			const el = document.getElementById('home-search-input') as HTMLInputElement | null
 			el?.focus()
@@ -1495,303 +1410,36 @@
 			clearTimeout(timeoutId)
 		}
 	})
-	$effect(() => {
-		filter
-		itemKind
-		ownerFilter
-		labelFilter
-		// Skip while pendingAutoSelect is true (initial load / workspace switch);
-		// the auto-select effect below will set the index once items appear.
-		if (!pendingAutoSelect) {
-			selectedIndex = -1
-		}
-	})
-	$effect(() => {
-		if (pendingAutoSelect && displayedItems.length > 0) {
-			selectedIndex = 0
-			pendingAutoSelect = false
-		}
-	})
-	$effect(() => {
-		const max = hasMore ? displayedItems.length : displayedItems.length - 1
-		if (selectedIndex > max) {
-			selectedIndex = max
-		}
-	})
-	$effect(() => {
-		if (hasMore && selectedIndex === loadMoreIndex) {
-			loadMoreEl?.scrollIntoView({ block: 'nearest' })
-		}
-	})
-	// Capture-phase listener so we run before melt-ui's button keydown handlers
-	// (e.g. ArrowDown on the dropdown trigger would otherwise open the menu).
+	// Capture-phase listener so we run before melt-ui's button keydown handlers.
 	$effect(() => {
 		window.addEventListener('keydown', handleGlobalKeydown, true)
 		return () => window.removeEventListener('keydown', handleGlobalKeydown, true)
 	})
 
-	async function loadMore() {
-		// Fetch the next server page once all loaded items are already sliced in.
-		if (items && nbDisplayed >= items.length && hasMoreServer && !searching) {
-			await loadRunnables(false)
-		}
-		nbDisplayed += 30
-	}
-
-	// Fetch the next server page directly (tree view and the empty-state control
-	// use this — their "all shown" threshold is on a different scale than the flat
-	// list's, so they must not route through loadMore's item-count check).
+	// Fetch the next server page (the tree's scoped footer and the empty-state control).
 	async function fetchMoreServer() {
 		if (hasMoreServer && !searching) {
 			await loadRunnables(false)
-			nbDisplayed += 30
 		}
 	}
 
-	async function loadMoreAndPreselectFirstNew() {
-		const previousNbDisplayed = nbDisplayed
-		await loadMore()
-		selectedIndex = previousNbDisplayed
-	}
-
-	// The searchbar is a contenteditable, not an <input>, so it can't be matched by SKIP_SELECTOR
-	// and has no `.value`/`.selectionEnd`. It owns the arrows only while its suggestion dropdown is
-	// open (free-text mode passes them through to the list); track that so nav stands down then.
-	let searchbarDropdownOpen = $state(false)
-
-	// Caret position inside the searchbar's contenteditable, via the Selection API — the equivalent
-	// of an <input>'s selectionStart/End the list navigation used before the searchbar swap.
-	function searchCaret(el: HTMLElement): { atStart: boolean; atEnd: boolean; empty: boolean } {
-		const text = el.textContent ?? ''
-		const sel = window.getSelection()
-		if (!sel || sel.rangeCount === 0)
-			return { atStart: true, atEnd: true, empty: text.length === 0 }
-		const range = sel.getRangeAt(0)
-		const pre = range.cloneRange()
-		pre.selectNodeContents(el)
-		pre.setEnd(range.endContainer, range.endOffset)
-		const caret = pre.toString().length
-		return { atStart: caret === 0, atEnd: caret >= text.length, empty: text.length === 0 }
-	}
-
-	// Elements that own the keyboard themselves (menus, dialogs, comboboxes): the
-	// list's own shortcuts stand down while one of them has focus.
+	// Elements that own the keyboard themselves (menus, dialogs, comboboxes).
 	const SKIP_SELECTOR =
 		'[role="menu"], [role="menuitem"], [role="dialog"], [role="listbox"], [role="combobox"], [aria-expanded="true"], [data-menu], [data-chat-keyboard-scope]'
 
-	// The marker sits on the row itself, not on its title link — selection mode
-	// drops the link, and the action buttons must stay keyboard-reachable there too.
-	function getSelectedRowActionButtons(): HTMLElement[] {
-		const actions = document.querySelector<HTMLElement>(
-			'[data-row-keyboard-selected="true"] [data-row-actions]'
-		)
-		return actions ? Array.from(actions.querySelectorAll<HTMLElement>('button, a[href]')) : []
-	}
-
+	// Escape leaves selection mode, unless a menu that owns the key closes itself first.
 	function handleGlobalKeydown(e: KeyboardEvent) {
 		// An open dialog owns the keyboard. Testing the focused element alone misses it
-		// (a modal opened from a button leaves focus on that button), and this capture
-		// listener runs before the dialog's, so Enter would tick a row into the batch
-		// being confirmed. Dialogs are in the DOM only while open.
+		// (a modal opened from a button leaves focus on that button). Dialogs are in the
+		// DOM only while open.
 		if (document.querySelector('[role="dialog"]')) return
-
+		if (e.key !== 'Escape' || !homeSelection.active) return
 		const target = e.target as HTMLElement | null
-
-		// Escape leaves selection mode from either view; everything below is flat-list
-		// navigation. A menu that owns the key closes itself first.
-		if (e.key === 'Escape' && homeSelection.active) {
-			const active = document.activeElement as HTMLElement | null
-			if (!target?.closest(SKIP_SELECTOR) && !active?.closest(SKIP_SELECTOR)) {
-				e.preventDefault()
-				homeSelection.exit()
-				return
-			}
-		}
-		if (treeView) return
-
-		// When focus is inside a row's action buttons, handle arrow keys ourselves:
-		//  - Left/Right cycle between buttons (Left from the first returns to search).
-		//  - Up/Down move to the same-position button on the previous/next row.
-		// All other keys pass through so Enter/Space activate the focused button normally.
-		// This must run BEFORE the skipSelector check, since the dropdown ellipsis
-		// trigger carries [data-menu] (which would otherwise filter the event out).
-		// Up/Down also need stopImmediatePropagation so melt-ui's dropdown trigger
-		// doesn't open the menu (its default ArrowDown behavior).
-		const actionsContainer = target?.closest<HTMLElement>('[data-row-actions]')
-		if (actionsContainer) {
-			if (
-				e.key !== 'ArrowRight' &&
-				e.key !== 'ArrowLeft' &&
-				e.key !== 'ArrowUp' &&
-				e.key !== 'ArrowDown'
-			)
-				return
-			const buttons = Array.from(actionsContainer.querySelectorAll<HTMLElement>('button, a[href]'))
-			const currentIdx = buttons.indexOf(target as HTMLElement)
-			if (currentIdx < 0) return
-			if (e.key === 'ArrowRight') {
-				if (currentIdx < buttons.length - 1) {
-					e.preventDefault()
-					buttons[currentIdx + 1].focus()
-				}
-			} else if (e.key === 'ArrowLeft') {
-				e.preventDefault()
-				if (currentIdx > 0) {
-					buttons[currentIdx - 1].focus()
-				} else {
-					;(document.getElementById('home-search-input') as HTMLInputElement | null)?.focus()
-				}
-			} else {
-				// ArrowUp / ArrowDown: move to same-position button on prev/next row.
-				e.preventDefault()
-				e.stopImmediatePropagation()
-				if (selectedIndex < 0 || selectedIndex >= displayedItems.length) return
-				const newIndex =
-					e.key === 'ArrowDown'
-						? Math.min(selectedIndex + 1, displayedItems.length - 1)
-						: Math.max(selectedIndex - 1, 0)
-				if (newIndex === selectedIndex) return
-				selectedIndex = newIndex
-				tick().then(() => {
-					const newButtons = getSelectedRowActionButtons()
-					if (newButtons.length === 0) return
-					const targetIdx = Math.min(currentIdx, newButtons.length - 1)
-					newButtons[targetIdx]?.focus()
-				})
-			}
-			return
-		}
-
-		// Inside an open dropdown menu: ArrowUp on first item / ArrowDown on last item
-		// closes the menu (so users can leave with arrows instead of needing Escape).
-		// Other arrow keys fall through to melt-ui's default cycle.
-		const menuItem = target?.closest<HTMLElement>('[role="menuitem"]')
-		if (menuItem) {
-			if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-				const menu = menuItem.closest<HTMLElement>('[role="menu"]')
-				// menus marked data-arrow-loop keep melt's cyclic wrap instead of exiting
-				if (menu && !menu.hasAttribute('data-arrow-loop')) {
-					const items = Array.from(menu.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-					const idx = items.indexOf(menuItem)
-					const isFirst = idx === 0
-					const isLast = idx === items.length - 1
-					if ((e.key === 'ArrowUp' && isFirst) || (e.key === 'ArrowDown' && isLast)) {
-						e.preventDefault()
-						e.stopImmediatePropagation()
-						menuItem.dispatchEvent(
-							new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
-						)
-					}
-				}
-			}
-			return
-		}
-
-		const skipSelector = SKIP_SELECTOR
-		if (target) {
-			const tag = target.tagName
-			const isEditable =
-				tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable
-			const isOurSearch = target.id === 'home-search-input'
-			if (isEditable && !isOurSearch) return
-			// While the searchbar's suggestion dropdown is open it owns the arrows/Enter itself.
-			if (isOurSearch && searchbarDropdownOpen) return
-			if (target.closest(skipSelector)) return
-		}
 		const active = document.activeElement as HTMLElement | null
-		if (active?.closest(skipSelector)) return
-
-		// ArrowRight from search input / body → focus first action button of selected row.
-		// Guard: if cursor is in the middle of typed search text, let the cursor move.
-		if (e.key === 'ArrowRight') {
-			if (target?.id === 'home-search-input') {
-				const c = searchCaret(target)
-				if (!c.empty && !c.atEnd) return
-			}
-			if (selectedIndex < 0 || selectedIndex >= displayedItems.length) return
-			const buttons = getSelectedRowActionButtons()
-			if (buttons.length > 0) {
-				e.preventDefault()
-				buttons[0].focus()
-			}
-			return
-		}
-		// ArrowLeft from search input with cursor at start: no-op (let default handle).
-		if (e.key === 'ArrowLeft') {
-			if (target?.id === 'home-search-input') {
-				const c = searchCaret(target)
-				if (!c.empty && !c.atStart) return
-			}
-			return
-		}
-
-		if (e.key === 'ArrowDown') {
-			if (displayedItems.length === 0) return
-			e.preventDefault()
-			if (selectedIndex === -1) {
-				selectedIndex = 0
-			} else if (selectedIndex === loadMoreIndex && hasMore) {
-				selectedIndex = 0
-			} else if (selectedIndex === displayedItems.length - 1) {
-				selectedIndex = hasMore ? loadMoreIndex : 0
-			} else {
-				selectedIndex = selectedIndex + 1
-			}
-		} else if (e.key === 'ArrowUp') {
-			if (displayedItems.length === 0) return
-			e.preventDefault()
-			if (selectedIndex === -1) {
-				selectedIndex = displayedItems.length - 1
-			} else if (selectedIndex === loadMoreIndex && hasMore) {
-				selectedIndex = displayedItems.length - 1
-			} else if (selectedIndex === 0) {
-				selectedIndex = hasMore ? loadMoreIndex : displayedItems.length - 1
-			} else {
-				selectedIndex = selectedIndex - 1
-			}
-		} else if (e.key === 'Enter') {
-			// Enter belongs to whatever control has focus — the action bar's buttons,
-			// a row's own actions, a link. Claiming it there would both suppress that
-			// control and act on the highlighted row instead.
-			if (target?.closest('button, a[href], [role="button"]')) return
-			// In selection mode the rows carry no link, so Enter ticks the highlighted
-			// row instead of opening it. Never for a legacy raw-app row, which carries
-			// no selection control — that falls through to opening it below.
-			if (
-				homeSelection.active &&
-				selectedIndex >= 0 &&
-				selectedIndex < displayedItems.length &&
-				displayedItems[selectedIndex].type !== 'raw_app'
-			) {
-				e.preventDefault()
-				homeSelection.toggle(
-					toBulkItem(displayedItems[selectedIndex], $userStore, $workspaceStore),
-					e.shiftKey
-				)
-			} else if (selectedIndex === loadMoreIndex && hasMore) {
-				e.preventDefault()
-				loadMoreAndPreselectFirstNew()
-			} else if (selectedIndex >= 0 && selectedIndex < displayedItems.length) {
-				// Direct child only: that is the title link. Selection mode drops it, and
-				// a descendant match would find the row's Edit link and open the editor.
-				const anchor = document.querySelector<HTMLAnchorElement>(
-					'[data-row-keyboard-selected="true"] > a[href]'
-				)
-				if (anchor) {
-					e.preventDefault()
-					anchor.click()
-				}
-			}
-		} else if (e.key === 'Escape') {
-			if (selectedIndex !== -1) {
-				e.preventDefault()
-				selectedIndex = -1
-			}
-		}
+		if (target?.closest(SKIP_SELECTOR) || active?.closest(SKIP_SELECTOR)) return
+		e.preventDefault()
+		homeSelection.exit()
 	}
-	$effect(() => {
-		storeLocalSetting(TREE_VIEW_SETTING_NAME, treeView ? 'true' : undefined)
-	})
 	// Multi-selection + bulk actions. Published through context so the tree's
 	// nested levels don't have to carry it; `Item` is the only reader.
 	const homeSelection = new HomeSelection()
@@ -1852,6 +1500,11 @@
 	class="{HOME_COLUMN_WIDTH} sm:px-8"
 	handleOverflow={false}
 >
+	<!-- Any search or filter narrows the list to an answer, so the shortcuts step aside
+	     for it rather than sit above its results (or above its empty state). -->
+	{#if activeFilters.length === 0 && !contentActive && !workspaceEmpty && $workspaceStore}
+		<HomeQuickAccess workspace={$workspaceStore} />
+	{/if}
 	<!-- The items section, one card: its controls, its filters and its rows. No `overflow-hidden`
 	     on it: the page scrolls, and that would stop the controls sticking. -->
 	<div class="flex flex-col bg-surface-tertiary border border-border-light rounded-lg">
@@ -1863,77 +1516,11 @@
 				description: 'Lists of scripts, flows, and apps'
 			}}
 		>
-			{#if !loading && !contentActive && !workspaceEmpty}
-				<!-- List controls, before the searchbar: list or tree, expand/collapse (tree only),
-			     sort. Nothing to group or order on an empty workspace, so the whole row goes. -->
-				<div class="flex items-center gap-2">
-					<ToggleButtonGroup
-						selected={treeView ? 'tree' : 'list'}
-						onSelected={(v) => (treeView = v === 'tree')}
-					>
-						{#snippet children({ item })}
-							<ToggleButton
-								value="list"
-								icon={List}
-								label="List"
-								iconOnly
-								tooltip="List view"
-								size="sm"
-								{item}
-							/>
-							<ToggleButton
-								value="tree"
-								icon={ListTree}
-								label="Tree"
-								iconOnly
-								tooltip="Tree view"
-								size="sm"
-								{item}
-							/>
-						{/snippet}
-					</ToggleButtonGroup>
-					<!-- Icon only: the order's name is in the tooltip and the menu, so next to the
-					     search and the kind filter the list's own controls stay out of the way. -->
-					<DropdownV2
-						items={sortItems}
-						disabled={filter !== ''}
-						placement="bottom-start"
-						fixedHeight={false}
-					>
-						{#snippet buttonReplacement()}
-							{@const active = sortOptions.find((o) => o.value === sortOrder)}
-							<Button
-								nonCaptureEvent
-								disabled={filter !== ''}
-								iconOnly
-								unifiedSize="sm"
-								variant="default"
-								startIcon={{ icon: ArrowDownUp }}
-								title={filter !== ''
-									? 'Sorting is disabled while searching (results are ranked by relevance)'
-									: `Sort: ${active?.label ?? ''}`}
-							/>
-						{/snippet}
-					</DropdownV2>
-					{#if treeView}
-						<Button
-							unifiedSize="sm"
-							variant="default"
-							iconOnly
-							title={collapseAll ? 'Expand all' : 'Collapse all'}
-							on:click={() => (collapseAll = !collapseAll)}
-							startIcon={{ icon: collapseAll ? ChevronsUpDown : ChevronsDownUp }}
-						/>
-					{/if}
-				</div>
-			{/if}
-
-			<!-- basis-64: the toolbar fits Home's column on one line; narrower, this group wraps
-			     under the view controls as a whole, and on a phone the search takes a row of its
-			     own above the kind filter and New. -->
-			<div class="flex flex-wrap grow basis-64 items-center justify-end gap-2 min-w-0">
+			<!-- The search takes the row; on a phone it takes a row of its own above the kind
+			     filter and New. -->
+			<div class="flex flex-wrap grow items-center gap-2 min-w-0">
 				<div
-					class="relative text-primary w-full basis-full sm:basis-auto sm:min-w-[200px] sm:max-w-[22rem]"
+					class="relative text-primary w-full basis-full sm:basis-0 sm:grow sm:min-w-[200px]"
 					class:opacity-40={placeholderTakesOver}
 					inert={toolbarInert}
 				>
@@ -1945,7 +1532,6 @@
 						autofocus
 						hideDropdownOnFreeText
 						inputId="home-search-input"
-						onDropdownVisibleChange={(v) => (searchbarDropdownOpen = v)}
 					/>
 				</div>
 				{#if !contentActive}
@@ -1973,6 +1559,16 @@
 							{/snippet}
 						</DropdownV2>
 					</div>
+				{/if}
+				{#if !contentActive && listControls}
+					<Button
+						unifiedSize="md"
+						variant="default"
+						iconOnly
+						title={collapseAll ? 'Expand all' : 'Collapse all'}
+						on:click={() => (collapseAll = !collapseAll)}
+						startIcon={{ icon: collapseAll ? ChevronsUpDown : ChevronsDownUp }}
+					/>
 				{/if}
 				<!-- Same gate the old create actions used: hidden from operators and in workspaces
 			     whose direct-deploy protection cleared showEditButtons (NoDirectDeployAlert), since
@@ -2093,8 +1689,8 @@
 						</div>
 					{/if}
 				</div>
-			{:else if treeView}
-				<!-- Remount the tree on a MODE change only (treeKey = view/owner/search/label):
+			{:else}
+				<!-- Remount the tree on a MODE change only (treeKey = owner/search/label):
 			     expanded folders (their `opened` state is local to each TreeView) collapse
 			     and re-load fresh for the new mode. An in-place order/archive/library/kind
 			     change keeps treeKey stable, so folders stay open and refresh via
@@ -2104,7 +1700,6 @@
 						items={treeSource}
 						{collapseAll}
 						sortCompare={compareItems}
-						groupDesc={sortOrder === 'name_desc'}
 						hasMoreServer={treeGlobalHasMore}
 						onLoadMore={fetchMoreServer}
 						pipelineFolders={visiblePipelineFolders}
@@ -2127,42 +1722,6 @@
 						framed={false}
 					/>
 				{/key}
-			{:else}
-				<div class:wm-imported={justImported}>
-					{#if filter === ''}
-						{#each [...visiblePipelineFolders].sort() as folder (folder)}
-							<PipelineRow {folder} onDeleted={reloadItemsAndCounts} />
-						{/each}
-					{/if}
-					{#each displayedItems as item, i (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
-						<Item
-							{item}
-							on:scriptChanged={reloadItemsAndCounts}
-							on:flowChanged={reloadItemsAndCounts}
-							on:appChanged={reloadItemsAndCounts}
-							on:rawAppChanged={reloadItemsAndCounts}
-							on:reload={reloadItemsAndCounts}
-							{showCode}
-							showEditButton={showEditButtons}
-							keyboardSelected={selectedIndex === i}
-						/>
-					{/each}
-				</div>
-				{#if items && hasMore}
-					<span class="block px-4 py-2 border-t text-center text-xs font-normal text-secondary"
-						>{pluralize(Math.min(nbDisplayed, items.length), 'item')}{hasMoreServer && !searching
-							? ''
-							: ` out of ${items.length}`}
-						<button
-							bind:this={loadMoreEl}
-							class="ml-4 text-xs font-normal text-primary hover:text-emphasis rounded px-1 {selectedIndex ===
-							loadMoreIndex
-								? 'bg-gray-200 dark:bg-gray-700 underline'
-								: ''}"
-							onclick={loadMore}>load 30 more</button
-						></span
-					>
-				{/if}
 			{/if}
 			{#if searching && searchCursor}
 				<!-- The server has further search matches beyond the page already merged in;
@@ -2213,59 +1772,3 @@
 		<ImportProjectModal.default pick={hubPick} onClose={() => (hubPick = undefined)} {onImported} />
 	{/await}
 {/if}
-
-<style>
-	/* Rows arriving after an import, one after another. The animation is declared on the
-	   container's children rather than on each row: a wrapper element around a row would make
-	   every row `first-of-type` and `last-of-type`, which is how Row draws its corners and
-	   separators. The delay steps for the first rows only — past those the stagger is longer
-	   than anyone waits, so they share the last one. */
-	@keyframes wm-row-in {
-		from {
-			opacity: 0;
-			transform: translateY(4px);
-		}
-		to {
-			opacity: 1;
-			transform: none;
-		}
-	}
-
-	/* `backwards`, not `both`: the fill hides rows until their staggered start, but a forwards
-	   fill would keep `transform` animated afterwards and confine the row's remove confirmation
-	   (`position: fixed`) to the row. The `to` keyframe equals the row's resting style. */
-	.wm-imported > :global(*) {
-		animation: wm-row-in 260ms ease-out backwards;
-		animation-delay: 320ms;
-	}
-	.wm-imported > :global(*:nth-child(1)) {
-		animation-delay: 0ms;
-	}
-	.wm-imported > :global(*:nth-child(2)) {
-		animation-delay: 40ms;
-	}
-	.wm-imported > :global(*:nth-child(3)) {
-		animation-delay: 80ms;
-	}
-	.wm-imported > :global(*:nth-child(4)) {
-		animation-delay: 120ms;
-	}
-	.wm-imported > :global(*:nth-child(5)) {
-		animation-delay: 160ms;
-	}
-	.wm-imported > :global(*:nth-child(6)) {
-		animation-delay: 200ms;
-	}
-	.wm-imported > :global(*:nth-child(7)) {
-		animation-delay: 240ms;
-	}
-	.wm-imported > :global(*:nth-child(8)) {
-		animation-delay: 280ms;
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.wm-imported > :global(*) {
-			animation: none;
-		}
-	}
-</style>
