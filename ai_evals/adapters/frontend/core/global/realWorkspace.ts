@@ -1,7 +1,9 @@
 // A real Windmill workspace per global-mode attempt. The session's tools run on the backend
 // (`/api/w/<ws>/ai_session_tools/<name>`), so a case's fixture has to exist there: this creates
 // the workspace, seeds it through the public API, and deletes it afterwards.
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { promisify } from "node:util";
 import type { WindmillBackendSettings } from "../../../../core/windmillBackendSettings";
 import type { EvalCaseProfile } from "../../../../core/types";
 import {
@@ -38,7 +40,8 @@ const DATATABLE_PG_URL =
 const ROOT_PG_RESOURCE = "$res:u/admin/ai_evals_pg_root";
 const RESOURCE_TYPE_INDEX_WAIT_MS = 120_000;
 const WORKSPACE_SLOT_WAIT_MS = 30 * 60_000;
-const EVAL_USER_PASSWORD = "ai-evals-user";
+/** The eval backend's own database, where a fixture user that is not the admin is created. */
+const DATABASE_URL = process.env.WMILL_AI_EVAL_DATABASE_URL;
 
 export interface RealWorkspace {
   id: string;
@@ -72,8 +75,14 @@ export async function createRealWorkspace(input: {
     throw error;
   }
   let datatableDb: string | undefined;
+  let userToken: string | undefined;
   const dispose = async () => {
     activeWorkspaces.delete(id);
+    if (input.user && DATABASE_URL) {
+      await psql(`DELETE FROM token WHERE label = ${literal(tokenLabel(id))}`).catch(
+        () => undefined,
+      );
+    }
     if (datatableDb) {
       await sql(
         api,
@@ -86,9 +95,9 @@ export async function createRealWorkspace(input: {
   };
   try {
     activeWorkspaces.set(id, adminToken);
-    const token = await seedUser(api, id, input.user, input.profile);
+    userToken = await seedUser(api, id, input.user, input.profile);
     datatableDb = await seed(api, id, input.fixtures);
-    activeWorkspaces.set(id, token ?? adminToken);
+    activeWorkspaces.set(id, userToken ?? adminToken);
     return {
       id,
       backend: { ...input.settings, workspaceOverride: id },
@@ -174,30 +183,25 @@ async function seedUser(
   const asAdmin = username === "admin" && (user?.is_admin ?? true);
   let token: string | undefined;
   if (!asAdmin) {
+    // CE cannot create users through the API, so the user and a token of theirs are written
+    // straight into the instance database, as the backend's own tests do. The workspace
+    // membership still goes through the API.
     const email = `${username}@ai-evals.windmill.dev`;
-    try {
-      await api("POST", "/users/create", {
-        email,
-        password: EVAL_USER_PASSWORD,
-        super_admin: false,
-        name: username,
-      }).catch((error) => {
-        if (!String(error).includes("already exists")) throw error;
-      });
-      await api("POST", "workspaces/add_user", {
-        email,
-        is_admin: user?.is_admin ?? false,
-        operator: profile?.operator ?? false,
-      });
-      token = String(
-        await api("POST", "/auth/login", { email, password: EVAL_USER_PASSWORD }),
-      ).trim();
-    } catch (error) {
-      if (!String(error).includes("not implemented in the open-source")) throw error;
-      console.warn(
-        `[ai-evals] ${workspace}: CE cannot create the fixture user "${username}"; the backend runs this case as the admin.`,
-      );
-    }
+    token = `aievals${randomUUID().replace(/-/g, "")}`;
+    await psql(
+      `INSERT INTO password (email, password_hash, login_type, super_admin, verified, name, username)
+         VALUES (${literal(email)}, 'ai-evals-no-login', 'password', false, true, ${literal(username)},
+                 ${literal(username)})
+         ON CONFLICT (email) DO UPDATE SET username = EXCLUDED.username;
+       INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin)
+         VALUES (encode(sha256(${literal(token)}::bytea), 'hex'), ${literal(token.slice(0, 10))},
+                 ${literal(token)}, ${literal(email)}, ${literal(tokenLabel(workspace))}, false);`,
+    );
+    await api("POST", "workspaces/add_user", {
+      email,
+      is_admin: user?.is_admin ?? false,
+      operator: profile?.operator ?? false,
+    });
   }
   if (profile?.operator && profile.operatorSettings) {
     await api("POST", "workspaces/operator_settings", profile.operatorSettings);
@@ -527,4 +531,18 @@ async function sql(api: Api, database: string, content: string): Promise<void> {
   if (result && typeof result === "object" && "error" in result) {
     throw new Error(`seeding SQL failed: ${JSON.stringify(result.error)}`);
   }
+}
+
+/** Each attempt's user token carries its workspace, so the attempt revokes exactly its own. */
+function tokenLabel(workspace: string): string {
+  return `ai-evals ${workspace}`;
+}
+
+async function psql(sql: string): Promise<void> {
+  if (!DATABASE_URL) {
+    throw new Error(
+      "This fixture's user is not the admin: set WMILL_AI_EVAL_DATABASE_URL to the eval backend's database URL so the harness can create them.",
+    );
+  }
+  await promisify(execFile)("psql", [DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-qc", sql]);
 }

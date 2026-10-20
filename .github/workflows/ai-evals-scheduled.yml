@@ -148,6 +148,8 @@ jobs:
           MODEL: ${{ matrix.model }}
           WMILL_AI_EVAL_BACKEND_URL: http://localhost:8000
           WMILL_AI_EVAL_BACKEND_WORKSPACE: integration-tests
+          # Global fixtures whose user is not the admin are created in the backend's database.
+          WMILL_AI_EVAL_DATABASE_URL: postgres://postgres:changeme@localhost:5432/windmill
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GOOGLE_API_KEY }}

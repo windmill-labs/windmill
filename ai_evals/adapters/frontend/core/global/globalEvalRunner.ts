@@ -213,6 +213,9 @@ export async function runGlobalEval(
     });
     const helpers = {
       ...evalArtifacts.helpers,
+      // A standalone chat has no session: the tools that behave differently in one (a pipeline
+      // node is built into the pipeline draft there, not written as a script) read this.
+      sessionId: options.sessionChat ? evalArtifacts.helpers.sessionId : undefined,
       access,
       ...(panel && { openArtifact: panel.openArtifact }),
     };

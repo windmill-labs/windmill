@@ -187,8 +187,9 @@ that backend needs:
 - a superadmin login (the default `admin@windmill.dev`), since it creates and deletes
   workspaces. `WMILL_AI_EVAL_BACKEND_WORKSPACE` does not apply to global mode. A CE backend
   allows two workspaces besides `admins`, so attempts past that wait for a free slot;
-- an EE backend for fixtures whose `user` is not the admin: CE cannot create users, so there
-  the backend runs the case as the admin, and only the prompt describes the fixture user;
+- `WMILL_AI_EVAL_DATABASE_URL`, the eval backend's own database, for fixtures whose `user` is
+  not the admin: the harness writes that user and a token of theirs there with `psql` (CE cannot create
+  users through the API), adds them to the workspace, and revokes the token afterwards;
 - network access to the hub, which the hub tools reach through the backend, and the
   `embedding` cargo feature, without which `search_hub_scripts` has no index to search;
 - the `http_trigger` cargo feature, which mounts the routes HTTP trigger drafts are checked
