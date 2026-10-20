@@ -2377,10 +2377,6 @@ describe('global AI tools', () => {
 		expect(startedRun()?.args).toEqual({ name: 'Grace' })
 	})
 
-	// An agent step has no job of its own, so it runs as a flow preview of itself alone, opened on
-	// the same rows and the same values as the flow editor's own step test. A setting the step
-	// leaves alone is not offered at all, so a mounted widget cannot invent a value for it: an
-	// `enabled_tools` the form synthesized empty would advertise none of the agent's tools.
 	it('test_run_step refuses a linked agent whose unsaved edit is in conflict', async () => {
 		await quickjsReady()
 		stubRun({
@@ -2404,6 +2400,10 @@ describe('global AI tools', () => {
 		conflictSpy.mockRestore()
 	})
 
+	// An agent step has no job of its own, so it runs as a flow preview of itself alone, opened on
+	// the same rows and the same values as the flow editor's own step test. A setting the step
+	// leaves alone is not offered at all, so a mounted widget cannot invent a value for it: an
+	// `enabled_tools` the form synthesized empty would advertise none of the agent's tools.
 	it("test_run_step opens an aiagent step on the step's own configuration", async () => {
 		// Loaded outside the fake timers the run waits under, which its loader never sees fire.
 		await quickjsReady()
