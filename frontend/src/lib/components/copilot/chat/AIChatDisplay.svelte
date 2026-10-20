@@ -601,12 +601,22 @@
 	// Anything the user has started (text, an attachment) or is in the middle of (they opened it
 	// and have not left) keeps it open, and so does a workspace small enough that the composer is
 	// the page's main way in.
+	// Until the input is bound, the draft it starts with is the one it is seeded with: reading
+	// it as empty collapses a remounted composer that holds text for a frame, and the box then
+	// animates open as if the user had opened it.
+	const seededDraftEmpty = $derived(
+		!initialInstructions?.trim() &&
+			!initialAttachments?.pastes.length &&
+			!initialAttachments?.images.length &&
+			!initialAttachments?.files.length &&
+			!initialAttachments?.blobs.length
+	)
 	const composerCollapsed = $derived(
 		homeComposer &&
 			!disabled &&
 			!(starter?.where === 'home' && starter.fewItems) &&
 			!composerOpened &&
-			(aiChatInput?.isDraftEmpty() ?? true)
+			(aiChatInput ? aiChatInput.isDraftEmpty() : seededDraftEmpty)
 	)
 	function closeComposer() {
 		if (aiChatInput?.isDraftEmpty() ?? true) composerOpened = false
