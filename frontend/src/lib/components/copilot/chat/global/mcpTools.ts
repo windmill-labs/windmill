@@ -366,6 +366,7 @@ function createCallTool(servers: McpServer[], mode: 'read' | 'write'): SessionTo
 			? { planModeSafe: true }
 			: {
 					requiresConfirmation: true,
+					confirmAction: 'run',
 					confirmationMessage: (args: any) => `Call ${args?.tool ?? ''} on ${args?.server ?? ''}`
 				}),
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {

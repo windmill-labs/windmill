@@ -8,6 +8,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { createDispatcherIfMounted } from '$lib/createDispatcherIfMounted'
 	import TextInput from './text_input/TextInput.svelte'
+	import { parseDateTime } from './dateTimeInput'
 	// import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 
 	interface Props {
@@ -45,7 +46,7 @@
 	// let format: 'local' | 'utc' = 'local'
 
 	function parseValue(value: string | null | undefined = undefined) {
-		let dateFromValue: Date | undefined = value ? new Date(value) : undefined
+		let dateFromValue: Date | undefined = value ? parseDateTime(value, timezone) : undefined
 		if (!isValidDate(dateFromValue)) {
 			date = undefined
 			time = '12:00'

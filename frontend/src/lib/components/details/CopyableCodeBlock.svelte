@@ -46,7 +46,7 @@
 		<Highlight
 			{language}
 			{code}
-			class="{copyOnClick ? 'pointer-events-none' : 'select-text'} {wrap ? 'whitespace-pre-wrap break-all pr-8' : ''}"
+			class="{copyOnClick ? 'pointer-events-none' : 'select-text'} {wrap ? 'whitespace-pre-wrap [overflow-wrap:anywhere] pr-8' : ''}"
 		/>
 	</div>
 </div>
