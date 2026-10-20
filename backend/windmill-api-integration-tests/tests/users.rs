@@ -1066,18 +1066,54 @@ async fn test_set_password_revokes_mcp_oauth_grants(db: Pool<Postgres>) -> anyho
          VALUES ('test2-refresh', encode(sha256('MCP_ACCESS_TOKEN'::bytea), 'hex'), 'mcp-client',
                  'test2@windmill.dev', 'test-workspace', ARRAY['mcp:all'], gen_random_uuid(), now() + interval '30 days'),
                 ('test3-refresh', encode(sha256('OTHER_MCP_TOKEN'::bytea), 'hex'), 'mcp-client',
-                 'test3@windmill.dev', 'test-workspace', ARRAY['mcp:all'], gen_random_uuid(), now() + interval '30 days');",
+                 'test3@windmill.dev', 'test-workspace', ARRAY['mcp:all'], gen_random_uuid(), now() + interval '30 days');
+         INSERT INTO mcp_oauth_server_code (code, client_id, user_email, workspace_id, scopes, redirect_uri)
+         VALUES ('test2-code', 'mcp-client', 'test2@windmill.dev', 'test-workspace', ARRAY['mcp:all'],
+                 'http://localhost/cb');",
     )
     .execute(&db)
     .await?;
 
-    let resp = authed(client().post(format!(
-        "http://localhost:{}/api/users/set_password_of/test2@windmill.dev",
-        server.addr.port()
-    )))
-    .json(&json!({"password": "new-test-password-123"}))
-    .send()
+    // A refresh in flight: it holds the grant lock and writes its rotated tokens while the
+    // password change is waiting on that lock.
+    let mut grant = db.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock_shared(hashtext('mcp_oauth_grant:' || $1))")
+        .bind("test2@windmill.dev")
+        .execute(&mut *grant)
+        .await?;
+    let request = tokio::spawn(
+        authed(client().post(format!(
+            "http://localhost:{}/api/users/set_password_of/test2@windmill.dev",
+            server.addr.port()
+        )))
+        .json(&json!({"password": "new-test-password-123"}))
+        .send(),
+    );
+    for _ in 0..100 {
+        let waiting: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted)",
+        )
+        .fetch_one(&db)
+        .await?;
+        if waiting {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    sqlx::raw_sql(
+        "INSERT INTO token (token_hash, token_prefix, email, label, expiration)
+         VALUES (encode(sha256('MCP_ROTATED_TOKEN'::bytea), 'hex'), 'MCP_ROTATE', 'test2@windmill.dev',
+                 'mcp-oauth-mcp-client', now() + interval '7 days');
+         INSERT INTO mcp_oauth_refresh_token
+             (refresh_token, access_token_hash, client_id, user_email, workspace_id, scopes, token_family, expires_at)
+         VALUES ('test2-rotated', encode(sha256('MCP_ROTATED_TOKEN'::bytea), 'hex'), 'mcp-client',
+                 'test2@windmill.dev', 'test-workspace', ARRAY['mcp:all'], gen_random_uuid(), now() + interval '30 days');",
+    )
+    .execute(&mut *grant)
     .await?;
+    grant.commit().await?;
+
+    let resp = request.await??;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
 
     let labels: Vec<(String, String)> = sqlx::query_as(
@@ -1107,7 +1143,14 @@ async fn test_set_password_revokes_mcp_oauth_grants(db: Pool<Postgres>) -> anyho
     )
     .fetch_all(&db)
     .await?;
-    assert_eq!(invalidated, vec!["MCP_ACCESS".to_string()]);
+    assert_eq!(
+        invalidated,
+        vec!["MCP_ACCESS".to_string(), "MCP_ROTATE".to_string()]
+    );
+    let codes: i64 = sqlx::query_scalar("SELECT count(*) FROM mcp_oauth_server_code")
+        .fetch_one(&db)
+        .await?;
+    assert_eq!(codes, 0);
 
     Ok(())
 }

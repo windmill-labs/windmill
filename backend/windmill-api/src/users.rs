@@ -194,19 +194,37 @@ async fn list_guests(
     Ok(Json(GuestList { usage, guests }))
 }
 
-async fn revoke_mcp_oauth_grants<'c>(db: impl sqlx::PgExecutor<'c>, email: &str) -> Result<()> {
+/// Shared while issuing an MCP OAuth grant, exclusive while revoking: no grant outlives a revoke.
+pub(crate) async fn lock_mcp_oauth_grants(
+    conn: &mut sqlx::PgConnection,
+    email: &str,
+    exclusive: bool,
+) -> std::result::Result<(), sqlx::Error> {
+    let q = if exclusive {
+        "SELECT pg_advisory_xact_lock(hashtext('mcp_oauth_grant:' || $1))"
+    } else {
+        "SELECT pg_advisory_xact_lock_shared(hashtext('mcp_oauth_grant:' || $1))"
+    };
+    sqlx::query(q).bind(email).execute(conn).await?;
+    Ok(())
+}
+
+async fn revoke_mcp_oauth_grants(tx: &mut sqlx::PgConnection, email: &str) -> Result<()> {
+    lock_mcp_oauth_grants(&mut *tx, email, true).await?;
     // The token trigger only notifies for sessions, so evict deleted MCP access tokens explicitly.
     sqlx::query!(
         "WITH revoked AS (
              DELETE FROM token WHERE email = $1 AND label LIKE 'mcp-oauth-%' RETURNING token_prefix
          ), refresh AS (
              DELETE FROM mcp_oauth_refresh_token WHERE user_email = $1
+         ), code AS (
+             DELETE FROM mcp_oauth_server_code WHERE user_email = $1
          )
          INSERT INTO notify_event (channel, payload)
          SELECT 'notify_token_invalidation', token_prefix FROM revoked",
         email
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await?;
     Ok(())
 }
@@ -232,7 +250,9 @@ async fn set_password(
     )
     .execute(&db)
     .await?;
-    revoke_mcp_oauth_grants(&db, &email).await?;
+    let mut tx = db.begin().await?;
+    revoke_mcp_oauth_grants(&mut *tx, &email).await?;
+    tx.commit().await?;
     Ok(res)
 }
 
@@ -253,7 +273,9 @@ async fn set_password_of_user(
     )
     .execute(&db)
     .await?;
-    revoke_mcp_oauth_grants(&db, &email).await?;
+    let mut tx = db.begin().await?;
+    revoke_mcp_oauth_grants(&mut *tx, &email).await?;
+    tx.commit().await?;
     Ok(res)
 }
 
