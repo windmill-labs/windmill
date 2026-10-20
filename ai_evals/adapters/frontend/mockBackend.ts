@@ -11,6 +11,8 @@ import type {
 	ListableApp,
 	ListableResource,
 	ListableVariable,
+	Folder,
+	Group,
 	QueuedJob,
 	Resource,
 	Schedule,
@@ -147,6 +149,21 @@ export interface BenchmarkWorkspaceWorker {
 	jobs_executed?: number
 }
 
+/** A folder of the benchmark workspace, as `read_workspace_item` reads it. */
+export interface BenchmarkWorkspaceFolder {
+	name: string
+	summary?: string
+	owners?: string[]
+	/** Who else may use the folder, as `u/<user>` or `g/<group>`: `true` grants write. */
+	extra_perms?: Record<string, boolean>
+}
+
+export interface BenchmarkWorkspaceGroup {
+	name: string
+	summary?: string
+	members?: string[]
+}
+
 export interface BenchmarkWorkspaceSchedule {
 	path: string
 	/** Six-field cron. */
@@ -174,6 +191,10 @@ export interface BenchmarkWorkspaceRunnables {
 	/** The instance's workers. Unset falls through to the real backend's; `[]` is none. */
 	workers?: BenchmarkWorkspaceWorker[]
 	schedules?: BenchmarkWorkspaceSchedule[]
+	folders?: BenchmarkWorkspaceFolder[]
+	groups?: BenchmarkWorkspaceGroup[]
+	/** The workspace settings document (`get_workspace_settings` reads it). */
+	workspaceSettings?: Record<string, unknown>
 }
 
 type BenchmarkCompletedJob = CompletedJob & { type: 'CompletedJob' }
@@ -187,6 +208,8 @@ const benchmarkJobs = new Map<
 	string,
 	{ workspace: string; job: BenchmarkCompletedJob | BenchmarkQueuedJob }
 >()
+// What set_workspace_settings applied, per workspace, so get_workspace_settings reads it back.
+const benchmarkWorkspaceSettings = new Map<string, Record<string, unknown>>()
 
 function benchmarkJobKey(workspace: string, jobId: string): string {
 	return `${workspace}::${jobId}`
@@ -197,11 +220,12 @@ export function resetBenchmarkMockBackend(): void {
 	benchmarkWorkspaceRunnables.clear()
 	benchmarkJobs.clear()
 	benchmarkDrafts.clear()
+	benchmarkWorkspaceSettings.clear()
 }
 
 // Stand-in for FolderService.createFolder so the global create_folder tool runs in
-// memory instead of mutating the real backend. Folders aren't otherwise modelled
-// (no folder-listing in evals), so this just echoes the created name.
+// memory instead of mutating the real backend. It echoes the name without adding the
+// folder to the fixture folders that `listBenchmarkFolders` reads.
 export function createBenchmarkFolder(_workspace: string, name: string): string {
 	return name
 }
@@ -250,11 +274,15 @@ export function registerBenchmarkWorkspaceRunnables(
 			durationMs: seed.durationMs
 		})
 	}
+	if (runnables.workspaceSettings) {
+		benchmarkWorkspaceSettings.set(workspace, structuredClone(runnables.workspaceSettings))
+	}
 }
 
 export function unregisterBenchmarkWorkspace(workspace: string): void {
 	benchmarkWorkspaces.delete(workspace)
 	benchmarkWorkspaceRunnables.delete(workspace)
+	benchmarkWorkspaceSettings.delete(workspace)
 	clearBenchmarkDrafts(workspace)
 	for (const [jobId, entry] of benchmarkJobs.entries()) {
 		if (entry.workspace === workspace) {
@@ -748,6 +776,100 @@ export function listBenchmarkSchedules(workspace: string): Schedule[] {
 export function getBenchmarkSchedule(workspace: string, path: string): Schedule | null {
 	const s = benchmarkWorkspaceRunnables.get(workspace)?.schedules?.find((e) => e.path === path)
 	return s ? buildBenchmarkSchedule(workspace, s) : null
+}
+
+// ============= Folders, groups, workspace settings =============
+
+function buildBenchmarkFolder(workspace: string, f: BenchmarkWorkspaceFolder): Folder {
+	return {
+		workspace_id: workspace,
+		name: f.name,
+		summary: f.summary,
+		owners: f.owners ?? [],
+		extra_perms: f.extra_perms ?? {}
+	} as Folder
+}
+
+export function listBenchmarkFolders(workspace: string): Folder[] {
+	return (benchmarkWorkspaceRunnables.get(workspace)?.folders ?? []).map((f) =>
+		buildBenchmarkFolder(workspace, f)
+	)
+}
+
+export function getBenchmarkFolder(workspace: string, name: string): Folder | null {
+	const f = benchmarkWorkspaceRunnables.get(workspace)?.folders?.find((e) => e.name === name)
+	return f ? buildBenchmarkFolder(workspace, f) : null
+}
+
+export function listBenchmarkGroups(workspace: string): Group[] {
+	return (benchmarkWorkspaceRunnables.get(workspace)?.groups ?? []).flatMap((g) => {
+		const group = getBenchmarkGroup(workspace, g.name)
+		return group ? [group] : []
+	})
+}
+
+export function getBenchmarkGroup(workspace: string, name: string): Group | null {
+	const g = benchmarkWorkspaceRunnables.get(workspace)?.groups?.find((e) => e.name === name)
+	return g
+		? ({
+				workspace_id: workspace,
+				name: g.name,
+				summary: g.summary,
+				members: g.members ?? [],
+				extra_perms: {}
+			} as Group)
+		: null
+}
+
+const DATA_TABLE_DATABASE_TYPES = ['postgresql', 'instance', 'external_instance']
+
+/** Refuse a data table entry the backend's `DataTableDatabase` would not deserialize. */
+function assertBenchmarkDataTables(value: unknown): void {
+	if (value === undefined || value === null) return
+	const datatables = (value as { datatables?: Record<string, unknown> }).datatables ?? {}
+	for (const [name, entry] of Object.entries(datatables)) {
+		const database = (entry as { database?: { resource_type?: unknown; resource_path?: unknown } })
+			?.database
+		if (!DATA_TABLE_DATABASE_TYPES.includes(String(database?.resource_type))) {
+			throw new Error(
+				`datatable.datatables.${name}.database.resource_type must be one of ${DATA_TABLE_DATABASE_TYPES.join(', ')}`
+			)
+		}
+		if (typeof database?.resource_path !== 'string' || database.resource_path === '') {
+			throw new Error(`datatable.datatables.${name}.database.resource_path is required`)
+		}
+	}
+}
+
+/** Mirror `WorkspaceService.getWorkspaceSettingsDocument`; an unseeded workspace has an
+ * empty document. */
+export function getBenchmarkWorkspaceSettingsDocument(workspace: string): Record<string, unknown> {
+	return structuredClone(benchmarkWorkspaceSettings.get(workspace) ?? {})
+}
+
+/** Mirror `WorkspaceService.applyWorkspaceSettingsDocument` for a partial document: each
+ * top-level key replaces the stored one, `null` clears it. */
+export function applyBenchmarkWorkspaceSettingsDocument(input: {
+	workspace: string
+	requestBody: { document: Record<string, unknown>; dry_run?: boolean }
+}): {
+	changes: Array<{ key: string; before: unknown; after: unknown }>
+	applied: boolean
+} {
+	assertBenchmarkDataTables(input.requestBody.document.datatable)
+	const current = benchmarkWorkspaceSettings.get(input.workspace) ?? {}
+	const changes = Object.entries(input.requestBody.document)
+		.filter(([key, after]) => JSON.stringify(current[key] ?? null) !== JSON.stringify(after ?? null))
+		.map(([key, after]) => ({ key, before: current[key] ?? null, after: after ?? null }))
+	if (!input.requestBody.dry_run) {
+		const next = { ...current }
+		for (const { key, after } of changes) {
+			if (after === null) delete next[key]
+			else next[key] = structuredClone(after)
+		}
+		benchmarkWorkspaceSettings.set(input.workspace, next)
+	}
+	return { changes, applied: !input.requestBody.dry_run }
 }
 
 // ============= Drafts (per-user, DB-backed in production) =============

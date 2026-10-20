@@ -4,12 +4,14 @@ import { composerSuggestions, type ComposerRole } from './composerSuggestions'
 const developer: ComposerRole = { operator: false, workspaceAdmin: false, instanceAdmin: false }
 const operator: ComposerRole = { ...developer, operator: true }
 const workspaceAdmin: ComposerRole = { ...developer, workspaceAdmin: true }
-const instanceAdmin: ComposerRole = { operator: false, workspaceAdmin: true, instanceAdmin: true }
 
 const myDraft = { kind: 'flow', path: 'f/a/sync', name: 'Sync' }
 const failedDeploy = { kind: 'script', path: 'u/me/etl', name: 'etl' }
 const sharedFlow = { kind: 'flow', path: 'f/billing/charge', name: 'Charge customers' }
 const favorite = { kind: 'script', path: 'f/ops/check_ssl', name: 'Check SSL expiry' }
+const script = favorite
+const app = { kind: 'app', path: 'f/ops/console', name: 'Ops console' }
+const folderItem = sharedFlow
 const database = { type: 'postgresql', path: 'f/data/main_db', name: 'main_db' }
 const slack = { type: 'slack', path: 'f/team/slack', name: 'slack' }
 
@@ -26,58 +28,84 @@ describe('composerSuggestions', () => {
 		expect(labels({ itemCount: 0 }, operator)).toEqual([])
 	})
 
+	it("teaches the piece a workspace is missing first, as the reader's role allows", () => {
+		const fresh = { itemCount: 0, dataTables: [], database: null, channel: null }
+		expect(labels(fresh, workspaceAdmin)).toEqual([
+			'Set up a data table',
+			'Daily metrics to Slack',
+			'Approve refunds in Slack',
+			'Triage tickets to Slack'
+		])
+		expect(labels(fresh, developer)[0]).toBe('How do I store data?')
+		expect(labels({ ...fresh, dataTables: ['main'] }, developer)[0]).toBe('Connect Slack')
+		// Past its first items a workspace may keep data and Slack where these lists don't look.
+		const established = { ...fresh, itemCount: 25 }
+		expect(labels(established, workspaceAdmin)[0]).toBe('Set up a data table')
+		expect(labels(established, developer)).not.toContain('How do I store data?')
+		expect(labels(established, developer)).not.toContain('Connect Slack')
+	})
+
 	it('builds a new workspace from its own connections, naming their paths', () => {
-		const s = composerSuggestions({ itemCount: 0, database, channel: slack }, developer)
+		const s = composerSuggestions(
+			{ itemCount: 0, dataTables: ['main'], database, channel: slack },
+			developer
+		)
 		expect(s.map((x) => [x.mode, x.label])).toEqual([
 			['build', 'Daily main_db summary to Slack'],
-			['use', "What's in main_db?"],
-			['build', 'Approve refunds in Slack'],
-			['build', 'Triage tickets to Slack']
+			['use', "What's in the main data table?"],
+			['build', 'Build an app on the main data table'],
+			['use', 'Post a Slack message from a script']
 		])
 		expect(s[0].prompt).toContain('f/data/main_db')
 		expect(s[0].prompt).toContain('f/team/slack')
 	})
 
-	it("ranks the reader's own work first, then what the workspace holds, and caps at four", () => {
-		expect(
-			labels(
-				{ itemCount: 25, myDraft, failedDeploy, sharedFlow, favorite, database },
-				instanceAdmin
-			)
-		).toEqual([
+	it("ranks the reader's own work first, then what the workspace holds, once per concept", () => {
+		const established = {
+			itemCount: 25,
+			sharedFlow,
+			favorite,
+			script,
+			app,
+			folderItem,
+			database,
+			channel: slack,
+			dataTables: ['main']
+		}
+		expect(labels({ ...established, myDraft, failedDeploy }, workspaceAdmin)).toEqual([
 			'Finish my draft: Sync',
 			'Fix the deploy of etl',
-			'Walk me through Charge customers',
-			'Run Check SSL expiry'
+			"What's in the main data table?",
+			'Walk me through Charge customers'
 		])
-		expect(labels({ itemCount: 25, sharedFlow, database }, developer)).toEqual([
+		expect(labels(established, developer)).toEqual([
+			"What's in the main data table?",
 			'Walk me through Charge customers',
-			"What's in main_db?",
-			'Check recent runs',
-			'Check the run queue'
+			'Run Check SSL expiry',
+			'Add a page to Ops console'
 		])
 	})
 
 	it('keeps an operator to running and reading', () => {
 		expect(
-			labels({ itemCount: 25, myDraft, sharedFlow, favorite, database, channel: slack }, operator)
+			labels(
+				{ itemCount: 25, myDraft, sharedFlow, favorite, folderItem, dataTables: [], channel: null },
+				operator
+			)
 		).toEqual([
 			'Run Check SSL expiry',
 			'Walk me through Charge customers',
-			'Check recent runs',
-			'Check the run queue'
+			'What can I run here?',
+			'Who can see Charge customers?'
 		])
 	})
 
-	it('gives each role its checks', () => {
-		expect(labels({ itemCount: 10 }, developer)).toEqual([
-			'Check recent runs',
-			'Check the run queue'
-		])
+	it('fills with the checks for the role', () => {
 		expect(labels({ itemCount: 10 }, workspaceAdmin)).toEqual([
 			'Check the schedules',
 			'Check recent runs',
-			'Check the run queue'
+			'Check the run queue',
+			'Use my scripts from Claude'
 		])
 	})
 })

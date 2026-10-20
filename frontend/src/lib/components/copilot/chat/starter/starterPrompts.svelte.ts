@@ -1,9 +1,16 @@
 import { onboardingProfile, type StarterPrompt } from '$lib/onboardingProfile'
 import { userStore, workspaceStore } from '$lib/stores'
+import { canEditItem } from '$lib/editRights'
 import { scopedKey } from '$lib/userScopedStorage'
 import { fromStore, get } from 'svelte/store'
 import { resource } from 'runed'
-import { ResourceService, ScriptService, type ListableResource, type RunnableItem } from '$lib/gen'
+import {
+	ResourceService,
+	ScriptService,
+	WorkspaceService,
+	type ListableResource,
+	type RunnableItem
+} from '$lib/gen'
 import { favoriteManager } from '$lib/components/sidebar/FavoriteMenu.svelte'
 import {
 	CHANNEL_TYPES,
@@ -21,7 +28,8 @@ export type { ComposerSuggestion }
 
 /** The newest items read: enough to find a shared flow beside the reader's own work. */
 const ITEMS_READ = 25
-/** The connections read: a workspace rarely holds more databases and channels than this. */
+/** The connections read. A full page may have cut the channel off, so only a page shorter
+ * than this proves the workspace has none. */
 const RESOURCES_READ = 20
 
 /** The suggestions for the reader's role and the workspace the session acts on, and whether
@@ -140,7 +148,7 @@ export async function readComposerSignals(workspace: string): Promise<ComposerSi
 }
 
 async function fetchSignals(workspace: string): Promise<ComposerSignals> {
-	const [res, resources] = await Promise.all([
+	const [res, resources, dataTables] = await Promise.all([
 		// What Home's list counts: library scripts and the user's own drafts included.
 		ScriptService.listRunnables({
 			workspace,
@@ -150,29 +158,54 @@ async function fetchSignals(workspace: string): Promise<ComposerSignals> {
 			orderDesc: true,
 			perPage: ITEMS_READ
 		}),
-		readConnections(workspace)
+		readConnections(workspace),
+		readDataTables(workspace)
 	])
 	const items = res.items ?? []
-	const username = get(userStore)?.username
+	const deployed = items.filter((i) => !i.draft_only)
+	const user = get(userStore)
+	const username = user?.username
 	const draft = items.find(
 		(i) =>
 			i.is_draft ||
 			i.draft_only ||
 			(username && i.draft_users?.some((u) => u['username'] === username))
 	)
-	const deploy = items.find((i) => i.has_deploy_errors)
-	const shared = items.find(
-		(i) => i.type === 'flow' && !i.draft_only && !(username && i.path.startsWith(`u/${username}/`))
+	const editable = (i: RunnableItem) =>
+		canEditItem(
+			i.type === 'app' && i.raw_app ? 'raw_app' : i.type,
+			i.path,
+			i.extra_perms,
+			user,
+			undefined
+		)
+	const deploy = items.find((i) => i.has_deploy_errors && editable(i))
+	const shared = deployed.find(
+		(i) => i.type === 'flow' && !(username && i.path.startsWith(`u/${username}/`))
 	)
-	const starred = items.find((i) => i.starred && (i.type === 'script' || i.type === 'flow'))
+	// Only plain scripts run on their own: a library has no main function, a pipeline script
+	// runs as its pipeline, and test and preprocessor scripts serve another runnable.
+	const script = deployed.find(
+		(i) =>
+			i.type === 'script' && (!i.auto_kind || i.auto_kind === 'script' || i.auto_kind === 'wac')
+	)
+	const starred = deployed.find((i) => i.starred && (i.type === 'script' || i.type === 'flow'))
+	const pick = (item: RunnableItem | undefined) => item && composerItem(item)
+	const complete = resources !== undefined && resources.length < RESOURCES_READ
 	return {
 		itemCount: items.length,
 		myDraft: draft && composerItem(draft, draft.draft_path),
-		failedDeploy: deploy && composerItem(deploy),
-		sharedFlow: shared && composerItem(shared),
-		favorite: sidebarFavorite(workspace) ?? (starred && composerItem(starred)),
-		database: newest(resources.filter((r) => Object.hasOwn(DATABASE_TYPES, r.resource_type))),
-		channel: preferredChannel(resources)
+		failedDeploy: pick(deploy),
+		sharedFlow: pick(shared),
+		script: pick(script),
+		app: pick(deployed.find((i) => i.type === 'app' && i.raw_app && editable(i))),
+		agent: pick(deployed.find((i) => i.type === 'agent')),
+		folderItem: pick(deployed.find((i) => i.path.startsWith('f/'))),
+		favorite: sidebarFavorite(workspace) ?? pick(starred),
+		database:
+			resources && newest(resources.filter((r) => Object.hasOwn(DATABASE_TYPES, r.resource_type))),
+		channel: resources && (preferredChannel(resources) ?? (complete ? null : undefined)),
+		dataTables
 	}
 }
 
@@ -184,9 +217,9 @@ function sidebarFavorite(workspace: string): ComposerItem | undefined {
 	return f && { kind: f.kind, path: f.path, name: f.label }
 }
 
-/** The workspace's databases and channels; none when the list fails, which leaves the item
- * pills standing. */
-async function readConnections(workspace: string): Promise<ListableResource[]> {
+/** The workspace's databases and channels; unknown when the list fails, which fires none of
+ * the pills that read them. */
+async function readConnections(workspace: string): Promise<ListableResource[] | undefined> {
 	try {
 		return await ResourceService.listResource({
 			workspace,
@@ -195,7 +228,19 @@ async function readConnections(workspace: string): Promise<ListableResource[]> {
 		})
 	} catch (e) {
 		console.error(`Could not list the connections of workspace ${workspace}:`, e)
-		return []
+		return undefined
+	}
+}
+
+/** The workspace's data table names, `main` (the one scripts use by default) first; unknown
+ * when the list fails. */
+async function readDataTables(workspace: string): Promise<string[] | undefined> {
+	try {
+		const names = (await WorkspaceService.listDataTables({ workspace })).map((d) => d.name)
+		return names.includes('main') ? ['main', ...names.filter((n) => n !== 'main')] : names
+	} catch (e) {
+		console.error(`Could not list the data tables of workspace ${workspace}:`, e)
+		return undefined
 	}
 }
 

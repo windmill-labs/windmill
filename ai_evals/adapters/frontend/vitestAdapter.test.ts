@@ -125,6 +125,12 @@ vi.mock('$lib/gen', async () => {
 		listBenchmarkWorkers,
 		listBenchmarkSchedules,
 		getBenchmarkSchedule,
+		listBenchmarkFolders,
+		getBenchmarkFolder,
+		getBenchmarkGroup,
+		listBenchmarkGroups,
+		getBenchmarkWorkspaceSettingsDocument,
+		applyBenchmarkWorkspaceSettingsDocument,
 		getBenchmarkDatatableSchema,
 		getBenchmarkDatatableMigrationsStatus,
 		createBenchmarkDatatableMigration,
@@ -209,7 +215,29 @@ vi.mock('$lib/gen', async () => {
 			createFolder: async (data: { workspace: string; requestBody: { name: string } }) =>
 				hasBenchmarkWorkspace(data.workspace)
 					? createBenchmarkFolder(data.workspace, data.requestBody.name)
-					: actual.FolderService.createFolder(data)
+					: actual.FolderService.createFolder(data),
+			listFolders: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? listBenchmarkFolders(data.workspace)
+					: actual.FolderService.listFolders(data),
+			getFolder: async (data: { workspace: string; name: string }) => {
+				if (!hasBenchmarkWorkspace(data.workspace)) return actual.FolderService.getFolder(data)
+				const folder = getBenchmarkFolder(data.workspace, data.name)
+				if (!folder) throw new Error(`Folder "${data.name}" not found in benchmark workspace`)
+				return folder
+			}
+		}),
+		GroupService: wrapService(actual.GroupService, {
+			listGroups: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? listBenchmarkGroups(data.workspace)
+					: actual.GroupService.listGroups(data),
+			getGroup: async (data: { workspace: string; name: string }) => {
+				if (!hasBenchmarkWorkspace(data.workspace)) return actual.GroupService.getGroup(data)
+				const group = getBenchmarkGroup(data.workspace, data.name)
+				if (!group) throw new Error(`Group "${data.name}" not found in benchmark workspace`)
+				return group
+			}
 		}),
 		ScriptService: wrapService(actual.ScriptService, {
 			listScripts: async (data: { workspace: string }) =>
@@ -417,6 +445,14 @@ vi.mock('$lib/gen', async () => {
 					: actual.JobService.getFlowAllResults(data)
 		}),
 		WorkspaceService: wrapService(actual.WorkspaceService, {
+			getWorkspaceSettingsDocument: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkWorkspaceSettingsDocument(data.workspace)
+					: actual.WorkspaceService.getWorkspaceSettingsDocument(data),
+			applyWorkspaceSettingsDocument: async (data: any) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? applyBenchmarkWorkspaceSettingsDocument(data)
+					: actual.WorkspaceService.applyWorkspaceSettingsDocument(data),
 			getCopilotInfo: async (data: { workspace: string }) =>
 				hasBenchmarkWorkspace(data.workspace)
 					? (getBenchmarkAiConfig(data.workspace) ?? {})

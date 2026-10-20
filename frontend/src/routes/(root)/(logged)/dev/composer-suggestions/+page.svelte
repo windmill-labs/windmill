@@ -28,12 +28,18 @@
 	}
 
 	// Every field as the form holds it: a blank field is an absent signal, which fires no rule.
+	// "none" is a list that answered and holds none, which fires the pills that teach it.
 	type Form = {
 		itemCount: string
 		draftPath: string
 		deployPath: string
 		sharedFlowPath: string
+		scriptPath: string
+		appPath: string
+		agentPath: string
+		folderItemPath: string
 		favoritePath: string
+		dataTables: string
 		databasePath: string
 		databaseType: string
 		channelPath: string
@@ -44,7 +50,12 @@
 		draftPath: '',
 		deployPath: '',
 		sharedFlowPath: '',
+		scriptPath: '',
+		appPath: '',
+		agentPath: '',
+		folderItemPath: '',
 		favoritePath: '',
+		dataTables: '',
 		databasePath: '',
 		databaseType: 'postgresql',
 		channelPath: '',
@@ -52,8 +63,14 @@
 	}
 	const PRESETS: Record<string, Partial<Form>> = {
 		'Empty workspace': { itemCount: '0' },
+		'Fresh workspace': {
+			itemCount: '0',
+			dataTables: 'none',
+			channelType: 'none'
+		},
 		'Empty, connected': {
 			itemCount: '0',
+			dataTables: 'main',
 			databasePath: 'f/data/main_db',
 			channelPath: 'f/team/slack'
 		},
@@ -66,19 +83,42 @@
 		Established: {
 			itemCount: '25',
 			sharedFlowPath: 'f/billing/charge_customers',
+			scriptPath: 'f/ops/check_ssl_expiry',
+			appPath: 'f/ops/console',
+			folderItemPath: 'f/billing/charge_customers',
 			favoritePath: 'f/ops/check_ssl_expiry',
-			databasePath: 'f/data/main_db'
+			dataTables: 'main',
+			databasePath: 'f/data/main_db',
+			channelPath: 'f/team/slack'
 		}
 	}
-	type PathKey = 'draftPath' | 'deployPath' | 'sharedFlowPath' | 'favoritePath'
-	const PATH_FIELDS: { key: PathKey; label: string }[] = [
+	type PathKey =
+		| 'draftPath'
+		| 'deployPath'
+		| 'sharedFlowPath'
+		| 'scriptPath'
+		| 'appPath'
+		| 'agentPath'
+		| 'folderItemPath'
+		| 'favoritePath'
+		| 'dataTables'
+	const PATH_FIELDS: { key: PathKey; label: string; placeholder?: string }[] = [
 		{ key: 'draftPath', label: 'My latest draft (flow path)' },
 		{ key: 'deployPath', label: 'Latest failed deploy (script path)' },
 		{ key: 'sharedFlowPath', label: 'Newest shared flow (path)' },
-		{ key: 'favoritePath', label: 'Favorite (script path)' }
+		{ key: 'scriptPath', label: 'Newest script (path)' },
+		{ key: 'appPath', label: 'Newest full-code app (path)' },
+		{ key: 'agentPath', label: 'Newest AI agent (path)' },
+		{ key: 'folderItemPath', label: 'Newest item in a folder (path)' },
+		{ key: 'favoritePath', label: 'Favorite (script path)' },
+		{ key: 'dataTables', label: 'Data tables (names, or none)', placeholder: 'unknown' }
 	]
+	const NONE = { value: 'none', label: 'None connected' }
 	const DATABASE_ITEMS = Object.entries(DATABASE_TYPES).map(([value, label]) => ({ value, label }))
-	const CHANNEL_ITEMS = Object.keys(CHANNEL_TYPES).map((value) => ({ value, label: value }))
+	const CHANNEL_ITEMS = [
+		NONE,
+		...Object.keys(CHANNEL_TYPES).map((value) => ({ value, label: value }))
+	]
 
 	let roleName = $state<RoleName>('instanceAdmin')
 	let form = $state<Form>({ ...BLANK, ...PRESETS['Has items'] })
@@ -94,15 +134,29 @@
 		const i = item(type, path)
 		return i && { type: i.kind, path: i.path, name: i.name }
 	}
+	const names = (text: string) => {
+		const t = text.trim()
+		if (t === '') return undefined
+		if (t === 'none') return []
+		return t
+			.split(',')
+			.map((n) => n.trim())
+			.filter(Boolean)
+	}
 
 	const signals: ComposerSignals = $derived({
 		itemCount: num(form.itemCount),
 		myDraft: item('flow', form.draftPath),
 		failedDeploy: item('script', form.deployPath),
 		sharedFlow: item('flow', form.sharedFlowPath),
+		script: item('script', form.scriptPath),
+		app: item('app', form.appPath),
+		agent: item('agent', form.agentPath),
+		folderItem: item('flow', form.folderItemPath),
 		favorite: item('script', form.favoritePath),
 		database: connection(form.databaseType, form.databasePath),
-		channel: connection(form.channelType, form.channelPath)
+		channel: form.channelType === 'none' ? null : connection(form.channelType, form.channelPath),
+		dataTables: names(form.dataTables)
 	})
 	const suggestions = $derived(composerSuggestions(signals, ROLES[roleName]))
 
@@ -121,11 +175,16 @@
 			draftPath: s.myDraft?.path ?? '',
 			deployPath: s.failedDeploy?.path ?? '',
 			sharedFlowPath: s.sharedFlow?.path ?? '',
+			scriptPath: s.script?.path ?? '',
+			appPath: s.app?.path ?? '',
+			agentPath: s.agent?.path ?? '',
+			folderItemPath: s.folderItem?.path ?? '',
 			favoritePath: s.favorite?.path ?? '',
+			dataTables: s.dataTables === undefined ? '' : s.dataTables.join(', ') || 'none',
 			databasePath: s.database?.path ?? '',
 			databaseType: s.database?.type ?? BLANK.databaseType,
 			channelPath: s.channel?.path ?? '',
-			channelType: s.channel?.type ?? BLANK.channelType
+			channelType: s.channel === null ? 'none' : (s.channel?.type ?? BLANK.channelType)
 		}
 		picked = undefined
 		loading = false
@@ -211,7 +270,7 @@
 							<TextInput
 								bind:value={() => form[field.key], (v) => (form[field.key] = String(v ?? ''))}
 								size="sm"
-								inputProps={{ placeholder: 'none' }}
+								inputProps={{ placeholder: field.placeholder ?? 'none' }}
 							/>
 						</label>
 					{/each}
