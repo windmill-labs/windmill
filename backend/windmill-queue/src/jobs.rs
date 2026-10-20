@@ -1641,6 +1641,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     }
 
     let mut _skip_downstream_error_handlers = false;
+    let mut schedule_for_handlers = None;
     if completed_job.is_flow_step() {
         if let Some(parent_job) = monitor_parent {
             let r = sqlx::query_scalar!(
@@ -1720,49 +1721,9 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 // per-occurrence failure/recovery status across the whole retry
                 // chain, so multi-count/exact handler policies work even though
                 // each attempt is its own completed job.
-                #[cfg(all(feature = "enterprise", feature = "private"))]
                 if !retry_pending {
-                    if let Err(err) = crate::jobs_ee::apply_schedule_handlers(
-                        db,
-                        &schedule,
-                        &script_path,
-                        &completed_job.workspace_id,
-                        success,
-                        result,
-                        job_id,
-                        // Current occurrence's root: the terminal native-retry
-                        // attempt's parent, else the job itself.
-                        completed_job.parent_job.unwrap_or(job_id),
-                        completed_job.started_at.unwrap_or(chrono::Utc::now()),
-                        completed_job.priority,
-                    )
-                    .warn_after_seconds(10)
-                    .await
-                    {
-                        if !success {
-                            tracing::error!("Could not apply schedule error handler: {}", err);
-                            let base_url = windmill_common::BASE_URL.load();
-                            let w_id: &String = &completed_job.workspace_id;
-                            if !matches!(err, Error::QuotaExceeded(_)) {
-                                report_error_to_workspace_handler_or_critical_side_channel(
-                                        &completed_job,
-                                        db,
-                                        format!(
-                                            "Failed to push schedule error handler job to handle failed job ({base_url}/run/{}?workspace={w_id}): {}",
-                                            completed_job.id,
-                                            err
-                                        ),
-                                    )
-                                    .warn_after_seconds(10)
-                                    .await;
-                            }
-                        } else {
-                            tracing::error!("Could not apply schedule recovery handler: {}", err);
-                        }
-                    };
+                    schedule_for_handlers = Some((schedule, script_path));
                 }
-                #[cfg(not(all(feature = "enterprise", feature = "private")))]
-                let _ = retry_pending;
             } else {
                 tracing::error!(
                         "Schedule {schedule_path} in {} not found. Impossible to schedule again and apply schedule handlers",
@@ -1823,6 +1784,52 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     }
 
     tx.commit().warn_after_seconds(10).await?;
+
+    // The handlers read and push through `db`, so they run after the commit: inside the
+    // transaction they would hold its connection while waiting for more from the same pool.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    if let Some((schedule, script_path)) = schedule_for_handlers {
+        if let Err(err) = crate::jobs_ee::apply_schedule_handlers(
+            db,
+            &schedule,
+            script_path,
+            &completed_job.workspace_id,
+            success,
+            result,
+            job_id,
+            // Current occurrence's root: the terminal native-retry
+            // attempt's parent, else the job itself.
+            completed_job.parent_job.unwrap_or(job_id),
+            completed_job.started_at.unwrap_or(chrono::Utc::now()),
+            completed_job.priority,
+        )
+        .warn_after_seconds(10)
+        .await
+        {
+            if !success {
+                tracing::error!("Could not apply schedule error handler: {}", err);
+                let base_url = windmill_common::BASE_URL.load();
+                let w_id: &String = &completed_job.workspace_id;
+                if !matches!(err, Error::QuotaExceeded(_)) {
+                    report_error_to_workspace_handler_or_critical_side_channel(
+                            &completed_job,
+                            db,
+                            format!(
+                                "Failed to push schedule error handler job to handle failed job ({base_url}/run/{}?workspace={w_id}): {}",
+                                completed_job.id,
+                                err
+                            ),
+                        )
+                        .warn_after_seconds(10)
+                        .await;
+                }
+            } else {
+                tracing::error!("Could not apply schedule recovery handler: {}", err);
+            }
+        };
+    }
+    #[cfg(not(all(feature = "enterprise", feature = "private")))]
+    let _ = schedule_for_handlers;
 
     log_completed_job(completed_job, completed.duration_ms, success);
     // tracing::info!("completed job: {:?}", start.elapsed().as_micros());
