@@ -179,7 +179,6 @@ async function fetchSignals(workspace: string): Promise<ComposerSignals> {
 			user,
 			undefined
 		)
-	const deploy = items.find((i) => i.has_deploy_errors && editable(i))
 	const shared = deployed.find(
 		(i) => i.type === 'flow' && !(username && i.path.startsWith(`u/${username}/`))
 	)
@@ -195,7 +194,6 @@ async function fetchSignals(workspace: string): Promise<ComposerSignals> {
 	return {
 		itemCount: items.length,
 		myDraft: draft && composerItem(draft, draft.draft_path),
-		failedDeploy: pick(deploy),
 		sharedFlow: pick(shared),
 		script: pick(script),
 		app: pick(deployed.find((i) => i.type === 'app' && i.raw_app && editable(i))),

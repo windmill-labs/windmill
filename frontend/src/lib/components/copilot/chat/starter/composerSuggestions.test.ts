@@ -6,7 +6,6 @@ const operator: ComposerRole = { ...developer, operator: true }
 const workspaceAdmin: ComposerRole = { ...developer, workspaceAdmin: true }
 
 const myDraft = { kind: 'flow', path: 'f/a/sync', name: 'Sync' }
-const failedDeploy = { kind: 'script', path: 'u/me/etl', name: 'etl' }
 const sharedFlow = { kind: 'flow', path: 'f/billing/charge', name: 'Charge customers' }
 const favorite = { kind: 'script', path: 'f/ops/check_ssl', name: 'Check SSL expiry' }
 const script = favorite
@@ -72,11 +71,11 @@ describe('composerSuggestions', () => {
 			channel: slack,
 			dataTables: ['main']
 		}
-		expect(labels({ ...established, myDraft, failedDeploy }, workspaceAdmin)).toEqual([
+		expect(labels({ ...established, myDraft }, workspaceAdmin)).toEqual([
 			'Finish my draft: Sync',
-			'Fix the deploy of etl',
 			"What's in the main data table?",
-			'Walk me through Charge customers'
+			'Walk me through Charge customers',
+			'Run Check SSL expiry'
 		])
 		expect(labels(established, developer)).toEqual([
 			"What's in the main data table?",

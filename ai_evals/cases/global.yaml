@@ -3317,31 +3317,6 @@
     - finds the 12 gpu_render runs queued on the gpu-renderer tag that no connected worker serves
     - finds the refund_approval flow suspended on its approval step, and says approving it unblocks it
 
-- id: global-composer-fix-deploy
-  prompt: |-
-    The last deploy of the script f/data/etl_nightly failed. Find out why and fix it.
-  initial: ai_evals/fixtures/frontend/global/initial/composer_failed_deploy.json
-  runtime:
-    maxTurns: 18
-    sessionChat: true
-  # "Fix it" may end in a draft or in a deploy, which clears the draft, so the fix is pinned
-  # through the edit the model made rather than through the drafts left behind.
-  toolExpect:
-    requiredToolsUsed:
-      - get_run
-    requiredToolsAnyOf:
-      - - write_script
-        - edit_script
-    forbiddenToolsUsed:
-      - delete_workspace_item
-  assistantExpect:
-    requiredMentionsAnyOf:
-      - - pandsa
-  skipJudge: true
-  judgeChecklist:
-    - reads the failed dependency job's logs to find that pandsa cannot be resolved
-    - corrects the misspelled pandsa import to pandas and leaves the rest of the script as it was
-
 - id: global-composer-worker-health
   prompt: |-
     Are the workers healthy and keeping up with the queue? Compare how long jobs wait before they start with how busy each worker group is.

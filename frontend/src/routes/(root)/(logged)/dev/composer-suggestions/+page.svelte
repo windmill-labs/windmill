@@ -32,7 +32,6 @@
 	type Form = {
 		itemCount: string
 		draftPath: string
-		deployPath: string
 		sharedFlowPath: string
 		scriptPath: string
 		appPath: string
@@ -48,7 +47,6 @@
 	const BLANK: Form = {
 		itemCount: '',
 		draftPath: '',
-		deployPath: '',
 		sharedFlowPath: '',
 		scriptPath: '',
 		appPath: '',
@@ -77,8 +75,7 @@
 		'Has items': { itemCount: '25' },
 		'Own work': {
 			itemCount: '25',
-			draftPath: 'f/billing/sync_invoices',
-			deployPath: 'u/admin/etl_nightly'
+			draftPath: 'f/billing/sync_invoices'
 		},
 		Established: {
 			itemCount: '25',
@@ -94,7 +91,6 @@
 	}
 	type PathKey =
 		| 'draftPath'
-		| 'deployPath'
 		| 'sharedFlowPath'
 		| 'scriptPath'
 		| 'appPath'
@@ -104,7 +100,6 @@
 		| 'dataTables'
 	const PATH_FIELDS: { key: PathKey; label: string; placeholder?: string }[] = [
 		{ key: 'draftPath', label: 'My latest draft (flow path)' },
-		{ key: 'deployPath', label: 'Latest failed deploy (script path)' },
 		{ key: 'sharedFlowPath', label: 'Newest shared flow (path)' },
 		{ key: 'scriptPath', label: 'Newest script (path)' },
 		{ key: 'appPath', label: 'Newest full-code app (path)' },
@@ -147,7 +142,6 @@
 	const signals: ComposerSignals = $derived({
 		itemCount: num(form.itemCount),
 		myDraft: item('flow', form.draftPath),
-		failedDeploy: item('script', form.deployPath),
 		sharedFlow: item('flow', form.sharedFlowPath),
 		script: item('script', form.scriptPath),
 		app: item('app', form.appPath),
@@ -173,7 +167,6 @@
 		form = {
 			itemCount: String(s.itemCount ?? ''),
 			draftPath: s.myDraft?.path ?? '',
-			deployPath: s.failedDeploy?.path ?? '',
 			sharedFlowPath: s.sharedFlow?.path ?? '',
 			scriptPath: s.script?.path ?? '',
 			appPath: s.app?.path ?? '',

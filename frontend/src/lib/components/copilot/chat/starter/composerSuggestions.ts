@@ -67,9 +67,6 @@ export type ComposerSignals = {
 	itemCount?: number
 	/** The reader's draft among the items the list call reads, the most recently updated. */
 	myDraft?: ComposerItem
-	/** Among the same items the reader may edit, the most recently updated one whose last
-	 * deploy failed. */
-	failedDeploy?: ComposerItem
 	/** Among the same items, the most recently updated flow outside the reader's user folder. */
 	sharedFlow?: ComposerItem
 	/** Among the same items, the most recently updated deployed script with a main function. */
@@ -119,8 +116,10 @@ const MAX_NAME = 32
  * most pressing first: their unfinished work, the next piece the workspace is missing, then
  * what it already holds, the build examples while it is empty, and checks for the role. A
  * concept is offered once. A prompt names the exact item or connection path: the chat cannot
- * list resources by type, so "our database" would leave it guessing. The checks claim nothing
- * about the workspace, so they read the same whether or not anything is wrong. */
+ * list resources by type, so "our database" would leave it guessing. A pill reads what the
+ * workspace holds, never how its runs went: one that names a failure would announce it and
+ * offer the fix at once. The checks claim nothing, so they read the same whether or not
+ * anything is wrong. */
 export function composerSuggestions(
 	signals: ComposerSignals,
 	role: ComposerRole
@@ -152,14 +151,6 @@ export function composerSuggestions(
 				'build',
 				`Finish my draft: ${shortName(draft.name)}`,
 				`Help me finish my draft of the ${draft.kind} ${draft.path}`
-			)
-		const deploy = signals.failedDeploy
-		if (deploy)
-			add(
-				'deploy',
-				'build',
-				`Fix the deploy of ${shortName(deploy.name)}`,
-				`The last deploy of the ${deploy.kind} ${deploy.path} failed. Find out why and fix it.`
 			)
 
 		// The next piece the workspace is missing, one at a time: where data lives, then a
