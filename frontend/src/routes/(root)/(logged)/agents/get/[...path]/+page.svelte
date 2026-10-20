@@ -222,7 +222,9 @@
 	<div class="relative flex-1 min-h-0" bind:clientWidth>
 		<Splitpanes>
 			<Pane size={wide ? 65 : 100} minSize={50}>
-				{@render agentPane()}
+				<div class="h-full" inert={!wide && mobileTab === 'use'}>
+					{@render agentPane()}
+				</div>
 			</Pane>
 			{#if wide && ws && config}
 				<Pane size={35} minSize={15}>
