@@ -98,19 +98,21 @@ fn instance_signing_secrets() -> Vec<String> {
     }
 }
 
-/// Agents answer only when the server verifies Slack's request signatures, with the workspace's
-/// own app's secret or else the instance's.
+/// Agents answer only when the server verifies Slack's request signatures, with the secret of the
+/// app the workspace is connected through: its own app's, or else the instance's.
 async fn signing_secret_set(db: &DB, w_id: &str) -> Result<bool> {
-    let own_secret = sqlx::query_scalar!(
-        "SELECT slack_oauth_client_id IS NOT NULL AND slack_signing_secret IS NOT NULL
+    let own_app = sqlx::query!(
+        "SELECT slack_oauth_client_id IS NOT NULL AS \"own_app!\",
+                slack_signing_secret IS NOT NULL AS \"own_secret!\"
          FROM workspace_settings WHERE workspace_id = $1",
         w_id
     )
     .fetch_optional(db)
-    .await?
-    .flatten()
-    .unwrap_or(false);
-    Ok(own_secret || !instance_signing_secrets().is_empty())
+    .await?;
+    Ok(match own_app {
+        Some(r) if r.own_app => r.own_secret,
+        _ => !instance_signing_secrets().is_empty(),
+    })
 }
 
 /// Checks a Slack request, for each workspace connected to `team_id`, against the signing secret
