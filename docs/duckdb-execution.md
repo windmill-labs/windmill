@@ -85,6 +85,18 @@ The runner links duckdb-rs from crates.io, pinned with `=` so `cargo update` can
 engine. The engine loads the **prebuilt** extensions from `extensions.duckdb.org`, compiled for the
 exact release it reports, so an engine bump is a version change in `Cargo.toml` and nothing else.
 
+What a bump can break is user scripts and shared state, so a major one keeps the previous major's
+behavior and leaves the new one opt-in:
+
+- `setup_duckdb_connection` reverts the SQL defaults DuckDB 2.0 changed: `x -> …` lambdas and
+  `NULL` for integer `//` / `%` by zero. A script can `SET` either back. DuckDB 2.1 removes
+  `lambda_syntax`, and the setting has to go then.
+- `transform_attach_ducklake` attaches lakes with `DUCKLAKE_VERSION '1.0'` unless the lake's
+  extra args name one. Windmill also passes `AUTOMATIC_MIGRATION TRUE`, which unpinned migrates to
+  the newest catalog format. A migrated catalog cannot be downgraded and older engines cannot read
+  it, so a mixed-version worker fleet or a rollback would lose the lake. A lake opts into 1.1
+  with `DUCKLAKE_VERSION '1.1'` in its extra args, once no worker runs DuckDB 1.x.
+
 Confinement belongs to the job isolation, not to engine settings. DuckDB spills through the same
 file system a query reads with, so `disabled_filesystems='LocalFileSystem'` also stops every query
 that outgrows `memory_limit`, and no combination of stock settings gives "spill, but no other local

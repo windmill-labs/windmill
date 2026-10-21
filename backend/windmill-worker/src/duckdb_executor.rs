@@ -1602,7 +1602,6 @@ pub async fn do_duckdb(
         )
         .await?;
 
-
         let base_internal_url = client.base_internal_url.clone();
         let w_id = job.workspace_id.clone();
         let job_dir = job_dir.to_string();
@@ -2323,6 +2322,15 @@ async fn transform_attach_ducklake(
         extra_args
     } else {
         format!(", AUTOMATIC_MIGRATION TRUE{extra_args}")
+    };
+    // Keep catalogs at format 1.0 unless the lake's args name a version: a catalog migrated to
+    // 1.1 cannot be downgraded and is unreadable by DuckDB 1.x engines, so one job on an upgraded
+    // worker would break every older worker and any rollback. Unpinned, AUTOMATIC_MIGRATION
+    // targets the newest format and new catalogs are created at it.
+    let extra_args = if extra_args.contains("DUCKLAKE_VERSION") {
+        extra_args
+    } else {
+        format!(", DUCKLAKE_VERSION '1.0'{extra_args}")
     };
     // In a fork, re-emit the fork-owned DATA_PATH as the LAST option: DuckDB keeps the last
     // occurrence of a duplicated option, so this wins over anything the arg stripping might
