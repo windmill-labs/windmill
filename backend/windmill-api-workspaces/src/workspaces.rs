@@ -6208,7 +6208,7 @@ async fn edit_variable_expiration_handler(
             ));
         }
 
-        // Hub paths are the pinned built-ins, left unchecked so saving never needs the hub.
+        // Any hub script is left unchecked, so saving never needs the hub.
         let exists = if let Some(p) = path.strip_prefix("script/") {
             p.starts_with("hub/")
                 || sqlx::query_scalar!(
