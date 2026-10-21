@@ -77,7 +77,7 @@ use windmill_common::{
         check_proper_path, http_get_from_hub, not_found_if_none, paginate, paginate_optional,
         query_elems_from_hub, require_admin, strip_json_nul, Pagination, RunnableKind, StripPath,
     },
-    variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
+    variables::{build_crypt, build_crypt_with_key_suffix, encrypt, omit_untrusted_interpolation},
     worker::{to_raw_value, CLOUD_HOSTED},
     workspaces::{
         check_deploy_rules, check_operator_can_build, check_user_against_rule,
@@ -6520,6 +6520,7 @@ async fn build_args(
         }
     }
 
+    let mut untrusted = HashMap::new();
     for (k, v) in args {
         if safe_args.contains_key(&k) {
             continue;
@@ -6533,31 +6534,16 @@ async fn build_args(
                 k.to_string(),
                 ctx_value(prop, policy, authed, w_id, db).await?,
             );
-        } else if !arg_str.contains("\"$var:") && !arg_str.contains("\"$res:") {
-            safe_args.insert(k.to_string(), v);
         } else {
-            safe_args.insert(
-                k.to_string(),
-                RawValue::from_string(
-                    arg_str
-                        .replace(
-                            "$var:",
-                            "The following variable has been omitted for security reasons: ",
-                        )
-                        .replace(
-                            "$res:",
-                            "The following resource has been omitted for security reasons, to allow it, toggle: 'Allow resources from users' on that field input: ",
-                        ),
-                )
-                .map_err(|e| {
-                    Error::internal_err(format!(
-                        "failed to remove sensitive variable(s)/resource(s) with error: {}",
-                        e
-                    ))
-                })?,
-            );
+            untrusted.insert(k, v);
         }
     }
+    safe_args.extend(
+        omit_untrusted_interpolation(
+            untrusted,
+            "The following resource has been omitted for security reasons, to allow it, toggle: 'Allow resources from users' on that field input: ",
+        ),
+    );
     for k in sensitive_inputs {
         let Some(v) = safe_args.get(k) else { continue };
         let raw = v.get();

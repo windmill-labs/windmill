@@ -103,13 +103,12 @@ async fn connect_mcp_client(
 
             if let Some(info) = token_info {
                 if let (Some(account_id), Some(true)) = (info.account_id, info.is_expired) {
-                    let refresh_tx = user_db.clone().begin(authed).await?;
                     if let Err(e) = crate::oauth2_oss::_refresh_token(
-                        refresh_tx,
                         token_var_path,
                         w_id,
                         account_id,
                         db,
+                        false,
                     )
                     .await
                     {
