@@ -370,7 +370,7 @@
 				onmouseenter={() => (now = Date.now())}
 				role="note"
 			>
-				<TimeAgo date={new Date(item.at).toISOString()} compact />
+				<TimeAgo date={new Date(item.at).toISOString()} compact noSeconds />
 			</span>
 		{/if}
 		<div class="shrink-0 pr-1 text-secondary">
