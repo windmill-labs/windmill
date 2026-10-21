@@ -626,10 +626,9 @@ async fn test_resolve_completed_jobs_scoping(db: Pool<Postgres>) -> anyhow::Resu
         .json(&json!({ "job_ids": [mine] }))
         .send()
         .await?;
-    // Error::NotAuthorized maps to 401 (403 is RequireAdmin/PermissionDenied).
     assert_eq!(
         resp.status().as_u16(),
-        401,
+        403,
         "operators must be refused: {}",
         resp.text().await?
     );

@@ -19,6 +19,7 @@ use windmill_api_auth::{
     build_scope_path_predicate, check_scopes, get_scope_tags, maybe_refresh_folders,
     require_owner_of_path, ApiAuthed,
 };
+use windmill_common::roles::AuthorLevel;
 use windmill_common::workspaces::{
     check_deploy_rules, check_operator_can_build, operator_builder_rights, BuilderKind,
     RuleCheckResult,
@@ -244,7 +245,7 @@ async fn list_flows(
 
     // Append the authed user's drafts at paths with no deployed flow; see scripts.rs.
     if lq.include_draft_only.unwrap_or(false)
-        && (!authed.is_operator || operator_builder_rights(&db, &w_id).await?.flows)
+        && operator_builder_rights(&db, &w_id, &authed).await?.flows
         && offset == 0
         && lq.path_start.is_none()
         && lq.path_exact.is_none()
@@ -576,6 +577,7 @@ async fn list_paths_linking_agent(
 
 async fn validate_flow(
     new_flow: &NewFlow,
+    flows_level: AuthorLevel,
     authed: &ApiAuthed,
     db: &DB,
     user_db: &UserDB,
@@ -591,7 +593,7 @@ async fn validate_flow(
 
     guard_flow_from_debounce_data(new_flow).await?;
 
-    if authed.is_operator {
+    if flows_level == AuthorLevel::Compose {
         validate_operator_flow(
             &new_flow.parse_flow_value()?,
             &new_flow.tag,
@@ -809,14 +811,8 @@ async fn create_flow(
     Path(w_id): Path<String>,
     Json(mut nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
-    check_operator_can_build(
-        &db,
-        &w_id,
-        authed.is_operator,
-        BuilderKind::Flows,
-        "create flows",
-    )
-    .await?;
+    let flows_level =
+        check_operator_can_build(&db, &w_id, &authed, BuilderKind::Flows, "create flows").await?;
     check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
 
     // A `<= 0` flow timeout is "unset", not a 0-second limit that kills every run instantly.
@@ -836,7 +832,7 @@ async fn create_flow(
         return Err(Error::PermissionDenied(msg));
     }
 
-    validate_flow(&nf, &authed, &db, &user_db, &w_id).await?;
+    validate_flow(&nf, flows_level, &authed, &db, &user_db, &w_id).await?;
     if *CLOUD_HOSTED {
         let nb_flows =
             sqlx::query_scalar!("SELECT COUNT(*) FROM flow WHERE workspace_id = $1", &w_id)
@@ -1431,14 +1427,8 @@ async fn update_flow(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Json(ef): Json<EditFlow>,
 ) -> Result<String> {
-    check_operator_can_build(
-        &db,
-        &w_id,
-        authed.is_operator,
-        BuilderKind::Flows,
-        "update flows",
-    )
-    .await?;
+    let flows_level =
+        check_operator_can_build(&db, &w_id, &authed, BuilderKind::Flows, "update flows").await?;
     let flow_path = flow_path.to_path();
     // The URL identifies the flow being updated; the body path is only needed to rename.
     let mut nf = ef.into_new_flow(flow_path);
@@ -1465,7 +1455,7 @@ async fn update_flow(
         return Err(Error::PermissionDenied(msg));
     }
 
-    validate_flow(&nf, &authed, &db, &user_db, &w_id).await?;
+    validate_flow(&nf, flows_level, &authed, &db, &user_db, &w_id).await?;
 
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
     // Before `tx` opens, for the reason given in `create_flow`.
@@ -2133,14 +2123,7 @@ async fn archive_flow_by_path(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(archived): Json<Archived>,
 ) -> Result<String> {
-    check_operator_can_build(
-        &db,
-        &w_id,
-        authed.is_operator,
-        BuilderKind::Flows,
-        "archive flows",
-    )
-    .await?;
+    check_operator_can_build(&db, &w_id, &authed, BuilderKind::Flows, "archive flows").await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -2281,14 +2264,7 @@ async fn delete_flow_by_path(
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<DeleteFlowQuery>,
 ) -> Result<String> {
-    check_operator_can_build(
-        &db,
-        &w_id,
-        authed.is_operator,
-        BuilderKind::Flows,
-        "delete flows",
-    )
-    .await?;
+    check_operator_can_build(&db, &w_id, &authed, BuilderKind::Flows, "delete flows").await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", path))?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(

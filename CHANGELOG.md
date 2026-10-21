@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.842.0](https://github.com/windmill-labs/windmill/compare/v1.841.0...v1.842.0) (2026-10-20)
+
+
+### Features
+
+* let AI agents answer in Slack ([#11630](https://github.com/windmill-labs/windmill/issues/11630)) ([35b250e](https://github.com/windmill-labs/windmill/commit/35b250e76739a1e6f543971b099d5796a44d0c89))
+* name the action on chat tool confirmation buttons ([#11795](https://github.com/windmill-labs/windmill/issues/11795)) ([7d01d25](https://github.com/windmill-labs/windmill/commit/7d01d252b526987f8f0b86695de2f9c90de64519))
+
+
+### Bug Fixes
+
+* align collapsed conversations sidebar chat icon with the buttons above ([#11873](https://github.com/windmill-labs/windmill/issues/11873)) ([24238d4](https://github.com/windmill-labs/windmill/commit/24238d4062801558f90728b17e3d70e980c733dd))
+* align sidebar home with the header when ai sessions is off ([#11882](https://github.com/windmill-labs/windmill/issues/11882)) ([1874808](https://github.com/windmill-labs/windmill/commit/18748084705dc48994b7378217e0df1e8bfbfe3f))
+* give the agent page's API and Slack sections tabs on small screens ([#11901](https://github.com/windmill-labs/windmill/issues/11901)) ([394d345](https://github.com/windmill-labs/windmill/commit/394d345e0c8d9d7da87371e8da090d3becc77ce7))
+* keep schedule push, flow advance, wac approval and scim on one pool connection ([#11904](https://github.com/windmill-labs/windmill/issues/11904)) ([8afe060](https://github.com/windmill-labs/windmill/commit/8afe0607abd6bb689a0644916fcdc39fb7df2fe3))
+* keep the flow chat mounted when leaving the chat tab ([#11872](https://github.com/windmill-labs/windmill/issues/11872)) ([ed58996](https://github.com/windmill-labs/windmill/commit/ed589963f4d7b7d50a69cacdede443f2bb7efd18))
+* let devops users reach instance pages without a workspace ([#11876](https://github.com/windmill-labs/windmill/issues/11876)) ([a3a4fa5](https://github.com/windmill-labs/windmill/commit/a3a4fa503804eb9f031699b60e00a196d223cbe6))
+* **mcp:** escape JSON inlined in the MCP OAuth callback page ([#11880](https://github.com/windmill-labs/windmill/issues/11880)) ([5d0a8a9](https://github.com/windmill-labs/windmill/commit/5d0a8a9c15cd54032f930f8a21a0c2c3b517d60d))
+* refresh oauth tokens without holding a pool connection ([#11905](https://github.com/windmill-labs/windmill/issues/11905)) ([8ddb358](https://github.com/windmill-labs/windmill/commit/8ddb358198e834642f259197aa5f6d96bd7740d3))
+* spell the schedule pause time the way the picker writes it ([#11875](https://github.com/windmill-labs/windmill/issues/11875)) ([4186fff](https://github.com/windmill-labs/windmill/commit/4186ffff841d5905d308aa6bae8159aba3794c1c))
+* stop holding a pool connection while waiting for another ([#11902](https://github.com/windmill-labs/windmill/issues/11902)) ([2c559b4](https://github.com/windmill-labs/windmill/commit/2c559b452f38cc86fe45bcdb98574245fd2cf187))
+* write a push's runnable settings before it opens its transaction ([#11897](https://github.com/windmill-labs/windmill/issues/11897)) ([e6c8ef1](https://github.com/windmill-labs/windmill/commit/e6c8ef18a11f079083138a991543f7e273d4e511))
+
+
+### Performance Improvements
+
+* show the AI sessions composer before the chat code loads ([#11886](https://github.com/windmill-labs/windmill/issues/11886)) ([613adb5](https://github.com/windmill-labs/windmill/commit/613adb5287812cf428a74b10e1ef9362d78751b8))
+
 ## [1.841.0](https://github.com/windmill-labs/windmill/compare/v1.840.0...v1.841.0) (2026-10-18)
 
 
