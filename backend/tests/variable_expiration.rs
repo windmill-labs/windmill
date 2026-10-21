@@ -213,6 +213,39 @@ async fn test_remind_every_repeats_the_notice(db: Pool<Postgres>) -> anyhow::Res
     Ok(())
 }
 
+/// Reminders due on a full pass's worth of earlier expiries must not delay a first notice.
+#[sqlx::test(fixtures("base"))]
+async fn test_first_notice_goes_before_reminders(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    seed_handler_script(&db, "u/test-user/expiry_handler").await?;
+    configure_handler(
+        &db,
+        r#"{"path": "script/u/test-user/expiry_handler", "remind_every_secs": 600}"#,
+    )
+    .await?;
+    sqlx::query(
+        r#"INSERT INTO variable (workspace_id, path, value, is_secret, description, value_valid_until,
+                                 expiration_dispatched_for, expiration_notified_at)
+           SELECT $1, 'f/creds/v' || i, 'v', false, '', now() + interval '10 minutes',
+                  now() + interval '10 minutes', now() - interval '11 minutes'
+           FROM generate_series(1, 100) i"#,
+    )
+    .bind(WS)
+    .execute(&db)
+    .await?;
+    seed_variable(&db, "u/test-user/fresh", "20 minutes").await?;
+
+    dispatch_expiring_variables(&db).await;
+
+    let notified: bool = sqlx::query_scalar(
+        "SELECT expiration_dispatched_for IS NOT NULL FROM variable WHERE path = 'u/test-user/fresh'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert!(notified, "the first notice waited behind reminders");
+    Ok(())
+}
+
 /// Moving `value_valid_until` re-arms the variable; re-writing the same date does not.
 #[sqlx::test(fixtures("base"))]
 async fn test_rearm_on_date_change(db: Pool<Postgres>) -> anyhow::Result<()> {

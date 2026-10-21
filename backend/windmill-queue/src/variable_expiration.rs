@@ -69,7 +69,8 @@ pub async fn dispatch_expiring_variables(db: &DB) {
 async fn dispatch_expiring_variables_inner(db: &DB) {
     // No lower bound on `value_valid_until`, so a downed instance catches up. Rows are taken
     // round-robin across workspaces (`rn`) so neither a broken handler's overdue rows nor a
-    // large backlog fills the cap and starves the other workspaces.
+    // large backlog fills the cap and starves the other workspaces; within one, first notices
+    // go before reminders, which would otherwise refill the cap on every pass.
     let due = sqlx::query!(
         r#"SELECT workspace_id AS "workspace_id!", path AS "path!", description AS "description!",
                   value_valid_until AS "value_valid_until!", is_secret AS "is_secret!",
@@ -81,7 +82,9 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
                       v.expiration_dispatched_for, v.expiration_notified_at,
                       ws.variable_expiration_handler->>'path' AS handler_path,
                       (ws.variable_expiration_handler->'extra_args')::text::json AS extra_args,
-                      row_number() OVER (PARTITION BY v.workspace_id ORDER BY v.value_valid_until) AS rn
+                      row_number() OVER (PARTITION BY v.workspace_id
+                          ORDER BY v.value_valid_until IS NOT DISTINCT FROM v.expiration_dispatched_for,
+                                   v.value_valid_until) AS rn
                FROM variable v
                JOIN workspace_settings ws ON ws.workspace_id = v.workspace_id
                JOIN workspace w ON w.id = v.workspace_id
