@@ -44,7 +44,9 @@ lazy_static::lazy_static! {
 const COMPOSER_LOCK_SPLIT: &str = "\nLOCK\n";
 
 fn ensure_php_tool_installed(tool: &str, path: &str) -> Result<()> {
-    if Path::new(path).exists() {
+    // A bare name is resolved through PATH when the process starts, not here.
+    let path_ref = Path::new(path);
+    if !path_ref.is_absolute() || path_ref.exists() {
         return Ok(());
     }
     Err(error::Error::ExecutionErr(format!(
