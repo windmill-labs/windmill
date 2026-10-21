@@ -17,6 +17,7 @@ use windmill_api_auth::{
 };
 use windmill_common::db::DB;
 use windmill_common::per_minute_counter::PerMinuteCounter;
+use windmill_common::scopes::ScopeDefinition;
 use windmill_common::ssrf::{
     is_private_ip, private_git_host_allowed, private_git_host_hint, GitRemoteCaller,
 };
@@ -487,8 +488,7 @@ async fn list_resources(
         && lq.broad_filter.is_none()
         && lq.label.is_none()
         && !lq.starred_only.unwrap_or(false)
-        && (!authed.is_operator
-            || operator_can_draft(&db, &w_id, UserDraftItemKind::Resource).await?)
+        && operator_can_draft(&db, &w_id, &authed, UserDraftItemKind::Resource).await?
     {
         let rt_filter: Option<Vec<&str>> = lq
             .resource_type
@@ -907,18 +907,61 @@ pub async fn transform_json_value(
 /// RLS resolves a reference as the token's user, not as the token: a token scoped to one
 /// resource would otherwise read, through that resource, every variable or resource its
 /// user can. Job tokens carry no scopes, so what a runnable resolves is unaffected.
-/// `resource_path` is the resource being expanded: its own linked secrets
-/// ([`is_owned_linked_var`]) are covered by the read of it.
+/// `resource_path` is the resource being expanded: see [`check_resource_var_ref_scope`].
 fn check_interpolation_scope(
     db_with_opt_authed: &DbWithOptAuthed<'_, ApiAuthed>,
     domain: &str,
     path: &str,
     resource_path: Option<&str>,
 ) -> Result<()> {
-    match db_with_opt_authed.authed() {
-        Some(_) if resource_path.is_some_and(|r| is_owned_linked_var(r, path)) => Ok(()),
-        Some(authed) => check_scopes(authed, || format!("{domain}:read:{path}")),
-        None => Ok(()),
+    match (db_with_opt_authed.authed(), resource_path) {
+        (Some(authed), Some(r)) if domain == "variables" => {
+            check_resource_var_ref_scope(authed, r, path)
+        }
+        (Some(authed), _) => check_scopes(authed, || format!("{domain}:read:{path}")),
+        (None, _) => Ok(()),
+    }
+}
+
+/// The scope a token needs to resolve variable `var_path` referenced by resource
+/// `resource_path`: `variables:read` on it, unless it is the resource's own linked secret
+/// ([`is_owned_linked_var`]) or a wildcard pattern of the token's `resources:` scopes
+/// matches it. An exact path, or a scope naming no path at all, grants no variable: RLS
+/// lets the token resolve any variable its user can read.
+pub fn check_resource_var_ref_scope(
+    authed: &ApiAuthed,
+    resource_path: &str,
+    var_path: &str,
+) -> Result<()> {
+    if is_owned_linked_var(resource_path, var_path) {
+        return Ok(());
+    }
+    let denied = match check_scopes(authed, || format!("variables:read:{var_path}")) {
+        Ok(()) => return Ok(()),
+        Err(e) => e,
+    };
+    let required = ScopeDefinition::new("variables", "read", None, Some(vec![var_path.into()]));
+    let covered = authed.scopes.iter().flatten().any(|scope| {
+        let Ok(scope) = ScopeDefinition::from_scope_string(scope) else {
+            return false;
+        };
+        if scope.domain != "resources" {
+            return false;
+        }
+        let patterns = scope
+            .resource
+            .into_iter()
+            .flatten()
+            .filter(|r| r.contains('*'))
+            .collect::<Vec<_>>();
+        !patterns.is_empty()
+            && ScopeDefinition::new("variables", &scope.action, None, Some(patterns))
+                .includes(&required)
+    });
+    if covered {
+        Ok(())
+    } else {
+        Err(denied)
     }
 }
 

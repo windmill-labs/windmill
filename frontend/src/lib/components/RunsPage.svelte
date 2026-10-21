@@ -11,12 +11,10 @@
 
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate } from '$lib/utils'
-	import { userWorkspaces, superadmin, devopsRole, enterpriseLicense } from '$lib/stores'
+	import { superadmin, devopsRole, enterpriseLicense } from '$lib/stores'
 	import { useHostedPage } from '$lib/components/hostedPage'
-	import {
-		useOperatingUser,
-		useOperatingWorkspace
-	} from '$lib/components/operatingWorkspace.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { Button, Drawer, DrawerContent, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import RunChart from '$lib/components/RunChart.svelte'
@@ -85,7 +83,7 @@
 	// the filter row renders in the page, and requests go to the workspace it names.
 	const hosted = useHostedPage()
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatingUser = useOperatingUser()
+	const roleCaps = useRoleCapabilities()
 
 	let paths: string[] = $state([])
 	let usernames: string[] = $state([])
@@ -180,9 +178,7 @@
 	let manualTimeframe = $derived(timeframe.type === 'manual' ? timeframe : undefined)
 
 	let graph: 'RunChart' | 'ConcurrencyChart' = $state(
-		typeOfChart(
-			(hosted ? new URLSearchParams(hosted.search) : page.url.searchParams).get('graph')
-		)
+		typeOfChart((hosted ? new URLSearchParams(hosted.search) : page.url.searchParams).get('graph'))
 	)
 	let innerWidth = $state(window.innerWidth)
 	let jobsLoader = useJobsLoader(() => ({
@@ -232,7 +228,9 @@
 	}
 
 	async function loadPaths() {
-		const npaths_scripts = await ScriptService.listScriptPaths({ workspace: $operatingWorkspace ?? '' })
+		const npaths_scripts = await ScriptService.listScriptPaths({
+			workspace: $operatingWorkspace ?? ''
+		})
 		const npaths_flows = await FlowService.listFlowPaths({ workspace: $operatingWorkspace ?? '' })
 		paths = npaths_scripts.concat(npaths_flows).sort()
 	}
@@ -454,11 +452,14 @@
 
 		// workaround because EventSource does not support POST requests
 		// https://medium.com/@david.richards.tech/sse-server-sent-events-using-a-post-request-without-eventsource-1c0bd6f14425
-		const response = await fetch(`${OpenAPI.BASE}/w/${$operatingWorkspace}/jobs/run/batch_rerun_jobs`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(body)
-		})
+		const response = await fetch(
+			`${OpenAPI.BASE}/w/${$operatingWorkspace}/jobs/run/batch_rerun_jobs`,
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body)
+			}
+		)
 		await new Promise(async (resolve) => {
 			const reader = response?.body?.pipeThrough(new TextDecoderStream()).getReader()
 			let reRanUuids: string[] = []
@@ -574,8 +575,8 @@
 		askingForConfirmation = {
 			title: `Confirm re-running the selected jobs`,
 			confirmBtnText: `Re-run ${jobIdsToReRun.length} jobs`,
-			// The server skips resolution for operators, who cannot resolve.
-			description: operatingUser.current?.operator
+			// The server skips resolution for a role without `code`, which cannot resolve.
+			description: !$roleCaps.code
 				? undefined
 				: "Failed or canceled jobs among them will be marked resolved, with the new run's id as the note.",
 			type: 'reload',
@@ -957,10 +958,10 @@
 	}}
 />
 
-{#if operatingUser.current?.operator && $operatingWorkspace && !$userWorkspaces.find((_) => _.id === $operatingWorkspace)?.operator_settings?.runs}
+{#if $operatingWorkspace && !$roleCaps.visibility.runs}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
-		<p>Page not available for operators</p>
+		<p>Page not available for your role</p>
 	</div>
 {:else}
 	<div class="w-full h-full flex flex-col" bind:clientWidth={innerWidth}>
@@ -1169,10 +1170,10 @@
 									batchRerunOptionsIsOpen = true
 								}
 							},
-							...(!operatingUser.current?.operator
+							...($roleCaps.code
 								? [
 										{
-											// Operators are rejected by the endpoint, so offering it would only 403.
+											// A role without `code` is rejected by the endpoint, so offering it would only 403.
 											displayName: 'Resolve failed or canceled jobs',
 											action: () => (
 												(manualSelectionMode = 'resolve'),

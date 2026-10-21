@@ -18,7 +18,7 @@
 		CtxAppInput
 	} from '../../inputType'
 	import type { AppViewerContext } from '../../types'
-	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { createEventDispatcher } from 'svelte'
 	import { deepEqual } from 'fast-equals'
 	import { computeFields } from './utils'
@@ -37,7 +37,7 @@
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatorBuilderApps = useOperatorBuilderApps()
+	const roleCaps = useRoleCapabilities()
 
 	interface Props {
 		runnable: RunnableByPath
@@ -363,7 +363,7 @@
 			>
 				Edit
 			</Button>
-			{#if !$operatorBuilderApps}
+			{#if $roleCaps.apps !== 'compose'}
 				<Button
 					size="xs"
 					variant="default"

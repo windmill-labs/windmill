@@ -54,6 +54,7 @@
 		nonMemberWorkspaces,
 		setNonMemberWorkspaces,
 		clearNonMemberWorkspaces,
+		roleCapabilities,
 		type UserWorkspace
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
@@ -79,8 +80,11 @@
 		Home,
 		Play,
 		Search,
-		WandSparkles
+		WandSparkles,
+		ArrowLeft
 	} from 'lucide-svelte'
+	import { Button } from '$lib/components/common'
+	import { isInstanceRoute } from '$lib/instanceRoutes'
 	import { getUserExt } from '$lib/user'
 	import { confirmPendingLoginMethod } from '$lib/lastLoginMethod'
 	import { deepEqual } from 'fast-equals'
@@ -90,7 +94,6 @@
 	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 	import PageHeaderBar from '$lib/components/PageHeaderBar.svelte'
 	import { BAR_HEIGHT_PX, pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
-	import { sidebarPageAllowed } from '$lib/components/sidebar/operatorRoutes'
 	import type GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import MenuLink from '$lib/components/sidebar/MenuLink.svelte'
@@ -163,7 +166,7 @@
 	let collapsedState = $state(collapsePref.val)
 	// Operators never get the icon-only rail: their docked sidebar is always expanded (a sidebar
 	// they want out of the way is what detaching is for).
-	let isCollapsed = $derived(collapsedState && !$userStore?.operator)
+	let isCollapsed = $derived(collapsedState && $roleCapabilities.code)
 
 	// Resizable desktop rail, sized in REM so it scales with the root font-size the
 	// same way the old `w-52`/`w-12` classes did — `:root` jumps to 18px on screens
@@ -244,7 +247,7 @@
 			// instead: dragging the sidebar off the left edge puts it behind the handle.
 			// Detaching is not a resize, so the width the drag started from is what gets
 			// persisted — re-attaching restores the sidebar at the size it had.
-			if (collapse && $userStore?.operator) {
+			if (collapse && !$roleCapabilities.code) {
 				sidebarWidth = widthAtStart
 				stop()
 				setDetached(true)
@@ -303,7 +306,7 @@
 	// (SessionModeSwitch) just navigates in and out of that route.
 	// An operator without the opt-in (`gate.ts`) is refused by /sessions, so their sidebar is not
 	// handed over to a session list the page behind it declines, and they keep the docked chat.
-	const sessionsAllowed = $derived(sessionsAllowedFor($userStore?.operator))
+	const sessionsAllowed = $derived(sessionsAllowedFor(!$roleCapabilities.code))
 	let sessionMode = $derived(page.url.pathname.startsWith('/sessions') && sessionsAllowed)
 	// Session mode points the bottom settings entry at the open session's own
 	// workspace. An unsent draft hasn't committed one yet, so it falls back to
@@ -328,6 +331,8 @@
 	const sessionsSwitchShown = $derived(
 		globalAiEnabled && sessionsAllowed && !$copilotInfo.workspaceDisabled
 	)
+	// The rail's top row; the nav below it pads to the page header's height when it is absent.
+	const switchRowShown = $derived(!embedded && sessionsSwitchShown)
 	const askAiShown = $derived(
 		(!globalAiEnabled || !sessionsAllowed) && !$copilotInfo.workspaceDisabled
 	)
@@ -796,6 +801,11 @@
 	}
 
 	let devOnly = $derived(page.url.pathname.startsWith('/scripts/dev'))
+	// A devops user who belongs to no workspace has no `$userStore`, and would otherwise wait on
+	// "Loading user..." forever on the instance pages their role exists for.
+	let instanceOnlyView = $derived(
+		!$workspaceStore && !!$devopsRole && isInstanceRoute(page.url.pathname)
+	)
 
 	async function loadDefaultScripts(workspace: string, user: UserExt | undefined) {
 		if (!user?.operator) {
@@ -1136,11 +1146,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 		label="Runs"
 		href="/runs"
 		icon={Play}
-		disabled={!sidebarPageAllowed(
-			$userStore?.operator,
-			$userWorkspaces?.find((w) => w.id === $workspaceStore),
-			'runs'
-		)}
+		disabled={!$roleCapabilities.visibility.runs}
 		isCollapsed={collapsed}
 		aiId="sidebar-menu-link-runs"
 		aiDescription="Button to navigate to runs"
@@ -1172,7 +1178,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
      with a sidebar they cannot return. -->
 {#snippet sidebarToggle()}
 	{@const hidden = navDetached.val}
-	{#if hidden || $userStore?.operator}
+	{#if hidden || !$roleCapabilities.code}
 		<Tooltip class="flex" placement="bottom" small>
 			<button
 				class={SIDEBAR_ICON_BUTTON}
@@ -1247,7 +1253,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 		<!-- Top row: the workspace ⇄ sessions switch, level with the page header's own
 		     row so the two read as one band. The workspace picker itself lives in that
 		     header, which is why nothing names the workspace here. -->
-		{#if !embedded && sessionsSwitchShown}
+		{#if switchRowShown}
 			<div
 				class="flex-shrink-0 px-2 gap-1 flex {collapsed
 					? 'flex-col items-center py-2'
@@ -1276,8 +1282,10 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 			     Search / workspace items / instance settings) are spaced by the
 			     scroll area's gap rather than each scrolling on its own. -->
 			<SidebarScrollArea color={darkMode ? SIDEBAR_BG_DARK : SIDEBAR_BG}>
-				<!-- Section 1: Home/Runs + Favorites + Search -->
-				<div class="px-2 pt-1 flex flex-col gap-1">
+				<!-- Section 1: Home/Runs + Favorites + Search. Without the switch row above,
+				     Home is the top row and pt-2 centers its h-8 in the page header's h-12
+				     beside the docked rail. -->
+				<div class="px-2 flex flex-col gap-1 {switchRowShown ? 'pt-1' : 'pt-2'}">
 					{@render quickLinks(collapsed)}
 					<Menubar class="flex flex-col gap-1">
 						{#snippet children({ createMenu })}
@@ -1350,7 +1358,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 				{/if}
 				<!-- Collapsing belongs to the rail: the panel is over the page already, and the way
 				     out of it is the handle in the band or a click outside. -->
-				{#if !panel && !$userStore?.operator}
+				{#if !panel && $roleCapabilities.code}
 					<button
 						class={SIDEBAR_ICON_BUTTON}
 						title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
@@ -1564,6 +1572,27 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 				transitionClass={sidebarTransitionClass}
 				isMobile={useDrawer}
 			/>
+		</div>
+	</div>
+{:else if instanceOnlyView}
+	<!-- No workspace means no sidebar: everything in it is workspace-scoped. The header bar
+	     stays, without its workspace part: pages register their toolbars there. -->
+	<div class="flex flex-col h-screen w-full bg-surface">
+		<div class="flex items-center pl-4 border-b shrink-0">
+			<Button
+				variant="subtle"
+				unifiedSize="sm"
+				href="/user/workspaces"
+				startIcon={{ icon: ArrowLeft }}
+			>
+				Workspaces
+			</Button>
+			<div class="flex-1 min-w-0">
+				<PageHeaderBar navHidden />
+			</div>
+		</div>
+		<div class="flex-1 min-h-0 overflow-auto">
+			{@render children?.()}
 		</div>
 	</div>
 {:else}

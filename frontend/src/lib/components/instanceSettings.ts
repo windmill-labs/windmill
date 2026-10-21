@@ -6,6 +6,7 @@ import { ACCENT_COLOR_SETTING, parseAccentColor } from '$lib/accentColor'
 import { parseMaxTokenExpirationDays } from '$lib/tokenExpiration'
 import { writable } from 'svelte/store'
 import { OidcService } from '$lib/gen'
+import { workspaceRolesErrors } from '$lib/workspaceRoles'
 
 /**
  * Bumped after instance settings are successfully saved. Settings whose display
@@ -77,6 +78,8 @@ export interface Setting {
 		| 'retention_overrides'
 		| 'instance_banner'
 		| 'accent_color'
+		| 'agent_workload_identity_issuers'
+		| 'workspace_roles'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -634,6 +637,16 @@ export const settings: Record<string, Setting[]> = {
 				(Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 3650)
 		}
 	],
+	'Workspace roles': [
+		{
+			label: 'Workspace roles',
+			key: 'workspace_roles',
+			fieldType: 'workspace_roles',
+			storage: 'setting',
+			ee_only: 'Custom workspace roles are only available in the EE version',
+			validate: workspaceRolesErrors
+		}
+	],
 	'Managed Postgres': [
 		{
 			label: 'External instance',
@@ -826,6 +839,17 @@ export const settings: Record<string, Setting[]> = {
 			key: 'sso_groups_claim',
 			fieldType: 'text',
 			placeholder: 'groups',
+			storage: 'setting',
+			ee_only: ''
+		}
+	],
+	'Agent workers': [
+		{
+			label: 'Workload identity issuers',
+			key: 'agent_workload_identity_issuers',
+			description:
+				'An issuer lets an agent worker authenticate with a short-lived token its platform issues it (a Kubernetes projected service account token, a SPIFFE JWT-SVID, ...) in place of an agent token: point AGENT_IDENTITY_TOKEN_FILE at it. The token must be signed by a trusted issuer, carry its audience, and match a rule, which decides the worker group and tags the agent may serve. <a href="https://www.windmill.dev/docs/core_concepts/agent_workers">Learn more</a>',
+			fieldType: 'agent_workload_identity_issuers',
 			storage: 'setting',
 			ee_only: ''
 		}
@@ -1313,6 +1337,13 @@ export const instanceSettingsNavigationGroups = [
 				label: 'Jobs',
 				aiId: 'instance-settings-jobs',
 				aiDescription: 'Instance jobs settings'
+			},
+			{
+				id: 'workspace_roles',
+				label: 'Workspace roles',
+				aiId: 'instance-settings-workspace-roles',
+				aiDescription: 'Roles workspace members can hold and their capabilities',
+				isEE: true
 			}
 		]
 	},
@@ -1336,6 +1367,13 @@ export const instanceSettingsNavigationGroups = [
 				label: 'SCIM/SAML',
 				aiId: 'instance-settings-scim-saml',
 				aiDescription: 'Instance SCIM/SAML settings',
+				isEE: true
+			},
+			{
+				id: 'agent_workers',
+				label: 'Agent workers',
+				aiId: 'instance-settings-agent-workers',
+				aiDescription: 'Workload identity issuers agent workers can authenticate with',
 				isEE: true
 			},
 			{
@@ -1497,11 +1535,13 @@ export const tabToCategoryMap: Record<string, string> = {
 	object_storage: 'Object Storage',
 	managed_postgres: 'Managed Postgres',
 	jobs: 'Jobs',
+	workspace_roles: 'Workspace roles',
 	private_hub: 'Private Hub',
 	github_enterprise_app: 'GitHub App',
 	websocket: 'WebSocket',
 	db_health: 'DB Health',
 	oidc_signing: 'OIDC signing',
+	agent_workers: 'Agent workers',
 	lsp: 'LSP'
 }
 
@@ -1559,11 +1599,13 @@ export const categoryToTabMap: Record<string, string> = {
 	'Object Storage': 'object_storage',
 	'Managed Postgres': 'managed_postgres',
 	Jobs: 'jobs',
+	'Workspace roles': 'workspace_roles',
 	'Private Hub': 'private_hub',
 	'GitHub App': 'github_enterprise_app',
 	WebSocket: 'websocket',
 	'DB Health': 'db_health',
 	'OIDC signing': 'oidc_signing',
+	'Agent workers': 'agent_workers',
 	LSP: 'lsp'
 }
 

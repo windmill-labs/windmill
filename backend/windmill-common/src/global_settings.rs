@@ -10,6 +10,10 @@ pub const FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING: &str =
     "fork_workspace_tag_append_fork_suffix";
 pub const PREVIEW_TAGS_OVERRIDE_SETTING: &str = "preview_tags_override";
 pub const DEPENDENCY_JOB_TAG_SETTING: &str = "dependency_job_tag";
+pub const DEV_WORKSPACE_ISOLATION_SETTING: &str = "dev_workspace_isolation";
+pub const DEV_WORKSPACE_TAG_SUFFIX_SETTING: &str = "dev_workspace_tag_suffix";
+pub const DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS_SETTING: &str =
+    "dev_workspace_isolation_skip_non_dev_forks";
 pub const BASE_URL_SETTING: &str = "base_url";
 pub const WS_BASE_URL_SETTING: &str = "ws_base_url";
 pub const OAUTH_SETTING: &str = "oauths";
@@ -64,6 +68,7 @@ pub const EXTERNAL_INSTANCE_PG_SETTING: &str = "external_instance_pg";
 pub const INSTANCE_PG_DISABLED_SETTING: &str = "instance_pg_disabled";
 pub const EXTERNAL_INSTANCE_PG_STATE_SETTING: &str = "external_instance_pg_state";
 pub const TIMEOUT_WAIT_RESULT_SETTING: &str = "timeout_wait_result";
+pub const AGENT_WORKLOAD_IDENTITY_ISSUERS_SETTING: &str = "agent_workload_identity_issuers";
 
 pub const UNIQUE_ID_SETTING: &str = "uid";
 pub const DISABLE_STATS_SETTING: &str = "disable_stats";
@@ -315,6 +320,21 @@ pub fn validate_accent_color(value: &serde_json::Value) -> Result<(), String> {
     Ok(())
 }
 
+/// Validate a non-empty [`DEV_WORKSPACE_TAG_SUFFIX_SETTING`] value. Every writer must call
+/// it: a suffix that fails it is ignored at load, so the workers would listen on a suffix
+/// the setting does not show.
+pub fn validate_dev_workspace_tag_suffix(value: &serde_json::Value) -> Result<(), String> {
+    let s = value
+        .as_str()
+        .ok_or_else(|| "must be a string".to_string())?;
+    if !crate::worker::is_valid_dev_workspace_tag_suffix(s.trim()) {
+        return Err(
+            "may only contain letters, digits, '-', '_' and '.', up to 32 characters".to_string(),
+        );
+    }
+    Ok(())
+}
+
 /// The settings every signed-in browser reads on each full page load.
 #[derive(serde::Serialize, Clone, Debug, Default, PartialEq)]
 pub struct InstanceUi {
@@ -411,6 +431,9 @@ pub const INSTANCE_EVENTS_WEBHOOK_SETTING: &str = "instance_events_webhook";
 pub const WORKSPACE_REGISTRIES_SETTING: &str = "workspace_registries";
 pub const RESTART_COORDINATION_SETTING: &str = "_restart_coordination";
 pub const ALERT_CONFIG_SETTING: &str = "alert_job_queue_waiting";
+
+/// The instance's workspace roles (EE), a list of `crate::roles::RoleDefinition`.
+pub const WORKSPACE_ROLES_SETTING: &str = "workspace_roles";
 
 // Workspace fairness: cloud-only mechanism that caps any single workspace at
 // `workspace_fairness_max_percent`% of the shared worker pool once it has been
@@ -620,6 +643,7 @@ pub fn parse_allowed_origins_setting(
 
 pub const ENV_SETTINGS: &[&str] = &[
     "DISABLE_NSJAIL",
+    "DISABLE_BUN_INSTALL_SANDBOX",
     "MODE",
     "NUM_WORKERS",
     "METRICS_ADDR",

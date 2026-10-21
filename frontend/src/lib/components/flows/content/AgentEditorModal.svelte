@@ -56,6 +56,8 @@
 		onClose?: (deployed: boolean) => void
 		/** Ran after every successful deploy, with the path written. */
 		onDeployed?: (path: string) => void
+		/** Open on the settings, as a link to them does. */
+		startInSettings?: boolean
 	}
 
 	let {
@@ -64,7 +66,8 @@
 		onRenamed = undefined,
 		layout = 'modal',
 		onClose = undefined,
-		onDeployed = undefined
+		onDeployed = undefined,
+		startInSettings = false
 	}: Props = $props()
 
 	// Every target names the surface that opened it, and only a flow step or a resource row can:
@@ -181,6 +184,14 @@
 		if (layout === 'modal') showAgentEditorView('settings')
 		else settingsDrawer?.openDrawer()
 	}
+
+	let openedSettings = false
+	$effect(() => {
+		if (startInSettings && draft?.state && settingsDrawer && !openedSettings) {
+			openedSettings = true
+			untrack(openSettings)
+		}
+	})
 
 	/** The unsaved edits, in the shape the server builds from a deployed config
 	 *  (`ai_evals/run.rs` `config_to_draft`), so a draft run's hash can be recognised as equal to

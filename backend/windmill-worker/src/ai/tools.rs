@@ -19,7 +19,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use uuid::Uuid;
 use windmill_ai::{ai_types::OpenAIToolCall, query_builder::StreamEventSink, types::*};
 use windmill_common::jobs::JobPayload;
-use windmill_common::variables::arg_needs_interpolation;
+use windmill_common::variables::untrusted_arg_interpolates;
 
 #[cfg(feature = "mcp")]
 use windmill_mcp::McpClient;
@@ -199,8 +199,9 @@ pub async fn execute_tool_calls(
 /// which may be an identity it runs on behalf of. Only the step's own input transforms may name
 /// variables and resources; the model's arguments are text from whoever talks to it.
 fn interpolating_args(tool_call: &OpenAIToolCall) -> bool {
-    serde_json::from_str::<serde_json::Value>(&tool_call.function.arguments)
-        .is_ok_and(|v| arg_needs_interpolation(&v.to_string()))
+    // Empty for a tool called without arguments, which runs as `{}`.
+    let args = &tool_call.function.arguments;
+    !args.is_empty() && untrusted_arg_interpolates(args)
 }
 
 async fn refuse_tool_call(
@@ -209,8 +210,8 @@ async fn refuse_tool_call(
     messages: &mut Vec<OpenAIMessage>,
     final_events_str: &mut String,
 ) -> Result<(), Error> {
-    let error_msg = "Tool call refused: its arguments cannot reference variables or resources \
-                     ($var:, $jsonvar:, $res:, $encrypted:)"
+    let error_msg = "Tool call refused: its arguments could not be read, or reference variables, \
+                     resources or reserved names ($var:, $jsonvar:, $res:, $encrypted:, $WM_)"
         .to_string();
     messages.push(OpenAIMessage {
         role: "tool".to_string(),
@@ -577,6 +578,9 @@ async fn enqueue_windmill_tool(
         &ctx.job.workspace_id,
         ctx.preserve_step_tags,
         job_payload.tag.as_deref(),
+        windmill_queue::tags::dev_flow_tag_suffix(&ctx.job.workspace_id, &ctx.job.tag, ctx.db)
+            .await?
+            .as_deref(),
     );
     if tool_tag.as_deref().is_some_and(tag_reads_flow_expr) {
         append_logs(

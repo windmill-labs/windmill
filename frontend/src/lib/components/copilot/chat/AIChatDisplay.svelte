@@ -53,6 +53,7 @@
 	import ToolGroupDisplay from './ToolGroupDisplay.svelte'
 	import { chatItemKey, groupToolRuns } from './toolGroups'
 	import AIChatInput from './AIChatInput.svelte'
+	import type { ComposerSelection } from './composerBox'
 	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import QueuedMessageChip from './QueuedMessageChip.svelte'
 	import JobsSegment from './JobsSegment.svelte'
@@ -357,8 +358,8 @@
 		chatHost.sendRequest({ instructions: suggestion })
 	}
 
-	export function focusInput() {
-		aiChatInput?.focusInput()
+	export function focusInput(selection?: ComposerSelection) {
+		aiChatInput?.focusInput(selection)
 	}
 
 	$effect(() => {
@@ -977,7 +978,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">
 				<Button
 					startIcon={{ icon: CheckIcon }}
-					size="xs"
+					unifiedSize="sm"
 					variant="default"
 					btnClasses="bg-green-500 hover:bg-green-600 text-white hover:text-white"
 					onclick={() => {
@@ -989,7 +990,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				<div class="rounded bg-surface">
 					<Button
 						startIcon={{ icon: XIcon }}
-						size="xs"
+						unifiedSize="sm"
 						variant="default"
 						btnClasses="dark:opacity-50 opacity-60 hover:opacity-100"
 						onclick={() => {

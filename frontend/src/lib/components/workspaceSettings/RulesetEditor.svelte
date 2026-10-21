@@ -45,6 +45,7 @@
 	let restrictAnonymousAppDeployment = $state(hasRule('RestrictAnonymousAppDeployment'))
 	let restrictPublicRunSharing = $state(hasRule('RestrictPublicRunSharing'))
 	let restrictGuestAppDeployment = $state(hasRule('RestrictGuestAppDeployment'))
+	let requireIsolatedForks = $state(hasRule('RequireIsolatedForks'))
 	let selectedGroups = $state<string[]>(
 		untrack(() => rule)?.bypass_groups?.map((g) => g.replace('g/', '')) ?? []
 	)
@@ -60,6 +61,7 @@
 	let initialRestrictAnonymousAppDeployment = $state(hasRule('RestrictAnonymousAppDeployment'))
 	let initialRestrictPublicRunSharing = $state(hasRule('RestrictPublicRunSharing'))
 	let initialRestrictGuestAppDeployment = $state(hasRule('RestrictGuestAppDeployment'))
+	let initialRequireIsolatedForks = $state(hasRule('RequireIsolatedForks'))
 	let initialSelectedGroups = $state<string[]>(
 		untrack(() => rule)?.bypass_groups
 			? untrack(() => rule)!.bypass_groups.map((g) => g.replace('g/', ''))
@@ -107,6 +109,7 @@
 					restrictAnonymousAppDeployment ||
 					restrictPublicRunSharing ||
 					restrictGuestAppDeployment ||
+					requireIsolatedForks ||
 					selectedGroups.length > 0 ||
 					selectedUsers.length > 0
 			: name !== initialName ||
@@ -116,6 +119,7 @@
 					restrictAnonymousAppDeployment !== initialRestrictAnonymousAppDeployment ||
 					restrictPublicRunSharing !== initialRestrictPublicRunSharing ||
 					restrictGuestAppDeployment !== initialRestrictGuestAppDeployment ||
+					requireIsolatedForks !== initialRequireIsolatedForks ||
 					JSON.stringify([...selectedGroups].sort()) !==
 						JSON.stringify([...initialSelectedGroups].sort()) ||
 					JSON.stringify([...selectedUsers].sort()) !==
@@ -155,7 +159,8 @@
 						...(restrictPublicRunSharing ? ['RestrictPublicRunSharing' as ProtectionRuleKind] : []),
 						...(restrictGuestAppDeployment
 							? ['RestrictGuestAppDeployment' as ProtectionRuleKind]
-							: [])
+							: []),
+						...(requireIsolatedForks ? ['RequireIsolatedForks' as ProtectionRuleKind] : [])
 					],
 					bypass_groups: selectedGroups,
 					bypass_users: selectedUsers
@@ -194,7 +199,8 @@
 						...(restrictPublicRunSharing ? ['RestrictPublicRunSharing' as ProtectionRuleKind] : []),
 						...(restrictGuestAppDeployment
 							? ['RestrictGuestAppDeployment' as ProtectionRuleKind]
-							: [])
+							: []),
+						...(requireIsolatedForks ? ['RequireIsolatedForks' as ProtectionRuleKind] : [])
 					],
 					bypass_groups: selectedGroups,
 					bypass_users: selectedUsers
@@ -211,6 +217,7 @@
 			initialRestrictAnonymousAppDeployment = restrictAnonymousAppDeployment
 			initialRestrictPublicRunSharing = restrictPublicRunSharing
 			initialRestrictGuestAppDeployment = restrictGuestAppDeployment
+			initialRequireIsolatedForks = requireIsolatedForks
 			initialSelectedGroups = clone(selectedGroups)
 			initialSelectedUsers = clone(selectedUsers)
 
@@ -294,6 +301,12 @@
 			<div class="flex flex-col gap-1">
 				<Toggle bind:checked={disableFork} options={{ right: 'Disable workspace forking' }} />
 				{@render description('Users cannot create forks of this workspace.')}
+			</div>
+			<div class="flex flex-col gap-1">
+				<Toggle bind:checked={requireIsolatedForks} options={{ right: 'Require isolated forks' }} />
+				{@render description(
+					"Forks of this workspace cannot share its data: every object storage and ducklake stays isolated, and every data table is cloned instead of pointing at this workspace's database."
+				)}
 			</div>
 			<div class="flex flex-col gap-1">
 				<Toggle

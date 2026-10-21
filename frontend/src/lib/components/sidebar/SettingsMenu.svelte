@@ -38,7 +38,6 @@
 	import { USER_SETTINGS_HASH, SUPERADMIN_SETTINGS_HASH } from './settings'
 	import { accountSetup } from './accountSetup.svelte'
 	import { EXECUTIONS_HINT } from './executionsHint'
-	import { sidebarPageAllowed } from './operatorRoutes'
 	import { TOUR_PARAM, TOUR_PARAM_VALUE } from '$lib/components/tutorials/operatorTour'
 	import {
 		userWorkspaces,
@@ -49,7 +48,8 @@
 		enterpriseLicense,
 		isCriticalAlertsUIOpen,
 		usageStore,
-		isPremiumStore
+		isPremiumStore,
+		roleCapabilities
 	} from '$lib/stores'
 
 	let {
@@ -250,7 +250,7 @@
 					icon: Settings,
 					action: () => goto(USER_SETTINGS_HASH)
 				},
-				...($userStore?.operator
+				...(!$roleCapabilities.code
 					? [
 							{
 								displayName: 'Take the tour',
@@ -318,7 +318,7 @@
 		label="Workers"
 		href="/workers"
 		icon={ServerCog}
-		disabled={!sidebarPageAllowed($userStore?.operator, currentWs, 'workers')}
+		disabled={!$roleCapabilities.visibility.workers}
 		{isCollapsed}
 		aiId="sidebar-menu-link-workers"
 		aiDescription="Button to navigate to workers"
@@ -364,7 +364,7 @@
 			label="Audit logs"
 			href="/audit_logs"
 			icon={Eye}
-			disabled={!sidebarPageAllowed($userStore?.operator, currentWs, 'audit_logs')}
+			disabled={!$roleCapabilities.visibility.audit_logs}
 			{isCollapsed}
 			aiId="sidebar-menu-link-audit-logs"
 			aiDescription="Button to navigate to audit logs"

@@ -263,6 +263,10 @@ pub struct GlobalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_tags_per_workspace: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub dev_workspace_isolation: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dev_workspace_isolation_skip_non_dev_forks: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub preview_tags_override: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disable_hub: Option<bool>,
@@ -278,6 +282,8 @@ pub struct GlobalSettings {
     pub auto_build_binary_tag: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dependency_job_tag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dev_workspace_tag_suffix: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ws_base_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -362,6 +368,8 @@ pub struct GlobalSettings {
     pub custom_instance_pg_databases: Option<CustomInstancePgDatabases>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub external_instance_pg: Option<ExternalInstancePg>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_workload_identity_issuers: Option<Vec<AgentWorkloadIdentityIssuer>>,
 
     // Opaque settings (EE-private structs or no clear schema)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -733,6 +741,42 @@ pub struct TeamsChannel {
 }
 
 // ---------------------------------------------------------------------------
+// Agent worker workload identity
+// ---------------------------------------------------------------------------
+
+/// An issuer whose workload identity tokens (Kubernetes projected service account tokens,
+/// SPIFFE JWT-SVIDs, ...) an agent worker may authenticate with instead of an agent token.
+#[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
+pub struct AgentWorkloadIdentityIssuer {
+    /// Must equal the token's `iss` exactly.
+    pub issuer: String,
+    /// Where the signing keys are published. Defaults to the `jwks_uri` of the issuer's OIDC
+    /// discovery document.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jwks_uri: Option<String>,
+    /// The JWKS document itself, as JSON text, for an issuer this instance cannot reach.
+    /// Takes precedence over `jwks_uri`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jwks: Option<String>,
+    /// Must be one of the token's `aud`.
+    pub audience: String,
+    /// Tried in order; the first whose claims all match decides the worker group and tags.
+    #[serde(default)]
+    pub rules: Vec<AgentWorkloadIdentityRule>,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug, Default, PartialEq)]
+#[cfg_attr(feature = "instance_config_schema", derive(schemars::JsonSchema))]
+pub struct AgentWorkloadIdentityRule {
+    /// Claim path (dot separated, a key that itself contains dots such as `kubernetes.io`
+    /// is matched whole) to the exact value it must hold.
+    pub claims: BTreeMap<String, String>,
+    pub worker_group: String,
+    pub tags: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
 // DB oversize alert
 // ---------------------------------------------------------------------------
 
@@ -970,6 +1014,9 @@ pub struct WorkerGroupConfig {
     /// Workers of the group pull no new job while this is set; queued jobs wait.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub paused: Option<bool>,
+    /// The group listens to its tags suffixed with the dev workspace tag suffix, and only to them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub serves_dev_workspaces: Option<bool>,
     /// Object store this group's dependency cache uses instead of the instance one. Same shape
     /// as the instance `object_store_cache_config`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1499,6 +1546,21 @@ pub async fn sync_global_settings_declarative(
             .map_err(|e| anyhow::anyhow!("{accent_key}: {e}"))?,
     }
 
+    let issuers_key = crate::global_settings::AGENT_WORKLOAD_IDENTITY_ISSUERS_SETTING;
+    match desired.get(issuers_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(issuers) => crate::agent_workload_identity::validate_issuers_value(issuers)
+            .map_err(|e| anyhow::anyhow!("{issuers_key}: {e}"))?,
+    }
+
+    let suffix_key = crate::global_settings::DEV_WORKSPACE_TAG_SUFFIX_SETTING;
+    match desired.get(suffix_key) {
+        None | Some(serde_json::Value::Null) => {}
+        Some(serde_json::Value::String(s)) if s.trim().is_empty() => {}
+        Some(suffix) => crate::global_settings::validate_dev_workspace_tag_suffix(suffix)
+            .map_err(|e| anyhow::anyhow!("{suffix_key}: {e}"))?,
+    }
+
     // An origin list that cannot be parsed is dropped at boot, leaving the
     // empty default — which is no restriction at all. Rejecting it here is what
     // keeps a typo in a ConfigMap from silently widening CORS instance-wide.
@@ -1511,9 +1573,22 @@ pub async fn sync_global_settings_declarative(
         .map_err(|e| anyhow::anyhow!("{max_expiration_key}: {e}"))?;
 
     let mut diff = diff_global_settings(current, desired, ApplyMode::Replace);
+    let roles_key = crate::global_settings::WORKSPACE_ROLES_SETTING;
+    let roles_written = diff.upserts.iter().any(|(k, _)| k == roles_key)
+        || diff.deletes.iter().any(|k| k == roles_key);
+    if roles_written {
+        crate::roles::validate_instance_roles_write(db, desired.get(roles_key))
+            .await
+            .map_err(|e| anyhow::anyhow!("{roles_key}: {e}"))?;
+    }
     crate::external_instance_pg::write_external_instance_pg_from_diff(db, &mut diff, observer)
         .await?;
     apply_settings_diff(db, &diff, observer).await?;
+    if roles_written {
+        crate::roles::after_instance_roles_write(db)
+            .await
+            .map_err(|e| anyhow::anyhow!("{roles_key}: {e}"))?;
+    }
 
     Ok(())
 }

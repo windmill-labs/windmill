@@ -18,7 +18,13 @@
 		linkedAgentToolsVersion,
 		migrateLinkedAgentToolsScope
 	} from '$lib/components/flows/linkedAgentToolsStore.svelte'
-	import { enterpriseLicense, userStore, userWorkspaces, usedTriggerKinds } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		userStore,
+		userWorkspaces,
+		usedTriggerKinds,
+		workspaceStore
+	} from '$lib/stores'
 	import {
 		generateRandomString,
 		orderedJsonStringify,
@@ -112,13 +118,14 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 	import { getEditorStoragePath, setEditorStoragePath } from './editorStoragePathContext'
-	import { useEditRights, useOperatorBuilderFlows, useTriggerLock } from '$lib/operatorWriteRights'
+	import { useEditRights, useRoleCapabilities, useTriggerLock } from '$lib/operatorWriteRights'
+	import { capabilitiesIn } from '$lib/roleCapabilities'
 	import {
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 	const triggerLock = useTriggerLock()
-	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const roleCaps = useRoleCapabilities()
 	const editRights = useEditRights()
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -553,15 +560,15 @@
 				// One lookup for the whole list: an agent lives in a folder, and the groups and admin
 				// flag that answer for it are per workspace, so the nav user would answer for the wrong
 				// membership when a session editor operates on another workspace.
-				const user = await getUserExt(opWorkspace ?? '').catch(() => undefined)
-				const operatorSettings = $userWorkspaces.find(
-					(w) => w.id === opWorkspace
-				)?.operator_settings
+				const user =
+					(await getUserExt(opWorkspace ?? '')) ??
+					(opWorkspace === $workspaceStore ? $userStore : undefined)
+				const caps = capabilitiesIn(
+					user,
+					$userWorkspaces.find((w) => w.id === opWorkspace)
+				)
 				agentCanWrite = Object.fromEntries(
-					draftAgents.map((a) => [
-						a.path,
-						agentDraftCanWrite(a, user ?? $userStore ?? undefined, operatorSettings)
-					])
+					draftAgents.map((a) => [a.path, agentDraftCanWrite(a, user, caps)])
 				)
 				// The path is passed, so a draft that renames the agent is refused here too: a rename is
 				// the agent editor's to deploy, and this dialog lists the agent under the path the flow
@@ -903,7 +910,7 @@
 	const sessionTargetPath = $derived(liveEditorDraftStoragePath || $pathStore)
 
 	const aiBuilderShown = $derived(!disableAi && customUi?.topBar?.aiBuilder != false)
-	const showFlowAiButton = $derived(aiBuilderShown && !$operatorBuilderFlows)
+	const showFlowAiButton = $derived(aiBuilderShown && $roleCaps.flows !== 'compose')
 
 	const sessionOpen = $derived(
 		sessionTargetPath

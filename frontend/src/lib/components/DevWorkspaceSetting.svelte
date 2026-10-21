@@ -28,7 +28,14 @@
 		isRuleUnconditionallyActiveInRulesets,
 		DEV_WORKSPACE_LOCK_RULE_NAME
 	} from '$lib/workspaceProtectionRules.svelte'
-	import { GitFork, ExternalLink, Check, Minus, Pen } from 'lucide-svelte'
+	import { GitFork, ExternalLink, Check, Minus, Pen, Server } from 'lucide-svelte'
+	import {
+		devWorkspaceTagSuffix,
+		devWorkspaceSkipNonDevForks,
+		isIsolatedWorkspaceId,
+		loadDevWorkspaceTagSuffix,
+		withDevSuffix
+	} from '$lib/devWorkspaceTags'
 	import { resource } from 'runed'
 	import type { Snippet } from 'svelte'
 
@@ -40,6 +47,7 @@
 		deployTarget
 	}: { deployTarget?: Snippet } = $props()
 
+	loadDevWorkspaceTagSuffix()
 	let currentWs = $derived($userWorkspaces.find((w) => w.id === $workspaceStore))
 	let isDev = $derived(currentWs?.is_dev_workspace ?? false)
 	let currentLabel = $derived(devLabelKey(currentWs?.dev_workspace_label))
@@ -455,6 +463,15 @@
 				Pair this workspace with a dev workspace: the same code with a different environment
 				(resource and variable values). Edits are made in the dev workspace and promoted here.
 			</p>
+			<p class="text-2xs text-secondary">
+				Attaching an existing workspace copies nothing: it keeps its own resources and variables.
+				Creating a new dev workspace copies this workspace's resources and variables, credentials
+				included; point them at staging before developers use it.
+				{#if $devWorkspaceTagSuffix}
+					Either way, its jobs then run on dev workers (tags suffixed with
+					<code>{$devWorkspaceTagSuffix}</code>).
+				{/if}
+			</p>
 			<div class="flex flex-col gap-1">
 				<span class="text-xs font-semibold text-emphasis">Attach an existing workspace as dev</span>
 				<Select
@@ -539,11 +556,26 @@
 	{/if}
 {/snippet}
 
+{#snippet devWorkersNotice()}
+	{#if $devWorkspaceTagSuffix && isIsolatedWorkspaceId($workspaceStore, $userWorkspaces, $devWorkspaceSkipNonDevForks)}
+		<p class="text-2xs text-secondary max-w-2xl flex items-center gap-1.5">
+			<Server size={12} />
+			<span>
+				Jobs in this workspace run on dev workers (tags suffixed with
+				<code>{$devWorkspaceTagSuffix}</code>, e.g.
+				<code>{withDevSuffix('python3', $devWorkspaceTagSuffix)}</code>), set by the instance's dev
+				workspace isolation.
+			</span>
+		</p>
+	{/if}
+{/snippet}
+
 {#if isThrowawayFork}
 	<p class="text-sm text-secondary max-w-2xl">
 		Dev workspace pairing is not available on a throwaway fork. This workspace is a fork of
 		<b>{parentId}</b>.
 	</p>
+	<div class="mt-2">{@render devWorkersNotice()}</div>
 	{@render deployTarget?.()}
 {:else if isDev && parentId}
 	<div class="flex flex-col gap-3 max-w-2xl">
@@ -563,6 +595,7 @@
 				<span class="font-mono">{currentLabel}</span> branch.
 			</span>
 		</div>
+		{@render devWorkersNotice()}
 	</div>
 	{@render deployTarget?.()}
 	<div class="flex flex-col gap-3 max-w-2xl mt-6">

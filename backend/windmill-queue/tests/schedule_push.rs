@@ -222,6 +222,43 @@ mod schedule_push {
         Ok(())
     }
 
+    // Callers hold `tx` on the pool they pass in, so a burst of schedules the size of the pool
+    // starves it if a push checks out a second connection. On a one-connection pool any such
+    // checkout hangs until the acquire timeout.
+    #[sqlx::test(migrations = "../migrations", fixtures("base", "schedule_push"))]
+    async fn test_push_holds_one_connection(db: Pool<Postgres>) -> anyhow::Result<()> {
+        let one = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(std::time::Duration::from_secs(5))
+            .connect_with((*db.connect_options()).clone())
+            .await?;
+
+        let schedules = [
+            make_schedule(|s| {
+                s.script_path = "f/system/tagged_script".to_string();
+                s.path = "f/system/tagged_schedule".to_string();
+            }),
+            make_schedule(|s| {
+                s.script_path = "f/system/obo_script".to_string();
+                s.path = "f/system/obo_schedule".to_string();
+            }),
+            make_schedule(|s| {
+                s.is_flow = true;
+                s.script_path = "f/system/obo_flow".to_string();
+                s.path = "f/system/obo_flow_schedule".to_string();
+            }),
+        ];
+        for schedule in &schedules {
+            let tx = one.begin().await?;
+            let push = push_scheduled_job(&one, tx, schedule, None, None);
+            let tx = tokio::time::timeout(std::time::Duration::from_secs(15), push).await??;
+            tx.commit().await?;
+        }
+
+        assert_eq!(count_queued_jobs(&db).await, 3);
+        Ok(())
+    }
+
     // -----------------------------------------------------------------------
     // push_scheduled_job: with retry wraps in SingleStepFlow
     // -----------------------------------------------------------------------

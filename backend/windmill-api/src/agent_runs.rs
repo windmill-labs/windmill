@@ -21,7 +21,7 @@ use windmill_common::{
     jobs::JobPayload,
     users::username_to_permissioned_as,
     utils::{not_found_if_none, StripPath},
-    variables::arg_needs_interpolation,
+    variables::untrusted_arg_interpolates,
 };
 use windmill_queue::{push, PushArgs, PushIsolationLevel};
 
@@ -46,14 +46,29 @@ pub(crate) async fn run_agent(
     Query(run_query): Query<RunJobQuery>,
     Json(args): Json<HashMap<String, Box<RawValue>>>,
 ) -> Result<(StatusCode, String)> {
-    #[cfg(feature = "enterprise")]
-    crate::jobs::check_license_key_valid().await?;
-
     let path = path.to_path();
     check_scopes(&authed, || format!("jobs:run:agents:{path}"))?;
 
+    let uuid = run_agent_as(&authed, &db, &user_db, &w_id, path, &run_query, &args).await?;
+    Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+/// [`run_agent`] for a caller already authenticated, such as the identity of an agent shared in a
+/// Slack channel.
+pub(crate) async fn run_agent_as(
+    authed: &ApiAuthed,
+    db: &DB,
+    user_db: &UserDB,
+    w_id: &str,
+    path: &str,
+    run_query: &RunJobQuery,
+    args: &HashMap<String, Box<RawValue>>,
+) -> Result<uuid::Uuid> {
+    #[cfg(feature = "enterprise")]
+    crate::jobs::check_license_key_valid().await?;
+
     // Read through the caller's own permissions: reading the agent is what allows running it.
-    let mut tx = user_db.clone().begin(&authed).await?;
+    let mut tx = user_db.clone().begin(authed).await?;
     let value = sqlx::query_scalar!(
         "SELECT value AS \"value: sqlx::types::Json<serde_json::Value>\"
          FROM resource WHERE workspace_id = $1 AND path = $2 AND resource_type = 'ai_agent'",
@@ -68,11 +83,14 @@ pub(crate) async fn run_agent(
             "Agent {path} has no configuration"
         )));
     };
-    // Who the agent runs as, not one of its inputs: its identity when it opts in, as a deployed
-    // flow does.
+    // Who the agent runs as and who can ask it in Slack, not inputs: its identity when it opts
+    // in, as a deployed flow does.
     let obj = value.as_object_mut();
     let (agent_obo, run_obo) = obj
-        .map(|o| (o.remove("on_behalf_of"), o.remove("run_on_behalf_of")))
+        .map(|o| {
+            o.remove("slack_anyone");
+            (o.remove("on_behalf_of"), o.remove("run_on_behalf_of"))
+        })
         .unwrap_or_default();
     let agent_obo = agent_obo
         .filter(|_| run_obo.and_then(|v| v.as_bool()).unwrap_or(false))
@@ -97,8 +115,7 @@ pub(crate) async fn run_agent(
     )?;
 
     let on_behalf_of =
-        windmill_common::on_behalf_of_from_permissioned_as(agent_obo.as_deref(), &w_id, &db)
-            .await?;
+        windmill_common::on_behalf_of_from_permissioned_as(agent_obo.as_deref(), w_id, db).await?;
     // As `run_flow` picks the identity of a deployed flow: the agent's own when it has one, the
     // caller's otherwise, which lends nobody's permissions.
     let (email, permissioned_as, push_authed, isolation) = if let Some(obo) = on_behalf_of.as_ref()
@@ -119,31 +136,28 @@ pub(crate) async fn run_agent(
     };
     if let Some(obo) = on_behalf_of.as_ref() {
         // The worker would interpolate such an input with the job's token, which is the
-        // identity's. Checked on the decoded value: the raw JSON can spell `$` as `\u0024`.
-        if args.values().any(|v| {
-            serde_json::from_str::<serde_json::Value>(v.get())
-                .is_ok_and(|v| arg_needs_interpolation(&v.to_string()))
-        }) {
+        // identity's.
+        if args.values().any(|v| untrusted_arg_interpolates(v.get())) {
             return Err(Error::BadRequest(format!(
                 "Agent {path} runs on behalf of {}, so its inputs cannot reference variables or resources",
                 obo.permissioned_as
             )));
         }
         #[cfg(all(feature = "parquet", feature = "private"))]
-        check_attachments_readable(&db, &authed, &w_id, &args).await?;
+        check_attachments_readable(db, authed, w_id, args).await?;
     }
-    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
-    let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
+    let scope_ceiling = windmill_api_auth::caller_scope_ceiling(db, authed).await?;
+    let end_user_email = run_end_user_email(db, w_id, authed, None).await?;
     let (uuid, mut tx) = push(
-        &db,
+        db,
         isolation,
-        &w_id,
+        w_id,
         JobPayload::RawFlow {
             value: flow_value,
             path: Some(run_path.clone()),
             restarted_from: None,
         },
-        PushArgs::from(&args),
+        PushArgs::from(args),
         authed.display_username(),
         email,
         permissioned_as,
@@ -172,7 +186,7 @@ pub(crate) async fn run_agent(
     )
     .await?;
 
-    if let Some(memory_id) = run_query.memory_key(&w_id, &run_path) {
+    if let Some(memory_id) = run_query.memory_key(w_id, &run_path) {
         set_flow_memory_id(&mut tx, uuid, memory_id).await?;
     }
     if chat {
@@ -180,20 +194,20 @@ pub(crate) async fn run_agent(
         // agent as deployed, not a draft under test.
         handle_chat_conversation_messages(
             &mut tx,
-            &authed,
-            &w_id,
+            authed,
+            w_id,
             &run_path,
-            &run_query,
+            run_query,
             args.get("user_message"),
             uuid,
             false,
-            &args,
+            args,
         )
         .await?;
     }
     tx.commit().await?;
 
-    Ok((StatusCode::CREATED, uuid.to_string()))
+    Ok(uuid)
 }
 
 /// The step fetches the message's files with its job's token, so a run as the agent's identity

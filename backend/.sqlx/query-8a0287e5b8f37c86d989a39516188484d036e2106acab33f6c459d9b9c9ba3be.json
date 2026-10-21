@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE account SET refresh_token = COALESCE($1, refresh_token),\n            expires_at = CASE WHEN $2 THEN $3 ELSE expires_at END,\n            refresh_error = CASE WHEN $2 THEN NULL ELSE refresh_error END\n         WHERE workspace_id = $4 AND id = $5 AND refresh_token = $6",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Bool",
+        "Timestamptz",
+        "Text",
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8a0287e5b8f37c86d989a39516188484d036e2106acab33f6c459d9b9c9ba3be"
+}

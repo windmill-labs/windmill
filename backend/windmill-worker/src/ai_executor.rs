@@ -1041,8 +1041,7 @@ pub async fn handle_ai_agent_job(
                                 Ok(Some(hub_script.schema))
                             } else {
                                 let hash = get_latest_hash_for_path(
-                                    db,
-                                    db,
+                                    &mut *db.acquire().await?,
                                     &job.workspace_id,
                                     path.as_str(),
                                     true,

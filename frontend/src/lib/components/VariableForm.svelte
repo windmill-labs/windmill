@@ -10,7 +10,8 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { Loader2, RotateCcw } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
-	import { type UserExt } from '$lib/stores'
+	import { type UserExt, userWorkspaces } from '$lib/stores'
+	import { capabilitiesIn } from '$lib/roleCapabilities'
 	import { isOwner } from '$lib/utils'
 	import { isEncryptedDraftValue } from '$lib/encryptedDraft'
 	import EncryptedDraftField from './EncryptedDraftField.svelte'
@@ -66,6 +67,12 @@
 	}: Props = $props()
 
 	let ws = $derived(workspace ?? $operatingWorkspace)
+	let caps = $derived(
+		capabilitiesIn(
+			actingUser ?? undefined,
+			$userWorkspaces.find((w) => w.id === ws)
+		)
+	)
 
 	// Loading the deployed secret overwrites the draft row this form shares with the AI
 	// chat, so every path that would trigger it has to be blocked while that row stages a
@@ -115,9 +122,9 @@ stretch the hit area over the whole row and the alert. The toggle carries its na
 			on:change={(e) => onSecretChange?.(e.detail)}
 			bind:checked={variable.is_secret}
 			disabled={unsecureNeedsLoad ||
-				(edit && (!actingUser || actingUser.operator || isEncryptedDraftValue(variable.value)))}
+				(edit && (!actingUser || !caps.code || isEncryptedDraftValue(variable.value)))}
 		/>
-		{#if unsecureNeedsLoad && can_write && !actingUser?.operator}
+		{#if unsecureNeedsLoad && can_write && caps.code}
 			<span class="text-2xs text-secondary">
 				Load the secret value or enter a new one to make it non-secret
 			</span>
@@ -163,8 +170,8 @@ stretch the hit area over the whole row and the alert. The toggle carries its na
 				>
 					Reset
 				</Button>
-			{:else if actingUser?.operator}
-				<div class="p-2 border">Operators cannot load secret value</div>
+			{:else if !caps.code}
+				<div class="p-2 border">Your role cannot load secret values</div>
 			{:else}
 				<Button size="xs" variant="default" on:click={() => onLoadSecret?.()}>
 					Load secret value<Tooltip>Will generate an audit log</Tooltip>

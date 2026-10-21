@@ -50,11 +50,10 @@
 	import { copilotInfo } from '$lib/aiStore'
 	import { sendUserToast } from '$lib/toast'
 	import { openSourceInSession } from './sessionSwitch.svelte'
-	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 
-	const operatingUser = useOperatingUser()
-	const actingUser = $derived(operatingUser.current)
+	const roleCaps = useRoleCapabilities()
 
 	let {
 		source,
@@ -94,13 +93,13 @@
 	// SessionEditorTarget / the session wrapper); iframe preview tabs are not
 	// the top window.
 	const inSessionPanel = !!getContext('aiChatManager') || (BROWSER && window.self !== window.top)
-	// prefersSessionHandoff carries the operator clause: the sessions page refuses
-	// them, so an entry point on a page they can reach (Runs, the trigger lists)
+	// prefersSessionHandoff carries the role clause: the sessions page refuses a role
+	// that cannot code, so an entry point on a page they can reach (Runs, the trigger lists)
 	// would only route them into that refusal.
 	const handoff = $derived(
 		!inSessionPanel &&
 			!!(source?.target || source?.page) &&
-			prefersSessionHandoff(actingUser?.operator)
+			prefersSessionHandoff(!$roleCaps.code)
 	)
 	const show = $derived(
 		handoff && !(deferToHeader && sameDestination(pageHeader.sessionSource, source))

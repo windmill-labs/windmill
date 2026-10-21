@@ -11,6 +11,7 @@
 	import {
 		disableHubStore,
 		hubBaseUrlStore,
+		roleCapabilities,
 		userStore,
 		userWorkspaces,
 		workspaceStore
@@ -243,7 +244,7 @@
 
 	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
-			{#if !$userStore?.operator}
+			{#if $roleCapabilities.code}
 				{#if showEditButton}
 					{#if script.use_codebase}
 						<Badge
@@ -299,7 +300,7 @@
 								})
 							},
 							disabled: !showEditButton,
-							hide: $userStore?.operator
+							hide: !$roleCapabilities.code
 						},
 						{
 							displayName: 'Delete',
@@ -352,7 +353,7 @@
 						icon: GitFork,
 						href: `/scripts/add?template=${script.path}`,
 						disabled: !showEditButton,
-						hide: $userStore?.operator
+						hide: !$roleCapabilities.code
 					},
 					{
 						displayName: editInForkLabel($workspaceStore, $userWorkspaces),
@@ -361,7 +362,7 @@
 						// menu item's anchor navigates before a delegated onclick can preventDefault it.
 						action: (e) => onEditInForkClick(e, 'script', script.path),
 						hide:
-							$userStore?.operator ||
+							!$roleCapabilities.code ||
 							isCloudHosted() ||
 							!editInForkAllowed($workspaceStore, $userWorkspaces)
 					},
@@ -372,7 +373,7 @@
 							moveDrawer.openDrawer(script.path, script.summary, 'script')
 						},
 						disabled: !owner || script.archived || !canEdit,
-						hide: $userStore?.operator
+						hide: !$roleCapabilities.code
 					},
 					...(isDeployable('script', script.path, await getDeployUiSettings())
 						? [
@@ -383,7 +384,7 @@
 										deploymentDrawer.openDrawer(script.path, 'script')
 									},
 									disabled: script.archived,
-									hide: $userStore?.operator
+									hide: !$roleCapabilities.code
 								}
 							]
 						: []),
@@ -403,7 +404,7 @@
 						displayName: 'Audit logs',
 						icon: Eye,
 						href: `/audit_logs?resource=${script.path}`,
-						hide: $userStore?.operator
+						hide: !$roleCapabilities.code || !$roleCapabilities.visibility.audit_logs
 					},
 					{
 						displayName: 'Schedule',
@@ -412,7 +413,7 @@
 							scheduleEditor?.openNew(false, script.path)
 						},
 						disabled: script.archived,
-						hide: $userStore?.operator
+						hide: !$roleCapabilities.code || !$roleCapabilities.manage_schedules
 					},
 					{
 						displayName: 'Permissions',
@@ -421,7 +422,7 @@
 							shareModal.openDrawer && shareModal.openDrawer(script.path, 'script')
 						},
 						disabled: script.archived,
-						hide: $userStore?.operator
+						hide: !$roleCapabilities.code
 					},
 					{
 						displayName: 'Copy path',
@@ -454,7 +455,7 @@
 							}
 						},
 						// Operators can't write scripts, so they have nothing to publish.
-						hide: $disableHubStore || $userStore?.operator
+						hide: $disableHubStore || !$roleCapabilities.code
 					},
 					{
 						displayName: script.archived ? 'Unarchive' : 'Archive',
@@ -466,7 +467,7 @@
 						},
 						type: 'delete',
 						disabled: !owner || !canEdit,
-						hide: $userStore?.operator
+						hide: !$roleCapabilities.code
 					},
 
 					...($userStore?.is_admin || $userStore?.is_super_admin
@@ -485,7 +486,7 @@
 									},
 									type: dlt,
 									disabled: !canEdit,
-									hide: $userStore?.operator
+									hide: !$roleCapabilities.code
 								}
 							]
 						: [])
