@@ -36,7 +36,7 @@
 		loadedFromDraft?: boolean
 		othersDraftsCount?: number
 		onOpenOthersDrafts?: () => void
-		/** The icon alone, for a bar with no room for the label: its popover says the same. */
+		/** The icon alone, for a bar with no room for the label, which stays for screen readers. */
 		compact?: boolean
 	} = $props()
 
@@ -366,9 +366,9 @@
 			</div>
 		{/snippet}
 	</Popover>
-	{#if label && !compact}
+	{#if label}
 		<span
-			class="relative text-2xs pr-1.5 {labelIsError
+			class="{compact ? 'sr-only' : 'relative'} text-2xs pr-1.5 {labelIsError
 				? 'text-red-500 font-semibold'
 				: 'text-secondary'}">{label}</span
 		>

@@ -1537,8 +1537,8 @@
 	)
 
 	const sessionSource: OpenInSessionSource = $derived({
-		// Read at click time: the tab lives in the query, so the preview opens on the pane the user
-		// is looking at.
+		// Read at click time: the tab lives in the query, so the preview opens on the tab being
+		// viewed. YAML mode is component state and does not carry over.
 		page: () => WORKSPACE_SETTINGS_PATH + window.location.search,
 		workspaceId: $workspaceStore ?? undefined
 	})

@@ -325,7 +325,8 @@
 	)
 	// In the page header no fold drops a button's label: what does not fit goes into the menu.
 	// The second fold keeps the trail, the file sidebar's toggle and Deploy; Diff joins the menu.
-	// AI stands down — the sidebar's own Ask AI is the way in at that width — while Jobs and the
+	// The docked-chat AI toggle stands down — the sidebar's own Ask AI is the way in at that
+	// width — while Jobs and the
 	// export are already in the menu, Jobs from `compactTopbar` (true at the second fold too) and
 	// the export always.
 	const phoneTopbar = $derived(ownsPageHeader && pageHeader.actionFold >= 2)
