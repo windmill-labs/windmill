@@ -27,12 +27,13 @@
 		Code2,
 		LayoutDashboard,
 		MoreHorizontal,
+		Settings,
 		Tag
 	} from 'lucide-svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import CreateActionsMenu from './CreateActionsMenu.svelte'
 	import ContentSearchInner from '$lib/components/ContentSearchInner.svelte'
-	import type { IconType } from '$lib/utils'
+	import type { IconType, Item as MenuItem } from '$lib/utils'
 
 	import { HOME_COLUMN_WIDTH, HOME_SEARCH_SHOW_FLOW, HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
 
@@ -50,7 +51,7 @@
 	import { clampRows } from './clampRows'
 	import { setUnruledList } from '../common/table/unruledList'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
-	import { isOwner } from '$lib/utils'
+	import { getLocalSetting, isOwner, storeLocalSetting } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import Drawer from '../common/drawer/Drawer.svelte'
 	import HighlightCode from '../HighlightCode.svelte'
@@ -374,14 +375,13 @@
 		}
 		const gen = ++loadGen
 		// Snapshot the cursor now: a later request must not consume a cursor minted
-		// by a filter that has since changed.
+		// by an order/filter that has since changed.
 		const cursor = reset ? undefined : serverCursor
 		let res: { items: RunnableItem[]; next_cursor?: string }
 		try {
 			res = await ScriptService.listRunnables({
 				workspace: ws,
-				orderBy: 'updated',
-				orderDesc: true,
+				...sortToParams(sortOrder),
 				showArchived: archived ? true : undefined,
 				includeWithoutMain: includeWithoutMain ? true : undefined,
 				kinds: runnableKinds,
@@ -601,8 +601,7 @@
 			try {
 				res = await ScriptService.listRunnables({
 					workspace: ws,
-					orderBy: 'updated',
-					orderDesc: true,
+					...sortToParams(sortOrder),
 					showArchived: archived ? true : undefined,
 					includeWithoutMain: includeWithoutMain ? true : undefined,
 					kinds: runnableKinds,
@@ -752,14 +751,62 @@
 
 	const cmp = new Intl.Collator('en').compare
 
-	// Preserve the endpoint's exact order (most recently updated first, starred pinned on top
-	// of the first page) rather than re-deriving it on the client: each row carries its server
-	// fetch ordinal (`ord`), which already reflects the (path, kind) tiebreaks, full-precision
-	// timestamps and the database collation. Sorting by it can never disagree with the server,
-	// so a later page never jumps above shown rows on "load more".
-	function compareItems(a: { ord?: number }, b: { ord?: number }): number {
-		return (a.ord ?? 0) - (b.ord ?? 0)
+	// The order is applied server-side so it holds across the whole workspace, not just the
+	// loaded pages. Starred items are pinned on top of the first page.
+	type SortOrder = 'updated_desc' | 'updated_asc' | 'name_asc' | 'name_desc'
+	const SORT_SETTING_NAME = 'homeSort'
+	const sortOptions: { value: SortOrder; label: string }[] = [
+		{ value: 'updated_desc', label: 'Recently updated' },
+		{ value: 'updated_asc', label: 'Oldest updated' },
+		{ value: 'name_asc', label: 'Name (A-Z)' },
+		{ value: 'name_desc', label: 'Name (Z-A)' }
+	]
+	let sortOrder = $state<SortOrder>(
+		sortOptions.find((o) => o.value === getLocalSetting(SORT_SETTING_NAME))?.value ?? 'updated_desc'
+	)
+	function setSortOrder(o: SortOrder) {
+		sortOrder = o
+		storeLocalSetting(SORT_SETTING_NAME, o === 'updated_desc' ? undefined : o)
 	}
+	function sortToParams(o: SortOrder): { orderBy: 'updated' | 'name'; orderDesc: boolean } {
+		return {
+			orderBy: o.startsWith('name') ? 'name' : 'updated',
+			orderDesc: o.endsWith('desc')
+		}
+	}
+
+	// Preserve the endpoint's exact order rather than re-deriving it on the client: each row
+	// carries its server fetch ordinal (`ord`), which already reflects the chosen order, the
+	// (path, kind) tiebreaks, full-precision timestamps and the database collation. Sorting by
+	// it can never disagree with the server, so a later page never jumps above shown rows on
+	// "load more". Reads `sortOrder` only so its identity changes with the order, re-grouping
+	// the tree; the reordering itself comes from the reload that restamps `ord`.
+	let compareItems = $derived.by(() => {
+		sortOrder
+		return (a: { ord?: number }, b: { ord?: number }): number => (a.ord ?? 0) - (b.ord ?? 0)
+	})
+
+	let listSettingsItems: MenuItem[] = $derived([
+		{
+			displayName: 'Show library scripts',
+			description: 'Scripts without a main function',
+			toggle: includeWithoutMain,
+			hide: !($userStore && $roleCapabilities.code),
+			action: () => {
+				// On by default, so showing them again clears the key rather than leaving a chip.
+				if (includeWithoutMain) filterValues.val.include_library = false
+				else delete filterValues.val.include_library
+			}
+		},
+		...sortOptions.map((o, i) => ({
+			displayName: o.label,
+			selected: o.value === sortOrder,
+			separatorTop: i === 0,
+			disabled: filter !== '',
+			tooltip: filter !== '' ? 'Search results are ranked by relevance' : undefined,
+			action: () => setSortOrder(o.value)
+		}))
+	])
 
 	const opts: uFuzzy.Options = {
 		sort: (info, haystack, needle) => {
@@ -1160,9 +1207,9 @@
 	let treeGlobalHasMore = $derived(!treeLazyMode && !searching ? hasMoreServer : false)
 	$effect(() => {
 		if ($userStore && $workspaceStore) {
-			;[archived, includeWithoutMain, searching, ownerFilter, itemKind]
-			// reloadItems (not a bare loadRunnables) so an in-place change — archive, library,
-			// kind — reloads the global stream AND re-fetches the currently-open owners
+			;[archived, includeWithoutMain, sortOrder, searching, ownerFilter, itemKind]
+			// reloadItems (not a bare loadRunnables) so an in-place change — sort, archive,
+			// library, kind — reloads the global stream AND re-fetches the currently-open owners
 			// under the new filter, keeping folders expanded (file-explorer style)
 			// rather than collapsing them. Mode changes (owner/search) flip treeLazyMode, so
 			// reloadItems skips the re-fetch and the {#key} remount handles the reset.
@@ -1582,6 +1629,18 @@
 						on:click={() => (collapseAll = !collapseAll)}
 						startIcon={{ icon: collapseAll ? ChevronsUpDown : ChevronsDownUp }}
 					/>
+					<DropdownV2 items={listSettingsItems} placement="bottom-end" fixedHeight={false}>
+						{#snippet buttonReplacement()}
+							<Button
+								nonCaptureEvent
+								unifiedSize="md"
+								variant="default"
+								iconOnly
+								title="List settings"
+								startIcon={{ icon: Settings }}
+							/>
+						{/snippet}
+					</DropdownV2>
 				{/if}
 				<!-- Same gate the old create actions used: hidden from operators and in workspaces
 			     whose direct-deploy protection cleared showEditButtons (NoDirectDeployAlert), since
