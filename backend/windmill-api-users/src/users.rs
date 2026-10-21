@@ -262,6 +262,7 @@ pub struct WorkspaceInvite {
     pub email: String,
     pub is_admin: bool,
     pub operator: bool,
+    pub role: String,
     pub parent_workspace_id: Option<String>,
 }
 
@@ -301,7 +302,10 @@ pub struct EditUser {
 #[derive(Deserialize)]
 pub struct EditWorkspaceUser {
     pub is_admin: Option<bool>,
+    /// Legacy role selector: `true` is the `operator` role, `false` `developer`. `role` wins.
     pub operator: Option<bool>,
+    /// The member's role, one of the workspace's roles.
+    pub role: Option<String>,
     pub disabled: Option<bool>,
 }
 
@@ -414,7 +418,9 @@ async fn list_users(
     let rows = sqlx::query_as!(
         User,
         "
-        SELECT workspace_id, username, email, is_admin, created_at, operator, disabled, role, added_via, is_service_account
+        SELECT workspace_id, username, email, is_admin, created_at, operator, disabled,
+               COALESCE(workspace_role, CASE WHEN operator THEN 'operator' ELSE 'developer' END) AS role,
+               added_via, is_service_account
           FROM usr
          WHERE workspace_id = $1
          ORDER BY email
@@ -636,6 +642,7 @@ async fn list_invites(
             workspace_invite.email,
             workspace_invite.is_admin,
             workspace_invite.operator,
+            COALESCE(workspace_invite.workspace_role, CASE WHEN workspace_invite.operator THEN 'operator' ELSE 'developer' END) AS \"role!\",
             workspace.parent_workspace_id
         FROM workspace_invite JOIN workspace ON workspace_invite.workspace_id = workspace.id WHERE email = $1",
         authed.email
@@ -765,7 +772,7 @@ async fn whoami(
     authed: ApiAuthed,
 ) -> JsonResult<UserInfo> {
     let is_guest = windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref());
-    let ApiAuthed { username, email, is_admin, groups, folders, .. } = authed;
+    let ApiAuthed { username, email, is_admin, is_operator, groups, folders, .. } = authed;
     // A guest would otherwise fall through to the non-member branch below and be
     // handed a `superadmin` role. Answer it here, as the operator-shaped identity it is.
     if is_guest {
@@ -794,7 +801,13 @@ async fn whoami(
     // never happen, but guard against it so a non-member superadmin is never
     // shown another member's identity/role.
     if let Some(user) = user.filter(|u| u.email == email) {
-        Ok(Json(user))
+        // The frontend gates pages on `operator`, so it reports what `caller_capabilities`
+        // decides rather than the raw column: an admin (or superadmin) whose row still carries
+        // `operator` holds everything.
+        Ok(Json(UserInfo {
+            operator: is_operator && !is_admin,
+            ..user
+        }))
     } else {
         Ok(Json(UserInfo {
             workspace_id: w_id,
@@ -937,6 +950,7 @@ pub struct User2 {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub added_via: Option<serde_json::Value>,
     pub is_service_account: bool,
+    pub workspace_role: Option<String>,
 }
 
 async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo>> {
@@ -972,7 +986,10 @@ async fn get_user(w_id: &str, username: &str, db: &DB) -> Result<Option<UserInfo
         created_at: usr.created_at,
         operator: usr.operator,
         disabled: usr.disabled,
-        role: usr.role,
+        role: Some(windmill_common::roles::resolve_role_name(
+            usr.workspace_role,
+            usr.operator,
+        )),
         folders_read: folders.clone().into_iter().map(|x| x.0).collect(),
         folders: folders
             .clone()
@@ -1093,7 +1110,7 @@ async fn accept_invite(
     let mut tx = db.begin().await?;
 
     let r = sqlx::query!(
-        "DELETE FROM workspace_invite WHERE workspace_id = $1 AND email = $2 RETURNING is_admin, operator",
+        "DELETE FROM workspace_invite WHERE workspace_id = $1 AND email = $2 RETURNING is_admin, operator, workspace_role",
         nu.workspace_id,
         authed.email,
     )
@@ -1130,6 +1147,16 @@ async fn accept_invite(
             tx,
         )
         .await?;
+        if let Some(role) = &r.workspace_role {
+            sqlx::query!(
+                "UPDATE usr SET workspace_role = $1 WHERE workspace_id = $2 AND username = $3",
+                role,
+                &nu.workspace_id,
+                &username
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
 
         audit_log(
             &mut *tx,
@@ -1307,7 +1334,10 @@ async fn get_workspace_user(
 
     let user = sqlx::query_as!(
         User,
-        "SELECT workspace_id, username, email, is_admin, created_at, operator, disabled, role, added_via, is_service_account FROM usr WHERE username = $1 AND workspace_id = $2",
+        "SELECT workspace_id, username, email, is_admin, created_at, operator, disabled,
+                COALESCE(workspace_role, CASE WHEN operator THEN 'operator' ELSE 'developer' END) AS role,
+                added_via, is_service_account
+         FROM usr WHERE username = $1 AND workspace_id = $2",
         &username_to_update,
         &w_id
     )
@@ -1325,20 +1355,30 @@ async fn update_workspace_user(
     Path((w_id, username_to_update)): Path<(String, String)>,
     Json(eu): Json<EditWorkspaceUser>,
 ) -> Result<String> {
-    let mut tx = db.begin().await?;
-
     require_admin(authed.is_admin, &authed.username)?;
+
+    #[cfg(feature = "enterprise")]
+    let seat_baseline = windmill_common::ee_oss::seat_cap_baseline(&db).await?;
+    let mut tx = db.begin().await?;
 
     update_workspace_user_internal(
         &w_id,
         &username_to_update,
         eu.is_admin,
         eu.operator,
+        eu.role,
         eu.disabled,
         &mut tx,
         Some(&authed),
     )
     .await?;
+
+    #[cfg(feature = "enterprise")]
+    if let Some(msg) =
+        windmill_common::ee_oss::check_seat_cap_for_role_change(&seat_baseline, &mut tx).await?
+    {
+        return Err(Error::BadRequest(msg));
+    }
 
     let user_email = sqlx::query_scalar!(
         "SELECT email FROM usr WHERE username = $1 AND workspace_id = $2",
@@ -1417,65 +1457,44 @@ async fn convert_user_to_group(
         ));
     }
 
-    // Determine the group with highest precedence (same logic as reconcile_workspace_instance_groups)
-    let roles: std::collections::HashMap<String, String> =
-        if let Some(roles_json) = &eligible_groups[0].instance_groups_roles {
-            serde_json::from_value(roles_json.clone()).unwrap_or_default()
-        } else {
-            std::collections::HashMap::new()
-        };
+    let roles: std::collections::HashMap<String, String> = eligible_groups[0]
+        .instance_groups_roles
+        .clone()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default();
+    let group_names: Vec<String> = eligible_groups
+        .iter()
+        .map(|g| g.group_name.clone())
+        .collect();
+    let role_order: Vec<String> = windmill_common::roles::workspace_roles_on(&mut *tx, &w_id)
+        .await?
+        .iter()
+        .map(|r| r.name.clone())
+        .collect();
+    let (primary_group_name, is_admin, role) =
+        windmill_common::users::compute_highest_workspace_role(
+            &group_names,
+            &group_names,
+            &roles,
+            &role_order,
+        );
 
-    let mut best_group = &eligible_groups[0].group_name;
-    let mut best_precedence = 0u8;
-
-    for group in &eligible_groups {
-        let default_role = "developer".to_string();
-        let role = roles.get(&group.group_name).unwrap_or(&default_role);
-
-        let precedence = match role.as_str() {
-            "admin" => 3,
-            "developer" => 2,
-            "operator" => 1,
-            _ => 2,
-        };
-
-        if precedence > best_precedence {
-            best_precedence = precedence;
-            best_group = &group.group_name;
-        }
-    }
-
-    let primary_group_name = best_group;
-
-    // Determine role from group configuration using the selected primary group
-    let default_role = "developer".to_string();
-    let role = roles
-        .get(primary_group_name)
-        .unwrap_or(&default_role)
-        .as_str();
-
-    let (is_admin, is_operator) = match role {
-        "admin" => (true, false),
-        "operator" => (false, true),
-        _ => (false, false),
-    };
-
-    // Update user with instance group information
     let instance_group_source = serde_json::json!({
         "source": "instance_group",
         "group": primary_group_name
     });
 
     sqlx::query!(
-        "UPDATE usr SET added_via = $1, is_admin = $2, operator = $3 WHERE username = $4 AND workspace_id = $5",
+        "UPDATE usr SET added_via = $1, is_admin = $2 WHERE username = $3 AND workspace_id = $4",
         instance_group_source,
         is_admin,
-        is_operator,
         username_to_convert,
         &w_id
     )
     .execute(&mut *tx)
     .await?;
+    set_workspace_role(&mut tx, &w_id, &username_to_convert, &role).await?;
+    let role = if is_admin { "admin" } else { role.as_str() };
 
     audit_log(
         &mut *tx,
@@ -2414,26 +2433,28 @@ lazy_static::lazy_static! {
 }
 
 /// Internal helper for updating workspace user permissions - used by both API and system operations
+///
+/// `role` names one of the workspace's roles; without it, the legacy `operator` flag selects the
+/// `operator` or `developer` role. Admin is a flag on top of the role, so it is set independently.
 pub async fn update_workspace_user_internal(
     w_id: &str,
     username_to_update: &str,
     is_admin: Option<bool>,
     operator: Option<bool>,
+    role: Option<String>,
     disabled: Option<bool>,
     tx: &mut Transaction<'_, Postgres>,
     authed: Option<&ApiAuthed>, // None for system operations
 ) -> Result<()> {
-    // The role is one choice stored as two flags. Granting one clears the other, or a request
-    // setting only `is_admin` leaves a user shown as admin but refused as an operator.
-    let (is_admin, operator) = match (is_admin, operator) {
-        (Some(true), Some(true)) => {
-            return Err(Error::BadRequest(
-                "A user cannot be both admin and operator".to_string(),
-            ))
-        }
-        (Some(true), _) => (Some(true), Some(false)),
-        (_, Some(true)) => (Some(false), Some(true)),
-        flags => flags,
+    if role.is_none() && is_admin == Some(true) && operator == Some(true) {
+        return Err(Error::BadRequest(
+            "A user cannot be both admin and operator".to_string(),
+        ));
+    }
+    // The legacy selector made admin and operator one choice: granting operator demoted.
+    let is_admin = match (&role, is_admin, operator) {
+        (None, None, Some(true)) => Some(false),
+        _ => is_admin,
     };
     if let Some(a) = is_admin {
         sqlx::query_scalar!(
@@ -2445,15 +2466,20 @@ pub async fn update_workspace_user_internal(
         .execute(&mut **tx)
         .await?;
     }
-    if let Some(a) = operator {
-        sqlx::query_scalar!(
-            "UPDATE usr SET operator = $1 WHERE username = $2 AND workspace_id = $3",
-            a,
-            username_to_update,
-            w_id
-        )
-        .execute(&mut **tx)
-        .await?;
+    // A legacy payload granting admin also cleared `operator`; keep that, as the default role.
+    let role = match (role, is_admin, operator) {
+        (Some(role), _, _) => Some(role),
+        (None, _, Some(true)) => Some(windmill_common::roles::OPERATOR_ROLE.to_string()),
+        (None, Some(true), _) | (None, _, Some(false)) => {
+            let roles = windmill_common::roles::workspace_roles_on(&mut **tx, w_id).await?;
+            Some(windmill_common::roles::default_role_name(
+                roles.iter().map(|r| r.name.as_str()),
+            ))
+        }
+        _ => None,
+    };
+    if let Some(role) = role {
+        set_workspace_role(tx, w_id, username_to_update, &role).await?;
     }
     if let Some(a) = disabled {
         sqlx::query_scalar!(
@@ -2480,6 +2506,39 @@ pub async fn update_workspace_user_internal(
         .await?;
     }
 
+    Ok(())
+}
+
+/// Gives a member role `role`, which must be one of the workspace's roles. `usr.operator` is
+/// kept as "this role cannot write code", the reading clients that predate roles give it.
+///
+/// AUTHORIZATION: changes what the member may do and checks nothing. Callers MUST have verified
+/// that the caller is an admin of `w_id`, or run as trusted server-side code (instance group sync,
+/// invite acceptance).
+pub async fn set_workspace_role(
+    tx: &mut Transaction<'_, Postgres>,
+    w_id: &str,
+    username: &str,
+    role: &str,
+) -> Result<()> {
+    let caps = windmill_common::roles::workspace_roles_on(&mut **tx, w_id)
+        .await?
+        .iter()
+        .find(|r| r.name == role)
+        .map(|r| r.capabilities)
+        .ok_or_else(|| {
+            Error::BadRequest(format!("role `{role}` is not defined in workspace {w_id}"))
+        })?;
+    sqlx::query!(
+        "UPDATE usr SET workspace_role = $1, operator = $2 WHERE username = $3 AND workspace_id = $4",
+        role,
+        !caps.code,
+        username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    windmill_common::roles::invalidate_member_role_cache(w_id, username);
     Ok(())
 }
 
