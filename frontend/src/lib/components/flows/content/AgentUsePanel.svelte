@@ -73,7 +73,7 @@
 		canShare: boolean
 		channels: SlackAgentChannel[]
 		/** Shows only this section, without the panel's own tabs: the page offers them as its tabs. */
-		section?: 'api' | 'slack'
+		section?: 'api' | 'slack' | 'app'
 	} = $props()
 
 	let pickedTab = $state('api')

@@ -49,9 +49,9 @@
 	let deleteOpen = $state(false)
 	let evalsModal: AgentEvalsModal | undefined = $state(undefined)
 	let clientWidth = $state(window.innerWidth)
-	let pickedMobileTab = $state('agent')
-	// The page is reused across agents, and an agent without managed memory has no Slack tab.
-	let mobileTab = $derived(pickedMobileTab === 'slack' && !chatAvailable ? 'api' : pickedMobileTab)
+	let pickedMobileTab = $state<'agent' | 'api' | 'slack' | 'app'>('agent')
+	// The page is reused across agents, and an agent without managed memory has no Slack or App tab.
+	let mobileTab = $derived(pickedMobileTab !== 'agent' && !chatAvailable ? 'api' : pickedMobileTab)
 	let wide = $derived(clientWidth >= 1024)
 
 	const slack = resource(
@@ -224,6 +224,7 @@
 			<Tab value="api" label="API" />
 			{#if chatAvailable}
 				<Tab value="slack" label="Slack" />
+				<Tab value="app" label="App" />
 			{/if}
 		</Tabs>
 	{/if}
@@ -242,7 +243,7 @@
 		</Splitpanes>
 		{#if !wide && ws && config}
 			<div class={['absolute inset-0 z-10 bg-surface', mobileTab === 'agent' && 'hidden']}>
-				{@render usePane(ws, mobileTab === 'slack' ? 'slack' : 'api')}
+				{@render usePane(ws, mobileTab === 'agent' ? 'api' : mobileTab)}
 			</div>
 		{/if}
 	</div>
@@ -283,7 +284,7 @@
 	{/key}
 {/snippet}
 
-{#snippet usePane(ws: string, section?: 'api' | 'slack')}
+{#snippet usePane(ws: string, section?: 'api' | 'slack' | 'app')}
 	<AgentUsePanel
 		agentPath={path}
 		workspace={ws}
