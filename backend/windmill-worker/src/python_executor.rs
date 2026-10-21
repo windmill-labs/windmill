@@ -153,10 +153,10 @@ use windmill_object_store::get_cache_object_store;
 use crate::{
     check_no_network_jailed,
     common::{
-        build_command_with_isolation, create_args_and_out_file, get_reserved_variables, proto_str,
-        read_file, read_result, render_nsjail_rlimit_as, resolve_nsjail_timeout,
-        resolve_nsjail_tmp_mount_block, start_child_process, OccupancyMetrics, StreamNotifier,
-        DEV_CONF_NSJAIL,
+        build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file,
+        read_result, render_nsjail_rlimit_as, resolve_nsjail_timeout,
+        proto_str, resolve_nsjail_tmp_mount_block, start_child_process, OccupancyMetrics,
+        StreamNotifier, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang, get_run_proxy_envs,
     handle_child::handle_child,
@@ -3780,14 +3780,8 @@ mod tests {
             ("q\"uote.py".to_string(), module("")),
         ]);
         let mounts = super::python_module_mounts("/jobs/1", "u/admin", Some(&modules));
-        assert!(
-            mounts.contains("src: \"/jobs/1/u/admin/lib/util.py\""),
-            "{mounts}"
-        );
-        assert!(
-            mounts.contains("dst: \"/tmp/u/admin/lib/util.py\""),
-            "{mounts}"
-        );
+        assert!(mounts.contains("src: \"/jobs/1/u/admin/lib/util.py\""), "{mounts}");
+        assert!(mounts.contains("dst: \"/tmp/u/admin/lib/util.py\""), "{mounts}");
         assert!(!mounts.contains("escape"), "{mounts}");
         assert!(mounts.contains("q\\\"uote.py"), "{mounts}");
     }
