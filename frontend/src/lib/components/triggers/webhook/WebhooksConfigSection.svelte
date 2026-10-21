@@ -23,6 +23,17 @@
 	import { generateRandomString } from '$lib/utils'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import CollapseLink from '$lib/components/CollapseLink.svelte'
+	import CopyableCodeBlock from '$lib/components/details/CopyableCodeBlock.svelte'
+	import { markdown } from 'svelte-highlight/languages'
+	import {
+		curlExample,
+		fetchExample,
+		integrationPrompt,
+		sdkExample,
+		sdkReactExample,
+		type WebhookTarget
+	} from './webhookExamples'
 
 	interface Props {
 		isFlow?: boolean
@@ -32,6 +43,11 @@
 		runnableArgs: any
 		triggerTokens?: TriggerTokens | undefined
 		scopes?: string[]
+		/** An AI agent rather than a script or a flow: it is run at its own endpoint, asynchronously. */
+		agent?: boolean
+		/** It keeps the conversation (a chat-mode flow, an agent with managed memory): the examples
+		 *  then name one with `memory_id`, and the chat SDK is offered. */
+		chat?: boolean
 	}
 
 	let {
@@ -41,8 +57,11 @@
 		token = $bindable(''),
 		runnableArgs,
 		triggerTokens = $bindable(undefined),
-		scopes = []
+		scopes = [],
+		agent = false,
+		chat = false
 	}: Props = $props()
+	const kind: WebhookTarget['kind'] = $derived(agent ? 'agent' : isFlow ? 'flow' : 'script')
 	const operatingWorkspace = useOperatingWorkspace()
 	const wsId = $derived($operatingWorkspace)
 
@@ -51,7 +70,9 @@
 	let baseWebhookUrl = $derived.by(() => {
 		let webhookUrlPath: string
 
-		if (isFlow) {
+		if (agent) {
+			return `${WEBHOOK_BASE_URL}/run/agent/${path}`
+		} else if (isFlow) {
 			webhookUrlPath = runnableId == 'path' ? `f/${path}` : `fv/${runnableVersion}`
 		} else {
 			webhookUrlPath = runnableId == 'path' ? `p/${path}` : `h/${runnableVersion}`
@@ -81,24 +102,33 @@
 
 	let cleanedRunnableArgs = $derived.by(() => {
 		readFieldsRecursively(runnableArgs)
-		return isObject(runnableArgs) && 'wm_trigger' in runnableArgs
-			? Object.fromEntries(Object.entries(runnableArgs).filter(([key]) => key !== 'wm_trigger'))
-			: runnableArgs
+		const args =
+			isObject(runnableArgs) && 'wm_trigger' in runnableArgs
+				? Object.fromEntries(Object.entries(runnableArgs).filter(([key]) => key !== 'wm_trigger'))
+				: runnableArgs
+		// A chat page fills no form, and each turn is a message.
+		return chat ? { ...args, user_message: args?.user_message || 'Hello' } : args
 	})
-	let url: string = $derived(
-		baseWebhookUrl +
-			(tokenType === 'query'
-				? `?token=${token}${
-						callMethod === 'get' || requestType === 'sync_sse'
-							? `&payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`
-							: ''
-					}`
-				: `${
-						callMethod === 'get'
-							? `?payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`
-							: ''
-					}`)
-	)
+	/** The url, naming the conversation as `memory` writes it in each example. */
+	function urlWith(memory: string): string {
+		const params: string[] = []
+		if (tokenType === 'query') params.push(`token=${token}`)
+		if (chat) params.push(`memory_id=${memory}`)
+		if (callMethod === 'get' || (tokenType === 'query' && requestType === 'sync_sse')) {
+			params.push(`payload=${encodeURIComponent(btoa(JSON.stringify(cleanedRunnableArgs ?? {})))}`)
+		}
+		return baseWebhookUrl + (params.length ? `?${params.join('&')}` : '')
+	}
+	let url: string = $derived(urlWith('<conversation id>'))
+	let target: WebhookTarget = $derived({
+		api: `${apiBaseUrl()}/api/w/${wsId}`,
+		kind,
+		path,
+		chat,
+		token,
+		inputs: cleanedRunnableArgs
+	})
+	let sdkFlavor = $state('react')
 
 	function headers() {
 		const headers = {}
@@ -113,11 +143,20 @@
 	}
 
 	function fetchCode() {
+		if (agent) return fetchExample(target)
+		const fetchUrl = urlWith('${conversation}')
+		const conversation = chat
+			? '// Any string names a conversation: reuse it for follow-ups, pick a new one to start over.\nconst conversation = crypto.randomUUID();\n\n'
+			: ''
+		return conversation + fetchBody(fetchUrl)
+	}
+
+	function fetchBody(fetchUrl: string) {
 		if (requestType === 'sync_sse') {
 			return `import { EventSource } from "eventsource";
 
 export async function main() {
-  const response = await fetch(\`${url}\`, {
+  const response = await fetch(\`${fetchUrl}\`, {
     method: '${callMethod === 'get' ? 'GET' : 'POST'}',
     headers: ${JSON.stringify(headers(), null, 2).replaceAll('\n', '\n    ')},
     body: ${callMethod === 'get' ? 'undefined' : `JSON.stringify(${JSON.stringify(cleanedRunnableArgs ?? {}, null, 2).replaceAll('\n', '\n    ')})`}
@@ -184,7 +223,7 @@ async function triggerJob() {
 					2
 				).replaceAll('\n', '\n\t')});`
 	}
-  const endpoint = \`${url}\`;
+  const endpoint = \`${fetchUrl}\`;
 
   return await fetch(endpoint, {
     method: '${callMethod === 'get' ? 'GET' : 'POST'}',
@@ -209,7 +248,7 @@ async function triggerJob() {
 		'\n',
 		'\n\t'
 	)});
-  const endpoint = \`${url}\`;
+  const endpoint = \`${fetchUrl}\`;
 
   return await fetch(endpoint, {
     method: '${callMethod === 'get' ? 'GET' : 'POST'}',
@@ -252,9 +291,13 @@ function waitForJobCompletion(UUID) {
 	}
 
 	function curlCode() {
-		return `TOKEN='${token}'
+		if (agent) return curlExample(target)
+		const conversation = chat
+			? '# Any string names a conversation: reuse it for follow-ups, pick a new one to start over.\nCONVERSATION=$(uuidgen)\n'
+			: ''
+		return `${conversation}TOKEN='${token}'
 ${callMethod !== 'get' ? `BODY='${JSON.stringify(cleanedRunnableArgs ?? {})}'` : ''}
-URL='${url}'
+${chat ? `URL="${urlWith('$CONVERSATION')}"` : `URL='${url}'`}
 ${requestType === 'sync' ? 'RESULT=$(' : requestType === 'async' ? 'UUID=$(' : ''}curl -s ${
 			callMethod != 'get' ? "-H 'Content-Type: application/json'" : ''
 		} ${tokenType === 'headers' ? `-H "Authorization: Bearer $TOKEN"` : ''} -X ${
@@ -305,7 +348,7 @@ done`
 				<Button size="xs" variant="default" on:click={() => userSettings?.openDrawer()}>
 					Create a Webhook-specific Token
 					<Tooltip light>
-						The token will have a scope such that it can only be used to trigger this script. It is
+						The token will have a scope such that it can only be used to trigger this {kind}. It is
 						safe to share as it cannot be used to impersonate you.
 					</Tooltip>
 				</Button>
@@ -313,77 +356,80 @@ done`
 		</Label>
 	{/if}
 
-	<div class="flex flex-col gap-6">
-		<Label label="Request type">
-			<ToggleButtonGroup bind:selected={requestType}>
-				{#snippet children({ item })}
-					<ToggleButton
-						label="Async"
-						value="async"
-						tooltip="The returning value is the uuid of the job assigned to execute the job."
-						{item}
-					/>
-					<ToggleButton
-						label="Sync"
-						value="sync"
-						tooltip="Triggers the execution, wait for the job to complete and return it as a response."
-						{item}
-					/>
-					<ToggleButton
-						label="Sync SSE"
-						value="sync_sse"
-						tooltip={'Triggers the execution and returns an SSE stream. ' +
-							(isFlow
-								? 'Only useful if the last step of the flow returns a stream.'
-								: 'Only useful if the script returns a stream.')}
-						{item}
-					/>
-				{/snippet}
-			</ToggleButtonGroup>
-		</Label>
-		<Label label="Call method">
-			<ToggleButtonGroup bind:selected={callMethod}>
-				{#snippet children({ item })}
-					<ToggleButton
-						label="POST"
-						icon={ArrowDownRight}
-						selectedColor="#14b8a6"
-						value="post"
-						{item}
-					/>
-					<ToggleButton
-						label="GET"
-						icon={ArrowUpRight}
-						selectedColor="#fb923c"
-						value="get"
-						{item}
-						disabled={requestType !== 'sync' && requestType !== 'sync_sse'}
-					/>
-				{/snippet}
-			</ToggleButtonGroup>
-		</Label>
-		<Label label="Reference type">
-			<ToggleButtonGroup bind:selected={runnableId}>
-				{#snippet children({ item })}
-					<ToggleButton label="Path" value="path" {item} />
-					<ToggleButton
-						label={isFlow ? 'Flow version' : 'Hash'}
-						value="runnableVersion"
-						disabled={!runnableVersion}
-						{item}
-					/>
-				{/snippet}
-			</ToggleButtonGroup>
-		</Label>
-		<Label label="Token configuration">
-			<ToggleButtonGroup bind:selected={tokenType}>
-				{#snippet children({ item })}
-					<ToggleButton label="Token in Headers" value="headers" {item} />
-					<ToggleButton label="Token in Query" value="query" {item} />
-				{/snippet}
-			</ToggleButtonGroup>
-		</Label>
-	</div>
+	<!-- An agent has one endpoint: it starts a run, by path, and answers with its job id. -->
+	{#if !agent}
+		<div class="flex flex-col gap-6">
+			<Label label="Request type">
+				<ToggleButtonGroup bind:selected={requestType}>
+					{#snippet children({ item })}
+						<ToggleButton
+							label="Async"
+							value="async"
+							tooltip="The returning value is the uuid of the job assigned to execute the job."
+							{item}
+						/>
+						<ToggleButton
+							label="Sync"
+							value="sync"
+							tooltip="Triggers the execution, wait for the job to complete and return it as a response."
+							{item}
+						/>
+						<ToggleButton
+							label="Sync SSE"
+							value="sync_sse"
+							tooltip={'Triggers the execution and returns an SSE stream. ' +
+								(isFlow
+									? 'Only useful if the last step of the flow returns a stream.'
+									: 'Only useful if the script returns a stream.')}
+							{item}
+						/>
+					{/snippet}
+				</ToggleButtonGroup>
+			</Label>
+			<Label label="Call method">
+				<ToggleButtonGroup bind:selected={callMethod}>
+					{#snippet children({ item })}
+						<ToggleButton
+							label="POST"
+							icon={ArrowDownRight}
+							selectedColor="#14b8a6"
+							value="post"
+							{item}
+						/>
+						<ToggleButton
+							label="GET"
+							icon={ArrowUpRight}
+							selectedColor="#fb923c"
+							value="get"
+							{item}
+							disabled={requestType !== 'sync' && requestType !== 'sync_sse'}
+						/>
+					{/snippet}
+				</ToggleButtonGroup>
+			</Label>
+			<Label label="Reference type">
+				<ToggleButtonGroup bind:selected={runnableId}>
+					{#snippet children({ item })}
+						<ToggleButton label="Path" value="path" {item} />
+						<ToggleButton
+							label={isFlow ? 'Flow version' : 'Hash'}
+							value="runnableVersion"
+							disabled={!runnableVersion}
+							{item}
+						/>
+					{/snippet}
+				</ToggleButtonGroup>
+			</Label>
+			<Label label="Token configuration">
+				<ToggleButtonGroup bind:selected={tokenType}>
+					{#snippet children({ item })}
+						<ToggleButton label="Token in Headers" value="headers" {item} />
+						<ToggleButton label="Token in Query" value="query" {item} />
+					{/snippet}
+				</ToggleButtonGroup>
+			</Label>
+		</div>
+	{/if}
 
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -394,6 +440,10 @@ done`
 				<Tab value="curl" label="Curl" />
 			{/if}
 			<Tab value="fetch" label="Fetch" />
+			{#if chat && kind !== 'script'}
+				<Tab value="sdk" label="Chat SDK" />
+			{/if}
+			<Tab value="prompt" label="AI prompt" />
 
 			{#snippet content()}
 				{#key token}
@@ -458,9 +508,46 @@ done`
 										{/key}{/key}{/key}{/key}
 						{/key}
 					</TabContent>
+					<TabContent value="sdk" class="flex flex-col gap-2 mt-2">
+						<span class="text-xs text-secondary">
+							Streams each answer and keeps the conversations, with any framework.
+						</span>
+						<ToggleButtonGroup bind:selected={sdkFlavor} noWFull>
+							{#snippet children({ item })}
+								<ToggleButton value="react" label="React" {item} small />
+								<ToggleButton value="any" label="Any framework" {item} small />
+							{/snippet}
+						</ToggleButtonGroup>
+						<CopyableCodeBlock
+							code={sdkFlavor === 'react' ? sdkReactExample(target) : sdkExample(target)}
+							language={typescript}
+						/>
+					</TabContent>
+					<TabContent value="prompt" class="flex flex-col gap-2 mt-2">
+						<span class="text-xs text-secondary">
+							Share this with your coding assistant. It assumes your token is in <code
+								>WINDMILL_TOKEN</code
+							>.
+						</span>
+						<div>
+							<Button
+								variant="default"
+								unifiedSize="sm"
+								startIcon={{ icon: Copy }}
+								onClick={() => copyToClipboard(integrationPrompt(target))}
+							>
+								Copy prompt
+							</Button>
+						</div>
+						<CollapseLink text="Show prompt">
+							<CopyableCodeBlock code={integrationPrompt(target)} language={markdown} wrap />
+						</CollapseLink>
+					</TabContent>
 				{/key}
 			{/snippet}
 		</Tabs>
 	</div>
-	<TriggerTokens bind:this={triggerTokens} {isFlow} {path} labelPrefix="webhook" />
+	{#if !agent}
+		<TriggerTokens bind:this={triggerTokens} {isFlow} {path} labelPrefix="webhook" />
+	{/if}
 </div>

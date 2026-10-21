@@ -1,34 +1,15 @@
 <script lang="ts">
-	import { Copy } from 'lucide-svelte'
-	import CollapseLink from '$lib/components/CollapseLink.svelte'
-	import { bash, markdown, typescript } from 'svelte-highlight/languages'
-	import { Alert, Badge, Button, CopyButton, Tab, TabContent, Tabs } from '$lib/components/common'
-	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
-	import CopyableCodeBlock from '$lib/components/details/CopyableCodeBlock.svelte'
-	import Label from '$lib/components/Label.svelte'
-	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { Alert, Badge, Button, CopyButton, TabContent, Tabs } from '$lib/components/common'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import UserSettings from '$lib/components/UserSettings.svelte'
 	import type { SlackAgentChannel } from '$lib/gen'
 	import { userStore } from '$lib/stores'
-	import { copyToClipboard, generateRandomString } from '$lib/utils'
-	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
 	import { copilotInfo } from '$lib/aiStore'
 	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import { openEditorInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { mintDraftPath } from '$lib/mintDraftPath'
 	import { sendUserToast } from '$lib/toast'
-	import {
-		curlExample,
-		fetchExample,
-		integrationPrompt,
-		runUrl,
-		sdkExample,
-		sdkReactExample
-	} from './agentApiExamples'
+	import WebhooksPanel from '$lib/components/triggers/webhook/WebhooksPanel.svelte'
 
 	/**
 	 * The ways to use an agent outside its page: in the Slack channels it is shared in, set in its
@@ -78,25 +59,6 @@
 
 	let handle = $derived(`+${agentPath.split('/').pop()}`)
 
-	let userSettings: UserSettings | undefined = $state(undefined)
-	let token = $state('')
-	let target = $derived({
-		api: `${apiBaseUrl()}/api/w/${workspace}`,
-		agentPath,
-		chat,
-		token
-	})
-	let body = JSON.stringify({ user_message: 'Hello' }, null, 2)
-	let headers = $derived(
-		JSON.stringify(
-			{ 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-			null,
-			2
-		)
-	)
-	let apiTab = $state('prompt')
-	let tsFlavor = $state('react')
-
 	// Built in an AI session, as a new app from home is: the raw-app guidance knows how to chat with
 	// a saved agent, so the prompt only names it.
 	const editRights = useEditRights(() => workspace)
@@ -117,14 +79,6 @@
 		).catch((err) => sendUserToast(`Could not start building the app: ${err}`, true))
 	}
 </script>
-
-<UserSettings
-	bind:this={userSettings}
-	on:tokenCreated={(e) => (token = e.detail)}
-	newTokenWorkspace={workspace}
-	newTokenLabel={`agent-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
-	scopes={[`jobs:run:agents:${agentPath}`]}
-/>
 
 <div class="flex flex-col h-full">
 	<Tabs selected={section} hideTabs wrapperClass="flex-none w-full">
@@ -259,93 +213,15 @@
 					</div>
 				</TabContent>
 
-				<TabContent value="api" class="flex flex-col gap-6 p-4">
-					<Label label="Token">
-						<div class="flex flex-col gap-2">
-							<TextInput
-								bind:value={token}
-								inputProps={{ placeholder: 'Paste your token here once created' }}
-								class="!text-xs !font-normal"
-							/>
-							<div>
-								<Button
-									variant="default"
-									unifiedSize="sm"
-									onClick={() => userSettings?.openDrawer()}
-								>
-									Create an agent-specific token
-									<Tooltip light>
-										The token can only run this agent. It is safe to share as it cannot be used to
-										impersonate you.
-									</Tooltip>
-								</Button>
-							</div>
-						</div>
-					</Label>
-					<div class="flex flex-col">
-						<Tabs bind:selected={apiTab}>
-							<Tab value="prompt" label="AI prompt" />
-							<Tab value="ts" label="TypeScript" />
-							<Tab value="http" label="HTTP" />
-							{#snippet content()}
-								<TabContent value="ts" class="flex flex-col gap-2 mt-2">
-									{#if chat}
-										<ToggleButtonGroup bind:selected={tsFlavor} noWFull>
-											{#snippet children({ item })}
-												<ToggleButton value="react" label="React" {item} small />
-												<ToggleButton value="any" label="Any framework" {item} small />
-												<ToggleButton value="fetch" label="No SDK" {item} small />
-											{/snippet}
-										</ToggleButtonGroup>
-									{/if}
-									<CopyableCodeBlock
-										code={!chat || tsFlavor === 'fetch'
-											? fetchExample(target)
-											: tsFlavor === 'react'
-												? sdkReactExample(target)
-												: sdkExample(target)}
-										language={typescript}
-									/>
-								</TabContent>
-								<TabContent value="http" class="flex flex-col gap-6 mt-2">
-									<Label label="Url">
-										<ClipboardPanel
-											content={runUrl(target) + (chat ? '?memory_id=<conversation id>' : '')}
-										/>
-									</Label>
-									<Label label="Body"><ClipboardPanel content={body} /></Label>
-									<Label label="Headers"><ClipboardPanel content={headers} /></Label>
-									<Label label="Curl">
-										<span class="text-xs text-secondary">
-											Runs the agent and waits for its answer. The TypeScript tab streams it
-											instead.
-										</span>
-										<CopyableCodeBlock code={curlExample(target)} language={bash} />
-									</Label>
-								</TabContent>
-								<TabContent value="prompt" class="flex flex-col gap-2 mt-2">
-									<span class="text-xs text-secondary">
-										Share this with your coding assistant. It assumes your token is in <code
-											>WINDMILL_TOKEN</code
-										>.
-									</span>
-									<div>
-										<Button
-											variant="default"
-											unifiedSize="sm"
-											startIcon={{ icon: Copy }}
-											onClick={() => copyToClipboard(integrationPrompt(target))}
-										>
-											Copy prompt
-										</Button>
-									</div>
-									<CollapseLink text="Show prompt">
-										<CopyableCodeBlock code={integrationPrompt(target)} language={markdown} wrap />
-									</CollapseLink>
-								</TabContent>
-							{/snippet}
-						</Tabs>
-					</div>
+				<TabContent value="api" class="p-4">
+					<WebhooksPanel
+						agent
+						{chat}
+						path={agentPath}
+						token=""
+						args={{ user_message: 'Hello' }}
+						scopes={[`jobs:run:agents:${agentPath}`]}
+					/>
 				</TabContent>
 			</div>
 		{/snippet}

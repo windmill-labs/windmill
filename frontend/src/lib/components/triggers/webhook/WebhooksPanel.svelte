@@ -13,6 +13,9 @@
 		runnableVersion?: string | undefined
 		path: string
 		newItem?: boolean
+		/** See WebhooksConfigSection. */
+		agent?: boolean
+		chat?: boolean
 	}
 
 	let {
@@ -22,7 +25,9 @@
 		isFlow = false,
 		runnableVersion = undefined,
 		path,
-		newItem = false
+		newItem = false,
+		agent = false,
+		chat = false
 	}: Props = $props()
 </script>
 
@@ -30,8 +35,14 @@
 
 <Section label="Webhooks" class="flex flex-col gap-4">
 	<Description link="https://www.windmill.dev/docs/core_concepts/webhooks">
-		Webhooks trigger scripts or flows via HTTP requests. Each webhook can be configured to run
-		synchronously or asynchronously. You can secure webhooks using tokens with specific permissions.
+		{#if agent}
+			A webhook runs the agent from an HTTP request and answers with the run's id. You can secure it
+			with a token that can only run this agent.
+		{:else}
+			Webhooks trigger scripts or flows via HTTP requests. Each webhook can be configured to run
+			synchronously or asynchronously. You can secure webhooks using tokens with specific
+			permissions.
+		{/if}
 	</Description>
 	{#if newItem}
 		<Alert type="warning" title="Attached to a deployed path">
@@ -39,5 +50,14 @@
 			{isFlow ? 'flow' : 'script'}.
 		</Alert>
 	{/if}
-	<WebhooksConfigSection {isFlow} {path} {runnableVersion} {token} runnableArgs={args} {scopes} />
+	<WebhooksConfigSection
+		{isFlow}
+		{path}
+		{runnableVersion}
+		{token}
+		runnableArgs={args}
+		{scopes}
+		{agent}
+		{chat}
+	/>
 </Section>
