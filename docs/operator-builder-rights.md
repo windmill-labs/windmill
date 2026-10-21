@@ -74,8 +74,8 @@ too: a developer who loads a builder's draft in the editor runs its code as them
 
 ## Agents
 
-An agent is an `ai_agent` resource, and operators may write resources, so `builder_flows` is also
-the right to build agents. Without it an operator writes no agent at all. Its tools run in the
+An agent is an `ai_agent` resource, and operators may write resources, so the `flows` capability
+is also the right to build agents. Without it a restricted role writes no agent at all. Its tools run in the
 agent's own runs, which take only inputs and run what is stored, and in every flow step linking
 it. So `validate_operator_agent` holds an operator's agent to the composed-flow rules by checking
 its tools as the tools of a one-step flow. It is called from `resolve_agent_on_behalf_of`, which
