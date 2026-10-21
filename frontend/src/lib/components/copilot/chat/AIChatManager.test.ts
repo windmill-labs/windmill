@@ -3464,6 +3464,66 @@ describe('AIChatManager context compaction', () => {
 		expect(manager.displayMessages[0].role).toBe('summary')
 	})
 
+	it('compacts mid-turn off the provider report, then stops trusting the report it replaced', async () => {
+		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.getStreamedCompletionText.mockResolvedValue('<summary>SUMMARY ONE</summary>')
+		const step = (id: string) => [
+			{
+				role: 'assistant' as const,
+				content: '',
+				tool_calls: [{ id, type: 'function', function: { name: 'x', arguments: '{}' } }]
+			},
+			{ role: 'tool' as const, tool_call_id: id, content: 'r'.repeat(8_000) }
+		]
+		// The provider counts far more than chars/4 sees: over the 0.8 * 128k trigger.
+		const report = { prompt: 101_000, completion: 1_000, total: 102_000 }
+		let thirdIteration: any[] = []
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const push = (ms: any[]) => {
+				for (const m of ms) {
+					config.messages.push(m)
+					config.addedMessages.push(m)
+				}
+			}
+			await config.onBeforeIteration(gpt4oModel, null)
+			push(step('t1'))
+			await config.onBeforeIteration(gpt4oModel, report)
+			push(step('t2'))
+			// The iteration after the compaction reported nothing, so the loop hands the
+			// pre-compaction report back.
+			await config.onBeforeIteration(gpt4oModel, report)
+			thirdIteration = [...config.messages]
+			const reply = { role: 'assistant' as const, content: 'done' }
+			push([reply])
+			return {
+				addedMessages: [...step('t1'), ...step('t2'), reply],
+				tokenUsage: report,
+				lastIterationUsage: report,
+				hitMaxIterations: false
+			}
+		})
+		const manager = new AIChatManager()
+		// ~75k estimated tokens: under the trigger by the estimate alone.
+		manager.messages = Array.from({ length: 10 }, (_, i) => ({
+			role: i % 2 === 0 ? ('user' as const) : ('assistant' as const),
+			content: `m${i}` + 'x'.repeat(30_000)
+		}))
+		manager.displayMessages = manager.messages.map((m, i) =>
+			m.role === 'user'
+				? { role: 'user', content: `m${i}`, index: i }
+				: { role: 'assistant', content: `m${i}` }
+		)
+		manager.instructions = 'next question'
+
+		await manager.sendRequest()
+
+		expect(mocks.getStreamedCompletionText).toHaveBeenCalledTimes(1)
+		expect(thirdIteration[0].content).toContain('SUMMARY ONE')
+		// Nor does the stale report become the stored usage at commit.
+		expect(manager.contextUsage).toBeUndefined()
+	})
+
 	it('summarizes the older prefix and keeps the recent tail verbatim', async () => {
 		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
 		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)

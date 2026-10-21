@@ -74,7 +74,8 @@ export interface ChatLoopConfig {
 	 */
 	addedMessages?: ChatCompletionMessageParam[]
 	/** Called before each iteration (e.g. to record which model it is about to use), with
-	 * the most recent iteration's usage report. It may rewrite `messages` in place. */
+	 * the last usage report that carried a prompt count, which can predate the latest
+	 * iteration. It may rewrite `messages` in place. */
 	onBeforeIteration?: (
 		modelProvider: ReasoningProviderModel,
 		lastIterationUsage: ChatTokenUsage | null
