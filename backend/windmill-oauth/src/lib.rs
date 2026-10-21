@@ -20,12 +20,10 @@ use std::fmt::Debug;
 use anyhow::anyhow;
 use hmac::Mac;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use sqlx::{Postgres, Transaction};
 use tower_cookies::{Cookie, Cookies};
 use windmill_common::error::{self, to_anyhow, Error};
 use windmill_common::more_serde::maybe_number_opt;
 use windmill_common::oauth2::*;
-use windmill_common::utils::now_from_db;
 use windmill_common::BASE_URL;
 
 pub type DB = sqlx::Pool<sqlx::Postgres>;
@@ -915,61 +913,39 @@ pub struct OAuthAccountInfo {
     pub scopes: Option<Vec<String>>,
 }
 
-/// Refresh an OAuth token and update the `account` row.
-/// Fetches the account from DB, then delegates to `refresh_token_for_account`.
-///
-/// Returns the freshly minted access token. Persisting it to the secret variable
-/// backing the resource is the caller's responsibility (it must route through the
-/// configured secret backend — see `store_oauth_token_value` in `windmill-store`).
-pub async fn refresh_token<'c>(
-    mut tx: Transaction<'c, Postgres>,
-    w_id: &str,
-    id: i32,
-    db: &DB,
-    oauth_clients: &AllClients,
-    http_client: &reqwest::Client,
-    connect_configs_json: &str,
-) -> error::Result<String> {
-    let account = sqlx::query_as!(
-        OAuthAccountInfo,
-        "SELECT client, refresh_token, grant_type, cc_client_id, cc_client_secret, cc_token_url, scopes FROM account WHERE workspace_id = $1 AND id = $2",
-        w_id,
-        id,
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
-    let account = windmill_common::utils::not_found_if_none(account, "Account", &id.to_string())?;
-
-    refresh_token_for_account(
-        tx,
-        w_id,
-        id,
-        db,
-        account,
-        oauth_clients,
-        http_client,
-        connect_configs_json,
-    )
-    .await
+/// A refresh the provider answered with a new access token.
+pub struct RefreshedToken {
+    pub access_token: String,
+    /// The rotated refresh token, when the provider issued one.
+    pub refresh_token: Option<String>,
+    pub expires_in: i64,
 }
 
-/// Refresh an OAuth token given pre-fetched account info (no additional SELECT).
+pub enum RefreshError {
+    /// The provider refused the exchange: recorded on the account as `refresh_error`.
+    Provider(String),
+    Other(Error),
+}
+
+impl From<Error> for RefreshError {
+    fn from(e: Error) -> Self {
+        RefreshError::Other(e)
+    }
+}
+
+/// Exchange an account's refresh token (or client credentials) with its provider.
 ///
-/// Exchanges the refresh token, updates the `account` row (`refresh_token`,
-/// `expires_at`, `refresh_error`) and returns the new access token. It does NOT
-/// persist the token to the secret variable — the caller must do that through the
-/// configured secret backend (`store_oauth_token_value`), otherwise an external
-/// secret backend would keep serving the stale connect-time token.
-pub async fn refresh_token_for_account<'c>(
-    mut tx: Transaction<'c, Postgres>,
+/// Holds no connection across the HTTP call and writes nothing: the caller records the
+/// outcome on the `account` row and persists the access token through the secret backend.
+pub async fn exchange_account_token(
+    db: &DB,
     w_id: &str,
     id: i32,
-    db: &DB,
-    account: OAuthAccountInfo,
+    account: &OAuthAccountInfo,
     oauth_clients: &AllClients,
     http_client: &reqwest::Client,
     connect_configs_json: &str,
-) -> error::Result<String> {
+) -> Result<RefreshedToken, RefreshError> {
     // Instance-configured client: required for authorization_code (the refresh
     // token exchange uses the instance app's credentials). For client_credentials
     // it is resolved inside `build_client_credentials_oauth_client` instead.
@@ -1068,48 +1044,13 @@ pub async fn refresh_token_for_account<'c>(
     )
     .await;
 
-    if let Err(token_err) = token {
-        sqlx::query!(
-            "UPDATE account SET refresh_error = $1 WHERE workspace_id = $2 AND id = $3",
-            token_err.alt(),
-            w_id,
-            id,
-        )
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        return Err(error::Error::BadRequest(format!(
-            "Error refreshing token: {}",
-            token_err.alt()
-        )));
-    };
+    let token = token.map_err(|e| RefreshError::Provider(e.alt()))?;
 
-    let token = token.unwrap();
-
-    let expires_at = now_from_db(&mut *tx).await?
-        + chrono::Duration::try_seconds(
-            token
-                .expires_in
-                .ok_or_else(|| Error::InternalErr("expires_in expected and not found".to_string()))?
-                .try_into()
-                .unwrap(),
-        )
-        .unwrap_or_default();
-    sqlx::query!(
-        "UPDATE account SET refresh_token = $1, expires_at = $2, refresh_error = NULL WHERE workspace_id = $3 AND id = $4",
-        token
-            .refresh_token
-            .map(|x| x.to_string())
-            .unwrap_or(account.refresh_token),
-        expires_at,
-        w_id,
-        id,
-    )
-    .execute(&mut *tx)
-    .await?;
-    tx.commit().await?;
-
-    let token_str = token.access_token.to_string();
+    let expires_in = token
+        .expires_in
+        .ok_or_else(|| Error::InternalErr("expires_in expected and not found".to_string()))?
+        .try_into()
+        .unwrap_or(i64::MAX);
 
     tracing::info!(
         grant_type = %account.grant_type,
@@ -1119,7 +1060,11 @@ pub async fn refresh_token_for_account<'c>(
         "OAuth token refreshed successfully"
     );
 
-    Ok(token_str)
+    Ok(RefreshedToken {
+        access_token: token.access_token.to_string(),
+        refresh_token: token.refresh_token.map(|t| t.to_string()),
+        expires_in,
+    })
 }
 
 /// Generate OAuth redirect URL with CSRF protection
