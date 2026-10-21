@@ -94,10 +94,9 @@ pub(crate) async fn edit_copilot_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(ai_config): Json<AIConfig>,
 ) -> JsonResult<EditCopilotConfigResponse> {
-    require_admin(is_admin, &username)?;
+    require_admin(authed.is_admin, &authed.username)?;
 
     if let Some(ref custom_prompts) = ai_config.custom_prompts {
         for (mode, prompt) in custom_prompts.iter() {

@@ -77,14 +77,13 @@ pub async fn store_secret_value(
 /// here instead would leave the external store frozen at its connect-time token
 /// while reads (which resolve through the backend) keep serving the stale value.
 ///
-/// The caller has already committed the `account` row as fresh (advanced
-/// `expires_at`) by the time we get here. If persisting the token fails — most
-/// likely a transient error talking to an external backend — that would leave
-/// the account marked fresh while the served secret is stale, so the on-fetch
-/// refresh gate (`now() > expires_at`) would skip refresh and keep serving the
-/// stale token for the whole token lifetime. To avoid that we reset `expires_at`
-/// to the past (and record `refresh_error`) on failure — looking the account up
-/// via `variable.account` — so the very next fetch retries the refresh instead.
+/// If persisting the token fails — most likely a transient error talking to an
+/// external backend — the account must not end up marked fresh while the served
+/// secret is stale, or the on-fetch refresh gate (`now() > expires_at`) would keep
+/// serving the stale token for the whole token lifetime. So on failure we reset
+/// `expires_at` to the past and record `refresh_error` — looking the account up via
+/// `variable.account` — and the very next fetch retries the refresh. This also
+/// covers another refresher of the account having marked it fresh meanwhile.
 ///
 /// Authorization contract: this performs NO access control. It writes the
 /// caller-supplied token into the secret variable at `path` and may mutate the
