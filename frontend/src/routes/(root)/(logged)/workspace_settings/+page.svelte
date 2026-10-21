@@ -91,9 +91,7 @@
 	} from '$lib/components/sessions/sessionState.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import CollapseLink from '$lib/components/CollapseLink.svelte'
-	import CopyableCodeBlock from '$lib/components/details/CopyableCodeBlock.svelte'
-	import { slackAppManifest } from '$lib/components/common/slack/slackAppManifest'
-	import { yaml } from 'svelte-highlight/languages'
+	import SlackAppSetup from '$lib/components/common/slack/SlackAppSetup.svelte'
 	import { validateWebhookUrl, validateEncryptionKey } from '$lib/validators/workspaceSettings'
 	import DataTableSettings, {
 		convertDataTableSettingsFromBackend,
@@ -1789,9 +1787,8 @@
 															{/snippet}
 														</ToggleButtonGroup>
 														<div class="text-2xs text-hint"
-															>Use the Slack app configured at the instance level if you want to use
-															the same Slack app for all workspaces. Configure your Slack app here
-															if you want to use a specific Slack app for this workspace.</div
+															>The instance app is shared by all workspaces. A workspace app is your
+															own, for this workspace only.</div
 														>
 													</div>
 													<Toggle
@@ -1887,32 +1884,13 @@
 															bind:value={slackSigningSecret}
 														/>
 														<span class="text-2xs text-hint"
-															>Lets Windmill check that requests come from Slack. Needed for AI
-															agents to answer in Slack.</span
+															>Lets Windmill check that requests come from Slack. Required for AI
+															agents; recommended for <code>/windmill</code> commands.</span
 														>
 													</label>
 
 													<CollapseLink text="Instructions">
-														<div class="flex flex-col gap-2 text-xs text-secondary">
-															<span>
-																Create a Slack app at{' '}
-																<a
-																	href="https://api.slack.com/apps?new_app=1"
-																	target="_blank"
-																	rel="noopener noreferrer"
-																	class="text-blue-600 dark:text-blue-400 hover:underline"
-																>
-																	Slack API
-																</a>: pick "From a manifest", then YAML, and paste the manifest below. Then
-																copy the Client ID, Client Secret and Signing Secret here.
-															</span>
-															<div class="flex flex-col max-h-80 [&>div]:min-h-0">
-																<CopyableCodeBlock
-																	code={slackAppManifest(window.location.origin)}
-																	language={yaml}
-																/>
-															</div>
-														</div>
+														<SlackAppSetup />
 													</CollapseLink>
 
 													<div class="pt-2">
@@ -1920,7 +1898,9 @@
 															size="xs"
 															variant="accent"
 															onclick={saveAndConnectSlack}
-															disabled={!slackOAuthClientId || !slackOAuthClientSecret}
+															disabled={!slackOAuthClientId ||
+																!slackOAuthClientSecret ||
+																(slackAgents && !slackSigningSecret)}
 															startIcon={{ icon: Slack }}
 															btnClasses="w-fit"
 														>
