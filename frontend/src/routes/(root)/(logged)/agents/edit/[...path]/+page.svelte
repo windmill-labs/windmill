@@ -31,7 +31,8 @@
 			recentItems.record(workspace, {
 				kind: 'agent',
 				path: agentPath,
-				summary: agent.description
+				summary: agent.description,
+				via: 'edit'
 			})
 		} catch {}
 	}
