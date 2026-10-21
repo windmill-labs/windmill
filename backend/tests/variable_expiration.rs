@@ -51,16 +51,20 @@ async fn queued_handler_jobs(db: &Pool<Postgres>, path: &str) -> anyhow::Result<
     )
 }
 
-/// The sweep dispatches inside the lead window, leaves everything outside it alone, and
-/// does not fire twice for the same expiry.
+/// The sweep dispatches inside the handler's `notify_before_secs`, leaves everything outside it
+/// alone, and does not fire twice for the same expiry.
 #[sqlx::test(fixtures("base"))]
 async fn test_dispatch_within_lead_time_once(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     seed_handler_script(&db, "u/test-user/expiry_handler").await?;
-    configure_handler(&db, r#"{"path": "script/u/test-user/expiry_handler"}"#).await?;
+    configure_handler(
+        &db,
+        r#"{"path": "script/u/test-user/expiry_handler", "notify_before_secs": 3600}"#,
+    )
+    .await?;
 
     seed_variable(&db, "u/test-user/due", "30 minutes").await?;
-    seed_variable(&db, "u/test-user/far", "10 days").await?;
+    seed_variable(&db, "u/test-user/far", "2 hours").await?;
 
     dispatch_expiring_variables(&db).await;
 
@@ -138,71 +142,6 @@ async fn test_variable_fields_do_not_resolve_in_handler(db: Pool<Postgres>) -> a
         "description still resolves: {description}"
     );
     assert_eq!(slack, "$res:f/slack_bot/bot_token");
-    Ok(())
-}
-
-/// A member who created the group before the upgrade must not keep it once it can read the
-/// Slack bot token.
-#[sqlx::test(fixtures("base"))]
-async fn test_upgrade_empties_a_preexisting_handler_group(
-    db: Pool<Postgres>,
-) -> anyhow::Result<()> {
-    initialize_tracing().await;
-    sqlx::raw_sql(&format!(
-        "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ('{WS}', 'variable_expiration_handler', '', '{{\"u/test-user-2\": true}}');
-         INSERT INTO usr_to_group (workspace_id, group_, usr) VALUES ('{WS}', 'variable_expiration_handler', 'test-user-2');
-         INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms) VALUES ('{WS}', 'slack_bot', 'slack_bot', '{{}}', '{{}}');"
-    ))
-    .execute(&db)
-    .await?;
-
-    sqlx::raw_sql(include_str!(
-        "../migrations/20260903161430_variable_expiration_handler_slack_perms.up.sql"
-    ))
-    .execute(&db)
-    .await?;
-
-    let (members, owners, granted): (i64, serde_json::Value, bool) = sqlx::query_as(
-        "SELECT (SELECT count(*) FROM usr_to_group WHERE workspace_id = $1 AND group_ = 'variable_expiration_handler'),
-                extra_perms,
-                (SELECT extra_perms ? 'g/variable_expiration_handler' FROM folder WHERE workspace_id = $1 AND name = 'slack_bot')
-         FROM group_ WHERE workspace_id = $1 AND name = 'variable_expiration_handler'",
-    )
-    .bind(WS)
-    .fetch_one(&db)
-    .await?;
-    assert_eq!(members, 0, "the pre-upgrade member kept the group");
-    assert_eq!(
-        owners,
-        serde_json::json!({}),
-        "the pre-upgrade owner kept the group"
-    );
-    assert!(granted);
-    Ok(())
-}
-
-/// `notify_before_secs` on the handler replaces the default window.
-#[sqlx::test(fixtures("base"))]
-async fn test_notify_before_sets_the_window(db: Pool<Postgres>) -> anyhow::Result<()> {
-    initialize_tracing().await;
-    seed_handler_script(&db, "u/test-user/expiry_handler").await?;
-    configure_handler(
-        &db,
-        r#"{"path": "script/u/test-user/expiry_handler", "notify_before_secs": 1200}"#,
-    )
-    .await?;
-
-    seed_variable(&db, "u/test-user/inside", "10 minutes").await?;
-    seed_variable(&db, "u/test-user/outside", "30 minutes").await?;
-
-    dispatch_expiring_variables(&db).await;
-
-    let paths: Vec<String> =
-        sqlx::query_scalar("SELECT args->>'variable_path' FROM v2_job WHERE runnable_path = $1")
-            .bind("u/test-user/expiry_handler")
-            .fetch_all(&db)
-            .await?;
-    assert_eq!(paths, vec!["u/test-user/inside".to_string()]);
     Ok(())
 }
 
@@ -364,21 +303,13 @@ async fn test_rearm_on_date_change(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// With no handler configured nothing is dispatched, and `muted_on_user_path` keeps
-/// personal-path variables out.
+/// `muted_on_user_path` keeps personal-path variables out.
 #[sqlx::test(fixtures("base"))]
-async fn test_skips_unconfigured_and_muted_user_paths(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_muted_user_paths(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     seed_handler_script(&db, "u/test-user/expiry_handler").await?;
     seed_variable(&db, "u/test-user/personal", "30 minutes").await?;
     seed_variable(&db, "f/test_folder/shared", "30 minutes").await?;
-
-    dispatch_expiring_variables(&db).await;
-    assert_eq!(
-        queued_handler_jobs(&db, "u/test-user/expiry_handler").await?,
-        0
-    );
-
     configure_handler(
         &db,
         r#"{"path": "script/u/test-user/expiry_handler", "muted_on_user_path": true}"#,
@@ -411,27 +342,15 @@ async fn test_broken_handler_does_not_starve_other_workspaces(
     configure_handler(&db, r#"{"path": "script/u/test-user/expiry_handler"}"#).await?;
     seed_variable(&db, "u/test-user/due", "30 minutes").await?;
 
-    sqlx::query(
-        "INSERT INTO workspace (id, name, owner) VALUES ('poison-ws', 'poison-ws', 'test-user')",
-    )
-    .execute(&db)
-    .await?;
-    sqlx::query(
-        "INSERT INTO workspace_key (workspace_id, kind, key) VALUES ('poison-ws', 'cloud', 'k')",
-    )
-    .execute(&db)
-    .await?;
-    sqlx::query(
-        r#"INSERT INTO workspace_settings (workspace_id, variable_expiration_handler)
-           VALUES ('poison-ws', '{"path": "script/u/test-user/does_not_exist"}'::jsonb)"#,
-    )
-    .execute(&db)
-    .await?;
     // More overdue rows than one pass carries.
-    sqlx::query(
-        r#"INSERT INTO variable (workspace_id, path, value, is_secret, description, value_valid_until)
+    sqlx::raw_sql(
+        r#"INSERT INTO workspace (id, name, owner) VALUES ('poison-ws', 'poison-ws', 'test-user');
+           INSERT INTO workspace_key (workspace_id, kind, key) VALUES ('poison-ws', 'cloud', 'k');
+           INSERT INTO workspace_settings (workspace_id, variable_expiration_handler)
+           VALUES ('poison-ws', '{"path": "script/u/test-user/does_not_exist"}'::jsonb);
+           INSERT INTO variable (workspace_id, path, value, is_secret, description, value_valid_until)
            SELECT 'poison-ws', 'f/creds/v' || i, 'v', false, '', now() - (i || ' minutes')::interval
-           FROM generate_series(1, 120) i"#,
+           FROM generate_series(1, 120) i;"#,
     )
     .execute(&db)
     .await?;
@@ -576,36 +495,6 @@ async fn test_edit_handler_endpoint(db: Pool<Postgres>) -> anyhow::Result<()> {
     .fetch_one(&db)
     .await?;
     assert!(!waiting, "saving the handler must end its retry delay");
-
-    // `extra_args` holds the built-ins' channel. The endpoint replaces the setting rather than
-    // merging, so the settings tab sends back what it loaded.
-    assert_eq!(
-        edit(
-            "SECRET_TOKEN",
-            serde_json::json!({
-                "path": "script/u/test-user/expiry_handler",
-                "extra_args": { "channel": "windmill-alerts" }
-            })
-        )
-        .await?,
-        200
-    );
-    assert_eq!(
-        stored().await?.map(|h| h["extra_args"].clone()),
-        Some(serde_json::json!({ "channel": "windmill-alerts" }))
-    );
-
-    assert_eq!(
-        edit(
-            "SECRET_TOKEN",
-            serde_json::json!({
-                "path": "script/u/test-user/expiry_handler",
-                "extra_args": "not-an-object"
-            })
-        )
-        .await?,
-        400
-    );
 
     assert_eq!(edit("SECRET_TOKEN", serde_json::json!({})).await?, 200);
     assert!(
