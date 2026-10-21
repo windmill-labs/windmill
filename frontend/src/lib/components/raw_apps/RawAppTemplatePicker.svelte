@@ -46,7 +46,7 @@
 	import RawAppDataTableDrawer from './RawAppDataTableDrawer.svelte'
 	import FileEditorIcon from './FileEditorIcon.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
-	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
 
 	export type RawAppTemplatePickerResult = {
@@ -68,7 +68,7 @@
 	} = $props()
 
 	const templates = $derived.by(() => {
-		const files = $operatorBuilderApps ? BUILDER_FRAMEWORK_TEMPLATES : FRAMEWORK_TEMPLATES
+		const files = composeOnlyApps ? BUILDER_FRAMEWORK_TEMPLATES : FRAMEWORK_TEMPLATES
 		return [
 			{ name: 'React 19', icon: 'tsx', files: files.react19, recommended: true },
 			{ name: 'React 18', icon: 'tsx', files: files.react18 },
@@ -87,7 +87,8 @@
 	let dataTableDrawer: RawAppDataTableDrawer | undefined = $state()
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatorBuilderApps = useOperatorBuilderApps()
+	const roleCaps = useRoleCapabilities()
+	const composeOnlyApps = $derived($roleCaps.apps === 'compose')
 	let opWs = $derived($operatingWorkspace)
 
 	const datatables = createDatatablesResource(() => opWs)
@@ -284,8 +285,7 @@
 	// With AI turned off for the workspace there is nothing to choose between. A builder is
 	// offered AI only through a session: the docked app mode writes inline code they cannot save.
 	const aiOffered = $derived(
-		!$copilotInfo.workspaceDisabled &&
-			(!$operatorBuilderApps || prefersSessionHandoff($userStore?.operator))
+		!$copilotInfo.workspaceDisabled && (!composeOnlyApps || prefersSessionHandoff(!$roleCaps.code))
 	)
 
 	const canStart = $derived(
@@ -301,7 +301,7 @@
 			execution_mode: 'publisher',
 			sandbox: true
 		}
-		if ($operatorBuilderApps) conformBuilderAppPolicy(policy, $userStore)
+		if (composeOnlyApps) conformBuilderAppPolicy(policy, $userStore)
 		return policy
 	}
 

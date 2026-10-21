@@ -16,7 +16,7 @@
 		getLocalSetting,
 		storeLocalSetting
 	} from '$lib/utils'
-	import { userStore, workspaceStore, userWorkspaces, usedTriggerKinds } from '$lib/stores'
+	import { userStore, workspaceStore, roleCapabilities, usedTriggerKinds } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import { Button, Alert, EmptyState, Skeleton } from '$lib/components/common'
@@ -197,10 +197,10 @@
 	f={(trigger) => `${formatTriggerDisplayName(trigger)}`}
 />
 
-{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.triggers}
+{#if $workspaceStore && !$roleCapabilities.visibility.triggers}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
-		<p>Page not available for operators</p>
+		<p>Page not available for your role</p>
 	</div>
 {:else if !serviceSupported}
 	<CenteredPage>

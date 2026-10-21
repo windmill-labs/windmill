@@ -55,6 +55,7 @@ use sqlx::{types::Uuid, FromRow};
 use std::str;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
+use windmill_common::roles::{caller_capabilities, AuthorLevel};
 use windmill_common::{
     apps::{
         app_value_has_inline_script, app_value_runnable_paths, AppScriptId, ListAppQuery,
@@ -760,7 +761,7 @@ async fn list_apps(
     // Append the authed user's `app`/`raw_app` drafts at paths with no deployed app;
     // see scripts.rs.
     if lq.include_draft_only.unwrap_or(false)
-        && (!authed.is_operator || operator_builder_rights(&db, &w_id).await?.apps)
+        && operator_builder_rights(&db, &w_id, &authed).await?.apps
         && offset == 0
         && lq.path_start.is_none()
         && lq.path_exact.is_none()
@@ -1755,6 +1756,17 @@ pub struct PreviewSdkTokenRequest {
 /// conveys nothing `users/tokens/create` wouldn't. Scopes come from the request
 /// so the preview matches an app whose scopes aren't deployed yet, as
 /// `execute_component` already does for editor previews.
+/// Gate for an app write only full app authoring allows: low-code apps, whose inline scripts are
+/// code, and anything built on a worker.
+async fn require_full_apps(db: &DB, w_id: &str, authed: &ApiAuthed, action: &str) -> Result<()> {
+    if caller_capabilities(db, w_id, authed).await?.apps != AuthorLevel::Full {
+        return Err(Error::PermissionDenied(format!(
+            "Your role cannot {action} in this workspace"
+        )));
+    }
+    Ok(())
+}
+
 async fn mint_preview_sdk_token(
     authed: ApiAuthed,
     OptJobAuthed { job_id, .. }: OptJobAuthed,
@@ -1762,14 +1774,7 @@ async fn mint_preview_sdk_token(
     Path(w_id): Path<String>,
     Json(req): Json<PreviewSdkTokenRequest>,
 ) -> Result<String> {
-    check_operator_can_build(
-        &db,
-        &w_id,
-        authed.is_operator,
-        BuilderKind::Apps,
-        "preview raw apps",
-    )
-    .await?;
+    check_operator_can_build(&db, &w_id, &authed, BuilderKind::Apps, "preview raw apps").await?;
     check_scopes(&authed, || format!("apps:write:{}", req.path))?;
     let (token, _expiration) =
         mint_raw_app_sdk_token(&db, &w_id, &req.path, &authed, &req.scopes, job_id).await?;
@@ -2622,14 +2627,7 @@ async fn create_app_raw<'a>(
     Path(w_id): Path<String>,
     multipart: Multipart,
 ) -> Result<(StatusCode, String)> {
-    check_operator_can_build(
-        &db,
-        &w_id,
-        authed.is_operator,
-        BuilderKind::Apps,
-        "create apps",
-    )
-    .await?;
+    check_operator_can_build(&db, &w_id, &authed, BuilderKind::Apps, "create apps").await?;
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -2693,11 +2691,7 @@ async fn create_app(
     Path(w_id): Path<String>,
     Json(app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot create apps for security reasons".to_string(),
-        ));
-    }
+    require_full_apps(&db, &w_id, &authed, "create low-code apps").await?;
     let path = app.path.clone();
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -2806,7 +2800,7 @@ async fn create_app_internal<'a>(
     if raw_app {
         validate_raw_app_path_keys(&app.value.0)?;
     }
-    if authed.is_operator {
+    if caller_capabilities(&db, w_id, &authed).await?.apps == AuthorLevel::Compose {
         validate_operator_composed_app(
             &authed,
             &db,
@@ -3125,21 +3119,16 @@ async fn delete_app(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<String> {
-    check_operator_can_build(
-        &db,
-        &w_id,
-        authed.is_operator,
-        BuilderKind::Apps,
-        "delete apps",
-    )
-    .await?;
+    let apps_level =
+        check_operator_can_build(&db, &w_id, &authed, BuilderKind::Apps, "delete apps").await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:write:{}", path))?;
     // One endpoint deletes both kinds, and builder rights only cover full-code apps.
-    if authed.is_operator && deployed_app_kind(&user_db, &authed, &w_id, path).await? != Some(true)
+    if apps_level == AuthorLevel::Compose
+        && deployed_app_kind(&user_db, &authed, &w_id, path).await? != Some(true)
     {
         return Err(Error::PermissionDenied(
-            "Operators with builder rights can only delete full-code apps".to_string(),
+            "Your role can only delete full-code apps".to_string(),
         ));
     }
 
@@ -3332,14 +3321,14 @@ async fn update_app(
     let path = path.to_path();
     // The deploy panel saves a deployed full-code app's access and frontend scopes here. A
     // builder may change those settings; the app itself only through `update_app_raw`.
-    if authed.is_operator {
-        check_operator_can_build(&db, &w_id, true, BuilderKind::Apps, "update apps").await?;
+    let apps_level =
+        check_operator_can_build(&db, &w_id, &authed, BuilderKind::Apps, "update apps").await?;
+    if apps_level == AuthorLevel::Compose {
         if ns.value.is_some()
             || deployed_app_kind(&user_db, &authed, &w_id, path).await? != Some(true)
         {
             return Err(Error::PermissionDenied(
-                "Operators with builder rights can only change the settings of full-code apps"
-                    .to_string(),
+                "Your role can only change the settings of full-code apps".to_string(),
             ));
         }
     }
@@ -3360,7 +3349,7 @@ async fn update_app(
     let opath = path.to_string();
     let db2 = db.clone();
     // Settings-only for an operator, of an app checked above to be full-code.
-    let raw_app = authed.is_operator;
+    let raw_app = apps_level == AuthorLevel::Compose;
     let (new_tx, npath, v_id) =
         update_app_internal(authed, db, user_db, &w_id, path, raw_app, ns, None).await?;
     new_tx.commit().await?;
@@ -3395,11 +3384,7 @@ async fn update_app_raw_source(
     // next to it: this path compiles caller-supplied sources with a bundler job on a worker, which
     // is arbitrary code execution. Builders lose nothing: the browser and the CLI both bundle
     // locally and deploy through the multipart endpoints.
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot update apps for security reasons".to_string(),
-        ));
-    }
+    require_full_apps(&db, &w_id, &authed, "build apps on a worker").await?;
 
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:write:{}", path))?;
@@ -3556,11 +3541,7 @@ async fn create_app_raw_source(
     Json(mut app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
     // Closed to builders too, for the reason on `update_app_raw_source`.
-    if authed.is_operator {
-        return Err(Error::NotAuthorized(
-            "Operators cannot create apps for security reasons".to_string(),
-        ));
-    }
+    require_full_apps(&db, &w_id, &authed, "build apps on a worker").await?;
 
     let path = app.path.clone();
     check_scopes(&authed, || format!("apps:write:{}", path))?;
@@ -3721,14 +3702,8 @@ async fn update_app_raw<'a>(
     Path((w_id, path)): Path<(String, StripPath)>,
     multipart: Multipart,
 ) -> JsonResult<AppDeployed> {
-    check_operator_can_build(
-        &db,
-        &w_id,
-        authed.is_operator,
-        BuilderKind::Apps,
-        "update apps",
-    )
-    .await?;
+    let apps_level =
+        check_operator_can_build(&db, &w_id, &authed, BuilderKind::Apps, "update apps").await?;
 
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
         &w_id,
@@ -3746,10 +3721,11 @@ async fn update_app_raw<'a>(
     check_scopes(&authed, || format!("apps:write:{}", path))?;
     // `update_app_internal` only compares kinds when a new value is deployed, so a
     // policy-only update would otherwise let a builder rewrite a low-code app's policy.
-    if authed.is_operator && deployed_app_kind(&user_db, &authed, &w_id, path).await? != Some(true)
+    if apps_level == AuthorLevel::Compose
+        && deployed_app_kind(&user_db, &authed, &w_id, path).await? != Some(true)
     {
         return Err(Error::PermissionDenied(
-            "Operators with builder rights can only update full-code apps".to_string(),
+            "Your role can only update full-code apps".to_string(),
         ));
     }
     let opath = path.to_string();
@@ -3819,7 +3795,7 @@ async fn update_app_internal<'a>(
         }
     }
 
-    if authed.is_operator {
+    if caller_capabilities(&db, w_id, &authed).await?.apps == AuthorLevel::Compose {
         // Restoring a full-code version always sends allow_kind_change. A builder converts
         // nothing, so drop it and let the locked kind check below refuse an actual conversion.
         ns.allow_kind_change = None;
@@ -4556,14 +4532,13 @@ async fn execute_component(
                 .unwrap_or(p)
                 .starts_with("hub/")
         });
-        if authed.is_operator {
-            let msg = "Operators cannot run preview jobs for security reasons".to_string();
-            if !operator_builder_rights(&db, &w_id).await?.apps {
-                return Err(Error::NotAuthorized(msg));
-            }
-            if payload.raw_code.is_some() || previews_hub {
-                return Err(Error::PermissionDenied(msg));
-            }
+        let caps = caller_capabilities(&db, &w_id, authed).await?;
+        if !caps.code
+            && (caps.apps == AuthorLevel::None || payload.raw_code.is_some() || previews_hub)
+        {
+            return Err(Error::PermissionDenied(
+                "Your role cannot run preview jobs in this workspace".to_string(),
+            ));
         }
         check_scopes(authed, || format!("jobs:run"))?;
         if let Some(p) = payload.path.as_deref() {
@@ -5266,11 +5241,7 @@ async fn upload_s3_file_from_app(
         let authed = opt_authed.as_ref().ok_or_else(|| {
             Error::NotAuthorized("App S3 preview upload requires authentication".to_string())
         })?;
-        if authed.is_operator {
-            return Err(Error::NotAuthorized(
-                "Operators cannot run app S3 previews for security reasons".to_string(),
-            ));
-        }
+        require_full_apps(&db, &w_id, authed, "run app S3 previews").await?;
         check_scopes(authed, || format!("apps:write:{}", path.to_path()))?;
         Some(Policy {
             stated_execution_mode: Some(ExecutionMode::Viewer),
@@ -5965,11 +5936,7 @@ async fn download_s3_file_from_app(
         let authed = opt_authed.as_ref().ok_or_else(|| {
             Error::NotAuthorized("App S3 preview download requires authentication".to_string())
         })?;
-        if authed.is_operator {
-            return Err(Error::NotAuthorized(
-                "Operators cannot run app S3 previews for security reasons".to_string(),
-            ));
-        }
+        require_full_apps(&db, &w_id, authed, "run app S3 previews").await?;
         check_scopes(authed, || format!("apps:write:{}", path))?;
         Some(serde_json::from_str::<Vec<S3Key>>(&force_viewer_allowed_s3_keys).unwrap_or_default())
     } else {

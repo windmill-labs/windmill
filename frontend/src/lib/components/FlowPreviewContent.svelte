@@ -49,9 +49,11 @@
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 	import { previewOnBehalfOf } from '$lib/utils/previewOnBehalfOf'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
+	const roleCaps = useRoleCapabilities()
 
 	interface Props {
 		previewMode: 'upTo' | 'whole'
@@ -568,7 +570,7 @@
 												| ScriptLang
 												| undefined,
 											$initialPathStore,
-											operatingUser.current?.operator
+											!$roleCaps.code
 										)}
 									/>
 								</div>

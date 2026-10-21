@@ -152,7 +152,8 @@ You can run scripts locally by passing the right environment variables for the `
 - **Runtimes**:
   - TypeScript/JavaScript: Bun (default); Deno only on the `windmill-full` images
   - Python: python3 with uv for dependency management
-  - Go, Bash, PowerShell, PHP, Rust, C#, Java, Ansible
+  - PHP: only on the `windmill-full` images
+  - Go, Bash, PowerShell, Rust, C#, Java, Ansible
 
 ## Fastest Self-Hostable Workflow Engine
 
