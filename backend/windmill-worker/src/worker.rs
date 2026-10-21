@@ -1055,6 +1055,7 @@ enum NsjailProbeError {
 fn probe_nsjail(nsjail_path: &str) -> Result<std::process::Output, NsjailProbeError> {
     // A fresh private directory: the worker runs what this config says, as itself.
     let dir = std::env::temp_dir().join(format!("windmill-nsjail-probe-{}", uuid::Uuid::new_v4()));
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut builder = std::fs::DirBuilder::new();
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
