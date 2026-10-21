@@ -6763,9 +6763,7 @@ async fn push_inner<'c, 'd>(
                             restarted_from_val.branch_or_iteration_n,
                             restarted_from_val.flow_version,
                             restarted_from_val.nested.is_some(),
-                            // RawFlow queues the request's (possibly edited) definition, not the
-                            // stored one, so zombie reuse of the stored step is unsafe here.
-                            false,
+                            Some(&value),
                         )
                         .await?;
                     FlowStatus {
@@ -7176,7 +7174,7 @@ async fn push_inner<'c, 'd>(
                 nested.is_some(),
                 // RestartedFlow resolves and queues the completed job's stored definition, so the
                 // step validated for reuse is the one that will run.
-                true,
+                None,
             )
             .await?;
 
@@ -8382,6 +8380,29 @@ pub async fn fetch_restart_flow_version(
     cache::flow::fetch_version(db, version).await
 }
 
+// A restart copies the steps before the restart step as completed, and the worker only gates the
+// restart step on a copied approval when that gate opened in the original run. So a copied step
+// whose gate never opened (timed out, disapproved) would let the restart skip its approval.
+fn refuse_restart_past_unopened_suspend_gate(
+    flow_value: &FlowValue,
+    copied_modules: &[FlowStatusModule],
+) -> Result<(), Error> {
+    for module in copied_modules {
+        let id = module.id();
+        let suspend = flow_value
+            .modules
+            .iter()
+            .find(|m| m.id == id)
+            .and_then(|m| m.suspend.as_ref());
+        if module.suspend_gate_never_opened(suspend) {
+            return Err(Error::BadRequest(format!(
+                "Step {id} was never approved. Restart the flow from step {id} to request the approval again."
+            )));
+        }
+    }
+    Ok(())
+}
+
 async fn restarted_flows_resolution(
     db: &Pool<Postgres>,
     workspace_id: &str,
@@ -8392,12 +8413,12 @@ async fn restarted_flows_resolution(
     // A nested restart chain (RestartedFrom.nested) descends into the restart step's child to
     // re-run an inner step; zombie reuse would skip the whole container and ignore it.
     nested_restart: bool,
-    // Zombie reuse validates the restart step against the completed job's STORED definition and
-    // synthesizes Success from its recorded children. That is only sound when the run being queued
-    // uses that same definition (JobPayload::RestartedFlow). A JobPayload::RawFlow restart queues
-    // the editor's current, possibly EDITED, definition instead, so reuse would skip the edited
-    // step and reuse the old child result; disable it there.
-    allow_zombie_reuse: bool,
+    // The definition the restart queues when it is not the completed job's stored one
+    // (JobPayload::RawFlow queues the editor's, possibly EDITED, definition). Approval gates are
+    // read from it. Zombie reuse validates the restart step against the STORED definition and
+    // synthesizes Success from its recorded children, so it is disabled when this is set: reuse
+    // would skip the edited step and reuse the old child result.
+    queued_flow: Option<&FlowValue>,
 ) -> Result<
     (
         Option<i64>,
@@ -8458,6 +8479,8 @@ async fn restarted_flows_resolution(
     };
 
     let flow_value = flow_data.value();
+    let allow_zombie_reuse = queued_flow.is_none();
+    let gate_flow = queued_flow.unwrap_or(flow_value);
     let flow_status = row
         .flow_status
         .as_ref()
@@ -8478,6 +8501,7 @@ async fn restarted_flows_resolution(
             let module_id = &module_definition.id;
 
             if module_id == restart_step_id {
+                refuse_restart_past_unopened_suspend_gate(gate_flow, &truncated_modules)?;
                 // Mark this and all following modules as WaitingForPriorSteps
                 if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
                     truncated_modules
@@ -8529,6 +8553,7 @@ async fn restarted_flows_resolution(
                 continue;
             };
             if module.id() == restart_step_id {
+                refuse_restart_past_unopened_suspend_gate(gate_flow, &truncated_modules)?;
                 // Reuse is only safe when there is a NEXT step to advance into (advancing past the
                 // last module lands on the failure step) and the step's definition carries no
                 // completion/arming semantics that reuse would skip (stop predicates, skip_if,
@@ -8914,5 +8939,40 @@ mod render_tag_path_tests {
 
     fn raw(json: &str) -> Box<RawValue> {
         RawValue::from_string(json.to_string()).unwrap()
+    }
+}
+
+#[cfg(test)]
+mod restart_past_suspend_gate_tests {
+    use super::refuse_restart_past_unopened_suspend_gate;
+    use serde_json::json;
+    use windmill_common::{flow_status::FlowStatusModule, flows::FlowValue};
+
+    #[test]
+    fn refuses_only_a_blocking_gate_that_never_opened() {
+        let flow = |suspend: serde_json::Value| -> FlowValue {
+            serde_json::from_value(json!({"modules": [
+                {"id": "a", "value": {"type": "identity"}, "suspend": suspend},
+                {"id": "b", "value": {"type": "identity"}},
+            ]}))
+            .unwrap()
+        };
+        let copied_a = |approvers: serde_json::Value| -> Vec<FlowStatusModule> {
+            vec![serde_json::from_value(json!({
+                "type": "Success", "id": "a", "job": uuid::Uuid::new_v4(), "approvers": approvers
+            }))
+            .unwrap()]
+        };
+        let blocking = flow(json!({"required_events": 1}));
+        let approved = json!([{"resume_id": 0, "approver": "admin"}]);
+
+        assert!(
+            refuse_restart_past_unopened_suspend_gate(&blocking, &copied_a(json!([]))).is_err()
+        );
+        assert!(refuse_restart_past_unopened_suspend_gate(&blocking, &copied_a(approved)).is_ok());
+        let continues = flow(json!({"required_events": 1, "continue_on_disapprove_timeout": true}));
+        assert!(
+            refuse_restart_past_unopened_suspend_gate(&continues, &copied_a(json!([]))).is_ok()
+        );
     }
 }
