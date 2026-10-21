@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { createChat } from '../src/chat'
-import { rawAppRunnable, streamLine } from '../src/runnable'
+import { rawAppRunnable, streamChatTurn, streamLine } from '../src/runnable'
 import { parseStreamEvents, type AgentStreamEvent } from '../src/stream'
-import { memoryStorage } from './support'
+import { fetchMock, json, memoryStorage, ndjson, sse, text } from './support'
 
 /** What a yielded chunk goes through: the Bun wrapper's log line, then the worker reading it back. */
 const relay = (chunk: string) => chunk.replace(/\n/g, '\\n').replace(/\\n/g, '\n')
@@ -46,4 +46,43 @@ describe('raw app runnable', () => {
     const last = messages[messages.length - 1]
     expect([last.content, last.success]).toEqual(['agent failed', false])
   })
+
+  test('streamChatTurn waits out a running turn and completes a lost stream from the result', async () => {
+    let runs = 0
+    let streams = 0
+    const { fetch, calls } = fetchMock(
+      (c) => {
+        if (c.method !== 'POST' || c.url.pathname !== '/api/w/ws/jobs/run/agent/f/a/agent') return undefined
+        return ++runs === 1
+          ? json({ error: 'still answering', running_turn: { job_id: 'stopped', user_seq: 3 } }, 409)
+          : text('turn')
+      },
+      (c) =>
+        c.url.pathname.endsWith('/getupdate_sse/stopped') ? sse([{ type: 'update', completed: true, only_result: {} }]) : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/getupdate_sse/turn')
+          ? ++streams === 1
+            ? sse([{ type: 'update', new_result_stream: ndjson({ type: 'token_delta', content: 'The ans' }), stream_offset: 1 }])
+            : text('bad gateway', 502)
+          : undefined,
+      (c) =>
+        c.url.pathname.endsWith('/get_result_maybe/turn')
+          ? json({ completed: true, success: true, result: { output: 'The answer is 42', messages: [] } })
+          : undefined
+    )
+    const g = globalThis as { fetch: typeof globalThis.fetch; process: { env: Record<string, string | undefined> } }
+    const saved = { fetch: g.fetch, env: g.process.env }
+    g.fetch = fetch as typeof globalThis.fetch
+    g.process.env = { BASE_URL: 'http://wm.test', WM_WORKSPACE: 'ws', WM_TOKEN: 'tok' }
+    try {
+      let out = ''
+      for await (const chunk of streamChatTurn({ agentPath: 'f/a/agent' }, { user_message: 'hi' }, 'conv')) out += chunk
+      const answer = parseStreamEvents(relay(out)).map((e) => (e.type === 'token_delta' ? e.content : ''))
+      expect(answer.join('')).toBe('The answer is 42')
+      expect(calls.filter((c) => c.method === 'POST').map((c) => c.url.searchParams.get('memory_id'))).toEqual(['conv', 'conv'])
+    } finally {
+      g.fetch = saved.fetch
+      g.process.env = saved.env
+    }
+  }, 15000)
 })

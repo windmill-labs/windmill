@@ -177,11 +177,13 @@ const chat = useWindmillChat(rawAppRunnable(backendAsync.chat, streamJob))
 does not. `conversation_id` is the agent's memory key, so the agent remembers earlier turns
 server-side. In exchange for needing no credential the chat makes no request of its
 own: history is `'local'` (the app's own storage), `stop()` stops following without
-cancelling the run, and attachments are refused. Every viewer's turns run as the
+cancelling the run (the next message waits for that run to end), and attachments are refused. Every viewer's turns run as the
 publisher and are filed under the publisher's conversations; a conversation id is the
 only thing that separates one viewer's memory from another's, so never show or share
-it. The runnable waits on the run it started, holding a worker for the turn: the
-instance needs a second worker free to run the agent itself.
+it. The runnable waits on the run it started, holding a worker for the turn: every turn
+in progress takes one worker for the runnable and another for the agent, so a single
+worker stalls, and many viewers chatting at once can fill a worker group with waiting
+runnables. Give the agent's tag a worker group of its own when that matters.
 
 ## Any framework
 

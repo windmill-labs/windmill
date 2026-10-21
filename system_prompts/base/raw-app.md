@@ -141,7 +141,7 @@ Apply it to customer data, internal notes and anything else a viewer of the demo
 
 ### Chat UIs over a flow in chat mode or a saved agent
 
-A flow deployed with chat mode on is a chat backend (streaming answer, tool calls, memory, conversation history). Do not drive it through a runnable: add `@windmill-labs/chat-sdk` to `package.json` and use it directly, it detects the app's Windmill and credential.
+A flow deployed with chat mode on is a chat backend (streaming answer, tool calls, memory, conversation history). In an unsandboxed app, do not drive it through a runnable: add `@windmill-labs/chat-sdk` to `package.json` and use it directly, it detects the app's Windmill and credential. A sandboxed app goes through a backend runnable instead (below).
 
 ```tsx
 import { useWindmillChat } from '@windmill-labs/chat-sdk/react'
@@ -150,11 +150,11 @@ const chat = useWindmillChat({ flowPath: 'f/support/assistant' })
 // chat.messages ({ role, content, pending, success, tool? }), chat.status, chat.sendMessage(text), chat.stop()
 ```
 
-`@windmill-labs/chat-sdk/ai-sdk` gives a `ChatTransport` for the Vercel AI SDK's `useChat`, `@windmill-labs/chat-sdk/assistant-ui` a runtime for assistant-ui. The flow must be deployed, not a draft. A sandboxed app needs `jobs:run` in its frontend SDK scopes, plus `flow_conversations:write` for the conversation sidebar; without them the chat keeps history in the browser.
+`@windmill-labs/chat-sdk/ai-sdk` gives a `ChatTransport` for the Vercel AI SDK's `useChat`, `@windmill-labs/chat-sdk/assistant-ui` a runtime for assistant-ui. The flow must be deployed, not a draft.
 
 #### Sandboxed apps: chat through a backend runnable
 
-In a sandboxed app, prefer running each turn through one of the app's own backend runnables: it runs as the app, so the app declares no frontend SDK scope, viewers get no consent prompt and need no access to the agent or flow. This is also the way to chat with a saved agent (an `ai_agent` resource). The runnable must be TypeScript (Bun) and return `streamChatTurn`, which starts the turn with the job's credential and re-emits its answer as the runnable's own result stream:
+In a sandboxed app, run each turn through one of the app's own backend runnables: it runs as the app, so the app declares no frontend SDK scope, viewers get no consent prompt and need no access to the agent or flow. This is also the way to chat with a saved agent (an `ai_agent` resource). The runnable must be TypeScript (Bun) and return `streamChatTurn`, which starts the turn with the job's credential and re-emits its answer as the runnable's own result stream:
 
 ```typescript
 // backend runnable `chat`
@@ -174,7 +174,7 @@ import { backendAsync, streamJob } from './wmill'
 const chat = useWindmillChat(rawAppRunnable(backendAsync.chat, streamJob))
 ```
 
-`conversation_id` is the agent's memory key, so it remembers earlier turns. The chat keeps its transcript in the app's own storage, `chat.stop()` stops following without cancelling the run, and attachments are not supported. Do not re-emit the agent's stream by hand: `streamChatTurn` encodes it so newlines survive the trip. The runnable holds a worker until the turn ends, so the instance needs another worker free to run the agent.
+`conversation_id` is the agent's memory key, so it remembers earlier turns. The chat keeps its transcript in the app's own storage, `chat.stop()` stops following without cancelling the run (the next message waits for it to end), and attachments are not supported. Do not re-emit the agent's stream by hand: `streamChatTurn` encodes it so newlines survive the trip. Each turn in progress holds a worker for the runnable while another runs the agent, so chatting viewers need as many workers again free.
 
 ## Backend runnables
 

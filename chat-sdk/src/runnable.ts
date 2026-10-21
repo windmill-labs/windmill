@@ -1,4 +1,4 @@
-import { WindmillChatApi } from './api'
+import { TurnRunningError, WindmillChatApi } from './api'
 import { followJob } from './follow'
 import type { AgentStreamEvent } from './stream'
 import type { ChatOptions } from './types'
@@ -33,8 +33,9 @@ export function rawAppRunnable(
  * own credential, its memory keyed by `conversationId`, and yields the answer for the
  * runnable to return as its result stream. A failed turn throws, failing the runnable.
  *
- * The runnable waits on that run, so it holds a worker for the whole turn: the run needs
- * another worker free, and an instance with a single worker stalls.
+ * A turn the chat stopped following goes on running, and its conversation takes no other
+ * until it ends: the next one waits for it here. The runnable waits on its run, so it holds
+ * a worker for the whole turn, and the run needs another worker free.
  */
 export async function* streamChatTurn(
   target: { agentPath: string } | { flowPath: string },
@@ -48,24 +49,40 @@ export async function* streamChatTurn(
     token: env.WM_TOKEN
   })
   const options = { memoryId: conversationId }
-  const jobId =
-    'agentPath' in target
-      ? await api.runAgent(target.agentPath, args, options)
-      : await api.runFlow(target.flowPath, args, options)
-  let streamedText = false
+  let jobId: string
+  while (true) {
+    try {
+      jobId =
+        'agentPath' in target
+          ? await api.runAgent(target.agentPath, args, options)
+          : await api.runFlow(target.flowPath, args, options)
+      break
+    } catch (e) {
+      if (!(e instanceof TurnRunningError)) throw e
+      for await (const _ of followJob(api, e.turn.jobId));
+    }
+  }
+  /** The text of the round streaming now: a tool call ends a round, and the answer is the last one. */
+  let roundText = ''
   for await (const event of followJob(api, jobId)) {
     if (event.type === 'stream') {
       if (event.events.length === 0) continue
-      streamedText ||= event.events.some((e) => e.type === 'token_delta')
+      for (const e of event.events) {
+        if (e.type === 'token_delta') roundText += e.content
+        else if (e.type !== 'reasoning_token_delta') roundText = ''
+      }
       yield event.events.map(streamLine).join('')
       continue
     }
     if (isErrorResult(event.result) && (await api.getCompletedResult(jobId)).success === false) {
       throw new Error(errorResultMessage(event.result))
     }
-    // A structured answer, or a provider that does not stream, gives the text in the result only.
-    const answer = streamedText ? undefined : extractChatAnswer(event.result)
-    if (answer) yield streamLine({ type: 'token_delta', content: answer })
+    // A structured answer, or a provider that does not stream, gives the text in the result only;
+    // so does the rest of an answer whose stream was lost.
+    const answer = extractChatAnswer(event.result)
+    if (!answer || (roundText && !event.streamLost)) continue
+    if (!answer.startsWith(roundText)) throw new Error('windmill-chat: the answer stream was cut off')
+    if (answer.length > roundText.length) yield streamLine({ type: 'token_delta', content: answer.slice(roundText.length) })
   }
 }
 
