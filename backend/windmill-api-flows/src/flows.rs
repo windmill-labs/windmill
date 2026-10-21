@@ -548,7 +548,8 @@ async fn list_paths_from_workspace_runnable(
     };
 
     tx.commit().await?;
-    Ok(Json(runnables))
+    let allowed = build_scope_path_predicate(&authed, "flows", "read");
+    Ok(Json(runnables.into_iter().filter(|p| allowed(p)).collect()))
 }
 
 /// Flows with a step linked to the `ai_agent` resource at `path`, as of their last deploy.

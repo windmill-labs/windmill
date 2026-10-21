@@ -2682,7 +2682,8 @@ async fn list_paths_from_workspace_runnable(
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
-    Ok(Json(runnables))
+    let allowed = build_scope_path_predicate(&authed, "apps", "read");
+    Ok(Json(runnables.into_iter().filter(|p| allowed(p)).collect()))
 }
 
 async fn create_app(

@@ -645,16 +645,30 @@ async fn list_paths_from_workspace_runnable(
 ) -> JsonResult<Vec<String>> {
     check_scopes(&authed, || format!("scripts:read:{}", path.to_path()))?;
     let mut tx = user_db.begin(&authed).await?;
-    let runnables = sqlx::query_scalar!(
-        r#"SELECT importer_path FROM dependency_map 
-            WHERE workspace_id = $1 AND imported_path = $2"#,
-        w_id,
-        path.to_path(),
+    let importers = sqlx::query_as::<_, (String, String)>(
+        "SELECT importer_path, importer_kind::text FROM dependency_map
+            WHERE workspace_id = $1 AND imported_path = $2",
     )
+    .bind(&w_id)
+    .bind(path.to_path())
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
-    Ok(Json(runnables))
+
+    let scripts_allowed = build_scope_path_predicate(&authed, "scripts", "read");
+    let flows_allowed = build_scope_path_predicate(&authed, "flows", "read");
+    let apps_allowed = build_scope_path_predicate(&authed, "apps", "read");
+    Ok(Json(
+        importers
+            .into_iter()
+            .filter(|(path, kind)| match kind.as_str() {
+                "flow" => flows_allowed(path),
+                "app" => apps_allowed(path),
+                _ => scripts_allowed(path),
+            })
+            .map(|(path, _)| path)
+            .collect(),
+    ))
 }
 
 #[derive(Deserialize, Default, Clone, Copy)]
@@ -5021,6 +5035,8 @@ async fn get_ci_test_results(
             .filter(|r| windmill_common::schema::ci_test_path_matches(path, &r.tested_item_path))
             .map(CiTestResult::from),
     );
+    let test_script_allowed = build_scope_path_predicate(&authed, "scripts", "read");
+    results.retain(|r| test_script_allowed(&r.test_script_path));
 
     Ok(Json(results))
 }
@@ -5163,6 +5179,10 @@ async fn get_ci_test_results_batch(
                 }
             }
         }
+    }
+
+    for bucket in result_map.values_mut() {
+        bucket.retain(|r| scripts_allowed(&r.test_script_path));
     }
 
     Ok(Json(result_map))
