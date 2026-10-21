@@ -21,7 +21,7 @@ use windmill_common::{
     jobs::JobPayload,
     users::username_to_permissioned_as,
     utils::{not_found_if_none, StripPath},
-    variables::arg_needs_interpolation,
+    variables::untrusted_arg_interpolates,
 };
 use windmill_queue::{push, PushArgs, PushIsolationLevel};
 
@@ -136,11 +136,8 @@ pub(crate) async fn run_agent_as(
     };
     if let Some(obo) = on_behalf_of.as_ref() {
         // The worker would interpolate such an input with the job's token, which is the
-        // identity's. Checked on the decoded value: the raw JSON can spell `$` as `\u0024`.
-        if args.values().any(|v| {
-            serde_json::from_str::<serde_json::Value>(v.get())
-                .is_ok_and(|v| arg_needs_interpolation(&v.to_string()))
-        }) {
+        // identity's.
+        if args.values().any(|v| untrusted_arg_interpolates(v.get())) {
             return Err(Error::BadRequest(format!(
                 "Agent {path} runs on behalf of {}, so its inputs cannot reference variables or resources",
                 obo.permissioned_as

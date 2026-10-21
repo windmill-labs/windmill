@@ -54,6 +54,7 @@ use windmill_common::runnable_settings::{
 };
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{calculate_hash, configure_client, now_from_db, strip_json_nul};
+use windmill_common::variables::omit_untrusted_interpolation;
 use windmill_common::worker::Connection;
 
 use windmill_common::otel_oss::{
@@ -1641,6 +1642,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     }
 
     let mut _skip_downstream_error_handlers = false;
+    let mut schedule_for_handlers = None;
     if completed_job.is_flow_step() {
         if let Some(parent_job) = monitor_parent {
             let r = sqlx::query_scalar!(
@@ -1720,49 +1722,9 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 // per-occurrence failure/recovery status across the whole retry
                 // chain, so multi-count/exact handler policies work even though
                 // each attempt is its own completed job.
-                #[cfg(all(feature = "enterprise", feature = "private"))]
                 if !retry_pending {
-                    if let Err(err) = crate::jobs_ee::apply_schedule_handlers(
-                        db,
-                        &schedule,
-                        &script_path,
-                        &completed_job.workspace_id,
-                        success,
-                        result,
-                        job_id,
-                        // Current occurrence's root: the terminal native-retry
-                        // attempt's parent, else the job itself.
-                        completed_job.parent_job.unwrap_or(job_id),
-                        completed_job.started_at.unwrap_or(chrono::Utc::now()),
-                        completed_job.priority,
-                    )
-                    .warn_after_seconds(10)
-                    .await
-                    {
-                        if !success {
-                            tracing::error!("Could not apply schedule error handler: {}", err);
-                            let base_url = windmill_common::BASE_URL.load();
-                            let w_id: &String = &completed_job.workspace_id;
-                            if !matches!(err, Error::QuotaExceeded(_)) {
-                                report_error_to_workspace_handler_or_critical_side_channel(
-                                        &completed_job,
-                                        db,
-                                        format!(
-                                            "Failed to push schedule error handler job to handle failed job ({base_url}/run/{}?workspace={w_id}): {}",
-                                            completed_job.id,
-                                            err
-                                        ),
-                                    )
-                                    .warn_after_seconds(10)
-                                    .await;
-                            }
-                        } else {
-                            tracing::error!("Could not apply schedule recovery handler: {}", err);
-                        }
-                    };
+                    schedule_for_handlers = Some((schedule, script_path));
                 }
-                #[cfg(not(all(feature = "enterprise", feature = "private")))]
-                let _ = retry_pending;
             } else {
                 tracing::error!(
                         "Schedule {schedule_path} in {} not found. Impossible to schedule again and apply schedule handlers",
@@ -1823,6 +1785,52 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     }
 
     tx.commit().warn_after_seconds(10).await?;
+
+    // The handlers read and push through `db`, so they run after the commit: inside the
+    // transaction they would hold its connection while waiting for more from the same pool.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    if let Some((schedule, script_path)) = schedule_for_handlers {
+        if let Err(err) = crate::jobs_ee::apply_schedule_handlers(
+            db,
+            &schedule,
+            script_path,
+            &completed_job.workspace_id,
+            success,
+            result,
+            job_id,
+            // Current occurrence's root: the terminal native-retry
+            // attempt's parent, else the job itself.
+            completed_job.parent_job.unwrap_or(job_id),
+            completed_job.started_at.unwrap_or(chrono::Utc::now()),
+            completed_job.priority,
+        )
+        .warn_after_seconds(10)
+        .await
+        {
+            if !success {
+                tracing::error!("Could not apply schedule error handler: {}", err);
+                let base_url = windmill_common::BASE_URL.load();
+                let w_id: &String = &completed_job.workspace_id;
+                if !matches!(err, Error::QuotaExceeded(_)) {
+                    report_error_to_workspace_handler_or_critical_side_channel(
+                            &completed_job,
+                            db,
+                            format!(
+                                "Failed to push schedule error handler job to handle failed job ({base_url}/run/{}?workspace={w_id}): {}",
+                                completed_job.id,
+                                err
+                            ),
+                        )
+                        .warn_after_seconds(10)
+                        .await;
+                }
+            } else {
+                tracing::error!("Could not apply schedule recovery handler: {}", err);
+            }
+        };
+    }
+    #[cfg(not(all(feature = "enterprise", feature = "private")))]
+    let _ = schedule_for_handlers;
 
     log_completed_job(completed_job, completed.duration_ms, success);
     // tracing::info!("completed job: {:?}", start.elapsed().as_micros());
@@ -3681,10 +3689,16 @@ pub async fn push_success_handler<'a, 'c, T: Serialize + Send + Sync>(
     return Ok(uuid);
 }
 
+/// A handler's args from the job's result, which the job's author controls while the handler
+/// runs as its own identity.
 fn sanitize_result<T: Serialize + Send + Sync>(result: Json<&T>) -> HashMap<String, Box<RawValue>> {
     let as_str = serde_json::to_string(result.0).unwrap_or_else(|_| "{}".to_string());
-    serde_json::from_str::<HashMap<String, Box<RawValue>>>(&as_str)
-        .unwrap_or_else(|_| [("error".to_string(), RawValue::from_string(as_str).unwrap())].into())
+    let args = serde_json::from_str::<HashMap<String, Box<RawValue>>>(&as_str)
+        .unwrap_or_else(|_| [("error".to_string(), RawValue::from_string(as_str).unwrap())].into());
+    omit_untrusted_interpolation(
+        args,
+        "The following resource has been omitted for security reasons: ",
+    )
 }
 
 // #[derive(Serialize)]
@@ -6200,6 +6214,38 @@ pub async fn push<'c, 'd>(
     .await
 }
 
+/// Reads a flow version through the pool unless the caller handed `push` its own transaction,
+/// which may hold that version uncommitted. Opening a transaction just for this read would hold
+/// its connection while `push` still writes the runnable settings through the pool.
+async fn fetch_pushed_flow_version(
+    tx: &mut PushIsolationLevel<'_>,
+    db: &Pool<Postgres>,
+    version: i64,
+) -> error::Result<Arc<FlowData>> {
+    // Do not use the lite version unless all workers are updated.
+    let lite =
+        !(*DISABLE_FLOW_SCRIPT || (!MIN_VERSION_IS_AT_LEAST_1_432.met().await && !*CLOUD_HOSTED));
+    // Fallback to the original version if the lite version is not found.
+    // This also prevent a race condition where the flow is run just after deploy and
+    // the lite version is still being created.
+    macro_rules! fetch {
+        ($e:expr) => {
+            if lite {
+                match cache::flow::fetch_version_lite($e, version).await {
+                    Ok(data) => Ok(data),
+                    Err(_) => cache::flow::fetch_version($e, version).await,
+                }
+            } else {
+                cache::flow::fetch_version($e, version).await
+            }
+        };
+    }
+    match tx {
+        PushIsolationLevel::Transaction(ntx) => fetch!(&mut **ntx),
+        PushIsolationLevel::Isolated(..) | PushIsolationLevel::IsolatedRoot(_) => fetch!(db),
+    }
+}
+
 // #[instrument(level = "trace", skip_all)]
 async fn push_inner<'c, 'd>(
     db: &Pool<Postgres>,
@@ -7078,22 +7124,7 @@ async fn push_inner<'c, 'd>(
             labels,
             job_token_scopes,
         } => {
-            let mut ntx = tx.into_tx().await?;
-            // Do not use the lite version unless all workers are updated.
-            let data = if *DISABLE_FLOW_SCRIPT
-                || (!MIN_VERSION_IS_AT_LEAST_1_432.met().await && !*CLOUD_HOSTED)
-            {
-                cache::flow::fetch_version(&mut *ntx, version).await
-            } else {
-                // Fallback to the original version if the lite version is not found.
-                // This also prevent a race condition where the flow is run just after deploy and
-                // the lite version is still being created.
-                match cache::flow::fetch_version_lite(&mut *ntx, version).await {
-                    Ok(data) => Ok(data),
-                    Err(_) => cache::flow::fetch_version(&mut *ntx, version).await,
-                }
-            }?;
-            tx = PushIsolationLevel::Transaction(ntx);
+            let data = fetch_pushed_flow_version(&mut tx, db, version).await?;
 
             let mut value = data.value().clone();
             refuse_step_scopes_on_outdated_workers(&value).await?;
@@ -7463,6 +7494,19 @@ async fn push_inner<'c, 'd>(
         crate::tags::apply_dev_workspace_suffix(tag, workspace_id, db).await?
     };
 
+    // Before `into_tx`: these write through the pool on a cache miss, and a burst of pushes each
+    // holding its transaction would then wait on each other for a second connection. They stay
+    // off `tx` because they are cached as written, which a rollback would undo.
+    let runnable_settings_handle = windmill_common::runnable_settings::insert_rs(
+        RunnableSettings {
+            debouncing_settings: debouncing_settings.insert_cached(db).await?,
+            concurrency_settings: concurrency_settings.insert_cached(db).await?,
+            retry_settings: retry_settings.insert_cached(db).await?,
+        },
+        db,
+    )
+    .await?;
+
     let mut tx = tx.into_tx().await?;
 
     let job_id: Uuid = if let Some(job_id) = job_id {
@@ -7641,16 +7685,6 @@ async fn push_inner<'c, 'd>(
     } else {
         (job_kind, scheduled_for_o)
     };
-
-    let runnable_settings_handle = windmill_common::runnable_settings::insert_rs(
-        RunnableSettings {
-            debouncing_settings: debouncing_settings.insert_cached(db).await?,
-            concurrency_settings: concurrency_settings.insert_cached(db).await?,
-            retry_settings: retry_settings.insert_cached(db).await?,
-        },
-        db,
-    )
-    .await?;
 
     let (guarded_concurrent_limit, guarded_concurrency_time_window_s) =
         if windmill_common::runnable_settings::min_version_supports_runnable_settings_v0().await {

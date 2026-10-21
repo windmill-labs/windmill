@@ -47,7 +47,8 @@
 		runsAs,
 		anyone,
 		canShare,
-		channels
+		channels,
+		section
 	}: {
 		agentPath: string
 		workspace: string
@@ -71,10 +72,12 @@
 		/** Whether the user can change its Slack settings: anyone who can edit it. */
 		canShare: boolean
 		channels: SlackAgentChannel[]
+		/** Shows only this section, without the panel's own tabs: the page offers them as its tabs. */
+		section?: 'api' | 'slack'
 	} = $props()
 
 	let pickedTab = $state('api')
-	let tab = $derived(chat ? pickedTab : 'api')
+	let tab = $derived(section ?? (chat ? pickedTab : 'api'))
 	let handle = $derived(`+${agentPath.split('/').pop()}`)
 
 	let userSettings: UserSettings | undefined = $state(undefined)
@@ -126,7 +129,11 @@
 />
 
 <div class="flex flex-col h-full">
-	<Tabs bind:selected={() => tab, (t) => (pickedTab = t)} wrapperClass="flex-none w-full">
+	<Tabs
+		bind:selected={() => tab, (t) => (pickedTab = t)}
+		hideTabs={section !== undefined}
+		wrapperClass="flex-none w-full"
+	>
 		<Tab value="api" label="API" />
 		{#if chat}
 			<Tab value="slack" label="Slack" />

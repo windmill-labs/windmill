@@ -110,8 +110,8 @@ lazy_static::lazy_static! {
 
 /// Helper function to write itered data to separate table
 /// Returns None if data was written to separate table, Some(itered) if it should be stored in JSONB
-async fn write_itered_to_db(
-    db: &DB,
+async fn write_itered_to_db<'c>(
+    db: impl sqlx::PgExecutor<'c>,
     job_id: Uuid,
     itered: &Vec<Box<RawValue>>,
 ) -> error::Result<Option<Vec<Box<RawValue>>>> {
@@ -326,6 +326,25 @@ fn get_stop_after_if_data(stop_after_if: Option<&StopAfterIf>) -> (bool, Option<
         return (false, err_msg, stop_after_if.error_include_result);
     }
     return (false, None, false);
+}
+
+/// Takes the caller's executor: under the status-update tx a pool read would wait on a second
+/// connection, which a burst of completions holding every one never frees.
+async fn fetch_flow_args<'c>(
+    db: impl sqlx::PgExecutor<'c>,
+    flow: Uuid,
+) -> Result<HashMap<String, Box<RawValue>>, sqlx::Error> {
+    let args = sqlx::query_scalar!(
+        r#"
+            SELECT args AS "args: Json<HashMap<String, Box<RawValue>>>"
+            FROM v2_job
+            WHERE id = $1
+            "#,
+        flow
+    )
+    .fetch_one(db)
+    .await;
+    args.map(|flow_args| flow_args.map(|flow_args| flow_args.0).unwrap_or_default())
 }
 
 async fn get_id_ctx_for_expr<'c>(
@@ -633,22 +652,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             }
         };
 
-        let args = Arc::pin(Lazy::new(async move {
-            let args = sqlx::query_scalar!(
-                r#"
-            SELECT args AS "args: Json<HashMap<String, Box<RawValue>>>"
-            FROM v2_job
-            WHERE id = $1
-            "#,
-                flow
-            )
-            .fetch_one(db)
-            .await;
-            let args =
-                args.map(|flow_args| flow_args.map(|flow_args| flow_args.0).unwrap_or_default());
-
-            args
-        }));
+        let args = Arc::pin(Lazy::new(fetch_flow_args(db, flow)));
 
         let from_result_to_args = |args: &Result<HashMap<String, Box<RawValue>>, sqlx::Error>| {
             let args = args
@@ -992,7 +996,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         .as_ref()
                         .and_then(|x| x.stop_after_all_iters_if.as_ref())
                     {
-                        let args = from_result_to_args(args.as_ref().await.get_ref())?;
+                        let args = from_result_to_args(&fetch_flow_args(&mut *tx, flow).await)?;
                         // Isolate the reads in a savepoint on the same connection: the
                         // caller below swallows our error and keeps using `tx`, so a DB
                         // read failure must not leave the outer transaction aborted (that
@@ -1227,7 +1231,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         .as_ref()
                         .and_then(|x| x.stop_after_all_iters_if.as_ref())
                     {
-                        let args = from_result_to_args(args.as_ref().await.get_ref())?;
+                        let args = from_result_to_args(&fetch_flow_args(&mut *tx, flow).await)?;
 
                         // See the matching savepoint comment above: isolate the reads so a
                         // DB read failure (whose error the caller swallows) cannot abort
@@ -1329,7 +1333,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             .unwrap_or_default();
 
                         tracing::info!("update flow status on retry: {retry:#?} ");
-                        let args = from_result_to_args(args.as_ref().await.get_ref())?;
+                        let args = from_result_to_args(&fetch_flow_args(&mut *tx, flow).await)?;
 
                         evaluate_retry(
                             &retry,
@@ -4780,7 +4784,8 @@ async fn push_next_flow_job(
         {
             // A step with its own on-behalf-of carries a cached dispatch address, up to one
             // notify poll stale; accepted, see `get_email_from_permissioned_as`.
-            let is_super_admin = windmill_common::auth::is_super_admin_email(db, email).await?;
+            let is_super_admin =
+                windmill_common::auth::is_super_admin_email(&mut *tx, email).await?;
             check_tag_written_as_available_for_push(
                 db,
                 &flow_job.workspace_id,
@@ -5046,7 +5051,7 @@ async fn push_next_flow_job(
 
             // Conditionally write itered to separate table if all workers support it
             // Returns None if written to table, Some(itered) if should be in JSONB
-            let itered_for_status = write_itered_to_db(db, flow_job.id, &itered).await?;
+            let itered_for_status = write_itered_to_db(&mut *tx, flow_job.id, &itered).await?;
 
             FlowStatusModule::InProgress {
                 job: uuid,
