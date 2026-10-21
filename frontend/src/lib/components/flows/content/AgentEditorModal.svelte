@@ -655,6 +655,7 @@
 		<Alert
 			type="info"
 			size="xs"
+			collapsible
 			class="mx-4 mb-8"
 			title="Fetch context first or process the output?"
 			actions={[
