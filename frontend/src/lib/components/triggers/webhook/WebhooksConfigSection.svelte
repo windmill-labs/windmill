@@ -87,6 +87,7 @@
 		}
 	})
 
+	let mainTab: string = $state('http')
 	let selectedTab: string = $state('rest')
 	let userSettings: UserSettings | undefined = $state()
 	let requestType = $state(DEFAULT_WEBHOOK_TYPE) as 'async' | 'sync' | 'sync_sse'
@@ -356,197 +357,207 @@ done`
 		</Label>
 	{/if}
 
-	<!-- An agent has one endpoint: it starts a run, by path, and answers with its job id. -->
-	{#if !agent}
-		<div class="flex flex-col gap-6">
-			<Label label="Request type">
-				<ToggleButtonGroup bind:selected={requestType}>
-					{#snippet children({ item })}
-						<ToggleButton
-							label="Async"
-							value="async"
-							tooltip="The returning value is the uuid of the job assigned to execute the job."
-							{item}
-						/>
-						<ToggleButton
-							label="Sync"
-							value="sync"
-							tooltip="Triggers the execution, wait for the job to complete and return it as a response."
-							{item}
-						/>
-						<ToggleButton
-							label="Sync SSE"
-							value="sync_sse"
-							tooltip={'Triggers the execution and returns an SSE stream. ' +
-								(isFlow
-									? 'Only useful if the last step of the flow returns a stream.'
-									: 'Only useful if the script returns a stream.')}
-							{item}
-						/>
-					{/snippet}
-				</ToggleButtonGroup>
-			</Label>
-			<Label label="Call method">
-				<ToggleButtonGroup bind:selected={callMethod}>
-					{#snippet children({ item })}
-						<ToggleButton
-							label="POST"
-							icon={ArrowDownRight}
-							selectedColor="#14b8a6"
-							value="post"
-							{item}
-						/>
-						<ToggleButton
-							label="GET"
-							icon={ArrowUpRight}
-							selectedColor="#fb923c"
-							value="get"
-							{item}
-							disabled={requestType !== 'sync' && requestType !== 'sync_sse'}
-						/>
-					{/snippet}
-				</ToggleButtonGroup>
-			</Label>
-			<Label label="Reference type">
-				<ToggleButtonGroup bind:selected={runnableId}>
-					{#snippet children({ item })}
-						<ToggleButton label="Path" value="path" {item} />
-						<ToggleButton
-							label={isFlow ? 'Flow version' : 'Hash'}
-							value="runnableVersion"
-							disabled={!runnableVersion}
-							{item}
-						/>
-					{/snippet}
-				</ToggleButtonGroup>
-			</Label>
-			<Label label="Token configuration">
-				<ToggleButtonGroup bind:selected={tokenType}>
-					{#snippet children({ item })}
-						<ToggleButton label="Token in Headers" value="headers" {item} />
-						<ToggleButton label="Token in Query" value="query" {item} />
-					{/snippet}
-				</ToggleButtonGroup>
-			</Label>
-		</div>
-	{/if}
+	<!-- The choices only shape a request written by hand: the AI prompt and the chat SDK name
+	     every endpoint themselves. -->
+	<Tabs bind:selected={mainTab}>
+		<Tab value="http" label="HTTP" />
+		<Tab value="prompt" label="AI prompt" />
+		{#if chat && kind !== 'script'}
+			<Tab value="sdk" label="Chat SDK" />
+		{/if}
+		{#snippet content()}
+			<TabContent value="http" class="flex flex-col gap-6 mt-2">
+				<!-- An agent has one endpoint: it starts a run, by path, and answers with its job id. -->
+				{#if !agent}
+					<div class="flex flex-col gap-6">
+						<Label label="Request type">
+							<ToggleButtonGroup bind:selected={requestType}>
+								{#snippet children({ item })}
+									<ToggleButton
+										label="Async"
+										value="async"
+										tooltip="The returning value is the uuid of the job assigned to execute the job."
+										{item}
+									/>
+									<ToggleButton
+										label="Sync"
+										value="sync"
+										tooltip="Triggers the execution, wait for the job to complete and return it as a response."
+										{item}
+									/>
+									<ToggleButton
+										label="Sync SSE"
+										value="sync_sse"
+										tooltip={'Triggers the execution and returns an SSE stream. ' +
+											(isFlow
+												? 'Only useful if the last step of the flow returns a stream.'
+												: 'Only useful if the script returns a stream.')}
+										{item}
+									/>
+								{/snippet}
+							</ToggleButtonGroup>
+						</Label>
+						<Label label="Call method">
+							<ToggleButtonGroup bind:selected={callMethod}>
+								{#snippet children({ item })}
+									<ToggleButton
+										label="POST"
+										icon={ArrowDownRight}
+										selectedColor="#14b8a6"
+										value="post"
+										{item}
+									/>
+									<ToggleButton
+										label="GET"
+										icon={ArrowUpRight}
+										selectedColor="#fb923c"
+										value="get"
+										{item}
+										disabled={requestType !== 'sync' && requestType !== 'sync_sse'}
+									/>
+								{/snippet}
+							</ToggleButtonGroup>
+						</Label>
+						<Label label="Reference type">
+							<ToggleButtonGroup bind:selected={runnableId}>
+								{#snippet children({ item })}
+									<ToggleButton label="Path" value="path" {item} />
+									<ToggleButton
+										label={isFlow ? 'Flow version' : 'Hash'}
+										value="runnableVersion"
+										disabled={!runnableVersion}
+										{item}
+									/>
+								{/snippet}
+							</ToggleButtonGroup>
+						</Label>
+						<Label label="Token configuration">
+							<ToggleButtonGroup bind:selected={tokenType}>
+								{#snippet children({ item })}
+									<ToggleButton label="Token in Headers" value="headers" {item} />
+									<ToggleButton label="Token in Query" value="query" {item} />
+								{/snippet}
+							</ToggleButtonGroup>
+						</Label>
+					</div>
+				{/if}
+				<!-- svelte-ignore a11y_click_events_have_key_events -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div>
+					<Tabs bind:selected={selectedTab}>
+						<Tab value="rest" label="Request" />
+						{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
+							<Tab value="curl" label="Curl" />
+						{/if}
+						<Tab value="fetch" label="Fetch" />
 
-	<!-- svelte-ignore a11y_click_events_have_key_events -->
-	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div>
-		<Tabs bind:selected={selectedTab}>
-			<Tab value="rest" label="REST" />
-			{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
-				<Tab value="curl" label="Curl" />
-			{/if}
-			<Tab value="fetch" label="Fetch" />
-			{#if chat && kind !== 'script'}
-				<Tab value="sdk" label="Chat SDK" />
-			{/if}
-			<Tab value="prompt" label="AI prompt" />
+						{#snippet content()}
+							{#key token}
+								<TabContent value="rest" class="flex flex-col flex-1 h-full mt-2">
+									<div class="flex flex-col gap-6">
+										<Label label="Url">
+											<ClipboardPanel content={url} />
+										</Label>
 
-			{#snippet content()}
-				{#key token}
-					<TabContent value="rest" class="flex flex-col flex-1 h-full mt-2">
-						<div class="flex flex-col gap-6">
-							<Label label="Url">
-								<ClipboardPanel content={url} />
-							</Label>
-
-							{#if callMethod !== 'get'}
-								<Label label="Body">
-									<ClipboardPanel content={JSON.stringify(cleanedRunnableArgs ?? {}, null, 2)} />
-								</Label>
-							{/if}
-							{#key callMethod}
-								{#key tokenType}
-									<Label label="Headers">
-										<ClipboardPanel content={JSON.stringify(headers(), null, 2)} />
-									</Label>
-								{/key}
-							{/key}
-						</div>
-					</TabContent>
-					<TabContent value="curl" class="flex flex-col flex-1 h-full mt-2">
-						<div class="relative">
-							{#key runnableArgs}
-								{#key callMethod}
-									{#key requestType}
-										{#key tokenType}
-											<div
-												class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
-												onclick={(e) => {
-													e.preventDefault()
-													copyToClipboard(curlCode())
-												}}
-											>
-												<Highlight language={bash} code={curlCode()} />
-												<Copy size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
-											</div>
+										{#if callMethod !== 'get'}
+											<Label label="Body">
+												<ClipboardPanel
+													content={JSON.stringify(cleanedRunnableArgs ?? {}, null, 2)}
+												/>
+											</Label>
+										{/if}
+										{#key callMethod}
+											{#key tokenType}
+												<Label label="Headers">
+													<ClipboardPanel content={JSON.stringify(headers(), null, 2)} />
+												</Label>
+											{/key}
 										{/key}
+									</div>
+								</TabContent>
+								<TabContent value="curl" class="flex flex-col flex-1 h-full mt-2">
+									<div class="relative">
+										{#key runnableArgs}
+											{#key callMethod}
+												{#key requestType}
+													{#key tokenType}
+														<div
+															class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
+															onclick={(e) => {
+																e.preventDefault()
+																copyToClipboard(curlCode())
+															}}
+														>
+															<Highlight language={bash} code={curlCode()} />
+															<Copy size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
+														</div>
+													{/key}
+												{/key}
+											{/key}
+										{/key}
+									</div>
+								</TabContent>
+								<TabContent value="fetch" class="mt-2">
+									{#key runnableArgs}
+										{#key callMethod}
+											{#key requestType}
+												{#key tokenType}
+													{#key token}
+														<div
+															class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
+															onclick={(e) => {
+																e.preventDefault()
+																copyToClipboard(fetchCode())
+															}}
+														>
+															<Highlight language={typescript} code={fetchCode()} />
+															<Copy size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
+														</div>
+													{/key}{/key}{/key}{/key}
 									{/key}
-								{/key}
+								</TabContent>
 							{/key}
-						</div>
-					</TabContent>
-					<TabContent value="fetch" class="mt-2">
-						{#key runnableArgs}
-							{#key callMethod}
-								{#key requestType}
-									{#key tokenType}
-										{#key token}
-											<div
-												class="flex flex-row flex-1 h-full border p-2 rounded-md overflow-auto relative"
-												onclick={(e) => {
-													e.preventDefault()
-													copyToClipboard(fetchCode())
-												}}
-											>
-												<Highlight language={typescript} code={fetchCode()} />
-												<Copy size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
-											</div>
-										{/key}{/key}{/key}{/key}
-						{/key}
-					</TabContent>
-					<TabContent value="sdk" class="flex flex-col gap-2 mt-2">
-						<span class="text-xs text-secondary">
-							Streams each answer and keeps the conversations, with any framework.
-						</span>
-						<ToggleButtonGroup bind:selected={sdkFlavor} noWFull>
-							{#snippet children({ item })}
-								<ToggleButton value="react" label="React" {item} small />
-								<ToggleButton value="any" label="Any framework" {item} small />
-							{/snippet}
-						</ToggleButtonGroup>
-						<CopyableCodeBlock
-							code={sdkFlavor === 'react' ? sdkReactExample(target) : sdkExample(target)}
-							language={typescript}
-						/>
-					</TabContent>
-					<TabContent value="prompt" class="flex flex-col gap-2 mt-2">
-						<span class="text-xs text-secondary">
-							Share this with your coding assistant. It assumes your token is in <code
-								>WINDMILL_TOKEN</code
-							>.
-						</span>
-						<div>
-							<Button
-								variant="default"
-								unifiedSize="sm"
-								startIcon={{ icon: Copy }}
-								onClick={() => copyToClipboard(integrationPrompt(target))}
-							>
-								Copy prompt
-							</Button>
-						</div>
-						<CollapseLink text="Show prompt">
-							<CopyableCodeBlock code={integrationPrompt(target)} language={markdown} wrap />
-						</CollapseLink>
-					</TabContent>
-				{/key}
-			{/snippet}
-		</Tabs>
-	</div>
+						{/snippet}
+					</Tabs>
+				</div>
+			</TabContent>
+			<TabContent value="prompt" class="flex flex-col gap-2 mt-2">
+				<span class="text-xs text-secondary">
+					Share this with your coding assistant. It assumes your token is in <code
+						>WINDMILL_TOKEN</code
+					>.
+				</span>
+				<div>
+					<Button
+						variant="default"
+						unifiedSize="sm"
+						startIcon={{ icon: Copy }}
+						onClick={() => copyToClipboard(integrationPrompt(target))}
+					>
+						Copy prompt
+					</Button>
+				</div>
+				<CollapseLink text="Show prompt">
+					<CopyableCodeBlock code={integrationPrompt(target)} language={markdown} wrap />
+				</CollapseLink>
+			</TabContent>
+			<TabContent value="sdk" class="flex flex-col gap-2 mt-2">
+				<span class="text-xs text-secondary">
+					Streams each answer and keeps the conversations, with any framework.
+				</span>
+				<ToggleButtonGroup bind:selected={sdkFlavor} noWFull>
+					{#snippet children({ item })}
+						<ToggleButton value="react" label="React" {item} small />
+						<ToggleButton value="any" label="Any framework" {item} small />
+					{/snippet}
+				</ToggleButtonGroup>
+				<CopyableCodeBlock
+					code={sdkFlavor === 'react' ? sdkReactExample(target) : sdkExample(target)}
+					language={typescript}
+				/>
+			</TabContent>
+		{/snippet}
+	</Tabs>
 	{#if !agent}
 		<TriggerTokens bind:this={triggerTokens} {isFlow} {path} labelPrefix="webhook" />
 	{/if}
