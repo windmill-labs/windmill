@@ -772,7 +772,7 @@ async fn whoami(
     authed: ApiAuthed,
 ) -> JsonResult<UserInfo> {
     let is_guest = windmill_api_auth::scopes::has_guest_sentinel(authed.scopes.as_deref());
-    let ApiAuthed { username, email, is_admin, groups, folders, .. } = authed;
+    let ApiAuthed { username, email, is_admin, is_operator, groups, folders, .. } = authed;
     // A guest would otherwise fall through to the non-member branch below and be
     // handed a `superadmin` role. Answer it here, as the operator-shaped identity it is.
     if is_guest {
@@ -801,7 +801,13 @@ async fn whoami(
     // never happen, but guard against it so a non-member superadmin is never
     // shown another member's identity/role.
     if let Some(user) = user.filter(|u| u.email == email) {
-        Ok(Json(user))
+        // The frontend gates pages on `operator`, so it reports what `caller_capabilities`
+        // decides rather than the raw column: an admin (or superadmin) whose row still carries
+        // `operator` holds everything.
+        Ok(Json(UserInfo {
+            operator: is_operator && !is_admin,
+            ..user
+        }))
     } else {
         Ok(Json(UserInfo {
             workspace_id: w_id,
