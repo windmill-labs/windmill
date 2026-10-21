@@ -3458,6 +3458,7 @@ describe('AIChatManager context compaction', () => {
 		// The second trigger folds the first summary into a new one instead of
 		// dropping it to make room for the turn.
 		expect(mocks.getStreamedCompletionText).toHaveBeenCalledTimes(2)
+		expect(mocks.getStreamedCompletionText.mock.calls[1][0][0].content).toContain('SUMMARY ONE')
 		expect(thirdIteration[0].content).toContain('SUMMARY TWO')
 		expect(thirdIteration.slice(-4)).toEqual([...first, ...second])
 		expect(manager.messages[0].content).toContain('SUMMARY TWO')
