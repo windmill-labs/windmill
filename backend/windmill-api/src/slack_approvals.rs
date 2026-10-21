@@ -163,18 +163,18 @@ impl SlackCallbackSignature {
     }
 }
 
-// Transport-level check against the signing secret of the app the callback's workspace is
-// connected through, which also defeats replay. It is NOT the primary defense: no secret is set in
-// the default deployment, and an approval may be sent through a Slack resource of another app, so
-// authorization of the sensitive actions is anchored on a per-workspace HMAC over the callback
-// payload itself (see `verify_slack_payload`), which holds even when this check is a no-op.
+// Transport-level check against the signing secrets that may apply to the callback's workspace,
+// which also defeats replay. It is NOT the primary defense: no secret is set in the default
+// deployment, and a callback from a Slack app whose secret Windmill does not hold cannot be told
+// apart from a forged one, so authorization of the sensitive actions is anchored on a per-workspace
+// HMAC over the callback payload itself (see `verify_slack_payload`), which holds either way.
 #[cfg(feature = "oauth2")]
 async fn verify_slack_callback_signature(
     db: &DB,
     w_id: &str,
     request: &SlackCallbackSignature,
 ) -> Result<(), Error> {
-    crate::slack_agents::verify_workspace_slack_request(
+    crate::slack_agents::verify_approval_slack_request(
         db,
         w_id,
         &request.sig,
