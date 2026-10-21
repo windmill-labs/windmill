@@ -3530,6 +3530,7 @@ describe('AIChatManager context compaction', () => {
 		mocks.getStreamedCompletionText.mockResolvedValue('<summary>SUMMARY ONE</summary>')
 		// Under the 0.8 * 128k trigger without the thinking the next request replays.
 		const report = { prompt: 80_000, completion: 25_000, total: 105_000 }
+		let historyAfter: any[] = []
 		mocks.runChatLoop.mockImplementation(async (config: any) => {
 			await config.onBeforeIteration(gpt4oModel, null)
 			const assistant = {
@@ -3544,6 +3545,7 @@ describe('AIChatManager context compaction', () => {
 				config.addedMessages.push(m)
 			}
 			await config.onBeforeIteration(gpt4oModel, report)
+			historyAfter = config.messages.slice(0, -2)
 			return {
 				addedMessages: [assistant, tool],
 				tokenUsage: report,
@@ -3566,6 +3568,9 @@ describe('AIChatManager context compaction', () => {
 		await manager.sendRequest()
 
 		expect(mocks.getStreamedCompletionText).toHaveBeenCalledTimes(1)
+		// The kept history leaves room for the replayed thinking within the 0.5 target.
+		const keptTokens = historyAfter.reduce((acc, m) => acc + String(m.content).length / 4, 0)
+		expect(keptTokens + report.completion).toBeLessThan(128_000 * 0.5)
 	})
 
 	it('summarizes the older prefix and keeps the recent tail verbatim', async () => {

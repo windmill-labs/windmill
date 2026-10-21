@@ -4360,8 +4360,14 @@ export class AIChatManager implements ChatViewHost {
 									collectedMessages.slice(replaysOutput ? lastAssistant + 1 : lastAssistant)
 								)
 							: 0
-					const inFlightTokens = this.estimateMessagesTokens(collectedMessages)
-					const projected = Math.max(reported, this.estimateWholeContextTokens() + inFlightTokens)
+					const historyTokens = this.estimateWholeContextTokens()
+					// Whatever the report sees beyond the stored history is the turn's, replayed
+					// thinking included, so the summary leaves room for it.
+					const inFlightTokens = Math.max(
+						this.estimateMessagesTokens(collectedMessages),
+						reported - historyTokens
+					)
+					const projected = Math.max(reported, historyTokens + inFlightTokens)
 					if (await this.compactIfOverTrigger(projected, iterationModel, inFlightTokens)) {
 						usageBeforeCompaction = lastIterationUsage
 						// The loop sends from this array, which mirrors the stored history
