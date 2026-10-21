@@ -455,7 +455,7 @@
 						bind:scriptPath={script_path}
 						{initialScriptPath}
 						canWrite={can_write}
-						isOperator={!!actingUser?.operator}
+						allowEdit={editRights.roleCanAuthor(itemKind)}
 						promptClass="text-xs mt-3 mb-1 text-primary"
 					>
 						{#snippet createButton()}

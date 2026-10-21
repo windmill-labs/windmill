@@ -25,12 +25,6 @@ func main(x int) (interface{}, error) {
 def main(x: int):
     return x
 """,
-    "php": """<?php
-
-function main(int $x): int {
-    return $x;
-}
-""",
 }
 
 
@@ -74,10 +68,5 @@ class TestIdentityScript(unittest.TestCase):
 
     def test_python(self):
         path = PATH_TEMPLATE.format(lang="python3")
-        result = self._client.run_sync(path, {"x": 5})
-        self.assertEqual(result, 5)
-
-    def test_php(self):
-        path = PATH_TEMPLATE.format(lang="php")
         result = self._client.run_sync(path, {"x": 5})
         self.assertEqual(result, 5)

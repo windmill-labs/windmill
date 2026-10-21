@@ -23,7 +23,7 @@
 	import { agentMenuItems, deleteAgent } from '$lib/components/flows/agentActions'
 	import AgentHistory from '$lib/components/flows/AgentHistory.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { roleCapabilities, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 
 	/**
@@ -40,7 +40,9 @@
 	let testPane = $derived(host?.testPaneHandle())
 	let config = $derived(agent?.state?.args)
 	let chatAvailable = $derived(keepsManagedMemory(config?.memory))
-	let canEdit = $derived(config != undefined && (agent?.canWrite ?? false) && !$userStore?.operator)
+	let canEdit = $derived(
+		config != undefined && (agent?.canWrite ?? false) && $roleCapabilities.code
+	)
 
 	let configModal: AgentConfigModal | undefined = $state(undefined)
 	let shareModal: ShareModal | undefined = $state(undefined)
@@ -84,9 +86,9 @@
 		() => ws,
 		() => getDeployUiSettings()
 	)
-	// Operators get no menu, as on a flow's or a script's page.
+	// A role that cannot code gets no menu, as on a flow's or a script's page.
 	let menuItems = $derived(
-		config != undefined && !$userStore?.operator
+		config != undefined && $roleCapabilities.code
 			? agentMenuItems({
 					path,
 					canWrite: canEdit,

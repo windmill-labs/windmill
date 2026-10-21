@@ -1,5 +1,5 @@
 import { onboardingProfile, type StarterPrompt } from '$lib/onboardingProfile'
-import { userStore } from '$lib/stores'
+import { roleCapabilities } from '$lib/stores'
 import { fromStore } from 'svelte/store'
 import { resource } from 'runed'
 import { ScriptService } from '$lib/gen'
@@ -41,8 +41,8 @@ const BUILD_EXAMPLES: ComposerSuggestion[] = [
 	}
 ]
 
-/** An operator's session can run what is deployed, read runs and call MCP servers, but
- * cannot author scripts or apps, so none of these asks it to build anything. */
+/** A session for a role that cannot code can run what is deployed, read runs and call MCP
+ * servers, but cannot author scripts, so none of these asks it to build anything. */
 const OPERATOR_EXAMPLES: ComposerSuggestion[] = [
 	USE_EXAMPLES[0],
 	{
@@ -72,7 +72,7 @@ const FEW_ITEMS = 10
  * reads as the generic one. */
 export class StarterPrompts {
 	#invite = $state<StarterPrompt[]>()
-	#user = fromStore(userStore)
+	#capabilities = fromStore(roleCapabilities)
 	#workspace: () => string | undefined
 	#itemCount: { readonly current: number | undefined }
 
@@ -95,7 +95,7 @@ export class StarterPrompts {
 	/** Up to four: two Use then two Build. An empty workspace has nothing to ask about yet. */
 	readonly suggestions: ComposerSuggestion[] = $derived.by(() => {
 		if (this.#invite) return this.#invite.map((p) => ({ ...p, mode: 'build' as const }))
-		if (this.#user.current?.operator) return OPERATOR_EXAMPLES
+		if (!this.#capabilities.current.code) return OPERATOR_EXAMPLES
 		if (this.#count === 0) return BUILD_EXAMPLES
 		return [...USE_EXAMPLES, ...BUILD_EXAMPLES.slice(0, 2)]
 	})

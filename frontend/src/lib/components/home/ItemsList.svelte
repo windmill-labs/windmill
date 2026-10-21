@@ -16,7 +16,7 @@
 	} from '$lib/gen'
 	import { resource } from 'runed'
 	import { getDraftItems } from '$lib/workspaceDrafts.svelte'
-	import { disableHubStore, userStore, workspaceStore } from '$lib/stores'
+	import { disableHubStore, roleCapabilities, userStore, workspaceStore } from '$lib/stores'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
@@ -127,7 +127,7 @@
 			label: 'Include library scripts',
 			// On by default, so selecting it means "turn it off" — keep the picker.
 			default: true,
-			hidden: !($userStore && !$userStore.operator)
+			hidden: !($userStore && $roleCapabilities.code)
 		},
 		only_user_folders: {
 			type: 'boolean' as const,
@@ -1797,7 +1797,7 @@
 	const homeSelection = new HomeSelection()
 	setHomeSelection(homeSelection)
 	$effect(() => {
-		homeSelection.available = showEditButtons && !!$userStore && !$userStore.operator
+		homeSelection.available = showEditButtons && !!$userStore && $roleCapabilities.code
 	})
 	// A selected path means nothing in another workspace. Narrowing the view
 	// within one (kind, owner, label, search) keeps the selection instead, so

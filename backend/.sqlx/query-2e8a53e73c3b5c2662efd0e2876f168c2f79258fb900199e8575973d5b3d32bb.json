@@ -1,0 +1,94 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color, workspace.parent_workspace_id,\n                workspace.is_dev_workspace, workspace.dev_workspace_label,\n                workspace.owner AS \"created_by?\",\n                usr.is_admin, usr.operator, usr.workspace_role,\n                usr.disabled, usr.is_service_account\n         FROM workspace\n         JOIN usr ON usr.workspace_id = workspace.id\n         JOIN workspace_settings ON workspace_settings.workspace_id = workspace.id\n         WHERE usr.email = $1 AND workspace.deleted = false",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "color",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "parent_workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "is_dev_workspace",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "dev_workspace_label",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_by?",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_admin",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "operator",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "workspace_role",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 11,
+        "name": "disabled",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 12,
+        "name": "is_service_account",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "2e8a53e73c3b5c2662efd0e2876f168c2f79258fb900199e8575973d5b3d32bb"
+}

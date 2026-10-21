@@ -54,6 +54,7 @@
 		nonMemberWorkspaces,
 		setNonMemberWorkspaces,
 		clearNonMemberWorkspaces,
+		roleCapabilities,
 		type UserWorkspace
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
@@ -94,7 +95,6 @@
 	import { overlayStack } from '$lib/components/common/overlayHost.svelte'
 	import PageHeaderBar from '$lib/components/PageHeaderBar.svelte'
 	import { BAR_HEIGHT_PX, pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
-	import { sidebarPageAllowed } from '$lib/components/sidebar/operatorRoutes'
 	import type GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import MenuLink from '$lib/components/sidebar/MenuLink.svelte'
@@ -167,7 +167,7 @@
 	let collapsedState = $state(collapsePref.val)
 	// Operators never get the icon-only rail: their docked sidebar is always expanded (a sidebar
 	// they want out of the way is what detaching is for).
-	let isCollapsed = $derived(collapsedState && !$userStore?.operator)
+	let isCollapsed = $derived(collapsedState && $roleCapabilities.code)
 
 	// Resizable desktop rail, sized in REM so it scales with the root font-size the
 	// same way the old `w-52`/`w-12` classes did — `:root` jumps to 18px on screens
@@ -248,7 +248,7 @@
 			// instead: dragging the sidebar off the left edge puts it behind the handle.
 			// Detaching is not a resize, so the width the drag started from is what gets
 			// persisted — re-attaching restores the sidebar at the size it had.
-			if (collapse && $userStore?.operator) {
+			if (collapse && !$roleCapabilities.code) {
 				sidebarWidth = widthAtStart
 				stop()
 				setDetached(true)
@@ -307,7 +307,7 @@
 	// (SessionModeSwitch) just navigates in and out of that route.
 	// An operator without the opt-in (`gate.ts`) is refused by /sessions, so their sidebar is not
 	// handed over to a session list the page behind it declines, and they keep the docked chat.
-	const sessionsAllowed = $derived(sessionsAllowedFor($userStore?.operator))
+	const sessionsAllowed = $derived(sessionsAllowedFor(!$roleCapabilities.code))
 	let sessionMode = $derived(page.url.pathname.startsWith('/sessions') && sessionsAllowed)
 	// Session mode points the bottom settings entry at the open session's own
 	// workspace. An unsent draft hasn't committed one yet, so it falls back to
@@ -1149,11 +1149,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 		label="Runs"
 		href="/runs"
 		icon={Play}
-		disabled={!sidebarPageAllowed(
-			$userStore?.operator,
-			$userWorkspaces?.find((w) => w.id === $workspaceStore),
-			'runs'
-		)}
+		disabled={!$roleCapabilities.visibility.runs}
 		isCollapsed={collapsed}
 		aiId="sidebar-menu-link-runs"
 		aiDescription="Button to navigate to runs"
@@ -1185,7 +1181,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
      with a sidebar they cannot return. -->
 {#snippet sidebarToggle()}
 	{@const hidden = navDetached.val}
-	{#if hidden || $userStore?.operator}
+	{#if hidden || !$roleCapabilities.code}
 		<Tooltip class="flex" placement="bottom" small>
 			<button
 				class={SIDEBAR_ICON_BUTTON}
@@ -1365,7 +1361,7 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 				{/if}
 				<!-- Collapsing belongs to the rail: the panel is over the page already, and the way
 				     out of it is the handle in the band or a click outside. -->
-				{#if !panel && !$userStore?.operator}
+				{#if !panel && $roleCapabilities.code}
 					<button
 						class={SIDEBAR_ICON_BUTTON}
 						title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}

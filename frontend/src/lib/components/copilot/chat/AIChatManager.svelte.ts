@@ -97,7 +97,7 @@ import { untrack } from 'svelte'
 import { fromStore, get } from 'svelte/store'
 import type { ProviderToolSummary } from './agentContext'
 import { BROWSER } from 'esm-env'
-import { workspaceStore, type DBSchemas } from '$lib/stores'
+import { roleCapabilities, workspaceStore, type DBSchemas } from '$lib/stores'
 import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
 import { copilotWorkspaceRequested, loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
@@ -119,6 +119,7 @@ import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import {
 	closeInterruptedToolBatch,
 	runChatLoop,
+	type ChatLoopConfig,
 	sendsWebSearch,
 	truncateToToolPairedPrefix
 } from './chatLoop'
@@ -173,11 +174,6 @@ import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRout
 import { appendAttachedFilesRoster } from './files/fileTools'
 import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from './planMode'
 import { PlanModeController, type PlanModeHost } from './planModeController.svelte'
-import {
-	navigationOperatorBuilderApps,
-	navigationOperatorBuilderFlows,
-	navigationOperatorBuilderRights
-} from '$lib/operatorWriteRights'
 
 // Compaction of the stored history: once the projected request size
 // (contextTokens — the provider's report when current, a fresh chars/4
@@ -310,9 +306,7 @@ export function supportsPlanMode(mode: AIMode): boolean {
 	return PLAN_MODES.has(mode)
 }
 
-const isOperatorBuilder = fromStore(navigationOperatorBuilderRights)
-const isOperatorBuilderFlows = fromStore(navigationOperatorBuilderFlows)
-const isOperatorBuilderApps = fromStore(navigationOperatorBuilderApps)
+const navCapabilities = fromStore(roleCapabilities)
 
 export function isAIModeVisible(mode: AIMode): boolean {
 	return mode !== AIMode.GLOBAL || isGlobalAiEnabled()
@@ -1486,23 +1480,22 @@ export class AIChatManager implements ChatViewHost {
 			.map((s) => ({ ...s, kind: 'skill' as const }))
 	])
 
-	// The flow, app and script builders all write code, which the backend refuses from an
-	// operator with builder rights: leaving them reachable would only produce work that cannot be
-	// deployed.
+	// The flow, app and script builders all write code, which the backend refuses from a role
+	// that only composes: leaving them reachable would only produce work that cannot be deployed.
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script:
 			this.flowAiChatHelpers === undefined &&
 			this.scriptEditorOptions !== undefined &&
 			!this.disabledModes.script &&
-			!isOperatorBuilder.current,
+			navCapabilities.current.code,
 		flow:
 			this.flowAiChatHelpers !== undefined &&
 			!this.disabledModes.flow &&
-			!isOperatorBuilderFlows.current,
+			navCapabilities.current.flows === 'full',
 		app:
 			this.appAiChatHelpers !== undefined &&
 			!this.disabledModes.app &&
-			!isOperatorBuilderApps.current,
+			navCapabilities.current.apps === 'full',
 		navigator: !this.disabledModes.navigator,
 		ask: !this.disabledModes.ask,
 		API: !this.disabledModes.API,
@@ -1727,8 +1720,15 @@ export class AIChatManager implements ChatViewHost {
 	 * Returns true on success. Returns false — caller falls back to drop-oldest —
 	 * when summarization isn't worthwhile or fails (user abort, empty summary, or
 	 * the circuit breaker being tripped).
+	 *
+	 * `inFlightTokens` is the running turn's output, which is not in `messages` but
+	 * rides on every request after it: the tail shrinks by that much, or the next
+	 * tool result re-triggers at once and drop-oldest discards this summary.
 	 */
-	private summarizeAndCompact = async (contextWindow: number): Promise<boolean> => {
+	private summarizeAndCompact = async (
+		contextWindow: number,
+		inFlightTokens = 0
+	): Promise<boolean> => {
 		if (this.consecutiveCompactionFailures >= MAX_CONSECUTIVE_COMPACTION_FAILURES) {
 			return false
 		}
@@ -1737,13 +1737,14 @@ export class AIChatManager implements ChatViewHost {
 			return false
 		}
 
-		const tailBudget =
+		const historyBudget =
 			contextWindow * COMPACTION_TARGET_RATIO -
 			SUMMARY_OUTPUT_RESERVE_TOKENS -
 			this.estimateOverheadTokens()
-		if (tailBudget <= 0) {
+		if (historyBudget <= 0) {
 			return false
 		}
+		const tailBudget = historyBudget - inFlightTokens
 
 		const last = this.messages.length - 1
 		if (last < 1) {
@@ -1777,7 +1778,10 @@ export class AIChatManager implements ChatViewHost {
 
 		const prefix = this.messages.slice(0, keepFrom)
 		const tail = this.messages.slice(keepFrom)
-		if (prefix.length < MIN_PREFIX_MESSAGES_TO_SUMMARIZE || tail.length === 0) {
+		// Mid-turn, drop-oldest would cut context the running turn may rely on, so any
+		// prefix beyond a lone previous summary is worth the round-trip.
+		const minPrefix = inFlightTokens > 0 ? 2 : MIN_PREFIX_MESSAGES_TO_SUMMARIZE
+		if (prefix.length < minPrefix || tail.length === 0) {
 			return false
 		}
 
@@ -1808,6 +1812,65 @@ export class AIChatManager implements ChatViewHost {
 			this.consecutiveCompactionFailures++
 		}
 		return false
+	}
+
+	/**
+	 * Automatic compaction trigger, checked when a turn is sent and again before
+	 * each tool-loop iteration, since one turn's tool results can carry the request
+	 * past the window on their own. Rewrites the stored history (not the turn in
+	 * flight) once `projectedTokens` reaches the trigger ratio of `model`'s window.
+	 * Returns whether it rewrote; callers persist. An unrecognized model still gets
+	 * the conservative assumed window rather than no limit: without one the context
+	 * grows unbounded until the provider (or a proxy in front of it) times out.
+	 * Guessing low only compacts earlier, which is always recoverable.
+	 */
+	private compactIfOverTrigger = async (
+		projectedTokens: number,
+		model: ChatLoopConfig['modelProvider'] | undefined,
+		inFlightTokens = 0
+	): Promise<boolean> => {
+		const contextWindow = model
+			? getEffectiveModelContextWindow(
+					model.provider,
+					model.model,
+					get(copilotInfo).contextWindowPerModel
+				)
+			: undefined
+		if (contextWindow === undefined || projectedTokens < contextWindow * COMPACTION_TRIGGER_RATIO) {
+			return false
+		}
+		// Preferred path: summarize the older prefix, keep the recent tail.
+		const summarized = await this.summarizeAndCompact(contextWindow, inFlightTokens)
+		// A Stop during the in-flight summary aborts this turn's controller;
+		// summarizeAndCompact then returns false without touching history. Skip
+		// the drop-oldest fallback — it would destructively compact a conversation
+		// the user only meant to cancel, and the request can't run on an aborted
+		// controller anyway. The cancel path rolls the turn back cleanly on its own.
+		if (this.abortController?.signal.aborted) {
+			return false
+		}
+		if (!summarized) {
+			// Fallback when summarization isn't worthwhile or fails: drop the
+			// oldest messages. A report stays meaningful only debited by what
+			// was dropped; the estimate path needs no bookkeeping — the next
+			// read re-estimates the compacted history. chars/4 can
+			// underestimate the freed tokens, which errs toward compacting
+			// again — never toward overflowing.
+			const lengthBefore = this.messages.length
+			const freed = this.compactOldestMessages(
+				projectedTokens - contextWindow * COMPACTION_TARGET_RATIO
+			)
+			if (this.messages.length === lengthBefore) {
+				return false
+			}
+			if (this.contextUsage !== undefined) {
+				this.contextUsage = Math.max(0, this.contextUsage - freed)
+			}
+		}
+		// Reconcile file registrations with the compacted transcript — the
+		// summary message carries the folded-away turns' files forward.
+		this.#syncMessageFiles()
+		return true
 	}
 
 	/**
@@ -3167,7 +3230,8 @@ export class AIChatManager implements ChatViewHost {
 		callbacks,
 		addedMessages,
 		systemMessage: systemMessageOverride,
-		onWebSearchUnavailable
+		onWebSearchUnavailable,
+		onBeforeIteration
 	}: {
 		messages: ChatCompletionMessageParam[]
 		abortController: AbortController
@@ -3179,6 +3243,7 @@ export class AIChatManager implements ChatViewHost {
 		addedMessages?: ChatCompletionMessageParam[]
 		systemMessage?: ChatCompletionSystemMessageParam
 		onWebSearchUnavailable?: () => void
+		onBeforeIteration?: ChatLoopConfig['onBeforeIteration']
 	}) => {
 		// Fresh batch for this turn — drop any images an aborted prior turn left buffered.
 		this.pendingToolImages.clear()
@@ -3281,8 +3346,9 @@ export class AIChatManager implements ChatViewHost {
 						console.error('Failed to record AI usage', e)
 					}
 				},
-				onBeforeIteration: async (modelProvider) => {
+				onBeforeIteration: async (modelProvider, lastIterationUsage) => {
 					this.lastIterationModel = modelProvider
+					await onBeforeIteration?.(modelProvider, lastIterationUsage)
 				}
 			})
 			if (this.isSessionChat && this.sessionId && result.tokenUsage.total > 0) {
@@ -4125,61 +4191,24 @@ export class AIChatManager implements ChatViewHost {
 			this.currentReasoningActive = false
 			this.resetReasoningTiming()
 
-			// Compaction trigger. An unrecognized model still gets the conservative
-			// assumed window rather than no limit: without one the context grows
-			// unbounded until the provider (or a proxy in front of it) times out.
-			// Guessing low only compacts earlier, which is always recoverable.
-			const contextWindow = model
-				? getEffectiveModelContextWindow(
-						model.provider,
-						model.model,
-						get(copilotInfo).contextWindowPerModel
-					)
-				: undefined
-			if (
-				contextWindow !== undefined &&
-				projectedContextTokens >= contextWindow * COMPACTION_TRIGGER_RATIO
-			) {
-				// Preferred path: summarize the older prefix, keep the recent tail.
-				const summarized = await this.summarizeAndCompact(contextWindow)
-				// A Stop during the in-flight summary aborts this turn's controller;
-				// summarizeAndCompact then returns false without touching history. Skip
-				// the drop-oldest fallback (and its save) — it would destructively
-				// compact a conversation the user only meant to cancel, and the request
-				// can't run on an aborted controller anyway. The cancel path below rolls
-				// the pushed turn back cleanly on its own.
-				if (!this.abortController?.signal.aborted) {
-					if (!summarized) {
-						// Fallback when summarization isn't worthwhile or fails: drop the
-						// oldest messages. A report stays meaningful only debited by what
-						// was dropped; the estimate path needs no bookkeeping — the next
-						// read re-estimates the compacted history. chars/4 can
-						// underestimate the freed tokens, which errs toward compacting
-						// again — never toward overflowing.
-						const freed = this.compactOldestMessages(
-							projectedContextTokens - contextWindow * COMPACTION_TARGET_RATIO
-						)
-						if (this.contextUsage !== undefined) {
-							this.contextUsage = Math.max(0, this.contextUsage - freed)
-						}
-					}
-					// Reconcile file registrations with the compacted transcript — the
-					// summary message carries the folded-away turns' files forward.
-					this.#syncMessageFiles()
-					await this.historyManager.saveChat(
-						this.displayMessages,
-						this.messages,
-						this.contextUsage,
-						this.modifiedItems ? [...this.modifiedItems] : undefined
-					)
-				}
+			if (await this.compactIfOverTrigger(projectedContextTokens, model)) {
+				await this.historyManager.saveChat(
+					this.displayMessages,
+					this.messages,
+					this.contextUsage,
+					this.modifiedItems ? [...this.modifiedItems] : undefined
+				)
 			}
 			// Rollback anchors for restoreUnsentTurn: captured after compaction so
 			// they index into the (possibly compacted) stored history. The summary
 			// path shrinks displayMessages too, so the display anchor must also be
 			// read here, not before compaction.
+			// Mid-turn compaction leaves these stale, but it runs only once the turn has
+			// tool-paired output, which keeps the turn off the restore path.
 			const modelLenAfterUser = this.messages.length
 			const displayLenAfterUser = this.displayMessages.length
+			// Set when a mid-turn compaction makes the latest provider report stale.
+			let usageBeforeCompaction: ChatTokenUsage | null = null
 
 			const params: {
 				messages: ChatCompletionMessageParam[]
@@ -4307,6 +4336,46 @@ export class AIChatManager implements ChatViewHost {
 				addedMessages: collectedMessages,
 				onWebSearchUnavailable: () => {
 					webSearchUnavailable = true
+				},
+				onBeforeIteration: async (iterationModel, lastIterationUsage) => {
+					// The first iteration sends exactly what the send-time check measured.
+					if (collectedMessages.length === 0) return
+					// The last report's prompt covers everything before its assistant message.
+					// That message counts as its `completion` only on Anthropic, which replays
+					// its thinking verbatim (`_anthropicContent`); other providers bill reasoning
+					// the next request does not replay, so it is estimated. The estimate is
+					// the floor in case a later iteration's report never arrived. A report
+					// from before a compaction measured the history it replaced.
+					const lastAssistant = collectedMessages.findLastIndex((m) => m.role === 'assistant')
+					const replaysOutput = !!(collectedMessages[lastAssistant] as any)?._anthropicContent
+					const reported =
+						lastIterationUsage && lastIterationUsage !== usageBeforeCompaction
+							? lastIterationUsage.prompt +
+								(replaysOutput ? lastIterationUsage.completion : 0) +
+								this.estimateMessagesTokens(
+									collectedMessages.slice(replaysOutput ? lastAssistant + 1 : lastAssistant)
+								)
+							: 0
+					const historyTokens = this.estimateWholeContextTokens()
+					// Whatever the report sees beyond the stored history is the turn's, replayed
+					// thinking included, so the summary leaves room for it.
+					const inFlightTokens = Math.max(
+						this.estimateMessagesTokens(collectedMessages),
+						reported - historyTokens
+					)
+					const projected = Math.max(reported, historyTokens + inFlightTokens)
+					if (await this.compactIfOverTrigger(projected, iterationModel, inFlightTokens)) {
+						usageBeforeCompaction = lastIterationUsage
+						// The loop sends from this array, which mirrors the stored history
+						// plus the turn so far.
+						params.messages.splice(
+							0,
+							params.messages.length,
+							...this.messages,
+							...collectedMessages
+						)
+						await checkpointTurn(true)
+					}
 				}
 			})
 			stopCheckpoints()
@@ -4328,9 +4397,10 @@ export class AIChatManager implements ChatViewHost {
 				// stored history it was sent with (the kept partial tail is a small
 				// undercount the trigger headroom absorbs). Without one, clear the
 				// stale value — readers estimate via contextTokens.
-				this.contextUsage = result?.lastIterationUsage
-					? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
-					: undefined
+				this.contextUsage =
+					result?.lastIterationUsage && result.lastIterationUsage !== usageBeforeCompaction
+						? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
+						: undefined
 				await this.historyManager.saveChat(
 					this.displayMessages,
 					this.messages,
@@ -4399,9 +4469,10 @@ export class AIChatManager implements ChatViewHost {
 				// stored — no anchoring or index bookkeeping needed. Without a
 				// report, clear the now-stale value — readers estimate via
 				// contextTokens.
-				this.contextUsage = result?.lastIterationUsage
-					? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
-					: undefined
+				this.contextUsage =
+					result?.lastIterationUsage && result.lastIterationUsage !== usageBeforeCompaction
+						? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
+						: undefined
 				if (this.autoAcceptEditsActive) {
 					this.acceptPendingFlowEdits()
 				}

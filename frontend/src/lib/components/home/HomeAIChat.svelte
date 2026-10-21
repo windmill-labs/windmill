@@ -15,7 +15,7 @@
 	import Button from '../common/button/Button.svelte'
 	import CloseButton from '../common/CloseButton.svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
-	import { hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import { hubBaseUrlStore, roleCapabilities, workspaceStore } from '$lib/stores'
 	import { sessionState } from '../sessions/sessionState.svelte'
 	import { currentWorkspaceRootId } from '../sessions/sessionScope.svelte'
 	import { HOME_SHOW_HUB } from '$lib/consts'
@@ -38,7 +38,7 @@
 	 *  labelled buttons without the trail starting to truncate. Below it they fold back. */
 	const BAR_FITS_SIDE_TRIPS = 1024
 	const sideTripsInBar = $derived(pageHeader.barWidth >= BAR_FITS_SIDE_TRIPS)
-	const hubOffered = $derived(!$userStore?.operator && HOME_SHOW_HUB)
+	const hubOffered = $derived($roleCapabilities.code && HOME_SHOW_HUB)
 
 	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)
 
@@ -102,11 +102,11 @@
 	// AI would otherwise take the whole block, and the picker that could undo it, off Home.
 	const homeAiHidden = useWorkspaceAiHidden(() => $workspaceStore ?? undefined)
 
-	// The composer hands off to /sessions, which refuses operators and users opted out of the
-	// sessions beta — so hide it from them (the prompt would be silently dropped) while the
+	// The composer hands off to /sessions, which refuses roles that cannot code and users opted out
+	// of the sessions beta — so hide it from them (the prompt would be silently dropped) while the
 	// AI-independent CLI/MCP row below stays.
 	let showComposer = $derived(
-		prefersSessionHandoff($userStore?.operator) && !runOnlyWorkspace && !homeAiHidden.hidden
+		prefersSessionHandoff(!$roleCapabilities.code) && !runOnlyWorkspace && !homeAiHidden.hidden
 	)
 
 	let hero = $derived(showComposer && !removed)
