@@ -2,7 +2,7 @@ use convert_case::{Case, Casing};
 use itertools::Itertools;
 use regex::Regex;
 use serde_json::value::RawValue;
-use std::{collections::HashMap, process::Stdio};
+use std::{collections::HashMap, path::Path, process::Stdio};
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
 use uuid::Uuid;
 use windmill_common::{
@@ -20,10 +20,9 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::common::DEV_CONF_NSJAIL;
 use crate::{
     common::{
-        build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
-        get_reserved_variables, read_result, resolve_nsjail_timeout,
-        resolve_nsjail_tmp_mount_block, script_envars, start_child_process, MaybeLock,
-        OccupancyMetrics,
+        build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
+        read_result, resolve_nsjail_timeout, resolve_nsjail_tmp_mount_block, script_envars,
+        start_child_process, MaybeLock, OccupancyMetrics,
     },
     handle_child::handle_child,
     is_sandboxing_enabled, COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV,
@@ -43,6 +42,20 @@ lazy_static::lazy_static! {
 }
 
 const COMPOSER_LOCK_SPLIT: &str = "\nLOCK\n";
+
+fn ensure_php_tool_installed(tool: &str, path: &str) -> Result<()> {
+    if Path::new(path).exists() {
+        return Ok(());
+    }
+    Err(error::Error::ExecutionErr(format!(
+        "{tool} is not installed on this worker (looked for it at {path}). PHP and Composer are no \
+         longer included in the standard windmill and windmill-ee images: they ship only in the \
+         full images. To run PHP scripts, switch the workers that run PHP jobs to \
+         ghcr.io/windmill-labs/windmill-full (Community Edition) or \
+         ghcr.io/windmill-labs/windmill-ee-full (Enterprise Edition), or install PHP and Composer \
+         on them and point PHP_PATH and COMPOSER_PATH at them."
+    )))
+}
 
 static PHP_PARSER_SLOT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 
@@ -123,7 +136,8 @@ pub async fn composer_install(
     lock: Option<String>,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> Result<String> {
-    check_executor_binary_exists("php", PHP_PATH.as_str(), "php")?;
+    ensure_php_tool_installed("PHP", PHP_PATH.as_str())?;
+    ensure_php_tool_installed("Composer", COMPOSER_PATH.as_str())?;
 
     // When no lock is provided (previews), try to reuse a previously resolved
     // lockfile from the DB so we can hit the same vendor cache as deployed scripts.
@@ -415,7 +429,7 @@ pub async fn handle_php_job(
     shared_mount: &str,
     occupancy_metrics: &mut OccupancyMetrics,
 ) -> error::Result<Box<RawValue>> {
-    check_executor_binary_exists("php", PHP_PATH.as_str(), "php")?;
+    ensure_php_tool_installed("PHP", PHP_PATH.as_str())?;
 
     let (composer_json, composer_lock) = match &maybe_lock {
         MaybeLock::Resolved { lock } if !lock.is_empty() => split_reqs_and_lock(lock)?,
