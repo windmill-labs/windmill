@@ -218,7 +218,7 @@
 				</CollapseLink>
 			{:else if name == 'slack'}
 				<CollapseLink text="Set up slack">
-					<SlackAppSetup instance />
+					<SlackAppSetup />
 				</CollapseLink>
 			{:else if name == 'microsoft'}
 				<CollapseLink text="Instructions">

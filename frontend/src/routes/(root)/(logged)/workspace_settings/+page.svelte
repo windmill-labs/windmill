@@ -1803,8 +1803,7 @@
 													{#if slackAppType === 'instance' && slackAgentsStatus.current?.signing_secret_set === false}
 														<Alert type="warning" size="xs" title="Agents won't answer yet">
 															An instance admin needs to set the Slack app's signing secret in the
-															instance settings, or as the <code>SLACK_SIGNING_SECRET</code> environment
-															variable.
+															instance settings.
 														</Alert>
 													{/if}
 												</div>
@@ -1831,7 +1830,7 @@
 															inputProps={{
 																type: 'password',
 																placeholder: slackSigningSecretSet
-																	? 'Set, enter a new one to replace it'
+																	? '••••••••••••••••••••••••••••••••'
 																	: 'Enter signing secret'
 															}}
 															bind:value={slackSigningSecret}
@@ -1846,8 +1845,8 @@
 														</Button>
 													</div>
 													<div class="text-2xs text-hint"
-														>From the Slack app's Basic Information page. Lets Windmill check that
-														requests come from Slack; AI agents answer in Slack only once it is set.</div
+														>Lets Windmill check that requests come from Slack. Required for AI
+														agents; recommended for <code>/windmill</code> commands.</div
 													>
 												</div>
 											{:else if slackAppType === 'workspace'}
