@@ -144,7 +144,7 @@
 			!draftOnly &&
 			!readOnly &&
 			!refused &&
-			!acting.current?.operator
+			acting.current?.operator === false
 	)
 	// The draft's path, so a rename shows where it is typed — including a never-deployed agent,
 	// stored at a minted `draft_<uuid>` path and named by the path its first deploy will create,

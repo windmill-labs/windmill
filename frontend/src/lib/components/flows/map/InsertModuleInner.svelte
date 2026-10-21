@@ -83,18 +83,20 @@
 	let savedAgentsLoading = $state(false)
 	let savedAgentsWs: string | undefined = undefined
 	async function loadSavedAgents() {
-		if (!ws || savedAgentsWs === ws) {
+		const requested = ws
+		if (!requested || savedAgentsWs === requested) {
 			return
 		}
 		savedAgentsLoading = true
 		try {
 			const rs = await ResourceService.listResource({
-				workspace: ws,
+				workspace: requested,
 				resourceType: 'ai_agent',
 				perPage: 1000
 			})
+			if (requested !== ws) return
 			savedAgents = rs.map((r) => ({ path: r.path, description: r.description }))
-			savedAgentsWs = ws
+			savedAgentsWs = requested
 		} catch {
 			savedAgents = []
 		} finally {

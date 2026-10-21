@@ -66,7 +66,10 @@
 	)
 
 	const grantedBuilderKinds = $derived(
-		[builderFlows && 'flows', builderApps && 'full-code apps'].filter(Boolean).join(' and ')
+		new Intl.ListFormat('en', { type: 'conjunction' }).format([
+			...(builderFlows ? ['flows', 'AI agents'] : []),
+			...(builderApps ? ['full-code apps'] : [])
+		])
 	)
 
 	function onSaveClicked() {

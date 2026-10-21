@@ -316,10 +316,9 @@ fn check_tool_inputs_are_open(
         FlowModuleValue::Script { input_transforms, .. }
         | FlowModuleValue::RawScript { input_transforms, .. }
         | FlowModuleValue::FlowScript { input_transforms, .. }
-        | FlowModuleValue::Flow { input_transforms, .. }
         | FlowModuleValue::AIAgent { input_transforms, .. }
         | FlowModuleValue::AIDecision { input_transforms, .. } => input_transforms,
-        // Fail closed on a tool kind whose inputs this does not know how to read.
+        // Fail closed on any other kind, as the worker's `overlay_tool_inputs` skips them.
         _ => {
             return Err(Error::PermissionDenied(format!(
                 "Tool {tool_id} of agent {agent} takes no inputs a builder can set"
