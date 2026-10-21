@@ -633,7 +633,11 @@ impl AuthCache {
                                                 )
                                                 .await
                                                 .unwrap_or(true);
-                                            Some((username, is_admin, restricted && !is_admin))
+                                            Some((
+                                                username,
+                                                is_admin,
+                                                restricted && !is_admin && !super_admin,
+                                            ))
                                         }
                                         None => None,
                                     };
