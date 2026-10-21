@@ -71,9 +71,9 @@ pub async fn dispatch_expiring_variables(db: &DB) {
 
 async fn dispatch_expiring_variables_inner(db: &DB) {
     // No lower bound on `value_valid_until`, so a downed instance catches up. Rows are taken
-    // round-robin across workspaces (`rn`) so neither a broken handler's overdue rows nor a
-    // large backlog fills the cap and starves the other workspaces; within one, first notices
-    // go before reminders, which would otherwise refill the cap on every pass.
+    // round-robin across workspaces (`rn`) so a large backlog cannot fill the cap and starve the
+    // other workspaces. First notices go before every reminder, which would otherwise refill the
+    // cap on every pass.
     let due = sqlx::query!(
         r#"SELECT workspace_id AS "workspace_id!", path AS "path!", description AS "description!",
                   value_valid_until AS "value_valid_until!", is_secret AS "is_secret!",
@@ -85,6 +85,7 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
                       v.expiration_dispatched_for, v.expiration_notified_at,
                       ws.variable_expiration_handler->>'path' AS handler_path,
                       (ws.variable_expiration_handler->'extra_args')::text::json AS extra_args,
+                      v.value_valid_until IS NOT DISTINCT FROM v.expiration_dispatched_for AS reminder,
                       row_number() OVER (PARTITION BY v.workspace_id
                           ORDER BY v.value_valid_until IS NOT DISTINCT FROM v.expiration_dispatched_for,
                                    v.value_valid_until) AS rn
@@ -104,7 +105,7 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
                  AND (NOT COALESCE((ws.variable_expiration_handler->>'muted_on_user_path')::boolean, false)
                       OR v.path NOT LIKE 'u/%')
            ) due
-           ORDER BY rn, value_valid_until
+           ORDER BY reminder, rn, value_valid_until
            LIMIT $2"#,
         VARIABLE_EXPIRATION_DEFAULT_NOTIFY_BEFORE_SECS,
         VARIABLE_EXPIRATION_MAX_PER_PASS,

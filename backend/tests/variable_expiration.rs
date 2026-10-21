@@ -253,27 +253,26 @@ async fn test_remind_every_repeats_the_notice(db: Pool<Postgres>) -> anyhow::Res
     Ok(())
 }
 
-/// Reminders due on a full pass's worth of earlier expiries must not delay a first notice.
+/// Reminders due across a full pass's worth of workspaces must not delay a first notice.
 #[sqlx::test(fixtures("base"))]
 async fn test_first_notice_goes_before_reminders(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     seed_handler_script(&db, "u/test-user/expiry_handler").await?;
-    configure_handler(
-        &db,
-        r#"{"path": "script/u/test-user/expiry_handler", "remind_every_secs": 600}"#,
-    )
-    .await?;
-    sqlx::query(
-        r#"INSERT INTO variable (workspace_id, path, value, is_secret, description, value_valid_until,
+    configure_handler(&db, r#"{"path": "script/u/test-user/expiry_handler"}"#).await?;
+    seed_variable(&db, "u/test-user/fresh", "20 minutes").await?;
+    sqlx::raw_sql(
+        r#"INSERT INTO workspace (id, name, owner) SELECT 'busy-' || i, 'busy-' || i, 'test-user' FROM generate_series(1, 100) i;
+           INSERT INTO workspace_key (workspace_id, kind, key) SELECT 'busy-' || i, 'cloud', 'k' FROM generate_series(1, 100) i;
+           INSERT INTO workspace_settings (workspace_id, variable_expiration_handler)
+           SELECT 'busy-' || i, '{"path": "script/u/test-user/expiry_handler", "remind_every_secs": 60}'::jsonb FROM generate_series(1, 100) i;
+           INSERT INTO variable (workspace_id, path, value, is_secret, description, value_valid_until,
                                  expiration_dispatched_for, expiration_notified_at)
-           SELECT $1, 'f/creds/v' || i, 'v', false, '', now() + interval '10 minutes',
-                  now() + interval '10 minutes', now() - interval '11 minutes'
-           FROM generate_series(1, 100) i"#,
+           SELECT 'busy-' || i, 'f/creds/v', 'v', false, '', now() + interval '10 minutes',
+                  now() + interval '10 minutes', now() - interval '2 minutes'
+           FROM generate_series(1, 100) i;"#,
     )
-    .bind(WS)
     .execute(&db)
     .await?;
-    seed_variable(&db, "u/test-user/fresh", "20 minutes").await?;
 
     dispatch_expiring_variables(&db).await;
 
@@ -282,7 +281,10 @@ async fn test_first_notice_goes_before_reminders(db: Pool<Postgres>) -> anyhow::
     )
     .fetch_one(&db)
     .await?;
-    assert!(notified, "the first notice waited behind reminders");
+    assert!(
+        notified,
+        "the first notice waited behind other workspaces' reminders"
+    );
     Ok(())
 }
 
