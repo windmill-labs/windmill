@@ -9,41 +9,42 @@ import type { Tool } from './shared'
  * what the model is offered and guarantees nothing.
  */
 export type SessionCapability =
-	/** Passes drafts.rs `require_can_write_path` for a draft of any kind. A tool writing only
-	 * schedule or trigger drafts requires the narrower capability below instead, which an
-	 * operator can hold. */
+	/** Passes drafts.rs `require_can_write_path` for a script draft: the role's `code`. A tool
+	 * writing another kind requires that kind's capability below instead. */
 	| 'write_draft'
-	/** Passes `require_can_write_path` for a flow draft, which an operator also passes where the
-	 * workspace grants `builder_flows`. The server then refuses a draft carrying inline code. */
+	/** Passes `require_can_write_path` for a flow draft: `flows` at `compose` or above. At
+	 * `compose` the server then refuses a draft carrying inline code. */
 	| 'write_flow_draft'
-	/** The same for a raw app draft, under `builder_apps`. */
+	/** The same for a raw app draft, under `apps`. */
 	| 'write_app_draft'
-	/** Passes `require_can_write_path` for a schedule draft: everyone `write_draft` covers, and an
-	 * operator unless the workspace set `manage_schedules` to false. */
+	/** Inline code in a flow draft: `flows` at `full`. At `compose` the server validates the draft
+	 * as a pure composition, even for a role that may write scripts. */
+	| 'write_inline_flow_code'
+	/** Inline and hub runnables in an app draft: `apps` at `full`. */
+	| 'write_inline_app_code'
+	/** Passes `require_can_write_path` for a schedule draft: the role's `manage_schedules`. */
 	| 'write_schedule_draft'
 	/** The same for a trigger draft, read from `manage_triggers`. */
 	| 'write_trigger_draft'
-	/** Passes `require_can_write_path` for a resource draft, which every operator does. */
+	/** Passes `require_can_write_path` for a resource draft, which every role does. */
 	| 'write_resource_draft'
 	/** The same for a variable draft. */
 	| 'write_variable_draft'
-	/** Passes the operator refusal jobs.rs `run_preview_*` makes before starting a job. */
+	/** Passes the `code` refusal jobs.rs `run_preview_*` makes before starting a job. */
 	| 'run_preview'
-	/** Passes `run_preview_flow`'s `check_operator_can_build_flows`: composed flows only, for an
-	 * operator with `builder_flows`. */
+	/** Passes `run_preview_flow`'s `check_operator_can_build`: composed flows only at `compose`. */
 	| 'run_flow_preview'
 	/** Passes `check_deploy_rules`. */
 	| 'deploy'
-	/** Passes the operator refusal the script handlers make before creating or
+	/** Passes the `code` refusal the script handlers make before creating or
 	 * deleting one. The same condition as `run_preview` today, but another handler family's
 	 * check, so each follows its own gate if the two ever diverge. */
 	| 'manage_code'
-	/** Passes the flow handlers' `check_operator_can_build_flows`. */
+	/** Passes the flow handlers' `check_operator_can_build`. */
 	| 'manage_flows'
-	/** Passes the raw app handlers' `check_operator_can_build`, read from `builder_apps`. */
+	/** Passes the raw app handlers' `check_operator_can_build`, read from `apps`. */
 	| 'manage_apps'
-	/** Passes `gate_operator_writes` on the schedule router: withheld only from an operator whose
-	 * workspace set `operator_settings.manage_schedules` to false. */
+	/** Passes `gate_operator_writes` on the schedule router: the role's `manage_schedules`. */
 	| 'manage_schedules'
 	/** The same gate on the trigger routers, read from `manage_triggers`. */
 	| 'manage_triggers'

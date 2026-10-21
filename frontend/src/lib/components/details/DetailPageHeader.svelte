@@ -11,7 +11,13 @@
 	import type { Item } from '$lib/utils'
 	import { Bell, BellOff, Calendar } from 'lucide-svelte'
 	import { toggleWorkspaceErrorHandler } from './errorHandlerToggle'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		operatingWorkspaceContextEntry,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -42,7 +48,10 @@
 	const triggerContext = getContext<TriggerContext | undefined>('TriggerContext')
 	const { triggersCount, triggersState } = $state(triggerContext ?? ({} as Partial<TriggerContext>))
 	// The buttons below render in the page header, away from this page's tree.
-	const headerContexts = new Map<any, any>([['TriggerContext', triggerContext]])
+	const headerContexts = new Map<any, any>([
+		['TriggerContext', triggerContext],
+		operatingWorkspaceContextEntry()
+	])
 
 	interface Props {
 		mainButtons?: MainButton[]
@@ -103,6 +112,17 @@
 	// A flow and a script are renamed as what their error handler already names them; an agent has
 	// no error handler and says so itself.
 	const renameKind = $derived(itemKind ?? errorHandlerKind)
+
+	// The session's preview opens on this same deployed page (`/get/`), not the item's editor:
+	// someone here came to run the item, not to change it.
+	const sessionSource: OpenInSessionSource | undefined = $derived(
+		errorHandlerKind && path
+			? {
+					page: () => `/${errorHandlerKind}s/get/${path}`,
+					workspaceId: $operatingWorkspace ?? undefined
+				}
+			: undefined
+	)
 
 	// The band folds the buttons once its breadcrumb has given all it can (`actionFolds` below):
 	// first the secondary ones go to their `placement`, then every bar button but the last, which
@@ -277,8 +297,15 @@
 			unifiedSize={size}
 		/>
 	{/if}
-	{#each barButtons as btn (btn.label)}
+	<!-- The session button goes right before the last bar button, the one the page is for (Edit). -->
+	{#if ownsPageHeader && barButtons.length === 0}
+		<OpenInSessionButton source={sessionSource} />
+	{/if}
+	{#each barButtons as btn, i (btn.label)}
 		{@const dropdownItems = dropdownItemsOf(btn)}
+		{#if ownsPageHeader && i === barButtons.length - 1}
+			<OpenInSessionButton source={sessionSource} />
+		{/if}
 		<Button
 			{...btn.buttonProps}
 			startIcon={{ icon: btn.buttonProps.startIcon }}
@@ -313,6 +340,7 @@
 			pathTrigger: onSaved ? pathTrigger : undefined
 		}}
 		{actions}
+		{sessionSource}
 		actionFolds={3}
 		earlyActionFolds={1}
 		contexts={headerContexts}

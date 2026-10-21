@@ -8,7 +8,8 @@
 		workspaceStore,
 		isCriticalAlertsUIOpen,
 		enterpriseLicense,
-		devopsRole
+		devopsRole,
+		roleCapabilities
 	} from '$lib/stores'
 	import { isForkOwner } from '$lib/utils/workspaceHierarchy'
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
@@ -65,7 +66,7 @@
 	import GoogleCloudIcon from '../icons/triggers/GoogleCloudIcon.svelte'
 	import AzureIcon from '../icons/triggers/AzureIcon.svelte'
 	import { leaveCurrentWorkspace } from './leaveWorkspace'
-	import { sidebarPageAllowed, type OperatorPageKey } from './operatorRoutes'
+	import type { VisibilityKey } from '$lib/roleCapabilities'
 	import { markChangelogsOpened, readRecentChangelogs } from './changelogs'
 
 	const { recent: recentChangelogs, hasNew } = readRecentChangelogs()
@@ -183,8 +184,8 @@
 	}
 
 	const currentWs = $derived($userWorkspaces?.find((w) => w.id === $workspaceStore))
-	function allows(key: OperatorPageKey) {
-		return sidebarPageAllowed($userStore?.operator, currentWs, key)
+	function allows(key: VisibilityKey) {
+		return $roleCapabilities.visibility[key]
 	}
 
 	const itemClass = twMerge(
@@ -228,7 +229,7 @@
 				label: p.label,
 				href: p.path === '/' ? `/` : `${p.path}`,
 				icon: p.icon,
-				disabled: p.operatorKey ? !allows(p.operatorKey) : false,
+				disabled: p.visibilityKey ? !allows(p.visibilityKey) : false,
 				...MAIN_MENU_EXTRAS[p.label]
 			}))
 			.filter((l) => !excludeMainLabels.includes(l.label))
@@ -436,7 +437,7 @@
 						]
 					: [])
 			],
-			disabled: $userStore?.operator
+			disabled: !$roleCapabilities.code
 		},
 		{
 			label: 'Workers',

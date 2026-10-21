@@ -18,10 +18,10 @@
 	import { emptySchema } from '$lib/utils'
 	import { loadSchema } from '$lib/infer'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
-	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatorBuilderApps = useOperatorBuilderApps()
+	const roleCaps = useRoleCapabilities()
 	import { buildPathRunnableSelection } from './runnableSelectorUtils'
 
 	type TabType =
@@ -194,7 +194,7 @@
 					{#if rawApps && !onlyFlow}
 						<Tab value="workspaceagents" label="AI Agents" icon={Bot} />
 					{/if}
-					{#if !$operatorBuilderApps}
+					{#if $roleCaps.apps !== 'compose'}
 						{#if !onlyFlow}
 							<Tab value="hubscripts" label="Hub Scripts" icon={Globe2} />
 						{/if}
