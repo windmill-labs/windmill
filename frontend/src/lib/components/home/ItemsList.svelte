@@ -1500,6 +1500,7 @@
 			ownerLoad = {}
 			treeOwnerItems = []
 			openOwners = new Set()
+			nbDisplayed = 15
 			const scoped = ownerFilter != undefined || labelFilter != undefined
 			if (scoped !== wasScoped) collapseAll = !scoped
 			wasScoped = scoped
@@ -1658,7 +1659,7 @@
 				return
 			}
 		}
-		if (!flatList) return
+		if (!flatList || contentActive) return
 
 		// When focus is inside a row's action buttons, handle arrow keys ourselves:
 		//  - Left/Right cycle between buttons (Left from the first returns to search).
@@ -2129,7 +2130,8 @@
 									: 'bg-surface-secondary'}"
 							>
 								<span class="text-xs text-secondary">
-									Showing {Math.min(nbDisplayed, items.length)}{hasMoreServer && !searching
+									Showing {Math.min(nbDisplayed, items.length)}{(hasMoreServer && !searching) ||
+									(searching && searchCursor)
 										? ''
 										: ` of ${items.length}`} items
 								</span>
