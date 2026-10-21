@@ -4344,16 +4344,16 @@ export class AIChatManager implements ChatViewHost {
 				onBeforeIteration: async (iterationModel, lastIterationUsage) => {
 					// The first iteration sends exactly what the send-time check measured.
 					if (collectedMessages.length === 0) return
-					// The last report covers everything up to its assistant message; only
-					// the tool results that followed are unreported. The estimate is the
-					// floor in case a later iteration's report never arrived. A report from
-					// before a compaction measured the history it replaced.
+					// The last report's prompt covers everything before its assistant message.
+					// That message is estimated rather than taken from `completion`, which
+					// also bills reasoning the next request does not replay. The estimate is
+					// the floor in case a later iteration's report never arrived. A report
+					// from before a compaction measured the history it replaced.
 					const lastAssistant = collectedMessages.findLastIndex((m) => m.role === 'assistant')
 					const reported =
 						lastIterationUsage && lastIterationUsage !== usageBeforeCompaction
 							? lastIterationUsage.prompt +
-								lastIterationUsage.completion +
-								this.estimateMessagesTokens(collectedMessages.slice(lastAssistant + 1))
+								this.estimateMessagesTokens(collectedMessages.slice(lastAssistant))
 							: 0
 					const inFlightTokens = this.estimateMessagesTokens(collectedMessages)
 					const projected = Math.max(reported, this.estimateWholeContextTokens() + inFlightTokens)
