@@ -318,7 +318,7 @@ The chat never deletes uploads, so files of a send that did not run stay in stor
 workspace needs object storage set up. With Enterprise advanced storage permissions, the
 user needs read and write on `windmill_uploads/*`, which the default rules grant. The upload goes through
 `job_helpers`, so a restricted token needs `job_helpers:write`; a sandboxed raw app cannot
-request that scope today, so attachments are not available there yet.
+request that scope today, so it sends attachments [through a backend runnable](#through-a-backend-runnable-sandboxed-apps-no-scopes) instead.
 
 ## One turn at a time
 
