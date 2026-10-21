@@ -83,7 +83,7 @@
 
 {#snippet actingOn()}
 	{#if session}
-		<SessionWorkspaceBar {session} />
+		<SessionWorkspaceBar {session} switchesWorkspace />
 	{/if}
 {/snippet}
 
