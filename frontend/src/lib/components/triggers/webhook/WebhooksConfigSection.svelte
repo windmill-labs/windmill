@@ -446,7 +446,7 @@ done`
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div>
 						<Tabs bind:selected={selectedTab}>
-							<Tab value="rest" label="Request" />
+							<Tab value="rest" label="REST" />
 							{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
 								<Tab value="curl" label="Curl" />
 							{/if}
