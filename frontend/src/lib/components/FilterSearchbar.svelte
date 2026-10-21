@@ -72,6 +72,19 @@
 	}
 
 	/**
+	 * Whether typed text names a filter: every word of the query must occur in its label or
+	 * key, in any order, so "archive" and "archived only" both find "Only archived".
+	 */
+	export function filterMatchesQuery(key: string, filter: FilterSchema, query: string): boolean {
+		const words = query.replace(/\\(.)/g, '$1').toLowerCase().split(/\s+/).filter(Boolean)
+		const haystack = [filter.label, key, key.replaceAll('_', ' ')]
+			.filter(Boolean)
+			.join(' ')
+			.toLowerCase()
+		return words.every((w) => haystack.includes(w))
+	}
+
+	/**
 	 * Converts a FilterSchemaRec to a Zod schema for validation
 	 */
 	export function filterSchemaRecToZodSchema<T extends FilterSchemaRec>(
@@ -437,12 +450,7 @@
 			return Object.entries(schema)
 				.filter(([_, s]) => !s.hidden)
 				.filter(([k, _]) => !(k in value))
-				.filter(([k, filterSchema]) => {
-					if (!searchText) return true
-					const label = (filterSchema.label || k).toLowerCase()
-					const key = k.toLowerCase()
-					return label.includes(searchText) || key.includes(searchText)
-				})
+				.filter(([k, filterSchema]) => filterMatchesQuery(k, filterSchema, searchText))
 				.map(([key, filterSchema]) => ({
 					type: 'filter' as const,
 					key,
@@ -541,6 +549,15 @@
 		}
 		return []
 	})
+
+	// Free-text mode keeps the keyboard for the surrounding list, but a term that names a
+	// filter ("archive" → "Only archived") still lists the matching filters, click-only.
+	let freeTextFilterHint = $derived(
+		open &&
+			!dropdownVisible &&
+			currentTextSegment.text.trim().length >= 3 &&
+			menuItems.some((i) => i.type === 'filter')
+	)
 
 	// Reset highlighted index when menu items change
 	$effect(() => {
@@ -647,7 +664,13 @@
 	function handleKeyDown(e: KeyboardEvent) {
 		// In free-text mode the dropdown is hidden; let arrow/enter keys pass through to
 		// the surrounding UI (e.g. list navigation) rather than steering a hidden menu.
-		if (!dropdownVisible) return
+		if (!dropdownVisible) {
+			// The hint sits over the list's first rows, so it gets out of the way once the list
+			// is being navigated; the next typed character brings it back.
+			if (freeTextFilterHint && ['Escape', 'ArrowUp', 'ArrowDown', 'Enter'].includes(e.key))
+				open = false
+			return
+		}
 		if (e.key === 'Escape') {
 			open = false
 			return
@@ -786,7 +809,7 @@
 </div>
 
 <GenericDropdown
-	open={dropdownVisible}
+	open={dropdownVisible || freeTextFilterHint}
 	instantClose={hideDropdownOnFreeText}
 	getInputRect={() => {
 		const r = inputElement?.getBoundingClientRect() ?? new DOMRect()
@@ -800,7 +823,7 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<div class="py-1 p-2 overflow-y-auto" onmousedown={(e) => e.stopPropagation()}>
 		{#if !currentTag || !schema[currentTag]}
-			{#if presets.length}
+			{#if presets.length && !freeTextFilterHint}
 				<div class="text-2xs uppercase tracking-wide font-semibold text-secondary px-2 my-2">
 					Presets
 				</div>
@@ -820,7 +843,7 @@
 						onClick: item.onClick,
 						label: item.filterSchema.label || item.key,
 						description: item.filterSchema.description,
-						highlighted: index === highlightedIndex
+						highlighted: index === highlightedIndex && !freeTextFilterHint
 					})}
 				{/if}
 			{/each}
