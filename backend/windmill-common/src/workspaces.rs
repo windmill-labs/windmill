@@ -2858,7 +2858,7 @@ pub fn fork_ducklake_ancestor_alias(lake_name: &str, ancestor_w_id: &str) -> Str
 
 /// Strip `METADATA_SCHEMA` / `DATA_PATH` / `OVERRIDE_DATA_PATH` tokens from ducklake ATTACH
 /// extra args. In a fork these options are injected by the fork resolution; a user- or
-/// settings-supplied duplicate silently wins (DuckDB keeps the last occurrence) and would
+/// settings-supplied duplicate silently wins (the worker keeps the last occurrence) and would
 /// escape the fork namespace back to the parent's, so they are removed rather than overridden.
 pub fn strip_fork_reserved_attach_args(extra_args: &str) -> String {
     lazy_static::lazy_static! {

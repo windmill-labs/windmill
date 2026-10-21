@@ -2264,7 +2264,7 @@ async fn transform_attach_ducklake(
         Connection::Sql(db) => get_ducklake_from_db_unchecked(name, w_id, db).await?,
     };
     // In a fork, METADATA_SCHEMA / DATA_PATH / OVERRIDE_DATA_PATH are owned by the fork
-    // resolution (DuckDB silently keeps the last occurrence of a duplicated option, so a
+    // resolution (the last occurrence of a duplicated option is the one kept, so a
     // user-supplied one would escape the fork namespace back to the parent's).
     let user_extra_args = if ducklake.fork_defer.is_some() {
         strip_fork_reserved_attach_args(&user_extra_args)
@@ -2361,57 +2361,79 @@ fn ducklake_attach_options(data_path: &str, extra_args: &str, fork: bool) -> Str
 fn keep_last_attach_option(options: &str) -> String {
     let parts = split_attach_options(options);
     let key = |part: &str| -> String {
-        part.chars()
-            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
-            .collect::<String>()
-            .to_ascii_uppercase()
+        match part.strip_prefix('"') {
+            Some(quoted) => quoted.split('"').next().unwrap_or_default().to_string(),
+            None => part
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect(),
+        }
+        .to_ascii_uppercase()
     };
     let keys: Vec<String> = parts.iter().map(|p| key(p)).collect();
     parts
         .iter()
         .enumerate()
         .filter(|(i, _)| keys[i + 1..].iter().all(|k| k.is_empty() || *k != keys[*i]))
-        .map(|(_, p)| *p)
+        .map(|(_, p)| p.as_str())
         .collect::<Vec<_>>()
         .join(", ")
 }
 
 /// Splits an ATTACH option list on the commas outside string literals ('…', "…", $tag$…$tag$)
-/// and parentheses, dropping empty parts.
-fn split_attach_options(options: &str) -> Vec<&str> {
-    let bytes = options.as_bytes();
+/// and parentheses, dropping empty parts. SQL comments are dropped too: a `--` comment would
+/// otherwise swallow whatever is joined after it on the same line, `);` included.
+fn split_attach_options(options: &str) -> Vec<String> {
     let mut parts = vec![];
-    let (mut start, mut depth, mut i) = (0, 0usize, 0);
-    while i < bytes.len() {
-        match bytes[i] {
-            q @ (b'\'' | b'"') => {
-                i = options[i + 1..]
-                    .find(q as char)
-                    .map_or(bytes.len(), |end| i + 1 + end);
-            }
-            b'$' => {
-                let tag_len = options[i + 1..]
-                    .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-                    .filter(|&n| options[i + 1 + n..].starts_with('$'));
-                if let Some(n) = tag_len {
-                    let delim = &options[i..i + n + 2];
-                    let body = i + n + 2;
-                    i = options[body..]
+    let mut part = String::new();
+    let mut depth = 0usize;
+    let mut i = 0;
+    while i < options.len() {
+        let rest = &options[i..];
+        // The byte length of a literal or comment starting here, if one does.
+        let span = match rest.as_bytes()[0] {
+            q @ (b'\'' | b'"') => Some(rest[1..].find(q as char).map_or(rest.len(), |e| e + 2)),
+            b'$' => rest[1..]
+                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                .filter(|&n| rest[1 + n..].starts_with('$'))
+                .map(|n| {
+                    let delim = &rest[..n + 2];
+                    rest[n + 2..]
                         .find(delim)
-                        .map_or(bytes.len(), |end| body + end + delim.len() - 1);
-                }
-            }
-            b'(' => depth += 1,
-            b')' => depth = depth.saturating_sub(1),
-            b',' if depth == 0 => {
-                parts.push(options[start..i].trim());
-                start = i + 1;
+                        .map_or(rest.len(), |e| n + 2 + e + delim.len())
+                }),
+            _ => None,
+        };
+        if let Some(len) = span {
+            part.push_str(&rest[..len]);
+            i += len;
+            continue;
+        }
+        if rest.starts_with("--") {
+            i += rest.find('\n').unwrap_or(rest.len());
+            part.push(' ');
+            continue;
+        }
+        if rest.starts_with("/*") {
+            i += rest[2..].find("*/").map_or(rest.len(), |e| e + 4);
+            part.push(' ');
+            continue;
+        }
+        let c = rest.chars().next().unwrap();
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                parts.push(std::mem::take(&mut part).trim().to_string());
+                i += 1;
+                continue;
             }
             _ => {}
         }
-        i += 1;
+        part.push(c);
+        i += c.len_utf8();
     }
-    parts.push(options[start..].trim());
+    parts.push(part.trim().to_string());
     parts.retain(|p| !p.is_empty());
     parts
 }
@@ -2987,6 +3009,12 @@ mod tests {
         assert_eq!(
             keep_last_attach_option("X 'it''s, ok', ENCRYPTED $t$a, b$t$, X 1, f(a, b)"),
             "ENCRYPTED $t$a, b$t$, X 1, f(a, b)"
+        );
+        assert_eq!(
+            keep_last_attach_option(
+                "DATA_PATH 'a', \"data_path\" 'b', READ_ONLY false -- why, it is\n, /* x, */ E 1"
+            ),
+            "\"data_path\" 'b', READ_ONLY false, E 1"
         );
     }
 
