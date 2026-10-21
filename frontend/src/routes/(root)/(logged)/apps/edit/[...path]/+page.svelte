@@ -21,6 +21,11 @@
 	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
 	import { runResetToDeployed } from '$lib/userDraftToast'
+	import { classicAppDraftParts } from '$lib/appDiffSides'
+	import {
+		appDraftSettings,
+		withDraftPolicySettings
+	} from '$lib/components/apps/editor/appDraftSettings'
 
 	let app = $state(undefined as (AppWithLastVersion & { value: any }) | undefined)
 	/** Seeded from a hub app this load; AppEditor relaxes a few authoring affordances. */
@@ -217,7 +222,8 @@
 				// never compares equal (and a summary-only edit still counts as a change).
 				({
 					...(structuredClone(stateSnapshot(backendApp.value)) as App),
-					summary: backendApp.summary
+					summary: backendApp.summary,
+					...appDraftSettings(structuredClone(stateSnapshot(backendApp)))
 				} as App)
 		// `other_drafts_users` only computed when `getDraft`; don't clobber the
 		// known list on a `getDraft:false` reload. See /scripts/edit's loader.
@@ -349,6 +355,16 @@
 		// `app = undefined` first, unmounting AppEditor and releasing the UserDraft
 		// entry, so the remount starts fresh — no local discard is needed here
 		// (and `UserDraft.discard` would POST `value: null`, a spurious autosave).
+		// The draft's settings win over the deployed ones here; `savedApp` keeps the deployed ones,
+		// which the settings drawer compares against.
+		const draftParts = classicAppDraftParts(backendApp.value)
+		backendApp = {
+			...backendApp,
+			policy: draftParts.policy
+				? withDraftPolicySettings(backendApp.policy, draftParts.policy)
+				: backendApp.policy,
+			labels: draftParts.labels ?? backendApp.labels
+		} as typeof backendApp
 		app = backendApp
 	}
 

@@ -1,11 +1,19 @@
 /** Split a CLASSIC app draft into comparable parts. The editor mirrors
- * summary/draft_path INTO the bare grid it autosaves, while a deployed row
- * keeps them outside `value` — compared raw, metadata diffs as grid noise.
- * Also unwraps legacy wrapped drafts ({summary/policy/custom_path, value}). */
+ * summary/draft_path and the app settings (policy, labels, custom_path) INTO
+ * the bare grid it autosaves, while a deployed row keeps them outside `value`
+ * — compared raw, metadata diffs as grid noise. Also unwraps legacy wrapped
+ * drafts ({summary/policy/custom_path, value}).
+ *
+ * `policy`, `labels` and `customPath` are undefined when the draft predates
+ * mirroring them, so the caller falls back to the deployed row; `customPath`
+ * is `null` when the draft removed the custom URL. */
 export function classicAppDraftParts(json: unknown): {
 	value: unknown
 	summary?: string
 	draftPath?: string
+	policy?: Record<string, unknown>
+	labels?: string[]
+	customPath?: string | null
 } {
 	if (json === null || typeof json !== 'object' || Array.isArray(json)) {
 		return { value: json }
@@ -27,10 +35,13 @@ export function classicAppDraftParts(json: unknown): {
 			draftPath: (obj.draft_path as string | undefined) ?? inner.draftPath
 		}
 	}
-	const { parent_version: _pv, draft_path, summary, ...value } = obj
+	const { parent_version: _pv, draft_path, summary, policy, labels, custom_path, ...value } = obj
 	return {
 		value,
 		summary: summary as string | undefined,
-		draftPath: draft_path as string | undefined
+		draftPath: draft_path as string | undefined,
+		policy: policy as Record<string, unknown> | undefined,
+		labels: labels as string[] | undefined,
+		customPath: custom_path as string | null | undefined
 	}
 }

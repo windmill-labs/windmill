@@ -46,7 +46,9 @@
 		data: RawAppData
 		summary: string
 		policy?: any
-		custom_path?: string
+		/** `null` when the draft removes the custom URL. */
+		custom_path?: string | null
+		labels?: string[]
 		/** User-typed path the home list renders, set only when it differs
 		 *  from the deployed/seeded `savedApp.path`. */
 		draft_path?: string
@@ -68,6 +70,10 @@
 	 *  `savedApp.path`; mirrored into the draft below as `draft_path` for the
 	 *  home list's friendly name. */
 	let pendingDraftPath = $state<string | undefined>(undefined)
+	/** The labels and custom path the header is editing, mirrored into the draft. */
+	let pendingDraftSettings = $state<{ labels: string[]; custom_path: string | null } | undefined>(
+		undefined
+	)
 
 	let savedApp:
 		| {
@@ -123,13 +129,17 @@
 		readFieldsRecursively(policy)
 		void summary
 		void pendingDraftPath
+		void pendingDraftSettings
 		draftSync.draft = {
 			files: currentFiles,
 			runnables,
 			data,
 			summary,
 			policy,
-			custom_path: savedApp?.custom_path,
+			custom_path: pendingDraftSettings
+				? pendingDraftSettings.custom_path
+				: (savedApp?.custom_path ?? null),
+			labels: pendingDraftSettings ? pendingDraftSettings.labels : (labels ?? []),
 			parent_version: parentVersion,
 			// Persist the typed path as `draft_path` only when it actually differs
 			// from the current path — a `draft_path` equal to the baseline is a
@@ -354,7 +364,8 @@
 						data: extractDataConfig(backendApp.value) ?? { ...DEFAULT_DATA },
 						summary: backendApp.summary ?? '',
 						policy: backendApp.policy,
-						custom_path: backendApp.custom_path,
+						custom_path: backendApp.custom_path ?? null,
+						labels: backendApp.labels ?? [],
 						parent_version: parentVersion
 					})
 				) as RawAppDraft)
@@ -370,7 +381,8 @@
 					data?: any
 					summary?: string
 					policy?: any
-					custom_path?: string
+					custom_path?: string | null
+					labels?: string[]
 					draft_path?: string
 			  }
 			| undefined
@@ -387,7 +399,8 @@
 			}
 			backendApp.summary = savedRawAppDraft?.summary ?? ''
 			backendApp.policy = savedRawAppDraft?.policy ?? { execution_mode: 'publisher', sandbox: true }
-			backendApp.custom_path = savedRawAppDraft?.custom_path
+			backendApp.custom_path = savedRawAppDraft?.custom_path ?? undefined
+			backendApp.labels = savedRawAppDraft?.labels
 			backendApp.path = page.params.path ?? ''
 		} else if (savedRawAppDraft) {
 			backendApp.value = {
@@ -399,7 +412,8 @@
 			if (savedRawAppDraft.summary !== undefined) backendApp.summary = savedRawAppDraft.summary
 			if (savedRawAppDraft.policy !== undefined) backendApp.policy = savedRawAppDraft.policy
 			if (savedRawAppDraft.custom_path !== undefined)
-				backendApp.custom_path = savedRawAppDraft.custom_path
+				backendApp.custom_path = savedRawAppDraft.custom_path ?? undefined
+			if (savedRawAppDraft.labels !== undefined) backendApp.labels = savedRawAppDraft.labels
 		}
 		const backendApp_ = structuredClone(stateSnapshot(backendApp))
 		savedApp = {
@@ -454,7 +468,8 @@
 						data,
 						summary,
 						policy,
-						custom_path: savedApp?.custom_path,
+						custom_path: savedApp?.custom_path ?? null,
+						labels: labels ?? [],
 						parent_version: parentVersion,
 						...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
 					} as RawAppDraft,
@@ -658,6 +673,7 @@
 				bind:data
 				bind:summary
 				bind:pendingDraftPath
+				bind:pendingDraftSettings
 				{newPath}
 				{labels}
 				path={page.params.path ?? ''}

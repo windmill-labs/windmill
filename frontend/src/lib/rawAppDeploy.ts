@@ -143,6 +143,7 @@ export async function deployRawAppDraft(
 					policy,
 					deployment_message: deploymentMessage,
 					custom_path: isAdmin ? (value.custom_path ?? '') : undefined,
+					labels: value.labels,
 					// Preserve the policy's on_behalf_of: this draft-deploy path has no
 					// on-behalf-of selector, so without the flag the backend resets it to
 					// the deploying user (gated server-side by can_preserve_on_behalf_of).
@@ -162,7 +163,8 @@ export async function deployRawAppDraft(
 					summary,
 					policy,
 					deployment_message: deploymentMessage,
-					custom_path: value.custom_path,
+					custom_path: value.custom_path ?? undefined,
+					labels: value.labels,
 					// Preserve the policy's on_behalf_of (see update branch above).
 					preserve_on_behalf_of: policy.on_behalf_of ? true : undefined
 				},

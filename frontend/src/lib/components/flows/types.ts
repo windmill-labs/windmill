@@ -97,7 +97,7 @@ export type FlowEditorContext = {
 	executionCount: Writable<number>
 	modulesTestStates: ModulesTestStates
 	outputPickerOpenFns: Record<string, () => void>
-	preserveOnBehalfOf: Writable<boolean>
+	preserveOnBehalfOf: Writable<boolean | undefined>
 	savedOnBehalfOfEmail: Writable<string | undefined>
 	savedOnBehalfOfPermissionedAs: Writable<string | undefined>
 	// Only set by the local dev page (Dev.svelte): path -> temp-storage hash of

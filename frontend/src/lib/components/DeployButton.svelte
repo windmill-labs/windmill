@@ -3,19 +3,23 @@
 	import { Save, CornerDownLeft } from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 
+	type DropdownItem = {
+		label: string
+		onClick: () => void
+	}
+
 	const {
 		loading = false,
 		loadingSave = false,
 		dropdownItems = [],
-		unifiedSize = 'md'
+		unifiedSize = 'md',
+		iconOnly = false
 	}: {
 		loading?: boolean
 		loadingSave?: boolean
-		dropdownItems?: Array<{
-			label: string
-			onClick: () => void
-		}>
+		dropdownItems?: DropdownItem[] | (() => DropdownItem[]) | undefined
 		unifiedSize?: 'sm' | 'md' | 'lg'
+		iconOnly?: boolean
 	} = $props()
 
 	const dispatch = createEventDispatcher()
@@ -31,6 +35,8 @@
 	loading={loadingSave}
 	variant="accent"
 	{unifiedSize}
+	{iconOnly}
+	title="Deploy"
 	startIcon={{ icon: Save }}
 	on:click={() => dispatch('save')}
 	{dropdownItems}

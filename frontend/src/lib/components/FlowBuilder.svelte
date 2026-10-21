@@ -192,8 +192,11 @@
 
 	let initialPathStore = writable(initialPath)
 
-	// For preserve_on_behalf_of feature
-	let preserveOnBehalfOf = writable(false)
+	// For preserve_on_behalf_of feature. Undefined until a user is picked in the settings, and
+	// then a redeploy keeps the deployed identity: the settings may never be opened, and without
+	// the flag the backend runs the flow as the deployer. It ignores the flag for a deployer who
+	// may not preserve.
+	let preserveOnBehalfOf = writable<boolean | undefined>(undefined)
 	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
 	let savedOnBehalfOfPermissionedAs = writable<string | undefined>(savedFlow?.on_behalf_of)
 
@@ -658,7 +661,7 @@
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
 						on_behalf_of: flow.on_behalf_of,
-						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
+						preserve_on_behalf_of: ($preserveOnBehalfOf ?? !!$savedOnBehalfOfEmail) || undefined,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels,
 						// Sent explicitly: an omitted field keeps the deployed value.
@@ -712,7 +715,7 @@
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
 						on_behalf_of: flow.on_behalf_of,
-						preserve_on_behalf_of: $preserveOnBehalfOf || undefined,
+						preserve_on_behalf_of: ($preserveOnBehalfOf ?? !!$savedOnBehalfOfEmail) || undefined,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels,
 						// Sent explicitly: an omitted field keeps the deployed value.

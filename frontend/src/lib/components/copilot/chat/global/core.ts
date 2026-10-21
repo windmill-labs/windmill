@@ -9244,7 +9244,7 @@ async function deployDraft(
 								summary,
 								policy,
 								deployment_message: deploymentMessage,
-								custom_path: appValue.custom_path,
+								custom_path: appValue.custom_path ?? undefined,
 								// Preserve the policy's on_behalf_of (see update branch above).
 								preserve_on_behalf_of: policy.on_behalf_of ? true : undefined
 							},
