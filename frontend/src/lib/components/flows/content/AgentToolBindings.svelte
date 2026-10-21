@@ -236,7 +236,7 @@
 					{@const setInputs = agentSetInputs(tool)}
 					{#if Object.keys(setInputs).length > 0}
 						<div class="flex flex-col gap-1 px-3 pb-2">
-							<span class="text-2xs font-medium text-tertiary">Set by the agent</span>
+							<span class="text-xs font-semibold text-emphasis">Set by the agent</span>
 							<InputTransformsViewer inputTransforms={setInputs} />
 						</div>
 					{/if}
