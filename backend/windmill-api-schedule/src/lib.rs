@@ -42,46 +42,36 @@ use windmill_common::{
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_queue::schedule::push_scheduled_job;
 
-/// Resolves the permissioned_as value for a schedule.
-/// When preserving, uses the provided permissioned_as value directly.
-fn resolve_permissioned_as(
-    permissioned_as: Option<&String>,
-    preserve_permissioned_as: Option<bool>,
-    authed: &ApiAuthed,
-) -> String {
-    if let Some(permissioned_as) = permissioned_as {
-        if preserve_permissioned_as.unwrap_or(false) && can_preserve_on_behalf_of(authed) {
-            return permissioned_as.clone();
-        }
-    }
-    windmill_common::users::username_to_permissioned_as(&authed.username)
-}
-
-/// Create-time variant: applies the folder's `default_permissioned_as` rule when no
-/// explicit preserved value is provided and the caller can preserve (admin / wm_deployers).
-async fn resolve_permissioned_as_for_create(
-    permissioned_as: Option<&String>,
-    preserve_permissioned_as: Option<bool>,
-    path: &str,
+/// The identity a schedule write stores: the one it names for a caller allowed to keep it (see
+/// `resolve_on_behalf_of`, which also refuses one that names nobody), the caller's own otherwise,
+/// and on create (`create_path`) the folder's `default_permissioned_as` when it names nobody.
+async fn resolve_permissioned_as(
+    permissioned_as: Option<&str>,
+    create_path: Option<&str>,
     authed: &ApiAuthed,
     db: &DB,
     w_id: &str,
 ) -> Result<String> {
-    if let Some(pa) = permissioned_as {
-        if preserve_permissioned_as.unwrap_or(false) && can_preserve_on_behalf_of(authed) {
-            return Ok(pa.clone());
+    let requested = permissioned_as.filter(|pa| !pa.is_empty());
+    if requested.is_none() && can_preserve_on_behalf_of(authed) {
+        if let Some(path) = create_path {
+            if let Some(default) =
+                windmill_common::folders::resolve_folder_default_permissioned_as(db, w_id, path)
+                    .await?
+            {
+                return Ok(default);
+            }
         }
     }
-    if can_preserve_on_behalf_of(authed) {
-        if let Some(default) =
-            windmill_common::folders::resolve_folder_default_permissioned_as(db, w_id, path).await?
-        {
-            return Ok(default);
+    let own = windmill_common::users::username_to_permissioned_as(&authed.username);
+    Ok(match requested {
+        Some(requested) => {
+            windmill_common::resolve_on_behalf_of(None, Some(requested), authed, w_id, db)
+                .await?
+                .unwrap_or(own)
         }
-    }
-    Ok(windmill_common::users::username_to_permissioned_as(
-        &authed.username,
-    ))
+        None => own,
+    })
 }
 
 fn resolve_edited_by(authed: &ApiAuthed) -> String {
@@ -168,6 +158,7 @@ pub struct NewSchedule {
     pub cron_version: Option<String>,
     pub dynamic_skip: Option<String>,
     pub permissioned_as: Option<String>,
+    /// Accepted and ignored: `permissioned_as` is the request (`resolve_permissioned_as`).
     pub preserve_permissioned_as: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
@@ -322,10 +313,9 @@ async fn create_schedule(
     .unwrap_or(false);
 
     let resolved_edited_by = resolve_edited_by(&authed);
-    let resolved_permissioned_as = resolve_permissioned_as_for_create(
-        ns.permissioned_as.as_ref(),
-        ns.preserve_permissioned_as,
-        &ns.path,
+    let resolved_permissioned_as = resolve_permissioned_as(
+        ns.permissioned_as.as_deref(),
+        Some(&ns.path),
         &authed,
         &db,
         &w_id,
@@ -491,10 +481,8 @@ async fn create_schedule(
     )
     .await?;
     if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-        ns.permissioned_as.as_deref(),
-        ns.preserve_permissioned_as.unwrap_or(false),
-        &authed,
-        &authed.username,
+        Some(&resolved_permissioned_as),
+        &windmill_common::users::username_to_permissioned_as(&authed.username),
     ) {
         audit_log(
             &mut *tx,
@@ -554,11 +542,8 @@ async fn edit_schedule(
 
     // Resolved on the (non-RLS) pool before the RLS transaction opens: the lookup mid-transaction
     // would hold a second connection while `tx` is checked out.
-    let resolved_permissioned_as = resolve_permissioned_as(
-        es.permissioned_as.as_ref(),
-        es.preserve_permissioned_as,
-        &authed,
-    );
+    let resolved_permissioned_as =
+        resolve_permissioned_as(es.permissioned_as.as_deref(), None, &authed, &db, &w_id).await?;
 
     // email is still written for backwards compat with old workers that don't know about permissioned_as.
     // When permissioned_as is preserved to a different user, derive email from it.
@@ -731,10 +716,8 @@ async fn edit_schedule(
     .await?;
 
     if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
-        es.permissioned_as.as_deref(),
-        es.preserve_permissioned_as.unwrap_or(false),
-        &authed,
-        &authed.username,
+        Some(&resolved_permissioned_as),
+        &windmill_common::users::username_to_permissioned_as(&authed.username),
     ) {
         audit_log(
             &mut *tx,
@@ -1698,6 +1681,7 @@ pub struct EditSchedule {
     pub cron_version: Option<String>,
     pub dynamic_skip: Option<String>,
     pub permissioned_as: Option<String>,
+    /// Accepted and ignored: `permissioned_as` is the request (`resolve_permissioned_as`).
     pub preserve_permissioned_as: Option<bool>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,

@@ -44,6 +44,12 @@
 			isOwner(draftOnly ? storagePath : initialPath, operatingUser.current, $operatingWorkspace!)
 	)
 	let onBehalfOfEmail = $state<string | undefined>(undefined)
+	// An admin or deployer keeps the flow's run-as identity; anyone else takes it over.
+	const keepsRunAs = $derived(
+		!!operatingUser.current?.is_admin ||
+			!!operatingUser.current?.is_super_admin ||
+			!!operatingUser.current?.groups?.includes('wm_deployers')
+	)
 	// Counts of triggers/schedules/etc. that reference this script or flow.
 	// The backend cascades `script_path` on rename across all trigger tables
 	// (see `windmill_common::triggers::update_triggers_script_path` invoked
@@ -161,7 +167,7 @@
 				Since you do not own this item, you cannot move this item (you can however fork it)
 			</Alert>
 		{/if}
-		{#if own && onBehalfOfEmail}
+		{#if own && onBehalfOfEmail && !keepsRunAs}
 			<Alert type="info" title="Run on behalf of" class="mb-4">
 				This flow will be redeployed on behalf of you ({operatingUser.current?.email}) instead of {onBehalfOfEmail}
 			</Alert>

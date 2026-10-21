@@ -50,6 +50,71 @@ export async function buildPermissionedAsContext(
   };
 }
 
+const deployers = new Map<string, Promise<{ email: string; canPreserve: boolean }>>();
+
+function deployer(workspace: string) {
+  let d = deployers.get(workspace);
+  if (!d) {
+    d = wmill.whoami({ workspace }).then((u) => ({
+      email: u.email,
+      canPreserve: u.is_admin || !!u.is_super_admin || (u.groups ?? []).includes("wm_deployers"),
+    }));
+    deployers.set(workspace, d);
+  }
+  return d;
+}
+
+/**
+ * The folder rule the server applies to a create at `path`. A server without the lookup route
+ * answers 404, read as no rule. Any other error, such as a rule naming a removed user, is thrown:
+ * read as no rule, it would deploy as the pusher where the server refuses the create.
+ */
+export async function folderDefaultPermissionedAs(
+  workspace: string,
+  path: string
+): Promise<string | undefined> {
+  if (!path.startsWith("f/")) return undefined;
+  try {
+    return (await wmill.getFolderDefaultPermissionedAs({ workspace, path }))?.permissioned_as;
+  } catch (e: any) {
+    if (e?.status === 404) return undefined;
+    throw e;
+  }
+}
+
+/**
+ * Below syncBehavior v1, and in `workspace merge` without `--preserve-on-behalf-of`, a script or
+ * flow is handed to whoever deploys it. The backend keeps the identity a deploy names, so the
+ * address the item carries is replaced by the deployer's: sent as it is, it would stay, or fail
+ * to resolve in another workspace. A create that a folder `default_permissioned_as` rule applies
+ * to names nobody instead, since naming the deployer would override the rule.
+ */
+export async function deployerRunAs(
+  workspace: string,
+  path: string,
+  creating: boolean
+): Promise<string | undefined> {
+  const d = await deployer(workspace);
+  if (creating && d.canPreserve && (await folderDefaultPermissionedAs(workspace, path))) return undefined;
+  return d.email;
+}
+
+/**
+ * From syncBehavior v1 a script or flow file says only *that* it runs on behalf of someone,
+ * never who, so a push creating it has no identity to send. It is created without one unless
+ * a folder `default_permissioned_as` rule matches; the pusher is not substituted, since a
+ * deploy token is often an admin the runnable never ran as.
+ */
+export function warnRunAsNotCarried(kind: "script" | "flow", path: string): void {
+  log.warn(
+    colors.yellow(
+      `${kind} ${path} runs on behalf of someone in the source, but the file does not say who: ` +
+        `it is created without a run-as identity unless a folder default_permissioned_as rule matches. ` +
+        `Set one with \`wmill ${kind} set-permissioned-as ${path} <email>\`.`
+    )
+  );
+}
+
 async function ensureUserCache(
   workspace: string,
   cache: Map<string, { username: string; email: string }>

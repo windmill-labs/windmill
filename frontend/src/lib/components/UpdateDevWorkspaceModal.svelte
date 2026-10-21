@@ -102,9 +102,9 @@
 	let onBehalfOfChoice = $state<OnBehalfOfChoice>(undefined)
 	let customOnBehalfOf = $state<OnBehalfOfDetails | undefined>(undefined)
 
-	// 'me' is sent explicitly rather than left blank. Sending nothing means "no preference", which
-	// lets the target folder's `default_permissioned_as` claim the item — so the option labelled
-	// "me" would deploy it as somebody else. No choice at all (selector hidden) still defers to it.
+	// 'me' is sent explicitly rather than left blank: a script or flow deployed naming no identity
+	// runs without one. Naming only yourself still lets a matching folder `default_permissioned_as`
+	// rule claim a new item, as it does from every editor (backend `names_only_caller`).
 	const chosenIdentity = $derived(
 		onBehalfOfChoice === 'custom'
 			? customOnBehalfOf

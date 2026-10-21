@@ -145,11 +145,10 @@ export function agentDraftDeployRefusal(
  */
 type AgentWriteResult = { ok: true } | { ok: false; error: string; notAnAgent?: true }
 
-/** Who a deploy makes the agent run as. The server resolves it as it does a flow's: without
- *  `preserve`, or from someone not allowed to keep another identity, it is the deployer. */
+/** Who a deploy makes the agent run as. The server resolves `permissionedAs` as it does a flow's:
+ *  unset, or from someone not allowed to keep another identity, it is the deployer. */
 export interface AgentRunAs {
 	permissionedAs: string | undefined
-	preserve: boolean
 }
 
 async function writeAgentResource(
@@ -166,8 +165,7 @@ async function writeAgentResource(
 			: state.args,
 		description: state.description,
 		labels: state.labels,
-		ws_specific: state.wsSpecific,
-		preserve_on_behalf_of: runAs?.preserve || undefined
+		ws_specific: state.wsSpecific
 	}
 	try {
 		if (noDeployed) {

@@ -9044,7 +9044,7 @@ pub(crate) async fn preview_on_behalf_of(
         ));
     }
     let permissioned_as =
-        windmill_common::resolve_on_behalf_of(None, Some(requested), true, authed, w_id, db)
+        windmill_common::resolve_on_behalf_of(None, Some(requested), authed, w_id, db)
             .await?
             .unwrap_or(own.clone());
     if permissioned_as == own {

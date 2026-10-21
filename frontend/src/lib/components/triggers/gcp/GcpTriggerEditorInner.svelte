@@ -87,7 +87,6 @@
 	let deploymentLoading = $state(false)
 	let permissionedAs = $state<string | undefined>(undefined)
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
-	let preservePermissionedAs = $state(false)
 	let base_endpoint = $derived(apiBaseUrl())
 	let auto_acknowledge_msg = $state(true)
 	let ack_deadline: number | undefined = $state()
@@ -258,7 +257,6 @@
 			ack_deadline = defaultValues?.ack_deadline
 			permissionedAs = undefined
 			selectedPermissionedAs = undefined
-			preservePermissionedAs = false
 			originalConfig = undefined
 			if (opts.draftConfig) await loadTriggerConfig(opts.draftConfig)
 		} finally {
@@ -323,7 +321,6 @@
 		ack_deadline = cfg?.ack_deadline
 		permissionedAs = cfg?.permissioned_as
 		selectedPermissionedAs = cfg?.permissioned_as
-		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
 	async function updateTrigger(): Promise<void> {
@@ -371,8 +368,7 @@
 			retry,
 			auto_acknowledge_msg,
 			ack_deadline,
-			permissioned_as: selectedPermissionedAs,
-			preserve_permissioned_as: preservePermissionedAs || undefined
+			permissioned_as: selectedPermissionedAs
 		}
 	}
 
@@ -549,9 +545,8 @@
 			{permissionedAs}
 			disabled={!can_write}
 			{path}
-			onPermissionedAsChange={(pa, preserve) => {
+			onPermissionedAsChange={(pa) => {
 				selectedPermissionedAs = pa
-				preservePermissionedAs = preserve
 			}}
 		/>
 		<div class="flex flex-col gap-5">

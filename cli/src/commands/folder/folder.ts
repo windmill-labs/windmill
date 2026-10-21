@@ -291,20 +291,23 @@ const command = new Command()
     }
     const relative = testPath.slice(prefix.length);
 
-    const { minimatch } = await import("minimatch");
-    for (let i = 0; i < rules.length; i++) {
-      const rule = rules[i];
-      if (minimatch(relative, rule.path_glob)) {
-        if (opts.json) {
-          console.log(JSON.stringify({ matched: true, rule_index: i, rule, relative_path: relative }));
-        } else {
-          log.info(colors.green(
-            `✓ Rule #${i + 1} matches: path_glob='${rule.path_glob}' → permissioned_as='${rule.permissioned_as}'`
-          ));
-          log.info(colors.gray(`  (relative path tested: '${relative}')`));
-        }
-        return;
+    const rule = await wmill.getFolderDefaultPermissionedAs({
+      workspace: workspace.workspaceId,
+      path: testPath,
+    });
+    if (rule) {
+      const i = rules.findIndex(
+        (r: any) => r.path_glob === rule.path_glob && r.permissioned_as === rule.permissioned_as
+      );
+      if (opts.json) {
+        console.log(JSON.stringify({ matched: true, rule_index: i, rule, relative_path: relative }));
+      } else {
+        log.info(colors.green(
+          `✓ Rule #${i + 1} matches: path_glob='${rule.path_glob}' → permissioned_as='${rule.permissioned_as}'`
+        ));
+        log.info(colors.gray(`  (relative path tested: '${relative}')`));
       }
+      return;
     }
 
     if (opts.json) {

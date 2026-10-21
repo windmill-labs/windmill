@@ -123,7 +123,6 @@
 	let deploymentLoading = $state(false)
 	let permissionedAs = $state<string | undefined>(undefined)
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
-	let preservePermissionedAs = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandler = $state(handlerDraftFromStored('error', undefined))
 	const storedErrorHandler = $derived(handlerDraftToStored(errorHandler))
@@ -243,7 +242,6 @@
 			retry = defaultValues?.retry ?? undefined
 			permissionedAs = undefined
 			selectedPermissionedAs = undefined
-			preservePermissionedAs = false
 			originalConfig = undefined
 			if (opts.draftConfig) await loadTriggerConfig(opts.draftConfig)
 		} finally {
@@ -278,7 +276,6 @@
 			retry = cfg?.retry
 			permissionedAs = cfg?.permissioned_as
 			selectedPermissionedAs = cfg?.permissioned_as
-			preservePermissionedAs = !!cfg?.permissioned_as
 		} catch (error) {
 			sendUserToast(`Could not load SQS trigger config: ${error.body}`, true)
 		}
@@ -325,8 +322,7 @@
 			error_handler_path,
 			error_handler_args,
 			retry,
-			permissioned_as: selectedPermissionedAs,
-			preserve_permissioned_as: preservePermissionedAs || undefined
+			permissioned_as: selectedPermissionedAs
 		}
 	}
 
@@ -511,9 +507,8 @@
 			{permissionedAs}
 			disabled={!can_write}
 			{path}
-			onPermissionedAsChange={(pa, preserve) => {
+			onPermissionedAsChange={(pa) => {
 				selectedPermissionedAs = pa
-				preservePermissionedAs = preserve
 			}}
 		/>
 		<div class="flex flex-col gap-4">

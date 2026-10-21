@@ -658,10 +658,6 @@
 				const ini = initialStates[ws]
 				if (existedInitially[ws]) {
 					const fetched = fetchedResources[ws]
-					// An agent keeps the identity its value names, as its own editor keeps it: without
-					// the flag an admin's save would take it over. The backend resets it to the writer
-					// for anyone not allowed to keep it.
-					const keepAgentObo = fetched?.resource_type === 'ai_agent' && !!s.args?.on_behalf_of
 					await ResourceService.updateResource({
 						workspace: ws,
 						path: ini.path,
@@ -670,8 +666,7 @@
 							value: s.args,
 							description: s.description,
 							labels: s.labels,
-							ws_specific: s.wsSpecific,
-							preserve_on_behalf_of: keepAgentObo ? true : undefined
+							ws_specific: s.wsSpecific
 						}
 					})
 					if (fetched?.resource_type === 'json_schema') {

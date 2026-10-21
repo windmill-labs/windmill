@@ -181,7 +181,6 @@
 	let deploymentLoading = $state(false)
 	let permissionedAs = $state<string | undefined>(undefined)
 	let selectedPermissionedAs = $state<string | undefined>(undefined)
-	let preservePermissionedAs = $state(false)
 	let optionTabSelected: 'request_options' | 'error_handler' | 'retries' = $state('request_options')
 
 	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
@@ -359,7 +358,6 @@
 			retry = defaultValues?.retry ?? undefined
 			permissionedAs = undefined
 			selectedPermissionedAs = undefined
-			preservePermissionedAs = false
 			originalConfig = undefined
 		} finally {
 			clearTimeout(loader)
@@ -410,7 +408,6 @@
 		retry = cfg?.retry
 		permissionedAs = cfg?.permissioned_as
 		selectedPermissionedAs = cfg?.permissioned_as
-		preservePermissionedAs = !!cfg?.permissioned_as
 	}
 
 	/** See `NatsTriggerEditorInner.loadTrigger` for the rationale. */
@@ -497,8 +494,7 @@
 			error_handler_path,
 			error_handler_args,
 			retry,
-			permissioned_as: selectedPermissionedAs,
-			preserve_permissioned_as: preservePermissionedAs || undefined
+			permissioned_as: selectedPermissionedAs
 		}
 
 		return nCfg
@@ -597,9 +593,8 @@
 			{permissionedAs}
 			disabled={!can_write}
 			{path}
-			onPermissionedAsChange={(pa, preserve) => {
+			onPermissionedAsChange={(pa) => {
 				selectedPermissionedAs = pa
-				preservePermissionedAs = preserve
 			}}
 		/>
 		<div class="flex flex-col gap-8">

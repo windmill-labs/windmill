@@ -264,8 +264,13 @@
 			if (importedValue?.files) {
 				sendUserToast('Loaded from YAML/JSON')
 				const importedSummary = ('value' in importRaw ? importRaw.summary : '') ?? ''
-				const importedPolicy =
-					('value' in importRaw ? importRaw.policy : undefined) ?? defaultPolicy
+				// An imported app is a new app of the importer's: the backend keeps any identity a
+				// deploy names, so the exported policy's would otherwise carry over to the copy.
+				const importedPolicy = {
+					...(('value' in importRaw ? importRaw.policy : undefined) ?? defaultPolicy),
+					on_behalf_of: defaultPolicy.on_behalf_of,
+					on_behalf_of_email: defaultPolicy.on_behalf_of_email
+				}
 				savedApp = {
 					summary: importedSummary,
 					value: importedValue,

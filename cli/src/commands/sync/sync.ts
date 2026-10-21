@@ -90,6 +90,7 @@ import {
 import type { PermissionedAsContext } from "../../core/permissioned_as.ts";
 import {
   buildPermissionedAsContext,
+  folderDefaultPermissionedAs,
   preCheckPermissionedAs,
 } from "../../core/permissioned_as.ts";
 import {
@@ -5704,30 +5705,8 @@ export async function push(
     let folderDefaultAnnotations: Map<string, string> | undefined;
     if (parseSyncBehavior(opts.syncBehavior) >= 1) {
       folderDefaultAnnotations = new Map();
-      const folderRulesCache = new Map<
-        string,
-        Array<{ path_glob: string; permissioned_as: string }>
-      >();
       for (const change of changes) {
-        if (change.name !== "added") continue;
-        const match = change.path.match(/^f\/([^/]+)\//);
-        if (!match) continue;
-        const folderName = match[1];
-        if (!folderRulesCache.has(folderName)) {
-          try {
-            const folder = await wmill.getFolder({
-              workspace: workspace.workspaceId,
-              name: folderName,
-            });
-            folderRulesCache.set(
-              folderName,
-              (folder as any).default_permissioned_as ?? [],
-            );
-          } catch {
-            folderRulesCache.set(folderName, []);
-          }
-        }
-        const rules = folderRulesCache.get(folderName)!;
+        if (change.name !== "added" || !change.path.startsWith("f/")) continue;
         const remotePath = change.path
           .replace(
             /\.(script|schedule|http_trigger|websocket_trigger|kafka_trigger|nats_trigger|postgres_trigger|mqtt_trigger|amqp_trigger|sqs_trigger|gcp_trigger|azure_trigger|email_trigger)\.(yaml|json)$/,
@@ -5735,14 +5714,8 @@ export async function push(
           )
           .replace(/(\.flow|__flow)\/flow\.(yaml|json)$/, "")
           .replace(/\.(app|raw_app)(\/app\.(yaml|json))?$/, "");
-        const relative = remotePath.slice(`f/${folderName}/`.length);
-        if (!relative) continue;
-        for (const rule of rules) {
-          if (minimatch(relative, rule.path_glob)) {
-            folderDefaultAnnotations.set(change.path, rule.permissioned_as);
-            break;
-          }
-        }
+        const rule = await folderDefaultPermissionedAs(workspace.workspaceId, remotePath);
+        if (rule) folderDefaultAnnotations.set(change.path, rule);
       }
     }
 

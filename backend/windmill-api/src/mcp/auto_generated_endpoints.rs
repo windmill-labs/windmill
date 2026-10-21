@@ -428,6 +428,10 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 },
                 "ws_specific": {
                         "type": "boolean"
+                },
+                "preserve_on_behalf_of": {
+                        "type": "boolean",
+                        "description": "ai_agent only, and has no effect: the identity `value.on_behalf_of` names (`u/<username>`, `g/<group>`) is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own otherwise. Older servers keep it only when this is true."
                 }
         },
         "required": [
@@ -502,6 +506,10 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 },
                 "ws_specific": {
                         "type": "boolean"
+                },
+                "preserve_on_behalf_of": {
+                        "type": "boolean",
+                        "description": "ai_agent only, and has no effect: the identity `value.on_behalf_of` names (`u/<username>`, `g/<group>`) is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own otherwise. Older servers keep it only when this is true."
                 },
                 "path__body": {
                         "type": "string",
@@ -1585,6 +1593,16 @@ is, a different one moves it there and archives the old path"),
                         "additionalProperties": {
                                 "type": "string"
                         }
+                },
+                "on_behalf_of": {
+                        "type": "string",
+                        "nullable": true,
+                        "description": "Run the preview as this identity (an email, `u/<username>` or `g/<group>`) instead of the caller. Naming anyone other than yourself requires being an admin or a member of wm_deployers."
+                },
+                "viewer_data_access": {
+                        "type": "boolean",
+                        "nullable": true,
+                        "description": "Data table and object storage access as the caller rather than as the job's identity, as a full-code app's inline runnable flagged viewer_data_access does for its viewer."
                 }
         },
         "required": [
@@ -2143,11 +2161,11 @@ You should get the schema of the script or flow before creating the schedule to 
                 },
                 "permissioned_as": {
                         "type": "string",
-                        "description": "The user or group this schedule runs as. Used during deployment to preserve the original schedule owner."
+                        "description": "The user or group this schedule runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
                 },
                 "preserve_permissioned_as": {
                         "type": "boolean",
-                        "description": "When true and the caller is a member of the 'wm_deployers' group, preserves the original permissioned_as value instead of overwriting it."
+                        "description": "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
                 },
                 "labels": {
                         "type": "array",
@@ -2351,12 +2369,12 @@ You should get the schema of the script or flow before updating the schedule to 
                 "permissioned_as": {
                         "type": "string",
                         "nullable": true,
-                        "description": "The user or group this schedule runs as (e.g., 'u/admin' or 'g/mygroup'). Only admins and wm_deployers can set this via preserve_permissioned_as."
+                        "description": "The user or group this schedule runs as (`u/<username>`, `g/<group>`, or a member's email). Kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise; one that names nobody is rejected."
                 },
                 "preserve_permissioned_as": {
                         "type": "boolean",
                         "nullable": true,
-                        "description": "If true and user is admin/wm_deployers, preserve the provided permissioned_as instead of using the deploying user's identity"
+                        "description": "Has no effect: a permissioned_as that is sent is kept when the caller is an admin or a member of wm_deployers, and replaced by the caller's own identity otherwise. Older servers keep it only when this is true."
                 },
                 "labels": {
                         "type": "array",

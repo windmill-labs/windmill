@@ -237,10 +237,6 @@ pub struct CreateResource {
     pub labels: Option<Vec<String>>,
     #[serde(default)]
     pub ws_specific: Option<bool>,
-    /// `ai_agent` only: keep the identity `value.on_behalf_of` names, for a caller allowed to
-    /// (see `resolve_agent_on_behalf_of`).
-    #[serde(default)]
-    pub preserve_on_behalf_of: Option<bool>,
 }
 #[derive(Deserialize)]
 struct EditResource {
@@ -250,7 +246,6 @@ struct EditResource {
     resource_type: Option<String>,
     labels: Option<Vec<String>>,
     ws_specific: Option<bool>,
-    preserve_on_behalf_of: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -1311,7 +1306,6 @@ async fn create_resource(
             &w_id,
             &resource.path,
             &res_value,
-            resource.preserve_on_behalf_of.unwrap_or(false),
             true,
         )
         .await?;
@@ -2296,7 +2290,6 @@ async fn update_resource(
                 &w_id,
                 ns.path.as_deref().unwrap_or(path),
                 &nvalue,
-                ns.preserve_on_behalf_of.unwrap_or(false),
                 false,
             )
             .await?
@@ -2477,9 +2470,9 @@ async fn update_resource_value(
 
 /// Rewrites the identity an `ai_agent` runs as (`value.on_behalf_of`), resolved on every write of
 /// it as a flow's `on_behalf_of` is on every deploy. It exists only while the agent's
-/// `run_on_behalf_of` is set: then the writer's own, unless one allowed to keep the one the value
-/// names asks to, and a folder's default for a new agent. The value is written by anyone who can
-/// write the agent, so the key it arrives with is only a request.
+/// `run_on_behalf_of` is set: then the one the value names for a writer allowed to keep it, the
+/// writer's own otherwise, and a folder's default for a new agent that names none. The value is
+/// written by anyone who can write the agent, so the key it arrives with is only a request.
 async fn resolve_agent_on_behalf_of(
     tx: &mut Transaction<'_, Postgres>,
     authed: &ApiAuthed,
@@ -2487,7 +2480,6 @@ async fn resolve_agent_on_behalf_of(
     w_id: &str,
     path: &str,
     value: &mut serde_json::Value,
-    preserve: bool,
     created: bool,
 ) -> Result<()> {
     let Some(obj) = value.as_object_mut() else {
@@ -2499,15 +2491,14 @@ async fn resolve_agent_on_behalf_of(
     if obj.get("run_on_behalf_of").and_then(|v| v.as_bool()) != Some(true) {
         return Ok(());
     }
-    let mut preserve = preserve;
-    let explicit =
-        requested.is_some() && preserve && windmill_common::can_preserve_on_behalf_of(authed);
-    if created && !explicit && windmill_common::can_preserve_on_behalf_of(authed) {
+    if created
+        && windmill_common::names_nobody(None, requested.as_deref())
+        && windmill_common::can_preserve_on_behalf_of(authed)
+    {
         if let Some((_, folder_default)) =
             windmill_common::folders::resolve_folder_default_on_behalf_of(db, w_id, path).await?
         {
             requested = Some(folder_default);
-            preserve = true;
         }
     }
     let own = windmill_common::users::username_to_permissioned_as(&authed.username);
@@ -2515,7 +2506,6 @@ async fn resolve_agent_on_behalf_of(
     let resolved = windmill_common::resolve_on_behalf_of(
         None,
         Some(requested.as_deref().unwrap_or(&own)),
-        preserve,
         authed,
         w_id,
         db,
@@ -2524,12 +2514,8 @@ async fn resolve_agent_on_behalf_of(
     if let Some(resolved) = resolved.as_ref() {
         obj.insert("on_behalf_of".to_string(), resolved.clone().into());
     }
-    if let Some(kept) = windmill_common::check_on_behalf_of_preservation(
-        resolved.as_deref(),
-        preserve,
-        authed,
-        &own,
-    ) {
+    if let Some(kept) = windmill_common::check_on_behalf_of_preservation(resolved.as_deref(), &own)
+    {
         audit_log(
             &mut **tx,
             authed,
@@ -2571,11 +2557,10 @@ async fn resolve_agent_raw_value(
     w_id: &str,
     path: &str,
     value: &RawValue,
-    preserve: bool,
     created: bool,
 ) -> Result<Box<RawValue>> {
     let mut parsed: serde_json::Value = serde_json::from_str(value.get())?;
-    resolve_agent_on_behalf_of(tx, authed, db, w_id, path, &mut parsed, preserve, created).await?;
+    resolve_agent_on_behalf_of(tx, authed, db, w_id, path, &mut parsed, created).await?;
     Ok(serde_json::value::to_raw_value(&parsed)?)
 }
 
@@ -2618,7 +2603,7 @@ async fn set_resource_value(
         .fetch_optional(&mut *tx)
         .await?;
         if resource_type.as_deref() == Some("ai_agent") {
-            resolve_agent_on_behalf_of(&mut tx, authed, db, w_id, path, v, false, false).await?;
+            resolve_agent_on_behalf_of(&mut tx, authed, db, w_id, path, v, false).await?;
         }
     }
 

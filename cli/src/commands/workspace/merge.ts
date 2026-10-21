@@ -17,6 +17,7 @@ import {
   type TriggerDeployKind,
 } from "../../../windmill-utils-internal/src/deploy.ts";
 import { offerToRunNewMigrations } from "../datatable_migrations.ts";
+import { deployerRunAs } from "../../core/permissioned_as.ts";
 
 // ---------------------------------------------------------------------------
 // Provider adapter — wraps CLI's standalone API functions
@@ -578,6 +579,20 @@ async function mergeWorkspaces(
           diff.path,
           workspaceFrom
         );
+      } else if (
+        (diff.kind === "script" || diff.kind === "flow") &&
+        (await getOnBehalfOf(
+          provider,
+          diff.kind as DeployKind,
+          diff.path,
+          workspaceFrom
+        ))
+      ) {
+        // Without the flag every item is deployed as the merger, and a script or flow has to
+        // be told so: one deployed naming no identity runs without one.
+        const existsInTarget =
+          direction === "to-parent" ? diff.exists_in_source : diff.exists_in_fork;
+        onBehalfOf = await deployerRunAs(workspaceTo, diff.path, !existsInTarget);
       }
 
       result = await deployItem(

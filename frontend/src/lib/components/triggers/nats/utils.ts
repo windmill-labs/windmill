@@ -26,7 +26,6 @@ export async function saveNatsTriggerFromCfg(
 		subjects: cfg.subjects,
 		use_jetstream: cfg.use_jetstream,
 		permissioned_as: cfg.permissioned_as,
-		preserve_permissioned_as: cfg.preserve_permissioned_as,
 		...errorHandlerAndRetries
 	}
 	try {

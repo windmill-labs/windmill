@@ -31,8 +31,7 @@ export async function saveEmailTriggerFromCfg(
 		error_handler_args: emailCfg.error_handler_path ? emailCfg.error_handler_args : undefined,
 		mode: emailCfg.mode,
 		retry: emailCfg.retry,
-		permissioned_as: emailCfg.permissioned_as,
-		preserve_permissioned_as: emailCfg.preserve_permissioned_as
+		permissioned_as: emailCfg.permissioned_as
 	}
 	try {
 		if (edit) {

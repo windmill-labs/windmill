@@ -1,9 +1,10 @@
 //! Integration tests for preserve_on_behalf_of functionality.
 //!
 //! Tests verify that when deploying scripts, flows, apps, schedules, and triggers:
-//! - Admin users can preserve the original on_behalf_of/email values
-//! - Users in the wm_deployers group can preserve these values
-//! - Regular users cannot preserve and their email is used instead
+//! - Admin users keep the on_behalf_of/email values they send
+//! - Users in the wm_deployers group keep these values
+//! - Regular users cannot keep someone else's and their own identity is used instead
+//! The `preserve_*` flags these tests send are ignored by the server.
 
 use serde_json::json;
 use sqlx::{Pool, Postgres};
@@ -455,6 +456,34 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
         "the response returns the address written through from the principal"
     );
 
+    // Empty strings are how clients and exports say "no identity chosen": the creator's.
+    let resp = authed(client().post(format!("{base}/apps/create")), "SECRET_TOKEN")
+        .json(&new_app_with_on_behalf_of(
+            "u/test-user/app_empty_identity",
+            Some(""),
+            Some(""),
+            false,
+        ))
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        201,
+        "an empty identity is not a named one: {}",
+        resp.text().await?
+    );
+    let policy = sqlx::query_scalar!(
+        "SELECT policy FROM app WHERE path = $1 AND workspace_id = $2",
+        "u/test-user/app_empty_identity",
+        "test-workspace"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        policy.get("on_behalf_of").and_then(|v| v.as_str()),
+        Some("u/test-user")
+    );
+
     // ========================================
     // 8. App: Deployer preserves on_behalf_of
     // ========================================
@@ -749,7 +778,7 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     );
 
     // ========================================
-    // 13. Script: Without preserve flag, email is NOT preserved
+    // 13. Script: the identity sent is the request — no flag is needed to keep it
     // ========================================
 
     let resp = authed(
@@ -779,8 +808,8 @@ async fn test_preserve_on_behalf_of(db: Pool<Postgres>) -> anyhow::Result<()> {
     .await?;
     assert_eq!(
         script.on_behalf_of.as_deref(),
-        Some("u/test-user"),
-        "Without preserve flag, admin's email should be used"
+        Some("u/original-user"),
+        "an admin sending an identity keeps it without the preserve flag"
     );
 
     Ok(())
@@ -1447,6 +1476,96 @@ async fn test_rename_sweeps_external_superadmin_app_identity(
     Ok(())
 }
 
+/// A schedule runs as its `permissioned_as` and a folder rule hands one to what is created under
+/// it, so a rename that left them on the old username would leave the schedule unable to run.
+#[sqlx::test(fixtures("preserve_on_behalf_of"))]
+async fn test_rename_sweeps_schedule_and_folder_rule_identities(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base = format!("http://localhost:{port}/api/w/test-workspace");
+
+    let resp = authed(
+        client().post(format!("{base}/scripts/create")),
+        "ORIGINAL_TOKEN",
+    )
+    .json(&new_script_with_on_behalf_of(
+        "u/original-user/renamed_scheduled_script",
+        None,
+        false,
+    ))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 201, "create script: {}", resp.text().await?);
+    let resp = authed(
+        client().post(format!("{base}/schedules/create")),
+        "ORIGINAL_TOKEN",
+    )
+    .json(&json!({
+        "path": "u/original-user/renamed_schedule",
+        "schedule": "0 0 */6 * * *",
+        "timezone": "UTC",
+        "script_path": "u/original-user/renamed_scheduled_script",
+        "is_flow": false,
+        "enabled": false
+    }))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        200,
+        "create schedule: {}",
+        resp.text().await?
+    );
+    sqlx::query!(
+        r#"INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, created_by, default_permissioned_as)
+           VALUES ('test-workspace', 'renamerules', 'renamerules', ARRAY[]::TEXT[], '{}', 'test-user',
+                   '[{"path_glob": "jobs/**", "permissioned_as": "u/test-user-2"},
+                     {"path_glob": "**", "permissioned_as": "u/original-user"}]')"#
+    )
+    .execute(&db)
+    .await?;
+
+    let resp = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/users/rename/original@windmill.dev"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({ "new_username": "original_renamed" }))
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 200, "rename: {}", resp.text().await?);
+
+    let permissioned_as = sqlx::query_scalar!(
+        "SELECT permissioned_as FROM schedule WHERE path = $1 AND workspace_id = $2",
+        "u/original_renamed/renamed_schedule",
+        "test-workspace"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(permissioned_as, "u/original_renamed");
+    let rules = sqlx::query_scalar!(
+        "SELECT default_permissioned_as FROM folder WHERE name = 'renamerules' AND workspace_id = $1",
+        "test-workspace"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        rules,
+        json!([
+            { "path_glob": "jobs/**", "permissioned_as": "u/test-user-2" },
+            { "path_glob": "**", "permissioned_as": "u/original_renamed" }
+        ]),
+        "the rule naming the renamed user follows it, in place"
+    );
+
+    Ok(())
+}
+
 /// Test schedule update preserves email/edited_by correctly
 #[sqlx::test(fixtures("preserve_on_behalf_of"))]
 async fn test_schedule_update_preserves_email(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -1807,7 +1926,7 @@ async fn test_http_trigger_preserve_permissioned_as(db: Pool<Postgres>) -> anyho
     );
 
     // ========================================
-    // 2. Without preserve flag, email is NOT preserved
+    // 2. The permissioned_as sent is the request — no flag is needed to keep it
     // ========================================
 
     let resp = authed(
@@ -1838,12 +1957,33 @@ async fn test_http_trigger_preserve_permissioned_as(db: Pool<Postgres>) -> anyho
     .fetch_one(&db)
     .await?;
     assert_eq!(
-        trigger.permissioned_as, "u/test-user",
-        "Without preserve flag, admin's own email should be used"
+        trigger.permissioned_as, "u/original-user",
+        "an admin sending a permissioned_as keeps it without the preserve flag"
     );
     assert_eq!(
         trigger.edited_by, "test-user",
-        "Without preserve flag, admin's own username should be used"
+        "edited_by is always the deploying user"
+    );
+
+    // A permissioned_as that names nobody is refused at the write, not at the first run.
+    let resp = authed(
+        client().post(format!("{base}/http_triggers/create")),
+        "SECRET_TOKEN",
+    )
+    .json(&new_http_trigger(
+        "u/test-user/http_ghost",
+        "u/test-user/trigger_script",
+        "ghost",
+        Some("u/ghost"),
+        false,
+    ))
+    .send()
+    .await?;
+    assert_eq!(
+        resp.status(),
+        400,
+        "a permissioned_as naming nobody must be refused: {}",
+        resp.text().await?
     );
 
     Ok(())

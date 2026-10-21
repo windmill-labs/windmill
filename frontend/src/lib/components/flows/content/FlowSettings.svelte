@@ -28,6 +28,7 @@
 	import { slide } from 'svelte/transition'
 	import DebounceLimit from '../DebounceLimit.svelte'
 	import EEOnly from '$lib/components/EEOnly.svelte'
+	import { useFolderDefaultRunAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import OnBehalfOfSelector, {
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
@@ -56,7 +57,6 @@
 		previewArgs,
 		pathStore,
 		customUi,
-		preserveOnBehalfOf,
 		savedOnBehalfOfEmail,
 		savedOnBehalfOfPermissionedAs,
 		opWorkspace
@@ -66,8 +66,24 @@
 	let isDeployer = $derived(actingUser?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
 	let canPreserve = $derived(!!actingUser?.is_admin || !!actingUser?.is_super_admin || isDeployer)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
-	let customOnBehalfOfEmail: string = $state('')
+	let customOnBehalfOf: string = $state('')
 	let myPermissionedAs = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)
+	// The rule applies on a flow's create only.
+	const folderDefault = useFolderDefaultRunAs(
+		() => ($initialPathStore == '' ? $pathStore : undefined),
+		() => opWorkspace?.() ?? $operatingWorkspace,
+		{
+			get: () => flowStore.val,
+			set: (permissionedAs) => {
+				flowStore.val.on_behalf_of = permissionedAs
+				flowStore.val.on_behalf_of_email = undefined
+				onBehalfOfChoice = undefined
+			}
+		}
+	)
+	let runsOnBehalfOf = $derived(
+		Boolean(flowStore.val.on_behalf_of_email || flowStore.val.on_behalf_of)
+	)
 
 	function asSchema(x: any) {
 		return x as Schema
@@ -114,8 +130,8 @@
 		{ name: 'Concurrent Limit', active: Boolean(flowStore.val.value.concurrent_limit) },
 		{ name: 'Debouncing', active: Boolean(flowStore.val.value.debounce_delay_s) },
 		{
-			name: `Run on Behalf of ${flowStore.val.on_behalf_of_email ?? 'Last Editor'}`,
-			active: Boolean(flowStore.val.on_behalf_of_email)
+			name: `Run on Behalf of ${flowStore.val.on_behalf_of_email ?? flowStore.val.on_behalf_of ?? 'Last Editor'}`,
+			active: runsOnBehalfOf
 		},
 		{ name: 'Worker Tag', active: displayWorkerTagPicker }
 	])
@@ -470,12 +486,11 @@
 					<Toggle
 						textClass="font-medium"
 						size="xs"
-						checked={Boolean(flowStore.val.on_behalf_of_email)}
+						checked={runsOnBehalfOf}
 						on:change={() => {
-							if (flowStore.val.on_behalf_of_email) {
+							if (runsOnBehalfOf) {
 								flowStore.val.on_behalf_of_email = undefined
 								flowStore.val.on_behalf_of = undefined
-								$preserveOnBehalfOf = false
 								onBehalfOfChoice = undefined
 							} else {
 								flowStore.val.on_behalf_of_email = $userStore?.email
@@ -488,7 +503,7 @@
 								'When this option is enabled, the flow will be run with the permissions of the corresponding user.'
 						}}
 					/>
-					{#if flowStore.val.on_behalf_of_email && canPreserve}
+					{#if runsOnBehalfOf && canPreserve}
 						&rarr; <OnBehalfOfSelector
 							targetWorkspace={opWorkspace?.() ?? $operatingWorkspace ?? ''}
 							targetValue={$savedOnBehalfOfEmail}
@@ -498,27 +513,29 @@
 								if (choice === 'me') {
 									flowStore.val.on_behalf_of_email = $userStore?.email
 									flowStore.val.on_behalf_of = myPermissionedAs
-									customOnBehalfOfEmail = ''
-									$preserveOnBehalfOf = false
+									customOnBehalfOf = ''
 								} else if (choice === 'target') {
 									// Keep the saved pair. A flow that has no recorded principal yet
 									// sends the email alone and the backend derives one from it.
 									flowStore.val.on_behalf_of_email = $savedOnBehalfOfEmail
 									flowStore.val.on_behalf_of = $savedOnBehalfOfPermissionedAs
-									customOnBehalfOfEmail = ''
-									$preserveOnBehalfOf = true
+									customOnBehalfOf = ''
 								} else if (choice === 'custom' && details) {
 									flowStore.val.on_behalf_of_email = details.email
 									flowStore.val.on_behalf_of = details.permissionedAs
-									customOnBehalfOfEmail = details.email
-									$preserveOnBehalfOf = true
+									customOnBehalfOf = details.permissionedAs
 								}
 							}}
 							kind="flow"
 							{canPreserve}
-							customValue={customOnBehalfOfEmail}
+							customValue={customOnBehalfOf}
 							isDeployment={false}
+							folderDefault={folderDefault.value}
 						/>
+					{:else if !runsOnBehalfOf && folderDefault.value}
+						<span class="text-xs text-tertiary">
+							The folder rule sets <span class="font-medium">{folderDefault.value}</span> on create
+						</span>
 					{:else if flowStore.val.on_behalf_of_email && !canPreserve}
 						<span class="text-xs text-tertiary">
 							Currently: <span class="font-medium"

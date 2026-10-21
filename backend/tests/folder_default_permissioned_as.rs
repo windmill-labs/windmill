@@ -233,6 +233,36 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
     assert_eq!(rules[1]["permissioned_as"], "g/wm_deployers");
     assert_eq!(rules[2]["permissioned_as"], "original@windmill.dev");
 
+    // Clients preview the rule through the server's own matching, first match winning, and
+    // learn nothing about a folder they cannot see.
+    for (path, token, expected) in [
+        (
+            "f/prodfolder/jobs/critical/a/b",
+            "SECRET_TOKEN",
+            json!({ "path_glob": "jobs/critical/**", "permissioned_as": "u/original-user" }),
+        ),
+        (
+            "f/prodfolder/jobs/x",
+            "SECRET_TOKEN",
+            json!({ "path_glob": "jobs/**", "permissioned_as": "g/wm_deployers" }),
+        ),
+        ("f/prodfolder/other", "SECRET_TOKEN", json!(null)),
+        ("f/prodfolder/jobs/x", "ORIGINAL_TOKEN", json!(null)),
+    ] {
+        let resp = authed(
+            client().get(format!("{base}/folders/default_permissioned_as/{path}")),
+            token,
+        )
+        .send()
+        .await?;
+        assert_eq!(resp.status(), 200);
+        assert_eq!(
+            resp.json::<serde_json::Value>().await?,
+            expected,
+            "{path} as {token}"
+        );
+    }
+
     // ========================================================================
     // 4. Schedules — the core matrix
     // ========================================================================
@@ -519,6 +549,44 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
         flow.on_behalf_of.as_deref(),
         Some("u/original-user"),
         "a rule naming an address stores the principal it names, which is what carries that          user's groups and folders"
+    );
+
+    // 5b'. Naming anyone, yourself included, wins over the rule: only naming nobody takes it.
+    let mut named_self = new_flow("f/prodfolder/jobs/flow_named_self");
+    named_self["on_behalf_of_email"] = json!("test@windmill.dev");
+    let mut named_other = new_flow("f/prodfolder/jobs/flow_named_other");
+    named_other["on_behalf_of_email"] = json!("original@windmill.dev");
+    for body in [&named_self, &named_other] {
+        let resp = authed(
+            client().post(format!("{base}/flows/create")),
+            "SECRET_TOKEN",
+        )
+        .json(body)
+        .send()
+        .await?;
+        assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    }
+    let identity = |path: &'static str| {
+        sqlx::query_scalar!(
+            "SELECT on_behalf_of FROM flow WHERE path = $1 AND workspace_id = $2",
+            path,
+            "test-workspace"
+        )
+        .fetch_one(&db)
+    };
+    assert_eq!(
+        identity("f/prodfolder/jobs/flow_named_self")
+            .await?
+            .as_deref(),
+        Some("u/test-user"),
+        "a flow naming its creator keeps them"
+    );
+    assert_eq!(
+        identity("f/prodfolder/jobs/flow_named_other")
+            .await?
+            .as_deref(),
+        Some("u/original-user"),
+        "a flow naming someone else keeps them"
     );
 
     // 5c. Non-matching flow path — no default

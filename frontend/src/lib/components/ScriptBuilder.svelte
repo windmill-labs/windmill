@@ -124,6 +124,7 @@
 	import DebounceLimit from './flows/DebounceLimit.svelte'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import OnBehalfOfSelector, { type OnBehalfOfChoice } from './OnBehalfOfSelector.svelte'
+	import { useFolderDefaultRunAs } from './useFolderDefaultPermissionedAs.svelte'
 	import WacExportDrawer from './scripts/WacExportDrawer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
@@ -270,7 +271,6 @@
 	let args: Record<string, any> = $state(untrack(() => initialArgs)) // Test args input
 	let selectedInputTab: 'main' | 'preprocessor' | 'diagram' = $state('main')
 	let hasPreprocessor = $state(false)
-	let preserveOnBehalfOf = $state(false)
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
 	let isDeployer = $derived(actingUser?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
@@ -278,8 +278,22 @@
 	let originalOnBehalfOfEmail = $derived(savedScript?.on_behalf_of_email)
 	let originalOnBehalfOfPermissionedAs = $derived(savedScript?.on_behalf_of)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
-	let customOnBehalfOfEmail: string = $state('')
+	let customOnBehalfOf: string = $state('')
 	let myPermissionedAs = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)
+	// The rule applies on a script's first deploy only.
+	const folderDefault = useFolderDefaultRunAs(
+		() => (!savedScript || savedScript.no_deployed === true ? script.path : undefined),
+		() => opWorkspace,
+		{
+			get: () => script,
+			set: (permissionedAs) => {
+				script.on_behalf_of = permissionedAs
+				script.on_behalf_of_email = undefined
+				onBehalfOfChoice = undefined
+			}
+		}
+	)
+	let runsOnBehalfOf = $derived(Boolean(script.on_behalf_of_email || script.on_behalf_of))
 
 	let metadataOpen = $state(
 		!untrack(() => neverShowMeta) &&
@@ -817,7 +831,6 @@
 					deployment_message: deploymentMsg || undefined,
 					on_behalf_of_email: script.on_behalf_of_email,
 					on_behalf_of: script.on_behalf_of,
-					preserve_on_behalf_of: preserveOnBehalfOf || undefined,
 					assets: script.assets,
 					modules: script.modules,
 					labels: script.labels,
@@ -2135,12 +2148,11 @@
 											<span class="inline-flex gap-2">
 												<Toggle
 													size="sm"
-													checked={Boolean(script.on_behalf_of_email)}
+													checked={runsOnBehalfOf}
 													on:change={() => {
-														if (script.on_behalf_of_email) {
+														if (runsOnBehalfOf) {
 															script.on_behalf_of_email = undefined
 															script.on_behalf_of = undefined
-															preserveOnBehalfOf = false
 															onBehalfOfChoice = undefined
 														} else {
 															script.on_behalf_of_email = $userStore?.email
@@ -2151,7 +2163,7 @@
 														right: `Run on behalf of ${canPreserve ? 'a specified user' : 'last editor'}`
 													}}
 												/>
-												{#if script.on_behalf_of_email && canPreserve}
+												{#if runsOnBehalfOf && canPreserve}
 													&rarr; <OnBehalfOfSelector
 														targetWorkspace={opWorkspace ?? ''}
 														targetValue={originalOnBehalfOfEmail}
@@ -2161,27 +2173,32 @@
 															if (choice === 'me') {
 																script.on_behalf_of_email = $userStore?.email
 																script.on_behalf_of = myPermissionedAs
-																customOnBehalfOfEmail = ''
-																preserveOnBehalfOf = false
+																customOnBehalfOf = ''
 															} else if (choice === 'target') {
 																// Keep the saved pair. A script that has no recorded principal yet
 																// sends the email alone and the backend derives one from it.
 																script.on_behalf_of_email = originalOnBehalfOfEmail
 																script.on_behalf_of = originalOnBehalfOfPermissionedAs
-																customOnBehalfOfEmail = ''
-																preserveOnBehalfOf = true
+																customOnBehalfOf = ''
 															} else if (choice === 'custom' && details) {
 																script.on_behalf_of_email = details.email
 																script.on_behalf_of = details.permissionedAs
-																customOnBehalfOfEmail = details.email
-																preserveOnBehalfOf = true
+																customOnBehalfOf = details.permissionedAs
 															}
 														}}
 														kind="script"
 														{canPreserve}
-														customValue={customOnBehalfOfEmail}
+														customValue={customOnBehalfOf}
 														isDeployment={false}
+														folderDefault={folderDefault.value}
 													/>
+												{:else if !runsOnBehalfOf && folderDefault.value}
+													<span class="text-xs text-tertiary">
+														The folder rule sets <span class="font-medium"
+															>{folderDefault.value}</span
+														>
+														on first deploy
+													</span>
 												{:else if script.on_behalf_of_email && !canPreserve}
 													<span class="text-xs text-tertiary">
 														Currently: <span class="font-medium"

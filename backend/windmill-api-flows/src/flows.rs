@@ -786,19 +786,15 @@ async fn create_flow(
     // cron::Schedule::from_str(&ns.schedule).map_err(|e| error::Error::BadRequest(e.to_string()))?;
     let authed = maybe_refresh_folders(&nf.path, &w_id, authed, &db).await;
 
-    // Apply folder default_permissioned_as on create when the caller did not
-    // explicitly preserve a value and the user can preserve.
-    let explicit_preserve = (nf.on_behalf_of_email.is_some() || nf.on_behalf_of.is_some())
-        && nf.preserve_on_behalf_of.unwrap_or(false)
-        && windmill_common::can_preserve_on_behalf_of(&authed);
-    if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
+    if windmill_common::names_nobody(nf.on_behalf_of_email.as_deref(), nf.on_behalf_of.as_deref())
+        && windmill_common::can_preserve_on_behalf_of(&authed)
+    {
         if let Some((default_email, default_permissioned_as)) =
             windmill_common::folders::resolve_folder_default_on_behalf_of(&db, &w_id, &nf.path)
                 .await?
         {
             nf.on_behalf_of_email = Some(default_email);
             nf.on_behalf_of = Some(default_permissioned_as);
-            nf.preserve_on_behalf_of = Some(true);
         }
     }
     // Before `tx` opens, as every `db` read here must be: `user_db` wraps the same pool, so
@@ -806,7 +802,6 @@ async fn create_flow(
     let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
         nf.on_behalf_of_email.as_deref(),
         nf.on_behalf_of.as_deref(),
-        nf.preserve_on_behalf_of.unwrap_or(false),
         &authed,
         &w_id,
         &db,
@@ -937,8 +932,6 @@ async fn create_flow(
     .await?;
     if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
         resolved_on_behalf_of.as_deref(),
-        nf.preserve_on_behalf_of.unwrap_or(false),
-        &authed,
         &windmill_common::users::username_to_permissioned_as(&authed.username),
     ) {
         audit_log(
@@ -1385,7 +1378,6 @@ async fn update_flow(
     let resolved_on_behalf_of = windmill_common::resolve_on_behalf_of(
         nf.on_behalf_of_email.as_deref(),
         nf.on_behalf_of.as_deref(),
-        nf.preserve_on_behalf_of.unwrap_or(false),
         &authed,
         &w_id,
         &db,
@@ -1679,8 +1671,6 @@ async fn update_flow(
     .await?;
     if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
         resolved_on_behalf_of.as_deref(),
-        nf.preserve_on_behalf_of.unwrap_or(false),
-        &authed,
         &windmill_common::users::username_to_permissioned_as(&authed.username),
     ) {
         audit_log(

@@ -15,6 +15,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Path from '$lib/components/Path.svelte'
+	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import { computeSecretUrl } from './appDeploy.svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import EEOnly from '$lib/components/EEOnly.svelte'
@@ -55,7 +56,6 @@
 		newEditedPath = $bindable(),
 		newPath,
 		hideSecretUrl = false,
-		preserveOnBehalfOf = $bindable(false),
 		labels = $bindable(),
 		rawApp = false,
 		newApp = false,
@@ -77,7 +77,6 @@
 		newEditedPath: string
 		newPath: string
 		hideSecretUrl?: boolean
-		preserveOnBehalfOf?: boolean
 		labels?: string[] | undefined
 		// Only raw apps are offered the `wm_coep` embedding hint: on a classic
 		// (low-code) app COEP breaks no-CORP cross-origin subresources (external
@@ -159,8 +158,27 @@
 	let savedOnBehalfOfEmail = $derived(savedApp?.policy?.on_behalf_of_email)
 	let savedOnBehalfOf = $derived(savedApp?.policy?.on_behalf_of)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
-	let customOnBehalfOfEmail: string = $state('')
+	let customOnBehalfOf: string = $state('')
 	let myOnBehalfOf = $derived(actingUser?.username ? `u/${actingUser.username}` : undefined)
+	// A new app starts on the folder rule its path matches, or on the deployer, and deploys
+	// what is shown: naming nobody would let the server apply a rule this picker did not see.
+	const folderDefault = useFolderDefaultPermissionedAs(
+		() => (newApp ? newEditedPath : undefined),
+		() => opWs
+	)
+	let defaultChosen = false
+	$effect(() => {
+		const rule = folderDefault.value
+		if (!newApp || !canPreserve || folderDefault.loading) return
+		untrack(() => {
+			if (onBehalfOfChoice !== undefined && !defaultChosen) return
+			defaultChosen = true
+			onBehalfOfChoice = rule ? 'custom' : 'me'
+			customOnBehalfOf = rule ?? ''
+			policy.on_behalf_of = rule ?? myOnBehalfOf
+			policy.on_behalf_of_email = rule ? undefined : $userStore?.email
+		})
+	})
 	// Without the right to preserve, the backend runs the redeployed app as the deployer whatever
 	// the policy says, as it does for "me".
 	let deployOnBehalfOf = $derived.by(() => {
@@ -336,30 +354,29 @@
 					targetValue={savedOnBehalfOfEmail}
 					selected={onBehalfOfChoice}
 					onSelect={(choice, details) => {
+						defaultChosen = false
 						onBehalfOfChoice = choice
 						if (choice === 'me') {
 							policy.on_behalf_of_email = $userStore?.email
 							policy.on_behalf_of = `u/${$userStore?.username}`
-							customOnBehalfOfEmail = ''
-							preserveOnBehalfOf = false
+							customOnBehalfOf = ''
 						} else if (choice === 'target') {
 							policy.on_behalf_of_email = savedOnBehalfOfEmail
 							policy.on_behalf_of = savedOnBehalfOf
-							customOnBehalfOfEmail = ''
-							preserveOnBehalfOf = true
+							customOnBehalfOf = ''
 						} else if (choice === 'custom' && details) {
 							policy.on_behalf_of_email = details.email
 							policy.on_behalf_of = details.permissionedAs
-							customOnBehalfOfEmail = details.email
-							preserveOnBehalfOf = true
+							customOnBehalfOf = details.permissionedAs
 						}
 					}}
 					kind="app"
 					{canPreserve}
-					customValue={customOnBehalfOfEmail}
+					customValue={customOnBehalfOf}
 					isDeployment={false}
 					myPermissionedAs={myOnBehalfOf}
 					readOnlyWithoutPreserve
+					folderDefault={folderDefault.value}
 				/>
 				{#if onBehalfOfWillChange}
 					<AlertTriangle class="w-3.5 h-3.5 text-yellow-500" />

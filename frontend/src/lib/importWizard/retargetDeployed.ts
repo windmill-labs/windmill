@@ -411,20 +411,15 @@ function readsPathUnreachably(value: unknown, map: Map<string, string>): boolean
 
 /**
  * Every write here is an in-place edit of a deployed item, not a redeployment by whoever
- * opened the wizard, so each one has to say so.
+ * opened the wizard, so each one sends back the run identity it read: dropped, the item that
+ * ran as a service account would start running as the person who picked a credential. The
+ * backend keeps a named identity only for an admin or `wm_deployers` member, so a caller who
+ * cannot keep it gets what they would have got anyway.
  *
- * `preserve_on_behalf_of` is the flag that says it. Without it the backend replaces the
- * item's stored run identity with the caller's — `resolve_on_behalf_of` for scripts and
- * flows, the `should_preserve` branch of `update_app` for apps — and an imported item that
- * ran as a service account would silently start running as the person who picked a
- * credential. The backend still gates it on `wm_deployers` membership, so a caller who
- * cannot preserve gets what they would have got anyway.
- *
- * For apps the policy is the other half: it carries the run identity, the execution mode and
- * the sandbox rules, so it is read from the deployed app and handed back to the recompute
- * rather than rebuilt from nothing.
+ * For apps the policy carries the run identity, the execution mode and the sandbox rules, so it
+ * is read from the deployed app and handed back to the recompute rather than rebuilt from
+ * nothing.
  */
-const PRESERVE_DEPLOYED_IDENTITY = { preserve_on_behalf_of: true }
 
 /**
  * A new script version, the way the editor saves one. Spread rather than field-by-field:
@@ -447,7 +442,6 @@ async function rewriteScript(
 		workspace,
 		requestBody: {
 			...s,
-			...PRESERVE_DEPLOYED_IDENTITY,
 			content,
 			parent_hash: s.hash,
 			deployment_message: undefined
@@ -470,7 +464,7 @@ async function rewriteFlow(
 	await FlowService.updateFlow({
 		workspace,
 		path,
-		requestBody: { ...f, ...PRESERVE_DEPLOYED_IDENTITY, path, value }
+		requestBody: { ...f, path, value }
 	})
 	return true
 }
@@ -505,7 +499,7 @@ async function rewriteApp(
 	await AppService.updateApp({
 		workspace,
 		path,
-		requestBody: { ...PRESERVE_DEPLOYED_IDENTITY, path, value: next, policy }
+		requestBody: { path, value: next, policy }
 	})
 	return true
 }
@@ -581,7 +575,6 @@ async function rewriteRawApp(
 		path,
 		formData: {
 			app: {
-				...PRESERVE_DEPLOYED_IDENTITY,
 				path,
 				summary: a.summary ?? '',
 				value: {
@@ -610,8 +603,7 @@ async function rewriteRawApp(
  * reference.
  *
  * A trigger states its run identity as `permissioned_as`, not the `on_behalf_of` the other
- * kinds use, and `resolve_permissioned_as` keeps the row's value only when
- * `preserve_permissioned_as` says so. Without the pair a trigger created under a folder's
+ * kinds use, so the row's value is sent back. Without it a trigger created under a folder's
  * `default_permissioned_as` would start running as whoever picked the credential.
  */
 async function rewriteTrigger(
@@ -624,9 +616,7 @@ async function rewriteTrigger(
 	const { enabled: _enabled, ...rest } = {
 		...restoreRunnableRefs(rewriteTriggerConfig(row, map), row),
 		path: r.path,
-		...(typeof row.permissioned_as === 'string'
-			? { permissioned_as: row.permissioned_as, preserve_permissioned_as: true }
-			: {})
+		...(typeof row.permissioned_as === 'string' ? { permissioned_as: row.permissioned_as } : {})
 	}
 	// No unreachable-mention check: a trigger holds the bare path by design, in its own
 	// resource field, and `rewriteTriggerConfig` remaps every bare match at every depth. What

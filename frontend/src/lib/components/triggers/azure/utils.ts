@@ -31,7 +31,6 @@ export async function saveAzureTriggerFromCfg(
 			mode: cfg.mode,
 			is_flow: cfg.is_flow,
 			permissioned_as: cfg.permissioned_as,
-			preserve_permissioned_as: cfg.preserve_permissioned_as,
 			...errorHandlerAndRetries
 		}
 		if (edit) {

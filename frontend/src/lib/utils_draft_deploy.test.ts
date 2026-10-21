@@ -69,14 +69,13 @@ describe('draftBaseIsStale', () => {
 	})
 })
 
-// Without preserve_on_behalf_of the backend rewrites on_behalf_of_email to the
-// deploying user, so deploying a draft silently re-points the runnable's
-// identity.
+// An identity left out of the deploy is replaced by the deploying user's, silently
+// re-pointing the runnable's identity on every draft deploy.
 
 describe('deployDraft preserves on_behalf_of', () => {
 	beforeEach(() => vi.clearAllMocks())
 
-	it('script: forwards the flag when the draft carries an on_behalf_of_email', async () => {
+	it('script: sends the identity the draft carries', async () => {
 		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
 			hash: 'v1',
 			draft: { path: 'f/admin/send_email', on_behalf_of_email: 'alice@windmill.dev' }
@@ -86,28 +85,13 @@ describe('deployDraft preserves on_behalf_of', () => {
 		expect(ScriptService.createScript).toHaveBeenCalledWith(
 			expect.objectContaining({
 				requestBody: expect.objectContaining({
-					on_behalf_of_email: 'alice@windmill.dev',
-					preserve_on_behalf_of: true
+					on_behalf_of_email: 'alice@windmill.dev'
 				})
 			})
 		)
 	})
 
-	it('script: omits the flag when the draft has no on_behalf_of_email', async () => {
-		vi.mocked(ScriptService.getScriptByPath).mockResolvedValueOnce({
-			hash: 'v1',
-			draft: { path: 'f/admin/send_email' }
-		} as any)
-
-		await deployDraft('script', 'f/admin/send_email', 'ws')
-		expect(ScriptService.createScript).toHaveBeenCalledWith(
-			expect.objectContaining({
-				requestBody: expect.objectContaining({ preserve_on_behalf_of: undefined })
-			})
-		)
-	})
-
-	it('flow: forwards the flag when the draft carries an on_behalf_of_email', async () => {
+	it('flow: sends the identity the draft carries', async () => {
 		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
 			draft: { path: 'f/admin/notify', value: {}, on_behalf_of_email: 'alice@windmill.dev' }
 		} as any)
@@ -116,8 +100,7 @@ describe('deployDraft preserves on_behalf_of', () => {
 		expect(FlowService.updateFlow).toHaveBeenCalledWith(
 			expect.objectContaining({
 				requestBody: expect.objectContaining({
-					on_behalf_of_email: 'alice@windmill.dev',
-					preserve_on_behalf_of: true
+					on_behalf_of_email: 'alice@windmill.dev'
 				})
 			})
 		)
@@ -135,8 +118,7 @@ describe('deployDraft preserves on_behalf_of', () => {
 		expect(ResourceService.updateResource).toHaveBeenCalledWith(
 			expect.objectContaining({
 				requestBody: expect.objectContaining({
-					value: { system_prompt: 'drafted', on_behalf_of: 'u/alice' },
-					preserve_on_behalf_of: true
+					value: { system_prompt: 'drafted', on_behalf_of: 'u/alice' }
 				})
 			})
 		)

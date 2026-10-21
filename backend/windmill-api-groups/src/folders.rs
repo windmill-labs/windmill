@@ -30,6 +30,7 @@ use windmill_common::{
 };
 use windmill_common::{
     error::Error,
+    folders::{resolve_folder_default_rule, FolderDefaultPermissionedAsRule},
     webhook::{WebhookMessage, WebhookShared},
     workspaces::{check_deploy_rules, RuleCheckResult},
 };
@@ -51,6 +52,10 @@ pub fn workspaced_service() -> Router {
         .route("/addowner/{name}", post(add_owner))
         .route("/removeowner/{name}", post(remove_owner))
         .route("/is_owner/{*path}", get(is_owner_api))
+        .route(
+            "/default_permissioned_as/{*path}",
+            get(get_default_permissioned_as),
+        )
 }
 
 #[derive(FromRow, Serialize, Deserialize, Clone)]
@@ -669,6 +674,26 @@ async fn get_folder(
 
     tx.commit().await?;
     Ok(Json(folder))
+}
+
+async fn get_default_permissioned_as(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, path)): Path<(String, String)>,
+) -> JsonResult<Option<FolderDefaultPermissionedAsRule>> {
+    let Some(folder) = path.strip_prefix("f/").and_then(|p| p.split('/').next()) else {
+        return Ok(Json(None));
+    };
+    check_scopes(&authed, || format!("folders:read:f/{}", folder))?;
+    // The resolver reads through the non-RLS pool, so only a caller who can see the folder learns its rules.
+    let mut tx = user_db.begin(&authed).await?;
+    let visible = get_folderopt(&mut tx, &w_id, folder).await?.is_some();
+    tx.commit().await?;
+    if !visible {
+        return Ok(Json(None));
+    }
+    Ok(Json(resolve_folder_default_rule(&db, &w_id, &path).await?))
 }
 
 async fn exists_folder(

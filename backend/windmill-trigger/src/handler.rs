@@ -6,7 +6,7 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
-use crate::types::{HasPath, StandardTriggerQuery, TriggerData, TriggerMode};
+use crate::types::{BaseTriggerData, HasPath, StandardTriggerQuery, TriggerData, TriggerMode};
 use async_trait::async_trait;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sql_builder::{bind::Bind, SqlBuilder};
@@ -532,6 +532,22 @@ pub fn trigger_routes<T: TriggerCrud + 'static>() -> Router {
     router
 }
 
+/// Resolves a named `permissioned_as` the way a script's identity is, on the pool and before the
+/// write's transaction: an address becomes the principal it names, and one that names nobody is
+/// refused here rather than at the trigger's first run.
+pub async fn resolve_requested_permissioned_as(
+    base: &mut BaseTriggerData,
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+) -> Result<()> {
+    if let Some(requested) = base.permissioned_as.take().filter(|pa| !pa.is_empty()) {
+        base.permissioned_as =
+            windmill_common::resolve_on_behalf_of(None, Some(&requested), authed, w_id, db).await?;
+    }
+    Ok(())
+}
+
 async fn create_trigger<T: TriggerCrud>(
     Extension(handler): Extension<Arc<T>>,
     authed: ApiAuthed,
@@ -562,6 +578,8 @@ async fn create_trigger<T: TriggerCrud>(
         .validate_new(&db, &workspace_id, &new_trigger.config)
         .await?;
 
+    resolve_requested_permissioned_as(&mut new_trigger.base, &authed, &db, &workspace_id).await?;
+
     let mut tx = user_db.begin(&authed).await?;
 
     // Writing into a fork never sets operational state: force `disabled` so a
@@ -574,12 +592,11 @@ async fn create_trigger<T: TriggerCrud>(
     let new_path = new_trigger.base.path.clone();
     let labels = new_trigger.base.labels.clone();
 
-    // If the caller did not preserve a value but the user can preserve, fall back
-    // to the folder's default_permissioned_as rule (create-time only).
-    let explicit_preserve = new_trigger.base.permissioned_as.is_some()
-        && new_trigger.base.preserve_permissioned_as.unwrap_or(false)
-        && windmill_common::can_preserve_on_behalf_of(&authed);
-    if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
+    // A trigger that names nobody takes the folder's default_permissioned_as rule, for a caller
+    // allowed to keep one (create-time only; see `names_nobody`).
+    if windmill_common::names_nobody(None, new_trigger.base.permissioned_as.as_deref())
+        && windmill_common::can_preserve_on_behalf_of(&authed)
+    {
         if let Some(default) = windmill_common::folders::resolve_folder_default_permissioned_as(
             &db,
             &workspace_id,
@@ -588,7 +605,6 @@ async fn create_trigger<T: TriggerCrud>(
         .await?
         {
             new_trigger.base.permissioned_as = Some(default);
-            new_trigger.base.preserve_permissioned_as = Some(true);
         }
     }
 
@@ -598,10 +614,8 @@ async fn create_trigger<T: TriggerCrud>(
     windmill_common::auth::validate_on_behalf_of(Some(&resolved_permissioned_as), None)?;
 
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
-        new_trigger.base.permissioned_as.as_deref(),
-        new_trigger.base.preserve_permissioned_as.unwrap_or(false),
-        &authed,
-        &authed.username,
+        Some(&resolved_permissioned_as),
+        &windmill_common::users::username_to_permissioned_as(&authed.username),
     );
 
     handler
@@ -834,6 +848,8 @@ async fn update_trigger<T: TriggerCrud>(
         .validate_edit(&db, &workspace_id, &edit_trigger.config, path)
         .await?;
 
+    resolve_requested_permissioned_as(&mut edit_trigger.base, &authed, &db, &workspace_id).await?;
+
     let mut tx = user_db.begin(&authed).await?;
 
     // Preserve the existing DB `mode` instead of writing the incoming value
@@ -868,10 +884,8 @@ async fn update_trigger<T: TriggerCrud>(
     windmill_common::auth::validate_on_behalf_of(Some(&resolved_permissioned_as), None)?;
 
     let on_behalf_of_info = windmill_common::check_on_behalf_of_preservation(
-        edit_trigger.base.permissioned_as.as_deref(),
-        edit_trigger.base.preserve_permissioned_as.unwrap_or(false),
-        &authed,
-        &authed.username,
+        Some(&resolved_permissioned_as),
+        &windmill_common::users::username_to_permissioned_as(&authed.username),
     );
 
     let before =

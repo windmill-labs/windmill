@@ -1140,20 +1140,13 @@ fn lock_hash_entry(path: &str, lock: &str) -> [(String, i64); 1] {
 async fn resolve_deploy_identity(
     on_behalf_of_email: Option<&str>,
     on_behalf_of: Option<&str>,
-    preserve: bool,
     authed: &ApiAuthed,
     w_id: &str,
     db: &DB,
 ) -> Result<(Option<String>, Option<String>)> {
-    let resolved = windmill_common::resolve_on_behalf_of(
-        on_behalf_of_email,
-        on_behalf_of,
-        preserve,
-        authed,
-        w_id,
-        db,
-    )
-    .await?;
+    let resolved =
+        windmill_common::resolve_on_behalf_of(on_behalf_of_email, on_behalf_of, authed, w_id, db)
+            .await?;
     let legacy_email =
         windmill_common::legacy_on_behalf_of_email(resolved.as_deref(), w_id, db).await?;
     Ok((resolved, legacy_email))
@@ -1193,8 +1186,7 @@ async fn resolve_folder_default_identity(
         return Ok(None);
     };
     let identity =
-        resolve_deploy_identity(Some(&email), Some(&permissioned_as), true, authed, w_id, db)
-            .await?;
+        resolve_deploy_identity(Some(&email), Some(&permissioned_as), authed, w_id, db).await?;
     Ok(Some((email, permissioned_as, identity)))
 }
 
@@ -1408,24 +1400,22 @@ async fn create_script_internal<'c>(
     // Everything read from `db` happens before `tx` opens: `user_db` wraps the same pool, so a
     // deploy taking a second connection while holding `tx` lets N concurrent deploys hold the
     // whole pool between them and each wait out the acquire timeout for one more.
-    let explicit_preserve = (ns.on_behalf_of_email.is_some() || ns.on_behalf_of.is_some())
-        && ns.preserve_on_behalf_of.unwrap_or(false)
-        && windmill_common::can_preserve_on_behalf_of(&authed);
+    let takes_folder_default =
+        windmill_common::names_nobody(ns.on_behalf_of_email.as_deref(), ns.on_behalf_of.as_deref())
+            && windmill_common::can_preserve_on_behalf_of(&authed);
     // Held rather than raised: a rule naming a principal that no longer exists fails here, and
     // must fail only a first deploy, which is all the default applies to.
-    let folder_default =
-        if !explicit_preserve && windmill_common::can_preserve_on_behalf_of(&authed) {
-            resolve_folder_default_identity(&authed, &w_id, &ns.path, &db).await
-        } else {
-            Ok(None)
-        };
+    let folder_default = if takes_folder_default {
+        resolve_folder_default_identity(&authed, &w_id, &ns.path, &db).await
+    } else {
+        Ok(None)
+    };
     // Resolved here rather than at the INSERT so the no-op check below compares the identity
     // that would actually be stored: the parent row holds only the principal, while a
-    // preserving push may name that same principal by address alone.
+    // push keeping it may name that same principal by address alone.
     let requested_identity = resolve_deploy_identity(
         ns.on_behalf_of_email.as_deref(),
         ns.on_behalf_of.as_deref(),
-        ns.preserve_on_behalf_of.unwrap_or(false),
         &authed,
         &w_id,
         &db,
@@ -1464,7 +1454,6 @@ async fn create_script_internal<'c>(
             Some((default_email, default_permissioned_as, identity)) => {
                 ns.on_behalf_of_email = Some(default_email);
                 ns.on_behalf_of = Some(default_permissioned_as);
-                ns.preserve_on_behalf_of = Some(true);
                 identity
             }
             None => requested_identity,
@@ -2739,8 +2728,6 @@ async fn create_script_internal<'c>(
         .await?;
         if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
             resolved_on_behalf_of.as_deref(),
-            ns.preserve_on_behalf_of.unwrap_or(false),
-            &authed,
             &authed_principal,
         ) {
             audit_log(
@@ -2787,8 +2774,6 @@ async fn create_script_internal<'c>(
         .await?;
         if let Some(on_behalf_of) = windmill_common::check_on_behalf_of_preservation(
             resolved_on_behalf_of.as_deref(),
-            ns.preserve_on_behalf_of.unwrap_or(false),
-            &authed,
             &authed_principal,
         ) {
             audit_log(

@@ -456,10 +456,10 @@ export function basePolicy(
 
 /** Claim the run-as identity the regenerated policy carries over from the
  * deployed app. Only a deployed identity may be claimed, never one the tracked
- * file states — a repo doesn't get to pick who an app runs as. Without the flag
- * the backend rewrites `on_behalf_of` to whoever is pushing, and it only honors
- * the flag for an admin or a `wm_deployers` member, so a caller who is neither
- * doesn't get to claim it here either. */
+ * file states — a repo doesn't get to pick who an app runs as. The backend keeps
+ * a named `on_behalf_of` only for an admin or a `wm_deployers` member (older
+ * servers only with the flag), so a caller who is neither doesn't get to claim it
+ * here either. */
 export function preserveOnBehalfOfFields(
   remotePath: string,
   deployedPolicy: Policy | undefined,

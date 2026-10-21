@@ -185,7 +185,6 @@
 		}),
 		currentEditor: writable(undefined),
 		outputPickerOpenFns: {},
-		preserveOnBehalfOf: writable(false),
 		savedOnBehalfOfEmail: writable<string | undefined>(undefined),
 		savedOnBehalfOfPermissionedAs: writable<string | undefined>(undefined),
 		...(outer ?? {}),
@@ -469,7 +468,7 @@
 			sendUserToast(`Cannot deploy the agent: ${pathErrorValue}`, true)
 			return Promise.resolve(false)
 		}
-		const keep = draft.onBehalfOf ? { permissionedAs: draft.onBehalfOf, preserve: true } : undefined
+		const keep = draft.onBehalfOf ? { permissionedAs: draft.onBehalfOf } : undefined
 		return draft.deploy(runAs ?? keep).then(async (written) => {
 			// The path the write landed on, which a rename moves off the one this editor opened.
 			if (written) await onSaved?.(written)

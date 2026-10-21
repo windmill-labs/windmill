@@ -26,7 +26,6 @@ export async function saveAmqpTriggerFromCfg(
 		is_flow: cfg.is_flow,
 		mode: cfg.mode,
 		permissioned_as: cfg.permissioned_as,
-		preserve_permissioned_as: cfg.preserve_permissioned_as,
 		...errorHandlerAndRetries
 	}
 	try {

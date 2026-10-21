@@ -1,7 +1,23 @@
 import { FolderService } from '$lib/gen'
-import { Minimatch } from 'minimatch'
 import { resource } from 'runed'
+import { untrack } from 'svelte'
 import { workspaceStore, userStore } from '$lib/stores'
+
+/** The folder rule a create at `path` takes on the server, for a caller it applies to. */
+export async function resolveFolderDefaultPermissionedAs(
+	workspace: string,
+	path: string
+): Promise<string | undefined> {
+	if (!path.startsWith('f/')) return undefined
+	try {
+		return (
+			(await FolderService.getFolderDefaultPermissionedAs({ workspace, path }))?.permissioned_as ??
+			undefined
+		)
+	} catch {
+		return undefined
+	}
+}
 
 /**
  * Resolves the folder's `default_permissioned_as` rule that matches a given item path.
@@ -36,29 +52,8 @@ export function useFolderDefaultPermissionedAs(
 		async ({ path, workspace, user }) => {
 			const canPreserve =
 				user?.is_admin || user?.is_super_admin || (user?.groups ?? []).includes('wm_deployers')
-			if (!canPreserve || !workspace || !path?.startsWith('f/')) {
-				return undefined
-			}
-			const parts = path.split('/')
-			if (parts.length < 3) return undefined
-			const folderName = parts[1]
-			const relative = path.slice(`f/${folderName}/`.length)
-			if (!relative) return undefined
-
-			try {
-				const folder = await FolderService.getFolder({ workspace, name: folderName })
-				const rules = folder.default_permissioned_as ?? []
-				const match = rules.find((rule) => {
-					try {
-						return new Minimatch(rule.path_glob).match(relative)
-					} catch {
-						return false
-					}
-				})
-				return match?.permissioned_as
-			} catch {
-				return undefined
-			}
+			if (!canPreserve || !workspace || !path) return undefined
+			return resolveFolderDefaultPermissionedAs(workspace, path)
 		}
 	)
 
@@ -69,5 +64,57 @@ export function useFolderDefaultPermissionedAs(
 		get loading() {
 			return folderResource.loading
 		}
+	}
+}
+
+/**
+ * Seeds a new script's or flow's run-as with the folder rule its path matches, so the editor
+ * shows, and the deploy sends, the identity the rule would give it. The principal is sent
+ * alone; the server derives the address. An identity the user or a seed chose is left alone,
+ * and one seeded here is cleared again once the path stops matching.
+ */
+export function useFolderDefaultRunAs(
+	newPathGetter: () => string | undefined,
+	wsGetter: () => string | undefined,
+	runAs: {
+		get: () => { on_behalf_of_email?: string; on_behalf_of?: string }
+		set: (permissionedAs: string | undefined) => void
+	}
+) {
+	const folderDefault = useFolderDefaultPermissionedAs(newPathGetter, wsGetter)
+	let seeded: string | undefined = undefined
+	$effect(() => {
+		// Creation ending (the first deploy) is not the path leaving the rule: keep the identity.
+		if (newPathGetter() === undefined || folderDefault.loading) return
+		const rule = folderDefault.value
+		untrack(() => {
+			if (rule === seeded) return
+			const current = runAs.get()
+			const ours =
+				seeded === undefined
+					? !current.on_behalf_of_email && !current.on_behalf_of
+					: current.on_behalf_of === seeded
+			if (!ours) return
+			seeded = rule
+			runAs.set(rule)
+		})
+	})
+	return folderDefault
+}
+
+/**
+ * Folder rules a deploy into another workspace meets, looked up once per item on first read.
+ * Only an item new in that workspace takes one, so callers ask only for those.
+ */
+export function createFolderDefaultLookup() {
+	const values = $state<Record<string, string | undefined>>({})
+	const requested = new Set<string>()
+	return (workspace: string, path: string): string | undefined => {
+		const key = `${workspace}:${path}`
+		if (!requested.has(key)) {
+			requested.add(key)
+			resolveFolderDefaultPermissionedAs(workspace, path).then((v) => (values[key] = v))
+		}
+		return values[key]
 	}
 }

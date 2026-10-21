@@ -32,8 +32,7 @@ export async function saveWebsocketTriggerFromCfg(
 		can_return_error_result: triggerCfg.can_return_error_result,
 		heartbeat: triggerCfg.heartbeat,
 		...errorHandlerAndRetries,
-		permissioned_as: triggerCfg.permissioned_as,
-		preserve_permissioned_as: triggerCfg.preserve_permissioned_as
+		permissioned_as: triggerCfg.permissioned_as
 	}
 	try {
 		if (edit) {

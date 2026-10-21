@@ -6,6 +6,7 @@
 	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import { userStore } from '$lib/stores'
 	import { AlertTriangle } from 'lucide-svelte'
+	import { untrack } from 'svelte'
 	import {
 		useOperatingUser,
 		useOperatingWorkspace
@@ -15,7 +16,7 @@
 		/** Current permissioned_as value from the trigger (e.g., 'u/admin') */
 		permissionedAs: string | undefined
 		/** Callback when user changes the permissioned_as selection */
-		onPermissionedAsChange: (permissionedAs: string | undefined, preserve: boolean) => void
+		onPermissionedAsChange: (permissionedAs: string | undefined) => void
 		/**
 		 * Item path (e.g. `f/prod/my_trigger`). When provided and the user is an
 		 * admin/wm_deployers member, the component fetches the parent folder's
@@ -63,10 +64,13 @@
 	// On creation with no folder default, default to "me". When the folder default
 	// loads async, transition to undefined so OnBehalfOfSelector's auto-select applies
 	// the folder default. Skip if the user has already made an explicit selection.
+	// The default is sent as shown: naming nobody would let the server apply a rule this
+	// editor did not see, so a save could land on an identity other than the one displayed.
 	$effect(() => {
 		if (userHasSelected) return
 		if (permissionedAs === undefined && !folderDefault.value) {
 			onBehalfOfChoice = 'me'
+			if (canPreserve && !disabled) untrack(() => onPermissionedAsChange(myPermissionedAs))
 		} else {
 			onBehalfOfChoice = undefined
 		}
@@ -89,7 +93,7 @@
 	)
 
 	// For non-admin users editing a trigger owned by someone else: signal that
-	// permissioned_as will change to the current user (backend ignores preserve for non-admins).
+	// permissioned_as will change to the current user (the backend gives non-admins their own).
 	// Only fires when there's an actual change (DB value differs from current user).
 	$effect(() => {
 		if (
@@ -98,7 +102,7 @@
 			permissionedAs !== undefined &&
 			permissionedAs !== myPermissionedAs
 		) {
-			onPermissionedAsChange(undefined, false)
+			onPermissionedAsChange(undefined)
 		}
 	})
 
@@ -107,13 +111,13 @@
 		onBehalfOfChoice = choice
 		if (choice === 'target') {
 			customPermissionedAs = undefined
-			onPermissionedAsChange(permissionedAs, true)
+			onPermissionedAsChange(permissionedAs)
 		} else if (choice === 'custom' && details) {
 			customPermissionedAs = details.permissionedAs
-			onPermissionedAsChange(details.permissionedAs, true)
+			onPermissionedAsChange(details.permissionedAs)
 		} else {
 			customPermissionedAs = undefined
-			onPermissionedAsChange(undefined, false)
+			onPermissionedAsChange(myPermissionedAs)
 		}
 	}
 </script>

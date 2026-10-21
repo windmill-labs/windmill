@@ -5,7 +5,7 @@
 		aiAgentModuleDependencies,
 		collectTransformRefs
 	} from './deployDependencies'
-	import { enterpriseLicense, superadmin } from '$lib/stores'
+	import { enterpriseLicense, superadmin, userStore } from '$lib/stores'
 	import {
 		AppService,
 		FlowService,
@@ -48,6 +48,7 @@
 		type OnBehalfOfChoice,
 		type OnBehalfOfDetails
 	} from './OnBehalfOfSelector.svelte'
+	import { createFolderDefaultLookup } from './useFolderDefaultPermissionedAs.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -104,6 +105,10 @@
 	let onBehalfOfChoice = $state<Record<string, OnBehalfOfChoice>>({})
 	let customOnBehalfOf = $state<Record<string, OnBehalfOfDetails>>({})
 	let canPreserveOnBehalfOf = $state(false)
+	// An item new in the target takes the target folder's rule unless the deploy names someone.
+	const targetFolderDefault = createFolderDefaultLookup()
+	/** Who the deploy acts as in the target: on a remote instance, the remote token's user. */
+	let deployerEmail = $state<string | undefined>(undefined)
 
 	// Check if an item needs on_behalf_of selection
 	function itemNeedsOnBehalfOfSelection(statusPath: string, kind: string): boolean {
@@ -127,7 +132,9 @@
 			const details = customOnBehalfOf[statusPath]
 			return usesPrincipal(kind) ? details?.permissionedAs : details?.email
 		}
-		// 'me' or undefined = don't pass, backend will use deploying user's identity
+		// Every other kind takes the deploying user's identity when it names none, but a script
+		// or flow deployed naming none runs without one, so "me" has to be sent for those.
+		if (choice === 'me' && (kind === 'script' || kind === 'flow')) return deployerEmail
 		return undefined
 	}
 
@@ -161,6 +168,7 @@
 			// Being superadmin here says nothing about the other instance, so a remote target is
 			// always asked.
 			let canPreserve = true
+			let email = $userStore?.email
 			if (!$superadmin || isRemote) {
 				const targetUser = await UserService.whoami({ workspace: target! })
 				canPreserve =
@@ -168,9 +176,11 @@
 					targetUser.is_super_admin ||
 					targetUser.groups?.includes('wm_deployers') ||
 					false
+				email = targetUser.email
 			}
 			if (!stillCurrent()) return
 			canPreserveOnBehalfOf = canPreserve
+			deployerEmail = email
 			canSeeTarget = 'yes'
 		} catch (e: any) {
 			if (!stillCurrent()) return
@@ -641,6 +651,9 @@
 						kind={item.kind}
 						canPreserve={canPreserveOnBehalfOf}
 						customValue={customOnBehalfOf[statusPath]?.permissionedAs}
+						folderDefault={canPreserveOnBehalfOf && exists === false
+							? targetFolderDefault(workspaceToDeployTo!, item.path)
+							: undefined}
 					/>
 				{/if}
 
