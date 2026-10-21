@@ -458,6 +458,39 @@ async fn test_broken_handler_does_not_starve_other_workspaces(
     Ok(())
 }
 
+/// A pass's worth of workspaces with broken handlers and older expiries must not starve a
+/// healthy one forever: their rows stay due, so every pass would pick them again.
+#[sqlx::test(fixtures("base"))]
+async fn test_many_broken_handlers_do_not_starve_a_healthy_one(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    seed_handler_script(&db, "u/test-user/expiry_handler").await?;
+    configure_handler(&db, r#"{"path": "script/u/test-user/expiry_handler"}"#).await?;
+    seed_variable(&db, "u/test-user/due", "30 minutes").await?;
+    sqlx::raw_sql(
+        r#"INSERT INTO workspace (id, name, owner) SELECT 'broken-' || i, 'broken-' || i, 'test-user' FROM generate_series(1, 100) i;
+           INSERT INTO workspace_key (workspace_id, kind, key) SELECT 'broken-' || i, 'cloud', 'k' FROM generate_series(1, 100) i;
+           INSERT INTO workspace_settings (workspace_id, variable_expiration_handler)
+           SELECT 'broken-' || i, '{"path": "script/u/test-user/does_not_exist"}'::jsonb FROM generate_series(1, 100) i;
+           INSERT INTO variable (workspace_id, path, value, is_secret, description, value_valid_until)
+           SELECT 'broken-' || i, 'f/creds/v', 'v', false, '', now() - interval '1 day' FROM generate_series(1, 100) i;"#,
+    )
+    .execute(&db)
+    .await?;
+
+    for _ in 0..10 {
+        dispatch_expiring_variables(&db).await;
+    }
+
+    assert_eq!(
+        queued_handler_jobs(&db, "u/test-user/expiry_handler").await?,
+        1,
+        "the healthy workspace never got a pass"
+    );
+    Ok(())
+}
+
 /// The handler endpoint: admin-only, existence-checked, and clearing by omission, which
 /// `wmill sync push` relies on to propagate an absent handler.
 #[sqlx::test(fixtures("base"))]
@@ -503,6 +536,11 @@ async fn test_edit_handler_endpoint(db: Pool<Postgres>) -> anyhow::Result<()> {
         );
     }
 
+    // A handler that failed to start waits out its retry delay; saving a fix must not.
+    sqlx::query("UPDATE workspace_settings SET variable_expiration_retry_at = now() + interval '1 hour' WHERE workspace_id = $1")
+        .bind(WS)
+        .execute(&db)
+        .await?;
     assert_eq!(edit("SECRET_TOKEN", handler).await?, 200);
     assert_eq!(
         stored()
@@ -510,6 +548,13 @@ async fn test_edit_handler_endpoint(db: Pool<Postgres>) -> anyhow::Result<()> {
             .and_then(|h| h["path"].as_str().map(String::from)),
         Some("script/u/test-user/expiry_handler".to_string())
     );
+    let waiting: bool = sqlx::query_scalar(
+        "SELECT variable_expiration_retry_at IS NOT NULL FROM workspace_settings WHERE workspace_id = $1",
+    )
+    .bind(WS)
+    .fetch_one(&db)
+    .await?;
+    assert!(!waiting, "saving the handler must end its retry delay");
 
     // `extra_args` holds the built-ins' channel. The endpoint replaces the setting rather than
     // merging, so the settings tab sends back what it loaded.

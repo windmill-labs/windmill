@@ -6255,7 +6255,7 @@ async fn edit_variable_expiration_handler(
         }
 
         sqlx::query!(
-            "UPDATE workspace_settings SET variable_expiration_handler = $1 WHERE workspace_id = $2",
+            "UPDATE workspace_settings SET variable_expiration_handler = $1, variable_expiration_retry_at = NULL WHERE workspace_id = $2",
             variable_expiration_handler,
             &w_id
         )
@@ -6263,7 +6263,7 @@ async fn edit_variable_expiration_handler(
         .await?;
     } else {
         sqlx::query!(
-            "UPDATE workspace_settings SET variable_expiration_handler = NULL WHERE workspace_id = $1",
+            "UPDATE workspace_settings SET variable_expiration_handler = NULL, variable_expiration_retry_at = NULL WHERE workspace_id = $1",
             &w_id
         )
         .execute(&mut *tx)
