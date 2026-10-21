@@ -81,9 +81,12 @@ affects its own connection, and is no more than a Python job could do.
 
 ## The engine
 
-The runner links duckdb-rs from crates.io, pinned with `=` so `cargo update` cannot move the
-engine. The engine loads the **prebuilt** extensions from `extensions.duckdb.org`, compiled for the
-exact release it reports, so an engine bump is a version change in `Cargo.toml` and nothing else.
+The runner links duckdb-rs pinned exactly (`=` on crates.io, or a git `rev`) so `cargo update`
+cannot move the engine. The engine loads the **prebuilt** extensions from `extensions.duckdb.org`,
+compiled for the exact release it reports, so an engine bump is a version change in `Cargo.toml`
+and nothing else. The reported version comes from the vendored sources' `pragma_version.cpp`: a
+build that calls itself `vX.Y.Z-devN` downloads from a per-commit path that does not exist, and
+every extension `INSTALL` 404s. Check `SELECT version()` after a bump.
 
 What a bump can break is user scripts and shared state, so a major one keeps the previous major's
 behavior and leaves the new one opt-in:
