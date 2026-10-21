@@ -66,7 +66,8 @@ function deployer(workspace: string) {
 
 /**
  * The folder rule the server applies to a create at `path`. A server without the lookup route
- * answers with an error, read as no rule.
+ * answers 404, read as no rule. Any other error, such as a rule naming a removed user, is thrown:
+ * read as no rule, it would deploy as the pusher where the server refuses the create.
  */
 export async function folderDefaultPermissionedAs(
   workspace: string,
@@ -75,8 +76,9 @@ export async function folderDefaultPermissionedAs(
   if (!path.startsWith("f/")) return undefined;
   try {
     return (await wmill.getFolderDefaultPermissionedAs({ workspace, path }))?.permissioned_as;
-  } catch {
-    return undefined;
+  } catch (e: any) {
+    if (e?.status === 404) return undefined;
+    throw e;
   }
 }
 
