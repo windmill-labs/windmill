@@ -35,7 +35,7 @@
 	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
 	import { emptyString } from '$lib/utils'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { useActingUser } from '$lib/actingUser.svelte'
+	import { useEditRights } from '$lib/operatorWriteRights'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -135,16 +135,17 @@
 	let draftOnly = $derived(draft?.noDeployed ?? false)
 	// Evals run against the deployed agent, and a draft-only one has none: the backend's
 	// `require_agent` would reject every run. Evaluating is authoring, so it is for those who can
-	// edit the agent, except an operator: eval datasets are refused to them whatever their builder
-	// rights. Unknown until the load answers, and warming the pane loads it.
-	const acting = useActingUser(() => ws)
+	// edit the agent, except a role without `code`: eval datasets are refused to it
+	// (`check_role_can_code`) whatever its flows right. Unknown until the load answers, and warming
+	// the pane loads it.
+	const editRights = useEditRights(() => ws)
 	let canEvaluate = $derived(
 		draft != undefined &&
 			!draft.loading &&
 			!draftOnly &&
 			!readOnly &&
 			!refused &&
-			acting.current?.operator === false
+			editRights.capabilities.code
 	)
 	// The draft's path, so a rename shows where it is typed — including a never-deployed agent,
 	// stored at a minted `draft_<uuid>` path and named by the path its first deploy will create,
