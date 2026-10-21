@@ -91,6 +91,9 @@
 	} from '$lib/components/sessions/sessionState.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import CollapseLink from '$lib/components/CollapseLink.svelte'
+	import CopyableCodeBlock from '$lib/components/details/CopyableCodeBlock.svelte'
+	import { slackAppManifest } from '$lib/components/common/slack/slackAppManifest'
+	import { yaml } from 'svelte-highlight/languages'
 	import { validateWebhookUrl, validateEncryptionKey } from '$lib/validators/workspaceSettings'
 	import DataTableSettings, {
 		convertDataTableSettingsFromBackend,
@@ -174,11 +177,11 @@
 	// links here with `agents=true`.
 	let slackAgents = $state($page.url.searchParams.get('agents') === 'true')
 	let slackAppType: 'instance' | 'workspace' = $state('instance')
-	// Agents verify Slack's requests with the server's signing secret, which only the instance's
-	// Slack app is signed with, so the toggle is offered for that app alone.
-	let slackAgentsScopes = $derived(slackAgents && slackAppType === 'instance')
+	// Agents answer only once Windmill can verify Slack's requests with the signing secret of the
+	// app the workspace connects through.
+	let slackSigningSecret: string = $state('')
 	const slackAgentsStatus = resource(
-		() => (slackAgentsScopes ? $workspaceStore : undefined),
+		() => (slackAgents || slackOAuthConfigLoaded ? $workspaceStore : undefined),
 		async (workspace) =>
 			workspace ? await SlackAgentsService.getSlackAgentsStatus({ workspace }) : undefined
 	)
@@ -892,11 +895,31 @@
 					slack_oauth_client_secret: slackOAuthClientSecret
 				}
 			})
+			await WorkspaceService.setWorkspaceSlackSigningSecret({
+				workspace: $workspaceStore,
+				requestBody: { slack_signing_secret: slackSigningSecret || null }
+			})
 
 			// Redirect to OAuth flow
-			window.location.href = `/api/oauth/connect_slack?workspace=${$workspaceStore}`
+			window.location.href = `/api/oauth/connect_slack?workspace=${$workspaceStore}${slackAgents ? '&agents=true' : ''}`
 		} catch (e) {
 			sendUserToast('Failed to save Slack OAuth configuration', true)
+			console.error(e)
+		}
+	}
+
+	async function saveSlackSigningSecret(): Promise<void> {
+		if (!$workspaceStore) return
+		try {
+			await WorkspaceService.setWorkspaceSlackSigningSecret({
+				workspace: $workspaceStore,
+				requestBody: { slack_signing_secret: slackSigningSecret || null }
+			})
+			slackSigningSecret = ''
+			slackAgentsStatus.refetch()
+			sendUserToast('Signing secret saved')
+		} catch (e) {
+			sendUserToast('Failed to save the signing secret', true)
 			console.error(e)
 		}
 	}
@@ -1733,7 +1756,7 @@
 											}
 										}}
 										onSelect={editSlackCommand}
-										connectHref="/api/oauth/connect_slack{slackAgentsScopes ? '?agents=true' : ''}"
+										connectHref="/api/oauth/connect_slack{slackAgents ? '?agents=true' : ''}"
 										createScriptHref="/scripts/add?hub=hub%2F28071%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
 										createFlowHref="/flows/add?hub=28"
 										documentationLink="https://www.windmill.dev/docs/integrations/slack"
@@ -1768,22 +1791,21 @@
 															if you want to use a specific Slack app for this workspace.</div
 														>
 													</div>
-													{#if slackAppType === 'instance'}
-														<Toggle
-															size="xs"
-															bind:checked={slackAgents}
-															options={{
-																right: 'Let AI agents answer in Slack',
-																rightTooltip:
-																	'Lets editors share agents in Slack channels, where people ask them by mentioning the bot. Needs users:read, users:read.email and channels:read on the Slack app.'
-															}}
-														/>
-														{#if slackAgentsStatus.current?.signing_secret_set === false}
-															<Alert type="warning" size="xs" title="Agents won't answer yet">
-																An instance admin needs to set the Slack app's signing secret as the
-																<code>SLACK_SIGNING_SECRET</code> environment variable.
-															</Alert>
-														{/if}
+													<Toggle
+														size="xs"
+														bind:checked={slackAgents}
+														options={{
+															right: 'Let AI agents answer in Slack',
+															rightTooltip:
+																'Lets editors share agents in Slack channels, where people ask them by mentioning the bot. Needs users:read, users:read.email and channels:read on the Slack app.'
+														}}
+													/>
+													{#if slackAppType === 'instance' && slackAgentsStatus.current?.signing_secret_set === false}
+														<Alert type="warning" size="xs" title="Agents won't answer yet">
+															An instance admin needs to set the Slack app's signing secret in the
+															instance settings, or as the <code>SLACK_SIGNING_SECRET</code> environment
+															variable.
+														</Alert>
 													{/if}
 												</div>
 											{/if}
@@ -1800,6 +1822,32 @@
 													/>
 													<div class="text-2xs text-hint"
 														>Client ID for the Slack app configured at the workspace level</div
+													>
+												</div>
+												<div class="flex flex-col gap-1">
+													<div class="text-xs text-primary font-normal">Signing secret</div>
+													<div class="flex gap-2">
+														<TextInput
+															inputProps={{
+																type: 'password',
+																placeholder: slackAgentsStatus.current?.signing_secret_set
+																	? 'Set, enter a new one to replace it'
+																	: 'Enter signing secret'
+															}}
+															bind:value={slackSigningSecret}
+														/>
+														<Button
+															unifiedSize="md"
+															variant="default"
+															onclick={saveSlackSigningSecret}
+															disabled={!slackSigningSecret}
+														>
+															Save
+														</Button>
+													</div>
+													<div class="text-2xs text-hint"
+														>From the Slack app's Basic Information page. Lets Windmill check that
+														requests come from Slack; AI agents answer in Slack only once it is set.</div
 													>
 												</div>
 											{:else if slackAppType === 'workspace'}
@@ -1826,20 +1874,41 @@
 														/>
 													</label>
 
+													<label class="flex flex-col gap-1">
+														<span class="text-primary font-semibold text-xs">Signing secret</span>
+														<TextInput
+															inputProps={{
+																type: 'password',
+																placeholder: 'Enter signing secret'
+															}}
+															bind:value={slackSigningSecret}
+														/>
+														<span class="text-2xs text-hint"
+															>Lets Windmill check that requests come from Slack. Needed for AI
+															agents to answer in Slack.</span
+														>
+													</label>
+
 													<CollapseLink text="Instructions">
-														<div class="text-xs text-secondary">
-															Create a Slack app at{' '}
-															<a
-																href="https://api.slack.com/apps"
-																target="_blank"
-																rel="noopener noreferrer"
-																class="text-blue-600 dark:text-blue-400 hover:underline"
-															>
-																Slack API
-															</a>. Set the redirect URI to:{' '}
-															<code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">
-																{window.location.origin}/oauth/callback_slack
-															</code>
+														<div class="flex flex-col gap-2 text-xs text-secondary">
+															<span>
+																Create a Slack app at{' '}
+																<a
+																	href="https://api.slack.com/apps?new_app=1"
+																	target="_blank"
+																	rel="noopener noreferrer"
+																	class="text-blue-600 dark:text-blue-400 hover:underline"
+																>
+																	Slack API
+																</a>: pick "From a manifest", then YAML, and paste the manifest below. Then
+																copy the Client ID, Client Secret and Signing Secret here.
+															</span>
+															<div class="flex flex-col max-h-80 [&>div]:min-h-0">
+																<CopyableCodeBlock
+																	code={slackAppManifest(window.location.origin)}
+																	language={yaml}
+																/>
+															</div>
 														</div>
 													</CollapseLink>
 

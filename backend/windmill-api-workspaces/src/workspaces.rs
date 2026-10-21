@@ -113,6 +113,7 @@ pub fn workspaced_service() -> Router {
         .route("/slack_oauth_config", get(get_slack_oauth_config))
         .route("/slack_oauth_config", post(set_slack_oauth_config))
         .route("/slack_oauth_config", delete(delete_slack_oauth_config))
+        .route("/slack_signing_secret", post(set_slack_signing_secret))
         .route("/edit_webhook", post(edit_webhook))
         .route("/edit_auto_invite", post(edit_auto_invite))
         .route("/edit_instance_groups", post(edit_instance_groups))
@@ -1848,6 +1849,51 @@ async fn set_slack_oauth_config(
     Ok(format!("Slack OAuth config set for workspace {}", &w_id))
 }
 
+#[derive(Deserialize)]
+struct SetSlackSigningSecretRequest {
+    slack_signing_secret: Option<String>,
+}
+
+/// The signing secret of the workspace's own Slack app, which authenticates what Slack sends for it.
+async fn set_slack_signing_secret(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<SetSlackSigningSecretRequest>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    let secret = req
+        .slack_signing_secret
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "UPDATE workspace_settings SET slack_signing_secret = $1 WHERE workspace_id = $2",
+        secret,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.set_slack_signing_secret",
+        if secret.is_some() {
+            ActionKind::Update
+        } else {
+            ActionKind::Delete
+        },
+        &w_id,
+        Some(&authed.email),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!("Slack signing secret updated for workspace {w_id}"))
+}
+
 async fn delete_slack_oauth_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1859,7 +1905,8 @@ async fn delete_slack_oauth_config(
 
     sqlx::query!(
         "UPDATE workspace_settings
-         SET slack_oauth_client_id = NULL, slack_oauth_client_secret = NULL
+         SET slack_oauth_client_id = NULL, slack_oauth_client_secret = NULL,
+             slack_signing_secret = NULL
          WHERE workspace_id = $1",
         &w_id
     )
