@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.845.0](https://github.com/windmill-labs/windmill/compare/v1.844.0...v1.845.0) (2026-10-21)
+
+
+### Features
+
+* home and empty ai sessions share one session composer ([#11635](https://github.com/windmill-labs/windmill/issues/11635)) ([56b2e10](https://github.com/windmill-labs/windmill/commit/56b2e106daedb5ae381052d3116346a88ba3f206))
+
 ## [1.844.0](https://github.com/windmill-labs/windmill/compare/v1.843.0...v1.844.0) (2026-10-21)
 
 
