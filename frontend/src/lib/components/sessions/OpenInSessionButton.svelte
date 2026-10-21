@@ -32,6 +32,13 @@
 			 * only `window.location` read at that moment matches what the user sees. */
 			| { page: () => string | undefined; target?: never }
 		)
+
+	function sameDestination(a: OpenInSessionSource | undefined, b: OpenInSessionSource | undefined) {
+		if (!a || !b) return false
+		if (a.target && b.target)
+			return a.target.kind === b.target.kind && a.target.path === b.target.path
+		return !!a.page && !!b.page && a.page() === b.page()
+	}
 </script>
 
 <script lang="ts">
@@ -43,6 +50,7 @@
 	import { copilotInfo } from '$lib/aiStore'
 	import { sendUserToast } from '$lib/toast'
 	import { openSourceInSession } from './sessionSwitch.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 
 	const roleCaps = useRoleCapabilities()
@@ -53,7 +61,8 @@
 		btnProps,
 		label,
 		tooltip,
-		fallback
+		fallback,
+		deferToHeader = false
 	}: {
 		/** Undefined (e.g. an item without a path yet) renders the fallback. */
 		source?: OpenInSessionSource
@@ -71,6 +80,11 @@
 		 * opted-out user (typically the editor's inline-chat
 		 * toggle). Never rendered inside the session panel. */
 		fallback?: Snippet
+		/** For a button inside a page whose header can carry the same hand-off: while the header
+		 * does, this renders nothing, so the hand-off has one place on screen. The fallback still
+		 * renders for a user who opted out of sessions, since the header then offers nothing. An
+		 * editor in a drawer opened on another item keeps its own button. */
+		deferToHeader?: boolean
 	} = $props()
 
 	// Inside the session panel the chat is already on screen — a second entry
@@ -82,10 +96,13 @@
 	// prefersSessionHandoff carries the role clause: the sessions page refuses a role
 	// that cannot code, so an entry point on a page they can reach (Runs, the trigger lists)
 	// would only route them into that refusal.
-	const show = $derived(
+	const handoff = $derived(
 		!inSessionPanel &&
 			!!(source?.target || source?.page) &&
 			prefersSessionHandoff(!$roleCaps.code)
+	)
+	const show = $derived(
+		handoff && !(deferToHeader && sameDestination(pageHeader.sessionSource, source))
 	)
 
 	// Not $state: only read inside open() as a re-entrancy latch, never rendered.
@@ -118,6 +135,6 @@
 		{label}
 		{tooltip}
 	/>
-{:else if !inSessionPanel}
+{:else if !inSessionPanel && !handoff}
 	{@render fallback?.()}
 {/if}

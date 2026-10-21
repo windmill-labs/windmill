@@ -90,7 +90,9 @@
 	import ExecutionDuration from '$lib/components/ExecutionDuration.svelte'
 	import { isWindmillTooBigObject } from '$lib/components/job_args'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
-	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { onDestroy, setContext, untrack } from 'svelte'
 	import { getJobStatusKind, resetFavicon, setStatusFavicon } from '$lib/favicon'
 
@@ -715,11 +717,10 @@
 		onDestroy(resetFavicon)
 	}
 
-	// The bar folds these (`actionFolds` below) once its breadcrumb has given all it can: first the
-	// buttons drop their labels, then the plain actions go into one menu. Embedded, the buttons
-	// have a row of their own that wraps.
-	const compactBar = $derived(!embedded && pageHeader.actionFold >= 1)
-	const actionsInMenu = $derived(!embedded && pageHeader.actionFold >= 2)
+	// The bar folds these (`actionFolds` below) once its breadcrumb has given all it can: the plain
+	// actions go into one menu rather than losing their labels. Embedded, the buttons have a row
+	// of their own that wraps.
+	const actionsInMenu = $derived(!embedded && pageHeader.actionFold >= 1)
 
 	const isScriptJob = $derived(job?.job_kind === 'script')
 	const isRunnableJob = $derived(
@@ -756,6 +757,17 @@
 	const canEdit = $derived(
 		(job?.job_kind === 'script' || job?.job_kind === 'flow') &&
 			editRights.canEditItem(isScriptJob ? 'script' : 'flow', job?.script_path ?? '', {})
+	)
+	// Opens the deployed runnable at this job's path, like Edit — unlike "View script", which pins
+	// the hash this run executed. Not gated on edit rights: a session also reads and explains, and
+	// the server still refuses a deploy the user has no right to.
+	const sessionOpen: OpenInSessionSource | undefined = $derived(
+		(job?.job_kind === 'script' || job?.job_kind === 'flow') && job?.script_path
+			? {
+					target: { kind: isScriptJob ? 'script' : 'flow', path: job?.script_path ?? '' },
+					workspaceId: workspaceId ?? undefined
+				}
+			: undefined
 	)
 	const canEditInFork = $derived(
 		(job?.job_kind === 'script' || job?.job_kind === 'flow') &&
@@ -1080,7 +1092,8 @@
 		<PageHeaderContent
 			section={{ label: `run/${runId}` }}
 			actions={runActions}
-			actionFolds={2}
+			sessionSource={sessionOpen}
+			actionFolds={1}
 			{actionsVersion}
 		/>
 	{/if}
@@ -1089,15 +1102,6 @@
 		{#if actionsInMenu}
 			{#if restartStep !== undefined && canRestart(restart)}
 				{@render flowRestartButton(restart, restartStep, 'button')}
-			{/if}
-			{#if canEdit && showEditButton}
-				<OpenInSessionButton
-					source={{
-						target: { kind: isScriptJob ? 'script' : 'flow', path: job?.script_path ?? '' },
-						workspaceId: workspaceId ?? undefined
-					}}
-					btnProps={{ unifiedSize: 'sm' }}
-				/>
 			{/if}
 			<Dropdown items={menuItems} customWidth={260}>
 				{#snippet buttonReplacement()}
@@ -1111,6 +1115,7 @@
 					/>
 				{/snippet}
 			</Dropdown>
+			<OpenInSessionButton source={sessionOpen} />
 		{:else}
 			{@render runActionsRow()}
 		{/if}
@@ -1138,7 +1143,6 @@
 					href={runsHref}
 					variant="default"
 					unifiedSize="sm"
-					iconOnly={compactBar}
 					title="View runs"
 					startIcon={{ icon: List }}
 				>
@@ -1173,7 +1177,6 @@
 						nonCaptureEvent
 						variant="default"
 						unifiedSize="sm"
-						iconOnly={compactBar}
 						title="Share"
 						startIcon={{ icon: Share2 }}
 					>
@@ -1209,7 +1212,6 @@
 			<Button
 				unifiedSize="sm"
 				variant="default"
-				iconOnly={compactBar}
 				title={isHubFlowPreview
 					? 'Fork flow into workspace'
 					: `Fork ${isFlowPreview(job?.job_kind) ? 'flow' : 'code'} preview`}
@@ -1225,7 +1227,6 @@
 			<Button
 				unifiedSize="sm"
 				variant="default"
-				iconOnly={compactBar}
 				title="Current runs"
 				startIcon={{ icon: Activity }}
 				on:click={() => {
@@ -1302,7 +1303,6 @@
 				on:click={runAgain}
 				unifiedSize="sm"
 				variant="default"
-				iconOnly={compactBar}
 				title="Run again"
 				startIcon={{ icon: RefreshCw }}
 				loading={runImmediatelyLoading}
@@ -1332,22 +1332,9 @@
 						unifiedSize="sm"
 						variant="default"
 						disabled={!showEditButton}
-						iconOnly={compactBar}
 						title="Edit"
 						startIcon={{ icon: Pen }}>Edit</Button
 					>
-					{#if showEditButton}
-						<!-- Opens the deployed runnable at this job's path, like Edit — unlike
-							     "View script", which pins the hash this run executed. Same gate as
-							     Edit: where direct deployment is off, the way in is "Edit in fork". -->
-						<OpenInSessionButton
-							source={{
-								target: { kind: isScriptJob ? 'script' : 'flow', path: job?.script_path ?? '' },
-								workspaceId: workspaceId ?? undefined
-							}}
-							btnProps={{ unifiedSize: 'sm' }}
-						/>
-					{/if}
 				{/if}
 				{#if canEditInFork}
 					<Button
@@ -1359,19 +1346,21 @@
 						onClick={(e) => editInFork(e, isScriptJob ? 'script' : 'flow', job?.script_path ?? '')}
 						unifiedSize="sm"
 						variant="default"
-						iconOnly={compactBar}
 						title={editInForkLabel(workspaceId, $userWorkspaces)}
 						startIcon={{ icon: Pen }}>{editInForkLabel(workspaceId, $userWorkspaces)}</Button
 					>
 				{/if}
 			{/if}
 		{/if}
+		<OpenInSessionButton
+			source={sessionOpen}
+			btnProps={embedded ? { unifiedSize: 'sm' } : undefined}
+		/>
 		{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
 			<Button
 				href={viewHref}
 				unifiedSize="sm"
 				variant="accent"
-				iconOnly={compactBar}
 				title="View {job?.job_kind === 'script_hub' ? 'script' : job?.job_kind}"
 				startIcon={{
 					icon:
