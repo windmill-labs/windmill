@@ -35,9 +35,9 @@
 	import DiffActionBar from './DiffActionBar.svelte'
 	import { getGraphContext } from '$lib/components/graph/graphContext'
 	import MoveHandleButton from '$lib/components/graph/MoveHandleButton.svelte'
-	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 
-	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const roleCaps = useRoleCapabilities()
 
 	interface Props {
 		selected?: boolean
@@ -136,7 +136,9 @@
 	)
 	// A script step is tested as a script preview, which operators are refused: running the
 	// deployed runnable is left to "Test flow".
-	let builderCannotTestStep = $derived($operatorBuilderFlows && mod?.value.type === 'script')
+	let builderCannotTestStep = $derived(
+		$roleCaps.flows === 'compose' && mod?.value.type === 'script'
+	)
 	let moduleTest: ModuleTest | undefined = $state(undefined)
 	let testIsLoading = $state(false)
 	let hover = $state(false)

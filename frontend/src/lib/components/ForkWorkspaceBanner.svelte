@@ -3,7 +3,13 @@
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { Badge } from './common'
 	import { AlertTriangle, ArrowDown, ArrowUp, Pencil } from 'lucide-svelte'
-	import { workspaceStore, userWorkspaces, userStore, type UserExt } from '$lib/stores'
+	import {
+		roleCapabilities,
+		workspaceStore,
+		userWorkspaces,
+		userStore,
+		type UserExt
+	} from '$lib/stores'
 	import type { WorkspaceComparison } from '$lib/gen'
 	import { fetchWorkspaceComparison } from '$lib/workspaceComparison'
 	import { Button } from './common'
@@ -27,18 +33,18 @@
 	// prefix) also avoids a parentless "Fork of ()" banner when the linkage is dropped.
 	let isFork = $derived(parentWorkspaceId != null)
 	let currentNoun = $derived(childWorkspaceNoun(currentWorkspaceData))
-	// Operators run scripts and flows, they never deploy a fork, so the banner and
-	// its CTA are noise for them. Gates the fetches too, not just the markup: the
-	// fork/parent comparison is an expensive tally no operator can act on.
+	// A role without `code` never deploys a fork, so the banner and its CTA are noise
+	// for it. Gates the fetches too, not just the markup: the fork/parent comparison
+	// is an expensive tally such a role cannot act on.
 	//
-	// Only a role fetched for the workspace we are on answers this. `$workspaceStore`
+	// Only a user fetched for the workspace we are on answers this. `$workspaceStore`
 	// flips synchronously on a switch while `$userStore` still holds the workspace we
 	// left, so trusting it unqualified would flash the banner at (and start the tally
-	// for) an operator entering a fork from a workspace where they are not one.
-	function isConfirmedNonOperator(user: UserExt | undefined, ws: string | undefined): boolean {
-		return !!user && !!ws && user.workspace_id === ws && !user.operator
+	// for) a restricted member entering a fork from a workspace where they are not one.
+	function isUserFor(user: UserExt | undefined, ws: string | undefined): boolean {
+		return !!user && !!ws && user.workspace_id === ws
 	}
-	let isNotOperator = $derived(isConfirmedNonOperator($userStore, $workspaceStore))
+	let isNotOperator = $derived(isUserFor($userStore, $workspaceStore) && $roleCapabilities.code)
 	let showBanner = $derived(isFork && isNotOperator)
 
 	// Drafts in this fork. When the fork is otherwise in sync with its parent, a

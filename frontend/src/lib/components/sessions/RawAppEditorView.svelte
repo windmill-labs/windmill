@@ -23,7 +23,7 @@
 	import SessionEditorTarget from './SessionEditorTarget.svelte'
 	import { runResetToDeployed } from '$lib/userDraftToast'
 	import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
-	import { operatorBuilderAppsIn } from '$lib/operatorWriteRights'
+	import { capabilitiesInWorkspace } from '$lib/operatorWriteRights'
 	import type {
 		RawAppRuntimeLogRequester,
 		RawAppRunsProvider,
@@ -100,7 +100,7 @@
 			files: { ...result.files },
 			runnables: {
 				...result.runnables,
-				...(operatorBuilderAppsIn(workspaceId) ? {} : structuredClone(STARTER_RUNNABLES))
+				...(capabilitiesInWorkspace(workspaceId).apps === 'compose' ? {} : structuredClone(STARTER_RUNNABLES))
 			},
 			data: result.data,
 			policy: result.policy

@@ -17,7 +17,7 @@
 	} from '../agentToolUtils'
 	import { flowLocalAgentSchema, toolInputOverrides } from '../agentResourceUtils'
 	import { loadSchemaFromModule } from '../flowInfers'
-	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 
 	let {
 		tools,
@@ -37,7 +37,9 @@
 	} = $props()
 
 	let flowTools = $derived(tools.filter(isFlowModuleTool))
-	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const roleCaps = useRoleCapabilities()
+	// The server checks bindings only below `full` (`check_operator_can_build`).
+	const composeOnlyFlows = $derived($roleCaps.flows === 'compose')
 
 	/** Mirrors the backend's `InputTransform::is_completed`: an input the agent fills is hidden from
 	 *  the model, and the server refuses a builder's binding of it. */
@@ -51,7 +53,7 @@
 	/** A builder binds only the inputs the agent leaves to the model. */
 	function shownSchema(tool: FlowModuleTool): any {
 		const schema = schemas[tool.id]
-		if (!$operatorBuilderFlows || !schema?.properties) return schema
+		if (!composeOnlyFlows || !schema?.properties) return schema
 		const base = baseInputs(tool)
 		const keep = Object.keys(schema.properties).filter((k) => !isSetByAgent(base[k]))
 		return {
@@ -63,7 +65,7 @@
 
 	/** The inputs `shownSchema` hides, shown read-only so the tool code reads in context. */
 	function agentSetInputs(tool: FlowModuleTool): Record<string, InputTransform> {
-		if (!$operatorBuilderFlows) return {}
+		if (!composeOnlyFlows) return {}
 		const base = baseInputs(tool)
 		return Object.fromEntries(
 			Object.keys(schemas[tool.id]?.properties ?? {})

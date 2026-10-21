@@ -25,6 +25,7 @@
 		type BulkOutcome
 	} from './bulkActions'
 	import type { BulkItem, HomeSelection } from './homeSelection.svelte'
+	import { roleCapabilities } from '$lib/stores'
 
 	interface Props {
 		selection: HomeSelection
@@ -38,7 +39,7 @@
 
 	let { selection, workspace, isAdmin, moveTargets, onDone }: Props = $props()
 
-	let ctx: BulkContext = $derived({ workspace, isAdmin })
+	let ctx: BulkContext = $derived({ workspace, isAdmin, caps: $roleCapabilities })
 	// The bar is still on screen while it flies out, and unticking the last row is
 	// what starts that — by then the live selection is empty. Rendering the last
 	// non-empty one keeps the count and the action states from blinking on the way

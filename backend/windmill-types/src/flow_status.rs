@@ -4,7 +4,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::flows::FlowValue;
+use crate::flows::{FlowValue, Suspend};
 
 const MINUTES: Duration = Duration::from_secs(60);
 const HOURS: Duration = MINUTES.saturating_mul(60);
@@ -409,6 +409,21 @@ pub enum JobResult {
 }
 
 impl FlowStatusModule {
+    /// Whether this completed step's suspend gate could block and never opened (it timed out or
+    /// was disapproved): `approvers` is written when the gate opens, and is the only record of it
+    /// that outlives the run, since its resume_job rows are deleted with its queue row.
+    pub fn suspend_gate_never_opened(&self, suspend: Option<&Suspend>) -> bool {
+        let Some(suspend) = suspend else {
+            return false;
+        };
+        if suspend.required_events.unwrap_or(0) == 0
+            || suspend.continue_on_disapprove_timeout.unwrap_or(false)
+        {
+            return false;
+        }
+        matches!(self, FlowStatusModule::Success { skipped: false, approvers, .. } if approvers.is_empty())
+    }
+
     pub fn job(&self) -> Option<Uuid> {
         match self {
             FlowStatusModule::WaitingForPriorSteps { .. } => None,

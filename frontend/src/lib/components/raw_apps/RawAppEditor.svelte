@@ -90,11 +90,11 @@
 	import { randomSecret, randomUUID } from '$lib/utils/uuid'
 	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
-	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { conformBuilderAppPolicy } from './builderAppPolicy'
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatorBuilderApps = useOperatorBuilderApps()
+	const roleCaps = useRoleCapabilities()
 
 	interface Props {
 		files?: Record<string, string>
@@ -423,7 +423,7 @@
 	// The deploy panel cannot switch Viewer mode off, nor drop the identity an app another user
 	// deployed carries, so the editor conforms the policy as soon as it opens.
 	$effect(() => {
-		if ($operatorBuilderApps && policy) conformBuilderAppPolicy(policy, $userStore)
+		if ($roleCaps.apps === 'compose' && policy) conformBuilderAppPolicy(policy, $userStore)
 	})
 	// An app with sandbox isolation previews the way it runs once deployed: in the
 	// served, opaque-origin shell, framed with the deployed wrapper's flags. The nonce

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import pLimit from 'p-limit'
-	import { workspaceStore, userStore } from '$lib/stores'
+	import { roleCapabilities, workspaceStore, userStore } from '$lib/stores'
 	import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { page } from '$app/state'
@@ -202,11 +202,11 @@
 
 	// Page mode, URL-addressable via `?mode=`. No param = view (the
 	// default): deployed-only graph focused on past/live executions.
-	// Operators are clamped to view — the derived ignores a hand-typed
-	// `?mode=edit` rather than redirecting.
-	let isOperator = $derived($userStore?.operator ?? false)
+	// A role without `code` (pipeline steps are scripts) is clamped to view: the
+	// derived ignores a hand-typed `?mode=edit` rather than redirecting.
+	let viewOnly = $derived(!$roleCapabilities.code)
 	let urlMode = $derived(page.url.searchParams.get('mode'))
-	let mode = $derived<PipelineMode>(isOperator ? 'view' : urlMode === 'edit' ? 'edit' : 'view')
+	let mode = $derived<PipelineMode>(viewOnly ? 'view' : urlMode === 'edit' ? 'edit' : 'view')
 	// The edit-mode pane, set aside while View shows the activity feed, so coming
 	// back to Edit reopens it.
 	let editPane:
@@ -512,7 +512,7 @@
 		ensureEditable: () => {
 			// Auto-enter edit so AI changes are visible/actionable, unless the user
 			// is an operator (no edit permission) — then refuse with a clear error.
-			if (isOperator) {
+			if (viewOnly) {
 				throw new Error('This pipeline is read-only for your role; AI edits are disabled.')
 			}
 			if (mode !== 'edit') setMode('edit')
@@ -553,7 +553,7 @@
 	}
 
 	const sessionOpen: OpenInSessionSource | undefined = $derived(
-		isOperator
+		viewOnly
 			? undefined
 			: {
 					target: { kind: 'pipeline', path: folder },
@@ -1212,7 +1212,7 @@
 
 	let nodeFixes = $derived.by(() => {
 		const fixes = new Map<string, NodeFixSpec>()
-		if (isOperator) return fixes
+		if (viewOnly) return fixes
 		for (const [path, asset] of nodeErrors.waitsOn) {
 			fixes.set(`script:${path}`, {
 				explainer: [
@@ -1889,7 +1889,7 @@
 	// times — while armed it surfaces a compact inline pill (below) instead.
 	let overflowMenuItems = $derived.by<Item[]>(() => {
 		const items: Item[] = []
-		if (!isOperator && allPipelineScripts.length > 0) {
+		if (!viewOnly && allPipelineScripts.length > 0) {
 			items.push({
 				displayName: recordingMode ? 'Disarm recorder' : 'Record next run',
 				icon: Circle,
@@ -2709,7 +2709,7 @@
 		const f = folder
 		if (!g || graphRes.loading || autoEditCheckedFolder === f) return
 		autoEditCheckedFolder = f
-		if (untrack(() => urlMode) != null || untrack(() => isOperator)) return
+		if (untrack(() => urlMode) != null || untrack(() => viewOnly)) return
 		if (g.runnables.length === 0 && g.assets.length === 0) {
 			setMode('edit', { replace: true })
 		}
@@ -2872,7 +2872,7 @@
 	<div
 		class="flex flex-row items-center gap-2 min-w-0 overflow-x-auto scrollbar-hidden whitespace-nowrap"
 	>
-		{#if !isOperator}
+		{#if !viewOnly}
 			<!-- Center group: the mode toggle is the page's primary control —
 			     anchored between the two flex-1 side groups so it stays
 			     centered, with breathing room on both sides. -->
@@ -2899,7 +2899,7 @@
 				{/if}
 			</div>
 		{/if}
-			{#if !isOperator && allPipelineScripts.length > 0}
+			{#if !viewOnly && allPipelineScripts.length > 0}
 				<!-- Only the armed state surfaces on the bar (arming lives in the ⋮
 				     menu) — a compact disarm pill. -->
 				{#if recordingMode}
@@ -3013,8 +3013,8 @@
 				{runsRefreshKey}
 				{runsPendingJobId}
 				{boundPick}
-				validStartPaths={isOperator ? undefined : validStartPaths}
-				onStartBoundedRun={isOperator ? undefined : startBoundedRun}
+				validStartPaths={viewOnly ? undefined : validStartPaths}
+				onStartBoundedRun={viewOnly ? undefined : startBoundedRun}
 				onPickEnd={pickBoundEnd}
 				{panToNodeId}
 				onCreateMissingTrigger={mode === 'edit' ? openMissingTriggerDrawer : undefined}
@@ -3033,10 +3033,10 @@
 				onAddScriptForAsset={mode === 'edit' ? handleAddScriptForAsset : undefined}
 				onAddPipelineScript={mode === 'edit' ? handleAddPipelineScript : undefined}
 				onRunnableMenuRemove={mode === 'edit' ? handleRunnableMenuRemove : undefined}
-				onDeleteAssetUpstream={isOperator ? undefined : (t) => (assetDeleteTarget = t)}
+				onDeleteAssetUpstream={viewOnly ? undefined : (t) => (assetDeleteTarget = t)}
 				{nodeFixes}
 				assetDeleteVerb={canHardDeleteScripts ? 'Delete' : 'Archive'}
-				onEdgeAction={isOperator
+				onEdgeAction={viewOnly
 					? undefined
 					: ({
 							action,
@@ -3061,7 +3061,7 @@
 								}
 							)
 						}}
-				onAddAssetTrigger={isOperator || mode !== 'edit'
+				onAddAssetTrigger={viewOnly || mode !== 'edit'
 					? undefined
 					: ({
 							scripts,
@@ -3076,7 +3076,7 @@
 							)
 						}}
 				onRunProducer={mode === 'edit' ? handleRunProducer : undefined}
-				onRequestEdit={isOperator ? undefined : () => setMode('edit')}
+				onRequestEdit={viewOnly ? undefined : () => setMode('edit')}
 				canRunByPath={openScriptHasDataUpload}
 				onRunByPath={runByPathLegit}
 				{selectionProducers}

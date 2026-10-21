@@ -43,6 +43,7 @@
 	let chatAvailable = $derived(keepsManagedMemory(config?.memory))
 	const editRights = useEditRights()
 	let canAuthor = $derived(editRights.roleCanAuthor('agent'))
+	let canCode = $derived(editRights.capabilities.code)
 	let canEdit = $derived(config != undefined && (agent?.canWrite ?? false) && canAuthor)
 
 	let configModal: AgentConfigModal | undefined = $state(undefined)
@@ -87,13 +88,13 @@
 		() => ws,
 		() => getDeployUiSettings()
 	)
-	// Operators get no menu unless they may build agents, as on a flow's page.
+	// A role that cannot build agents gets no menu, as on a flow's page.
 	let menuItems = $derived(
 		config != undefined && canAuthor
 			? agentMenuItems({
 					path,
 					canWrite: canEdit,
-					operator: $userStore?.operator,
+					noCode: !canCode,
 					wsSpecific: agent?.state?.wsSpecific,
 					deployUiSettings: deployUiSettings.current,
 					onPermissions: () => shareModal?.openDrawer?.(path, 'resource'),
@@ -150,8 +151,8 @@
 			: undefined}
 		mainButtons={[
 			// Evaluating an agent builds datasets and runs against it: authoring, as editing is, and
-			// eval datasets are refused to operators whatever their builder rights.
-			...(canEdit && !$userStore?.operator
+			// eval datasets are refused to a role without `code` whatever its flows right.
+			...(canEdit && canCode
 				? [
 						{
 							label: 'Evals',
