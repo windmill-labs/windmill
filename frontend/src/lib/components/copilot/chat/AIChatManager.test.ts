@@ -3397,28 +3397,41 @@ describe('AIChatManager context compaction', () => {
 	it('compacts between tool iterations once tool results carry the turn over the trigger', async () => {
 		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
 		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
-		mocks.getStreamedCompletionText.mockResolvedValue('<summary>SUMMARY TEXT</summary>')
-		const toolCall = {
-			role: 'assistant' as const,
-			content: '',
-			tool_calls: [{ id: 't1', type: 'function', function: { name: 'x', arguments: '{}' } }]
-		}
+		mocks.getStreamedCompletionText
+			.mockResolvedValueOnce('<summary>SUMMARY ONE</summary>')
+			.mockResolvedValueOnce('<summary>SUMMARY TWO</summary>')
+		const step = (id: string, chars: number) => [
+			{
+				role: 'assistant' as const,
+				content: '',
+				tool_calls: [{ id, type: 'function', function: { name: 'x', arguments: '{}' } }]
+			},
+			{ role: 'tool' as const, tool_call_id: id, content: 'r'.repeat(chars) }
+		]
 		// ~25k estimated tokens: enough to push a ~60% history past the 0.8 * 128k trigger.
-		const toolResult = { role: 'tool' as const, tool_call_id: 't1', content: 'r'.repeat(100_000) }
+		const first = step('t1', 100_000)
+		// ~70k more: crosses the trigger again within the same turn.
+		const second = step('t2', 280_000)
 		let secondIteration: any[] = []
+		let thirdIteration: any[] = []
 		mocks.runChatLoop.mockImplementation(async (config: any) => {
-			await config.onBeforeIteration(gpt4oModel, null)
-			for (const m of [toolCall, toolResult]) {
-				config.messages.push(m)
-				config.addedMessages.push(m)
+			const push = (ms: any[]) => {
+				for (const m of ms) {
+					config.messages.push(m)
+					config.addedMessages.push(m)
+				}
 			}
 			await config.onBeforeIteration(gpt4oModel, null)
+			push(first)
+			await config.onBeforeIteration(gpt4oModel, null)
 			secondIteration = [...config.messages]
+			push(second)
+			await config.onBeforeIteration(gpt4oModel, null)
+			thirdIteration = [...config.messages]
 			const reply = { role: 'assistant' as const, content: 'done' }
-			config.messages.push(reply)
-			config.addedMessages.push(reply)
+			push([reply])
 			return {
-				addedMessages: [toolCall, toolResult, reply],
+				addedMessages: [...first, ...second, reply],
 				tokenUsage: { prompt: 0, completion: 0, total: 0 },
 				lastIterationUsage: null,
 				hitMaxIterations: false
@@ -3440,15 +3453,14 @@ describe('AIChatManager context compaction', () => {
 		await manager.sendRequest()
 
 		// Not at send time (under the trigger), only once the tool result landed.
-		expect(mocks.getStreamedCompletionText).toHaveBeenCalledTimes(1)
-		expect(secondIteration[0].content).toContain('SUMMARY TEXT')
-		expect(secondIteration.slice(-2)).toEqual([toolCall, toolResult])
-		expect(manager.messages[0].content).toContain('SUMMARY TEXT')
-		expect(manager.messages.slice(-3).map((m) => m.role)).toEqual([
-			'assistant',
-			'tool',
-			'assistant'
-		])
+		expect(secondIteration[0].content).toContain('SUMMARY ONE')
+		expect(secondIteration.slice(-2)).toEqual(first)
+		// The second trigger folds the first summary into a new one instead of
+		// dropping it to make room for the turn.
+		expect(mocks.getStreamedCompletionText).toHaveBeenCalledTimes(2)
+		expect(thirdIteration[0].content).toContain('SUMMARY TWO')
+		expect(thirdIteration.slice(-4)).toEqual([...first, ...second])
+		expect(manager.messages[0].content).toContain('SUMMARY TWO')
 		expect(manager.displayMessages[0].role).toBe('summary')
 	})
 

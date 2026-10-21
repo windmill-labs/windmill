@@ -1728,8 +1728,15 @@ export class AIChatManager implements ChatViewHost {
 	 * Returns true on success. Returns false — caller falls back to drop-oldest —
 	 * when summarization isn't worthwhile or fails (user abort, empty summary, or
 	 * the circuit breaker being tripped).
+	 *
+	 * `inFlightTokens` is the running turn's output, which is not in `messages` but
+	 * rides on every request after it: the tail shrinks by that much, or the next
+	 * tool result re-triggers at once and drop-oldest discards this summary.
 	 */
-	private summarizeAndCompact = async (contextWindow: number): Promise<boolean> => {
+	private summarizeAndCompact = async (
+		contextWindow: number,
+		inFlightTokens = 0
+	): Promise<boolean> => {
 		if (this.consecutiveCompactionFailures >= MAX_CONSECUTIVE_COMPACTION_FAILURES) {
 			return false
 		}
@@ -1738,13 +1745,14 @@ export class AIChatManager implements ChatViewHost {
 			return false
 		}
 
-		const tailBudget =
+		const historyBudget =
 			contextWindow * COMPACTION_TARGET_RATIO -
 			SUMMARY_OUTPUT_RESERVE_TOKENS -
 			this.estimateOverheadTokens()
-		if (tailBudget <= 0) {
+		if (historyBudget <= 0) {
 			return false
 		}
+		const tailBudget = historyBudget - inFlightTokens
 
 		const last = this.messages.length - 1
 		if (last < 1) {
@@ -1778,7 +1786,10 @@ export class AIChatManager implements ChatViewHost {
 
 		const prefix = this.messages.slice(0, keepFrom)
 		const tail = this.messages.slice(keepFrom)
-		if (prefix.length < MIN_PREFIX_MESSAGES_TO_SUMMARIZE || tail.length === 0) {
+		// Mid-turn, drop-oldest would cut context the running turn may rely on, so any
+		// prefix beyond a lone previous summary is worth the round-trip.
+		const minPrefix = inFlightTokens > 0 ? 2 : MIN_PREFIX_MESSAGES_TO_SUMMARIZE
+		if (prefix.length < minPrefix || tail.length === 0) {
 			return false
 		}
 
@@ -1823,7 +1834,8 @@ export class AIChatManager implements ChatViewHost {
 	 */
 	private compactIfOverTrigger = async (
 		projectedTokens: number,
-		model: ChatLoopConfig['modelProvider'] | undefined
+		model: ChatLoopConfig['modelProvider'] | undefined,
+		inFlightTokens = 0
 	): Promise<boolean> => {
 		const contextWindow = model
 			? getEffectiveModelContextWindow(
@@ -1836,7 +1848,7 @@ export class AIChatManager implements ChatViewHost {
 			return false
 		}
 		// Preferred path: summarize the older prefix, keep the recent tail.
-		const summarized = await this.summarizeAndCompact(contextWindow)
+		const summarized = await this.summarizeAndCompact(contextWindow, inFlightTokens)
 		// A Stop during the in-flight summary aborts this turn's controller;
 		// summarizeAndCompact then returns false without touching history. Skip
 		// the drop-oldest fallback — it would destructively compact a conversation
@@ -1852,9 +1864,13 @@ export class AIChatManager implements ChatViewHost {
 			// read re-estimates the compacted history. chars/4 can
 			// underestimate the freed tokens, which errs toward compacting
 			// again — never toward overflowing.
+			const lengthBefore = this.messages.length
 			const freed = this.compactOldestMessages(
 				projectedTokens - contextWindow * COMPACTION_TARGET_RATIO
 			)
+			if (this.messages.length === lengthBefore) {
+				return false
+			}
 			if (this.contextUsage !== undefined) {
 				this.contextUsage = Math.max(0, this.contextUsage - freed)
 			}
@@ -4191,8 +4207,12 @@ export class AIChatManager implements ChatViewHost {
 			// they index into the (possibly compacted) stored history. The summary
 			// path shrinks displayMessages too, so the display anchor must also be
 			// read here, not before compaction.
+			// Mid-turn compaction leaves these stale, but it runs only once the turn has
+			// tool-paired output, which keeps the turn off the restore path.
 			const modelLenAfterUser = this.messages.length
 			const displayLenAfterUser = this.displayMessages.length
+			// Set when a mid-turn compaction makes the latest provider report stale.
+			let usageBeforeCompaction: ChatTokenUsage | null = null
 
 			const params: {
 				messages: ChatCompletionMessageParam[]
@@ -4326,18 +4346,19 @@ export class AIChatManager implements ChatViewHost {
 					if (collectedMessages.length === 0) return
 					// The last report covers everything up to its assistant message; only
 					// the tool results that followed are unreported. The estimate is the
-					// floor in case a later iteration's report never arrived.
+					// floor in case a later iteration's report never arrived. A report from
+					// before a compaction measured the history it replaced.
 					const lastAssistant = collectedMessages.findLastIndex((m) => m.role === 'assistant')
-					const reported = lastIterationUsage
-						? lastIterationUsage.prompt +
-							lastIterationUsage.completion +
-							this.estimateMessagesTokens(collectedMessages.slice(lastAssistant + 1))
-						: 0
-					const projected = Math.max(
-						reported,
-						this.estimateWholeContextTokens() + this.estimateMessagesTokens(collectedMessages)
-					)
-					if (await this.compactIfOverTrigger(projected, iterationModel)) {
+					const reported =
+						lastIterationUsage && lastIterationUsage !== usageBeforeCompaction
+							? lastIterationUsage.prompt +
+								lastIterationUsage.completion +
+								this.estimateMessagesTokens(collectedMessages.slice(lastAssistant + 1))
+							: 0
+					const inFlightTokens = this.estimateMessagesTokens(collectedMessages)
+					const projected = Math.max(reported, this.estimateWholeContextTokens() + inFlightTokens)
+					if (await this.compactIfOverTrigger(projected, iterationModel, inFlightTokens)) {
+						usageBeforeCompaction = lastIterationUsage
 						// The loop sends from this array, which mirrors the stored history
 						// plus the turn so far.
 						params.messages.splice(
@@ -4369,9 +4390,10 @@ export class AIChatManager implements ChatViewHost {
 				// stored history it was sent with (the kept partial tail is a small
 				// undercount the trigger headroom absorbs). Without one, clear the
 				// stale value — readers estimate via contextTokens.
-				this.contextUsage = result?.lastIterationUsage
-					? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
-					: undefined
+				this.contextUsage =
+					result?.lastIterationUsage && result.lastIterationUsage !== usageBeforeCompaction
+						? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
+						: undefined
 				await this.historyManager.saveChat(
 					this.displayMessages,
 					this.messages,
@@ -4440,9 +4462,10 @@ export class AIChatManager implements ChatViewHost {
 				// stored — no anchoring or index bookkeeping needed. Without a
 				// report, clear the now-stale value — readers estimate via
 				// contextTokens.
-				this.contextUsage = result?.lastIterationUsage
-					? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
-					: undefined
+				this.contextUsage =
+					result?.lastIterationUsage && result.lastIterationUsage !== usageBeforeCompaction
+						? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
+						: undefined
 				if (this.autoAcceptEditsActive) {
 					this.acceptPendingFlowEdits()
 				}
