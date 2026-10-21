@@ -653,7 +653,7 @@
 
 	{#snippet flowFooter()}
 		<div class="flex flex-wrap items-center gap-x-1.5 text-xs text-hint">
-			Fetch context first or process the output?
+			Need steps before or after this agent?
 			<Button
 				unifiedSize="xs"
 				variant="subtle"
