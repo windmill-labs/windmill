@@ -2891,6 +2891,26 @@ describe('AIChatManager queued messages', () => {
 		expect(manager.contextManager.getSelectedContext()).toEqual([mention])
 	})
 
+	// A hand-off's chip only ever lived in contextOverride, never in the selection.
+	it('restores a DOM chip carried only by contextOverride when the preflight is cancelled', async () => {
+		const manager = createManager(createInputMock())
+		manager.mode = AIMode.GLOBAL
+		const chip = {
+			type: 'app_dom_selector' as const,
+			selector: 'h1',
+			appPath: 'f/app',
+			tagName: 'h1'
+		}
+		manager.contextManager.setSelectedContext([])
+		manager.beforeSend = vi.fn().mockImplementation(async () => {
+			manager.cancel('user_cancelled')
+		})
+
+		await manager.sendRequest({ instructions: 'make this bigger', contextOverride: [chip] })
+
+		expect(manager.contextManager.getSelectedContext()).toMatchObject([{ selector: 'h1' }])
+	})
+
 	// The gate, and the reason the restore is not unconditional: an occupied
 	// composer declines the dead draft's text, and its mentions would then ride the
 	// draft the user is writing now and every turn after it.
