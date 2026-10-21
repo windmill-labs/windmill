@@ -666,7 +666,11 @@
 						? 'Your changes are deployed, then a new flow links this agent.'
 						: 'A new flow links this agent, which stays configured here.'}
 			>
-				{draft?.sync.hasDraft && !draft.noDeployed ? 'Deploy and use in a flow' : 'Use in a flow'}
+				{draft?.noDeployed
+					? 'Turn into a flow'
+					: draft?.sync.hasDraft
+						? 'Deploy and use in a flow'
+						: 'Use in a flow'}
 			</Button>
 		</div>
 	{/snippet}
