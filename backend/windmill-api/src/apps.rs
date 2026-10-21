@@ -4996,7 +4996,7 @@ async fn execute_component(
                 let agent = agent_path.as_deref().unwrap_or_default();
                 // Read as the identity the app runs as: reading the agent is what allows running
                 // it. The app's identity is also the run's, never the agent's own on-behalf-of.
-                let run_as = crate::users::fetch_api_authed_from_permissioned_as(
+                let run_as = windmill_api_auth::fetch_api_authed_from_permissioned_as(
                     permissioned_as.clone(),
                     email.clone(),
                     &w_id,
