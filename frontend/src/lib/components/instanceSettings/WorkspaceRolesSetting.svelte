@@ -144,6 +144,9 @@
 			items: rows,
 			flipDurationMs,
 			dragDisabled: disabled,
+			// The handle zone is drag-disabled between drags, which would otherwise mark every
+			// input in it aria-disabled.
+			autoAriaDisabled: true,
 			dropTargetStyle: {}
 		}}
 		onconsider={(e) => (rows = e.detail.items)}
@@ -171,18 +174,12 @@
 							inputProps={{ placeholder: 'name', disabled, 'aria-label': 'Role name' }}
 						/>
 					</div>
-					<div class="w-48 shrink-0">
-						<TextInput
-							size="sm"
-							bind:value={row.label}
-							inputProps={{
-								placeholder: row.name || 'label',
-								disabled,
-								'aria-label': 'Role label'
-							}}
-						/>
-					</div>
-					<span class="text-2xs text-secondary truncate grow">{summary(caps)}</span>
+					<span class="text-2xs text-secondary truncate grow">
+						{#if row.label.trim()}
+							<span class="text-primary">{row.label.trim()}</span> ·
+						{/if}
+						{summary(caps)}
+					</span>
 					{#if i === 0}
 						<Badge color="gray" verySmall>Highest</Badge>
 					{/if}
@@ -212,7 +209,21 @@
 					</span>
 				{/if}
 				{#if row.open}
-					<div class="border-t p-3">
+					<div class="border-t p-3 flex flex-col gap-3">
+						<div class="flex items-center gap-2">
+							<span class="text-xs font-semibold text-emphasis w-24">Label</span>
+							<div class="w-60">
+								<TextInput
+									size="sm"
+									bind:value={row.label}
+									inputProps={{
+										placeholder: row.name || 'label',
+										disabled,
+										'aria-label': 'Role label'
+									}}
+								/>
+							</div>
+						</div>
 						<RoleCapabilitiesEditor
 							{base}
 							patch={row.capabilities}
