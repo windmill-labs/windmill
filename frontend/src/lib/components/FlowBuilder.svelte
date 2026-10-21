@@ -117,13 +117,14 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 	import { getEditorStoragePath, setEditorStoragePath } from './editorStoragePathContext'
-	import { useEditRights, useOperatorBuilderFlows, useTriggerLock } from '$lib/operatorWriteRights'
+	import { useEditRights, useRoleCapabilities, useTriggerLock } from '$lib/operatorWriteRights'
+	import { capabilitiesIn } from '$lib/roleCapabilities'
 	import {
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 	const triggerLock = useTriggerLock()
-	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const roleCaps = useRoleCapabilities()
 	const editRights = useEditRights()
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -561,11 +562,12 @@
 				const user =
 					(await getUserExt(opWorkspace ?? '')) ??
 					(opWorkspace === $workspaceStore ? $userStore : undefined)
-				const operatorSettings = $userWorkspaces.find(
-					(w) => w.id === opWorkspace
-				)?.operator_settings
+				const caps = capabilitiesIn(
+					user,
+					$userWorkspaces.find((w) => w.id === opWorkspace)
+				)
 				agentCanWrite = Object.fromEntries(
-					draftAgents.map((a) => [a.path, agentDraftCanWrite(a, user, operatorSettings)])
+					draftAgents.map((a) => [a.path, agentDraftCanWrite(a, user, caps)])
 				)
 				// The path is passed, so a draft that renames the agent is refused here too: a rename is
 				// the agent editor's to deploy, and this dialog lists the agent under the path the flow
@@ -1875,7 +1877,7 @@
 					aiChatOpen={aiChatManager.open}
 					showFlowAiButton={!disableAi &&
 						customUi?.topBar?.aiBuilder != false &&
-						!$operatorBuilderFlows}
+						$roleCaps.flows !== 'compose'}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
 					{sessionOpen}
 					onOpenPreview={flowPreviewButtons?.openPreview}

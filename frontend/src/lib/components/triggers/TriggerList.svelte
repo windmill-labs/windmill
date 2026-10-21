@@ -22,7 +22,7 @@
 	} from '$lib/utils'
 	import { withForkConflictRetry } from '$lib/utils/forkConflict'
 	import { getLocalDraftHint } from '$lib/localDraftHints.svelte'
-	import { enterpriseLicense, usedTriggerKinds, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense, usedTriggerKinds, workspaceStore } from '$lib/stores'
 	import { goto, setQuery } from '$lib/navigation'
 	import { isCloudHosted } from '$lib/cloud'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
@@ -519,10 +519,7 @@
 	}
 
 	const operatorBlocked = $derived(
-		config.operatorGate &&
-			!!operatingUser.current?.operator &&
-			!!$operatingWorkspace &&
-			!$userWorkspaces.find((_) => _.id === $operatingWorkspace)?.operator_settings?.triggers
+		config.operatorGate && !!$operatingWorkspace && !editRights.capabilities.visibility.triggers
 	)
 	const canCreate = $derived(!config.adminOnly || isAdmin)
 </script>
@@ -883,7 +880,7 @@
 {#if operatorBlocked}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
-		<p>Page not available for operators</p>
+		<p>Page not available for your role</p>
 	</div>
 {:else}
 	<CenteredPage>

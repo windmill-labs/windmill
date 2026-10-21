@@ -114,7 +114,16 @@ vi.mock('$lib/stores', () => {
 		// non-membership once this has resolved.
 		usersWorkspaceStore: readable({ workspaces: [] as unknown[] }),
 		NON_MEMBER_USERNAME: 'superadmin',
-		enterpriseLicense: readable(undefined)
+		enterpriseLicense: readable(undefined),
+		// The admin above holds every role capability.
+		roleCapabilities: readable({
+			code: true,
+			flows: 'full',
+			apps: 'full',
+			manage_schedules: true,
+			manage_triggers: true,
+			visibility: {}
+		})
 	}
 })
 

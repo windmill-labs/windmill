@@ -36,7 +36,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import VariableEditor from '$lib/components/VariableEditor.svelte'
 	import type { ContextualVariable, ListableVariable, WorkspaceDeployUISettings } from '$lib/gen'
-	import { enterpriseLicense, userWorkspaces } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { isOwner, truncate } from '$lib/utils'
 	import { useEditRights } from '$lib/operatorWriteRights'
@@ -318,10 +318,10 @@
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 
-{#if operatingUser.current?.operator && $operatingWorkspace && !$userWorkspaces.find((_) => _.id === $operatingWorkspace)?.operator_settings?.variables}
+{#if $operatingWorkspace && !editRights.capabilities.visibility.variables}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
-		<p>Page not available for operators</p>
+		<p>Page not available for your role</p>
 	</div>
 {:else}
 	<CenteredPage>

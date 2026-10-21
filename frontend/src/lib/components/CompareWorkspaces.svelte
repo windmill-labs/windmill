@@ -37,6 +37,7 @@
 	import WorkspaceDeployItemSummary from './WorkspaceDeployItemSummary.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
+	import { capabilitiesIn } from '$lib/roleCapabilities'
 
 	import type { Kind } from '$lib/utils_deployable'
 	import {
@@ -1091,7 +1092,12 @@
 			workspaceDeployPerm,
 			(comparison?.diffs ?? [])
 				.filter((d) => selectedItems.includes(getItemKey(d)))
-				.map((d) => d.kind)
+				.map((d) => d.kind),
+			capabilitiesIn(
+				// Superadmin is global; a workspace's admin flag is not.
+				{ is_super_admin: $userStore?.is_super_admin },
+				$userWorkspaces.find((w) => w.id == deployTargetWorkspace)
+			)
 		)
 	)
 

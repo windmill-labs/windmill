@@ -91,7 +91,7 @@ async fn operator_job_token(job_id: uuid::Uuid) -> String {
     .expect("mint operator job token")
 }
 
-const OPERATOR_GUARD_MSG: &str = "Operators cannot run preview jobs";
+const OPERATOR_GUARD_MSG: &str = "Your role cannot run preview jobs";
 
 /// The fixture's deployed-script jobs of the operator: one running, one queued.
 const RUNNING_JOB_ID: &str = "2aa0c0de-0000-4000-8000-000000000001";
