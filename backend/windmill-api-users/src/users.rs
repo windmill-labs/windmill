@@ -1334,7 +1334,10 @@ async fn get_workspace_user(
 
     let user = sqlx::query_as!(
         User,
-        "SELECT workspace_id, username, email, is_admin, created_at, operator, disabled, role, added_via, is_service_account FROM usr WHERE username = $1 AND workspace_id = $2",
+        "SELECT workspace_id, username, email, is_admin, created_at, operator, disabled,
+                COALESCE(workspace_role, CASE WHEN operator THEN 'operator' ELSE 'developer' END) AS role,
+                added_via, is_service_account
+         FROM usr WHERE username = $1 AND workspace_id = $2",
         &username_to_update,
         &w_id
     )
