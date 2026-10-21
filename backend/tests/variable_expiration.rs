@@ -107,6 +107,40 @@ async fn test_dispatch_within_lead_time_once(db: Pool<Postgres>) -> anyhow::Resu
     Ok(())
 }
 
+/// A variable's writer must not get the handler to resolve a reference as its own identity;
+/// the admin's `extra_args` still resolve.
+#[sqlx::test(fixtures("base"))]
+async fn test_variable_fields_do_not_resolve_in_handler(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    seed_handler_script(&db, "u/test-user/expiry_handler").await?;
+    configure_handler(
+        &db,
+        r#"{"path": "script/u/test-user/expiry_handler", "extra_args": {"slack": "$res:f/slack_bot/bot_token"}}"#,
+    )
+    .await?;
+    seed_variable(&db, "u/test-user/due", "30 minutes").await?;
+    sqlx::query(
+        "UPDATE variable SET description = '$var:u/test-user/other' WHERE path = 'u/test-user/due'",
+    )
+    .execute(&db)
+    .await?;
+
+    dispatch_expiring_variables(&db).await;
+
+    let (description, slack): (String, String) = sqlx::query_as(
+        "SELECT args->>'description', args->>'slack' FROM v2_job WHERE runnable_path = $1",
+    )
+    .bind("u/test-user/expiry_handler")
+    .fetch_one(&db)
+    .await?;
+    assert!(
+        !description.starts_with("$var:"),
+        "description still resolves: {description}"
+    );
+    assert_eq!(slack, "$res:f/slack_bot/bot_token");
+    Ok(())
+}
+
 /// `notify_before_secs` on the handler replaces the default window.
 #[sqlx::test(fixtures("base"))]
 async fn test_notify_before_sets_the_window(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -376,7 +410,10 @@ async fn test_edit_handler_endpoint(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(edit("SECRET_TOKEN_2", handler.clone()).await?, 403);
     assert!(stored().await?.is_none());
 
-    for path in ["u/test-user/expiry_handler", "script/u/test-user/does_not_exist"] {
+    for path in [
+        "u/test-user/expiry_handler",
+        "script/u/test-user/does_not_exist",
+    ] {
         assert_eq!(
             edit("SECRET_TOKEN", serde_json::json!({ "path": path })).await?,
             400,

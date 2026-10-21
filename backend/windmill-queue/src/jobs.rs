@@ -3625,10 +3625,13 @@ pub(crate) async fn push_variable_expiration_handler<'c>(
     let (payload, tag, on_behalf_of) =
         get_payload_tag_from_prefixed_path(handler_path, db, w_id).await?;
 
-    // Built by serializing the struct rather than field by field, so a field added to
-    // `ExpiringVariable` reaches handlers instead of being silently dropped.
-    let mut extra: HashMap<String, Box<RawValue>> =
-        serde_json::from_value(serde_json::to_value(expiring)?)?;
+    // Serialized whole so a new `ExpiringVariable` field reaches handlers. Any writer of the
+    // variable controls these, so only they are neutralized: the admin's `extra_args` keep their
+    // `$res:` references, which is how the handler gets its token.
+    let mut extra = omit_untrusted_interpolation(
+        serde_json::from_value(serde_json::to_value(expiring)?)?,
+        "The following resource has been omitted for security reasons: ",
+    );
 
     if let Some(args_v) = extra_args {
         if let Ok(args_m) = serde_json::from_str::<HashMap<String, Box<RawValue>>>(args_v.get()) {
