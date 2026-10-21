@@ -233,6 +233,36 @@ async fn test_folder_default_permissioned_as(db: Pool<Postgres>) -> anyhow::Resu
     assert_eq!(rules[1]["permissioned_as"], "g/wm_deployers");
     assert_eq!(rules[2]["permissioned_as"], "original@windmill.dev");
 
+    // Clients preview the rule through the server's own matching, first match winning, and
+    // learn nothing about a folder they cannot see.
+    for (path, token, expected) in [
+        (
+            "f/prodfolder/jobs/critical/a/b",
+            "SECRET_TOKEN",
+            json!({ "path_glob": "jobs/critical/**", "permissioned_as": "u/original-user" }),
+        ),
+        (
+            "f/prodfolder/jobs/x",
+            "SECRET_TOKEN",
+            json!({ "path_glob": "jobs/**", "permissioned_as": "g/wm_deployers" }),
+        ),
+        ("f/prodfolder/other", "SECRET_TOKEN", json!(null)),
+        ("f/prodfolder/jobs/x", "ORIGINAL_TOKEN", json!(null)),
+    ] {
+        let resp = authed(
+            client().get(format!("{base}/folders/default_permissioned_as/{path}")),
+            token,
+        )
+        .send()
+        .await?;
+        assert_eq!(resp.status(), 200);
+        assert_eq!(
+            resp.json::<serde_json::Value>().await?,
+            expected,
+            "{path} as {token}"
+        );
+    }
+
     // ========================================================================
     // 4. Schedules — the core matrix
     // ========================================================================

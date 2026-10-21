@@ -2,20 +2,18 @@ import { FolderService } from '$lib/gen'
 import { resource } from 'runed'
 import { untrack } from 'svelte'
 import { workspaceStore, userStore } from '$lib/stores'
-import { folderRuleGlobMatches } from '$lib/utils/folderRuleGlob'
 
 /** The folder rule a create at `path` takes on the server, for a caller it applies to. */
 export async function resolveFolderDefaultPermissionedAs(
 	workspace: string,
 	path: string
 ): Promise<string | undefined> {
-	const m = path.match(/^f\/([^/]+)\/(.+)$/)
-	if (!m) return undefined
+	if (!path.startsWith('f/')) return undefined
 	try {
-		const folder = await FolderService.getFolder({ workspace, name: m[1] })
-		return (folder.default_permissioned_as ?? []).find((rule) =>
-			folderRuleGlobMatches(rule.path_glob, m[2])
-		)?.permissioned_as
+		return (
+			(await FolderService.getFolderDefaultPermissionedAs({ workspace, path }))?.permissioned_as ??
+			undefined
+		)
 	} catch {
 		return undefined
 	}

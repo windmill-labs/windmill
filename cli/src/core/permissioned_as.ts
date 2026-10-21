@@ -10,7 +10,6 @@ import {
 } from "../utils/resource_folders.ts";
 import { deploysWithRawApp } from "../utils/app_files.ts";
 import { parseSyncBehavior } from "./conf.ts";
-import { folderRuleGlobMatches } from "../utils/folder_rule_glob.ts";
 
 export interface PermissionedAsContext {
   userCache: Map<string, { username: string; email: string }>;
@@ -52,7 +51,6 @@ export async function buildPermissionedAsContext(
 }
 
 const deployers = new Map<string, Promise<{ email: string; canPreserve: boolean }>>();
-const folderRules = new Map<string, Promise<Array<{ path_glob: string; permissioned_as: string }>>>();
 
 function deployer(workspace: string) {
   let d = deployers.get(workspace);
@@ -66,19 +64,20 @@ function deployer(workspace: string) {
   return d;
 }
 
-async function folderRuleMatches(workspace: string, path: string): Promise<boolean> {
-  const m = path.match(/^f\/([^/]+)\/(.+)$/);
-  if (!m) return false;
-  const key = `${workspace}/${m[1]}`;
-  let rules = folderRules.get(key);
-  if (!rules) {
-    rules = wmill
-      .getFolder({ workspace, name: m[1] })
-      .then((f) => (f as any).default_permissioned_as ?? [])
-      .catch(() => []);
-    folderRules.set(key, rules);
+/**
+ * The folder rule the server applies to a create at `path`. A server without the lookup route
+ * answers with an error, read as no rule.
+ */
+export async function folderDefaultPermissionedAs(
+  workspace: string,
+  path: string
+): Promise<string | undefined> {
+  if (!path.startsWith("f/")) return undefined;
+  try {
+    return (await wmill.getFolderDefaultPermissionedAs({ workspace, path }))?.permissioned_as;
+  } catch {
+    return undefined;
   }
-  return (await rules).some((r) => folderRuleGlobMatches(r.path_glob, m[2]));
 }
 
 /**
@@ -94,7 +93,7 @@ export async function deployerRunAs(
   creating: boolean
 ): Promise<string | undefined> {
   const d = await deployer(workspace);
-  if (creating && d.canPreserve && (await folderRuleMatches(workspace, path))) return undefined;
+  if (creating && d.canPreserve && (await folderDefaultPermissionedAs(workspace, path))) return undefined;
   return d.email;
 }
 

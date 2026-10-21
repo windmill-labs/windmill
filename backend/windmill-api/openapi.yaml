@@ -23912,6 +23912,35 @@ paths:
               schema:
                 $ref: "#/components/schemas/Folder"
 
+  /w/{workspace}/folders/default_permissioned_as/{path}:
+    get:
+      summary: get the folder default_permissioned_as rule a create at this path takes
+      operationId: getFolderDefaultPermissionedAs
+      tags:
+        - folder
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Path"
+      responses:
+        "200":
+          description: >
+            the first rule of the item's folder whose path_glob matches the path relative to
+            the folder, or null when the path is not in a folder visible to the caller or no
+            rule matches
+          content:
+            application/json:
+              schema:
+                type: object
+                nullable: true
+                properties:
+                  path_glob:
+                    type: string
+                  permissioned_as:
+                    type: string
+                required:
+                  - path_glob
+                  - permissioned_as
+
   /w/{workspace}/folders/exists/{name}:
     get:
       summary: exists folder

@@ -25,6 +25,18 @@ pub async fn resolve_folder_default_permissioned_as(
     w_id: &str,
     path: &str,
 ) -> Result<Option<String>> {
+    Ok(resolve_folder_default_rule(db, w_id, path)
+        .await?
+        .map(|rule| rule.permissioned_as))
+}
+
+/// The rule [`resolve_folder_default_permissioned_as`] applies, served to clients so they preview
+/// what the server will do rather than reimplement its glob matching.
+pub async fn resolve_folder_default_rule(
+    db: &Pool<Postgres>,
+    w_id: &str,
+    path: &str,
+) -> Result<Option<FolderDefaultPermissionedAsRule>> {
     let Some(rest) = path.strip_prefix("f/") else {
         return Ok(None);
     };
@@ -58,7 +70,7 @@ pub async fn resolve_folder_default_permissioned_as(
             continue;
         }
         ensure_permissioned_as_exists(db, w_id, folder_name, &rule).await?;
-        return Ok(Some(rule.permissioned_as));
+        return Ok(Some(rule));
     }
 
     Ok(None)
