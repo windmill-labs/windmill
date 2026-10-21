@@ -669,8 +669,9 @@
 			await loadFavoritesFor(workspace)
 		} finally {
 			// Set on failure too: Home holds its shortcuts back until this says the favorites
-			// are in, and a failed read must not hold them back for good.
-			favoriteManager.loadedFor = workspace
+			// are in, and a failed read must not hold them back for good. Not once the workspace
+			// has changed: a slow load for the last one would name it and hide them in this one.
+			if (($workspaceStore ?? '') === workspace) favoriteManager.loadedFor = workspace
 		}
 	}
 
@@ -687,6 +688,7 @@
 			ResourceService.listResource({ workspace, resourceType: 'ai_agent', starredOnly: true }),
 			AssetService.listFavoriteAssets({ workspace })
 		])
+		if (($workspaceStore ?? '') !== workspace) return
 		favoriteManager.current = [
 			...scripts.map((s) => ({
 				label: s.summary || getFavoriteLabel(s.path, 'script'),

@@ -31,6 +31,7 @@
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
 	import { MAX_AGE_DAYS, recentItems, type RecentKind } from './recentItems.svelte'
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
+	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import {
 		homeComposerContext,
 		itemContextElement
@@ -66,6 +67,12 @@
 
 	const RECENT_COUNT = 6
 
+	// The way back from Hide from Home is in the header menu HomeAIChat adds, which Home mounts
+	// only with the AI sessions beta on. Without it the section can't be hidden, and one hidden
+	// earlier shows again.
+	const restoreMenuOnPage = isGlobalAiEnabled()
+	let hidden = $derived(restoreMenuOnPage && homeQuickAccessSettings.hidden)
+
 	// Turning off the last list shown would leave an empty section; Hide from Home does that.
 	const sectionMenu = (): Item[] => [
 		{
@@ -95,6 +102,7 @@
 		{
 			displayName: 'Hide from Home',
 			icon: EyeOff,
+			hide: !restoreMenuOnPage,
 			action: () => homeQuickAccessSettings.setHidden(true)
 		}
 	]
@@ -394,7 +402,7 @@
 
 <!-- Held back until the favorites are in: the recent cards are ready first, and the favorites
      landing in front of them would push every card over. -->
-{#if favoriteManager.loadedFor === workspace && (entries.length > 0 || emptiedBySettings) && !homeQuickAccessSettings.hidden}
+{#if favoriteManager.loadedFor === workspace && (entries.length > 0 || emptiedBySettings) && !hidden}
 	<!-- 30px under the cards: the gap from the composer down to this section's heading text. -->
 	<section class="flex flex-col gap-2 px-4 sm:px-0 pb-[30px]">
 		<div class="flex items-center gap-1 -my-1">
