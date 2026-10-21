@@ -174,10 +174,30 @@ const chat = useWindmillChat(rawAppRunnable(backendAsync.chat, streamJob))
 ```
 
 `createChat` and the assistant-ui runtime take the same options; the AI SDK transport
-does not. `conversation_id` is the agent's memory key, so the agent remembers earlier turns
+does not.
+
+Attachments need no credential either: the chat hands the files to the runnable as
+`data:` URLs, and `streamChatTurn` stores them in the workspace's object storage with
+the job's token before the agent gets their references. Declare the input, pass it on,
+and send with it:
+
+```ts
+export async function main(user_message: string, conversation_id: string, user_attachments: object[] = []) {
+  return streamChatTurn({ agentPath: 'f/support/agent' }, { user_message, user_attachments }, conversation_id)
+}
+```
+
+```ts
+chat.sendMessage(text, { attachments, attachmentsInput: { name: 'user_attachments', multiple: true } })
+```
+
+The bytes are the runnable job's arguments, so they are bound by the instance's request
+size limit and kept with the job: set `delete_after_secs` on the runnable (Enterprise)
+to delete the job once the turn is over. The message shows no attachment chips: the
+files are stored by the runnable, after the message is sent. `conversation_id` is the agent's memory key, so the agent remembers earlier turns
 server-side. In exchange for needing no credential the chat makes no request of its
 own: history is `'local'` (the app's own storage), `stop()` stops following without
-cancelling the run (the next message waits for that run to end), and attachments are refused. Every viewer's turns run as the
+cancelling the run (the next message waits for that run to end). Every viewer's turns run as the
 publisher and are filed under the publisher's conversations; a conversation id is the
 only thing that separates one viewer's memory from another's, so never show or share
 it. The runnable waits on the run it started, holding a worker for the turn: every turn

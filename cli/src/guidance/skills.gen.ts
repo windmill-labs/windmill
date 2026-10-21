@@ -6874,7 +6874,7 @@ import { backendAsync, streamJob } from './wmill'
 const chat = useWindmillChat(rawAppRunnable(backendAsync.chat, streamJob))
 \`\`\`
 
-\`conversation_id\` is the agent's memory key, so it remembers earlier turns. The chat keeps its transcript in the app's own storage, \`chat.stop()\` stops following without cancelling the run (the next message waits for it to end), and attachments are not supported. Do not re-emit the agent's stream by hand: \`streamChatTurn\` encodes it so newlines survive the trip. Each turn in progress holds a worker for the runnable while another runs the agent, so chatting viewers need as many workers again free.
+\`conversation_id\` is the agent's memory key, so it remembers earlier turns. The chat keeps its transcript in the app's own storage, \`chat.stop()\` stops following without cancelling the run (the next message waits for it to end). For attachments, add \`user_attachments: object[] = []\` to \`main\`, pass it in \`args\`, and send with \`attachmentsInput: { name: 'user_attachments', multiple: true }\`: the files travel as \`data:\` URLs in the runnable's arguments and \`streamChatTurn\` stores them in object storage; keep them small, and set \`delete_after_secs\` on the runnable so the job and its arguments do not linger. Do not re-emit the agent's stream by hand: \`streamChatTurn\` encodes it so newlines survive the trip. Each turn in progress holds a worker for the runnable while another runs the agent, so chatting viewers need as many workers again free.
 
 ## Backend runnables
 

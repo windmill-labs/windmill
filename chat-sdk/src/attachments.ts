@@ -38,6 +38,21 @@ export function storedAttachmentName(filename: string, mediaType: string): strin
   return `${stem || filename}.${extension}`
 }
 
+/** An attachment whose bytes travel as a `data:` URL, in a backend runnable's arguments. */
+export async function inlineAttachment(attachment: AttachmentUpload): Promise<AttachmentUpload & { data: string }> {
+  const blob = attachmentBlob(attachment)
+  const bytes = new Uint8Array(await blob.arrayBuffer())
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return { name: attachment.name, data: `data:${blob.type || 'application/octet-stream'};base64,${btoa(binary)}` }
+}
+
+/** What `inlineAttachment` made, as a runnable receives it. */
+export function isInlineAttachment(value: unknown): value is AttachmentUpload & { data: string } {
+  const v = value as { name?: unknown; data?: unknown } | null
+  return typeof v?.name === 'string' && typeof v.data === 'string' && v.data.startsWith('data:')
+}
+
 /** The bytes of an attachment as a Blob carrying its media type. */
 export function attachmentBlob(attachment: AttachmentUpload): Blob {
   const data =
@@ -88,10 +103,9 @@ export async function uploadAttachments(
       attachments.map(async (attachment, index) => {
         try {
           const blob = attachmentBlob(attachment)
-          const filename = storedAttachmentName(
-            attachment.name || `attachment-${index + 1}`,
-            blob.type
-          )
+          // The last segment only: the name may come from whoever sent the file.
+          const name = attachment.name?.split(/[\\/]/).pop()?.replace(/^\.+$/, '')
+          const filename = storedAttachmentName(name || `attachment-${index + 1}`, blob.type)
           const { file_key } = await api.uploadFile(`${prefix}/${index}/${filename}`, blob, {
             contentType: blob.type,
             signal: batch.signal

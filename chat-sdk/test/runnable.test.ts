@@ -41,7 +41,13 @@ describe('raw app runnable', () => {
     ])
     expect(chat.getState().messages.map((m) => m.content)).toEqual(['hi', 'answer job-1', 'again', 'answer job-2'])
 
-    await chat.sendMessage('third')
+    await chat.sendMessage('third', {
+      attachments: [{ name: 'a.png', data: new Blob(['hi'], { type: 'image/png' }) }],
+      attachmentsInput: { name: 'user_attachments', multiple: true }
+    })
+    expect((calls[2] as { user_attachments: unknown }).user_attachments).toEqual([
+      { name: 'a.png', data: 'data:image/png;base64,aGk=' }
+    ])
     const messages = chat.getState().messages
     const last = messages[messages.length - 1]
     expect([last.content, last.success]).toEqual(['agent failed', false])
@@ -72,6 +78,7 @@ async function lostStreamTurn(streamed: string): Promise<string> {
           ? sse([{ type: 'update', new_result_stream: ndjson({ type: 'token_delta', content: streamed }), stream_offset: 1 }])
           : text('bad gateway', 502)
         : undefined,
+    (c) => (c.url.pathname.endsWith('/job_helpers/upload_s3_file') ? json({ file_key: c.url.searchParams.get('file_key') }) : undefined),
     (c) =>
       c.url.pathname.endsWith('/get_result_maybe/turn')
         ? json({ completed: true, success: true, result: { output: 'The answer is 42', messages: [] } })
@@ -83,8 +90,15 @@ async function lostStreamTurn(streamed: string): Promise<string> {
   g.process.env = { BASE_URL: 'http://wm.test', WM_WORKSPACE: 'ws', WM_TOKEN: 'tok' }
   try {
     let out = ''
-    for await (const chunk of streamChatTurn({ agentPath: 'f/a/agent' }, { user_message: 'hi' }, 'conv')) out += chunk
-    expect(calls.filter((c) => c.method === 'POST').map((c) => c.url.searchParams.get('memory_id'))).toEqual(['conv', 'conv'])
+    const user_attachments = [{ name: '../../x.png', data: 'data:image/png;base64,aGk=' }]
+    for await (const chunk of streamChatTurn({ agentPath: 'f/a/agent' }, { user_message: 'hi', user_attachments }, 'conv')) out += chunk
+    const runs = calls.filter((c) => c.url.pathname.includes('/jobs/run/'))
+    expect(runs.map((c) => c.url.searchParams.get('memory_id'))).toEqual(['conv', 'conv'])
+    // Stored once, under its own name only, and the run gets the reference.
+    const [stored] = (runs[1].body as { user_attachments: { s3: string; filename: string }[] }).user_attachments
+    expect(stored.filename).toBe('x.png')
+    expect(stored.s3).toMatch(/^windmill_uploads\/chat\/[^/]+\/0\/x\.png$/)
+    expect(calls.filter((c) => c.url.pathname.endsWith('/upload_s3_file'))).toHaveLength(1)
     return parseStreamEvents(relay(out)).map((e) => (e.type === 'token_delta' ? e.content : '')).join('')
   } finally {
     g.fetch = saved.fetch

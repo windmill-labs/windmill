@@ -1,8 +1,9 @@
 import { TurnRunningError, WindmillChatApi } from './api'
+import { isInlineAttachment, uploadAttachments } from './attachments'
 import { followJob } from './follow'
 import type { AgentStreamEvent } from './stream'
 import type { ChatOptions } from './types'
-import { errorResultMessage, extractChatAnswer, isErrorResult } from './utils'
+import { errorResultMessage, extractChatAnswer, isErrorResult, randomId } from './utils'
 
 /**
  * `run` and `follow` over a raw app's backend runnable, from the app's generated `wmill.ts`:
@@ -32,6 +33,8 @@ export function rawAppRunnable(
  * (`agentPath`, an `ai_agent` resource) or of a chat-mode flow (`flowPath`) with the job's
  * own credential, its memory keyed by `conversationId`, and yields the answer for the
  * runnable to return as its result stream. A failed turn throws, failing the runnable.
+ * Attachments the chat sent (an `args` value of `data:` URL files) are stored in the
+ * workspace's object storage first, and the run gets their references.
  *
  * A turn the chat stopped following goes on running, and its conversation takes no other
  * until it ends: the next one waits for it here. The runnable waits on its run, so it holds
@@ -49,6 +52,13 @@ export async function* streamChatTurn(
     token: env.WM_TOKEN
   })
   const options = { memoryId: conversationId }
+  args = { ...args }
+  for (const [key, value] of Object.entries(args)) {
+    const files = Array.isArray(value) ? value : [value]
+    if (files.length === 0 || !files.every(isInlineAttachment)) continue
+    const uploaded = await uploadAttachments(api, files, randomId())
+    args[key] = Array.isArray(value) ? uploaded : uploaded[0]
+  }
   let jobId: string
   while (true) {
     try {
