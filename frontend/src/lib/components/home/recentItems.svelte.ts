@@ -10,7 +10,14 @@ export type RecentItem = {
 	at: number
 }
 
-const MAX_ITEMS = 12
+const MAX_ITEMS = 30
+export const MAX_AGE_DAYS = 7
+const MAX_AGE_MS = MAX_AGE_DAYS * 24 * 60 * 60 * 1000
+
+function fresh(items: RecentItem[]): RecentItem[] {
+	const cutoff = Date.now() - MAX_AGE_MS
+	return items.filter((x) => typeof x.at === 'number' && x.at >= cutoff)
+}
 
 // Per user (scopedKey) and per workspace: what one person opened in one workspace says nothing
 // about another, and a shared browser must not show the previous user's items.
@@ -59,7 +66,7 @@ class RecentItems {
 
 	list(workspace: string): RecentItem[] {
 		this.#version
-		return read(workspace)
+		return fresh(read(workspace))
 	}
 
 	/** Records an item as just opened. A missing summary keeps the one already stored. */
@@ -69,7 +76,7 @@ class RecentItems {
 			this.#pending.push({ workspace, item })
 			return
 		}
-		const previous = read(workspace)
+		const previous = fresh(read(workspace))
 		const existing = previous.find((x) => x.kind === item.kind && x.path === item.path)
 		const next: RecentItem = {
 			...item,

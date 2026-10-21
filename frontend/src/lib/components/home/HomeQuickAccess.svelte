@@ -1,5 +1,20 @@
 <script lang="ts">
-	import { Copy, Eye, GitFork, List, Pen, Star as StarIcon, StarOff, X } from 'lucide-svelte'
+	import {
+		AtSign,
+		Check,
+		ChevronLeft,
+		ChevronRight,
+		Copy,
+		Eye,
+		EyeOff,
+		GitFork,
+		LayoutGrid,
+		List,
+		Pen,
+		Star as StarIcon,
+		StarOff,
+		X
+	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { useEditRights } from '$lib/operatorWriteRights'
@@ -14,16 +29,26 @@
 		getFavoriteHref,
 		type FavoriteKind
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
-	import { recentItems, type RecentKind } from './recentItems.svelte'
+	import { MAX_AGE_DAYS, recentItems, type RecentKind } from './recentItems.svelte'
+	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
+	import {
+		homeComposerContext,
+		itemContextElement
+	} from '$lib/components/sessions/homeComposerContext.svelte'
 	import HomeSectionLabel from './HomeSectionLabel.svelte'
+	import HomeSectionCount from './HomeSectionCount.svelte'
+	import { QUICK_ACCESS_ROWS, homeQuickAccessSettings } from './homeQuickAccessSettings.svelte'
 
 	interface Props {
 		workspace: string
 		/** Cleared where direct-deploy protection hides the rows' edit actions. */
 		showEditButtons?: boolean
+		/** For the items card's heading, which shows only under this section: alone on the
+		 * page, a heading has nothing to tell apart. */
+		itemCount?: number
 	}
 
-	let { workspace, showEditButtons = true }: Props = $props()
+	let { workspace, showEditButtons = true, itemCount }: Props = $props()
 
 	type Entry = {
 		kind: RecentKind
@@ -40,8 +65,39 @@
 	}
 
 	const RECENT_COUNT = 6
-	// Three rows of the three-column grid.
-	const COLLAPSED_COUNT = 9
+
+	// Turning off the last list shown would leave an empty section; Hide from Home does that.
+	const sectionMenu = (): Item[] => [
+		{
+			displayName: 'Show favorites',
+			description: 'Items you starred',
+			toggle: homeQuickAccessSettings.showFavorites,
+			disabled: homeQuickAccessSettings.showFavorites && !homeQuickAccessSettings.showRecent,
+			action: () => homeQuickAccessSettings.setShowFavorites(!homeQuickAccessSettings.showFavorites)
+		},
+		{
+			displayName: 'Show recent',
+			description: `Scripts, flows and apps you opened in their editor in the last ${MAX_AGE_DAYS} days, in this browser`,
+			toggle: homeQuickAccessSettings.showRecent,
+			disabled: homeQuickAccessSettings.showRecent && !homeQuickAccessSettings.showFavorites,
+			action: () => homeQuickAccessSettings.setShowRecent(!homeQuickAccessSettings.showRecent)
+		},
+		{
+			displayName: 'Grid size',
+			separatorTop: true,
+			icon: LayoutGrid,
+			submenuItems: QUICK_ACCESS_ROWS.map((rows) => ({
+				displayName: rows === 1 ? '1 row' : `${rows} rows`,
+				icon: homeQuickAccessSettings.rows === rows ? Check : undefined,
+				action: () => homeQuickAccessSettings.setRows(rows)
+			}))
+		},
+		{
+			displayName: 'Hide from Home',
+			icon: EyeOff,
+			action: () => homeQuickAccessSettings.setHidden(true)
+		}
+	]
 
 	// Only the role is checked: the cards don't carry the item's own permissions, and an
 	// editor opened without write access says so itself.
@@ -66,7 +122,20 @@
 		const operator = !!$userStore?.operator
 		const kind = await editorKind(item)
 		const base = kind === 'raw_app' ? 'apps_raw' : `${kind}s`
+		const contextElement = itemContextElement({
+			kind: kind === 'raw_app' ? 'app' : kind,
+			rawApp: kind === 'raw_app',
+			path: item.path,
+			summary: item.title === item.path ? undefined : item.title
+		})
 		return [
+			{
+				displayName: 'Add to AI session context',
+				icon: AtSign,
+				type: 'ai',
+				action: () => contextElement && homeComposerContext.attach(contextElement),
+				hide: !contextElement || !homeComposerContext.available
+			},
 			{
 				displayName: 'Edit',
 				icon: Pen,
@@ -119,12 +188,14 @@
 		)
 	)
 	// Favorites first, then what was edited lately; a starred item is listed once, as a favorite.
-	let entries: { item: Entry; favorite: boolean }[] = $derived.by(() => {
-		const starred = new Set(favorites.map((f) => `${asStarKind(f.kind)}/${f.path}`))
-		const recent = recentItems
-			.list(workspace)
+	// With the favorites turned off, a starred item edited lately shows among the recent ones.
+	let recentAll: Entry[] = $derived.by(() => {
+		const { showFavorites, showRecent } = homeQuickAccessSettings
+		const starred = new Set(
+			showFavorites ? favorites.map((f) => `${asStarKind(f.kind)}/${f.path}`) : []
+		)
+		return (showRecent ? recentItems.list(workspace) : [])
 			.filter((r) => !starred.has(`${asStarKind(r.kind)}/${r.path}`))
-			.slice(0, RECENT_COUNT)
 			.map((r) => ({
 				kind: r.kind,
 				starKind: asStarKind(r.kind),
@@ -132,11 +203,25 @@
 				title: r.summary || r.path,
 				at: r.at
 			}))
-		return [
-			...favorites.map((item) => ({ item, favorite: true })),
-			...recent.map((item) => ({ item, favorite: false }))
-		]
 	})
+	// Grows by a page from the "Load next" card; back to one page on the next visit.
+	let recentLimit = $state(RECENT_COUNT)
+	let recentMore = $derived(Math.max(0, recentAll.length - recentLimit))
+	let entries: { item: Entry; favorite: boolean }[] = $derived([
+		...(homeQuickAccessSettings.showFavorites ? favorites : []).map((item) => ({
+			item,
+			favorite: true
+		})),
+		...recentAll.slice(0, recentLimit).map((item) => ({ item, favorite: false }))
+	])
+
+	// The list turned off has items, the one left on has none. The section stays, or its menu
+	// (the only way to turn the list back on) would leave with it.
+	let emptiedBySettings = $derived(
+		entries.length === 0 &&
+			((!homeQuickAccessSettings.showFavorites && favorites.length > 0) ||
+				(!homeQuickAccessSettings.showRecent && recentItems.list(workspace).length > 0))
+	)
 
 	// Read when the pointer reaches the time, so the tooltip is current however long the
 	// page has been open.
@@ -156,9 +241,88 @@
 		return `Edited by you ${ago}`
 	}
 
-	let expanded = $state(false)
-	let shown = $derived(expanded ? entries : entries.slice(0, COLLAPSED_COUNT))
+	// Everything the lists hold, the recent ones not loaded yet included.
+	let favoriteCount = $derived(homeQuickAccessSettings.showFavorites ? favorites.length : 0)
+	let recentCount = $derived(recentAll.length)
+
+	// The cards fill one screen at a time, row by row, and the next screen scrolls in from the
+	// right. Placed by hand: the grid's own flow fills either whole rows across every screen or
+	// whole columns. The column counts follow the `auto-cols` breakpoints below.
+	let innerWidth = $state(1280)
+	let cols = $derived(innerWidth >= 1024 ? 3 : innerWidth >= 640 ? 2 : 1)
+	let cellCount = $derived(entries.length + (recentMore > 0 ? 1 : 0))
+	// Fewer rows when there aren't enough cards to fill a screen.
+	let rows = $derived(Math.min(homeQuickAccessSettings.rows, Math.ceil(cellCount / cols)))
+
+	function cellPosition(index: number): { row: number; column: number } {
+		const perScreen = cols * rows
+		const screen = Math.floor(index / perScreen)
+		const within = index % perScreen
+		return { row: Math.floor(within / cols) + 1, column: screen * cols + (within % cols) + 1 }
+	}
+
+	let scroller: HTMLDivElement | undefined = $state(undefined)
+	let canBack = $state(false)
+	let canForward = $state(false)
+
+	function measure() {
+		if (!scroller) return
+		canBack = scroller.scrollLeft > 1
+		canForward = scroller.scrollLeft + scroller.clientWidth < scroller.scrollWidth - 1
+	}
+
+	// No scroll snap: when the favorites load in front of the recent cards, a snapped scroller
+	// follows the card it had snapped to and opens scrolled to the end. One page (the width
+	// inside the scroller's 1px padding) plus the grid's 8px gap lands on a column edge by itself.
+	// Animated by hand: `behavior: 'smooth'` runs at the browser's own pace, which is slow for a
+	// page this wide. A click during the animation moves on from where the last one was going.
+	const PAGE_MS = 200
+	const reducedMotion = useReducedMotion()
+	let scrollTarget: number | undefined
+	let scrollFrame: number | undefined
+
+	function page(direction: 1 | -1) {
+		const el = scroller
+		if (!el) return
+		const max = el.scrollWidth - el.clientWidth
+		const from = el.scrollLeft
+		const to = Math.max(
+			0,
+			Math.min(max, (scrollTarget ?? from) + direction * (el.clientWidth - 2 + 8))
+		)
+		if (scrollFrame != undefined) cancelAnimationFrame(scrollFrame)
+		if (reducedMotion.val) {
+			el.scrollLeft = to
+			return
+		}
+		scrollTarget = to
+		const start = performance.now()
+		const step = (now: number) => {
+			const t = Math.min(1, (now - start) / PAGE_MS)
+			el.scrollLeft = from + (to - from) * (1 - Math.pow(1 - t, 3))
+			if (t < 1) {
+				scrollFrame = requestAnimationFrame(step)
+			} else {
+				scrollFrame = undefined
+				scrollTarget = undefined
+			}
+		}
+		scrollFrame = requestAnimationFrame(step)
+	}
+
+	// A resize changes what fits, and so does a change of cards or rows, which can leave the
+	// scroller's own box the same size.
+	function watchOverflow(node: HTMLElement) {
+		void cellCount
+		void rows
+		measure()
+		const observer = new ResizeObserver(measure)
+		observer.observe(node)
+		return () => observer.disconnect()
+	}
 </script>
+
+<svelte:window bind:innerWidth />
 
 {#snippet card(item: Entry, favorite: boolean)}
 	<div
@@ -170,7 +334,7 @@
 			title={item.title === item.path ? item.path : `${item.title}\n${item.path}`}
 		>
 			<span class="shrink-0"><RowIcon kind={item.kind} size={14} /></span>
-			<span class="text-xs font-medium text-emphasis truncate">{item.title}</span>
+			<span class="text-2xs font-normal text-primary truncate">{item.title}</span>
 		</a>
 		<!-- The star sits after the title, as on the tree's rows: a set one stays, an unset one
 		     shows on hover or focus. -->
@@ -206,20 +370,103 @@
 	</div>
 {/snippet}
 
-{#if entries.length > 0}
-	<section class="flex flex-col gap-2 px-4 sm:px-0 pb-4">
-		<HomeSectionLabel class="-mb-1">Favorites & recent</HomeSectionLabel>
-		<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-			{#each shown as { item, favorite } (item.kind + '/' + item.path)}
-				{@render card(item, favorite)}
-			{/each}
-		</div>
-		{#if entries.length > COLLAPSED_COUNT}
-			<div class="self-start">
-				<Button variant="subtle" unifiedSize="xs" onClick={() => (expanded = !expanded)}>
-					{expanded ? 'Show less' : `Show all ${entries.length}`}
-				</Button>
+{#snippet arrow(direction: 1 | -1)}
+	<!-- In the page's side padding, beside the cards rather than over them, so the cards keep
+	     the items card's width. A touch screen swipes instead. -->
+	<div
+		class="absolute inset-y-0 hidden sm:block [@media(hover:none)]:hidden {direction === -1
+			? 'right-full mr-1'
+			: 'left-full ml-1'}"
+	>
+		<Button
+			variant="subtle"
+			unifiedSize="sm"
+			iconOnly
+			wrapperClasses="h-full"
+			btnClasses="!h-full !w-6 !px-0"
+			startIcon={{ icon: direction === -1 ? ChevronLeft : ChevronRight }}
+			title={direction === -1 ? 'Scroll left' : 'Scroll right'}
+			aria-label={direction === -1 ? 'Scroll left' : 'Scroll right'}
+			onClick={() => page(direction)}
+		/>
+	</div>
+{/snippet}
+
+<!-- Held back until the favorites are in: the recent cards are ready first, and the favorites
+     landing in front of them would push every card over. -->
+{#if favoriteManager.loadedFor === workspace && (entries.length > 0 || emptiedBySettings) && !homeQuickAccessSettings.hidden}
+	<!-- 30px under the cards: the gap from the composer down to this section's heading text. -->
+	<section class="flex flex-col gap-2 px-4 sm:px-0 pb-[30px]">
+		<div class="flex items-center gap-1 -my-1">
+			<HomeSectionLabel>
+				{#if favoriteCount > 0}
+					Favorites <HomeSectionCount count={favoriteCount} />
+				{/if}
+				{#if favoriteCount > 0 && recentCount > 0}
+					<span class="text-hint">·</span>
+				{/if}
+				{#if recentCount > 0}
+					Recent <HomeSectionCount count={recentCount} />
+				{/if}
+			</HomeSectionLabel>
+			<div class="text-secondary">
+				<DropdownV2 items={sectionMenu} size="xs" fixedHeight={false} />
 			</div>
+		</div>
+		{#if entries.length === 0}
+			<p class="text-2xs text-hint">
+				{homeQuickAccessSettings.showFavorites
+					? 'No favorites yet. Star a script, flow or app to keep it here.'
+					: 'Nothing opened lately in this browser.'}
+			</p>
 		{/if}
+		<div class="relative">
+			<!-- The scrollbar is hidden, so a trackpad, shift-wheel or a swipe scrolls it and the
+			     arrows stand in for the bar. The 1px padding, taken back by the margin, keeps the
+			     cards' borders off the clip edge: a third of the width is rarely a whole pixel, and
+			     the edge then cuts the outer border. -->
+			<div
+				bind:this={scroller}
+				{@attach watchOverflow}
+				onscroll={measure}
+				class="grid gap-2 overflow-x-auto no-scrollbar px-px -mx-px auto-cols-[85%] sm:auto-cols-[calc((100%_-_0.5rem)/2)] lg:auto-cols-[calc((100%_-_1rem)/3)]"
+				style:grid-template-rows="repeat({rows}, auto)"
+			>
+				{#each entries as { item, favorite }, i (item.kind + '/' + item.path)}
+					{@const at = cellPosition(i)}
+					<div class="min-w-0" style:grid-row={at.row} style:grid-column={at.column}>
+						{@render card(item, favorite)}
+					</div>
+				{/each}
+				{#if recentMore > 0}
+					{@const next = Math.min(recentMore, RECENT_COUNT)}
+					{@const at = cellPosition(entries.length)}
+					<div class="min-w-0" style:grid-row={at.row} style:grid-column={at.column}>
+						<Button
+							variant="subtle"
+							unifiedSize="sm"
+							wrapperClasses="h-full min-w-0"
+							btnClasses="!h-full rounded-md border border-dashed border-border-light !text-2xs text-secondary font-normal"
+							onClick={() => (recentLimit += RECENT_COUNT)}
+						>
+							Load next {next}
+							{next === 1 ? 'item' : 'items'}
+						</Button>
+					</div>
+				{/if}
+			</div>
+			{#if canBack}
+				{@render arrow(-1)}
+			{/if}
+			{#if canForward}
+				{@render arrow(1)}
+			{/if}
+		</div>
 	</section>
+	<HomeSectionLabel class="px-4 sm:px-0 pb-1">
+		Workspace items
+		{#if itemCount != undefined}
+			<HomeSectionCount count={itemCount} />
+		{/if}
+	</HomeSectionLabel>
 {/if}

@@ -10,6 +10,6 @@
 </script>
 
 <!-- Names a section of Home without competing with what it labels. -->
-<h2 class="text-xs font-normal text-secondary {className}">
+<h2 class="flex items-center gap-1 text-xs font-normal text-secondary {className}">
 	{@render children()}
 </h2>

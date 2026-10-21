@@ -21,8 +21,8 @@
 		variant="subtle"
 		unifiedSize="sm"
 		btnClasses="!text-ai font-medium"
-		title="Add to context"
-		aria-label="Add to context"
+		title="Add to AI session context"
+		aria-label="Add to AI session context"
 		onClick={() => element && homeComposerContext.attach(element)}
 	>
 		+@

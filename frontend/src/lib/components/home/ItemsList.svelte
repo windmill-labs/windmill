@@ -967,6 +967,10 @@
 		}
 	)
 	let ownerCounts = $derived(ownerCountsRes.current)
+	// Every path sits under a folder or a user, so the owners' counts add up to the workspace.
+	let workspaceItemCount = $derived(
+		ownerCounts == undefined ? undefined : Object.values(ownerCounts).reduce((sum, n) => sum + n, 0)
+	)
 
 	type KindOption = {
 		value: 'all' | 'script' | 'flow' | 'app' | 'agent'
@@ -1512,7 +1516,7 @@
 	     them be. A search is a question about the whole workspace: they step aside for its
 	     answer rather than sit above its results (or above its empty state). -->
 	{#if !searching && !contentActive && !workspaceEmpty && $workspaceStore}
-		<HomeQuickAccess workspace={$workspaceStore} {showEditButtons} />
+		<HomeQuickAccess workspace={$workspaceStore} {showEditButtons} itemCount={workspaceItemCount} />
 	{/if}
 	<!-- The items section, one card: its controls, its filters and its rows. No `overflow-hidden`
 	     on it: the page scrolls, and that would stop the controls sticking. -->
