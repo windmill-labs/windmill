@@ -215,7 +215,7 @@ flow with \`flowPath: '${t.path}'\`: it runs the flow itself.`
 
 The ${noun(t)} keeps the conversation. Pass \`memory_id\` as a query parameter on every run: any
 string names a conversation, a UUID is best. Reuse it for follow-ups; a new one starts over.
-Without it each message is answered on its own.
+${t.kind === 'agent' ? 'Without it each message is answered on its own.' : 'It is required: a run without it is refused, so answer a message on its own with a fresh one.'}
 
 Windmill also keeps each conversation, as the token's owner's. One token shared by all your
 users makes every conversation theirs, so keep your users' conversation ids in your own app.
