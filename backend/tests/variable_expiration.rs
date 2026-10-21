@@ -141,6 +141,46 @@ async fn test_variable_fields_do_not_resolve_in_handler(db: Pool<Postgres>) -> a
     Ok(())
 }
 
+/// A member who created the group before the upgrade must not keep it once it can read the
+/// Slack bot token.
+#[sqlx::test(fixtures("base"))]
+async fn test_upgrade_empties_a_preexisting_handler_group(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    sqlx::raw_sql(&format!(
+        "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ('{WS}', 'variable_expiration_handler', '', '{{\"u/test-user-2\": true}}');
+         INSERT INTO usr_to_group (workspace_id, group_, usr) VALUES ('{WS}', 'variable_expiration_handler', 'test-user-2');
+         INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms) VALUES ('{WS}', 'slack_bot', 'slack_bot', '{{}}', '{{}}');"
+    ))
+    .execute(&db)
+    .await?;
+
+    sqlx::raw_sql(include_str!(
+        "../migrations/20260903161430_variable_expiration_handler_slack_perms.up.sql"
+    ))
+    .execute(&db)
+    .await?;
+
+    let (members, owners, granted): (i64, serde_json::Value, bool) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM usr_to_group WHERE workspace_id = $1 AND group_ = 'variable_expiration_handler'),
+                extra_perms,
+                (SELECT extra_perms ? 'g/variable_expiration_handler' FROM folder WHERE workspace_id = $1 AND name = 'slack_bot')
+         FROM group_ WHERE workspace_id = $1 AND name = 'variable_expiration_handler'",
+    )
+    .bind(WS)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(members, 0, "the pre-upgrade member kept the group");
+    assert_eq!(
+        owners,
+        serde_json::json!({}),
+        "the pre-upgrade owner kept the group"
+    );
+    assert!(granted);
+    Ok(())
+}
+
 /// `notify_before_secs` on the handler replaces the default window.
 #[sqlx::test(fixtures("base"))]
 async fn test_notify_before_sets_the_window(db: Pool<Postgres>) -> anyhow::Result<()> {
