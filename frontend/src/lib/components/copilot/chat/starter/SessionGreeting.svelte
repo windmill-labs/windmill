@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { Badge } from '$lib/components/common'
 	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { takeFirstVisit, timeOfDayGreeting } from './greeting'
 
@@ -26,5 +25,4 @@
 			{greeting}{userName ? `, ${userName}` : ''}
 		{/if}
 	</p>
-	<Badge color="blue" small>Beta</Badge>
 </div>
