@@ -4345,15 +4345,20 @@ export class AIChatManager implements ChatViewHost {
 					// The first iteration sends exactly what the send-time check measured.
 					if (collectedMessages.length === 0) return
 					// The last report's prompt covers everything before its assistant message.
-					// That message is estimated rather than taken from `completion`, which
-					// also bills reasoning the next request does not replay. The estimate is
+					// That message counts as its `completion` only on Anthropic, which replays
+					// its thinking verbatim (`_anthropicContent`); other providers bill reasoning
+					// the next request does not replay, so it is estimated. The estimate is
 					// the floor in case a later iteration's report never arrived. A report
 					// from before a compaction measured the history it replaced.
 					const lastAssistant = collectedMessages.findLastIndex((m) => m.role === 'assistant')
+					const replaysOutput = !!(collectedMessages[lastAssistant] as any)?._anthropicContent
 					const reported =
 						lastIterationUsage && lastIterationUsage !== usageBeforeCompaction
 							? lastIterationUsage.prompt +
-								this.estimateMessagesTokens(collectedMessages.slice(lastAssistant))
+								(replaysOutput ? lastIterationUsage.completion : 0) +
+								this.estimateMessagesTokens(
+									collectedMessages.slice(replaysOutput ? lastAssistant + 1 : lastAssistant)
+								)
 							: 0
 					const inFlightTokens = this.estimateMessagesTokens(collectedMessages)
 					const projected = Math.max(reported, this.estimateWholeContextTokens() + inFlightTokens)

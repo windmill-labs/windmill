@@ -3524,6 +3524,50 @@ describe('AIChatManager context compaction', () => {
 		expect(manager.contextUsage).toBeUndefined()
 	})
 
+	it('counts replayed Anthropic thinking toward the mid-turn projection', async () => {
+		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.getStreamedCompletionText.mockResolvedValue('<summary>SUMMARY ONE</summary>')
+		// Under the 0.8 * 128k trigger without the thinking the next request replays.
+		const report = { prompt: 80_000, completion: 25_000, total: 105_000 }
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			await config.onBeforeIteration(gpt4oModel, null)
+			const assistant = {
+				role: 'assistant' as const,
+				content: '',
+				tool_calls: [{ id: 't1', type: 'function', function: { name: 'x', arguments: '{}' } }],
+				_anthropicContent: [{ type: 'thinking', thinking: '...', signature: 'sig' }]
+			}
+			const tool = { role: 'tool' as const, tool_call_id: 't1', content: 'r'.repeat(4_000) }
+			for (const m of [assistant, tool]) {
+				config.messages.push(m)
+				config.addedMessages.push(m)
+			}
+			await config.onBeforeIteration(gpt4oModel, report)
+			return {
+				addedMessages: [assistant, tool],
+				tokenUsage: report,
+				lastIterationUsage: report,
+				hitMaxIterations: false
+			}
+		})
+		const manager = new AIChatManager()
+		manager.messages = Array.from({ length: 10 }, (_, i) => ({
+			role: i % 2 === 0 ? ('user' as const) : ('assistant' as const),
+			content: `m${i}` + 'x'.repeat(30_000)
+		}))
+		manager.displayMessages = manager.messages.map((m, i) =>
+			m.role === 'user'
+				? { role: 'user', content: `m${i}`, index: i }
+				: { role: 'assistant', content: `m${i}` }
+		)
+		manager.instructions = 'next question'
+
+		await manager.sendRequest()
+
+		expect(mocks.getStreamedCompletionText).toHaveBeenCalledTimes(1)
+	})
+
 	it('summarizes the older prefix and keeps the recent tail verbatim', async () => {
 		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
 		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
