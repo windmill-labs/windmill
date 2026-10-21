@@ -665,7 +665,10 @@
 		// In free-text mode the dropdown is hidden; let arrow/enter keys pass through to
 		// the surrounding UI (e.g. list navigation) rather than steering a hidden menu.
 		if (!dropdownVisible) {
-			if (freeTextFilterHint && e.key === 'Escape') open = false
+			// The hint sits over the list's first rows, so it gets out of the way once the list
+			// is being navigated; the next typed character brings it back.
+			if (freeTextFilterHint && ['Escape', 'ArrowUp', 'ArrowDown', 'Enter'].includes(e.key))
+				open = false
 			return
 		}
 		if (e.key === 'Escape') {
