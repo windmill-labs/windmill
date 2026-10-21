@@ -75,12 +75,12 @@ async fn test_app_preview_authorization(db: Pool<Postgres>) -> anyhow::Result<()
     let status = resp.status();
     let body = resp.text().await?;
     assert_eq!(
-        status, 401,
+        status, 403,
         "Operator must be rejected from app preview (got {status}): {body}"
     );
     assert!(
-        body.contains("Operators cannot run preview jobs"),
-        "rejection must be the operator guard, got: {body}"
+        body.contains("Your role cannot run preview jobs"),
+        "rejection must be the role guard, got: {body}"
     );
 
     // 2. The fix must NOT over-block the legitimate editor flow: a regular
