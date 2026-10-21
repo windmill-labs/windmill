@@ -174,7 +174,13 @@ pub const DEFAULT_AI_SHARED_ARTIFACT_RETENTION_SECS: i64 = 60 * 60 * 24 * 30;
 pub const WM_DEPLOYERS_GROUP: &str = "wm_deployers";
 /// Groups Windmill creates lazily (`ON CONFLICT DO NOTHING`) and grants permissions to before
 /// they exist; a member who created one first would inherit those grants.
-pub const RESERVED_GROUP_NAMES: &[&str] = &["error_handler", "success_handler", "slack", "teams"];
+pub const RESERVED_GROUP_NAMES: &[&str] = &[
+    "error_handler",
+    "success_handler",
+    "variable_expiration_handler",
+    "slack",
+    "teams",
+];
 
 /// A century. Every consumer has to survive `now - retention`, and the ceilings are much lower
 /// than an `i64`: `DateTime` subtraction panics past year 262143, and the `(<n> s)::interval`
