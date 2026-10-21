@@ -3394,6 +3394,64 @@ describe('AIChatManager context compaction', () => {
 		manager.instructions = 'next question'
 	}
 
+	it('compacts between tool iterations once tool results carry the turn over the trigger', async () => {
+		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.getStreamedCompletionText.mockResolvedValue('<summary>SUMMARY TEXT</summary>')
+		const toolCall = {
+			role: 'assistant' as const,
+			content: '',
+			tool_calls: [{ id: 't1', type: 'function', function: { name: 'x', arguments: '{}' } }]
+		}
+		// ~25k estimated tokens: enough to push a ~60% history past the 0.8 * 128k trigger.
+		const toolResult = { role: 'tool' as const, tool_call_id: 't1', content: 'r'.repeat(100_000) }
+		let secondIteration: any[] = []
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			await config.onBeforeIteration(gpt4oModel, null)
+			for (const m of [toolCall, toolResult]) {
+				config.messages.push(m)
+				config.addedMessages.push(m)
+			}
+			await config.onBeforeIteration(gpt4oModel, null)
+			secondIteration = [...config.messages]
+			const reply = { role: 'assistant' as const, content: 'done' }
+			config.messages.push(reply)
+			config.addedMessages.push(reply)
+			return {
+				addedMessages: [toolCall, toolResult, reply],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				lastIterationUsage: null,
+				hitMaxIterations: false
+			}
+		})
+		const manager = new AIChatManager()
+		// ~80k estimated tokens over ten messages: under the trigger at send time.
+		manager.messages = Array.from({ length: 10 }, (_, i) => ({
+			role: i % 2 === 0 ? ('user' as const) : ('assistant' as const),
+			content: `m${i}` + 'x'.repeat(32_000)
+		}))
+		manager.displayMessages = manager.messages.map((m, i) =>
+			m.role === 'user'
+				? { role: 'user', content: `m${i}`, index: i }
+				: { role: 'assistant', content: `m${i}` }
+		)
+		manager.instructions = 'next question'
+
+		await manager.sendRequest()
+
+		// Not at send time (under the trigger), only once the tool result landed.
+		expect(mocks.getStreamedCompletionText).toHaveBeenCalledTimes(1)
+		expect(secondIteration[0].content).toContain('SUMMARY TEXT')
+		expect(secondIteration.slice(-2)).toEqual([toolCall, toolResult])
+		expect(manager.messages[0].content).toContain('SUMMARY TEXT')
+		expect(manager.messages.slice(-3).map((m) => m.role)).toEqual([
+			'assistant',
+			'tool',
+			'assistant'
+		])
+		expect(manager.displayMessages[0].role).toBe('summary')
+	})
+
 	it('summarizes the older prefix and keeps the recent tail verbatim', async () => {
 		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
 		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)

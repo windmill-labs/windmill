@@ -119,6 +119,7 @@ import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import {
 	closeInterruptedToolBatch,
 	runChatLoop,
+	type ChatLoopConfig,
 	sendsWebSearch,
 	truncateToToolPairedPrefix
 } from './chatLoop'
@@ -1811,6 +1812,60 @@ export class AIChatManager implements ChatViewHost {
 	}
 
 	/**
+	 * Automatic compaction trigger, checked when a turn is sent and again before
+	 * each tool-loop iteration, since one turn's tool results can carry the request
+	 * past the window on their own. Rewrites the stored history (not the turn in
+	 * flight) once `projectedTokens` reaches the trigger ratio of `model`'s window.
+	 * Returns whether it rewrote; callers persist. An unrecognized model still gets
+	 * the conservative assumed window rather than no limit: without one the context
+	 * grows unbounded until the provider (or a proxy in front of it) times out.
+	 * Guessing low only compacts earlier, which is always recoverable.
+	 */
+	private compactIfOverTrigger = async (
+		projectedTokens: number,
+		model: ChatLoopConfig['modelProvider'] | undefined
+	): Promise<boolean> => {
+		const contextWindow = model
+			? getEffectiveModelContextWindow(
+					model.provider,
+					model.model,
+					get(copilotInfo).contextWindowPerModel
+				)
+			: undefined
+		if (contextWindow === undefined || projectedTokens < contextWindow * COMPACTION_TRIGGER_RATIO) {
+			return false
+		}
+		// Preferred path: summarize the older prefix, keep the recent tail.
+		const summarized = await this.summarizeAndCompact(contextWindow)
+		// A Stop during the in-flight summary aborts this turn's controller;
+		// summarizeAndCompact then returns false without touching history. Skip
+		// the drop-oldest fallback — it would destructively compact a conversation
+		// the user only meant to cancel, and the request can't run on an aborted
+		// controller anyway. The cancel path rolls the turn back cleanly on its own.
+		if (this.abortController?.signal.aborted) {
+			return false
+		}
+		if (!summarized) {
+			// Fallback when summarization isn't worthwhile or fails: drop the
+			// oldest messages. A report stays meaningful only debited by what
+			// was dropped; the estimate path needs no bookkeeping — the next
+			// read re-estimates the compacted history. chars/4 can
+			// underestimate the freed tokens, which errs toward compacting
+			// again — never toward overflowing.
+			const freed = this.compactOldestMessages(
+				projectedTokens - contextWindow * COMPACTION_TARGET_RATIO
+			)
+			if (this.contextUsage !== undefined) {
+				this.contextUsage = Math.max(0, this.contextUsage - freed)
+			}
+		}
+		// Reconcile file registrations with the compacted transcript — the
+		// summary message carries the folded-away turns' files forward.
+		this.#syncMessageFiles()
+		return true
+	}
+
+	/**
 	 * Manual compaction (the `/compact` session command): summarize the ENTIRE
 	 * stored history into a single summary message and keep nothing verbatim, so
 	 * the next message continues from the summary alone. Unlike the automatic
@@ -3163,7 +3218,8 @@ export class AIChatManager implements ChatViewHost {
 		callbacks,
 		addedMessages,
 		systemMessage: systemMessageOverride,
-		onWebSearchUnavailable
+		onWebSearchUnavailable,
+		onBeforeIteration
 	}: {
 		messages: ChatCompletionMessageParam[]
 		abortController: AbortController
@@ -3175,6 +3231,7 @@ export class AIChatManager implements ChatViewHost {
 		addedMessages?: ChatCompletionMessageParam[]
 		systemMessage?: ChatCompletionSystemMessageParam
 		onWebSearchUnavailable?: () => void
+		onBeforeIteration?: ChatLoopConfig['onBeforeIteration']
 	}) => {
 		// Fresh batch for this turn — drop any images an aborted prior turn left buffered.
 		this.pendingToolImages.clear()
@@ -3277,8 +3334,9 @@ export class AIChatManager implements ChatViewHost {
 						console.error('Failed to record AI usage', e)
 					}
 				},
-				onBeforeIteration: async (modelProvider) => {
+				onBeforeIteration: async (modelProvider, lastIterationUsage) => {
 					this.lastIterationModel = modelProvider
+					await onBeforeIteration?.(modelProvider, lastIterationUsage)
 				}
 			})
 			if (this.isSessionChat && this.sessionId && result.tokenUsage.total > 0) {
@@ -4121,54 +4179,13 @@ export class AIChatManager implements ChatViewHost {
 			this.currentReasoningActive = false
 			this.resetReasoningTiming()
 
-			// Compaction trigger. An unrecognized model still gets the conservative
-			// assumed window rather than no limit: without one the context grows
-			// unbounded until the provider (or a proxy in front of it) times out.
-			// Guessing low only compacts earlier, which is always recoverable.
-			const contextWindow = model
-				? getEffectiveModelContextWindow(
-						model.provider,
-						model.model,
-						get(copilotInfo).contextWindowPerModel
-					)
-				: undefined
-			if (
-				contextWindow !== undefined &&
-				projectedContextTokens >= contextWindow * COMPACTION_TRIGGER_RATIO
-			) {
-				// Preferred path: summarize the older prefix, keep the recent tail.
-				const summarized = await this.summarizeAndCompact(contextWindow)
-				// A Stop during the in-flight summary aborts this turn's controller;
-				// summarizeAndCompact then returns false without touching history. Skip
-				// the drop-oldest fallback (and its save) — it would destructively
-				// compact a conversation the user only meant to cancel, and the request
-				// can't run on an aborted controller anyway. The cancel path below rolls
-				// the pushed turn back cleanly on its own.
-				if (!this.abortController?.signal.aborted) {
-					if (!summarized) {
-						// Fallback when summarization isn't worthwhile or fails: drop the
-						// oldest messages. A report stays meaningful only debited by what
-						// was dropped; the estimate path needs no bookkeeping — the next
-						// read re-estimates the compacted history. chars/4 can
-						// underestimate the freed tokens, which errs toward compacting
-						// again — never toward overflowing.
-						const freed = this.compactOldestMessages(
-							projectedContextTokens - contextWindow * COMPACTION_TARGET_RATIO
-						)
-						if (this.contextUsage !== undefined) {
-							this.contextUsage = Math.max(0, this.contextUsage - freed)
-						}
-					}
-					// Reconcile file registrations with the compacted transcript — the
-					// summary message carries the folded-away turns' files forward.
-					this.#syncMessageFiles()
-					await this.historyManager.saveChat(
-						this.displayMessages,
-						this.messages,
-						this.contextUsage,
-						this.modifiedItems ? [...this.modifiedItems] : undefined
-					)
-				}
+			if (await this.compactIfOverTrigger(projectedContextTokens, model)) {
+				await this.historyManager.saveChat(
+					this.displayMessages,
+					this.messages,
+					this.contextUsage,
+					this.modifiedItems ? [...this.modifiedItems] : undefined
+				)
 			}
 			// Rollback anchors for restoreUnsentTurn: captured after compaction so
 			// they index into the (possibly compacted) stored history. The summary
@@ -4303,6 +4320,34 @@ export class AIChatManager implements ChatViewHost {
 				addedMessages: collectedMessages,
 				onWebSearchUnavailable: () => {
 					webSearchUnavailable = true
+				},
+				onBeforeIteration: async (iterationModel, lastIterationUsage) => {
+					// The first iteration sends exactly what the send-time check measured.
+					if (collectedMessages.length === 0) return
+					// The last report covers everything up to its assistant message; only
+					// the tool results that followed are unreported. The estimate is the
+					// floor in case a later iteration's report never arrived.
+					const lastAssistant = collectedMessages.findLastIndex((m) => m.role === 'assistant')
+					const reported = lastIterationUsage
+						? lastIterationUsage.prompt +
+							lastIterationUsage.completion +
+							this.estimateMessagesTokens(collectedMessages.slice(lastAssistant + 1))
+						: 0
+					const projected = Math.max(
+						reported,
+						this.estimateWholeContextTokens() + this.estimateMessagesTokens(collectedMessages)
+					)
+					if (await this.compactIfOverTrigger(projected, iterationModel)) {
+						// The loop sends from this array, which mirrors the stored history
+						// plus the turn so far.
+						params.messages.splice(
+							0,
+							params.messages.length,
+							...this.messages,
+							...collectedMessages
+						)
+						await checkpointTurn(true)
+					}
 				}
 			})
 			stopCheckpoints()
