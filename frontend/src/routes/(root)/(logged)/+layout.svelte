@@ -667,6 +667,12 @@
 		const workspace = $workspaceStore ?? ''
 		try {
 			await loadFavoritesFor(workspace)
+		} catch (e) {
+			// `current` still holds another workspace's favorites, which `loadedFor` is about to
+			// vouch for as this one's.
+			if (favoriteManager.loadedFor !== workspace && ($workspaceStore ?? '') === workspace)
+				favoriteManager.current = []
+			throw e
 		} finally {
 			// Set on failure too: Home holds its shortcuts back until this says the favorites
 			// are in, and a failed read must not hold them back for good. Not once the workspace

@@ -18,7 +18,7 @@
 	import { Button } from '$lib/components/common'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { useEditRights } from '$lib/operatorWriteRights'
-	import { userStore } from '$lib/stores'
+	import { roleCapabilities } from '$lib/stores'
 	import { AppService } from '$lib/gen'
 	import { copyToClipboard, type Item } from '$lib/utils'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
@@ -127,7 +127,6 @@
 	// The row menus' actions that need nothing but the kind and path. Moving, deleting,
 	// deploying and sharing need the full item and the row's own drawers, so they stay there.
 	async function menuItems(item: Entry, favorite: boolean): Promise<Item[]> {
-		const operator = !!$userStore?.operator
 		const kind = await editorKind(item)
 		const base = kind === 'raw_app' ? 'apps_raw' : `${kind}s`
 		const contextElement = itemContextElement({
@@ -154,7 +153,7 @@
 				displayName: 'Duplicate/Fork',
 				icon: GitFork,
 				href: `/${base}/add?template=${item.path}`,
-				hide: !showEditButtons || operator || kind === 'agent'
+				hide: !showEditButtons || !$roleCapabilities.code || kind === 'agent'
 			},
 			{
 				displayName: 'View runs',
@@ -167,7 +166,7 @@
 				displayName: 'Audit logs',
 				icon: Eye,
 				href: `/audit_logs?resource=${item.path}`,
-				hide: operator
+				hide: !$roleCapabilities.code || !$roleCapabilities.visibility.audit_logs
 			},
 			{ displayName: 'Copy path', icon: Copy, action: () => copyToClipboard(item.path) },
 			{
