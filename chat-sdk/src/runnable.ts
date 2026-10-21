@@ -78,11 +78,12 @@ export async function* streamChatTurn(
       throw new Error(errorResultMessage(event.result))
     }
     // A structured answer, or a provider that does not stream, gives the text in the result only;
-    // so does the rest of an answer whose stream was lost.
+    // so does the rest of an answer whose stream was lost. A stream lost before a tool call left
+    // an earlier round's text, which the answer does not continue: it follows that text whole.
     const answer = extractChatAnswer(event.result)
     if (!answer || (roundText && !event.streamLost)) continue
-    if (!answer.startsWith(roundText)) throw new Error('windmill-chat: the answer stream was cut off')
-    if (answer.length > roundText.length) yield streamLine({ type: 'token_delta', content: answer.slice(roundText.length) })
+    const rest = answer.startsWith(roundText) ? answer.slice(roundText.length) : `\n\n${answer}`
+    if (rest) yield streamLine({ type: 'token_delta', content: rest })
   }
 }
 
