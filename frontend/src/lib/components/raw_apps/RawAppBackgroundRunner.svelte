@@ -124,48 +124,64 @@
 						args[key] = `$ctx:${field.ctx}`
 					}
 				}
-				const uuid = await executeRunnable(
-					runnable,
-					workspace,
-					undefined,
-					$userStore?.username,
-					path,
-					runnable_id,
-					{
-						component: runnable_id,
-						args,
-						force_viewer_allow_user_resources: editor
-							? undefinedIfEmpty(
-									Object.keys(runnable?.fields ?? {}).filter(
-										(k) =>
-											runnable?.fields?.[k]?.type == 'user' &&
-											runnable?.fields?.[k]?.allowUserResources
+				let uuid: string
+				try {
+					uuid = await executeRunnable(
+						runnable,
+						workspace,
+						undefined,
+						$userStore?.username,
+						path,
+						runnable_id,
+						{
+							component: runnable_id,
+							args,
+							force_viewer_allow_user_resources: editor
+								? undefinedIfEmpty(
+										Object.keys(runnable?.fields ?? {}).filter(
+											(k) =>
+												runnable?.fields?.[k]?.type == 'user' &&
+												runnable?.fields?.[k]?.allowUserResources
+										)
 									)
-								)
-							: undefined,
-						force_viewer_one_of_fields: undefined,
-						force_viewer_static_fields: editor
-							? Object.fromEntries(
-									Object.entries(runnable?.fields ?? {})
-										.filter(([k, v]) => v.type == 'static')
-										.map(([k, v]) => [k, v?.['value']])
-								)
-							: undefined,
-						force_viewer_sensitive_inputs: editor
-							? undefinedIfEmpty(
-									Object.keys(runnable?.fields ?? {}).filter(
-										(k) => runnable?.fields?.[k]?.type == 'user' && runnable?.fields?.[k]?.sensitive
+								: undefined,
+							force_viewer_one_of_fields: undefined,
+							force_viewer_static_fields: editor
+								? Object.fromEntries(
+										Object.entries(runnable?.fields ?? {})
+											.filter(([k, v]) => v.type == 'static')
+											.map(([k, v]) => [k, v?.['value']])
 									)
-								)
-							: undefined,
-						force_viewer_delete_after_secs: editor ? runnable?.delete_after_secs : undefined,
-						on_behalf_of: editor ? previewOnBehalfOf : undefined,
-						viewer_data_access: editor ? runnable?.viewer_data_access || undefined : undefined
-					},
-					undefined,
-					undefined,
-					editor ? rawAppPreviewModules(runnables, runnable_id) : undefined
-				)
+								: undefined,
+							force_viewer_sensitive_inputs: editor
+								? undefinedIfEmpty(
+										Object.keys(runnable?.fields ?? {}).filter(
+											(k) =>
+												runnable?.fields?.[k]?.type == 'user' && runnable?.fields?.[k]?.sensitive
+										)
+									)
+								: undefined,
+							force_viewer_delete_after_secs: editor ? runnable?.delete_after_secs : undefined,
+							on_behalf_of: editor ? previewOnBehalfOf : undefined,
+							viewer_data_access: editor ? runnable?.viewer_data_access || undefined : undefined
+						},
+						undefined,
+						undefined,
+						editor ? rawAppPreviewModules(runnables, runnable_id) : undefined
+					)
+				} catch (e) {
+					// A run refused before it started still answers the app, which would otherwise
+					// wait for ever; the refusal's body says why (a 409 names the turn still running).
+					const body = (e as { body?: unknown })?.body
+					const message =
+						typeof body === 'string'
+							? body
+							: body
+								? JSON.stringify(body)
+								: String((e as Error)?.message ?? e)
+					respond({ result: { message }, error: true })
+					return
+				}
 				launchedJobs.add(uuid)
 				let job: JobById = { component: runnable_id, created_at: Date.now(), job: uuid }
 				if (data.type == 'backendAsync') {

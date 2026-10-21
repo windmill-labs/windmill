@@ -148,22 +148,22 @@ const chat = useWindmillChat({ flowPath: 'f/support/assistant' })
 - **`wmill app dev`**: there is no viewer session on the dev server, so pass
   `baseUrl`, `workspace` and `token` explicitly during development.
 
-### Through a backend runnable (sandboxed apps, no scopes)
+### A saved agent, through an agent runnable
 
-A sandboxed app can instead run each turn through one of its own backend runnables.
-The runnable runs as the app's publisher, so the app declares no frontend SDK scope,
-viewers get no consent prompt and need no access to the agent or flow. The runnable
-(TypeScript, Bun) starts the turn and returns its answer as its own result stream:
+To chat with a saved AI agent (an `ai_agent` resource), give the app an **agent
+runnable**: a path runnable of type `agent` naming the agent, picked under "AI agents"
+in the editor, or in `raw_app.yaml`:
 
-```ts
-// backend runnable `chat`
-import { streamChatTurn } from '@windmill-labs/chat-sdk'
-
-export async function main(user_message: string, conversation_id: string) {
-  // A saved agent (`ai_agent` resource); `{ flowPath: 'f/support/assistant' }` for a chat-mode flow.
-  return streamChatTurn({ agentPath: 'f/support/agent' }, { user_message }, conversation_id)
-}
+```yaml
+runnables:
+  chat:
+    type: agent
+    path: f/support/agent
 ```
+
+Each call runs one turn of the agent's chat as the app, so a sandboxed app declares no
+frontend SDK scope, viewers get no consent prompt and need no access to the agent.
+`rawAppRunnable` drives it from the app's generated `wmill.ts`:
 
 ```tsx
 import { rawAppRunnable } from '@windmill-labs/chat-sdk'
@@ -174,36 +174,13 @@ const chat = useWindmillChat(rawAppRunnable(backendAsync.chat, streamJob))
 ```
 
 `createChat` and the assistant-ui runtime take the same options; the AI SDK transport
-does not.
-
-Attachments need no credential either: the chat hands the files to the runnable as
-`data:` URLs, and `streamChatTurn` stores them in the workspace's object storage with
-the job's token before the agent gets their references. Declare the input, pass it on,
-and send with it:
-
-```ts
-export async function main(user_message: string, conversation_id: string, user_attachments: object[] = []) {
-  return streamChatTurn({ agentPath: 'f/support/agent' }, { user_message, user_attachments }, conversation_id)
-}
-```
-
-```ts
-chat.sendMessage(text, { attachments, attachmentsInput: { name: 'user_attachments', multiple: true } })
-```
-
-The bytes are the runnable job's arguments, so they are bound by the instance's request
-size limit and kept with the job: set `delete_after_secs` on the runnable (Enterprise)
-to delete the job once the turn is over. The message shows no attachment chips: the
-files are stored by the runnable, after the message is sent. `conversation_id` is the agent's memory key, so the agent remembers earlier turns
-server-side. In exchange for needing no credential the chat makes no request of its
-own: history is `'local'` (the app's own storage), `stop()` stops following without
-cancelling the run (the next message waits for that run to end). Every viewer's turns run as the
-publisher and are filed under the publisher's conversations; a conversation id is the
-only thing that separates one viewer's memory from another's, so never show or share
-it. The runnable waits on the run it started, holding a worker for the turn: every turn
-in progress takes one worker for the runnable and another for the agent, so a single
-worker stalls, and many viewers chatting at once can fill a worker group with waiting
-runnables. Give the agent's tag a worker group of its own when that matters.
+does not. The runnable takes `user_message` and `memory_id`, the conversation id, which
+the agent's memory is keyed by, so it remembers earlier turns. A signed-in viewer's turns
+are filed under them, so nobody else can continue their conversations; an anonymous
+visitor's keep only their memory. The chat makes no request of its own: history is
+`'local'` (the app's own storage), `stop()` stops following without cancelling the turn,
+a message sent while it still runs is refused with `TurnRunningError`, and attachments
+are refused.
 
 ## Any framework
 
@@ -247,7 +224,7 @@ await chat.sendMessage('Hello')
 | `pollDelayMs` | How often, in ms, the server polls a running turn for the stream (Enterprise; 50 at the fastest, other servers ignore it). Unset, the server relaxes from 100 ms to 3 s over a long turn; set it when tokens must keep flowing at that pace. |
 | `onFinish`, `onError` | Called when a turn has its answer, or could not run at all. |
 | `run` | Runs the flow for a turn yourself and returns the job id, instead of the deployed flow at `flowPath` (Windmill's editor chats with an undeployed flow through a preview run this way). Pass `memory_id` = the conversation id. |
-| `follow` | With `run`: follows the job through your own client, calling `onStream` with each chunk of its result stream and resolving with its result. The chat then makes no request of its own; see [Through a backend runnable](#through-a-backend-runnable-sandboxed-apps-no-scopes), which builds both with `rawAppRunnable`. |
+| `follow` | With `run`: follows the job through your own client, calling `onStream` with each chunk of its result stream and resolving with its result. The chat then makes no request of its own; see [A saved agent](#a-saved-agent-through-an-agent-runnable), where `rawAppRunnable` builds both. |
 
 ## State
 
@@ -318,7 +295,7 @@ The chat never deletes uploads, so files of a send that did not run stay in stor
 workspace needs object storage set up. With Enterprise advanced storage permissions, the
 user needs read and write on `windmill_uploads/*`, which the default rules grant. The upload goes through
 `job_helpers`, so a restricted token needs `job_helpers:write`; a sandboxed raw app cannot
-request that scope today, so it sends attachments [through a backend runnable](#through-a-backend-runnable-sandboxed-apps-no-scopes) instead.
+request that scope today, so attachments are not available there yet.
 
 ## One turn at a time
 
@@ -391,8 +368,8 @@ custom integrations.
 When asked to add a chat over a Windmill flow: the flow must be deployed with chat mode
 on. Pick the entry point from the table at the top (`useChat` → `@windmill-labs/chat-sdk/ai-sdk`,
 assistant-ui → `@windmill-labs/chat-sdk/assistant-ui`, otherwise `@windmill-labs/chat-sdk/react`). Inside a
-Windmill raw app pass only `flowPath`; in a sandboxed one without frontend SDK scopes, chat through a
-backend runnable returning `streamChatTurn` and `rawAppRunnable`. Elsewhere pass `baseUrl`, `workspace` and a
+Windmill raw app pass only `flowPath`; for a saved agent, use an `agent` runnable driven by
+`rawAppRunnable`. Elsewhere pass `baseUrl`, `workspace` and a
 `token`; for a public page use a token scoped to `jobs:run:flows:<flowPath>` and leave
 `history` at its default. Render `role`, `content`, `pending`, `success` and
 `tool.status`; never build the SSE handling yourself.

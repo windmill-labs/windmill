@@ -1,11 +1,14 @@
 import {
 	ScriptService,
+	ResourceService,
 	type MainArgSignature,
 	FlowService,
 	type Script,
 	type AssetUsageAccessType
 } from '$lib/gen'
 import { get, writable } from 'svelte/store'
+import type { PathRunType } from './components/apps/inputType.js'
+import { AGENT_RUNNABLE_SCHEMA } from './components/raw_apps/agentRunnable.js'
 import type { Schema, SupportedLanguage } from './common.js'
 import {
 	type DynamicInput,
@@ -658,9 +661,15 @@ async function inferSchemaIfNecessary(script: Script) {
 export async function loadSchema(
 	workspace: string,
 	path: string,
-	runType: 'script' | 'flow' | 'hubscript'
+	runType: PathRunType
 ): Promise<{ schema: Schema; summary: string | undefined }> {
-	if (runType === 'script') {
+	if (runType === 'agent') {
+		const agent = await ResourceService.getResource({ workspace, path })
+		return {
+			schema: structuredClone(AGENT_RUNNABLE_SCHEMA),
+			summary: agent.description || undefined
+		}
+	} else if (runType === 'script') {
 		const script = await ScriptService.getScriptByPath({
 			workspace,
 			path

@@ -382,7 +382,7 @@ Apply it to customer data, internal notes and anything else a viewer of the demo
 
 ### Chat UIs over a flow in chat mode or a saved agent
 
-A flow deployed with chat mode on is a chat backend (streaming answer, tool calls, memory, conversation history). In an unsandboxed app, do not drive it through a runnable: add `@windmill-labs/chat-sdk` to `package.json` and use it directly, it detects the app's Windmill and credential. A sandboxed app goes through a backend runnable instead (below).
+A flow deployed with chat mode on is a chat backend (streaming answer, tool calls, memory, conversation history). Do not drive it through a runnable: add `@windmill-labs/chat-sdk` to `package.json` and use it directly, it detects the app's Windmill and credential.
 
 ```tsx
 import { useWindmillChat } from '@windmill-labs/chat-sdk/react'
@@ -391,20 +391,14 @@ const chat = useWindmillChat({ flowPath: 'f/support/assistant' })
 // chat.messages ({ role, content, pending, success, tool? }), chat.status, chat.sendMessage(text), chat.stop()
 ```
 
-`@windmill-labs/chat-sdk/ai-sdk` gives a `ChatTransport` for the Vercel AI SDK's `useChat`, `@windmill-labs/chat-sdk/assistant-ui` a runtime for assistant-ui. The flow must be deployed, not a draft.
+`@windmill-labs/chat-sdk/ai-sdk` gives a `ChatTransport` for the Vercel AI SDK's `useChat`, `@windmill-labs/chat-sdk/assistant-ui` a runtime for assistant-ui. The flow must be deployed, not a draft. A sandboxed app needs `jobs:run` in its frontend SDK scopes, plus `flow_conversations:write` for the conversation sidebar; without them the chat keeps history in the browser.
 
-#### Sandboxed apps: chat through a backend runnable
+#### A saved agent: an `agent` runnable
 
-In a sandboxed app, run each turn through one of the app's own backend runnables: it runs as the app, so the app declares no frontend SDK scope, viewers get no consent prompt and need no access to the agent or flow. This is also the way to chat with a saved agent (an `ai_agent` resource). The runnable must be TypeScript (Bun) and return `streamChatTurn`, which starts the turn with the job's credential and re-emits its answer as the runnable's own result stream:
+Chat with a saved AI agent (an `ai_agent` resource) through an `agent` runnable, a path runnable whose `path` is the agent's. Each call runs one turn of the agent's chat as the app, so a sandboxed app declares no frontend SDK scope, viewers get no consent prompt and need no access to the agent. Prefer it in every app, sandboxed or not:
 
-```typescript
-// backend runnable `chat`
-import { streamChatTurn } from '@windmill-labs/chat-sdk'
-
-export async function main(user_message: string, conversation_id: string) {
-  // `{ flowPath: 'f/support/assistant' }` for a chat-mode flow instead
-  return streamChatTurn({ agentPath: 'f/support/agent' }, { user_message }, conversation_id)
-}
+```json
+{ "chat": { "type": "agent", "path": "f/support/agent" } }
 ```
 
 ```tsx
@@ -415,11 +409,11 @@ import { backendAsync, streamJob } from './wmill'
 const chat = useWindmillChat(rawAppRunnable(backendAsync.chat, streamJob))
 ```
 
-`conversation_id` is the agent's memory key, so it remembers earlier turns. The chat keeps its transcript in the app's own storage, `chat.stop()` stops following without cancelling the run (the next message waits for it to end). For attachments, add `user_attachments: object[] = []` to `main`, pass it in `args`, and send with `attachmentsInput: { name: 'user_attachments', multiple: true }`: the files travel as `data:` URLs in the runnable's arguments and `streamChatTurn` stores them in object storage; keep them small, and set `delete_after_secs` on the runnable so the job and its arguments do not linger. Do not re-emit the agent's stream by hand: `streamChatTurn` encodes it so newlines survive the trip. Each turn in progress holds a worker for the runnable while another runs the agent, so chatting viewers need as many workers again free.
+The runnable takes `user_message` and `memory_id`, the conversation id, which `rawAppRunnable` fills in: the agent remembers earlier turns of a conversation, and a signed-in viewer's conversations are theirs alone. The chat keeps its transcript in the app's own storage. `chat.stop()` stops following without cancelling the turn, and a message sent while it still runs is refused with `TurnRunningError`. Attachments are not supported this way.
 
 ## Backend runnables
 
-Each runnable has a unique key (used to call it from the frontend) and one of four types:
+Each runnable has a unique key (used to call it from the frontend) and one of five types:
 
 | Type | What it is |
 |---|---|
@@ -427,6 +421,7 @@ Each runnable has a unique key (used to call it from the frontend) and one of fo
 | `script` | Reference to an existing workspace script by path. |
 | `flow` | Reference to an existing workspace flow by path. |
 | `hubscript` | Reference to a hub script by path. |
+| `agent` | Reference to a saved AI agent by path. Each call is one turn of its chat (see the chat section above). |
 
 ### Inline runnables
 
@@ -468,9 +463,9 @@ An inline runnable runs as an ordinary Windmill job. `import * as wmill from 'wi
 
 Use only `wmill` functions the SDK actually exports; for an endpoint none of them covers, the generated service classes (`JobService`, `ScriptService`, ...) are importable from `windmill-client`. What is not available is a name you guessed at: `getBaseUrl` and `getWorkspaceToken` are inventions, not API.
 
-### Path runnables (script / flow / hubscript)
+### Path runnables (script / flow / hubscript / agent)
 
-When `type` is `script`, `flow`, or `hubscript`, the runnable just stores a `path` to an existing workspace or hub item — no inline code. The referenced item's input/output schema becomes the runnable's surface.
+When `type` is `script`, `flow`, `hubscript` or `agent`, the runnable just stores a `path` to an existing workspace or hub item — no inline code. The referenced item's input/output schema becomes the runnable's surface; an agent's is always `user_message` and `memory_id`.
 
 Before writing an inline runnable, look for a workspace script or flow that already does the job, or a Hub script (a prebuilt integration at `hub/<version>/<app>/<name>`) for a third-party service, and reference it instead of copying its logic.
 
@@ -479,7 +474,7 @@ Before writing an inline runnable, look for a workspace script or flow that alre
 This decides whether an app works before anything is deployed:
 
 - **Inline runnables run the app's current code.** The editor sends the runnable's source with each request, so an inline runnable works in the preview with nothing deployed.
-- **Path runnables (`script` / `flow` / `hubscript`) run the DEPLOYED item at that path.** So do `wmill.runFlow`, `wmill.runFlowAsync` and `wmill.runScriptByPath` called from inside a runnable. A draft — including a draft you just created — does not exist for them.
+- **Path runnables (`script` / `flow` / `hubscript` / `agent`) run the DEPLOYED item at that path.** So do `wmill.runFlow`, `wmill.runFlowAsync` and `wmill.runScriptByPath` called from inside a runnable. A draft — including a draft you just created — does not exist for them.
 
 So an app wired to a flow you just wrote does nothing until **that flow is deployed**. The app itself does NOT have to be deployed for this: the preview runs the app's draft, so the referenced flow is the only thing that has to exist deployed.
 
@@ -589,4 +584,4 @@ def main(user_id: str):
 7. **Mark sensitive UI with `data-wm-no-record`** — it is what keeps that data out of a recorded demo; passwords are handled for you.
 8. **Reach for `backendAsync` + `waitJob`** for long work — never a hand-written job-polling runnable.
 9. **Deploy what a path runnable points at** — a path runnable aimed at a draft fails at runtime; tell the user what needs deploying.
-10. **Use `@windmill-labs/chat-sdk` for a chat over a chat-mode flow or a saved agent** — never hand-roll a runnable that runs it and polls its stream; in a sandboxed app the runnable returns `streamChatTurn` and the frontend uses `rawAppRunnable`.
+10. **Use `@windmill-labs/chat-sdk` for a chat over a chat-mode flow or a saved agent** — never hand-roll a runnable that runs it and polls its stream; a saved agent is an `agent` runnable driven with `rawAppRunnable`.

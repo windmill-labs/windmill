@@ -136,9 +136,8 @@ export interface ChatOptions {
    * call `onStream` with each chunk of the job's result stream and resolve with its result.
    * With it the chat makes no request of its own, so it needs no credential, `baseUrl` or
    * `workspace`, and in exchange history is `local` (or `none`), `stop()` stops following
-   * without cancelling the job, and attachments are not uploaded but handed to `run` in
-   * `attachmentsInput` as `{ name, data }` with `data` a `data:` URL, for the run to store.
-   * `rawAppRunnable` builds `run` and `follow` over a sandboxed raw app's backend runnable.
+   * without cancelling the job, and attachments are refused. `rawAppRunnable` builds `run`
+   * and `follow` over a raw app's agent runnable.
    */
   follow?: (jobId: string, onStream: (chunk: string) => void, turn: { signal: AbortSignal }) => Promise<unknown>
   /** Called once a turn has its answer (a failed flow included: its error is the answer). */

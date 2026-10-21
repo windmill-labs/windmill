@@ -2,11 +2,17 @@
 	import { Button, Drawer, DrawerContent, Tab, Tabs } from '$lib/components/common'
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import PickHubFlow from '$lib/components/flows/pickers/PickHubFlow.svelte'
-	import { Building, Globe2, MousePointer, Plus } from 'lucide-svelte'
+	import { Bot, Building, Globe2, MousePointer, Plus } from 'lucide-svelte'
 	import InlineScriptList from './InlineScriptList.svelte'
-	import type { InlineScript, Runnable, StaticAppInput } from '$lib/components/apps/inputType'
+	import type {
+		InlineScript,
+		PathRunType,
+		Runnable,
+		StaticAppInput
+	} from '$lib/components/apps/inputType'
 	import WorkspaceScriptList from './WorkspaceScriptList.svelte'
 	import WorkspaceFlowList from './WorkspaceFlowList.svelte'
+	import WorkspaceAgentList from './WorkspaceAgentList.svelte'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import type { Schema } from '$lib/common'
 	import { emptySchema } from '$lib/utils'
@@ -18,7 +24,13 @@
 	const operatorBuilderApps = useOperatorBuilderApps()
 	import { buildPathRunnableSelection } from './runnableSelectorUtils'
 
-	type TabType = 'hubscripts' | 'hubflows' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
+	type TabType =
+		| 'hubscripts'
+		| 'hubflows'
+		| 'workspacescripts'
+		| 'workspaceflows'
+		| 'workspaceagents'
+		| 'inlinescripts'
 
 	interface Props {
 		defaultUserInput?: boolean
@@ -57,7 +69,7 @@
 
 	async function loadSchemaFromTriggerable(
 		path: string,
-		runType: 'script' | 'flow' | 'hubscript'
+		runType: PathRunType
 	): Promise<{ schema: Schema; summary: string | undefined }> {
 		const schema = await loadSchema($operatingWorkspace!, path, runType)
 		if (!schema.schema.order) {
@@ -85,6 +97,20 @@
 			path,
 			'flow',
 			await loadSchemaFromTriggerable(path, 'flow'),
+			defaultUserInput,
+			rawApps
+		)
+		dispatch('pick', {
+			runnable: selection.runnable,
+			fields: selection.fields
+		})
+	}
+
+	async function pickAgent(path: string) {
+		const selection = buildPathRunnableSelection(
+			path,
+			'agent',
+			await loadSchemaFromTriggerable(path, 'agent'),
 			defaultUserInput,
 			rawApps
 		)
@@ -165,6 +191,9 @@
 						<Tab value="workspacescripts" label="Workspace Scripts" icon={Building} />
 					{/if}
 					<Tab value="workspaceflows" label="Workspace Flows" icon={Building} />
+					{#if rawApps && !onlyFlow}
+						<Tab value="workspaceagents" label="AI Agents" icon={Bot} />
+					{/if}
 					{#if !$operatorBuilderApps}
 						{#if !onlyFlow}
 							<Tab value="hubscripts" label="Hub Scripts" icon={Globe2} />
@@ -186,6 +215,8 @@
 							<WorkspaceScriptList on:pick={(e) => pickScript(e.detail)} />
 						{:else if tab == 'workspaceflows'}
 							<WorkspaceFlowList on:pick={(e) => pickFlow(e.detail)} />
+						{:else if tab == 'workspaceagents'}
+							<WorkspaceAgentList on:pick={(e) => pickAgent(e.detail)} />
 						{:else if tab == 'hubscripts'}
 							<PickHubScript bind:filter on:pick={(e) => pickHubScript(e.detail.path)} />
 						{:else if tab == 'hubflows'}
@@ -218,6 +249,7 @@
 		startIcon={{ icon: MousePointer }}
 		btnClasses="truncate w-full"
 	>
-		{#if onlyFlow}Select a flow{:else}Select a script or flow{/if}
+		{#if onlyFlow}Select a flow{:else if rawApps}Select a script, flow or agent{:else}Select a
+			script or flow{/if}
 	</Button>
 </div>

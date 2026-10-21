@@ -40,7 +40,8 @@
 	import { getAppliedDarkModeVariant, type DarkModeVariant } from '$lib/darkModeVariant'
 	import RawAppSidebar from './RawAppSidebar.svelte'
 	import type { Modules } from './RawAppModules.svelte'
-	import { isRunnableByName, isRunnableByPath } from '../apps/inputType'
+	import { isRunnableByName, isRunnableByPath, type PathRunType } from '../apps/inputType'
+	import { AGENT_RUNNABLE_SCHEMA } from './agentRunnable'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import { onMount, onDestroy, untrack } from 'svelte'
 	import type {
@@ -910,6 +911,8 @@ addEventListener('message', function (e) {
 				backendRunnable.type = 'flow'
 			} else if (runnable.runType === 'hubscript') {
 				backendRunnable.type = 'hubscript'
+			} else if (runnable.runType === 'agent') {
+				backendRunnable.type = 'agent'
 			} else {
 				backendRunnable.type = 'script'
 			}
@@ -1223,7 +1226,7 @@ addEventListener('message', function (e) {
 					runnables[key] = {
 						name: runnable.name,
 						type: 'path',
-						runType: runnable.type as 'script' | 'flow' | 'hubscript',
+						runType: runnable.type as PathRunType,
 						path: runnable.path,
 						fields: runnable.staticInputs
 							? Object.fromEntries(
@@ -1233,7 +1236,8 @@ addEventListener('message', function (e) {
 									])
 								)
 							: {},
-						schema: {}
+						// Every agent takes the same inputs; other kinds load theirs when shown.
+						schema: runnable.type === 'agent' ? structuredClone(AGENT_RUNNABLE_SCHEMA) : {}
 					}
 				}
 				populateRunnables()

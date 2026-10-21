@@ -68,51 +68,9 @@ pub(crate) async fn run_agent_as(
     crate::jobs::check_license_key_valid().await?;
 
     // Read through the caller's own permissions: reading the agent is what allows running it.
-    let mut tx = user_db.clone().begin(authed).await?;
-    let value = sqlx::query_scalar!(
-        "SELECT value AS \"value: sqlx::types::Json<serde_json::Value>\"
-         FROM resource WHERE workspace_id = $1 AND path = $2 AND resource_type = 'ai_agent'",
-        w_id,
-        path
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
-    tx.commit().await?;
-    let Some(sqlx::types::Json(mut value)) = not_found_if_none(value, "Agent", path)? else {
-        return Err(Error::BadRequest(format!(
-            "Agent {path} has no configuration"
-        )));
-    };
-    // Who the agent runs as and who can ask it in Slack, not inputs: its identity when it opts
-    // in, as a deployed flow does.
-    let obj = value.as_object_mut();
-    let (agent_obo, run_obo) = obj
-        .map(|o| {
-            o.remove("slack_anyone");
-            (o.remove("on_behalf_of"), o.remove("run_on_behalf_of"))
-        })
-        .unwrap_or_default();
-    let agent_obo = agent_obo
-        .filter(|_| run_obo.and_then(|v| v.as_bool()).unwrap_or(false))
-        .and_then(|v| v.as_str().map(str::to_string));
-    let config = config_to_draft(value)?;
-
-    // A chat turn is filed where the agent's chat lists its conversations, which a flow cannot
-    // name (flow paths carry no `.`), so the two never share a conversation list.
     let chat = run_query.memory_id.is_some();
-    let run_path = if chat {
-        format!("{path}.chat")
-    } else {
-        path.to_string()
-    };
-    // A step memory id would replace the conversation's, and the agent would forget the turns
-    // before; history comes from the conversation alone.
-    let flow_value = agent_step_flow(
-        &config,
-        AGENT_NODE_ID,
-        chat,
-        &["memory_id", "previous_messages"],
-    )?;
+    let AgentTurn { flow_value, run_path, agent_obo } =
+        agent_turn(authed, user_db, w_id, path, chat).await?;
 
     let on_behalf_of =
         windmill_common::on_behalf_of_from_permissioned_as(agent_obo.as_deref(), w_id, db).await?;
@@ -210,11 +168,73 @@ pub(crate) async fn run_agent_as(
     Ok(uuid)
 }
 
+/// A turn of a saved agent, as the flow that runs it.
+pub(crate) struct AgentTurn {
+    pub flow_value: windmill_common::flows::FlowValue,
+    /// Where the turn is filed: a chat turn under `<path>.chat`, which a flow cannot name (flow
+    /// paths carry no `.`), so the agent's conversations never share a list with a flow's.
+    pub run_path: String,
+    /// The identity the agent runs as when it opts in (`run_on_behalf_of`). A caller that runs it
+    /// as some other identity, such as an app's, ignores it.
+    pub agent_obo: Option<String>,
+}
+
+/// Reads the agent through `authed`'s own permissions and builds the flow of one of its turns.
+/// Who it may see and which inputs or slack settings it carries are not inputs of the run.
+pub(crate) async fn agent_turn(
+    authed: &ApiAuthed,
+    user_db: &UserDB,
+    w_id: &str,
+    path: &str,
+    chat: bool,
+) -> Result<AgentTurn> {
+    let mut tx = user_db.clone().begin(authed).await?;
+    let value = sqlx::query_scalar!(
+        "SELECT value AS \"value: sqlx::types::Json<serde_json::Value>\"
+         FROM resource WHERE workspace_id = $1 AND path = $2 AND resource_type = 'ai_agent'",
+        w_id,
+        path
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    let Some(sqlx::types::Json(mut value)) = not_found_if_none(value, "Agent", path)? else {
+        return Err(Error::BadRequest(format!(
+            "Agent {path} has no configuration"
+        )));
+    };
+    let obj = value.as_object_mut();
+    let (agent_obo, run_obo) = obj
+        .map(|o| {
+            o.remove("slack_anyone");
+            (o.remove("on_behalf_of"), o.remove("run_on_behalf_of"))
+        })
+        .unwrap_or_default();
+    let agent_obo = agent_obo
+        .filter(|_| run_obo.and_then(|v| v.as_bool()).unwrap_or(false))
+        .and_then(|v| v.as_str().map(str::to_string));
+    let config = config_to_draft(value)?;
+    let run_path = if chat {
+        format!("{path}.chat")
+    } else {
+        path.to_string()
+    };
+    // A step memory id would replace the conversation's, and the agent would forget the turns
+    // before; history comes from the conversation alone.
+    let flow_value = agent_step_flow(
+        &config,
+        AGENT_NODE_ID,
+        chat,
+        &["memory_id", "previous_messages"],
+    )?;
+    Ok(AgentTurn { flow_value, run_path, agent_obo })
+}
+
 /// The step fetches the message's files with its job's token, so a run as the agent's identity
 /// would read any file that identity can: a caller attaches only what they could download
 /// themselves, checked as `sign_s3_objects` checks a key before signing it.
 #[cfg(all(feature = "parquet", feature = "private"))]
-async fn check_attachments_readable(
+pub(crate) async fn check_attachments_readable(
     db: &DB,
     authed: &ApiAuthed,
     w_id: &str,

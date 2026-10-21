@@ -1722,6 +1722,27 @@ export function buildWmillTs(
  *
  * Exported for testing.
  */
+/** The inputs of every agent runnable (see the frontend's `AGENT_RUNNABLE_SCHEMA`). */
+const AGENT_RUNNABLE_SCHEMA = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  type: "object",
+  properties: {
+    user_message: { type: "string", description: "The message to answer" },
+    memory_id: {
+      type: "string",
+      description:
+        "The conversation the message belongs to: reuse it to continue one",
+    },
+    user_attachments: {
+      type: "array",
+      description: "Files the message carries, as object storage references",
+      items: { type: "object" },
+    },
+  },
+  required: ["user_message", "memory_id"],
+  order: ["user_message", "memory_id", "user_attachments"],
+};
+
 export async function fetchPathRunnableSchemas(
   workspaceId: string,
   runnables: Record<string, any>,
@@ -1741,6 +1762,8 @@ export async function fetchPathRunnableSchemas(
           path: runnable.path,
         });
         if (script.schema) schemas[runnableId] = script.schema;
+      } else if (runnable.runType === "agent") {
+        schemas[runnableId] = AGENT_RUNNABLE_SCHEMA;
       } else if (runnable.runType === "flow") {
         const flow = await wmill.getFlowByPath({
           workspace: workspaceId,
@@ -1771,7 +1794,8 @@ function convertRunnablesToApiFormat(runnables: Record<string, any>): void {
     if (
       runnable?.type === "script" ||
       runnable?.type === "hubscript" ||
-      runnable?.type === "flow"
+      runnable?.type === "flow" ||
+      runnable?.type === "agent"
     ) {
       // Convert from file format to API format
       // { type: "script" } -> { type: "path", runType: "script" }

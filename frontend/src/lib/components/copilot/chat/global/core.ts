@@ -178,7 +178,8 @@ import { fileTools } from '../files/fileTools'
 import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
 import { artifactTools } from '../artifacts/artifactTools'
 import type { SessionArtifactsStore } from '../artifacts/artifactsState.svelte'
-import type { Runnable } from '$lib/components/apps/inputType'
+import type { PathRunType, Runnable } from '$lib/components/apps/inputType'
+import { AGENT_RUNNABLE_SCHEMA } from '$lib/components/raw_apps/agentRunnable'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
 import type { Schema } from '$lib/common'
@@ -1071,9 +1072,9 @@ const backendRunnableSchema = z
 	.object({
 		name: z.string().describe('Short summary/description of what the runnable does.'),
 		type: z
-			.enum(['inline', 'script', 'flow', 'hubscript'])
+			.enum(['inline', 'script', 'flow', 'hubscript', 'agent'])
 			.describe(
-				'Runnable kind: "inline" for custom code stored on the app; "script"/"flow" for a workspace runnable; "hubscript" for a hub script.'
+				'Runnable kind: "inline" for custom code stored on the app; "script"/"flow" for a workspace runnable; "hubscript" for a hub script; "agent" for a saved AI agent, run as one chat turn.'
 			),
 		staticInputs: z
 			.record(z.string(), z.any())
@@ -1092,7 +1093,7 @@ const backendRunnableSchema = z
 			.string()
 			.optional()
 			.describe(
-				'Required when type is "script", "flow", or "hubscript". Workspace path of the runnable.'
+				'Required when type is "script", "flow", "hubscript" or "agent". Workspace path of the runnable.'
 			),
 		viewerDataAccess: z
 			.boolean()
@@ -1951,7 +1952,7 @@ type BackendRunnableInput = z.infer<typeof backendRunnableSchema>
 type PersistedRunnable = {
 	name: string
 	type: 'inline' | 'path' | 'runnableByName' | 'runnableByPath'
-	runType?: 'script' | 'flow' | 'hubscript'
+	runType?: PathRunType
 	path?: string
 	inlineScript?: { language: string; content: string }
 	fields?: Record<string, any>
@@ -1984,6 +1985,7 @@ function convertPersistedToBackendRunnable(
 	} else if (persisted.type === 'path' || persisted.type === 'runnableByPath') {
 		if (persisted.runType === 'flow') out.type = 'flow'
 		else if (persisted.runType === 'hubscript') out.type = 'hubscript'
+		else if (persisted.runType === 'agent') out.type = 'agent'
 		else out.type = 'script'
 		out.path = persisted.path
 	}
@@ -2053,7 +2055,9 @@ function buildPersistedRunnable(
 	}
 
 	if (!input.path) {
-		throw new Error('path is required when runnable type is "script", "flow", or "hubscript".')
+		throw new Error(
+			'path is required when runnable type is "script", "flow", "hubscript" or "agent".'
+		)
 	}
 	return {
 		...carried,
@@ -2062,7 +2066,13 @@ function buildPersistedRunnable(
 		runType: input.type,
 		path: input.path,
 		fields,
-		schema: sameTarget ? (existing?.schema ?? {}) : {}
+		// An agent's inputs are the same for every agent, so they are known without a lookup.
+		schema:
+			input.type === 'agent'
+				? structuredClone(AGENT_RUNNABLE_SCHEMA)
+				: sameTarget
+					? (existing?.schema ?? {})
+					: {}
 	}
 }
 
@@ -9357,9 +9367,11 @@ async function undeployedRunnableTargets(
 				? runnable?.runType
 				: runnable?.type
 		const path = runnable?.path
-		if ((type !== 'script' && type !== 'flow') || !path) continue
+		if ((type !== 'script' && type !== 'flow' && type !== 'agent') || !path) continue
 		try {
-			if (await deployedItemExists(workspace, type, path, undefined)) continue
+			// A saved agent is an `ai_agent` resource.
+			const itemType = type === 'agent' ? 'resource' : type
+			if (await deployedItemExists(workspace, itemType, path, undefined)) continue
 		} catch {
 			// The probe is advisory: a lookup failure must never block the write or
 			// the deploy it annotates.

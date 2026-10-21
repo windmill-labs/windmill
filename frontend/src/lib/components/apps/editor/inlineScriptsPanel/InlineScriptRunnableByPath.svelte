@@ -149,6 +149,22 @@
 		}
 	}
 
+	async function refreshAgent(runnable: RunnableByPath) {
+		hubFlowPreview = undefined
+		try {
+			const { schema } = await loadSchema($operatingWorkspace ?? '', runnable.path, 'agent')
+			if (!deepEqual(runnable.schema, schema)) runnable.schema = schema
+			// Every input of a turn comes from its caller: a static one would be pinned by the
+			// deployed policy, answering every viewer's message with the same one.
+			if (Object.values(fields ?? {}).some((f) => f?.type !== 'user') || !fields?.user_message) {
+				fields = computeFields(schema, true, {})
+			}
+		} catch (e) {
+			notFound = true
+			console.error(e)
+		}
+	}
+
 	async function fork(path: string) {
 		let { content, language, schema } = await getScriptByPath(path)
 		if (!schema || typeof schema == 'string' || Object.keys(schema).length == 0) {
@@ -205,6 +221,8 @@
 			refreshScript(runnable)
 		} else if (runnable.runType == 'flow') {
 			refreshFlow(runnable)
+		} else if (runnable.runType == 'agent') {
+			refreshAgent(runnable)
 		} else {
 			hubFlowPreview = undefined
 		}
@@ -352,6 +370,17 @@
 					Details
 				</Button>
 			{/if}
+		{:else if runnable.runType == 'agent'}
+			<Button
+				variant="default"
+				size="xs"
+				startIcon={{ icon: Eye }}
+				endIcon={{ icon: ExternalLink }}
+				target="_blank"
+				href="/agents/get/{runnable.path}?workspace={$operatingWorkspace}"
+			>
+				Details
+			</Button>
 		{:else}
 			<Button
 				size="xs"
@@ -376,45 +405,47 @@
 				</Button>
 			{/if}
 		{/if}
-		<Popover
-			floatingConfig={{
-				middleware: [
-					autoPlacement({
-						allowedPlacements: [
-							'bottom-start',
-							'bottom-end',
-							'top-start',
-							'top-end',
-							'top',
-							'bottom'
-						]
-					})
-				]
-			}}
-			closeButton
-			contentClasses="block text-primary text-xs p-4 w-[20vh]"
-		>
-			{#snippet trigger()}
-				<Button
-					nonCaptureEvent={true}
-					btnClasses={'bg-surface text-primay hover:bg-hover'}
-					variant="default"
-					size="xs"
-				>
-					Cache
-				</Button>
-			{/snippet}
-			{#snippet content()}
-				{#if runnable.runType == 'flow' && isHubFlowPath(runnable.path)}
-					Since this is a reference to a hub flow, cache settings are managed from the flow after
-					you fork it into your workspace.
-				{:else}
-					Since this is a reference to a workspace {runnable.runType}, set the cache in the
-					{runnable.runType} settings directly by editing it. The cache will be shared by any app or
-					flow that uses this {runnable.runType}.
-				{/if}
-			{/snippet}
-		</Popover>
+		{#if runnable.runType != 'agent'}
+			<Popover
+				floatingConfig={{
+					middleware: [
+						autoPlacement({
+							allowedPlacements: [
+								'bottom-start',
+								'bottom-end',
+								'top-start',
+								'top-end',
+								'top',
+								'bottom'
+							]
+						})
+					]
+				}}
+				closeButton
+				contentClasses="block text-primary text-xs p-4 w-[20vh]"
+			>
+				{#snippet trigger()}
+					<Button
+						nonCaptureEvent={true}
+						btnClasses={'bg-surface text-primay hover:bg-hover'}
+						variant="default"
+						size="xs"
+					>
+						Cache
+					</Button>
+				{/snippet}
+				{#snippet content()}
+					{#if runnable.runType == 'flow' && isHubFlowPath(runnable.path)}
+						Since this is a reference to a hub flow, cache settings are managed from the flow after
+						you fork it into your workspace.
+					{:else}
+						Since this is a reference to a workspace {runnable.runType}, set the cache in the
+						{runnable.runType} settings directly by editing it. The cache will be shared by any app or
+						flow that uses this {runnable.runType}.
+					{/if}
+				{/snippet}
+			</Popover>
+		{/if}
 
 		<input
 			onkeydown={stopPropagation(bubble('keydown'))}
@@ -454,6 +485,18 @@
 				{:else}
 					<FlowPathViewer path={runnable.path} fillAvailableHeight />
 				{/if}
+			{:else if runnable.runType == 'agent'}
+				<div class="text-xs text-secondary flex flex-col gap-1 p-2">
+					<p>
+						Runs one chat turn of the AI agent <code>{runnable.path}</code> as this app, so viewers need
+						no access to the agent.
+					</p>
+					<p>
+						Call it with <code>user_message</code> and <code>memory_id</code>, the conversation id:
+						reuse it to continue a conversation. Follow the job with <code>streamJob</code> for the streamed
+						answer.
+					</p>
+				</div>
 			{:else}
 				Unrecognized runType {runnable.runType}
 			{/if}

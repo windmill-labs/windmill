@@ -10,7 +10,7 @@ import {
 import { resolveConfig, type ResolvedConfig } from './config'
 import { followJob } from './follow'
 import { createLocalHistory, type LocalHistory } from './history'
-import { inlineAttachment, uploadAttachments } from './attachments'
+import { uploadAttachments } from './attachments'
 import { createStreamEventParser, type AgentStreamEvent } from './stream'
 import type {
   Chat,
@@ -134,6 +134,9 @@ class ChatImpl implements Chat {
     if (attachments.length > 0 && !attachmentsInput) {
       throw new Error('windmill-chat: attachments need `attachmentsInput`, the flow input that takes them')
     }
+    if (attachments.length > 0 && this.#config.follow) {
+      throw new Error('windmill-chat: attachments upload with the SDK\'s own requests, which `follow` replaces')
+    }
     if (attachmentsInput && !attachmentsInput.multiple && attachments.length > 1) {
       // Uploading all of them would run with the first and leave the rest stranded in storage.
       throw new Error(`windmill-chat: \`${attachmentsInput.name}\` holds one file; got ${attachments.length}`)
@@ -169,11 +172,7 @@ class ChatImpl implements Chat {
 
     try {
       const args: Record<string, unknown> = { ...this.#config.inputs, ...options.inputs, user_message: content }
-      if (attachmentsInput && attachments.length > 0 && this.#config.follow) {
-        // No credential to upload with: the bytes ride in the run's arguments, for it to store.
-        const inline = await Promise.all(attachments.map(inlineAttachment))
-        args[attachmentsInput.name] = attachmentsInput.multiple ? inline : inline[0]
-      } else if (attachmentsInput && attachments.length > 0) {
+      if (attachmentsInput && attachments.length > 0) {
         // Uploaded with the turn already shown as submitted: the message is in the transcript
         // and `stop()` can abort the upload, while a second send is refused as usual.
         const uploaded = await uploadAttachments(this.#api, attachments, randomId(), turn.controller.signal)
