@@ -148,6 +148,41 @@ const chat = useWindmillChat({ flowPath: 'f/support/assistant' })
 - **`wmill app dev`**: there is no viewer session on the dev server, so pass
   `baseUrl`, `workspace` and `token` explicitly during development.
 
+### Through a backend runnable (sandboxed apps, no scopes)
+
+A sandboxed app can instead run each turn through one of its own backend runnables.
+The runnable runs as the app's publisher, so the app declares no frontend SDK scope,
+viewers get no consent prompt and need no access to the agent or flow. The runnable
+(TypeScript, Bun) starts the turn and returns its answer as its own result stream:
+
+```ts
+// backend runnable `chat`
+import { streamChatTurn } from '@windmill-labs/chat-sdk'
+
+export async function main(user_message: string, conversation_id: string) {
+  // A saved agent (`ai_agent` resource); `{ flowPath: 'f/support/assistant' }` for a chat-mode flow.
+  return streamChatTurn({ agentPath: 'f/support/agent' }, { user_message }, conversation_id)
+}
+```
+
+```tsx
+import { rawAppRunnable } from '@windmill-labs/chat-sdk'
+import { useWindmillChat } from '@windmill-labs/chat-sdk/react'
+import { backendAsync, streamJob } from './wmill'
+
+const chat = useWindmillChat(rawAppRunnable(backendAsync.chat, streamJob))
+```
+
+`createChat` and the assistant-ui runtime take the same options; the AI SDK transport
+does not. `conversation_id` is the agent's memory key, so the agent remembers earlier turns
+server-side. In exchange for needing no credential the chat makes no request of its
+own: history is `'local'` (the app's own storage), `stop()` stops following without
+cancelling the run, and attachments are refused. Every viewer's turns run as the
+publisher and are filed under the publisher's conversations; a conversation id is the
+only thing that separates one viewer's memory from another's, so never show or share
+it. The runnable waits on the run it started, holding a worker for the turn: the
+instance needs a second worker free to run the agent itself.
+
 ## Any framework
 
 `createChat` returns a store: `subscribe` calls the listener immediately and on every
@@ -178,7 +213,7 @@ await chat.sendMessage('Hello')
 
 | Option | |
 |---|---|
-| `flowPath` | Path of the deployed flow, e.g. `f/support/assistant`. Required. |
+| `flowPath` | Path of the deployed flow, e.g. `f/support/assistant`. Required unless `follow` is set. |
 | `baseUrl` | The Windmill origin. Detected inside a raw app. |
 | `workspace` | Detected inside a raw app. |
 | `token` | A token, or a function returning one (called before every request, so it can fetch a short-lived token from your backend). Omit it inside a raw app. |
@@ -190,6 +225,7 @@ await chat.sendMessage('Hello')
 | `pollDelayMs` | How often, in ms, the server polls a running turn for the stream (Enterprise; 50 at the fastest, other servers ignore it). Unset, the server relaxes from 100 ms to 3 s over a long turn; set it when tokens must keep flowing at that pace. |
 | `onFinish`, `onError` | Called when a turn has its answer, or could not run at all. |
 | `run` | Runs the flow for a turn yourself and returns the job id, instead of the deployed flow at `flowPath` (Windmill's editor chats with an undeployed flow through a preview run this way). Pass `memory_id` = the conversation id. |
+| `follow` | With `run`: follows the job through your own client, calling `onStream` with each chunk of its result stream and resolving with its result. The chat then makes no request of its own; see [Through a backend runnable](#through-a-backend-runnable-sandboxed-apps-no-scopes), which builds both with `rawAppRunnable`. |
 
 ## State
 
@@ -333,7 +369,8 @@ custom integrations.
 When asked to add a chat over a Windmill flow: the flow must be deployed with chat mode
 on. Pick the entry point from the table at the top (`useChat` → `@windmill-labs/chat-sdk/ai-sdk`,
 assistant-ui → `@windmill-labs/chat-sdk/assistant-ui`, otherwise `@windmill-labs/chat-sdk/react`). Inside a
-Windmill raw app pass only `flowPath`. Elsewhere pass `baseUrl`, `workspace` and a
+Windmill raw app pass only `flowPath`; in a sandboxed one without frontend SDK scopes, chat through a
+backend runnable returning `streamChatTurn` and `rawAppRunnable`. Elsewhere pass `baseUrl`, `workspace` and a
 `token`; for a public page use a token scoped to `jobs:run:flows:<flowPath>` and leave
 `history` at its default. Render `role`, `content`, `pending`, `success` and
 `tool.status`; never build the SSE handling yourself.

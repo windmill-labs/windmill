@@ -2029,9 +2029,11 @@ async function streamJobWithSSE(
   ws: WebSocket,
   baseUrl: string,
   token: string,
+  streamOffset?: number,
 ): Promise<void> {
   const sseUrl =
-    `${baseUrl}api/w/${workspace}/jobs_u/getupdate_sse/${jobId}?fast=true`;
+    `${baseUrl}api/w/${workspace}/jobs_u/getupdate_sse/${jobId}?fast=true` +
+    (streamOffset !== undefined ? `&stream_offset=${streamOffset}` : "");
 
   const extraHeaders = getHeaders();
   const response = await fetch(sseUrl, {
@@ -2057,6 +2059,7 @@ async function streamJobWithSSE(
 
   const decoder = new TextDecoder();
   let buffer = "";
+  let lastOffset = streamOffset;
 
   try {
     while (true) {
@@ -2076,8 +2079,17 @@ async function streamJobWithSSE(
 
             if (type === "ping" || type === "timeout") {
               if (type === "timeout") {
+                // The server ends every stream after a while; the job goes on, so it is resumed.
                 reader.cancel();
-                return;
+                return streamJobWithSSE(
+                  workspace,
+                  jobId,
+                  reqId,
+                  ws,
+                  baseUrl,
+                  token,
+                  lastOffset,
+                );
               }
               continue;
             }
@@ -2108,6 +2120,9 @@ async function streamJobWithSSE(
               return;
             }
 
+            if (update.stream_offset !== undefined) {
+              lastOffset = update.stream_offset;
+            }
             // Send stream update if there's new stream data
             if (update.new_result_stream !== undefined) {
               ws.send(

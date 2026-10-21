@@ -89,8 +89,11 @@ export type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>
 
 export interface ChatOptions {
-  /** Path of a deployed flow with chat mode enabled, e.g. `f/support/assistant`. */
-  flowPath: string
+  /**
+   * Path of a deployed flow with chat mode enabled, e.g. `f/support/assistant`. Required
+   * unless `follow` is set, where it only names the local history.
+   */
+  flowPath?: string
   /** Windmill origin, e.g. `https://app.windmill.dev`. Detected inside a raw app. */
   baseUrl?: string
   /** Detected inside a raw app. */
@@ -128,6 +131,15 @@ export interface ChatOptions {
    * Windmill's own editor uses this to chat with an undeployed flow through a preview run.
    */
   run?: (args: Record<string, unknown>, turn: { conversationId: string; signal: AbortSignal }) => Promise<string>
+  /**
+   * Follows the job `run` returned through your own client instead of the SDK's requests:
+   * call `onStream` with each chunk of the job's result stream and resolve with its result.
+   * With it the chat makes no request of its own, so it needs no credential, `baseUrl` or
+   * `workspace`, and in exchange history is `local` (or `none`), `stop()` stops following
+   * without cancelling the job, and attachments are refused. `rawAppRunnable` builds `run`
+   * and `follow` over a sandboxed raw app's backend runnable.
+   */
+  follow?: (jobId: string, onStream: (chunk: string) => void, turn: { signal: AbortSignal }) => Promise<unknown>
   /** Called once a turn has its answer (a failed flow included: its error is the answer). */
   onFinish?: (turn: { conversationId: string; jobId?: string; messages: ChatMessage[] }) => void
   /** Called when a turn could not run or be followed; `state.error` holds the same error. */

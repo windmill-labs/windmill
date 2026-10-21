@@ -157,18 +157,35 @@ export class WindmillChatApi {
    * Starts a turn: runs the flow with `memory_id` set to the conversation id. Returns the
    * job id. Throws `TurnRunningError` when the conversation is still answering.
    */
-  async runFlow(
+  runFlow(
     flowPath: string,
     args: Record<string, unknown>,
     options: { memoryId: string; signal?: AbortSignal }
   ): Promise<string> {
+    return this.#runTurn(`jobs/run/f/${encodePath(flowPath)}`, args, { ...options, skip_preprocessor: 'true' })
+  }
+
+  /** `runFlow` for a saved agent (an `ai_agent` resource): one turn of its chat. */
+  runAgent(
+    agentPath: string,
+    args: Record<string, unknown>,
+    options: { memoryId: string; signal?: AbortSignal }
+  ): Promise<string> {
+    return this.#runTurn(`jobs/run/agent/${encodePath(agentPath)}`, args, options)
+  }
+
+  async #runTurn(
+    path: string,
+    args: Record<string, unknown>,
+    { memoryId, signal, ...query }: { memoryId: string; signal?: AbortSignal; skip_preprocessor?: string }
+  ): Promise<string> {
     let res: Response
     try {
-      res = await this.#request(`jobs/run/f/${encodePath(flowPath)}`, {
+      res = await this.#request(path, {
         method: 'POST',
-        query: { memory_id: options.memoryId, skip_preprocessor: 'true' },
+        query: { memory_id: memoryId, ...query },
         body: args,
-        signal: options.signal
+        signal
       })
     } catch (e) {
       if (e instanceof WindmillApiError && e.status === 409) throw turnRunningError(e.body ?? '') ?? e

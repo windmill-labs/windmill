@@ -209,97 +209,105 @@
 				)
 				return
 			}
-			const params = new URLSearchParams()
-			params.set('fast', 'true')
-			params.set('only_result', 'true')
+			let lastOffset: number | undefined
+			const connect = (streamOffset?: number) => {
+				const params = new URLSearchParams()
+				params.set('fast', 'true')
+				params.set('only_result', 'true')
+				if (streamOffset !== undefined) params.set('stream_offset', String(streamOffset))
 
-			const sseUrl = `/api/w/${workspace}/jobs_u/getupdate_sse/${jobId}?${params.toString()}`
-			const eventSource = new EventSource(sseUrl)
+				const sseUrl = `/api/w/${workspace}/jobs_u/getupdate_sse/${jobId}?${params.toString()}`
+				const eventSource = new EventSource(sseUrl)
 
-			eventSource.onmessage = (sseEvent) => {
-				try {
-					const update = JSON.parse(sseEvent.data)
-					const type = update.type
+				eventSource.onmessage = (sseEvent) => {
+					try {
+						const update = JSON.parse(sseEvent.data)
+						const type = update.type
 
-					if (type === 'ping' || type === 'timeout') {
-						if (type === 'timeout') {
-							eventSource.close()
+						if (type === 'ping' || type === 'timeout') {
+							if (type === 'timeout') {
+								// The server ends every stream after a while; the job goes on, so it is resumed.
+								eventSource.close()
+								connect(lastOffset)
+							}
+							return
 						}
-						return
-					}
 
-					if (type === 'error') {
-						eventSource.close()
-						sourceWindow?.postMessage(
-							{
-								type: 'streamJobRes',
-								reqId,
-								error: true,
-								result: { message: update.error || 'SSE error' }
-							},
-							'*'
-						)
-						return
-					}
+						if (type === 'error') {
+							eventSource.close()
+							sourceWindow?.postMessage(
+								{
+									type: 'streamJobRes',
+									reqId,
+									error: true,
+									result: { message: update.error || 'SSE error' }
+								},
+								'*'
+							)
+							return
+						}
 
-					if (type === 'not_found') {
-						eventSource.close()
-						sourceWindow?.postMessage(
-							{
-								type: 'streamJobRes',
-								reqId,
-								error: true,
-								result: { message: 'Job not found' }
-							},
-							'*'
-						)
-						return
-					}
+						if (type === 'not_found') {
+							eventSource.close()
+							sourceWindow?.postMessage(
+								{
+									type: 'streamJobRes',
+									reqId,
+									error: true,
+									result: { message: 'Job not found' }
+								},
+								'*'
+							)
+							return
+						}
 
-					// Send stream update if there's new stream data
-					if (update.new_result_stream !== undefined) {
-						sourceWindow?.postMessage(
-							{
-								type: 'streamJobUpdate',
-								reqId,
-								new_result_stream: update.new_result_stream,
-								stream_offset: update.stream_offset
-							},
-							'*'
-						)
-					}
+						// Send stream update if there's new stream data
+						if (update.stream_offset !== undefined) lastOffset = update.stream_offset
+						if (update.new_result_stream !== undefined) {
+							sourceWindow?.postMessage(
+								{
+									type: 'streamJobUpdate',
+									reqId,
+									new_result_stream: update.new_result_stream,
+									stream_offset: update.stream_offset
+								},
+								'*'
+							)
+						}
 
-					// Check if job is completed
-					if (update.completed) {
-						eventSource.close()
-						sourceWindow?.postMessage(
-							{
-								type: 'streamJobRes',
-								reqId,
-								error: false,
-								result: update.only_result
-							},
-							'*'
-						)
+						// Check if job is completed
+						if (update.completed) {
+							eventSource.close()
+							sourceWindow?.postMessage(
+								{
+									type: 'streamJobRes',
+									reqId,
+									error: false,
+									result: update.only_result
+								},
+								'*'
+							)
+						}
+					} catch (parseErr) {
+						console.warn('Failed to parse SSE data:', parseErr)
 					}
-				} catch (parseErr) {
-					console.warn('Failed to parse SSE data:', parseErr)
+				}
+
+				eventSource.onerror = (error) => {
+					console.warn('SSE stream error:', error)
+					eventSource.close()
+					sourceWindow?.postMessage(
+						{
+							type: 'streamJobRes',
+							reqId,
+							error: true,
+							result: { message: 'SSE connection error' }
+						},
+						'*'
+					)
 				}
 			}
-
-			eventSource.onerror = (error) => {
-				console.warn('SSE stream error:', error)
-				eventSource.close()
-				sourceWindow?.postMessage(
-					{
-						type: 'streamJobRes',
-						reqId,
-						error: true,
-						result: { message: 'SSE connection error' }
-					},
-					'*'
-				)
-			}
+			connect()
 		}
 	}
 </script>
