@@ -1262,5 +1262,35 @@ async fn test_admin_and_operator_are_exclusive(db: Pool<Postgres>) -> anyhow::Re
         .await?;
     assert_eq!(resp.status(), 400, "{}", resp.text().await?);
 
+    // Rows written before the rule can still carry both flags: the admin wins, and `whoami`
+    // says so, since the frontend hides every gated page from an operator.
+    sqlx::query(
+        "UPDATE usr SET is_admin = true, operator = true
+         WHERE workspace_id = 'test-workspace' AND username = 'operator'",
+    )
+    .execute(&db)
+    .await?;
+    let resp = client()
+        .get(format!("{api}/users/whoami"))
+        .header("Authorization", "Bearer OPERATOR_TOKEN_1")
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200);
+    let me: serde_json::Value = resp.json().await?;
+    assert_eq!(
+        (me["is_admin"].as_bool(), me["operator"].as_bool()),
+        (Some(true), Some(false))
+    );
+    let resp = client()
+        .post(format!("{api}/scripts/create"))
+        .header("Authorization", "Bearer OPERATOR_TOKEN_1")
+        .json(&json!({
+            "path": "u/operator/legacy_admin", "summary": "", "description": "",
+            "content": "export function main() {}", "language": "deno", "schema": {}
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+
     Ok(())
 }

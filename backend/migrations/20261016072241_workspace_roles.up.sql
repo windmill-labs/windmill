@@ -8,23 +8,32 @@ ALTER TABLE workspace_settings ADD COLUMN IF NOT EXISTS role_overrides JSONB;
 
 -- The operator settings a workspace changed from their default become its override of the
 -- `operator` role. Keys left at their default stay unset, so they follow the instance definition.
+-- A value that is not a boolean reads as unset: one hand-edited row must not abort the upgrade.
+CREATE OR REPLACE FUNCTION wm_try_bool(v TEXT) RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN v::boolean;
+EXCEPTION WHEN invalid_text_representation THEN
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
 WITH caps AS (
     SELECT workspace_id, jsonb_strip_nulls(jsonb_build_object(
-        'flows', CASE WHEN (operator_settings->>'builder_flows')::boolean THEN 'compose' END,
-        'apps', CASE WHEN (operator_settings->>'builder_apps')::boolean THEN 'compose' END,
-        'manage_schedules', CASE WHEN (operator_settings->>'manage_schedules')::boolean IS false THEN false END,
-        'manage_triggers', CASE WHEN (operator_settings->>'manage_triggers')::boolean IS false THEN false END,
+        'flows', CASE WHEN wm_try_bool(operator_settings->>'builder_flows') THEN 'compose' END,
+        'apps', CASE WHEN wm_try_bool(operator_settings->>'builder_apps') THEN 'compose' END,
+        'manage_schedules', CASE WHEN wm_try_bool(operator_settings->>'manage_schedules') IS false THEN false END,
+        'manage_triggers', CASE WHEN wm_try_bool(operator_settings->>'manage_triggers') IS false THEN false END,
         'visibility', NULLIF(jsonb_strip_nulls(jsonb_build_object(
-            'runs', CASE WHEN (operator_settings->>'runs')::boolean IS false THEN false END,
-            'schedules', CASE WHEN (operator_settings->>'schedules')::boolean IS false THEN false END,
-            'resources', CASE WHEN (operator_settings->>'resources')::boolean IS false THEN false END,
-            'variables', CASE WHEN (operator_settings->>'variables')::boolean IS false THEN false END,
-            'assets', CASE WHEN (operator_settings->>'assets')::boolean IS false THEN false END,
-            'triggers', CASE WHEN (operator_settings->>'triggers')::boolean IS false THEN false END,
-            'audit_logs', CASE WHEN (operator_settings->>'audit_logs')::boolean IS false THEN false END,
-            'groups', CASE WHEN (operator_settings->>'groups')::boolean IS false THEN false END,
-            'folders', CASE WHEN (operator_settings->>'folders')::boolean IS false THEN false END,
-            'workers', CASE WHEN (operator_settings->>'workers')::boolean IS false THEN false END
+            'runs', CASE WHEN wm_try_bool(operator_settings->>'runs') IS false THEN false END,
+            'schedules', CASE WHEN wm_try_bool(operator_settings->>'schedules') IS false THEN false END,
+            'resources', CASE WHEN wm_try_bool(operator_settings->>'resources') IS false THEN false END,
+            'variables', CASE WHEN wm_try_bool(operator_settings->>'variables') IS false THEN false END,
+            'assets', CASE WHEN wm_try_bool(operator_settings->>'assets') IS false THEN false END,
+            'triggers', CASE WHEN wm_try_bool(operator_settings->>'triggers') IS false THEN false END,
+            'audit_logs', CASE WHEN wm_try_bool(operator_settings->>'audit_logs') IS false THEN false END,
+            'groups', CASE WHEN wm_try_bool(operator_settings->>'groups') IS false THEN false END,
+            'folders', CASE WHEN wm_try_bool(operator_settings->>'folders') IS false THEN false END,
+            'workers', CASE WHEN wm_try_bool(operator_settings->>'workers') IS false THEN false END
         )), '{}'::jsonb)
     )) AS caps
     FROM workspace_settings
@@ -34,6 +43,8 @@ UPDATE workspace_settings ws
 SET role_overrides = jsonb_build_object('operator', jsonb_build_object('capabilities', caps.caps))
 FROM caps
 WHERE ws.workspace_id = caps.workspace_id AND caps.caps <> '{}'::jsonb;
+
+DROP FUNCTION wm_try_bool(TEXT);
 
 -- Whether a role costs a full (author) seat, materialized from the role configuration so billing
 -- SQL needs no copy of the capability merge. `workspace_id = ''` holds the instance roles; a
