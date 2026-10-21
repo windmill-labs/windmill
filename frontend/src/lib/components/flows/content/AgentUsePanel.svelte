@@ -59,8 +59,7 @@
 
 	let handle = $derived(`+${agentPath.split('/').pop()}`)
 
-	// Built in an AI session, as a new app from home is: the raw-app guidance knows how to chat with
-	// a saved agent, so the prompt only names it.
+	// Built in an AI session, as a new app from home is.
 	const editRights = useEditRights(() => workspace)
 	let canBuildApp = $derived(
 		$copilotInfo.enabled &&
