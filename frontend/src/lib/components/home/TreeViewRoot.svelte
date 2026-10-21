@@ -7,6 +7,7 @@
 	import TreeOwnerRow from './TreeOwnerRow.svelte'
 	import { inUnruledList, rowRule } from '../common/table/unruledList'
 	import { getLocalSetting, pluralize, storeLocalSetting } from '$lib/utils'
+	import type { TreeOpenMemory } from './treeViewState.svelte'
 
 	interface Props {
 		collapseAll: boolean
@@ -50,6 +51,8 @@
 		groupOtherUsers?: boolean
 		// See TreeView's `leaf`.
 		leaf?: Snippet<[ItemType, number]>
+		// See TreeView's `openMemory`.
+		openMemory?: TreeOpenMemory
 	}
 
 	let {
@@ -72,7 +75,8 @@
 		showEditButton = true,
 		framed = true,
 		groupOtherUsers = false,
-		leaf
+		leaf,
+		openMemory
 	}: Props = $props()
 
 	const unruled = inUnruledList()
@@ -271,6 +275,7 @@
 		{showCode}
 		{showEditButton}
 		{leaf}
+		{openMemory}
 	/>
 {/snippet}
 

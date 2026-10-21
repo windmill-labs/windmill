@@ -57,6 +57,7 @@
 	import HighlightCode from '../HighlightCode.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
+	import { TreeOpenMemory } from './treeViewState.svelte'
 	import { effectivePath, type ItemType } from './treeViewUtils'
 	import { tick, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
@@ -168,7 +169,17 @@
 	}
 
 	// Single URL-synced source of truth for the searchbar-driven filters.
-	let filterValues = useUrlSyncedFilterInstance(untrack(() => searchFilterSchema))
+	// The library and user-folder choices outlive the URL: a link that sets one still wins,
+	// but a bare visit restores the last one made in this browser.
+	const HIDE_LIBRARY_SETTING_NAME = 'homeHideLibrary'
+	const ONLY_USER_FOLDERS_SETTING_NAME = 'homeOnlyUserFolders'
+	let filterValues = useUrlSyncedFilterInstance(
+		untrack(() => searchFilterSchema),
+		{
+			include_library: getLocalSetting(HIDE_LIBRARY_SETTING_NAME) == 'true' ? false : undefined,
+			only_user_folders: getLocalSetting(ONLY_USER_FOLDERS_SETTING_NAME) == 'true' || undefined
+		}
+	)
 
 	// Derived views the rest of the data layer reads. The merged-endpoint reload effect
 	// depends on these (search, kind, archived, library, user-folder scope), so changing a
@@ -180,7 +191,18 @@
 	let runnableKinds = $derived(itemKind === 'all' ? undefined : itemKind)
 	let archived = $derived(!!filterValues.val.archived)
 	let includeWithoutMain = $derived((filterValues.val.include_library ?? true) as boolean)
-	let filterUserFolders = $derived(!!filterValues.val.only_user_folders)
+	// Gated on the role so a choice remembered from an admin session can't hide other users'
+	// spaces for a role that is never offered the toggle.
+	let filterUserFolders = $derived(!!filterValues.val.only_user_folders && !!filterUserFoldersType)
+	$effect(() => {
+		storeLocalSetting(HIDE_LIBRARY_SETTING_NAME, includeWithoutMain ? undefined : 'true')
+	})
+	$effect(() => {
+		storeLocalSetting(
+			ONLY_USER_FOLDERS_SETTING_NAME,
+			filterValues.val.only_user_folders ? 'true' : undefined
+		)
+	})
 
 	// Content search is a distinct mode: its results come from ContentSearchInner
 	// (which carries only path + content), so the row-list filters can't
@@ -779,12 +801,10 @@
 	// carries its server fetch ordinal (`ord`), which already reflects the chosen order, the
 	// (path, kind) tiebreaks, full-precision timestamps and the database collation. Sorting by
 	// it can never disagree with the server, so a later page never jumps above shown rows on
-	// "load more". Reads `sortOrder` only so its identity changes with the order, re-grouping
-	// the tree; the reordering itself comes from the reload that restamps `ord`.
-	let compareItems = $derived.by(() => {
-		sortOrder
-		return (a: { ord?: number }, b: { ord?: number }): number => (a.ord ?? 0) - (b.ord ?? 0)
-	})
+	// "load more".
+	function compareItems(a: { ord?: number }, b: { ord?: number }): number {
+		return (a.ord ?? 0) - (b.ord ?? 0)
+	}
 
 	let listSettingsItems: MenuItem[] = $derived([
 		{
@@ -796,6 +816,20 @@
 				// On by default, so showing them again clears the key rather than leaving a chip.
 				if (includeWithoutMain) filterValues.val.include_library = false
 				else delete filterValues.val.include_library
+			}
+		},
+		{
+			displayName:
+				filterUserFoldersType === 'only f/*' ? 'Hide user folders' : "Hide other users' folders",
+			description:
+				filterUserFoldersType === 'only f/*'
+					? 'Only f/*'
+					: `Only u/${$userStore?.username} and f/*`,
+			toggle: filterUserFolders,
+			hide: !filterUserFoldersType,
+			action: () => {
+				if (filterUserFolders) delete filterValues.val.only_user_folders
+				else filterValues.val.only_user_folders = true
 			}
 		},
 		...sortOptions.map((o, i) => ({
@@ -897,6 +931,12 @@
 	}
 
 	let collapseAll = $state(true)
+	let treeOpenMemory = $derived(new TreeOpenMemory(`homeTreeOpen:${$workspaceStore}`))
+	function toggleCollapseAll() {
+		// Collapsing all is also how to forget the folders reopened on every visit.
+		if (!collapseAll) treeOpenMemory.clear()
+		collapseAll = !collapseAll
+	}
 	// Human-readable list of the filters currently narrowing the list. Empty means no
 	// filter is active, so an empty result then means the workspace itself has no items
 	// (NoItemFound shows the welcome message); otherwise the filters are just too narrow
@@ -1626,7 +1666,7 @@
 						variant="default"
 						iconOnly
 						title={collapseAll ? 'Expand all' : 'Collapse all'}
-						on:click={() => (collapseAll = !collapseAll)}
+						on:click={toggleCollapseAll}
 						startIcon={{ icon: collapseAll ? ChevronsUpDown : ChevronsDownUp }}
 					/>
 					<DropdownV2 items={listSettingsItems} placement="bottom-end" fixedHeight={false}>
@@ -1772,6 +1812,8 @@
 						items={treeSource}
 						{collapseAll}
 						sortCompare={compareItems}
+						groupDesc={sortOrder === 'name_desc'}
+						openMemory={treeOpenMemory}
 						hasMoreServer={treeGlobalHasMore}
 						onLoadMore={fetchMoreServer}
 						pipelineFolders={visiblePipelineFolders}

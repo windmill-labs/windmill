@@ -11,6 +11,7 @@
 	import { pluralize } from '$lib/utils'
 	import { Button } from '$lib/components/common'
 	import { inUnruledList, rowRule } from '../common/table/unruledList'
+	import type { TreeOpenMemory } from './treeViewState.svelte'
 
 	interface Props {
 		item: ItemType | FolderItem | UserItem
@@ -52,6 +53,9 @@
 		// Renders a leaf in place of the home page's `<Item>`, for lists whose rows are not
 		// scripts/flows/apps. Receives the leaf and its visual depth.
 		leaf?: Snippet<[ItemType, number]>
+		// Remembers which nodes the user opened by hand, so they reopen on the next visit
+		// while expand/collapse-all is in its collapsed state.
+		openMemory?: TreeOpenMemory
 	}
 
 	let {
@@ -70,7 +74,8 @@
 		parentPrefix,
 		ancestorHasMore = false,
 		indent = 0,
-		leaf
+		leaf,
+		openMemory
 	}: Props = $props()
 
 	const unruled = inUnruledList()
@@ -208,7 +213,8 @@
 				ownerKey != undefined &&
 				ownerLoad != undefined &&
 				rootIndex >= EXPAND_ALL_LOAD_LIMIT
-			const shouldOpen = expandAll && !cappedOwner
+			const remembered = !expandAll && nodePrefix != undefined && !!openMemory?.isOpen(nodePrefix)
+			const shouldOpen = (expandAll && !cappedOwner) || remembered
 			opened = shouldOpen
 			if (ownerKey == undefined) return
 			if (shouldOpen) {
@@ -244,6 +250,7 @@
 		if (now - lastToggle < 300) return
 		lastToggle = now
 		opened = !opened
+		if (nodePrefix != undefined) openMemory?.setOpen(nodePrefix, opened)
 		if (opened) {
 			// A top-level owner loads on expand. A subfolder's rows come from an ancestor's
 			// pages, so opening one must not fire a request per subfolder — its own "Load
@@ -313,6 +320,7 @@
 							{onCollapseOwner}
 							parentPrefix={nodePrefix}
 							ancestorHasMore={nodeHasMore}
+							{openMemory}
 							on:scriptChanged
 							on:flowChanged
 							on:appChanged
