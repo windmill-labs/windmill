@@ -27,6 +27,7 @@
 	import { importStore } from '$lib/components/apps/store'
 	import { conditionalMelt, getLocalSetting, storeLocalSetting } from '$lib/utils'
 	import { useEditRights } from '$lib/operatorWriteRights'
+	import type { EditKind } from '$lib/editRights'
 	import { createDropdownMenu, melt } from '@melt-ui/svelte'
 	import YAML from 'yaml'
 	import type { Snippet } from 'svelte'
@@ -313,11 +314,15 @@
 		}
 	}
 
-	// Only the kinds this user's role authors: a builder operator gets the kinds its rights grant.
+	// The edit kind of an option whose key is not one: a low-code app needs `full` apps, a
+	// full-code one `compose`. Every other key is itself a kind (`wac` falls to `code`).
+	const EDIT_KIND: Record<string, EditKind> = { 'app-fullcode': 'raw_app', 'app-lowcode': 'app' }
+
+	// Only the kinds this user's role authors.
 	// Derived, not computed once: switching workspace only sets `workspaceStore`, it does not
 	// remount this component, so a snapshot would keep the previous workspace's kinds.
 	const options: Option[] = $derived(
-		allOptions.filter((o) => editRights.roleCanAuthor(o.key === 'app-fullcode' ? 'raw_app' : o.key))
+		allOptions.filter((o) => editRights.roleCanAuthor(EDIT_KIND[o.key] ?? o.key))
 	)
 
 	// the doc panel only shows while an option is hovered or focused, so the menu opens compact

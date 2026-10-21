@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) FROM usr t WHERE ($1::text IS NOT NULL AND t.workspace_id = $1\n            OR $1::text IS NULL AND NOT EXISTS (SELECT 1 FROM workspace_settings ws\n                WHERE ws.workspace_id = t.workspace_id AND ws.role_overrides ? $2)) AND\n            COALESCE(t.workspace_role, CASE WHEN t.operator THEN 'operator' ELSE 'developer' END) = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "dcb5053bdae0a2d141f7e7cb16988f5bc2c40c098558d92ab768281f4e9664c5"
+}
