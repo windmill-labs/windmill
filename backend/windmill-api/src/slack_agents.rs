@@ -115,58 +115,85 @@ async fn signing_secret_set(db: &DB, w_id: &str) -> Result<bool> {
     })
 }
 
+/// Whether a Slack request was signed by the app a workspace is connected through: `None` when that
+/// app has no secret set, which leaves the request unauthenticated. A workspace's own app is checked
+/// against its own secret alone, never the instance's: the instance's app signs nothing for it, so
+/// setting an instance secret must not start rejecting its requests.
+#[cfg(feature = "oauth2")]
+fn workspace_verified(
+    own_app: bool,
+    own_secret: Option<String>,
+    instance_verified: Option<bool>,
+    matches: impl Fn(&str) -> bool,
+) -> Option<bool> {
+    if own_app {
+        own_secret.map(|s| matches(&s))
+    } else {
+        instance_verified
+    }
+}
+
+#[cfg(feature = "oauth2")]
+fn slack_signature_matcher<'a>(
+    sig: &'a str,
+    ts: &'a str,
+    body: &'a str,
+) -> impl Fn(&str) -> bool + 'a {
+    move |secret: &str| {
+        windmill_oauth::SlackVerifier::new(secret).is_ok_and(|v| v.verify(ts, body, sig).is_ok())
+    }
+}
+
+#[cfg(feature = "oauth2")]
+fn instance_verified(matches: &impl Fn(&str) -> bool) -> Option<bool> {
+    let instance = instance_signing_secrets();
+    (!instance.is_empty()).then(|| instance.iter().any(|s| matches(s)))
+}
+
+#[cfg(feature = "oauth2")]
+fn signature_rejected<T>() -> Result<T> {
+    Err(Error::BadRequest(
+        "Slack signature verification failed".to_string(),
+    ))
+}
+
 /// Checks a Slack request, for each workspace connected to `team_id`, against the signing secret
-/// of the workspace's own app, or else the instance's (its OAuth setting or `SLACK_SIGNING_SECRET`).
-/// A workspace's own secret speaks for it alone, as its admins know it. Without `team_id`, or for a
-/// team no workspace is connected to, only the instance's secret applies. An error when the
-/// request can reach no workspace.
+/// of the app it is connected through (see [`workspace_verified`]). For a team no workspace is
+/// connected to, only the instance's secret applies. An error when the request can reach no
+/// workspace.
 #[cfg(feature = "oauth2")]
 pub async fn verify_slack_request(
     db: &DB,
-    team_id: Option<&str>,
+    team_id: &str,
     sig: &str,
     ts: &str,
     body: &str,
 ) -> Result<SlackRequest> {
-    let matches = |secret: &str| {
-        windmill_oauth::SlackVerifier::new(secret).is_ok_and(|v| v.verify(ts, body, sig).is_ok())
-    };
-    let instance = instance_signing_secrets();
-    // `None` when the app has no secret set.
-    let instance_verified = (!instance.is_empty()).then(|| instance.iter().any(|s| matches(s)));
-    let rejected = || {
-        Err(Error::BadRequest(
-            "Slack signature verification failed".to_string(),
-        ))
-    };
+    let matches = slack_signature_matcher(sig, ts, body);
+    let instance_verified = instance_verified(&matches);
 
-    let workspaces = match team_id {
-        Some(team_id) => {
-            sqlx::query!(
-                "SELECT workspace_id, slack_oauth_client_id IS NOT NULL AS \"own_app!\",
-                        slack_signing_secret
-                 FROM workspace_settings WHERE slack_team_id = $1",
-                team_id
-            )
-            .fetch_all(db)
-            .await?
-        }
-        None => vec![],
-    };
+    let workspaces = sqlx::query!(
+        "SELECT workspace_id, slack_oauth_client_id IS NOT NULL AS \"own_app!\",
+                slack_signing_secret
+         FROM workspace_settings WHERE slack_team_id = $1",
+        team_id
+    )
+    .fetch_all(db)
+    .await?;
     if workspaces.is_empty() {
         return match instance_verified {
-            Some(false) => rejected(),
+            Some(false) => signature_rejected(),
             _ => Ok(SlackRequest::default()),
         };
     }
     let mut req = SlackRequest::default();
     for w in workspaces {
-        // An own app without a secret falls back to the instance's: an instance whose secret is
-        // set must keep rejecting unsigned requests to it.
-        let verified = match w.slack_signing_secret.filter(|_| w.own_app) {
-            Some(secret) => Some(matches(&secret)),
-            None => instance_verified,
-        };
+        let verified = workspace_verified(
+            w.own_app,
+            w.slack_signing_secret,
+            instance_verified,
+            &matches,
+        );
         if verified != Some(false) {
             req.reachable.push(w.workspace_id.clone());
         }
@@ -175,9 +202,36 @@ pub async fn verify_slack_request(
         }
     }
     if req.reachable.is_empty() {
-        return rejected();
+        return signature_rejected();
     }
     Ok(req)
+}
+
+/// Checks a Slack request known to belong to `w_id` against the signing secret of the app the
+/// workspace is connected through (see [`workspace_verified`]). An error only when a secret applies
+/// and does not match.
+#[cfg(feature = "oauth2")]
+pub async fn verify_workspace_slack_request(
+    db: &DB,
+    w_id: &str,
+    sig: &str,
+    ts: &str,
+    body: &str,
+) -> Result<()> {
+    let matches = slack_signature_matcher(sig, ts, body);
+    let settings = sqlx::query!(
+        "SELECT slack_oauth_client_id IS NOT NULL AS \"own_app!\", slack_signing_secret
+         FROM workspace_settings WHERE workspace_id = $1",
+        w_id
+    )
+    .fetch_optional(db)
+    .await?;
+    let (own_app, own_secret) =
+        settings.map_or((false, None), |s| (s.own_app, s.slack_signing_secret));
+    match workspace_verified(own_app, own_secret, instance_verified(&matches), &matches) {
+        Some(false) => signature_rejected(),
+        _ => Ok(()),
+    }
 }
 
 #[derive(Serialize)]
