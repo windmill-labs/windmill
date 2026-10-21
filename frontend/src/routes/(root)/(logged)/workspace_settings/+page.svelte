@@ -180,8 +180,9 @@
 	// Agents answer only once Windmill can verify Slack's requests with the signing secret of the
 	// app the workspace connects through.
 	let slackSigningSecret: string = $state('')
+	let slackSigningSecretSet: boolean = $state(false)
 	const slackAgentsStatus = resource(
-		() => (slackAgents || slackOAuthConfigLoaded ? $workspaceStore : undefined),
+		() => (slackAgents ? $workspaceStore : undefined),
 		async (workspace) =>
 			workspace ? await SlackAgentsService.getSlackAgentsStatus({ workspace }) : undefined
 	)
@@ -860,6 +861,7 @@
 			slackOAuthClientId = config.slack_oauth_client_id || ''
 			slackOAuthClientSecret = config.slack_oauth_client_secret || ''
 			slackOAuthConfigLoaded = !!config.slack_oauth_client_id
+			slackSigningSecretSet = !!config.slack_signing_secret
 		} catch (e) {
 			console.error('Failed to load Slack OAuth config:', e)
 		}
@@ -916,7 +918,7 @@
 				requestBody: { slack_signing_secret: slackSigningSecret || null }
 			})
 			slackSigningSecret = ''
-			slackAgentsStatus.refetch()
+			slackSigningSecretSet = true
 			sendUserToast('Signing secret saved')
 		} catch (e) {
 			sendUserToast('Failed to save the signing secret', true)
@@ -941,6 +943,7 @@
 			slackOAuthClientId = ''
 			slackOAuthClientSecret = ''
 			slackOAuthConfigLoaded = false
+			slackSigningSecretSet = false
 			await loadSettings()
 			sendUserToast('Workspace Slack app deleted')
 		} catch (e) {
@@ -1830,7 +1833,7 @@
 														<TextInput
 															inputProps={{
 																type: 'password',
-																placeholder: slackAgentsStatus.current?.signing_secret_set
+																placeholder: slackSigningSecretSet
 																	? 'Set, enter a new one to replace it'
 																	: 'Enter signing secret'
 															}}

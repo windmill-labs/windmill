@@ -98,29 +98,26 @@ fn instance_signing_secrets() -> Vec<String> {
     }
 }
 
-/// Agents answer only when the server verifies Slack's request signatures, with the secret of the
-/// app the workspace is connected through.
+/// Agents answer only when the server verifies Slack's request signatures, with the workspace's
+/// own app's secret or else the instance's.
 async fn signing_secret_set(db: &DB, w_id: &str) -> Result<bool> {
-    let own_app = sqlx::query!(
-        "SELECT slack_oauth_client_id IS NOT NULL AS \"own_app!\",
-                slack_signing_secret IS NOT NULL AS \"own_secret!\"
+    let own_secret = sqlx::query_scalar!(
+        "SELECT slack_oauth_client_id IS NOT NULL AND slack_signing_secret IS NOT NULL
          FROM workspace_settings WHERE workspace_id = $1",
         w_id
     )
     .fetch_optional(db)
-    .await?;
-    Ok(match own_app {
-        Some(r) if r.own_app => r.own_secret,
-        _ => !instance_signing_secrets().is_empty(),
-    })
+    .await?
+    .flatten()
+    .unwrap_or(false);
+    Ok(own_secret || !instance_signing_secrets().is_empty())
 }
 
-/// Checks a Slack request against the signing secret of each app it may come from: the instance's
-/// (its OAuth setting or `SLACK_SIGNING_SECRET`) for the workspaces connected through it, a
-/// workspace's own for one connected through its own app. A secret speaks only for the workspaces
-/// of its app: a workspace admin knows their own app's. Without `team_id`, or for a team no
-/// workspace is connected to, only the instance's secret applies. An error when the request can
-/// reach no workspace.
+/// Checks a Slack request, for each workspace connected to `team_id`, against the signing secret
+/// of the workspace's own app, or else the instance's (its OAuth setting or `SLACK_SIGNING_SECRET`).
+/// A workspace's own secret speaks for it alone, as its admins know it. Without `team_id`, or for a
+/// team no workspace is connected to, only the instance's secret applies. An error when the
+/// request can reach no workspace.
 #[cfg(feature = "oauth2")]
 pub async fn verify_slack_request(
     db: &DB,
@@ -162,10 +159,11 @@ pub async fn verify_slack_request(
     }
     let mut req = SlackRequest::default();
     for w in workspaces {
-        let verified = match (w.own_app, w.slack_signing_secret) {
-            (true, Some(secret)) => Some(matches(&secret)),
-            (true, None) => None,
-            (false, _) => instance_verified,
+        // An own app without a secret falls back to the instance's: an instance whose secret is
+        // set must keep rejecting unsigned requests to it.
+        let verified = match w.slack_signing_secret.filter(|_| w.own_app) {
+            Some(secret) => Some(matches(&secret)),
+            None => instance_verified,
         };
         if verified != Some(false) {
             req.reachable.push(w.workspace_id.clone());

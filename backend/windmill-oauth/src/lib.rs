@@ -300,13 +300,23 @@ fn default_grant_types() -> Vec<String> {
 }
 
 /// Container for all OAuth clients (login, connect, and slack)
-#[derive(Debug)]
 pub struct AllClients {
     pub logins: BasicClientsMap,
     pub connects: BasicClientsMap,
     pub slack: Option<OClient>,
     /// The instance Slack app's signing secret, from its OAuth setting.
     pub slack_signing_secret: Option<String>,
+}
+
+impl std::fmt::Debug for AllClients {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AllClients")
+            .field("logins", &self.logins)
+            .field("connects", &self.connects)
+            .field("slack", &self.slack)
+            .field("slack_signing_secret", &self.slack_signing_secret.as_ref().map(|_| "***"))
+            .finish()
+    }
 }
 
 /// Slack token response from OAuth flow

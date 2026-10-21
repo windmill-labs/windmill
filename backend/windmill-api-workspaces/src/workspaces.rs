@@ -1730,6 +1730,7 @@ struct SetSlackOAuthConfigRequest {
 struct GetSlackOAuthConfigResponse {
     slack_oauth_client_id: Option<String>,
     slack_oauth_client_secret: Option<String>,
+    slack_signing_secret: Option<String>,
 }
 
 async fn get_slack_oauth_config(
@@ -1740,7 +1741,8 @@ async fn get_slack_oauth_config(
     require_admin(authed.is_admin, &authed.username)?;
 
     let settings = sqlx::query!(
-        "SELECT slack_oauth_client_id, slack_oauth_client_secret FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT slack_oauth_client_id, slack_oauth_client_secret, slack_signing_secret
+         FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
     .fetch_one(&db)
@@ -1754,6 +1756,7 @@ async fn get_slack_oauth_config(
     Ok(Json(GetSlackOAuthConfigResponse {
         slack_oauth_client_id: settings.slack_oauth_client_id,
         slack_oauth_client_secret: masked_secret,
+        slack_signing_secret: settings.slack_signing_secret.map(|_| "***".to_string()),
     }))
 }
 
@@ -1811,8 +1814,11 @@ async fn set_slack_oauth_config(
     let mut tx = db.begin().await?;
 
     sqlx::query!(
+        // Another app's signing secret would reject every request the new app sends.
         "UPDATE workspace_settings
-         SET slack_oauth_client_id = $1, slack_oauth_client_secret = $2
+         SET slack_oauth_client_id = $1, slack_oauth_client_secret = $2,
+             slack_signing_secret = CASE WHEN slack_oauth_client_id = $1::varchar
+                 THEN slack_signing_secret END
          WHERE workspace_id = $3",
         &req.slack_oauth_client_id,
         &req.slack_oauth_client_secret,
