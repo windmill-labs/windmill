@@ -320,11 +320,15 @@ async fn reads_an_argument_as_jsonb_stores_it(db: Pool<Postgres>) -> anyhow::Res
         r#"{"$match": {"c": "$USD"}, "p": 1.10}"#,
         r#""$10.00""#,
     ] {
-        let stored: Option<String> = sqlx::query_scalar("SELECT $1::jsonb::text")
+        let stored: Option<String> = match sqlx::query_scalar("SELECT $1::jsonb::text")
             .bind(strip_json_nul(arg).as_ref())
             .fetch_one(&db)
             .await
-            .ok();
+        {
+            Ok(s) => Some(s),
+            Err(sqlx::Error::Database(e)) if e.code().as_deref() == Some("22P02") => None,
+            Err(e) => return Err(e.into()),
+        };
         assert_eq!(
             untrusted_arg_interpolates(arg),
             stored.as_deref().map_or(true, arg_needs_interpolation),

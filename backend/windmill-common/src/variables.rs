@@ -81,15 +81,17 @@ fn decoded(arg: &str) -> Option<serde_json::Value> {
     serde_json::from_str(&strip_json_nul(arg)).ok()
 }
 
-/// The worker's own test on the whole argument, plus a reserved `WM_*` value at any depth, which a
-/// flow step can move into an argument the worker interpolates. A workspace or worker env var name
-/// moved that way is still resolved: those names are not known on every path.
+/// The worker's own test on the whole argument, plus a reserved `WM_*` key or value at any depth,
+/// which a flow step can move into an argument the worker interpolates. A workspace or worker env
+/// var name moved that way is still resolved: those names are not known on every path.
 fn interpolates(v: &serde_json::Value) -> bool {
     fn reserved_name(v: &serde_json::Value) -> bool {
         match v {
             serde_json::Value::String(s) => reserved(s).is_some(),
             serde_json::Value::Array(a) => a.iter().any(reserved_name),
-            serde_json::Value::Object(m) => m.values().any(reserved_name),
+            serde_json::Value::Object(m) => m
+                .iter()
+                .any(|(k, v)| reserved(k).is_some() || reserved_name(v)),
             _ => false,
         }
     }
@@ -1114,6 +1116,7 @@ mod tests {
             r#"{"key": "$API_KEY", "note": "cost $var:x"}"#,
             r#"{"$encrypted:abc": 1}"#,
             r#"["$WM_TOKEN"]"#,
+            r#"{"$WM_TOKEN": 1}"#,
             r#""$va\u0000r:x""#,
             r#"{"a": "ok", "a": "\u0024jsonvar:x"}"#,
         ] {
