@@ -649,10 +649,15 @@ async fn get_resource(
 }
 
 async fn exists_resource(
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
     let path = path.to_path();
+    // `resources:run` (app embed tokens) reaches this metadata route but does not
+    // include `read`, so it has to be accepted here on its own.
+    check_scopes(&authed, || format!("resources:read:{}", path))
+        .or_else(|e| check_scopes(&authed, || format!("resources:run:{}", path)).map_err(|_| e))?;
 
     let exists = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM resource WHERE path = $1 AND workspace_id = $2)",

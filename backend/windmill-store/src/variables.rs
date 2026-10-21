@@ -522,10 +522,12 @@ async fn explain_variable_perm_error(
 }
 
 async fn exists_variable(
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("variables:read:{}", path))?;
 
     let exists = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM variable WHERE path = $1 AND workspace_id = $2)",
