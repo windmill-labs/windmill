@@ -251,20 +251,23 @@
 						A chat app for your team, built by AI with Windmill's chat SDK. It keeps each person's
 						conversations, and you can shape it like any other app.
 					</span>
-					<div>
-						<Button
-							unifiedSize="sm"
-							variant="default"
-							disabled={!canBuildApp}
-							title={canBuildApp
-								? undefined
-								: !editRights.roleCanAuthor('raw_app')
-									? 'Operators cannot build apps in this workspace'
-									: 'Needs Windmill AI and AI sessions'}
-							onClick={buildApp}
-						>
-							Build a chat app
+					<div class="flex flex-col items-start gap-1">
+						<Button unifiedSize="sm" variant="default" disabled={!canBuildApp} onClick={buildApp}>
+							Build an app for this agent
 						</Button>
+						{#if !editRights.roleCanAuthor('raw_app')}
+							<span class="text-2xs text-hint">Operators cannot build apps in this workspace.</span>
+						{:else if !$copilotInfo.enabled}
+							<span class="text-2xs text-hint">
+								Enable Windmill AI in the
+								<a href="/workspace_settings?tab=ai" target="_blank">workspace settings</a>
+								to build it.
+							</span>
+						{:else if !canBuildApp}
+							<span class="text-2xs text-hint"
+								>It is built in an AI session, which you cannot open here yet.</span
+							>
+						{/if}
 					</div>
 				</TabContent>
 
