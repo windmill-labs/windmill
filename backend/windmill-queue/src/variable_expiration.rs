@@ -101,7 +101,17 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
                  AND v.value_valid_until <= now() + make_interval(secs =>
                      COALESCE((ws.variable_expiration_handler->>'notify_before_secs')::bigint, $1))
                  AND ws.variable_expiration_handler->>'path' IS NOT NULL
-                 AND (ws.variable_expiration_retry_at IS NULL OR ws.variable_expiration_retry_at <= now())
+                 AND (ws.variable_expiration_failed_at IS NULL
+                      OR ws.variable_expiration_failed_at <= now() - make_interval(secs => $4)
+                      -- Redeploying the handler is how it gets fixed, so it ends the wait.
+                      OR EXISTS (SELECT 1 FROM script s WHERE s.workspace_id = v.workspace_id
+                                 AND s.path = substr(ws.variable_expiration_handler->>'path', 8)
+                                 AND starts_with(ws.variable_expiration_handler->>'path', 'script/')
+                                 AND s.created_at > ws.variable_expiration_failed_at)
+                      OR EXISTS (SELECT 1 FROM flow f WHERE f.workspace_id = v.workspace_id
+                                 AND f.path = substr(ws.variable_expiration_handler->>'path', 6)
+                                 AND starts_with(ws.variable_expiration_handler->>'path', 'flow/')
+                                 AND f.edited_at > ws.variable_expiration_failed_at))
                  AND (NOT COALESCE((ws.variable_expiration_handler->>'muted_on_user_path')::boolean, false)
                       OR v.path NOT LIKE 'u/%')
            ) due
@@ -110,6 +120,7 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
         VARIABLE_EXPIRATION_DEFAULT_NOTIFY_BEFORE_SECS,
         VARIABLE_EXPIRATION_MAX_PER_PASS,
         VARIABLE_EXPIRATION_REMINDER_SLACK_SECS,
+        VARIABLE_EXPIRATION_RETRY_AFTER_SECS as f64,
     )
     .fetch_all(db)
     .await;
@@ -186,15 +197,13 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
         let tx = match pushed {
             Ok((_job_id, tx)) => tx,
             Err(e) => {
-                // Dropping the tx un-claims the variable. The workspace then sits out until
-                // `retry_at`: its rows stay due, and would otherwise retake the same capped
-                // slots on every pass, ahead of every other workspace.
+                // Dropping the tx un-claims the variable. The workspace then sits out: its rows
+                // stay due, and would otherwise retake the same capped slots on every pass,
+                // ahead of every other workspace.
                 failed_this_pass.insert(row.workspace_id.clone());
                 if let Err(e) = sqlx::query!(
-                    "UPDATE workspace_settings SET variable_expiration_retry_at = now() + make_interval(secs => $2)
-                     WHERE workspace_id = $1",
+                    "UPDATE workspace_settings SET variable_expiration_failed_at = now() WHERE workspace_id = $1",
                     row.workspace_id,
-                    VARIABLE_EXPIRATION_RETRY_AFTER_SECS as f64,
                 )
                 .execute(db)
                 .await
@@ -204,7 +213,9 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
                 report_critical_error(
                     format!(
                         "The variable expiration handler {} of workspace {} failed to start, so \
-                         variables in this workspace are not being notified: {e:#}",
+                         variables in this workspace are not being notified. They are tried again \
+                         in an hour, or as soon as the handler is redeployed or its setting saved: \
+                         {e:#}",
                         row.handler_path, row.workspace_id
                     ),
                     db.clone(),

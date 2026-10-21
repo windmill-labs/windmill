@@ -2,5 +2,5 @@
 -- {"path": ..., "extra_args": ..., "muted_on_user_path": ...}
 ALTER TABLE workspace_settings ADD COLUMN IF NOT EXISTS variable_expiration_handler JSONB;
 
--- Set when the handler fails to start; the sweep skips the workspace until then.
-ALTER TABLE workspace_settings ADD COLUMN IF NOT EXISTS variable_expiration_retry_at TIMESTAMP WITH TIME ZONE;
+-- When the handler last failed to start; the sweep skips the workspace for a while after it.
+ALTER TABLE workspace_settings ADD COLUMN IF NOT EXISTS variable_expiration_failed_at TIMESTAMP WITH TIME ZONE;

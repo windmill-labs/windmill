@@ -493,6 +493,25 @@ async fn test_many_broken_handlers_do_not_starve_a_healthy_one(
     Ok(())
 }
 
+/// A workspace waiting out a failed start must not keep waiting once its handler is deployed.
+#[sqlx::test(fixtures("base"))]
+async fn test_deploying_the_handler_ends_the_wait(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    configure_handler(&db, r#"{"path": "script/u/test-user/expiry_handler"}"#).await?;
+    seed_variable(&db, "u/test-user/due", "30 minutes").await?;
+
+    dispatch_expiring_variables(&db).await;
+    seed_handler_script(&db, "u/test-user/expiry_handler").await?;
+    dispatch_expiring_variables(&db).await;
+
+    assert_eq!(
+        queued_handler_jobs(&db, "u/test-user/expiry_handler").await?,
+        1,
+        "the deployed handler waited out the delay"
+    );
+    Ok(())
+}
+
 /// The handler endpoint: admin-only, existence-checked, and clearing by omission, which
 /// `wmill sync push` relies on to propagate an absent handler.
 #[sqlx::test(fixtures("base"))]
@@ -539,7 +558,7 @@ async fn test_edit_handler_endpoint(db: Pool<Postgres>) -> anyhow::Result<()> {
     }
 
     // A handler that failed to start waits out its retry delay; saving a fix must not.
-    sqlx::query("UPDATE workspace_settings SET variable_expiration_retry_at = now() + interval '1 hour' WHERE workspace_id = $1")
+    sqlx::query("UPDATE workspace_settings SET variable_expiration_failed_at = now() WHERE workspace_id = $1")
         .bind(WS)
         .execute(&db)
         .await?;
@@ -551,7 +570,7 @@ async fn test_edit_handler_endpoint(db: Pool<Postgres>) -> anyhow::Result<()> {
         Some("script/u/test-user/expiry_handler".to_string())
     );
     let waiting: bool = sqlx::query_scalar(
-        "SELECT variable_expiration_retry_at IS NOT NULL FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT variable_expiration_failed_at IS NOT NULL FROM workspace_settings WHERE workspace_id = $1",
     )
     .bind(WS)
     .fetch_one(&db)
