@@ -1711,17 +1711,6 @@ export function buildWmillTs(
   return windmillUtils.genWmillTs(runnables);
 }
 
-/**
- * Fetches schemas from the Windmill API for path-based runnables (script / flow).
- * Returns a map of runnableId -> schema. Path-based runnables don't store their
- * schema locally (the script or flow at the path is the source of truth), so we
- * fetch them once at dev start to type the args in wmill.d.ts.
- *
- * Failures (network, missing script) are logged but never thrown - the
- * corresponding runnable will fall back to `args: {}` in the generated types.
- *
- * Exported for testing.
- */
 /** The inputs of every agent runnable (see the frontend's `AGENT_RUNNABLE_SCHEMA`). */
 const AGENT_RUNNABLE_SCHEMA = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
@@ -1743,6 +1732,17 @@ const AGENT_RUNNABLE_SCHEMA = {
   order: ["user_message", "memory_id", "user_attachments"],
 };
 
+/**
+ * Fetches schemas from the Windmill API for path-based runnables (script / flow).
+ * Returns a map of runnableId -> schema. Path-based runnables don't store their
+ * schema locally (the script or flow at the path is the source of truth), so we
+ * fetch them once at dev start to type the args in wmill.d.ts.
+ *
+ * Failures (network, missing script) are logged but never thrown - the
+ * corresponding runnable will fall back to `args: {}` in the generated types.
+ *
+ * Exported for testing.
+ */
 export async function fetchPathRunnableSchemas(
   workspaceId: string,
   runnables: Record<string, any>,

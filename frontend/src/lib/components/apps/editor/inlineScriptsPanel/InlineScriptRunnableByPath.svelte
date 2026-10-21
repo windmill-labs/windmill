@@ -373,7 +373,7 @@
 		{:else if runnable.runType == 'agent'}
 			<Button
 				variant="default"
-				size="xs"
+				unifiedSize="xs"
 				startIcon={{ icon: Eye }}
 				endIcon={{ icon: ExternalLink }}
 				target="_blank"

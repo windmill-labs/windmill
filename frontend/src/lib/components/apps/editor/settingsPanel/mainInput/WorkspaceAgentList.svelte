@@ -1,7 +1,4 @@
 <script lang="ts">
-	import { createBubbler, stopPropagation } from 'svelte/legacy'
-
-	const bubble = createBubbler()
 	import { createEventDispatcher, onMount } from 'svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -9,17 +6,12 @@
 	import { ResourceService, type ListableResource } from '$lib/gen'
 	import { emptyString } from '$lib/utils'
 	import { Skeleton } from '$lib/components/common'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
-	interface Props {
-		filter?: string
-		children?: import('svelte').Snippet
-	}
-
-	let { filter = $bindable(''), children }: Props = $props()
-
+	let filter = $state('')
 	let agents: ListableResource[] | undefined = $state(undefined)
 	let filteredItems: (ListableResource & { marked?: string })[] = $state([])
 	let prefilteredItems = $derived(agents ?? [])
@@ -41,14 +33,14 @@
 	bind:filteredItems
 	f={(x) => (emptyString(x.description) ? x.path : x.description + ' (' + x.path + ')')}
 />
-<div class="w-full flex mt-1 items-center gap-2">
-	{@render children?.()}
-	<input
-		type="text"
-		placeholder="Search workspace AI agents"
-		onkeydown={stopPropagation(bubble('keydown'))}
+<div class="w-full mt-1 mb-4">
+	<TextInput
 		bind:value={filter}
-		class="text-2xl grow mb-4"
+		inputProps={{
+			placeholder: 'Search workspace AI agents',
+			// The picker's drawer must not take the keys typed into its search.
+			onkeydown: (e) => e.stopPropagation()
+		}}
 	/>
 </div>
 
