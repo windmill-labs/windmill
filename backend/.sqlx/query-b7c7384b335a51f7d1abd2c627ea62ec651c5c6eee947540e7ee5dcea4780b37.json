@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH revoked AS (\n             DELETE FROM token WHERE email = $1 AND label LIKE 'mcp-oauth-%' RETURNING token_prefix\n         ), refresh AS (\n             DELETE FROM mcp_oauth_refresh_token WHERE user_email = $1\n         ), code AS (\n             DELETE FROM mcp_oauth_server_code WHERE user_email = $1\n         )\n         INSERT INTO notify_event (channel, payload)\n         SELECT 'notify_token_invalidation', token_prefix FROM revoked",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b7c7384b335a51f7d1abd2c627ea62ec651c5c6eee947540e7ee5dcea4780b37"
+}

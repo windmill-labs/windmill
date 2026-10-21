@@ -8,7 +8,7 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { roleCapabilities, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import { Globe, Loader2, Save } from 'lucide-svelte'
 	import { deployRawAppValue } from '$lib/rawAppDeploy'
@@ -111,7 +111,7 @@
 		{/if}
 
 		{#snippet actions()}
-			{#if !$userStore?.operator}
+			{#if $roleCapabilities.apps === 'full'}
 				<Button
 					on:click={saveApp}
 					startIcon={{ icon: isDraftOnly ? Save : Globe }}

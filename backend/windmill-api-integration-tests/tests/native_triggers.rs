@@ -342,24 +342,57 @@ async fn test_token_update_persists(db: Pool<Postgres>) -> anyhow::Result<()> {
 // 3. Channel Expiration Renewal — should_renew_channel
 // ============================================================================
 
-#[test]
-fn test_require_native_integration_use_blocks_operators() {
-    // Regression: the integration *use* routes (calendar/drive/repo/event pickers)
-    // must reject read-only operators, who cannot create native triggers and so
-    // must not be able to drive the admin-configured integration's upstream API.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+async fn test_require_native_integration_use_needs_code_and_manage_triggers(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    // The pickers drive the admin-connected account's upstream API: the default operator, which
+    // may manage triggers but not write code, must stay locked out of them.
+    windmill_common::roles::invalidate_all_roles_cache();
     let mut operator = test_authed();
+    operator.username = "operator".to_string();
     operator.is_admin = false;
     operator.is_operator = true;
-    assert!(require_native_integration_use(&operator).is_err());
+    assert!(
+        require_native_integration_use(&db, "test-workspace", &operator)
+            .await
+            .is_err()
+    );
 
-    // A regular non-admin author (the population that configures triggers) is allowed.
-    let mut author = test_authed();
-    author.is_admin = false;
-    author.is_operator = false;
-    assert!(require_native_integration_use(&author).is_ok());
+    let set_override = |caps: &'static str| {
+        let db = db.clone();
+        async move {
+            sqlx::query(
+                "UPDATE workspace_settings SET role_overrides = jsonb_build_object('operator',
+                    jsonb_build_object('capabilities', $1::jsonb))
+                 WHERE workspace_id = 'test-workspace'",
+            )
+            .bind(caps)
+            .execute(&db)
+            .await
+            .unwrap();
+            windmill_common::roles::invalidate_all_roles_cache();
+        }
+    };
+    set_override(r#"{"code": true}"#).await;
+    assert!(
+        require_native_integration_use(&db, "test-workspace", &operator)
+            .await
+            .is_ok()
+    );
+    set_override(r#"{"code": true, "manage_triggers": false}"#).await;
+    assert!(
+        require_native_integration_use(&db, "test-workspace", &operator)
+            .await
+            .is_err()
+    );
 
-    // Admins are allowed.
-    assert!(require_native_integration_use(&test_authed()).is_ok());
+    assert!(
+        require_native_integration_use(&db, "test-workspace", &test_authed())
+            .await
+            .is_ok()
+    );
+    Ok(())
 }
 
 #[test]

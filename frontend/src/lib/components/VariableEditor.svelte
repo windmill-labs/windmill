@@ -15,6 +15,7 @@
 	import { sendUserToast } from '$lib/toast'
 	import { canEditItem } from '$lib/editRights'
 	import { userWorkspaces } from '$lib/stores'
+	import { capabilitiesIn } from '$lib/roleCapabilities'
 	import { Save } from 'lucide-svelte'
 	import VariableForm from './VariableForm.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
@@ -141,8 +142,12 @@
 		return canEditVariableIn(selected, perms)
 	})
 	function canEditVariableIn(ws: string, perms: Record<string, boolean>): boolean {
-		const settings = $userWorkspaces.find((w) => w.id === ws)?.operator_settings
-		return canEditItem('variable', editPath ?? '', perms, acting.in(ws), settings)
+		const user = acting.in(ws)
+		const caps = capabilitiesIn(
+			user,
+			$userWorkspaces.find((w) => w.id === ws)
+		)
+		return canEditItem('variable', editPath ?? '', perms, user, caps)
 	}
 	const dirtyWorkspaces = $derived(
 		Object.keys(states).filter((ws) => !draftValuesEqual(states[ws].draft, initialStates[ws]))

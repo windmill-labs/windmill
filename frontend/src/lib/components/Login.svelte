@@ -28,7 +28,7 @@
 	import PocketIdIcon from '$lib/components/icons/PocketIdIcon.svelte'
 
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
-	import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
+	import { usersWorkspaceStore, workspaceStore, userStore, roleCapabilities } from '$lib/stores'
 	import { emptyString, escapeHtml, parseQueryParams } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'
@@ -337,7 +337,7 @@
 				workspaceStore.set(allWorkspaces[0].id)
 				$userStore = await getUserExt($workspaceStore!)
 
-				if (!$userStore?.is_super_admin && $userStore?.operator) {
+				if (!$roleCapabilities.code) {
 					let defaultApp = await WorkspaceService.getWorkspaceDefaultApp({
 						workspace: $workspaceStore!
 					})

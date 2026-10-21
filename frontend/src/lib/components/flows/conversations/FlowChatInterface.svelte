@@ -8,7 +8,7 @@
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import GfmMarkdown from '$lib/components/GfmMarkdown.svelte'
 	import { emptyString, DynamicInput } from '$lib/utils'
-	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { tick, untrack } from 'svelte'
 	import type { Chat } from 'windmill-chat'
 	import { saveFlowChatInputs } from './flowChatProps'
@@ -80,14 +80,14 @@
 		extraSettings = undefined
 	}: Props = $props()
 
-	const operatingUser = useOperatingUser()
+	const roleCaps = useRoleCapabilities()
 	// Derive helperScript for dynamic inputs from schema
 	const dynamicInputHelperScript = $derived(
 		DynamicInput.flowHelperScript(
 			additionalInputsSchema?.['x-windmill-dyn-select-code'],
 			additionalInputsSchema?.['x-windmill-dyn-select-lang'],
 			path,
-			operatingUser.current?.operator
+			!$roleCaps.code
 		)
 	)
 

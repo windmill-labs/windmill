@@ -368,18 +368,59 @@ pub async fn oauth_token(
     Extension(db): Extension<DB>,
     Form(req): Form<TokenRequest>,
 ) -> std::result::Result<Json<TokenResponse>, OAuthTokenError> {
-    match req.grant_type.as_str() {
-        "authorization_code" => handle_authorization_code_grant(&db, &req).await,
-        "refresh_token" => handle_refresh_token_grant(&db, &req).await,
-        _ => Err(OAuthTokenError::unsupported_grant_type(
-            "Supported grant types: authorization_code, refresh_token",
-        )),
+    let db_error = |e: sqlx::Error| {
+        tracing::error!("Database error issuing MCP OAuth token: {}", e);
+        OAuthTokenError::server_error("Database error")
+    };
+    let owner = match req.grant_type.as_str() {
+        "authorization_code" => sqlx::query_scalar!(
+            "SELECT user_email FROM mcp_oauth_server_code WHERE code = $1",
+            req.code
+        )
+        .fetch_optional(&db)
+        .await
+        .map_err(db_error)?,
+        "refresh_token" => sqlx::query_scalar!(
+            "SELECT user_email FROM mcp_oauth_refresh_token WHERE refresh_token = $1",
+            req.refresh_token.as_deref().unwrap_or_default()
+        )
+        .fetch_optional(&db)
+        .await
+        .map_err(db_error)?,
+        _ => {
+            return Err(OAuthTokenError::unsupported_grant_type(
+                "Supported grant types: authorization_code, refresh_token",
+            ))
+        }
+    };
+    let mut tx = db.begin().await.map_err(db_error)?;
+    if let Some(email) = &owner {
+        crate::users::lock_mcp_oauth_grants(&mut tx, email, false)
+            .await
+            .map_err(db_error)?;
+    }
+    let res = if req.grant_type == "authorization_code" {
+        handle_authorization_code_grant(&mut tx, &req).await
+    } else {
+        handle_refresh_token_grant(&mut tx, &req).await
+    };
+    // Committed on error too, so a rejected exchange still consumes its code or refresh token.
+    let committed = tx.commit().await;
+    match (res, committed) {
+        (Ok(res), Ok(())) => Ok(res),
+        (Err(e), committed) => {
+            if let Err(ce) = committed {
+                tracing::error!("Failed to commit rejected MCP OAuth exchange: {}", ce);
+            }
+            Err(e)
+        }
+        (Ok(_), Err(e)) => Err(db_error(e)),
     }
 }
 
 /// Handle authorization_code grant type
 async fn handle_authorization_code_grant(
-    db: &DB,
+    tx: &mut sqlx::PgConnection,
     req: &TokenRequest,
 ) -> std::result::Result<Json<TokenResponse>, OAuthTokenError> {
     let auth_code = match sqlx::query_as!(
@@ -390,7 +431,7 @@ async fn handle_authorization_code_grant(
                    code_challenge, code_challenge_method",
         req.code
     )
-    .fetch_optional(db)
+    .fetch_optional(&mut *tx)
     .await
     {
         Ok(Some(code)) => code,
@@ -461,7 +502,7 @@ async fn handle_authorization_code_grant(
         &scopes,
         auth_code.workspace_id,
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| {
         tracing::error!("Failed to create access token: {}", e);
@@ -474,7 +515,7 @@ async fn handle_authorization_code_grant(
     }
 
     // Create refresh token — store the hash of the access token so we can delete it later
-    let refresh_token_result = sqlx::query!(
+    sqlx::query!(
         "INSERT INTO mcp_oauth_refresh_token
          (refresh_token, access_token_hash, client_id, user_email, workspace_id, scopes, token_family, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, now() + ($8 || ' seconds')::interval)",
@@ -487,29 +528,25 @@ async fn handle_authorization_code_grant(
         token_family,
         MCP_OAUTH_REFRESH_TOKEN_EXPIRATION_SECS.to_string(),
     )
-    .execute(db)
-    .await;
-
-    let refresh_token_value = match refresh_token_result {
-        Ok(_) => Some(refresh_token),
-        Err(e) => {
-            tracing::error!("Failed to create refresh token: {}", e);
-            None // Don't include invalid refresh token
-        }
-    };
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to create refresh token: {}", e);
+        OAuthTokenError::server_error("Failed to create refresh token")
+    })?;
 
     Ok(Json(TokenResponse {
         access_token,
         token_type: "Bearer".to_string(),
         expires_in: MCP_OAUTH_TOKEN_EXPIRATION_SECS,
         scope: Some(scopes.join(" ")),
-        refresh_token: refresh_token_value,
+        refresh_token: Some(refresh_token),
     }))
 }
 
 /// Handle refresh_token grant type with token rotation and theft detection
 async fn handle_refresh_token_grant(
-    db: &DB,
+    tx: &mut sqlx::PgConnection,
     req: &TokenRequest,
 ) -> std::result::Result<Json<TokenResponse>, OAuthTokenError> {
     let refresh_token_value = req
@@ -536,7 +573,7 @@ async fn handle_refresh_token_grant(
         refresh_token_value,
         req.client_id
     )
-    .fetch_optional(db)
+    .fetch_optional(&mut *tx)
     .await
     {
         Ok(Some(row)) => row,
@@ -547,7 +584,7 @@ async fn handle_refresh_token_grant(
                  WHERE refresh_token = $1 AND used_at IS NOT NULL",
                 refresh_token_value
             )
-            .fetch_optional(db)
+            .fetch_optional(&mut *tx)
             .await
             {
                 tracing::warn!("Refresh token reuse detected, revoking family {:?}", family);
@@ -555,7 +592,7 @@ async fn handle_refresh_token_grant(
                     "UPDATE mcp_oauth_refresh_token SET revoked = TRUE WHERE token_family = $1",
                     family
                 )
-                .execute(db)
+                .execute(&mut *tx)
                 .await;
             }
             return Err(OAuthTokenError::invalid_grant("Invalid refresh token"));
@@ -567,16 +604,16 @@ async fn handle_refresh_token_grant(
     };
 
     // Delete old access token using the stored hash
-    if let Err(e) = sqlx::query!(
+    sqlx::query!(
         "DELETE FROM token WHERE token_hash = $1",
         token_row.access_token_hash
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await
-    {
+    .map_err(|e| {
         tracing::error!("Failed to delete old access token: {}", e);
-        // Non-fatal, continue with token creation
-    }
+        OAuthTokenError::server_error("Database error")
+    })?;
 
     // Generate new tokens
     let new_access_token = rd_string(32);
@@ -608,7 +645,7 @@ async fn handle_refresh_token_grant(
         &scopes,
         token_row.workspace_id,
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| {
         tracing::error!("Failed to create new access token: {}", e);
@@ -621,7 +658,7 @@ async fn handle_refresh_token_grant(
     }
 
     // Create new refresh token (same token family for tracking) — store hash of access token
-    if let Err(e) = sqlx::query!(
+    sqlx::query!(
         "INSERT INTO mcp_oauth_refresh_token
          (refresh_token, access_token_hash, client_id, user_email, workspace_id, scopes, token_family, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, now() + ($8 || ' seconds')::interval)",
@@ -634,12 +671,12 @@ async fn handle_refresh_token_grant(
         token_row.token_family,
         MCP_OAUTH_REFRESH_TOKEN_EXPIRATION_SECS.to_string(),
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await
-    {
+    .map_err(|e| {
         tracing::error!("Failed to create new refresh token: {}", e);
-        // Access token was created, return success without refresh token
-    }
+        OAuthTokenError::server_error("Failed to create refresh token")
+    })?;
 
     Ok(Json(TokenResponse {
         access_token: new_access_token,
