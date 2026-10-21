@@ -405,6 +405,15 @@ async fn test_broken_handler_does_not_starve_other_workspaces(
         queued_handler_jobs(&db, "u/test-user/does_not_exist").await?,
         0
     );
+    let claimed: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM variable WHERE workspace_id = 'poison-ws' AND expiration_dispatched_for IS NOT NULL",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        claimed, 0,
+        "a handler that failed to start must leave its rows to retry"
+    );
 
     Ok(())
 }
