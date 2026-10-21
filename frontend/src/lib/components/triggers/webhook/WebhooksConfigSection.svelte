@@ -523,9 +523,9 @@ done`
 			</TabContent>
 			<TabContent value="prompt" class="flex flex-col gap-2 mt-2">
 				<span class="text-xs text-secondary">
-					Share this with your coding assistant. It assumes your token is in <code
+					Share this with your coding assistant, after setting the token created above as <code
 						>WINDMILL_TOKEN</code
-					>.
+					> in your project's environment.
 				</span>
 				<div>
 					<Button
