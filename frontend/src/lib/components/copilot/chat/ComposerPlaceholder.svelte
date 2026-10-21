@@ -4,7 +4,13 @@
 	import { Button } from '$lib/components/common'
 	import autosize from '$lib/autosize'
 	import { CHAT_INPUT_PADDING } from './aiChatManagerContext'
-	import { composerBoxClass, COMPOSER_FIELD_RESET, type ComposerSelection } from './composerBox'
+	import type { Snippet } from 'svelte'
+	import {
+		composerBoxClass,
+		COMPOSER_FIELD_RESET,
+		HERO_BOX_CLASS,
+		type ComposerSelection
+	} from './composerBox'
 
 	/**
 	 * The chat composer's box, drawn while the chat code loads. It must import nothing of
@@ -17,7 +23,8 @@
 		disabled = false,
 		autofocus = false,
 		onSelectionChange,
-		onCompositionChange
+		onCompositionChange,
+		toolbar
 	}: {
 		value: string
 		placeholder?: string
@@ -27,6 +34,8 @@
 		onSelectionChange?: (selection: ComposerSelection | undefined) => void
 		/** Whether an IME composition is in progress: replacing the field then would lose it. */
 		onCompositionChange?: (composing: boolean) => void
+		/** Draws the box that opens a session (AIChatInput's `hero`), its controls row in the box. */
+		toolbar?: Snippet
 	} = $props()
 
 	function trackSelection(e: Event & { currentTarget: HTMLTextAreaElement }) {
@@ -37,8 +46,19 @@
 	}
 </script>
 
+{#snippet sendButton(size: 'sm' | 'md')}
+	<Button
+		variant="subtle"
+		unifiedSize={size}
+		iconOnly
+		title="Send"
+		startIcon={{ icon: ArrowUp }}
+		disabled
+	/>
+{/snippet}
+
 <div class="relative mt-1">
-	<div class={composerBoxClass(disabled)}>
+	<div class={twMerge(composerBoxClass(disabled), toolbar && HERO_BOX_CLASS)}>
 		<div class="relative w-full">
 			<!-- Text metrics match ContextTextarea's `.textarea-input`, so the swap moves nothing. -->
 			<textarea
@@ -46,14 +66,15 @@
 					if (autofocus) node.focus()
 				}}
 				bind:value
-				use:autosize={{ maxHeight: '40vh' }}
+				use:autosize={toolbar ? { maxHeight: 160, minHeight: 56 } : { maxHeight: '40vh' }}
 				rows={1}
 				{placeholder}
 				{disabled}
 				class={twMerge(
 					'w-full resize-none overflow-clip whitespace-pre-wrap break-words text-xs leading-[1.72] min-h-[1.9rem]',
 					COMPOSER_FIELD_RESET,
-					CHAT_INPUT_PADDING
+					CHAT_INPUT_PADDING,
+					toolbar && '!pl-4 !pr-4 !pt-3 !pb-1'
 				)}
 				onfocus={trackSelection}
 				oninput={trackSelection}
@@ -78,16 +99,17 @@
 					if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) e.preventDefault()
 				}}
 			></textarea>
-			<div class="absolute bottom-1 right-1">
-				<Button
-					variant="subtle"
-					unifiedSize="md"
-					iconOnly
-					title="Send"
-					startIcon={{ icon: ArrowUp }}
-					disabled
-				/>
-			</div>
+			{#if !toolbar}
+				<div class="absolute bottom-1 right-1">
+					{@render sendButton('md')}
+				</div>
+			{/if}
 		</div>
+		{#if toolbar}
+			<div class="flex flex-row items-center gap-1.5 px-3 pb-1.5">
+				<div class="flex-1 min-w-0">{@render toolbar()}</div>
+				{@render sendButton('sm')}
+			</div>
+		{/if}
 	</div>
 </div>

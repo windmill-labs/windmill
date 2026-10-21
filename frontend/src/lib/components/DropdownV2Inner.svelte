@@ -45,7 +45,8 @@
 			item?.disabled && 'text-disabled cursor-not-allowed pointer-events-none',
 			item?.type === 'delete' &&
 				!item?.disabled &&
-				'text-red-600 dark:text-red-400 data-[highlighted]:bg-red-500/10 dark:data-[highlighted]:bg-red-900/80 dark:data-[highlighted]:text-red-300 '
+				'text-red-600 dark:text-red-400 data-[highlighted]:bg-red-500/10 dark:data-[highlighted]:bg-red-900/80 dark:data-[highlighted]:text-red-300 ',
+			item?.type === 'ai' && !item?.disabled && 'text-ai'
 		)}
 		item={meltItem}
 		aiId={`${aiId ? `${aiId}-${item.displayName}` : undefined}`}
