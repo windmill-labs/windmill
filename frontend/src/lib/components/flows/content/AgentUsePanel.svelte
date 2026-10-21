@@ -256,7 +256,11 @@
 							unifiedSize="sm"
 							variant="default"
 							disabled={!canBuildApp}
-							title={canBuildApp ? undefined : 'Needs Windmill AI and AI sessions'}
+							title={canBuildApp
+								? undefined
+								: !editRights.roleCanAuthor('raw_app')
+									? 'Operators cannot build apps in this workspace'
+									: 'Needs Windmill AI and AI sessions'}
 							onClick={buildApp}
 						>
 							Build a chat app
