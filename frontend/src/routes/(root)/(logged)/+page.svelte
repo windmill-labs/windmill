@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { AppService, FlowService, type OpenFlow, type Script } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { roleCapabilities, userStore, workspaceStore } from '$lib/stores'
 	import { Alert, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -131,7 +131,7 @@
 			replaceState(url, page.state)
 			// Gated here too: the parameter is part of a URL anyone can type, and the tour
 			// describes a home page that only operators see.
-			if (user.operator) startTour()
+			if (!$roleCapabilities.code) startTour()
 		})
 	})
 
@@ -139,7 +139,7 @@
 		// Operators get the tour once, and only when they have not been through it: they cannot
 		// create anything, so the home page is the whole product to them and it is worth naming
 		// its three tabs. Anyone who can build gets nothing — they have the create button.
-		if (!$userStore?.operator || page.url.searchParams.has(TOUR_PARAM)) return
+		if ($roleCapabilities.code || page.url.searchParams.has(TOUR_PARAM)) return
 		if (await hasSeenOperatorTour()) return
 		startTour()
 	})
@@ -391,7 +391,7 @@
 	{/if}
 </div>
 
-{#if $userStore?.operator}
+{#if !$roleCapabilities.code}
 	<OperatorTour bind:this={operatorTour} />
 {/if}
 

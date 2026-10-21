@@ -609,7 +609,7 @@
 				// Offer to resolve this failure once the re-run succeeds. Captured here because the
 				// new job carries no back-pointer to the run it supersedes. An already-resolved
 				// failure needs no offer, and its note must not be restated as a supersession.
-				if (job && isJobResolvable(job) && !job.resolved && !actingUser?.operator) {
+				if (job && isJobResolvable(job) && !job.resolved && editRights.capabilities.code) {
 					rememberRerunOrigin({ originalId: job.id, rerunId: id, workspace: workspaceId! })
 				}
 				await onNavigate('/run/' + id + '?workspace=' + workspaceId)
@@ -755,12 +755,11 @@
 	)
 	const canEdit = $derived(
 		(job?.job_kind === 'script' || job?.job_kind === 'flow') &&
-			!actingUser?.operator &&
 			editRights.canEditItem(isScriptJob ? 'script' : 'flow', job?.script_path ?? '', {})
 	)
 	const canEditInFork = $derived(
 		(job?.job_kind === 'script' || job?.job_kind === 'flow') &&
-			!actingUser?.operator &&
+			editRights.capabilities.code &&
 			!showEditButton &&
 			!isCloudHosted() &&
 			editInForkAllowed(workspaceId, $userWorkspaces)
@@ -1323,7 +1322,7 @@
 			</Button>
 		{/if}
 		{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
-			{#if !actingUser?.operator}
+			{#if canEdit || canEditInFork}
 				{#if editRights.canEditItem(isScriptJob ? 'script' : 'flow', job?.script_path ?? '', {})}
 					<Button
 						href={`${stem}/edit/${job?.script_path}?workspace=${workspaceId}`}
@@ -1350,7 +1349,7 @@
 						/>
 					{/if}
 				{/if}
-				{#if !showEditButton && !isCloudHosted() && editInForkAllowed(workspaceId, $userWorkspaces)}
+				{#if canEditInFork}
 					<Button
 						href={buildForkEditUrl(
 							isScriptJob ? 'script' : 'flow',

@@ -29,9 +29,8 @@
 		enterpriseLicense,
 		superadmin,
 		devopsRole,
-		userStore,
 		workspaceStore,
-		userWorkspaces
+		roleCapabilities
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, pluralize, retrieveCommonWorkerPrefix, truncate } from '$lib/utils'
@@ -746,10 +745,10 @@
 	</DrawerContent>
 </Drawer>
 
-{#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.workers}
+{#if $workspaceStore && !$roleCapabilities.visibility.workers}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
-		<p>Page not available for operators</p>
+		<p>Page not available for your role</p>
 	</div>
 {:else}
 	<CenteredPage>

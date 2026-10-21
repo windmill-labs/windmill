@@ -29,6 +29,8 @@ import { assembleGlobalSystemMessage, assembleGlobalTools } from './globalAssemb
 import { filterSessionTools, sessionToolAllowed } from './sessionToolset'
 import { capabilitiesForRole, fullSessionAccess } from './sessionAccess'
 import type { SessionAccess, SessionCapability, SessionTool } from '../sessionCapabilities'
+import { FULL_CAPABILITIES, legacyOperatorCapabilities } from '$lib/roleCapabilities'
+import type { AuthorLevel, OperatorSettings, RoleCapabilities } from '$lib/gen'
 
 const ASSEMBLY_OPTS = {
 	previewTools: true,
@@ -72,33 +74,40 @@ function accessWith(capabilities: SessionCapability[]): SessionAccess {
 	return new Set(capabilities)
 }
 
+const LEVELS: AuthorLevel[] = ['none', 'compose', 'full']
+
+/** Every role a workspace can define, over the capabilities `capabilitiesForRole` reads: `full`
+ * flows or apps require `code`, as `RoleCapabilities::validate` refuses otherwise. */
+const ROLES: RoleCapabilities[] = [false, true]
+	.flatMap((code) =>
+		LEVELS.flatMap((flows) =>
+			LEVELS.flatMap((apps) =>
+				[false, true].flatMap((manage_schedules) =>
+					[false, true].map((manage_triggers) => ({
+						...FULL_CAPABILITIES,
+						code,
+						flows,
+						apps,
+						manage_schedules,
+						manage_triggers
+					}))
+				)
+			)
+		)
+	)
+	.filter((c) => c.code || (c.flows !== 'full' && c.apps !== 'full'))
+
 /** The profiles a real session can hold, keyed for the test name, over every combination
  * of the role facts `capabilitiesForRole` reads. */
 const REACHABLE_PROFILES = [
 	...new Map(
 		[false, true].flatMap((isAdmin) =>
-			[false, true].flatMap((operator) =>
-				// `checkDeployRules` bypasses on admin, so an admin has only the one outcome.
-				(isAdmin ? [true] : [false, true]).flatMap((deployRulesPass) =>
-					// The operator rights a workspace can set: none, either builder right or both, either lock, both locks.
-					[
-						undefined,
-						{ builder_flows: true },
-						{ builder_apps: true },
-						{ builder_flows: true, builder_apps: true },
-						{ manage_schedules: false },
-						{ manage_triggers: false },
-						{ manage_schedules: false, manage_triggers: false }
-					].map((operatorSettings) => {
-						const access = capabilitiesForRole({
-							isAdmin,
-							operator,
-							deployRulesPass,
-							operatorSettings
-						})
-						return [[...access].sort().join(',') || 'none', access] as const
-					})
-				)
+			// `checkDeployRules` bypasses on admin, so an admin has only the one outcome.
+			(isAdmin ? [true] : [false, true]).flatMap((deployRulesPass) =>
+				ROLES.map((capabilities) => {
+					const access = capabilitiesForRole({ isAdmin, deployRulesPass, capabilities })
+					return [[...access].sort().join(',') || 'none', access] as const
+				})
 			)
 		)
 	).entries()
@@ -306,14 +315,13 @@ describe('session tool policies', () => {
 	// The operator's own rights outrun the chat's tools: what they schedule in the UI must not
 	// be sent to an admin.
 	it("sends an operator to the UI for what their role allows and the chat's tools do not", () => {
-		const prompt = (operatorSettings: { manage_schedules?: boolean }): string =>
+		const prompt = (operatorSettings: Partial<OperatorSettings>): string =>
 			prepareGlobalSystemMessage(undefined, {
 				user: { username: 'op' },
 				access: capabilitiesForRole({
 					isAdmin: false,
-					operator: true,
 					deployRulesPass: true,
-					operatorSettings
+					capabilities: legacyOperatorCapabilities(operatorSettings as OperatorSettings)
 				})
 			}).content as string
 
