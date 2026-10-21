@@ -209,7 +209,7 @@ export function getActiveScriptSettingsBadges(
 	return badges
 }
 
-// The active settings of a script's or flow's Permissions tab, in the order the tab lists them.
+// The active settings of a script's or flow's Access group, in the order the group lists them.
 export function getActivePermissionBadges(settings: {
 	on_behalf_of_email?: string
 	job_token_scopes?: string[] | null
@@ -219,9 +219,17 @@ export function getActivePermissionBadges(settings: {
 	if (settings.on_behalf_of_email) {
 		badges.push({
 			key: 'on_behalf_of',
-			label: 'Run on behalf of',
+			label: 'Uses the access of',
 			icon: UserCog,
 			detail: settings.on_behalf_of_email
+		})
+	}
+	if (settings.visible_to_runner_only) {
+		badges.push({
+			key: 'invisible_runs',
+			label: 'Invisible runs',
+			icon: EyeOff,
+			detail: 'Manual runs are visible only to whoever ran them'
 		})
 	}
 	if (settings.job_token_scopes != null) {
@@ -233,14 +241,6 @@ export function getActivePermissionBadges(settings: {
 				settings.job_token_scopes.length === 0
 					? 'No API access'
 					: settings.job_token_scopes.join(', ')
-		})
-	}
-	if (settings.visible_to_runner_only) {
-		badges.push({
-			key: 'invisible_runs',
-			label: 'Invisible runs',
-			icon: EyeOff,
-			detail: 'Manual runs are visible only to whoever ran them'
 		})
 	}
 	return badges

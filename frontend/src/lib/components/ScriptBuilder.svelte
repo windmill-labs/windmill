@@ -1400,7 +1400,7 @@
 						<Tab
 							value="runtime"
 							aiId="script-builder-runtime"
-							aiDescription="Runtime settings, including run on behalf of, job token and runs visibility"
+							aiDescription="Runtime settings, including whose access runs use (run on behalf of), runs visibility and the job token"
 							label="Runtime"
 						>
 							{#snippet extra()}
@@ -1745,8 +1745,8 @@
 										hideMute={customUi?.settingsPanel?.metadata?.disableMute === true}
 									/>
 									<!-- Kept out of ScriptRuntimeSettings: the flow editor's script drawers reuse it,
-									     and their Save deploys a version with no run-as plumbing. -->
-									<Section label="Run as" class="flex flex-col gap-6">
+									     and their Save deploys a version with no on-behalf-of plumbing. -->
+									<Section label="Access" class="flex flex-col gap-6">
 										<RunOnBehalfOfSetting
 											kind="script"
 											bind:email={script.on_behalf_of_email}
@@ -1757,11 +1757,11 @@
 											targetWorkspace={opWorkspace ?? ''}
 											isNew={initialPath == ''}
 										/>
-										<JobTokenScopesSetting bind:value={script.job_token_scopes} kind="script" />
 										<InvisibleRunsSetting
 											kind="script"
 											bind:visibleToRunnerOnly={script.visible_to_runner_only}
 										/>
+										<JobTokenScopesSetting bind:value={script.job_token_scopes} kind="script" />
 									</Section>
 								</div>
 							</TabContent>

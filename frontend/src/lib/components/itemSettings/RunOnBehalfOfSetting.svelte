@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Label from '$lib/components/Label.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 	import OnBehalfOfSelector, {
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
@@ -9,10 +10,12 @@
 	import SettingToggle from './SettingToggle.svelte'
 
 	const WM_DEPLOYERS_GROUP = 'wm_deployers'
+	const DOCS_LINK =
+		'https://www.windmill.dev/docs/core_concepts/roles_and_permissions#run-on-behalf-of'
 
 	interface Props {
 		kind: 'flow' | 'script' | 'app'
-		/** Email of the user the item runs as; undefined runs it as whoever triggers it. */
+		/** Email of the user whose access the runs use; undefined uses whoever starts each run. */
 		email: string | undefined
 		/** `u/username` of that user. */
 		permissionedAs: string | undefined
@@ -23,7 +26,7 @@
 		savedEmail: string | undefined
 		savedPermissionedAs: string | undefined
 		targetWorkspace: string
-		/** Apps always run as a user: no toggle, only the user choice. */
+		/** Apps always use a chosen user's access: no toggle, only the user choice. */
 		required?: boolean
 		/** Never deployed, so no deployed identity can change. */
 		isNew?: boolean
@@ -43,9 +46,12 @@
 		tooltip
 	}: Props = $props()
 
+	// The copy names the access runs get, not the identity the backend records them under: the
+	// person who starts a run stays recorded on it and readable from WM_END_USER_EMAIL, so wording
+	// about who "runs" it misleads.
 	let shownTooltip = $derived(
 		tooltip ??
-			`The ${kind} runs with the permissions of the chosen user instead of those of whoever triggers it.`
+			`For example, a ${kind} reads the finance database. Give it the access of finance-bot, and support agents can run it without seeing the database credentials. The docs call this “run on behalf of”.`
 	)
 
 	const operatingUser = useOperatingUser()
@@ -62,6 +68,7 @@
 	let customEmail = $state('')
 
 	let enabled = $derived(required || !!email)
+	let chosenUser = $derived(permissionedAs ?? email ?? 'the chosen user')
 	// Without the right to preserve, the backend runs the redeployed item as the deployer whatever
 	// is submitted, as it does for "me".
 	let deployPermissionedAs = $derived.by(() => {
@@ -128,19 +135,37 @@
 			Only workspace admins and members of {WM_DEPLOYERS_GROUP} can pick another user.
 		</div>
 	{/if}
+	<div class="text-2xs text-secondary">
+		{#if required}
+			Viewers need no access to the app's resources and scripts. Each runnable still gets the
+			viewer's email in <code>WM_END_USER_EMAIL</code>.
+		{:else}
+			Runs reach what {chosenUser} can access. Each run still records who started it, and the code gets
+			their email in <code>WM_END_USER_EMAIL</code>.
+		{/if}
+	</div>
+{/snippet}
+
+{#snippet valueHint()}
+	Lets people run this {kind} without access to the resources, variables and scripts it uses.
 {/snippet}
 
 {#if required}
 	<div data-setting="on-behalf-of">
-		<Label label="Run on behalf of" tooltip={shownTooltip}>
+		<Label label="Runnables use the access of">
+			{#snippet header()}
+				<Tooltip documentationLink={DOCS_LINK}>{shownTooltip}</Tooltip>
+			{/snippet}
 			{@render picker()}
 		</Label>
 	</div>
 {:else}
 	<SettingToggle
 		setting="on-behalf-of"
-		label="Run on behalf of"
+		label="Use a chosen user's access"
 		tooltip={shownTooltip}
+		documentationLink={DOCS_LINK}
+		hint={valueHint}
 		checked={enabled}
 		onchange={(on) => {
 			if (on) {

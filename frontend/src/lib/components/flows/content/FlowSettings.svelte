@@ -373,7 +373,7 @@
 									{/if}
 								</Section>
 
-								<Section label="Run as" class="flex flex-col gap-6">
+								<Section label="Access" class="flex flex-col gap-6">
 									<RunOnBehalfOfSetting
 										kind="flow"
 										bind:email={flowStore.val.on_behalf_of_email}
@@ -384,11 +384,11 @@
 										targetWorkspace={opWorkspace?.() ?? $operatingWorkspace ?? ''}
 										isNew={$initialPathStore == ''}
 									/>
-									<JobTokenScopesSetting bind:value={flowStore.val.job_token_scopes} kind="flow" />
 									<InvisibleRunsSetting
 										kind="flow"
 										bind:visibleToRunnerOnly={flowStore.val.visible_to_runner_only}
 									/>
+									<JobTokenScopesSetting bind:value={flowStore.val.job_token_scopes} kind="flow" />
 								</Section>
 							</div>
 						</TabContent>

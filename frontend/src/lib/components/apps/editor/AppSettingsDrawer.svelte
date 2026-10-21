@@ -326,11 +326,11 @@
 
 						<TabContent value="runtime">
 							<div class="flex flex-col gap-8 p-4 pb-8">
-								<Section label="Run as" class="flex flex-col gap-6">
+								<Section label="Access" class="flex flex-col gap-6">
 									<RunOnBehalfOfSetting
 										kind="app"
 										required
-										tooltip={`The app's runnables run as this user whoever opens the app, so viewers need no access of their own. To keep that safe, the app can call only the runnables it was deployed with, and viewers cannot override their static inputs. Runnables still get the viewer's email in WM_END_USER_EMAIL${rawApp ? ', and inline ones can be set to read data tables and object storage as the viewer' : ''}.`}
+										tooltip={`To keep this safe, the app can call only the runnables it was deployed with, and viewers can't override their static inputs.${rawApp ? " Inline runnables can instead be set to read data tables and object storage with the viewer's own access." : ''} The docs call this “run on behalf of”.`}
 										bind:email={policy.on_behalf_of_email}
 										bind:permissionedAs={policy.on_behalf_of}
 										bind:preserve={preserveOnBehalfOf}
