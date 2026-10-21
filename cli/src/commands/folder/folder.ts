@@ -291,10 +291,10 @@ const command = new Command()
     }
     const relative = testPath.slice(prefix.length);
 
-    const { minimatch } = await import("minimatch");
+    const { folderRuleGlobMatches } = await import("../../utils/folder_rule_glob.ts");
     for (let i = 0; i < rules.length; i++) {
       const rule = rules[i];
-      if (minimatch(relative, rule.path_glob)) {
+      if (folderRuleGlobMatches(rule.path_glob, relative)) {
         if (opts.json) {
           console.log(JSON.stringify({ matched: true, rule_index: i, rule, relative_path: relative }));
         } else {

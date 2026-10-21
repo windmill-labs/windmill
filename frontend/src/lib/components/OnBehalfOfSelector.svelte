@@ -160,7 +160,9 @@
 			onSelect('target')
 		} else if (folderDefault && users.length > 0) {
 			const username = folderDefault.startsWith('u/') ? folderDefault.slice(2) : folderDefault
-			const email = users.find((u) => u.username === username)?.email ?? folderDefault
+			// A group, or a user this list lacks, has no address to send: an empty one names nobody,
+			// so the server derives it from the principal rather than refusing a mismatched pair.
+			const email = users.find((u) => u.username === username)?.email ?? ''
 			onSelect('custom', { email, permissionedAs: folderDefault })
 		}
 	})

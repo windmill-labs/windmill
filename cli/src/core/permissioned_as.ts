@@ -10,7 +10,7 @@ import {
 } from "../utils/resource_folders.ts";
 import { deploysWithRawApp } from "../utils/app_files.ts";
 import { parseSyncBehavior } from "./conf.ts";
-import { minimatch } from "minimatch";
+import { folderRuleGlobMatches } from "../utils/folder_rule_glob.ts";
 
 export interface PermissionedAsContext {
   userCache: Map<string, { username: string; email: string }>;
@@ -78,13 +78,7 @@ async function folderRuleMatches(workspace: string, path: string): Promise<boole
       .catch(() => []);
     folderRules.set(key, rules);
   }
-  return (await rules).some((r) => {
-    try {
-      return minimatch(m[2], r.path_glob);
-    } catch {
-      return false;
-    }
-  });
+  return (await rules).some((r) => folderRuleGlobMatches(r.path_glob, m[2]));
 }
 
 /**

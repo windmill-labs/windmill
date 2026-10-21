@@ -48,6 +48,7 @@
 		type OnBehalfOfChoice,
 		type OnBehalfOfDetails
 	} from './OnBehalfOfSelector.svelte'
+	import { createFolderDefaultLookup } from './useFolderDefaultPermissionedAs.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -104,6 +105,8 @@
 	let onBehalfOfChoice = $state<Record<string, OnBehalfOfChoice>>({})
 	let customOnBehalfOf = $state<Record<string, OnBehalfOfDetails>>({})
 	let canPreserveOnBehalfOf = $state(false)
+	// An item new in the target takes the target folder's rule unless the deploy names someone.
+	const targetFolderDefault = createFolderDefaultLookup()
 	/** Who the deploy acts as in the target: on a remote instance, the remote token's user. */
 	let deployerEmail = $state<string | undefined>(undefined)
 
@@ -648,6 +651,9 @@
 						kind={item.kind}
 						canPreserve={canPreserveOnBehalfOf}
 						customValue={customOnBehalfOf[statusPath]?.permissionedAs}
+						folderDefault={canPreserveOnBehalfOf && exists === false
+							? targetFolderDefault(workspaceToDeployTo!, item.path)
+							: undefined}
 					/>
 				{/if}
 

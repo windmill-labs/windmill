@@ -278,7 +278,7 @@
 	let originalOnBehalfOfEmail = $derived(savedScript?.on_behalf_of_email)
 	let originalOnBehalfOfPermissionedAs = $derived(savedScript?.on_behalf_of)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
-	let customOnBehalfOfEmail: string = $state('')
+	let customOnBehalfOf: string = $state('')
 	let myPermissionedAs = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)
 	// The rule applies on a script's first deploy only.
 	const folderDefault = useFolderDefaultRunAs(
@@ -2173,22 +2173,22 @@
 															if (choice === 'me') {
 																script.on_behalf_of_email = $userStore?.email
 																script.on_behalf_of = myPermissionedAs
-																customOnBehalfOfEmail = ''
+																customOnBehalfOf = ''
 															} else if (choice === 'target') {
 																// Keep the saved pair. A script that has no recorded principal yet
 																// sends the email alone and the backend derives one from it.
 																script.on_behalf_of_email = originalOnBehalfOfEmail
 																script.on_behalf_of = originalOnBehalfOfPermissionedAs
-																customOnBehalfOfEmail = ''
+																customOnBehalfOf = ''
 															} else if (choice === 'custom' && details) {
 																script.on_behalf_of_email = details.email
 																script.on_behalf_of = details.permissionedAs
-																customOnBehalfOfEmail = details.email
+																customOnBehalfOf = details.permissionedAs
 															}
 														}}
 														kind="script"
 														{canPreserve}
-														customValue={customOnBehalfOfEmail}
+														customValue={customOnBehalfOf}
 														isDeployment={false}
 														folderDefault={folderDefault.value}
 													/>

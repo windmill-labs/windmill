@@ -66,7 +66,7 @@
 	let isDeployer = $derived(actingUser?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
 	let canPreserve = $derived(!!actingUser?.is_admin || !!actingUser?.is_super_admin || isDeployer)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
-	let customOnBehalfOfEmail: string = $state('')
+	let customOnBehalfOf: string = $state('')
 	let myPermissionedAs = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)
 	// The rule applies on a flow's create only.
 	const folderDefault = useFolderDefaultRunAs(
@@ -513,22 +513,22 @@
 								if (choice === 'me') {
 									flowStore.val.on_behalf_of_email = $userStore?.email
 									flowStore.val.on_behalf_of = myPermissionedAs
-									customOnBehalfOfEmail = ''
+									customOnBehalfOf = ''
 								} else if (choice === 'target') {
 									// Keep the saved pair. A flow that has no recorded principal yet
 									// sends the email alone and the backend derives one from it.
 									flowStore.val.on_behalf_of_email = $savedOnBehalfOfEmail
 									flowStore.val.on_behalf_of = $savedOnBehalfOfPermissionedAs
-									customOnBehalfOfEmail = ''
+									customOnBehalfOf = ''
 								} else if (choice === 'custom' && details) {
 									flowStore.val.on_behalf_of_email = details.email
 									flowStore.val.on_behalf_of = details.permissionedAs
-									customOnBehalfOfEmail = details.email
+									customOnBehalfOf = details.permissionedAs
 								}
 							}}
 							kind="flow"
 							{canPreserve}
-							customValue={customOnBehalfOfEmail}
+							customValue={customOnBehalfOf}
 							isDeployment={false}
 							folderDefault={folderDefault.value}
 						/>

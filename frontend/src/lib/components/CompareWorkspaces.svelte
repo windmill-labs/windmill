@@ -60,6 +60,7 @@
 		type OnBehalfOfChoice,
 		type OnBehalfOfDetails
 	} from './OnBehalfOfSelector.svelte'
+	import { createFolderDefaultLookup } from './useFolderDefaultPermissionedAs.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { deepEqual } from 'fast-equals'
 	import WorkspaceDeployLayout from './WorkspaceDeployLayout.svelte'
@@ -500,6 +501,8 @@
 	let onBehalfOfInfo = $state<Record<string, string | undefined>>({})
 	let onBehalfOfChoice = $state<Record<string, OnBehalfOfChoice>>({})
 	let customOnBehalfOf = $state<Record<string, OnBehalfOfDetails>>({})
+	// An item new in the target takes the target folder's rule unless the deploy names someone.
+	const targetFolderDefault = createFolderDefaultLookup()
 	let deployTargetWorkspace = $derived(mergeIntoParent ? parentWorkspaceId : currentWorkspaceId)
 	let deploySourceWorkspace = $derived(mergeIntoParent ? currentWorkspaceId : parentWorkspaceId)
 
@@ -1694,6 +1697,10 @@
 							kind={diff.kind}
 							canPreserve={canPreserveOnBehalfOf}
 							customValue={customOnBehalfOf[key]?.permissionedAs}
+							folderDefault={canPreserveOnBehalfOf &&
+							!(mergeIntoParent ? diff.exists_in_source : diff.exists_in_fork)
+								? targetFolderDefault(deployTargetWorkspace, diff.path)
+								: undefined}
 						/>
 					{/if}
 					{#if diff.kind === 'raw_app'}

@@ -156,7 +156,7 @@
 	let savedOnBehalfOfEmail = $derived(savedApp?.policy?.on_behalf_of_email)
 	let savedOnBehalfOf = $derived(savedApp?.policy?.on_behalf_of)
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
-	let customOnBehalfOfEmail: string = $state('')
+	let customOnBehalfOf: string = $state('')
 	let myOnBehalfOf = $derived(actingUser?.username ? `u/${actingUser.username}` : undefined)
 	// A new app starts on the folder rule its path matches, or on the deployer, and deploys
 	// what is shown: naming nobody would let the server apply a rule this picker did not see.
@@ -172,7 +172,7 @@
 			if (onBehalfOfChoice !== undefined && !defaultChosen) return
 			defaultChosen = true
 			onBehalfOfChoice = rule ? 'custom' : 'me'
-			customOnBehalfOfEmail = rule ?? ''
+			customOnBehalfOf = rule ?? ''
 			policy.on_behalf_of = rule ?? myOnBehalfOf
 			policy.on_behalf_of_email = rule ? undefined : $userStore?.email
 		})
@@ -357,20 +357,20 @@
 						if (choice === 'me') {
 							policy.on_behalf_of_email = $userStore?.email
 							policy.on_behalf_of = `u/${$userStore?.username}`
-							customOnBehalfOfEmail = ''
+							customOnBehalfOf = ''
 						} else if (choice === 'target') {
 							policy.on_behalf_of_email = savedOnBehalfOfEmail
 							policy.on_behalf_of = savedOnBehalfOf
-							customOnBehalfOfEmail = ''
+							customOnBehalfOf = ''
 						} else if (choice === 'custom' && details) {
 							policy.on_behalf_of_email = details.email
 							policy.on_behalf_of = details.permissionedAs
-							customOnBehalfOfEmail = details.email
+							customOnBehalfOf = details.permissionedAs
 						}
 					}}
 					kind="app"
 					{canPreserve}
-					customValue={customOnBehalfOfEmail}
+					customValue={customOnBehalfOf}
 					isDeployment={false}
 					myPermissionedAs={myOnBehalfOf}
 					readOnlyWithoutPreserve

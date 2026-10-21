@@ -26,6 +26,7 @@ import {
 } from "yaml";
 import JSZip from "jszip";
 import { minimatch } from "minimatch";
+import { folderRuleGlobMatches } from "../../utils/folder_rule_glob.ts";
 import { yamlParseContent, yamlParseFile } from "../../utils/yaml.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 
@@ -5738,7 +5739,7 @@ export async function push(
         const relative = remotePath.slice(`f/${folderName}/`.length);
         if (!relative) continue;
         for (const rule of rules) {
-          if (minimatch(relative, rule.path_glob)) {
+          if (folderRuleGlobMatches(rule.path_glob, relative)) {
             folderDefaultAnnotations.set(change.path, rule.permissioned_as);
             break;
           }
