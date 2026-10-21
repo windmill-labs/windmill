@@ -78,7 +78,12 @@
 
 	let aiChat: AIChat | undefined = $state(undefined)
 	let chatWrapper: HTMLDivElement | undefined = $state(undefined)
-	let settled = false
+	// A seeded draft holds the composer open, which is not the shape it rests in once the
+	// draft is sent, so only a mount with an empty draft is measured.
+	const initialAttachments = getSessionDraftAttachments(sessionId)
+	let settled =
+		!!getSessionDraftPrompt(sessionId)?.trim() ||
+		(!!initialAttachments && Object.values(initialAttachments).some((lane) => lane.length > 0))
 	$effect(() => {
 		if (!aiChat || !chatWrapper || settled) return
 		settled = true
