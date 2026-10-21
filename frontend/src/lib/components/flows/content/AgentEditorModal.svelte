@@ -6,7 +6,7 @@
 	import { resource } from 'runed'
 	import Modal, { type ModalTrailSegment } from '$lib/components/common/modal/Modal.svelte'
 	import PagedContent from '$lib/components/common/modal/PagedContent.svelte'
-	import { Alert, Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
+	import { Badge, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import LocalDraftBanner from '$lib/components/LocalDraftBanner.svelte'
 	import ResourceVersionHistory from '$lib/components/ResourceVersionHistory.svelte'
 	import { clearPageDrawerAnchor } from '$lib/components/sessions/pageDrawerSession'
@@ -652,33 +652,23 @@
 	{/snippet}
 
 	{#snippet flowFooter()}
-		<Alert
-			type="info"
-			size="xs"
-			collapsible
-			class="mx-4 mb-8"
-			title="Fetch context first or process the output?"
-			actions={[
-				{
-					label:
-						draft?.sync.hasDraft && !draft.noDeployed
-							? 'Deploy and use in a flow'
-							: 'Use in a flow',
-					startIcon: { icon: BarsStaggered, props: { style: 'fill: currentColor;' } },
-					loading: openingFlow,
-					onClick: useInFlow
-				}
-			]}
-		>
-			Add steps around the agent in a flow.
-			{#if draft?.noDeployed}
-				It becomes the step of a new flow, and this draft is discarded.
-			{:else if draft?.sync.hasDraft}
-				Your changes are deployed, then a new flow links this agent.
-			{:else}
-				A new flow links this agent, which stays configured here.
-			{/if}
-		</Alert>
+		<div class="flex flex-wrap items-center gap-x-1.5 text-xs text-hint">
+			Fetch context first or process the output?
+			<Button
+				unifiedSize="xs"
+				variant="subtle"
+				startIcon={{ icon: BarsStaggered, props: { style: 'fill: currentColor;' } }}
+				loading={openingFlow}
+				onClick={useInFlow}
+				title={draft?.noDeployed
+					? 'It becomes the step of a new flow, and this draft is discarded.'
+					: draft?.sync.hasDraft
+						? 'Your changes are deployed, then a new flow links this agent.'
+						: 'A new flow links this agent, which stays configured here.'}
+			>
+				{draft?.sync.hasDraft && !draft.noDeployed ? 'Deploy and use in a flow' : 'Use in a flow'}
+			</Button>
+		</div>
 	{/snippet}
 
 	{#snippet settingsFields()}
