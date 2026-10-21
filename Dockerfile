@@ -241,7 +241,7 @@ ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
 # Install UV
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.13.0/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.13.4/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
 
 # Preinstall python runtimes to temp build location (will copy with world-writable perms later)
 # --compile-bytecode precompiles the stdlib to .pyc so jobs don't recompile it on every run
@@ -304,9 +304,6 @@ RUN bun install -g windmill-cli \
 # Copy it to /usr/bin/claude so it's accessible inside nsjail sandbox (which mounts /usr but not /root)
 RUN curl -fsSL https://claude.ai/install.sh | bash \
     && cp /root/.local/share/claude/versions/* /usr/bin/claude
-
-COPY --from=php:8.3.36-cli-trixie /usr/local/bin/php /usr/bin/php
-COPY --from=composer:2.9.5 /usr/bin/composer /usr/bin/composer
 
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:29-dind /usr/local/bin/docker /usr/local/bin/

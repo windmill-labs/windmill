@@ -36,7 +36,7 @@ use std::collections::HashMap;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult},
-    workspaces::{operator_builder_rights, OperatorBuilderRights},
+    roles::{caller_capabilities, AuthorLevel, RoleCapabilities},
 };
 use windmill_types::scripts::ScriptHash;
 use windmill_types::user_drafts::DraftUserRef;
@@ -471,6 +471,7 @@ async fn list_runnables(
     Path(w_id): Path<String>,
     Query(q): Query<ListRunnablesQuery>,
 ) -> JsonResult<ListRunnablesResponse> {
+    let caps = caller_capabilities(&db, &w_id, &authed).await?;
     let order_by_name = q.order_by.as_deref() == Some("name");
     let desc = q.order_desc.unwrap_or(true);
     let per_page = q.per_page.unwrap_or(50).clamp(1, 1000);
@@ -614,7 +615,7 @@ async fn list_runnables(
         "o.archived = false"
     };
     let mut script_extras: Vec<String> = vec![];
-    if !q.include_without_main.unwrap_or(false) || authed.is_operator {
+    if !q.include_without_main.unwrap_or(false) || !caps.code {
         script_extras.push("(o.auto_kind IS NULL OR o.auto_kind <> 'lib')".to_string());
     }
     script_extras.push(archived_pred.to_string());
@@ -651,13 +652,8 @@ async fn list_runnables(
     // have no place in the archived view, and carrying no labels of their own they are
     // out of scope of a label filter (as in the per-kind endpoints). Operators don't
     // see other people's drafts and have none of their own, except of what they may build.
-    let builder = if authed.is_operator {
-        operator_builder_rights(&db, &w_id).await?
-    } else {
-        OperatorBuilderRights::default()
-    };
     let include_drafts = q.include_draft_only.unwrap_or(false)
-        && (!authed.is_operator || builder.any())
+        && ALL_KINDS.iter().any(|k| role_drafts_kind(&caps, k))
         && !show_archived
         && q.label.as_ref().filter(|s| !s.is_empty()).is_none();
     let draft_extras_for = |kind: &str| -> Vec<String> {
@@ -670,7 +666,7 @@ async fn list_runnables(
         };
         // The lib filter reads the same projected `auto_kind`, so a draft-only library
         // script hides with the deployed ones.
-        if kind == "script" && (!q.include_without_main.unwrap_or(false) || authed.is_operator) {
+        if kind == "script" && (!q.include_without_main.unwrap_or(false) || !caps.code) {
             extras.push("(o.auto_kind IS NULL OR o.auto_kind <> 'lib')".to_string());
         }
         if let Some(s) = scope {
@@ -745,10 +741,7 @@ async fn list_runnables(
                             keyset: Option<&str>,
                             limit: Option<usize>|
      -> Option<String> {
-        if !include_drafts
-            || !kinds.contains(&kind)
-            || (authed.is_operator && !operator_drafts_kind(builder, kind))
-        {
+        if !include_drafts || !kinds.contains(&kind) || !role_drafts_kind(&caps, kind) {
             return None;
         }
         // `fav` is ignored: with no favorite join there is nothing to filter on, and the
@@ -895,6 +888,7 @@ async fn count_runnables_by_owner(
     Path(w_id): Path<String>,
     Query(q): Query<CountRunnablesQuery>,
 ) -> JsonResult<RunnableCountsResponse> {
+    let caps = caller_capabilities(&db, &w_id, &authed).await?;
     let kinds: Vec<&str> = match q.kinds.as_deref() {
         None | Some("") => ALL_KINDS.to_vec(),
         // Deduplicated: every kind becomes its own count subquery, so a repeated
@@ -912,7 +906,7 @@ async fn count_runnables_by_owner(
     if kinds.is_empty() {
         return Ok(Json(RunnableCountsResponse { counts: HashMap::new() }));
     }
-    let with_libs = q.include_without_main.unwrap_or(false) && !authed.is_operator;
+    let with_libs = q.include_without_main.unwrap_or(false) && caps.code;
 
     // Per-kind predicates shared by both passes. `alias` is the branch's table
     // alias; `binds` collects the scope values, numbered from `base + 1`.
@@ -1006,7 +1000,17 @@ async fn count_runnables_by_owner(
         for r in query.fetch_all(&db).await? {
             counts.insert(r.owner, r.count);
         }
-        add_draft_counts(&authed, &db, &w_id, &kinds, with_libs, &q, &mut counts).await?;
+        add_draft_counts(
+            &caps,
+            &db,
+            &w_id,
+            &authed,
+            &kinds,
+            with_libs,
+            &q,
+            &mut counts,
+        )
+        .await?;
         counts.retain(|_, c| *c > 0);
         return Ok(Json(RunnableCountsResponse { counts }));
     }
@@ -1079,17 +1083,27 @@ async fn count_runnables_by_owner(
         counts.entry(r.owner).or_insert(r.count);
     }
 
-    add_draft_counts(&authed, &db, &w_id, &kinds, with_libs, &q, &mut counts).await?;
+    add_draft_counts(
+        &caps,
+        &db,
+        &w_id,
+        &authed,
+        &kinds,
+        with_libs,
+        &q,
+        &mut counts,
+    )
+    .await?;
     counts.retain(|_, c| *c > 0);
     Ok(Json(RunnableCountsResponse { counts }))
 }
 
-/// Whether an operator with `builder` rights can have drafts of a `/list` kind.
-fn operator_drafts_kind(builder: OperatorBuilderRights, kind: &str) -> bool {
+/// Whether a role can have drafts of a `/list` kind: one it may write.
+fn role_drafts_kind(caps: &RoleCapabilities, kind: &str) -> bool {
     match kind {
-        "flow" => builder.flows,
-        "app" => builder.apps,
-        _ => false,
+        "flow" => caps.flows != AuthorLevel::None,
+        "app" => caps.apps != AuthorLevel::None,
+        _ => caps.code,
     }
 }
 
@@ -1102,9 +1116,10 @@ fn operator_drafts_kind(builder: OperatorBuilderRights, kind: &str) -> bool {
 /// Deployed and draft rows can't overlap (the anti-join is what makes a draft
 /// "draft-only"), so the two counts add.
 async fn add_draft_counts(
-    authed: &ApiAuthed,
+    caps: &RoleCapabilities,
     db: &DB,
     w_id: &str,
+    authed: &ApiAuthed,
     kinds: &[&str],
     with_libs: bool,
     q: &CountRunnablesQuery,
@@ -1113,22 +1128,16 @@ async fn add_draft_counts(
     if !q.include_draft_only.unwrap_or(false) {
         return Ok(());
     }
-    // An operator has no drafts of their own, except of what they may build.
-    let builder_kinds: Vec<&str>;
-    let kinds: &[&str] = if !authed.is_operator {
-        kinds
-    } else {
-        let builder = operator_builder_rights(db, w_id).await?;
-        builder_kinds = kinds
-            .iter()
-            .copied()
-            .filter(|k| operator_drafts_kind(builder, k))
-            .collect();
-        if builder_kinds.is_empty() {
-            return Ok(());
-        }
-        &builder_kinds
-    };
+    // A role has no drafts of its own except of what it may write.
+    let kinds: Vec<&str> = kinds
+        .iter()
+        .copied()
+        .filter(|k| role_drafts_kind(caps, k))
+        .collect();
+    if kinds.is_empty() {
+        return Ok(());
+    }
+    let kinds = kinds.as_slice();
     // $1 = workspace, $2 = the caller's email.
     let mut binds: Vec<String> = vec![];
     let branches: Vec<String> = kinds

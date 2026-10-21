@@ -6,7 +6,7 @@
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
 	import type { ListableResource } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { roleCapabilities, userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
 	import { Pen } from 'lucide-svelte'
 	import Button from '../button/Button.svelte'
@@ -119,7 +119,7 @@
 					canWrite: agent.canWrite,
 					draftOnly: Boolean(agent.draft_only),
 					wsSpecific: agent.ws_specific,
-					operator: $userStore?.operator,
+					noCode: !$roleCapabilities.code,
 					onPermissions: () => shareModal.openDrawer?.(agent.path, 'resource'),
 					onDeploy: () => deploymentDrawer.openDrawer(agent.path, 'resource'),
 					onHistory: () => history?.open(),

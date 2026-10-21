@@ -11,7 +11,13 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import SessionStatusPopover from './SessionStatusPopover.svelte'
 	import WorkspaceFamilyPicker from './WorkspaceFamilyPicker.svelte'
-	import { maybePremium, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import {
+		maybePremium,
+		roleCapabilities,
+		userStore,
+		userWorkspaces,
+		workspaceStore
+	} from '$lib/stores'
 	import { canCreateFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
 	import { sessionState, type Session } from './sessionState.svelte'
@@ -63,7 +69,7 @@
 	// Same gate as the sidebar WorkspaceMenu / SessionWorkspaceBar. On cloud,
 	// forking is a premium-only feature (backend caps it per paid seat).
 	const forksAllowed = $derived(
-		(!isCloudHosted() || $maybePremium) && canCreateFork($userStore) && $workspaceStore !== 'admins'
+		(!isCloudHosted() || $maybePremium) && canCreateFork($userStore, $roleCapabilities) && $workspaceStore !== 'admins'
 	)
 
 	const runtime = $derived(getRuntime(session.id))

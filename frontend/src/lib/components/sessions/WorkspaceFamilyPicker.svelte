@@ -3,6 +3,7 @@
 	import {
 		enterpriseLicense,
 		maybePremium,
+		roleCapabilities,
 		superadmin,
 		userStore,
 		userWorkspaces,
@@ -178,7 +179,7 @@
 	const forksGateOpen = $derived(
 		(!isCloudHosted() || $maybePremium) &&
 			$workspaceStore !== 'admins' &&
-			(canCreateFork($userStore) || !!devOfRoot)
+			(canCreateFork($userStore, $roleCapabilities) || !!devOfRoot)
 	)
 	// A fork is a new workspace, so it's subject to the community-edition cap on
 	// the number of non-'admins' workspaces (backend _check_nb_of_workspaces,

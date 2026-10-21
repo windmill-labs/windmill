@@ -25,8 +25,8 @@ export function agentMenuItems(agent: {
 	/** Never deployed: no resource yet to hold permissions or to deploy onward. */
 	draftOnly?: boolean
 	wsSpecific?: boolean
-	/** Hides what an operator has no page for, as on a flow's menu. */
-	operator?: boolean
+	/** Hides what a role that cannot code has no page for, as on a flow's menu. */
+	noCode?: boolean
 	/** Undefined until loaded, when nothing is offered for deploy. */
 	deployUiSettings: WorkspaceDeployUISettings | undefined
 	onPermissions: () => void
@@ -50,7 +50,7 @@ export function agentMenuItems(agent: {
 						icon: List,
 						action: () => goto(`/runs/${agent.path}?job_kinds=previews`)
 					},
-					...(agent.operator
+					...(agent.noCode
 						? []
 						: [
 								{
@@ -70,7 +70,7 @@ export function agentMenuItems(agent: {
 		...(deployable
 			? [{ displayName: 'Deploy to prod/staging', icon: FileUp, action: agent.onDeploy }]
 			: []),
-		...(agent.draftOnly || agent.operator
+		...(agent.draftOnly || agent.noCode
 			? []
 			: [{ displayName: 'Version history', icon: History, action: agent.onHistory }]),
 		{
