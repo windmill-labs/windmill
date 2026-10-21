@@ -305,7 +305,7 @@ RUN bun install -g windmill-cli \
 RUN curl -fsSL https://claude.ai/install.sh | bash \
     && cp /root/.local/share/claude/versions/* /usr/bin/claude
 
-COPY --from=php:8.3.33-cli-trixie /usr/local/bin/php /usr/bin/php
+COPY --from=php:8.3.36-cli-trixie /usr/local/bin/php /usr/bin/php
 COPY --from=composer:2.9.5 /usr/bin/composer /usr/bin/composer
 
 # add the docker client to call docker from a worker if enabled
