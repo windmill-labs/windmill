@@ -4,6 +4,7 @@
 	import type { InputTransform, ScriptLang } from '$lib/gen'
 	import InputTransformSchemaForm from '$lib/components/InputTransformSchemaForm.svelte'
 	import HighlightCode from '$lib/components/HighlightCode.svelte'
+	import InputTransformsViewer from '$lib/components/InputTransformsViewer.svelte'
 	import { Button } from '$lib/components/common'
 	import { ChevronDown, ChevronRight, Wrench } from 'lucide-svelte'
 	import type { PickableProperties } from '../previousResults'
@@ -61,18 +62,14 @@
 	}
 
 	/** The inputs `shownSchema` hides, shown read-only so the tool code reads in context. */
-	function agentSetInputs(tool: FlowModuleTool): [string, string][] {
-		if (!$operatorBuilderFlows) return []
+	function agentSetInputs(tool: FlowModuleTool): Record<string, InputTransform> {
+		if (!$operatorBuilderFlows) return {}
 		const base = baseInputs(tool)
-		return Object.keys(schemas[tool.id]?.properties ?? {})
-			.filter((k) => isSetByAgent(base[k]))
-			.map((k) => {
-				const t = base[k]
-				return [
-					k,
-					t.type === 'javascript' ? t.expr : JSON.stringify((t as { value?: unknown }).value)
-				]
-			})
+		return Object.fromEntries(
+			Object.keys(schemas[tool.id]?.properties ?? {})
+				.filter((k) => isSetByAgent(base[k]))
+				.map((k) => [k, base[k]])
+		)
 	}
 
 	function baseInputs(tool: FlowModuleTool): Record<string, InputTransform> {
@@ -237,15 +234,10 @@
 						}
 					/>
 					{@const setInputs = agentSetInputs(tool)}
-					{#if setInputs.length > 0}
+					{#if Object.keys(setInputs).length > 0}
 						<div class="flex flex-col gap-1 px-3 pb-2">
 							<span class="text-2xs font-medium text-tertiary">Set by the agent</span>
-							{#each setInputs as [key, value] (key)}
-								<div class="flex gap-2 text-xs">
-									<span class="font-medium text-secondary">{key}</span>
-									<code class="truncate text-tertiary" title={value}>{value}</code>
-								</div>
-							{/each}
+							<InputTransformsViewer inputTransforms={setInputs} />
 						</div>
 					{/if}
 				{:else}
