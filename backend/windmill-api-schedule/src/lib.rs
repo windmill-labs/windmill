@@ -1102,9 +1102,11 @@ async fn get_schedule(
 }
 
 async fn exists_schedule(
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
+    check_scopes(&authed, || format!("schedules:read:{}", path.to_path()))?;
     let mut tx = db.begin().await?;
     let res = windmill_queue::schedule::exists_schedule(&mut tx, w_id, path).await?;
     tx.commit().await?;

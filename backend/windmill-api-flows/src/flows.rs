@@ -355,7 +355,8 @@ async fn list_paths(
     .await?;
     tx.commit().await?;
 
-    Ok(Json(flows))
+    let allowed = build_scope_path_predicate(&authed, "flows", "read");
+    Ok(Json(flows.into_iter().filter(|p| allowed(p)).collect()))
 }
 
 pub async fn get_hub_flow_by_id(
@@ -548,7 +549,8 @@ async fn list_paths_from_workspace_runnable(
     };
 
     tx.commit().await?;
-    Ok(Json(runnables))
+    let allowed = build_scope_path_predicate(&authed, "flows", "read");
+    Ok(Json(runnables.into_iter().filter(|p| allowed(p)).collect()))
 }
 
 /// Flows with a step linked to the `ai_agent` resource at `path`, as of their last deploy.
@@ -2016,10 +2018,12 @@ async fn get_flow_by_path(
 }
 
 async fn exists_flow_by_path(
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("flows:read:{}", path))?;
 
     let exists = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM flow WHERE path = $1 AND workspace_id = $2)",

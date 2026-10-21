@@ -647,17 +647,32 @@ async fn list_paths_from_workspace_runnable(
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<Vec<String>> {
+    check_scopes(&authed, || format!("scripts:read:{}", path.to_path()))?;
     let mut tx = user_db.begin(&authed).await?;
-    let runnables = sqlx::query_scalar!(
-        r#"SELECT importer_path FROM dependency_map 
-            WHERE workspace_id = $1 AND imported_path = $2"#,
-        w_id,
-        path.to_path(),
+    let importers = sqlx::query_as::<_, (String, String)>(
+        "SELECT importer_path, importer_kind::text FROM dependency_map
+            WHERE workspace_id = $1 AND imported_path = $2",
     )
+    .bind(&w_id)
+    .bind(path.to_path())
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
-    Ok(Json(runnables))
+
+    let scripts_allowed = build_scope_path_predicate(&authed, "scripts", "read");
+    let flows_allowed = build_scope_path_predicate(&authed, "flows", "read");
+    let apps_allowed = build_scope_path_predicate(&authed, "apps", "read");
+    Ok(Json(
+        importers
+            .into_iter()
+            .filter(|(path, kind)| match kind.as_str() {
+                "flow" => flows_allowed(path),
+                "app" => apps_allowed(path),
+                _ => scripts_allowed(path),
+            })
+            .map(|(path, _)| path)
+            .collect(),
+    ))
 }
 
 #[derive(Deserialize, Default, Clone, Copy)]
@@ -3488,7 +3503,8 @@ async fn list_paths(
     .await?;
     tx.commit().await?;
 
-    Ok(Json(scripts))
+    let allowed = build_scope_path_predicate(&authed, "scripts", "read");
+    Ok(Json(scripts.into_iter().filter(|p| allowed(p)).collect()))
 }
 
 #[derive(Deserialize)]
@@ -3936,10 +3952,12 @@ async fn raw_script_by_path_internal(
 }
 
 async fn exists_script_by_path(
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
     let path = path.to_path();
+    check_scopes(&authed, || format!("scripts:read:{}", path))?;
 
     let exists = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1)",
@@ -4746,8 +4764,10 @@ async fn list_dedicated_with_deps(
 
     tx.commit().await?;
 
+    let allowed = build_scope_path_predicate(&authed, "scripts", "read");
     let result = rows
         .into_iter()
+        .filter(|row| allowed(&row.path))
         .map(|row| {
             let dep_names =
                 windmill_common::scripts::extract_workspace_dependencies_annotated_refs(
@@ -4920,12 +4940,26 @@ impl From<CiTestResultWithPattern> for CiTestResult {
     }
 }
 
+/// The scope domain a CI test result's tested item is read under, for the kinds
+/// `parse_ci_test_item` can record.
+fn ci_tested_item_scope_domain(kind: &str) -> Option<&'static str> {
+    match kind {
+        "script" => Some("scripts"),
+        "flow" => Some("flows"),
+        "resource" => Some("resources"),
+        _ => None,
+    }
+}
+
 async fn get_ci_test_results(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, kind, path)): Path<(String, String, StripPath)>,
 ) -> JsonResult<Vec<CiTestResult>> {
     let path = path.to_path();
+    let domain = ci_tested_item_scope_domain(&kind)
+        .ok_or_else(|| Error::BadRequest(format!("unknown tested item kind: {kind}")))?;
+    check_scopes(&authed, || format!("{}:read:{}", domain, path))?;
     let expected_trigger = format!("{}/{}", kind, path);
 
     // Exact matches — uses the primary ci_test_reference index.
@@ -4997,6 +5031,8 @@ async fn get_ci_test_results(
             .filter(|r| windmill_common::schema::ci_test_path_matches(path, &r.tested_item_path))
             .map(CiTestResult::from),
     );
+    let test_script_allowed = build_scope_path_predicate(&authed, "scripts", "read");
+    results.retain(|r| test_script_allowed(&r.test_script_path));
 
     Ok(Json(results))
 }
@@ -5013,7 +5049,7 @@ struct CiTestBatchRequest {
 }
 
 async fn get_ci_test_results_batch(
-    _authed: ApiAuthed,
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(req): Json<CiTestBatchRequest>,
@@ -5034,7 +5070,19 @@ async fn get_ci_test_results_batch(
     // Group paths by kind so we can do one exact query + one wildcard query per distinct kind.
     // Dedupe via HashSet so duplicate items in the input don't push matches multiple times.
     let mut paths_by_kind: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+    let scripts_allowed = build_scope_path_predicate(&authed, "scripts", "read");
+    let flows_allowed = build_scope_path_predicate(&authed, "flows", "read");
+    let resources_allowed = build_scope_path_predicate(&authed, "resources", "read");
     for item in &req.items {
+        let allowed = match ci_tested_item_scope_domain(&item.kind) {
+            Some("scripts") => scripts_allowed(&item.path),
+            Some("flows") => flows_allowed(&item.path),
+            Some("resources") => resources_allowed(&item.path),
+            _ => false,
+        };
+        if !allowed {
+            continue;
+        }
         paths_by_kind
             .entry(item.kind.clone())
             .or_default()
@@ -5130,6 +5178,10 @@ async fn get_ci_test_results_batch(
                 }
             }
         }
+    }
+
+    for bucket in result_map.values_mut() {
+        bucket.retain(|r| scripts_allowed(&r.test_script_path));
     }
 
     Ok(Json(result_map))

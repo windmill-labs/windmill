@@ -2680,7 +2680,8 @@ async fn list_paths_from_workspace_runnable(
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
-    Ok(Json(runnables))
+    let allowed = build_scope_path_predicate(&authed, "apps", "read");
+    Ok(Json(runnables.into_iter().filter(|p| allowed(p)).collect()))
 }
 
 async fn create_app(
@@ -6338,12 +6339,15 @@ async fn get_on_behalf_of(policy: &Policy, w_id: &str, db: &DB) -> Result<(Strin
 }
 
 async fn exists_app(
+    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> JsonResult<bool> {
+    let path = path.to_path();
+    check_scopes(&authed, || format!("apps:read:{}", path))?;
     let exists = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM app WHERE path = $1 AND workspace_id = $2)",
-        path.to_path(),
+        path,
         w_id
     )
     .fetch_one(&db)

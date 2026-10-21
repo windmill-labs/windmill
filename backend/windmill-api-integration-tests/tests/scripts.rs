@@ -1034,3 +1034,70 @@ async fn test_list_search_scope_filtering(db: Pool<Postgres>) -> anyhow::Result<
 
     Ok(())
 }
+
+/// Path-listing and existence routes return paths or probe them without going
+/// through `list_search`, so they must apply the path part of a token's scope too.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_path_listing_and_exists_scope_filtering(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let api = format!("http://localhost:{port}/api/w/test-workspace");
+
+    for folder in ["a", "b"] {
+        let resp = authed(client().post(format!("{api}/folders/create")))
+            .json(&json!({ "name": folder }))
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 200, "create folder: {}", resp.text().await?);
+    }
+    for path in ["f/a/foo", "f/b/bar"] {
+        let resp = authed(client().post(format!("{api}/scripts/create")))
+            .json(&new_script(path, "", "export async function main() {}"))
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 201, "create {path}: {}", resp.text().await?);
+    }
+
+    // A token string distinct from the other tests': the auth cache is process-wide.
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES
+         (encode(sha256('PATH_SCOPED_TOKEN'::bytea), 'hex'), 'PATH_SCOPE', 'PATH_SCOPED_TOKEN', 'test@windmill.dev', 'scoped', true, ARRAY['scripts:read:f/a/*', 'variables:read:f/a/*'])",
+    )
+    .execute(&db)
+    .await?;
+    let get = |url: String| {
+        client()
+            .get(url)
+            .header("Authorization", "Bearer PATH_SCOPED_TOKEN")
+            .send()
+    };
+
+    let resp = get(format!("{api}/scripts/list_paths")).await?;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.json::<Vec<String>>().await?,
+        vec!["f/a/foo".to_string()]
+    );
+
+    let resp = get(format!("{api}/variables/exists/f/a/x")).await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let resp = get(format!("{api}/variables/exists/f/b/x")).await?;
+    assert_eq!(resp.status(), 403, "{}", resp.text().await?);
+
+    // App embed tokens reach `resources/exists` with a path-less `resources:run`.
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES
+         (encode(sha256('RES_RUN_TOKEN'::bytea), 'hex'), 'RES_RUN_TO', 'RES_RUN_TOKEN', 'test@windmill.dev', 'embed', true, ARRAY['resources:run'])",
+    )
+    .execute(&db)
+    .await?;
+    let resp = client()
+        .get(format!("{api}/resources/exists/f/b/r"))
+        .header("Authorization", "Bearer RES_RUN_TOKEN")
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
+    Ok(())
+}
