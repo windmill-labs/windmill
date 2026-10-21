@@ -39,17 +39,11 @@ pub struct SlackFormData {
 
 #[derive(Deserialize, Debug)]
 struct Payload {
-    team: Option<PayloadTeam>,
     actions: Option<Vec<Action>>,
     view: Option<View>,
     trigger_id: Option<String>,
     r#type: PayloadType,
     container: Option<Container>,
-}
-
-#[derive(Deserialize, Debug)]
-struct PayloadTeam {
-    id: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -144,15 +138,16 @@ struct PrivateMetadata {
     skin: ApprovalSkin,
 }
 
-// Opportunistic transport-level check: when a Slack signing secret is configured we verify
-// the Slack request signature (which also defeats replay). It is NOT the primary defense:
+// Opportunistic transport-level check: when the instance Slack app's signing secret is configured
+// we verify the Slack request signature (which also defeats replay). It is NOT the primary defense:
 // the secret is unset in the default deployment, so authorization of the sensitive actions
 // is instead anchored on a per-workspace HMAC over the callback payload itself (see
-// `verify_slack_payload`), which holds even when this check is a no-op.
+// `verify_slack_payload`), which holds even when this check is a no-op. Workspace apps' secrets
+// do not apply: an approval may be sent through any Slack resource, so the workspace connections
+// of its team do not tell which app signed the callback.
 #[cfg(feature = "oauth2")]
 async fn verify_slack_callback_signature(
     db: &DB,
-    team_id: Option<&str>,
     headers: &HeaderMap,
     body: &str,
 ) -> Result<(), Error> {
@@ -165,7 +160,7 @@ async fn verify_slack_callback_signature(
     };
     crate::slack_agents::verify_slack_request(
         db,
-        team_id,
+        None,
         &header("X-Slack-Signature"),
         &header("X-Slack-Request-Timestamp"),
         body,
@@ -177,7 +172,6 @@ async fn verify_slack_callback_signature(
 #[cfg(not(feature = "oauth2"))]
 async fn verify_slack_callback_signature(
     _db: &DB,
-    _team_id: Option<&str>,
     _headers: &HeaderMap,
     _body: &str,
 ) -> Result<(), Error> {
@@ -251,14 +245,14 @@ pub async fn slack_app_callback_handler(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<StatusCode, Error> {
+    let body_str = String::from_utf8_lossy(&body);
+    verify_slack_callback_signature(&db, &headers, &body_str).await?;
+
     let form_data: SlackFormData = serde_urlencoded::from_bytes(&body)
         .map_err(|e| Error::BadRequest(format!("invalid form data: {}", e)))?;
 
     tracing::debug!("Form data: {:#?}", form_data);
     let payload: Payload = serde_json::from_str(&form_data.payload)?;
-    let team_id = payload.team.as_ref().map(|t| t.id.as_str());
-    verify_slack_callback_signature(&db, team_id, &headers, &String::from_utf8_lossy(&body))
-        .await?;
     tracing::debug!("Payload: {:#?}", payload);
 
     match payload.r#type {
