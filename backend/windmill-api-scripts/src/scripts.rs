@@ -4946,12 +4946,14 @@ impl From<CiTestResultWithPattern> for CiTestResult {
     }
 }
 
-/// The scope domain a CI test result's tested item is read under.
-fn ci_tested_item_scope_domain(kind: &str) -> &'static str {
-    if kind == "flow" {
-        "flows"
-    } else {
-        "scripts"
+/// The scope domain a CI test result's tested item is read under, for the kinds
+/// `parse_ci_test_item` can record.
+fn ci_tested_item_scope_domain(kind: &str) -> Option<&'static str> {
+    match kind {
+        "script" => Some("scripts"),
+        "flow" => Some("flows"),
+        "resource" => Some("resources"),
+        _ => None,
     }
 }
 
@@ -4961,9 +4963,9 @@ async fn get_ci_test_results(
     Path((w_id, kind, path)): Path<(String, String, StripPath)>,
 ) -> JsonResult<Vec<CiTestResult>> {
     let path = path.to_path();
-    check_scopes(&authed, || {
-        format!("{}:read:{}", ci_tested_item_scope_domain(&kind), path)
-    })?;
+    let domain = ci_tested_item_scope_domain(&kind)
+        .ok_or_else(|| Error::BadRequest(format!("unknown tested item kind: {kind}")))?;
+    check_scopes(&authed, || format!("{}:read:{}", domain, path))?;
     let expected_trigger = format!("{}/{}", kind, path);
 
     // Exact matches — uses the primary ci_test_reference index.
@@ -5076,10 +5078,13 @@ async fn get_ci_test_results_batch(
     let mut paths_by_kind: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
     let scripts_allowed = build_scope_path_predicate(&authed, "scripts", "read");
     let flows_allowed = build_scope_path_predicate(&authed, "flows", "read");
+    let resources_allowed = build_scope_path_predicate(&authed, "resources", "read");
     for item in &req.items {
         let allowed = match ci_tested_item_scope_domain(&item.kind) {
-            "flows" => flows_allowed(&item.path),
-            _ => scripts_allowed(&item.path),
+            Some("scripts") => scripts_allowed(&item.path),
+            Some("flows") => flows_allowed(&item.path),
+            Some("resources") => resources_allowed(&item.path),
+            _ => false,
         };
         if !allowed {
             continue;

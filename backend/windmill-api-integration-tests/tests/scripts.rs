@@ -1085,5 +1085,19 @@ async fn test_path_listing_and_exists_scope_filtering(db: Pool<Postgres>) -> any
     let resp = get(format!("{api}/variables/exists/f/b/x")).await?;
     assert_eq!(resp.status(), 403, "{}", resp.text().await?);
 
+    // App embed tokens reach `resources/exists` with a path-less `resources:run`.
+    sqlx::query(
+        "INSERT INTO token (token_hash, token_prefix, token, email, label, super_admin, scopes) VALUES
+         (encode(sha256('RES_RUN_TOKEN'::bytea), 'hex'), 'RES_RUN_TO', 'RES_RUN_TOKEN', 'test@windmill.dev', 'embed', true, ARRAY['resources:run'])",
+    )
+    .execute(&db)
+    .await?;
+    let resp = client()
+        .get(format!("{api}/resources/exists/f/b/r"))
+        .header("Authorization", "Bearer RES_RUN_TOKEN")
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+
     Ok(())
 }
