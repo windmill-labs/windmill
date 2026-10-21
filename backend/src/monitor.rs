@@ -60,17 +60,19 @@ use windmill_common::{
         CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERTS_ON_TOKEN_EXPIRY_SETTING,
         CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ALERT_MUTE_ZOMBIE_JOB_RESTART_SETTING,
         CRITICAL_ERROR_CHANNELS_SETTING, CUSTOM_TAGS_SETTING, DEFAULT_TAGS_PER_WORKSPACE_SETTING,
-        DEFAULT_TAGS_WORKSPACES_SETTING, DEPENDENCY_JOB_TAG_SETTING, DISABLE_PASSWORD_LOGIN,
-        DISABLE_PASSWORD_LOGIN_SETTING, EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING,
-        EXTRA_PIP_INDEX_URL_SETTING, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING,
-        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
-        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JOB_ISOLATION_SETTING, JWT_SECRET_SETTING,
-        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MCP_DISABLE_TOKEN_QUERY_PARAM,
-        MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPMRC_SETTING,
-        NPM_CONFIG_REGISTRY_SETTING, NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING,
-        NUGET_CONFIG_SETTING, OTEL_SETTING, OTEL_TRACES_RETENTION_SECS_SETTING,
-        OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
-        POWERSHELL_REPO_URL_SETTING, PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        DEFAULT_TAGS_WORKSPACES_SETTING, DEPENDENCY_JOB_TAG_SETTING,
+        DEV_WORKSPACE_ISOLATION_SETTING, DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS_SETTING,
+        DEV_WORKSPACE_TAG_SUFFIX_SETTING, DISABLE_PASSWORD_LOGIN, DISABLE_PASSWORD_LOGIN_SETTING,
+        EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
+        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX_SETTING, HUB_API_SECRET_SETTING,
+        HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING,
+        JOB_ISOLATION_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING,
+        MCP_DISABLE_TOKEN_QUERY_PARAM, MCP_DISABLE_TOKEN_QUERY_PARAM_SETTING,
+        MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPMRC_SETTING, NPM_CONFIG_REGISTRY_SETTING,
+        NSJAIL_TMPFS_SIZE_MB_SETTING, NSJAIL_TMP_BACKING_SETTING, NUGET_CONFIG_SETTING,
+        OTEL_SETTING, OTEL_TRACES_RETENTION_SECS_SETTING, OTEL_TRACING_PROXY_SETTING,
+        PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING,
+        PREVIEW_TAGS_OVERRIDE_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SANDBOX_IMAGE_CACHE_MAX_MB_SETTING,
         SANDBOX_IMAGE_DEFAULT_REGISTRY_SETTING, SANDBOX_IMAGE_MAX_SIZE_MB_SETTING,
@@ -89,15 +91,18 @@ use windmill_common::{
     users::truncate_token,
     utils::{empty_as_none, now_from_db, report_critical_error, Mode, HUB_API_SECRET},
     worker::{
-        load_env_vars, load_init_bash_from_env, load_periodic_bash_script_from_env,
-        load_periodic_bash_script_interval_from_env, load_whitelist_env_vars_from_env,
-        load_worker_config, store_pull_query, store_suspended_pull_query, Connection, WorkerConfig,
-        CLOUD_HOSTED, CONCURRENCY_KEY_MAX_QUEUED, CONCURRENCY_KEY_MAX_QUEUED_DEFAULT,
-        DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES, DEPENDENCY_JOB_TAG,
-        FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX, INDEXER_CONFIG, PREVIEW_TAGS_OVERRIDE, SMTP_CONFIG,
-        WINDMILL_DIR, WORKER_CONFIG, WORKER_GROUP, WORKSPACE_FAIRNESS_DURATION_SECS,
-        WORKSPACE_FAIRNESS_ENABLED, WORKSPACE_FAIRNESS_MAX_PERCENT, WORKSPACE_FAIRNESS_MIN_TOTAL,
-        WORKSPACE_MAX_QUEUED_JOBS, WORKSPACE_MAX_QUEUED_JOBS_DEFAULT,
+        is_valid_dev_workspace_tag_suffix, load_env_vars, load_init_bash_from_env,
+        load_periodic_bash_script_from_env, load_periodic_bash_script_interval_from_env,
+        load_whitelist_env_vars_from_env, load_worker_config, store_pull_query,
+        store_suspended_pull_query, Connection, WorkerConfig, CLOUD_HOSTED,
+        CONCURRENCY_KEY_MAX_QUEUED, CONCURRENCY_KEY_MAX_QUEUED_DEFAULT,
+        DEFAULT_DEV_WORKSPACE_TAG_SUFFIX, DEFAULT_TAGS_PER_WORKSPACE, DEFAULT_TAGS_WORKSPACES,
+        DEPENDENCY_JOB_TAG, DEV_WORKSPACE_ISOLATION, DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS,
+        DEV_WORKSPACE_TAG_SUFFIX, FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX, INDEXER_CONFIG,
+        PREVIEW_TAGS_OVERRIDE, SMTP_CONFIG, WINDMILL_DIR, WORKER_CONFIG, WORKER_GROUP,
+        WORKSPACE_FAIRNESS_DURATION_SECS, WORKSPACE_FAIRNESS_ENABLED,
+        WORKSPACE_FAIRNESS_MAX_PERCENT, WORKSPACE_FAIRNESS_MIN_TOTAL, WORKSPACE_MAX_QUEUED_JOBS,
+        WORKSPACE_MAX_QUEUED_JOBS_DEFAULT,
     },
     KillpillSender, AUDIT_LOG_RETENTION_DAYS, BASE_URL, CRITICAL_ALERTS_ON_DB_OVERSIZE,
     CRITICAL_ALERTS_ON_TOKEN_EXPIRY, CRITICAL_ALERT_MUTE_UI_ENABLED,
@@ -322,6 +327,18 @@ pub async fn initial_load(
         pass.setting(DEPENDENCY_JOB_TAG_SETTING, false, |v| async move {
             apply_dependency_job_tag(v)
         });
+        // Ahead of the worker config reload below, which expands the tags with it.
+        pass.setting(DEV_WORKSPACE_TAG_SUFFIX_SETTING, false, |v| async move {
+            apply_dev_workspace_tag_suffix(v);
+        });
+        pass.setting(DEV_WORKSPACE_ISOLATION_SETTING, false, |v| async move {
+            apply_dev_workspace_isolation(v)
+        });
+        pass.setting(
+            DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS_SETTING,
+            false,
+            |v| async move { apply_dev_workspace_isolation_skip_non_dev_forks(v) },
+        );
 
         // Load per-workspace retention overrides before the first cleanup tick so a fresh server
         // never sweeps globally without honoring configured longer-retention workspaces.
@@ -1126,6 +1143,53 @@ pub fn apply_fork_workspace_tag_append_fork_suffix(value: Option<serde_json::Val
         None => FORK_WORKSPACE_TAG_APPEND_FORK_SUFFIX.store(false, Ordering::Relaxed),
         _ => (),
     };
+}
+
+/// Returns whether the suffix changed, in which case a worker must reload its config: a group
+/// serving dev workspaces listens to its tags expanded with it.
+pub async fn load_dev_workspace_tag_suffix(db: &DB) -> error::Result<bool> {
+    let v = load_value_from_global_settings(db, DEV_WORKSPACE_TAG_SUFFIX_SETTING).await?;
+    Ok(apply_dev_workspace_tag_suffix(v))
+}
+
+pub fn apply_dev_workspace_tag_suffix(value: Option<serde_json::Value>) -> bool {
+    let suffix = match value {
+        Some(serde_json::Value::String(t)) if !t.trim().is_empty() => t.trim().to_string(),
+        _ => DEFAULT_DEV_WORKSPACE_TAG_SUFFIX.to_string(),
+    };
+    if !is_valid_dev_workspace_tag_suffix(&suffix) {
+        tracing::error!("Ignoring invalid dev workspace tag suffix {suffix:?}");
+        return false;
+    }
+    let prev = DEV_WORKSPACE_TAG_SUFFIX.swap(std::sync::Arc::new(suffix.clone()));
+    *prev != suffix
+}
+
+pub async fn load_dev_workspace_isolation(db: &DB) -> error::Result<()> {
+    let v = load_value_from_global_settings(db, DEV_WORKSPACE_ISOLATION_SETTING).await?;
+    apply_dev_workspace_isolation(v);
+    Ok(())
+}
+
+pub fn apply_dev_workspace_isolation(value: Option<serde_json::Value>) {
+    DEV_WORKSPACE_ISOLATION.store(
+        matches!(value, Some(serde_json::Value::Bool(true))),
+        Ordering::Relaxed,
+    );
+}
+
+pub async fn load_dev_workspace_isolation_skip_non_dev_forks(db: &DB) -> error::Result<()> {
+    let v = load_value_from_global_settings(db, DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS_SETTING)
+        .await?;
+    apply_dev_workspace_isolation_skip_non_dev_forks(v);
+    Ok(())
+}
+
+pub fn apply_dev_workspace_isolation_skip_non_dev_forks(value: Option<serde_json::Value>) {
+    DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS.store(
+        matches!(value, Some(serde_json::Value::Bool(true))),
+        Ordering::Relaxed,
+    );
 }
 
 pub async fn reload_critical_alert_mute_ui_setting(conn: &Connection) -> error::Result<()> {

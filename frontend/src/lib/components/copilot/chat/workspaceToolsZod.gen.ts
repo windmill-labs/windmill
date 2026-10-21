@@ -502,7 +502,8 @@ export const resourceRequestSchema = z.object({
 	"description": z.string().describe("The description of the resource").optional(),
 	"resource_type": z.string().describe("The resource_type associated with the resource"),
 	"labels": z.array(z.string()).optional(),
-	"ws_specific": z.boolean().optional()
+	"ws_specific": z.boolean().optional(),
+	"preserve_on_behalf_of": z.boolean().describe("ai_agent only. Keep the identity `value.on_behalf_of` names (`u/<username>`, `g/<group>`) rather than the caller's own. Honoured for admins and members of wm_deployers; otherwise every write of an agent sets it to the caller.").optional()
 })
 
 export const triggerRequestSchemas = {

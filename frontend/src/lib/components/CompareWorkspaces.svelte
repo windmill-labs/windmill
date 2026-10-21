@@ -613,12 +613,13 @@
 	}
 
 	async function fetchOnBehalfOfInfo(diffs: WorkspaceItemDiff[]) {
-		// Runnables carry an email; triggers/schedules carry `permissioned_as`.
-		// `getOnBehalfOf` handles the dispatch — we just need to skip kinds that
-		// have no on_behalf_of concept (resource, variable, folder, resource_type).
+		// Runnables carry an email; triggers/schedules and agents carry `permissioned_as`.
+		// `getOnBehalfOf` handles the dispatch (a resource that is not an agent has none) — we
+		// just need to skip kinds that have no on_behalf_of concept (variable, folder, resource_type).
 		const itemsWithOnBehalfOf = diffs.filter(
 			(d) =>
-				['flow', 'script', 'app', 'raw_app'].includes(d.kind) || isTriggerOrScheduleKind(d.kind)
+				['flow', 'script', 'app', 'raw_app', 'resource'].includes(d.kind) ||
+				isTriggerOrScheduleKind(d.kind)
 		)
 		const pair = [
 			{ workspace: currentWorkspaceId, side: 'fork' as const },
@@ -680,17 +681,22 @@
 		})
 	)
 
+	/** Triggers, schedules and agents record who they run as by principal, the rest by address. */
+	function usesPrincipal(kind: Kind): boolean {
+		return kind === 'trigger' || isTriggerOrScheduleKind(kind) || kind === 'resource'
+	}
+
 	/**
 	 * Get the on_behalf_of value for deployment based on user's choice.
-	 * Returns an email for flows/scripts/apps, or permissioned_as (u/username, g/group) for triggers/schedules.
+	 * Returns an email for flows/scripts/apps, or permissioned_as (u/username, g/group) for
+	 * triggers/schedules and agents.
 	 */
 	function getOnBehalfOfForDeploy(itemKey: string, kind: Kind): string | undefined {
 		const choice = onBehalfOfChoice[itemKey]
 		if (choice === 'target') return getTargetOnBehalfOf(itemKey)
 		if (choice === 'custom') {
 			const details = customOnBehalfOf[itemKey]
-			const wantsPermissionedAs = kind === 'trigger' || isTriggerOrScheduleKind(kind)
-			return wantsPermissionedAs ? details?.permissionedAs : details?.email
+			return usesPrincipal(kind) ? details?.permissionedAs : details?.email
 		}
 		// 'me' or undefined = don't pass, backend will use deploying user's identity
 		return undefined
@@ -702,7 +708,7 @@
 	 * returning undefined clears the source item's value rather than keeping it.
 	 */
 	function getOnBehalfOfPermissionedAsForDeploy(itemKey: string, kind: Kind): string | undefined {
-		if (kind === 'trigger' || isTriggerOrScheduleKind(kind)) return undefined
+		if (usesPrincipal(kind)) return undefined
 		if (onBehalfOfChoice[itemKey] !== 'custom') return undefined
 		return customOnBehalfOf[itemKey]?.permissionedAs
 	}
@@ -808,7 +814,19 @@
 	}
 
 	let deploymentErrorMessage = $state('')
-	let allowBehindChangesOverride = $state(false)
+	// The override acknowledges the outdated items listed next to it, not the
+	// selection, so it holds while every outdated item is one the user ticked it
+	// for: a refresh bringing in a new one asks again, one leaving the list does not.
+	let acknowledgedBehindKeys = $state<Set<string> | undefined>()
+	let allowBehindChangesOverride = $derived(
+		acknowledgedBehindKeys != undefined &&
+			itemsWithBehindChanges.every((d) => acknowledgedBehindKeys!.has(getItemKey(d)))
+	)
+	function setBehindChangesOverride(allow: boolean) {
+		acknowledgedBehindKeys = allow
+			? new Set(itemsWithBehindChanges.map((d) => getItemKey(d)))
+			: undefined
+	}
 
 	async function isComparisonUpToDate(): Promise<boolean> {
 		if (!comparison) {
@@ -1117,16 +1135,15 @@
 			const current = new Set(diffs.filter(removesInTarget).map((d) => getItemKey(d)))
 			const flipped = [...current].filter((k) => !removalKeys.has(k))
 			removalKeys = current
-			if (flipped.some((k) => selectedItems.includes(k))) {
-				selectedItems = selectedItems.filter((k) => !flipped.includes(k))
+			// A row that left the list (made workspace specific, synced elsewhere) takes its
+			// tick with it: the deploy button counts the selection, and a key with no row
+			// would be reported as undeployable.
+			const listed = new Set(selectableDiffs.map((d) => getItemKey(d)))
+			const kept = selectedItems.filter((k) => listed.has(k) && !flipped.includes(k))
+			if (kept.length !== selectedItems.length) {
+				selectedItems = kept
 			}
 		})
-	})
-
-	// Reset override when selection or direction changes
-	$effect(() => {
-		;[selectedItems, mergeIntoParent]
-		allowBehindChangesOverride = false
 	})
 
 	// Trigger and schedule rows now flow through `comparison.diffs` like every
@@ -1577,7 +1594,8 @@
 							<span class="font-medium flex flex-row gap-1 text-red-500">
 								<input
 									type="checkbox"
-									bind:checked={allowBehindChangesOverride}
+									checked={allowBehindChangesOverride}
+									onchange={(e) => setBehindChangesOverride(e.currentTarget.checked)}
 									class="rounded max-w-4"
 								/>
 								Override: Deploy despite {itemsWithBehindChanges.length} outdated item{itemsWithBehindChanges.length !==

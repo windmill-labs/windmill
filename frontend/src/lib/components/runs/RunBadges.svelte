@@ -8,8 +8,16 @@
 	import { ListFilter, Tag } from 'lucide-svelte'
 	import type { Job } from '$lib/gen'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { userWorkspaces } from '$lib/stores'
+	import {
+		devWorkspaceTagSuffix,
+		devWorkspaceSkipNonDevForks,
+		isIsolatedWorkspaceId,
+		loadDevWorkspaceTagSuffix
+	} from '$lib/devWorkspaceTags'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	loadDevWorkspaceTagSuffix()
 
 	interface Props {
 		job: Job
@@ -67,7 +75,17 @@
 {#if job.tag != undefined}
 	<!-- for related places search: ADD_NEW_LANG -->
 	<div>
-		<Badge color="indigo" {large}>Tag: {job.tag}</Badge>
+		<Badge color="indigo" {large}>
+			Tag: {job.tag}
+			{#if $devWorkspaceTagSuffix && job.tag.endsWith($devWorkspaceTagSuffix) && isIsolatedWorkspaceId(job.workspace_id, $userWorkspaces, $devWorkspaceSkipNonDevForks)}
+				<Tooltip>
+					{#snippet text()}
+						Suffixed with <code>{$devWorkspaceTagSuffix}</code> because this workspace is a dev workspace
+						or a fork: its jobs run only on worker groups serving dev workspaces.
+					{/snippet}
+				</Tooltip>
+			{/if}
+		</Badge>
 	</div>
 {/if}
 {#if !job.visible_to_owner}
@@ -107,9 +125,7 @@
 						<ListFilter class="inline-block" size={10} />
 					</Button>
 				{:else}
-					<a
-						href={`/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
-					>
+					<a href={`/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}>
 						{concurrencyKey}
 					</a>
 				{/if}
@@ -119,9 +135,7 @@
 					<Badge {large}>Concurrency: {truncateRev(concurrencyKey, 20)}</Badge>
 				</button>
 			{:else}
-				<a
-					href={`/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}
-				>
+				<a href={`/runs/?job_kinds=all&graph=ConcurrencyChart&concurrency_key=${concurrencyKey}`}>
 					<Badge {large}>Concurrency: {truncateRev(concurrencyKey, 20)}</Badge>
 				</a>
 			{/if}

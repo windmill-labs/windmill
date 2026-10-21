@@ -215,17 +215,46 @@ class GitSyncTestBase(unittest.TestCase):
                 return repo
         return None
 
+    def _new_sync_jobs(self, seen: set, path: str) -> list:
+        """Completed deploy callbacks not in `seen` whose items include `path`.
+        A callback debounced into another completes as skipped with its items
+        still in its args, so skipped ones are left out: only the survivor,
+        whose args carry the accumulated items, ran the push."""
+        jobs = []
+        for listed in self._client.get_completed_jobs(job_kinds="deploymentcallback"):
+            if listed["id"] in seen:
+                continue
+            job = self._client._client.get(
+                f"/api/w/{self._client._workspace}/jobs_u/get/{listed['id']}"
+            ).json()
+            if job.get("is_skipped"):
+                continue
+            items = (job.get("args") or {}).get("items") or []
+            if any(item.get("path") == path for item in items):
+                jobs.append(job)
+        return jobs
+
     def _deploy_seed_script(self, name_prefix: str) -> str:
-        """Deploy a script and wait for its push to git. Returns the script path."""
-        initial_count = self._client.count_deployment_callback_jobs()
+        """Deploy a script and wait for its push to git. Returns the script path.
+
+        Waits on the callback that carries this script, not on the workspace's
+        callback count: a callback still finishing from an earlier test raises
+        the count before this push lands."""
+        seen = {j["id"] for j in self._client.get_completed_jobs(job_kinds="deploymentcallback")}
         script_path = f"u/admin/{unique_name(name_prefix)}"
         self._client.create_script(
             path=script_path,
             content=ts_script("return 'seed'"),
             language="bun",
         )
-        self._client.wait_for_sync_jobs(initial_count, min_new=1)
-        time.sleep(3)
+        self._wait_until(
+            lambda: self._new_sync_jobs(seen, script_path),
+            timeout=90,
+            interval=2,
+            message=f"no push job for {script_path}",
+        )
+        failed = [j for j in self._new_sync_jobs(seen, script_path) if not j.get("success")]
+        self.assertEqual(failed, [], f"the push of {script_path} failed")
         return script_path
 
     def _repo_script_file(self, repo_name: str, script_path: str, branch: str = None) -> str:
@@ -773,17 +802,7 @@ class TestGitSync(GitSyncTestBase):
 
     def _new_sync_job_results(self, seen: set, path: str) -> list:
         """Results of the deploy callbacks not in `seen` that pushed `path`."""
-        results = []
-        for listed in self._client.get_completed_jobs(job_kinds="deploymentcallback"):
-            if listed["id"] in seen:
-                continue
-            job = self._client._client.get(
-                f"/api/w/{self._client._workspace}/jobs_u/get/{listed['id']}"
-            ).json()
-            items = (job.get("args") or {}).get("items") or []
-            if any(item.get("path") == path for item in items):
-                results.append(job.get("result"))
-        return results
+        return [job.get("result") for job in self._new_sync_jobs(seen, path)]
 
     def test_promotion_push_reports_whether_it_pushed(self):
         """The push job's result says whether a commit was pushed, and the

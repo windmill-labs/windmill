@@ -1211,6 +1211,28 @@ describe('global AI tools', () => {
 		expect(raw).not.toContain('db_draft_input')
 	})
 
+	// The flow read is rebuilt field by field for the model, so a field missing there is
+	// silently absent and reads as "shared with nobody".
+	it('reports who a deployed flow is shared with', async () => {
+		vi.mocked(FlowService.getFlowByPath).mockResolvedValueOnce({
+			path: 'f/flows/shared',
+			summary: 'Shared flow',
+			value: { modules: [] },
+			schema: {},
+			extra_perms: { 'g/finance': false }
+		} as any)
+
+		const item = JSON.parse(
+			await callGlobalTool('read_workspace_item', {
+				type: 'flow',
+				path: 'f/flows/shared',
+				version: 'deployed'
+			})
+		)
+
+		expect(item.extraPerms).toEqual({ 'g/finance': false })
+	})
+
 	it('redacts variable draft values when reading workspace items', async () => {
 		await callGlobalTool('write_variable', {
 			path: 'f/secrets/api_key',
@@ -7443,7 +7465,7 @@ describe('prepareGlobalSystemMessage', () => {
 			})
 			expect(content).toContain('As a workspace admin you can write to any existing folder.')
 			expect(content).toContain(
-				'Folders here include `f/marketing`, `f/data_engineering` (you can also write to others not listed).'
+				'Folders here include `f/marketing`, `f/data_engineering` (you can also write to others not listed; list_workspace_items with type "folder" lists them all).'
 			)
 			expect(content).toContain(
 				'If the user names a folder, use it; if they explicitly ask for a new folder, create it with `create_folder`; otherwise ask them which folder to use rather than guessing or creating one unprompted.'

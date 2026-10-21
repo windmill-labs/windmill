@@ -110,8 +110,8 @@ lazy_static::lazy_static! {
 
 /// Helper function to write itered data to separate table
 /// Returns None if data was written to separate table, Some(itered) if it should be stored in JSONB
-async fn write_itered_to_db(
-    db: &DB,
+async fn write_itered_to_db<'c>(
+    db: impl sqlx::PgExecutor<'c>,
     job_id: Uuid,
     itered: &Vec<Box<RawValue>>,
 ) -> error::Result<Option<Vec<Box<RawValue>>>> {
@@ -326,6 +326,25 @@ fn get_stop_after_if_data(stop_after_if: Option<&StopAfterIf>) -> (bool, Option<
         return (false, err_msg, stop_after_if.error_include_result);
     }
     return (false, None, false);
+}
+
+/// Takes the caller's executor: under the status-update tx a pool read would wait on a second
+/// connection, which a burst of completions holding every one never frees.
+async fn fetch_flow_args<'c>(
+    db: impl sqlx::PgExecutor<'c>,
+    flow: Uuid,
+) -> Result<HashMap<String, Box<RawValue>>, sqlx::Error> {
+    let args = sqlx::query_scalar!(
+        r#"
+            SELECT args AS "args: Json<HashMap<String, Box<RawValue>>>"
+            FROM v2_job
+            WHERE id = $1
+            "#,
+        flow
+    )
+    .fetch_one(db)
+    .await;
+    args.map(|flow_args| flow_args.map(|flow_args| flow_args.0).unwrap_or_default())
 }
 
 async fn get_id_ctx_for_expr<'c>(
@@ -633,22 +652,7 @@ pub async fn update_flow_status_after_job_completion_internal(
             }
         };
 
-        let args = Arc::pin(Lazy::new(async move {
-            let args = sqlx::query_scalar!(
-                r#"
-            SELECT args AS "args: Json<HashMap<String, Box<RawValue>>>"
-            FROM v2_job
-            WHERE id = $1
-            "#,
-                flow
-            )
-            .fetch_one(db)
-            .await;
-            let args =
-                args.map(|flow_args| flow_args.map(|flow_args| flow_args.0).unwrap_or_default());
-
-            args
-        }));
+        let args = Arc::pin(Lazy::new(fetch_flow_args(db, flow)));
 
         let from_result_to_args = |args: &Result<HashMap<String, Box<RawValue>>, sqlx::Error>| {
             let args = args
@@ -992,7 +996,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         .as_ref()
                         .and_then(|x| x.stop_after_all_iters_if.as_ref())
                     {
-                        let args = from_result_to_args(args.as_ref().await.get_ref())?;
+                        let args = from_result_to_args(&fetch_flow_args(&mut *tx, flow).await)?;
                         // Isolate the reads in a savepoint on the same connection: the
                         // caller below swallows our error and keeps using `tx`, so a DB
                         // read failure must not leave the outer transaction aborted (that
@@ -1227,7 +1231,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                         .as_ref()
                         .and_then(|x| x.stop_after_all_iters_if.as_ref())
                     {
-                        let args = from_result_to_args(args.as_ref().await.get_ref())?;
+                        let args = from_result_to_args(&fetch_flow_args(&mut *tx, flow).await)?;
 
                         // See the matching savepoint comment above: isolate the reads so a
                         // DB read failure (whose error the caller swallows) cannot abort
@@ -1329,7 +1333,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                             .unwrap_or_default();
 
                         tracing::info!("update flow status on retry: {retry:#?} ");
-                        let args = from_result_to_args(args.as_ref().await.get_ref())?;
+                        let args = from_result_to_args(&fetch_flow_args(&mut *tx, flow).await)?;
 
                         evaluate_retry(
                             &retry,
@@ -1631,7 +1635,17 @@ pub async fn update_flow_status_after_job_completion_internal(
                 Some(t) => {
                     let no_args = HashMap::new();
                     let args = PushArgs::from(fetched_args.as_ref().unwrap_or(&no_args));
-                    resolve_push_tag(t, &args, &flow_job.workspace_id, db).await
+                    match resolve_push_tag(t, &args, &flow_job.workspace_id, db).await {
+                        Some(t) => Some(
+                            windmill_queue::tags::apply_dev_workspace_suffix(
+                                t,
+                                &flow_job.workspace_id,
+                                db,
+                            )
+                            .await?,
+                        ),
+                        None => None,
+                    }
                 }
                 None => None,
             };
@@ -2210,7 +2224,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                             None
                         },
                         has_triggered_error_handler: has_triggered_error_handler || is_failure_step,
-                        recovered_by_child: failure_step_recovers || (recovered_by_child && !success),
+                        recovered_by_child: failure_step_recovers
+                            || (recovered_by_child && !success),
                     },
                 ));
             }
@@ -3284,8 +3299,17 @@ pub(crate) fn resolve_flow_step_tag(
     workspace_id: &str,
     preserve_step_tags: bool,
     step_tag: Option<&str>,
+    // The suffix of a dev workspace's flow tag, if any: its flows run on the generic tag suffixed,
+    // and their steps are suffixed when pushed.
+    dev_suffix: Option<&str>,
 ) -> Option<String> {
-    if is_preprocessor_step || flow_tag == "flow" || flow_tag == format!("flow-{}", workspace_id) {
+    let generic_flow_tag = dev_suffix
+        .and_then(|s| flow_tag.strip_suffix(s))
+        .unwrap_or(flow_tag);
+    if is_preprocessor_step
+        || generic_flow_tag == "flow"
+        || generic_flow_tag == format!("flow-{}", workspace_id)
+    {
         step_tag.map(str::to_string)
     } else if preserve_step_tags && step_tag.is_some_and(|t| !t.is_empty()) {
         step_tag.map(str::to_string)
@@ -3363,7 +3387,14 @@ mod tag_resolution_tests {
         // Parent flow on a custom tag, step declares its own tag, preserve disabled:
         // the step inherits the flow tag (historical behavior).
         assert_eq!(
-            resolve_flow_step_tag(false, "worker-group-A", "w1", false, Some("worker-group-B")),
+            resolve_flow_step_tag(
+                false,
+                "worker-group-A",
+                "w1",
+                false,
+                Some("worker-group-B"),
+                None
+            ),
             Some("worker-group-A".to_string())
         );
     }
@@ -3373,7 +3404,14 @@ mod tag_resolution_tests {
         // The exact customer scenario: a sub-flow tagged worker-group-B run as a step of a
         // flow tagged worker-group-A now runs on worker-group-B when preserve_step_tags is on.
         assert_eq!(
-            resolve_flow_step_tag(false, "worker-group-A", "w1", true, Some("worker-group-B")),
+            resolve_flow_step_tag(
+                false,
+                "worker-group-A",
+                "w1",
+                true,
+                Some("worker-group-B"),
+                None
+            ),
             Some("worker-group-B".to_string())
         );
     }
@@ -3381,12 +3419,12 @@ mod tag_resolution_tests {
     #[test]
     fn untagged_step_inherits_flow_tag_even_when_preserve_enabled() {
         assert_eq!(
-            resolve_flow_step_tag(false, "worker-group-A", "w1", true, None),
+            resolve_flow_step_tag(false, "worker-group-A", "w1", true, None, None),
             Some("worker-group-A".to_string())
         );
         // An empty tag counts as "no tag" and still inherits.
         assert_eq!(
-            resolve_flow_step_tag(false, "worker-group-A", "w1", true, Some("")),
+            resolve_flow_step_tag(false, "worker-group-A", "w1", true, Some(""), None),
             Some("worker-group-A".to_string())
         );
     }
@@ -3395,16 +3433,38 @@ mod tag_resolution_tests {
     fn generic_flow_tag_always_uses_step_tag() {
         for flow_tag in ["flow", "flow-w1"] {
             assert_eq!(
-                resolve_flow_step_tag(false, flow_tag, "w1", false, Some("worker-group-B")),
+                resolve_flow_step_tag(false, flow_tag, "w1", false, Some("worker-group-B"), None),
                 Some("worker-group-B".to_string())
             );
         }
     }
 
     #[test]
+    fn dev_workspace_flow_on_suffixed_generic_tag_uses_step_tag() {
+        for flow_tag in ["flow-dev", "flow-w1-dev"] {
+            assert_eq!(
+                resolve_flow_step_tag(false, flow_tag, "w1", false, Some("gpu"), Some("-dev")),
+                Some("gpu".to_string())
+            );
+        }
+        // In a root workspace `flow-dev` is a custom tag the steps inherit.
+        assert_eq!(
+            resolve_flow_step_tag(false, "flow-dev", "w1", false, Some("gpu"), None),
+            Some("flow-dev".to_string())
+        );
+    }
+
+    #[test]
     fn preprocessor_step_uses_step_tag() {
         assert_eq!(
-            resolve_flow_step_tag(true, "worker-group-A", "w1", false, Some("worker-group-B")),
+            resolve_flow_step_tag(
+                true,
+                "worker-group-A",
+                "w1",
+                false,
+                Some("worker-group-B"),
+                None
+            ),
             Some("worker-group-B".to_string())
         );
     }
@@ -4654,6 +4714,9 @@ async fn push_next_flow_job(
             &flow_job.workspace_id,
             flow.preserve_step_tags,
             payload_tag.tag.as_deref(),
+            windmill_queue::tags::dev_flow_tag_suffix(&flow_job.workspace_id, &flow_job.tag, db)
+                .await?
+                .as_deref(),
         );
 
         // A step whose inputs failed to evaluate, or whose `$flow_expr[...]` tag failed to resolve,
@@ -4721,7 +4784,8 @@ async fn push_next_flow_job(
         {
             // A step with its own on-behalf-of carries a cached dispatch address, up to one
             // notify poll stale; accepted, see `get_email_from_permissioned_as`.
-            let is_super_admin = windmill_common::auth::is_super_admin_email(db, email).await?;
+            let is_super_admin =
+                windmill_common::auth::is_super_admin_email(&mut *tx, email).await?;
             check_tag_written_as_available_for_push(
                 db,
                 &flow_job.workspace_id,
@@ -4794,10 +4858,8 @@ async fn push_next_flow_job(
             // narrows that further.
             windmill_common::scopes::intersect_job_token_scopes(
                 flow_job.job_token_scopes.as_deref(),
-                windmill_common::scopes::step_job_token_scopes(
-                    module.job_token_scopes.as_deref(),
-                )
-                .as_deref(),
+                windmill_common::scopes::step_job_token_scopes(module.job_token_scopes.as_deref())
+                    .as_deref(),
             )
             .as_deref(),
         )
@@ -4989,7 +5051,7 @@ async fn push_next_flow_job(
 
             // Conditionally write itered to separate table if all workers support it
             // Returns None if written to table, Some(itered) if should be in JSONB
-            let itered_for_status = write_itered_to_db(db, flow_job.id, &itered).await?;
+            let itered_for_status = write_itered_to_db(&mut *tx, flow_job.id, &itered).await?;
 
             FlowStatusModule::InProgress {
                 job: uuid,

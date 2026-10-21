@@ -31,6 +31,12 @@ Example: `f/databases/postgres_prod.resource.json`
 - `value` - Object containing the resource configuration
 - `resource_type` - Name of the resource type (e.g., "postgresql", "slack")
 
+## Agents
+
+An agent, as the Agents page lists it, is a resource of type `ai_agent`. Its value holds the
+agent's provider, system prompt, tools and memory settings, and a flow step uses a saved agent by
+linking its path.
+
 ## Variable References
 
 Reference variables in resource values:

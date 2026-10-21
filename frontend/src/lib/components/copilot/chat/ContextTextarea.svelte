@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { composerBoxClass, COMPOSER_FIELD_RESET } from './composerBox'
+	import { composerBoxClass, COMPOSER_FIELD_RESET, type ComposerSelection } from './composerBox'
 	import autosize from '$lib/autosize'
 	import { tick, type Snippet } from 'svelte'
 	import type { ContextElement } from './context'
@@ -761,8 +761,11 @@
 		prevMentionedTitles = cur
 	})
 
-	export function focus() {
+	export function focus(selection?: ComposerSelection) {
 		textarea?.focus()
+		if (selection) {
+			textarea?.setSelectionRange(selection.start, selection.end)
+		}
 	}
 
 	// Wipe after dispatching a send: pre-zero `prevMentionedTitles` so the effect

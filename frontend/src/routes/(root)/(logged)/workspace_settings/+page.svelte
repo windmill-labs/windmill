@@ -27,6 +27,7 @@
 	import { WORKSPACE_SHOW_SLACK_CMD, WORKSPACE_SHOW_WEBHOOK_CLI_SYNC } from '$lib/consts'
 	import {
 		OauthService,
+		SlackAgentsService,
 		WorkspaceService,
 		SettingService,
 		type AIConfig,
@@ -54,6 +55,7 @@
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import SlackChannelAgents from '$lib/components/workspaceSettings/SlackChannelAgents.svelte'
 
 	import ChangeWorkspaceName from '$lib/components/settings/ChangeWorkspaceName.svelte'
 	import ChangeWorkspaceId from '$lib/components/settings/ChangeWorkspaceId.svelte'
@@ -71,6 +73,7 @@
 	import GitSyncSection from '$lib/components/git_sync/GitSyncSection.svelte'
 	import Trashbin from '$lib/components/settings/Trashbin.svelte'
 	import { untrack } from 'svelte'
+	import { resource } from 'runed'
 	import DbtSettings, {
 		convertDbtSettingsFromBackend,
 		type DbtSettingsType
@@ -168,7 +171,18 @@
 		await goto('/user/workspaces')
 	}
 	let useCustomSlackApp: boolean = $state(false)
+	// Opt-in: Slack refuses a connection asking for a scope its app doesn't declare. An agent's page
+	// links here with `agents=true`.
+	let slackAgents = $state($page.url.searchParams.get('agents') === 'true')
 	let slackAppType: 'instance' | 'workspace' = $state('instance')
+	// Agents verify Slack's requests with the server's signing secret, which only the instance's
+	// Slack app is signed with, so the toggle is offered for that app alone.
+	let slackAgentsScopes = $derived(slackAgents && slackAppType === 'instance')
+	const slackAgentsStatus = resource(
+		() => (slackAgentsScopes ? $workspaceStore : undefined),
+		async (workspace) =>
+			workspace ? await SlackAgentsService.getSlackAgentsStatus({ workspace }) : undefined
+	)
 
 	// Keep slackAppType and useCustomSlackApp in sync
 	$effect(() => {
@@ -572,7 +586,8 @@
 	}
 
 	const isSlackOAuthEnabled = $derived(isSlackOAuthConfigured(oauths?.slack))
-	const isTeamsOAuthEnabled = $derived(isTeamsOAuthConfigured(oauths?.teams))
+	// TODO: drop the pre-rename `teams` fallback with the backend one.
+	const isTeamsOAuthEnabled = $derived(isTeamsOAuthConfigured(oauths?.ms_teams ?? oauths?.teams))
 
 	async function editWorkspaceCommand(platform: 'slack' | 'teams'): Promise<void> {
 		if (platform === 'slack') {
@@ -1865,7 +1880,7 @@
 											}
 										}}
 										onSelect={editSlackCommand}
-										connectHref="/api/oauth/connect_slack"
+										connectHref="/api/oauth/connect_slack{slackAgentsScopes ? '?agents=true' : ''}"
 										createScriptHref="/scripts/add?hub=hub%2F28071%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
 										createFlowHref="/flows/add?hub=28"
 										documentationLink="https://www.windmill.dev/docs/integrations/slack"
@@ -1878,27 +1893,45 @@
 										{#snippet workspaceConfig()}
 											<!-- Workspace OAuth Configuration Section -->
 											{#if !slack_team_name}
-												<div class="flex flex-col gap-1">
-													<!-- Show toggle buttons for app type selection -->
-													<ToggleButtonGroup bind:selected={slackAppType}>
-														{#snippet children({ item })}
-															<ToggleButton
-																{item}
-																value="instance"
-																label="Instance specific Slack app"
-															/>
-															<ToggleButton
-																{item}
-																value="workspace"
-																label="Workspace specific Slack app"
-															/>
-														{/snippet}
-													</ToggleButtonGroup>
-													<div class="text-2xs text-hint"
-														>Use the Slack app configured at the instance level if you want to use
-														the same Slack app for all workspaces. Configure your Slack app here if
-														you want to use a specific Slack app for this workspace.</div
-													>
+												<div class="flex flex-col gap-4 pb-3">
+													<div class="flex flex-col gap-1">
+														<ToggleButtonGroup bind:selected={slackAppType}>
+															{#snippet children({ item })}
+																<ToggleButton
+																	{item}
+																	value="instance"
+																	label="Instance specific Slack app"
+																/>
+																<ToggleButton
+																	{item}
+																	value="workspace"
+																	label="Workspace specific Slack app"
+																/>
+															{/snippet}
+														</ToggleButtonGroup>
+														<div class="text-2xs text-hint"
+															>Use the Slack app configured at the instance level if you want to use
+															the same Slack app for all workspaces. Configure your Slack app here
+															if you want to use a specific Slack app for this workspace.</div
+														>
+													</div>
+													{#if slackAppType === 'instance'}
+														<Toggle
+															size="xs"
+															bind:checked={slackAgents}
+															options={{
+																right: 'Let AI agents answer in Slack',
+																rightTooltip:
+																	'Lets editors share agents in Slack channels, where people ask them by mentioning the bot. Needs users:read, users:read.email and channels:read on the Slack app.'
+															}}
+														/>
+														{#if slackAgentsStatus.current?.signing_secret_set === false}
+															<Alert type="warning" size="xs" title="Agents won't answer yet">
+																An instance admin needs to set the Slack app's signing secret as the
+																<code>SLACK_SIGNING_SECRET</code> environment variable.
+															</Alert>
+														{/if}
+													{/if}
 												</div>
 											{/if}
 											{#if slackOAuthConfigLoaded}
@@ -1979,6 +2012,9 @@
 											{/if}
 										{/snippet}
 									</ConnectionSection>
+									{#if slack_team_name && $workspaceStore}
+										<SlackChannelAgents workspace={$workspaceStore} />
+									{/if}
 								{:else if slack_tabs === 'teams_commands'}
 									{#if !$enterpriseLicense}
 										<div class="pt-4"></div>

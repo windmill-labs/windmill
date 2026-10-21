@@ -152,6 +152,10 @@ export type WorkspaceItem = {
 	 * app, not in listings — a listing carrying it would make absence read as
 	 * proof of no exposure. */
 	executionMode?: string
+	/** Who a deployed item is shared with beyond its path owner, as `u/<user>` /
+	 * `g/<group>` → true for write, false for read-only. A draft has no permissions of
+	 * its own, so a draft read leaves it unset rather than reporting the item unshared. */
+	extraPerms?: Record<string, boolean>
 	isDraft: boolean
 	isLiveDraft?: boolean
 }

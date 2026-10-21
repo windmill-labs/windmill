@@ -13,6 +13,7 @@ use sqlx::types::Json;
 use sqlx::{Pool, Postgres};
 use tokio::process::Command;
 use tokio::{fs::File, io::AsyncReadExt};
+use windmill_common::variables::arg_needs_interpolation;
 
 use windmill_common::flows::Step;
 use windmill_common::global_settings::NSJAIL_TMP_BACKING_DISK;
@@ -89,6 +90,16 @@ pub(crate) fn raw_to_string(x: &str) -> String {
         Ok(x) => serde_json::to_string(&x).unwrap_or_else(|_| String::new()),
         _ => String::new(),
     }
+}
+
+/// Narrow a JSON integer to the Rust type bound for a SQL argument, erroring the way the
+/// database would rather than letting an `as` cast wrap it into a different value.
+pub(crate) fn narrow_sql_int<T, N>(n: N, sql_type: &str) -> anyhow::Result<T>
+where
+    T: TryFrom<N>,
+    N: std::fmt::Display + Copy,
+{
+    T::try_from(n).map_err(|_| anyhow!("value \"{n}\" is out of range for type {sql_type}"))
 }
 
 pub async fn build_args_map<'a>(
@@ -173,15 +184,11 @@ pub async fn write_file_binary(dir: &str, path: &str, content: &[u8]) -> error::
     Ok(file)
 }
 
-lazy_static::lazy_static! {
-    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|jsonvar|res|encrypted)\:"#).unwrap();
-}
-
 /// Returns true if any value in `vs` contains a `$var:`/`$jsonvar:`/`$res:`/`$encrypted:`
 /// reference that would need interpolation by `transform_json`. Cheap pre-check that
 /// callers can use to skip the DB roundtrip + clone path when nothing requires resolution.
 pub(crate) fn map_needs_resolution(vs: &HashMap<String, Box<RawValue>>) -> bool {
-    vs.values().any(|v| (*RE_RES_VAR).is_match(v.get()))
+    vs.values().any(|v| arg_needs_interpolation(v.get()))
 }
 
 pub async fn transform_json<'a>(
@@ -194,7 +201,7 @@ pub async fn transform_json<'a>(
     let mut has_match = false;
     for (_, v) in vs {
         let inner_vs = v.get();
-        if (*RE_RES_VAR).is_match(inner_vs) {
+        if arg_needs_interpolation(inner_vs) {
             has_match = true;
             break;
         }
@@ -205,7 +212,7 @@ pub async fn transform_json<'a>(
     let mut r = HashMap::new();
     for (k, v) in vs {
         let inner_vs = v.get();
-        if (*RE_RES_VAR).is_match(inner_vs) {
+        if arg_needs_interpolation(inner_vs) {
             let value = serde_json::from_str(inner_vs).map_err(|e| {
                 error::Error::internal_err(format!("Error while parsing inner arg: {e:#}"))
             })?;
@@ -232,7 +239,7 @@ pub async fn transform_json_as_values<'a>(
     let mut r: HashMap<String, serde_json::Value> = HashMap::new();
     for (k, v) in vs {
         let inner_vs = v.get();
-        if (*RE_RES_VAR).is_match(inner_vs) {
+        if arg_needs_interpolation(inner_vs) {
             let value = serde_json::from_str(inner_vs).map_err(|e| {
                 error::Error::internal_err(format!("Error while parsing inner arg: {e:#}"))
             })?;
@@ -979,12 +986,26 @@ pub fn build_command_with_isolation(program: &str, args: &[&str]) -> Command {
     }
 }
 
+/// Under `NSJAIL_GVISOR_COMPAT`, rewrites the config of an nsjail `cmd` for gVisor. A spawn of
+/// nsjail that bypasses `start_child_process` must call this itself.
+pub fn apply_nsjail_gvisor_compat(cmd: &Command) -> Result<(), Error> {
+    if *crate::NSJAIL_GVISOR_COMPAT && cmd.as_std().get_program() == crate::NSJAIL_PATH.as_str() {
+        crate::nsjail_compat::apply(cmd.as_std()).map_err(|e| {
+            Error::ExecutionErr(format!(
+                "NSJAIL_GVISOR_COMPAT could not prepare nsjail: {e}"
+            ))
+        })?;
+    }
+    Ok(())
+}
+
 pub async fn start_child_process(
     cmd: Command,
     executable: &str,
     disable_process_group: bool,
 ) -> Result<Box<dyn TokioChildWrapper>, Error> {
     use process_wrap::tokio::*;
+    apply_nsjail_gvisor_compat(&cmd)?;
     let mut cmd = TokioCommandWrap::from(cmd);
 
     // On Windows, put the child in its own console process group so a CTRL_BREAK_EVENT
@@ -2774,11 +2795,14 @@ mod tests {
                 include_str!("../nsjail/download.ruby.config.proto"),
             ),
         ] {
-            let at = profile
-                .find("\n{ENVARS}\n")
+            // Line by line: a Windows checkout gives the profiles CRLF endings.
+            let lines = profile.lines().collect::<Vec<_>>();
+            let at = lines
+                .iter()
+                .position(|l| *l == "{ENVARS}")
                 .unwrap_or_else(|| panic!("{name}: no {{ENVARS}}"));
             assert!(
-                !profile[..at].contains("\nenvar:"),
+                !lines[..at].iter().any(|l| l.starts_with("envar:")),
                 "{name}: a fixed envar precedes {{ENVARS}}"
             );
         }

@@ -145,7 +145,8 @@ pub struct ItemSchema {
 
 /// Trait for objects that can be converted to MCP tools
 pub trait ToolableItem {
-    /// Get the MCP-compatible tool name (path transformed with escaping/hashing)
+    /// Get the `s-`/`f-`/`hs-` encoded tool name (path transformed with escaping/hashing).
+    /// Scripts and flows are listed under `assign_tool_names` instead.
     fn get_transformed_path(&self) -> String;
     /// Get the original full path of this item (for display in tool title)
     fn get_full_path(&self) -> &str;

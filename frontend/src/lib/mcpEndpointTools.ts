@@ -1864,7 +1864,7 @@ export const mcpEndpointTools: EndpointTool[] = [
                 },
                 "resolved": {
                         "type": "boolean",
-                        "description": "filter on whether a failure has been marked as handled. true keeps only resolved failures, false hides them"
+                        "description": "filter on whether a failed or canceled run has been marked as handled. true keeps only resolved runs, false hides them"
                 },
                 "is_flow_step": {
                         "type": "boolean",

@@ -16,9 +16,17 @@ const CONV: Uuid = Uuid::from_u128(0x5eed);
 /// Takes the conversation for a turn, as a run does, without keeping what it writes.
 async fn take_conversation(db: &Pool<Postgres>) -> windmill_common::error::Result<Uuid> {
     let mut tx = db.begin().await?;
-    let result =
-        get_or_create_conversation_with_id(&mut tx, WS, "f/flow", "test-user", "t", CONV, false)
-            .await;
+    let result = get_or_create_conversation_with_id(
+        &mut tx,
+        WS,
+        "f/flow",
+        "test-user",
+        false,
+        "t",
+        CONV,
+        false,
+    )
+    .await;
     tx.rollback().await?;
     result.map(|c| c.id)
 }
