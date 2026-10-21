@@ -212,7 +212,8 @@
 			recentItems.record($workspaceStore!, {
 				kind: 'app',
 				path: backendApp.path,
-				summary: backendApp.summary
+				summary: backendApp.summary,
+				via: 'edit'
 			})
 		}
 		// Deployed App value for AppEditor's autosave `discardIf`, captured BEFORE

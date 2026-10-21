@@ -29,7 +29,7 @@
 		getFavoriteHref,
 		type FavoriteKind
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
-	import { MAX_AGE_DAYS, recentItems, type RecentKind } from './recentItems.svelte'
+	import { MAX_AGE_DAYS, recentItems, type RecentKind, type RecentVia } from './recentItems.svelte'
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import { isGlobalAiEnabled } from '$lib/components/copilot/chat/global/gate'
 	import {
@@ -59,6 +59,7 @@
 		path: string
 		title: string
 		at?: number
+		via?: RecentVia
 	}
 
 	function asStarKind(kind: RecentKind): FavoriteKind {
@@ -84,7 +85,7 @@
 		},
 		{
 			displayName: 'Show recent',
-			description: `Scripts, flows and apps you opened in their editor in the last ${MAX_AGE_DAYS} days, in this browser`,
+			description: `Scripts, flows and apps you opened or edited in the last ${MAX_AGE_DAYS} days, in this browser`,
 			toggle: homeQuickAccessSettings.showRecent,
 			disabled: homeQuickAccessSettings.showRecent && !homeQuickAccessSettings.showFavorites,
 			action: () => homeQuickAccessSettings.setShowRecent(!homeQuickAccessSettings.showRecent)
@@ -194,8 +195,8 @@
 			f.kind === 'asset' ? [] : [{ kind: f.kind, starKind: f.kind, path: f.path, title: f.label }]
 		)
 	)
-	// Favorites first, then what was edited lately; a starred item is listed once, as a favorite.
-	// With the favorites turned off, a starred item edited lately shows among the recent ones.
+	// Favorites first, then what was opened lately; a starred item is listed once, as a favorite.
+	// With the favorites turned off, a starred item opened lately shows among the recent ones.
 	let recentAll: Entry[] = $derived.by(() => {
 		const { showFavorites, showRecent } = homeQuickAccessSettings
 		const starred = new Set(
@@ -208,7 +209,8 @@
 				starKind: asStarKind(r.kind),
 				path: r.path,
 				title: r.summary || r.path,
-				at: r.at
+				at: r.at,
+				via: r.via
 			}))
 	})
 	// Grows by a page from the "Load next" card; back to one page on the next visit.
@@ -234,7 +236,7 @@
 	// page has been open.
 	let now = $state(Date.now())
 
-	function editedTooltip(at: number): string {
+	function recentTooltip(at: number, via: RecentVia | undefined): string {
 		const mins = Math.max(0, Math.floor((now - at) / 60_000))
 		const unit = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'} ago`
 		const ago =
@@ -245,7 +247,7 @@
 					: mins < 1440
 						? unit(Math.floor(mins / 60), 'hour')
 						: unit(Math.floor(mins / 1440), 'day')
-		return `Edited by you ${ago}`
+		return `${via === 'view' ? 'Opened' : 'Edited'} by you ${ago}`
 	}
 
 	// Everything the lists hold, the recent ones not loaded yet included.
@@ -364,7 +366,7 @@
 		{#if !favorite && item.at}
 			<span
 				class="shrink-0 text-2xs text-secondary"
-				title={editedTooltip(item.at)}
+				title={recentTooltip(item.at, item.via)}
 				onmouseenter={() => (now = Date.now())}
 				role="note"
 			>

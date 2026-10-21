@@ -318,7 +318,8 @@
 			recentItems.record($workspaceStore!, {
 				kind: 'raw_app',
 				path: backendApp.path,
-				summary: backendApp.summary
+				summary: backendApp.summary,
+				via: 'edit'
 			})
 		}
 		// `other_drafts_users` only computed when `getDraft`; don't clobber the
