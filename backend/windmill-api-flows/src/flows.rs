@@ -773,9 +773,9 @@ async fn authorize_composed_flow(
     Ok(())
 }
 
-/// What an operator must pass to store an `ai_agent` resource, deployed or as a draft. Its tools
-/// run in the agent's own runs and in every flow step linking it, so it is held to the rules of
-/// a composed flow, under the same right. `tx` is the write's own, begun as the caller.
+/// What a restricted role must pass to store an `ai_agent` resource, deployed or as a draft. Its
+/// tools run in the agent's own runs and in every flow step linking it, so it is held to the rules
+/// of a composed flow, under the same capability. `tx` is the write's own, begun as the caller.
 pub async fn validate_operator_agent(
     value: &serde_json::Value,
     authed: &ApiAuthed,
@@ -783,7 +783,11 @@ pub async fn validate_operator_agent(
     tx: &mut Transaction<'_, Postgres>,
     w_id: &str,
 ) -> error::Result<()> {
-    check_operator_can_build(db, w_id, true, BuilderKind::Flows, "write AI agents").await?;
+    if check_operator_can_build(db, w_id, authed, BuilderKind::Flows, "write AI agents").await?
+        == AuthorLevel::Full
+    {
+        return Ok(());
+    }
     let tools = value
         .get("tools")
         .cloned()

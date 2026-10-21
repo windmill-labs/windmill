@@ -501,7 +501,7 @@ async fn update_draft(
 
     // An agent draft is held to the rules of its deploy, as a flow draft is: a developer who
     // tests it in the agent editor runs its tools as themselves.
-    if authed.is_operator && kind == UserDraftItemKind::Resource {
+    if caps.flows != AuthorLevel::Full && kind == UserDraftItemKind::Resource {
         if let Some(value) = &req.value {
             #[derive(Deserialize)]
             struct ResourceDraft {
