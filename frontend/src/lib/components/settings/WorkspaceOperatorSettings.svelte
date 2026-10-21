@@ -169,14 +169,14 @@
 
 	<Section
 		small
-		label="Build flows and apps"
-		description="Let operators build flows out of deployed scripts and flows, and full-code apps whose frontend code they write. Apps always run sandboxed, and operators still cannot write backend scripts. Granting either right makes each operator consume a full seat instead of half a seat."
+		label="Build flows, AI agents and apps"
+		description="Let operators build flows and AI agents out of deployed scripts and flows, and full-code apps whose frontend code they write. Apps always run sandboxed, and operators still cannot write backend scripts. Granting either right makes each operator consume a full seat instead of half a seat."
 		wrapperClass="mb-6"
 		class="flex flex-col gap-y-1"
 	>
 		<Toggle
 			bind:checked={builderFlows}
-			options={{ right: 'Operators can build flows' }}
+			options={{ right: 'Operators can build flows and AI agents' }}
 			size="xs"
 		/>
 		<Toggle

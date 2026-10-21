@@ -42,8 +42,8 @@ permissions:
   - The step's `tool_inputs` replace a tool's inputs at run time, including the ones the agent's
     author set. A builder's step may bind only the inputs the agent leaves open
     (`check_bound_agent_inputs_are_open`, on `InputTransform::is_completed`), and the flow editor
-    shows a builder only those. What it binds there, a `$var:` or a JavaScript expression
-    included, is what its own steps may already pass a deployed runnable; an input the author set
+    lets a builder edit only those, showing the rest read-only. What it binds there, a `$var:` or
+    a JavaScript expression included, is what its own steps may already pass a deployed runnable; an input the author set
     stays theirs. The check runs on the flow's write, so a tool or input the agent gains later is
     open to a binding written before it, like the retyped path below.
   - The worker refuses a linked path whose resource is no longer an `ai_agent`
