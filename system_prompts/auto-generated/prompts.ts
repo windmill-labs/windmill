@@ -957,8 +957,8 @@ assistant they talk to or reuse. Build a flow when the agent is one step of a la
 }
 \`\`\`
 
-The value holds plain values, not the \`input_transforms\` an agent step in a flow uses: every field
-is fixed when the agent is saved. \`$res:\` and \`$var:\` references inside it are resolved at run time.
+The agent's own settings are plain values, not the \`input_transforms\` an agent step in a flow uses:
+each is fixed when the agent is saved. Only a tool's arguments keep \`input_transforms\` (see Tools). \`$res:\` and \`$var:\` references inside it are resolved at run time.
 
 - \`provider\` (required): \`{ "kind", "resource": "$res:<path>", "model" }\`, plus an optional
   \`reasoning_effort\`. \`resource\` names the workspace's AI provider resource of that kind
@@ -1019,7 +1019,10 @@ system prompt and tools:
 
 The step holds only what belongs to one use of the agent: \`user_message\`, \`user_attachments\`,
 \`enabled_tools\`, \`memory_id\`, \`previous_messages\`, and the \`model\` and \`reasoning_effort\` overrides.
-Everything else comes from the agent, so a change to the agent reaches every flow linking it.
+Its \`value.tool_inputs\` (\`{ "<tool id>": { "<argument>": <input transform> } }\`) wires a saved
+tool's arguments to this flow, e.g. \`flow_input.customer_id\`, over the transforms the agent saved,
+without changing the agent. Everything else comes from the agent, so a change to the agent reaches
+every flow linking it.
 `;
 
 export const RAW_APP_BASE = `# Windmill Raw Apps

@@ -211,7 +211,7 @@
 	},
 	{
 		"name": "get_instructions",
-		"description": "Get authoring guidance for scripts, flows, data pipelines, resources, apps, or data tables: their migrations and permissions, and the SQL SDK (wmill.datatable()) used inside runnables.",
+		"description": "Get authoring guidance for scripts, flows, AI agents, data pipelines, resources, apps, or data tables: their migrations and permissions, and the SQL SDK (wmill.datatable()) used inside runnables.",
 		"parameters": {
 			"type": "object",
 			"properties": {

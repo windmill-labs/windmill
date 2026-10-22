@@ -3858,7 +3858,7 @@ export const globalTools: SessionTool<{}>[] = [
 		def: createToolDef(
 			getInstructionsSchema,
 			'get_instructions',
-			'Get authoring guidance for scripts, flows, data pipelines, resources, apps, or data tables: their migrations and permissions, and the SQL SDK (wmill.datatable()) used inside runnables.'
+			'Get authoring guidance for scripts, flows, AI agents, data pipelines, resources, apps, or data tables: their migrations and permissions, and the SQL SDK (wmill.datatable()) used inside runnables.'
 		),
 		planModeSafe: true,
 		fn: async (ctx) => {
