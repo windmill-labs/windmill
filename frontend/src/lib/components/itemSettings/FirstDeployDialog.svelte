@@ -12,6 +12,9 @@
 		/** Apps only. */
 		appMode?: AppAccessMode
 		message: string
+		/** The user the second step confirmed, where the deploy asked who the item runs as; the
+		 *  deploy then asks nothing more. */
+		runAs?: { email: string | undefined; permissionedAs: string | undefined }
 	}
 	/** Add the members chosen at the first deploy, once the item exists at `path`. */
 	export async function applyFirstDeployMembers(
@@ -42,14 +45,22 @@
 	import Path from '$lib/components/Path.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { isPlaceholderName } from '$lib/components/random_positive_adjetive'
-	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import {
+		useOperatingUser,
+		useOperatingWorkspace
+	} from '$lib/components/operatingWorkspace.svelte'
+	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import ItemAccessList from './ItemAccessList.svelte'
 	import AppAccessSection from './AppAccessSection.svelte'
+	import DeployOnBehalfOfFields from './DeployOnBehalfOfFields.svelte'
+	import { deployAsksOnBehalfOf, deployOnBehalfOfQuestion } from './onBehalfOf'
 	import { logFirstDeploy } from './sharingTelemetry'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
 
 	let open = $state(false)
+	let step = $state<'details' | 'runAs'>('details')
 	let kind = $state<ShareKind>('flow')
 	let summary = $state('')
 	let path: string | undefined = $state()
@@ -58,11 +69,36 @@
 	let members: Record<string, boolean> = $state({})
 	let appMode = $state<AppAccessMode>('publisher')
 	let message = $state('')
+	/** Where the item's run-as user is looked up; unset when the caller asks nothing about it. */
+	let runAsWorkspace: string | undefined = $state()
+	let runAsEmail: string | undefined = $state()
+	let runAsPermissionedAs: string | undefined = $state()
 	let pathField: Path | undefined = $state()
 	let resolve: ((choice: FirstDeployChoice | undefined) => void) | undefined
 
 	let noun = $derived(kind === 'raw_app' ? 'app' : kind)
 	let isApp = $derived(kind === 'app' || kind === 'raw_app')
+	let runAsKind = $derived<'flow' | 'script' | 'app'>(kind === 'raw_app' ? 'app' : kind)
+	// A new item takes its folder's default user, so the second step follows the path chosen in
+	// the first.
+	const folderDefault = useFolderDefaultPermissionedAs(
+		() => (open && runAsWorkspace !== undefined ? path : undefined),
+		() => runAsWorkspace
+	)
+	let asksRunAs = $derived(
+		runAsWorkspace !== undefined &&
+			deployAsksOnBehalfOf(runAsKind, !!runAsEmail, false, folderDefault.value)
+	)
+	let question = $derived(
+		deployOnBehalfOfQuestion(runAsKind, operatingUser.current, {
+			email: runAsEmail,
+			permissionedAs: runAsPermissionedAs,
+			savedEmail: undefined,
+			savedPermissionedAs: undefined,
+			isNew: true,
+			folderDefault: folderDefault.value
+		})
+	)
 
 	function slug(s: string): string {
 		return s
@@ -73,9 +109,9 @@
 	}
 
 	/**
-	 * Ask where a never-deployed item goes and who reaches it. Resolves to the choice, or to
-	 * undefined when the dialog is dismissed. The name follows the summary while it is still the
-	 * placeholder the editor generated.
+	 * Ask where a never-deployed item goes and who reaches it, then, where a deploy asks it, who
+	 * it runs on behalf of. Resolves to the choice, or to undefined when the dialog is dismissed.
+	 * The name follows the summary while it is still the placeholder the editor generated.
 	 */
 	export function ask(opts: {
 		kind: ShareKind
@@ -84,9 +120,19 @@
 		/** The caller picked the path, so it does not follow the summary. */
 		pathChosen?: boolean
 		appMode?: AppAccessMode
+		/** The user the item holds to run on behalf of, which the second step confirms. */
+		runAs?: {
+			email: string | undefined
+			permissionedAs: string | undefined
+			targetWorkspace: string
+		}
 	}): Promise<FirstDeployChoice | undefined> {
 		resolve?.(undefined)
+		step = 'details'
 		kind = opts.kind
+		runAsWorkspace = opts.runAs?.targetWorkspace
+		runAsEmail = opts.runAs?.email
+		runAsPermissionedAs = opts.runAs?.permissionedAs
 		summary = opts.summary
 		pathError = ''
 		// A new item is parked at `draft_<uuid>` or named `<adjective>_<kind>` until someone names it.
@@ -116,6 +162,14 @@
 		r(choice)
 	}
 
+	async function next() {
+		if (!path || pathError) return
+		// The folder default follows a path change a fetch later: read it for the path chosen.
+		if (runAsWorkspace !== undefined) await folderDefault.refetch()
+		if (asksRunAs) step = 'runAs'
+		else deploy()
+	}
+
 	function deploy() {
 		if (!path || pathError) return
 		finish({
@@ -123,22 +177,54 @@
 			path,
 			members: $state.snapshot(members),
 			appMode: isApp ? appMode : undefined,
-			message
+			message,
+			runAs: asksRunAs ? { email: runAsEmail, permissionedAs: runAsPermissionedAs } : undefined
 		})
 	}
 </script>
 
-<!-- Closed by Escape, the backdrop or the close button: a dismissal. -->
+<!-- Closed by Escape at the first step, the backdrop or the close button: a dismissal. On the second
+     step Escape goes back to the first. -->
 <Modal
 	bind:open={() => open, (v) => (v ? (open = true) : finish(undefined))}
 	title="Deploy this {noun}"
-	description="First deploy: choose its name and who can reach it. Share changes both later."
+	trail={step === 'runAs'
+		? [
+				{ label: `Deploy this ${noun}`, onclick: () => (step = 'details') },
+				{ label: question.title }
+			]
+		: undefined}
+	description={step === 'details'
+		? 'First deploy: choose its name and who can reach it. Share changes both later.'
+		: undefined}
 	kind="X"
 	enterConfirms={false}
 	fitHeight
 	class="sm:max-w-xl"
 >
-	<div class="flex flex-col gap-6 h-full">
+	{#if step === 'runAs'}
+		<div class="flex flex-col gap-4">
+			<DeployOnBehalfOfFields
+				kind={runAsKind}
+				bind:email={runAsEmail}
+				bind:permissionedAs={runAsPermissionedAs}
+				savedEmail={undefined}
+				savedPermissionedAs={undefined}
+				isNew
+				folderDefault={folderDefault.value}
+				targetWorkspace={runAsWorkspace ?? ''}
+				executionMode={isApp ? appMode : undefined}
+				rawApp={kind === 'raw_app'}
+			/>
+			<div class="flex flex-row justify-end gap-2 border-t pt-4">
+				<Button variant="default" unifiedSize="md" onclick={() => (step = 'details')}>Back</Button>
+				<Button variant="accent" unifiedSize="md" onclick={deploy}>Deploy</Button>
+			</div>
+		</div>
+	{/if}
+	<!-- Kept mounted on the second step, so going back finds the path and the people as they
+	     were left. -->
+	<div class="flex flex-col gap-6 h-full {step === 'details' ? '' : 'hidden'}">
 		<Label label="Summary" for="first-deploy-summary">
 			<TextInput
 				inputProps={{
@@ -196,8 +282,8 @@
 
 		<div class="flex flex-row justify-end gap-2 border-t pt-4">
 			<Button variant="default" unifiedSize="md" onclick={() => finish(undefined)}>Cancel</Button>
-			<Button variant="accent" unifiedSize="md" disabled={!path || !!pathError} onclick={deploy}>
-				Deploy
+			<Button variant="accent" unifiedSize="md" disabled={!path || !!pathError} onclick={next}>
+				{asksRunAs ? 'Next' : 'Deploy'}
 			</Button>
 		</div>
 	</div>

@@ -398,7 +398,8 @@
 		if (!policy.execution_mode) {
 			policy.execution_mode = 'publisher'
 		}
-		setDeployedOnBehalfOf(policy, actingUser, folderDefault.value)
+		// Read for the path being created: the first-deploy dialog may have just chosen it.
+		setDeployedOnBehalfOf(policy, actingUser, await folderDefault.refetch())
 		try {
 			const { js, css } = await getBundle()
 			const deployedPolicy = await policyWithTriggerables()
@@ -721,21 +722,31 @@
 		}
 		deploymentMsg = message
 		firstDeployMembers = {}
-		// Before the run-as confirmation, which reads the folder default of the chosen path and who
-		// can open the app.
 		if (isNewApp && ownsPageHeader) {
+			// The dialog also asks who the app runs on behalf of, for the path it chose.
 			const choice = await firstDeployDialog?.ask({
 				kind: 'raw_app',
 				summary,
 				path: newEditedPath,
-				appMode: accessModeOf(policy)
+				appMode: accessModeOf(policy),
+				runAs: {
+					email: policy.on_behalf_of_email,
+					permissionedAs: policy.on_behalf_of,
+					targetWorkspace: opWorkspace ?? ''
+				}
 			})
 			if (!choice) return
 			summary = choice.summary
 			newEditedPath = choice.path
 			policy.execution_mode = choice.appMode
+			if (choice.runAs) {
+				policy.on_behalf_of_email = choice.runAs.email
+				policy.on_behalf_of = choice.runAs.permissionedAs
+			}
 			deploymentMsg = choice.message
 			firstDeployMembers = choice.members
+			await deployNow()
+			return
 		}
 		deployDialogOpen = true
 	}

@@ -318,7 +318,8 @@
 	async function createApp(path: string): Promise<boolean> {
 		// In place: the settings drawer and the draft mirror hold this object.
 		Object.assign(policy, await updatePolicy($app, policy))
-		setDeployedOnBehalfOf(policy, operatingUser.current, folderDefault.value)
+		// Read for the path being created: the first-deploy dialog may have just chosen it.
+		setDeployedOnBehalfOf(policy, operatingUser.current, await folderDefault.refetch())
 		try {
 			await AppService.createApp({
 				workspace: $workspaceStore!,
@@ -532,21 +533,31 @@
 		}
 		deploymentMsg = message ?? ''
 		firstDeployMembers = {}
-		// Before the run-as confirmation, which reads the folder default of the chosen path and who
-		// can open the app.
 		if (newApp && ownsPageHeader) {
+			// The dialog also asks who the app runs on behalf of, for the path it chose.
 			const choice = await firstDeployDialog?.ask({
 				kind: 'app',
 				summary: $summary,
 				path: newEditedPath,
-				appMode: accessModeOf(policy)
+				appMode: accessModeOf(policy),
+				runAs: {
+					email: policy.on_behalf_of_email,
+					permissionedAs: policy.on_behalf_of,
+					targetWorkspace: $workspaceStore ?? ''
+				}
 			})
 			if (!choice) return
 			$summary = choice.summary
 			newEditedPath = choice.path
 			policy.execution_mode = choice.appMode
+			if (choice.runAs) {
+				policy.on_behalf_of_email = choice.runAs.email
+				policy.on_behalf_of = choice.runAs.permissionedAs
+			}
 			deploymentMsg = choice.message
 			firstDeployMembers = choice.members
+			await deployNow()
+			return
 		}
 		deployDialogOpen = true
 	}

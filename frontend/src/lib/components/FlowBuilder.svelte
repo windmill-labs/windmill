@@ -496,25 +496,35 @@
 
 	async function handleSaveFlow(deploymentMsg?: string) {
 		pendingFirstDeploy = undefined
-		// Before the run-as confirmation, which reads the folder default of the chosen path.
 		if (ownsPageHeader && neverDeployed) {
+			// The dialog also asks who the flow runs on behalf of, for the path it chose.
 			const choice = await firstDeployDialog?.ask({
 				kind: 'flow',
 				summary: flowStore.val.summary ?? '',
-				path: $pathStore
+				path: $pathStore,
+				runAs: {
+					email: flowStore.val.on_behalf_of_email,
+					permissionedAs: flowStore.val.on_behalf_of,
+					targetWorkspace: opWorkspace ?? ''
+				}
 			})
 			if (!choice) return
 			flowStore.val.summary = choice.summary
 			$pathStore = choice.path
-			deploymentMsg = choice.message
+			if (choice.runAs) {
+				flowStore.val.on_behalf_of_email = choice.runAs.email
+				flowStore.val.on_behalf_of = choice.runAs.permissionedAs
+			}
 			pendingFirstDeploy = choice
+			await deployFlow(choice.message)
+			return
 		}
 		if (
 			deployAsksOnBehalfOf(
 				'flow',
 				!!flowStore.val.on_behalf_of_email,
 				!isNewFlow && !!$savedOnBehalfOfEmail,
-				pendingFirstDeploy ? await folderDefault.refetch() : folderDefault.value
+				folderDefault.value
 			)
 		) {
 			deployDialogMsg = deploymentMsg ?? ''

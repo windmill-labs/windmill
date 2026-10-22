@@ -653,28 +653,38 @@
 
 	async function handleEditScript(stay: boolean, deployMsg?: string): Promise<void> {
 		// Every deploy path of the full-page editor comes through here, the message popover and
-		// "Deploy & Stay here" included. Before the run-as confirmation, which reads the folder
-		// default of the chosen path.
+		// "Deploy & Stay here" included.
 		pendingFirstDeploy = undefined
 		if (ownsPageHeader && neverDeployed) {
+			// The dialog also asks who the script runs on behalf of, for the path it chose.
 			const choice = await firstDeployDialog?.ask({
 				kind: 'script',
 				summary: script.summary,
 				path: script.path,
-				pathChosen: dirtyPath
+				pathChosen: dirtyPath,
+				runAs: {
+					email: script.on_behalf_of_email,
+					permissionedAs: script.on_behalf_of,
+					targetWorkspace: opWorkspace ?? ''
+				}
 			})
 			if (!choice) return
 			script.summary = choice.summary
 			script.path = choice.path
-			deployMsg = choice.message
+			if (choice.runAs) {
+				script.on_behalf_of_email = choice.runAs.email
+				script.on_behalf_of = choice.runAs.permissionedAs
+			}
 			pendingFirstDeploy = choice
+			await deployScript(stay, choice.message)
+			return
 		}
 		if (
 			deployAsksOnBehalfOf(
 				'script',
 				!!script.on_behalf_of_email,
 				!isNewScript && !!savedScript?.on_behalf_of_email,
-				pendingFirstDeploy ? await folderDefault.refetch() : folderDefault.value
+				folderDefault.value
 			)
 		) {
 			deployDialogStay = stay
