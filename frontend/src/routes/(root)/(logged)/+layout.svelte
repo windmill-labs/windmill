@@ -58,7 +58,8 @@
 		type UserWorkspace
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
-	import { afterNavigate, beforeNavigate } from '$app/navigation'
+	import { afterNavigate, beforeNavigate, onNavigate } from '$app/navigation'
+	import { homeSessionsTransition } from '$lib/components/sessions/homeSessionsTransition.svelte'
 	import { goto } from '$lib/navigation'
 	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
 	import type UserSettings from '$lib/components/UserSettings.svelte'
@@ -449,6 +450,8 @@
 		return kind ? { kind, path: route.itemPath } : undefined
 	}
 
+	onNavigate(homeSessionsTransition)
+
 	beforeNavigate((navigation) => {
 		if (preserveMenuOnNextNav) {
 			preserveMenuOnNextNav = false
@@ -661,27 +664,37 @@
 	}
 
 	async function loadFavorites() {
-		const scripts = await ScriptService.listScripts({
-			workspace: $workspaceStore ?? '',
-			starredOnly: true,
-			includeWithoutMain: true,
-			withoutDescription: true
-		})
-		const flows = await FlowService.listFlows({
-			workspace: $workspaceStore ?? '',
-			starredOnly: true,
-			withoutDescription: true
-		})
-		const apps = await AppService.listApps({
-			workspace: $workspaceStore ?? '',
-			starredOnly: true
-		})
-		const agents = await ResourceService.listResource({
-			workspace: $workspaceStore ?? '',
-			resourceType: 'ai_agent',
-			starredOnly: true
-		})
-		const assets = await AssetService.listFavoriteAssets({ workspace: $workspaceStore ?? '' })
+		const workspace = $workspaceStore ?? ''
+		try {
+			await loadFavoritesFor(workspace)
+		} catch (e) {
+			// `current` still holds another workspace's favorites, which `loadedFor` is about to
+			// vouch for as this one's.
+			if (favoriteManager.loadedFor !== workspace && ($workspaceStore ?? '') === workspace)
+				favoriteManager.current = []
+			throw e
+		} finally {
+			// Set on failure too: Home holds its shortcuts back until this says the favorites
+			// are in, and a failed read must not hold them back for good. Not once the workspace
+			// has changed: a slow load for the last one would name it and hide them in this one.
+			if (($workspaceStore ?? '') === workspace) favoriteManager.loadedFor = workspace
+		}
+	}
+
+	async function loadFavoritesFor(workspace: string) {
+		const [scripts, flows, apps, agents, assets] = await Promise.all([
+			ScriptService.listScripts({
+				workspace,
+				starredOnly: true,
+				includeWithoutMain: true,
+				withoutDescription: true
+			}),
+			FlowService.listFlows({ workspace, starredOnly: true, withoutDescription: true }),
+			AppService.listApps({ workspace, starredOnly: true }),
+			ResourceService.listResource({ workspace, resourceType: 'ai_agent', starredOnly: true }),
+			AssetService.listFavoriteAssets({ workspace })
+		])
+		if (($workspaceStore ?? '') !== workspace) return
 		favoriteManager.current = [
 			...scripts.map((s) => ({
 				label: s.summary || getFavoriteLabel(s.path, 'script'),

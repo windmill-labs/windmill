@@ -23,6 +23,7 @@
 	import { agentMenuItems, deleteAgent } from '$lib/components/flows/agentActions'
 	import AgentHistory from '$lib/components/flows/AgentHistory.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
+	import { recentItems } from '$lib/components/home/recentItems.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import { sendUserToast } from '$lib/toast'
@@ -45,6 +46,19 @@
 	let canAuthor = $derived(editRights.roleCanAuthor('agent'))
 	let canCode = $derived(editRights.capabilities.code)
 	let canEdit = $derived(config != undefined && (agent?.canWrite ?? false) && canAuthor)
+
+	// Recorded once the agent is in: a path with nothing deployed never loads one.
+	let loaded = $derived(config != undefined)
+	$effect(() => {
+		if (ws && loaded) {
+			recentItems.record(ws, {
+				kind: 'agent',
+				path,
+				summary: agent?.state?.description,
+				via: 'view'
+			})
+		}
+	})
 
 	let configModal: AgentConfigModal | undefined = $state(undefined)
 	let shareModal: ShareModal | undefined = $state(undefined)

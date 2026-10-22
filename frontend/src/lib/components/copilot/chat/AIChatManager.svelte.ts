@@ -2319,8 +2319,12 @@ export class AIChatManager implements ChatViewHost {
 		)
 	}
 
-	setAiChatInput(aiChatInput: AIChatInput | null) {
+	setAiChatInput(aiChatInput: AIChatInput) {
 		this.aiChatInput = aiChatInput
+	}
+
+	releaseAiChatInput(aiChatInput: AIChatInput) {
+		if (this.aiChatInput === aiChatInput) this.aiChatInput = null
 	}
 
 	/** Queue the message typed while a turn is streaming. There is only ever

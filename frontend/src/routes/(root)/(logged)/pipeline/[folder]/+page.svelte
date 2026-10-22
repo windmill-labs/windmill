@@ -3,6 +3,7 @@
 	import { roleCapabilities, workspaceStore, userStore } from '$lib/stores'
 	import { PIPELINE_DRAFT_KIND, pipelineBundlePath } from '$lib/pipelinePaths'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { page } from '$app/state'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -532,7 +533,8 @@
 	// autosave still inside its debounce has to land first.
 	async function persistDraftsForSession(): Promise<void> {
 		const workspace = $workspaceStore
-		if (!workspace) return
+		// A role that cannot code only views the pipeline, so there is no draft of theirs to save.
+		if (!workspace || viewOnly) return
 		await tick()
 		const draft = { workspace, itemKind: PIPELINE_DRAFT_KIND, path: pipelineDraftPath }
 		await UserDraftDbSyncer.flush(draft)
@@ -552,15 +554,11 @@
 		bypassNavigationGuard = true
 	}
 
-	const sessionOpen: OpenInSessionSource | undefined = $derived(
-		viewOnly
-			? undefined
-			: {
-					target: { kind: 'pipeline', path: folder },
-					workspaceId: $workspaceStore ?? undefined,
-					beforeOpen: persistDraftsForSession
-				}
-	)
+	const sessionOpen: OpenInSessionSource = $derived({
+		target: { kind: 'pipeline', path: folder },
+		workspaceId: $workspaceStore ?? undefined,
+		beforeOpen: persistDraftsForSession
+	})
 	// Lets the navigation rail's session switch open this pipeline, with its drafts.
 	setOpenInSessionHandoff({ source: () => sessionOpen })
 
@@ -1887,8 +1885,44 @@
 	// overflow (⋮) menu so the bar stays legible on small screens; only primary
 	// actions stay inline. Recording lives here rather than on the bar at all
 	// times — while armed it surfaces a compact inline pill (below) instead.
+	// The bar folds the actions (`actionFolds` below) once its breadcrumb has given all it can,
+	// moving them into the ⋮ menu rather than dropping their labels: first the view helpers, then
+	// the run and the drafts overlay. The mode toggle and Save all stay on the bar.
+	const viewHelpersInMenu = $derived(pageHeader.actionFold >= 1)
+	const runInMenu = $derived(pageHeader.actionFold >= 2)
+
 	let overflowMenuItems = $derived.by<Item[]>(() => {
 		const items: Item[] = []
+		if (runInMenu && !viewOnly && allPipelineScripts.length > 0) {
+			items.push({
+				displayName: cascadeRunningRoot ? 'Running…' : 'Run pipeline',
+				icon: Play,
+				disabled: !!cascadeRunningRoot,
+				action: () => runWholePipeline()
+			})
+		}
+		if (runInMenu && !viewOnly && mode === 'view' && pendingCount > 0) {
+			items.push({
+				displayName: `${includeDrafts ? 'Hide' : 'Show'} ${pendingCount} draft${pendingCount === 1 ? '' : 's'}`,
+				icon: Telescope,
+				action: () => (includeDrafts = !includeDrafts)
+			})
+		}
+		if (viewHelpersInMenu) {
+			if (mode === 'view') {
+				items.push({
+					displayName: activityShowing ? 'Hide activity' : 'Activity',
+					icon: History,
+					action: () => toggleActivity()
+				})
+			}
+			items.push({
+				displayName: 'Refresh',
+				icon: RefreshCw,
+				disabled: graphRes.loading,
+				action: () => graphRes.refetch()
+			})
+		}
 		if (!viewOnly && allPipelineScripts.length > 0) {
 			items.push({
 				displayName: recordingMode ? 'Disarm recorder' : 'Record next run',
@@ -2300,6 +2334,10 @@
 			.filter((r) => r.usage_kind === 'script' && r.in_pipeline)
 			.map((r) => r.path)
 	)
+	// What the bar shows of the page's main actions: the session button goes right before them.
+	const saveAllShown = $derived(mode === 'edit' && pendingCount > 0)
+	const runPipelineShown = $derived(!viewOnly && allPipelineScripts.length > 0 && !runInMenu)
+
 	// Run the whole pipeline: hand every script to the bounded-cascade engine,
 	// which topo-orders them (roots first) and fans downstream — i.e. run + all
 	// downstream from every source at once. Reuses the same per-hop launch/poll
@@ -2816,7 +2854,8 @@
 <PageHeaderContent
 	section={{ label: 'Pipelines', content: pipelineCrumb }}
 	actions={pipelineActions}
-	actionsFlexible
+	sessionSource={sessionOpen}
+	actionFolds={2}
 />
 
 {#snippet pipelineCrumb()}
@@ -2866,19 +2905,16 @@
 {/snippet}
 
 {#snippet pipelineActions()}
-	<!-- This page carries more actions than any other in the band, so the set scrolls rather than
-	     being pushed off the end. `actionsFlexible` on the registration is what lets this box
-	     shrink far enough for that to matter. -->
-	<div
-		class="flex flex-row items-center gap-2 min-w-0 overflow-x-auto scrollbar-hidden whitespace-nowrap"
-	>
+	<!-- This page carries more actions than any other in the band; what does not fit folds into
+	     the ⋮ menu (see `viewHelpersInMenu`). -->
+	<div class="flex flex-row items-center gap-2 whitespace-nowrap">
 		{#if !viewOnly}
 			<!-- Center group: the mode toggle is the page's primary control —
 			     anchored between the two flex-1 side groups so it stays
 			     centered, with breathing room on both sides. -->
 			<div class="flex flex-row items-center gap-2 shrink-0">
 				<PipelineModeToggle {mode} draftCount={pendingCount} onModeChange={(m) => setMode(m)} />
-				{#if mode === 'view' && pendingCount > 0}
+				{#if mode === 'view' && pendingCount > 0 && !runInMenu}
 					<!-- View variant: overlay the unsaved drafts onto the deployed
 					     graph — "what View will show once they're deployed". -->
 					<Button
@@ -2914,33 +2950,39 @@
 						Recording
 					</button>
 				{/if}
-				<!-- Pipeline-level run: always visible in both View and Edit so a
+				<!-- Pipeline-level run: in both View and Edit, on the bar or in the ⋮ menu, so a
 				     run never requires hunting for a specific node's play button
 				     (dbt `build` / Dagster "Materialize all"). Runs every script in
 				     dependency order (roots first, cascading downstream) over the
 				     displayed graph — deployed in View, draft-overlaid in Edit. -->
-				<Button
-					variant="accent-secondary"
-					unifiedSize="sm"
-					startIcon={{
-						icon: cascadeRunningRoot ? Loader2 : Play,
-						classes: cascadeRunningRoot ? 'animate-spin' : undefined
-					}}
-					onclick={runWholePipeline}
-					disabled={!!cascadeRunningRoot}
-					title={cascadeRunningRoot
-						? 'A pipeline run is already in progress'
-						: `Run all ${allPipelineScripts.length} script${
-								allPipelineScripts.length === 1 ? '' : 's'
-							} in dependency order (roots first, cascading downstream)`}
-				>
-					{cascadeRunningRoot ? 'Running…' : 'Run pipeline'}
-				</Button>
+				{#if !runInMenu}
+					{#if !saveAllShown}
+						{@render sessionButton()}
+					{/if}
+					<Button
+						variant="accent-secondary"
+						unifiedSize="sm"
+						startIcon={{
+							icon: cascadeRunningRoot ? Loader2 : Play,
+							classes: cascadeRunningRoot ? 'animate-spin' : undefined
+						}}
+						onclick={runWholePipeline}
+						disabled={!!cascadeRunningRoot}
+						title={cascadeRunningRoot
+							? 'A pipeline run is already in progress'
+							: `Run all ${allPipelineScripts.length} script${
+									allPipelineScripts.length === 1 ? '' : 's'
+								} in dependency order (roots first, cascading downstream)`}
+					>
+						{cascadeRunningRoot ? 'Running…' : 'Run pipeline'}
+					</Button>
+				{/if}
 			{/if}
 			{#if mode === 'edit' && saveErrors.size > 0}
 				<PipelineDeployErrors errors={saveErrors} bind:open={saveErrorsOpen} />
 			{/if}
-			{#if mode === 'edit' && pendingCount > 0}
+			{#if saveAllShown}
+				{@render sessionButton()}
 				<Button
 					variant="accent"
 					unifiedSize="sm"
@@ -2952,7 +2994,7 @@
 					{savingAll ? 'Saving…' : `Save all (${pendingCount})`}
 				</Button>
 			{/if}
-			{#if mode === 'view'}
+			{#if mode === 'view' && !viewHelpersInMenu}
 				<Button
 					variant={activityShowing ? 'accent-secondary' : 'subtle'}
 					unifiedSize="sm"
@@ -2965,18 +3007,27 @@
 					Activity
 				</Button>
 			{/if}
-			<OpenInSessionButton source={sessionOpen} />
-			<Button
-				variant="subtle"
-				unifiedSize="sm"
-				startIcon={{ icon: RefreshCw }}
-				onclick={() => graphRes.refetch()}
-				disabled={graphRes.loading}
-				iconOnly
-				title="Refresh"
-			/>
+			{#if !viewHelpersInMenu}
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					startIcon={{ icon: RefreshCw }}
+					onclick={() => graphRes.refetch()}
+					disabled={graphRes.loading}
+					iconOnly
+					title="Refresh"
+				/>
+			{/if}
 			<DropdownV2 size="sm" items={overflowMenuItems} />
+			{#if !saveAllShown && !runPipelineShown}
+				{@render sessionButton()}
+			{/if}
 	</div>
+{/snippet}
+
+{#snippet sessionButton()}
+	<!-- Right before the page's main action: Save all while there are drafts, else Run pipeline. -->
+	<OpenInSessionButton source={sessionOpen} />
 {/snippet}
 
 <div class="flex flex-col h-full">

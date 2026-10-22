@@ -21,6 +21,7 @@
 	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 	import type { stepState } from '$lib/components/stepHistoryLoader.svelte'
 	import { page } from '$app/state'
+	import { recentItems } from '$lib/components/home/recentItems.svelte'
 	import { UserDraft, draftValuesEqual } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
@@ -346,6 +347,15 @@
 			getDraft
 		})
 		if (tok !== loadFlowToken) return
+		// A draft-only flow has no page for Home's card to open.
+		if (!backendFlow.no_deployed) {
+			recentItems.record($workspaceStore!, {
+				kind: 'flow',
+				path: backendFlow.path,
+				summary: backendFlow.summary,
+				via: 'edit'
+			})
+		}
 		// `other_drafts_users` only computed when `getDraft`; don't clobber the
 		// known list on a `getDraft:false` reload. See /scripts/edit's loader.
 		if (getDraft) {

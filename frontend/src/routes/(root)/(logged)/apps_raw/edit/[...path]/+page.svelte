@@ -15,6 +15,7 @@
 	import { openEditorInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
+	import { recentItems } from '$lib/components/home/recentItems.svelte'
 	import {
 		type RawAppData,
 		DEFAULT_DATA,
@@ -312,6 +313,15 @@
 			rawApp: true
 		})) as any
 		if (tok !== loadAppToken) return
+		// A draft-only app has no page for Home's card to open.
+		if (!backendApp.no_deployed) {
+			recentItems.record($workspaceStore!, {
+				kind: 'raw_app',
+				path: backendApp.path,
+				summary: backendApp.summary,
+				via: 'edit'
+			})
+		}
 		// `other_drafts_users` only computed when `getDraft`; don't clobber the
 		// known list on a `getDraft:false` reload. See /scripts/edit's loader.
 		if (getDraft) {
@@ -647,6 +657,7 @@
 			<RawAppEditor
 				bind:this={rawAppEditor}
 				ownsPageHeader
+				compact={page.url.searchParams.get('view') === 'preview'}
 				onDetails={(e) => goto(`/apps_raw/get/${e.path}?workspace=${$workspaceStore}`)}
 				onSavedNewAppPath={(savedPath) => {
 					draftSync.remove()

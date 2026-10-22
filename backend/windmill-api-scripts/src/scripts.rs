@@ -1252,7 +1252,7 @@ async fn validate_dbt_relation(
 /// The schema the editor would have derived from `content`, for a deploy that sends
 /// none (MCP, a bare API call). `None` for a language whose parser this build lacks,
 /// or code that does not parse.
-fn infer_main_schema(
+pub fn infer_main_schema(
     language: &ScriptLang,
     kind: Option<&ScriptKind>,
     content: &str,

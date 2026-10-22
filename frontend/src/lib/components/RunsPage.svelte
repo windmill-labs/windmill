@@ -31,10 +31,12 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
-	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { RUNS_PATH } from '$lib/components/sessions/previewPaths'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { computeJobKinds, useJobsLoader } from '$lib/components/runs/useJobsLoader.svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
 	import BatchLoadProgress from '$lib/components/BatchLoadProgress.svelte'
@@ -651,11 +653,19 @@
 	}
 	let resolutionNote = $state('')
 	// The bar folds this row (`actionFolds` below) once its breadcrumb has given all it can: first
-	// the counters, which are a glance and repeat the chart below; then the session button; then
-	// the filter field moves to a row of its own rather than shrinking past usable. Hosted, the row
-	// is the page's own and wraps instead.
+	// the counters, which are a glance and repeat the chart below; then the filter field moves to a
+	// row of its own rather than shrinking past usable. Hosted, the row is the page's own and wraps
+	// instead.
 	const fold = $derived(hosted ? 0 : pageHeader.actionFold)
-	const filterBelow = $derived(fold >= 3)
+	const filterBelow = $derived(fold >= 2)
+
+	const sessionSource: OpenInSessionSource = $derived({
+		// The filters are shallow-routed, so the search has to come off `window.location` at click
+		// time — `page.url` never sees them. Always the canonical `/runs`: only that is a recognized
+		// preview page, and the `/runs/<path>` route mirrors its path into `?path=` anyway.
+		page: () => RUNS_PATH + window.location.search,
+		workspaceId: $operatingWorkspace ?? undefined
+	})
 </script>
 
 {#snippet runsHint()}
@@ -876,19 +886,11 @@
 			items={runsTimeframes}
 			bind:value={_timeframe.val}
 		/>
-		<!-- The filters are shallow-routed, so the search has to come off `window.location` at click
-		     time — `page.url` never sees them. Always the canonical `/runs`: only that is a recognized
-		     preview page, and the `/runs/<path>` route mirrors its path into `?path=` anyway. -->
-		<div class={fold >= 2 || hosted ? 'hidden' : 'contents'}>
-			<OpenInSessionButton
-				source={{
-					page: () => RUNS_PATH + window.location.search,
-					workspaceId: $operatingWorkspace ?? undefined
-				}}
-				btnProps={{ unifiedSize: 'sm' }}
-			/>
-		</div>
 	</div>
+	{#if !hosted}
+		<!-- No main action on this page: the session button ends the row. -->
+		<OpenInSessionButton source={sessionSource} />
+	{/if}
 {/snippet}
 
 <ConfirmationModal
@@ -971,9 +973,10 @@
 			<PageHeaderContent
 				afterName={runsHint}
 				actions={headerActions}
-				actionFolds={3}
+				{sessionSource}
+				actionFolds={2}
 				belowBar={filterRow}
-				belowBarFold={3}
+				belowBarFold={2}
 			/>
 		{/if}
 
