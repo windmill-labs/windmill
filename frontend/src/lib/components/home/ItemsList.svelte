@@ -2191,7 +2191,10 @@
 						{showCode}
 						showEditButton={showEditButtons}
 						framed={false}
-						onManageFolder={(name) => folderEditorDrawer?.initEdit(name)}
+						onManageFolder={$roleCapabilities.visibility.folders
+							? (name) => folderEditorDrawer?.initEdit(name)
+							: undefined}
+						keepEmptyFolders={itemKind === 'all'}
 					/>
 				{/key}
 			{/if}
