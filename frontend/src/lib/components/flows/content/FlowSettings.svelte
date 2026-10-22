@@ -55,7 +55,6 @@
 		previewArgs,
 		pathStore,
 		customUi,
-		preserveOnBehalfOf,
 		savedOnBehalfOfEmail,
 		savedOnBehalfOfPermissionedAs,
 		opWorkspace
@@ -383,7 +382,6 @@
 									kind="flow"
 									bind:email={flowStore.val.on_behalf_of_email}
 									bind:permissionedAs={flowStore.val.on_behalf_of}
-									bind:preserve={$preserveOnBehalfOf}
 									savedEmail={$savedOnBehalfOfEmail}
 									savedPermissionedAs={$savedOnBehalfOfPermissionedAs}
 									targetWorkspace={opWorkspace?.() ?? $operatingWorkspace ?? ''}

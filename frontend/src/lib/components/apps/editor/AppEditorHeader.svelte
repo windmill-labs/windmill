@@ -1,13 +1,8 @@
 <script lang="ts">
-	import DeployOnBehalfOfNote from '$lib/components/itemSettings/DeployOnBehalfOfNote.svelte'
-	import {
-		appDeployAsksOnBehalfOf,
-		deployedPermissionedAs,
-		preserveOnBehalfOfOnDeploy,
-		setDeployedOnBehalfOf
-	} from '$lib/components/itemSettings/onBehalfOf'
+	import { setDeployedOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
-	import AppDeployDialog from './AppDeployDialog.svelte'
+	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
+	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import { Drawer, DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 
@@ -279,16 +274,11 @@
 	let debugAppDrawerOpen = $state(false)
 	let lazyDrawerOpen = $state(false)
 	let deploymentMsg = $state('')
-	let preserveOnBehalfOf: boolean | undefined = $state(undefined)
-	let preserveOnDeploy = $derived(
-		preserveOnBehalfOfOnDeploy(preserveOnBehalfOf, !!policy.on_behalf_of)
-	)
 	const operatingUser = useOperatingUser()
-	let runsAs = $derived(
-		deployedPermissionedAs(operatingUser.current, policy.on_behalf_of, preserveOnDeploy)
-	)
-	let asksOnBehalfOf = $derived(
-		appDeployAsksOnBehalfOf(newApp, savedApp?.policy?.on_behalf_of, runsAs)
+	// Only the app's first deploy takes the folder's default user.
+	const folderDefault = useFolderDefaultPermissionedAs(
+		() => (newApp ? newEditedPath : undefined),
+		() => $workspaceStore
 	)
 	let deployDialogOpen = $state(false)
 
@@ -317,7 +307,7 @@
 	async function createApp(path: string) {
 		// In place: the settings drawer and the draft mirror hold this object.
 		Object.assign(policy, await updatePolicy($app, policy))
-		setDeployedOnBehalfOf(policy, operatingUser.current, preserveOnDeploy)
+		setDeployedOnBehalfOf(policy, operatingUser.current, folderDefault.value)
 		try {
 			await AppService.createApp({
 				workspace: $workspaceStore!,
@@ -328,7 +318,9 @@
 					policy,
 					deployment_message: deploymentMsg,
 					custom_path: customPath,
-					preserve_on_behalf_of: preserveOnDeploy,
+					// The user the deploy dialog confirmed, which the backend keeps only for a deployer
+					// who may preserve one.
+					preserve_on_behalf_of: true,
 					labels
 				}
 			})
@@ -435,7 +427,7 @@
 	async function updateApp(npath: string) {
 		// In place: the settings drawer and the draft mirror hold this object.
 		Object.assign(policy, await updatePolicy($app, policy))
-		setDeployedOnBehalfOf(policy, operatingUser.current, preserveOnDeploy)
+		setDeployedOnBehalfOf(policy, operatingUser.current)
 		const deployed = await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: $appPath!,
@@ -449,7 +441,7 @@
 				// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
 				custom_path:
 					$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined,
-				preserve_on_behalf_of: preserveOnDeploy,
+				preserve_on_behalf_of: true,
 				labels
 			}
 		})
@@ -511,11 +503,7 @@
 			return
 		}
 		deploymentMsg = message ?? ''
-		if (asksOnBehalfOf) {
-			deployDialogOpen = true
-			return
-		}
-		await deployNow()
+		deployDialogOpen = true
 	}
 
 	async function deployNow() {
@@ -879,24 +867,19 @@
 	let hasErrors = $derived(Object.keys($errorByComponent).length > 0)
 </script>
 
-{#snippet deployNote()}
-	<DeployOnBehalfOfNote
-		enabled
-		permissionedAs={policy.on_behalf_of}
-		savedPermissionedAs={newApp ? undefined : savedApp?.policy?.on_behalf_of}
-		preserve={preserveOnDeploy}
-	/>
-{/snippet}
-
 <svelte:window onkeydown={onKeyDown} />
 
-<AppDeployDialog
+<DeployOnBehalfOfDialog
+	kind="app"
 	bind:open={deployDialogOpen}
 	bind:message={deploymentMsg}
-	{policy}
-	bind:preserveOnBehalfOf
-	savedPolicy={newApp ? undefined : savedApp?.policy}
-	{runsAs}
+	bind:email={policy.on_behalf_of_email}
+	bind:permissionedAs={policy.on_behalf_of}
+	savedEmail={newApp ? undefined : savedApp?.policy?.on_behalf_of_email}
+	savedPermissionedAs={newApp ? undefined : savedApp?.policy?.on_behalf_of}
+	isNew={newApp}
+	folderDefault={folderDefault.value}
+	executionMode={policy.execution_mode}
 	targetWorkspace={$workspaceStore ?? ''}
 	onConfirmed={deployNow}
 />
@@ -948,7 +931,6 @@
 	bind:customPathError
 	bind:pathError
 	bind:newEditedPath
-	bind:preserveOnBehalfOf
 	bind:labels
 	showErrors={deployRefused}
 />
@@ -1322,7 +1304,6 @@
 		{/if}
 		<DeployButton
 			loadingSave={loading.save}
-			note={deployNote}
 			iconOnly={phoneTopbar}
 			unifiedSize={phoneTopbar ? 'sm' : 'md'}
 			on:save={({ detail }) => deploy(detail)}

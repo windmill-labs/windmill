@@ -1,6 +1,7 @@
 <script lang="ts">
-	import DeployOnBehalfOfNote from '$lib/components/itemSettings/DeployOnBehalfOfNote.svelte'
-	import { preserveOnBehalfOfOnDeploy } from '$lib/components/itemSettings/onBehalfOf'
+	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
+	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
+	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import {
 		FlowService,
 		type Flow,
@@ -196,12 +197,11 @@
 
 	let initialPathStore = writable(initialPath)
 
-	let preserveOnBehalfOf = writable<boolean | undefined>(undefined)
 	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
 	let savedOnBehalfOfPermissionedAs = writable<string | undefined>(savedFlow?.on_behalf_of)
-	const preserveOnDeploy = $derived(
-		preserveOnBehalfOfOnDeploy($preserveOnBehalfOf, !!flowStore.val.on_behalf_of_email)
-	)
+	const isNewFlow = $derived(newFlow || initialPath == '')
+	let deployDialogOpen = $state(false)
+	let deployDialogMsg = $state('')
 
 	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously
 	$effect(() => {
@@ -480,6 +480,22 @@
 	}
 
 	async function handleSaveFlow(deploymentMsg?: string) {
+		if (
+			deployAsksOnBehalfOf(
+				'flow',
+				!!flowStore.val.on_behalf_of_email,
+				!isNewFlow && !!$savedOnBehalfOfEmail,
+				folderDefault.value
+			)
+		) {
+			deployDialogMsg = deploymentMsg ?? ''
+			deployDialogOpen = true
+			return
+		}
+		await deployFlow(deploymentMsg)
+	}
+
+	async function deployFlow(deploymentMsg?: string) {
 		withAIChangesWarning(async () => {
 			await handleSaveFlowInternal(deploymentMsg)
 		})
@@ -665,7 +681,7 @@
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
 						on_behalf_of: flow.on_behalf_of,
-						preserve_on_behalf_of: preserveOnDeploy,
+						preserve_on_behalf_of: flow.on_behalf_of_email ? true : undefined,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels,
 						// Sent explicitly: an omitted field keeps the deployed value.
@@ -719,7 +735,7 @@
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
 						on_behalf_of: flow.on_behalf_of,
-						preserve_on_behalf_of: preserveOnDeploy,
+						preserve_on_behalf_of: flow.on_behalf_of_email ? true : undefined,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels,
 						// Sent explicitly: an omitted field keeps the deployed value.
@@ -771,6 +787,11 @@
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
 	const history = initHistory(untrack(() => flowStore).val)
 	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
+	// Only the flow's first deploy takes the folder's default user.
+	const folderDefault = useFolderDefaultPermissionedAs(
+		() => (isNewFlow ? $pathStore : undefined),
+		() => opWorkspace
+	)
 
 	// Linked-agent tool resolutions are scoped by workspace + flow path, but publishers key by the
 	// flow doc's own path while readers use the live-edited $pathStore — which diverge for renames
@@ -1001,7 +1022,6 @@
 		flowInputEditorState: flowInputEditorStateStore,
 		modulesTestStates,
 		outputPickerOpenFns,
-		preserveOnBehalfOf,
 		savedOnBehalfOfEmail,
 		savedOnBehalfOfPermissionedAs,
 		opWorkspace: () => opWorkspace
@@ -1559,18 +1579,23 @@
 	const flowHasChanged = $derived(flowPreviewContent?.flowHasChanged())
 </script>
 
-{#snippet deployNote()}
-	<DeployOnBehalfOfNote
-		enabled={!!flowStore.val.on_behalf_of_email}
-		permissionedAs={flowStore.val.on_behalf_of}
-		savedPermissionedAs={$savedOnBehalfOfPermissionedAs}
-		preserve={preserveOnDeploy}
-	/>
-{/snippet}
-
 <svelte:window onkeydown={onKeyDown} />
 
 {@render children?.()}
+
+<DeployOnBehalfOfDialog
+	kind="flow"
+	bind:open={deployDialogOpen}
+	bind:message={deployDialogMsg}
+	bind:email={flowStore.val.on_behalf_of_email}
+	bind:permissionedAs={flowStore.val.on_behalf_of}
+	savedEmail={isNewFlow ? undefined : $savedOnBehalfOfEmail}
+	savedPermissionedAs={isNewFlow ? undefined : $savedOnBehalfOfPermissionedAs}
+	isNew={isNewFlow}
+	folderDefault={folderDefault.value}
+	targetWorkspace={opWorkspace ?? ''}
+	onConfirmed={() => deployFlow(deployDialogMsg)}
+/>
 
 <DeployOverrideConfirmationModal
 	{deployedBy}
@@ -1700,7 +1725,6 @@
 
 						<DeployButton
 							on:save={async ({ detail }) => await handleSaveFlow(detail)}
-							note={deployNote}
 							{loading}
 							{loadingSave}
 							unifiedSize={headerBtnSize}
@@ -1816,7 +1840,6 @@
 				<OpenInSessionButton source={headerSessionOpen} />
 				<DeployButton
 					on:save={async ({ detail }) => await handleSaveFlow(detail)}
-					note={deployNote}
 					{loading}
 					{loadingSave}
 					unifiedSize={headerBtnSize}

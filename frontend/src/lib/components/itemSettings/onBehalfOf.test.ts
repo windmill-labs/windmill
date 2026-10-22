@@ -1,33 +1,35 @@
 import { describe, it, expect } from 'vitest'
-import {
-	appDeployAsksOnBehalfOf,
-	deployedPermissionedAs,
-	preserveOnBehalfOfOnDeploy
-} from './onBehalfOf'
+import { deployAsksOnBehalfOf, deployedPermissionedAs, setDeployedOnBehalfOf } from './onBehalfOf'
 
-// The editors show, before a deploy, who the backend will leave the item running on behalf of,
-// and the app deploy dialog asks from the same answer.
+// The deploy dialog names who the backend will leave the item running on behalf of, and the
+// app editors keep that answer as the deployed policy.
 describe('onBehalfOf', () => {
-	const admin = { username: 'admin', is_admin: true }
+	const admin = { username: 'admin', email: 'admin@x.dev', is_admin: true }
 	const deployer = { username: 'dep', groups: ['wm_deployers'] }
-	const member = { username: 'alice' }
+	const member = { username: 'alice', email: 'alice@x.dev' }
 
-	it('keeps the picked user only for a deployer who may preserve and asks to', () => {
-		expect(deployedPermissionedAs(admin, 'u/bot', true)).toBe('u/bot')
-		expect(deployedPermissionedAs(deployer, 'u/bot', true)).toBe('u/bot')
-		expect(deployedPermissionedAs(member, 'u/bot', true)).toBe('u/alice')
-		expect(deployedPermissionedAs(admin, 'u/bot', undefined)).toBe('u/admin')
+	it('keeps the held user, then the folder default, only for a deployer who may preserve', () => {
+		expect(deployedPermissionedAs(admin, 'u/bot', 'u/folder')).toBe('u/bot')
+		expect(deployedPermissionedAs(deployer, undefined, 'u/folder')).toBe('u/folder')
+		expect(deployedPermissionedAs(admin, undefined, undefined)).toBe('u/admin')
+		expect(deployedPermissionedAs(member, 'u/bot', 'u/folder')).toBe('u/alice')
 	})
 
-	it('keeps the user the editor holds until the settings pick one', () => {
-		expect(preserveOnBehalfOfOnDeploy(undefined, true)).toBe(true)
-		expect(preserveOnBehalfOfOnDeploy(undefined, false)).toBe(undefined)
-		expect(preserveOnBehalfOfOnDeploy(false, true)).toBe(undefined)
+	it('asks on every app deploy, and on flow or script deploys that involve a run-as user', () => {
+		expect(deployAsksOnBehalfOf('app', false, false)).toBe(true)
+		expect(deployAsksOnBehalfOf('flow', false, false)).toBe(false)
+		expect(deployAsksOnBehalfOf('script', true, false)).toBe(true)
+		expect(deployAsksOnBehalfOf('flow', false, true)).toBe(true)
+		expect(deployAsksOnBehalfOf('flow', false, false, 'u/folder')).toBe(true)
 	})
 
-	it('asks on the first deploy of an app and on any deploy that changes its user', () => {
-		expect(appDeployAsksOnBehalfOf(true, undefined, 'u/admin')).toBe(true)
-		expect(appDeployAsksOnBehalfOf(false, 'u/bot', 'u/bot')).toBe(false)
-		expect(appDeployAsksOnBehalfOf(false, 'u/bot', 'u/admin')).toBe(true)
+	it('writes the stored user into the policy, with the email only for the deployer', () => {
+		const forMember = { on_behalf_of: 'u/bot', on_behalf_of_email: 'bot@x.dev' }
+		setDeployedOnBehalfOf(forMember, member)
+		expect(forMember).toEqual({ on_behalf_of: 'u/alice', on_behalf_of_email: 'alice@x.dev' })
+
+		const newInFolder: { on_behalf_of?: string; on_behalf_of_email?: string } = {}
+		setDeployedOnBehalfOf(newInFolder, admin, 'u/folder')
+		expect(newInFolder).toEqual({ on_behalf_of: 'u/folder', on_behalf_of_email: undefined })
 	})
 })

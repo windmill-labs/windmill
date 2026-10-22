@@ -20,50 +20,44 @@ export function canPreserveOnBehalfOf(user: DeployingUser): boolean {
 	)
 }
 
-/** `preserve_on_behalf_of` for a deploy. The settings leave `preserve` undefined until a user is
- *  picked there, and until then a deploy keeps the user the editor holds, deployed or drafted: the
- *  settings may never be opened in this visit, and without the flag the backend runs the item as
- *  the deployer. The backend ignores the flag for a deployer who may not preserve. */
-export function preserveOnBehalfOfOnDeploy(
-	preserve: boolean | undefined,
-	holdsRunAsUser: boolean
-): true | undefined {
-	return (preserve ?? holdsRunAsUser) || undefined
-}
-
-/** The `u/username` a deploy leaves the item running on behalf of: the submitted user when the
- *  deployer may preserve it and the request asks to, the deployer otherwise. */
+/** The `u/username` a deploy leaves the item running on behalf of. The editors send the user their
+ *  deploy dialog confirmed, which the backend keeps for a deployer who may preserve and replaces
+ *  with the deployer for anyone else. With no user held, a create takes the folder's default for
+ *  the path. */
 export function deployedPermissionedAs(
 	user: DeployingUser,
 	permissionedAs: string | undefined,
-	preserve: boolean | undefined
+	folderDefault?: string
 ): string | undefined {
-	if (canPreserveOnBehalfOf(user) && preserve && permissionedAs) return permissionedAs
+	const kept = permissionedAs ?? folderDefault
+	if (kept && canPreserveOnBehalfOf(user)) return kept
 	return user?.username ? `u/${user.username}` : undefined
 }
 
-/** Every viewer of an app uses the access of the user it runs on behalf of, so the deploys that
- *  set that user ask first: the first deploy, and any that changes it. */
-export function appDeployAsksOnBehalfOf(
-	firstDeploy: boolean,
-	savedPermissionedAs: string | undefined,
-	runsAs: string | undefined
+/** Whether a deploy asks first whose access the item will run with: every app deploy, since all
+ *  its viewers use that access, and any flow or script deploy that leaves it running on behalf of
+ *  someone or stops it doing so. */
+export function deployAsksOnBehalfOf(
+	kind: 'flow' | 'script' | 'app',
+	holdsUser: boolean,
+	deployedHoldsUser: boolean,
+	folderDefault?: string
 ): boolean {
-	return firstDeploy || (!!savedPermissionedAs && !!runsAs && runsAs !== savedPermissionedAs)
+	return kind === 'app' || holdsUser || deployedHoldsUser || !!folderDefault
 }
 
-/** Writes into an app's policy the user its deploy will run on behalf of. The editor keeps the
- *  policy it sent as the deployed one, so it has to say what the backend stores, or the next
- *  deploy would see a change that already happened. */
+/** Writes into an app's policy the user its deploy will run on behalf of, so the request names
+ *  it. The editor keeps the policy it sent as the deployed one, so it has to say what the backend
+ *  stores, or the next deploy would see a change that already happened. */
 export function setDeployedOnBehalfOf(
 	policy: { on_behalf_of?: string; on_behalf_of_email?: string },
 	user: DeployingUser,
-	preserve: boolean | undefined
+	folderDefault?: string
 ): void {
-	const runsAs = deployedPermissionedAs(user, policy.on_behalf_of, preserve)
+	const runsAs = deployedPermissionedAs(user, policy.on_behalf_of, folderDefault)
 	if (!runsAs || runsAs === policy.on_behalf_of) return
 	policy.on_behalf_of = runsAs
-	policy.on_behalf_of_email = user?.email
+	policy.on_behalf_of_email = runsAs === `u/${user?.username}` ? user?.email : undefined
 }
 
 /** What keeps lending the publisher's access to an app's viewers safe. */

@@ -4,16 +4,10 @@
 	import OnBehalfOfSelector, {
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
-	import { userStore } from '$lib/stores'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
 	import SettingToggle from './SettingToggle.svelte'
-	import {
-		canPreserveOnBehalfOf,
-		deployedPermissionedAs,
-		preserveOnBehalfOfOnDeploy,
-		WM_DEPLOYERS_GROUP
-	} from './onBehalfOf'
+	import { canPreserveOnBehalfOf, deployedPermissionedAs, WM_DEPLOYERS_GROUP } from './onBehalfOf'
 	const DOCS_LINK =
 		'https://www.windmill.dev/docs/core_concepts/roles_and_permissions#run-on-behalf-of'
 
@@ -23,9 +17,6 @@
 		email: string | undefined
 		/** `u/username` of that user. */
 		permissionedAs: string | undefined
-		/** Sent as `preserve_on_behalf_of` on deploy. Undefined until a user is picked here, which
-		 *  the host reads as "keep the deployed identity". */
-		preserve: boolean | undefined
 		/** The deployed identity, which the "target" choice keeps. */
 		savedEmail: string | undefined
 		savedPermissionedAs: string | undefined
@@ -40,13 +31,14 @@
 		onPickerOpenChange?: (open: boolean) => void
 		/** The host explains the setting itself. */
 		hideDescription?: boolean
+		/** The folder's default for a new item's path, which a deploy holding no user takes. */
+		folderDefault?: string
 	}
 
 	let {
 		kind,
 		email = $bindable(),
 		permissionedAs = $bindable(),
-		preserve = $bindable(),
 		savedEmail,
 		savedPermissionedAs,
 		targetWorkspace,
@@ -55,7 +47,8 @@
 		tooltip,
 		aboveConfirmationModal = false,
 		onPickerOpenChange,
-		hideDescription = false
+		hideDescription = false,
+		folderDefault
 	}: Props = $props()
 
 	// The label keeps the docs' term; the description says what it gives, access to resources,
@@ -68,34 +61,29 @@
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
 	let canPreserve = $derived(canPreserveOnBehalfOf(actingUser))
-	// Usernames are per-workspace, so "me" is the acting user in the target workspace.
+	// "Me" is the acting user in the target workspace, its username and its email alike: usernames
+	// are per-workspace, and the backend rejects a pair that names two accounts.
 	let myPermissionedAs = $derived(actingUser?.username ? `u/${actingUser.username}` : undefined)
 
 	// Read from the bound values, not kept here: this row remounts each time its tab or dialog
 	// opens, and a choice that restarts empty lets the selector reselect the deployed user over
 	// the one picked.
 	let choice: OnBehalfOfChoice = $derived.by(() => {
-		if (preserve === false) return 'me'
 		const keepsSaved = savedPermissionedAs
 			? (permissionedAs ?? savedPermissionedAs) === savedPermissionedAs
 			: !!savedEmail && (email ?? savedEmail) === savedEmail
 		if (keepsSaved) return 'target'
+		if (!permissionedAs && !email && folderDefault) return 'custom'
 		const isMe = permissionedAs
 			? permissionedAs === myPermissionedAs
-			: !email || email === $userStore?.email
+			: !email || email === actingUser?.email
 		return isMe ? 'me' : 'custom'
 	})
 
 	let enabled = $derived(required || !!email)
 	let chosenUser = $derived(permissionedAs ?? email ?? 'the chosen user')
 	let deployPermissionedAs = $derived(
-		enabled
-			? deployedPermissionedAs(
-					actingUser,
-					permissionedAs,
-					preserveOnBehalfOfOnDeploy(preserve, !!(permissionedAs || email))
-				)
-			: undefined
+		enabled ? deployedPermissionedAs(actingUser, permissionedAs, folderDefault) : undefined
 	)
 	let willChange = $derived(
 		!isNew &&
@@ -105,9 +93,8 @@
 	)
 
 	function setMe() {
-		email = $userStore?.email
+		email = actingUser?.email
 		permissionedAs = myPermissionedAs
-		preserve = false
 	}
 </script>
 
@@ -125,16 +112,15 @@
 					// email alone and the backend derives one from it.
 					email = savedEmail
 					permissionedAs = savedPermissionedAs
-					preserve = true
 				} else if (c === 'custom' && details) {
 					email = details.email
 					permissionedAs = details.permissionedAs
-					preserve = true
 				}
 			}}
 			{kind}
 			{canPreserve}
-			customValue={choice === 'custom' ? (permissionedAs ?? email) : undefined}
+			customValue={choice === 'custom' ? (permissionedAs ?? email ?? folderDefault) : undefined}
+			{folderDefault}
 			isDeployment={false}
 			{myPermissionedAs}
 			readOnlyWithoutPreserve
@@ -200,7 +186,6 @@
 			} else {
 				email = undefined
 				permissionedAs = undefined
-				preserve = false
 			}
 		}}
 	>

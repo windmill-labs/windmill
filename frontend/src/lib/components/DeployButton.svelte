@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
 	import { Save, CornerDownLeft } from 'lucide-svelte'
-	import { createEventDispatcher, type Snippet } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 
 	type DropdownItem = {
 		label: string
@@ -13,16 +13,13 @@
 		loadingSave = false,
 		dropdownItems = [],
 		unifiedSize = 'md',
-		iconOnly = false,
-		note
+		iconOnly = false
 	}: {
 		loading?: boolean
 		loadingSave?: boolean
 		dropdownItems?: DropdownItem[] | (() => DropdownItem[]) | undefined
 		unifiedSize?: 'sm' | 'md' | 'lg'
 		iconOnly?: boolean
-		/** Shown under the message field, e.g. whose access the deployed item will run with. */
-		note?: Snippet
 	} = $props()
 
 	const dispatch = createEventDispatcher()
@@ -67,30 +64,27 @@
 >
 	Deploy
 	{#snippet tooltip()}
-		<div class="flex flex-col gap-2 w-80 p-4 bg-surface rounded-lg shadow-lg dark:border z-[5001]">
-			<div class="flex flex-row gap-2">
-				<input
-					type="text"
-					placeholder="Deployment message"
-					bind:value={deploymentMsg}
-					onkeydown={async (e) => {
-						if (e.key === 'Enter') {
-							dispatch('save', deploymentMsg)
-						}
-					}}
-					bind:this={msgInput}
-				/>
-				<Button
-					unifiedSize="md"
-					variant="accent"
-					on:click={async () => dispatch('save', deploymentMsg)}
-					endIcon={{ icon: CornerDownLeft }}
-					loading={loadingSave}
-				>
-					Deploy
-				</Button>
-			</div>
-			{@render note?.()}
+		<div class="flex flex-row gap-2 w-80 p-4 bg-surface rounded-lg shadow-lg dark:border z-[5001]">
+			<input
+				type="text"
+				placeholder="Deployment message"
+				bind:value={deploymentMsg}
+				onkeydown={async (e) => {
+					if (e.key === 'Enter') {
+						dispatch('save', deploymentMsg)
+					}
+				}}
+				bind:this={msgInput}
+			/>
+			<Button
+				unifiedSize="md"
+				variant="accent"
+				on:click={async () => dispatch('save', deploymentMsg)}
+				endIcon={{ icon: CornerDownLeft }}
+				loading={loadingSave}
+			>
+				Deploy
+			</Button>
 		</div>
 	{/snippet}
 </Button>

@@ -53,7 +53,6 @@
 		pathError = $bindable(),
 		newEditedPath = $bindable(),
 		newPath,
-		preserveOnBehalfOf = $bindable(),
 		labels = $bindable(),
 		rawApp = false,
 		newApp = false,
@@ -72,7 +71,6 @@
 		pathError: string
 		newEditedPath: string
 		newPath: string
-		preserveOnBehalfOf: boolean | undefined
 		labels?: string[] | undefined
 		// Only raw apps are offered the `wm_coep` embedding hint: on a classic
 		// (low-code) app COEP breaks no-CORP cross-origin subresources (external
@@ -337,7 +335,6 @@
 									tooltip={appOnBehalfOfTooltip(rawApp)}
 									bind:email={policy.on_behalf_of_email}
 									bind:permissionedAs={policy.on_behalf_of}
-									bind:preserve={preserveOnBehalfOf}
 									savedEmail={savedApp?.policy?.on_behalf_of_email}
 									savedPermissionedAs={savedApp?.policy?.on_behalf_of}
 									targetWorkspace={opWs ?? ''}

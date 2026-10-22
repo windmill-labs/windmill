@@ -1,6 +1,7 @@
 <script lang="ts">
-	import DeployOnBehalfOfNote from '$lib/components/itemSettings/DeployOnBehalfOfNote.svelte'
-	import { preserveOnBehalfOfOnDeploy } from '$lib/components/itemSettings/onBehalfOf'
+	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
+	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
+	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import {
 		ScriptService,
 		type Script,
@@ -276,10 +277,15 @@
 	let args: Record<string, any> = $state(untrack(() => initialArgs)) // Test args input
 	let selectedInputTab: 'main' | 'preprocessor' | 'diagram' = $state('main')
 	let hasPreprocessor = $state(false)
-	let preserveOnBehalfOf: boolean | undefined = $state(undefined)
-	let preserveOnDeploy = $derived(
-		preserveOnBehalfOfOnDeploy(preserveOnBehalfOf, !!script.on_behalf_of_email)
+	const isNewScript = $derived(initialPath == '' || savedScript?.no_deployed === true)
+	// Only the script's first deploy takes the folder's default user.
+	const folderDefault = useFolderDefaultPermissionedAs(
+		() => (isNewScript ? script.path : undefined),
+		() => opWorkspace
 	)
+	let deployDialogOpen = $state(false)
+	let deployDialogMsg = $state('')
+	let deployDialogStay = false
 
 	let metadataOpen = $state(
 		!untrack(() => neverShowMeta) &&
@@ -617,6 +623,23 @@
 	}
 
 	async function handleEditScript(stay: boolean, deployMsg?: string): Promise<void> {
+		if (
+			deployAsksOnBehalfOf(
+				'script',
+				!!script.on_behalf_of_email,
+				!isNewScript && !!savedScript?.on_behalf_of_email,
+				folderDefault.value
+			)
+		) {
+			deployDialogStay = stay
+			deployDialogMsg = deployMsg ?? ''
+			deployDialogOpen = true
+			return
+		}
+		await deployScript(stay, deployMsg)
+	}
+
+	async function deployScript(stay: boolean, deployMsg?: string): Promise<void> {
 		scriptEditor?.flushModuleState()
 		// Fetch latest version and fetch entire script after if needed
 		let actual_parent_hash: string | undefined = undefined
@@ -818,7 +841,7 @@
 					deployment_message: deploymentMsg || undefined,
 					on_behalf_of_email: script.on_behalf_of_email,
 					on_behalf_of: script.on_behalf_of,
-					preserve_on_behalf_of: preserveOnDeploy,
+					preserve_on_behalf_of: script.on_behalf_of_email ? true : undefined,
 					assets: script.assets,
 					modules: script.modules,
 					labels: script.labels,
@@ -1371,17 +1394,22 @@
 	}
 </script>
 
-{#snippet deployNote()}
-	<DeployOnBehalfOfNote
-		enabled={!!script.on_behalf_of_email}
-		permissionedAs={script.on_behalf_of}
-		savedPermissionedAs={savedScript?.on_behalf_of}
-		preserve={preserveOnDeploy}
-	/>
-{/snippet}
-
 <svelte:window onkeydown={onKeyDown} />
 {@render children?.()}
+
+<DeployOnBehalfOfDialog
+	kind="script"
+	bind:open={deployDialogOpen}
+	bind:message={deployDialogMsg}
+	bind:email={script.on_behalf_of_email}
+	bind:permissionedAs={script.on_behalf_of}
+	savedEmail={isNewScript ? undefined : savedScript?.on_behalf_of_email}
+	savedPermissionedAs={isNewScript ? undefined : savedScript?.on_behalf_of}
+	isNew={isNewScript}
+	folderDefault={folderDefault.value}
+	targetWorkspace={opWorkspace ?? ''}
+	onConfirmed={() => deployScript(deployDialogStay, deployDialogMsg)}
+/>
 
 <DeployOverrideConfirmationModal
 	{deployedBy}
@@ -1794,7 +1822,6 @@
 										kind="script"
 										bind:email={script.on_behalf_of_email}
 										bind:permissionedAs={script.on_behalf_of}
-										bind:preserve={preserveOnBehalfOf}
 										savedEmail={savedScript?.on_behalf_of_email}
 										savedPermissionedAs={savedScript?.on_behalf_of}
 										targetWorkspace={opWorkspace ?? ''}
@@ -2141,7 +2168,6 @@
 				unifiedSize={headerBtnSize}
 				dropdownItems={computeDropdownItems(initialPath, savedScript)}
 				on:save={({ detail }) => handleEditScript(false, detail)}
-				note={deployNote}
 			/>
 		{/snippet}
 
