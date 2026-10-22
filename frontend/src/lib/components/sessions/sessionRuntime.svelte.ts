@@ -1164,9 +1164,8 @@ function createRuntime(session: Session): SessionRuntime {
 						files: { ...(builder ? BUILDER_FRAMEWORK_TEMPLATES.react19 : react19Template) },
 						runnables: builder ? {} : structuredClone(STARTER_RUNNABLES),
 						data: { ...DEFAULT_DATA },
+						// No run-as user: the deploy dialog resolves it, the folder's default first.
 						policy: {
-							on_behalf_of: user?.username.includes('@') ? user.username : `u/${user?.username}`,
-							on_behalf_of_email: user?.email,
 							execution_mode: 'publisher',
 							sandbox: true
 						},
