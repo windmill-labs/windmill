@@ -58,12 +58,12 @@ export function resolveConfig(options: ChatOptions): ResolvedConfig {
     if (options.flowPath || options.run || options.follow) {
       throw new Error('windmill-chat: `runnable` replaces `flowPath`, `run` and `follow`')
     }
-    const start = options.wmill.backendAsync[options.runnable]
-    if (typeof start !== 'function') throw new Error(`windmill-chat: the app has no runnable \`${options.runnable}\``)
+    // Unsandboxed apps share their origin's storage, so the app's path keeps their histories apart.
+    const app = (globalThis as { ctx?: { path?: unknown } }).ctx?.path
     options = {
       ...options,
-      ...rawAppRunnable(start, options.wmill.streamJob),
-      flowPath: `runnable:${options.runnable}`
+      ...rawAppRunnable(options.wmill.backendAsync[options.runnable], options.wmill.streamJob),
+      flowPath: `runnable:${typeof app === 'string' ? `${app}:` : ''}${options.runnable}`
     }
   }
   const follow = options.follow

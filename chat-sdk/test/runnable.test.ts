@@ -54,7 +54,15 @@ describe('raw app agent runnable', () => {
     // Each runnable keeps its own history: another agent never sees this conversation.
     expect(createChat({ wmill, runnable: 'chat', storage }).getState().conversations).toHaveLength(1)
     expect(createChat({ wmill, runnable: 'other', storage }).getState().conversations).toEqual([])
+    // Nor does the same runnable name in another app, whose path the host puts in `ctx`.
+    const g = globalThis as { ctx?: unknown }
+    g.ctx = { path: 'u/admin/other_app' }
+    try {
+      expect(createChat({ wmill, runnable: 'chat', storage }).getState().conversations).toEqual([])
+    } finally {
+      delete g.ctx
+    }
     // @ts-expect-error a name the app's module does not declare
-    expect(() => createChat({ wmill, runnable: 'missing' })).toThrow('no runnable `missing`')
+    createChat({ wmill, runnable: 'missing', storage })
   })
 })

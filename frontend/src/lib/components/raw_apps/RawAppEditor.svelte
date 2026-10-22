@@ -1856,7 +1856,7 @@ addEventListener('message', function (e) {
 
 	// The deployed app's `window.ctx`: the viewer's membership in the app's workspace.
 	function previewCtx() {
-		return $state.snapshot({ ctx: operatingUser.current, workspace: opWorkspace })
+		return $state.snapshot({ ctx: operatingUser.current, workspace: opWorkspace, path })
 	}
 
 	// A build fed before the viewer is known keeps that viewer until the next one. Outside
