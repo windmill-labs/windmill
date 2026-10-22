@@ -1745,7 +1745,7 @@ function agentRunnableSchema(memory: any) {
       user_attachments: {
         type: "array",
         description: "Files the message carries, as object storage references",
-        items: { type: "object" },
+        items: { type: "object", resourceType: "s3object" },
       },
     },
     required: ["user_message"],

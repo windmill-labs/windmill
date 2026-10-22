@@ -245,6 +245,23 @@
 
 	// Picked on the first load, after which it is the reader's: following the memory setting live
 	// would pull them out of a chat for switching memory off in the form.
+	// Without managed memory a run keeps no history of its own, so the form also takes the one to
+	// answer from; with it, the worker would ignore one.
+	let formSchema = $derived(
+		keepsManagedMemory((agentValue?.input_transforms?.memory as any)?.value)
+			? AGENT_CHAT_SCHEMA
+			: {
+					...AGENT_CHAT_SCHEMA,
+					properties: {
+						...AGENT_CHAT_SCHEMA.properties,
+						previous_messages: {
+							type: 'array',
+							items: { type: 'object' },
+							description: 'The conversation so far, as chat messages, for the agent to answer from'
+						}
+					}
+				}
+	)
 	let testMode = $state<'form' | 'chat' | undefined>(undefined)
 	// Mounted the first time it is shown, then only hidden: unmounting destroys the SDK chat,
 	// which stops following the turn in flight, and its answer would never show.
@@ -603,7 +620,7 @@
 				<div class="flex-1 min-h-0 overflow-auto p-4 {testMode === 'chat' ? 'hidden' : ''}">
 					<div class="max-w-3xl mx-auto">
 						{@render viewForm?.({
-							schema: AGENT_CHAT_SCHEMA,
+							schema: formSchema,
 							run: runOnce,
 							loading: runLoading,
 							actions: onOpenConfig ? configurationButton : undefined
