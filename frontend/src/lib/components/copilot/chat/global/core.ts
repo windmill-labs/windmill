@@ -2019,14 +2019,19 @@ function buildPersistedRunnable(
 	input: BackendRunnableInput,
 	existing: PersistedRunnable | undefined
 ): PersistedRunnable {
-	const fields = input.staticInputs
-		? Object.fromEntries(
-				Object.entries(input.staticInputs).map(([k, v]) => [
-					k,
-					{ type: 'static', value: v, fieldType: 'object' }
-				])
-			)
-		: (existing?.fields ?? {})
+	// An agent runnable takes every input from the app: a static one inherited from the kind it was
+	// converted from would be pinned by the deployed policy over every viewer's message.
+	const fields =
+		input.type === 'agent'
+			? {}
+			: input.staticInputs
+				? Object.fromEntries(
+						Object.entries(input.staticInputs).map(([k, v]) => [
+							k,
+							{ type: 'static', value: v, fieldType: 'object' }
+						])
+					)
+				: (existing?.fields ?? {})
 
 	// Converting between kinds must drop the other kind's fields. Every consumer dispatches on
 	// `type` (isRunnableByName / isRunnableByPath), so a leftover does not change which code

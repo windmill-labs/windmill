@@ -36,7 +36,7 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { summarizeAgentBrain, type AgentTool } from '$lib/components/flows/agentResourceUtils'
 	import { agentRunnableSchema } from '$lib/components/raw_apps/agentRunnable'
-	import { keepsManagedMemory } from '$lib/components/flows/agentFormFields'
+	import { agentMemoryMode } from '$lib/components/flows/agentFormFields'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -158,7 +158,7 @@
 				description?: string
 				rows: { label: string; value: string }[]
 				tools: string[]
-				managedMemory: boolean
+				memoryOff: boolean
 		  }
 		| undefined = $state()
 
@@ -176,7 +176,7 @@
 				tools: ((config?.tools ?? []) as AgentTool[]).map(
 					(t) => t.summary || t.value?.tool_type || t.id
 				),
-				managedMemory: keepsManagedMemory(config?.memory)
+				memoryOff: agentMemoryMode(config?.memory) === 'off'
 			}
 			const schema = agentRunnableSchema(config?.memory)
 			if (!deepEqual(runnable.schema, schema)) runnable.schema = schema
@@ -516,7 +516,7 @@
 				{/if}
 			{:else if runnable.runType == 'agent'}
 				<div class="flex flex-col gap-2 p-2">
-					{#if agentInfo && !agentInfo.managedMemory}
+					{#if agentInfo?.memoryOff}
 						<Alert type="info" size="xs" title="Managed memory is off">
 							Each call is answered on its own inputs, so a chat would forget every turn. Pass
 							<code>previous_messages</code> to give it the history.
