@@ -138,6 +138,7 @@ import {
 	getPipelinePrompt,
 	getRawAppPrompt,
 	getResourcePrompt,
+	getAgentPrompt,
 	getScriptPrompt
 } from '$system_prompts'
 import type {
@@ -328,7 +329,8 @@ const INSTRUCTION_SUBJECTS = [
 // `pipeline` likewise isn't an item type — a data pipeline is a set of
 // annotated scripts in a folder, so it gets authoring guidance, not a CRUD type.
 // `workspace_settings` is the settings document an admin reads and changes.
-const INSTRUCTION_SUBJECTS_EXTRA = ['datatable', 'pipeline', 'workspace_settings'] as const
+// `agent` is a resource of type `ai_agent`, with authoring guidance of its own.
+const INSTRUCTION_SUBJECTS_EXTRA = ['agent', 'datatable', 'pipeline', 'workspace_settings'] as const
 export const ALL_INSTRUCTION_SUBJECTS = [
 	...INSTRUCTION_SUBJECTS,
 	...INSTRUCTION_SUBJECTS_EXTRA
@@ -399,7 +401,7 @@ const scriptLangSchema = z.enum($ScriptLang.enum)
 
 const getInstructionsSchema = z.object({
 	subject: instructionSubjectSchema.describe(
-		'What to get authoring instructions for: a workspace item type (script, flow, resource, app), "pipeline" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or "datatable" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, or "workspace_settings" for the keys and rules of the workspace settings (admins only). Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
+		'What to get authoring instructions for: a workspace item type (script, flow, resource, app), "agent" for a saved AI agent (an `ai_agent` resource, as the Agents page lists it), "pipeline" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or "datatable" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, or "workspace_settings" for the keys and rules of the workspace settings (admins only). Schedules, triggers, and variables don\'t need instructions — their tool schemas describe everything.'
 	),
 	language: scriptLangSchema
 		.optional()
@@ -1708,7 +1710,7 @@ ${external ? 'More rules:' : `Rules:${draftsOnlyRule}\n${findItemsRule}`}
 ${groupMembershipRule}- Listings and reads return only what this user can see: items in folders they cannot read are hidden from you both. When an item the user names is missing, say it is not among what they can see and may be in a folder they cannot read, where someone with access can run it — never state that it does not exist or is not deployed.
 - An agent, as the Agents page lists it, is a resource of type \`ai_agent\`: read it with read_workspace_item type "resource".${when(
 		canDraftResources,
-		" You may draft a change to an agent, but never deploy or rename one here: the user reviews and deploys it from the agent's page, `/agents/edit/<path>`, so point them there."
+		` You may draft a new agent or a change to one, after calling get_instructions with subject "agent", but never deploy or rename one here: the user reviews and deploys it from the agent's page, \`/agents/edit/<path>\`, so point them there.`
 	)}${when(
 		!external,
 		`
@@ -2865,6 +2867,27 @@ function getResourceInstructions(): string {
 ${getResourcePrompt()}`
 }
 
+async function getAgentInstructions(
+	workspace: string | undefined,
+	external: boolean
+): Promise<string> {
+	const aiAgentProviders = external
+		? ''
+		: formatAiAgentProvidersPrompt(await getAiAgentProviderCatalog(workspace), {
+				canAskUser: true
+			})
+	return `# Global draft agent instructions
+
+- An agent is drafted with \`write_resource\`: \`{ path, resource_type: "ai_agent", description?, value }\`, where \`value\` is the agent's configuration described below. To change an existing agent, read it with \`read_workspace_item\` type "resource" first and write back the whole value.
+- Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` for a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist.
+- Never deploy or rename an agent here, new or existing: the user reviews and deploys it from the agent's page, the url the write returns. Give them that link.
+- Script and flow tools must exist: find them with the workspace search tools, and draft any missing script first.
+${aiAgentProviders ? `\n${aiAgentProviders}\n` : ''}
+# Windmill agent authoring reference
+
+${getAgentPrompt()}`
+}
+
 function getDatatableInstructions(language?: ScriptLang): string {
 	// Default to the TypeScript SDK so we return only what's needed, not both.
 	const lang = language ?? 'bun'
@@ -2898,6 +2921,8 @@ export function getInstructions(
 			return getFlowInstructions(workspace, composeOnly, external)
 		case 'resource':
 			return getResourceInstructions()
+		case 'agent':
+			return getAgentInstructions(workspace, external)
 		case 'app':
 			return getAppInstructions(language, composeOnly, external)
 		case 'datatable':

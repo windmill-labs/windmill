@@ -667,6 +667,7 @@ Resources store credentials and configuration for external services.
 An agent, as the Agents page lists it, is a resource of type \`ai_agent\`. Its value holds the
 agent's provider, system prompt, tools and memory settings, and a flow step uses a saved agent by
 linking its path.
+Before writing one, call get_instructions with subject "agent".
 
 ## Variable References
 
@@ -916,6 +917,108 @@ def main(db: postgresql):
     pass
 \`\`\`
 
+`;
+
+export const AGENT_BASE = `# Windmill AI Agents
+
+An agent, as the Agents page lists it, is a saved LLM with its own system prompt, tools and
+memory, stored as a resource of type \`ai_agent\`. It is built once and used in several places: it is
+run from its own page (a chat, or a run form), a flow's AI agent step links to it by path, and it
+can be shared in Slack channels from its page. Build a standalone agent when the user wants an
+assistant they talk to or reuse. Build a flow when the agent is one step of a larger process.
+
+## Structure
+
+\`\`\`json
+{
+  "resource_type": "ai_agent",
+  "description": "Answers support questions from the product docs",
+  "value": {
+    "provider": { "kind": "openai", "resource": "$res:f/ai_providers/openai", "model": "gpt-4o" },
+    "system_prompt": "You are the support assistant for Acme. Answer from the docs; say so when they don't cover a question.",
+    "memory": { "kind": "compaction" },
+    "output_type": "text",
+    "tools": [
+      {
+        "id": "search_docs",
+        "summary": "search_documentation",
+        "description": "Search the product documentation. Use it whenever the user asks how a feature works.",
+        "value": {
+          "tool_type": "flowmodule",
+          "type": "script",
+          "path": "f/support/search_docs",
+          "input_transforms": {
+            "query": { "type": "ai" },
+            "index": { "type": "static", "value": "product_docs" }
+          }
+        }
+      }
+    ]
+  }
+}
+\`\`\`
+
+The value holds plain values, not the \`input_transforms\` an agent step in a flow uses: every field
+is fixed when the agent is saved. \`$res:\` and \`$var:\` references inside it are resolved at run time.
+
+- \`provider\` (required): \`{ "kind", "resource": "$res:<path>", "model" }\`, plus an optional
+  \`reasoning_effort\`. \`resource\` names the workspace's AI provider resource of that kind
+- \`system_prompt\`: how the agent behaves. Write it for the agent's job: who it serves, what it may
+  do with its tools, and what it should refuse or hand back
+- \`memory\`: what lets the agent see earlier turns. \`{ "kind": "compaction" }\` keeps the whole
+  conversation, summarizing its older part as it nears the model's context window; it is what a new
+  agent starts with on its page. \`{ "kind": "off" }\` makes every run start from nothing, right for an
+  agent that handles one request per run
+- \`output_type\`: \`text\` (default) or \`image\`. Image output ignores tools and needs S3 storage on the
+  workspace
+- \`output_schema\`: a JSON schema the answer must follow, for an agent whose output a program reads
+- \`max_iterations\`: how many model and tool rounds a run may take, 1 to 1000 (default 10)
+- \`streaming\` (default on), \`temperature\`, \`max_completion_tokens\`: as their names say
+- \`run_on_behalf_of\`: runs from the agent's page take the identity the agent was deployed with
+  rather than the caller's, so people can use it without access to what its tools touch.
+  \`slack_anyone\` lets anyone in the Slack channels it is shared in ask it, and is kept only with
+  \`run_on_behalf_of\`. Set either only when the user asks: both widen who acts with the deployer's
+  rights
+- \`on_behalf_of\` is the identity itself. Deploying sets it, so never write it
+
+## Tools
+
+\`tools\` takes the same entries as a flow's AI agent step. \`value.tool_type\` is \`flowmodule\` for a
+script, flow or inline script the agent calls, \`mcp\` for an MCP server
+(\`{ "tool_type": "mcp", "resource_path": "$res:<path>", "include_tools": [], "exclude_tools": [] }\`),
+or \`websearch\` for web search (\`{ "tool_type": "websearch" }\`, summary \`Web Search\`).
+
+- Prefer a \`script\` or \`flow\` tool pointing at a deployed item (\`path\`) over an inline \`rawscript\`:
+  it can be tested and reused on its own
+- A flowmodule tool's \`summary\` is the name the agent calls it by: letters, numbers and underscores
+  only, unique among the agent's tools. Put the explanation in \`description\`, which tells the agent
+  when to call it
+- Each argument of a tool is either the model's or fixed. \`{ "type": "ai" }\` (or no value) lets the
+  model fill it; a static value fixes it and hides it from the model. Fix what the model must not
+  choose, such as a resource, a table name or a limit
+
+## Using It From a Flow
+
+An AI agent step links to a saved agent with \`value.agent\` instead of carrying its own \`provider\`,
+system prompt and tools:
+
+\`\`\`json
+{
+  "id": "support",
+  "value": {
+    "type": "aiagent",
+    "agent": "f/support/support_agent",
+    "input_transforms": {
+      "user_message": { "type": "javascript", "expr": "flow_input.question" }
+    },
+    "tools": []
+  }
+}
+\`\`\`
+
+The step holds only what belongs to one use of the agent: \`user_message\`, \`user_attachments\`,
+\`enabled_tools\`, \`memory_id\`, \`previous_messages\`, and the \`model\` and \`reasoning_effort\` overrides.
+Everything else comes from the agent, so a change to the agent reaches every flow linking it.
 `;
 
 export const RAW_APP_BASE = `# Windmill Raw Apps
