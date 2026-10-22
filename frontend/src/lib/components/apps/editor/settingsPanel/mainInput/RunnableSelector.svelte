@@ -59,6 +59,13 @@
 	)
 	let filter: string = $state('')
 	let picker: Drawer | undefined = $state()
+	const selectLabel = $derived(
+		onlyFlow
+			? 'Select a flow'
+			: rawApps
+				? 'Select a script, flow or agent'
+				: 'Select a script or flow'
+	)
 
 	const dispatch = createEventDispatcher<{
 		pick: {
@@ -180,25 +187,25 @@
 </script>
 
 <Drawer bind:this={picker} size="1000px">
-	<DrawerContent title="Script/Flow Picker" on:close={picker.closeDrawer}>
+	<DrawerContent title={selectLabel} on:close={picker.closeDrawer}>
 		<div>
 			<div class="max-w-6xl">
 				<Tabs bind:selected={tab}>
 					{#if !onlyFlow}
 						{#if !rawApps}
-							<Tab value="inlinescripts" label="Detached Inline Scripts" icon={Building} />
+							<Tab value="inlinescripts" label="Detached inline scripts" icon={Building} />
 						{/if}
-						<Tab value="workspacescripts" label="Workspace Scripts" icon={Building} />
+						<Tab value="workspacescripts" label="Workspace scripts" icon={Building} />
 					{/if}
-					<Tab value="workspaceflows" label="Workspace Flows" icon={Building} />
+					<Tab value="workspaceflows" label="Workspace flows" icon={Building} />
 					{#if rawApps && !onlyFlow}
-						<Tab value="workspaceagents" label="AI Agents" icon={Bot} />
+						<Tab value="workspaceagents" label="AI agents" icon={Bot} />
 					{/if}
 					{#if $roleCaps.apps !== 'compose'}
 						{#if !onlyFlow}
-							<Tab value="hubscripts" label="Hub Scripts" icon={Globe2} />
+							<Tab value="hubscripts" label="Hub scripts" icon={Globe2} />
 						{/if}
-						<Tab value="hubflows" label="Hub Flows" icon={Globe2} />
+						<Tab value="hubflows" label="Hub flows" icon={Globe2} />
 					{/if}
 				</Tabs>
 				<div class="my-2"></div>
@@ -249,7 +256,6 @@
 		startIcon={{ icon: MousePointer }}
 		btnClasses="truncate w-full"
 	>
-		{#if onlyFlow}Select a flow{:else if rawApps}Select a script, flow or agent{:else}Select a
-			script or flow{/if}
+		{selectLabel}
 	</Button>
 </div>
