@@ -17039,7 +17039,6 @@ dependencies = [
  "tracing",
  "uuid",
  "windmill-api-auth",
- "windmill-api-flows",
  "windmill-audit",
  "windmill-common",
  "windmill-dep-map",

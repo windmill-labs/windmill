@@ -523,7 +523,7 @@ async fn update_draft(
                 .unwrap_or(false);
             if is_agent {
                 let mut tx = user_db.clone().begin(&authed).await?;
-                windmill_api_flows::flows::validate_operator_agent(
+                windmill_api_auth::composed::validate_operator_agent(
                     &draft.args,
                     &authed,
                     &db,

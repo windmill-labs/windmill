@@ -2494,7 +2494,7 @@ async fn resolve_agent_on_behalf_of(
     created: bool,
 ) -> Result<()> {
     if authed.is_operator {
-        windmill_api_flows::flows::validate_operator_agent(value, authed, db, tx, w_id).await?;
+        windmill_api_auth::composed::validate_operator_agent(value, authed, db, tx, w_id).await?;
     }
     let Some(obj) = value.as_object_mut() else {
         return Ok(());
