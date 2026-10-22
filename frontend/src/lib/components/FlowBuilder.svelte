@@ -1,6 +1,7 @@
 <script lang="ts">
 	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
 	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
+	import { movesToAnotherOwner } from '$lib/components/itemSettings/inheritedAccess'
 	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import {
 		FlowService,
@@ -519,14 +520,22 @@
 			await deployFlow(choice.message)
 			return
 		}
+		const asksRunAs = deployAsksOnBehalfOf(
+			'flow',
+			!!flowStore.val.on_behalf_of_email,
+			!isNewFlow && !!$savedOnBehalfOfEmail,
+			folderDefault.value
+		)
+		const from = deployedRowPath
 		if (
-			deployAsksOnBehalfOf(
-				'flow',
-				!!flowStore.val.on_behalf_of_email,
-				!isNewFlow && !!$savedOnBehalfOfEmail,
-				folderDefault.value
-			)
+			shareDialog &&
+			from &&
+			movesToAnotherOwner(from, $pathStore) &&
+			!(await shareDialog.confirmMove('flow', from, $pathStore, asksRunAs ? 'Next' : 'Deploy'))
 		) {
+			return
+		}
+		if (asksRunAs) {
 			deployDialogMsg = deploymentMsg ?? ''
 			deployDialogOpen = true
 			return
@@ -549,12 +558,18 @@
 		deployedPath === undefined && (newFlow || initialPath == '' || savedFlow?.no_deployed === true)
 	)
 	let pendingFirstDeploy: FirstDeployChoice | undefined = undefined
+	// Where the deployed flow is, which a staged path change moves it from: `initialPath` is
+	// re-seeded from a staged rename.
+	const deployedRowPath = $derived(
+		neverDeployed ? undefined : (deployedPath ?? (userDraftPath || initialPath))
+	)
 
 	function openShare() {
-		// The deployed row's path: `initialPath` is re-seeded from a staged rename.
-		shareDialog?.openDialog('flow', deployedPath ?? (userDraftPath || initialPath), {
+		if (!deployedRowPath) return
+		shareDialog?.openDialog('flow', deployedRowPath, {
 			source: 'editor_header',
-			fromEditor: true
+			fromEditor: true,
+			stagedPath: $pathStore
 		})
 	}
 
@@ -1087,7 +1102,8 @@
 		outputPickerOpenFns,
 		savedOnBehalfOfEmail,
 		savedOnBehalfOfPermissionedAs,
-		opWorkspace: () => opWorkspace
+		opWorkspace: () => opWorkspace,
+		deployedPath: () => deployedRowPath
 	})
 
 	// Set up NoteEditor context for note editing capabilities

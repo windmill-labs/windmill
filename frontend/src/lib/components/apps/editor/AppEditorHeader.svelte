@@ -73,13 +73,14 @@
 	import DeployButton from '$lib/components/DeployButton.svelte'
 	import { updatePolicy } from './appPolicy'
 	import { appDraftSettings } from './appDraftSettings'
-	import ShareDialog, { type ShareSection } from '$lib/components/itemSettings/ShareDialog.svelte'
+	import ShareDialog from '$lib/components/itemSettings/ShareDialog.svelte'
 	import FirstDeployDialog, {
 		applyFirstDeployMembers
 	} from '$lib/components/itemSettings/FirstDeployDialog.svelte'
 	import ShareButton from '$lib/components/itemSettings/ShareButton.svelte'
 	import { accessModeOf } from '$lib/components/itemSettings/appAccess'
-	import type { ShareOpenSource } from '$lib/components/itemSettings/sharingTelemetry'
+	import { movesToAnotherOwner } from '$lib/components/itemSettings/inheritedAccess'
+	import { computeSecretUrl } from './appDeploy.svelte'
 	import { classicAppDraftParts } from '$lib/appDiffSides'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
@@ -514,8 +515,12 @@
 	let shareDialog: ShareDialog | undefined = $state()
 	let firstDeployDialog: FirstDeployDialog | undefined = $state()
 
-	function openShare(source: ShareOpenSource, section?: ShareSection) {
-		shareDialog?.openDialog('app', $appPath!, { source, section, fromEditor: true })
+	function openShare() {
+		shareDialog?.openDialog('app', $appPath!, {
+			source: 'editor_header',
+			fromEditor: true,
+			stagedPath: newEditedPath
+		})
 	}
 
 	// Chosen in the first-deploy dialog, added once the run-as confirmation has created the app.
@@ -552,6 +557,14 @@
 			deploymentMsg = choice.message
 			firstDeployMembers = choice.members
 			await deployNow()
+			return
+		}
+		if (
+			shareDialog &&
+			$appPath &&
+			movesToAnotherOwner($appPath, newEditedPath) &&
+			!(await shareDialog.confirmMove('app', $appPath, newEditedPath, 'Next'))
+		) {
 			return
 		}
 		deployDialogOpen = true
@@ -793,16 +806,22 @@
 						displayName: 'Share',
 						icon: UserPlus,
 						disabled: newApp,
-						action: () => openShare('editor_header')
-					},
-					{
-						displayName: 'Public URL',
-						icon: Globe,
-						disabled: newApp,
-						action: () => openShare('public_url', 'app')
+						action: openShare
 					}
 				]
 			: []),
+		{
+			displayName: 'Public URL',
+			icon: Globe,
+			disabled: newApp,
+			action: async () => {
+				const secretUrl = await AppService.getPublicSecretOfApp({
+					workspace: $workspaceStore!,
+					path: $appPath!
+				})
+				window.open(computeSecretUrl(secretUrl), '_blank')
+			}
+		},
 		{
 			displayName: 'App inputs',
 			icon: FormInput,
@@ -1374,11 +1393,7 @@
 				</Button>
 			</div>
 			{#if ownsPageHeader}
-				<ShareButton
-					deployed={!newApp}
-					iconOnly={compactTopbar}
-					onclick={() => openShare('editor_header')}
-				/>
+				<ShareButton deployed={!newApp} iconOnly={compactTopbar} onclick={openShare} />
 			{/if}
 		{/if}
 		<DeployButton

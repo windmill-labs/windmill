@@ -32,13 +32,13 @@
 		UserPlus,
 		WandSparkles
 	} from 'lucide-svelte'
-	import ShareDialog, { type ShareSection } from '$lib/components/itemSettings/ShareDialog.svelte'
+	import ShareDialog from '$lib/components/itemSettings/ShareDialog.svelte'
 	import FirstDeployDialog, {
 		applyFirstDeployMembers
 	} from '$lib/components/itemSettings/FirstDeployDialog.svelte'
 	import ShareButton from '$lib/components/itemSettings/ShareButton.svelte'
 	import { accessModeOf } from '$lib/components/itemSettings/appAccess'
-	import type { ShareOpenSource } from '$lib/components/itemSettings/sharingTelemetry'
+	import { movesToAnotherOwner } from '$lib/components/itemSettings/inheritedAccess'
 	import { onDestroy, untrack, type Snippet } from 'svelte'
 	import { orderedJsonStringify, type Value, replaceFalseWithUndefined } from '../../utils'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
@@ -699,8 +699,12 @@
 	let shareDialog: ShareDialog | undefined = $state()
 	let firstDeployDialog: FirstDeployDialog | undefined = $state()
 
-	function openShare(source: ShareOpenSource, section?: ShareSection) {
-		shareDialog?.openDialog('raw_app', appPath, { source, section, fromEditor: true })
+	function openShare() {
+		shareDialog?.openDialog('raw_app', appPath, {
+			source: 'editor_header',
+			fromEditor: true,
+			stagedPath: newEditedPath
+		})
 	}
 
 	// Chosen in the first-deploy dialog, added once the run-as confirmation has created the app.
@@ -738,6 +742,13 @@
 			deploymentMsg = choice.message
 			firstDeployMembers = choice.members
 			await deployNow()
+			return
+		}
+		if (
+			shareDialog &&
+			movesToAnotherOwner(appPath, newEditedPath) &&
+			!(await shareDialog.confirmMove('raw_app', appPath, newEditedPath, 'Next'))
+		) {
 			return
 		}
 		deployDialogOpen = true
@@ -847,16 +858,22 @@
 						displayName: 'Share',
 						icon: UserPlus,
 						disabled: neverDeployed,
-						action: () => openShare('editor_header')
-					},
-					{
-						displayName: 'Public URL',
-						icon: Globe,
-						disabled: neverDeployed,
-						action: () => openShare('public_url', 'app')
+						action: openShare
 					}
 				]
 			: []),
+		{
+			displayName: 'Public URL',
+			icon: Globe,
+			disabled: neverDeployed,
+			action: async () => {
+				const secretUrl = await AppService.getPublicSecretOfApp({
+					workspace: opWorkspace!,
+					path: appPath
+				})
+				window.open(`${window.location.origin}/public/${opWorkspace}/${secretUrl}`, '_blank')
+			}
+		},
 		{
 			displayName: 'Export',
 			icon: FileJson,
@@ -1270,7 +1287,7 @@
 			deployed={!neverDeployed}
 			iconOnly={compactTopbar}
 			unifiedSize={headerBtnSize}
-			onclick={() => openShare('editor_header')}
+			onclick={openShare}
 		/>
 	{/if}
 	<DeployButton

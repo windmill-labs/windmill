@@ -1,6 +1,8 @@
 <script lang="ts">
 	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
 	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
+	import { movesToAnotherOwner } from '$lib/components/itemSettings/inheritedAccess'
+	import PathMoveNote from '$lib/components/itemSettings/PathMoveNote.svelte'
 	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import {
 		ScriptService,
@@ -60,7 +62,7 @@
 	import ScriptEditor from './ScriptEditor.svelte'
 	import DbtEditor from './dbt/DbtEditor.svelte'
 	import { findModulePathClash } from './scriptModulePath'
-	import { Alert, Button, Drawer, Tab, TabContent, Tabs } from './common'
+	import { Button, Drawer, Tab, TabContent, Tabs } from './common'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 	import type { SupportedLanguage } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
@@ -251,12 +253,18 @@
 		deployedPath === undefined && (initialPath == '' || savedScript?.no_deployed === true)
 	)
 	let pendingFirstDeploy: FirstDeployChoice | undefined = undefined
+	// Where the deployed script is, which a staged path change moves it from: `initialPath` is
+	// re-seeded from a staged rename.
+	const deployedRowPath = $derived(
+		neverDeployed ? undefined : (deployedPath ?? (userDraftPath || initialPath))
+	)
 
 	function openShare() {
-		// The deployed row's path: `initialPath` follows the path being typed.
-		shareDialog?.openDialog('script', deployedPath ?? (userDraftPath || initialPath), {
+		if (!deployedRowPath) return
+		shareDialog?.openDialog('script', deployedRowPath, {
 			source: 'editor_header',
-			fromEditor: true
+			fromEditor: true,
+			stagedPath: script.path
 		})
 	}
 	const indicatorPath = $derived(autosavePath ?? userDraftPath)
@@ -679,14 +687,22 @@
 			await deployScript(stay, choice.message)
 			return
 		}
+		const asksRunAs = deployAsksOnBehalfOf(
+			'script',
+			!!script.on_behalf_of_email,
+			!isNewScript && !!savedScript?.on_behalf_of_email,
+			folderDefault.value
+		)
+		const from = deployedRowPath
 		if (
-			deployAsksOnBehalfOf(
-				'script',
-				!!script.on_behalf_of_email,
-				!isNewScript && !!savedScript?.on_behalf_of_email,
-				folderDefault.value
-			)
+			shareDialog &&
+			from &&
+			movesToAnotherOwner(from, script.path) &&
+			!(await shareDialog.confirmMove('script', from, script.path, asksRunAs ? 'Next' : 'Deploy'))
 		) {
+			return
+		}
+		if (asksRunAs) {
 			deployDialogStay = stay
 			deployDialogMsg = deployMsg ?? ''
 			deployDialogOpen = true
@@ -1626,14 +1642,11 @@
 												kind="script"
 												workspaceOverride={opWorkspace}
 											/>
-											{#if initialPath && script.path && script.path !== initialPath}
-												<Alert
-													type="info"
-													size="xs"
-													title="Deploy the script to make the path change effective."
-													class="mt-2"
-												/>
-											{/if}
+											<PathMoveNote
+												kind="script"
+												deployedPath={deployedRowPath}
+												path={script.path}
+											/>
 										</Label>
 										<Label label="Description">
 											<MetadataGen

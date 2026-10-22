@@ -4,7 +4,7 @@
 	import Path from '$lib/components/Path.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
 	import JobTokenScopesSetting from '$lib/components/JobTokenScopesSetting.svelte'
-	import { Alert, Tab, TabContent, Tabs } from '$lib/components/common'
+	import { Tab, TabContent, Tabs } from '$lib/components/common'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
@@ -27,6 +27,7 @@
 	import MuteErrorHandlerSetting from '$lib/components/itemSettings/MuteErrorHandlerSetting.svelte'
 	import RunOnBehalfOfSetting from '$lib/components/itemSettings/RunOnBehalfOfSetting.svelte'
 	import InvisibleRunsSetting from '$lib/components/itemSettings/InvisibleRunsSetting.svelte'
+	import PathMoveNote from '$lib/components/itemSettings/PathMoveNote.svelte'
 	import SettingIcons from '$lib/components/itemSettings/SettingIcons.svelte'
 	import {
 		flowRuntimeFields,
@@ -57,8 +58,11 @@
 		customUi,
 		savedOnBehalfOfEmail,
 		savedOnBehalfOfPermissionedAs,
-		opWorkspace
+		opWorkspace,
+		deployedPath
 	} = getContext<FlowEditorContext>('FlowEditorContext')
+	// Without the deployed path, the path the editor opened on stands in.
+	const deployedFlowPath = $derived(deployedPath ? deployedPath() : $initialPathStore)
 
 	type FlowSettingsTab = 'metadata' | 'runtime' | 'permissions'
 
@@ -181,14 +185,7 @@
 											kind="flow"
 											workspaceOverride={opWorkspace?.()}
 										/>
-										{#if $initialPathStore && $pathStore && $pathStore !== $initialPathStore}
-											<Alert
-												type="info"
-												size="xs"
-												title="Deploy the flow to make the path change effective."
-												class="mt-2"
-											/>
-										{/if}
+										<PathMoveNote kind="flow" deployedPath={deployedFlowPath} path={$pathStore} />
 									</Label>
 								{/if}
 

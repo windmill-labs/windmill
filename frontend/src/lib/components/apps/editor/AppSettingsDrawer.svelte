@@ -15,6 +15,7 @@
 	import RunOnBehalfOfSetting from '$lib/components/itemSettings/RunOnBehalfOfSetting.svelte'
 	import { appOnBehalfOfTooltip } from '$lib/components/itemSettings/onBehalfOf'
 	import SettingToggle from '$lib/components/itemSettings/SettingToggle.svelte'
+	import PathMoveNote from '$lib/components/itemSettings/PathMoveNote.svelte'
 	import { FRONTEND_SDK_SCOPES, sdkScopesToConfirm } from '$lib/components/raw_apps/sdkScopes'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
@@ -62,9 +63,6 @@
 
 	const opWs = $derived(operatingWorkspace ?? $operatingWorkspaceStore)
 
-	let pathChanged = $derived(
-		!newApp && !!savedApp?.path && !!newEditedPath && newEditedPath !== savedApp.path
-	)
 	let path: Path | undefined = $state(undefined)
 	let dirtyPath = $state(false)
 </script>
@@ -136,14 +134,11 @@
 										autofocus={false}
 										workspaceOverride={operatingWorkspace}
 									/>
-									{#if pathChanged}
-										<Alert
-											type="info"
-											size="xs"
-											title="Deploy the app to make the path change effective."
-											class="mt-2"
-										/>
-									{/if}
+									<PathMoveNote
+										kind="app"
+										deployedPath={newApp ? undefined : savedApp?.path}
+										path={newEditedPath}
+									/>
 								</Label>
 							</div>
 						</TabContent>

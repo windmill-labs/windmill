@@ -25,6 +25,43 @@ export function folderOfPath(path: string): string | undefined {
 	return parts[0] === 'f' && parts.length >= 2 ? parts[1] : undefined
 }
 
+/** The owner a path names, such as `u/alice` or `f/team`. */
+export function ownerOfPath(path: string): string {
+	return path.split('/').slice(0, 2).join('/')
+}
+
+/** Whether moving an item between these paths changes who reaches it through its path. */
+export function movesToAnotherOwner(from: string, to: string): boolean {
+	return !!from && !!to && ownerOfPath(from) !== ownerOfPath(to)
+}
+
+/** An owner as a sentence names it: "folder team", or the `u/` or `g/` name. */
+export function ownerLabel(path: string): string {
+	const folder = folderOfPath(path)
+	return folder !== undefined ? `folder ${folder}` : ownerOfPath(path)
+}
+
+/** What moving an item to another owner takes away: the users and groups that reach it through
+ *  the old owner and through neither the new one nor the item's own members, and the writers left
+ *  with a viewer's role. Undefined when either owner's members could not be read. */
+export function accessLostByMove(
+	from: InheritedAccess | undefined,
+	to: InheritedAccess | undefined,
+	members: Record<string, boolean>
+): { lost: string[]; demoted: string[] } | undefined {
+	if (!from || !to || from.note !== undefined || to.note !== undefined) return undefined
+	const after = new Map<string, boolean>(to.rows.map((r) => [r.name, r.write]))
+	for (const [name, write] of Object.entries(members)) after.set(name, after.get(name) || write)
+	const lost: string[] = []
+	const demoted: string[] = []
+	for (const row of from.rows) {
+		const write = after.get(row.name)
+		if (write === undefined) lost.push(row.name)
+		else if (row.write && !write) demoted.push(row.name)
+	}
+	return { lost, demoted }
+}
+
 /** Who reaches an item through its path rather than through its own extra_perms: the folder's
  *  owners and members for `f/`, the owning user or group for `u/` and `g/`. Workspace admins
  *  reach everything and are not listed. `folder` is the item's folder, undefined when it could
