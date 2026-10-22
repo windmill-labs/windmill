@@ -476,6 +476,8 @@ export const APP_TO_ICON_COMPONENT = {
 	apify: ApifyIcon,
 	mcp: McpIcon,
 	zoho: ZohoIcon,
+	zoho_crm: ZohoIcon,
+	zoho_books: ZohoIcon,
 	pocketid: PocketIdIcon,
 	duckdb: DuckDbIcon,
 	activecampaign: ActiveCampaignIcon,
