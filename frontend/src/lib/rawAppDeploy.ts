@@ -53,11 +53,13 @@ export async function deployRawAppValue({
 	// The value carries the runnables, so the policy's triggerables have to be
 	// recomputed from it or the deployed app can't call what it now contains.
 	const policy = (await updateRawAppPolicy(runnables, currentPolicy)) as Policy
-	// Who can open the app is set from the Share dialog: the deployed one stands.
-	const row = await AppService.getAppLiteByPath({ workspace, path })
-	policy.execution_mode = row.policy.execution_mode ?? 'publisher'
 
 	const bundle = await bundleRawAppDraft({ workspace, files })
+
+	// Who can open the app is set from the Share dialog: the deployed one stands. Read after the
+	// bundle, which takes seconds, so a Share change made meanwhile is not written back.
+	const row = await AppService.getAppLiteByPath({ workspace, path })
+	policy.execution_mode = row.policy.execution_mode ?? 'publisher'
 
 	await AppService.updateAppRaw({
 		workspace,
@@ -121,8 +123,10 @@ export async function deployRawAppDraft(
 
 	if (await AppService.existsApp({ workspace, path })) {
 		// Who can open the app and its custom URL are set from the Share dialog: the deployed
-		// mode stands over the draft's, and an absent custom path keeps the deployed one.
-		policy.execution_mode = app.policy?.execution_mode ?? policy.execution_mode
+		// mode stands over the draft's, and an absent custom path keeps the deployed one. The mode
+		// is read after the bundle, so a Share change made while it built is not written back.
+		const deployed = await AppService.getAppLiteByPath({ workspace, path })
+		policy.execution_mode = deployed.policy.execution_mode ?? policy.execution_mode
 		await AppService.updateAppRaw({
 			workspace,
 			path,
