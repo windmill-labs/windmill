@@ -63,18 +63,22 @@
 		const lockedOut = (m: AIWorkMode) => !!w.lock && m !== AIWorkMode.USE
 		const workItems: Item[] = workModeOptions
 			.filter((o) => o.mode !== AIWorkMode.PLAN || w.planAvailable || w.lock)
-			.map((o, i) => ({
-				displayName: o.label,
-				description: o.description,
-				icon: o.icon,
-				// `iconColor` takes a color value; these are text classes.
-				iconProps: { class: `shrink-0 ${o.iconColor}` },
-				sectionTitle: i === 0 ? 'What the chat can do' : undefined,
-				selected: workOption?.mode === o.mode,
-				disabled: lockedOut(o.mode),
-				tooltip: lockedOut(o.mode) ? w.lock?.reason : undefined,
-				action: () => w.onChange(o.mode)
-			}))
+			.map((o, i) => {
+				const locked = lockedOut(o.mode)
+				return {
+					displayName: o.label,
+					description: o.description,
+					icon: o.icon,
+					// `iconColor` takes a color value; these are text classes. A locked row's icon
+					// keeps the disabled color its label has.
+					iconProps: { class: locked ? 'shrink-0' : `shrink-0 ${o.iconColor}` },
+					sectionTitle: i === 0 ? 'What the chat can do' : undefined,
+					selected: workOption?.mode === o.mode,
+					disabled: locked,
+					tooltip: locked ? w.lock?.reason : undefined,
+					action: () => w.onChange(o.mode)
+				}
+			})
 		const escape = w.lock?.escape
 		return [
 			...workItems,

@@ -136,8 +136,8 @@
 		return depth > 0 ? `padding-left: ${12 + depth * 16}px` : undefined
 	}
 
-	// Judged off the root's OWN rules and the user's identity in the root, so it reads correctly
-	// from a dev workspace or a fork too. A locked root stays selectable: its session is read-only.
+	// Judged off the root's OWN rules, so it reads correctly from a dev workspace or a fork too.
+	// A locked root stays selectable: its session is read-only.
 	const rootReadOnly = useSessionReadOnly(() => root?.id)
 
 	// Structural gate: hidden in the admins workspace, or when the user can't fork; on cloud, forking
@@ -375,9 +375,7 @@
 							type="button"
 							title={rootReadOnly.current
 								? `Sessions in ${root.name} can read and run deployed items, but not edit. Pick ${
-										devOfRoot
-											? `its ${devLabelNoun(devOfRoot.dev_workspace_label)}`
-											: 'a fork'
+										devOfRoot ? `its ${devLabelNoun(devOfRoot.dev_workspace_label)}` : 'a fork'
 									} to make changes.`
 								: undefined}
 							class={`${rowBase} pr-8 ${isSelected(root.id) && !pendingFork ? 'bg-surface-selected' : ''} ${keyArrowPos === rootIdx ? 'bg-surface-hover' : 'hover:bg-surface-hover'}`}

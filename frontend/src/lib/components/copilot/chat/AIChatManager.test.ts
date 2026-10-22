@@ -52,9 +52,12 @@ vi.mock('monaco-editor', () => ({
 vi.mock('$lib/utils/featureUsage', () => ({ logFeatureUsage: vi.fn() }))
 
 vi.mock('$lib/gen', () => ({
-	WorkspaceService: {},
+	WorkspaceService: {
+		listProtectionRules: vi.fn(async () => [])
+	},
 	ResourceService: {
-		listResource: mocks.listResource
+		listResource: mocks.listResource,
+		listResourceTypeNames: vi.fn(async () => [])
 	},
 	ScriptService: {},
 	FlowService: {},
@@ -4939,6 +4942,26 @@ describe('AIChatManager tool views', () => {
 
 		expect(manager.availableTools.map((t) => t.def.function.name)).not.toContain('write_script')
 		expect(manager.systemMessage.content).not.toContain('write_script')
+	})
+
+	// Use is the user's own pick, so no profile resolves for it: the switch alone has to strip
+	// the writes from the tools and the prompt, and hand them back on Build.
+	it('ships only reads and runs in Use, and the writes again in Build', () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.configureGlobalMode()
+		const names = () => manager.availableTools.map((t) => t.def.function.name)
+		expect(names()).toContain('write_script')
+
+		manager.setWorkMode(AIWorkMode.USE)
+		expect(names()).toEqual(expect.arrayContaining(['list_workspace_items', 'run_script']))
+		expect(names()).not.toContain('write_script')
+		expect(manager.systemMessage.content).not.toContain('write_script')
+
+		manager.setWorkMode(AIWorkMode.BUILD)
+		expect(names()).toContain('write_script')
+		expect(manager.systemMessage.content).toContain('write_script')
 	})
 
 	// Which transition each posture offers is planModeController.test.ts's; what this pins is

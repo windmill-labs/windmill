@@ -23,6 +23,7 @@
 	} from '$lib/components/copilot/chat/composerBox'
 	import { useSessionPermissions } from './sessionPermissions.svelte'
 	import { useWorkModeLock } from './workModeLock.svelte'
+	import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 	import EditableInput from '$lib/components/common/EditableInput.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { Button } from '$lib/components/common'
@@ -111,9 +112,13 @@
 		() => runtime?.manager.operatingWorkspace,
 		() => runtime?.manager
 	)
+	const workModeLock = useWorkModeLock(() => session)
+	// Whether the first message goes out in Use. Not `permissions.readOnly`: before that send a
+	// staged fork's session reads the workspace it forks, while the message builds in the fork.
+	const heldInUse = $derived(!!workModeLock.current || runtime?.manager.workMode === AIWorkMode.USE)
 	const starterPrompts = new StarterPrompts(
 		() => (opensSession ? (actingWorkspaceId ?? $workspaceStore ?? undefined) : undefined),
-		() => !permissions.readOnly
+		() => !heldInUse
 	)
 
 	// Seed the composer with the unsent prompt a reload preserved on the session
@@ -151,8 +156,6 @@
 	const composerPlaceholder = $derived(
 		globalComposerSuggestion(suggestionPick, permissions.canOpenEditor)
 	)
-	// The chat's prompt names the lock's escape row when it sends the user elsewhere to build.
-	const workModeLock = useWorkModeLock(() => session)
 
 	// A hand-off whose click already stated the intent asks for its prompt to be
 	// sent, not parked. Reactive rather than mount-time: `createSession` reuses an
@@ -618,7 +621,7 @@
 									bind:value={() => draftText, setPlaceholderText}
 									toolbar={opensSession ? placeholderToolbar : undefined}
 									placeholder={opensSession
-										? permissions.readOnly
+										? heldInUse
 											? USE_STARTER_PLACEHOLDER
 											: STARTER_PLACEHOLDER
 										: runtime.manager.displayMessages.length > 0

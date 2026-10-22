@@ -26,7 +26,9 @@ export function useWorkModeLock(session: () => Session | undefined, switchesWork
 	const lock = $derived.by((): WorkModeLock | undefined => {
 		const s = session()
 		const ws = workspace()
-		if (!s || !ws) return undefined
+		// A staged fork is created at the first send and the session builds there, so nothing
+		// about the workspace it forks holds the session in Use.
+		if (!s || !ws || s.pending_fork) return undefined
 		if (protectedWorkspace.current) {
 			const dev = findCanonicalDevWorkspace(ws, workspaces.current)
 			if (!dev)

@@ -11,9 +11,10 @@ import type { WorkspaceItem } from '$lib/components/workspacePicker'
 import { previewPageAllowed, type PreviewPage } from './previewRouter'
 
 /**
- * Whether a session in `workspace` is read-only: the workspace refuses this user's direct
- * deploys through `DisableDirectDeployment`. The same verdict `resolveSessionAccess` gives the
- * chat, so the UI and the toolset agree. Reads as false until resolved, and on a failed check.
+ * Whether a session in `workspace` is read-only: the workspace is protected by
+ * `DisableDirectDeployment`, which holds every user, admins included. The same verdict
+ * `resolveSessionAccess` gives the chat, so the UI and the toolset agree. Reads as false until
+ * resolved, and on a failed check.
  */
 export function useSessionReadOnly(workspace: () => string | undefined) {
 	const verdict = resource(workspace, async (ws) => (ws ? isReadOnlySessionWorkspace(ws) : false))

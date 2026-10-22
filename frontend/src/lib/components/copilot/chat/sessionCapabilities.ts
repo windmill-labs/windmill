@@ -50,9 +50,9 @@ export type SessionCapability =
 	| 'manage_triggers'
 	/** Passes `require_admin`. */
 	| 'admin'
-	/** Withheld when the workspace refuses this user's direct deploys through
+	/** Withheld from everyone, admins and bypassers included, when the workspace is protected by
 	 * `DisableDirectDeployment` (a production workspace): the session is then read-only and
-	 * ships only the tools `readOnlyToolAllowed` admits. Held in every other session. */
+	 * ships only the tools `readOnlyToolAllowed` admits. A session in Use holds none either. */
 	| 'modify_workspace'
 
 export type SessionAccess = ReadonlySet<SessionCapability>

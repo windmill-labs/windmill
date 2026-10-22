@@ -172,7 +172,9 @@
 		}
 	}
 
-	let own = $state(false)
+	let ownsItem = $state(false)
+	// A session can switch to Use while the drawer is open, so read-only is read live.
+	const own = $derived(ownsItem && !readOnly($operatingWorkspace))
 	export async function openDrawer(newPath: string, kind_l: Kind, isOwnerOverride?: boolean) {
 		path = newPath
 		kind = kind_l
@@ -183,7 +185,7 @@
 		loadLinkedVarPaths()
 		loadDefaultPerms()
 		if (isOwnerOverride !== undefined) {
-			own = isOwnerOverride && !readOnly($operatingWorkspace)
+			ownsItem = isOwnerOverride
 		} else {
 			loadOwner()
 		}
@@ -191,8 +193,7 @@
 	}
 
 	async function loadOwner() {
-		own =
-			!readOnly($operatingWorkspace) && isOwner(path, operatingUser.current!, $operatingWorkspace!)
+		ownsItem = isOwner(path, operatingUser.current!, $operatingWorkspace!)
 	}
 
 	async function loadAcls() {

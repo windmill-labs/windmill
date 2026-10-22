@@ -1,4 +1,4 @@
-import { derived, fromStore, get, readable, type Readable } from 'svelte/store'
+import { derived, fromStore, get, readable, toStore, type Readable } from 'svelte/store'
 import type { RoleCapabilities } from '$lib/gen'
 import { userStore, userWorkspaces, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 import {
@@ -82,10 +82,17 @@ export const capabilitiesInWorkspace = (workspace: string | undefined) =>
  * the shape `title` and `disabled` both want. See `docs/operator-write-rights.md`.
  */
 function writeLock(kind: 'schedule' | 'trigger', noun: string) {
-	return derived(useRoleCapabilities(), (caps) =>
+	const workspace = fromStore(useOperatingWorkspace())
+	const readOnly = useReadOnlyWorkspace()
+	// A store, so a session switched to Use mid-page locks the toggles already shown.
+	const sessionReadOnly = toStore(() => readOnly(workspace.current))
+	return derived([useRoleCapabilities(), sessionReadOnly], ([caps, inUse]) => {
+		if (inUse) return `A session in Use mode cannot manage ${noun}`
 		// Worded as the server words its refusal of the same write.
-		roleCanAuthor(kind, caps) ? undefined : `Your role cannot manage ${noun} in this workspace`
-	)
+		return roleCanAuthor(kind, caps)
+			? undefined
+			: `Your role cannot manage ${noun} in this workspace`
+	})
 }
 
 /** Reads context: call during component initialisation. */

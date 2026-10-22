@@ -2942,7 +2942,7 @@ export type SessionPromptContext = {
 	/** Pre-send intent: a staged fork of this workspace is created at first send. */
 	pendingForkOf?: string
 	/** The family's dev workspace, where a read-only session sends the user to make changes. */
-	devWorkspaceId?: string
+	devWorkspace?: { id: string; name: string }
 	/** Why the session is in Use mode, where the workspace itself is not protected: the user
 	 * picked it, or their role builds nothing there. */
 	useMode?: 'chosen' | 'role'
@@ -2996,12 +2996,12 @@ export function getSessionContextPromptSection(
 			`- No workspace is committed yet: a staged fork of workspace "${ctx.pendingForkOf}" is created automatically when the first message is sent, and all work lands in that fork.`
 		)
 	} else if (protectedWorkspace) {
-		const elsewhere =
-			ctx.devWorkspaceId && ctx.devWorkspaceId !== ctx.workspaceId
-				? `start a new session in the dev workspace "${ctx.devWorkspaceId}" — the composer's mode picker has a button for it`
-				: 'start a new session in a fork of this workspace, or, where forking is refused too, make the change in git and open a pull request'
+		const dev = ctx.devWorkspace?.id !== ctx.workspaceId ? ctx.devWorkspace : undefined
+		const elsewhere = dev
+			? `start a new session in the dev workspace "${dev.id}", which the "New session in ${dev.name} (dev)" entry of the composer's mode picker opens`
+			: 'start a new session in a fork of this workspace, or, where forking is refused too, make the change in git and open a pull request'
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — a production workspace protected against direct changes, so this session is READ-ONLY whatever the user's role. You can inspect anything and run deployed scripts and flows with run_script and run_flow; you cannot write drafts, test-run code, deploy or delete. When the user asks to create or change something, say this session cannot do it and that to make the change they need to ${elsewhere}. A session's workspace cannot be changed once it has started, so never suggest switching this one.`
+			`- Operating workspace: "${ctx.workspaceId}" — a production workspace protected against direct changes, so this session is READ-ONLY whatever the user's role. You can inspect anything and run deployed scripts and flows with run_script and run_flow; you cannot write drafts, test-run code, deploy or delete. When the user asks to create or change something, say this session cannot do it and that to make the change they need to ${elsewhere}. This session's mode picker shows Plan and Build greyed out and its workspace cannot change once it has started, so never suggest picking Build or switching this session.`
 		)
 	} else if (ctx.parentWorkspaceId && ctx.isDevWorkspace) {
 		lines.push(
@@ -3030,7 +3030,7 @@ export function getSessionContextPromptSection(
 		)
 	} else if (readOnly && ctx.useMode === 'role') {
 		lines.push(
-			`- This user's role builds nothing in this workspace (no scripts, flows, apps, schedules or triggers), so the session is held in Use mode and is READ-ONLY: you can inspect anything and run deployed scripts and flows with run_script and run_flow; you cannot write drafts, test-run code, deploy or delete. When the user asks to create or change something, say their role does not allow it, in this chat or by hand anywhere in the workspace, and suggest asking a workspace admin, who can grant their role more in ${OPERATOR_SETTINGS_LOCATION}. Do not walk them through doing it themselves.`
+			`- This user's role builds nothing in this workspace (no scripts, flows, apps, schedules or triggers), so the session is held in Use mode and is READ-ONLY: you can inspect anything and run deployed scripts and flows with run_script and run_flow; you cannot write drafts, test-run code, deploy or delete. When the user asks to create or change a script, flow, app, schedule or trigger, say their role does not allow it, in this chat or by hand anywhere in the workspace, and suggest asking a workspace admin, who can grant their role more in ${OPERATOR_SETTINGS_LOCATION}; do not walk them through doing it themselves. Their mode picker shows Plan and Build greyed out, so never suggest switching modes. Resources and variables are the exception: every role creates and edits those by hand, outside this session, on the workspace's own Resources and Variables pages.`
 		)
 	}
 	// The kind enum already withholds what the rules refuse; this says why, and where the user
