@@ -1712,6 +1712,49 @@ export function buildWmillTs(
 }
 
 /**
+ * The inputs of an agent runnable, after the agent's memory (see the frontend's
+ * `agentRunnableSchema`): `memory_id` when it keeps managed memory, `previous_messages` when it
+ * is off, and neither for an older `manual` setting.
+ */
+function agentRunnableSchema(memory: any) {
+  const managed =
+    memory?.kind === "compaction" ||
+    ((memory?.kind === "window" || memory?.kind === "auto") &&
+      Boolean(memory.context_length));
+  const legacy = memory?.kind === "manual";
+  const history: Record<string, any> = {};
+  if (managed) {
+    history.memory_id = {
+      type: "string",
+      description:
+        "The conversation the message belongs to: reuse it to continue one, or omit it for a single run",
+    };
+  } else if (!legacy) {
+    history.previous_messages = {
+      type: "array",
+      description:
+        "The history to answer from, as chat messages: this agent keeps no memory",
+      items: { type: "object" },
+    };
+  }
+  return {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    type: "object",
+    properties: {
+      user_message: { type: "string", description: "The message to answer" },
+      ...history,
+      user_attachments: {
+        type: "array",
+        description: "Files the message carries, as object storage references",
+        items: { type: "object", resourceType: "s3object" },
+      },
+    },
+    required: ["user_message"],
+    order: ["user_message", ...Object.keys(history), "user_attachments"],
+  };
+}
+
+/**
  * Fetches schemas from the Windmill API for path-based runnables (script / flow).
  * Returns a map of runnableId -> schema. Path-based runnables don't store their
  * schema locally (the script or flow at the path is the source of truth), so we
@@ -1741,6 +1784,12 @@ export async function fetchPathRunnableSchemas(
           path: runnable.path,
         });
         if (script.schema) schemas[runnableId] = script.schema;
+      } else if (runnable.runType === "agent") {
+        const agent = await wmill.getResource({
+          workspace: workspaceId,
+          path: runnable.path,
+        });
+        schemas[runnableId] = agentRunnableSchema((agent.value as any)?.memory);
       } else if (runnable.runType === "flow") {
         const flow = await wmill.getFlowByPath({
           workspace: workspaceId,
@@ -1771,7 +1820,8 @@ function convertRunnablesToApiFormat(runnables: Record<string, any>): void {
     if (
       runnable?.type === "script" ||
       runnable?.type === "hubscript" ||
-      runnable?.type === "flow"
+      runnable?.type === "flow" ||
+      runnable?.type === "agent"
     ) {
       // Convert from file format to API format
       // { type: "script" } -> { type: "path", runType: "script" }
@@ -2029,9 +2079,11 @@ async function streamJobWithSSE(
   ws: WebSocket,
   baseUrl: string,
   token: string,
+  streamOffset?: number,
 ): Promise<void> {
   const sseUrl =
-    `${baseUrl}api/w/${workspace}/jobs_u/getupdate_sse/${jobId}?fast=true`;
+    `${baseUrl}api/w/${workspace}/jobs_u/getupdate_sse/${jobId}?fast=true` +
+    (streamOffset !== undefined ? `&stream_offset=${streamOffset}` : "");
 
   const extraHeaders = getHeaders();
   const response = await fetch(sseUrl, {
@@ -2057,6 +2109,7 @@ async function streamJobWithSSE(
 
   const decoder = new TextDecoder();
   let buffer = "";
+  let lastOffset = streamOffset;
 
   try {
     while (true) {
@@ -2076,8 +2129,17 @@ async function streamJobWithSSE(
 
             if (type === "ping" || type === "timeout") {
               if (type === "timeout") {
+                // The server ends every stream after a while; the job goes on, so it is resumed.
                 reader.cancel();
-                return;
+                return streamJobWithSSE(
+                  workspace,
+                  jobId,
+                  reqId,
+                  ws,
+                  baseUrl,
+                  token,
+                  lastOffset,
+                );
               }
               continue;
             }
@@ -2108,6 +2170,9 @@ async function streamJobWithSSE(
               return;
             }
 
+            if (update.stream_offset !== undefined) {
+              lastOffset = update.stream_offset;
+            }
             // Send stream update if there's new stream data
             if (update.new_result_stream !== undefined) {
               ws.send(

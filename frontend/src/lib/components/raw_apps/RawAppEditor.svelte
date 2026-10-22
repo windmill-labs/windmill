@@ -40,7 +40,7 @@
 	import { getAppliedDarkModeVariant, type DarkModeVariant } from '$lib/darkModeVariant'
 	import RawAppSidebar from './RawAppSidebar.svelte'
 	import type { Modules } from './RawAppModules.svelte'
-	import { isRunnableByName, isRunnableByPath } from '../apps/inputType'
+	import { isRunnableByName, isRunnableByPath, type PathRunType } from '../apps/inputType'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import { onMount, onDestroy, untrack } from 'svelte'
 	import type {
@@ -917,6 +917,8 @@ addEventListener('message', function (e) {
 				backendRunnable.type = 'flow'
 			} else if (runnable.runType === 'hubscript') {
 				backendRunnable.type = 'hubscript'
+			} else if (runnable.runType === 'agent') {
+				backendRunnable.type = 'agent'
 			} else {
 				backendRunnable.type = 'script'
 			}
@@ -1230,7 +1232,7 @@ addEventListener('message', function (e) {
 					runnables[key] = {
 						name: runnable.name,
 						type: 'path',
-						runType: runnable.type as 'script' | 'flow' | 'hubscript',
+						runType: runnable.type as PathRunType,
 						path: runnable.path,
 						fields: runnable.staticInputs
 							? Object.fromEntries(
@@ -1861,7 +1863,7 @@ addEventListener('message', function (e) {
 
 	// The deployed app's `window.ctx`: the viewer's membership in the app's workspace.
 	function previewCtx() {
-		return $state.snapshot({ ctx: operatingUser.current, workspace: opWorkspace })
+		return $state.snapshot({ ctx: operatingUser.current, workspace: opWorkspace, path })
 	}
 
 	// A build fed before the viewer is known keeps that viewer until the next one. Outside

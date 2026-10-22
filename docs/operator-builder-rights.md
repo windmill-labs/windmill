@@ -66,7 +66,8 @@ resolves the runnable it runs on the root handle, so `validate_operator_composed
 referenced path under the caller's RLS and refuses hub ones. For a script it checks the version a
 run would pick: grants are per version, and a path reused after its versions were archived starts
 with none while the archived ones keep theirs. But it has to check **two** surfaces,
-because they are not the same list: the policy's `script/<path>` and `flow/<path>` triggerables,
+because they are not the same list: the policy's `script/<path>`, `flow/<path>` and
+`agent/<path>` triggerables (an agent is checked as an `ai_agent` resource the caller can read),
 and the by-path entries of the app value's `runnables` map, which is what the editor resolves a
 `runnable_id` against and sends. Read only that map, and refuse an entry whose `type`, `path` or
 `runType` is not text.
@@ -77,8 +78,8 @@ at run time for `component = "a:b"`. Every colon is a possible split, so the che
 suffix that parses as a runnable rather than guessing which one a request will use.
 
 What makes those checks bind is that **`ExecutionMode::Viewer` is refused for a builder app**. In
-Viewer mode `execute_component` falls back to a default triggerable for any `script/`/`flow/`
-path, so the policy stops being the list of what the app may invoke, and the job runs as the
+Viewer mode `execute_component` falls back to a default triggerable for any `script/`/`flow/`/
+`agent/` path, so the policy stops being the list of what the app may invoke, and the job runs as the
 *viewer*: an admin who merely opened the app would run anything in the workspace as themselves.
 `Publisher`, `Guest` and `Anonymous` have no such fallback; all three run as the publisher. If you ever relax the Viewer refusal, the
 deploy-time path checks above stop being an authorization boundary.
