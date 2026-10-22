@@ -58,7 +58,7 @@
 
 	function overriddenKeys(o: RoleOverride | undefined): string[] {
 		const c = o?.capabilities ?? {}
-		const keys = ['code', 'flows', 'apps', 'manage_schedules', 'manage_triggers'].filter(
+		const keys = ['code', 'flows', 'apps', 'manage_schedules', 'manage_triggers', 'fork'].filter(
 			(k) => c[k] != null
 		)
 		for (const { key } of VISIBILITY_KEYS) {

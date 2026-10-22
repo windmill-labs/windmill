@@ -9013,7 +9013,7 @@ async fn check_can_fork(db: &DB, authed: &ApiAuthed, w_id: &str) -> Result<()> {
     if *DISABLE_WORKSPACE_FORK {
         require_super_admin(db, authed).await?;
     }
-    if !windmill_common::roles::caller_capabilities(db, w_id, authed)
+    if !windmill_common::roles::caller_role_capabilities(db, w_id, authed)
         .await?
         .fork
     {

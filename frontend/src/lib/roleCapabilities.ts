@@ -56,17 +56,16 @@ export function capabilitiesIn(
 	return operator ? legacyOperatorCapabilities(workspace?.operator_settings) : FULL_CAPABILITIES
 }
 
-/** Whether the role is gated at all, as `RoleCapabilities::is_restricted`: visibility is left out,
- * since hiding a page must not cost a full author what restricted roles are refused, such as
- * forking. */
+/** Whether the role is gated at all, as `RoleCapabilities::is_restricted`: visibility and `fork`
+ * are left out, since neither must cost a full author what restricted roles are refused. Gate
+ * forking on `caps.fork` itself. */
 export function isRestricted(caps: RoleCapabilities): boolean {
 	return (
 		!caps.code ||
 		caps.flows !== 'full' ||
 		caps.apps !== 'full' ||
 		!caps.manage_schedules ||
-		!caps.manage_triggers ||
-		!caps.fork
+		!caps.manage_triggers
 	)
 }
 

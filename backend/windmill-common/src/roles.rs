@@ -143,11 +143,13 @@ impl RoleCapabilities {
     }
 
     /// Whether a member of this role is gated at all. Every gate skips an unrestricted caller
-    /// without reading its role, which is what `ApiAuthed::is_operator` carries. Visibility is
-    /// left out: it only hides pages, and must not turn a full author into an operator for the
-    /// raw `is_operator` checks, job permissions and credential caches keyed on it.
+    /// without reading its role, which is what `ApiAuthed::is_operator` carries. Visibility and
+    /// `fork` are left out: neither may turn a full author into an operator for the raw
+    /// `is_operator` checks, job permissions and credential caches keyed on it. A role defined
+    /// before `fork` existed reads it as unset, so it would otherwise turn restricted on upgrade.
+    /// `fork` is checked with [`caller_role_capabilities`] instead.
     pub fn is_restricted(&self) -> bool {
-        Self { visibility: RoleVisibility::ALL, ..*self } != Self::FULL
+        Self { visibility: RoleVisibility::ALL, fork: true, ..*self } != Self::FULL
     }
 
     /// Whether the role authors deployable artifacts and so costs a full seat rather than half.
@@ -712,6 +714,25 @@ async fn member_role(db: &DB, workspace_id: &str, username: &str) -> Result<Opti
     let role = row.map(|r| resolve_role_name(r.workspace_role, r.operator));
     MEMBER_ROLE.insert(key, (role.clone(), now + ROLE_CACHE_TTL_SECS));
     Ok(role)
+}
+
+/// The caller's role capabilities in `workspace_id`, read even for an unrestricted caller, whom
+/// [`caller_capabilities`] answers with `FULL` unread. Needed for a capability `is_restricted`
+/// leaves out, such as `fork`. An admin holds everything; an unrestricted caller without a
+/// membership row keeps `FULL`, a restricted one gets none.
+pub async fn caller_role_capabilities<A: Authable + ?Sized>(
+    db: &DB,
+    workspace_id: &str,
+    authed: &A,
+) -> Result<RoleCapabilities> {
+    if authed.is_admin() {
+        return Ok(RoleCapabilities::FULL);
+    }
+    match member_role(db, workspace_id, authed.username()).await? {
+        Some(role) => role_capabilities_by_name(db, workspace_id, &role).await,
+        None if authed.is_operator() => Ok(RoleCapabilities::NONE),
+        None => Ok(RoleCapabilities::FULL),
+    }
 }
 
 /// What the caller may do in `workspace_id`. An admin, and any caller authentication did not mark
