@@ -919,9 +919,8 @@
 						{#snippet text()}
 							Whether jobs get the worker's HTTP_PROXY, HTTPS_PROXY and NO_PROXY. Dependency
 							installs always go through the proxy, whatever this is set to. Removing the variables
-							does not stop a job from reaching the proxy if it knows its address. Also settable
-							with the DISABLE_JOB_PROXY worker env var. Workers pick the change up without
-							restarting.
+							does not stop a job from reaching the proxy if it knows its address. Workers pick the
+							change up without restarting.
 						{/snippet}
 					</Tooltip>
 				{/snippet}

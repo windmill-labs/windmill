@@ -213,7 +213,10 @@ async fn install_missing_extensions(blocks: &[String], job_dir: &str) -> Result<
             "Installing DuckDB extensions for the jailed runner failed: {msg}"
         )));
     }
-    INSTALLED.lock().unwrap().extend(missing.into_iter().filter(|s| !s.starts_with("FORCE ")));
+    INSTALLED
+        .lock()
+        .unwrap()
+        .extend(missing.into_iter().filter(|s| !s.starts_with("FORCE ")));
     Ok(())
 }
 
@@ -438,19 +441,25 @@ async fn spawn_runner(
     if let Some(cap) = &spill_cap {
         cmd.env("DUCKDB_MAX_TEMP_DIRECTORY_SIZE", cap);
     }
-    for var in [
-        "GOOGLE_APPLICATION_CREDENTIALS",
-        "HTTP_PROXY",
-        "HTTPS_PROXY",
-        "NO_PROXY",
-        "ALL_PROXY",
-        "http_proxy",
-        "https_proxy",
-        "no_proxy",
-        "all_proxy",
-    ] {
-        if let Ok(v) = std::env::var(var) {
-            cmd.env(var, v);
+    if let Ok(v) = std::env::var("GOOGLE_APPLICATION_CREDENTIALS") {
+        cmd.env("GOOGLE_APPLICATION_CREDENTIALS", v);
+    }
+    // An `Install` request only fetches extensions, a dependency install that keeps the proxy.
+    // Outside the jail a job installs them from its own run, so there they follow the group.
+    if matches!(req.mode, RequestMode::Install) || crate::passes_proxy_to_jobs() {
+        for var in [
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "NO_PROXY",
+            "ALL_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "no_proxy",
+            "all_proxy",
+        ] {
+            if let Ok(v) = std::env::var(var) {
+                cmd.env(var, v);
+            }
         }
     }
 

@@ -386,8 +386,6 @@ lazy_static::lazy_static! {
         .filter(|x| !x.is_empty());
 
     pub static ref NATIVE_MODE: bool = std::env::var("NATIVE_MODE").ok().is_some_and(|x| x == "1" || x == "true");
-    /// Fallback for the worker group's `disable_job_proxy`.
-    pub static ref DISABLE_JOB_PROXY: bool = std::env::var("DISABLE_JOB_PROXY").ok().is_some_and(|x| x == "1" || x == "true");
 
     pub static ref LIMIT_WINDOWS_TO_1CU: bool = std::env::var("LIMIT_WINDOWS_TO_1CU").ok().is_some_and(|x| x == "1" || x == "true");
 
@@ -2770,7 +2768,7 @@ pub async fn load_worker_config(
             .additional_python_paths
             .or_else(|| load_additional_python_paths_from_env()),
         env_vars: resolved_env_vars,
-        disable_job_proxy: config.disable_job_proxy.unwrap_or(*DISABLE_JOB_PROXY),
+        disable_job_proxy: config.disable_job_proxy.unwrap_or(false),
         native_mode,
         object_store_cache_config: config.object_store_cache_config,
         paused: config.paused.unwrap_or(false),
