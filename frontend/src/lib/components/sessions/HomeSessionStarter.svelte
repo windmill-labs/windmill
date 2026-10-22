@@ -92,10 +92,10 @@
 		const wrapper = chatWrapper
 		requestAnimationFrame(() => onSettled?.(wrapper.offsetHeight))
 	})
-	// The draft acts on the workspace Home shows, whichever picker moved it: a switch within the
-	// family keeps this mount, so the draft's pick has to follow. A switch to another family
-	// remounts with that family's draft, so this one is left where it was. A staged fork keeps
-	// its parent as the pick, so it survives while Home stays on that parent.
+	// The draft acts on the workspace Home shows, on mount and after any switch, whichever picker
+	// made it: a pick the session page left on another workspace of the family is replaced, and a
+	// switch within the family keeps this mount. A switch to another family remounts with that
+	// family's draft, so this one is left where it was. A staged fork of the shown workspace stays.
 	onMount(() =>
 		workspaceStore.subscribe((ws) => {
 			const s = sessionState.sessions.find((x) => x.id === sessionId)
