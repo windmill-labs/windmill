@@ -9,7 +9,7 @@
 </script>
 
 <script lang="ts">
-	import { onDestroy, onMount, tick, untrack } from 'svelte'
+	import { onDestroy, onMount, untrack } from 'svelte'
 	import { SvelteSet } from 'svelte/reactivity'
 	import { page } from '$app/state'
 	import {
@@ -40,10 +40,9 @@
 	import type PreviewTabHost from '$lib/components/sessions/PreviewTabHost.svelte'
 	import { useIsDarkMode } from '$lib/components/DarkModeObserver.svelte'
 	import {
-		createSession,
-		findEmptyLandingSession,
 		getEffectiveWorkspaceId,
 		isTearingDownOpenSession,
+		opensOnHome,
 		selectSession,
 		sessionInCurrentFamily,
 		sessionPageHref,
@@ -51,7 +50,12 @@
 		type SessionPreviewTab
 	} from '$lib/components/sessions/sessionState.svelte'
 	import { withWorkspaceParam } from '$lib/components/sessions/sessionMode.svelte'
-	import { enterSessionMode } from '$lib/components/sessions/sessionSwitch.svelte'
+	import {
+		openDraftOnHome,
+		resumeAiSessions,
+		returnToWorkspace
+	} from '$lib/components/sessions/sessionSwitch.svelte'
+	import { sendUserToast } from '$lib/toast'
 	import type { SessionPreviewTabs } from '$lib/components/sessions/sessionPreviewTabs.svelte'
 	import {
 		roleCapabilities,
@@ -65,12 +69,8 @@
 		listRuntimes
 	} from '$lib/components/sessions/sessionRuntime.svelte'
 	import { markSessionSeen } from '$lib/components/sessions/sessionUnread.svelte'
-	import { markSessionRecovered } from '$lib/components/sessions/sessionRecoveryNotice.svelte'
-	import {
-		isGlobalAiEnabled,
-		clearSessionsBetaOptOut,
-		sessionsAllowedFor
-	} from '$lib/components/copilot/chat/global/gate'
+	import { isGlobalAiEnabled, sessionsAllowedFor } from '$lib/components/copilot/chat/global/gate'
+	import { activateAiSessions } from '$lib/components/sessions/sidebarList.svelte'
 	import { setToolCompletionListener } from '$lib/components/copilot/chat/shared'
 	import { registerToolDisplayActionHandler } from '$lib/components/copilot/chat/createdResourceActions.svelte'
 	import { previewTargetForSessionTarget } from '$lib/components/sessions/sessionPreviewTabs.svelte'
@@ -116,14 +116,14 @@
 	const embedded = typeof window !== 'undefined' && window.self !== window.top
 
 	// Warm the lazily-loaded editor views (see PreviewTabHost) once the page is
-	// idle: entering session mode stays instant, and by the time the user opens
+	// idle: opening a session stays instant, and by the time the user opens
 	// an editor tab its chunk is usually already cached. Sequential so the
 	// prefetch trickles instead of fanning out four heavy graphs at once.
 	$effect(() => {
 		if (embedded || !globalEnabled) return
 		// Once the chain has started, cancelling the idle handle no longer helps —
-		// the disposed check between imports is what stops a user who left session
-		// mode from pulling the remaining graphs on whatever page they went to.
+		// the disposed check between imports is what stops a user who left the
+		// session from pulling the remaining graphs on whatever page they went to.
 		// (An import already in flight can't be aborted; only the tail is skipped.)
 		let disposed = false
 		const prefetch = async () => {
@@ -177,11 +177,10 @@
 	})
 
 	// Family reconcile: a workspace switch can land this page with no session
-	// selected or with another family's session in the URL (the sidebar picker's
+	// selected or with another family's session in the URL (the workspace menu's
 	// link navigation keeps the route), and a chat must not bleed across
-	// families. Re-enter session mode scoped to the active family: keep the open
-	// chat when it belongs there, else its most recent active session, else a
-	// fresh one. A `session` that resolves to nothing is left to the
+	// families. Both resume as the switch's AI Sessions side does, within the
+	// active family. A `session` that resolves to nothing is left to the
 	// recovery effect below.
 	$effect(() => {
 		if (embedded || !sessionState.hydrated) return
@@ -194,15 +193,14 @@
 		$workspaceStore
 		$userWorkspaces
 		const current = activeSession
-		const shouldReenter = current ? !sessionInCurrentFamily(current) : !requestsSession
-		if (!shouldReenter) return
-		untrack(() => void enterSessionMode({ replace: true }))
+		const leaves = current ? !sessionInCurrentFamily(current) : !requestsSession
+		if (!leaves) return
+		untrack(() => void resumeAiSessions({ replace: true }))
 	})
 
-	// Held across the swap so the session layout mounts once, after the navigation
-	// settles: mounting the panes mid-navigation makes Splitpanes miss the collapsed
-	// pane's `maxSize: 0` and leave it open.
-	let recovering = $state(false)
+	// Set once this page is on its way to Home, so no session layout mounts for the
+	// moment it is still on screen.
+	let leaving = $state(false)
 
 	// Bounds the wait for the workspace list the guard above needs. The list can
 	// fail to arrive for good, and a spinner that never resolves is a worse
@@ -214,20 +212,24 @@
 		return () => clearTimeout(handle)
 	})
 
-	// The URL names a session this browser doesn't hold. Land on an empty one,
-	// never the most recent: an existing conversation would read as a successful
-	// load. `recovering` also guards re-entry: recovery mutates the session list
-	// this effect tracks, while the URL that would stop it only updates on `goto`.
+	// The URL names a session this browser doesn't hold. Say so and go to Home rather
+	// than open another session in its place, which would read as a successful load.
+	// The toast names no cause: deleted, another browser, cleared site data and a
+	// damaged link are indistinguishable from here.
 	$effect(() => {
 		if (embedded || !globalEnabled || !sessionsAllowedFor(!$roleCapabilities.code)) return
-		if (!sessionState.hydrated || recovering) return
+		if (!sessionState.hydrated || leaving) return
 		// A deliberate delete removes the open session ahead of its own navigation.
 		// Claiming that gap would take over the URL and tell the user the session
 		// they just deleted couldn't be found.
 		if (isTearingDownOpenSession()) return
 		if ($usersWorkspaceStore === undefined && !workspaceListOverdue) return
 		if (!requestsSession || activeSession) return
-		untrack(() => void recoverToNewSession())
+		untrack(() => {
+			leaving = true
+			sendUserToast("We couldn't find that session")
+			void goto('/', { replaceState: true })
+		})
 	})
 
 	// Touch the runtime for the active session so it gets created on first visit
@@ -248,6 +250,13 @@
 		if (lastArrivedSessionId === session.id) return
 		lastArrivedSessionId = session.id
 		untrack(() => {
+			// Judged once, on arrival: a hand-off's draft is unsent until its first send
+			// commits, a moment after it has claimed its auto-send.
+			if (opensOnHome(session)) {
+				leaving = true
+				void openDraftOnHome(session.id, { replace: true })
+				return
+			}
 			// Keep currentSessionId in sync with the URL so consumers react to
 			// deep links the same way they react to picker clicks.
 			selectSession(session.id)
@@ -297,25 +306,6 @@
 		const count = rt.manager.displayMessages.length
 		untrack(() => markSessionSeen(id, count))
 	})
-
-	async function recoverToNewSession() {
-		recovering = true
-		try {
-			// Prefer an existing empty session over stacking another blank onto the
-			// sidebar: createSession reuses only its own in-memory drafts, so one
-			// persisted by any other touch (a workspace pick, a preview tab) would
-			// be passed over.
-			const target = findEmptyLandingSession() ?? createSession()
-			selectSession(target.id)
-			markSessionRecovered(target.id)
-			await goto(sessionPageHref(target.id), {
-				replaceState: true
-			})
-			await tick()
-		} finally {
-			recovering = false
-		}
-	}
 
 	// Preview panel: a tiny tabbed browser over Windmill. Every tab stays mounted
 	// (stacked, visibility-toggled, like the warm chat sessions) so switching
@@ -1042,22 +1032,18 @@
 		<div class="p-8 flex flex-col items-start gap-3 text-secondary text-sm">
 			<p class="text-primary font-medium">AI Sessions are deactivated</p>
 			<p>You switched back to the legacy chat. Activate AI Sessions (beta) to open this page.</p>
-			<Button unifiedSize="sm" onclick={() => clearSessionsBetaOptOut('/sessions')}>
-				Activate AI Sessions
-			</Button>
+			<Button unifiedSize="sm" onclick={activateAiSessions}>Activate AI Sessions</Button>
 		</div>
 	{:else if !sessionState.hydrated}
 		<!-- Sessions hydrate from IndexedDB after the user resolves; until then an
-		     empty list means "loading", so recovery below must not fire and strand
-		     the user in a new session while their own is still arriving. -->
+		     empty list means "loading", so recovery must not fire and send the user
+		     to Home while their session is still arriving. -->
 		<div class="flex-1 flex items-center justify-center">
 			<Loader2 class="animate-spin" />
 		</div>
-	{:else if !requestsSession}
-		<div class="p-8 text-secondary">No session selected — pick one in the sidebar.</div>
-	{:else if !activeSession || recovering}
-		<!-- A tick while recovery swaps in an empty session, or the length of a
-		     fork teardown's HTTP round trip while a delete holds recovery off. -->
+	{:else if !requestsSession || !activeSession || leaving}
+		<!-- On the way to Home, or the length of a fork teardown's HTTP round trip
+		     while a delete holds recovery off. -->
 		<div class="flex-1 flex items-center justify-center">
 			<Loader2 class="animate-spin" />
 		</div>
@@ -1286,7 +1272,7 @@
 				>
 					<p class="text-primary font-medium">AI Sessions are hidden in this workspace</p>
 					<p>A workspace admin hid AI sessions in the workspace settings.</p>
-					<Button unifiedSize="sm" onclick={() => goto('/')}>Back to workspace</Button>
+					<Button unifiedSize="sm" onclick={() => returnToWorkspace()}>Back to workspace</Button>
 				</div>
 			{/if}
 		</div>

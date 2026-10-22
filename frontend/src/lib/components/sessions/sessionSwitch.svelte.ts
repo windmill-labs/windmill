@@ -2,166 +2,142 @@ import { get } from 'svelte/store'
 import { goto } from '$lib/navigation'
 import { workspaceStore } from '$lib/stores'
 import {
+	blankHomeDraft,
 	createSession,
+	homeDraft,
+	opensOnHome,
 	selectSession,
-	sessionPageHref,
 	sessionInCurrentFamily,
 	sessionLastActivityAt,
+	sessionPageHref,
 	sessionState,
 	setSessionAutoSend,
 	setSessionDraftPrompt,
 	setSessionPendingWorkspace,
+	showOnHome,
+	syncWorkspaceTo,
 	type Session,
 	type SessionTarget
 } from './sessionState.svelte'
 import { sessionTargetHref, withPreviewParams } from './sessionMode.svelte'
-import { parsePipelineRoute, parsePreviewItemRoute } from './previewPaths'
-import { findMountedOpenInSessionSource } from './openInSessionContext'
+import { homeSidebarList, type SidebarList } from './sidebarList.svelte'
+import { hrefAfterWorkspaceSwitch } from '../sidebar/workspaceSwitchUrl'
+import { pinHomeComposer } from '../home/homeComposerPin.svelte'
 // Type-only: erased at compile time, so the component graph stays out of this
 // navigation seam (see the dynamic import in openEditorInSession).
 import type { OpenInSessionSource } from './OpenInSessionButton.svelte'
 
-// The session/navigation switch turns the global rail into either the workspace
-// navigation (navigation mode) or the sessions sidebar (session mode). Session
-// mode is route-derived — it is exactly "on the /sessions page" — so the switch
-// is just navigation in and out of that route.
+// The Workspace ⇄ AI Sessions switch moves between two places worked in side by side,
+// and comes back to each where it was left. Plain module state: read only in click
+// handlers, never rendered. A reload forgets both, and the switch then falls back to
+// Home and to the family's most recently used session.
 
-// The last non-session route the user was on, so exiting session mode returns
-// them where they were instead of dumping them on the home page. Stored as a
-// base-prefixed pathname (+ search); `goto` is base-idempotent so re-prefixing
-// is safe. Plain module state: it is read only inside click handlers, never
-// rendered, so it needs no reactivity.
-let lastNavRoute = '/'
-// Whether `lastNavRoute` has been offered as a new session's starting point since
-// it was remembered (see takeNewSessionSeed).
-let navRouteOffered = false
+// The last page shown with the workspace nav beside it, Home included, as a pathname
+// with its search, and the workspace it was shown in.
+let workspacePage: { href: string; workspace: string | undefined } | undefined
+// The session last opened, on its page or in Home's composer.
+let lastSessionId: string | undefined
 
-export function rememberNavRoute(pathnameWithSearch: string): void {
-	lastNavRoute = pathnameWithSearch
-	navRouteOffered = false
+/** The page Workspace returns to. Called on every arrival with the workspace nav shown,
+ * and by an in-place URL rewrite the router doesn't report as a navigation. */
+export function rememberWorkspacePage(href: string): void {
+	workspacePage = { href, workspace: get(workspaceStore) ?? undefined }
 }
 
-/** An item editor the user reached session mode from, as the in-app href a new
- * session's preview can open, plus what it edits (for naming it). */
-export type NewSessionSeed = { url: string; kind: string; path: string }
-
-/** What an editor route edits: a session target, or an unset target for an item
- * with no in-session editor (a legacy app), which is opened by its page instead. */
-function editedAt(
-	url: string
-): { target: SessionTarget | undefined; kind: string; path: string } | undefined {
-	const folder = parsePipelineRoute(url)
-	if (folder)
-		return { target: { kind: 'pipeline', path: folder }, kind: 'pipeline', path: `f/${folder}` }
-	const route = parsePreviewItemRoute(url)
-	if (!route) return undefined
-	const kind = route.kind === 'app' ? (route.raw_app ? 'raw_app' : undefined) : route.kind
-	return {
-		target: kind ? { kind, path: route.itemPath } : undefined,
-		kind: route.kind,
-		path: route.itemPath
+/** Where a navigation landed, for the switch to come back to. Landing anywhere but Home
+ * also sets the list Home will show. */
+export function noteArrival(url: URL): void {
+	if (url.pathname.startsWith('/sessions')) {
+		homeSidebarList.val = 'sessions'
+		lastSessionId = url.searchParams.get('session') ?? lastSessionId
+		return
 	}
+	if (url.pathname !== '/') homeSidebarList.val = 'workspace'
+	if (homeSidebarList.val === 'workspace') rememberWorkspacePage(url.pathname + url.search)
 }
 
-// The item (flow, script, app, pipeline) the user came to session mode from, or undefined
-// when they came from anywhere else. A "New session" asked for after arriving
-// from an item is usually a session about that item, but the arrival route
-// (`enterSessionMode`) resumes whatever session was open, so the picker offers
-// the item back. Offered once per remembered route: the first "New session" of
-// a visit gets the question, however long the visit has run and whatever was
-// done in between; later ones start empty without asking, and a dismissed offer
-// is not repeated until the user leaves for another page and comes back.
-export function takeNewSessionSeed(): NewSessionSeed | undefined {
-	if (navRouteOffered) return undefined
-	navRouteOffered = true
-	const edited = editedAt(lastNavRoute)
-	return edited ? { url: lastNavRoute, kind: edited.kind, path: edited.path } : undefined
+/** The switch on Home, which belongs to both lists: it swaps the list and stays. */
+export function swapHomeList(list: SidebarList, homeHref: string): void {
+	homeSidebarList.val = list
+	if (list === 'workspace') rememberWorkspacePage(homeHref)
 }
 
-// The session entering session mode resumes: the active one if selected, else
-// the most recent non-archived one. Scoped to the active workspace family:
-// reviving a session from another family would pull that family's scope
-// (sidebar list, "Acting on" workspace) into the one the user is actually in.
+// The session last opened, else the family's most recently used one. Scoped to the
+// family: reviving another family's session would pull its scope into this one.
 function resumableSession(): Session | undefined {
-	const current = sessionState.currentSessionId
-		? sessionState.sessions.find((s) => s.id === sessionState.currentSessionId)
-		: undefined
-	return (
-		(current && sessionInCurrentFamily(current) ? current : undefined) ??
-		sessionState.sessions.find((s) => !s.archived && sessionInCurrentFamily(s))
-	)
+	const usable = (s: Session) => !s.archived && sessionInCurrentFamily(s)
+	const last = sessionState.sessions.find((s) => s.id === lastSessionId)
+	if (last && usable(last)) return last
+	return sessionState.sessions
+		.filter((s) => usable(s) && !s.transient)
+		.sort((a, b) => sessionLastActivityAt(b) - sessionLastActivityAt(a))[0]
 }
 
-// Enter session mode: resume the session `resumableSession` picks, else spin up
-// a fresh one — then route to it.
-// `replace` swaps the current history entry instead of pushing — for the
-// sessions page's family reconcile, where Back must not return to the
-// redirected-away URL just to bounce here again.
-export async function enterSessionMode(opts?: { replace?: boolean }): Promise<void> {
-	const target = resumableSession() ?? createSession()
-	selectSession(target.id)
-	await goto(sessionPageHref(target.id), {
-		replaceState: opts?.replace ?? false
-	})
-}
-
-// How long the resumable session may have sat idle before entering from an item
-// editor starts a session on that item instead. Long enough that stepping out to
-// the editor in the middle of a conversation comes back to the same chat; short
-// enough that a session left since the previous day is not taken for the task
-// the user is now on.
-const RESUME_IDLE_LIMIT_MS = 60 * 60 * 1000
-
-// Enter session mode from the navigation rail. Coming from an item editor with
-// no session to resume, or one idle past RESUME_IDLE_LIMIT_MS, opens a fresh
-// session on that item straight away: a session that old is rarely what a visit
-// from a flow or app is about, and landing in it would only lead to "New
-// session" and the offer takeNewSessionSeed makes. Anything else resumes as
-// enterSessionMode does. Rejects when the editor could not persist its draft,
-// so the caller can stay on the page and say so.
-export async function enterSessionModeFromNav(): Promise<void> {
-	const edited = editedAt(lastNavRoute)
-	if (edited) {
-		const resumable = resumableSession()
-		if (!resumable || Date.now() - sessionLastActivityAt(resumable) > RESUME_IDLE_LIMIT_MS) {
-			// The editor's own hand-off is what its "Open in AI session" button uses:
-			// it persists the draft the preview loads (an edit still inside the
-			// autosave debounce, the row of a never-saved new item) and names the
-			// workspace the item lives in. Only an item with no such editor on
-			// screen (a legacy app, a detail page) is opened by route, as last
-			// persisted, in the workspace the route was scoped to.
-			const source = edited.target && findMountedOpenInSessionSource(edited.target)
-			if (source) await openSourceInSession(source)
-			else await openPageInSession(lastNavRoute, workspaceParamOf(lastNavRoute))
-			return
-		}
+/** AI Sessions, from anywhere but Home: the session to resume on its page, or in Home's
+ * composer for an unsent draft, else a blank draft there. `replace` for the sessions
+ * page's own redirects, where Back must not return to the URL that bounced here. */
+export async function resumeAiSessions(opts?: { replace?: boolean }): Promise<void> {
+	const session = resumableSession()
+	if (!session || opensOnHome(session)) {
+		await toHome((session ?? blankHomeDraft()).id, opts)
+		return
 	}
-	await enterSessionMode()
+	selectSession(session.id)
+	await goto(sessionPageHref(session.id), { replaceState: opts?.replace ?? false })
 }
 
-function workspaceParamOf(pathnameWithSearch: string): string | undefined {
-	const query = pathnameWithSearch.split('?')[1]
-	return query ? (new URLSearchParams(query).get('workspace') ?? undefined) : undefined
+/** Workspace, from a session's page: the page it was left on, else Home. One left in
+ * another workspace than the header's is moved by the workspace picker's rule: restored
+ * as it was, its item could be missing here or its params switch the workspace back. */
+export async function returnToWorkspace(): Promise<void> {
+	homeSidebarList.val = 'workspace'
+	const left = workspacePage
+	const ws = get(workspaceStore) ?? undefined
+	let href = left?.href ?? '/'
+	if (left && ws && left.workspace !== ws) href = hrefAfterWorkspaceSwitch(left.href, ws)
+	await goto(href)
 }
 
-// Exit session mode: back to the last navigation route (home as a fallback).
-export async function exitSessionMode(): Promise<void> {
-	let target = lastNavRoute || '/'
-	// The remembered route can carry a stale `?workspace=` — the layout's
-	// onQueryChange re-applies that param, so restoring the route would
-	// silently check the app back out to a workspace the user has since
-	// left. The rest of the route is scoped to that stale workspace too,
-	// so fall back to home rather than rewriting the param.
-	const wsParam = /[?&]workspace=([^&]*)/.exec(target)?.[1]
-	const ws = get(workspaceStore)
-	if (ws && wsParam && decodeURIComponent(wsParam) !== ws) {
-		target = '/'
-	}
-	await goto(target)
+// A plain session starts on Home, and an unsent draft is shown there rather than on a
+// page of its own, with the session list beside it. Asking for one puts the composer
+// back on Home if the reader had unpinned it: there is nowhere else to type it.
+async function toHome(id: string, opts?: { replace?: boolean }): Promise<void> {
+	homeSidebarList.val = 'sessions'
+	lastSessionId = id
+	showOnHome(id, { focus: true })
+	pinHomeComposer()
+	// `goto` has no same-URL short-circuit, so navigating from Home would push a
+	// duplicate history entry; showOnHome already remounts the composer there.
+	if (typeof window !== 'undefined' && window.location.pathname === '/') return
+	await goto('/', { replaceState: opts?.replace ?? false })
+}
+
+/** New session: Home's composer, blank and focused. It acts on the header's workspace,
+ * switched to `workspaceId` first when given. A draft already typed stays in the list. */
+export async function openNewSession(workspaceId?: string): Promise<void> {
+	// Home's current draft stays where it is: the switch below must not take it along.
+	homeDraft.id = undefined
+	if (workspaceId) syncWorkspaceTo(workspaceId)
+	await toHome(blankHomeDraft().id)
+}
+
+/** An unsent draft, opened in Home's composer. `replace` for a redirect off the sessions
+ * page, where Back must not return to the URL that bounced here. */
+export async function openDraftOnHome(id: string, opts?: { replace?: boolean }): Promise<void> {
+	await toHome(id, opts)
+}
+
+/** Where to go once the session on screen is gone (archived, deleted, not in this browser):
+ * Home, showing whichever draft it would pick anyway. */
+export async function leaveForHome(opts?: { replace?: boolean }): Promise<void> {
+	homeDraft.id = undefined
+	homeDraft.requests++
+	if (typeof window !== 'undefined' && window.location.pathname === '/') return
+	await goto('/', { replaceState: opts?.replace ?? false })
 }
 
 // Open a fresh AI session showing an editor (flow/script/raw_app) in its preview,
-// then route into session mode. The preview loads the item from its live draft,
+// then route to its page. The preview loads the item from its live draft,
 // so the caller MUST persist any unsaved edits first (e.g. save a draft) for the
 // preview to reflect the live state. `workspaceId` scopes the session to the
 // editor's workspace (instead of createSession's root default) so it opens the
@@ -229,9 +205,6 @@ async function sessionHrefFor(
 		// node-run unit tests.
 		const { resetSessionPreviewTabs } = await import('./sessionRuntime.svelte')
 		resetSessionPreviewTabs(session.id, url)
-		// Hand-offs seed the page they leave, so the arrival has opened the item
-		// itself and "New session" need not offer it again.
-		navRouteOffered = true
 	}
 	selectSession(session.id)
 	return sessionPageHref(session.id)
@@ -265,9 +238,8 @@ export async function openSourceInSession(
 
 // Open a fresh session on no particular item, with `prompt` pre-filled in the
 // composer. For entry points that carry a question rather than a target (the
-// global search's "Ask AI"). Always a new session rather than the most recent
-// one (`enterSessionMode`), so the seed cannot overwrite a prompt the user has
-// already typed into a session they are mid-way through.
+// global search's "Ask AI"). Always a new session, so the seed cannot overwrite
+// a prompt the user has already typed into another one.
 export async function startSessionWithPrompt(
 	prompt: string,
 	opts?: { autoSend?: boolean }

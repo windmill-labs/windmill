@@ -1,53 +1,34 @@
 <script lang="ts">
 	import { Building, MessagesSquare } from 'lucide-svelte'
+	import { page } from '$app/state'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { enterSessionModeFromNav, exitSessionMode } from './sessionSwitch.svelte'
-	import { goto } from '$lib/navigation'
-	import { sendUserToast } from '$lib/toast'
-	import { page } from '$app/state'
+	import { resumeAiSessions, returnToWorkspace, swapHomeList } from './sessionSwitch.svelte'
+	import type { SidebarList } from './sidebarList.svelte'
 
-	// Which side of the switch is active. `nav` = workspace navigation (the classic
-	// app), `session` = the sessions sidebar + chat + preview.
 	let {
-		mode,
+		list,
 		isCollapsed = false,
-		// Fired right before the toggle navigates. Lets a host (e.g. the mobile menu
-		// drawer) keep itself open across the mode switch.
+		// Fired right before the switch navigates. Lets a host (the mobile menu drawer)
+		// stay open across it, to show the list it switched to.
 		onToggle
-	}: { mode: 'nav' | 'session'; isCollapsed?: boolean; onToggle?: () => void } = $props()
+	}: { list: SidebarList; isCollapsed?: boolean; onToggle?: () => void } = $props()
 
-	// The group's highlighted side. Melt moves it on click, before the navigation
-	// that would change `mode`, so it is derived from the route (which wins once
-	// a switch navigates) and pushed back when one does not, or the rail would
-	// read "AI Sessions" on an editor page with the clicked side inert until
-	// "Workspace" was pressed first.
-	let selected: string | string[] | null | undefined = $derived(mode)
+	// The group's highlighted side. Melt moves it on click, before the navigation that
+	// changes `list`, so it is pushed back to `list` once the click has played out: a
+	// navigation that did not happen (an editor refusing to be left) must not leave the
+	// other side lit.
+	let selected: string | string[] | null | undefined = $derived(list)
 
-	function onSelected(next: 'nav' | 'session') {
-		if (next === mode) return
-		onToggle?.()
-		if (next === 'session') {
-			// An editor whose draft could not be persisted keeps the user on the
-			// page, as its own "Open in AI session" button does, rather than open a
-			// session on an older draft than the one on screen.
-			void enterSessionModeFromNav().catch((e) => {
-				selected = mode
-				sendUserToast(e instanceof Error ? e.message : String(e), true)
-			})
-		} else void exitSessionMode()
-	}
-
-	// Pressing the already-active "Workspace" side goes home, so the toggle doubles
-	// as the home button when there is no mode to switch to. `onToggle` is
-	// deliberately not fired: this is a plain in-mode navigation, so the mobile menu
-	// drawer should dismiss like it does for any other nav link.
-	function onNavActivate() {
-		if (mode !== 'nav') return
-		// `goto` has no same-URL short-circuit, so navigating from home would push a
-		// duplicate history entry and make the next Back press look broken.
-		if (page.url.pathname === '/') return
-		void goto('/')
+	async function onSelected(next: SidebarList) {
+		if (next === list) return
+		if (page.url.pathname === '/') {
+			swapHomeList(next, page.url.pathname + page.url.search)
+		} else {
+			onToggle?.()
+			await (next === 'sessions' ? resumeAiSessions() : returnToWorkspace())
+		}
+		selected = list
 	}
 </script>
 
@@ -62,18 +43,17 @@
 	{#snippet children({ item })}
 		<ToggleButton
 			{item}
-			value="nav"
+			value="workspace"
 			icon={isCollapsed ? Building : undefined}
 			label="Workspace"
 			iconOnly={isCollapsed}
 			tooltip={isCollapsed ? 'Workspace' : undefined}
 			size="sm"
 			class="w-full justify-center whitespace-nowrap"
-			onActivate={onNavActivate}
 		/>
 		<ToggleButton
 			{item}
-			value="session"
+			value="sessions"
 			icon={isCollapsed ? MessagesSquare : undefined}
 			label="AI Sessions"
 			iconOnly={isCollapsed}

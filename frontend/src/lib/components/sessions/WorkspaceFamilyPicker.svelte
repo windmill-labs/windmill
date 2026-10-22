@@ -47,8 +47,7 @@
 		// drives the family-root resolution and the "selected" highlight).
 		// Defaults to the active workspace store when not set.
 		selectedId,
-		// A staged-but-not-yet-created fork (e.g. SessionWorkspaceBar's
-		// pre-send draft). Highlighted as the active row when set.
+		// A staged-but-not-yet-created fork. Highlighted as the active row when set.
 		pendingFork,
 		onPick,
 		onCreateFork,

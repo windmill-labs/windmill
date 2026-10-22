@@ -144,9 +144,6 @@ async function fetchItemCount(workspace: string): Promise<number> {
 	return count
 }
 
-/** What turns an empty chat into the block that starts a session. */
-export type ChatStarter = { suggestions: ComposerSuggestion[] } & (
-	| /** An empty session centres the block in the pane under a greeting. */
-	{ where: 'session' } /** Home shows it alone, collapsed to one line at rest unless `fewItems`. */
-	| { where: 'home'; fewItems: boolean }
-)
+/** What turns an empty chat into Home's block that starts a session, collapsed to one line at
+ * rest unless `fewItems`. */
+export type ChatStarter = { suggestions: ComposerSuggestion[]; fewItems: boolean }

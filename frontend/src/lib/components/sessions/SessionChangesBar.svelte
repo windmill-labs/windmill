@@ -66,7 +66,7 @@
 	)
 	const isFork = $derived(!!parentWorkspaceId)
 
-	// Same gate as the sidebar WorkspaceMenu / SessionWorkspaceBar. On cloud,
+	// Same gate as the sidebar WorkspaceMenu. On cloud,
 	// forking is a premium-only feature (backend caps it per paid seat).
 	const forksAllowed = $derived(
 		(!isCloudHosted() || $maybePremium) && canCreateFork($userStore, $roleCapabilities) && $workspaceStore !== 'admins'
@@ -387,7 +387,8 @@
 		onItemDiscarded={(item) => {
 			void runtime?.manager.removeModifiedItem(item.draftKind, item.path)
 			const folder = pipelineFolderFromBundlePath(item.path)
-			if (item.draftKind === PIPELINE_DRAFT_KIND && folder) void runtime?.forgetPipelineDrafts(folder)
+			if (item.draftKind === PIPELINE_DRAFT_KIND && folder)
+				void runtime?.forgetPipelineDrafts(folder)
 		}}
 		deployPipeline={runtime?.deployPipeline}
 	/>

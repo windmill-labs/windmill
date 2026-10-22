@@ -1,6 +1,5 @@
 <script lang="ts">
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import Checkbox from '$lib/components/common/checkbox/Checkbox.svelte'
 	import { Button } from '$lib/components/common'
 	import {
@@ -23,20 +22,20 @@
 	import { twMerge } from 'tailwind-merge'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { goto } from '$lib/navigation'
-	import { takeNewSessionSeed, type NewSessionSeed } from './sessionSwitch.svelte'
+	import { leaveForHome, openDraftOnHome, openNewSession } from './sessionSwitch.svelte'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { slide } from 'svelte/transition'
 	import {
-		createSession,
 		deleteSessionsForWorkspace,
+		homeDraft,
 		isForkSession,
+		opensOnHome,
 		reconcileAfterWorkspaceChange,
 		renameSession,
 		selectSession,
 		sessionPageHref,
 		sessionLastActivityAt,
 		sessionState,
-		setNewSessionWorkspace,
 		setSessionArchived,
 		syncWorkspaceTo,
 		withOpenSessionTeardown,
@@ -49,8 +48,7 @@
 		getRuntime,
 		getSessionChatPeek,
 		getSessionChatStatus,
-		removeSession,
-		resetSessionPreviewTabs
+		removeSession
 	} from './sessionRuntime.svelte'
 	import SessionStatusDot from './SessionStatusDot.svelte'
 	import UnreadCountBadge from '$lib/components/common/badge/UnreadCountBadge.svelte'
@@ -116,10 +114,15 @@
 		return () => clearInterval(handle)
 	})
 
-	// Only highlight the active session while the sessions page is open — elsewhere
-	// `currentSessionId` lingers but no row should appear selected.
-	const onSessionsPage = $derived(page.url.pathname.startsWith('/sessions'))
-	const sessionActive = $derived(onSessionsPage)
+	// The row the page is showing: the open session on its page, the draft in Home's
+	// composer on Home. Elsewhere `currentSessionId` lingers but no row is selected.
+	const activeRowId = $derived(
+		page.url.pathname.startsWith('/sessions')
+			? sessionState.currentSessionId
+			: page.url.pathname === '/'
+				? homeDraft.id
+				: undefined
+	)
 
 	interface Props {
 		isCollapsed?: boolean
@@ -176,10 +179,12 @@
 	// total, and keyboard navigation.
 	const visibleSessions = $derived(
 		sessionState.sessions.filter((s) => {
+			// A blank nobody has typed in is Home's composer at rest, not a session yet.
+			if (s.transient) return false
 			// Pending (unsent) sessions show like any other, so several drafts can be
 			// set up in parallel; they group by pending_workspace_id via sessionRootOf.
-			// The open session always stays in the list, ignoring every filter.
-			if (s.id === sessionState.currentSessionId) return true
+			// The row on screen always stays in the list, ignoring every filter.
+			if (s.id === activeRowId) return true
 			if (s.archived && !showArchived.val) return false
 			if (lastActivityDays.val > 0) {
 				const cutoff = clock - lastActivityDays.val * 24 * 60 * 60 * 1000
@@ -352,7 +357,7 @@
 	const archivedCount = $derived(
 		sessionState.sessions.filter((s) => {
 			if (!s.archived || s.transient) return false
-			if (s.id === sessionState.currentSessionId) return true
+			if (s.id === activeRowId) return true
 			if (lastActivityDays.val > 0) {
 				const cutoff = clock - lastActivityDays.val * 24 * 60 * 60 * 1000
 				if (sessionLastActivityAt(s) < cutoff) return false
@@ -396,6 +401,10 @@
 	async function activate(session: Session, restoreFocus: boolean = false) {
 		// Picking a session leaves browse mode so the chat comes back.
 		onSelectSession?.()
+		if (opensOnHome(session)) {
+			await openDraftOnHome(session.id)
+			return
+		}
 		selectSession(session.id)
 		// The global workspaceStore is intentionally NOT switched here: a session
 		// runs against its own workspace via the chat manager's workspace resolver,
@@ -415,59 +424,16 @@
 		}
 	}
 
+	// Whatever page is on screen, a new session starts on Home: a session about an item
+	// is started from that item, by its Open in AI session button.
 	async function createAndOpen() {
-		// A new session opened from a Windmill page adopts that page as its first
-		// preview tab.
-		if (!onSessionsPage) {
-			await createAndOpenWith(page.url.pathname + page.url.search)
-			return
-		}
-		// On the sessions page there is nothing meaningful on screen to capture,
-		// except the item the user just left to get here: that one is offered (once)
-		// before the session is created, and answerSeedOffer picks up from there.
-		const seed = takeNewSessionSeed()
-		if (seed) {
-			seedOffer = seed
-			seedOfferOpen = true
-			return
-		}
-		await createAndOpenWith(undefined)
+		await openNewSession()
 	}
 
-	// `previewUrl` undefined leaves the preview empty until the chat opens something.
-	async function createAndOpenWith(previewUrl: string | undefined) {
-		const fresh = createSession()
-		if (previewUrl) resetSessionPreviewTabs(fresh.id, previewUrl)
-		await activate(fresh)
-	}
-
-	// The item createAndOpen is asking about. Closing the dialog any other way than
-	// answering (Escape, the corner X, the backdrop) creates nothing: the click was
-	// met with a question, not a session. Kept after the dialog closes, since the
-	// title reads it through the close fade; `seedOfferOpen` alone gates rendering.
-	let seedOffer = $state<NewSessionSeed | undefined>(undefined)
-	let seedOfferOpen = $state(false)
-	// Focus moves onto the primary answer as the dialog opens. Enter is left to
-	// the focused button (the dialog does not bind it), and the "New session"
-	// button that opened the dialog would otherwise keep focus and answer Enter
-	// with a second, unasked session underneath.
-	let keepButton: Button | undefined = $state(undefined)
-	$effect(() => {
-		if (seedOfferOpen) keepButton?.focus()
-	})
-	async function answerSeedOffer(keep: boolean) {
-		const offer = seedOffer
-		seedOfferOpen = false
-		if (!offer) return
-		await createAndOpenWith(keep ? offer.url : undefined)
-	}
-
-	// The `+` on a workspace group header: a new session parked on that group's
-	// workspace rather than the one currently open.
+	// The `+` on a workspace group header: a new session in that group's workspace,
+	// which the header switches to, since Home's draft acts on the header's workspace.
 	async function createAndOpenIn(workspaceId: string) {
-		const fresh = createSession()
-		setNewSessionWorkspace(fresh.id, workspaceId)
-		await activate(fresh)
+		await openNewSession(workspaceId)
 	}
 
 	let editingId: string | undefined = $state(undefined)
@@ -584,6 +550,13 @@
 		selectedIds = allSelected ? [] : [...selectableIds]
 	}
 
+	// Home shows no archived draft, so archiving the one its composer holds moves Home on.
+	function leaveArchivedHomeDraft(ids: string[]) {
+		if (page.url.pathname === '/' && homeDraft.id && ids.includes(homeDraft.id)) {
+			void leaveForHome()
+		}
+	}
+
 	function handleBatchArchive() {
 		const archive = !allSelectedArchived
 		let skipped = 0
@@ -599,24 +572,12 @@
 			}
 			setSessionArchived(id, archive)
 		}
+		if (archive) leaveArchivedHomeDraft(selectedIds)
 		exitSelectionMode()
 		if (skipped > 0) {
 			sendUserToast(
 				`${skipped} session${skipped === 1 ? '' : 's'} kept archived: their forked workspace no longer exists`
 			)
-		}
-	}
-
-	// After deleting the open session, land somewhere usable: the newest remaining
-	// session, else a fresh one. The page derives the visible session from the
-	// `session` query, so leaving the URL on a deleted session would fall
-	// through to recovery and open a blank one rather than their recent work.
-	async function openReplacementSession() {
-		const next = sessionState.sessions[0]
-		if (next) await activate(next)
-		else {
-			const fresh = createSession()
-			await goto(sessionPageHref(fresh.id))
 		}
 	}
 
@@ -626,12 +587,12 @@
 		const ids = selectedIds
 		batchDeleteOpen = false
 		if (ids.length === 0) return
-		const current = sessionState.currentSessionId
-		const wasActive = !!current && ids.includes(current)
+		const active = activeRowId
+		const wasActive = !!active && ids.includes(active)
 		await withOpenSessionTeardown(async () => {
 			for (const id of ids) removeSession(id)
 			exitSelectionMode()
-			if (wasActive) await openReplacementSession()
+			if (wasActive) await leaveForHome()
 		})
 	}
 
@@ -647,7 +608,7 @@
 		pendingDelete = undefined
 		deleteAlsoFork = false
 		if (!session) return
-		const wasActive = sessionState.currentSessionId === session.id
+		const wasActive = activeRowId === session.id
 		await withOpenSessionTeardown(async () => {
 			removeSession(session.id)
 			if (forkToDelete) {
@@ -665,7 +626,7 @@
 			if (forkToDelete && forkParentId && $workspaceStore === forkToDelete) {
 				syncWorkspaceTo(forkParentId)
 			}
-			if (wasActive) await openReplacementSession()
+			if (wasActive) await leaveForHome()
 		})
 	}
 
@@ -771,8 +732,7 @@
 										{@const status = runtime
 											? getSessionChatStatus(runtime)
 											: (getSessionChatPeek(session.id)?.status ?? 'idle')}
-										{@const isSelected =
-											sessionActive && session.id === sessionState.currentSessionId}
+										{@const isSelected = session.id === activeRowId}
 										{@const unread = unreadFor(session)}
 										{@const draft = hasDraft(session)}
 										<MenuItem
@@ -984,7 +944,7 @@
 					{@const status = runtime
 						? getSessionChatStatus(runtime)
 						: (getSessionChatPeek(session.id)?.status ?? 'idle')}
-					{@const isSelected = sessionActive && session.id === sessionState.currentSessionId}
+					{@const isSelected = session.id === activeRowId}
 					{@const isEditing = editingId === session.id}
 					{@const unread = unreadFor(session)}
 					{@const draft = hasDraft(session)}
@@ -1112,7 +1072,10 @@
 													{
 														displayName: 'Archive',
 														icon: Archive,
-														action: () => setSessionArchived(session.id, true)
+														action: () => {
+															setSessionArchived(session.id, true)
+															leaveArchivedHomeDraft([session.id])
+														}
 													}
 												]),
 										{
@@ -1330,30 +1293,3 @@
 		{/if}
 	</div>
 </ConfirmationModal>
-
-<!-- Two answers of equal standing, so Enter is left to whichever button has
-     focus rather than bound to one of them by the dialog. -->
-<Modal
-	bind:open={seedOfferOpen}
-	kind="X"
-	enterConfirms={false}
-	title="Keep this {seedOffer?.kind ?? 'item'} in the new session?"
-	description="You came here from {seedOffer?.path ?? ''}."
->
-	<p class="text-sm text-secondary">
-		Keeping it opens it in the preview, so the chat starts with it as context.
-	</p>
-	<div class="flex justify-end gap-2 mt-4">
-		<Button variant="default" unifiedSize="sm" onClick={() => answerSeedOffer(false)}>
-			Start empty
-		</Button>
-		<Button
-			bind:this={keepButton}
-			variant="accent"
-			unifiedSize="sm"
-			onClick={() => answerSeedOffer(true)}
-		>
-			Keep in preview
-		</Button>
-	</div>
-</Modal>

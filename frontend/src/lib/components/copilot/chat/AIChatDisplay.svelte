@@ -69,7 +69,6 @@
 	import { sendUserToast } from '$lib/toast'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { copilotInfo } from '$lib/aiStore'
-	import SessionGreeting from './starter/SessionGreeting.svelte'
 	import ComposerSuggestions from './starter/ComposerSuggestions.svelte'
 	import type { DraftAttachments } from './messageDraft.svelte'
 	import type { ChatStarter } from './starter/starterPrompts.svelte'
@@ -117,7 +116,6 @@
 		viewTransitionNames = false,
 		onSent = undefined,
 		inputPreface,
-		actingOn,
 		footerSettings,
 		initialInstructions = undefined,
 		onDraftChange = undefined,
@@ -151,20 +149,16 @@
 		// off there.
 		wideLayout?: boolean
 		emptyHint?: Snippet
-		/** Open an empty chat as the block that starts a session: Home and an empty session
-		 * both mount it, so the two are one entry point rather than look-alikes. Replaces
-		 * `emptyHint`. */
+		/** Open an empty chat as the block that starts a session: Home's composer, collapsed
+		 * to one line at rest. Replaces `emptyHint`. */
 		starter?: ChatStarter
-		/** Names the composer for the view transition between Home and AI Sessions, so it
-		 * glides between its two places, a send from Home included: that lands it under the
-		 * session's first message. Only one chat on the page may carry the name: a duplicate
-		 * makes the browser skip the transition. */
+		/** Names the composer for the view transition of a send from Home, so it glides from
+		 * Home to its place under the session's first message. Only one chat on the page may
+		 * carry the name: a duplicate makes the browser skip the transition. */
 		viewTransitionNames?: boolean
 		/** After the composer hands a new turn to the host. */
 		onSent?: () => void
 		inputPreface?: Snippet
-		/** Where the session acts: first among the controls after the attach button. */
-		actingOn?: Snippet
 		/** The settings control at the footer's right edge, where the copilot puts its
 		 * model picker. A host that configures its turn elsewhere replaces it here. */
 		footerSettings?: Snippet
@@ -587,8 +581,6 @@
 	// The block's layout holds while the chat is empty, usable or not; only the taller box
 	// and the suggestions need a composer that can send.
 	const starterLayout = $derived(!!starter && messages.length === 0)
-	// Home is a page, not a pane: nothing there to centre in.
-	const centreComposer = $derived(starterLayout && starter?.where === 'session')
 
 	// Home's composer at rest is one line. Focusing the field opens it; a press outside it or
 	// Escape puts it back, but only with nothing in the draft: leaving it open then means
@@ -597,7 +589,6 @@
 	// menu it is opening.
 	let composerEl: HTMLDivElement | undefined = $state()
 	let composerOpened = $state(false)
-	const homeComposer = $derived(starterLayout && starter?.where === 'home')
 	// Anything the user has started (text, an attachment) or is in the middle of (they opened it
 	// and have not left) keeps it open, and so does a workspace small enough that the composer is
 	// the page's main way in.
@@ -612,9 +603,9 @@
 			!initialAttachments?.blobs.length
 	)
 	const composerCollapsed = $derived(
-		homeComposer &&
+		starterLayout &&
 			!disabled &&
-			!(starter?.where === 'home' && starter.fewItems) &&
+			!starter?.fewItems &&
 			!composerOpened &&
 			(aiChatInput ? aiChatInput.isDraftEmpty() : seededDraftEmpty)
 	)
@@ -622,13 +613,13 @@
 		if (aiChatInput?.isDraftEmpty() ?? true) composerOpened = false
 	}
 	function onComposerPointerDown(e: PointerEvent) {
-		if (!homeComposer || !composerOpened || composerEl?.contains(e.target as Node)) return
+		if (!starterLayout || !composerOpened || composerEl?.contains(e.target as Node)) return
 		if (!isComposerOverlay(e.target)) closeComposer()
 	}
 
 	// Home's composer is one block of the page and takes the page's column as it is.
 	const columnClass = $derived(
-		starter?.where === 'home'
+		starter
 			? 'w-full'
 			: wideLayout
 				? `w-full max-w-3xl mx-auto ${agentGutter ? 'px-8' : 'px-7'}`
@@ -688,7 +679,6 @@
 	const showFooterLeftControls = $derived(
 		!footerMessageShown &&
 			(canAttachFiles ||
-				!!actingOn ||
 				attachmentsOffReason !== undefined ||
 				showContextPicker ||
 				showAutonomyModeSelector ||
@@ -739,7 +729,7 @@
 <!-- tabindex="-1": clicks on non-focusable chat content must move focus into
 the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 <div
-	class="flex flex-col h-full relative outline-none {starterLayout ? 'justify-center' : ''}"
+	class="flex flex-col h-full relative outline-none"
 	tabindex="-1"
 	bind:this={panelEl}
 	ondragenter={onPanelDragEnter}
@@ -849,19 +839,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 	{/if}
 	{#if messages.length === 0}
 		{#if starter}
-			<!-- The greeting rides on top of the centred composer instead of being centred with
-			     it: it takes the space above, the spacer after the composer the same below. Home
-			     has none: there the composer is one control among the page's. -->
-			{#if centreComposer}
-				<div class="flex-1 min-h-0 flex flex-col justify-end">
-					<div
-						class={columnClass}
-						style:view-transition-name={viewTransitionNames ? 'greeting' : undefined}
-					>
-						<SessionGreeting />
-					</div>
-				</div>
-			{/if}
+			<!-- Home's composer is one control among the page's: nothing above it. -->
 		{:else if emptyHint}
 			{@render emptyHint()}
 		{:else}
@@ -994,12 +972,12 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 		class="relative {columnClass} pb-2"
 		style:view-transition-name={viewTransitionNames ? 'composer' : undefined}
 		onfocusin={(e) => {
-			if (homeComposer && e.target instanceof HTMLTextAreaElement) composerOpened = true
+			if (starterLayout && e.target instanceof HTMLTextAreaElement) composerOpened = true
 		}}
 		onkeydown={(e) => {
 			// A prevented Escape closed something inside first, such as the @-mention picker.
 			if (e.key !== 'Escape' || e.defaultPrevented) return
-			if (!homeComposer || !composerOpened) return
+			if (!starterLayout || !composerOpened) return
 			closeComposer()
 			if (aiChatInput?.isDraftEmpty() ?? true) (document.activeElement as HTMLElement)?.blur()
 		}}
@@ -1067,7 +1045,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				isFirstMessage={messages.length === 0}
 				hero={starterLayout}
 				collapsed={composerCollapsed}
-				chatIcon={homeComposer}
+				chatIcon={starterLayout}
 				{onSent}
 			>
 				{#snippet collapsedControls()}
@@ -1267,7 +1245,6 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 										onchange={onFolderInputChange}
 									/>
 								{/if}
-								{@render actingOn?.()}
 								{#if showAutonomyModeSelector}
 									<AutonomyModePicker
 										mode={chatHost.autonomyMode}
@@ -1316,13 +1293,8 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 							</div>
 						{/if}
 						{#if footerMessageShown}
-							<!-- The workspace picker stays: picking another workspace is how a chat that
-							     cannot run here becomes usable again. -->
-							<div class="flex flex-row items-center gap-x-1.5 min-w-0 flex-wrap">
-								{@render actingOn?.()}
-								<div class="text-primary text-xs my-2 px-2">
-									<Markdown md={disabledMessage} />
-								</div>
+							<div class="text-primary text-xs my-2 px-2">
+								<Markdown md={disabledMessage} />
 							</div>
 						{:else}
 							<div class="flex flex-row gap-x-1.5 min-w-0 flex-wrap items-center">
@@ -1402,7 +1374,6 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					<div class="pt-2">
 						<ComposerSuggestions
 							suggestions={starter.suggestions}
-							wrap={starter.where === 'session'}
 							onPick={(prompt) => aiChatInput?.setText(prompt)}
 						/>
 					</div>
@@ -1426,12 +1397,4 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			</div>
 		{/if}
 	</div>
-	<!-- Equal to the space above while the session is empty, so the composer sits centred.
-	     Always mounted and shrunk on the first message rather than removed: flex-grow
-	     transitions, so the composer slides down to the bottom instead of jumping. -->
-	<div
-		class="min-h-0 basis-0 transition-[flex-grow] duration-[var(--composer-glide-duration)] ease-[var(--composer-glide-easing)] motion-reduce:transition-none {centreComposer
-			? 'grow'
-			: 'grow-0'}"
-	></div>
 </div>

@@ -21,7 +21,6 @@ import {
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { workspaceRootId } from './sessionScope.svelte'
-import { clearSessionRecovered } from './sessionRecoveryNotice.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
 import { userScopedDb } from '$lib/userScopedDb'
 import { emailOfScopedKey, scopedKeyFor } from '$lib/userScopedStorage'
@@ -94,13 +93,14 @@ export type Session = {
 	// that have never been sent — those scope by `pending_workspace_id`
 	// instead and don't show the fork bar.
 	workspace_id?: string
-	// Pre-send draft workspace, picked via SessionWorkspaceBar. Drives
-	// scope/editor/display while workspace_id is undefined; gets copied
+	// Where an unsent session will act: the workspace a hand-off named, or, for the
+	// draft on Home, the workspace the page header names (see followHomeDraft).
+	// Drives scope/editor/display while workspace_id is undefined; gets copied
 	// into workspace_id at first send and then becomes irrelevant.
 	pending_workspace_id?: string
-	// Pre-send intent to create a new fork. The actual API call is
-	// deferred to first send (via commitSessionWorkspace) so cancelling
-	// the draft doesn't leave an orphan fork behind.
+	// Intent to create a new fork at first send (via commitSessionWorkspace), so
+	// cancelling the draft doesn't leave an orphan fork behind. Found only on records
+	// older clients wrote: no control stages one.
 	pending_fork?: PendingFork
 	// Stable root workspace id used only for sidebar grouping. Lifecycle follows
 	// workspace_id, not this field. Root sessions store the same id in both fields.
@@ -1022,9 +1022,19 @@ onUserChange(async (email, prevEmail) => {
 	void reconcileSessionsLifecycle()
 })
 
+// The unsent session Home's composer holds. Kept apart from currentSessionId, the
+// session open on the sessions page: which draft Home shows says nothing about which
+// session the user last opened. `requests` counts asks to show another one, which
+// remount Home's composer when Home is already on screen.
+export const homeDraft = $state<{ id: string | undefined; requests: number; focus: boolean }>({
+	id: undefined,
+	requests: 0,
+	focus: false
+})
+
 // Workspace switches do not reload or clear the active session. The sidebar
 // filters the single loaded session list by workspace_root_id, while the current
-// chat survives workspace switches.
+// chat survives workspace switches. Home's draft follows the switch instead.
 if (BROWSER) {
 	let lastWorkspace: string | undefined
 	let initialized = false
@@ -1032,74 +1042,97 @@ if (BROWSER) {
 		const isSwitch = initialized && ws !== lastWorkspace
 		initialized = true
 		lastWorkspace = ws
+		if (isSwitch) followHomeDraft()
 		if (isSwitch && Date.now() - lastReconcileAt > RECONCILE_THROTTLE_MS) {
 			void reconcileSessionsLifecycle()
 		}
 	})
 }
 
+// Home's draft acts on the workspace the page header names, so a switch to another
+// workspace of its family takes the draft along. A switch to another family leaves
+// it where it was: Home shows that family's own draft. Not a touch, so the draft's
+// last activity stays when the user last worked on it.
+function followHomeDraft(): void {
+	const s = homeDraft.id ? sessionState.sessions.find((x) => x.id === homeDraft.id) : undefined
+	const ws = get(workspaceStore)
+	if (!s || !ws || s.workspace_id) return
+	if (s.pending_workspace_id === ws && !s.pending_fork) return
+	if (s.pending_workspace_id && workspaceRootId(ws, get(userWorkspaces)) !== sessionRootId(s)) {
+		return
+	}
+	s.pending_workspace_id = ws
+	s.pending_fork = undefined
+	void putSession(s)
+}
+
+/** Called by Home's composer for the draft it shows, which then acts on the header's workspace. */
+export function holdHomeDraft(id: string): void {
+	homeDraft.id = id
+	followHomeDraft()
+}
+
+/** Ask Home to show `id`, and whether its composer takes focus as it mounts. */
+export function showOnHome(id: string, opts?: { focus?: boolean }): void {
+	homeDraft.id = id
+	homeDraft.focus = opts?.focus ?? false
+	homeDraft.requests++
+}
+
+/** Whether Home's composer should take focus now that it is on screen. Read once. */
+export function takeHomeDraftFocus(): boolean {
+	const focus = homeDraft.focus
+	homeDraft.focus = false
+	return focus
+}
+
 export function sessionPageHref(id: string): string {
 	return `/sessions?session=${encodeURIComponent(id)}`
 }
 
-// Bumped to ask the active session's composer to re-focus even when
-// `currentSessionId` doesn't change — the `+` reuse path lands you back on the
-// untouched draft you're already viewing, so nothing navigates, but the click
-// should still drop the cursor in the composer. SessionWrapper's focus effect
-// depends on `nonce`.
-export const composerFocusRequest = $state<{ nonce: number }>({ nonce: 0 })
-export function requestComposerFocus(): void {
-	composerFocusRequest.nonce++
-}
-
-// An untouched in-memory blank that `+` may reuse and createSession may silently
-// drop. `draftPrompt === undefined` (never edited), not falsiness: a draft typed
-// then erased to '' still has a pending flush and is a real session. Every other
-// touch clears `transient` synchronously, so only the draft prompt needs checking.
+// An untouched in-memory blank that a new session may reuse and newTransientSession
+// may silently drop. `draftPrompt === undefined` (never edited), not falsiness: a
+// draft typed then erased to '' still has a pending flush and is a real session.
+// Every other touch clears `transient` synchronously, so only the draft prompt
+// needs checking.
 function isDiscardableDraft(s: Session): boolean {
 	return !!s.transient && s.draftPrompt === undefined
 }
 
-// Somewhere empty to put the user, for a URL naming a session this browser
-// doesn't hold. Only `transient` makes "empty" trustworthy: a persisted session
-// can hold a conversation while every field below stays untouched — its chat and
-// attached files key off `!transient`, not off these.
-export function findEmptyLandingSession(): Session | undefined {
-	return sessionState.sessions.find(
-		(s) =>
-			!!s.transient &&
-			!s.archived &&
-			!s.workspace_id &&
-			// Falsiness, not `=== undefined`: we only navigate into the session, so a
-			// draft erased back to '' is still an empty composer to land on.
-			!s.draftPrompt?.trim() &&
-			!s.pending_fork &&
-			sessionInCurrentFamily(s)
-	)
+// The family's untouched blank, reused rather than piling a blank entry on every
+// new session, so several pending sessions can still be built up in parallel, one
+// touch at a time. A cross-family leftover blank is dropped instead of reused
+// (reusing it would act on that family).
+function reusableBlank(): Session | undefined {
+	return sessionState.sessions.find((s) => isDiscardableDraft(s) && sessionInCurrentFamily(s))
 }
 
+/** A session for a hand-off to open on the sessions page, selected. */
 export function createSession(): Session {
-	// Reuse an existing untouched draft from the active family rather than pile a
-	// blank entry on every `+`, so several pending sessions can still be built up
-	// in parallel, one touch at a time. A cross-family leftover blank is dropped
-	// instead of reused (reusing it would act on that family).
-	const reusable = sessionState.sessions.find(
-		(s) => isDiscardableDraft(s) && sessionInCurrentFamily(s)
-	)
-	if (reusable) {
-		sessionState.currentSessionId = reusable.id
-		// The blank recovery just landed on is exactly what this reuses, so `+`
-		// would otherwise hand back a session still carrying the recovery notice:
-		// asking for a new session must not be answered with "we couldn't find it".
-		clearSessionRecovered(reusable.id)
-		// Reusing an already-active draft doesn't change currentSessionId, so ask
-		// the composer to focus explicitly — the caller still navigates/redirects.
-		requestComposerFocus()
-		return reusable
-	}
-	const session = newTransientSession()
+	const session = reusableBlank() ?? newTransientSession(defaultSessionWorkspace())
 	sessionState.currentSessionId = session.id
 	return session
+}
+
+// Where a session started away from Home acts when its caller names no workspace:
+// the one you're in, except a root you can't deploy to (locked, no bypass), which
+// steers to its dev since a session there couldn't edit anything.
+function defaultSessionWorkspace(): string | undefined {
+	const currentWs = get(workspaceStore) ?? undefined
+	const devOfCurrent = currentWs
+		? findCanonicalDevWorkspace(currentWs, get(userWorkspaces))?.id
+		: undefined
+	// Only trust the deploy check once the active workspace's rules have actually loaded: until then
+	// `isRuleActive` reads an empty ruleset and fails open, which would default a new session onto a
+	// locked prod. Treat "not yet loaded for currentWs" as not-deployable so we steer to the dev (always
+	// editable) when one exists.
+	const rulesLoadedForCurrent =
+		protectionRulesState.rulesets !== undefined && protectionRulesState.workspace === currentWs
+	const canDeployHere =
+		rulesLoadedForCurrent &&
+		(!isRuleActive('DisableDirectDeployment') ||
+			canUserBypassRuleKind('DisableDirectDeployment', get(userStore)))
+	return devOfCurrent && !canDeployHere ? devOfCurrent : currentWs
 }
 
 // Told which never-touched drafts were dropped, so their runtimes go with them. Set by
@@ -1111,28 +1144,10 @@ export function setDraftsDiscardedHandler(handler: (ids: string[]) => void): voi
 	onDraftsDiscarded = handler
 }
 
-function newTransientSession(): Session {
+function newTransientSession(pending: string | undefined): Session {
 	const discarded = sessionState.sessions.filter(isDiscardableDraft).map((s) => s.id)
 	sessionState.sessions = sessionState.sessions.filter((s) => !isDiscardableDraft(s))
 	if (discarded.length > 0) onDraftsDiscarded?.(discarded)
-	// Start in the workspace you're in. The one exception: a root you can't
-	// deploy to (locked, no bypass) steers to its dev, since a session there
-	// couldn't edit anything. The picker lets you switch.
-	const currentWs = get(workspaceStore)
-	const devOfCurrent = currentWs
-		? findCanonicalDevWorkspace(currentWs, get(userWorkspaces))?.id
-		: undefined
-	// Only trust the deploy check once the active workspace's rules have actually loaded: until then
-	// `isRuleActive` reads an empty ruleset and fails open, which would default a new session onto a
-	// locked prod. Treat "not yet loaded for currentWs" as not-deployable so we steer to the dev (always
-	// editable) when one exists; the picker still lets the user switch back once rules resolve.
-	const rulesLoadedForCurrent =
-		protectionRulesState.rulesets !== undefined && protectionRulesState.workspace === currentWs
-	const canDeployHere =
-		rulesLoadedForCurrent &&
-		(!isRuleActive('DisableDirectDeployment') ||
-			canUserBypassRuleKind('DisableDirectDeployment', get(userStore)))
-	const pending = devOfCurrent && !canDeployHere ? devOfCurrent : currentWs
 	// Friendly default summary so the header reads like "Zippy session"
 	// rather than "Untitled session" — assigned at create time, the user
 	// can still rename it (or it gets overwritten by an editor target).
@@ -1152,25 +1167,30 @@ function newTransientSession(): Session {
 	return session
 }
 
-/** The unsent session Home's composer writes into, so a prompt half-typed on Home is the
- * one the empty session page shows, and the reverse. Never selects it: merely opening Home
- * must not change which session the AI Sessions switch resumes. A session opened on an
- * item (it carries preview tabs) is about that item, so Home starts its own instead. */
+/** Whether a session opens in Home's composer rather than on a page of its own: unsent, and
+ * neither about an item (it carries preview tabs, which need the session page's panel) nor
+ * armed to send itself on arrival. */
+export function opensOnHome(s: Session): boolean {
+	return !s.workspace_id && !s.previewTabs?.length && !autoSendIsFresh(s)
+}
+
+/** The unsent session Home's composer shows: the one Home last held, else the family's
+ * most recent stored draft, else a blank. */
 export function homeStarterSession(): Session {
-	const unsent = (s: Session) =>
-		!s.archived && !s.workspace_id && !s.previewTabs?.length && sessionInCurrentFamily(s)
-	const current = sessionState.sessions.find((s) => s.id === sessionState.currentSessionId)
-	if (current && unsent(current)) return current
-	// Stored but never sent: a draft the user touched, by typing or by picking where it acts.
-	// Either is theirs to come back to, and leaving it would strand it in the sidebar.
+	const unsent = (s: Session) => !s.archived && opensOnHome(s) && sessionInCurrentFamily(s)
+	const held = sessionState.sessions.find((s) => s.id === homeDraft.id)
+	if (held && unsent(held)) return held
+	// Stored but never sent: a draft the user typed or attached something in. Leaving it
+	// would strand it in the session list.
 	const touched = sessionState.sessions
 		.filter((s) => unsent(s) && !s.transient)
 		.sort((a, b) => sessionLastActivityAt(b) - sessionLastActivityAt(a))[0]
-	return (
-		touched ??
-		sessionState.sessions.find((s) => isDiscardableDraft(s) && sessionInCurrentFamily(s)) ??
-		newTransientSession()
-	)
+	return touched ?? blankHomeDraft()
+}
+
+/** A blank for Home's composer: the family's untouched one if any, else a new one. */
+export function blankHomeDraft(): Session {
+	return reusableBlank() ?? newTransientSession(get(workspaceStore) ?? undefined)
 }
 
 // Promote an in-memory transient session to a persisted IndexedDB record.
@@ -1192,27 +1212,6 @@ export function setSessionPendingWorkspace(id: string, workspace_id: string) {
 	// Picking an existing workspace cancels any pending fork intent.
 	s.pending_fork = undefined
 	if (changed) persistTouched(s)
-}
-
-// Park a just-created session on a workspace. Deliberately does not persist a
-// still-transient draft: picking where it will live is part of creating it, not a
-// user touch, so an unused draft still vanishes on reload (see `transient`).
-export function setNewSessionWorkspace(id: string, workspace_id: string) {
-	const s = sessionState.sessions.find((x) => x.id === id)
-	if (!s) return
-	s.pending_workspace_id = workspace_id
-	s.pending_fork = undefined
-	if (!s.transient) persistTouched(s)
-}
-
-// Records the user's intent to create a new fork without firing the API
-// call yet. Routing/scope stay on the parent workspace until commit.
-export function setSessionPendingFork(id: string, fork: PendingFork) {
-	const s = sessionState.sessions.find((x) => x.id === id)
-	if (!s) return
-	s.pending_fork = { ...fork }
-	s.pending_workspace_id = fork.parent_workspace_id
-	persistTouched(s)
 }
 
 // One-shot commit: locks in workspace_id at first user-message send.

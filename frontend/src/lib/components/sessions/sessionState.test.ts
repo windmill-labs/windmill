@@ -4,8 +4,9 @@ import {
 	commitSessionWorkspace,
 	createSession,
 	decideSessionLifecycle,
-	findEmptyLandingSession,
 	getSessionDraftAttachments,
+	holdHomeDraft,
+	homeDraft,
 	homeStarterSession,
 	isForkSession,
 	isTearingDownOpenSession,
@@ -19,11 +20,6 @@ import {
 	withOpenSessionTeardown,
 	type Session
 } from './sessionState.svelte'
-import {
-	clearSessionRecovered,
-	isSessionRecovered,
-	markSessionRecovered
-} from './sessionRecoveryNotice.svelte'
 import {
 	enterpriseLicense,
 	usersWorkspaceStore,
@@ -488,28 +484,6 @@ describe('createSession — reuses an untouched draft, family-scoped', () => {
 		}
 	})
 
-	it('clears the recovery notice off the draft it reuses, so `+` is not answered with "not found"', () => {
-		const restore = withTwoFamilies('rootA')
-		const prevCurrent = sessionState.currentSessionId
-		const landed = session({
-			id: 'recovered-blank',
-			name: 'session-903',
-			pending_workspace_id: 'forkA',
-			transient: true
-		})
-		sessionState.sessions.push(landed)
-		markSessionRecovered(landed.id)
-		try {
-			expect(createSession().id).toBe('recovered-blank')
-			expect(isSessionRecovered('recovered-blank')).toBe(false)
-		} finally {
-			clearSessionRecovered('recovered-blank')
-			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'recovered-blank')
-			sessionState.currentSessionId = prevCurrent
-			restore()
-		}
-	})
-
 	it('drops an untouched draft left over from another family and starts in the active workspace', () => {
 		const restore = withTwoFamilies('rootB')
 		const prevCurrent = sessionState.currentSessionId
@@ -637,59 +611,6 @@ describe('createSession — reuses an untouched draft, family-scoped', () => {
 	})
 })
 
-describe('findEmptyLandingSession — where an unresolvable session link lands', () => {
-	it('takes an untouched draft', () => {
-		const restore = withTwoFamilies('forkA')
-		const blank = session({
-			id: 'landing-blank',
-			name: 'session-910',
-			pending_workspace_id: 'forkA',
-			transient: true
-		})
-		sessionState.sessions.push(blank)
-		try {
-			expect(findEmptyLandingSession()?.id).toBe('landing-blank')
-		} finally {
-			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'landing-blank')
-			restore()
-		}
-	})
-
-	it('passes over a persisted session, which may hold a conversation', () => {
-		const restore = withTwoFamilies('forkA')
-		// Persisted means touched: its chat can hold a conversation initRuntime
-		// reloads, without touching a field checked here.
-		const abandoned = session({
-			id: 'landing-abandoned',
-			name: 'session-910',
-			pending_workspace_id: 'forkA'
-		})
-		const others = sessionState.sessions
-		sessionState.sessions = [abandoned]
-		try {
-			expect(findEmptyLandingSession()).toBeUndefined()
-		} finally {
-			sessionState.sessions = others
-			restore()
-		}
-	})
-
-	it('passes over a session that has been sent, so recovery never reopens a conversation', () => {
-		const restore = withTwoFamilies('forkA')
-		const sent = session({ id: 'landing-sent', name: 'session-911', workspace_id: 'forkA' })
-		// Sole candidate, so `undefined` pins the exclusion: `not.toBe` would also
-		// pass on any unrelated session the shared module state happens to hold.
-		const others = sessionState.sessions
-		sessionState.sessions = [sent]
-		try {
-			expect(findEmptyLandingSession()).toBeUndefined()
-		} finally {
-			sessionState.sessions = others
-			restore()
-		}
-	})
-})
-
 describe('withOpenSessionTeardown — the gate that holds recovery off during a delete', () => {
 	it('stays shut until the outermost teardown finishes', async () => {
 		let innerDone = false
@@ -717,7 +638,7 @@ describe('homeStarterSession', () => {
 		const restore = withTwoFamilies('rootA')
 		const prevCurrent = sessionState.currentSessionId
 		const conversation = session({ id: 'conversation', workspace_id: 'rootA' })
-		// Touched only by picking where it acts: no text, but stored, so it is the user's draft.
+		// Stored, though it holds no text: it is the user's draft.
 		const picked = session({ id: 'picked-draft', pending_workspace_id: 'forkA', lastActivityAt: 2 })
 		const otherFamily = session({
 			id: 'other-family-draft',
@@ -729,13 +650,38 @@ describe('homeStarterSession', () => {
 		sessionState.currentSessionId = 'conversation'
 		try {
 			expect(homeStarterSession().id).toBe('picked-draft')
-			// Opening Home must leave the AI Sessions switch resuming the conversation.
+			// Home's draft is not the session open on the sessions page.
 			expect(sessionState.currentSessionId).toBe('conversation')
 		} finally {
 			sessionState.sessions = sessionState.sessions.filter(
 				(s) => !['conversation', 'picked-draft', 'other-family-draft'].includes(s.id)
 			)
 			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
+	it('keeps the draft Home holds, acting on the header workspace within its family only', () => {
+		const restore = withTwoFamilies('forkA')
+		const recent = session({ id: 'recent-draft', pending_workspace_id: 'rootA', lastActivityAt: 9 })
+		const held = session({ id: 'held-draft', pending_workspace_id: 'rootA', lastActivityAt: 1 })
+		sessionState.sessions.push(recent, held)
+		const heldNow = () => sessionState.sessions.find((s) => s.id === 'held-draft')
+		try {
+			holdHomeDraft('held-draft')
+			// A blank asked for by New session, or a draft picked in the list, beats the
+			// family's most recent one.
+			expect(homeStarterSession().id).toBe('held-draft')
+			expect(heldNow()?.pending_workspace_id).toBe('forkA')
+			// Another family's header does not take the draft along: Home shows that family's.
+			workspaceStore.set('rootB')
+			holdHomeDraft('held-draft')
+			expect(heldNow()?.pending_workspace_id).toBe('forkA')
+		} finally {
+			homeDraft.id = undefined
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => !['recent-draft', 'held-draft'].includes(s.id)
+			)
 			restore()
 		}
 	})

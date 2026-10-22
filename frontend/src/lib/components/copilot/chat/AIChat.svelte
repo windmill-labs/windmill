@@ -23,7 +23,6 @@
 		viewTransitionNames = false,
 		onSent = undefined,
 		inputPreface,
-		actingOn,
 		initialInstructions = undefined,
 		onDraftChange = undefined,
 		initialAttachments = undefined,
@@ -47,8 +46,6 @@
 		viewTransitionNames?: boolean
 		onSent?: () => void
 		inputPreface?: import('svelte').Snippet
-		/** Forwarded to AIChatDisplay: where the session acts, first among the controls. */
-		actingOn?: import('svelte').Snippet
 		// Seed / observe the composer's draft (forwarded to AIChatDisplay).
 		initialInstructions?: string
 		onDraftChange?: (text: string) => void
@@ -223,7 +220,6 @@
 	{viewTransitionNames}
 	{onSent}
 	{inputPreface}
-	{actingOn}
 	{initialInstructions}
 	{onDraftChange}
 	{initialAttachments}
