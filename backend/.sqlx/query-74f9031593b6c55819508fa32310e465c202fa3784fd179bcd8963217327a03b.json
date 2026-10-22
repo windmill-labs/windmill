@@ -1,17 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT external_id, webhook_token_hash FROM native_trigger WHERE workspace_id = $1 AND service_name = $2",
+  "query": "SELECT EXISTS(SELECT 1 FROM native_trigger\n         WHERE workspace_id = $1 AND service_name = $2 AND connection_path = $3)",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "external_id",
-        "type_info": "Varchar"
-      },
-      {
-        "ordinal": 1,
-        "name": "webhook_token_hash",
-        "type_info": "Varchar"
+        "name": "exists",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -28,13 +23,13 @@
               ]
             }
           }
-        }
+        },
+        "Text"
       ]
     },
     "nullable": [
-      false,
-      false
+      null
     ]
   },
-  "hash": "6c75c89fb215c646f54f2036c40a86a4f4ea8880cc5d0b511aa70b6fd50072c5"
+  "hash": "74f9031593b6c55819508fa32310e465c202fa3784fd179bcd8963217327a03b"
 }
