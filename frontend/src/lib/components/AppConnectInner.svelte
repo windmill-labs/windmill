@@ -939,9 +939,9 @@
 				args['realmId'] = responseExtra['realmId']
 			}
 
-			let account: number | undefined = undefined
+			let accountData: any = undefined
 			if (valueToken?.expires_in != undefined) {
-				const accountData: any = {
+				accountData = {
 					refresh_token: valueToken.refresh_token ?? '',
 					expires_in: valueToken.expires_in,
 					client: connectClient,
@@ -970,13 +970,6 @@
 						accountData.cc_token_url = tokenUrl.trim()
 					}
 				}
-
-				account = Number(
-					await OauthService.createAccount({
-						workspace: effectiveWorkspace,
-						requestBody: accountData
-					})
-				)
 			}
 
 			// A copy: the form is still mounted and bound to `args` across the awaits below, and
@@ -995,21 +988,27 @@
 				// OAuth flow: single secret variable for the token
 				if (typeof value == 'string' && value != '' && !value.startsWith('$var:')) {
 					savedVariableCount++
-					await VariableService.createVariable({
-						workspace: effectiveWorkspace,
-						requestBody: {
-							path,
-							value: value,
-							is_secret: true,
-							description: emptyString(description)
-								? `OAuth token for ${resourceType}`
-								: description,
-							is_oauth: true,
-							account: account,
-							ws_specific: wsSpecific
-						}
-					})
-					resourceValue['token'] = `$var:${path}`
+					const tokenVariable = {
+						path,
+						value: value,
+						is_secret: true,
+						description: emptyString(description) ? `OAuth token for ${resourceType}` : description,
+						is_oauth: true,
+						ws_specific: wsSpecific
+					}
+					if (accountData) {
+						// Creates the variable with the account it refreshes through, in one transaction.
+						await OauthService.createAccount({
+							workspace: effectiveWorkspace,
+							requestBody: { ...accountData, variable: tokenVariable }
+						})
+					} else {
+						await VariableService.createVariable({
+							workspace: effectiveWorkspace,
+							requestBody: tokenVariable
+						})
+					}
+					resourceValue['token'] = `$var:${tokenVariable.path}`
 				}
 			} else if (linkedSecrets.length === 1) {
 				// Single secret: use the resource path as variable name (original behavior)

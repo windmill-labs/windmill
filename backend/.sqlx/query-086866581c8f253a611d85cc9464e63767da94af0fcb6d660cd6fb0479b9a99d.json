@@ -1,16 +1,17 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT EXISTS (SELECT 1 FROM account WHERE workspace_id = $1 AND id = $2) AS \"exists!\"",
+  "query": "SELECT EXISTS(SELECT 1 FROM variable WHERE workspace_id = $1 AND path = $2 AND account = $3)",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "exists!",
+        "name": "exists",
         "type_info": "Bool"
       }
     ],
     "parameters": {
       "Left": [
+        "Text",
         "Text",
         "Int4"
       ]
@@ -19,5 +20,5 @@
       null
     ]
   },
-  "hash": "e910ae81fb98642e76644e9691157c3d02adce3ba55324375a2035231c640ac0"
+  "hash": "086866581c8f253a611d85cc9464e63767da94af0fcb6d660cd6fb0479b9a99d"
 }
