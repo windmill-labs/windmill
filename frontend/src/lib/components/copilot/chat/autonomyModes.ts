@@ -1,11 +1,11 @@
-import { ChevronsRight, ClipboardList, Hand } from 'lucide-svelte'
+import { ChevronsRight, ClipboardList, Hammer, Hand, Play } from 'lucide-svelte'
 import { AIAutonomyMode } from './AIChatManager.svelte'
 import { PLAN_MODE_TEXT_COLOR, PLAN_MODE_TRIGGER_CLASS } from './planMode'
+import { AIWorkMode } from './workMode'
 
 export type AutonomyAvailability = {
 	autoAcceptEditsAvailable: boolean
 	autoAcceptToolConfirmationsAvailable: boolean
-	planModeAvailable: boolean
 }
 
 export type AutonomyModeOption = {
@@ -14,8 +14,6 @@ export type AutonomyModeOption = {
 	shortLabel?: string
 	icon: typeof Hand
 	iconColor: string
-	/** Tints the whole trigger, not just its icon. Only plan mode needs it. */
-	triggerClass?: string
 	tooltip: (a: AutonomyAvailability) => string
 	isAvailable: (a: AutonomyAvailability) => boolean
 }
@@ -38,17 +36,6 @@ const askPermissionOption: AutonomyModeOption = {
 // table. `isAvailable` hides the postures that would do nothing in the current AI
 // mode, which is why the picker can be shorter than this list.
 const autonomyModeOptions: AutonomyModeOption[] = [
-	{
-		mode: AIAutonomyMode.PLAN,
-		label: 'Plan (read-only)',
-		shortLabel: 'Plan',
-		icon: ClipboardList,
-		iconColor: PLAN_MODE_TEXT_COLOR,
-		triggerClass: PLAN_MODE_TRIGGER_CLASS,
-		tooltip: () =>
-			'Read-only: the assistant researches and drafts a plan for your approval before it can change anything.',
-		isAvailable: (a) => a.planModeAvailable
-	},
 	askPermissionOption,
 	{
 		mode: AIAutonomyMode.ACCEPT_EDIT,
@@ -87,4 +74,44 @@ export function resolveAutonomyMode(mode: AIAutonomyMode, a: AutonomyAvailabilit
 	return availableAutonomyModeOptions(a).some((option) => option.mode === mode)
 		? mode
 		: AIAutonomyMode.DEFAULT
+}
+
+export type WorkModeOption = {
+	mode: AIWorkMode
+	label: string
+	description: string
+	icon: typeof Hand
+	iconColor: string
+	/** Tints the whole trigger, not just its icon. Only plan mode needs it. */
+	triggerClass?: string
+}
+
+/** A session chat's first section, above the postures: what the chat may do. */
+export const workModeOptions: WorkModeOption[] = [
+	{
+		mode: AIWorkMode.USE,
+		label: 'Use',
+		description: 'Reads and runs. No changes.',
+		icon: Play,
+		iconColor: 'text-secondary'
+	},
+	{
+		mode: AIWorkMode.PLAN,
+		label: 'Plan',
+		description: 'Proposes a plan first.',
+		icon: ClipboardList,
+		iconColor: PLAN_MODE_TEXT_COLOR,
+		triggerClass: PLAN_MODE_TRIGGER_CLASS
+	},
+	{
+		mode: AIWorkMode.BUILD,
+		label: 'Build',
+		description: 'Edits, tests and deploys.',
+		icon: Hammer,
+		iconColor: 'text-secondary'
+	}
+]
+
+export function workModeOption(mode: AIWorkMode): WorkModeOption {
+	return workModeOptions.find((o) => o.mode === mode) ?? workModeOptions[2]
 }

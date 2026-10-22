@@ -28,8 +28,17 @@ import { pipelineTools } from '../pipeline/core'
 import { assembleGlobalSystemMessage, assembleGlobalTools } from './globalAssembly'
 import { filterSessionTools, sessionToolAllowed } from './sessionToolset'
 import { capabilitiesForRole, fullSessionAccess } from './sessionAccess'
-import type { SessionAccess, SessionCapability, SessionTool } from '../sessionCapabilities'
-import { FULL_CAPABILITIES, legacyOperatorCapabilities } from '$lib/roleCapabilities'
+import {
+	canBuild,
+	type SessionAccess,
+	type SessionCapability,
+	type SessionTool
+} from '../sessionCapabilities'
+import {
+	buildsAnything,
+	FULL_CAPABILITIES,
+	legacyOperatorCapabilities
+} from '$lib/roleCapabilities'
 import type { AuthorLevel, OperatorSettings, RoleCapabilities } from '$lib/gen'
 
 const ASSEMBLY_OPTS = {
@@ -70,8 +79,9 @@ function shippedSessionTools(access: SessionAccess) {
 	return filterSessionTools(assembleGlobalTools(ASSEMBLY_OPTS), access)
 }
 
+/** A session that can change the workspace, holding `capabilities` besides. */
 function accessWith(capabilities: SessionCapability[]): SessionAccess {
-	return new Set(capabilities)
+	return new Set<SessionCapability>(['modify_workspace', ...capabilities])
 }
 
 const LEVELS: AuthorLevel[] = ['none', 'compose', 'full']
@@ -104,10 +114,12 @@ const REACHABLE_PROFILES = [
 		[false, true].flatMap((isAdmin) =>
 			// `checkDeployRules` bypasses on admin, so an admin has only the one outcome.
 			(isAdmin ? [true] : [false, true]).flatMap((deployRulesPass) =>
-				ROLES.map((capabilities) => {
-					const access = capabilitiesForRole({ isAdmin, deployRulesPass, capabilities })
-					return [[...access].sort().join(',') || 'none', access] as const
-				})
+				[false, true].flatMap((readOnly) =>
+					ROLES.map((capabilities) => {
+						const access = capabilitiesForRole({ isAdmin, deployRulesPass, readOnly, capabilities })
+						return [[...access].sort().join(',') || 'read-only', access] as const
+					})
+				)
 			)
 		)
 	).entries()
@@ -132,6 +144,15 @@ describe('session tool policies', () => {
 		const filtered = filterSessionTools(tools, fullSessionAccess())
 		expect(filtered).toHaveLength(tools.length)
 		filtered.forEach((tool, i) => expect(tool).toBe(tools[i]))
+	})
+
+	// The mode picker reads the role and the toolset reads the access built from it: if they
+	// disagree, the picker offers Build while the chat holds only Use's tools, or the reverse.
+	it('agrees with the role on whether the session can build', () => {
+		for (const capabilities of ROLES) {
+			const access = capabilitiesForRole({ isAdmin: false, deployRulesPass: true, capabilities })
+			expect(canBuild(access)).toBe(buildsAnything(capabilities))
+		}
 	})
 
 	it('withholds a tool that arrives without a policy', () => {
@@ -210,6 +231,23 @@ describe('session tool policies', () => {
 		// And narrowing never writes through to it: the def is shared by every session, so a
 		// mutation here would strip one user's kinds from everyone else's schema.
 		expect((original.def.function.parameters as any).properties.type.enum).toContain('script')
+	})
+
+	// Keyed on the tags, so a tool added untagged stays out of a production workspace.
+	it('ships a read-only session the reads and the deployed runs, and nothing that writes', () => {
+		const readOnly = capabilitiesForRole({
+			isAdmin: true,
+			deployRulesPass: true,
+			readOnly: true,
+			capabilities: FULL_CAPABILITIES
+		})
+		const shipped = shippedSessionTools(readOnly)
+		expect(shipped.filter((t) => !t.planModeSafe && !t.readOnlySafe)).toEqual([])
+		const names = shipped.map((t) => t.def.function.name)
+		expect(names).toEqual(expect.arrayContaining(['read_workspace_item', 'list_runs', 'run_flow']))
+		for (const write of ['write_script', 'test_run_script', 'deploy_workspace_item']) {
+			expect(names).not.toContain(write)
+		}
 	})
 
 	it('offers the workspace settings tools to admins only', () => {

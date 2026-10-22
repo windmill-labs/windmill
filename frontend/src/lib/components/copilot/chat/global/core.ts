@@ -80,7 +80,7 @@ import {
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
 import { conformBuilderAppPolicy } from '$lib/components/raw_apps/builderAppPolicy'
 import { capabilitiesInWorkspace } from '$lib/operatorWriteRights'
-import { capabilitiesIn } from '$lib/roleCapabilities'
+import { capabilitiesIn, withoutBuilding } from '$lib/roleCapabilities'
 import type { RoleCapabilities } from '$lib/gen'
 import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
 import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
@@ -231,6 +231,7 @@ import type { UserDraftItemKind } from '$lib/gen'
 import { bundleRawAppDraft } from './rawAppBundlerBridge'
 import {
 	canOpenEditor,
+	isReadOnlyAccess,
 	DEPLOY,
 	NONE,
 	RUN_FLOW_PREVIEW,
@@ -1518,6 +1519,9 @@ const buildGlobalSystemPrompt = (
 		canDraftResources ||
 		canDraftVariables
 	const canDeploy = !access || access.has('deploy')
+	// Holds none of the capabilities below, so every `can*` reads false; the blocks that blame
+	// the user's role for that check this first.
+	const readOnly = isReadOnlyAccess(access)
 	// Whether deploy_workspace_item and delete_workspace_item keep any kind: only schedules and
 	// triggers skip the deploy rules, and an admin passes them.
 	const canDeployAnyKind =
@@ -1651,31 +1655,33 @@ The current user's workspace username is "${username}".${instanceLine}
 ${
 	canWriteDraft
 		? 'Use tools to inspect workspace items and create per-user drafts (saved server-side, visible only to this user — not deployed) for scripts, flows, schedules, triggers, resources, variables, and raw apps.'
-		: `Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit ${listJoin(refusedKinds, 'disjunction')} here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had. Their role is refused ${listJoin(refusedCode)} outside this chat too, so for those suggest asking a workspace admin, who can grant their role more in ${OPERATOR_SETTINGS_LOCATION}, rather than creating them in the editor.${when(
-				canManageSchedules,
-				' To make something recur, they can schedule a deployed script or flow themselves; only when none does the job is there something to ask an admin for, and it is that script.'
-			)} When you decline something, give the reason stated here and keep to it.${when(
-				buildsFlows,
-				'\n\nFlows are the exception: this workspace lets them compose flows out of scripts and flows that are already deployed. Write flow drafts with write_flow and patch_flow_json, using only steps that call a deployed script or flow by path. The server refuses inline code anywhere in the flow, so never add a rawscript step or inline code; when the flow needs logic no deployed script provides, say so and suggest asking a workspace admin for that script.'
-			)}${when(
-				buildsApps,
-				`\n\nRaw apps are ${buildsFlows ? 'an exception too' : 'the exception'}: this workspace lets them build raw apps whose backend calls scripts and flows that are already deployed. Call get_instructions with subject "app" first, then write app drafts with init_app and the app file and runnable tools, making every backend runnable a path runnable to a deployed script or flow. The server refuses inline and hub runnables, so never write one; when the app needs logic no deployed script provides, say so and suggest asking a workspace admin for that script. An app this user deploys always runs sandboxed, and runs its runnables as the user who deployed it: turning the sandbox off or running them as the viewer is refused. If asked, say operators cannot, because the app's code would then run with the permissions of whoever opens it.`
-			)}${when(
-				!!draftedOperatorKinds,
-				`\n\nThis workspace lets them create and edit ${draftedOperatorKinds}: write them as drafts with ${listJoin(
-					[
-						canDraftResources && 'write_resource (call search_resource_types first)',
-						canDraftVariables && 'write_variable',
-						canDraftSchedules && 'write_schedule',
-						canDraftTriggers &&
-							'write_trigger (call get_trigger_schema first: the config fields differ per kind)'
-					]
-				)}${
-					deployableKinds.length
-						? `, then deploy ${deployableKinds.length === draftedKinds.length ? 'them' : listJoin(deployableKinds)} with deploy_workspace_item once the user asks`
-						: ''
-				}.`
-			)}`
+		: readOnly
+			? "Use tools to inspect workspace items, the workspace's run history and its data, and to run items that are already deployed. This session is read-only: you cannot create, edit, deploy or delete anything here, nor test-run code that is not deployed. When the user asks for such a change, say plainly that it cannot be made in this session, and tell them how to make it as the session context below says, rather than describing steps as if you had made it."
+			: `Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit ${listJoin(refusedKinds, 'disjunction')} here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had. Their role is refused ${listJoin(refusedCode)} outside this chat too, so for those suggest asking a workspace admin, who can grant their role more in ${OPERATOR_SETTINGS_LOCATION}, rather than creating them in the editor.${when(
+					canManageSchedules,
+					' To make something recur, they can schedule a deployed script or flow themselves; only when none does the job is there something to ask an admin for, and it is that script.'
+				)} When you decline something, give the reason stated here and keep to it.${when(
+					buildsFlows,
+					'\n\nFlows are the exception: this workspace lets them compose flows out of scripts and flows that are already deployed. Write flow drafts with write_flow and patch_flow_json, using only steps that call a deployed script or flow by path. The server refuses inline code anywhere in the flow, so never add a rawscript step or inline code; when the flow needs logic no deployed script provides, say so and suggest asking a workspace admin for that script.'
+				)}${when(
+					buildsApps,
+					`\n\nRaw apps are ${buildsFlows ? 'an exception too' : 'the exception'}: this workspace lets them build raw apps whose backend calls scripts and flows that are already deployed. Call get_instructions with subject "app" first, then write app drafts with init_app and the app file and runnable tools, making every backend runnable a path runnable to a deployed script or flow. The server refuses inline and hub runnables, so never write one; when the app needs logic no deployed script provides, say so and suggest asking a workspace admin for that script. An app this user deploys always runs sandboxed, and runs its runnables as the user who deployed it: turning the sandbox off or running them as the viewer is refused. If asked, say operators cannot, because the app's code would then run with the permissions of whoever opens it.`
+				)}${when(
+					!!draftedOperatorKinds,
+					`\n\nThis workspace lets them create and edit ${draftedOperatorKinds}: write them as drafts with ${listJoin(
+						[
+							canDraftResources && 'write_resource (call search_resource_types first)',
+							canDraftVariables && 'write_variable',
+							canDraftSchedules && 'write_schedule',
+							canDraftTriggers &&
+								'write_trigger (call get_trigger_schema first: the config fields differ per kind)'
+						]
+					)}${
+						deployableKinds.length
+							? `, then deploy ${deployableKinds.length === draftedKinds.length ? 'them' : listJoin(deployableKinds)} with deploy_workspace_item once the user asks`
+							: ''
+					}.`
+				)}`
 }`
 	const paths = `${when(
 		canWriteAnyDraft,
@@ -1721,11 +1727,11 @@ ${groupMembershipRule}- Listings and reads return only what this user can see: i
 			' Use delete_workspace_item only to remove an item that is already deployed in the workspace; it mutates the workspace and fails if nothing is deployed at that path.'
 		)}`
 	)}${when(
-		!canWriteAnyDraft,
+		!canWriteAnyDraft && !readOnly,
 		`
 - Three changes are still open to you where the server allows them: discard_local_draft drops a draft this user left behind, deploy_workspace_item deploys one when the user asks, and delete_workspace_item removes an item already deployed in the workspace — each only for the kinds its type lists. You cannot create or edit one.`
 	)}${when(
-		!canManageSchedules || !canManageTriggers,
+		(!canManageSchedules || !canManageTriggers) && !readOnly,
 		`
 - This workspace does not let this user change ${
 			!canManageSchedules && !canManageTriggers
@@ -2935,6 +2941,11 @@ export type SessionPromptContext = {
 	forkParentUnknown?: boolean
 	/** Pre-send intent: a staged fork of this workspace is created at first send. */
 	pendingForkOf?: string
+	/** The family's dev workspace, where a read-only session sends the user to make changes. */
+	devWorkspaceId?: string
+	/** Why the session is in Use mode, where the workspace itself is not protected: the user
+	 * picked it, or their role builds nothing there. */
+	useMode?: 'chosen' | 'role'
 }
 
 /** Session-state guidance appended to the global system prompt so the model
@@ -2961,9 +2972,17 @@ export function getSessionContextPromptSection(
 		(!access || access.has('manage_schedules')) && 'schedules',
 		(!access || access.has('manage_triggers')) && 'triggers'
 	].filter((k): k is string => !!k)
+	const readOnly = isReadOnlyAccess(access)
+	// Read-only either because the user chose Use or because the workspace forces it.
+	const protectedWorkspace = readOnly && !ctx.useMode
 	// With no kind left to deploy, the deploy tool is not shipped, so the lines below cannot name it.
-	const deployer = canDeploy || unruledKinds.length ? 'deploy_workspace_item' : 'A deploy'
-	const targets = ['reads', canWriteDraft && 'drafts', canRunPreview && 'test runs', 'deploys']
+	const deployer =
+		!readOnly && (canDeploy || unruledKinds.length) ? 'deploy_workspace_item' : 'A deploy'
+	const targets = (
+		readOnly
+			? ['reads', 'runs']
+			: ['reads', canWriteDraft && 'drafts', canRunPreview && 'test runs', 'deploys']
+	)
 		.filter(Boolean)
 		.join(', ')
 	const lines = [
@@ -2975,6 +2994,14 @@ export function getSessionContextPromptSection(
 	if (ctx.pendingForkOf) {
 		lines.push(
 			`- No workspace is committed yet: a staged fork of workspace "${ctx.pendingForkOf}" is created automatically when the first message is sent, and all work lands in that fork.`
+		)
+	} else if (protectedWorkspace) {
+		const elsewhere =
+			ctx.devWorkspaceId && ctx.devWorkspaceId !== ctx.workspaceId
+				? `start a new session in the dev workspace "${ctx.devWorkspaceId}" — the composer's mode picker has a button for it`
+				: 'start a new session in a fork of this workspace, or, where forking is refused too, make the change in git and open a pull request'
+		lines.push(
+			`- Operating workspace: "${ctx.workspaceId}" — a production workspace protected against direct changes, so this session is READ-ONLY whatever the user's role. You can inspect anything and run deployed scripts and flows with run_script and run_flow; you cannot write drafts, test-run code, deploy or delete. When the user asks to create or change something, say this session cannot do it and that to make the change they need to ${elsewhere}. A session's workspace cannot be changed once it has started, so never suggest switching this one.`
 		)
 	} else if (ctx.parentWorkspaceId && ctx.isDevWorkspace) {
 		lines.push(
@@ -2997,9 +3024,18 @@ export function getSessionContextPromptSection(
 			'- No operating workspace is set yet; the user picks one (or a new staged fork) before the first message is sent.'
 		)
 	}
+	if (readOnly && ctx.useMode === 'chosen') {
+		lines.push(
+			"- The user put this session in Use mode with the composer's mode picker, so it is READ-ONLY until they switch: you can inspect anything and run deployed scripts and flows with run_script and run_flow; you cannot write drafts, test-run code, deploy or delete. When the user asks to create or change something, say Use mode cannot do it and ask them to switch the picker to Build, or to Plan to agree on the change first."
+		)
+	} else if (readOnly && ctx.useMode === 'role') {
+		lines.push(
+			`- This user's role builds nothing in this workspace (no scripts, flows, apps, schedules or triggers), so the session is held in Use mode and is READ-ONLY: you can inspect anything and run deployed scripts and flows with run_script and run_flow; you cannot write drafts, test-run code, deploy or delete. When the user asks to create or change something, say their role does not allow it, in this chat or by hand anywhere in the workspace, and suggest asking a workspace admin, who can grant their role more in ${OPERATOR_SETTINGS_LOCATION}. Do not walk them through doing it themselves.`
+		)
+	}
 	// The kind enum already withholds what the rules refuse; this says why, and where the user
 	// promotes the rest instead. The rules gate deletes too, so it is owed to every such profile.
-	if (!canDeploy) {
+	if (!canDeploy && !readOnly) {
 		lines.push(
 			`- This workspace refuses direct deployment for this user${
 				unruledKinds.length === 2
@@ -3012,7 +3048,7 @@ export function getSessionContextPromptSection(
 	}
 	lines.push(
 		'- Sessions are saved: the sidebar lists them under AI Sessions, and the user can reopen any of them.',
-		'- The composer has a permission mode picker: Ask permission, Auto-accept edits, Yolo (bypass permissions: tool confirmations are accepted without asking) and Plan (read-only). Some modes are hidden where they do not apply.',
+		`- The composer has a mode picker in two parts. What you may do: Use (read and run deployed items, change nothing), Plan (research, then propose a plan for approval) and Build. How tool confirmations work: Ask permission, Auto-accept edits, or Yolo (bypass permissions: tool confirmations are accepted without asking). Some options are hidden where they do not apply${protectedWorkspace ? ', and this workspace locks the picker to Use' : ctx.useMode === 'role' ? ", and this user's role locks the picker to Use" : ''}.`,
 		"- The sliders button next to the model picker opens Assistant settings. Its Permissions section shows what the user's role lets them change and what you can change for them; point them there when they ask what they are allowed to do."
 	)
 	return lines.join('\n')
@@ -3244,7 +3280,9 @@ export async function resolveGlobalPromptIdentity(
 // for the global side-panel chat. The tool only ever advertises, and only ever acts on,
 // `pages`.
 async function allowedOpenPages(
-	workspaceId: string | undefined = get(workspaceStore)
+	workspaceId: string | undefined = get(workspaceStore),
+	/** A read-only session reaches what an operator reaches: never workspace settings. */
+	readOnly = false
 ): Promise<{ pages: OpenPageName[]; roleUnverified: boolean }> {
 	const role = await roleForWorkspace(workspaceId)
 	// A failed lookup says nothing about the role, so guessing a page set can offer one the
@@ -3262,7 +3300,9 @@ async function allowedOpenPages(
 		{ ...u, is_admin: isAdmin },
 		get(userWorkspaces).find((w) => w.id === workspaceId)
 	)
-	return { pages: roleOpenPages(caps, isAdmin), roleUnverified: false }
+	return readOnly
+		? { pages: roleOpenPages(withoutBuilding(caps), false), roleUnverified: false }
+		: { pages: roleOpenPages(caps, isAdmin), roleUnverified: false }
 }
 
 // The Runs page only offers its cross-workspace filter to a superadmin or devops user in
@@ -3744,7 +3784,10 @@ export const openPageTool: SessionTool<{}> = {
 	// Re-narrow the advertised `page` enum to this user's permissions each iteration, so
 	// the model never sees (or suggests) a page the user can't reach.
 	schemaFor: async (helpers) => {
-		const access = await allowedOpenPages(operatingWorkspaceFromHelpers(helpers))
+		const access = await allowedOpenPages(
+			operatingWorkspaceFromHelpers(helpers),
+			isReadOnlyAccess((helpers as GlobalToolHelpers | undefined)?.access)
+		)
 		return createToolDef(
 			buildOpenPageDefSchema(
 				access.pages,
@@ -3765,7 +3808,10 @@ export const openPageTool: SessionTool<{}> = {
 		// requests one outside the advertised enum. An unverified role means the lookup
 		// failed, not that access was denied — reporting it as denied states a falsehood
 		// about the user's permissions.
-		const access = await allowedOpenPages(workspaceId)
+		const access = await allowedOpenPages(
+			workspaceId,
+			isReadOnlyAccess((ctx.helpers as GlobalToolHelpers | undefined)?.access)
+		)
 		if (!access.pages.includes(page)) {
 			const label = OPEN_PAGE_LABELS[page] ?? page
 			return access.roleUnverified
@@ -3957,6 +4003,8 @@ export const globalTools: SessionTool<{}>[] = [
 			'update_user_instructions',
 			'Modify your own persistent personal instructions for the Global assistant. Use when the user asks you to remember a preference, always/never do something, or change/stop a behavior. Edits only the user-level instructions (the USER INSTRUCTIONS block, not workspace-level); changes persist in this browser and take effect on your next message.'
 		),
+		// Writes this browser's preference, not the workspace.
+		readOnlySafe: true,
 		showDetails: true,
 		fn: async ({ args, toolId, toolCallbacks, helpers }) => {
 			const parsed = updateUserInstructionsSchema.parse(args)
@@ -4407,6 +4455,7 @@ export const globalTools: SessionTool<{}>[] = [
 		// permissions, the one run an operator's token allows. `run_flow` likewise.
 		requires: NONE,
 		def: runScriptToolDef,
+		readOnlySafe: true,
 		fn: async (ctx) => {
 			const parsed = runScriptSchema.parse(ctx.args)
 			return runDeployedScript(parsed, ctx)
@@ -4439,6 +4488,7 @@ export const globalTools: SessionTool<{}>[] = [
 	{
 		requires: NONE,
 		def: runFlowToolDef,
+		readOnlySafe: true,
 		fn: async (ctx) => {
 			const parsed = runFlowSchema.parse(ctx.args)
 			return runDeployedFlow(parsed, ctx)
@@ -4576,6 +4626,8 @@ export const globalTools: SessionTool<{}>[] = [
 			'cancel_job',
 			'Cancel a running or queued job by its id (e.g. a background test run you started that is no longer needed).'
 		),
+		// A run the session may start, it may also stop.
+		readOnlySafe: true,
 		showDetails: true,
 		fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 			const parsed = cancelJobSchema.parse(args)
@@ -5014,6 +5066,8 @@ export const globalTools: SessionTool<{}>[] = [
 	{
 		requires: NONE,
 		def: createToolDef(openPreviewSchema, 'open_preview', OPEN_PREVIEW_DESCRIPTION),
+		// A read-only session holds no draft capability, so the schema below offers it viewers.
+		readOnlySafe: true,
 		// Withhold the editors a session cannot save, so the model never offers the user a
 		// panel it would not get.
 		schemaFor: async (helpers) => {
@@ -5062,6 +5116,7 @@ export const globalTools: SessionTool<{}>[] = [
 			'close_page',
 			'Close one or more preview tabs in the side panel of this AI session. Pass `match` to close the tab(s) whose page name or item path contains that text, or `all: true` to clear the panel. Use this when the user asks to close/dismiss a tab they no longer need. Only works inside a session.'
 		),
+		readOnlySafe: true,
 		fn: async (ctx) => {
 			const parsed = closePageSchema.parse(ctx.args)
 			return closeSessionPreviewTabs(parsed, sessionIdFromCtx(ctx))

@@ -103,6 +103,7 @@
 	import {
 		setOperatingWorkspace,
 		useOperatingUser,
+		useReadOnlyWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
 	import { useEditRights } from '$lib/operatorWriteRights'
@@ -173,10 +174,13 @@
 	// lookup does. Assigned once, that leaves the page permanently read-only — `canWrite`
 	// refuses an unknown user — with nothing to recompute it. A hub script is never writable.
 	const promptForAi = $derived((script?.schema?.prompt_for_ai as string | undefined) ?? '')
+	// A session in Use mode changes nothing here, the item permissions notwithstanding.
+	const readOnly = useReadOnlyWorkspace()
 	const can_write = $derived(
 		!isHubScript &&
 			!!script &&
 			script.workspace_id == workspace &&
+			!readOnly(workspace) &&
 			canWrite(script.path, script.extra_perms!, actingUser)
 	)
 	const editRights = useEditRights()
@@ -877,7 +881,8 @@
 						if (script !== undefined) script.ws_error_handler_muted = v
 					}
 				}
-				errorHandlerKind="script"
+				itemKind="script"
+				errorHandlerKind={readOnly(workspace) ? undefined : 'script'}
 				scriptOrFlowPath={script?.path ?? ''}
 				tag={script?.tag ?? ''}
 				labels={script?.labels}

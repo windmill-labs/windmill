@@ -50,8 +50,41 @@ export type SessionCapability =
 	| 'manage_triggers'
 	/** Passes `require_admin`. */
 	| 'admin'
+	/** Withheld when the workspace refuses this user's direct deploys through
+	 * `DisableDirectDeployment` (a production workspace): the session is then read-only and
+	 * ships only the tools `readOnlyToolAllowed` admits. Held in every other session. */
+	| 'modify_workspace'
 
 export type SessionAccess = ReadonlySet<SessionCapability>
+
+/** Whether `access` is a read-only session. `undefined` access answers false, as the toolset
+ * filter does. */
+export function isReadOnlyAccess(access: SessionAccess | undefined): boolean {
+	return !!access && !access.has('modify_workspace')
+}
+
+/** What a session in Use mode holds whatever the user's role: nothing, as in a protected
+ * workspace. Fixed rather than narrowed from the resolved access, so Use ships no write while
+ * that check is still in flight. */
+export const USE_MODE_ACCESS: SessionAccess = new Set()
+
+/** Whether `access` builds anything: a draft of code, a flow, an app, a schedule or a trigger.
+ * Resource and variable drafts do not count, since every role writes them. `undefined` access
+ * answers true, as the toolset filter does. */
+export function canBuild(access: SessionAccess | undefined): boolean {
+	return (
+		!access ||
+		(
+			[
+				'write_draft',
+				'write_flow_draft',
+				'write_app_draft',
+				'write_schedule_draft',
+				'write_trigger_draft'
+			] as const
+		).some((c) => access.has(c))
+	)
+}
 
 /**
  * The capabilities without which a tool's call cannot succeed — usually because the
@@ -97,4 +130,7 @@ export type SessionTool<T> = Tool<T> & {
 	 * tool is either too strict or too loose: what each kind's handler needs. A session is
 	 * offered only the kinds it can land, and the rest never appear in the schema it sees. */
 	kindRequires?: Readonly<Partial<Record<string, SessionToolPolicy>>>
+	/** Ships in a read-only session although it is not `planModeSafe`: a view tool that opens
+	 * no editor there, or a run of a deployed item, which a production workspace is for. */
+	readOnlySafe?: boolean
 }

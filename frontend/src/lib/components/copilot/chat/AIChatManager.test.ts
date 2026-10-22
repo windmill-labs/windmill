@@ -8,6 +8,7 @@ import type { ChatCompletionMessageParam } from 'openai/resources/chat/completio
 import type { DisplayMessage } from './shared'
 import type { AttachedImage } from './imageUtils'
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
+import { AIWorkMode } from './workMode'
 import { makePasteToken } from './pasteTokens'
 import { chatState } from './sharedChatState.svelte'
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
@@ -986,13 +987,11 @@ describe('AIChatManager autonomy mode', () => {
 })
 
 // The posture's own behaviour lives in planModeController.test.ts. What is left here is the
-// wiring only the manager owns: which pending confirmation cards a change of autonomy mode
-// answers, and with what.
+// wiring only the manager owns: which pending confirmation cards a change of work mode or of
+// autonomy mode answers, and with what.
 describe('AIChatManager plan mode posture', () => {
 	beforeEach(() => {
 		localStorage.clear()
-		// Plan mode is never the persisted posture, so a case starts from the one it is
-		// entered from and hands back to.
 		localStorage.setItem(`ai-chat-autonomy-mode::${TEST_EMAIL}`, AIAutonomyMode.DEFAULT)
 		vi.clearAllMocks()
 	})
@@ -1005,7 +1004,7 @@ describe('AIChatManager plan mode posture', () => {
 		return manager
 	}
 
-	it('enters plan mode through the tool and remembers the posture to hand back to', async () => {
+	it('enters plan mode through the tool and leaves the confirmations setting alone', async () => {
 		const manager = sessionManager(AIAutonomyMode.ACCEPT_EDIT)
 
 		await manager.planMode.enterTool.fn({
@@ -1017,12 +1016,12 @@ describe('AIChatManager plan mode posture', () => {
 		})
 
 		expect(manager.planModeActive).toBe(true)
-		expect(manager.prePlanAutonomyMode).toBe(AIAutonomyMode.ACCEPT_EDIT)
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.ACCEPT_EDIT)
 	})
 
 	it('refuses to move a session chat out of GLOBAL, so the gate cannot lift under it', () => {
 		const manager = sessionManager(AIAutonomyMode.ACCEPT_EDIT)
-		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+		manager.setWorkMode(AIWorkMode.PLAN)
 		expect(manager.planModeActive).toBe(true)
 		// Without a configured model changeMode returns early on SCRIPT, and the case would pass
 		// against the very guard it is meant to pin.
@@ -1083,20 +1082,35 @@ describe('AIChatManager plan mode posture', () => {
 	it('answers a pending plan card the way the picker was moved', async () => {
 		const entering = sessionManager()
 		const enterPending = entering.requestConfirmation('call_enter', 'enter_plan_mode')
-		entering.setAutonomyMode(AIAutonomyMode.PLAN)
+		entering.setWorkMode(AIWorkMode.PLAN)
 		expect(await enterPending).toBe(true)
 
 		// Leaving plan mode any other way is not a sign-off on the plan on the card.
-		const leaving = sessionManager(AIAutonomyMode.PLAN)
+		const leaving = sessionManager()
+		leaving.setWorkMode(AIWorkMode.PLAN)
 		const exitPending = leaving.requestConfirmation('call_exit', 'exit_plan_mode')
-		leaving.setAutonomyMode(AIAutonomyMode.DEFAULT)
+		leaving.setWorkMode(AIWorkMode.BUILD)
 		expect(await exitPending).toBe(false)
 
-		// Opting into YOLO does mean "run it".
-		const yolo = sessionManager(AIAutonomyMode.PLAN)
+		// Building under YOLO does mean "run it".
+		const yolo = sessionManager(AIAutonomyMode.YOLO)
+		yolo.setWorkMode(AIWorkMode.PLAN)
 		const yoloPending = yolo.requestConfirmation('call_exit', 'exit_plan_mode')
-		yolo.setAutonomyMode(AIAutonomyMode.YOLO)
+		yolo.setWorkMode(AIWorkMode.BUILD)
 		expect(await yoloPending).toBe(true)
+	})
+
+	it('waits for the user on a plan card while planning under YOLO', async () => {
+		// YOLO is the posture an approved plan is carried out in; the approval itself is not its
+		// to give, or a plan no card ever showed would be run.
+		const manager = sessionManager()
+		manager.setWorkMode(AIWorkMode.PLAN)
+		manager.setAutonomyMode(AIAutonomyMode.YOLO)
+		let settled = false
+		void manager.requestConfirmation('call_exit', 'exit_plan_mode').then(() => (settled = true))
+		await Promise.resolve()
+		expect(settled).toBe(false)
+		expect(manager.planMode.tools.map((t) => t.def.function.name)).toEqual(['exit_plan_mode'])
 	})
 })
 

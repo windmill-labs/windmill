@@ -29,7 +29,6 @@
 	import { pendingUserAction, pendingUserActionDetail, type DisplayMessage } from './shared'
 	import AutonomyModePicker from './AutonomyModePicker.svelte'
 	import { availableAutonomyModeOptions, resolveAutonomyMode } from './autonomyModes'
-	import { PLAN_MODE_MESSAGES } from './planModeMessages'
 	import type { ContextElement } from './context'
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ContextUsageIndicator from './ContextUsageIndicator.svelte'
@@ -44,13 +43,18 @@
 	import Markdown from 'svelte-exmarkdown'
 	import { twMerge } from 'tailwind-merge'
 	import { AIAutonomyMode, AIMode } from './AIChatManager.svelte'
+	import { AIWorkMode, type WorkModeLock } from './workMode'
 	import { getChatViewHost } from './chatViewHost'
 	import { getAiChatManager } from './aiChatManagerContext'
 	import ChatTypingIndicator from './ChatTypingIndicator.svelte'
 	import ToolGroupDisplay from './ToolGroupDisplay.svelte'
 	import { chatItemKey, groupToolRuns } from './toolGroups'
 	import AIChatInput from './AIChatInput.svelte'
-	import { STARTER_PLACEHOLDER, type ComposerSelection } from './composerBox'
+	import {
+		STARTER_PLACEHOLDER,
+		USE_STARTER_PLACEHOLDER,
+		type ComposerSelection
+	} from './composerBox'
 	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import QueuedMessageChip from './QueuedMessageChip.svelte'
 	import JobsSegment from './JobsSegment.svelte'
@@ -118,6 +122,7 @@
 		onSent = undefined,
 		inputPreface,
 		actingOn,
+		workModeLock = undefined,
 		footerSettings,
 		initialInstructions = undefined,
 		onDraftChange = undefined,
@@ -165,6 +170,8 @@
 		inputPreface?: Snippet
 		/** Where the session acts: first among the controls after the attach button. */
 		actingOn?: Snippet
+		/** Holds a session chat in Use, and says why in the picker. */
+		workModeLock?: WorkModeLock
 		/** The settings control at the footer's right edge, where the copilot puts its
 		 * model picker. A host that configures its turn elsewhere replaces it here. */
 		footerSettings?: Snippet
@@ -568,14 +575,14 @@
 	}
 	const autonomyAvailability = $derived({
 		autoAcceptEditsAvailable: chatHost.autoAcceptEditsAvailable,
-		autoAcceptToolConfirmationsAvailable: chatHost.autoAcceptToolConfirmationsAvailable,
-		planModeAvailable: chatHost.planModeAvailable
+		autoAcceptToolConfirmationsAvailable: chatHost.autoAcceptToolConfirmationsAvailable
 	})
 	const effectiveAutonomyMode = $derived(
 		resolveAutonomyMode(chatHost.autonomyMode, autonomyAvailability)
 	)
 	const showAutonomyModeSelector = $derived(
-		!disabled && availableAutonomyModeOptions(autonomyAvailability).length > 1
+		!disabled &&
+			(chatHost.workModesAvailable || availableAutonomyModeOptions(autonomyAvailability).length > 1)
 	)
 
 	// The typing-dots indicator implies the AI is busy, which is misleading while
@@ -587,6 +594,9 @@
 	// The block's layout holds while the chat is empty, usable or not; only the taller box
 	// and the suggestions need a composer that can send.
 	const starterLayout = $derived(!!starter && messages.length === 0)
+	const heldInUse = $derived(
+		chatHost.workModesAvailable && (!!workModeLock || chatHost.workMode === AIWorkMode.USE)
+	)
 	// Home is a page, not a pane: nothing there to centre in.
 	const centreComposer = $derived(starterLayout && starter?.where === 'session')
 
@@ -1056,7 +1066,11 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 				bind:this={aiChatInput}
 				bind:selectedContext
 				{availableContext}
-				placeholder={starterLayout ? STARTER_PLACEHOLDER : placeholder}
+				placeholder={starterLayout
+					? heldInUse
+						? USE_STARTER_PLACEHOLDER
+						: STARTER_PLACEHOLDER
+					: placeholder}
 				{initialInstructions}
 				{onDraftChange}
 				{initialAttachments}
@@ -1273,10 +1287,15 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 										mode={chatHost.autonomyMode}
 										availability={autonomyAvailability}
 										onChange={chatHost.setAutonomyMode}
+										work={chatHost.workModesAvailable
+											? {
+													mode: chatHost.workMode,
+													planAvailable: chatHost.planModeAvailable,
+													lock: workModeLock,
+													onChange: chatHost.setWorkMode
+												}
+											: undefined}
 									/>
-								{/if}
-								{#if effectiveAutonomyMode === AIAutonomyMode.PLAN}
-									<span class="text-2xs text-secondary">{PLAN_MODE_MESSAGES.modeNote}</span>
 								{/if}
 								{#if effectiveAutonomyMode === AIAutonomyMode.YOLO && chatHost.autoAcceptToolConfirmationsAvailable}
 									<Tooltip small placement="top">

@@ -226,10 +226,9 @@ describe('startSessionWithPrompt', () => {
 		vi.mocked(goto).mockClear()
 	})
 
-	// The hand-off must not re-pick the workspace: createSession already steers off
-	// a root the user cannot deploy to onto its dev, and overwriting that with the
-	// raw current workspace lands the session somewhere it cannot edit.
-	it('seeds the composer and keeps createSession’s workspace choice', async () => {
+	// A question asked on prod is answered against prod, in a read-only session, even
+	// when a dev workspace exists to make changes in.
+	it('seeds the composer and starts in the current workspace', async () => {
 		const prevUsers = get(usersWorkspaceStore)
 		const prevWs = get(workspaceStore)
 		const prevCurrent = sessionState.currentSessionId
@@ -244,7 +243,7 @@ describe('startSessionWithPrompt', () => {
 			createdId = sessionState.currentSessionId
 			const created = sessionState.sessions.find((s) => s.id === createdId)
 			expect(created?.draftPrompt).toBe('list my flows')
-			expect(created?.pending_workspace_id).toBe('prod-dev')
+			expect(created?.pending_workspace_id).toBe('prod')
 		} finally {
 			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== createdId)
 			sessionState.currentSessionId = prevCurrent

@@ -5,6 +5,10 @@ import { getWorkspaceRole } from '$lib/user'
 import { roleCanAuthor, roleCanDraft } from '$lib/editRights'
 import { capabilitiesIn, FULL_CAPABILITIES } from '$lib/roleCapabilities'
 import { checkDeployRules } from '$lib/utils_workspace_deploy'
+import {
+	fetchProtectionRulesForWorkspace,
+	isRuleActiveInRulesets
+} from '$lib/workspaceProtectionRules.svelte'
 import type { SessionAccess, SessionCapability } from '../sessionCapabilities'
 
 const ALL_CAPABILITIES: SessionCapability[] = [
@@ -25,7 +29,8 @@ const ALL_CAPABILITIES: SessionCapability[] = [
 	'manage_apps',
 	'manage_schedules',
 	'manage_triggers',
-	'admin'
+	'admin',
+	'modify_workspace'
 ]
 
 /** Fail open, here and at every resolution failure below: blanking a toolset on a
@@ -44,8 +49,13 @@ export function capabilitiesForRole(role: {
 	isAdmin: boolean
 	deployRulesPass: boolean
 	capabilities: RoleCapabilities
+	/** The workspace is protected by `DisableDirectDeployment`: a production workspace, where a
+	 * session reads and runs what is deployed but writes nothing, whatever the role. */
+	readOnly?: boolean
 }): SessionAccess {
 	const capabilities = new Set<SessionCapability>()
+	if (role.readOnly) return capabilities
+	capabilities.add('modify_workspace')
 	const caps = role.isAdmin ? FULL_CAPABILITIES : role.capabilities
 	if (roleCanDraft('script', caps)) {
 		capabilities.add('write_draft')
@@ -102,6 +112,31 @@ export function capabilitiesForRole(role: {
 	return capabilities
 }
 
+/** A session on a workspace protected by `DisableDirectDeployment` is read-only for everyone,
+ * admins and bypassers included: changes to production go through its dev workspace or a fork.
+ * `RestrictDeployToDeployers` alone does not qualify: its users keep their drafts and hand the
+ * deploy to a deployer. False when the rules cannot be read, as the rest of the access does. */
+async function protectsWorkspace(workspace: string): Promise<boolean> {
+	return isRuleActiveInRulesets(
+		await fetchProtectionRulesForWorkspace(workspace),
+		'DisableDirectDeployment'
+	)
+}
+
+// The session UI asks this from every preview tab, the composer and the picker, and the rules
+// fetch behind it is not cached, so they share one verdict per workspace for a minute.
+const READ_ONLY_TTL_MS = 60_000
+const readOnlyVerdicts = new Map<string, { at: number; verdict: Promise<boolean> }>()
+
+/** The read-only verdict alone, for the UI around a session. */
+export function isReadOnlySessionWorkspace(workspace: string): Promise<boolean> {
+	const cached = readOnlyVerdicts.get(workspace)
+	if (cached && Date.now() - cached.at < READ_ONLY_TTL_MS) return cached.verdict
+	const verdict = protectsWorkspace(workspace)
+	readOnlyVerdicts.set(workspace, { at: Date.now(), verdict })
+	return verdict
+}
+
 export async function resolveSessionAccess(workspace: string): Promise<SessionAccess> {
 	// Shares the 5-minute memo with the identity the same pre-flight resolves beside this
 	// one, so a send costs one `whoami` rather than two, at the cost of a role changed
@@ -112,10 +147,16 @@ export async function resolveSessionAccess(workspace: string): Promise<SessionAc
 		return fullSessionAccess()
 	}
 	const me = lookup.user
+	// Not the memoized verdict above: the chat's toolset follows a rule change on the next send.
+	const [rules, readOnly] = await Promise.all([
+		checkDeployRules(workspace, me),
+		protectsWorkspace(workspace)
+	])
 
 	return capabilitiesForRole({
 		isAdmin: !!me.is_admin || !!me.is_super_admin,
-		deployRulesPass: (await checkDeployRules(workspace, me)).ok,
+		deployRulesPass: rules.ok,
+		readOnly,
 		capabilities: capabilitiesIn(
 			me,
 			get(userWorkspaces).find((w) => w.id === workspace)

@@ -104,6 +104,9 @@
 			{#if item.separatorTop}
 				<div class="my-1 border-t border-border-light"></div>
 			{/if}
+			{#if item.sectionTitle}
+				<p class="px-4 pt-2 pb-1 text-2xs font-semibold text-secondary">{item.sectionTitle}</p>
+			{/if}
 			{#if (item.submenuItems || item.customSubmenu) && builders}
 				<DropdownSubmenuItem {item} {builders} {meltItem} close={close ?? (() => {})} />
 			{:else if item.disabled && item.tooltip}

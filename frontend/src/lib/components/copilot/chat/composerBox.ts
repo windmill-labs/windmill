@@ -33,6 +33,9 @@ export const COMPOSER_FIELD_RESET =
 /** The placeholder of a composer that opens a session. */
 export const STARTER_PLACEHOLDER = 'Ask about this workspace, or describe what to build…'
 
+/** The same, for a session held in Use, which builds nothing. */
+export const USE_STARTER_PLACEHOLDER = 'Ask about this workspace, or run what it holds…'
+
 /** A caret or selected range in the composer's text. */
 export type ComposerSelection = { start: number; end: number }
 

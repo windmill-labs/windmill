@@ -79,6 +79,7 @@
 	import {
 		setOperatingWorkspace,
 		useOperatingUser,
+		useReadOnlyWorkspace,
 		useOperatingWorkspaceHref
 	} from '$lib/components/operatingWorkspace.svelte'
 	import FlowChat from '$lib/components/flows/conversations/FlowChat.svelte'
@@ -145,7 +146,11 @@
 	// asynchronously, and a value read after `getFlowByPath` resolves can land before that
 	// lookup does. Assigned once, that leaves the page permanently read-only — `canWrite`
 	// refuses an unknown user — with nothing to recompute it.
-	const can_write = $derived(!!flow && canWrite(flow.path, flow.extra_perms!, actingUser))
+	// A session in Use mode changes nothing here, the item permissions notwithstanding.
+	const readOnly = useReadOnlyWorkspace()
+	const can_write = $derived(
+		!!flow && !readOnly(workspace) && canWrite(flow.path, flow.extra_perms!, actingUser)
+	)
 	const promptForAi = $derived((flow?.schema?.prompt_for_ai as string | undefined) ?? '')
 	let shareModal: ShareModal | undefined = $state()
 
@@ -699,7 +704,8 @@
 				}
 			}
 			scriptOrFlowPath={flow?.path ?? ''}
-			errorHandlerKind="flow"
+			itemKind="flow"
+			errorHandlerKind={readOnly(workspace) ? undefined : 'flow'}
 			tag={flow?.tag ?? ''}
 			labels={flow?.labels}
 			inheritedLabels={flow?.inherited_labels}

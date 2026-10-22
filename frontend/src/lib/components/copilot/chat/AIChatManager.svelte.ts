@@ -139,7 +139,13 @@ import {
 } from '$lib/aiStore'
 import type { WorkspaceMutationTarget } from './workspaceTools'
 import { resolveSessionAccess } from './global/sessionAccess'
-import type { SessionAccess } from './sessionCapabilities'
+import {
+	canBuild,
+	isReadOnlyAccess,
+	USE_MODE_ACCESS,
+	type SessionAccess
+} from './sessionCapabilities'
+import { AIWorkMode } from './workMode'
 import { filterSessionTools } from './global/sessionToolset'
 import {
 	listFolderInstructions,
@@ -269,7 +275,6 @@ export enum AIMode {
 }
 
 export enum AIAutonomyMode {
-	PLAN = 'plan',
 	DEFAULT = 'default',
 	ACCEPT_EDIT = 'acceptedit',
 	YOLO = 'yolo'
@@ -332,7 +337,7 @@ function getPersistedAutonomyMode(): AIAutonomyMode {
 		return AIAutonomyMode.ACCEPT_EDIT
 	}
 	const persistedMode = getLocalSetting(key)
-	if (isAIAutonomyMode(persistedMode) && persistedMode !== AIAutonomyMode.PLAN) {
+	if (isAIAutonomyMode(persistedMode)) {
 		return persistedMode
 	}
 	// No stored preference: default to auto-accepting edits (tool calls still
@@ -345,11 +350,6 @@ function getPersistedAutonomyMode(): AIAutonomyMode {
 }
 
 function persistAutonomyMode(mode: AIAutonomyMode) {
-	// Plan is session-only: persisting it would re-block a later session where the
-	// picker never offered Plan. The stored pre-plan baseline is what a reload restores.
-	if (mode === AIAutonomyMode.PLAN) {
-		return
-	}
 	const key = scopedKey(AI_AUTONOMY_MODE_STORAGE_KEY)
 	if (!BROWSER || !key) {
 		return
@@ -466,8 +466,8 @@ function planModeHostFor(m: AIChatManager): PlanModeHost {
 			return m.artifacts
 		},
 		openArtifact: (id, name, version) => m.openArtifact?.(id, name, version),
-		enter: () => m.setAutonomyMode(AIAutonomyMode.PLAN),
-		restore: () => m.setAutonomyMode(m.prePlanAutonomyMode ?? AIAutonomyMode.DEFAULT)
+		enter: () => m.setWorkMode(AIWorkMode.PLAN),
+		build: () => m.setWorkMode(AIWorkMode.BUILD)
 	}
 }
 
@@ -761,12 +761,29 @@ export class AIChatManager implements ChatViewHost {
 				this.autonomyMode === AIAutonomyMode.YOLO)
 	)
 	autoAcceptToolConfirmationsAvailable = $derived(supportsAutoAcceptToolConfirmations(this.mode))
+	/** Use, Plan or Build. A session keeps its own: the runtime seeds it from the session record
+	 * and stores each change through `onWorkModeChanged`. */
+	workMode = $state<AIWorkMode>(AIWorkMode.BUILD)
+	onWorkModeChanged: ((mode: AIWorkMode) => void) | undefined = undefined
+	workModesAvailable = $derived(this.isSessionChat && supportsPlanMode(this.mode))
+	/** Use is the only mode: the workspace is protected, or the user's role builds nothing in it. */
+	#useOnly = $derived(this.workModesAvailable && !canBuild(this.sessionAccess))
+	// A plan ends in edits, which neither case allows. The user's own Use mode leaves Plan open:
+	// it is one click away from Build anyway.
+	planModeAvailable = $derived(this.workModesAvailable && !this.#useOnly)
+	planModeActive = $derived(this.workMode === AIWorkMode.PLAN && this.planModeAvailable)
+	// Not while planning: approving the plan is the user's to do, and Yolo applies once they have.
 	autoAcceptToolConfirmationsActive = $derived(
-		this.autonomyMode === AIAutonomyMode.YOLO && this.autoAcceptToolConfirmationsAvailable
+		this.autonomyMode === AIAutonomyMode.YOLO &&
+			this.autoAcceptToolConfirmationsAvailable &&
+			!this.planModeActive
 	)
-	planModeAvailable = $derived(this.isSessionChat && supportsPlanMode(this.mode))
-	planModeActive = $derived(this.autonomyMode === AIAutonomyMode.PLAN && this.planModeAvailable)
-	prePlanAutonomyMode = $state<AIAutonomyMode | undefined>(undefined)
+	/** What the tools and the prompt are built for. */
+	#toolAccess = $derived(
+		this.workModesAvailable && (this.workMode === AIWorkMode.USE || this.#useOnly)
+			? USE_MODE_ACCESS
+			: this.sessionAccess
+	)
 	// The posture's own state — its two tools, the plan document and the planning round.
 	// Everything it needs from this manager goes through the host above.
 	planMode = new PlanModeController(planModeHostFor(this))
@@ -784,7 +801,7 @@ export class AIChatManager implements ChatViewHost {
 	 * reaching either one can never arrive unfiltered. A session withholds what its user's
 	 * capabilities do not cover; elsewhere `sessionAccess` is unset and nothing is dropped. */
 	#shipped = (planTools: Tool<any>[]): Tool<any>[] =>
-		filterSessionTools([...this.#assembledTools, ...planTools], this.sessionAccess)
+		filterSessionTools([...this.#assembledTools, ...planTools], this.#toolAccess)
 	/** What the request carries: the assembled tools plus the plan-mode transition the current
 	 * posture offers. Read by the request path and by the YOLO disclosure. */
 	tools: Tool<any>[] = $derived(this.#shipped(this.planMode.tools))
@@ -2015,29 +2032,43 @@ export class AIChatManager implements ChatViewHost {
 	}
 
 	setAutonomyMode = (mode: AIAutonomyMode) => {
-		const enteringPlan = mode === AIAutonomyMode.PLAN && this.autonomyMode !== AIAutonomyMode.PLAN
-		const leavingPlan = mode !== AIAutonomyMode.PLAN && this.autonomyMode === AIAutonomyMode.PLAN
-		if (enteringPlan) {
-			this.prePlanAutonomyMode = this.autonomyMode
-			this.planMode.startRound()
-		} else if (mode !== AIAutonomyMode.PLAN) {
-			this.prePlanAutonomyMode = undefined
-			this.planMode.resetBlocks()
-		}
 		this.autonomyMode = mode
 		persistAutonomyMode(mode)
-
-		if (enteringPlan) {
-			this.resolvePendingPlanCard(ENTER_PLAN_MODE_TOOL, true)
-		} else if (leavingPlan) {
-			// Opting into YOLO means "run it"; leaving plan mode any other way is not a sign-off.
-			this.resolvePendingPlanCard(EXIT_PLAN_MODE_TOOL, mode === AIAutonomyMode.YOLO)
-		}
 		if (this.autoAcceptToolConfirmationsActive) {
 			this.acceptPendingToolConfirmations()
 		}
 		if (this.autoAcceptEditsActive) {
 			this.acceptPendingFlowEdits()
+		}
+	}
+
+	setWorkMode = (mode: AIWorkMode) => {
+		const enteringPlan = mode === AIWorkMode.PLAN && this.workMode !== AIWorkMode.PLAN
+		const leavingPlan = mode !== AIWorkMode.PLAN && this.workMode === AIWorkMode.PLAN
+		const useChanges = (mode === AIWorkMode.USE) !== (this.workMode === AIWorkMode.USE)
+		if (enteringPlan) {
+			this.planMode.startRound()
+		} else if (mode !== AIWorkMode.PLAN) {
+			this.planMode.resetBlocks()
+		}
+		this.workMode = mode
+		this.onWorkModeChanged?.(mode)
+
+		if (enteringPlan) {
+			this.resolvePendingPlanCard(ENTER_PLAN_MODE_TOOL, true)
+		} else if (leavingPlan) {
+			// Building under Yolo means "run it"; leaving plan mode any other way is not a sign-off.
+			this.resolvePendingPlanCard(
+				EXIT_PLAN_MODE_TOOL,
+				mode === AIWorkMode.BUILD && this.autonomyMode === AIAutonomyMode.YOLO
+			)
+		}
+		if (this.autoAcceptToolConfirmationsActive) {
+			this.acceptPendingToolConfirmations()
+		}
+		// The helpers and the system prompt are built for one access; the tool list follows alone.
+		if (useChanges && this.mode === AIMode.GLOBAL) {
+			this.configureGlobalMode()
 		}
 	}
 
@@ -2054,7 +2085,6 @@ export class AIChatManager implements ChatViewHost {
 	hydrateUserScopedAutonomy = () => {
 		migrateLegacyAutonomyKeys()
 		this.autonomyMode = getPersistedAutonomyMode()
-		this.prePlanAutonomyMode = undefined
 		this.planMode.resetRound()
 	}
 
@@ -2687,7 +2717,7 @@ export class AIChatManager implements ChatViewHost {
 						sessionId: this.sessionId,
 						operatingWorkspace: this.operatingWorkspace,
 						artifacts: this.artifacts,
-						access: this.sessionAccess,
+						access: this.#toolAccess,
 						getChatId: () => this.historyManager.getCurrentChatId(),
 						openArtifact: this.openArtifact
 					}
@@ -2726,10 +2756,18 @@ export class AIChatManager implements ChatViewHost {
 		skills: this.globalSkills,
 		folderInstructions: this.globalFolderInstructions,
 		mcpServers: this.mcpServers,
-		access: this.sessionAccess,
-		sessionContext: this.sessionContextResolver?.(),
+		access: this.#toolAccess,
+		sessionContext: this.#sessionPromptContext(),
 		pipelineFolders: this.#pipelineFolders()
 	})
+
+	#sessionPromptContext = (): SessionPromptContext | undefined => {
+		const ctx = this.sessionContextResolver?.()
+		// A protected workspace needs no reason here: the prompt's own read-only line names it.
+		if (!ctx || !this.workModesAvailable || isReadOnlyAccess(this.sessionAccess)) return ctx
+		if (this.#useOnly) return { ...ctx, useMode: 'role' }
+		return this.workMode === AIWorkMode.USE ? { ...ctx, useMode: 'chosen' } : ctx
+	}
 
 	// Fetch the workspace's AI skills and, if GLOBAL mode is still active, rebuild
 	// the system message so the next chat-loop iteration advertises them. Ignore
@@ -4041,7 +4079,8 @@ export class AIChatManager implements ChatViewHost {
 					workspace: this.operatingWorkspace
 				})
 				logFeatureUsage('ai_session', 'autonomy', {
-					key: this.autonomyMode,
+					// Planning keeps its own key, `plan`, so the series still tells it apart.
+					key: this.planModeActive ? AIWorkMode.PLAN : this.autonomyMode,
 					entityId: this.sessionId,
 					workspace: this.operatingWorkspace
 				})

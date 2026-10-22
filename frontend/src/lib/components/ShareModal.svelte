@@ -25,13 +25,15 @@
 	import { useScheduleLock, useTriggerLock } from '$lib/operatorWriteRights'
 	import {
 		useOperatingWorkspace,
-		useOperatingUser
+		useOperatingUser,
+		useReadOnlyWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 	const scheduleLock = useScheduleLock()
 	const triggerLock = useTriggerLock()
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
+	const readOnly = useReadOnlyWorkspace()
 
 	const dispatch = createEventDispatcher()
 
@@ -181,7 +183,7 @@
 		loadLinkedVarPaths()
 		loadDefaultPerms()
 		if (isOwnerOverride !== undefined) {
-			own = isOwnerOverride
+			own = isOwnerOverride && !readOnly($operatingWorkspace)
 		} else {
 			loadOwner()
 		}
@@ -189,7 +191,8 @@
 	}
 
 	async function loadOwner() {
-		own = isOwner(path, operatingUser.current!, $operatingWorkspace!)
+		own =
+			!readOnly($operatingWorkspace) && isOwner(path, operatingUser.current!, $operatingWorkspace!)
 	}
 
 	async function loadAcls() {
@@ -292,9 +295,15 @@
 					</div>
 				{/if}
 				{#if !own}
-					<Alert type="warning" title="Not owner"
-						>Since you do not own this item, you cannot modify its permission</Alert
-					>
+					{#if readOnly($operatingWorkspace)}
+						<Alert type="info" title="Use mode">
+							This session cannot change permissions while it is in Use mode.
+						</Alert>
+					{:else}
+						<Alert type="warning" title="Not owner"
+							>Since you do not own this item, you cannot modify its permission</Alert
+						>
+					{/if}
 				{/if}
 				<div>
 					{#if own && sharingDisabled}

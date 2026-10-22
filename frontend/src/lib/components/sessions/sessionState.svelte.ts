@@ -5,21 +5,16 @@ import { random_adj } from '$lib/components/random_positive_adjetive'
 import {
 	enterpriseLicense,
 	superadmin,
-	userStore,
 	userWorkspaces,
 	usersWorkspaceStore,
 	workspaceStore,
 	type UserWorkspace
 } from '$lib/stores'
 import { switchWorkspace } from '$lib/storeUtils'
-import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
-import {
-	isRuleActive,
-	canUserBypassRuleKind,
-	protectionRulesState
-} from '$lib/workspaceProtectionRules.svelte'
 import { getLocalSetting, storeLocalSetting } from '$lib/utils'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
+import { isReadOnlySessionWorkspace } from '../copilot/chat/global/sessionAccess'
+import { AIWorkMode } from '../copilot/chat/workMode'
 import { workspaceRootId } from './sessionScope.svelte'
 import { clearSessionRecovered } from './sessionRecoveryNotice.svelte'
 import { type DBSchema, type IDBPDatabase } from 'idb'
@@ -158,6 +153,8 @@ export type Session = {
 	// Preview split size (preview pane %, 0-100) the user dragged for this session.
 	// Per-session so each session restores its own layout.
 	previewSize?: number
+	// Use or Build, as the chat's mode picker last left it. Absent reads as Build.
+	workMode?: AIWorkMode.USE | AIWorkMode.BUILD
 	// Unsent composer text for a pending (uncommitted) session, persisted with
 	// the record so each parallel draft restores its own typed-but-unsent prompt.
 	// Only tracked while unsent; cleared once the workspace commits at first send.
@@ -1115,24 +1112,9 @@ function newTransientSession(): Session {
 	const discarded = sessionState.sessions.filter(isDiscardableDraft).map((s) => s.id)
 	sessionState.sessions = sessionState.sessions.filter((s) => !isDiscardableDraft(s))
 	if (discarded.length > 0) onDraftsDiscarded?.(discarded)
-	// Start in the workspace you're in. The one exception: a root you can't
-	// deploy to (locked, no bypass) steers to its dev, since a session there
-	// couldn't edit anything. The picker lets you switch.
-	const currentWs = get(workspaceStore)
-	const devOfCurrent = currentWs
-		? findCanonicalDevWorkspace(currentWs, get(userWorkspaces))?.id
-		: undefined
-	// Only trust the deploy check once the active workspace's rules have actually loaded: until then
-	// `isRuleActive` reads an empty ruleset and fails open, which would default a new session onto a
-	// locked prod. Treat "not yet loaded for currentWs" as not-deployable so we steer to the dev (always
-	// editable) when one exists; the picker still lets the user switch back once rules resolve.
-	const rulesLoadedForCurrent =
-		protectionRulesState.rulesets !== undefined && protectionRulesState.workspace === currentWs
-	const canDeployHere =
-		rulesLoadedForCurrent &&
-		(!isRuleActive('DisableDirectDeployment') ||
-			canUserBypassRuleKind('DisableDirectDeployment', get(userStore)))
-	const pending = devOfCurrent && !canDeployHere ? devOfCurrent : currentWs
+	// Start in the workspace you're in, a locked production root included: the session is then
+	// read-only, and points the user to a new session in the dev workspace for changes.
+	const pending = get(workspaceStore)
 	// Friendly default summary so the header reads like "Zippy session"
 	// rather than "Untitled session" — assigned at create time, the user
 	// can still rename it (or it gets overwritten by an editor target).
@@ -1283,12 +1265,16 @@ export async function commitSessionWorkspace(
 	// The draft prompt has been consumed as the first message.
 	delete s.draftPrompt
 	await putSession(s)
-	// A picked workspace can itself be an existing fork — classify by root.
-	logFeatureUsage('ai_session', 'created', {
-		key: ws === s.workspace_root_id ? 'root' : 'fork',
-		entityId: s.id,
-		workspace: ws
-	})
+	// A picked workspace can itself be an existing fork — classify by root. A read-only root is
+	// counted apart, to see whether production sessions are used.
+	const sessionId = s.id
+	void isReadOnlySessionWorkspace(ws).then((readOnly) =>
+		logFeatureUsage('ai_session', 'created', {
+			key: readOnly ? 'read_only' : ws === s.workspace_root_id ? 'root' : 'fork',
+			entityId: sessionId,
+			workspace: ws
+		})
+	)
 	// The global workspaceStore is intentionally left untouched (see the fork
 	// branch above): the session chat reads its committed workspace through the
 	// manager's workspace resolver, not the active workspaceStore.
@@ -1324,6 +1310,16 @@ export function setSessionPreviewSize(id: string, size: number): void {
 	const s = sessionState.sessions.find((x) => x.id === id)
 	if (!s || s.previewSize === size) return
 	s.previewSize = size
+	persistTouched(s)
+}
+
+// Persist the session's Use or Build choice (a touch). Plan is left out: a reload ends the
+// planning round, and the session reopens in the mode it was entered from.
+export function setSessionWorkMode(id: string, mode: AIWorkMode): void {
+	if (mode === AIWorkMode.PLAN) return
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (!s || (s.workMode ?? AIWorkMode.BUILD) === mode) return
+	s.workMode = mode
 	persistTouched(s)
 }
 

@@ -41,8 +41,9 @@ const BUILD_EXAMPLES: ComposerSuggestion[] = [
 	}
 ]
 
-/** A session for a role that cannot code can run what is deployed, read runs and call MCP
- * servers, but cannot author scripts, so none of these asks it to build anything. */
+/** A session for a role that cannot code, or one held in Use, can run what is deployed, read
+ * runs and call MCP servers, but cannot author scripts, so none of these asks it to build
+ * anything. */
 const OPERATOR_EXAMPLES: ComposerSuggestion[] = [
 	USE_EXAMPLES[0],
 	{
@@ -74,11 +75,13 @@ export class StarterPrompts {
 	#invite = $state<StarterPrompt[]>()
 	#capabilities = fromStore(roleCapabilities)
 	#workspace: () => string | undefined
+	#builds: () => boolean
 	#itemCount: { readonly current: number | undefined }
 
-	/** `workspace`: where the session acts. */
-	constructor(workspace: () => string | undefined) {
+	/** `workspace`: where the session acts. `builds`: false while the session is held in Use. */
+	constructor(workspace: () => string | undefined, builds: () => boolean = () => true) {
 		this.#workspace = workspace
+		this.#builds = builds
 		void onboardingProfile().then((p) => {
 			if (p?.starter_prompts?.length) this.#invite = p.starter_prompts
 		})
@@ -94,6 +97,8 @@ export class StarterPrompts {
 
 	/** Up to four: two Use then two Build. An empty workspace has nothing to ask about yet. */
 	readonly suggestions: ComposerSuggestion[] = $derived.by(() => {
+		// Before the invite's prompts: those are written to be built.
+		if (!this.#builds()) return OPERATOR_EXAMPLES
 		if (this.#invite) return this.#invite.map((p) => ({ ...p, mode: 'build' as const }))
 		if (!this.#capabilities.current.code) return OPERATOR_EXAMPLES
 		if (this.#count === 0) return BUILD_EXAMPLES

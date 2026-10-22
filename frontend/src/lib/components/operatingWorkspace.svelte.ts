@@ -22,6 +22,25 @@ export function setOperatingWorkspace(resolve: () => string | undefined): void {
 	setContext(KEY, outer ? () => resolve() ?? outer() : resolve)
 }
 
+const READ_ONLY_KEY = Symbol('readOnlyWorkspace')
+
+/** Declare which workspaces this subtree may not change: a session in Use mode, which a
+ * production workspace forces, reads and runs but edits nothing whatever the user's role. `useEditRights` refuses every
+ * check there, so each control gated on it, the operator gates included, follows. Reads context:
+ * call during component initialisation. */
+export function setReadOnlyWorkspace(isReadOnly: (workspace: string | undefined) => boolean): void {
+	setContext(READ_ONLY_KEY, isReadOnly)
+}
+
+/** Whether this subtree may not change `workspace`. Reads context: call during component
+ * initialisation. */
+export function useReadOnlyWorkspace(): (workspace: string | undefined) => boolean {
+	return (
+		getContext<((workspace: string | undefined) => boolean) | undefined>(READ_ONLY_KEY) ??
+		(() => false)
+	)
+}
+
 /** This subtree's operating workspace as an entry for a `ContextBridge` contexts map. A snippet
  * handed to the page header's band renders outside the subtree that declared the workspace, so
  * without this it would quietly act on the navigation workspace instead. Reads context: call
