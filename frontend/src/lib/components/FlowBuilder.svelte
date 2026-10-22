@@ -84,10 +84,8 @@
 		Disc,
 		UserPlus
 	} from 'lucide-svelte'
-	import {
-		muteErrorHandlerMenuItem,
-		toggleWorkspaceErrorHandler
-	} from './details/errorHandlerToggle'
+	import { muteErrorHandlerMenuItem } from './details/errorHandlerToggle'
+	import { useDeployedErrorHandlerMuted } from './details/deployedErrorHandlerMuted.svelte'
 	import ShareDialog from './itemSettings/ShareDialog.svelte'
 	import FirstDeployDialog, {
 		applyFirstDeployMembers,
@@ -737,9 +735,10 @@
 			// check rather than blocking the deploy.
 			const liveFlow = isNewFlow
 				? undefined
-				: await FlowService.getFlowByPath({ workspace: opWorkspace!, path: initialPath }).catch(
-						() => undefined
-					)
+				: await FlowService.getFlowByPath({
+						workspace: opWorkspace!,
+						path: userDraftPath || initialPath
+					}).catch(() => undefined)
 			dropStaleStepLocks(flow.value, liveFlow?.value)
 
 			if (isNewFlow) {
@@ -1494,27 +1493,29 @@
 				icon: Disc,
 				action: () => flowPreviewButtons?.openRecordingPreview()
 			},
-			...(!newFlow && savedFlow && savedFlow.no_deployed !== true
+			...(deployedFlowPath
 				? [
 						muteErrorHandlerMenuItem({
 							kind: 'flow',
-							muted: deployedErrorHandlerMuted,
+							muted: deployedMute.muted,
 							hasEnterpriseLicense: !!$enterpriseLicense,
-							onToggle: async () => {
-								const next = await toggleWorkspaceErrorHandler(
-									opWorkspace,
-									'flow',
-									initialPath,
-									deployedErrorHandlerMuted
-								)
-								if (next !== undefined) deployedErrorHandlerMuted = next
-							}
+							onToggle: () => deployedMute.toggle()
 						})
 					]
 				: [])
 		]
 	}
-	let deployedErrorHandlerMuted = $derived(!!savedFlow?.ws_error_handler_muted)
+	// The URL path: `initialPath` is the staged name once a draft that renames the flow reloads.
+	const deployedFlowPath = $derived(
+		!newFlow && savedFlow && savedFlow.no_deployed !== true
+			? userDraftPath || initialPath || undefined
+			: undefined
+	)
+	const deployedMute = useDeployedErrorHandlerMuted(
+		'flow',
+		() => opWorkspace,
+		() => deployedFlowPath
+	)
 
 	function onCustomUiChange(
 		customUi: FlowBuilderWhitelabelCustomUi | undefined,

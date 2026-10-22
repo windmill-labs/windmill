@@ -86,10 +86,8 @@
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { parsePipelineAnnotations } from './assets/AssetGraph/parsePipelineAnnotations'
 	import DropdownV2 from './DropdownV2.svelte'
-	import {
-		muteErrorHandlerMenuItem,
-		toggleWorkspaceErrorHandler
-	} from './details/errorHandlerToggle'
+	import { muteErrorHandlerMenuItem } from './details/errorHandlerToggle'
+	import { useDeployedErrorHandlerMuted } from './details/deployedErrorHandlerMuted.svelte'
 	import { getLocalSetting, storeLocalSetting, type Item } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
@@ -280,8 +278,13 @@
 	let localWorkerTags = $state<string[] | undefined>(undefined)
 	const scriptWorkerTags = $derived(usesLocalTags ? localWorkerTags : $workerTags)
 
-	let deployedErrorHandlerMuted = $derived(!!savedScript?.ws_error_handler_muted)
 	const scriptIsDeployed = $derived(!!initialPath && !!savedScript && !savedScript.no_deployed)
+	// The URL path: `initialPath` is the staged name once a draft that renames the script reloads.
+	const deployedMute = useDeployedErrorHandlerMuted(
+		'script',
+		() => opWorkspace,
+		() => (scriptIsDeployed ? userDraftPath || initialPath : undefined)
+	)
 
 	function getMoreMenuItems(): Item[] {
 		return [
@@ -290,17 +293,9 @@
 				? [
 						muteErrorHandlerMenuItem({
 							kind: 'script',
-							muted: deployedErrorHandlerMuted,
+							muted: deployedMute.muted,
 							hasEnterpriseLicense: !!$enterpriseLicense,
-							onToggle: async () => {
-								const next = await toggleWorkspaceErrorHandler(
-									opWorkspace,
-									'script',
-									initialPath,
-									deployedErrorHandlerMuted
-								)
-								if (next !== undefined) deployedErrorHandlerMuted = next
-							}
+							onToggle: () => deployedMute.toggle()
 						})
 					]
 				: [])
@@ -907,8 +902,12 @@
 
 			// Muting applies to the deployed script at once, from the editor menu or the script's
 			// page, and a new version without the value is unmuted: keep the one deployed now.
+			// The deployed row sits at the URL path: `initialPath` is the staged name after a reload.
 			const deployedMuted = initialPath
-				? await ScriptService.getScriptByPath({ workspace: opWorkspace!, path: initialPath })
+				? await ScriptService.getScriptByPath({
+						workspace: opWorkspace!,
+						path: userDraftPath || initialPath
+					})
 						.then((s) => !!s.ws_error_handler_muted)
 						.catch(() => undefined)
 				: undefined
