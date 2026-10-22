@@ -32,7 +32,10 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import ScriptEditorDrawer from '$lib/components/flows/content/ScriptEditorDrawer.svelte'
 	import FlowEditorDrawer from '$lib/components/flows/content/FlowEditorDrawer.svelte'
-	import { FlowService, ScriptService, type OpenFlow } from '$lib/gen'
+	import { FlowService, ResourceService, ScriptService, type OpenFlow } from '$lib/gen'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import { summarizeAgentBrain, type AgentTool } from '$lib/components/flows/agentResourceUtils'
+	import { AGENT_RUNNABLE_SCHEMA } from '$lib/components/raw_apps/agentRunnable'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -149,10 +152,26 @@
 		}
 	}
 
+	let agentInfo:
+		| { description?: string; rows: { label: string; value: string }[]; tools: string[] }
+		| undefined = $state()
+
 	async function refreshAgent(runnable: RunnableByPath) {
 		hubFlowPreview = undefined
 		try {
-			const { schema } = await loadSchema($operatingWorkspace ?? '', runnable.path, 'agent')
+			const agent = await ResourceService.getResource({
+				workspace: $operatingWorkspace ?? '',
+				path: runnable.path
+			})
+			const config = agent.value as any
+			agentInfo = {
+				description: agent.description ?? undefined,
+				rows: summarizeAgentBrain(config),
+				tools: ((config?.tools ?? []) as AgentTool[]).map(
+					(t) => t.summary || t.value?.tool_type || t.id
+				)
+			}
+			const schema = structuredClone(AGENT_RUNNABLE_SCHEMA)
 			if (!deepEqual(runnable.schema, schema)) runnable.schema = schema
 			// Every input of a turn comes from its caller: a static one would be pinned by the
 			// deployed policy, answering every viewer's message with the same one.
@@ -373,13 +392,13 @@
 		{:else if runnable.runType == 'agent'}
 			<Button
 				variant="default"
-				unifiedSize="xs"
-				startIcon={{ icon: Eye }}
+				size="xs"
+				startIcon={{ icon: Pen }}
 				endIcon={{ icon: ExternalLink }}
 				target="_blank"
-				href="/agents/get/{runnable.path}?workspace={$operatingWorkspace}"
+				href="/agents/edit/{runnable.path}?workspace={$operatingWorkspace}"
 			>
-				Details
+				Edit
 			</Button>
 		{:else}
 			<Button
@@ -486,16 +505,28 @@
 					<FlowPathViewer path={runnable.path} fillAvailableHeight />
 				{/if}
 			{:else if runnable.runType == 'agent'}
-				<div class="text-xs text-secondary flex flex-col gap-1 p-2">
-					<p>
-						Runs one chat turn of the AI agent <code>{runnable.path}</code> as this app, so viewers need
-						no access to the agent.
-					</p>
-					<p>
-						Call it with <code>user_message</code> and <code>memory_id</code>, the conversation id:
-						reuse it to continue a conversation. Follow the job with <code>streamJob</code> for the streamed
-						answer.
-					</p>
+				<div class="flex flex-col gap-2 p-2">
+					{#if agentInfo?.description}
+						<p class="text-xs text-secondary">{agentInfo.description}</p>
+					{/if}
+					<dl class="flex flex-col gap-1">
+						{#each agentInfo?.rows ?? [] as row (row.label)}
+							<div class="flex items-baseline gap-2 text-2xs">
+								<dt class="text-tertiary shrink-0 w-28">{row.label}</dt>
+								<dd class="text-secondary truncate" title={row.value}>{row.value}</dd>
+							</div>
+						{/each}
+						{#if agentInfo?.tools.length}
+							<div class="flex items-baseline gap-2 text-2xs">
+								<dt class="text-tertiary shrink-0 w-28">Tools</dt>
+								<dd class="flex flex-wrap gap-1">
+									{#each agentInfo.tools as tool, i (i)}
+										<Badge color="gray">{tool}</Badge>
+									{/each}
+								</dd>
+							</div>
+						{/if}
+					</dl>
 				</div>
 			{:else}
 				Unrecognized runType {runnable.runType}
