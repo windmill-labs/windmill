@@ -17,6 +17,7 @@
 	import { importStore } from '$lib/components/apps/store'
 	import { onDestroy, untrack } from 'svelte'
 	import { page } from '$app/state'
+	import { recentItems } from '$lib/components/home/recentItems.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
@@ -211,6 +212,15 @@
 			getDraft
 		})
 		if (tok !== loadAppToken) return
+		// A draft-only app has no page for Home's card to open.
+		if (!backendApp.no_deployed) {
+			recentItems.record($workspaceStore!, {
+				kind: 'app',
+				path: backendApp.path,
+				summary: backendApp.summary,
+				via: 'edit'
+			})
+		}
 		// Deployed App value for AppEditor's autosave `discardIf`, captured BEFORE
 		// the draft swap below replaces `backendApp.value`. `undefined` when
 		// there's no deployed row (draft-only path).

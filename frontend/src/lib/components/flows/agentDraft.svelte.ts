@@ -4,6 +4,7 @@ import { deepEqual } from 'fast-equals'
 import { ResourceService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { canEditItem, roleCanAuthor } from '$lib/editRights'
+import { capabilitiesIn } from '$lib/roleCapabilities'
 import { userStore, userWorkspaces } from '$lib/stores'
 import { getUserExt } from '$lib/user'
 import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
@@ -359,12 +360,16 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 						// Same rule the generic resource editor applies. The backend refuses the write
 						// either way, but without this the editor would invite edits it cannot save and
 						// autosave a draft on every keystroke against a resource the reader cannot deploy.
+						const writer = user ?? get(userStore) ?? undefined
 						canWriteResource = canEditItem(
 							'agent',
 							r.path,
 							r.extra_perms,
-							user ?? get(userStore) ?? undefined,
-							get(userWorkspaces).find((w) => w.id === ws)?.operator_settings
+							writer,
+							capabilitiesIn(
+								user,
+								get(userWorkspaces).find((w) => w.id === ws)
+							)
 						)
 						// An agent that exists only as a draft has no deployed value to compare against or
 						// fall back to, and the response's is a synthetic echo of the draft. Leaving the
@@ -406,8 +411,11 @@ export function useAgentDraft(opts: AgentDraftOptions): AgentDraftHandle {
 							deployed = undefined
 							canWriteResource = roleCanAuthor(
 								'agent',
-								get(userStore) ?? undefined,
-								get(userWorkspaces).find((w) => w.id === ws)?.operator_settings
+								// Only superadmin carries over: the nav user's admin flag belongs to another workspace.
+								capabilitiesIn(
+									{ is_super_admin: get(userStore)?.is_super_admin },
+									get(userWorkspaces).find((w) => w.id === ws)
+								)
 							)
 							state = {
 								path: name,

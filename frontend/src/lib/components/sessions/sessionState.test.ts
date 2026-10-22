@@ -5,11 +5,15 @@ import {
 	createSession,
 	decideSessionLifecycle,
 	findEmptyLandingSession,
+	getSessionDraftAttachments,
+	homeStarterSession,
 	isForkSession,
 	isTearingDownOpenSession,
 	renameSession,
+	setDraftsDiscardedHandler,
 	sessionInCurrentFamily,
 	setGeneratedSessionSummary,
+	setSessionDraftAttachments,
 	setSessionDraftPrompt,
 	sessionState,
 	withOpenSessionTeardown,
@@ -27,6 +31,10 @@ import {
 	type UserWorkspace
 } from '$lib/stores'
 import { WorkspaceService } from '$lib/gen'
+import type { DraftAttachments } from '$lib/components/copilot/chat/messageDraft.svelte'
+import type { PasteAttachment } from '$lib/components/copilot/chat/pasteTokens'
+
+const NO_ATTACHMENTS: DraftAttachments = { pastes: [], images: [], files: [], blobs: [] }
 
 // Force createWorkspaceFork to fail so we can pin commitSessionWorkspace's
 // failure contract (the invariant the beforeSend abort fix relies on).
@@ -451,6 +459,35 @@ describe('createSession — reuses an untouched draft, family-scoped', () => {
 		}
 	})
 
+	it('does not reuse a draft that holds only an attachment', () => {
+		const restore = withTwoFamilies('rootA')
+		const prevCurrent = sessionState.currentSessionId
+		const attached = session({
+			id: 'attachment-only',
+			name: 'session-904',
+			pending_workspace_id: 'forkA',
+			transient: true
+		})
+		sessionState.sessions.push(attached)
+		let createdId: string | undefined
+		try {
+			setSessionDraftAttachments('attachment-only', {
+				...NO_ATTACHMENTS,
+				pastes: [{} as PasteAttachment]
+			})
+			createdId = createSession().id
+			expect(createdId).not.toBe('attachment-only')
+			expect(getSessionDraftAttachments('attachment-only')).toBeDefined()
+		} finally {
+			setSessionDraftAttachments('attachment-only', NO_ATTACHMENTS)
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => s.id !== 'attachment-only' && s.id !== createdId
+			)
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
 	it('clears the recovery notice off the draft it reuses, so `+` is not answered with "not found"', () => {
 		const restore = withTwoFamilies('rootA')
 		const prevCurrent = sessionState.currentSessionId
@@ -672,5 +709,66 @@ describe('withOpenSessionTeardown — the gate that holds recovery off during a 
 			})
 		).rejects.toThrow('fork deletion failed')
 		expect(isTearingDownOpenSession()).toBe(false)
+	})
+})
+
+describe('homeStarterSession', () => {
+	it("shows the family's stored draft, not the conversation in view, and selects nothing", () => {
+		const restore = withTwoFamilies('rootA')
+		const prevCurrent = sessionState.currentSessionId
+		const conversation = session({ id: 'conversation', workspace_id: 'rootA' })
+		// Touched only by picking where it acts: no text, but stored, so it is the user's draft.
+		const picked = session({ id: 'picked-draft', pending_workspace_id: 'forkA', lastActivityAt: 2 })
+		const otherFamily = session({
+			id: 'other-family-draft',
+			pending_workspace_id: 'rootB',
+			draftPrompt: 'elsewhere',
+			lastActivityAt: 3
+		})
+		sessionState.sessions.push(conversation, picked, otherFamily)
+		sessionState.currentSessionId = 'conversation'
+		try {
+			expect(homeStarterSession().id).toBe('picked-draft')
+			// Opening Home must leave the AI Sessions switch resuming the conversation.
+			expect(sessionState.currentSessionId).toBe('conversation')
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => !['conversation', 'picked-draft', 'other-family-draft'].includes(s.id)
+			)
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
+	it('reports the never-touched drafts it drops, so their runtimes can be disposed', () => {
+		const restore = withTwoFamilies('rootB')
+		const prevCurrent = sessionState.currentSessionId
+		const blank = session({
+			id: 'blank-other-family',
+			pending_workspace_id: 'forkA',
+			transient: true
+		})
+		const typed = session({
+			id: 'typed-other-family',
+			pending_workspace_id: 'rootA',
+			draftPrompt: 'kept'
+		})
+		sessionState.sessions.push(blank, typed)
+		const discarded: string[][] = []
+		setDraftsDiscardedHandler((ids) => discarded.push(ids))
+		let createdId: string | undefined
+		try {
+			// No draft of family B exists, so Home starts one, dropping family A's blank draft.
+			createdId = homeStarterSession().id
+			expect(discarded).toEqual([['blank-other-family']])
+			expect(sessionState.sessions.some((s) => s.id === 'typed-other-family')).toBe(true)
+		} finally {
+			setDraftsDiscardedHandler(() => {})
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => !['blank-other-family', 'typed-other-family', createdId].includes(s.id)
+			)
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
 	})
 })

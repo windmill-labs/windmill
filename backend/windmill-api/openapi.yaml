@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.841.0
+  version: 1.846.1
   title: Windmill API
 
   contact:
@@ -3696,13 +3696,16 @@ paths:
                   type: boolean
                 operator:
                   type: boolean
+                  description: Legacy role selector, true for the `operator` role.
+                role:
+                  type: string
+                  description: The workspace role to give, one of the workspace's roles. Wins over `operator`.
                 parent_workspace_id:
                   type: string
                   nullable: true
               required:
                 - email
                 - is_admin
-                - operator
       responses:
         "200":
           description: status
@@ -3735,10 +3738,13 @@ paths:
                   type: string
                 operator:
                   type: boolean
+                  description: Legacy role selector, true for the `operator` role.
+                role:
+                  type: string
+                  description: The workspace role to give, one of the workspace's roles. Wins over `operator`.
               required:
                 - email
                 - is_admin
-                - operator
       responses:
         "200":
           description: status
@@ -4073,6 +4079,46 @@ paths:
       responses:
         "200":
           description: Operator settings updated successfully
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/roles:
+    get:
+      operationId: listWorkspaceRoles
+      summary: List the workspace's roles
+      description: The roles members of this workspace can hold, as they apply here (instance definition with the workspace's override applied, then workspace-only roles), the stored overrides, and the caller's own role and capabilities.
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: workspace roles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceRoles"
+
+  /w/{workspace}/workspaces/role_overrides:
+    post:
+      operationId: updateWorkspaceRoleOverrides
+      summary: Replace the workspace's role overrides
+      description: Replaces the workspace's overrides of instance roles, and its workspace-only roles (EE). Refuses removing a workspace-only role still held or referenced, and a change exceeding an offline license's seat cap. Requires workspace admin privileges.
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoleOverrides"
+      responses:
+        "200":
+          description: role overrides updated
           content:
             text/plain:
               schema:
@@ -5075,6 +5121,9 @@ paths:
               properties:
                 operator:
                   type: boolean
+                role:
+                  type: string
+                  description: The workspace role to give, one of the workspace's roles. Wins over `operator`.
                 invite_all:
                   type: boolean
                 auto_add:
@@ -31973,6 +32022,10 @@ components:
           type: boolean
         operator:
           type: boolean
+          description: Legacy role selector, true for the `operator` role and false for `developer`.
+        role:
+          type: string
+          description: The member's workspace role, one of the workspace's roles. Wins over `operator`.
         disabled:
           type: boolean
 
@@ -36815,6 +36868,11 @@ components:
               is_service_account:
                 type: boolean
                 description: Whether this membership is a service account.
+              role:
+                type: string
+                description: The member's workspace role.
+              capabilities:
+                $ref: "#/components/schemas/RoleCapabilities"
             required:
               - id
               - name
@@ -36822,6 +36880,8 @@ components:
               - color
               - is_dev_workspace
               - disabled
+              - role
+              - capabilities
       required:
         - email
         - workspaces
@@ -37000,6 +37060,9 @@ components:
           type: boolean
         operator:
           type: boolean
+        role:
+          type: string
+          description: The workspace role the invite grants.
         parent_workspace_id:
           type: string
           nullable: true
@@ -37008,6 +37071,7 @@ components:
         - email
         - is_admin
         - operator
+        - role
 
     GlobalUserInfo:
       type: object
@@ -38763,6 +38827,122 @@ components:
         manage_triggers:
           type: boolean
           description: Whether operators can create, edit and delete triggers. Granted unless withdrawn; omitting the field leaves the stored value unchanged.
+
+    AuthorLevel:
+      type: string
+      enum: [none, compose, full]
+      description: How much of a kind of runnable a role may author. `compose` assembles already-deployed runnables with no code of one's own.
+
+    RoleVisibility:
+      type: object
+      description: Pages a role sees. Not enforced.
+      properties:
+        runs: { type: boolean }
+        schedules: { type: boolean }
+        resources: { type: boolean }
+        variables: { type: boolean }
+        assets: { type: boolean }
+        triggers: { type: boolean }
+        audit_logs: { type: boolean }
+        groups: { type: boolean }
+        folders: { type: boolean }
+        workers: { type: boolean }
+      required: [runs, schedules, resources, variables, assets, triggers, audit_logs, groups, folders, workers]
+
+    RoleCapabilities:
+      type: object
+      properties:
+        code:
+          type: boolean
+          description: Author scripts and run code of one's own (previews, dependency jobs, dynamic selects, resolving jobs, data table migrations). Required by `full` flows or apps.
+        flows:
+          $ref: "#/components/schemas/AuthorLevel"
+        apps:
+          $ref: "#/components/schemas/AuthorLevel"
+        manage_schedules:
+          type: boolean
+        manage_triggers:
+          type: boolean
+        visibility:
+          $ref: "#/components/schemas/RoleVisibility"
+      required: [code, flows, apps, manage_schedules, manage_triggers, visibility]
+
+    RoleCapabilitiesPatch:
+      type: object
+      description: A partial RoleCapabilities; an unset key falls through to the layer below.
+      properties:
+        code: { type: boolean }
+        flows:
+          $ref: "#/components/schemas/AuthorLevel"
+        apps:
+          $ref: "#/components/schemas/AuthorLevel"
+        manage_schedules: { type: boolean }
+        manage_triggers: { type: boolean }
+        visibility:
+          type: object
+          additionalProperties:
+            type: boolean
+
+    RoleDefinition:
+      type: object
+      description: One entry of the `workspace_roles` instance setting.
+      properties:
+        name:
+          type: string
+        label:
+          type: string
+        capabilities:
+          $ref: "#/components/schemas/RoleCapabilitiesPatch"
+      required: [name]
+
+    RoleOverride:
+      type: object
+      properties:
+        label:
+          type: string
+        capabilities:
+          $ref: "#/components/schemas/RoleCapabilitiesPatch"
+
+    RoleOverrides:
+      type: object
+      description: A workspace's overrides keyed by role name; a name the instance does not define adds a workspace-only role (EE).
+      additionalProperties:
+        $ref: "#/components/schemas/RoleOverride"
+
+    EffectiveRole:
+      type: object
+      properties:
+        name:
+          type: string
+        label:
+          type: string
+        capabilities:
+          $ref: "#/components/schemas/RoleCapabilities"
+        source:
+          type: string
+          enum: [instance, workspace]
+        overridden:
+          type: boolean
+      required: [name, label, capabilities, source, overridden]
+
+    WorkspaceRoles:
+      type: object
+      properties:
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/EffectiveRole"
+        overrides:
+          $ref: "#/components/schemas/RoleOverrides"
+        custom_roles_enabled:
+          type: boolean
+          description: Whether this workspace may add roles of its own.
+        my_role:
+          type: string
+          nullable: true
+        my_capabilities:
+          $ref: "#/components/schemas/RoleCapabilities"
+      required: [roles, overrides, custom_roles_enabled, my_capabilities]
 
     WorkspaceComparison:
       type: object

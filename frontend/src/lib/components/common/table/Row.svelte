@@ -9,6 +9,9 @@
 	import Tooltip from '../../meltComponents/Tooltip.svelte'
 	import Checkbox from '../checkbox/Checkbox.svelte'
 	import type { RowSelection } from './rowSelection'
+	import { HOVER_ACTIONS_CLASS, inUnruledList } from './unruledList'
+
+	const unruled = inUnruledList()
 
 	interface Props {
 		marked: string | undefined
@@ -180,8 +183,11 @@
 	data-row-selection-key={rowSelection?.key}
 	data-row-keyboard-selected={keyboardSelected ? 'true' : undefined}
 	class={twMerge(
-		'group/row w-full inline-flex items-center gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b px-4 py-3 border-b last:border-b-0',
-		depth > 0 ? '!rounded-none' : '',
+		'group/row w-full inline-flex items-center gap-4 px-4 py-3',
+		unruled
+			? 'rounded-md'
+			: 'first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md [*:not(:last-child)]:border-b border-b last:border-b-0',
+		depth > 0 && !unruled ? '!rounded-none' : '',
 		disabled ? 'opacity-25' : 'hover:bg-surface-hover',
 		clickToSelect || inSelectionMode ? 'cursor-pointer select-none' : '',
 		selected || rowSelection?.selected
@@ -255,20 +261,15 @@
 	{/if}
 
 	{#if badges}
-		<div class="hidden lg:flex flex-row gap-4 items-center">
+		<div class="hidden lg:flex shrink-0 flex-row gap-4 items-center">
 			{@render badges?.()}
 		</div>
 	{/if}
 
-	{#if canFavorite && (kind == 'app' || kind == 'raw_app' || kind == 'script' || kind == 'flow' || kind == 'agent')}
-		<div class="center-center h-full text-xs font-semibold text-secondary w-9 shrink-0">
-			<Star {kind} {path} {workspaceId} {summary} />
-		</div>
-	{:else}
-		<div class="w-9 shrink-0"></div>
-	{/if}
-
-	<div data-row-actions class="flex gap-1 items-center justify-end pr-2">
+	<div
+		data-row-actions
+		class="flex shrink-0 items-center justify-end {unruled ? HOVER_ACTIONS_CLASS : ''}"
+	>
 		{@render actions?.()}
 	</div>
 </div>
@@ -280,7 +281,7 @@
 		</div>
 	{/if}
 	<div class="grow min-w-0">
-		<div class="text-emphasis flex items-center gap-2 text-left text-xs font-semibold">
+		<div class="text-emphasis flex items-center gap-1.5 text-left text-xs font-semibold">
 			{#if customSummary}
 				<div class="min-w-0">{@render customSummary()}</div>
 			{:else}
@@ -294,6 +295,19 @@
 			{/if}
 			{#if titleBadge}
 				<span class="shrink-0">{@render titleBadge()}</span>
+			{/if}
+			{#if canFavorite && (kind == 'app' || kind == 'raw_app' || kind == 'script' || kind == 'flow' || kind == 'agent')}
+				<!-- Beside the title it marks: a star already set stays, an unset one shows on the
+				     row's hover or keyboard focus only, so a list of titles doesn't read as a column of
+				     outlines. Opacity, not visibility: a hidden button drops out of the Tab order. -->
+				<Star
+					{kind}
+					{path}
+					{workspaceId}
+					{summary}
+					size={13}
+					class="inline-flex shrink-0 p-px text-yellow-500 opacity-0 data-[starred]:opacity-100 group-hover/row:opacity-100 group-has-[:focus-visible]/row:opacity-100"
+				/>
 			{/if}
 		</div>
 		<div class="text-hint text-3xs truncate text-left font-normal" title={path}>

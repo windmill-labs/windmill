@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { roleCapabilities, workspaceStore } from '$lib/stores'
 	import { goto } from '$app/navigation'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import FolderPicker from '$lib/components/FolderPicker.svelte'
@@ -91,8 +91,8 @@
 		</section>
 	{/if}
 
-	{#if !$userStore?.operator}
-		<!-- Operators only view existing pipelines — opening an arbitrary
+	{#if $roleCapabilities.code}
+		<!-- A role without code only views existing pipelines: opening an arbitrary
 		     folder is a build-a-new-pipeline affordance. -->
 		<section class="flex flex-col gap-1">
 			<h3 class="text-sm font-semibold text-emphasis">Pick or create a folder</h3>

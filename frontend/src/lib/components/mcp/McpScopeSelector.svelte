@@ -25,9 +25,19 @@
 		scope: string
 		initialScope?: string
 		readOnly?: boolean
+		/** Scripts and flows alone, for `/api/mcp`: a selection gets no endpoint tools there, so
+		 *  endpoints are left out, and since `mcp:all` is the full toolset, "All scripts/flows"
+		 *  is written as `mcp:scripts:* mcp:flows:*`. */
+		runnablesOnly?: boolean
 	}
 
-	let { workspaceId, scope = $bindable(), initialScope, readOnly = false }: Props = $props()
+	let {
+		workspaceId,
+		scope = $bindable(),
+		initialScope,
+		readOnly = false,
+		runnablesOnly = false
+	}: Props = $props()
 
 	// Mirrors ITEMS_FETCH_MAX_LIMIT in backend/windmill-api/src/mcp/utils.rs: the
 	// server exposes at most this many scripts and this many flows (per type) as
@@ -147,8 +157,15 @@
 			scriptFolders.length === flowFolders.length &&
 			scriptFolders.every((f, i) => f === flowFolders[i])
 		const endpointsIsAll = byKind.endpoints?.length === 1 && byKind.endpoints[0] === '*'
+		// Without endpoints, scopes say "folder" or "all" with the scripts and flows alone.
+		const endpointsAsExpected = runnablesOnly ? !byKind.endpoints : endpointsIsAll
+		const isWildcard = (patterns?: string[]) => patterns?.length === 1 && patterns[0] === '*'
 
-		if (mode !== 'favorites' && mode !== 'all' && sameFolders && endpointsIsAll) {
+		if (runnablesOnly && isWildcard(byKind.scripts) && isWildcard(byKind.flows)) {
+			return { ...empty, mode: 'all', hubApps }
+		}
+
+		if (mode !== 'favorites' && mode !== 'all' && sameFolders && endpointsAsExpected) {
 			return {
 				mode: 'folder',
 				folders: scriptFolders.filter((f): f is string => !!f),
@@ -205,14 +222,21 @@
 				scopeParts.push(`mcp:flows:${flowPaths.join(',')}`)
 			}
 
-			if (selectedEndpoints.length > 0) {
+			if (!runnablesOnly && selectedEndpoints.length > 0) {
 				scopeParts.push(`mcp:endpoints:${selectedEndpoints.join(',')}`)
 			}
 		} else if (selectedMode === 'folder') {
 			const folderPaths = selectedFolders.map((f) => `f/${f}/*`).join(',')
 			if (selectedFolders.length > 0) {
-				scopeParts = [`mcp:scripts:${folderPaths}`, `mcp:flows:${folderPaths}`, `mcp:endpoints:*`]
+				scopeParts = [`mcp:scripts:${folderPaths}`, `mcp:flows:${folderPaths}`]
+				if (!runnablesOnly) {
+					scopeParts.push(`mcp:endpoints:*`)
+				}
 			}
+		} else if (selectedMode === 'all' && runnablesOnly) {
+			// `mcp:all` is the full toolset on `/api/mcp`: every script and flow as its own
+			// tool is said with wildcards instead.
+			scopeParts = ['mcp:scripts:*', 'mcp:flows:*']
 		} else {
 			scopeParts = [`mcp:${selectedMode}`]
 		}
@@ -656,16 +680,18 @@
 					{/if}
 				</div>
 
-				<div class="flex flex-col gap-2 mt-2">
-					{@render sectionHeader('API Endpoints', selectAllEndpoints, clearAllEndpoints)}
-					<MultiSelect
-						items={safeSelectItems(selectableEndpointTools.map((e) => e.name))}
-						placeholder="Select endpoints"
-						bind:value={selectedEndpoints}
-					/>
-				</div>
+				{#if !runnablesOnly}
+					<div class="flex flex-col gap-2 mt-2">
+						{@render sectionHeader('API Endpoints', selectAllEndpoints, clearAllEndpoints)}
+						<MultiSelect
+							items={safeSelectItems(selectableEndpointTools.map((e) => e.name))}
+							placeholder="Select endpoints"
+							bind:value={selectedEndpoints}
+						/>
+					</div>
+				{/if}
 
-				{#if withheldEndpoints.length > 0}
+				{#if !runnablesOnly && withheldEndpoints.length > 0}
 					<Alert type="warning" size="xs" title="Some selected endpoints will not be exposed">
 						<span class="text-xs">
 							Endpoints that cannot be limited to specific script paths are withheld from a token
@@ -675,7 +701,7 @@
 					</Alert>
 				{/if}
 
-				{#if runByPathTools.length > 0}
+				{#if !runnablesOnly && runByPathTools.length > 0}
 					<div class="flex flex-col gap-2 mt-2">
 						<span class="block text-xs font-semibold">Run tools</span>
 						<p class="text-xs text-tertiary">
@@ -701,8 +727,9 @@
 				{/if}
 
 				<div class="text-xs text-primary mt-2">
-					Selected: {selectedScripts.length} scripts, {selectedFlows.length} flows, {selectedEndpoints.length}
-					endpoints
+					Selected: {selectedScripts.length} scripts, {selectedFlows.length} flows{#if !runnablesOnly},
+						{selectedEndpoints.length}
+						endpoints{/if}
 				</div>
 
 				<!-- Wildcard Patterns Section -->
@@ -785,23 +812,25 @@
 					</p>
 				{/if}
 
-				<span class="block text-xs mt-2">API endpoint tools that will be available via MCP</span>
-				<div class="flex flex-wrap gap-1">
-					{#each exposedEndpointTools as endpoint (endpoint.name)}
-						<Popover notClickable>
-							{#snippet text()}
-								<div class="flex flex-col gap-1">
-									<div class="text-xs">{endpoint.description}</div>
-									<div class="text-xs">
-										{endpoint.method}
-										{endpoint.path}
+				{#if !runnablesOnly}
+					<span class="block text-xs mt-2">API endpoint tools that will be available via MCP</span>
+					<div class="flex flex-wrap gap-1">
+						{#each exposedEndpointTools as endpoint (endpoint.name)}
+							<Popover notClickable>
+								{#snippet text()}
+									<div class="flex flex-col gap-1">
+										<div class="text-xs">{endpoint.description}</div>
+										<div class="text-xs">
+											{endpoint.method}
+											{endpoint.path}
+										</div>
 									</div>
-								</div>
-							{/snippet}
-							<Badge rounded small color="green">{endpoint.name}</Badge>
-						</Popover>
-					{/each}
-				</div>
+								{/snippet}
+								<Badge rounded small color="green">{endpoint.name}</Badge>
+							</Popover>
+						{/each}
+					</div>
+				{/if}
 			</div>
 		{/if}
 	{/if}

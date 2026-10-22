@@ -1,7 +1,26 @@
+<script module lang="ts">
+	import { preloadComponent } from '$lib/utils/preloadComponent.svelte'
+
+	// AIChat's code is most of this page's: loaded beside it rather than as part of it, so the
+	// page and its ComposerPlaceholder show without waiting on it.
+	const aiChatComponent = preloadComponent(
+		() => import('$lib/components/copilot/chat/AIChat.svelte')
+	)
+</script>
+
 <script lang="ts">
 	import { onDestroy, setContext, untrack } from 'svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import AIChat from '$lib/components/copilot/chat/AIChat.svelte'
+	import type AIChat from '$lib/components/copilot/chat/AIChat.svelte'
+	import ComposerPlaceholder from '$lib/components/copilot/chat/ComposerPlaceholder.svelte'
+	import SessionGreeting from '$lib/components/copilot/chat/starter/SessionGreeting.svelte'
+	import ComposerSuggestions from '$lib/components/copilot/chat/starter/ComposerSuggestions.svelte'
+	import {
+		globalComposerSuggestion,
+		STARTER_PLACEHOLDER,
+		type ComposerSelection
+	} from '$lib/components/copilot/chat/composerBox'
+	import { useSessionPermissions } from './sessionPermissions.svelte'
 	import EditableInput from '$lib/components/common/EditableInput.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { Button } from '$lib/components/common'
@@ -13,7 +32,7 @@
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import Toggle from '$lib/components/Toggle.svelte'
-	import { copilotInfo } from '$lib/aiStore'
+	import { copilotInfo, copilotWorkspace } from '$lib/aiStore'
 	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 	import {
 		Archive,
@@ -21,10 +40,12 @@
 		EllipsisVertical,
 		MessageSquareDashed,
 		Pencil,
+		Plus,
 		Trash2,
 		X
 	} from 'lucide-svelte'
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
+	import { arrivingFromHomeSend } from './homeSessionsTransition.svelte'
 	import SessionChangesBar from './SessionChangesBar.svelte'
 	import SessionShareButton from './SessionShareButton.svelte'
 	import { clearSessionRecovered, isSessionRecovered } from './sessionRecoveryNotice.svelte'
@@ -37,6 +58,8 @@
 		moveSessionToWorkspace,
 		getSessionDraftPrompt,
 		setSessionDraftPrompt,
+		getSessionDraftAttachments,
+		setSessionDraftAttachments,
 		peekSessionAutoSend,
 		takeSessionAutoSend,
 		reconcileAfterWorkspaceChange,
@@ -51,14 +74,18 @@
 	import { getOrCreateRuntime, removeSession } from './sessionRuntime.svelte'
 	import { goto } from '$lib/navigation'
 	import { splitterPointerCapture } from '$lib/utils/splitterPointerCapture'
+	import { StarterPrompts } from '$lib/components/copilot/chat/starter/starterPrompts.svelte'
 
 	let {
 		sessionId,
-		headerInPage = false
+		headerInPage = false,
+		covered = false
 	}: {
 		sessionId: string
 		/** True for the session the page is showing: its header rides the page header bar. */
 		headerInPage?: boolean
+		/** True while the page holds this wrapper inert under an overlay, where nothing takes focus. */
+		covered?: boolean
 	} = $props()
 
 	// Parent keys by sessionId; this wrapper only mounts when the session exists.
@@ -73,6 +100,15 @@
 	// Reactive session reference (mutations to summary/target propagate via the $state proxy)
 	const session = $derived(sessionState.sessions.find((s) => s.id === sessionId))
 
+	// Only a session that has never sent opens as the starter block. Read off the record, not
+	// the transcript: a cold session's history is still loading from storage when it mounts,
+	// and an empty transcript would show the greeting and then glide the composer away.
+	// The first send commits the workspace, so this flips only after the transcript has.
+	const opensSession = $derived(!session?.workspace_id)
+	const starterPrompts = new StarterPrompts(() =>
+		opensSession ? (actingWorkspaceId ?? $workspaceStore ?? undefined) : undefined
+	)
+
 	// Seed the composer with the unsent prompt a reload preserved on the session
 	// record (script-init: AIChatInput reads it once at mount).
 	const restoredDraftPrompt = getSessionDraftPrompt(sessionId)
@@ -84,6 +120,31 @@
 	// page is only keeping warm in the background — still gets a composer, whose
 	// mount-time empty draft would otherwise erase the prompt from the record.
 	const armedAtInit = sessionState.currentSessionId === sessionId && peekSessionAutoSend(sessionId)
+
+	// The composer's text before AIChat mounts, typed into the placeholder, and then the real
+	// composer's initial draft.
+	let draftText = $state(armedAtInit ? '' : (restoredDraftPrompt ?? ''))
+	// What the first focus after the swap does: put the caret where the placeholder had it, or,
+	// when null, leave focus where the user moved it while the chat loaded. Undefined when the
+	// placeholder never had focus.
+	let handoff: ComposerSelection | null | undefined = undefined
+	// The swap waits for an IME composition to end: the new field would not carry it over.
+	let placeholderComposing = $state(false)
+	// The placeholder's text counts as unsent input, like the real composer's draft, so the page
+	// does not evict this session's chat (and the text with it) while it waits for the chat code.
+	const PLACEHOLDER_DRAFT_KEY = 'composer-placeholder'
+	function setPlaceholderText(text: string) {
+		draftText = text
+		setSessionDraftPrompt(sessionId, text)
+		runtime?.manager.setComposerHasDraft(PLACEHOLDER_DRAFT_KEY, text.trim() !== '')
+	}
+
+	// Drawn once, and shared by the placeholder and the real composer so the text survives the swap.
+	const suggestionPick = Math.random()
+	const permissions = useSessionPermissions(() => runtime?.manager.operatingWorkspace)
+	const composerPlaceholder = $derived(
+		globalComposerSuggestion(suggestionPick, permissions.canOpenEditor)
+	)
 
 	// A hand-off whose click already stated the intent asks for its prompt to be
 	// sent, not parked. Reactive rather than mount-time: `createSession` reuses an
@@ -258,17 +319,43 @@
 	// warm-session switch via the picker, and the moment copilot finishes
 	// loading.
 	let aiChat: AIChat | undefined = $state(undefined)
+	let seenFocusNonce = untrack(() => composerFocusRequest.nonce)
 	$effect(() => {
 		// Focus the composer when this session becomes active, or on an explicit
 		// focus request — the latter covers `+` reusing the untouched draft you're
 		// already viewing, where currentSessionId doesn't change so activation alone
 		// wouldn't re-run this.
-		void composerFocusRequest.nonce
-		if (sessionState.currentSessionId !== sessionId) return
+		const focusNonce = composerFocusRequest.nonce
+		if (focusNonce !== seenFocusNonce) {
+			// An explicit request overrides the user having left the placeholder before it.
+			seenFocusNonce = focusNonce
+			handoff = undefined
+		}
+		if (sessionState.currentSessionId !== sessionId) {
+			// The user left for another session: coming back is an activation, which focuses.
+			handoff = undefined
+			return
+		}
 		if (!aiChat) return
 		if (!$copilotInfo.enabled) return
 		const chat = aiChat
-		setTimeout(() => chat.focusInput(), 0)
+		const selection = handoff
+		handoff = undefined
+		if (selection === null) return
+		setTimeout(() => chat.focusInput(selection), 0)
+	})
+
+	// The real composer is disabled until the copilot config of the workspace it acts on is in,
+	// so the active session keeps the placeholder, which takes typing, until then. Latched: a
+	// later config reload must not swap a mounted chat, and its transcript, back out.
+	let chatShown = false
+	const showChat = $derived.by(() => {
+		chatShown ||=
+			!!aiChatComponent.current &&
+			!placeholderComposing &&
+			(sessionState.currentSessionId !== sessionId ||
+				$copilotWorkspace === (actingWorkspaceId ?? $workspaceStore))
+		return chatShown
 	})
 
 	// True when the session committed to a workspace that's no longer in
@@ -307,6 +394,10 @@
 {#if !session || !runtime}
 	<div class="p-8 text-secondary text-sm">Session not found</div>
 {:else}
+	<!-- A sent session whose transcript is still loading (or came back empty) shows nothing
+	     rather than the docked copilot's keyboard-shortcut hint, which means nothing here. -->
+	{#snippet sessionEmptyHint()}{/snippet}
+
 	{#snippet inputPreface()}
 		{#if showRecoveryNotice}
 			<!-- mb-6, not the banner column's mb-1: at that gap it reads as one more
@@ -333,9 +424,6 @@
 					onclick={() => clearSessionRecovered(sessionId)}
 				/>
 			</div>
-		{/if}
-		{#if !hasFirstUserMessage}
-			<SessionWorkspaceBar {session} />
 		{/if}
 		<!-- gap-1 (4px) spaces the archived banner and the changes bar when both
 		     are visible. Each renders a single in-flow root (or nothing); the diff
@@ -373,9 +461,17 @@
 		</div>
 	{/snippet}
 
-	<!-- Override the chat's default keyboard-shortcut hint with nothing —
-	     sessions have their own empty-state affordances above. -->
-	{#snippet sessionEmptyHint()}{/snippet}
+	{#snippet actingOn()}
+		<SessionWorkspaceBar {session} />
+	{/snippet}
+
+	<!-- The left of AIChatDisplay's controls row: the rest arrives with the chat. -->
+	{#snippet placeholderToolbar()}
+		<div class="flex flex-row items-center gap-x-1.5 min-w-0 flex-wrap">
+			<Button unifiedSize="2xs" variant="subtle" iconOnly startIcon={{ icon: Plus }} disabled />
+			{@render actingOn()}
+		</div>
+	{/snippet}
 
 	{#snippet sessionHeader()}
 		<EditableInput
@@ -463,23 +559,82 @@
 	<div class="flex-1 min-h-0 flex flex-col" use:splitterPointerCapture>
 		<Splitpanes horizontal={false} class="flex-1 min-h-0 splitter-hidden">
 			<Pane minSize={25} class="flex flex-col min-h-0 pb-2">
-				<div class="flex-1 min-h-0 w-full flex flex-col {hasFirstUserMessage ? '' : 'pt-8'}">
-					<AIChat
-						bind:this={aiChat}
-						hideHeader
-						hideModeSelector
-						wideLayout
-						initialInstructions={armedAtInit ? undefined : restoredDraftPrompt}
-						onDraftChange={(text) => setSessionDraftPrompt(sessionId, text)}
-						forceDisabled={isUnavailable || !!session.archived}
-						forceDisabledMessage={isUnavailable
-							? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'
-							: session.archived
-								? 'This session is archived. Unarchive it from the banner above to keep working.'
-								: ''}
-						emptyHint={sessionEmptyHint}
-						{inputPreface}
-					/>
+				<div class="flex-1 min-h-0 w-full flex flex-col">
+					{#if showChat && aiChatComponent.current}
+						<aiChatComponent.current
+							bind:this={aiChat}
+							hideHeader
+							hideModeSelector
+							wideLayout
+							initialInstructions={draftText}
+							onDraftChange={(text) => setSessionDraftPrompt(sessionId, text)}
+							initialAttachments={armedAtInit ? undefined : getSessionDraftAttachments(sessionId)}
+							onAttachmentsChange={(a) => setSessionDraftAttachments(sessionId, a)}
+							placeholder={composerPlaceholder}
+							forceDisabled={isUnavailable || !!session.archived}
+							forceDisabledMessage={isUnavailable
+								? 'This session is linked to a workspace that no longer exists. Move it or discard it from the banner above to keep working.'
+								: session.archived
+									? 'This session is archived. Unarchive it from the banner above to keep working.'
+									: ''}
+							starter={opensSession
+								? { where: 'session', suggestions: starterPrompts.suggestions }
+								: undefined}
+							viewTransitionNames={headerInPage && (opensSession || arrivingFromHomeSend())}
+							emptyHint={sessionEmptyHint}
+							{inputPreface}
+							actingOn={hasFirstUserMessage ? undefined : actingOn}
+						/>
+					{:else}
+						<!-- AIChatDisplay's layout, so the composer stays put when the chat replaces it:
+						     its transcript area, its column, and its footer row's height; for a session
+						     that has never sent, the greeting above the centred composer. -->
+						<div
+							class="flex flex-col h-full {opensSession ? 'justify-center' : ''}"
+							{@attach () => () =>
+								runtime.manager.setComposerHasDraft(PLACEHOLDER_DRAFT_KEY, false)}
+						>
+							{#if opensSession}
+								<div class="flex-1 min-h-0 flex flex-col justify-end">
+									<div class="w-full max-w-3xl mx-auto px-7">
+										<SessionGreeting />
+									</div>
+								</div>
+							{:else if runtime.manager.displayMessages.length > 0}
+								<div class="flex-1 min-h-0"></div>
+							{/if}
+							<div class="w-full max-w-3xl mx-auto px-7 pb-2">
+								{@render inputPreface()}
+								<ComposerPlaceholder
+									bind:value={() => draftText, setPlaceholderText}
+									toolbar={opensSession ? placeholderToolbar : undefined}
+									placeholder={opensSession
+										? STARTER_PLACEHOLDER
+										: runtime.manager.displayMessages.length > 0
+											? 'Ask followup'
+											: composerPlaceholder}
+									disabled={isUnavailable || !!session.archived}
+									autofocus={sessionState.currentSessionId === sessionId && !covered}
+									onSelectionChange={(selection) => (handoff = selection ?? null)}
+									onCompositionChange={(composing) => (placeholderComposing = composing)}
+								/>
+								{#if !opensSession}
+									<div class="mt-1 h-5"></div>
+								{:else if !isUnavailable && !session.archived && starterPrompts.suggestions.length > 0}
+									<div class="pt-2">
+										<ComposerSuggestions
+											suggestions={starterPrompts.suggestions}
+											wrap
+											onPick={setPlaceholderText}
+										/>
+									</div>
+								{/if}
+							</div>
+							{#if opensSession}
+								<div class="flex-1 min-h-0"></div>
+							{/if}
+						</div>
+					{/if}
 				</div>
 			</Pane>
 		</Splitpanes>

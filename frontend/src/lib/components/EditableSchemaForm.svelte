@@ -19,7 +19,7 @@
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import Label from './Label.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import Toggle from './Toggle.svelte'
 	import {
 		DynamicInput,
@@ -36,14 +36,12 @@
 	import Section from '$lib/components/Section.svelte'
 	import Editor from './Editor.svelte'
 	import AddPropertyV2 from './schema/AddPropertyV2.svelte'
-	import {
-		useOperatingUser,
-		useOperatingWorkspace
-	} from '$lib/components/operatingWorkspace.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatingUser = useOperatingUser()
-	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const roleCaps = useRoleCapabilities()
+	// Dynamic input functions are inline code a compose-only flow role cannot author.
+	const composeOnlyFlows = $derived($roleCaps.flows === 'compose')
 
 	// export let openEditTab: () => void = () => {}
 	const dispatch = createEventDispatcher()
@@ -482,7 +480,7 @@
 								dynCode,
 								dynLang,
 								deployedFlowPath,
-								operatingUser.current?.operator
+								!$roleCaps.code
 							)}
 							prettifyHeader={isAppInput}
 							disabled={!!previewSchema}
@@ -496,7 +494,7 @@
 
 						{@render runButton?.()}
 
-						{#if dynamicFunctions.length > 0 && !$operatorBuilderFlows}
+						{#if dynamicFunctions.length > 0 && !composeOnlyFlows}
 							<Section
 								label="Dynamic input functions"
 								collapsable={true}
@@ -825,7 +823,7 @@
 																				{#each typeOptions as x}
 																					<ToggleButton value={x[1]} label={x[0]} {item} />
 																				{/each}
-																				{#if showDynOpt && !$operatorBuilderFlows}
+																				{#if showDynOpt && !composeOnlyFlows}
 																					{#each DYNAMIC_OPTIONS as x}
 																						<ToggleButton value={x[1]} label={x[0]} {item} />
 																					{/each}

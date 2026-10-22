@@ -7,7 +7,7 @@
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { FlowService, type Flow } from '$lib/gen'
-	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { roleCapabilities, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -36,7 +36,8 @@
 	} from 'lucide-svelte'
 	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
 	import ChatFlowBadge from '$lib/components/flows/ChatFlowBadge.svelte'
-	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
+	import RowLabels from './RowLabels.svelte'
+	import AskAiRowButton from './AskAiRowButton.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { editInForkAllowed, editInForkLabel, onEditInForkClick } from '$lib/utils/editInFork'
 	import EditInForkButton from './EditInForkButton.svelte'
@@ -159,6 +160,7 @@
 			<Badge color="red" baseClass="border">archived</Badge>
 		{/if}
 		<SharedBadge canWrite={flow.canWrite} extraPerms={flow.extra_perms} />
+		<RowLabels labels={flow.labels} inherited={flow.inherited_labels} />
 		<DraftBadge
 			is_draft={flow.is_draft}
 			draft_only={flow.draft_only}
@@ -169,35 +171,15 @@
 			path={flow.path}
 			onMigrated={() => dispatch('change')}
 		/>
-		{#if flow.labels?.length}
-			<div class="flex items-center gap-0.5">
-				{#each flow.labels.slice(0, 3) as label}
-					<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
-				{/each}
-				{#if flow.labels.length > 3}
-					<Badge
-						color="blue"
-						small
-						class="px-1"
-						title={flow.labels
-							.slice(3)
-							.map((l) => 'Label: ' + l)
-							.join('\n')}>+{flow.labels.length - 3}</Badge
-					>
-				{/if}
-			</div>
-		{/if}
-		<InheritedLabels labels={flow.inherited_labels} />
-		<div class="w-8 center-center"></div>
 	{/snippet}
 	{#snippet actions()}
-		<span class="hidden md:inline-flex gap-x-1">
+		<span class="hidden md:inline-flex">
+			<AskAiRowButton kind="flow" path={flow.path} summary={flow.summary} />
 			{#if !hideForOperator && showEditButton && flow.canWrite && !flow.archived}
 				<div>
 					<Button
 						variant="subtle"
-						wrapperClasses="w-20"
-						unifiedSize="md"
+						unifiedSize="sm"
 						startIcon={{ icon: Pen }}
 						href="/flows/edit/{flow.path}"
 						aiId={`edit-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
@@ -207,13 +189,14 @@
 					</Button>
 				</div>
 			{/if}
-			<!-- Hidden from every operator, builder rights included. -->
-			{#if !$userStore?.operator && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !flow.canWrite)}
+			<!-- Hidden from every role without code, flow composers included. -->
+			{#if $roleCapabilities.code && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !flow.canWrite)}
 				<EditInForkButton itemType="flow" path={flow.path} />
 			{/if}
 		</span>
 
 		<Dropdown
+			size="sm"
 			aiId={`flow-row-dropdown-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
 			aiDescription={`Open dropdown for flow ${flow.summary?.length > 0 ? flow.summary : flow.path} options`}
 			items={async () => {
@@ -234,7 +217,7 @@
 								})
 							},
 							disabled: !showEditButton,
-							hide: $userStore?.operator
+							hide: hideForOperator
 						},
 						{
 							displayName: 'Delete',
@@ -279,7 +262,7 @@
 						// menu item's anchor navigates before a delegated onclick can preventDefault it.
 						action: (e) => onEditInForkClick(e, 'flow', path),
 						hide:
-							$userStore?.operator ||
+							!$roleCapabilities.code ||
 							isCloudHosted() ||
 							!editInForkAllowed($workspaceStore, $userWorkspaces)
 					},
@@ -287,7 +270,7 @@
 						displayName: 'Audit logs',
 						icon: Eye,
 						href: `/audit_logs?resource=${path}`,
-						hide: $userStore?.operator
+						hide: !$roleCapabilities.code || !$roleCapabilities.visibility.audit_logs
 					},
 					{
 						displayName: 'Move/Rename',
@@ -314,7 +297,7 @@
 										deploymentDrawer.openDrawer(path, 'flow')
 									},
 									disabled: archived,
-									hide: $userStore?.operator
+									hide: $roleCapabilities.flows !== 'full'
 								}
 							]
 						: []),
@@ -333,7 +316,7 @@
 							scheduleEditor?.openNew(true, path)
 						},
 						disabled: archived,
-						hide: hideForOperator
+						hide: hideForOperator || !$roleCapabilities.manage_schedules
 					},
 					{
 						displayName: 'Permissions',
