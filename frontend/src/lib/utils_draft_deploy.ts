@@ -200,8 +200,7 @@ export function canonicalDraftSideValue(kind: DraftKind, value: unknown): unknow
 			summary: parts.summary ?? '',
 			value: parts.value,
 			...(parts.policy ? { policy: policySettings(parts.policy) } : {}),
-			...(parts.labels ? { labels: parts.labels } : {}),
-			...(parts.customPath !== undefined ? { custom_path: parts.customPath } : {})
+			...(parts.labels ? { labels: parts.labels } : {})
 		}
 	}
 	if (kind === 'flow' && value !== null && typeof value === 'object') {
@@ -344,9 +343,9 @@ export async function getDraftDiffValues(
 			// A staged rename (`draft_path`) changes where deploy lands the app —
 			// compare it as `path` on both sides so a rename-only draft diffs.
 			const rawDraftPath = (r.draft?.draft_path as string | undefined) ?? r.path
-			// A deployed app's access and custom URL are set from the Share dialog, never drafted.
+			// Who can open a deployed app is set from the Share dialog, never drafted.
 			const shared = (v: Record<string, any>) =>
-				draftOnly ? v : { ...v, policy: withoutSharedPolicySettings(v.policy), custom_path: null }
+				draftOnly ? v : { ...v, policy: withoutSharedPolicySettings(v.policy) }
 			return {
 				deployed: draftOnly
 					? canonicalRawAppDiffValue({})
@@ -369,7 +368,7 @@ export async function getDraftDiffValues(
 			summary: r.summary ?? '',
 			value: deployedParts.value,
 			path: r.path,
-			...appDraftSettings(r, true)
+			...appDraftSettings(r)
 		}
 		return {
 			deployed: draftOnly ? EMPTY_DEPLOYED.app!(undefined) : deployed,
@@ -377,7 +376,7 @@ export async function getDraftDiffValues(
 				summary: draftParts.summary ?? r.summary ?? '',
 				value: draftParts.value,
 				path: draftParts.draftPath ?? r.path,
-				...draftOrDeployedSettings(draftParts, draftOnly ? {} : r, !draftOnly)
+				...draftOrDeployedSettings(draftParts, draftOnly ? {} : r)
 			},
 			hasDraft: r.draft != null,
 			noDeployed: r.no_deployed === true
@@ -589,18 +588,14 @@ export async function deployDraft(
 				: (r.policy as Policy)
 			// A draft saved before drafts carried the policy has none, so a draft-only app falls back
 			// to a new app's sandboxed policy: an empty one would deploy it unsandboxed.
-			const settings = draftOrDeployedSettings(
-				parts,
-				draftOnly ? { policy: deployedPolicy } : r,
-				!draftOnly
-			)
+			const settings = draftOrDeployedSettings(parts, draftOnly ? { policy: deployedPolicy } : r)
 			// The runnable whitelist is rebuilt from the value being deployed: the deployed
 			// policy's whitelist describes the previous value. Loaded lazily, as it pulls in the
 			// app component tree.
 			const { updatePolicy } = await import('$lib/components/apps/editor/appPolicy')
 			const policy = await updatePolicy(
 				appValue,
-				withDraftPolicySettings(deployedPolicy, settings.policy, !draftOnly)
+				withDraftPolicySettings(deployedPolicy, settings.policy)
 			)
 			const requestBody = {
 				value: appValue,
@@ -609,9 +604,9 @@ export async function deployDraft(
 				// Honor the draft's intended path; `draft_path` holds the user-typed path
 				// for a never-deployed app parked at a `u/{user}/draft_{uuid}` storage key.
 				path: parts.draftPath ?? r.path ?? path,
-				// Only a create carries the custom path: a deployed app's is set from the Share
-				// dialog, and an update without one keeps it.
-				custom_path: draftOnly ? (settings.custom_path ?? undefined) : undefined,
+				// A deploy never writes the custom URL: the Share dialog sets it, and an update
+				// without one keeps it.
+				custom_path: undefined,
 				labels: settings.labels,
 				deployment_message: deploymentMessage,
 				// Preserve the drafted on_behalf_of (the backend resets it to the deploying

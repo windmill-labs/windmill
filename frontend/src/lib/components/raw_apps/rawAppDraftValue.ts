@@ -47,8 +47,7 @@ export function appSourceToDraftValue(app: any, fallback?: any): AppDraftValue {
 		runnables: { ...(value.runnables ?? {}) },
 		data: normalizeRawAppData(value),
 		policy: app.policy ?? fallback?.policy,
-		// `null` is a draft that removed the custom URL, so only `undefined` falls back.
-		custom_path: app.custom_path !== undefined ? app.custom_path : fallback?.custom_path,
+		custom_path: app.custom_path ?? fallback?.custom_path,
 		labels: app.labels ?? fallback?.labels,
 		// Pin the fork base: a deployed app exposes `versions` (head = last); an
 		// existing draft already carries `parent_version` — preserve it.
