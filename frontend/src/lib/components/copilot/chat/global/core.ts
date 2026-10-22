@@ -3002,7 +3002,7 @@ export function getSessionContextPromptSection(
 			? `start a new session in the dev workspace "${dev.id}", which the "New session in ${dev.name} (dev)" entry of the composer's mode picker opens`
 			: 'start a new session in a fork of this workspace, or, where forking is refused too, make the change in git and open a pull request'
 		lines.push(
-			`- Operating workspace: "${ctx.workspaceId}" — a production workspace protected against direct changes, so this session is READ-ONLY whatever the user's role. You can inspect anything and run deployed scripts and flows with run_script and run_flow; you cannot write drafts, test-run code, deploy or delete. When the user asks to create or change something, say this session cannot do it and that to make the change they need to ${elsewhere}. This session's mode picker shows Plan and Build greyed out and its workspace cannot change once it has started, so never suggest picking Build or switching this session.`
+			`- Operating workspace: "${ctx.workspaceId}" — a production workspace protected against direct changes, so this session is READ-ONLY whatever the user's role. To make a change, the user needs to ${elsewhere}. This session's mode picker shows Plan and Build greyed out and its workspace cannot change once it has started, so never suggest picking Build or switching this session.`
 		)
 	} else if (ctx.parentWorkspaceId && ctx.isDevWorkspace) {
 		lines.push(
@@ -3027,7 +3027,7 @@ export function getSessionContextPromptSection(
 	}
 	if (readOnly && ctx.useMode === 'chosen') {
 		lines.push(
-			"- The user put this session in Use mode with the composer's mode picker, so it is READ-ONLY until they switch: you can inspect anything and run deployed scripts and flows with run_script and run_flow; you cannot write drafts, test-run code, deploy or delete. When the user asks to create or change something, say Use mode cannot do it and ask them to switch the picker to Build, or to Plan to agree on the change first."
+			"- The user put this session in Use mode with the composer's mode picker, so it is READ-ONLY until they switch. To make a change, ask them to switch the picker to Build, or to Plan to agree on the change first."
 		)
 	} else if (readOnly && ctx.useMode === 'role') {
 		lines.push(

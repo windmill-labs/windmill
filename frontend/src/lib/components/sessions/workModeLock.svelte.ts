@@ -1,13 +1,13 @@
 import { fromStore } from 'svelte/store'
 import { userWorkspaces } from '$lib/stores'
 import { useEditRights } from '$lib/operatorWriteRights'
-import { buildsAnything } from '$lib/roleCapabilities'
+import { buildsAnything } from '$lib/editRights'
 import { findCanonicalDevWorkspace } from '$lib/utils/workspaceHierarchy'
 import type { WorkModeLock } from '../copilot/chat/workMode'
 import { pickSessionWorkspace } from './SessionWorkspaceBar.svelte'
 import { useSessionReadOnly } from './sessionPermissions.svelte'
 import { getEffectiveWorkspaceId, type Session } from './sessionState.svelte'
-import { startSessionInWorkspace } from './sessionSwitch.svelte'
+import { startSessionWithPrompt } from './sessionSwitch.svelte'
 
 /**
  * What holds a session's chat in Use, for its mode picker: a protected workspace, whose way
@@ -41,7 +41,7 @@ export function useWorkModeLock(session: () => Session | undefined, switchesWork
 				escape: s.workspace_id
 					? {
 							label: `New session in ${label}`,
-							action: () => void startSessionInWorkspace(dev.id)
+							action: () => void startSessionWithPrompt('', { workspace: dev.id })
 						}
 					: {
 							label: `Switch to ${label}`,

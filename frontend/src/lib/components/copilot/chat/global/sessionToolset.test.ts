@@ -30,15 +30,13 @@ import { filterSessionTools, sessionToolAllowed } from './sessionToolset'
 import { capabilitiesForRole, fullSessionAccess } from './sessionAccess'
 import {
 	canBuild,
+	USE_MODE_ACCESS,
 	type SessionAccess,
 	type SessionCapability,
 	type SessionTool
 } from '../sessionCapabilities'
-import {
-	buildsAnything,
-	FULL_CAPABILITIES,
-	legacyOperatorCapabilities
-} from '$lib/roleCapabilities'
+import { FULL_CAPABILITIES, legacyOperatorCapabilities } from '$lib/roleCapabilities'
+import { buildsAnything } from '$lib/editRights'
 import type { AuthorLevel, OperatorSettings, RoleCapabilities } from '$lib/gen'
 
 const ASSEMBLY_OPTS = {
@@ -108,21 +106,20 @@ const ROLES: RoleCapabilities[] = [false, true]
 	.filter((c) => c.code || (c.flows !== 'full' && c.apps !== 'full'))
 
 /** The profiles a real session can hold, keyed for the test name, over every combination
- * of the role facts `capabilitiesForRole` reads. */
-const REACHABLE_PROFILES = [
+ * of the role facts `capabilitiesForRole` reads, and the read-only one. */
+const REACHABLE_PROFILES: [string, SessionAccess][] = [
 	...new Map(
 		[false, true].flatMap((isAdmin) =>
 			// `checkDeployRules` bypasses on admin, so an admin has only the one outcome.
 			(isAdmin ? [true] : [false, true]).flatMap((deployRulesPass) =>
-				[false, true].flatMap((readOnly) =>
-					ROLES.map((capabilities) => {
-						const access = capabilitiesForRole({ isAdmin, deployRulesPass, readOnly, capabilities })
-						return [[...access].sort().join(',') || 'read-only', access] as const
-					})
-				)
+				ROLES.map((capabilities) => {
+					const access = capabilitiesForRole({ isAdmin, deployRulesPass, capabilities })
+					return [[...access].sort().join(',') || 'none', access] as const
+				})
 			)
 		)
-	).entries()
+	).entries(),
+	['read-only', USE_MODE_ACCESS]
 ]
 
 /** One per branch of getSessionContextPromptSection — each words the deploy target
@@ -235,13 +232,7 @@ describe('session tool policies', () => {
 
 	// Keyed on the tags, so a tool added untagged stays out of a production workspace.
 	it('ships a read-only session the reads and the deployed runs, and nothing that writes', () => {
-		const readOnly = capabilitiesForRole({
-			isAdmin: true,
-			deployRulesPass: true,
-			readOnly: true,
-			capabilities: FULL_CAPABILITIES
-		})
-		const shipped = shippedSessionTools(readOnly)
+		const shipped = shippedSessionTools(USE_MODE_ACCESS)
 		expect(shipped.filter((t) => !t.planModeSafe && !t.readOnlySafe)).toEqual([])
 		const names = shipped.map((t) => t.def.function.name)
 		expect(names).toEqual(expect.arrayContaining(['read_workspace_item', 'list_runs', 'run_flow']))

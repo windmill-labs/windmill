@@ -50,9 +50,8 @@ export type SessionCapability =
 	| 'manage_triggers'
 	/** Passes `require_admin`. */
 	| 'admin'
-	/** Withheld from everyone, admins and bypassers included, when the workspace is protected by
-	 * `DisableDirectDeployment` (a production workspace): the session is then read-only and
-	 * ships only the tools `readOnlyToolAllowed` admits. A session in Use holds none either. */
+	/** Held by every role. A read-only session, in a protected workspace or in Use mode, lacks it
+	 * and ships only the tools `readOnlyToolAllowed` admits. */
 	| 'modify_workspace'
 
 export type SessionAccess = ReadonlySet<SessionCapability>
@@ -68,9 +67,8 @@ export function isReadOnlyAccess(access: SessionAccess | undefined): boolean {
  * that check is still in flight. */
 export const USE_MODE_ACCESS: SessionAccess = new Set()
 
-/** Whether `access` builds anything: a draft of code, a flow, an app, a schedule or a trigger.
- * Resource and variable drafts do not count, since every role writes them. `undefined` access
- * answers true, as the toolset filter does. */
+/** `buildsAnything`, read off a session's access. `undefined` access answers true, as the
+ * toolset filter does. */
 export function canBuild(access: SessionAccess | undefined): boolean {
 	return (
 		!access ||

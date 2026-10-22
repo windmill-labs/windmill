@@ -4,7 +4,7 @@ import { resource } from 'runed'
 import { userWorkspaces } from '$lib/stores'
 import { useActingUser } from '$lib/actingUser.svelte'
 import { useEditRights } from '$lib/operatorWriteRights'
-import { buildsAnything } from '$lib/roleCapabilities'
+import { buildsAnything } from '$lib/editRights'
 import {
 	isReadOnlySessionWorkspace,
 	settledReadOnlyVerdict
@@ -13,12 +13,8 @@ import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 import type { WorkspaceItem } from '$lib/components/workspacePicker'
 import { previewPageAllowed, type PreviewPage } from './previewRouter'
 
-/**
- * Whether a session in `workspace` is read-only: the workspace is protected by
- * `DisableDirectDeployment`, which holds every user, admins included. The same verdict
- * `resolveSessionAccess` gives the chat, so the UI and the toolset agree, and like it a failed
- * check reads as read-only.
- */
+/** Whether a session in `workspace` is read-only because the workspace is protected: the verdict
+ * `resolveSessionAccess` gives the chat, so the UI and the toolset agree. */
 export function useSessionReadOnly(workspace: () => string | undefined) {
 	const verdict = resource(workspace, async (ws) =>
 		ws ? { workspace: ws, readOnly: await isReadOnlySessionWorkspace(ws) } : undefined

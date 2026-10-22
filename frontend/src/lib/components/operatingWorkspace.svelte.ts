@@ -24,10 +24,9 @@ export function setOperatingWorkspace(resolve: () => string | undefined): void {
 
 const READ_ONLY_KEY = Symbol('readOnlyWorkspace')
 
-/** Declare which workspaces this subtree may not change: a session in Use mode, which a
- * production workspace forces, reads and runs but edits nothing whatever the user's role. `useEditRights` refuses every
- * check there, so each control gated on it, the operator gates included, follows. Reads context:
- * call during component initialisation. */
+/** Declare which workspaces this subtree may not change: a session in Use mode. `useEditRights`
+ * refuses every check there, so each control gated on it, the operator gates included, follows.
+ * Reads context: call during component initialisation. */
 export function setReadOnlyWorkspace(isReadOnly: (workspace: string | undefined) => boolean): void {
 	setContext(READ_ONLY_KEY, isReadOnly)
 }

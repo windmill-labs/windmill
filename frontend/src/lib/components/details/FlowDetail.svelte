@@ -140,14 +140,13 @@
 	const operatingHref = useOperatingWorkspaceHref()
 	const actingUser = $derived(operatingUser.current)
 	const editRights = useEditRights()
+	const readOnly = useReadOnlyWorkspace()
 
 	let flow: Flow | undefined = $state()
 	// Derived, not assigned during the load: in a fork the acting user is looked up
 	// asynchronously, and a value read after `getFlowByPath` resolves can land before that
 	// lookup does. Assigned once, that leaves the page permanently read-only — `canWrite`
 	// refuses an unknown user — with nothing to recompute it.
-	// A session in Use mode changes nothing here, the item permissions notwithstanding.
-	const readOnly = useReadOnlyWorkspace()
 	const can_write = $derived(
 		!!flow && !readOnly(workspace) && canWrite(flow.path, flow.extra_perms!, actingUser)
 	)

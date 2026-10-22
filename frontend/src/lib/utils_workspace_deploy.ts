@@ -26,7 +26,7 @@ import { get } from 'svelte/store'
 import { userWorkspaces } from '$lib/stores'
 import { capabilitiesIn } from '$lib/roleCapabilities'
 import { roleCanAuthor } from '$lib/editRights'
-import type { RoleCapabilities } from '$lib/gen'
+import type { ProtectionRuleset, RoleCapabilities } from '$lib/gen'
 import {
 	fetchProtectionRulesForWorkspace,
 	canUserBypassRuleKindInRulesets
@@ -909,7 +909,9 @@ export async function checkDeployRules(
 	workspace: string,
 	/** Pre-fetched identity for `workspace`, to save a round trip. Narrowed to the fields
 	 * read so a caller holding a `UserExt` can pass it without a cast. */
-	whoami?: Pick<User, 'is_admin' | 'is_super_admin' | 'username' | 'groups'>
+	whoami?: Pick<User, 'is_admin' | 'is_super_admin' | 'username' | 'groups'>,
+	/** Pre-fetched protection rules for `workspace`, to save another. */
+	knownRulesets?: ProtectionRuleset[]
 ): Promise<DeployPermission> {
 	try {
 		const me = whoami ?? (await UserService.whoami({ workspace }))
@@ -922,7 +924,7 @@ export async function checkDeployRules(
 		// A superadmin who is only a plain member of the workspace still bypasses every rule,
 		// so dropping either term here refuses a deploy the server accepts.
 		if (!userInfo.is_admin && !userInfo.is_super_admin) {
-			const rulesets = await fetchProtectionRulesForWorkspace(workspace)
+			const rulesets = knownRulesets ?? (await fetchProtectionRulesForWorkspace(workspace))
 			if (!canUserBypassRuleKindInRulesets(rulesets, 'DisableDirectDeployment', userInfo)) {
 				// The reserved dev-workspace lock carries DisableWorkspaceForking alongside this rule,
 				// so suggesting a fork unconditionally would point at a second blocked action.

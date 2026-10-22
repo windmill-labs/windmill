@@ -1040,8 +1040,6 @@ export async function processToolCall<T>({
 			}
 		}
 
-		// The tool was resolved against the toolset of the call; a switch to Use while its card
-		// waits withdraws it from the session, and the approval of that card cannot bring it back.
 		const withdrawnBlock = (): ChatCompletionMessageParam | undefined => {
 			if (!tool || !toolCallbacks.isToolWithdrawn?.(tool.def.function.name)) return undefined
 			logToolOutcome('withdrawn')

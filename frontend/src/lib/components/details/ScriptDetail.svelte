@@ -174,7 +174,6 @@
 	// lookup does. Assigned once, that leaves the page permanently read-only — `canWrite`
 	// refuses an unknown user — with nothing to recompute it. A hub script is never writable.
 	const promptForAi = $derived((script?.schema?.prompt_for_ai as string | undefined) ?? '')
-	// A session in Use mode changes nothing here, the item permissions notwithstanding.
 	const readOnly = useReadOnlyWorkspace()
 	const can_write = $derived(
 		!isHubScript &&

@@ -263,26 +263,18 @@ export async function openSourceInSession(
 	if (href) await openPageInSession(href, source.workspaceId, opts)
 }
 
-// Open a fresh session in `workspaceId`: the way out of a read-only session, whose workspace is
-// fixed once it has started. Before that, `createSession` hands back the same blank session,
-// which then simply changes workspace.
-export async function startSessionInWorkspace(workspaceId: string): Promise<void> {
-	const session = createSession()
-	setSessionPendingWorkspace(session.id, workspaceId)
-	selectSession(session.id)
-	await goto(sessionPageHref(session.id))
-}
-
 // Open a fresh session on no particular item, with `prompt` pre-filled in the
 // composer. For entry points that carry a question rather than a target (the
 // global search's "Ask AI"). Always a new session rather than the most recent
 // one (`enterSessionMode`), so the seed cannot overwrite a prompt the user has
-// already typed into a session they are mid-way through.
+// already typed into a session they are mid-way through. `workspace` is the way
+// out of a read-only session, whose workspace is fixed once it has started.
 export async function startSessionWithPrompt(
 	prompt: string,
-	opts?: { autoSend?: boolean }
+	opts?: { autoSend?: boolean; workspace?: string }
 ): Promise<void> {
 	const session = createSession()
+	if (opts?.workspace) setSessionPendingWorkspace(session.id, opts.workspace)
 	setSessionDraftPrompt(session.id, prompt)
 	// An empty prompt has nothing to send; leave the composer focused instead.
 	if (opts?.autoSend && prompt.trim()) setSessionAutoSend(session.id)

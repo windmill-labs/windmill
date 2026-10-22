@@ -68,18 +68,6 @@ export function isRestricted(caps: RoleCapabilities): boolean {
 	)
 }
 
-/** Whether the role builds anything: code, flows, apps, schedules or triggers. Resources and
- * variables do not count, since every role edits them. */
-export function buildsAnything(caps: RoleCapabilities): boolean {
-	return (
-		caps.code ||
-		caps.flows !== 'none' ||
-		caps.apps !== 'none' ||
-		caps.manage_schedules ||
-		caps.manage_triggers
-	)
-}
-
 /** The role with nothing left to build and the same pages in view: what a session in Use mode
  * acts as. */
 export function withoutBuilding(caps: RoleCapabilities): RoleCapabilities {
