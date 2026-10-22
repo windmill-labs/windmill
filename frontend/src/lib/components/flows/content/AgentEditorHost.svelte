@@ -243,8 +243,6 @@
 	// apart from the echo of their own write.
 	let lastArgs = $state<string | undefined>(undefined)
 
-	// Picked on the first load, after which it is the reader's: following the memory setting live
-	// would pull them out of a chat for switching memory off in the form.
 	// Without managed memory a run keeps no history of its own, so the form also takes the one to
 	// answer from; with it, the worker would ignore one.
 	let formSchema = $derived(
@@ -262,6 +260,8 @@
 					}
 				}
 	)
+	// Picked on the first load, after which it is the reader's: following the memory setting live
+	// would pull them out of a chat for switching memory off in the form.
 	let testMode = $state<'form' | 'chat' | undefined>(undefined)
 	// Mounted the first time it is shown, then only hidden: unmounting destroys the SDK chat,
 	// which stops following the turn in flight, and its answer would never show.

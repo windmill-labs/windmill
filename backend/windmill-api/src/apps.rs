@@ -4466,6 +4466,10 @@ pub fn invalidate_app_policy_cache(workspace_id: &str, path: &str) {
     APP_POLICY_CACHE.remove(&(workspace_id.to_string(), path.to_string()));
 }
 
+/// Owns anonymous app visitors' agent conversations. `flow_conversation.created_by` holds 50
+/// characters, so it names no app: the conversation id already does.
+const ANONYMOUS_CHAT_OWNER: &str = "@anonymous";
+
 async fn execute_component(
     OptAuthed(opt_authed): OptAuthed,
     tokened: OptTokened,
@@ -5163,14 +5167,14 @@ async fn execute_component(
 
     if let (Some(run_path), Some(memory_id)) = (agent_run_path.as_deref(), agent_memory_id) {
         // A signed-in viewer's turn is filed under them: nobody else may continue their
-        // conversation. An anonymous visitor's is filed under a name no username can take, and its
-        // id is derived per app so that it can name no signed-in user's conversation (a bare UUID
-        // is used as is). Either way the conversation's row lock refuses a turn while one runs,
+        // conversation. An anonymous visitor's is filed under a name no username can take (they
+        // are `[A-Za-z0-9_]`), and its id is derived per app so that it can name no signed-in
+        // user's conversation (a bare UUID is used as is). Either way the conversation's row lock refuses a turn while one runs,
         // and retention collects its memory with its messages.
         let (owner, is_admin, memory_id) = match agent_viewer.as_ref() {
             Some(viewer) => (viewer.username.clone(), viewer.is_admin, memory_id),
             None => (
-                format!("anonymous:{path}"),
+                ANONYMOUS_CHAT_OWNER.to_string(),
                 false,
                 windmill_common::flow_conversations::memory_key(
                     &w_id,
