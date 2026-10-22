@@ -32,12 +32,12 @@ describe('draftOrDeployedSettings', () => {
 	it('leaves access and custom URL out of a deployed app, and keeps them for a new one', () => {
 		const parts = { policy: { execution_mode: 'anonymous' }, customPath: 'invoices' }
 		const row = { policy: { execution_mode: 'publisher' } as Policy, custom_path: 'old' }
-		expect(draftOrDeployedSettings(parts, row)).toEqual({
+		expect(draftOrDeployedSettings(parts, row, true)).toEqual({
 			policy: {},
 			labels: [],
 			custom_path: null
 		})
-		expect(draftOrDeployedSettings(parts, {})).toEqual({
+		expect(draftOrDeployedSettings(parts, {}, false)).toEqual({
 			policy: { execution_mode: 'anonymous' },
 			labels: [],
 			custom_path: 'invoices'

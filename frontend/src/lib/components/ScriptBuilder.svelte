@@ -1,4 +1,7 @@
 <script lang="ts">
+	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
+	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
+	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import {
 		ScriptService,
 		type Script,
@@ -301,10 +304,15 @@
 	let args: Record<string, any> = $state(untrack(() => initialArgs)) // Test args input
 	let selectedInputTab: 'main' | 'preprocessor' | 'diagram' = $state('main')
 	let hasPreprocessor = $state(false)
-	// Undefined until a user is picked in the settings, and then a redeploy keeps the deployed
-	// identity: the settings may never be opened, and without the flag the backend runs the
-	// script as the deployer. It ignores the flag for a deployer who may not preserve.
-	let preserveOnBehalfOf: boolean | undefined = $state(undefined)
+	const isNewScript = $derived(initialPath == '' || savedScript?.no_deployed === true)
+	// Only the script's first deploy takes the folder's default user.
+	const folderDefault = useFolderDefaultPermissionedAs(
+		() => (isNewScript ? script.path : undefined),
+		() => opWorkspace
+	)
+	let deployDialogOpen = $state(false)
+	let deployDialogMsg = $state('')
+	let deployDialogStay = false
 
 	let metadataOpen = $state(
 		!untrack(() => neverShowMeta) &&
@@ -332,6 +340,7 @@
 				[
 					['metadata', customUi?.settingsPanel?.disableMetadata],
 					['runtime', customUi?.settingsPanel?.disableRuntime],
+					['permissions', customUi?.settingsPanel?.disableRuntime],
 					['triggers', customUi?.settingsPanel?.disableTriggers]
 				] as const
 			).find(([, disabled]) => disabled !== true)?.[0]
@@ -642,7 +651,9 @@
 
 	async function handleEditScript(stay: boolean, deployMsg?: string): Promise<void> {
 		// Every deploy path of the full-page editor comes through here, the message popover and
-		// "Deploy & Stay here" included.
+		// "Deploy & Stay here" included. Before the run-as confirmation, which reads the folder
+		// default of the chosen path.
+		pendingFirstDeploy = undefined
 		if (ownsPageHeader && neverDeployed) {
 			const choice = await firstDeployDialog?.ask({
 				kind: 'script',
@@ -656,6 +667,23 @@
 			deployMsg = choice.message
 			pendingFirstDeploy = choice
 		}
+		if (
+			deployAsksOnBehalfOf(
+				'script',
+				!!script.on_behalf_of_email,
+				!isNewScript && !!savedScript?.on_behalf_of_email,
+				pendingFirstDeploy ? await folderDefault.refetch() : folderDefault.value
+			)
+		) {
+			deployDialogStay = stay
+			deployDialogMsg = deployMsg ?? ''
+			deployDialogOpen = true
+			return
+		}
+		await deployScript(stay, deployMsg)
+	}
+
+	async function deployScript(stay: boolean, deployMsg?: string): Promise<void> {
 		scriptEditor?.flushModuleState()
 		// Fetch latest version and fetch entire script after if needed
 		let actual_parent_hash: string | undefined = undefined
@@ -857,8 +885,7 @@
 					deployment_message: deploymentMsg || undefined,
 					on_behalf_of_email: script.on_behalf_of_email,
 					on_behalf_of: script.on_behalf_of,
-					preserve_on_behalf_of:
-						(preserveOnBehalfOf ?? !!savedScript?.on_behalf_of_email) || undefined,
+					preserve_on_behalf_of: script.on_behalf_of_email ? true : undefined,
 					assets: script.assets,
 					modules: script.modules,
 					labels: script.labels,
@@ -1226,7 +1253,7 @@
 	// (empty initialPath) but with a path the AI already picked.
 	let dirtyPath = $state(initialPathChosen)
 
-	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'triggers' = $state(
+	let selectedTab: 'metadata' | 'runtime' | 'permissions' | 'ui' | 'triggers' = $state(
 		(() => {
 			if (customUi?.settingsPanel?.disableMetadata !== true) {
 				// first option: either no custom UI or metadata is enabled
@@ -1420,6 +1447,20 @@
 <svelte:window onkeydown={onKeyDown} />
 {@render children?.()}
 
+<DeployOnBehalfOfDialog
+	kind="script"
+	bind:open={deployDialogOpen}
+	bind:message={deployDialogMsg}
+	bind:email={script.on_behalf_of_email}
+	bind:permissionedAs={script.on_behalf_of}
+	savedEmail={isNewScript ? undefined : savedScript?.on_behalf_of_email}
+	savedPermissionedAs={isNewScript ? undefined : savedScript?.on_behalf_of}
+	isNew={isNewScript}
+	folderDefault={folderDefault.value}
+	targetWorkspace={opWorkspace ?? ''}
+	onConfirmed={() => deployScript(deployDialogStay, deployDialogMsg)}
+/>
+
 <DeployOverrideConfirmationModal
 	{deployedBy}
 	{confirmCallback}
@@ -1479,16 +1520,21 @@
 						<Tab
 							value="runtime"
 							aiId="script-builder-runtime"
-							aiDescription="Runtime settings, including run on behalf of, job token and runs visibility"
+							aiDescription="Runtime settings"
 							label="Runtime"
 						>
 							{#snippet extra()}
-								<SettingIcons
-									badges={[
-										...getActiveScriptSettingsBadges(script),
-										...getActivePermissionBadges(script)
-									]}
-								/>
+								<SettingIcons badges={getActiveScriptSettingsBadges(script)} />
+							{/snippet}
+						</Tab>
+						<Tab
+							value="permissions"
+							aiId="script-builder-permissions"
+							aiDescription="Permissions settings: run on behalf of, runs visibility, job token"
+							label="Permissions"
+						>
+							{#snippet extra()}
+								<SettingIcons badges={getActivePermissionBadges(script)} />
 							{/snippet}
 						</Tab>
 					{/if}
@@ -1816,32 +1862,31 @@
 								</div>
 							</TabContent>
 							<TabContent value="runtime">
-								<div class="flex flex-col gap-8 p-4 pb-8">
+								<div class="p-4 pb-8">
 									<ScriptRuntimeSettings
 										bind:script
 										tagPlaceholder={customUi?.tagSelectPlaceholder}
 										defaultTimeout={customUi?.defaultTimeout}
 										hideMute={customUi?.settingsPanel?.metadata?.disableMute === true}
 									/>
-									<!-- Kept out of ScriptRuntimeSettings: the flow editor's script drawers reuse it,
-									     and their Save deploys a version with no run-as plumbing. -->
-									<Section label="Run as" class="flex flex-col gap-6">
-										<RunOnBehalfOfSetting
-											kind="script"
-											bind:email={script.on_behalf_of_email}
-											bind:permissionedAs={script.on_behalf_of}
-											bind:preserve={preserveOnBehalfOf}
-											savedEmail={savedScript?.on_behalf_of_email}
-											savedPermissionedAs={savedScript?.on_behalf_of}
-											targetWorkspace={opWorkspace ?? ''}
-											isNew={initialPath == ''}
-										/>
-										<JobTokenScopesSetting bind:value={script.job_token_scopes} kind="script" />
-										<InvisibleRunsSetting
-											kind="script"
-											bind:visibleToRunnerOnly={script.visible_to_runner_only}
-										/>
-									</Section>
+								</div>
+							</TabContent>
+							<TabContent value="permissions">
+								<div class="flex flex-col gap-6 p-4 pb-8">
+									<RunOnBehalfOfSetting
+										kind="script"
+										bind:email={script.on_behalf_of_email}
+										bind:permissionedAs={script.on_behalf_of}
+										savedEmail={savedScript?.on_behalf_of_email}
+										savedPermissionedAs={savedScript?.on_behalf_of}
+										targetWorkspace={opWorkspace ?? ''}
+										isNew={initialPath == ''}
+									/>
+									<InvisibleRunsSetting
+										kind="script"
+										bind:visibleToRunnerOnly={script.visible_to_runner_only}
+									/>
+									<JobTokenScopesSetting bind:value={script.job_token_scopes} kind="script" />
 								</div>
 							</TabContent>
 							{#if !isDbt}

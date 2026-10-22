@@ -6,7 +6,7 @@
 	import type { Schema } from '$lib/common'
 	import type { ScriptAdvancedSettingsFields } from '$lib/components/scriptSettings'
 	import { Plus, X } from 'lucide-svelte'
-	import Section from '$lib/components/Section.svelte'
+	import SettingGroup from '$lib/components/itemSettings/SettingGroup.svelte'
 	import SettingToggle from './SettingToggle.svelte'
 	import WorkerTagSetting from './WorkerTagSetting.svelte'
 	import ConcurrencyLimitSetting from './ConcurrencyLimitSetting.svelte'
@@ -41,7 +41,7 @@
 </script>
 
 <div class="flex flex-col gap-8">
-	<Section label="Execution policy" class="flex flex-col gap-6">
+	<SettingGroup label="Execution policy" class="flex flex-col gap-6">
 		<SettingToggle
 			setting="timeout"
 			label="Custom timeout"
@@ -86,9 +86,9 @@
 		{#if !hideMute}
 			<MuteErrorHandlerSetting kind="script" bind:muted={script.ws_error_handler_muted} />
 		{/if}
-	</Section>
+	</SettingGroup>
 
-	<Section label="Workers" class="flex flex-col gap-6">
+	<SettingGroup label="Workers" class="flex flex-col gap-6">
 		<WorkerTagSetting
 			kind="script"
 			bind:tag={script.tag}
@@ -147,5 +147,5 @@
 				</div>
 			</SettingToggle>
 		{/if}
-	</Section>
+	</SettingGroup>
 </div>

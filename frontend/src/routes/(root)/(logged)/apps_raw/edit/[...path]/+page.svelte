@@ -3,7 +3,7 @@
 	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 
 	import { AppService } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { useRoleCapabilities, workspaceListLoaded } from '$lib/operatorWriteRights'
 	import { readFieldsRecursively } from '$lib/utils'
 	import { goto } from '$lib/navigation'
@@ -68,6 +68,8 @@
 	let policy: any = $state({})
 	let summary = $state('')
 	let labels = $state<string[] | undefined>(undefined)
+	/** The custom path the editor opens with, the draft's over the deployed one; `null` for none. */
+	let customPath = $state<string | null | undefined>(undefined)
 	/** User-typed path from `RawAppEditorHeader` when it differs from
 	 *  `savedApp.path`; mirrored into the draft below as `draft_path` for the
 	 *  home list's friendly name. */
@@ -145,7 +147,7 @@
 				? null
 				: pendingDraftSettings
 					? pendingDraftSettings.custom_path
-					: (savedApp?.custom_path ?? null),
+					: (customPath ?? null),
 			labels: pendingDraftSettings ? pendingDraftSettings.labels : (labels ?? []),
 			parent_version: parentVersion,
 			// Persist the typed path as `draft_path` only when it actually differs
@@ -169,6 +171,7 @@
 		files = app.value.files
 		summary = app.summary
 		labels = app.labels
+		customPath = app.custom_path ?? null
 		// lastVersion = app.version
 		policy = app.policy
 		// Prefer the saved `draft_path` so the topbar shows the pending name, not
@@ -225,10 +228,11 @@
 			draftBaseVersion = undefined
 			deployedHeadVersion = undefined
 			deployedBy = undefined
-			// `labels` is route-level state; reset it too so a fresh draft doesn't
-			// inherit (and then deploy) the previously-opened app's labels. The
-			// import branch re-seeds it via extractRawApp below.
+			// `labels` and `customPath` are route-level state; reset them too so a fresh draft
+			// doesn't inherit (and then deploy) the previously-opened app's. The import branch
+			// re-seeds them via extractRawApp below.
 			labels = undefined
+			customPath = null
 			// Brand-new raw app: no deployed baseline, so never discard-on-equal.
 			deployedBaseline = undefined
 			// Suspend autosave across the bootstrap: the seed template and the
@@ -247,11 +251,8 @@
 					path
 				})
 			}
+			// No run-as user: the deploy dialog resolves it, the folder's default first.
 			const defaultPolicy = {
-				on_behalf_of: $userStore?.username.includes('@')
-					? $userStore?.username
-					: `u/${$userStore?.username}`,
-				on_behalf_of_email: $userStore?.email,
 				execution_mode: 'publisher',
 				sandbox: true
 			} as any
@@ -440,7 +441,12 @@
 			summary: backendApp_.summary,
 			value: backendApp_.value as any,
 			path: backendApp_.path,
-			policy: backendApp_.policy,
+			// The deployed policy, not the draft's swapped in above: the header and the settings
+			// measure what a deploy changes against it. A deployed app's custom path is never
+			// swapped in, so the row's is the deployed one.
+			policy: deployedBaseline
+				? structuredClone(stateSnapshot(deployedBaseline.policy))
+				: backendApp_.policy,
 			custom_path: backendApp_.custom_path,
 			labels: backendApp_.labels,
 			no_deployed: backendApp_.no_deployed
@@ -487,8 +493,8 @@
 						runnables,
 						data,
 						summary,
-						policy,
-						custom_path: savedApp?.custom_path ?? null,
+						policy: deployedBaseline ? withoutSharedPolicySettings(policy) : policy,
+						custom_path: deployedBaseline ? null : (customPath ?? null),
 						labels: labels ?? [],
 						parent_version: parentVersion,
 						...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
@@ -697,6 +703,7 @@
 				bind:pendingDraftSettings
 				{newPath}
 				{labels}
+				{customPath}
 				path={page.params.path ?? ''}
 				liveEditorDraftStoragePath={path}
 				{policy}

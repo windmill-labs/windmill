@@ -161,7 +161,9 @@ export interface RawAppRuntimeValue {
 	policy: any
 	summary: string
 	path: string
-	custom_path?: string
+	/** `null` when the draft removes the custom URL. */
+	custom_path?: string | null
+	labels?: string[]
 	draft_path?: string
 	/** The app_version this cell's content forked from, carried so the editor's deploy
 	 *  guard and diff drawer compare the same pair the full-page editor does. */
@@ -1127,7 +1129,9 @@ function createRuntime(session: Session): SessionRuntime {
 					policy: draftValue?.policy ?? result.policy,
 					summary: draftValue?.summary ?? result.summary ?? '',
 					path: result.path,
-					custom_path: draftValue?.custom_path ?? result.custom_path,
+					custom_path:
+						draftValue?.custom_path !== undefined ? draftValue.custom_path : result.custom_path,
+					labels: draftValue?.labels ?? result.labels,
 					draft_path: draftValue?.draft_path,
 					// Only a fresh checkout forks from the head; a draft keeps its own base,
 					// unknown included, or it would read as up to date. See loadScript.

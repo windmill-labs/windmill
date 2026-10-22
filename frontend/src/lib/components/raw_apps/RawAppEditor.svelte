@@ -108,6 +108,9 @@
 		newPath?: string | undefined
 		/** Initial labels for the app, threaded from the loaded app data. */
 		labels?: string[]
+		/** Initial custom path, the draft's over the deployed one; `null` for none. Undefined falls
+		 *  back to `savedApp`'s. */
+		customPath?: string | null
 		savedApp?:
 			| {
 					value: any
@@ -226,6 +229,7 @@
 		path,
 		newPath = undefined,
 		labels = undefined,
+		customPath = undefined,
 		savedApp = $bindable(undefined),
 		diffDrawer = undefined,
 		onNavigate,
@@ -2644,6 +2648,7 @@ addEventListener('message', function (e) {
 		{newApp}
 		{newPath}
 		{labels}
+		{customPath}
 		appPath={path}
 		{sessionOpen}
 		{liveEditorDraftStoragePath}

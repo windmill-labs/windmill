@@ -1,75 +1,90 @@
 <script lang="ts">
 	import Label from '$lib/components/Label.svelte'
+	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import OnBehalfOfSelector, {
 		type OnBehalfOfChoice
 	} from '$lib/components/OnBehalfOfSelector.svelte'
-	import { userStore } from '$lib/stores'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
 	import SettingToggle from './SettingToggle.svelte'
-
-	const WM_DEPLOYERS_GROUP = 'wm_deployers'
+	import { canPreserveOnBehalfOf, deployedPermissionedAs, WM_DEPLOYERS_GROUP } from './onBehalfOf'
+	const DOCS_LINK =
+		'https://www.windmill.dev/docs/core_concepts/roles_and_permissions#run-on-behalf-of'
 
 	interface Props {
 		kind: 'flow' | 'script' | 'app'
-		/** Email of the user the item runs as; undefined runs it as whoever triggers it. */
+		/** Email of the user whose access the runs use; undefined uses whoever starts each run. */
 		email: string | undefined
 		/** `u/username` of that user. */
 		permissionedAs: string | undefined
-		/** Sent as `preserve_on_behalf_of` on deploy. Undefined until a user is picked here, which
-		 *  the host reads as "keep the deployed identity". */
-		preserve: boolean | undefined
 		/** The deployed identity, which the "target" choice keeps. */
 		savedEmail: string | undefined
 		savedPermissionedAs: string | undefined
 		targetWorkspace: string
-		/** Apps always run as a user: no toggle, only the user choice. */
+		/** Apps always use a chosen user's access: no toggle, only the user choice. */
 		required?: boolean
 		/** Never deployed, so no deployed identity can change. */
 		isNew?: boolean
 		tooltip?: string
+		/** Inside a `ConfirmationModal`: see `OnBehalfOfSelector`. */
+		aboveConfirmationModal?: boolean
+		onPickerOpenChange?: (open: boolean) => void
+		/** The host explains the setting itself. */
+		hideDescription?: boolean
+		/** The folder's default for a new item's path, which a deploy holding no user takes. */
+		folderDefault?: string
 	}
 
 	let {
 		kind,
 		email = $bindable(),
 		permissionedAs = $bindable(),
-		preserve = $bindable(),
 		savedEmail,
 		savedPermissionedAs,
 		targetWorkspace,
 		required = false,
 		isNew = false,
-		tooltip
+		tooltip,
+		aboveConfirmationModal = false,
+		onPickerOpenChange,
+		hideDescription = false,
+		folderDefault
 	}: Props = $props()
 
+	// The label keeps the docs' term; the description says what it gives, access to resources,
+	// and that the person who starts a run stays recorded and readable from WM_END_USER_EMAIL.
 	let shownTooltip = $derived(
 		tooltip ??
-			`The ${kind} runs with the permissions of the chosen user instead of those of whoever triggers it.`
+			`Use it to share a ${kind} that touches secrets: people run it without ever seeing the credentials. Or pick a dedicated user, like billing-bot, so the ${kind} can only reach that user's folders and resources.`
 	)
 
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
-	let canPreserve = $derived(
-		!!actingUser?.is_admin ||
-			!!actingUser?.is_super_admin ||
-			(actingUser?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
-	)
-	// Usernames are per-workspace, so "me" is the acting user in the target workspace.
+	let canPreserve = $derived(canPreserveOnBehalfOf(actingUser))
+	// "Me" is the acting user in the target workspace, its username and its email alike: usernames
+	// are per-workspace, and the backend rejects a pair that names two accounts.
 	let myPermissionedAs = $derived(actingUser?.username ? `u/${actingUser.username}` : undefined)
 
-	let choice: OnBehalfOfChoice = $state(undefined)
-	let customEmail = $state('')
+	// Read from the bound values, not kept here: this row remounts each time its tab or dialog
+	// opens, and a choice that restarts empty lets the selector reselect the deployed user over
+	// the one picked.
+	let choice: OnBehalfOfChoice = $derived.by(() => {
+		const keepsSaved = savedPermissionedAs
+			? (permissionedAs ?? savedPermissionedAs) === savedPermissionedAs
+			: !!savedEmail && (email ?? savedEmail) === savedEmail
+		if (keepsSaved) return 'target'
+		if (!permissionedAs && !email && folderDefault) return 'custom'
+		const isMe = permissionedAs
+			? permissionedAs === myPermissionedAs
+			: !email || email === actingUser?.email
+		return isMe ? 'me' : 'custom'
+	})
 
 	let enabled = $derived(required || !!email)
-	// Without the right to preserve, the backend runs the redeployed item as the deployer whatever
-	// is submitted, as it does for "me".
-	let deployPermissionedAs = $derived.by(() => {
-		if (!enabled) return undefined
-		if (!canPreserve || choice === 'me') return myPermissionedAs
-		if (choice === 'custom') return permissionedAs
-		return savedPermissionedAs
-	})
+	let chosenUser = $derived(permissionedAs ?? email ?? 'the chosen user')
+	let deployPermissionedAs = $derived(
+		enabled ? deployedPermissionedAs(actingUser, permissionedAs, folderDefault) : undefined
+	)
 	let willChange = $derived(
 		!isNew &&
 			!!savedPermissionedAs &&
@@ -78,10 +93,8 @@
 	)
 
 	function setMe() {
-		email = $userStore?.email
+		email = actingUser?.email
 		permissionedAs = myPermissionedAs
-		customEmail = ''
-		preserve = false
 	}
 </script>
 
@@ -90,9 +103,8 @@
 		<OnBehalfOfSelector
 			{targetWorkspace}
 			targetValue={savedEmail}
-			selected={choice ?? (savedEmail ? undefined : 'me')}
+			selected={choice}
 			onSelect={(c, details) => {
-				choice = c
 				if (c === 'me') {
 					setMe()
 				} else if (c === 'target') {
@@ -100,21 +112,20 @@
 					// email alone and the backend derives one from it.
 					email = savedEmail
 					permissionedAs = savedPermissionedAs
-					customEmail = ''
-					preserve = true
 				} else if (c === 'custom' && details) {
 					email = details.email
 					permissionedAs = details.permissionedAs
-					customEmail = details.email
-					preserve = true
 				}
 			}}
 			{kind}
 			{canPreserve}
-			customValue={customEmail}
+			customValue={choice === 'custom' ? (permissionedAs ?? email ?? folderDefault) : undefined}
+			{folderDefault}
 			isDeployment={false}
 			{myPermissionedAs}
 			readOnlyWithoutPreserve
+			{aboveConfirmationModal}
+			{onPickerOpenChange}
 		/>
 		{#if willChange}
 			<AlertTriangle size={14} class="text-yellow-500" />
@@ -128,11 +139,36 @@
 			Only workspace admins and members of {WM_DEPLOYERS_GROUP} can pick another user.
 		</div>
 	{/if}
+	{#if !hideDescription}
+		<div class="text-2xs text-secondary">
+			{#if required}
+				Apps always run on behalf of someone: the people who open an app usually can't access its
+				scripts and resources, and guest or public viewers have no account at all. Viewers can start
+				only the runnables built into the app, and each one still gets the viewer's email in
+				<code>WM_END_USER_EMAIL</code>.
+			{:else}
+				Every run uses the access of {chosenUser}. Who started it is still recorded, and the code
+				reads their email from <code>WM_END_USER_EMAIL</code>.
+			{/if}
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet valueHint()}
+	Lets people run this {kind} with resources and variables they can't access themselves.
 {/snippet}
 
 {#if required}
 	<div data-setting="on-behalf-of">
-		<Label label="Run on behalf of" tooltip={shownTooltip}>
+		<Label label="Run on behalf of">
+			{#snippet header()}
+				<!-- The tooltip also renders an empty trigger span; one wrapper keeps the label gap single. -->
+				<span class="inline-flex">
+					<Tooltip documentationLink={DOCS_LINK}>
+						{#snippet text()}{shownTooltip}{/snippet}
+					</Tooltip>
+				</span>
+			{/snippet}
 			{@render picker()}
 		</Label>
 	</div>
@@ -141,16 +177,15 @@
 		setting="on-behalf-of"
 		label="Run on behalf of"
 		tooltip={shownTooltip}
+		documentationLink={DOCS_LINK}
+		hint={valueHint}
 		checked={enabled}
 		onchange={(on) => {
 			if (on) {
 				setMe()
-				choice = 'me'
 			} else {
 				email = undefined
 				permissionedAs = undefined
-				preserve = false
-				choice = undefined
 			}
 		}}
 	>

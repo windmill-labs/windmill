@@ -377,7 +377,7 @@ export async function getDraftDiffValues(
 				summary: draftParts.summary ?? r.summary ?? '',
 				value: draftParts.value,
 				path: draftParts.draftPath ?? r.path,
-				...draftOrDeployedSettings(draftParts, draftOnly ? {} : r)
+				...draftOrDeployedSettings(draftParts, draftOnly ? {} : r, !draftOnly)
 			},
 			hasDraft: r.draft != null,
 			noDeployed: r.no_deployed === true
@@ -584,10 +584,16 @@ export async function deployDraft(
 			// app row's columns.
 			const parts = classicAppDraftParts(r.draft ?? r.value ?? {})
 			const appValue = parts.value as App
-			const settings = draftOrDeployedSettings(parts, draftOnly ? {} : r)
 			const deployedPolicy = draftOnly
 				? ({ execution_mode: 'publisher', sandbox: true } as Policy)
 				: (r.policy as Policy)
+			// A draft saved before drafts carried the policy has none, so a draft-only app falls back
+			// to a new app's sandboxed policy: an empty one would deploy it unsandboxed.
+			const settings = draftOrDeployedSettings(
+				parts,
+				draftOnly ? { policy: deployedPolicy } : r,
+				!draftOnly
+			)
 			// The runnable whitelist is rebuilt from the value being deployed: the deployed
 			// policy's whitelist describes the previous value. Loaded lazily, as it pulls in the
 			// app component tree.

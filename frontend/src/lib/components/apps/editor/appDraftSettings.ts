@@ -76,25 +76,25 @@ export function withDraftPolicySettings(
 	return { ...policySettings(draftSettings, isDeployed), ...kept } as Policy
 }
 
-/** A classic app's settings as the draft states them, falling back field by field to the
- *  deployed row for a draft that predates mirroring them. An empty `row` is a never-deployed
- *  app. */
+/** A classic app's settings as the draft states them, falling back field by field to `row` for a
+ *  draft that predates mirroring them: the deployed row, or what a new app starts with. Whether
+ *  the app is deployed is passed, not read from `row`, which carries a policy either way. */
 export function draftOrDeployedSettings(
 	parts: {
 		policy?: Record<string, unknown>
 		labels?: string[]
 		customPath?: string | null
 	},
-	row: { policy?: Policy; labels?: string[] | null; custom_path?: string | null }
+	row: { policy?: Policy; labels?: string[] | null; custom_path?: string | null },
+	isDeployed: boolean
 ): AppDraftSettings {
-	const isDeployed = row.policy !== undefined
-	const deployed = appDraftSettings(row, isDeployed)
+	const fallback = appDraftSettings(row, isDeployed)
 	return {
 		policy: parts.policy
 			? policySettings(parts.policy as Partial<Policy>, isDeployed)
-			: deployed.policy,
-		labels: parts.labels ?? deployed.labels,
+			: fallback.policy,
+		labels: parts.labels ?? fallback.labels,
 		custom_path:
-			!isDeployed && parts.customPath !== undefined ? parts.customPath : deployed.custom_path
+			!isDeployed && parts.customPath !== undefined ? parts.customPath : fallback.custom_path
 	}
 }

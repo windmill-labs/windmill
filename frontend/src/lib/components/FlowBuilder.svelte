@@ -1,4 +1,7 @@
 <script lang="ts">
+	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
+	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
+	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import {
 		FlowService,
 		type Flow,
@@ -209,13 +212,11 @@
 
 	let initialPathStore = writable(initialPath)
 
-	// For preserve_on_behalf_of feature. Undefined until a user is picked in the settings, and
-	// then a redeploy keeps the deployed identity: the settings may never be opened, and without
-	// the flag the backend runs the flow as the deployer. It ignores the flag for a deployer who
-	// may not preserve.
-	let preserveOnBehalfOf = writable<boolean | undefined>(undefined)
 	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
 	let savedOnBehalfOfPermissionedAs = writable<string | undefined>(savedFlow?.on_behalf_of)
+	const isNewFlow = $derived(newFlow || initialPath == '')
+	let deployDialogOpen = $state(false)
+	let deployDialogMsg = $state('')
 
 	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously
 	$effect(() => {
@@ -494,6 +495,36 @@
 	}
 
 	async function handleSaveFlow(deploymentMsg?: string) {
+		pendingFirstDeploy = undefined
+		// Before the run-as confirmation, which reads the folder default of the chosen path.
+		if (ownsPageHeader && neverDeployed) {
+			const choice = await firstDeployDialog?.ask({
+				kind: 'flow',
+				summary: flowStore.val.summary ?? '',
+				path: $pathStore
+			})
+			if (!choice) return
+			flowStore.val.summary = choice.summary
+			$pathStore = choice.path
+			deploymentMsg = choice.message
+			pendingFirstDeploy = choice
+		}
+		if (
+			deployAsksOnBehalfOf(
+				'flow',
+				!!flowStore.val.on_behalf_of_email,
+				!isNewFlow && !!$savedOnBehalfOfEmail,
+				pendingFirstDeploy ? await folderDefault.refetch() : folderDefault.value
+			)
+		) {
+			deployDialogMsg = deploymentMsg ?? ''
+			deployDialogOpen = true
+			return
+		}
+		await deployFlow(deploymentMsg)
+	}
+
+	async function deployFlow(deploymentMsg?: string) {
 		withAIChangesWarning(async () => {
 			await handleSaveFlowInternal(deploymentMsg)
 		})
@@ -517,18 +548,6 @@
 	}
 
 	async function handleSaveFlowInternal(deploymentMsg?: string) {
-		if (ownsPageHeader && neverDeployed) {
-			const choice = await firstDeployDialog?.ask({
-				kind: 'flow',
-				summary: flowStore.val.summary ?? '',
-				path: $pathStore
-			})
-			if (!choice) return
-			flowStore.val.summary = choice.summary
-			$pathStore = choice.path
-			deploymentMsg = choice.message
-			pendingFirstDeploy = choice
-		}
 		await compareVersions()
 		if (onLatest || initialPath == '' || newFlow) {
 			// Handle directly
@@ -708,7 +727,7 @@
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
 						on_behalf_of: flow.on_behalf_of,
-						preserve_on_behalf_of: ($preserveOnBehalfOf ?? !!$savedOnBehalfOfEmail) || undefined,
+						preserve_on_behalf_of: flow.on_behalf_of_email ? true : undefined,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels,
 						// Sent explicitly: an omitted field keeps the deployed value.
@@ -762,7 +781,7 @@
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
 						on_behalf_of: flow.on_behalf_of,
-						preserve_on_behalf_of: ($preserveOnBehalfOf ?? !!$savedOnBehalfOfEmail) || undefined,
+						preserve_on_behalf_of: flow.on_behalf_of_email ? true : undefined,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels,
 						// Sent explicitly: an omitted field keeps the deployed value.
@@ -820,6 +839,11 @@
 	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
 	const history = initHistory(untrack(() => flowStore).val)
 	const pathStore = writable<string>(untrack(() => pathStoreInit) ?? initialPath)
+	// Only the flow's first deploy takes the folder's default user.
+	const folderDefault = useFolderDefaultPermissionedAs(
+		() => (isNewFlow ? $pathStore : undefined),
+		() => opWorkspace
+	)
 
 	// Linked-agent tool resolutions are scoped by workspace + flow path, but publishers key by the
 	// flow doc's own path while readers use the live-edited $pathStore — which diverge for renames
@@ -1050,7 +1074,6 @@
 		flowInputEditorState: flowInputEditorStateStore,
 		modulesTestStates,
 		outputPickerOpenFns,
-		preserveOnBehalfOf,
 		savedOnBehalfOfEmail,
 		savedOnBehalfOfPermissionedAs,
 		opWorkspace: () => opWorkspace
@@ -1629,6 +1652,20 @@
 	<ShareDialog bind:this={shareDialog} />
 	<FirstDeployDialog bind:this={firstDeployDialog} />
 {/if}
+
+<DeployOnBehalfOfDialog
+	kind="flow"
+	bind:open={deployDialogOpen}
+	bind:message={deployDialogMsg}
+	bind:email={flowStore.val.on_behalf_of_email}
+	bind:permissionedAs={flowStore.val.on_behalf_of}
+	savedEmail={isNewFlow ? undefined : $savedOnBehalfOfEmail}
+	savedPermissionedAs={isNewFlow ? undefined : $savedOnBehalfOfPermissionedAs}
+	isNew={isNewFlow}
+	folderDefault={folderDefault.value}
+	targetWorkspace={opWorkspace ?? ''}
+	onConfirmed={() => deployFlow(deployDialogMsg)}
+/>
 
 <DeployOverrideConfirmationModal
 	{deployedBy}

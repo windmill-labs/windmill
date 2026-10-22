@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { setDeployedOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
+	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
+	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import { Drawer, DrawerContent } from '$lib/components/common'
 	import RawAppRecordSession from '$lib/components/workspaceSettings/RawAppRecordSession.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -86,6 +89,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import {
 		operatingWorkspaceContextEntry,
+		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
@@ -93,6 +97,8 @@
 	import PathEditPopover from '$lib/components/PathEditPopover.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
+	const operatingUser = useOperatingUser()
+	const actingUser = $derived(operatingUser.current)
 
 	// async function hash(message) {
 	// 	try {
@@ -138,6 +144,9 @@
 		newPath?: string
 		/** Initial labels for the app, threaded from the loaded app data. */
 		labels?: string[]
+		/** Initial custom path, the draft's over the deployed one; `null` for none. Undefined falls
+		 *  back to `savedApp`'s, which is the deployed one. */
+		customPath?: string | null
 		appPath: string
 		/** "Open in AI session" hand-off, owned by the editor (it persists the
 		 * draft the session preview loads). Undefined until the app has a path. */
@@ -225,6 +234,7 @@
 		newApp,
 		newPath = '',
 		labels: initialLabels = undefined,
+		customPath: initialCustomPath = undefined,
 		appPath,
 		sessionOpen,
 		runnables,
@@ -258,14 +268,13 @@
 		onSavedNewAppPath
 	}: Props = $props()
 
-	// Set by the on-behalf-of selector. Undefined until a user is picked there, and then a
-	// redeploy keeps the deployed identity: the settings may never be opened, and without the
-	// flag the backend runs the app as the deployer. It ignores the flag for a deployer who may
-	// not preserve.
-	let preserveOnBehalfOf: boolean | undefined = $state(undefined)
-	let preserveOnDeploy = $derived(
-		(preserveOnBehalfOf ?? !!savedApp?.policy?.on_behalf_of) || undefined
+	const isNewApp = $derived(newApp || appPath == '')
+	// Only the app's first deploy takes the folder's default user.
+	const folderDefault = useFolderDefaultPermissionedAs(
+		() => (isNewApp ? newEditedPath : undefined),
+		() => opWorkspace
 	)
+	let deployDialogOpen = $state(false)
 
 	// The AutosaveIndicator watches these; in the sessions preview they're the
 	// session's (workspace, path), else the full-page editor's own values.
@@ -389,6 +398,7 @@
 		if (!policy.execution_mode) {
 			policy.execution_mode = 'publisher'
 		}
+		setDeployedOnBehalfOf(policy, actingUser, folderDefault.value)
 		try {
 			const { js, css } = await getBundle()
 			const deployedPolicy = await policyWithTriggerables()
@@ -402,7 +412,9 @@
 						policy: deployedPolicy,
 						deployment_message: deploymentMsg,
 						custom_path: customPath,
-						preserve_on_behalf_of: preserveOnDeploy,
+						// The user the deploy dialog confirmed, which the backend keeps only for a
+						// deployer who may preserve one.
+						preserve_on_behalf_of: true,
 						labels
 					},
 					js,
@@ -624,6 +636,7 @@
 			path: appPath!
 		})
 		policy.execution_mode = deployedRow.policy.execution_mode ?? 'publisher'
+		setDeployedOnBehalfOf(policy, actingUser)
 		const deployedPolicy = await policyWithTriggerables()
 		const deployed = await AppService.updateAppRaw({
 			workspace: opWorkspace!,
@@ -635,7 +648,7 @@
 					policy: deployedPolicy,
 					path: npath,
 					deployment_message: deploymentMsg,
-					preserve_on_behalf_of: preserveOnDeploy,
+					preserve_on_behalf_of: true,
 					// Absent keeps the custom URL, which the Share dialog sets.
 					custom_path: undefined,
 					labels
@@ -697,6 +710,9 @@
 		shareDialog?.openDialog('raw_app', appPath, { source, section, fromEditor: true })
 	}
 
+	// Chosen in the first-deploy dialog, added once the run-as confirmation has created the app.
+	let firstDeployMembers: Record<string, boolean> = {}
+
 	async function deploy(message?: string) {
 		if (app == undefined) return
 		if (pathError != '') {
@@ -704,22 +720,29 @@
 			return
 		}
 		deploymentMsg = message
-		if (newApp || appPath == '') {
-			let members: Record<string, boolean> = {}
-			if (ownsPageHeader) {
-				const choice = await firstDeployDialog?.ask({
-					kind: 'raw_app',
-					summary,
-					path: newEditedPath,
-					appMode: accessModeOf(policy)
-				})
-				if (!choice) return
-				summary = choice.summary
-				newEditedPath = choice.path
-				policy.execution_mode = choice.appMode
-				deploymentMsg = choice.message
-				members = choice.members
-			}
+		firstDeployMembers = {}
+		// Before the run-as confirmation, which reads the folder default of the chosen path and who
+		// can open the app.
+		if (isNewApp && ownsPageHeader) {
+			const choice = await firstDeployDialog?.ask({
+				kind: 'raw_app',
+				summary,
+				path: newEditedPath,
+				appMode: accessModeOf(policy)
+			})
+			if (!choice) return
+			summary = choice.summary
+			newEditedPath = choice.path
+			policy.execution_mode = choice.appMode
+			deploymentMsg = choice.message
+			firstDeployMembers = choice.members
+		}
+		deployDialogOpen = true
+	}
+
+	async function deployNow() {
+		if (isNewApp) {
+			const members = firstDeployMembers
 			const workspace = opWorkspace!
 			if (await createApp(newEditedPath)) {
 				await applyFirstDeployMembers(workspace, 'raw_app', newEditedPath, members)
@@ -853,8 +876,12 @@
 		}
 	])
 
-	let customPath = $state(savedApp?.custom_path)
-	let labels = $state(untrack(() => initialLabels))
+	// Derived, so a draft synced in from another session reaches the header; an edit here overrides
+	// the value until the next one arrives.
+	let customPath = $derived(
+		initialCustomPath !== undefined ? (initialCustomPath ?? undefined) : savedApp?.custom_path
+	)
+	let labels = $derived(initialLabels)
 	let settingsHaveErrors = $derived(pathError != '')
 
 	let jobsDrawerOpen = $state(false)
@@ -874,6 +901,22 @@
 		})
 	)
 </script>
+
+<DeployOnBehalfOfDialog
+	kind="app"
+	bind:open={deployDialogOpen}
+	bind:message={() => deploymentMsg ?? '', (v) => (deploymentMsg = v)}
+	bind:email={policy.on_behalf_of_email}
+	bind:permissionedAs={policy.on_behalf_of}
+	savedEmail={isNewApp ? undefined : savedApp?.policy?.on_behalf_of_email}
+	savedPermissionedAs={isNewApp ? undefined : savedApp?.policy?.on_behalf_of}
+	isNew={isNewApp}
+	folderDefault={folderDefault.value}
+	executionMode={policy.execution_mode}
+	targetWorkspace={opWorkspace ?? ''}
+	rawApp
+	onConfirmed={deployNow}
+/>
 
 <DeployOverrideConfirmationModal
 	{deployedBy}
@@ -899,7 +942,6 @@
 	bind:summary
 	bind:pathError
 	bind:newEditedPath
-	bind:preserveOnBehalfOf
 	bind:labels
 />
 

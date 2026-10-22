@@ -1,4 +1,8 @@
 <script lang="ts">
+	import { setDeployedOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
+	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
+	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import { Drawer, DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 
@@ -280,13 +284,13 @@
 	let debugAppDrawerOpen = $state(false)
 	let lazyDrawerOpen = $state(false)
 	let deploymentMsg = $state('')
-	// Undefined until a user is picked in the settings, and then a redeploy keeps the deployed
-	// identity: the settings may never be opened, and without the flag the backend runs the app as
-	// the deployer. It ignores the flag for a deployer who may not preserve.
-	let preserveOnBehalfOf: boolean | undefined = $state(undefined)
-	let preserveOnDeploy = $derived(
-		(preserveOnBehalfOf ?? !!savedApp?.policy?.on_behalf_of) || undefined
+	const operatingUser = useOperatingUser()
+	// Only the app's first deploy takes the folder's default user.
+	const folderDefault = useFolderDefaultPermissionedAs(
+		() => (newApp ? newEditedPath : undefined),
+		() => $workspaceStore
 	)
+	let deployDialogOpen = $state(false)
 
 	// Top-bar responsive collapse — container width, not viewport.
 	let topbarWidth = $state(0)
@@ -303,7 +307,8 @@
 
 	// The draft-only fields mirrored onto `$app` (fork base, staged path, summary and settings)
 	// are columns of the app row or editor state. Deployed inside the value, they would land in
-	// git-synced files and version diffs, `parent_version` changing on every deploy.
+	// git-synced files and version diffs, `parent_version` changing on every deploy; exported,
+	// they would hand out the publisher's email and the custom URL.
 	function withoutDraftBase<T extends App | undefined>(a: T): T {
 		if (!a) return a
 		return classicAppDraftParts(a).value as T
@@ -313,6 +318,7 @@
 	async function createApp(path: string): Promise<boolean> {
 		// In place: the settings drawer and the draft mirror hold this object.
 		Object.assign(policy, await updatePolicy($app, policy))
+		setDeployedOnBehalfOf(policy, operatingUser.current, folderDefault.value)
 		try {
 			await AppService.createApp({
 				workspace: $workspaceStore!,
@@ -323,7 +329,9 @@
 					policy,
 					deployment_message: deploymentMsg,
 					custom_path: customPath,
-					preserve_on_behalf_of: preserveOnDeploy,
+					// The user the deploy dialog confirmed, which the backend keeps only for a deployer
+					// who may preserve one.
+					preserve_on_behalf_of: true,
 					labels
 				}
 			})
@@ -440,6 +448,7 @@
 		policy.execution_mode = deployedRow.policy.execution_mode
 		// In place: the settings drawer and the draft mirror hold this object.
 		Object.assign(policy, await updatePolicy($app, policy))
+		setDeployedOnBehalfOf(policy, operatingUser.current)
 		const deployed = await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: $appPath!,
@@ -451,7 +460,7 @@
 				deployment_message: deploymentMsg,
 				// Absent keeps the custom URL, which the Share dialog sets.
 				custom_path: undefined,
-				preserve_on_behalf_of: preserveOnDeploy,
+				preserve_on_behalf_of: true,
 				labels
 			}
 		})
@@ -513,30 +522,40 @@
 		shareDialog?.openDialog('app', $appPath!, { source, section, fromEditor: true })
 	}
 
+	// Chosen in the first-deploy dialog, added once the run-as confirmation has created the app.
+	let firstDeployMembers: Record<string, boolean> = {}
+
 	async function deploy(message?: string) {
 		if (pathError != '') {
 			openSettings('metadata')
 			return
 		}
 		deploymentMsg = message ?? ''
+		firstDeployMembers = {}
+		// Before the run-as confirmation, which reads the folder default of the chosen path and who
+		// can open the app.
+		if (newApp && ownsPageHeader) {
+			const choice = await firstDeployDialog?.ask({
+				kind: 'app',
+				summary: $summary,
+				path: newEditedPath,
+				appMode: accessModeOf(policy)
+			})
+			if (!choice) return
+			$summary = choice.summary
+			newEditedPath = choice.path
+			policy.execution_mode = choice.appMode
+			deploymentMsg = choice.message
+			firstDeployMembers = choice.members
+		}
+		deployDialogOpen = true
+	}
+
+	async function deployNow() {
 		// Use `newApp` (set for /apps/add and draft-only paths), not
 		// `$appPath` — its `draft_{uuid}` is a poor create signal.
 		if (newApp) {
-			let members: Record<string, boolean> = {}
-			if (ownsPageHeader) {
-				const choice = await firstDeployDialog?.ask({
-					kind: 'app',
-					summary: $summary,
-					path: newEditedPath,
-					appMode: accessModeOf(policy)
-				})
-				if (!choice) return
-				$summary = choice.summary
-				newEditedPath = choice.path
-				policy.execution_mode = choice.appMode
-				deploymentMsg = choice.message
-				members = choice.members
-			}
+			const members = firstDeployMembers
 			if (await createApp(newEditedPath)) {
 				await applyFirstDeployMembers($workspaceStore!, 'app', newEditedPath, members)
 			}
@@ -754,7 +773,7 @@
 			displayName: 'Export',
 			icon: FileJson,
 			action: () => {
-				appExport?.open($app)
+				appExport?.open(withoutDraftBase($app))
 			}
 		},
 		{
@@ -853,7 +872,7 @@
 			displayName: 'Hub export',
 			icon: FileUp,
 			action: () => {
-				appExport?.open(toStatic($app, $staticExporter, $summary).app)
+				appExport?.open(toStatic(withoutDraftBase($app), $staticExporter, $summary).app)
 			}
 		}
 	]) as Item[]
@@ -908,6 +927,21 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
+<DeployOnBehalfOfDialog
+	kind="app"
+	bind:open={deployDialogOpen}
+	bind:message={deploymentMsg}
+	bind:email={policy.on_behalf_of_email}
+	bind:permissionedAs={policy.on_behalf_of}
+	savedEmail={newApp ? undefined : savedApp?.policy?.on_behalf_of_email}
+	savedPermissionedAs={newApp ? undefined : savedApp?.policy?.on_behalf_of}
+	isNew={newApp}
+	folderDefault={folderDefault.value}
+	executionMode={policy.execution_mode}
+	targetWorkspace={$workspaceStore ?? ''}
+	onConfirmed={deployNow}
+/>
+
 <DeployOverrideConfirmationModal
 	{deployedBy}
 	{confirmCallback}
@@ -953,7 +987,6 @@
 	bind:summary={$summary}
 	bind:pathError
 	bind:newEditedPath
-	bind:preserveOnBehalfOf
 	bind:labels
 />
 

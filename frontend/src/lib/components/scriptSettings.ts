@@ -224,6 +224,14 @@ export function getActivePermissionBadges(settings: {
 			detail: settings.on_behalf_of_email
 		})
 	}
+	if (settings.visible_to_runner_only) {
+		badges.push({
+			key: 'invisible_runs',
+			label: 'Invisible runs',
+			icon: EyeOff,
+			detail: 'Manual runs are visible only to whoever ran them'
+		})
+	}
 	if (settings.job_token_scopes != null) {
 		badges.push({
 			key: 'job_token',
@@ -233,14 +241,6 @@ export function getActivePermissionBadges(settings: {
 				settings.job_token_scopes.length === 0
 					? 'No API access'
 					: settings.job_token_scopes.join(', ')
-		})
-	}
-	if (settings.visible_to_runner_only) {
-		badges.push({
-			key: 'invisible_runs',
-			label: 'Invisible runs',
-			icon: EyeOff,
-			detail: 'Manual runs are visible only to whoever ran them'
 		})
 	}
 	return badges

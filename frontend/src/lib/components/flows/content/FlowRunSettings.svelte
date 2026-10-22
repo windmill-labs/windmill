@@ -29,7 +29,7 @@
 	import FlowModuleDebounce from './FlowModuleDebounce.svelte'
 	import FlowModuleMock from './FlowModuleMock.svelte'
 	import JobTokenScopesSetting from '$lib/components/JobTokenScopesSetting.svelte'
-	import Section from '$lib/components/Section.svelte'
+	import SettingGroup from '$lib/components/itemSettings/SettingGroup.svelte'
 	import WorkspaceScriptSettingInfo from './WorkspaceScriptSettingInfo.svelte'
 	import { slideDynamic } from '$lib/transitions'
 
@@ -124,7 +124,7 @@
 	style={embedded ? undefined : 'scrollbar-gutter: stable'}
 >
 	{#if !isFailure}
-		<Section label="Flow control">
+		<SettingGroup label="Flow control">
 			<div class="flex flex-col gap-6">
 				<div data-setting="skip">
 					<FlowModuleSkip bind:flowModule {parentModule} {previousModule} />
@@ -141,11 +141,11 @@
 				<div data-setting="sleep">
 					<FlowModuleSleep previousModuleId={previousModule?.id} bind:flowModule {isAgentTool} />
 				</div>
-			</div></Section
+			</div></SettingGroup
 		>
 	{/if}
 
-	<Section label="Execution policy">
+	<SettingGroup label="Execution policy">
 		<div class="flex flex-col gap-6">
 			{#if !loopSubset}
 				<div data-setting="retries">
@@ -340,12 +340,12 @@
 			{/if}
 
 			<JobTokenScopesSetting bind:value={flowModule.job_token_scopes} kind="step" />
-		</div></Section
+		</div></SettingGroup
 	>
 
 	{#if s3Language && onApplyS3Snippet && !isFailure}
 		<div data-setting="s3">
-			<Section label="S3 snippets" class="flex flex-col gap-3">
+			<SettingGroup label="S3 snippets" class="flex flex-col gap-3">
 				<p class="text-xs text-tertiary">
 					Read and write S3 objects, and use Polars or DuckDB to run efficient ETL processes.
 				</p>
@@ -374,7 +374,7 @@
 						<HighlightCode language={s3Language} code={s3Snippet} />
 					</div>
 				{/if}
-			</Section>
+			</SettingGroup>
 		</div>
 	{/if}
 </div>
