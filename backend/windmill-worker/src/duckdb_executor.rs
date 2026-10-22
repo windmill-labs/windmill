@@ -1792,6 +1792,7 @@ pub async fn do_duckdb(
                 return Err(Error::ExecutionRawError(to_raw_value(&json!({
                     "message": message,
                     "name": "ExecutionErr",
+                    "flow_path": reserved_variables.get("WM_FLOW_PATH").filter(|p| !p.is_empty()),
                     "job_id": job.id,
                     "step_id": job.flow_step_id,
                     "data_tests": data_tests,

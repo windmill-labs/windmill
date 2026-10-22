@@ -2832,6 +2832,10 @@ try {{
     if (job_id) {{
         err["job_id"] = job_id;
     }}
+    let flow_path = process.env.WM_FLOW_PATH;
+    if (flow_path) {{
+        err["flow_path"] = flow_path;
+    }}
     const extra = {{}};
     Object.getOwnPropertyNames(e).forEach((key) => {{
         if (['line', 'name', 'stack', 'column', 'message', 'sourceURL', 'originalLine', 'originalColumn'].includes(key)) {{
@@ -2901,6 +2905,10 @@ try {{
     let job_id = process.env.WM_JOB_ID;
     if (job_id) {{
         err["job_id"] = job_id;
+    }}
+    let flow_path = process.env.WM_FLOW_PATH;
+    if (flow_path) {{
+        err["flow_path"] = flow_path;
     }}
     const extra = {{}};
     Object.getOwnPropertyNames(e).forEach((key) => {{
