@@ -3,7 +3,8 @@ import type { Schema } from '$lib/common'
 /**
  * The inputs of a raw app's agent runnable, the same for every agent: the server runs one chat
  * turn from them and takes nothing else (see `execute_component`). `memory_id` names the
- * conversation, which is the agent's memory key, not an input of the run.
+ * conversation, which is the agent's memory key, not an input of the run; without it the run is
+ * a single one.
  */
 export const AGENT_RUNNABLE_SCHEMA: Schema = {
 	$schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -12,7 +13,8 @@ export const AGENT_RUNNABLE_SCHEMA: Schema = {
 		user_message: { type: 'string', description: 'The message to answer' },
 		memory_id: {
 			type: 'string',
-			description: 'The conversation the message belongs to: reuse it to continue one'
+			description:
+				'The conversation the message belongs to: reuse it to continue one, or omit it for a single run'
 		},
 		user_attachments: {
 			type: 'array',
@@ -20,6 +22,6 @@ export const AGENT_RUNNABLE_SCHEMA: Schema = {
 			items: { type: 'object' }
 		}
 	},
-	required: ['user_message', 'memory_id'],
+	required: ['user_message'],
 	order: ['user_message', 'memory_id', 'user_attachments']
 }

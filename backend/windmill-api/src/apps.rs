@@ -4896,32 +4896,30 @@ async fn execute_component(
     // the app identity. Drop it; the legitimate value rides in `extra`.
     payload.args.remove("_TEMP_SCRIPT_REFS");
 
-    // An agent runnable takes one chat turn: the message, its files, and the conversation they
-    // belong to, which names the agent's memory rather than an input of its run.
+    // An agent runnable takes the message and its files, plus optionally the conversation they
+    // belong to, which names the agent's memory rather than an input of its run. Without it the
+    // run is a single one, as on the direct agent endpoint.
     let agent_path = payload
         .path
         .as_deref()
         .and_then(|p| p.strip_prefix("agent/"))
         .map(str::to_string);
-    let agent_memory_id = match agent_path {
-        Some(_) => {
-            let memory_id = payload
-                .args
-                .remove("memory_id")
-                .and_then(|v| serde_json::from_str::<String>(v.get()).ok())
-                .filter(|m| !m.trim().is_empty())
-                .ok_or_else(|| {
-                    Error::BadRequest(
-                        "an agent runnable takes `memory_id`, the conversation the message belongs to"
-                            .to_string(),
-                    )
-                })?;
-            payload
-                .args
-                .retain(|k, _| k == "user_message" || k == "user_attachments");
-            Some(memory_id)
-        }
-        None => None,
+    let agent_memory_id = if agent_path.is_some() {
+        let memory_id = payload
+            .args
+            .remove("memory_id")
+            .and_then(|v| {
+                serde_json::from_str::<Option<String>>(v.get())
+                    .ok()
+                    .flatten()
+            })
+            .filter(|m| !m.trim().is_empty());
+        payload
+            .args
+            .retain(|k, _| k == "user_message" || k == "user_attachments");
+        memory_id
+    } else {
+        None
     };
 
     let (mut args, job_id) = build_args(
@@ -5004,8 +5002,14 @@ async fn execute_component(
                     None,
                 )
                 .await?;
-                let turn =
-                    crate::agent_runs::agent_turn(&run_as, &user_db, &w_id, agent, true).await?;
+                let turn = crate::agent_runs::agent_turn(
+                    &run_as,
+                    &user_db,
+                    &w_id,
+                    agent,
+                    agent_memory_id.is_some(),
+                )
+                .await?;
                 agent_run_path = Some(turn.run_path.clone());
                 (
                     JobPayload::RawFlow {

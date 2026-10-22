@@ -1720,7 +1720,7 @@ const AGENT_RUNNABLE_SCHEMA = {
     memory_id: {
       type: "string",
       description:
-        "The conversation the message belongs to: reuse it to continue one",
+        "The conversation the message belongs to: reuse it to continue one, or omit it for a single run",
     },
     user_attachments: {
       type: "array",
@@ -1728,7 +1728,7 @@ const AGENT_RUNNABLE_SCHEMA = {
       items: { type: "object" },
     },
   },
-  required: ["user_message", "memory_id"],
+  required: ["user_message"],
   order: ["user_message", "memory_id", "user_attachments"],
 };
 
