@@ -93,7 +93,7 @@
 			? deployedPermissionedAs(
 					actingUser,
 					permissionedAs,
-					preserveOnBehalfOfOnDeploy(preserve, !!(savedPermissionedAs || savedEmail))
+					preserveOnBehalfOfOnDeploy(preserve, !!(permissionedAs || email))
 				)
 			: undefined
 	)

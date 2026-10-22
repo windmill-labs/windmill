@@ -198,7 +198,7 @@
 	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
 	let savedOnBehalfOfPermissionedAs = writable<string | undefined>(savedFlow?.on_behalf_of)
 	const preserveOnDeploy = $derived(
-		preserveOnBehalfOfOnDeploy($preserveOnBehalfOf, !!$savedOnBehalfOfEmail)
+		preserveOnBehalfOfOnDeploy($preserveOnBehalfOf, !!flowStore.val.on_behalf_of_email)
 	)
 
 	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously

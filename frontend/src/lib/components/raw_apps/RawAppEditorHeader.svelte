@@ -268,7 +268,7 @@
 	// Set by the on-behalf-of selector.
 	let preserveOnBehalfOf: boolean | undefined = $state(undefined)
 	let preserveOnDeploy = $derived(
-		preserveOnBehalfOfOnDeploy(preserveOnBehalfOf, !!savedApp?.policy?.on_behalf_of)
+		preserveOnBehalfOfOnDeploy(preserveOnBehalfOf, !!policy.on_behalf_of)
 	)
 	let runsAs = $derived(deployedPermissionedAs(actingUser, policy.on_behalf_of, preserveOnDeploy))
 	let asksOnBehalfOf = $derived(

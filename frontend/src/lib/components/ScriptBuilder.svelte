@@ -270,7 +270,7 @@
 	let hasPreprocessor = $state(false)
 	let preserveOnBehalfOf: boolean | undefined = $state(undefined)
 	let preserveOnDeploy = $derived(
-		preserveOnBehalfOfOnDeploy(preserveOnBehalfOf, !!savedScript?.on_behalf_of_email)
+		preserveOnBehalfOfOnDeploy(preserveOnBehalfOf, !!script.on_behalf_of_email)
 	)
 
 	let metadataOpen = $state(

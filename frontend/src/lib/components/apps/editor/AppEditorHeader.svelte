@@ -281,7 +281,7 @@
 	let deploymentMsg = $state('')
 	let preserveOnBehalfOf: boolean | undefined = $state(undefined)
 	let preserveOnDeploy = $derived(
-		preserveOnBehalfOfOnDeploy(preserveOnBehalfOf, !!savedApp?.policy?.on_behalf_of)
+		preserveOnBehalfOfOnDeploy(preserveOnBehalfOf, !!policy.on_behalf_of)
 	)
 	const operatingUser = useOperatingUser()
 	let runsAs = $derived(

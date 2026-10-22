@@ -21,14 +21,14 @@ export function canPreserveOnBehalfOf(user: DeployingUser): boolean {
 }
 
 /** `preserve_on_behalf_of` for a deploy. The settings leave `preserve` undefined until a user is
- *  picked there, and until then a redeploy keeps the deployed identity: the settings may never be
- *  opened, and without the flag the backend runs the item as the deployer. The backend ignores the
- *  flag for a deployer who may not preserve. */
+ *  picked there, and until then a deploy keeps the user the editor holds, deployed or drafted: the
+ *  settings may never be opened in this visit, and without the flag the backend runs the item as
+ *  the deployer. The backend ignores the flag for a deployer who may not preserve. */
 export function preserveOnBehalfOfOnDeploy(
 	preserve: boolean | undefined,
-	hasDeployedIdentity: boolean
+	holdsRunAsUser: boolean
 ): true | undefined {
-	return (preserve ?? hasDeployedIdentity) || undefined
+	return (preserve ?? holdsRunAsUser) || undefined
 }
 
 /** The `u/username` a deploy leaves the item running on behalf of: the submitted user when the
