@@ -66,6 +66,8 @@ pub struct ClientWithScopes {
     pub extra_params_callback: Option<HashMap<String, String>>,
     pub allowed_domains: Option<Vec<String>>,
     pub userinfo_url: Option<String>,
+    /// See [`OAuthConfig::userinfo_fields`].
+    pub userinfo_fields: Option<HashMap<String, String>>,
     pub grant_types: Vec<String>,
     pub token_response_path: Option<String>,
     /// Resolved token endpoint, exposed so the connect dialog can prefill and
@@ -88,6 +90,11 @@ pub struct OAuthConfig {
     #[serde(default = "empty_string")]
     pub token_url: String,
     pub userinfo_url: Option<String>,
+    /// Resource fields the connect callback reads from `userinfo_url`'s response,
+    /// as field -> path (see [`userinfo_resource_fields`]): Docusign's account id
+    /// and base URI are in no token response.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub userinfo_fields: Option<HashMap<String, String>>,
     /// The registry JSON may also carry frontend-only keys for the connect
     /// dialog, deliberately not modelled here: `scope_options`, a scope pick
     /// list, `resource_fields`, the fields of the resource type the dialog
@@ -902,6 +909,47 @@ pub fn parse_token_response(
     })
 }
 
+/// What the connect callback returns: the token, and the resource fields read from
+/// the provider's userinfo endpoint, which the connect dialog prefills.
+#[derive(Debug, Serialize)]
+pub struct ConnectCallbackResponse {
+    #[serde(flatten)]
+    pub token: TokenResponse,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub resource_fields: HashMap<String, serde_json::Value>,
+}
+
+/// Picks each field's value out of a userinfo response. A path is dot-separated
+/// keys, and a `key[k=v]` segment takes the element of array `key` whose `k` is
+/// `v` (`accounts[is_default=true].base_uri`). Fields whose path misses are left out.
+pub fn userinfo_resource_fields(
+    userinfo: &serde_json::Value,
+    fields: &HashMap<String, String>,
+) -> HashMap<String, serde_json::Value> {
+    fn get<'a>(v: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
+        path.split('.')
+            .try_fold(v, |v, seg| match seg.split_once('[') {
+                Some((key, filter)) => {
+                    let (k, want) = filter.strip_suffix(']')?.split_once('=')?;
+                    v.get(key)?.as_array()?.iter().find(|e| match e.get(k) {
+                        Some(serde_json::Value::String(s)) => s == want,
+                        Some(other) => other.to_string() == want,
+                        None => false,
+                    })
+                }
+                None => v.get(seg),
+            })
+    }
+    fields
+        .iter()
+        .filter_map(|(field, path)| {
+            get(userinfo, path)
+                .filter(|v| !v.is_null())
+                .map(|v| (field.clone(), v.clone()))
+        })
+        .collect()
+}
+
 /// Pre-fetched account fields needed for token refresh.
 pub struct OAuthAccountInfo {
     pub client: String,
@@ -1260,11 +1308,30 @@ mod tests {
         assert_eq!(&*token.access_token, "xoxe.xoxp-new");
     }
 
+    #[test]
+    fn userinfo_fields_take_the_default_docusign_account() {
+        let registry: HashMap<String, OAuthConfig> =
+            serde_json::from_str(include_str!("../../oauth_connect.json")).unwrap();
+        let fields = registry["docusign"].userinfo_fields.clone().unwrap();
+        let userinfo = serde_json::json!({
+            "sub": "u1",
+            "accounts": [
+                {"account_id": "a1", "is_default": false, "base_uri": "https://na2.docusign.net"},
+                {"account_id": "a2", "is_default": true, "base_uri": "https://demo.docusign.net"}
+            ]
+        });
+        let got = userinfo_resource_fields(&userinfo, &fields);
+        assert_eq!(got["account_id"], "a2");
+        assert_eq!(got["base_uri"], "https://demo.docusign.net");
+        assert!(userinfo_resource_fields(&serde_json::json!({"accounts": []}), &fields).is_empty());
+    }
+
     fn sample_oauth_config(with_sandbox: bool) -> OAuthConfig {
         OAuthConfig {
             auth_url: "https://account.example.com/oauth/auth".to_string(),
             token_url: "https://account.example.com/oauth/token".to_string(),
             userinfo_url: Some("https://account.example.com/userinfo".to_string()),
+            userinfo_fields: None,
             scopes: Some(vec!["signature".to_string()]),
             cc_scopes: None,
             extra_params: None,

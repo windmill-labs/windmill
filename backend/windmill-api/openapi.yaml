@@ -37869,6 +37869,13 @@ components:
             type: string
         grant_type:
           type: string
+        resource_fields:
+          type: object
+          additionalProperties: {}
+          description: >
+            Resource fields read from the provider's userinfo endpoint on
+            connect (Docusign's account_id and base_uri), for the connect
+            dialog to prefill.
 
       required:
         - access_token

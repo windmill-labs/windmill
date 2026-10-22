@@ -468,10 +468,17 @@
   "docusign": {
     "auth_url": "https://account.docusign.com/oauth/auth",
     "token_url": "https://account.docusign.com/oauth/token",
+    "userinfo_url": "https://account.docusign.com/oauth/userinfo",
+    "userinfo_fields": {
+      "account_id": "accounts[is_default=true].account_id",
+      "base_uri": "accounts[is_default=true].base_uri"
+    },
+    "resource_fields": ["account_id", "base_uri"],
     "scopes": ["signature"],
     "sandbox": {
       "auth_url": "https://account-d.docusign.com/oauth/auth",
-      "token_url": "https://account-d.docusign.com/oauth/token"
+      "token_url": "https://account-d.docusign.com/oauth/token",
+      "userinfo_url": "https://account-d.docusign.com/oauth/userinfo"
     }
   },
   "salesforce": {
