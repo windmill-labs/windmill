@@ -57,6 +57,8 @@
 	import HighlightCode from '../HighlightCode.svelte'
 	import DrawerContent from '../common/drawer/DrawerContent.svelte'
 	import TreeViewRoot from './TreeViewRoot.svelte'
+	import FolderEditorDrawer from '../FolderEditorDrawer.svelte'
+	import { isDemoWorkspaceRestricted } from '$lib/cloud'
 	import Item from './Item.svelte'
 	import PipelineRow from '../common/table/PipelineRow.svelte'
 	import { TreeOpenMemory } from './treeViewState.svelte'
@@ -933,6 +935,7 @@
 		)
 	})
 	let viewCodeDrawer: Drawer | undefined = $state()
+	let folderEditorDrawer: FolderEditorDrawer | undefined = $state()
 	let viewCodeTitle: string | undefined = $state()
 	let script: Script | undefined = $state()
 	async function showCode(path: string, summary: string) {
@@ -1198,6 +1201,11 @@
 	// Every author can create a flow or a full-code app, except a builder granted only the other.
 	let canCreateHere = $derived(
 		(editRights.roleCanAuthor('flow') || editRights.roleCanAuthor('raw_app')) && showEditButtons
+	)
+	// The Folders page's own rule for its "New folder" button.
+	let canCreateFolder = $derived(
+		$roleCapabilities.visibility.folders &&
+			!isDemoWorkspaceRestricted($workspaceStore, $userStore?.is_admin, $userStore?.is_super_admin)
 	)
 
 	// The workspace itself holds nothing — no filter is narrowing the list away. It stays
@@ -1870,6 +1878,15 @@
 	{opts}
 />
 
+<!-- Permission changes can hide or reveal rows for this user, so a save reloads them. -->
+<FolderEditorDrawer
+	bind:this={folderEditorDrawer}
+	onSaved={async (_name, created) => {
+		if (created) await folderNamesRes.refetch()
+		await reloadItemsAndCounts()
+	}}
+/>
+
 <Drawer
 	bind:this={viewCodeDrawer}
 	on:close={() => {
@@ -1990,6 +2007,7 @@
 						onImportHubProject={$disableHubStore || !editRights.roleCanAuthor('script')
 							? undefined
 							: () => (hubPickerOpen = true)}
+						onCreateFolder={canCreateFolder ? () => folderEditorDrawer?.initNew() : undefined}
 					/>
 				{/if}
 			</div>
@@ -2173,6 +2191,7 @@
 						{showCode}
 						showEditButton={showEditButtons}
 						framed={false}
+						onManageFolder={(name) => folderEditorDrawer?.initEdit(name)}
 					/>
 				{/key}
 			{/if}
