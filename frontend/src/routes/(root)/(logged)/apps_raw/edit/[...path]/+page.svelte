@@ -47,8 +47,7 @@
 		data: RawAppData
 		summary: string
 		policy?: any
-		/** `null` when the draft removes the custom URL. */
-		custom_path?: string | null
+		custom_path?: string
 		labels?: string[]
 		/** User-typed path the home list renders, set only when it differs
 		 *  from the deployed/seeded `savedApp.path`. */
@@ -67,16 +66,12 @@
 	let policy: any = $state({})
 	let summary = $state('')
 	let labels = $state<string[] | undefined>(undefined)
-	/** The custom path the editor opens with, the draft's over the deployed one; `null` for none. */
-	let customPath = $state<string | null | undefined>(undefined)
 	/** User-typed path from `RawAppEditorHeader` when it differs from
 	 *  `savedApp.path`; mirrored into the draft below as `draft_path` for the
 	 *  home list's friendly name. */
 	let pendingDraftPath = $state<string | undefined>(undefined)
-	/** The labels and custom path the header is editing, mirrored into the draft. */
-	let pendingDraftSettings = $state<{ labels: string[]; custom_path: string | null } | undefined>(
-		undefined
-	)
+	/** The labels the header is editing, mirrored into the draft. */
+	let pendingDraftSettings = $state<{ labels: string[] } | undefined>(undefined)
 
 	let savedApp:
 		| {
@@ -140,7 +135,7 @@
 			data,
 			summary,
 			policy,
-			custom_path: pendingDraftSettings ? pendingDraftSettings.custom_path : (customPath ?? null),
+			custom_path: savedApp?.custom_path,
 			labels: pendingDraftSettings ? pendingDraftSettings.labels : (labels ?? []),
 			parent_version: parentVersion,
 			// Persist the typed path as `draft_path` only when it actually differs
@@ -164,7 +159,6 @@
 		files = app.value.files
 		summary = app.summary
 		labels = app.labels
-		customPath = app.custom_path ?? null
 		// lastVersion = app.version
 		policy = app.policy
 		// Prefer the saved `draft_path` so the topbar shows the pending name, not
@@ -221,11 +215,10 @@
 			draftBaseVersion = undefined
 			deployedHeadVersion = undefined
 			deployedBy = undefined
-			// `labels` and `customPath` are route-level state; reset them too so a fresh draft
-			// doesn't inherit (and then deploy) the previously-opened app's. The import branch
-			// re-seeds them via extractRawApp below.
+			// `labels` is route-level state; reset it too so a fresh draft doesn't
+			// inherit (and then deploy) the previously-opened app's labels. The
+			// import branch re-seeds it via extractRawApp below.
 			labels = undefined
-			customPath = null
 			// Brand-new raw app: no deployed baseline, so never discard-on-equal.
 			deployedBaseline = undefined
 			// Suspend autosave across the bootstrap: the seed template and the
@@ -374,7 +367,7 @@
 						data: extractDataConfig(backendApp.value) ?? { ...DEFAULT_DATA },
 						summary: backendApp.summary ?? '',
 						policy: backendApp.policy,
-						custom_path: backendApp.custom_path ?? null,
+						custom_path: backendApp.custom_path,
 						labels: backendApp.labels ?? [],
 						parent_version: parentVersion
 					})
@@ -391,7 +384,7 @@
 					data?: any
 					summary?: string
 					policy?: any
-					custom_path?: string | null
+					custom_path?: string
 					labels?: string[]
 					draft_path?: string
 			  }
@@ -409,7 +402,7 @@
 			}
 			backendApp.summary = savedRawAppDraft?.summary ?? ''
 			backendApp.policy = savedRawAppDraft?.policy ?? { execution_mode: 'publisher', sandbox: true }
-			backendApp.custom_path = savedRawAppDraft?.custom_path ?? undefined
+			backendApp.custom_path = savedRawAppDraft?.custom_path
 			backendApp.labels = savedRawAppDraft?.labels
 			backendApp.path = page.params.path ?? ''
 		} else if (savedRawAppDraft) {
@@ -422,7 +415,7 @@
 			if (savedRawAppDraft.summary !== undefined) backendApp.summary = savedRawAppDraft.summary
 			if (savedRawAppDraft.policy !== undefined) backendApp.policy = savedRawAppDraft.policy
 			if (savedRawAppDraft.custom_path !== undefined)
-				backendApp.custom_path = savedRawAppDraft.custom_path ?? undefined
+				backendApp.custom_path = savedRawAppDraft.custom_path
 			if (savedRawAppDraft.labels !== undefined) backendApp.labels = savedRawAppDraft.labels
 		}
 		const backendApp_ = structuredClone(stateSnapshot(backendApp))
@@ -430,12 +423,12 @@
 			summary: backendApp_.summary,
 			value: backendApp_.value as any,
 			path: backendApp_.path,
-			// The deployed policy and custom path, not the draft's swapped in above: the header and
-			// the settings measure what a deploy changes against them.
+			// The deployed policy, not the draft's swapped in above: the header and the settings
+			// measure what a deploy changes against it.
 			policy: deployedBaseline
 				? structuredClone(stateSnapshot(deployedBaseline.policy))
 				: backendApp_.policy,
-			custom_path: deployedBaseline?.custom_path ?? undefined,
+			custom_path: backendApp_.custom_path,
 			labels: backendApp_.labels,
 			no_deployed: backendApp_.no_deployed
 		}
@@ -482,7 +475,7 @@
 						data,
 						summary,
 						policy,
-						custom_path: customPath ?? null,
+						custom_path: savedApp?.custom_path,
 						labels: labels ?? [],
 						parent_version: parentVersion,
 						...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
@@ -691,7 +684,6 @@
 				bind:pendingDraftSettings
 				{newPath}
 				{labels}
-				{customPath}
 				path={page.params.path ?? ''}
 				liveEditorDraftStoragePath={path}
 				{policy}

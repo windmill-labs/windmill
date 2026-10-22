@@ -362,16 +362,14 @@
 				bind:pendingDraftPath
 				bind:pendingDraftSettings={
 					() => undefined,
-					(s: { labels: string[]; custom_path: string | null } | undefined) => {
-						// The header reports its settings on mount too: only a change reaches the draft.
+					(s: { labels: string[] } | undefined) => {
+						// The header reports its labels on mount too: only a change reaches the draft.
 						const v = cell.store.val
 						if (!s || !v) return
-						if ((v.custom_path ?? null) !== s.custom_path) v.custom_path = s.custom_path
 						if ((v.labels ?? []).join('\n') !== s.labels.join('\n')) v.labels = s.labels
 					}
 				}
 				labels={cell.store.val.labels}
-				customPath={cell.store.val.custom_path}
 				newPath={cell.store.val.draft_path ?? cell.store.val.path}
 				{path}
 				autosaveWorkspace={workspaceId}

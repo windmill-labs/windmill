@@ -199,8 +199,7 @@ export function canonicalDraftSideValue(kind: DraftKind, value: unknown): unknow
 			summary: parts.summary ?? '',
 			value: parts.value,
 			...(parts.policy ? { policy: policySettings(parts.policy) } : {}),
-			...(parts.labels ? { labels: parts.labels } : {}),
-			...(parts.customPath !== undefined ? { custom_path: parts.customPath } : {})
+			...(parts.labels ? { labels: parts.labels } : {})
 		}
 	}
 	if (kind === 'flow' && value !== null && typeof value === 'object') {
@@ -595,7 +594,8 @@ export async function deployDraft(
 				withDraftPolicySettings(deployedPolicy, settings.policy)
 			)
 			// custom_path requires admin on update; non-admins send undefined so the
-			// backend preserves the existing route.
+			// backend preserves the existing route. The draft has no custom_path, so
+			// admins fall back to the deployed route (`''` when none).
 			const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
 			const requestBody = {
 				value: appValue,
@@ -604,7 +604,7 @@ export async function deployDraft(
 				// Honor the draft's intended path; `draft_path` holds the user-typed path
 				// for a never-deployed app parked at a `u/{user}/draft_{uuid}` storage key.
 				path: parts.draftPath ?? r.path ?? path,
-				custom_path: isAdmin ? (settings.custom_path ?? '') : undefined,
+				custom_path: isAdmin ? (r.custom_path ?? '') : undefined,
 				labels: settings.labels,
 				deployment_message: deploymentMessage,
 				// Preserve the drafted on_behalf_of (the backend resets it to the deploying

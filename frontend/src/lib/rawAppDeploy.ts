@@ -163,7 +163,7 @@ export async function deployRawAppDraft(
 					summary,
 					policy,
 					deployment_message: deploymentMessage,
-					custom_path: value.custom_path ?? undefined,
+					custom_path: value.custom_path,
 					labels: value.labels,
 					// Preserve the policy's on_behalf_of (see update branch above).
 					preserve_on_behalf_of: policy.on_behalf_of ? true : undefined

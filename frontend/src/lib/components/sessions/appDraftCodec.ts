@@ -10,8 +10,7 @@ export type RawAppDraft = {
 	data: RawAppData
 	summary: string
 	policy?: any
-	// `null` when the draft removes the custom URL.
-	custom_path?: string | null
+	custom_path?: string
 	labels?: string[]
 	// User-typed path while the app is parked at a `…/draft_<uuid>` storage path.
 	// Must round-trip through the draft so the home/review/Drafts lists render the
@@ -33,8 +32,7 @@ export type RuntimeRawApp = {
 	runnables: Record<string, any>
 	data: RawAppData
 	policy: any
-	// `null` when the draft removes the custom URL; it round-trips into the next save.
-	custom_path?: string | null
+	custom_path?: string
 	labels?: string[]
 	draft_path?: string
 	parent_version?: number
@@ -67,7 +65,7 @@ export function applyDraftToRuntimeRawApp(raw: RuntimeRawApp, dv: RawAppDraft): 
 		runnables: dv.runnables,
 		data: dv.data,
 		policy: dv.policy ?? raw.policy,
-		custom_path: dv.custom_path !== undefined ? dv.custom_path : raw.custom_path,
+		custom_path: dv.custom_path ?? raw.custom_path,
 		labels: dv.labels ?? raw.labels,
 		draft_path: dv.draft_path ?? raw.draft_path,
 		// The incoming draft's own fork base, absence included: this round-trips into the

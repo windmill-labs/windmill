@@ -218,8 +218,7 @@
 		const s = $summary
 		const settings = appDraftSettings({
 			policy: $state.snapshot(policy),
-			labels: $state.snapshot(labels),
-			custom_path: customPath
+			labels: $state.snapshot(labels)
 		})
 		const a = $app
 		if (!a) return
@@ -229,7 +228,6 @@
 			const same = (x: unknown, y: unknown) => orderedJsonStringify(x) === orderedJsonStringify(y)
 			if (!same(a.policy, settings.policy)) a.policy = settings.policy
 			if (!same(a.labels, settings.labels)) a.labels = settings.labels
-			if (a.custom_path !== settings.custom_path) a.custom_path = settings.custom_path
 		})
 	})
 
@@ -298,7 +296,7 @@
 	// The draft-only fields mirrored onto `$app` (fork base, staged path, summary and settings)
 	// are columns of the app row or editor state. Deployed inside the value, they would land in
 	// git-synced files and version diffs, `parent_version` changing on every deploy; exported,
-	// they would hand out the publisher's email and the custom URL.
+	// they would hand out the publisher's email.
 	function withoutDraftBase<T extends App | undefined>(a: T): T {
 		if (!a) return a
 		return classicAppDraftParts(a).value as T
@@ -846,12 +844,7 @@
 		setTheme(priorDarkMode)
 	})
 
-	// A draft that set or removed the custom URL wins over the deployed one.
-	let customPath = $state(
-		untrack(() =>
-			$app?.custom_path !== undefined ? ($app.custom_path ?? undefined) : savedApp?.custom_path
-		)
-	)
+	let customPath = $state(savedApp?.custom_path)
 	let labels = $state(untrack(() => initialLabels))
 
 	$effect(() => {

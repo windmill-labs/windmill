@@ -48,20 +48,6 @@ describe('appDraftCodec — custom_path round-trip', () => {
 		expect(back.path).toBe('f/foo/app')
 	})
 
-	it('keeps a removed custom URL removed through a round-trip', () => {
-		const removed: RawAppDraft = {
-			summary: 'app',
-			files: {},
-			runnables: {},
-			data: { tables: [] } as any,
-			custom_path: null
-		}
-		const back = applyDraftToRuntimeRawApp(runtime({ custom_path: 'deployed-url' }), removed)
-		expect(back.custom_path).toBe(null)
-		// Saved as JSON: an `undefined` would drop out and the deployed URL come back.
-		expect(JSON.parse(JSON.stringify(runtimeRawAppToDraft(back))).custom_path).toBe(null)
-	})
-
 	it('falls back to the runtime custom_path when the draft omits it', () => {
 		const base = runtime({ custom_path: 'existing' })
 		const dv: RawAppDraft = {
