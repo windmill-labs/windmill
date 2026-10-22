@@ -71,6 +71,7 @@
 	import AppSettingsDrawer, { type AppSettingsTab } from './AppSettingsDrawer.svelte'
 	import DeployButton from '$lib/components/DeployButton.svelte'
 	import { updatePolicy } from './appPolicy'
+	import { publishAccessMode } from './publishAccessMode'
 	import { appDraftSettings } from './appDraftSettings'
 	import { classicAppDraftParts } from '$lib/appDiffSides'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
@@ -303,12 +304,7 @@
 	}
 
 	async function setPublishState(message?: string) {
-		Object.assign(policy, await updatePolicy($app, policy))
-		await AppService.updateApp({
-			workspace: $workspaceStore!,
-			path: $appPath,
-			requestBody: { policy }
-		})
+		await publishAccessMode($workspaceStore!, $appPath, policy.execution_mode)
 		if (message) {
 			sendUserToast(message)
 		} else if (policy.execution_mode == 'anonymous') {

@@ -56,6 +56,7 @@
 	import DeployButton from '$lib/components/DeployButton.svelte'
 	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { updateRawAppPolicy } from './rawAppPolicy'
+	import { publishAccessMode } from '$lib/components/apps/editor/publishAccessMode'
 	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
 	import { getContext } from 'svelte'
 
@@ -375,13 +376,7 @@
 	}
 
 	async function setPublishState(message?: string) {
-		const nextPolicy = await policyWithTriggerables()
-		await AppService.updateApp({
-			workspace: opWorkspace!,
-			path: appPath,
-			requestBody: { policy: nextPolicy }
-		})
-		policy.triggerables_v2 = nextPolicy.triggerables_v2
+		await publishAccessMode(opWorkspace!, appPath, policy.execution_mode)
 		if (message) {
 			sendUserToast(message)
 		} else if (policy.execution_mode == 'anonymous') {
