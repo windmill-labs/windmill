@@ -75,18 +75,23 @@ async fn status(
 /// Which of the workspaces connected to a Slack team a request may reach.
 #[derive(Clone, Debug, Default)]
 pub struct SlackRequest {
-    /// Those whose app's signing secret verified it, and those whose app has none set, which take
-    /// requests unauthenticated.
+    /// Those whose app's signing secret verified it or, when none did, those whose app has none
+    /// set, which take requests unauthenticated.
     pub reachable: Vec<String>,
     /// Those whose app's signing secret verified it, the only ones agents answer for.
     pub verified: Vec<String>,
 }
 
+fn env_signing_secret() -> Option<String> {
+    std::env::var("SLACK_SIGNING_SECRET")
+        .ok()
+        .filter(|s| !s.is_empty())
+}
+
 fn instance_signing_secrets() -> Vec<String> {
     #[cfg(feature = "oauth2")]
     {
-        std::env::var("SLACK_SIGNING_SECRET")
-            .ok()
+        env_signing_secret()
             .into_iter()
             .chain(crate::OAUTH_CLIENTS.load().slack_signing_secret.clone())
             .filter(|s| !s.is_empty())
@@ -110,15 +115,16 @@ async fn signing_secret_set(db: &DB, w_id: &str) -> Result<bool> {
     .fetch_optional(db)
     .await?;
     Ok(match own_app {
-        Some(r) if r.own_app => r.own_secret,
+        Some(r) if r.own_app => r.own_secret || env_signing_secret().is_some(),
         _ => !instance_signing_secrets().is_empty(),
     })
 }
 
 /// Whether a Slack request was signed by the app a workspace is connected through: `None` when that
 /// app has no secret set, which leaves the request unauthenticated. A workspace's own app is checked
-/// against its own secret alone, never the instance's: the instance's app signs nothing for it, so
-/// setting an instance secret must not start rejecting its requests.
+/// against its own secret, never the instance setting's: the instance's app signs nothing for it, so
+/// setting an instance secret must not start rejecting its requests. Without its own secret it falls
+/// back to `SLACK_SIGNING_SECRET`, which may hold that app's secret from before workspaces had one.
 #[cfg(feature = "oauth2")]
 fn workspace_verified(
     own_app: bool,
@@ -127,7 +133,7 @@ fn workspace_verified(
     matches: impl Fn(&str) -> bool,
 ) -> Option<bool> {
     if own_app {
-        own_secret.map(|s| matches(&s))
+        own_secret.or_else(env_signing_secret).map(|s| matches(&s))
     } else {
         instance_verified
     }
@@ -142,7 +148,7 @@ fn slack_signature_matcher<'a>(
     // Slack's recommended replay window: a captured request stops verifying after it.
     let fresh = ts
         .parse::<i64>()
-        .is_ok_and(|t| (chrono::Utc::now().timestamp() - t).abs() <= 5 * 60);
+        .is_ok_and(|t| chrono::Utc::now().timestamp().abs_diff(t) <= 5 * 60);
     move |secret: &str| {
         fresh
             && windmill_oauth::SlackVerifier::new(secret)
@@ -209,6 +215,11 @@ pub async fn verify_slack_request(
     }
     if req.reachable.is_empty() {
         return signature_rejected();
+    }
+    // A matching secret proves which app sent the request, so a workspace that merely has no secret
+    // to rule it out must not take it.
+    if !req.verified.is_empty() {
+        req.reachable = req.verified.clone();
     }
     Ok(req)
 }
@@ -617,8 +628,6 @@ pub struct SlackMessage {
     /// The workspaces whose Slack app's signing secret verified this request. Carried from the
     /// check rather than re-read from the settings, which can change between the two.
     pub verified: Vec<String>,
-    /// The workspaces this request may reach, whose command scripts may take it.
-    pub reachable: Vec<String>,
 }
 
 enum Route {
@@ -708,20 +717,22 @@ pub async fn try_answer(db: &DB, msg: SlackMessage) -> Result<bool> {
                     "channel_default"
                 },
             ),
-            None => match workspace_without_command_script(db, &msg).await? {
-                Some(w_id) => {
-                    return start_answer(
-                        db,
-                        w_id,
-                        Route::Help { note: None },
-                        "help",
-                        question,
-                        msg,
-                    )
-                    .await;
+            None => {
+                match workspace_without_command_script(db, &msg.team_id, &msg.verified).await? {
+                    Some(w_id) => {
+                        return start_answer(
+                            db,
+                            w_id,
+                            Route::Help { note: None },
+                            "help",
+                            question,
+                            msg,
+                        )
+                        .await;
+                    }
+                    None => return Ok(false),
                 }
-                None => return Ok(false),
-            },
+            }
         },
     };
     let w_id = here.workspace_id.clone();
@@ -834,23 +845,25 @@ fn decode_entities(text: &str) -> String {
         .replace("&amp;", "&")
 }
 
-/// The team's workspace when no workspace the message may reach has a command script to take it:
-/// the only one it reaches, when that one verified it.
-async fn workspace_without_command_script(db: &DB, msg: &SlackMessage) -> Result<Option<String>> {
+/// The team's workspace when no workspace of the team has a command script to take the message:
+/// the only one connected to it.
+async fn workspace_without_command_script(
+    db: &DB,
+    team_id: &str,
+    verified: &[String],
+) -> Result<Option<String>> {
     let rows = sqlx::query!(
         "SELECT workspace_id, slack_command_script IS NOT NULL AS \"has_script!\"
          FROM workspace_settings ws WHERE slack_team_id = $1
            AND ws.workspace_id = ANY($2)
          ORDER BY slack_command_script IS NOT NULL DESC LIMIT 2",
-        msg.team_id,
-        &msg.reachable
+        team_id,
+        verified
     )
     .fetch_all(db)
     .await?;
     Ok(match rows.as_slice() {
-        [only] if !only.has_script && msg.verified.contains(&only.workspace_id) => {
-            Some(only.workspace_id.clone())
-        }
+        [only] if !only.has_script => Some(only.workspace_id.clone()),
         _ => None,
     })
 }
