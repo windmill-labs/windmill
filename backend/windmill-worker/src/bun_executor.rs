@@ -2828,6 +2828,10 @@ try {{
     if (step_id) {{
         err["step_id"] = step_id;
     }}
+    let job_id = process.env.WM_JOB_ID;
+    if (job_id) {{
+        err["job_id"] = job_id;
+    }}
     const extra = {{}};
     Object.getOwnPropertyNames(e).forEach((key) => {{
         if (['line', 'name', 'stack', 'column', 'message', 'sourceURL', 'originalLine', 'originalColumn'].includes(key)) {{
@@ -2893,6 +2897,10 @@ try {{
     let step_id = process.env.WM_FLOW_STEP_ID;
     if (step_id) {{
         err["step_id"] = step_id;
+    }}
+    let job_id = process.env.WM_JOB_ID;
+    if (job_id) {{
+        err["job_id"] = job_id;
     }}
     const extra = {{}};
     Object.getOwnPropertyNames(e).forEach((key) => {{

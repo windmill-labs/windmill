@@ -387,6 +387,10 @@ try {{
     if (step_id) {{
         err["step_id"] = step_id;
     }}
+    let job_id = Deno.env.get("WM_JOB_ID");
+    if (job_id) {{
+        err["job_id"] = job_id;
+    }}
     await Deno.writeTextFile("result.json", JSON.stringify(err));
     Deno.exit(1);
 }}

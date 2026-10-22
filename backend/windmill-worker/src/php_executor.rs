@@ -513,6 +513,10 @@ try {{
     if ($step_id) {{
         $err["step_id"] = $step_id;
     }}
+    $job_id = getenv('WM_JOB_ID');
+    if ($job_id) {{
+        $err["job_id"] = $job_id;
+    }}
     file_put_contents("result.json", json_encode($err));
     exit(1);
 }}

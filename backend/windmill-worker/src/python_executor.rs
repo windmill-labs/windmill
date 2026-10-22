@@ -1001,6 +1001,9 @@ except BaseException as e:
         flow_node_id = os.environ.get('WM_FLOW_STEP_ID')
         if flow_node_id:
             err['step_id'] = flow_node_id
+        job_id = os.environ.get('WM_JOB_ID')
+        if job_id:
+            err['job_id'] = job_id
         err_json = json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
         f.write(err_json)
         sys.exit(1)
@@ -1071,6 +1074,9 @@ except BaseException as e:
         flow_node_id = os.environ.get('WM_FLOW_STEP_ID')
         if flow_node_id:
             err['step_id'] = flow_node_id
+        job_id = os.environ.get('WM_JOB_ID')
+        if job_id:
+            err['job_id'] = job_id
         err_json = json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
         f.write(err_json)
         sys.exit(1)
