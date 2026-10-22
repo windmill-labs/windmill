@@ -374,6 +374,23 @@
 		return updateRawAppPolicy(runnables, policy)
 	}
 
+	async function setPublishState(message?: string) {
+		const nextPolicy = await policyWithTriggerables()
+		await AppService.updateApp({
+			workspace: opWorkspace!,
+			path: appPath,
+			requestBody: { policy: nextPolicy }
+		})
+		policy.triggerables_v2 = nextPolicy.triggerables_v2
+		if (message) {
+			sendUserToast(message)
+		} else if (policy.execution_mode == 'anonymous') {
+			sendUserToast('App require no login to be accessed')
+		} else {
+			sendUserToast('App require login and read-access')
+		}
+	}
+
 	async function createApp(path: string) {
 		if (!app) {
 			sendUserToast(`App hasn't been loaded yet`, true)
@@ -883,6 +900,7 @@
 	bind:newEditedPath
 	bind:labels
 	showErrors={deployRefused}
+	setPublishState={() => setPublishState()}
 />
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">

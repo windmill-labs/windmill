@@ -57,11 +57,12 @@
 		rawApp = false,
 		newApp = false,
 		operatingWorkspace = undefined,
-		showErrors = false
+		showErrors = false,
+		setPublishState
 	}: {
 		open: boolean
 		tab: AppSettingsTab
-		/** Mutated in place; deployed with the app, like every other setting here. */
+		/** Mutated in place and deployed with the app, except who can open it: see `setPublishState`. */
 		policy: Policy
 		appPath: string
 		customPath: string | undefined
@@ -86,6 +87,8 @@
 		operatingWorkspace?: string
 		/** A deploy was refused over these errors: show them before the fields are edited. */
 		showErrors?: boolean
+		/** Writes the policy to the deployed app at once; who can open it applies on change. */
+		setPublishState?: () => void
 	} = $props()
 
 	const opWs = $derived(operatingWorkspace ?? $operatingWorkspaceStore)
@@ -142,17 +145,14 @@
 	function onAccessModeChange(mode: string | undefined) {
 		if (mode === undefined || mode === accessMode) return
 		policy.execution_mode = mode as Policy['execution_mode']
+		// A not-yet-deployed app has no row to update: its first deploy carries the mode.
+		if (savedApp && !newApp) setPublishState?.()
 	}
 
 	let isAdmin = $derived(!!actingUser?.is_admin || !!actingUser?.is_super_admin)
 
-	// The URLs below only serve what is deployed, so a pending access change must not read as
-	// already live.
-	let sharingChanged = $derived(
-		!newApp &&
-			(policy.execution_mode != savedApp?.policy?.execution_mode ||
-				(customPath ?? null) !== (savedApp?.custom_path ?? null))
-	)
+	// The URLs below only serve what is deployed, so a pending custom URL must not read as live.
+	let sharingChanged = $derived(!newApp && (customPath ?? null) !== (savedApp?.custom_path ?? null))
 	let pathChanged = $derived(
 		!newApp && !!savedApp?.path && !!newEditedPath && newEditedPath !== savedApp.path
 	)

@@ -302,6 +302,22 @@
 		return classicAppDraftParts(a).value as T
 	}
 
+	async function setPublishState(message?: string) {
+		Object.assign(policy, await updatePolicy($app, policy))
+		await AppService.updateApp({
+			workspace: $workspaceStore!,
+			path: $appPath,
+			requestBody: { policy }
+		})
+		if (message) {
+			sendUserToast(message)
+		} else if (policy.execution_mode == 'anonymous') {
+			sendUserToast('App require no login to be accessed')
+		} else {
+			sendUserToast('App require login and read-access')
+		}
+	}
+
 	async function createApp(path: string) {
 		// In place: the settings drawer and the draft mirror hold this object.
 		Object.assign(policy, await updatePolicy($app, policy))
@@ -926,6 +942,7 @@
 	bind:newEditedPath
 	bind:labels
 	showErrors={deployRefused}
+	setPublishState={() => setPublishState()}
 />
 
 <Drawer bind:open={inputsDrawerOpen} size="600px">
