@@ -105,17 +105,18 @@
 	}: Props = $props()
 
 	let isVariableExpiration = $derived(errorOrRecovery === 'variableExpiration')
-	let handlerArgs = $derived(isVariableExpiration ? variableExpirationHandlerArgs : errorHandlerArgs)
+	let handlerArgs = $derived(
+		isVariableExpiration ? variableExpirationHandlerArgs : errorHandlerArgs
+	)
 
 	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace)
 	// Carry the workspace onto the "create from template" route, so the handler script is
-	// created where this handler is saved. `customScriptTemplate` already has a query string,
-	// and may end in a `#` fragment the parameter must stay ahead of.
-	let templateHref = $derived.by(() => {
-		if (!effectiveWorkspace) return customScriptTemplate
-		const [url, hash] = customScriptTemplate.split('#')
-		return `${url}&workspace=${encodeURIComponent(effectiveWorkspace)}${hash ? '#' + hash : ''}`
-	})
+	// created where this handler is saved. `customScriptTemplate` already has a query string.
+	let templateHref = $derived(
+		effectiveWorkspace
+			? `${customScriptTemplate}&workspace=${encodeURIComponent(effectiveWorkspace)}`
+			: customScriptTemplate
+	)
 
 	let customHandlerSchema: Schema | undefined = $state()
 	let slackHandlerSchema: Schema | undefined = $state()

@@ -2381,33 +2381,7 @@ export async function main(
 										customRequiresEE={false}
 										toggleText="Notify when a variable is about to expire"
 										bind:draft={variableExpirationDraft}
-										customScriptTemplate={`/scripts/add?lang=bun#` +
-											encodeState({
-												path: 'f/variable_expiration_handler',
-												summary: 'Workspace Variable Expiration Handler',
-												description:
-													'Called ahead of the date the value of a variable in this workspace expires',
-												content: `// Workspace Variable Expiration Handler
-// Called ahead of the date the value of a variable in this workspace expires, at each
-// reminder if the workspace sets one, and again whenever that date is moved to a new one.
-//
-// The value itself is never passed in: job arguments and results are stored in
-// cleartext and shown in Runs. Read it with the Windmill client if the rotation
-// needs it, but never return or log it.
-
-export async function main(
-  variable_path: string,
-  description: string,
-  value_valid_until: string,
-  is_secret: boolean
-) {
-  console.log(\`\${variable_path} expires at \${value_valid_until}\`)
-
-  // Rotate the value here, then write the next expiry date back onto the
-  // variable — that is what re-arms this handler for the following rotation.
-}
-`
-											})}
+										customScriptTemplate="/scripts/add?hub=hub%2F30050%2Fwindmill%2Fworkspace_variable_expiration_handler_template"
 									/>
 
 									<SettingCard
