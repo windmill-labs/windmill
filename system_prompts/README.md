@@ -10,7 +10,7 @@ are built from it:
   `cli/src/guidance/skills.gen.ts`, next to the `AGENTS.wmill.md` template in
   `cli/src/guidance/core.ts`.
 
-The workspace MCP server (`backend/windmill-api/src/mcp/session/`) is a third reader, one step
+The workspace MCP server (`backend/windmill-api/src/ai_session_tools/`) is a third reader, one step
 removed: it serves the global chat's own `get_instructions` texts and system prompt, rendered for
 an external client by `npm run gen:mcp-session` in `frontend/`. Rerun that after `generate.py`.
 

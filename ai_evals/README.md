@@ -170,13 +170,38 @@ chose in the artifact's version picker — which only `get_preview_status` repor
 
 Global initial fixtures can seed `workspace.variables` with
 `{ path, value, is_secret, description?, labels?, ws_specific? }` entries so cases can
-read and edit variables that already exist in the workspace. The mock mirrors the real
-`get_variable`, **decrypt-by-default included**: a secret's `value` is withheld only
-when the caller explicitly passes `decryptSecret: false`, and omitting the flag returns
-the decrypted value, exactly as against a real backend. The chat's read path passes
-`decryptSecret: false`, so a case can verify it never invents a value it was not shown.
-Seed a recognizable secret (the existing fixture uses `sk_live_do_not_leak_me`) and
-assert it via `valueExcludes` to catch a leak.
+read and edit variables that already exist in the workspace. Seed a recognizable secret
+(the existing fixture uses `sk_live_do_not_leak_me`) and assert it via `valueExcludes` to
+catch a leak.
+
+### Global mode runs against a real workspace
+
+The session's tools run on the backend, so each global attempt creates its own workspace on
+the eval backend, seeds the fixture there through the API, and deletes it afterwards. What
+that backend needs:
+
+- a worker serving the `postgresql` tag (the `native` group) for datatable fixtures and the
+  SQL tools, and `WMILL_AI_EVAL_DATATABLE_PG_URL` (default
+  `postgres://postgres:changeme@localhost:5432/postgres`) naming a Postgres the worker can
+  reach, where each datatable fixture gets a scratch database;
+- a superadmin login (the default `admin@windmill.dev`), since it creates and deletes
+  workspaces. `WMILL_AI_EVAL_BACKEND_WORKSPACE` does not apply to global mode. A CE backend
+  allows two workspaces besides `admins`, so attempts past that wait for a free slot;
+- `WMILL_AI_EVAL_DATABASE_URL`, the eval backend's own database, for fixtures whose `user` is
+  not the admin: the harness writes that user and a token of theirs there with `psql` (CE cannot create
+  users through the API), adds them to the workspace, and revokes the token afterwards;
+- network access to the hub, which the hub tools reach through the backend, and the
+  `embedding` cargo feature, without which `search_hub_scripts` has no index to search;
+- the `http_trigger` cargo feature, which mounts the routes HTTP trigger drafts are checked
+  against;
+- `RESOURCE_TYPE_EMBEDDINGS_CHECK_INTERVAL_SECS` set low (CI uses 2): each attempt seeds the
+  hub's resource types into its workspace and waits until the resource type search sees them,
+  which takes up to that interval (60 s by default).
+
+A fixture's `jobs` become completed preview runs with the given id, path, args, logs and
+outcome; `createdBy` is not reproduced. Its `resourceTypes` are created as workspace types,
+alongside whatever types the instance already holds; a fixture that sets none gets the types
+of an instance synced with the hub.
 
 `runtime.userAnswers` scripts the user's side of `askUserQuestion` in a global case: one
 answer per question, in the order they are asked, and a question past the last answer is
@@ -204,24 +229,12 @@ recorded call to that tool may pass the field at all (an explicit `null` counts 
 passing it). Use it for partial-update tools, where supplying a field the model could
 not have read is itself the failure — e.g. `write_variable.value` on a secret variable.
 
-Global (and flow) initial fixtures can seed `workspace.datatables` so the
-`list_datatables`, `get_datatable_table_schema`, and `exec_datatable_sql` tools
-return seeded data during evals. Each entry is
+Global initial fixtures can seed `workspace.datatables`. Each entry is
 `{ datatable_name, schemas: { <schema>: { <table>: { columns, rows? } } } }`,
 plus `migrations_enabled: true` and `migrations: [{ timestamp, name, code_up, code_down?, applied? }]`
-for a datatable that keeps its schema as migrations, which the migration tools then
-read and write in memory.
-SQL runs through a small in-memory engine (`datatableSqlEngine.ts`), not a real
-database. Writes are **stateful within a case**: `CREATE`/`DROP`/`INSERT`/`UPDATE`/
-`DELETE` mutate the seeded datatable in place, so a later `list_datatables`,
-`get_datatable_table_schema`, `SELECT`, or `information_schema` query reflects them
-— this is what stops a model from looping when it re-queries to verify a write.
-The engine is best-effort: `SELECT` returns all rows of the referenced (or first)
-table with no WHERE filtering/projection/joins, `WHERE` on UPDATE/DELETE supports
-`col = value` predicates joined by `AND`, and anything unparseable is a no-op
-success. So validate datatable cases through tool-use and SQL-argument assertions
-(`requiredToolsUsed`, `stringIncludesAnyOf`) — not through exact returned row
-values. An empty/absent `datatables` seed makes `list_datatables` return `[]`,
+for a datatable that keeps its schema as migrations. Each one becomes a real datatable of
+the case's workspace, backed by its scratch database, so the datatable and SQL tools see
+exactly what a query would. An absent `datatables` seed leaves the workspace with none,
 which is what the "no datatable configured" blocking cases rely on.
 
 Set `WMILL_AI_EVAL_DISABLE_ACTIVE_EDITOR_CONTEXT=1` to run those cases with

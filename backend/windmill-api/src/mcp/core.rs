@@ -82,14 +82,7 @@ impl WindmillBackend {
         w_id: &'a str,
         access: SessionAccess,
     ) -> session::Ctx<'a> {
-        session::Ctx {
-            auth,
-            w_id,
-            base_internal_url: &self.base_internal_url,
-            access,
-            origin: None,
-            jwt: Default::default(),
-        }
+        session::Ctx::new(auth, w_id, &self.base_internal_url, session::access(access))
     }
 
     pub fn new(
@@ -487,7 +480,8 @@ impl McpBackend for WindmillBackend {
         access: SessionAccess,
         origin: Option<&str>,
     ) -> BackendResult<CallToolResult> {
-        let ctx = session::Ctx { origin, ..self.session_ctx_with(auth, workspace_id, access) };
+        let mut ctx = self.session_ctx_with(auth, workspace_id, access);
+        ctx.origin = origin;
         session::call_session_tool(&ctx, name, args).await
     }
 }

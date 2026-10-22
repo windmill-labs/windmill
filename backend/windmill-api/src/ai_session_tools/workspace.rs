@@ -4,9 +4,10 @@ use std::collections::HashMap;
 
 use serde_json::{json, Map, Value};
 
+use super::chat::Effect;
 use super::{
     array, bool_arg, enc, is_not_found, js_len, js_str, non_null, opt_str_arg, pretty, put,
-    str_arg, truthy, Ctx, ToolResult,
+    str_arg, truthy, Ctx, Surface, ToolResult,
 };
 
 pub(super) const TOOLS: &[&str] = &[
@@ -282,11 +283,17 @@ pub(super) struct Draft {
     pub created_at: Option<String>,
 }
 
+/// The caller's own draft named `path`. For the chat, a cell the browser holds is newer
+/// than the server's row and wins, the way the editor reads it.
 pub(super) async fn get_draft(
     ctx: &Ctx<'_>,
     kind: &str,
     path: &str,
 ) -> Result<Option<Draft>, String> {
+    let path = ctx.storage_path(kind, path);
+    if let Some(value) = ctx.chat.and_then(|chat| chat.cell(kind, path)) {
+        return Ok(Some(Draft { value: value.clone(), created_at: None }));
+    }
     let row = ctx
         .get(&ctx.ws(&format!("drafts/get_own/{kind}/{}", path_enc(path))))
         .await?;
@@ -300,6 +307,9 @@ pub(super) async fn get_draft(
     Ok(Some(Draft { value, created_at }))
 }
 
+/// Save the caller's draft, or delete it with `None`. False on a conflict with a newer
+/// row. The chat saves through its editor's own draft store instead, after the call: it
+/// gets the write as an effect, and reports a conflict or failure itself.
 pub(super) async fn save_draft(
     ctx: &Ctx<'_>,
     kind: &str,
@@ -308,6 +318,25 @@ pub(super) async fn save_draft(
     last_sync: Option<&str>,
     force: bool,
 ) -> Result<bool, String> {
+    if ctx.surface == Surface::Chat {
+        let storage_path = ctx.storage_path(kind, path).to_string();
+        ctx.effect(match value {
+            Some(value) => Effect::DraftWrite {
+                kind: kind.to_string(),
+                storage_path,
+                value: value.clone(),
+                last_sync: last_sync.map(String::from),
+                force,
+            },
+            None => Effect::DraftDelete {
+                kind: kind.to_string(),
+                storage_path,
+                last_sync: last_sync.map(String::from),
+                keep_live_editor: false,
+            },
+        });
+        return Ok(true);
+    }
     let mut body = Map::new();
     body.insert("value".into(), value.cloned().unwrap_or(Value::Null));
     if !force {
@@ -323,12 +352,24 @@ pub(super) async fn save_draft(
     Ok(response.get("status").and_then(Value::as_str) != Some("conflict"))
 }
 
+/// Delete the caller's draft. `keep_live_editor` leaves an editor open on it with its
+/// copy, detached from the row, as a deploy does.
 pub(super) async fn delete_draft(
     ctx: &Ctx<'_>,
     kind: &str,
     path: &str,
     last_sync: Option<&str>,
+    keep_live_editor: bool,
 ) -> Result<(), String> {
+    if ctx.surface == Surface::Chat {
+        ctx.effect(Effect::DraftDelete {
+            kind: kind.to_string(),
+            storage_path: ctx.storage_path(kind, path).to_string(),
+            last_sync: last_sync.map(String::from),
+            keep_live_editor,
+        });
+        return Ok(());
+    }
     match save_draft(ctx, kind, path, None, last_sync, false).await {
         Ok(true) => Ok(()),
         Ok(false) => Err(format!(
@@ -352,6 +393,7 @@ pub(super) async fn list_drafts(ctx: &Ctx<'_>) -> Result<Vec<Value>, String> {
         let Some((item_type, trigger_kind)) = item_type_of_kind(kind) else {
             continue;
         };
+        let (path, live) = ctx.display_path(kind, path);
         let mut item = Map::new();
         item.insert("type".into(), json!(item_type));
         item.insert("path".into(), json!(path));
@@ -368,7 +410,30 @@ pub(super) async fn list_drafts(ctx: &Ctx<'_>) -> Result<Vec<Value>, String> {
         if kind == "raw_app" {
             item.insert("rawApp".into(), json!(true));
         }
+        if live {
+            item.insert("isLiveDraft".into(), json!(true));
+        }
         drafts.insert(item_key(item_type, path, trigger_kind), Value::Object(item));
+    }
+    // The browser's cells carry edits the rows may not have yet, and win.
+    for cell in ctx
+        .chat
+        .map(|chat| chat.cells.as_slice())
+        .unwrap_or_default()
+    {
+        let Some(Value::Object(mut item)) =
+            shown_draft_item(ctx, &cell.kind, &cell.storage_path, &cell.value)
+        else {
+            continue;
+        };
+        item.shift_remove("value");
+        item.shift_remove("schema");
+        let text = |key: &str| item.get(key).and_then(Value::as_str).map(String::from);
+        let (Some(item_type), Some(path)) = (text("type"), text("path")) else {
+            continue;
+        };
+        let key = item_key(&item_type, &path, text("triggerKind").as_deref());
+        drafts.insert(key, Value::Object(item));
     }
     Ok(drafts.into_iter().map(|(_, item)| item).collect())
 }
@@ -521,7 +586,24 @@ pub(super) async fn get_draft_item(
     let Some(draft) = get_draft(ctx, &kind, path).await? else {
         return Ok(None);
     };
-    Ok(draft_item(&kind, path, &draft.value).map(|item| (item, draft)))
+    Ok(shown_draft_item(ctx, &kind, path, &draft.value).map(|item| (item, draft)))
+}
+
+/// `draft_item` under the path the user sees: an open editor's own name for its draft,
+/// flagged as live.
+pub(super) fn shown_draft_item(
+    ctx: &Ctx<'_>,
+    kind: &str,
+    path: &str,
+    draft: &Value,
+) -> Option<Value> {
+    let (shown, live) = ctx.display_path(kind, ctx.storage_path(kind, path));
+    let mut item = draft_item(kind, shown, draft)?;
+    if live {
+        item.as_object_mut()?
+            .insert("isLiveDraft".into(), json!(true));
+    }
+    Some(item)
 }
 
 fn stash_inline_script(
@@ -854,7 +936,7 @@ pub(super) fn serialize_for_read(item: &Value, execution_mode: Option<Value>) ->
             let mut value = flow.get("value").cloned().unwrap_or_else(|| json!({}));
             if let (Some(groups), Some(value)) = (flow.get("groups"), value.as_object_mut()) {
                 if groups.is_null() {
-                    value.remove("groups");
+                    value.shift_remove("groups");
                 } else {
                     value.insert("groups".into(), groups.clone());
                 }
@@ -998,7 +1080,7 @@ pub(super) async fn persist_draft(
 ) -> Result<Persist, String> {
     let kind = draft_kind(item_type, trigger_kind)
         .ok_or_else(|| format!("Unsupported draft type \"{item_type}\"."))?;
-    let item = draft_item(&kind, path, value)
+    let item = shown_draft_item(ctx, &kind, path, value)
         .ok_or_else(|| format!("Could not synthesize {item_type} draft \"{path}\"."))?;
     let failure = match save_draft(ctx, &kind, path, Some(value), last_sync, force).await {
         Ok(true) => return Ok(Persist::Saved(item)),
@@ -1042,8 +1124,9 @@ pub(super) fn finish_draft_write(ctx: &Ctx<'_>, item: &Value, existed: bool) -> 
         json!(format!("{verb} {item_type} \"{path}\" as a per-user draft (saved server-side, visible only to this user — not a deployed workspace item). It was not deployed.")),
     );
     let value = item.get("value").unwrap_or(&Value::Null);
+    // The chat opens the draft in its own panel; an MCP client only has the link.
     if let Some(page) = draft_page(item_type, path, value) {
-        out.insert("url".into(), json!(ctx.page_url(&page)));
+        put(&mut out, "url", ctx.link(&page).map(Value::from));
     }
     // A flow is not echoed back: the model just sent it. A variable comes back redacted.
     match item_type {
@@ -1231,7 +1314,13 @@ pub(super) fn unified_patch(
 fn deployed_item(item_type: &str, trigger_kind: Option<&str>, row: &Value) -> Value {
     let mut item = Map::new();
     item.insert("type".into(), json!(item_type));
-    put(&mut item, "triggerKind", trigger_kind.map(Value::from));
+    put(
+        &mut item,
+        "triggerKind",
+        trigger_kind
+            .filter(|_| item_type == "trigger")
+            .map(Value::from),
+    );
     put(&mut item, "path", row.get("path").cloned());
     let mut is_draft = false;
     match item_type {
@@ -1583,8 +1672,27 @@ async fn write_script_draft(
     content: &str,
     force: bool,
 ) -> ToolResult {
+    // A session builds pipeline nodes into the folder's pipeline draft; a script draft
+    // written here never reaches the pipeline graph, and saving the pipeline drops it.
+    if ctx.in_session() && windmill_common::assets::parse_pipeline_annotations(content).in_pipeline
+    {
+        let folder = path
+            .strip_prefix("f/")
+            .and_then(|rest| rest.split_once('/'))
+            .map_or("<folder>", |(folder, _)| folder);
+        return Err(format!(
+            "\"{path}\" is a data pipeline node (its source starts with the pipeline annotation). In a session, pipeline nodes are not script drafts: call open_preview(kind=\"pipeline\", path=\"{folder}\") if that folder's pipeline editor is not open yet, then use build_pipeline_node (new node) or edit_pipeline_node (existing node). Nothing was written."
+        ));
+    }
     let base = write_base(ctx, "script", path, None).await?;
     let existed = base.base.is_some();
+    let before = base
+        .base
+        .as_ref()
+        .and_then(|b| b.get("content"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
     let mut draft = match base.base {
         Some(Value::Object(mut script)) => {
             if !base.from_draft {
@@ -1617,17 +1725,21 @@ async fn write_script_draft(
     };
     // Inferred into the schema the base carries: its properties are the only copy of
     // what no parser emits (`password`, enums, formats, titles). Code that does not
-    // parse keeps the schema as it was.
-    let previous = draft
-        .get("schema")
-        .filter(|schema| truthy(schema.get("properties")))
-        .cloned()
-        .unwrap_or_else(empty_schema);
-    let code = if content.is_empty() { " " } else { content };
-    // A language this build cannot parse, or code that does not parse yet, keeps the
-    // schema the draft had.
-    let schema = infer_script_schema(language, code, Some(&previous), None).unwrap_or(previous);
-    draft.insert("schema".into(), schema);
+    // parse keeps the schema as it was. The chat infers with the editor's own parsers
+    // before saving, so its schema matches what the editor shows.
+    if ctx.surface == Surface::Mcp {
+        let previous = draft
+            .get("schema")
+            .filter(|schema| truthy(schema.get("properties")))
+            .cloned()
+            .unwrap_or_else(empty_schema);
+        let code = if content.is_empty() { " " } else { content };
+        // A language this build cannot parse, or code that does not parse yet, keeps
+        // the schema the draft had.
+        let schema = infer_script_schema(language, code, Some(&previous), None).unwrap_or(previous);
+        draft.insert("schema".into(), schema);
+    }
+    ctx.code_diff(&before, content, Some(language));
     let persisted = persist_draft(
         ctx,
         "script",
@@ -1675,7 +1787,11 @@ async fn discard_local_draft(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let not_found = || format!("No draft found for {item_type} \"{path}\".");
     let kind = draft_kind(item_type, trigger_kind).ok_or_else(not_found)?;
     let draft = get_draft(ctx, &kind, path).await?.ok_or_else(not_found)?;
-    delete_draft(ctx, &kind, path, draft.created_at.as_deref()).await?;
+    delete_draft(ctx, &kind, path, draft.created_at.as_deref(), false).await?;
+    ctx.status_after_save(
+        format!("Discarded {item_type} \"{path}\" draft"),
+        Some("Draft discarded"),
+    );
     let mut out = Map::new();
     out.insert("success".into(), json!(true));
     out.insert(
@@ -1746,18 +1862,18 @@ async fn rebase_draft(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         .as_ref()
         .map_or_else(|| "undefined".to_string(), js_str);
     if base.is_some() && base == head {
+        let message = format!(
+            "Draft \"{path}\" is already based on the latest deployed version ({head_text})."
+        );
+        ctx.status(message.clone());
         let mut out = Map::new();
         out.insert("success".into(), json!(true));
         out.insert("alreadyLatest".into(), json!(true));
         put(&mut out, head_key, head);
-        out.insert(
-            "message".into(),
-            json!(format!(
-                "Draft \"{path}\" is already based on the latest deployed version ({head_text})."
-            )),
-        );
+        out.insert("message".into(), json!(message));
         return Ok(Value::Object(out).to_string());
     }
+    ctx.status(format!("Rebasing draft \"{path}\" onto latest..."));
 
     // Captured before the discard: this diff is the only record of what to replay. A
     // base version that can no longer be fetched diffs against nothing, so the whole
@@ -1848,7 +1964,7 @@ async fn rebase_draft(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let result = pretty(&Value::Object(out));
     // The diff is the only copy of the draft once it is discarded: a result the server
     // would truncate must keep the draft instead.
-    if result.len() > windmill_mcp::server::MAX_TOOL_RESULT_BYTES {
+    if ctx.surface == Surface::Mcp && result.len() > super::MAX_TOOL_RESULT_BYTES {
         let editor = match item_type {
             "script" => "/scripts/edit",
             "flow" => "/flows/edit",
@@ -1860,7 +1976,8 @@ async fn rebase_draft(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         ));
     }
     let kind = draft_kind(item_type, None).ok_or_else(no_draft)?;
-    delete_draft(ctx, &kind, path, draft.created_at.as_deref()).await?;
+    delete_draft(ctx, &kind, path, draft.created_at.as_deref(), false).await?;
+    ctx.status_after_save(format!("Discarded stale draft \"{path}\""), Some("Rebased"));
     Ok(result)
 }
 

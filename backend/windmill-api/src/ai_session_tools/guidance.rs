@@ -6,7 +6,8 @@ use std::sync::LazyLock;
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{opt_str_arg, str_arg, Ctx, ToolResult};
+use super::workspace::api_message;
+use super::{opt_str_arg, str_arg, Ctx, Surface, ToolResult};
 
 pub(super) const TOOLS: &[&str] = &["get_instructions", "read_skill"];
 
@@ -57,6 +58,8 @@ const TRUNCATED: &str = "… [truncated]";
 
 pub(super) struct Skill {
     pub path: String,
+    /// Listed in the MCP instructions; the chat builds its own prompt.
+    #[cfg_attr(not(feature = "mcp"), allow(dead_code))]
     pub description: String,
 }
 
@@ -103,11 +106,19 @@ async fn read_skill(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     // reads any resource holding a string `content`.
     let listed = match list_skills(ctx).await {
         Ok(skills) => skills.iter().any(|skill| skill.path == path),
-        Err(e) => return Ok(read_failed(path, &e)),
+        Err(e) => return Ok(read_failed(ctx, path, api_message(&e))),
     };
-    if !listed {
+    // The chat's user can switch a skill off for that chat, a setting their browser holds.
+    let switched_off = ctx
+        .chat
+        .is_some_and(|chat| !chat.skill_enabled.unwrap_or(true));
+    if !listed || switched_off {
+        let (available, listing) = match ctx.surface {
+            Surface::Chat => ("available to this chat", "the system prompt"),
+            Surface::Mcp => ("available here", "the instructions"),
+        };
         return Ok(format!(
-            "\"{path}\" is not one of the skills available here. Only the paths listed under \"Skills\" in the instructions can be read."
+            "\"{path}\" is not one of the skills {available}. Only the paths listed under \"Skills\" in {listing} can be read."
         ));
     }
     let value = match ctx
@@ -115,10 +126,11 @@ async fn read_skill(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         .await
     {
         Ok(value) => value,
-        Err(e) => return Ok(read_failed(path, &e)),
+        Err(e) => return Ok(read_failed(ctx, path, api_message(&e))),
     };
     let Some(body) = value.get("content").and_then(Value::as_str) else {
         return Ok(read_failed(
+            ctx,
             path,
             &format!("resource {path} has no string \"content\" — is it an {SKILL_RESOURCE_TYPE}?"),
         ));
@@ -135,8 +147,12 @@ async fn read_skill(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     Ok(format!("Skill: {path}\n\nInstructions:\n{body}"))
 }
 
-fn read_failed(path: &str, message: &str) -> String {
+fn read_failed(ctx: &Ctx<'_>, path: &str, message: &str) -> String {
+    let listing = match ctx.surface {
+        Surface::Chat => "the system prompt",
+        Surface::Mcp => "the instructions",
+    };
     format!(
-        "Failed to read skill \"{path}\": {message}. Check the path against the Skills list in the instructions."
+        "Failed to read skill \"{path}\": {message}. Check the path against the Skills list in {listing}."
     )
 }

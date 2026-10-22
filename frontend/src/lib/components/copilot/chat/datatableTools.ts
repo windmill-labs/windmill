@@ -1,8 +1,6 @@
 import { z } from 'zod'
-import { WorkspaceService, type CompletedJob } from '$lib/gen'
+import type { CompletedJob } from '$lib/gen'
 import type { DataTableTables } from '$lib/gen/types.gen'
-import { runScript } from '$lib/components/jobs/utils'
-import { datatableReference } from '$lib/components/dbTypes'
 import {
 	createToolDef,
 	executeTestRun,
@@ -10,6 +8,7 @@ import {
 	type ChatJobResultFormat
 } from './shared'
 import { NONE, RUN_PREVIEW, type SessionTool } from './sessionCapabilities'
+import { callSessionTool, runOnServer } from './global/backendSessionTools'
 
 /**
  * Workspace-scoped datatable tools, with no app whitelist and no creation policy.
@@ -28,41 +27,6 @@ import { NONE, RUN_PREVIEW, type SessionTool } from './sessionCapabilities'
 const memo = <T>(factory: () => T): (() => T) => {
 	let cached: T | undefined
 	return () => (cached ??= factory())
-}
-
-// ============= Pure workspace-scoped operations =============
-
-/** List the datatables configured in the workspace, with their schema/table names: all of them as
- * their default role, or only `datatableName`, as `role` when one is given. */
-export async function listDatatables(
-	workspace: string,
-	datatableName?: string,
-	role?: string
-): Promise<DataTableTables[]> {
-	if (datatableName === undefined) return await WorkspaceService.listDataTableTables({ workspace })
-	return await WorkspaceService.listDataTableTables({
-		workspace,
-		datatableName,
-		...(role !== undefined && { roleFor: datatableName, role })
-	})
-}
-
-/** Get the columns (column_name -> compact_type) of one datatable table. */
-export async function getDatatableColumns(
-	workspace: string,
-	datatableName: string,
-	schemaName: string,
-	tableName: string,
-	role?: string
-): Promise<Record<string, string>> {
-	const schema = await WorkspaceService.getDataTableTableSchema({
-		workspace,
-		datatableName,
-		schemaName,
-		tableName,
-		role
-	})
-	return schema.columns
 }
 
 // ============= Error helpers =============
@@ -254,22 +218,16 @@ export function getDatatableTools(): SessionTool<{}>[] {
 			planModeSafe: true,
 			fn: async ({ args, workspace, toolId, toolCallbacks }) => {
 				toolCallbacks.setToolStatus(toolId, { content: 'Listing datatables...' })
-				try {
-					const parsedArgs = getListDatatablesSchema().parse(args ?? {})
-					if (parsedArgs.role !== undefined && parsedArgs.datatable_name === undefined) {
-						throw new Error('`role` needs `datatable_name`, the datatable it is a role of')
-					}
-					const metadata = await listDatatables(
-						workspace,
-						parsedArgs.datatable_name,
-						parsedArgs.role
-					)
-					if (metadata.length === 0) {
-						toolCallbacks.setToolStatus(toolId, {
-							content: 'No datatables configured — set one up in workspace settings'
-						})
-						return NO_DATATABLES_CONFIGURED_MESSAGE
-					}
+				getListDatatablesSchema().parse(args ?? {})
+				const { text } = await runOnServer('list_datatables', workspace, args ?? {})
+				if (text === NO_DATATABLES_CONFIGURED_MESSAGE) {
+					toolCallbacks.setToolStatus(toolId, {
+						content: 'No datatables configured — set one up in workspace settings'
+					})
+				} else if (text.startsWith('Error listing datatables: ')) {
+					toolCallbacks.setToolStatus(toolId, { content: text, error: text })
+				} else {
+					const metadata: DataTableTables[] = JSON.parse(text)
 					const totalTables = metadata.reduce(
 						(acc, datatable) =>
 							acc +
@@ -279,24 +237,8 @@ export function getDatatableTools(): SessionTool<{}>[] {
 					toolCallbacks.setToolStatus(toolId, {
 						content: `Listed ${metadata.length} datatable(s) with ${totalTables} table(s)`
 					})
-					// Only what the model acts on: the roles it may pass, not the creation privileges
-					// the manager's UI gates on.
-					return JSON.stringify(
-						metadata.map((d) => ({
-							datatable_name: d.datatable_name,
-							schemas: d.schemas,
-							...(d.error && { error: d.error }),
-							...(d.migrations_enabled && { migrations_enabled: true }),
-							...(d.permissioned && { usable_roles: d.usable_roles, default_role: d.default_role })
-						})),
-						null,
-						2
-					)
-				} catch (e) {
-					const errorMsg = `Error listing datatables: ${e instanceof Error ? e.message : String(e)}`
-					toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
-					return errorMsg
 				}
+				return text
 			}
 		},
 		{
@@ -308,39 +250,21 @@ export function getDatatableTools(): SessionTool<{}>[] {
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Getting schema for ${parsedArgs.datatable_name}.${parsedArgs.schema_name}.${parsedArgs.table_name}...`
 				})
-				try {
-					const columns = await getDatatableColumns(
-						workspace,
-						parsedArgs.datatable_name,
-						parsedArgs.schema_name,
-						parsedArgs.table_name,
-						parsedArgs.role
-					)
-					toolCallbacks.setToolStatus(toolId, {
-						content: `Retrieved schema for ${parsedArgs.schema_name}.${parsedArgs.table_name}`
-					})
-					return JSON.stringify(
-						{
-							datatable_name: parsedArgs.datatable_name,
-							schema_name: parsedArgs.schema_name,
-							table_name: parsedArgs.table_name,
-							columns
-						},
-						null,
-						2
-					)
-				} catch (e) {
-					const raw = e instanceof Error ? e.message : String(e)
-					const errorMsg = isDatatableNotConfiguredError(raw)
-						? datatableNotConfiguredMessage(parsedArgs.datatable_name)
-						: `Error getting table schema: ${raw}`
-					toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
-					return errorMsg
-				}
+				const { text } = await runOnServer('get_datatable_table_schema', workspace, args)
+				const failed =
+					text.startsWith('Error getting table schema: ') ||
+					text === datatableNotConfiguredMessage(parsedArgs.datatable_name)
+				toolCallbacks.setToolStatus(
+					toolId,
+					failed
+						? { content: text, error: text }
+						: { content: `Retrieved schema for ${parsedArgs.schema_name}.${parsedArgs.table_name}` }
+				)
+				return text
 			}
 		},
 		{
-			// `runScript` below goes through /jobs/run/preview, which jobs.rs refuses operators.
+			// The query runs as a /jobs/run/preview job, which jobs.rs refuses operators.
 			requires: RUN_PREVIEW,
 			def: getExecDatatableSqlToolDef(),
 			requiresConfirmation: true,
@@ -355,15 +279,13 @@ export function getDatatableTools(): SessionTool<{}>[] {
 				// tray (and honors `background`) instead of blocking the chat turn,
 				// while keeping the datatable-specific result/error shaping.
 				return executeTestRun({
-					jobStarter: () =>
-						runScript({
-							workspace,
-							requestBody: {
-								language: 'postgresql',
-								content: parsedArgs.sql,
-								args: { database: datatableReference(name, parsedArgs.role) }
-							}
-						}),
+					jobStarter: async () => {
+						const response = await callSessionTool(workspace, 'exec_datatable_sql', args, {
+							run: { phase: 'start' }
+						})
+						if (response.is_error) throw new Error(response.text)
+						return response.text
+					},
 					workspace,
 					toolCallbacks,
 					toolId,

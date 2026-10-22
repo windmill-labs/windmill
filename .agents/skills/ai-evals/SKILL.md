@@ -36,6 +36,10 @@ WMILL_AI_EVAL_BACKEND_URL=http://127.0.0.1:<port> WMILL_AI_EVAL_BACKEND_WORKSPAC
   `WMILL_AI_EVAL_BACKEND_WORKSPACE=integration-tests` (or any existing workspace) to
   reuse one. The only side effect of a run is upserting an `f/evals/ai/<provider>`
   resource there.
+- **Global mode creates its own workspace per attempt** and seeds the case's fixture in it,
+  because the session's tools run on the backend; it ignores
+  `WMILL_AI_EVAL_BACKEND_WORKSPACE` and needs a `postgresql` (native) worker for datatable
+  cases. `ai_evals/README.md` ("Global mode runs against a real workspace") lists the rest.
 - Provider keys live in `ai_evals/.env` and are auto-loaded by bun. The judge is a
   separate Anthropic call (default `claude-sonnet-4-6`) regardless of the model under
   test.

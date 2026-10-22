@@ -1,13 +1,17 @@
 //! Lookups that touch no draft: hub, docs, npm, resource types, workers, folders.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
 
 use futures::future::join_all;
 use serde_json::{json, Map, Value};
 use windmill_common::utils::HTTP_CLIENT;
 
+use super::chat::Effect;
+use super::workspace::api_message;
 use super::{
-    array, enc, is_not_found, opt_str_arg, pretty, str_arg, truthy, Ctx, ToolResult, SCHEMAS,
+    array, enc, is_not_found, js_head, js_len, opt_str_arg, pretty, str_arg, truthy, Ctx, ToolResult,
+    SCHEMAS,
 };
 
 pub(super) const TOOLS: &[&str] = &[
@@ -28,7 +32,7 @@ pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult 
     match name {
         "search_hub_scripts" => search_hub_scripts(ctx, args).await,
         "get_hub_integration" => get_hub_integration(ctx, args).await,
-        "search_npm_packages" => search_npm_packages(args).await,
+        "search_npm_packages" => search_npm_packages(ctx, args).await,
         "search_docs" => search_docs(ctx, args).await,
         "read_docs_page" => read_docs_page(ctx, args).await,
         "search_resource_types" => search_resource_types(ctx, args).await,
@@ -90,12 +94,37 @@ async fn hub_integrations(ctx: &Ctx<'_>) -> Vec<Value> {
     }
 }
 
+/// The frontend's `RESOURCE_TYPE_WORDS`: how a slug word reads where capitalizing gets it
+/// wrong, some into several words (`gcloud` -> `Google Cloud`).
+static DISPLAY_WORDS: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("gen/display_words.json"))
+        .expect("gen/display_words.json is valid")
+});
+
+/// What the frontend's `integrationDisplayName` calls a slug the hub names nothing.
+fn slug_display_name(slug: &str) -> String {
+    slug.split(['_', '-'])
+        .filter(|w| !w.is_empty())
+        .map(|w| {
+            DISPLAY_WORDS
+                .get(&w.to_ascii_lowercase())
+                .cloned()
+                .unwrap_or_else(|| w.to_string())
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// A token matches a whole word of the slug or display name, or extends one from four
 /// characters on: a bare substring test makes `for` hit sales*for*ce.
 fn token_matches_integration(token: &str, integration: &Value) -> bool {
     let name = integration.get("name").and_then(Value::as_str);
-    let display_name = integration.get("display_name").and_then(Value::as_str);
-    let words: Vec<String> = [name, display_name]
+    let display_name = integration
+        .get("display_name")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| name.map(slug_display_name));
+    let words: Vec<String> = [name, display_name.as_deref()]
         .into_iter()
         .flatten()
         .flat_map(words)
@@ -254,8 +283,9 @@ async fn get_hub_integration(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         Ok(doc) => doc,
         Err(e) => {
             // Only a 404 means the integration is absent. Reporting a timeout the same
-            // way would teach the model that a real integration does not exist.
-            let error = if is_not_found(&e) {
+            // way would teach the model that a real integration does not exist. No slug holds
+            // a `/`, and the route refuses one as malformed rather than absent.
+            let error = if is_not_found(&e) || integration.contains('/') {
                 format!("No hub metadata for \"{integration}\".")
             } else {
                 format!("Could not reach the hub for \"{integration}\"; it may still exist. Read its scripts instead, or try again.")
@@ -347,49 +377,184 @@ async fn get_hub_integration(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 // npm
 // ---------------------------------------------------------------------------
 
-const NPM_SCORE_THRESHOLD: f64 = 1000.0;
-/// The session caps a package's readme and types at 1% of its model's context window
-/// each. The caller's model is unknown here, so this is 1% of the window the session
-/// assumes for an unknown model (128000).
+/// The registry's best match is kept, and the runner-up only when it scores this share of it:
+/// the scores have no fixed scale (a descriptive query's right answer can score a few hundred,
+/// a package's own name thousands), so a match is judged against the best one.
+const NPM_RUNNER_UP_SHARE: f64 = 0.6;
+/// A package's readme and types are each capped at 1% of the model's context window. The
+/// chat sends its own model's cap; an MCP client's model is unknown, so this is 1% of the
+/// window assumed for an unknown model (128000).
 const NPM_TEXT_LIMIT: usize = 1280;
-
-fn take_chars(text: &str, limit: usize) -> String {
-    text.chars().take(limit).collect()
-}
 
 async fn fetch(url: &str) -> Result<reqwest::Response, reqwest::Error> {
     HTTP_CLIENT.get(url).send().await
 }
 
-/// The package's declared entry declaration file. The session walks every `.d.ts` of the
-/// package in the browser and keeps the same number of characters of the result.
-async fn npm_package_types(name: &str, version: &str) -> Option<String> {
-    let base = format!("https://unpkg.com/{name}@{version}");
-    let manifest: Value = fetch(&format!("{base}/package.json"))
-        .await
-        .ok()?
-        .error_for_status()
-        .ok()?
-        .json()
-        .await
-        .ok()?;
-    let entry = ["types", "typings"]
-        .iter()
-        .find_map(|key| manifest.get(key)?.as_str())
-        .unwrap_or("index.d.ts")
-        .trim_start_matches("./");
-    let types = fetch(&format!("{base}/{entry}"))
-        .await
-        .ok()?
-        .error_for_status()
-        .ok()?
-        .text()
-        .await
-        .ok()?;
-    Some(format!("// /node_modules/{name}/{entry}\n{types}"))
+/// Where a package's files come from: the public CDN, or the workspace's npm proxy, which
+/// is the authoritative source once the instance names a registry of its own. Each falls
+/// back to the other.
+struct NpmSources<'a> {
+    ctx: &'a Ctx<'a>,
+    proxy_first: bool,
 }
 
-async fn npm_search(query: &str) -> Result<Vec<Value>, String> {
+impl NpmSources<'_> {
+    async fn new<'a>(ctx: &'a Ctx<'a>) -> NpmSources<'a> {
+        let proxy_first = ctx
+            .get(&ctx.ws("npm_proxy/config"))
+            .await
+            .is_ok_and(|config| truthy(config.get("registry_configured")));
+        NpmSources { ctx, proxy_first }
+    }
+
+    async fn json(&self, cdn: String, proxy: String) -> Option<Value> {
+        let via_cdn = || async {
+            let response = fetch(&cdn).await.ok()?.error_for_status().ok()?;
+            response.json::<Value>().await.ok()
+        };
+        let via_proxy = || async { self.ctx.get(&self.ctx.ws(&proxy)).await.ok() };
+        if self.proxy_first {
+            match via_proxy().await {
+                Some(v) => Some(v),
+                None => via_cdn().await,
+            }
+        } else {
+            match via_cdn().await {
+                Some(v) => Some(v),
+                None => via_proxy().await,
+            }
+        }
+    }
+
+    async fn text(&self, cdn: String, proxy: String) -> Option<String> {
+        let via_cdn = || async {
+            let response = fetch(&cdn).await.ok()?.error_for_status().ok()?;
+            response.text().await.ok()
+        };
+        let via_proxy = || async {
+            self.ctx
+                .request("GET", &self.ctx.ws(&proxy), None)
+                .await
+                .ok()
+        };
+        if self.proxy_first {
+            match via_proxy().await {
+                Some(v) => Some(v),
+                None => via_cdn().await,
+            }
+        } else {
+            match via_cdn().await {
+                Some(v) => Some(v),
+                None => via_proxy().await,
+            }
+        }
+    }
+
+    /// `tag` as an exact version; one with two dots already is one.
+    async fn version(&self, module: &str, tag: &str) -> Option<String> {
+        if tag.split('.').count() >= 3 {
+            return Some(tag.to_string());
+        }
+        let resolved = self
+            .json(
+                format!("https://data.jsdelivr.com/v1/package/resolve/npm/{module}@{tag}"),
+                format!("npm_proxy/resolve/{}?tag={}", enc(module), enc(tag)),
+            )
+            .await?;
+        resolved.get("version")?.as_str().map(String::from)
+    }
+
+    /// The `.d.ts` files of `module` at `version`, in the order its file tree lists them.
+    async fn dts_files(&self, module: &str, version: &str) -> Option<Vec<String>> {
+        let tree = self
+            .json(
+                format!("https://data.jsdelivr.com/v1/package/npm/{module}@{version}/flat"),
+                format!("npm_proxy/filetree/{}/{}", enc(module), enc(version)),
+            )
+            .await?;
+        Some(
+            array(tree.get("files"))
+                .iter()
+                .filter_map(|f| f.get("name")?.as_str())
+                .filter(|name| name.ends_with(".d.ts"))
+                .map(String::from)
+                .collect(),
+        )
+    }
+}
+
+/// `@bla/foo` → `bla__foo`, the DefinitelyTyped name of a scoped package.
+fn dt_name(name: &str) -> String {
+    match name.strip_prefix('@') {
+        Some(scoped) if scoped.contains('/') => scoped.replacen('/', "__", 1),
+        _ => name.to_string(),
+    }
+}
+
+/// Every declaration file of the package, or of its `@types` package when it ships none,
+/// each headed by the path it would have under `node_modules`.
+/// Files fetched at once, as the browser's type acquisition did.
+const NPM_TYPES_CONCURRENCY: usize = 6;
+
+/// The package's declarations joined in order, fetched only until they reach `limit`
+/// characters: only that head is returned, and `@types/lodash` alone has hundreds of files.
+async fn npm_package_types(
+    sources: &NpmSources<'_>,
+    name: &str,
+    version: &str,
+    limit: usize,
+) -> String {
+    let mut module = name.to_string();
+    let mut prefix = format!("/node_modules/{name}");
+    let mut version = match sources.version(name, version).await {
+        Some(version) => version,
+        None => return String::new(),
+    };
+    let mut files = sources.dts_files(name, &version).await.unwrap_or_default();
+    if files.is_empty() {
+        module = format!("@types/{}", dt_name(name));
+        prefix = format!("/node_modules/@types/{}", dt_name(name));
+        let Some(dt_version) = sources.version(&module, "latest").await else {
+            return String::new();
+        };
+        version = dt_version;
+        files = sources
+            .dts_files(&module, &version)
+            .await
+            .unwrap_or_default();
+    }
+    let mut parts: Vec<String> = Vec::new();
+    for batch in files.chunks(NPM_TYPES_CONCURRENCY) {
+        let contents = join_all(batch.iter().map(|file| {
+            sources.text(
+                format!("https://cdn.jsdelivr.net/npm/{module}@{version}{file}"),
+                format!("npm_proxy/file/{}/{}{file}", enc(&module), enc(&version)),
+            )
+        }))
+        .await;
+        parts.extend(
+            batch
+                .iter()
+                .zip(contents)
+                .filter_map(|(file, code)| Some(format!("// {prefix}{file}\n{}", code?))),
+        );
+        if js_len(&parts.join("\n\n")) >= limit {
+            break;
+        }
+    }
+    parts.join("\n\n")
+}
+
+fn confident_npm_matches(objects: &[Value]) -> Vec<&Value> {
+    let score = |o: &Value| o.get("searchScore").and_then(Value::as_f64).unwrap_or(0.0);
+    let best = objects.iter().map(score).fold(0.0, f64::max);
+    objects
+        .iter()
+        .filter(|o| score(o) >= best * NPM_RUNNER_UP_SHARE)
+        .collect()
+}
+
+async fn npm_search(ctx: &Ctx<'_>, query: &str, limit: usize) -> Result<Vec<Value>, String> {
     let data: Value = fetch(&format!(
         "https://registry.npmjs.org/-/v1/search?text={}&size=2",
         enc(query)
@@ -399,14 +564,12 @@ async fn npm_search(query: &str) -> Result<Vec<Value>, String> {
     .json()
     .await
     .map_err(|e| e.to_string())?;
-    let packages = data
+    let objects = data
         .get("objects")
         .and_then(Value::as_array)
-        .ok_or("no `objects` in the registry answer")?
-        .iter()
-        .filter(|o| {
-            o.get("searchScore").and_then(Value::as_f64).unwrap_or(0.0) >= NPM_SCORE_THRESHOLD
-        })
+        .ok_or("no `objects` in the registry answer")?;
+    let packages = confident_npm_matches(objects)
+        .into_iter()
         .filter_map(|o| {
             let package = o.get("package")?;
             Some((
@@ -414,26 +577,29 @@ async fn npm_search(query: &str) -> Result<Vec<Value>, String> {
                 package.get("version").and_then(Value::as_str),
             ))
         });
+    let sources = &NpmSources::new(ctx).await;
     Ok(join_all(packages.map(|(name, version)| async move {
         let documentation = match fetch(&format!("https://unpkg.com/{name}/readme.md")).await {
             Ok(response) => response.text().await.unwrap_or_default(),
             Err(_) => String::new(),
         };
-        let types = npm_package_types(name, version.unwrap_or("latest"))
-            .await
-            .unwrap_or_default();
+        let types = npm_package_types(sources, name, version.unwrap_or("latest"), limit).await;
         json!({
             "package": name,
-            "documentation": take_chars(&documentation, NPM_TEXT_LIMIT),
-            "types": take_chars(&types, NPM_TEXT_LIMIT),
+            "documentation": js_head(&documentation, limit),
+            "types": js_head(&types, limit),
         })
     }))
     .await)
 }
 
-async fn search_npm_packages(args: &Value) -> ToolResult {
+async fn search_npm_packages(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let query = str_arg(args, "query")?;
-    Ok(match npm_search(query).await {
+    let limit = ctx
+        .chat
+        .and_then(|chat| chat.npm_text_limit)
+        .unwrap_or(NPM_TEXT_LIMIT);
+    Ok(match npm_search(ctx, query, limit).await {
         Ok(results) => Value::Array(results).to_string(),
         Err(e) => {
             tracing::warn!("npm package search failed: {e}");
@@ -454,7 +620,10 @@ fn docs_text(result: Result<Value, String>, action: &str) -> String {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string(),
-        Err(e) => format!("Failed to {action}: {e}, pursuing with the user request..."),
+        Err(e) => format!(
+            "Failed to {action}: {}, pursuing with the user request...",
+            api_message(&e)
+        ),
     }
 }
 
@@ -466,6 +635,14 @@ async fn search_docs(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         );
     }
     let result = ctx.get(&format!("/docs/search?query={}", enc(query))).await;
+    if let Ok(response) = &result {
+        let mut facts = Map::new();
+        facts.insert(
+            "result_count".into(),
+            array(response.get("results")).len().into(),
+        );
+        ctx.effect(Effect::Facts(facts));
+    }
     Ok(docs_text(result, "search documentation"))
 }
 
@@ -661,7 +838,7 @@ async fn create_folder(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
                 "success": true,
                 "message": format!("Created folder `f/{name}`. You can now write items to `f/{name}/<name>`.")
             }),
-            Err(error) => json!({ "success": false, "error": error }),
+            Err(error) => json!({ "success": false, "error": api_message(&error) }),
         }
         .to_string(),
     )
@@ -670,6 +847,25 @@ async fn create_folder(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn npm_matches_are_judged_against_the_best_one() {
+        let names = |scores: &[f64]| {
+            let objects: Vec<Value> = scores
+                .iter()
+                .enumerate()
+                .map(|(i, s)| json!({ "searchScore": s, "package": { "name": i.to_string() } }))
+                .collect();
+            confident_npm_matches(&objects)
+                .iter()
+                .map(|o| o["package"]["name"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        };
+        // A descriptive query's right answer scores a few hundred; a weak runner-up is dropped.
+        assert_eq!(names(&[815.0, 454.0]), ["0"]);
+        assert_eq!(names(&[419.0, 384.0]), ["0", "1"]);
+        assert!(names(&[]).is_empty());
+    }
 
     #[test]
     fn suggestions_rank_by_matched_words() {
@@ -690,6 +886,12 @@ mod tests {
             ["salesforce"]
         );
         assert_eq!(suggest_hub_integrations(&integrations, "s3 bucket"), ["s3"]);
+        // With no display name from the hub, the slug reads as the frontend labels it.
+        let unnamed = vec![json!({ "name": "gcloud", "display_name": null })];
+        assert_eq!(
+            suggest_hub_integrations(&unnamed, "deploy to google cloud"),
+            ["gcloud"]
+        );
     }
 
     #[test]

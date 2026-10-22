@@ -1,30 +1,46 @@
-//! The Windmill MCP server's toolset (`/api/mcp`, tokens with `mcp:all`): an AI session's toolset, for a client
-//! outside the Windmill UI.
+//! The AI session's GLOBAL toolset, run on the server for both of its callers: the
+//! in-app chat (`POST /w/{workspace}/ai_session_tools/{name}`) and the Windmill MCP
+//! server (`/api/mcp`, tokens with `mcp:all`).
 //!
 //! Everything a model reads here — tool names, descriptions, input schemas, the
 //! instructions, the `get_instructions` texts — is generated from the session's own
 //! definitions into `gen/` (`npm run gen:mcp-session` in `frontend/`). What a tool
-//! *does* is written here, mirroring its session counterpart in
-//! `frontend/src/lib/components/copilot/chat/global/core.ts`: a change to one side's
-//! behaviour belongs on the other.
+//! *does* is written here once; the chat keeps only what needs a browser (cards,
+//! confirmations, the run form, the open editor).
 //!
-//! A tool acts through the API as the caller, the way the session's does, so every
-//! permission check is the API's own. It calls the server's router in-process rather
-//! than over a socket.
+//! A tool acts through the API as the caller, so every permission check is the API's
+//! own. It calls the server's router in-process rather than over a socket.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use windmill_mcp::server::{
-    BackendResult, CallToolResult, ContentBlock, ErrorData, MetaObject, SessionAccess, Tool,
-    ToolAnnotations,
-};
+use windmill_common::auth::create_jwt_token;
 
 use crate::db::ApiAuthed;
 
-use super::utils::{mint_caller_jwt, send_as_caller};
+pub(crate) mod chat;
+
+/// What a caller may do with the toolset. An MCP token sets it from its scopes; the chat
+/// is always `Full`, its own gating running before a tool is called.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(not(feature = "mcp"), allow(dead_code))]
+pub(crate) enum SessionAccess {
+    ReadOnly,
+    ReadAndRun,
+    Full,
+}
+
+/// Which caller a tool runs for, at the few spots where the two genuinely differ.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Surface {
+    Mcp,
+    Chat,
+}
+
+/// The largest tool result the MCP runner passes on whole; it truncates beyond it.
+pub(crate) const MAX_TOOL_RESULT_BYTES: usize = 87_500;
 
 /// Each running server's fully layered router, by its `base_internal_url`. Keyed rather
 /// than global because the backend tests run one server per test in a single process,
@@ -42,11 +58,13 @@ pub(crate) fn register_router(base_internal_url: &str, router: Option<axum::Rout
     };
 }
 
+mod ai_providers;
 mod apps;
 mod data;
 mod deploy;
 mod flows;
 mod guidance;
+#[cfg(feature = "mcp")]
 mod instructions;
 mod items;
 mod misc;
@@ -54,13 +72,15 @@ mod runs;
 mod settings;
 mod workspace;
 
-pub(super) use instructions::{
+#[cfg(feature = "mcp")]
+pub(crate) use instructions::{
     generic_session_instructions, session_instructions, workspace_context,
 };
 
 #[derive(Deserialize)]
 struct ToolDef {
     name: String,
+    #[cfg_attr(not(feature = "mcp"), allow(dead_code))]
     description: String,
     parameters: Map<String, Value>,
     read_only: bool,
@@ -105,6 +125,7 @@ const EDITOR_ONLY: &[&str] = &[
 
 /// Tools whose effect reaches the deployed workspace and cannot be undone by discarding
 /// a draft. Stands in for the session's confirmation card.
+#[cfg(feature = "mcp")]
 const DESTRUCTIVE: &[&str] = &[
     "deploy_workspace_item",
     "delete_workspace_item",
@@ -131,6 +152,7 @@ fn allowed(def: &ToolDef, access: SessionAccess) -> bool {
 /// Each group's tools and its dispatcher, tried in order.
 macro_rules! groups {
     ($($group:ident),*) => {
+        #[cfg(any(test, feature = "mcp"))]
         fn implemented() -> impl Iterator<Item = &'static str> {
             std::iter::empty()$(.chain($group::TOOLS.iter().copied()))*
         }
@@ -145,55 +167,101 @@ macro_rules! groups {
 }
 groups!(guidance, workspace, items, misc, flows, apps, runs, deploy, data, settings);
 
-/// Claude clients keep an MCP result in context only up to a token budget well under the
-/// authoring references `get_instructions` returns, unless the tool raises it. Above the
-/// runner's own cap on a result, so that cap is the one that applies.
-fn result_size_meta() -> MetaObject {
-    let mut meta = Map::new();
-    meta.insert("anthropic/maxResultSizeChars".to_string(), 100_000.into());
-    MetaObject(meta)
+/// A tool as a client lists it.
+#[cfg(feature = "mcp")]
+pub(crate) struct ToolInfo {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub parameters: &'static Map<String, Value>,
+    pub read_only: bool,
+    pub destructive: bool,
 }
 
-pub(super) fn session_tools(access: SessionAccess) -> Vec<Tool> {
+/// The tools implemented here that `access` may call.
+#[cfg(feature = "mcp")]
+pub(crate) fn session_tools(access: SessionAccess) -> impl Iterator<Item = ToolInfo> {
     TOOL_DEFS
         .iter()
         .filter(|def| implemented().any(|name| name == def.name))
-        .filter(|def| allowed(def, access))
-        .map(|def| {
-            Tool::new(
-                def.name.clone(),
-                def.description.clone(),
-                def.parameters.clone(),
-            )
-            .with_annotations(
-                ToolAnnotations::new()
-                    .read_only(def.read_only)
-                    .destructive(DESTRUCTIVE.contains(&def.name.as_str())),
-            )
-            .with_meta(result_size_meta())
+        .filter(move |def| allowed(def, access))
+        .map(|def| ToolInfo {
+            name: &def.name,
+            description: &def.description,
+            parameters: &def.parameters,
+            read_only: def.read_only,
+            destructive: DESTRUCTIVE.contains(&def.name.as_str()),
         })
-        .collect()
 }
 
 /// What a tool hands back: the text the model reads, or the message of a failed call.
 pub(super) type ToolResult = Result<String, String>;
 
 /// The caller, and the API reached as them.
-pub(super) struct Ctx<'a> {
+pub(crate) struct Ctx<'a> {
     pub auth: &'a ApiAuthed,
     pub w_id: &'a str,
     pub base_internal_url: &'a str,
     pub access: SessionAccess,
     /// The scheme and host the MCP client reached, when known.
     pub origin: Option<&'a str>,
+    pub surface: Surface,
+    /// What the chat sends beside a call; `None` for MCP.
+    pub chat: Option<&'a chat::ChatContext>,
+    /// What the call changed that the chat has to apply: its editors, cards and drafts.
+    pub effects: std::sync::Mutex<Vec<chat::Effect>>,
     /// Minted once per tool call: every JWT the API sees is cached by the auth layer, and a
     /// tool can make dozens of calls, which would evict other users' cached sessions.
     pub jwt: tokio::sync::OnceCell<String>,
 }
 
+impl<'a> Ctx<'a> {
+    pub(crate) fn new(
+        auth: &'a ApiAuthed,
+        w_id: &'a str,
+        base_internal_url: &'a str,
+        access: SessionAccess,
+    ) -> Self {
+        Ctx {
+            auth,
+            w_id,
+            base_internal_url,
+            access,
+            origin: None,
+            surface: Surface::Mcp,
+            chat: None,
+            effects: Default::default(),
+            jwt: Default::default(),
+        }
+    }
+
+    /// Hand the chat something to apply. A no-op for MCP, which has no editor.
+    pub(super) fn effect(&self, effect: chat::Effect) {
+        if self.surface == Surface::Chat {
+            self.effects.lock().unwrap().push(effect);
+        }
+    }
+}
+
+/// The total timeout of the HTTP client the in-process router replaces.
+const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 impl Ctx<'_> {
     /// Call the API as the caller. `path` follows `/api`; a non-2xx answer is the error.
     pub async fn request(&self, method: &str, path: &str, body: Option<Value>) -> ToolResult {
+        self.request_within(method, path, body, REQUEST_TIMEOUT)
+            .await
+    }
+
+    /// `request` for a route that waits on jobs of its own, like the datatable migration
+    /// routes: each job is bounded server-side, so the default budget would cut a long one
+    /// off midway.
+    pub async fn request_within(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<Value>,
+        timeout: std::time::Duration,
+    ) -> ToolResult {
         let url = guarded_url(self.base_internal_url, self.w_id, method, path, self.access)?;
         // No route scope: this server only admits `mcp:all`, several routes (hub, embeddings)
         // map to none, and `guarded_url` is what keeps a call on its route. The tag fence
@@ -213,17 +281,18 @@ impl Ctx<'_> {
             .get(self.base_internal_url)
             .cloned();
         let (status, text) = match router {
-            Some(router) => self.call_router(router, method, &url, body, scopes).await?,
-            None => {
-                let response = send_as_caller(method, &url, self.w_id, self.auth, body, scopes)
-                    .await
-                    .map_err(|e| e.message.to_string())?;
-                let status = response.status();
-                (status, response.text().await.map_err(|e| e.to_string())?)
+            Some(router) => {
+                self.call_router(router, method, &url, body, scopes, timeout)
+                    .await?
             }
+            None => self.call_http(method, &url, body, scopes, timeout).await?,
         };
         if status.is_success() {
             Ok(text)
+        } else if text.trim().is_empty() {
+            // What a browser's request reports for an answer with no body.
+            let reason = status.canonical_reason().unwrap_or_default();
+            Err(format!("{}: {reason}", status.as_u16()))
         } else {
             Err(format!("{}: {}", status.as_u16(), text))
         }
@@ -238,6 +307,7 @@ impl Ctx<'_> {
         url: &str,
         body: Option<Value>,
         scopes: Option<Vec<String>>,
+        timeout: std::time::Duration,
     ) -> Result<(http::StatusCode, String), String> {
         use tower::ServiceExt;
         let parsed = reqwest::Url::parse(url).map_err(|e| e.to_string())?;
@@ -252,7 +322,7 @@ impl Ctx<'_> {
             .jwt
             .get_or_try_init(|| mint_caller_jwt(self.w_id, self.auth, scopes))
             .await
-            .map_err(|e| e.message.to_string())?;
+            .map_err(|e| e.to_string())?;
         let mut request = http::Request::builder()
             .method(method)
             .uri(uri)
@@ -265,8 +335,7 @@ impl Ctx<'_> {
             None => axum::body::Body::empty(),
         };
         let request = request.body(body).map_err(|e| e.to_string())?;
-        // The total timeout of the HTTP client this replaces.
-        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        tokio::time::timeout(timeout, async {
             let response = router.oneshot(request).await.map_err(|e| e.to_string())?;
             let status = response.status();
             let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
@@ -276,6 +345,36 @@ impl Ctx<'_> {
         })
         .await
         .map_err(|_| format!("Failed to execute request: {method} {url} timed out"))?
+    }
+
+    /// `request` over HTTP, for a server whose router is not registered.
+    async fn call_http(
+        &self,
+        method: &str,
+        url: &str,
+        body: Option<Value>,
+        scopes: Option<Vec<String>>,
+        timeout: std::time::Duration,
+    ) -> Result<(http::StatusCode, String), String> {
+        let method = http::Method::from_bytes(method.as_bytes()).map_err(|e| e.to_string())?;
+        let token = self
+            .jwt
+            .get_or_try_init(|| mint_caller_jwt(self.w_id, self.auth, scopes))
+            .await
+            .map_err(|e| e.to_string())?;
+        let mut request = crate::HTTP_CLIENT
+            .request(method, url)
+            .header("Authorization", format!("Bearer {token}"))
+            .timeout(timeout);
+        if let Some(body) = body {
+            request = request.json(&body);
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|e| format!("Failed to execute request: {e}"))?;
+        let status = response.status();
+        Ok((status, response.text().await.map_err(|e| e.to_string())?))
     }
 
     pub async fn get(&self, path: &str) -> Result<Value, String> {
@@ -298,6 +397,12 @@ impl Ctx<'_> {
     /// A workspace-scoped path: `ws("scripts/list")` is `/w/<workspace>/scripts/list`.
     pub fn ws(&self, rest: &str) -> String {
         format!("/w/{}/{}", self.w_id, rest)
+    }
+
+    /// `page_url` for an MCP client only: the chat shows what a tool made or ran in its own
+    /// cards and panel instead.
+    pub fn link(&self, page: &str) -> Option<String> {
+        (self.surface == Surface::Mcp).then(|| self.page_url(page))
     }
 
     /// A Windmill page in this workspace, as a link the user can open: an external client
@@ -513,41 +618,70 @@ pub(super) fn matches_glob(subject: &str, glob: &str) -> bool {
     regex::Regex::new(&pattern).is_ok_and(|re| re.is_match(subject))
 }
 
-pub(super) async fn call_session_tool(
+/// A JWT that acts as `api_authed`, carrying `scopes`; `None` is the caller's full rights.
+pub(crate) async fn mint_caller_jwt(
+    workspace_id: &str,
+    api_authed: &ApiAuthed,
+    scopes: Option<Vec<String>>,
+) -> windmill_common::error::Result<String> {
+    // Carry the caller's job provenance into the JWT: a job's WM_TOKEN is capped at
+    // workspace admin (GHSA-hfh4-cx4h-3fcr), and dropping `job_id` here would re-mint an
+    // uncapped token that satisfies require_super_admin / require_devops_role.
+    create_jwt_token(
+        windmill_common::db::Authed::from(api_authed.clone()),
+        workspace_id,
+        3600,
+        api_authed.job_id,
+        None,
+        None,
+        scopes,
+    )
+    .await
+}
+
+/// Why a call was refused before the tool ran.
+pub(crate) enum CallRefused {
+    UnknownTool(String),
+    NotAllowed(String),
+    NotAvailable(String),
+}
+
+/// What the model reads, and whether the call failed.
+#[derive(Serialize)]
+pub(crate) struct ToolOutcome {
+    pub text: String,
+    pub is_error: bool,
+}
+
+pub(crate) async fn call_session_tool(
     ctx: &Ctx<'_>,
     name: &str,
     args: Value,
-) -> BackendResult<CallToolResult> {
+) -> Result<ToolOutcome, CallRefused> {
     let Some(def) = TOOL_DEFS.iter().find(|def| def.name == name) else {
-        return Err(ErrorData::invalid_params(
-            format!("Unknown tool '{name}'"),
-            None,
-        ));
+        return Err(CallRefused::UnknownTool(format!("Unknown tool '{name}'")));
     };
     if !allowed(def, ctx.access) {
         let token = match ctx.access {
             SessionAccess::ReadAndRun => "can only read and run deployed scripts and flows",
             _ => "is read-only",
         };
-        return Err(ErrorData::invalid_request(
-            format!("Tool '{name}' changes or runs something, and this token {token}"),
-            None,
-        ));
+        return Err(CallRefused::NotAllowed(format!(
+            "Tool '{name}' changes or runs something, and this token {token}"
+        )));
     }
     let Some(result) = dispatch(ctx, name, &args).await else {
-        return Err(ErrorData::invalid_params(
-            format!("Tool '{name}' is not available on this server"),
-            None,
-        ));
+        return Err(CallRefused::NotAvailable(format!(
+            "Tool '{name}' is not available on this server"
+        )));
     };
-    windmill_common::feature_usage::log_feature_usage("mcp_workspace", "tool_call", name);
     Ok(match result {
-        Ok(text) => CallToolResult::success(vec![ContentBlock::text(text)]),
+        Ok(text) => ToolOutcome { text, is_error: false },
         // Without the status code `Ctx` prefixes an API failure with, as the session reads it.
         Err(message) => {
             let body = workspace::api_message(&message);
             let text = if body.is_empty() { &message } else { body };
-            CallToolResult::error(vec![ContentBlock::text(text.to_string())])
+            ToolOutcome { text: text.to_string(), is_error: true }
         }
     })
 }

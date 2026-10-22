@@ -81,7 +81,7 @@ export function sortResourceTypesByMatch<T>(
  * that carry a capital inside the word. Anything absent is capitalized, which is right for
  * the great majority of types (`stripe` -> `Stripe`).
  */
-const RESOURCE_TYPE_WORDS: Record<string, string> = {
+export const RESOURCE_TYPE_WORDS: Record<string, string> = {
 	ai: 'AI',
 	ai21: 'AI21',
 	amqp: 'AMQP',

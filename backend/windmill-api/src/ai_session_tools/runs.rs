@@ -3,9 +3,10 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
+use super::chat::{Effect, RunPhase};
 use super::workspace::{
     api_message, get_draft, infer_script_schema, load_flow, load_script, path_enc,
 };
@@ -196,7 +197,10 @@ pub(super) async fn finish_run(
     tool_args: &Value,
 ) -> ToolResult {
     let id = started.map_err(|e| format!("Failed to execute {action}: {}", api_message(&e)))?;
-    let run_page = format!("\n\nRun page: {}", ctx.page_url(&format!("/run/{id}")));
+    let run_page = ctx
+        .link(&format!("/run/{id}"))
+        .map(|url| format!("\n\nRun page: {url}"))
+        .unwrap_or_default();
     let Some(job) = wait_job(ctx, &id, wait_budget(tool_args), true).await else {
         return Ok(format!("{}{run_page}", backgrounded_summary(&id, label)));
     };
@@ -598,66 +602,394 @@ async fn conclude(
 // Scripts and flows
 // ============================================================================
 
-async fn test_run_script(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
-    let path = str_arg(args, "path")?;
-    let script = load_script(ctx, path).await?;
-    let schema = schema_for_test_run(&script.language, &script.content, script.schema, None);
-    let prepared =
-        match prepare_args(ctx, path, proposed_args(args), schema.as_ref(), "script").await {
-            Ok(prepared) => prepared,
-            Err(message) => return Ok(message),
-        };
-    let started = run_script_preview(
+/// What a run tool runs, resolved once and queued later with the final arguments: the
+/// chat shows its argument form in between, and the run has to be the version the form
+/// was shown for.
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(crate) enum RunTarget {
+    ScriptPreview {
+        path: Option<String>,
+        language: String,
+        content: String,
+        /// A flow's preprocessor, which takes the arguments of its own entrypoint.
+        preprocessor: bool,
+    },
+    ScriptByPath {
+        path: String,
+    },
+    FlowByPath {
+        path: String,
+        /// A chat-enabled flow is refused without a conversation, and a run is its own.
+        chat_enabled: bool,
+    },
+    FlowPreview {
+        path: String,
+        value: Value,
+        /// The conversation the caller named.
+        memory_id: Option<String>,
+        /// Without one, a chat-enabled flow's test run is a conversation of its own.
+        fresh_conversation: bool,
+    },
+    /// An AI agent or AI decision step, run alone as a one-step flow preview of `flow_path`.
+    Step {
+        flow_path: String,
+        step: Value,
+    },
+    AppRunnable {
+        app_path: String,
+        key: String,
+        runnable: Value,
+    },
+    DatatableSql {
+        datatable: String,
+        sql: String,
+        role: Option<String>,
+    },
+}
+
+/// Queue `target` with `args` and answer the job id, or the server's own message.
+pub(super) async fn start_run(
+    ctx: &Ctx<'_>,
+    target: &RunTarget,
+    args: Map<String, Value>,
+    form_keys: &[String],
+) -> Result<String, String> {
+    let message = |e: String| api_message(&e).to_string();
+    match target {
+        RunTarget::ScriptPreview { path, language, content, preprocessor } => {
+            let mut with_entrypoint = Map::new();
+            if *preprocessor {
+                with_entrypoint.insert("_ENTRYPOINT_OVERRIDE".into(), "preprocessor".into());
+            }
+            with_entrypoint.extend(args);
+            run_script_preview(
+                ctx,
+                path.as_deref(),
+                language,
+                content,
+                Value::Object(with_entrypoint),
+            )
+            .await
+            .map_err(message)
+        }
+        // The arguments fill the main input schema; a preprocessor would take them for a
+        // trigger event.
+        RunTarget::ScriptByPath { path } => ctx
+            .post(
+                &ctx.ws(&format!(
+                    "jobs/run/p/{}?skip_preprocessor=true",
+                    path_enc(path)
+                )),
+                Value::Object(args),
+            )
+            .await
+            .map(job_id)
+            .map_err(message),
+        RunTarget::FlowByPath { path, chat_enabled } => {
+            let memory_id = if *chat_enabled {
+                format!("&memory_id={}", uuid::Uuid::new_v4())
+            } else {
+                String::new()
+            };
+            ctx.post(
+                &ctx.ws(&format!(
+                    "jobs/run/f/{}?skip_preprocessor=true{memory_id}",
+                    path_enc(path)
+                )),
+                Value::Object(args),
+            )
+            .await
+            .map(job_id)
+            .map_err(message)
+        }
+        RunTarget::FlowPreview { path, value, memory_id, fresh_conversation } => {
+            let memory_id = memory_id.clone().or_else(|| {
+                (*fresh_conversation && truthy(value.get("chat_input_enabled")))
+                    .then(|| uuid::Uuid::new_v4().to_string())
+            });
+            run_flow_preview(
+                ctx,
+                Some(path),
+                value,
+                Value::Object(args),
+                memory_id.as_deref(),
+            )
+            .await
+            .map_err(message)
+        }
+        RunTarget::Step { flow_path, step } => {
+            let mut step = step.clone();
+            let value = &mut step["value"];
+            if value["type"] == "aiagent" {
+                *value = migrated_agent_value(value);
+                value["input_transforms"] = Value::Object(agent_test_transforms(
+                    value.get("input_transforms"),
+                    &args,
+                    form_keys,
+                ));
+                // After the inputs are wired: a linked agent's draft brings its own brain
+                // and tools, and the step's run inputs stay on top.
+                with_agent_drafts(ctx, &mut step).await?;
+            } else {
+                // The inputs given here override the step's own, so a state that reads an
+                // earlier step can be passed directly.
+                let mut transforms = value["input_transforms"]
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default();
+                for key in args.keys() {
+                    transforms.insert(
+                        key.clone(),
+                        json!({ "type": "javascript", "expr": format!("flow_input.{key}") }),
+                    );
+                }
+                value["input_transforms"] = Value::Object(transforms);
+            }
+            let preview = json!({ "modules": [step] });
+            run_flow_preview(ctx, Some(flow_path), &preview, Value::Object(args), None)
+                .await
+                .map_err(message)
+        }
+        RunTarget::AppRunnable { app_path, key, runnable } => {
+            let body =
+                super::apps::execute_component_body(app_path, key, runnable, &Value::Object(args));
+            ctx.request(
+                "POST",
+                &ctx.ws(&format!("apps_u/execute_component/{}", path_enc(app_path))),
+                Some(body),
+            )
+            .await
+            .map(|id| id.trim().trim_matches('"').to_string())
+            .map_err(message)
+        }
+        RunTarget::DatatableSql { datatable, sql, role } => {
+            let database = match role {
+                None => format!("datatable://{datatable}"),
+                // A stored name holding a `?` is read whole by the server, so a role
+                // cannot follow it.
+                Some(role) if datatable.contains('?') => {
+                    return Err(format!("Data table '{datatable}' has a '?' in its name, so it can only be used here as its default role. Rename it to connect as role '{role}'."));
+                }
+                Some(role) => format!("datatable://{datatable}?role={role}"),
+            };
+            run_script_preview(
+                ctx,
+                None,
+                "postgresql",
+                sql,
+                json!({ "database": database }),
+            )
+            .await
+            .map_err(message)
+        }
+    }
+}
+
+/// A run tool's target, and what its argument form shows for it.
+#[derive(Serialize)]
+pub(super) struct Resolved {
+    pub target: RunTarget,
+    /// The input schema stored with what will run; `None` when it has none. The chat
+    /// infers a missing one with the editor's parsers, MCP with the backend's.
+    pub schema: Option<Value>,
+    pub code: Option<String>,
+    pub lang: Option<String>,
+    pub summary: Option<String>,
+    /// `script` or `flow`: the kind of job the run queues.
+    pub runnable_kind: &'static str,
+    pub start_message: String,
+    /// The item's deployed page is a conversation rather than a run form.
+    pub conversational: bool,
+    /// For a step: the module, whose form an agent step builds from its own inputs.
+    pub module: Option<Value>,
+}
+
+/// A run tool called by the chat, in its phases; by MCP, resolved and run here.
+pub(super) async fn run_tool(
+    ctx: &Ctx<'_>,
+    tool_args: &Value,
+    resolved: impl std::future::Future<Output = Result<Resolved, String>>,
+    mcp: impl AsyncFnOnce(Resolved) -> ToolResult,
+) -> ToolResult {
+    match ctx.chat.and_then(|chat| chat.run.as_ref()) {
+        Some(RunPhase::Prepare) => Ok(serde_json::to_string(&resolved.await?).unwrap_or_default()),
+        Some(RunPhase::Start { target, args, form_keys }) => {
+            let target = match target {
+                Some(target) => target.clone(),
+                None => resolved.await?.target,
+            };
+            let args = if target_takes_tool_args(&target) && args.is_empty() {
+                proposed_args(tool_args)
+            } else {
+                args.clone()
+            };
+            start_run(ctx, &target, args, form_keys).await
+        }
+        None => mcp(resolved.await?).await,
+    }
+}
+
+/// A run with no argument form takes the tool's own `args`.
+fn target_takes_tool_args(target: &RunTarget) -> bool {
+    matches!(
+        target,
+        RunTarget::AppRunnable { .. } | RunTarget::DatatableSql { .. }
+    )
+}
+
+/// MCP's run of a resolved target: arguments conformed and secrets minted here, as no
+/// form stands in front of them, then the job awaited within the tool's budget.
+async fn run_resolved(
+    ctx: &Ctx<'_>,
+    tool_args: &Value,
+    path: &str,
+    resolved: Resolved,
+    schema_noun: &str,
+    label: &str,
+    action: &str,
+) -> ToolResult {
+    let proposed = proposed_args(tool_args);
+    run_resolved_with(
         ctx,
-        Some(path),
-        &script.language,
-        &script.content,
-        Value::Object(prepared.args),
+        tool_args,
+        path,
+        resolved,
+        proposed,
+        schema_noun,
+        label,
+        action,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_resolved_with(
+    ctx: &Ctx<'_>,
+    tool_args: &Value,
+    path: &str,
+    resolved: Resolved,
+    proposed: Map<String, Value>,
+    schema_noun: &str,
+    label: &str,
+    action: &str,
+) -> ToolResult {
+    let schema = resolved.schema;
+    let prepared = match prepare_args(ctx, path, proposed, schema.as_ref(), schema_noun).await {
+        Ok(prepared) => prepared,
+        Err(message) => return Ok(message),
+    };
+    let started = start_run(
+        ctx,
+        &resolved.target,
+        prepared.args,
+        &form_keys(schema.as_ref()),
     )
     .await;
-    conclude(ctx, args, prepared.notes, started, path, false, "test").await
+    conclude(
+        ctx,
+        tool_args,
+        prepared.notes,
+        started,
+        label,
+        resolved.runnable_kind == "flow",
+        action,
+    )
+    .await
+}
+
+fn form_keys(schema: Option<&Value>) -> Vec<String> {
+    schema
+        .and_then(|s| s["properties"].as_object())
+        .map(|p| p.keys().cloned().collect())
+        .unwrap_or_default()
+}
+
+async fn resolve_test_script(ctx: &Ctx<'_>, path: &str) -> Result<Resolved, String> {
+    let script = load_script(ctx, path).await?;
+    Ok(Resolved {
+        schema: script.schema,
+        code: Some(script.content.clone()),
+        lang: Some(script.language.clone()),
+        summary: script.summary,
+        runnable_kind: "script",
+        start_message: format!("Running test for script \"{path}\"..."),
+        conversational: false,
+        module: None,
+        target: RunTarget::ScriptPreview {
+            path: Some(path.to_string()),
+            language: script.language,
+            content: script.content,
+            preprocessor: false,
+        },
+    })
+}
+
+async fn test_run_script(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let path = str_arg(args, "path")?;
+    run_tool(
+        ctx,
+        args,
+        resolve_test_script(ctx, path),
+        async |mut resolved: Resolved| {
+            let (code, lang) = (resolved.code.clone(), resolved.lang.clone());
+            resolved.schema = schema_for_test_run(
+                &lang.unwrap_or_default(),
+                &code.unwrap_or_default(),
+                resolved.schema,
+                None,
+            );
+            run_resolved(ctx, args, path, resolved, "script", path, "test").await
+        },
+    )
+    .await
 }
 
 /// `run_script` and `run_flow`: the deployed item, whatever draft sits on top of it.
-async fn run_deployed(ctx: &Ctx<'_>, args: &Value, is_flow: bool) -> ToolResult {
-    let path = str_arg(args, "path")?;
-    let (get, run) = if is_flow {
-        ("flows/get", "jobs/run/f")
+async fn resolve_deployed(ctx: &Ctx<'_>, path: &str, is_flow: bool) -> Result<Resolved, String> {
+    let get = if is_flow {
+        "flows/get"
     } else {
-        ("scripts/get/p", "jobs/run/p")
+        "scripts/get/p"
     };
     let item = ctx
         .get(&ctx.ws(&format!("{get}/{}", path_enc(path))))
         .await?;
-    let schema = item
-        .get("schema")
-        .filter(|s| !s.is_null())
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-    let prepared =
-        match prepare_args(ctx, path, proposed_args(args), Some(&schema), "deployed").await {
-            Ok(prepared) => prepared,
-            Err(message) => return Ok(message),
-        };
-    // A chat-enabled flow is refused without a conversation, and this run is one of its own.
-    let memory_id = if is_flow && truthy(item["value"].get("chat_input_enabled")) {
-        format!("&memory_id={}", uuid::Uuid::new_v4())
-    } else {
-        String::new()
-    };
-    // The arguments fill the main input schema; a preprocessor would take them for a
-    // trigger event.
-    let started = ctx
-        .post(
-            &ctx.ws(&format!(
-                "{run}/{}?skip_preprocessor=true{memory_id}",
-                path_enc(path)
-            )),
-            Value::Object(prepared.args),
-        )
-        .await
-        .map(job_id);
-    conclude(ctx, args, prepared.notes, started, path, is_flow, "run").await
+    let chat_enabled = is_flow && truthy(item["value"].get("chat_input_enabled"));
+    Ok(Resolved {
+        schema: Some(
+            item.get("schema")
+                .filter(|s| !s.is_null())
+                .cloned()
+                .unwrap_or_else(|| json!({})),
+        ),
+        code: None,
+        lang: None,
+        summary: item
+            .get("summary")
+            .and_then(Value::as_str)
+            .map(String::from),
+        runnable_kind: if is_flow { "flow" } else { "script" },
+        start_message: format!("Running \"{path}\"..."),
+        conversational: chat_enabled,
+        module: None,
+        target: if is_flow {
+            RunTarget::FlowByPath { path: path.to_string(), chat_enabled }
+        } else {
+            RunTarget::ScriptByPath { path: path.to_string() }
+        },
+    })
+}
+
+async fn run_deployed(ctx: &Ctx<'_>, args: &Value, is_flow: bool) -> ToolResult {
+    let path = str_arg(args, "path")?;
+    run_tool(
+        ctx,
+        args,
+        resolve_deployed(ctx, path, is_flow),
+        async |resolved| run_resolved(ctx, args, path, resolved, "deployed", path, "run").await,
+    )
+    .await
 }
 
 /// The flow value a preview runs, from a loaded `{value, schema, groups}`.
@@ -665,7 +997,7 @@ fn flow_preview_value(flow: &Value) -> Value {
     let mut value = flow.get("value").cloned().unwrap_or_else(|| json!({}));
     if let (Some(groups), Some(map)) = (flow.get("groups"), value.as_object_mut()) {
         if groups.is_null() {
-            map.remove("groups");
+            map.shift_remove("groups");
         } else {
             map.insert("groups".into(), groups.clone());
         }
@@ -673,38 +1005,51 @@ fn flow_preview_value(flow: &Value) -> Value {
     value
 }
 
-async fn test_run_flow(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
-    let path = str_arg(args, "path")?;
-    let memory_id = opt_str_arg(args, "memory_id");
+async fn resolve_test_flow(
+    ctx: &Ctx<'_>,
+    path: &str,
+    memory_id: Option<&str>,
+) -> Result<Resolved, String> {
     if memory_id.is_some_and(|id| id.len() != 36 || uuid::Uuid::parse_str(id).is_err()) {
         return Err("memory_id must be a UUID".to_string());
     }
     let flow = load_flow(ctx, path).await?;
-    let schema = flow
-        .flow
-        .get("schema")
-        .filter(|s| !s.is_null())
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-    let prepared = match prepare_args(ctx, path, proposed_args(args), Some(&schema), "flow").await {
-        Ok(prepared) => prepared,
-        Err(message) => return Ok(message),
-    };
-    let value = flow_preview_value(&flow.flow);
-    // The server refuses a chat-enabled flow's run without a conversation; a test run
-    // is one of its own unless the caller names another.
-    let memory_id = memory_id.map(String::from).or_else(|| {
-        truthy(value.get("chat_input_enabled")).then(|| uuid::Uuid::new_v4().to_string())
-    });
-    let started = run_flow_preview(
+    Ok(Resolved {
+        schema: Some(
+            flow.flow
+                .get("schema")
+                .filter(|s| !s.is_null())
+                .cloned()
+                .unwrap_or_else(|| json!({})),
+        ),
+        code: None,
+        lang: None,
+        summary: flow.summary.clone(),
+        runnable_kind: "flow",
+        start_message: format!("Starting flow test run for \"{path}\"..."),
+        conversational: false,
+        module: None,
+        // The server refuses a chat-enabled flow's run without a conversation; a test run
+        // is one of its own unless the caller names another.
+        target: RunTarget::FlowPreview {
+            path: path.to_string(),
+            value: flow_preview_value(&flow.flow),
+            memory_id: memory_id.map(String::from),
+            fresh_conversation: true,
+        },
+    })
+}
+
+async fn test_run_flow(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let path = str_arg(args, "path")?;
+    let memory_id = opt_str_arg(args, "memory_id");
+    run_tool(
         ctx,
-        Some(path),
-        &value,
-        Value::Object(prepared.args),
-        memory_id.as_deref(),
+        args,
+        resolve_test_flow(ctx, path, memory_id),
+        async |resolved| run_resolved(ctx, args, path, resolved, "flow", path, "test").await,
     )
-    .await;
-    conclude(ctx, args, prepared.notes, started, path, true, "test").await
+    .await
 }
 
 // ============================================================================
@@ -810,7 +1155,7 @@ const AGENT_OVERRIDE_KEYS: [&str; 2] = ["model", "reasoning_effort"];
 /// Older spellings of two agent inputs, read as the current ones.
 fn migrate_agent_transforms(transforms: &mut Map<String, Value>) {
     if !transforms.contains_key("user_attachments") {
-        if let Some(images) = transforms.remove("user_images") {
+        if let Some(images) = transforms.shift_remove("user_images") {
             transforms.insert("user_attachments".into(), images);
         }
     }
@@ -840,7 +1185,7 @@ fn migrate_agent_transforms(transforms: &mut Map<String, Value>) {
         }
         _ => {}
     }
-    transforms.remove("messages_context_length");
+    transforms.shift_remove("messages_context_length");
 }
 
 /// The inputs a test run of an agent step takes, in the agent form's order, and the
@@ -963,7 +1308,7 @@ fn inline_agent_draft(module: &mut Value, drafts: &HashMap<String, Value>) {
         .as_str()
         .and_then(|agent| drafts.get(normalize_agent_ref(agent)));
     if let (Some(draft), Some(map)) = (draft, value.as_object_mut()) {
-        map.remove("agent");
+        map.shift_remove("agent");
         let mut transforms = Map::new();
         for (key, arg) in draft.as_object().into_iter().flatten() {
             if key != "tools" && !AGENT_HISTORY_KEYS.contains(&key.as_str()) {
@@ -1023,11 +1368,21 @@ async fn with_agent_drafts(ctx: &Ctx<'_>, module: &mut Value) -> Result<(), Stri
     Ok(())
 }
 
-async fn test_run_step(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
-    let path = str_arg(args, "path")?;
-    let step_id = str_arg(args, "stepId")?;
+async fn resolve_step(ctx: &Ctx<'_>, path: &str, step_id: &str) -> Result<Resolved, String> {
     let flow_value = flow_preview_value(&load_flow(ctx, path).await?.flow);
-    let Some(module) = find_module(&flow_value, step_id) else {
+    let Some(module) = find_module(&flow_value, step_id).cloned() else {
+        let mut patch = Map::new();
+        patch.insert(
+            "content".into(),
+            json!(format!("Step \"{step_id}\" not found in flow")),
+        );
+        patch.insert(
+            "error".into(),
+            json!(format!(
+                "Step with id \"{step_id}\" does not exist in the current flow"
+            )),
+        );
+        ctx.effect(Effect::Status(patch));
         return Err(format!(
             "Step with id \"{step_id}\" not found in flow. Available steps: {}",
             available_step_ids(&flow_value)
@@ -1036,39 +1391,37 @@ async fn test_run_step(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let value = &module["value"];
     let module_type = value["type"].as_str().unwrap_or_default();
     let text = |key: &str| value[key].as_str().unwrap_or_default().to_string();
-    // A preprocessor takes the arguments of its own entrypoint, which no schema declares.
-    let entrypoint = (module["id"] == "preprocessor").then_some("preprocessor");
-    let label = format!("step {step_id}");
-    let proposed = proposed_args(args);
-
-    let (schema, proposed) = match module_type {
-        "rawscript" => (
-            schema_for_test_run(&text("language"), &text("content"), None, entrypoint),
-            proposed,
-        ),
-        "script" | "flow" | "aidecision" => (None, proposed),
-        "aiagent" => {
-            let (keys, args) = agent_step_form(&migrated_agent_value(value), &proposed);
-            let properties: Map<String, Value> =
-                keys.into_iter().map(|key| (key, json!({}))).collect();
-            (Some(json!({ "properties": properties })), args)
-        }
-        other => {
-            return Err(format!(
-                "Cannot test step of type \"{other}\". Supported types: rawscript, script, flow, aiagent, aidecision"
-            ));
-        }
+    let preprocessor = module["id"] == "preprocessor";
+    let step = |runnable_kind, start_message: String, schema, code, lang, target| Resolved {
+        schema,
+        code,
+        lang,
+        summary: None,
+        runnable_kind,
+        start_message,
+        conversational: false,
+        module: Some(module.clone()),
+        target,
     };
-
-    // The targets read from the workspace, each with the schema of what will run.
-    let mut script = None;
-    let mut subflow_preview = None;
-    let schema = match module_type {
+    Ok(match module_type {
+        "rawscript" => step(
+            "script",
+            format!("Starting test run of step \"{step_id}\"..."),
+            None,
+            Some(text("content")),
+            Some(text("language")),
+            RunTarget::ScriptPreview {
+                path: None,
+                language: text("language"),
+                content: text("content"),
+                preprocessor,
+            },
+        ),
         "script" => {
             let target = text("path");
             let hash = value["hash"].as_str().filter(|h| !h.is_empty());
             // A draft of the script runs even where the step pins a hash.
-            let loaded = match hash {
+            let (content, language, schema) = match hash {
                 Some(hash) if get_draft(ctx, "script", &target).await?.is_none() => {
                     let deployed = ctx
                         .get(&ctx.ws(&format!("scripts/get/h/{}", enc(hash))))
@@ -1087,143 +1440,120 @@ async fn test_run_step(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
                     (loaded.content, loaded.language, loaded.schema)
                 }
             };
-            let schema = schema_for_test_run(&loaded.1, &loaded.0, loaded.2, entrypoint);
-            script = Some((target, loaded.0, loaded.1));
-            schema
+            step(
+                "script",
+                format!("Starting test run of script step \"{step_id}\"..."),
+                schema,
+                Some(content.clone()),
+                Some(language.clone()),
+                RunTarget::ScriptPreview { path: Some(target), language, content, preprocessor },
+            )
         }
         "flow" => {
             // Only a draft is previewed; a deployed subflow runs by path, as its parent
             // flow would run it.
-            let subflow = load_flow(ctx, &text("path")).await?;
-            if subflow.is_draft {
-                subflow_preview = Some(flow_preview_value(&subflow.flow));
-            }
-            Some(
-                subflow
-                    .flow
-                    .get("schema")
-                    .filter(|s| !s.is_null())
-                    .cloned()
-                    .unwrap_or_else(|| json!({})),
-            )
-        }
-        // What a run supplies is the state; the provider and questions are the step's own.
-        "aidecision" => Some(json!({ "properties": { "state": {} } })),
-        _ => schema,
-    };
-
-    let prepared = match prepare_args(ctx, path, proposed, schema.as_ref(), "step").await {
-        Ok(prepared) => prepared,
-        Err(message) => return Ok(message),
-    };
-    let mut run_args = prepared.args;
-    let with_entrypoint = |args: Map<String, Value>| {
-        let mut out = Map::new();
-        if entrypoint.is_some() {
-            out.insert("_ENTRYPOINT_OVERRIDE".into(), "preprocessor".into());
-        }
-        out.extend(args);
-        Value::Object(out)
-    };
-    // Run alone, stripped of the settings around it: a mock would answer for the step
-    // and a suspend would hold the run for an approval.
-    let single_step =
-        |step_value: Value| json!({ "modules": [{ "id": module["id"], "value": step_value }] });
-
-    let (started, is_flow) = match module_type {
-        "rawscript" => (
-            run_script_preview(
-                ctx,
-                None,
-                &text("language"),
-                &text("content"),
-                with_entrypoint(run_args),
-            )
-            .await,
-            false,
-        ),
-        "script" => {
-            let (target, content, language) = script.unwrap_or_default();
-            (
-                run_script_preview(
-                    ctx,
-                    Some(&target),
-                    &language,
-                    &content,
-                    with_entrypoint(run_args),
-                )
-                .await,
-                false,
-            )
-        }
-        "flow" => {
             let target = text("path");
-            let started = match subflow_preview {
-                Some(preview) => {
-                    run_flow_preview(ctx, Some(&target), &preview, Value::Object(run_args), None)
-                        .await
-                }
-                None => ctx
-                    .post(
-                        &ctx.ws(&format!(
-                            "jobs/run/f/{}?skip_preprocessor=true",
-                            path_enc(&target)
-                        )),
-                        Value::Object(run_args),
-                    )
-                    .await
-                    .map(job_id),
-            };
-            (started, true)
-        }
-        "aiagent" => {
-            let mut step_value = migrated_agent_value(value);
-            let form_keys: Vec<String> = schema
-                .as_ref()
-                .and_then(|s| s["properties"].as_object())
-                .map(|p| p.keys().cloned().collect())
-                .unwrap_or_default();
-            step_value["input_transforms"] = Value::Object(agent_test_transforms(
-                step_value.get("input_transforms"),
-                &run_args,
-                &form_keys,
-            ));
-            let mut step = json!({ "id": module["id"], "value": step_value });
-            with_agent_drafts(ctx, &mut step).await?;
-            let preview = json!({ "modules": [step] });
-            (
-                run_flow_preview(ctx, Some(path), &preview, Value::Object(run_args), None).await,
-                true,
-            )
-        }
-        _ => {
-            let mut step_value = value.clone();
-            let mut transforms = value["input_transforms"]
-                .as_object()
-                .cloned()
-                .unwrap_or_default();
-            for key in run_args.keys() {
-                transforms.insert(
-                    key.clone(),
-                    json!({ "type": "javascript", "expr": format!("flow_input.{key}") }),
-                );
-            }
-            step_value["input_transforms"] = Value::Object(transforms);
-            let preview = single_step(step_value);
-            (
-                run_flow_preview(
-                    ctx,
-                    Some(path),
-                    &preview,
-                    Value::Object(std::mem::take(&mut run_args)),
+            let subflow = load_flow(ctx, &target).await?;
+            let schema = subflow.flow.get("schema").filter(|s| !s.is_null()).cloned();
+            if subflow.is_draft {
+                step(
+                    "flow",
+                    format!("Starting test run of draft flow step \"{step_id}\"..."),
+                    schema,
                     None,
+                    None,
+                    RunTarget::FlowPreview {
+                        path: target,
+                        value: flow_preview_value(&subflow.flow),
+                        memory_id: None,
+                        fresh_conversation: false,
+                    },
                 )
-                .await,
-                true,
-            )
+            } else {
+                step(
+                    "flow",
+                    format!("Starting test run of flow step \"{step_id}\"..."),
+                    schema,
+                    None,
+                    None,
+                    RunTarget::FlowByPath { path: target, chat_enabled: false },
+                )
+            }
         }
-    };
-    conclude(ctx, args, prepared.notes, started, &label, is_flow, "test").await
+        "aiagent" | "aidecision" => step(
+            "flow",
+            if module_type == "aiagent" {
+                format!("Starting test run of agent step \"{step_id}\"...")
+            } else {
+                format!("Starting test run of AI decision step \"{step_id}\"...")
+            },
+            None,
+            None,
+            None,
+            RunTarget::Step {
+                flow_path: path.to_string(),
+                step: json!({ "id": module["id"], "value": value }),
+            },
+        ),
+        other => {
+            let mut patch = Map::new();
+            patch.insert(
+                "content".into(),
+                json!(format!("Step type \"{other}\" not supported for testing")),
+            );
+            patch.insert(
+                "error".into(),
+                json!(format!("Cannot test step of type \"{other}\"")),
+            );
+            ctx.effect(Effect::Status(patch));
+            return Err(format!(
+                "Cannot test step of type \"{other}\". Supported types: rawscript, script, flow, aiagent, aidecision"
+            ));
+        }
+    })
+}
+
+async fn test_run_step(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
+    let path = str_arg(args, "path")?;
+    let step_id = str_arg(args, "stepId")?;
+    run_tool(
+        ctx,
+        args,
+        resolve_step(ctx, path, step_id),
+        async |mut resolved: Resolved| {
+            let module = resolved.module.clone().unwrap_or_default();
+            let value = &module["value"];
+            // A preprocessor takes the arguments of its own entrypoint, which no schema declares.
+            let entrypoint = (module["id"] == "preprocessor").then_some("preprocessor");
+            let mut proposed = proposed_args(args);
+            match value["type"].as_str().unwrap_or_default() {
+                "rawscript" | "script" => {
+                    let (code, lang) = (resolved.code.clone(), resolved.lang.clone());
+                    resolved.schema = schema_for_test_run(
+                        &lang.unwrap_or_default(),
+                        &code.unwrap_or_default(),
+                        resolved.schema.filter(|_| value["type"] == "script"),
+                        entrypoint,
+                    );
+                }
+                "aiagent" => {
+                    let (keys, form_args) =
+                        agent_step_form(&migrated_agent_value(value), &proposed);
+                    let properties: Map<String, Value> =
+                        keys.into_iter().map(|key| (key, json!({}))).collect();
+                    resolved.schema = Some(json!({ "properties": properties }));
+                    proposed = form_args;
+                }
+                // What a run supplies is the state; the provider and questions are the step's own.
+                "aidecision" => resolved.schema = Some(json!({ "properties": { "state": {} } })),
+                // The subflow's own schema, which a deployed one may lack: then nothing conforms.
+                _ => {}
+            }
+            let label = format!("step {step_id}");
+            run_resolved_with(ctx, args, path, resolved, proposed, "step", &label, "test").await
+        },
+    )
+    .await
 }
 
 fn migrated_agent_value(value: &Value) -> Value {
@@ -1578,7 +1908,7 @@ impl<'a> RunTree<'a> {
         run_overrides: &Map<String, Value>,
     ) -> Value {
         let mut run = self.shape_step(0, heads, None);
-        let steps = run.remove("steps");
+        let steps = run.shift_remove("steps");
         let kind = self.entries[0]["kind"].as_str().unwrap_or_default();
         // The server labels every depth-0 job "Flow", a plain script run included.
         if steps.is_none() && kind != "flow" && kind != "flowpreview" {
@@ -1587,8 +1917,8 @@ impl<'a> RunTree<'a> {
         // A replacement result supersedes the tree entry's head. Without one the head
         // stays: it is a real prefix of a payload too big to be read whole.
         if run_overrides.contains_key("result") {
-            run.remove("result");
-            run.remove("result_total_chars");
+            run.shift_remove("result");
+            run.shift_remove("result_total_chars");
         }
         for (key, value) in run_overrides {
             run.insert(key.clone(), value.clone());
@@ -1690,7 +2020,11 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             results_route(STEP_RESULT_MAX_CHARS),
             enc(step)
         );
-        return Ok(step_result(&ctx.get(&route).await?, step));
+        let response = ctx.get(&route).await?;
+        if let Some(job_id) = finished_step_job(&response) {
+            ctx.effect(Effect::InspectedRun { job_id: job_id.to_string() });
+        }
+        return Ok(step_result(&response, step));
     }
 
     // Only the job read is load-bearing: logs and the step tree each answer part of
@@ -1707,11 +2041,12 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         ctx.get(&tree_route),
     );
     let results = results.unwrap_or_else(|_| json!({ "entries": [] }));
-    Ok(format!(
-        "{}\n\nRun page: {}",
-        shape_run(id, &job?, logs, &results),
-        ctx.page_url(&format!("/run/{}", enc(id)))
-    ))
+    let run = shape_run(id, &job?, logs, &results);
+    ctx.effect(Effect::InspectedRun { job_id: id.to_string() });
+    Ok(match ctx.link(&format!("/run/{}", enc(id))) {
+        Some(url) => format!("{run}\n\nRun page: {url}"),
+        None => run,
+    })
 }
 
 /// A run as `get_run` reports it: its summary, args, result and logs around the step
@@ -1719,7 +2054,7 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 /// empty log.
 fn shape_run(id: &str, job: &Value, logs: Result<String, String>, results: &Value) -> String {
     let mut run = summarize_run(job);
-    run.remove("id");
+    run.shift_remove("id");
     // Why a run ended badly.
     for (key, source) in [
         ("canceled_by", "canceled_by"),
@@ -1763,6 +2098,22 @@ fn shape_run(id: &str, job: &Value, logs: Result<String, String>, results: &Valu
     };
     run.insert("logs".into(), logs.into());
     shape_flow_run_tree(results, &run)
+}
+
+/// The job a step address resolved to, once it finished: what the card renders.
+fn finished_step_job(response: &Value) -> Option<&str> {
+    if response["step_error"]
+        .as_str()
+        .is_some_and(|e| !e.is_empty())
+    {
+        return None;
+    }
+    let entry = response["entries"].get(0)?;
+    let status = entry["status"].as_str().unwrap_or_default();
+    if matches!(status, "running" | "queued" | "suspended") {
+        return None;
+    }
+    entry["job_id"].as_str()
 }
 
 /// One step's result in full, from the single entry the server resolved its address to.
