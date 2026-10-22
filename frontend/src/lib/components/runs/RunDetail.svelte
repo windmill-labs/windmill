@@ -771,8 +771,7 @@
 	)
 	const canEditInFork = $derived(
 		(job?.job_kind === 'script' || job?.job_kind === 'flow') &&
-			editRights.capabilities.code &&
-			!showEditButton &&
+			(!showEditButton || !editRights.capabilities.code) &&
 			!isCloudHosted() &&
 			editInForkAllowed(workspaceId, $userWorkspaces)
 	)

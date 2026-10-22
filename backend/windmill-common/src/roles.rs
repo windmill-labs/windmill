@@ -92,6 +92,9 @@ pub struct RoleCapabilities {
     pub apps: AuthorLevel,
     pub manage_schedules: bool,
     pub manage_triggers: bool,
+    /// Create a fork of the workspace. The forker is a developer in the fork whatever this role
+    /// holds, so granting it to a restricted role hands that member a full-rights copy.
+    pub fork: bool,
     pub visibility: RoleVisibility,
 }
 
@@ -102,6 +105,7 @@ impl RoleCapabilities {
         apps: AuthorLevel::Full,
         manage_schedules: true,
         manage_triggers: true,
+        fork: true,
         visibility: RoleVisibility::ALL,
     };
 
@@ -113,6 +117,7 @@ impl RoleCapabilities {
         apps: AuthorLevel::None,
         manage_schedules: true,
         manage_triggers: true,
+        fork: false,
         visibility: RoleVisibility::ALL,
     };
 
@@ -124,6 +129,7 @@ impl RoleCapabilities {
         apps: AuthorLevel::None,
         manage_schedules: false,
         manage_triggers: false,
+        fork: false,
         visibility: RoleVisibility::NONE,
     };
 
@@ -180,6 +186,9 @@ impl RoleCapabilities {
         if let Some(v) = patch.manage_triggers {
             self.manage_triggers = v;
         }
+        if let Some(v) = patch.fork {
+            self.fork = v;
+        }
         if let Some(v) = &patch.visibility {
             v.apply(&mut self.visibility);
         }
@@ -212,6 +221,8 @@ pub struct RoleCapabilitiesPatch {
     pub manage_schedules: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub manage_triggers: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub visibility: Option<RoleVisibilityPatch>,
 }
@@ -279,6 +290,7 @@ pub fn diff_capabilities(
         apps: d(base.apps, target.apps),
         manage_schedules: d(base.manage_schedules, target.manage_schedules),
         manage_triggers: d(base.manage_triggers, target.manage_triggers),
+        fork: d(base.fork, target.fork),
         visibility: (visibility != RoleVisibilityPatch::default()).then_some(visibility),
     }
 }

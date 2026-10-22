@@ -19,6 +19,7 @@ code is `windmill_common::roles`.
 | `flows` | `none` / `compose` / `full` | yes |
 | `apps` | `none` / `compose` / `full` | yes; low-code apps and worker-built apps need `full` |
 | `manage_schedules`, `manage_triggers` | bool | yes, see `docs/operator-write-rights.md` |
+| `fork` | bool | yes: both fork endpoints; the forker is a developer in the fork, see `docs/operator-write-rights.md` |
 | `visibility.*` | bool per page | no, UI only |
 
 `compose` is the former operator builder right: the composition-only checks of

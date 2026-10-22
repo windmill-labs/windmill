@@ -34,7 +34,7 @@
 		devWorkspacesInChainAbove
 	} from '$lib/utils/workspaceHierarchy'
 	import { useForkableWorkspaces } from '$lib/utils/useForkableWorkspaces.svelte'
-	import { capabilitiesIn, isRestricted } from '$lib/roleCapabilities'
+	import { capabilitiesIn } from '$lib/roleCapabilities'
 	import {
 		canUserBypassRuleKindInRulesets,
 		fetchProtectionRulesForWorkspace,
@@ -138,14 +138,13 @@
 	let forkableWorkspaces = $derived(forkable.current)
 
 	// Base candidates are the current workspace's family: its root first, then every fork/dev under it.
-	// Never one the user holds a restricted role in: a fork does not carry the role, so forking such a base
-	// would hand them a full-rights copy of it.
+	// Only bases whose role for the user holds `fork`: the server refuses the others.
 	let familyRoot = $derived(findWorkspaceRoot($workspaceStore, forkableWorkspaces))
 	let baseCandidates = $derived(
 		(familyRoot
 			? [familyRoot, ...findWorkspaceDescendants(familyRoot.id, forkableWorkspaces)]
 			: []
-		).filter((w) => !isRestricted(capabilitiesIn(undefined, w)))
+		).filter((w) => capabilitiesIn(undefined, w).fork)
 	)
 	let baseItems = $derived(
 		baseCandidates.map((w) => ({

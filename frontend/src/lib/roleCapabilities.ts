@@ -32,6 +32,7 @@ export function legacyOperatorCapabilities(
 		apps: settings?.builder_apps === true ? 'compose' : 'none',
 		manage_schedules: settings?.manage_schedules !== false,
 		manage_triggers: settings?.manage_triggers !== false,
+		fork: false,
 		visibility
 	}
 }
@@ -64,7 +65,8 @@ export function isRestricted(caps: RoleCapabilities): boolean {
 		caps.flows !== 'full' ||
 		caps.apps !== 'full' ||
 		!caps.manage_schedules ||
-		!caps.manage_triggers
+		!caps.manage_triggers ||
+		!caps.fork
 	)
 }
 

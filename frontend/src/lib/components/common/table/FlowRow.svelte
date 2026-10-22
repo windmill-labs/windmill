@@ -189,8 +189,7 @@
 					</Button>
 				</div>
 			{/if}
-			<!-- Hidden from every role without code, flow composers included. -->
-			{#if $roleCapabilities.code && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !flow.canWrite)}
+			{#if !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !flow.canWrite)}
 				<EditInForkButton itemType="flow" path={flow.path} />
 			{/if}
 		</span>
@@ -261,10 +260,7 @@
 						// No `href`: the handler resolves the destination asynchronously, and a melt
 						// menu item's anchor navigates before a delegated onclick can preventDefault it.
 						action: (e) => onEditInForkClick(e, 'flow', path),
-						hide:
-							!$roleCapabilities.code ||
-							isCloudHosted() ||
-							!editInForkAllowed($workspaceStore, $userWorkspaces)
+						hide: isCloudHosted() || !editInForkAllowed($workspaceStore, $userWorkspaces)
 					},
 					{
 						displayName: 'Audit logs',
