@@ -30,7 +30,8 @@
 		Redo,
 		Zap,
 		Globe,
-		Settings
+		Settings,
+		UserPlus
 	} from 'lucide-svelte'
 	import { getContext, onDestroy, untrack, type Snippet } from 'svelte'
 	import { orderedJsonStringify, type Value, replaceFalseWithUndefined } from '../../../utils'
@@ -68,6 +69,13 @@
 	import DeployButton from '$lib/components/DeployButton.svelte'
 	import { updatePolicy } from './appPolicy'
 	import { appDraftSettings } from './appDraftSettings'
+	import ShareDialog, { type ShareSection } from '$lib/components/itemSettings/ShareDialog.svelte'
+	import FirstDeployDialog, {
+		applyFirstDeployMembers
+	} from '$lib/components/itemSettings/FirstDeployDialog.svelte'
+	import ShareButton from '$lib/components/itemSettings/ShareButton.svelte'
+	import { accessModeOf } from '$lib/components/itemSettings/appAccess'
+	import type { ShareOpenSource } from '$lib/components/itemSettings/sharingTelemetry'
 	import { classicAppDraftParts } from '$lib/appDiffSides'
 	import { editInForkAllowed, editInForkLabel, openEditInFork } from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
@@ -172,7 +180,6 @@
 	let deployedBy: string | undefined = $state(undefined) // Author
 	let confirmCallback: () => void = $state(() => {}) // What happens when user clicks `override` in warning
 	let open: boolean = $state(false) // Is confirmation modal open
-	let customPathError: string = $state('')
 
 	const {
 		app,
@@ -212,11 +219,14 @@
 	// Deploy page. Parallels `draft_path`.
 	$effect(() => {
 		const s = $summary
-		const settings = appDraftSettings({
-			policy: $state.snapshot(policy),
-			labels: $state.snapshot(labels),
-			custom_path: customPath
-		})
+		const settings = appDraftSettings(
+			{
+				policy: $state.snapshot(policy),
+				labels: $state.snapshot(labels),
+				custom_path: customPath
+			},
+			!newApp
+		)
 		const a = $app
 		if (!a) return
 		untrack(() => {
@@ -260,6 +270,7 @@
 	let selectedJobId: string | undefined = $state(undefined)
 
 	let pathError: string = $state('')
+
 	let appExport: AppExportButton | undefined = $state()
 
 	let settingsOpen = $state(false)
@@ -298,7 +309,8 @@
 		return classicAppDraftParts(a).value as T
 	}
 
-	async function createApp(path: string) {
+	/** Resolves to whether the app was created. */
+	async function createApp(path: string): Promise<boolean> {
 		// In place: the settings drawer and the draft mirror hold this object.
 		Object.assign(policy, await updatePolicy($app, policy))
 		try {
@@ -338,8 +350,10 @@
 				})
 			}
 			onSavedNewAppPath?.(path)
+			return true
 		} catch (e) {
 			sendUserToast('Error creating app', e)
+			return false
 		}
 	}
 
@@ -416,6 +430,14 @@
 	}
 
 	async function updateApp(npath: string) {
+		// Who can open the app is set from the Share dialog and applies at once. Read here rather
+		// than at load, so a change made since then is not undone; an omitted mode would reset an
+		// operator-built app to the publisher's.
+		const deployedRow = await AppService.getAppLiteByPath({
+			workspace: $workspaceStore!,
+			path: $appPath!
+		})
+		policy.execution_mode = deployedRow.policy.execution_mode
 		// In place: the settings drawer and the draft mirror hold this object.
 		Object.assign(policy, await updatePolicy($app, policy))
 		const deployed = await AppService.updateApp({
@@ -427,10 +449,8 @@
 				policy,
 				path: npath,
 				deployment_message: deploymentMsg,
-				// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
-				// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
-				custom_path:
-					$userStore?.is_admin || $userStore?.is_super_admin ? (customPath ?? '') : undefined,
+				// Absent keeps the custom URL, which the Share dialog sets.
+				custom_path: undefined,
 				preserve_on_behalf_of: preserveOnDeploy,
 				labels
 			}
@@ -486,16 +506,40 @@
 		settingsOpen = true
 	}
 
+	let shareDialog: ShareDialog | undefined = $state()
+	let firstDeployDialog: FirstDeployDialog | undefined = $state()
+
+	function openShare(source: ShareOpenSource, section?: ShareSection) {
+		shareDialog?.openDialog('app', $appPath!, { source, section, fromEditor: true })
+	}
+
 	async function deploy(message?: string) {
-		if (pathError != '' || customPathError != '') {
-			openSettings(pathError != '' ? 'metadata' : 'sharing')
+		if (pathError != '') {
+			openSettings('metadata')
 			return
 		}
 		deploymentMsg = message ?? ''
 		// Use `newApp` (set for /apps/add and draft-only paths), not
 		// `$appPath` — its `draft_{uuid}` is a poor create signal.
 		if (newApp) {
-			await createApp(newEditedPath)
+			let members: Record<string, boolean> = {}
+			if (ownsPageHeader) {
+				const choice = await firstDeployDialog?.ask({
+					kind: 'app',
+					summary: $summary,
+					path: newEditedPath,
+					appMode: accessModeOf(policy)
+				})
+				if (!choice) return
+				$summary = choice.summary
+				newEditedPath = choice.path
+				policy.execution_mode = choice.appMode
+				deploymentMsg = choice.message
+				members = choice.members
+			}
+			if (await createApp(newEditedPath)) {
+				await applyFirstDeployMembers($workspaceStore!, 'app', newEditedPath, members)
+			}
 		} else {
 			await handleUpdateApp(newEditedPath)
 		}
@@ -718,11 +762,22 @@
 			icon: Settings,
 			action: () => openSettings('metadata')
 		},
-		{
-			displayName: 'Public URL',
-			icon: Globe,
-			action: () => openSettings('sharing')
-		},
+		...(ownsPageHeader
+			? [
+					{
+						displayName: 'Share',
+						icon: UserPlus,
+						disabled: newApp,
+						action: () => openShare('editor_header')
+					},
+					{
+						displayName: 'Public URL',
+						icon: Globe,
+						disabled: newApp,
+						action: () => openShare('public_url', 'app')
+					}
+				]
+			: []),
 		{
 			displayName: 'App inputs',
 			icon: FormInput,
@@ -831,11 +886,10 @@
 		setTheme(priorDarkMode)
 	})
 
-	// A draft that set or removed the custom URL wins over the deployed one.
+	// A deployed app's custom URL is set from the Share dialog, never drafted; a never-deployed
+	// app's draft carries the one its first deploy will create it with.
 	let customPath = $state(
-		untrack(() =>
-			$app?.custom_path !== undefined ? ($app.custom_path ?? undefined) : savedApp?.custom_path
-		)
+		untrack(() => (newApp ? ($app?.custom_path ?? undefined) : savedApp?.custom_path))
 	)
 	let labels = $state(untrack(() => initialLabels))
 
@@ -848,7 +902,7 @@
 		}
 	})
 
-	let settingsHaveErrors = $derived(pathError != '' || customPathError != '')
+	let settingsHaveErrors = $derived(pathError != '')
 	let hasErrors = $derived(Object.keys($errorByComponent).length > 0)
 </script>
 
@@ -897,13 +951,26 @@
 	appPath={$appPath}
 	{savedApp}
 	bind:summary={$summary}
-	bind:customPath
-	bind:customPathError
 	bind:pathError
 	bind:newEditedPath
 	bind:preserveOnBehalfOf
 	bind:labels
 />
+
+{#if ownsPageHeader}
+	<ShareDialog
+		bind:this={shareDialog}
+		onAppChanged={(row) => {
+			policy.execution_mode = row.policy.execution_mode
+			customPath = row.custom_path ?? undefined
+			if (savedApp) {
+				savedApp.policy = { ...savedApp.policy, execution_mode: row.policy.execution_mode }
+				savedApp.custom_path = row.custom_path ?? undefined
+			}
+		}}
+	/>
+	<FirstDeployDialog bind:this={firstDeployDialog} />
+{/if}
 
 <Drawer bind:open={inputsDrawerOpen} size="600px">
 	<DrawerContent title="App inputs configuration" on:close={() => (inputsDrawerOpen = false)}>
@@ -1271,6 +1338,13 @@
 					Settings
 				</Button>
 			</div>
+			{#if ownsPageHeader}
+				<ShareButton
+					deployed={!newApp}
+					iconOnly={compactTopbar}
+					onclick={() => openShare('editor_header')}
+				/>
+			{/if}
 		{/if}
 		<DeployButton
 			loadingSave={loading.save}

@@ -33,7 +33,7 @@ export async function fetchDeployedValueForDiff(
 			return {
 				...(app.value as object),
 				summary: app.summary,
-				...appDraftSettings(app)
+				...appDraftSettings(app, true)
 			} as unknown as Value
 		}
 		case 'raw_app': {

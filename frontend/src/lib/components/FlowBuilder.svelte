@@ -70,7 +70,22 @@
 	import { setNoteEditorContext } from './graph/noteEditor.svelte'
 	import { GroupEditor, setGroupEditorContext } from './graph/groupEditor.svelte'
 	import { cleanFlow } from './flows/utils.svelte'
-	import { DiffIcon, HistoryIcon, FileJson, Settings, Undo, Redo, Disc } from 'lucide-svelte'
+	import {
+		DiffIcon,
+		HistoryIcon,
+		FileJson,
+		Settings,
+		Undo,
+		Redo,
+		Disc,
+		UserPlus
+	} from 'lucide-svelte'
+	import ShareDialog from './itemSettings/ShareDialog.svelte'
+	import FirstDeployDialog, {
+		applyFirstDeployMembers,
+		type FirstDeployChoice
+	} from './itemSettings/FirstDeployDialog.svelte'
+	import ShareButton from './itemSettings/ShareButton.svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
 	import { type FlowCopilotContext } from './copilot/flow'
@@ -484,7 +499,36 @@
 		})
 	}
 
+	let shareDialog: ShareDialog | undefined = $state()
+	let firstDeployDialog: FirstDeployDialog | undefined = $state()
+	/** Set by a deploy from this editor, which an embedder may keep mounted. */
+	let deployedHere = $state(false)
+	const neverDeployed = $derived(
+		!deployedHere && (newFlow || initialPath == '' || savedFlow?.no_deployed === true)
+	)
+	let pendingFirstDeploy: FirstDeployChoice | undefined = undefined
+
+	function openShare() {
+		// The deployed row's path: `initialPath` is re-seeded from a staged rename.
+		shareDialog?.openDialog('flow', userDraftPath || initialPath, {
+			source: 'editor_header',
+			fromEditor: true
+		})
+	}
+
 	async function handleSaveFlowInternal(deploymentMsg?: string) {
+		if (ownsPageHeader && neverDeployed) {
+			const choice = await firstDeployDialog?.ask({
+				kind: 'flow',
+				summary: flowStore.val.summary ?? '',
+				path: $pathStore
+			})
+			if (!choice) return
+			flowStore.val.summary = choice.summary
+			$pathStore = choice.path
+			deploymentMsg = choice.message
+			pendingFirstDeploy = choice
+		}
 		await compareVersions()
 		if (onLatest || initialPath == '' || newFlow) {
 			// Handle directly
@@ -739,6 +783,12 @@
 				path: $pathStore
 			} as Flow
 			setDraftTriggers([])
+			deployedHere = true
+			if (pendingFirstDeploy) {
+				const { members } = pendingFirstDeploy
+				pendingFirstDeploy = undefined
+				await applyFirstDeployMembers(opWorkspace!, 'flow', $pathStore, members)
+			}
 			loadingSave = false
 			onDeploy?.({ path: $pathStore })
 		} catch (err) {
@@ -1351,7 +1401,20 @@
 	const mod = isMac() ? '⌘' : 'Ctrl+'
 
 	function getMoreItems(): Item[] {
-		const leadingItems = [...diffMenuItems, ...baseMenuItems]
+		const leadingItems = [
+			...diffMenuItems,
+			...(ownsPageHeader
+				? [
+						{
+							displayName: 'Share',
+							icon: UserPlus,
+							disabled: neverDeployed,
+							action: openShare
+						}
+					]
+				: []),
+			...baseMenuItems
+		]
 		return [
 			...leadingItems,
 			{
@@ -1561,6 +1624,11 @@
 <svelte:window onkeydown={onKeyDown} />
 
 {@render children?.()}
+
+{#if ownsPageHeader}
+	<ShareDialog bind:this={shareDialog} />
+	<FirstDeployDialog bind:this={firstDeployDialog} />
+{/if}
 
 <DeployOverrideConfirmationModal
 	{deployedBy}
@@ -1803,6 +1871,14 @@
 				{/if}
 
 				<OpenInSessionButton source={headerSessionOpen} />
+				{#if !phoneTopbar}
+					<ShareButton
+						deployed={!neverDeployed}
+						iconOnly={compactTopbar}
+						unifiedSize={headerBtnSize}
+						onclick={openShare}
+					/>
+				{/if}
 				<DeployButton
 					on:save={async ({ detail }) => await handleSaveFlow(detail)}
 					{loading}

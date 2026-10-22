@@ -42,7 +42,7 @@
 		Globe2,
 		List,
 		Pen,
-		Shield,
+		UserPlus,
 		Trash,
 		History,
 		FileText
@@ -402,8 +402,8 @@
 						hide: !$roleCapabilities.code || !$roleCapabilities.manage_schedules
 					},
 					{
-						displayName: 'Permissions',
-						icon: Shield,
+						displayName: 'Share',
+						icon: UserPlus,
 						action: () => {
 							shareModal.openDrawer && shareModal.openDrawer(script.path, 'script')
 						},

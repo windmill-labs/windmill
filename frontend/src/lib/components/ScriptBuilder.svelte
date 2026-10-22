@@ -46,6 +46,12 @@
 		type Value
 	} from '$lib/utils'
 	import Path from './Path.svelte'
+	import ShareDialog from './itemSettings/ShareDialog.svelte'
+	import FirstDeployDialog, {
+		applyFirstDeployMembers,
+		type FirstDeployChoice
+	} from './itemSettings/FirstDeployDialog.svelte'
+	import ShareButton from './itemSettings/ShareButton.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import { notifyContractWarnings } from './assets/AssetGraph/schemaContracts'
 	import ScriptEditor from './ScriptEditor.svelte'
@@ -69,6 +75,7 @@
 		Settings,
 		Shuffle,
 		Tag,
+		UserPlus,
 		X
 	} from 'lucide-svelte'
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
@@ -230,6 +237,23 @@
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
 	const opWorkspace = $derived(autosaveWorkspace ?? $operatingWorkspace)
+
+	let shareDialog: ShareDialog | undefined = $state()
+	let firstDeployDialog: FirstDeployDialog | undefined = $state()
+	/** Set by a deploy from this editor: `savedScript.no_deployed` survives a deploy that stays. */
+	let deployedHere = $state(false)
+	const neverDeployed = $derived(
+		!deployedHere && (initialPath == '' || savedScript?.no_deployed === true)
+	)
+	let pendingFirstDeploy: FirstDeployChoice | undefined = undefined
+
+	function openShare() {
+		// The deployed row's path: `initialPath` follows the path being typed.
+		shareDialog?.openDialog('script', userDraftPath || initialPath, {
+			source: 'editor_header',
+			fromEditor: true
+		})
+	}
 	const indicatorPath = $derived(autosavePath ?? userDraftPath)
 
 	// The shared `workerTags` store caches tags for the navigation workspace. A
@@ -255,6 +279,9 @@
 				: []),
 			...(phoneTopbar && customUi?.topBar?.settings != false
 				? [{ displayName: 'Settings', icon: Settings, action: () => (metadataOpen = true) }]
+				: []),
+			...(phoneTopbar && ownsPageHeader
+				? [{ displayName: 'Share', icon: UserPlus, disabled: neverDeployed, action: openShare }]
 				: []),
 			...(customUi?.topBar?.tagEdit != false && hasTags
 				? [
@@ -614,6 +641,21 @@
 	}
 
 	async function handleEditScript(stay: boolean, deployMsg?: string): Promise<void> {
+		// Every deploy path of the full-page editor comes through here, the message popover and
+		// "Deploy & Stay here" included.
+		if (ownsPageHeader && neverDeployed) {
+			const choice = await firstDeployDialog?.ask({
+				kind: 'script',
+				summary: script.summary,
+				path: script.path,
+				pathChosen: dirtyPath
+			})
+			if (!choice) return
+			script.summary = choice.summary
+			script.path = choice.path
+			deployMsg = choice.message
+			pendingFirstDeploy = choice
+		}
 		scriptEditor?.flushModuleState()
 		// Fetch latest version and fetch entire script after if needed
 		let actual_parent_hash: string | undefined = undefined
@@ -860,6 +902,12 @@
 			const { draft_triggers: _, ...newScript } = structuredClone($state.snapshot(script))
 			savedScript = structuredClone($state.snapshot(newScript))
 			setDraftTriggers([])
+			deployedHere = true
+			if (pendingFirstDeploy) {
+				const { members } = pendingFirstDeploy
+				pendingFirstDeploy = undefined
+				await applyFirstDeployMembers(opWorkspace!, 'script', script.path, members)
+			}
 
 			if (!disableHistoryChange) {
 				history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
@@ -1397,6 +1445,11 @@
 	onConfirmed={() => confirmPerpetualRunsCallback()}
 	onCanceled={() => (perpetualRunsToConfirm = undefined)}
 />
+
+{#if ownsPageHeader}
+	<ShareDialog bind:this={shareDialog} />
+	<FirstDeployDialog bind:this={firstDeployDialog} />
+{/if}
 
 {#if editRights.roleCanAuthor('script')}
 	<Drawer
@@ -2118,6 +2171,14 @@
 
 			{#if ownsPageHeader}
 				<OpenInSessionButton source={headerSessionOpen()} />
+			{/if}
+			{#if ownsPageHeader && !phoneTopbar}
+				<ShareButton
+					deployed={!neverDeployed}
+					iconOnly={compactTopbar}
+					unifiedSize={headerBtnSize}
+					onclick={openShare}
+				/>
 			{/if}
 			<DeployButton
 				loading={!fullyLoaded}

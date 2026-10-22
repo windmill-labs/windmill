@@ -9280,9 +9280,11 @@ async function deployDraft(
 				}
 				deployedPath = targetPath
 				if (await AppService.existsApp({ workspace, path: targetPath })) {
-					// Omit custom_path on update for now. The backend preserves it when absent, while
-					// sending it requires admin privileges; this chat deploy path does not yet mirror
-					// the raw app editor's user/admin-specific custom_path handling.
+					// Who can open the app and its custom URL are set from the Share dialog: the
+					// deployed mode stands over the drafted one, and custom_path is omitted, which
+					// the backend keeps.
+					const row = await AppService.getAppLiteByPath({ workspace, path: targetPath })
+					policy.execution_mode = row.policy.execution_mode ?? policy.execution_mode
 					await AppService.updateAppRaw({
 						workspace,
 						path: targetPath,

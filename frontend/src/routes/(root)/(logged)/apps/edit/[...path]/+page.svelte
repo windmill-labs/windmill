@@ -233,7 +233,7 @@
 				({
 					...(structuredClone(stateSnapshot(backendApp.value)) as App),
 					summary: backendApp.summary,
-					...appDraftSettings(structuredClone(stateSnapshot(backendApp)))
+					...appDraftSettings(structuredClone(stateSnapshot(backendApp)), true)
 				} as App)
 		// `other_drafts_users` only computed when `getDraft`; don't clobber the
 		// known list on a `getDraft:false` reload. See /scripts/edit's loader.
@@ -371,7 +371,7 @@
 		backendApp = {
 			...backendApp,
 			policy: draftParts.policy
-				? withDraftPolicySettings(backendApp.policy, draftParts.policy)
+				? withDraftPolicySettings(backendApp.policy, draftParts.policy, !backendApp.no_deployed)
 				: backendApp.policy,
 			labels: draftParts.labels ?? backendApp.labels
 		} as typeof backendApp
