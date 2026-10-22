@@ -74,10 +74,8 @@
 	import { GroupEditor, setGroupEditorContext } from './graph/groupEditor.svelte'
 	import { cleanFlow } from './flows/utils.svelte'
 	import { DiffIcon, HistoryIcon, FileJson, Settings, Undo, Redo, Disc } from 'lucide-svelte'
-	import {
-		muteErrorHandlerMenuItem,
-		toggleWorkspaceErrorHandler
-	} from './details/errorHandlerToggle'
+	import { muteErrorHandlerMenuItem } from './details/errorHandlerToggle'
+	import { useDeployedErrorHandlerMuted } from './details/deployedErrorHandlerMuted.svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
 	import { type FlowCopilotContext } from './copilot/flow'
@@ -665,9 +663,10 @@
 			// check rather than blocking the deploy.
 			const liveFlow = isNewFlow
 				? undefined
-				: await FlowService.getFlowByPath({ workspace: opWorkspace!, path: initialPath }).catch(
-						() => undefined
-					)
+				: await FlowService.getFlowByPath({
+						workspace: opWorkspace!,
+						path: userDraftPath || initialPath
+					}).catch(() => undefined)
 			dropStaleStepLocks(flow.value, liveFlow?.value)
 
 			if (isNewFlow) {
@@ -1402,27 +1401,29 @@
 				icon: Disc,
 				action: () => flowPreviewButtons?.openRecordingPreview()
 			},
-			...(!newFlow && savedFlow && savedFlow.no_deployed !== true
+			...(deployedFlowPath
 				? [
 						muteErrorHandlerMenuItem({
 							kind: 'flow',
-							muted: deployedErrorHandlerMuted,
+							muted: deployedMute.muted,
 							hasEnterpriseLicense: !!$enterpriseLicense,
-							onToggle: async () => {
-								const next = await toggleWorkspaceErrorHandler(
-									opWorkspace,
-									'flow',
-									initialPath,
-									deployedErrorHandlerMuted
-								)
-								if (next !== undefined) deployedErrorHandlerMuted = next
-							}
+							onToggle: () => deployedMute.toggle()
 						})
 					]
 				: [])
 		]
 	}
-	let deployedErrorHandlerMuted = $derived(!!savedFlow?.ws_error_handler_muted)
+	// The URL path: `initialPath` is the staged name once a draft that renames the flow reloads.
+	const deployedFlowPath = $derived(
+		!newFlow && savedFlow && savedFlow.no_deployed !== true
+			? userDraftPath || initialPath || undefined
+			: undefined
+	)
+	const deployedMute = useDeployedErrorHandlerMuted(
+		'flow',
+		() => opWorkspace,
+		() => deployedFlowPath
+	)
 
 	function onCustomUiChange(
 		customUi: FlowBuilderWhitelabelCustomUi | undefined,
