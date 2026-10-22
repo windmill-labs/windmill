@@ -139,9 +139,13 @@
 					{:else}
 						{#if !signingSecretSet}
 							<Alert type="warning" title="Agents can't answer in Slack yet" size="xs">
-								Windmill needs the Slack app's signing secret to tell who sent a message. A
-								workspace's own Slack app takes it in the workspace settings, the instance's app in
-								the instance settings.
+								Windmill needs the Slack app's signing secret to tell who sent a message.
+								{#if isAdmin}
+									A workspace's own Slack app takes it in the workspace settings, the instance's app
+									in the instance settings.
+								{:else}
+									A workspace or instance admin can set it.
+								{/if}
 							</Alert>
 						{/if}
 						{#if !botName}

@@ -139,8 +139,14 @@ fn slack_signature_matcher<'a>(
     ts: &'a str,
     body: &'a str,
 ) -> impl Fn(&str) -> bool + 'a {
+    // Slack's recommended replay window: a captured request stops verifying after it.
+    let fresh = ts
+        .parse::<i64>()
+        .is_ok_and(|t| (chrono::Utc::now().timestamp() - t).abs() <= 5 * 60);
     move |secret: &str| {
-        windmill_oauth::SlackVerifier::new(secret).is_ok_and(|v| v.verify(ts, body, sig).is_ok())
+        fresh
+            && windmill_oauth::SlackVerifier::new(secret)
+                .is_ok_and(|v| v.verify(ts, body, sig).is_ok())
     }
 }
 
@@ -611,6 +617,8 @@ pub struct SlackMessage {
     /// The workspaces whose Slack app's signing secret verified this request. Carried from the
     /// check rather than re-read from the settings, which can change between the two.
     pub verified: Vec<String>,
+    /// The workspaces this request may reach, whose command scripts may take it.
+    pub reachable: Vec<String>,
 }
 
 enum Route {
@@ -700,22 +708,20 @@ pub async fn try_answer(db: &DB, msg: SlackMessage) -> Result<bool> {
                     "channel_default"
                 },
             ),
-            None => {
-                match workspace_without_command_script(db, &msg.team_id, &msg.verified).await? {
-                    Some(w_id) => {
-                        return start_answer(
-                            db,
-                            w_id,
-                            Route::Help { note: None },
-                            "help",
-                            question,
-                            msg,
-                        )
-                        .await;
-                    }
-                    None => return Ok(false),
+            None => match workspace_without_command_script(db, &msg).await? {
+                Some(w_id) => {
+                    return start_answer(
+                        db,
+                        w_id,
+                        Route::Help { note: None },
+                        "help",
+                        question,
+                        msg,
+                    )
+                    .await;
                 }
-            }
+                None => return Ok(false),
+            },
         },
     };
     let w_id = here.workspace_id.clone();
@@ -828,25 +834,23 @@ fn decode_entities(text: &str) -> String {
         .replace("&amp;", "&")
 }
 
-/// The team's workspace when no workspace of the team has a command script to take the message:
-/// the only one connected to it.
-async fn workspace_without_command_script(
-    db: &DB,
-    team_id: &str,
-    verified: &[String],
-) -> Result<Option<String>> {
+/// The team's workspace when no workspace the message may reach has a command script to take it:
+/// the only one it reaches, when that one verified it.
+async fn workspace_without_command_script(db: &DB, msg: &SlackMessage) -> Result<Option<String>> {
     let rows = sqlx::query!(
         "SELECT workspace_id, slack_command_script IS NOT NULL AS \"has_script!\"
          FROM workspace_settings ws WHERE slack_team_id = $1
            AND ws.workspace_id = ANY($2)
          ORDER BY slack_command_script IS NOT NULL DESC LIMIT 2",
-        team_id,
-        verified
+        msg.team_id,
+        &msg.reachable
     )
     .fetch_all(db)
     .await?;
     Ok(match rows.as_slice() {
-        [only] if !only.has_script => Some(only.workspace_id.clone()),
+        [only] if !only.has_script && msg.verified.contains(&only.workspace_id) => {
+            Some(only.workspace_id.clone())
+        }
         _ => None,
     })
 }

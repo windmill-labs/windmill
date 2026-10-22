@@ -901,10 +901,12 @@
 					slack_oauth_client_secret: slackOAuthClientSecret
 				}
 			})
-			await WorkspaceService.setWorkspaceSlackSigningSecret({
-				workspace: $workspaceStore,
-				requestBody: { slack_signing_secret: slackSigningSecret || null }
-			})
+			if (slackSigningSecret.trim()) {
+				await WorkspaceService.setWorkspaceSlackSigningSecret({
+					workspace: $workspaceStore,
+					requestBody: { slack_signing_secret: slackSigningSecret }
+				})
+			}
 
 			// Redirect to OAuth flow
 			window.location.href = `/api/oauth/connect_slack?workspace=${$workspaceStore}${slackAgents ? '&agents=true' : ''}`
@@ -916,14 +918,15 @@
 
 	async function saveSlackSigningSecret(): Promise<void> {
 		if (!$workspaceStore) return
+		const secret = slackSigningSecret.trim() || null
 		try {
 			await WorkspaceService.setWorkspaceSlackSigningSecret({
 				workspace: $workspaceStore,
-				requestBody: { slack_signing_secret: slackSigningSecret || null }
+				requestBody: { slack_signing_secret: secret }
 			})
 			slackSigningSecret = ''
-			slackSigningSecretSet = true
-			sendUserToast('Signing secret saved')
+			slackSigningSecretSet = !!secret
+			sendUserToast(secret ? 'Signing secret saved' : 'Signing secret removed')
 		} catch (e) {
 			sendUserToast('Failed to save the signing secret', true)
 			console.error(e)
@@ -1854,9 +1857,9 @@
 															unifiedSize="md"
 															variant="default"
 															onclick={saveSlackSigningSecret}
-															disabled={!slackSigningSecret}
+															disabled={!slackSigningSecret.trim() && !slackSigningSecretSet}
 														>
-															Save
+															{slackSigningSecret.trim() || !slackSigningSecretSet ? 'Save' : 'Remove'}
 														</Button>
 													</div>
 													<div class="text-2xs text-hint"
@@ -1914,7 +1917,7 @@
 															onclick={saveAndConnectSlack}
 															disabled={!slackOAuthClientId ||
 																!slackOAuthClientSecret ||
-																(slackAgents && !slackSigningSecret)}
+																(slackAgents && !slackSigningSecret.trim())}
 															startIcon={{ icon: Slack }}
 															btnClasses="w-fit"
 														>
