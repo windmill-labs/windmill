@@ -723,6 +723,11 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 			}
 
 			const parsedArgs = getSetBackendRunnableSchema().parse(cleanedArgs)
+			if (parsedArgs.type === 'agent' && Object.keys(parsedArgs.staticInputs ?? {}).length > 0) {
+				const errorMsg = `An "agent" runnable takes no staticInputs: each turn's inputs come from the app.`
+				toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
+				return errorMsg
+			}
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Setting backend runnable '${parsedArgs.key}'...`
 			})
@@ -1087,7 +1092,7 @@ When creating a backend runnable with \`set_backend_runnable\`:
    }
    \`\`\`
 
-5. **For saved AI agents** (type: "agent"), one chat turn per call, taking \`user_message\` and \`memory_id\` (the conversation id):
+5. **For saved AI agents** (type: "agent"), one chat turn per call, taking \`user_message\` and either \`memory_id\` (the conversation id, for an agent with managed memory) or \`previous_messages\` (the history, for one whose memory is off); no staticInputs:
    \`\`\`
    {
      key: "chat",

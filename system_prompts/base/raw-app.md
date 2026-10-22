@@ -156,9 +156,21 @@ const chat = useWindmillChat({ flowPath: 'f/support/assistant' })
 
 Chat with a saved AI agent (an `ai_agent` resource) through an `agent` runnable, a path runnable whose `path` is the agent's. Each call runs one turn of the agent's chat as the app, so a sandboxed app declares no frontend SDK scope, viewers get no consent prompt and need no access to the agent. Prefer it in every app, sandboxed or not:
 
+<!-- cli-only -->
+In `raw_app.yaml`:
+
+```yaml
+runnables:
+  chat:
+    type: agent
+    path: f/support/agent
+```
+<!-- /cli-only -->
+<!-- chat-only -->
 ```json
 { "chat": { "type": "agent", "path": "f/support/agent" } }
 ```
+<!-- /chat-only -->
 
 ```tsx
 import { useWindmillChat } from '@windmill-labs/chat-sdk/react'

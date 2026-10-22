@@ -1713,29 +1713,31 @@ export function buildWmillTs(
 
 /**
  * The inputs of an agent runnable, after the agent's memory (see the frontend's
- * `agentRunnableSchema`): `memory_id` when it keeps managed memory, `previous_messages` otherwise.
+ * `agentRunnableSchema`): `memory_id` when it keeps managed memory, `previous_messages` when it
+ * is off, and neither for an older `manual`/`auto` setting, which reads neither.
  */
 function agentRunnableSchema(memory: any) {
+  const legacy =
+    memory?.kind === "manual" ||
+    (memory?.kind === "auto" && Boolean(memory.context_length));
   const managed =
     memory?.kind === "compaction" ||
-    ((memory?.kind === "window" || memory?.kind === "auto") &&
-      Boolean(memory.context_length));
-  const history: Record<string, any> = managed
-    ? {
-        memory_id: {
-          type: "string",
-          description:
-            "The conversation the message belongs to: reuse it to continue one, or omit it for a single run",
-        },
-      }
-    : {
-        previous_messages: {
-          type: "array",
-          description:
-            "The history to answer from, as chat messages: this agent keeps no memory",
-          items: { type: "object" },
-        },
-      };
+    (memory?.kind === "window" && Boolean(memory.context_length));
+  const history: Record<string, any> = {};
+  if (managed) {
+    history.memory_id = {
+      type: "string",
+      description:
+        "The conversation the message belongs to: reuse it to continue one, or omit it for a single run",
+    };
+  } else if (!legacy) {
+    history.previous_messages = {
+      type: "array",
+      description:
+        "The history to answer from, as chat messages: this agent keeps no memory",
+      items: { type: "object" },
+    };
+  }
   return {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     type: "object",

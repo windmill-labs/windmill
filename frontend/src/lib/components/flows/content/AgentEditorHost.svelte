@@ -47,7 +47,8 @@
 		AGENT_EDITOR_RUN_INPUTS,
 		AGENT_TOOLS_ROW,
 		DEFAULT_AGENT_MEMORY,
-		keepsManagedMemory
+		keepsManagedMemory,
+		agentMemoryMode
 	} from '../agentFormFields'
 	import { toolDisplayName, type AgentTool } from '../agentToolUtils'
 	import { useAgentDraft, type AgentRunAs } from '../agentDraft.svelte'
@@ -243,10 +244,10 @@
 	// apart from the echo of their own write.
 	let lastArgs = $state<string | undefined>(undefined)
 
-	// Without managed memory a run keeps no history of its own, so the form also takes the one to
-	// answer from; with it, the worker would ignore one.
+	// With memory off a run keeps no history of its own, so the form also takes the one to answer
+	// from; managed memory and an older setting would ignore one.
 	let formSchema = $derived(
-		keepsManagedMemory((agentValue?.input_transforms?.memory as any)?.value)
+		agentMemoryMode((agentValue?.input_transforms?.memory as any)?.value) !== 'off'
 			? AGENT_CHAT_SCHEMA
 			: {
 					...AGENT_CHAT_SCHEMA,

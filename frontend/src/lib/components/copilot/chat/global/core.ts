@@ -2071,6 +2071,12 @@ function buildPersistedRunnable(
 			'path is required when runnable type is "script", "flow", "hubscript" or "agent".'
 		)
 	}
+	// A static input is pinned by the deployed policy: every viewer's turn would send the same one.
+	if (input.type === 'agent' && Object.keys(input.staticInputs ?? {}).length > 0) {
+		throw new Error(
+			'An "agent" runnable takes no staticInputs: each turn\'s inputs come from the app.'
+		)
+	}
 	return {
 		...carried,
 		name: input.name,
@@ -9369,9 +9375,14 @@ async function undeployedRunnableTargets(
 		const path = runnable?.path
 		if ((type !== 'script' && type !== 'flow' && type !== 'agent') || !path) continue
 		try {
-			// A saved agent is an `ai_agent` resource.
-			const itemType = type === 'agent' ? 'resource' : type
-			if (await deployedItemExists(workspace, itemType, path, undefined)) continue
+			if (type === 'agent') {
+				// A saved agent is an `ai_agent` resource; another resource at the path runs nothing.
+				const found = await ResourceService.getResource({ workspace, path }).catch((e) => {
+					if ((e as { status?: number } | null | undefined)?.status === 404) return undefined
+					throw e
+				})
+				if (found?.resource_type === 'ai_agent') continue
+			} else if (await deployedItemExists(workspace, type, path, undefined)) continue
 		} catch {
 			// The probe is advisory: a lookup failure must never block the write or
 			// the deploy it annotates.

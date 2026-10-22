@@ -57,7 +57,7 @@ export function useWindmillChat<W extends RawAppWmill>(options: TypedChatOptions
         onError: (error, turn) => latest.current.onError?.(error, turn)
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [options.flowPath, options.runnable, options.baseUrl, options.workspace, options.history, options.storageKey, credential, customRun, customFollow]
+    [options.flowPath, options.runnable, options.wmill, options.baseUrl, options.workspace, options.history, options.storageKey, credential, customRun, customFollow]
   )
   useEffect(() => () => chat.destroy(), [chat])
   const state = useSyncExternalStore(chat.subscribe, chat.getState, chat.getState)

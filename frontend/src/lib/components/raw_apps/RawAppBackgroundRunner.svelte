@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte'
 	import { executeRunnable } from '../apps/components/helpers/executeRunnable'
 	import { userStore } from '$lib/stores'
 	import { waitJob } from '../waitJob'
@@ -54,6 +55,9 @@
 
 	// Job ids launched by this app instance — see `gateJobIds`.
 	const launchedJobs = new Set<string>()
+	// A stream resumed on every server timeout would otherwise outlive the app it answers.
+	let destroyed = false
+	onDestroy(() => (destroyed = true))
 
 	/** For a host that loads this component after the bundle may already have sent requests. */
 	export function handleMessage(event: MessageEvent) {
@@ -244,7 +248,7 @@
 							if (type === 'timeout') {
 								// The server ends every stream after a while; the job goes on, so it is resumed.
 								eventSource.close()
-								connect(lastOffset)
+								if (!destroyed) connect(lastOffset)
 							}
 							return
 						}

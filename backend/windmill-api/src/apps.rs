@@ -4908,11 +4908,12 @@ async fn execute_component(
         let memory_id = payload
             .args
             .remove("memory_id")
-            .and_then(|v| {
+            .map(|v| {
                 serde_json::from_str::<Option<String>>(v.get())
-                    .ok()
-                    .flatten()
+                    .map_err(|_| Error::BadRequest("memory_id must be a string".to_string()))
             })
+            .transpose()?
+            .flatten()
             .filter(|m| !m.trim().is_empty());
         payload.args.retain(|k, _| {
             matches!(
