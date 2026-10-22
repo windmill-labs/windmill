@@ -102,7 +102,9 @@ class ChatImpl implements Chat {
       messages: [],
       status: 'idle',
       error: undefined,
-      conversations: [],
+      // Browser history is read synchronously, so a chat starts with its list as server history
+      // cannot: an app that never calls `loadConversations` still shows its conversations.
+      conversations: this.#config.history === 'local' ? this.#local.listConversations() : [],
       history: this.#config.history,
       loadingMessages: false,
       hasMoreMessages: false

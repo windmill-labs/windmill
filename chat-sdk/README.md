@@ -331,7 +331,8 @@ That store is keyed by the **Windmill user**, so it fits a viewer session or a t
 issued per user. With one token shared by every visitor of a site, all visitors would
 see each other's conversations. For that setup use `history: 'local'` (the default
 with an explicit `token`): the conversation list and messages stay in the browser's
-`localStorage`, per Windmill instance, workspace and flow. `'none'` keeps nothing
+`localStorage`, per Windmill instance, workspace and flow, and the chat starts with that
+list in `state.conversations`, without a `loadConversations()` call. `'none'` keeps nothing
 beyond the page.
 
 When the default `'server'` mode turns out unreadable (a token or sandboxed app
