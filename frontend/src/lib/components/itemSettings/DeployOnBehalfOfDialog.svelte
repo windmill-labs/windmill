@@ -47,10 +47,12 @@
 		operatingUser.current?.username ? `u/${operatingUser.current.username}` : undefined
 	)
 	const savedUser = $derived(savedPermissionedAs ?? savedEmail)
+	// The backend gives a new item in a folder with a default user that user unless the deploy
+	// names one, so only a flow or script outside that case can deploy with the setting off.
+	const required = $derived(kind === 'app' || !!folderDefault)
+	const on = $derived(required || !!email)
 	// A flow or script whose deployed version ran on behalf of someone, turned off by this deploy.
-	const stops = $derived(
-		kind !== 'app' && !email && !permissionedAs && !folderDefault && !!savedUser
-	)
+	const stops = $derived(!on && !!savedUser)
 	const runsAs = $derived(
 		deployedPermissionedAs(operatingUser.current, permissionedAs, folderDefault)
 	)
@@ -62,9 +64,11 @@
 <ConfirmationModal
 	{open}
 	type="info"
-	title={stops
-		? `Stop running this ${kind} on behalf of ${savedUser}?`
-		: `Run this ${kind} on behalf of ${who}?`}
+	title={on
+		? `Run this ${kind} on behalf of ${who}?`
+		: stops
+			? `Stop running this ${kind} on behalf of ${savedUser}?`
+			: `Deploy this ${kind}?`}
 	confirmationText="Deploy"
 	keyListen={!pickerOpen}
 	alwaysPortal
@@ -78,6 +82,8 @@
 		<p>
 			{#if stops}
 				Runs will use the access of whoever starts them, not <strong>{savedUser}</strong>.
+			{:else if !on}
+				Runs will use the access of whoever starts them.
 			{:else if kind === 'app'}
 				The app's runnables use the access of <strong>{runsAs ?? 'your user'}</strong> to resources
 				and variables.
@@ -94,28 +100,29 @@
 				<code>WM_END_USER_EMAIL</code>.
 			{/if}
 		</p>
-		{#if !stops}
-			<div class="flex flex-col gap-1">
-				<RunOnBehalfOfSetting
-					{kind}
-					required
-					tooltip={kind === 'app' ? appOnBehalfOfTooltip(rawApp) : undefined}
-					bind:email
-					bind:permissionedAs
-					{savedEmail}
-					{savedPermissionedAs}
-					{targetWorkspace}
-					{isNew}
-					{folderDefault}
-					aboveConfirmationModal
-					onPickerOpenChange={(o) => (pickerOpen = o)}
-					hideDescription
-				/>
-				{#if unchanged}
-					<div class="text-2xs text-secondary">Same as the deployed version.</div>
-				{/if}
-			</div>
-		{/if}
+		<div class="flex flex-col gap-1">
+			<RunOnBehalfOfSetting
+				{kind}
+				{required}
+				tooltip={kind === 'app' ? appOnBehalfOfTooltip(rawApp) : undefined}
+				bind:email
+				bind:permissionedAs
+				{savedEmail}
+				{savedPermissionedAs}
+				{targetWorkspace}
+				{isNew}
+				{folderDefault}
+				aboveConfirmationModal
+				onPickerOpenChange={(o) => (pickerOpen = o)}
+				hideDescription
+			/>
+			{#if on && unchanged}
+				<!-- pl-9 lines it up under the switch's label, as SettingToggle indents its contents. -->
+				<div class={['text-2xs text-secondary', !required && 'pl-9']}>
+					Same as the deployed version.
+				</div>
+			{/if}
+		</div>
 		<TextInput bind:value={message} inputProps={{ placeholder: 'Deployment message' }} />
 	</div>
 </ConfirmationModal>
