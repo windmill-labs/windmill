@@ -1,5 +1,4 @@
 import {
-	BellOff,
 	ChevronsUp,
 	CircleStop,
 	Combine,
@@ -41,7 +40,6 @@ export type ScriptAdvancedSettingsFields = {
 	dedicated_worker?: boolean
 	delete_after_secs?: number
 	priority?: number
-	ws_error_handler_muted?: boolean
 	envs?: string[]
 }
 
@@ -64,14 +62,12 @@ export type FlowOnlyRuntimeFields = {
 export function flowRuntimeFields(flow: {
 	tag?: string
 	dedicated_worker?: boolean
-	ws_error_handler_muted?: boolean
 	value: FlowValue
 }): ScriptAdvancedSettingsFields & FlowOnlyRuntimeFields {
 	const v = flow.value
 	return {
 		tag: flow.tag,
 		dedicated_worker: flow.dedicated_worker,
-		ws_error_handler_muted: flow.ws_error_handler_muted,
 		concurrent_limit: v.concurrent_limit,
 		concurrency_time_window_s: v.concurrency_time_window_s,
 		cache_ttl: v.cache_ttl,
@@ -172,14 +168,6 @@ export function getActiveScriptSettingsBadges(
 				settings.delete_after_secs === 0
 					? 'Deleted immediately after completion'
 					: `Deleted ${settings.delete_after_secs}s after completion`
-		})
-	}
-	if (settings.ws_error_handler_muted) {
-		badges.push({
-			key: 'error_handler_muted',
-			label: 'Error handler muted',
-			icon: BellOff,
-			detail: 'Failures do not trigger the workspace error handler'
 		})
 	}
 	if (settings.tag) {
