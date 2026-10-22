@@ -2860,6 +2860,7 @@ function getResourceInstructions(): string {
 - For secret fields in a resource value, create the variable with \`write_variable\` and \`is_secret: true\`, and deploy it before the resource (see "Secrets" in the reference below).
 - Reference formats inside resource values: \`$var:g/all/name\` (global), \`$var:u/user/name\` (user), \`$var:f/folder/name\` (folder). Reference another resource with \`$res:path/to/resource\`. The same strings are also how a resource or variable is passed as a run argument (see the run-argument rule in the resource reference below); what they are never valid as is a variable's own value.
 - Use \`search_resource_types\` to discover valid \`resource_type\` names and their JSON Schemas. Match the resource value to that schema.
+- For an agent (an \`ai_agent\` resource), call \`get_instructions\` with \`subject: "agent"\` instead.
 - For OAuth resources, the \`is_oauth: true\` flag is managed by Windmill's OAuth flow; global mode generally creates manual resources, not OAuth ones.
 
 # Windmill resource & variable reference
@@ -2880,8 +2881,8 @@ async function getAgentInstructions(
 
 - An agent is drafted with \`write_resource\`: \`{ path, resource_type: "ai_agent", description?, value }\`, where \`value\` is the agent's configuration described below. To change an existing agent, read it with \`read_workspace_item\` type "resource" first and write back the whole value.
 - Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` for a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist.
-- Never deploy or rename an agent here, new or existing: the user reviews and deploys it from the agent's page, the url the write returns. Give them that link.
-- Script and flow tools must exist: find them with the workspace search tools, and draft any missing script first.
+- Never deploy or rename an agent here, new or existing: the user reviews and deploys it from the agent's page, \`/agents/edit/<path>\`. Give them that link.
+- Script tools must exist: find them with the workspace search tools, and draft any missing script first.
 ${aiAgentProviders ? `\n${aiAgentProviders}\n` : ''}
 # Windmill agent authoring reference
 
@@ -3875,7 +3876,8 @@ export const globalTools: SessionTool<{}>[] = [
 				access.has('write_draft') ||
 				(parsed.subject === 'flow' && access.has('write_flow_draft')) ||
 				(parsed.subject === 'app' && access.has('write_app_draft')) ||
-				(parsed.subject === 'resource' && access.has('write_resource_draft'))
+				((parsed.subject === 'resource' || parsed.subject === 'agent') &&
+					access.has('write_resource_draft'))
 			if (!canAuthor) {
 				const message =
 					'This session cannot create or edit this kind of item, so there is no authoring guidance to give for it. Tell the user plainly rather than describing how it would be done.'

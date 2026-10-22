@@ -73,12 +73,14 @@ is fixed when the agent is saved. `$res:` and `$var:` references inside it are r
 ## Tools
 
 `tools` takes the same entries as a flow's AI agent step. `value.tool_type` is `flowmodule` for a
-script, flow or inline script the agent calls, `mcp` for an MCP server
+script or inline script the agent calls (or a nested agent or AI decision), `mcp` for an MCP server
 (`{ "tool_type": "mcp", "resource_path": "$res:<path>", "include_tools": [], "exclude_tools": [] }`),
 or `websearch` for web search (`{ "tool_type": "websearch" }`, summary `Web Search`).
 
-- Prefer a `script` or `flow` tool pointing at a deployed item (`path`) over an inline `rawscript`:
-  it can be tested and reused on its own
+- Prefer a `script` tool pointing at a deployed script (`path`) over an inline `rawscript`: it can
+  be tested and reused on its own
+- A flow cannot be a tool: a run offered one fails with `Unsupported tool`. Wrap it in a script
+  that runs the flow
 - A flowmodule tool's `summary` is the name the agent calls it by: letters, numbers and underscores
   only, unique among the agent's tools. Put the explanation in `description`, which tells the agent
   when to call it

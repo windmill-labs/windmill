@@ -515,6 +515,13 @@ describe('global AI tools', () => {
 		expect(result).not.toContain('Python Datatable API')
 	})
 
+	it('gives agent guidance to a session that may only draft resources', async () => {
+		const result = await callGlobalTool('get_instructions', { subject: 'agent' }, toolCallbacks, {
+			access: new Set(['write_resource_draft'])
+		})
+		expect(result).toContain('Windmill agent authoring reference')
+	})
+
 	it('returns only the requested language SDK for the datatable subject', async () => {
 		const ts = await callGlobalTool('get_instructions', { subject: 'datatable', language: 'bun' })
 		expect(ts).toContain('TypeScript Datatable API')

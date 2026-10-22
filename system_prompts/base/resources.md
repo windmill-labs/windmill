@@ -36,9 +36,6 @@ Example: `f/databases/postgres_prod.resource.json`
 An agent, as the Agents page lists it, is a resource of type `ai_agent`. Its value holds the
 agent's provider, system prompt, tools and memory settings, and a flow step uses a saved agent by
 linking its path.
-<!-- chat-only -->
-Before writing one, call get_instructions with subject "agent".
-<!-- /chat-only -->
 <!-- cli-only -->
 Before writing one, use the `agents` skill.
 <!-- /cli-only -->
