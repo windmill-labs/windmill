@@ -244,14 +244,9 @@ pub(crate) async fn check_attachments_readable(
         get_large_file_storage, get_workspace_s3_resource_and_check_paths,
     };
     use windmill_common::db::DbWithOptAuthed;
-    use windmill_types::s3::{S3Object, S3Permission};
+    use windmill_types::s3::S3Permission;
 
-    let Some(raw) = args.get("user_attachments") else {
-        return Ok(());
-    };
-    let attachments: Option<Vec<S3Object>> = serde_json::from_str(raw.get())
-        .map_err(|e| Error::BadRequest(format!("invalid user_attachments: {e}")))?;
-    for attachment in attachments.iter().flatten().filter(|a| !a.s3.is_empty()) {
+    for attachment in run_attachments(args)? {
         // The path check is skipped, not failed, when the storage does not resolve.
         if get_large_file_storage(db, w_id, attachment.storage.clone())
             .await?
@@ -274,10 +269,39 @@ pub(crate) async fn check_attachments_readable(
     Ok(())
 }
 
+/// Every file the step fetches with its job's token: the message's attachments, and the
+/// `s3_object` parts of the history a caller supplies, which the worker downloads alike.
+pub(crate) fn run_attachments(
+    args: &HashMap<String, Box<RawValue>>,
+) -> Result<Vec<windmill_types::s3::S3Object>> {
+    use windmill_ai::ai_types::{ContentPart, OpenAIContent, OpenAIMessage};
+
+    let mut files: Vec<windmill_types::s3::S3Object> = match args.get("user_attachments") {
+        Some(raw) => serde_json::from_str::<Option<Vec<_>>>(raw.get())
+            .map_err(|e| Error::BadRequest(format!("invalid user_attachments: {e}")))?
+            .unwrap_or_default(),
+        None => vec![],
+    };
+    if let Some(raw) = args.get("previous_messages") {
+        let messages = serde_json::from_str::<Option<Vec<OpenAIMessage>>>(raw.get())
+            .map_err(|e| Error::BadRequest(format!("invalid previous_messages: {e}")))?;
+        for message in messages.into_iter().flatten() {
+            if let Some(OpenAIContent::Parts(parts)) = message.content {
+                files.extend(parts.into_iter().filter_map(|part| match part {
+                    ContentPart::S3Object { s3_object } => Some(s3_object),
+                    _ => None,
+                }));
+            }
+        }
+    }
+    files.retain(|f| !f.s3.is_empty());
+    Ok(files)
+}
+
 /// The agent as a one-step flow, validated by deserializing through `FlowValue` rather than
 /// trusted as raw JSON. Its own transforms are the step's, minus `without`, and the run's inputs
-/// supply the message and the attachments over the top. Always inlined, never a link to the
-/// resource: a linked step would resolve the agent when it runs, not as it was read here.
+/// supply the message, the attachments and any history over the top. Always inlined, never a link
+/// to the resource: a linked step would resolve the agent when it runs, not as it was read here.
 pub(crate) fn agent_step_flow(
     config: &AgentDraft,
     id: &str,
@@ -291,7 +315,7 @@ pub(crate) fn agent_step_flow(
     for key in without {
         input_transforms.remove(*key);
     }
-    for key in ["user_message", "user_attachments"] {
+    for key in ["user_message", "user_attachments", "previous_messages"] {
         input_transforms.insert(
             key.to_string(),
             serde_json::json!({ "type": "javascript", "expr": format!("flow_input.{}", key) }),
@@ -311,4 +335,26 @@ pub(crate) fn agent_step_flow(
         flow["chat_input_enabled"] = serde_json::json!(true);
     }
     Ok(serde_json::from_value(flow)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_attachments_include_the_files_a_supplied_history_quotes() {
+        let args: HashMap<String, Box<RawValue>> = serde_json::from_value(serde_json::json!({
+            "user_attachments": [{ "s3": "u/a/attached.png" }],
+            "previous_messages": [
+                { "role": "user", "content": [
+                    { "type": "text", "text": "look" },
+                    { "type": "s3_object", "s3_object": { "s3": "u/b/quoted.png" } }
+                ]},
+                { "role": "assistant", "content": "ok" }
+            ]
+        }))
+        .unwrap();
+        let keys: Vec<_> = run_attachments(&args).unwrap().into_iter().map(|f| f.s3).collect();
+        assert_eq!(keys, ["u/a/attached.png", "u/b/quoted.png"]);
+    }
 }

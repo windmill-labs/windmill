@@ -176,7 +176,8 @@ const chat = useWindmillChat(rawAppRunnable(backendAsync.chat, streamJob))
 `createChat` and the assistant-ui runtime take the same options; the AI SDK transport
 does not. The runnable takes `user_message` and `memory_id`, the conversation id, which
 the agent's memory is keyed by, so it remembers earlier turns (called from `wmill.ts`
-without `memory_id`, it is a single run with no conversation). A signed-in viewer's turns
+without `memory_id`, it is a single run with no conversation; an agent whose memory is off
+answers from the `previous_messages` you pass instead). A signed-in viewer's turns
 are filed under them, so nobody else can continue their conversations; an anonymous
 visitor's keep only their memory. The chat makes no request of its own: history is
 `'local'` (the app's own storage), `stop()` stops following without cancelling the turn,

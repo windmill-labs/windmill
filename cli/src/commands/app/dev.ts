@@ -1727,9 +1727,15 @@ const AGENT_RUNNABLE_SCHEMA = {
       description: "Files the message carries, as object storage references",
       items: { type: "object" },
     },
+    previous_messages: {
+      type: "array",
+      description:
+        "The history to answer from, as chat messages, when the agent's memory is off: an agent with managed memory ignores it",
+      items: { type: "object" },
+    },
   },
   required: ["user_message"],
-  order: ["user_message", "memory_id", "user_attachments"],
+  order: ["user_message", "memory_id", "user_attachments", "previous_messages"],
 };
 
 /**

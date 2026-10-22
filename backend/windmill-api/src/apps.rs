@@ -4914,9 +4914,12 @@ async fn execute_component(
                     .flatten()
             })
             .filter(|m| !m.trim().is_empty());
-        payload
-            .args
-            .retain(|k, _| k == "user_message" || k == "user_attachments");
+        payload.args.retain(|k, _| {
+            matches!(
+                k.as_str(),
+                "user_message" | "user_attachments" | "previous_messages"
+            )
+        });
         memory_id
     } else {
         None
@@ -4963,10 +4966,7 @@ async fn execute_component(
     if agent_path.is_some() {
         #[cfg(feature = "enterprise")]
         crate::jobs::check_license_key_valid().await?;
-        let has_attachments = args
-            .args
-            .get("user_attachments")
-            .is_some_and(|v| !matches!(v.get().trim(), "null" | "[]"));
+        let has_attachments = !crate::agent_runs::run_attachments(&args.args)?.is_empty();
         match opt_authed.as_ref() {
             // The agent reads the files with the app's token: a viewer attaches only what they
             // could download themselves.
@@ -4977,7 +4977,7 @@ async fn execute_component(
             }
             None if has_attachments => {
                 return Err(Error::BadRequest(
-                    "an anonymous viewer cannot send attachments to an agent".to_string(),
+                    "an anonymous viewer cannot send files to an agent".to_string(),
                 ));
             }
             _ => {}

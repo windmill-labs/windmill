@@ -17073,6 +17073,12 @@ paths:
                 user_attachments:
                   type: array
                   items: {}
+                previous_messages:
+                  description: |
+                    The history to answer from, as chat messages, when the agent's memory is off.
+                    An agent with managed memory reads its conversation instead and ignores this.
+                  type: array
+                  items: {}
       responses:
         "201":
           description: job created
