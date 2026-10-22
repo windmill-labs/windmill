@@ -1,6 +1,7 @@
 <script lang="ts">
 	import FlowStatusWaitingForEvents from '../FlowStatusWaitingForEvents.svelte'
-	import AgentApprovalRequest, { pendingAgentApproval } from '../AgentApprovalRequest.svelte'
+	import AgentApprovalRequest from '../AgentApprovalRequest.svelte'
+	import { pendingAgentApproval } from '../agentRequest'
 	import type { FlowStatusModule, Job } from '$lib/gen'
 	import { type StateStore } from '$lib/utils'
 	import { fade, slide } from 'svelte/transition'

@@ -1,30 +1,5 @@
-<script lang="ts" module>
-	import type { FlowStatusModule, Job } from '$lib/gen'
-
-	export type AgentRequest = Extract<
-		NonNullable<FlowStatusModule['agent_actions']>[number],
-		{ type: 'approval' | 'question' }
-	>
-
-	/** The approval or question a flow's current agent step is parked on: the step stays in
-	 *  progress while its own job waits. */
-	export function pendingAgentApproval(job: Job | undefined) {
-		const mod = job?.flow_status?.modules?.[job?.flow_status?.step]
-		const actions = mod?.agent_actions
-		if (mod?.type !== 'InProgress' || !mod.job || !actions?.length) return undefined
-		const last = actions[actions.length - 1]
-		if (
-			(last.type !== 'approval' && last.type !== 'question') ||
-			mod.agent_actions_success?.[actions.length - 1] !== undefined
-		) {
-			return undefined
-		}
-		return { agentJobId: mod.job, action: last }
-	}
-</script>
-
 <script lang="ts">
-	import { JobService } from '$lib/gen'
+	import { answerAgentRequest, type AgentRequest } from './agentRequest'
 	import { sendUserToast } from '$lib/toast'
 	import { Button } from './common'
 	import TextInput from './text_input/TextInput.svelte'
@@ -50,19 +25,8 @@
 
 	async function answer(approved: boolean) {
 		loading = true
-		const value = text.trim()
 		try {
-			await JobService.resumeSuspended({
-				workspace: workspaceId,
-				jobId: agentJobId,
-				requestBody: {
-					approved,
-					payload: {
-						call_id: request.call_id,
-						...(value ? { [request.type === 'question' ? 'answer' : 'comment']: value } : {})
-					}
-				}
-			})
+			await answerAgentRequest(workspaceId, { agentJobId, action: request }, approved, text.trim())
 			answered = approved
 		} catch (e: any) {
 			sendUserToast(e?.body ?? e?.message ?? 'Failed to answer the request', true)

@@ -12,7 +12,7 @@
 	import { tick, untrack } from 'svelte'
 	import type { Chat } from 'windmill-chat'
 	import { saveFlowChatInputs } from './flowChatProps'
-	import { ResourceService, type FlowModule } from '$lib/gen'
+	import { JobService, ResourceService, type FlowModule } from '$lib/gen'
 	import { resource } from 'runed'
 	import { useWorkspaceStorageConfigured } from '$lib/components/inputTransformEnv.svelte'
 	import {
@@ -22,7 +22,10 @@
 	} from './agentAttachmentInput'
 	import { deepEqual } from 'fast-equals'
 	import FlowChatModelSettings from './FlowChatModelSettings.svelte'
-	import FlowChatApproval from './FlowChatApproval.svelte'
+	import {
+		pendingAgentApproval,
+		type PendingAgentRequest
+	} from '$lib/components/agentRequest'
 	import {
 		agentModelGap,
 		chatLinkedAgentPaths,
@@ -203,7 +206,8 @@
 		sendDisabled: () => deploymentInProgress || !!modelGap || !!wrongKindReason,
 		// The model controls only: a retry changes model when the reader did, but replays
 		// the run's own attachments rather than whatever the composer holds now.
-		inputsShownInComposer: () => composerOwnedInputs(modelWiring, undefined)
+		inputsShownInComposer: () => composerOwnedInputs(modelWiring, undefined),
+		agentRequest: () => agentRequest
 	})
 	setChatViewHost(chatHost)
 
@@ -267,6 +271,31 @@
 	)
 	const approvalJobId = $derived(mayRequestApproval ? chatHost.state.runningJobId : undefined)
 
+	// The stream only says a call is running; the request to answer, and the job that answers
+	// it, are on the flow's status.
+	let agentRequest = $state<PendingAgentRequest | undefined>(undefined)
+	$effect(() => {
+		const id = approvalJobId
+		agentRequest = undefined
+		if (!id || !workspace) return
+		const args = { workspace, id, noLogs: true }
+		let stopped = false
+		const load = async () => {
+			try {
+				const job = await JobService.getJob(args)
+				if (!stopped) agentRequest = pendingAgentApproval(job)
+			} catch {
+				// transient; the next poll reads it again
+			}
+		}
+		void load()
+		const interval = setInterval(load, 2000)
+		return () => {
+			stopped = true
+			clearInterval(interval)
+		}
+	})
+
 	// Older pages load when the reader reaches the top; the viewport stays where it was.
 	let scrollElement = $state<HTMLDivElement | undefined>(undefined)
 	let loadingOlder = false
@@ -315,14 +344,6 @@
 			{/if}
 		{/if}
 	</div>
-{/snippet}
-
-{#snippet approvalPreface()}
-	{#if approvalJobId && workspace}
-		{#key approvalJobId}
-			<FlowChatApproval {workspace} jobId={approvalJobId} />
-		{/key}
-	{/if}
 {/snippet}
 
 {#snippet footerSettings()}
@@ -378,7 +399,6 @@
 		hideModeSelector
 		{wideLayout}
 		{emptyHint}
-		inputPreface={approvalPreface}
 		footerSettings={modalSchema || showModelButton || extraSettings ? footerSettings : undefined}
 		placeholder="Send a message to run the {subject}"
 		disabled={deploymentInProgress || !!modelGap || !!wrongKindReason}
