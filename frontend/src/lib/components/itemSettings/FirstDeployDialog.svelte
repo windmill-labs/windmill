@@ -216,7 +216,7 @@
 				executionMode={isApp ? appMode : undefined}
 				rawApp={kind === 'raw_app'}
 			/>
-			<div class="flex flex-row justify-end gap-2 border-t pt-4">
+			<div class="flex flex-row justify-end gap-2">
 				<Button variant="default" unifiedSize="md" onclick={() => (step = 'details')}>Back</Button>
 				<Button variant="accent" unifiedSize="md" onclick={deploy}>Deploy</Button>
 			</div>
@@ -280,7 +280,7 @@
 			/>
 		</Label>
 
-		<div class="flex flex-row justify-end gap-2 border-t pt-4">
+		<div class="flex flex-row justify-end gap-2">
 			<Button variant="default" unifiedSize="md" onclick={() => finish(undefined)}>Cancel</Button>
 			<Button variant="accent" unifiedSize="md" disabled={!path || !!pathError} onclick={next}>
 				{asksRunAs ? 'Next' : 'Deploy'}

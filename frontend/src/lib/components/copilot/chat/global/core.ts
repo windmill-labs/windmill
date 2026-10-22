@@ -2442,10 +2442,6 @@ async function guestAccessIsLive(workspace: string): Promise<boolean | undefined
 	return !!(usage.available && usage.instance_enabled && settings.guest_access_enabled)
 }
 
-/** Who may open an app, from the mode stored on it. An app sits in `guest` mode whether
- * or not anyone is admitted by it, so reporting the mode bare would say strangers can
- * open an app that admits members only. Say it is inert rather than hide it, as the
- * app's deploy settings do. */
 /** Who can open a deployed app, which the Share dialog sets and a deploy keeps; undefined for an
  *  app that is not deployed. */
 async function deployedAppExecutionMode(
@@ -2457,6 +2453,10 @@ async function deployedAppExecutionMode(
 	return row.policy.execution_mode ?? undefined
 }
 
+/** Who may open an app, from the mode stored on it. An app sits in `guest` mode whether
+ * or not anyone is admitted by it, so reporting the mode bare would say strangers can
+ * open an app that admits members only. Say it is inert rather than hide it, as the
+ * app's deploy settings do. */
 async function describeAppExposure(
 	workspace: string,
 	mode: string | undefined
