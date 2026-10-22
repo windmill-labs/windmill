@@ -1051,6 +1051,11 @@
 	let treeLazyMode = $derived(
 		!flatList && !searching && ownerFilter == undefined && labelFilter == undefined
 	)
+	// Unfiltered, the tree lists every folder, empty ones too, so a workspace holding only
+	// folders is not empty: its first folder is created from here and managed from its row.
+	let treeShowsFolders = $derived(
+		treeLazyMode && itemKind === 'all' && (folderNamesRes.current?.length ?? 0) > 0
+	)
 	// How many runnables each owner (`f/<folder>` / `u/<user>`) holds for this user,
 	// in one request. It labels every tree node up front — a lazy owner's own count is
 	// unknown until it's expanded — and lets both the tree and the owner chips drop the
@@ -1220,6 +1225,7 @@
 			filteredItems != undefined &&
 			filteredItems.length === 0 &&
 			visiblePipelineFolders.size === 0 &&
+			!treeShowsFolders &&
 			!hasMoreServer
 	)
 	/**
@@ -1881,8 +1887,13 @@
 <!-- Permission changes can hide or reveal rows for this user, so a save reloads them. -->
 <FolderEditorDrawer
 	bind:this={folderEditorDrawer}
-	onSaved={async (_name, created) => {
-		if (created) await folderNamesRes.refetch()
+	onSaved={async (name, created) => {
+		if (created) {
+			// Folder pickers derive write access from this membership, which the server only
+			// resends on the next whoami.
+			$userStore?.folders.push(name)
+			await folderNamesRes.refetch()
+		}
 		await reloadItemsAndCounts()
 	}}
 />
@@ -2051,7 +2062,7 @@
 			     have scrolled away. -->
 			<div class="sticky z-10 border-b mx-5" style:top="{toolbarHeight}px"></div>
 		{/if}
-		{#if filteredItems?.length == 0 && !workspaceEmpty}
+		{#if filteredItems?.length == 0 && !workspaceEmpty && !treeShowsFolders}
 			<div class="mt-10"></div>
 		{/if}
 		<!-- Inset so a row's hover fill clears the card's border; the controls above take the same
@@ -2078,7 +2089,7 @@
 						<Skeleton layout={[[4], 0.5]} />
 					{/each}
 				</div>
-			{:else if filteredItems.length === 0 && (filter !== '' || visiblePipelineFolders.size === 0)}
+			{:else if filteredItems.length === 0 && (filter !== '' || visiblePipelineFolders.size === 0) && !treeShowsFolders}
 				<div class="px-4 pb-3">
 					<!-- Pipelines aren't part of the text filter, so only fall through to show
 			     them (list rows / injected tree folders) when not actively searching;
