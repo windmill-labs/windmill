@@ -1711,32 +1711,47 @@ export function buildWmillTs(
   return windmillUtils.genWmillTs(runnables);
 }
 
-/** The inputs of every agent runnable (see the frontend's `AGENT_RUNNABLE_SCHEMA`). */
-const AGENT_RUNNABLE_SCHEMA = {
-  $schema: "https://json-schema.org/draft/2020-12/schema",
-  type: "object",
-  properties: {
-    user_message: { type: "string", description: "The message to answer" },
-    memory_id: {
-      type: "string",
-      description:
-        "The conversation the message belongs to: reuse it to continue one, or omit it for a single run",
+/**
+ * The inputs of an agent runnable, after the agent's memory (see the frontend's
+ * `agentRunnableSchema`): `memory_id` when it keeps managed memory, `previous_messages` otherwise.
+ */
+function agentRunnableSchema(memory: any) {
+  const managed =
+    memory?.kind === "compaction" ||
+    ((memory?.kind === "window" || memory?.kind === "auto") &&
+      Boolean(memory.context_length));
+  const history: Record<string, any> = managed
+    ? {
+        memory_id: {
+          type: "string",
+          description:
+            "The conversation the message belongs to: reuse it to continue one, or omit it for a single run",
+        },
+      }
+    : {
+        previous_messages: {
+          type: "array",
+          description:
+            "The history to answer from, as chat messages: this agent keeps no memory",
+          items: { type: "object" },
+        },
+      };
+  return {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    type: "object",
+    properties: {
+      user_message: { type: "string", description: "The message to answer" },
+      ...history,
+      user_attachments: {
+        type: "array",
+        description: "Files the message carries, as object storage references",
+        items: { type: "object" },
+      },
     },
-    user_attachments: {
-      type: "array",
-      description: "Files the message carries, as object storage references",
-      items: { type: "object" },
-    },
-    previous_messages: {
-      type: "array",
-      description:
-        "The history to answer from, as chat messages, when the agent's memory is off: an agent with managed memory ignores it",
-      items: { type: "object" },
-    },
-  },
-  required: ["user_message"],
-  order: ["user_message", "memory_id", "user_attachments", "previous_messages"],
-};
+    required: ["user_message"],
+    order: ["user_message", ...Object.keys(history), "user_attachments"],
+  };
+}
 
 /**
  * Fetches schemas from the Windmill API for path-based runnables (script / flow).
@@ -1769,7 +1784,11 @@ export async function fetchPathRunnableSchemas(
         });
         if (script.schema) schemas[runnableId] = script.schema;
       } else if (runnable.runType === "agent") {
-        schemas[runnableId] = AGENT_RUNNABLE_SCHEMA;
+        const agent = await wmill.getResource({
+          workspace: workspaceId,
+          path: runnable.path,
+        });
+        schemas[runnableId] = agentRunnableSchema((agent.value as any)?.memory);
       } else if (runnable.runType === "flow") {
         const flow = await wmill.getFlowByPath({
           workspace: workspaceId,

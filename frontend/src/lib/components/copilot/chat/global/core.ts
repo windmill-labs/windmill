@@ -181,7 +181,6 @@ import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
 import { artifactTools } from '../artifacts/artifactTools'
 import type { SessionArtifactsStore } from '../artifacts/artifactsState.svelte'
 import type { PathRunType, Runnable } from '$lib/components/apps/inputType'
-import { AGENT_RUNNABLE_SCHEMA } from '$lib/components/raw_apps/agentRunnable'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
 import type { Schema } from '$lib/common'
@@ -2079,13 +2078,7 @@ function buildPersistedRunnable(
 		runType: input.type,
 		path: input.path,
 		fields,
-		// An agent's inputs are the same for every agent, so they are known without a lookup.
-		schema:
-			input.type === 'agent'
-				? structuredClone(AGENT_RUNNABLE_SCHEMA)
-				: sameTarget
-					? (existing?.schema ?? {})
-					: {}
+		schema: sameTarget ? (existing?.schema ?? {}) : {}
 	}
 }
 

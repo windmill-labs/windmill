@@ -2,7 +2,7 @@
 	import { createBubbler, stopPropagation } from 'svelte/legacy'
 
 	const bubble = createBubbler()
-	import { Button, Drawer, DrawerContent } from '$lib/components/common'
+	import { Alert, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import FlowGraphViewer from '$lib/components/FlowGraphViewer.svelte'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
@@ -35,7 +35,8 @@
 	import { FlowService, ResourceService, ScriptService, type OpenFlow } from '$lib/gen'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { summarizeAgentBrain, type AgentTool } from '$lib/components/flows/agentResourceUtils'
-	import { AGENT_RUNNABLE_SCHEMA } from '$lib/components/raw_apps/agentRunnable'
+	import { agentRunnableSchema } from '$lib/components/raw_apps/agentRunnable'
+	import { keepsManagedMemory } from '$lib/components/flows/agentFormFields'
 	import { replaceScriptPlaceholderWithItsValues } from '$lib/hub'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -153,7 +154,12 @@
 	}
 
 	let agentInfo:
-		| { description?: string; rows: { label: string; value: string }[]; tools: string[] }
+		| {
+				description?: string
+				rows: { label: string; value: string }[]
+				tools: string[]
+				managedMemory: boolean
+		  }
 		| undefined = $state()
 
 	async function refreshAgent(runnable: RunnableByPath) {
@@ -169,13 +175,17 @@
 				rows: summarizeAgentBrain(config),
 				tools: ((config?.tools ?? []) as AgentTool[]).map(
 					(t) => t.summary || t.value?.tool_type || t.id
-				)
+				),
+				managedMemory: keepsManagedMemory(config?.memory)
 			}
-			const schema = structuredClone(AGENT_RUNNABLE_SCHEMA)
+			const schema = agentRunnableSchema(config?.memory)
 			if (!deepEqual(runnable.schema, schema)) runnable.schema = schema
 			// Every input of a turn comes from its caller: a static one would be pinned by the
 			// deployed policy, answering every viewer's message with the same one.
-			if (Object.values(fields ?? {}).some((f) => f?.type !== 'user') || !fields?.user_message) {
+			if (
+				Object.values(fields ?? {}).some((f) => f?.type !== 'user') ||
+				!deepEqual(Object.keys(fields ?? {}).sort(), Object.keys(schema.properties).sort())
+			) {
 				fields = computeFields(schema, true, {})
 			}
 		} catch (e) {
@@ -392,7 +402,7 @@
 		{:else if runnable.runType == 'agent'}
 			<Button
 				variant="default"
-				size="xs"
+				unifiedSize="md"
 				startIcon={{ icon: Pen }}
 				endIcon={{ icon: ExternalLink }}
 				target="_blank"
@@ -506,6 +516,12 @@
 				{/if}
 			{:else if runnable.runType == 'agent'}
 				<div class="flex flex-col gap-2 p-2">
+					{#if agentInfo && !agentInfo.managedMemory}
+						<Alert type="info" size="xs" title="Managed memory is off">
+							Each call is answered on its own inputs, so a chat would forget every turn. Pass
+							<code>previous_messages</code> to give it the history.
+						</Alert>
+					{/if}
 					{#if agentInfo?.description}
 						<p class="text-xs text-secondary">{agentInfo.description}</p>
 					{/if}
