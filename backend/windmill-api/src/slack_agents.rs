@@ -207,10 +207,8 @@ pub async fn verify_slack_request(
     Ok(req)
 }
 
-/// Checks a Slack approval callback known to belong to `w_id`. An approval may be posted through
-/// any Slack resource, commonly the workspace's own app or one connected through the instance's app,
-/// so the callback passes when the secret of either matches. An error only when one of them is set
-/// and none matches.
+/// Checks a Slack approval callback sent through `w_id`'s Slack connection against the secret of
+/// the app it is connected through (see [`workspace_verified`]).
 #[cfg(feature = "oauth2")]
 pub async fn verify_approval_slack_request(
     db: &DB,
@@ -220,22 +218,17 @@ pub async fn verify_approval_slack_request(
     body: &str,
 ) -> Result<()> {
     let matches = slack_signature_matcher(sig, ts, body);
-    let own_secret = sqlx::query!(
+    let (own_app, own_secret) = sqlx::query!(
         "SELECT slack_oauth_client_id IS NOT NULL AS \"own_app!\", slack_signing_secret
          FROM workspace_settings WHERE workspace_id = $1",
         w_id
     )
     .fetch_optional(db)
     .await?
-    .and_then(|s| s.slack_signing_secret.filter(|_| s.own_app));
-    let secrets: Vec<String> = instance_signing_secrets()
-        .into_iter()
-        .chain(own_secret)
-        .collect();
-    if secrets.is_empty() || secrets.iter().any(|s| matches(s)) {
-        Ok(())
-    } else {
-        signature_rejected()
+    .map_or((false, None), |s| (s.own_app, s.slack_signing_secret));
+    match workspace_verified(own_app, own_secret, instance_verified(&matches), &matches) {
+        Some(false) => signature_rejected(),
+        _ => Ok(()),
     }
 }
 
