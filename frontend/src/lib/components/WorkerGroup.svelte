@@ -1055,7 +1055,7 @@
 
 		<Label
 			label="Environment variables removed from the sandbox"
-			tooltip="Environment variables never passed into the nsjail sandbox, even when the worker host sets them (e.g. HTTP_PROXY, HTTPS_PROXY, NO_PROXY). Names match case-insensitively. Also settable with the NSJAIL_ENV_DENYLIST worker env var (comma-separated)."
+			tooltip="Environment variables never passed into the nsjail sandbox, even when the worker host sets them (e.g. HTTP_PROXY, HTTPS_PROXY, NO_PROXY). Names match case-insensitively. Dependency installs that run in the sandbox lose them too. Also settable with the NSJAIL_ENV_DENYLIST worker env var (comma-separated)."
 			eeOnly={!hasEnterpriseFeatures}
 		>
 			<div class="flex flex-col gap-y-2 pb-2">
