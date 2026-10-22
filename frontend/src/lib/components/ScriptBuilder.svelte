@@ -86,6 +86,10 @@
 	import { useLocalStorageValue } from '$lib/svelte5Utils.svelte'
 	import { parsePipelineAnnotations } from './assets/AssetGraph/parsePipelineAnnotations'
 	import DropdownV2 from './DropdownV2.svelte'
+	import {
+		muteErrorHandlerMenuItem,
+		toggleWorkspaceErrorHandler
+	} from './details/errorHandlerToggle'
 	import { getLocalSetting, storeLocalSetting, type Item } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
@@ -275,6 +279,33 @@
 	const usesLocalTags = $derived(opWorkspace != undefined && opWorkspace !== $workspaceStore)
 	let localWorkerTags = $state<string[] | undefined>(undefined)
 	const scriptWorkerTags = $derived(usesLocalTags ? localWorkerTags : $workerTags)
+
+	let deployedErrorHandlerMuted = $derived(!!savedScript?.ws_error_handler_muted)
+	const scriptIsDeployed = $derived(!!initialPath && !!savedScript && !savedScript.no_deployed)
+
+	function getMoreMenuItems(): Item[] {
+		return [
+			...(compactTopbar ? getCompactMenuItems() : []),
+			...(scriptIsDeployed && customUi?.settingsPanel?.metadata?.disableMute !== true
+				? [
+						muteErrorHandlerMenuItem({
+							kind: 'script',
+							muted: deployedErrorHandlerMuted,
+							hasEnterpriseLicense: !!$enterpriseLicense,
+							onToggle: async () => {
+								const next = await toggleWorkspaceErrorHandler(
+									opWorkspace,
+									'script',
+									initialPath,
+									deployedErrorHandlerMuted
+								)
+								if (next !== undefined) deployedErrorHandlerMuted = next
+							}
+						})
+					]
+				: [])
+		]
+	}
 
 	function getCompactMenuItems(): Item[] {
 		const hasTags = (scriptWorkerTags?.length ?? 0) > 0
@@ -874,6 +905,13 @@
 				sendUserToast(`Could not parse code, are you sure it is valid?`, true)
 			}
 
+			// Muting applies to the deployed script at once, from the editor menu or the script's
+			// page, and a new version without the value is unmuted: keep the one deployed now.
+			const deployedMuted = initialPath
+				? await ScriptService.getScriptByPath({ workspace: opWorkspace!, path: initialPath })
+						.then((s) => !!s.ws_error_handler_muted)
+						.catch(() => undefined)
+				: undefined
 			const newHash = await ScriptService.createScript({
 				workspace: opWorkspace!,
 				requestBody: {
@@ -901,7 +939,7 @@
 					max_total_debounces_amount: script.max_total_debounces_amount,
 					cache_ttl: script.cache_ttl,
 					cache_ignore_s3_path: script.cache_ignore_s3_path,
-					ws_error_handler_muted: script.ws_error_handler_muted,
+					ws_error_handler_muted: deployedMuted ?? script.ws_error_handler_muted,
 					priority: script.priority,
 					restart_unless_cancelled: script.restart_unless_cancelled,
 					delete_after_secs: script.delete_after_secs,
@@ -1892,7 +1930,6 @@
 										bind:script
 										tagPlaceholder={customUi?.tagSelectPlaceholder}
 										defaultTimeout={customUi?.defaultTimeout}
-										hideMute={customUi?.settingsPanel?.metadata?.disableMute === true}
 									/>
 								</div>
 							</TabContent>
@@ -2202,8 +2239,8 @@
 					</div>
 				{/if}
 			{/snippet}
-			{#if compactTopbar}
-				<DropdownV2 items={getCompactMenuItems} placement="bottom-end">
+			{#snippet moreMenu()}
+				<DropdownV2 items={getMoreMenuItems} placement="bottom-end">
 					{#snippet buttonReplacement()}
 						<Button
 							nonCaptureEvent
@@ -2215,11 +2252,17 @@
 						/>
 					{/snippet}
 				</DropdownV2>
+			{/snippet}
+			{#if compactTopbar}
+				{@render moreMenu()}
 				{#if !phoneTopbar}
 					{@render diffButton()}
 					{@render settingsButton()}
 				{/if}
 			{:else}
+				{#if scriptIsDeployed}
+					{@render moreMenu()}
+				{/if}
 				{@render diffButton()}
 				{#if customUi?.topBar?.tagEdit != false}
 					{#if scriptWorkerTags}

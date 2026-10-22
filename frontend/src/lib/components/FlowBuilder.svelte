@@ -84,6 +84,10 @@
 		Disc,
 		UserPlus
 	} from 'lucide-svelte'
+	import {
+		muteErrorHandlerMenuItem,
+		toggleWorkspaceErrorHandler
+	} from './details/errorHandlerToggle'
 	import ShareDialog from './itemSettings/ShareDialog.svelte'
 	import FirstDeployDialog, {
 		applyFirstDeployMembers,
@@ -731,12 +735,12 @@
 			// The editor clears a step's lock when its code is edited, but a draft written elsewhere
 			// can hold a step whose code changed and whose lock did not. A failed lookup skips the
 			// check rather than blocking the deploy.
-			const liveFlowValue = isNewFlow
+			const liveFlow = isNewFlow
 				? undefined
-				: await FlowService.getFlowByPath({ workspace: opWorkspace!, path: initialPath })
-						.then((f) => f.value)
-						.catch(() => undefined)
-			dropStaleStepLocks(flow.value, liveFlowValue)
+				: await FlowService.getFlowByPath({ workspace: opWorkspace!, path: initialPath }).catch(
+						() => undefined
+					)
+			dropStaleStepLocks(flow.value, liveFlow?.value)
 
 			if (isNewFlow) {
 				await FlowService.createFlow({
@@ -747,7 +751,6 @@
 						description: flow.description ?? '',
 						value: flow.value,
 						schema: flow.schema,
-						ws_error_handler_muted: flow.ws_error_handler_muted,
 						tag: flow.tag,
 						dedicated_worker: flow.dedicated_worker,
 						visible_to_runner_only: flow.visible_to_runner_only,
@@ -803,7 +806,11 @@
 						schema: flow.schema,
 						tag: flow.tag,
 						dedicated_worker: flow.dedicated_worker,
-						ws_error_handler_muted: flow.ws_error_handler_muted,
+						// Muting applies to the deployed flow at once, from the editor menu or the flow's
+						// page, and the backend unmutes on an omitted value: keep the one deployed now.
+						ws_error_handler_muted: liveFlow
+							? liveFlow.ws_error_handler_muted
+							: flow.ws_error_handler_muted,
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
 						on_behalf_of: flow.on_behalf_of,
@@ -1486,9 +1493,28 @@
 				displayName: 'Test flow & record',
 				icon: Disc,
 				action: () => flowPreviewButtons?.openRecordingPreview()
-			}
+			},
+			...(!newFlow && savedFlow && savedFlow.no_deployed !== true
+				? [
+						muteErrorHandlerMenuItem({
+							kind: 'flow',
+							muted: deployedErrorHandlerMuted,
+							hasEnterpriseLicense: !!$enterpriseLicense,
+							onToggle: async () => {
+								const next = await toggleWorkspaceErrorHandler(
+									opWorkspace,
+									'flow',
+									initialPath,
+									deployedErrorHandlerMuted
+								)
+								if (next !== undefined) deployedErrorHandlerMuted = next
+							}
+						})
+					]
+				: [])
 		]
 	}
+	let deployedErrorHandlerMuted = $derived(!!savedFlow?.ws_error_handler_muted)
 
 	function onCustomUiChange(
 		customUi: FlowBuilderWhitelabelCustomUi | undefined,

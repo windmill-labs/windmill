@@ -24,7 +24,6 @@
 	import PrioritySetting from '$lib/components/itemSettings/PrioritySetting.svelte'
 	import DedicatedWorkersSetting from '$lib/components/itemSettings/DedicatedWorkersSetting.svelte'
 	import DeleteAfterUseSetting from '$lib/components/itemSettings/DeleteAfterUseSetting.svelte'
-	import MuteErrorHandlerSetting from '$lib/components/itemSettings/MuteErrorHandlerSetting.svelte'
 	import RunOnBehalfOfSetting from '$lib/components/itemSettings/RunOnBehalfOfSetting.svelte'
 	import InvisibleRunsSetting from '$lib/components/itemSettings/InvisibleRunsSetting.svelte'
 	import PathMoveNote from '$lib/components/itemSettings/PathMoveNote.svelte'
@@ -337,10 +336,6 @@
 									<DeleteAfterUseSetting
 										kind="flow"
 										bind:deleteAfterSecs={flowStore.val.value.delete_after_secs}
-									/>
-									<MuteErrorHandlerSetting
-										kind="flow"
-										bind:muted={flowStore.val.ws_error_handler_muted}
 									/>
 								</SettingGroup>
 

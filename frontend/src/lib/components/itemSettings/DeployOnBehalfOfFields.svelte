@@ -56,6 +56,8 @@
 <p>
 	{#if question.stops}
 		Runs will use the access of whoever starts them, not <strong>{question.savedUser}</strong>.
+	{:else if !question.on}
+		Runs will use the access of whoever starts them.
 	{:else if kind === 'app'}
 		The app's runnables use the access of <strong>{question.runsAs ?? 'your user'}</strong> to
 		resources and variables.
@@ -72,25 +74,26 @@
 		<code>WM_END_USER_EMAIL</code>.
 	{/if}
 </p>
-{#if !question.stops}
-	<div class="flex flex-col gap-1">
-		<RunOnBehalfOfSetting
-			{kind}
-			required
-			tooltip={kind === 'app' ? appOnBehalfOfTooltip(rawApp) : undefined}
-			bind:email
-			bind:permissionedAs
-			{savedEmail}
-			{savedPermissionedAs}
-			{targetWorkspace}
-			{isNew}
-			{folderDefault}
-			{aboveConfirmationModal}
-			{onPickerOpenChange}
-			hideDescription
-		/>
-		{#if question.unchanged}
-			<div class="text-2xs text-secondary">Same as the deployed version.</div>
-		{/if}
-	</div>
-{/if}
+<div class="flex flex-col gap-1">
+	<RunOnBehalfOfSetting
+		{kind}
+		required={question.required}
+		tooltip={kind === 'app' ? appOnBehalfOfTooltip(rawApp) : undefined}
+		bind:email
+		bind:permissionedAs
+		{savedEmail}
+		{savedPermissionedAs}
+		{targetWorkspace}
+		{isNew}
+		{folderDefault}
+		{aboveConfirmationModal}
+		{onPickerOpenChange}
+		hideDescription
+	/>
+	{#if question.on && question.unchanged}
+		<!-- pl-9 lines it up under the switch's label, as SettingToggle indents its contents. -->
+		<div class={['text-2xs text-secondary', !question.required && 'pl-9']}>
+			Same as the deployed version.
+		</div>
+	{/if}
+</div>

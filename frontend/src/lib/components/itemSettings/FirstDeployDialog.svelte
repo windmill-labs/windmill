@@ -12,8 +12,8 @@
 		/** Apps only. */
 		appMode?: AppAccessMode
 		message: string
-		/** The user the second step confirmed, where the deploy asked who the item runs as; the
-		 *  deploy then asks nothing more. */
+		/** The user the item runs on behalf of as the dialog leaves it, when the caller passed one
+		 *  in: the second step can change it or turn it off, and the deploy asks nothing more. */
 		runAs?: { email: string | undefined; permissionedAs: string | undefined }
 	}
 	/** Add the members chosen at the first deploy, once the item exists at `path`. */
@@ -178,7 +178,10 @@
 			members: $state.snapshot(members),
 			appMode: isApp ? appMode : undefined,
 			message,
-			runAs: asksRunAs ? { email: runAsEmail, permissionedAs: runAsPermissionedAs } : undefined
+			runAs:
+				runAsWorkspace !== undefined
+					? { email: runAsEmail, permissionedAs: runAsPermissionedAs }
+					: undefined
 		})
 	}
 </script>

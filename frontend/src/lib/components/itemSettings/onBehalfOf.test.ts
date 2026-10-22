@@ -62,10 +62,16 @@ describe('onBehalfOf', () => {
 		expect(
 			deployOnBehalfOfQuestion('flow', admin, {
 				...held,
+				email: 'bot@x.dev',
 				permissionedAs: 'u/bot',
 				savedPermissionedAs: 'u/bot',
 				isNew: false
 			})
 		).toMatchObject({ stops: false, runsAs: 'u/bot', unchanged: true })
+		expect(deployOnBehalfOfQuestion('flow', admin, held)).toMatchObject({
+			required: false,
+			on: false,
+			title: 'Deploy this flow?'
+		})
 	})
 })

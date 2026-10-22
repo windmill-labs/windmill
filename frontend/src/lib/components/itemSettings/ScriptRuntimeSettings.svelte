@@ -14,7 +14,6 @@
 	import PrioritySetting from './PrioritySetting.svelte'
 	import DedicatedWorkersSetting from './DedicatedWorkersSetting.svelte'
 	import DeleteAfterUseSetting from './DeleteAfterUseSetting.svelte'
-	import MuteErrorHandlerSetting from './MuteErrorHandlerSetting.svelte'
 
 	interface Props {
 		script: ScriptAdvancedSettingsFields
@@ -23,16 +22,9 @@
 		tagPlaceholder?: string
 		/** Seeded when the custom timeout is turned on. */
 		defaultTimeout?: number
-		hideMute?: boolean
 	}
 
-	let {
-		script = $bindable(),
-		workspaceId,
-		tagPlaceholder,
-		defaultTimeout = 300,
-		hideMute = false
-	}: Props = $props()
+	let { script = $bindable(), workspaceId, tagPlaceholder, defaultTimeout = 300 }: Props = $props()
 
 	const DEDICATED_WORKER_LANGUAGES = ['bun', 'bunnative', 'python3', 'deno']
 
@@ -83,9 +75,6 @@
 			onchange={(on) => (script.restart_unless_cancelled = on || undefined)}
 		/>
 		<DeleteAfterUseSetting kind="script" bind:deleteAfterSecs={script.delete_after_secs} />
-		{#if !hideMute}
-			<MuteErrorHandlerSetting kind="script" bind:muted={script.ws_error_handler_muted} />
-		{/if}
 	</SettingGroup>
 
 	<SettingGroup label="Workers" class="flex flex-col gap-6">

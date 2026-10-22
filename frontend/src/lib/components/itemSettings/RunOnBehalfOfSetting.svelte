@@ -173,12 +173,13 @@
 		</Label>
 	</div>
 {:else}
+	<!-- The toggle's tooltip renders under a ConfirmationModal, whose host explains the setting. -->
 	<SettingToggle
 		setting="on-behalf-of"
 		label="Run on behalf of"
-		tooltip={shownTooltip}
-		documentationLink={DOCS_LINK}
-		hint={valueHint}
+		tooltip={aboveConfirmationModal ? undefined : shownTooltip}
+		documentationLink={aboveConfirmationModal ? undefined : DOCS_LINK}
+		hint={hideDescription ? undefined : valueHint}
 		checked={enabled}
 		onchange={(on) => {
 			if (on) {

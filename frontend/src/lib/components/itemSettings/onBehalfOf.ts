@@ -46,9 +46,10 @@ export function deployAsksOnBehalfOf(
 	return kind === 'app' || holdsUser || deployedHoldsUser || !!folderDefault
 }
 
-/** What a deploy asks about the user an item runs on behalf of: the question, whether the deploy
- *  stops a flow or script running on behalf of the deployed user, and who it runs as otherwise.
- *  `email` and `permissionedAs` are the user the item holds, `saved*` the deployed one. */
+/** What a deploy asks about the user an item runs on behalf of: the question, whether the item
+ *  must run on behalf of someone, whether it does, whether the deploy stops a flow or script
+ *  running on behalf of the deployed user, and who it runs as otherwise. `email` and
+ *  `permissionedAs` are the user the item holds, `saved*` the deployed one. */
 export function deployOnBehalfOfQuestion(
 	kind: 'flow' | 'script' | 'app',
 	user: DeployingUser,
@@ -62,6 +63,8 @@ export function deployOnBehalfOfQuestion(
 	}
 ): {
 	title: string
+	required: boolean
+	on: boolean
 	stops: boolean
 	runsAs: string | undefined
 	savedUser: string | undefined
@@ -70,14 +73,21 @@ export function deployOnBehalfOfQuestion(
 } {
 	const me = user?.username ? `u/${user.username}` : undefined
 	const savedUser = held.savedPermissionedAs ?? held.savedEmail
-	const stops =
-		kind !== 'app' && !held.email && !held.permissionedAs && !held.folderDefault && !!savedUser
+	// The backend gives a new item in a folder with a default user that user unless the deploy
+	// names one, so only a flow or script outside that case can deploy with the setting off.
+	const required = kind === 'app' || !!held.folderDefault
+	const on = required || !!held.email
+	const stops = !on && !!savedUser
 	const runsAs = deployedPermissionedAs(user, held.permissionedAs, held.folderDefault)
 	const who = !runsAs ? 'you' : runsAs === me ? `${runsAs} (you)` : runsAs
 	return {
-		title: stops
-			? `Stop running this ${kind} on behalf of ${savedUser}?`
-			: `Run this ${kind} on behalf of ${who}?`,
+		title: on
+			? `Run this ${kind} on behalf of ${who}?`
+			: stops
+				? `Stop running this ${kind} on behalf of ${savedUser}?`
+				: `Deploy this ${kind}?`,
+		required,
+		on,
 		stops,
 		runsAs,
 		savedUser,
