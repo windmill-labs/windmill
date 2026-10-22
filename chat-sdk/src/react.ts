@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import { createChat } from './chat'
-import type { Chat, ChatOptions, ChatState } from './types'
+import type { Chat, ChatOptions, ChatState, RawAppWmill, TypedChatOptions } from './types'
 
 export type UseWindmillChat = ChatState &
   Pick<
@@ -28,8 +28,8 @@ export type UseWindmillChat = ChatState &
  * must not be shared. `run`, `follow`, the callbacks and `inputs` are read the same way: the
  * latest render's values go with the next message.
  */
-export function useWindmillChat(options: ChatOptions): UseWindmillChat {
-  const latest = useRef(options)
+export function useWindmillChat<W extends RawAppWmill>(options: TypedChatOptions<W>): UseWindmillChat {
+  const latest = useRef<ChatOptions>(options)
   latest.current = options
   const credential =
     typeof options.token === 'function' ? 'fn' : typeof options.token === 'string' ? `str:${options.token}` : 'none'
@@ -57,7 +57,7 @@ export function useWindmillChat(options: ChatOptions): UseWindmillChat {
         onError: (error, turn) => latest.current.onError?.(error, turn)
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [options.flowPath, options.baseUrl, options.workspace, options.history, options.storageKey, credential, customRun, customFollow]
+    [options.flowPath, options.runnable, options.baseUrl, options.workspace, options.history, options.storageKey, credential, customRun, customFollow]
   )
   useEffect(() => () => chat.destroy(), [chat])
   const state = useSyncExternalStore(chat.subscribe, chat.getState, chat.getState)

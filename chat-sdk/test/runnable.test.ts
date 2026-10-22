@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { TurnRunningError } from '../src/api'
 import { createChat } from '../src/chat'
-import { rawAppRunnable } from '../src/runnable'
 import { memoryStorage, ndjson } from './support'
 
 describe('raw app agent runnable', () => {
@@ -24,9 +23,12 @@ describe('raw app agent runnable', () => {
       if (jobId === 'job-3') return { error: { name: 'Error', message: 'agent failed' } }
       return { output: `answer ${jobId}`, messages: [] }
     }
+    const storage = memoryStorage()
+    const wmill = { backendAsync: { chat: start, other: start }, streamJob }
     const chat = createChat({
-      ...rawAppRunnable(start, streamJob),
-      storage: memoryStorage(),
+      wmill,
+      runnable: 'chat',
+      storage,
       fetch: () => Promise.reject(new Error('no request expected'))
     })
     expect(chat.getState().history).toBe('local')
@@ -48,5 +50,11 @@ describe('raw app agent runnable', () => {
     refuse = true
     await expect(chat.sendMessage('fourth')).rejects.toBeInstanceOf(TurnRunningError)
     expect(chat.getState().messages).toEqual(messages)
+
+    // Each runnable keeps its own history: another agent never sees this conversation.
+    expect(createChat({ wmill, runnable: 'chat', storage }).getState().conversations).toHaveLength(1)
+    expect(createChat({ wmill, runnable: 'other', storage }).getState().conversations).toEqual([])
+    // @ts-expect-error a name the app's module does not declare
+    expect(() => createChat({ wmill, runnable: 'missing' })).toThrow('no runnable `missing`')
   })
 })

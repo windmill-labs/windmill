@@ -163,15 +163,18 @@ runnables:
 
 Each call runs one turn of the agent's chat as the app, so a sandboxed app declares no
 frontend SDK scope, viewers get no consent prompt and need no access to the agent.
-`rawAppRunnable` drives it from the app's generated `wmill.ts`:
+Name the runnable and pass the app's generated `wmill.ts`, which the chat goes through:
 
 ```tsx
-import { rawAppRunnable } from '@windmill-labs/chat-sdk'
 import { useWindmillChat } from '@windmill-labs/chat-sdk/react'
-import { backendAsync, streamJob } from './wmill'
+import * as wmill from './wmill'
 
-const chat = useWindmillChat(rawAppRunnable(backendAsync.chat, streamJob))
+const chat = useWindmillChat({ wmill, runnable: 'chat' })
 ```
+
+`runnable` is checked against the runnables `wmill.ts` declares, and names the local
+history, so two agent runnables in one app keep separate conversations. Going through
+`wmill.ts` is what makes the same code work in a deployed app and under `wmill app dev`.
 
 `createChat` and the assistant-ui runtime take the same options; the AI SDK transport
 does not. The runnable takes `user_message` and `memory_id`, the conversation id, which
@@ -179,7 +182,7 @@ the agent's memory is keyed by, so it remembers earlier turns (called from `wmil
 without `memory_id`, it is a single run with no conversation). The agent needs managed
 memory: one whose memory is off takes `previous_messages` instead, the history you keep. A signed-in viewer's turns
 are filed under them, so nobody else can continue their conversations; an anonymous
-visitor's keep only their memory. The chat makes no request of its own: history is
+visitor's are kept apart per app. The chat makes no request of its own: history is
 `'local'` (the app's own storage), `stop()` stops following without cancelling the turn,
 a message sent while it still runs is refused with `TurnRunningError`, and attachments
 are refused.
@@ -226,7 +229,8 @@ await chat.sendMessage('Hello')
 | `pollDelayMs` | How often, in ms, the server polls a running turn for the stream (Enterprise; 50 at the fastest, other servers ignore it). Unset, the server relaxes from 100 ms to 3 s over a long turn; set it when tokens must keep flowing at that pace. |
 | `onFinish`, `onError` | Called when a turn has its answer, or could not run at all. |
 | `run` | Runs the flow for a turn yourself and returns the job id, instead of the deployed flow at `flowPath` (Windmill's editor chats with an undeployed flow through a preview run this way). Pass `memory_id` = the conversation id. |
-| `follow` | With `run`: follows the job through your own client, calling `onStream` with each chunk of its result stream and resolving with its result. The chat then makes no request of its own; see [A saved agent](#a-saved-agent-through-an-agent-runnable), where `rawAppRunnable` builds both. |
+| `follow` | With `run`: follows the job through your own client, calling `onStream` with each chunk of its result stream and resolving with its result. The chat then makes no request of its own; `runnable` sets both for a raw app's agent runnable, see [A saved agent](#a-saved-agent-through-an-agent-runnable). |
+| `runnable`, `wmill` | In a raw app, chat through the agent runnable of that name, going through the app's generated module (`import * as wmill from './wmill'`). Replaces `flowPath`, `run` and `follow`. |
 
 ## State
 
@@ -371,8 +375,8 @@ custom integrations.
 When asked to add a chat over a Windmill flow: the flow must be deployed with chat mode
 on. Pick the entry point from the table at the top (`useChat` → `@windmill-labs/chat-sdk/ai-sdk`,
 assistant-ui → `@windmill-labs/chat-sdk/assistant-ui`, otherwise `@windmill-labs/chat-sdk/react`). Inside a
-Windmill raw app pass only `flowPath`; for a saved agent, use an `agent` runnable driven by
-`rawAppRunnable`. Elsewhere pass `baseUrl`, `workspace` and a
+Windmill raw app pass only `flowPath`; for a saved agent, use an `agent` runnable and pass
+`{ wmill, runnable }`. Elsewhere pass `baseUrl`, `workspace` and a
 `token`; for a public page use a token scoped to `jobs:run:flows:<flowPath>` and leave
 `history` at its default. Render `role`, `content`, `pending`, `success` and
 `tool.status`; never build the SSE handling yourself.

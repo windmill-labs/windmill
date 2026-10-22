@@ -402,14 +402,13 @@ Chat with a saved AI agent (an `ai_agent` resource) through an `agent` runnable,
 ```
 
 ```tsx
-import { rawAppRunnable } from '@windmill-labs/chat-sdk'
 import { useWindmillChat } from '@windmill-labs/chat-sdk/react'
-import { backendAsync, streamJob } from './wmill'
+import * as wmill from './wmill'
 
-const chat = useWindmillChat(rawAppRunnable(backendAsync.chat, streamJob))
+const chat = useWindmillChat({ wmill, runnable: 'chat' })
 ```
 
-The runnable takes `user_message` and `memory_id`, the conversation id, which `rawAppRunnable` fills in: the agent remembers earlier turns of a conversation, and a signed-in viewer's conversations are theirs alone. Called directly as `backend.<key>({ user_message })` without `memory_id`, it is a single run with no conversation, for a one-off question. The chat needs an agent with managed memory. An agent whose memory is off keeps none: its runnable takes `previous_messages` (chat messages) instead of `memory_id`, and the app keeps the history itself. The chat keeps its transcript in the app's own storage. `chat.stop()` stops following without cancelling the turn, and a message sent while it still runs is refused with `TurnRunningError`. Attachments are not supported this way.
+`runnable` is the runnable's key; each runnable keeps its own conversations. The runnable takes `user_message` and `memory_id`, the conversation id, which the chat fills in: the agent remembers earlier turns of a conversation, and a signed-in viewer's conversations are theirs alone. Called directly as `backend.<key>({ user_message })` without `memory_id`, it is a single run with no conversation, for a one-off question. The chat needs an agent with managed memory. An agent whose memory is off keeps none: its runnable takes `previous_messages` (chat messages) instead of `memory_id`, and the app keeps the history itself. The chat keeps its transcript in the app's own storage. `chat.stop()` stops following without cancelling the turn, and a message sent while it still runs is refused with `TurnRunningError`. Attachments are not supported this way.
 
 ## Backend runnables
 
@@ -584,4 +583,4 @@ def main(user_id: str):
 7. **Mark sensitive UI with `data-wm-no-record`** — it is what keeps that data out of a recorded demo; passwords are handled for you.
 8. **Reach for `backendAsync` + `waitJob`** for long work — never a hand-written job-polling runnable.
 9. **Deploy what a path runnable points at** — a path runnable aimed at a draft fails at runtime; tell the user what needs deploying.
-10. **Use `@windmill-labs/chat-sdk` for a chat over a chat-mode flow or a saved agent** — never hand-roll a runnable that runs it and polls its stream; a saved agent is an `agent` runnable driven with `rawAppRunnable`.
+10. **Use `@windmill-labs/chat-sdk` for a chat over a chat-mode flow or a saved agent** — never hand-roll a runnable that runs it and polls its stream; a saved agent is an `agent` runnable passed as `{ wmill, runnable }`.

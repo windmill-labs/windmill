@@ -16,6 +16,8 @@ import type {
   Chat,
   ChatMessage,
   ChatOptions,
+  RawAppWmill,
+  TypedChatOptions,
   ChatState,
   Conversation,
   SendMessageOptions,
@@ -62,7 +64,7 @@ interface Turn {
   streamedText: boolean
 }
 
-export function createChat(options: ChatOptions): Chat {
+export function createChat<W extends RawAppWmill>(options: TypedChatOptions<W>): Chat {
   return new ChatImpl(options)
 }
 

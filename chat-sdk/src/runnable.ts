@@ -3,9 +3,8 @@ import type { ChatOptions } from './types'
 
 /**
  * `run` and `follow` over a raw app's agent runnable (a path runnable of type `agent`, naming
- * a saved AI agent), from the app's generated `wmill.ts`: `rawAppRunnable(backendAsync.chat,
- * streamJob)`. The turn runs as the app, so a sandboxed app needs no frontend SDK scope and its
- * viewers no access to the agent. `memory_id` is the conversation id, the agent's memory key.
+ * a saved AI agent), behind the `runnable` option. `memory_id` is the conversation id, the
+ * agent's memory key.
  */
 export function rawAppRunnable(
   // The generated signature is the runnable's own.

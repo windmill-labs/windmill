@@ -1,4 +1,5 @@
 import type { ChatOptions, FetchLike, HistoryMode, StorageLike, TokenSource } from './types'
+import { rawAppRunnable } from './runnable'
 
 export interface ResolvedConfig {
   flowPath: string
@@ -52,6 +53,19 @@ export function detectRawApp(): RawAppContext | undefined {
 }
 
 export function resolveConfig(options: ChatOptions): ResolvedConfig {
+  if (options.runnable !== undefined) {
+    if (!options.wmill) throw new Error('windmill-chat: `runnable` needs `wmill`, the app\'s generated module')
+    if (options.flowPath || options.run || options.follow) {
+      throw new Error('windmill-chat: `runnable` replaces `flowPath`, `run` and `follow`')
+    }
+    const start = options.wmill.backendAsync[options.runnable]
+    if (typeof start !== 'function') throw new Error(`windmill-chat: the app has no runnable \`${options.runnable}\``)
+    options = {
+      ...options,
+      ...rawAppRunnable(start, options.wmill.streamJob),
+      flowPath: `runnable:${options.runnable}`
+    }
+  }
   const follow = options.follow
   if (follow && !options.run) throw new Error('windmill-chat: `follow` needs `run`, which starts the job it follows')
   if (follow && options.history === 'server') {
