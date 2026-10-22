@@ -986,15 +986,10 @@ pub fn build_command_with_isolation(program: &str, args: &[&str]) -> Command {
     }
 }
 
-/// Strips the worker group's `nsjail_env_denylist` from an nsjail `cmd` and, under
-/// `NSJAIL_GVISOR_COMPAT`, rewrites its config for gVisor. A spawn of nsjail that bypasses
-/// `start_child_process` must call this itself.
-pub fn prepare_nsjail_spawn(cmd: &mut Command) -> Result<(), Error> {
-    if cmd.as_std().get_program() != crate::NSJAIL_PATH.as_str() {
-        return Ok(());
-    }
-    strip_denylisted_envs(cmd, &WORKER_CONFIG.load().nsjail_env_denylist);
-    if *crate::NSJAIL_GVISOR_COMPAT {
+/// Under `NSJAIL_GVISOR_COMPAT`, rewrites the config of an nsjail `cmd` for gVisor. A spawn of
+/// nsjail that bypasses `start_child_process` must call this itself.
+pub fn apply_nsjail_gvisor_compat(cmd: &Command) -> Result<(), Error> {
+    if *crate::NSJAIL_GVISOR_COMPAT && cmd.as_std().get_program() == crate::NSJAIL_PATH.as_str() {
         crate::nsjail_compat::apply(cmd.as_std()).map_err(|e| {
             Error::ExecutionErr(format!(
                 "NSJAIL_GVISOR_COMPAT could not prepare nsjail: {e}"
@@ -1004,37 +999,13 @@ pub fn prepare_nsjail_spawn(cmd: &mut Command) -> Result<(), Error> {
     Ok(())
 }
 
-/// Case-insensitive so `HTTP_PROXY` also drops `http_proxy`.
-fn is_denylisted(name: &str, denylist: &[String]) -> bool {
-    denylist.iter().any(|d| d.eq_ignore_ascii_case(name))
-}
-
-/// Removes both the vars set on `cmd` and the ones it would inherit from the worker, since
-/// not every nsjail spawn clears its env. The profile's `envar:` lines are filtered
-/// separately, in [`render_envars`].
-fn strip_denylisted_envs(cmd: &mut Command, denylist: &[String]) {
-    if denylist.is_empty() {
-        return;
-    }
-    let names: Vec<std::ffi::OsString> = cmd
-        .as_std()
-        .get_envs()
-        .map(|(k, _)| k.to_os_string())
-        .chain(std::env::vars_os().map(|(k, _)| k))
-        .filter(|k| is_denylisted(&k.to_string_lossy(), denylist))
-        .collect();
-    for name in names {
-        cmd.env_remove(name);
-    }
-}
-
 pub async fn start_child_process(
-    mut cmd: Command,
+    cmd: Command,
     executable: &str,
     disable_process_group: bool,
 ) -> Result<Box<dyn TokioChildWrapper>, Error> {
     use process_wrap::tokio::*;
-    prepare_nsjail_spawn(&mut cmd)?;
+    apply_nsjail_gvisor_compat(&cmd)?;
     let mut cmd = TokioCommandWrap::from(cmd);
 
     // On Windows, put the child in its own console process group so a CTRL_BREAK_EVENT
@@ -1396,13 +1367,8 @@ pub(crate) fn proto_str(s: &str) -> String {
 /// caller-controlled env may reach a jailed child. Set on the process that execs
 /// nsjail instead, `LD_PRELOAD`/`LD_LIBRARY_PATH`/`LD_AUDIT` would be honoured by
 /// the loader for nsjail itself, before any namespace or chroot exists.
-///
-/// Drops the worker group's `nsjail_env_denylist`, which must hold for these as well as
-/// for the launcher's env.
 pub(crate) fn render_envars<'a>(env: impl IntoIterator<Item = (&'a str, &'a str)>) -> String {
-    let denylist = &WORKER_CONFIG.load().nsjail_env_denylist;
     env.into_iter()
-        .filter(|(k, _)| !is_denylisted(k, denylist))
         .map(|(k, v)| format!("envar: {}", proto_str(&format!("{k}={v}"))))
         .collect::<Vec<_>>()
         .join("\n")
@@ -2619,34 +2585,6 @@ mod tests {
     use super::*;
     use serde_json::json;
     use windmill_common::client::AuthedClient;
-
-    #[test]
-    fn denylisted_envs_are_stripped_whatever_their_case() {
-        let mut cmd = Command::new("nsjail");
-        cmd.env("HTTPS_PROXY", "http://proxy:3128")
-            .env("https_proxy", "http://proxy:3128")
-            .env("KEEP", "1");
-        strip_denylisted_envs(&mut cmd, &["https_proxy".to_string(), "PATH".to_string()]);
-        let envs: Vec<(String, Option<String>)> = cmd
-            .as_std()
-            .get_envs()
-            .map(|(k, v)| {
-                (
-                    k.to_string_lossy().to_string(),
-                    v.map(|v| v.to_string_lossy().to_string()),
-                )
-            })
-            .collect();
-        // Matched case-insensitively: Windows keeps one key per name, and spells `PATH` `Path`.
-        let removed = |name: &str| {
-            let mut matching = envs.iter().filter(|(k, _)| k.eq_ignore_ascii_case(name));
-            matching.clone().next().is_some() && matching.all(|(_, v)| v.is_none())
-        };
-        assert!(removed("HTTPS_PROXY"));
-        // inherited from the worker, never set on the command
-        assert!(removed("PATH"));
-        assert!(envs.contains(&("KEEP".to_string(), Some("1".to_string()))));
-    }
 
     fn test_client() -> AuthedClient {
         AuthedClient::new(

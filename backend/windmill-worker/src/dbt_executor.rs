@@ -4053,7 +4053,7 @@ pub(crate) async fn run_captured(
 ) -> error::Result<Captured> {
     use tokio::io::AsyncReadExt;
 
-    crate::common::prepare_nsjail_spawn(&mut cmd)?;
+    crate::common::apply_nsjail_gvisor_compat(&cmd)?;
     let mut child = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
