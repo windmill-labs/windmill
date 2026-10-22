@@ -100,7 +100,7 @@
 	// Every username of the workspace, for the Add member picker: loaded on its first open,
 	// since it grows with the workspace and most opens of this editor add no one.
 	let usernames: string[] | undefined = $state()
-	let usernamesRequested = false
+	let usernamesLoading = $state(false)
 	let groupNames: string[] = $state([])
 	let loaded = $state(false)
 	let reloadHistory = $state(0)
@@ -143,13 +143,14 @@
 	}
 
 	async function loadUsernames(): Promise<void> {
-		if (usernamesRequested) return
-		usernamesRequested = true
+		if (usernames !== undefined || usernamesLoading) return
+		usernamesLoading = true
 		try {
 			usernames = await UserService.listUsernames({ workspace: $operatingWorkspace! })
 		} catch (e) {
-			usernamesRequested = false
 			sendUserToast(`Could not load users: ${e?.body ?? e}`, true)
+		} finally {
+			usernamesLoading = false
 		}
 	}
 
@@ -485,7 +486,7 @@
 												(x) => !draft.members.some((m) => m.member_name === x)
 											)
 										)}
-										loading={usernames === undefined}
+										loading={usernamesLoading}
 										bind:value={memberToAdd}
 										size="sm"
 										class="grow min-w-0"
