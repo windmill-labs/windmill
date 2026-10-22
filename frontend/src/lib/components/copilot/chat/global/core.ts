@@ -2446,6 +2446,17 @@ async function guestAccessIsLive(workspace: string): Promise<boolean | undefined
  * or not anyone is admitted by it, so reporting the mode bare would say strangers can
  * open an app that admits members only. Say it is inert rather than hide it, as the
  * app's deploy settings do. */
+/** Who can open a deployed app, which the Share dialog sets and a deploy keeps; undefined for an
+ *  app that is not deployed. */
+async function deployedAppExecutionMode(
+	workspace: string,
+	path: string
+): Promise<string | undefined> {
+	if (!(await AppService.existsApp({ workspace, path }))) return undefined
+	const row = await AppService.getAppLiteByPath({ workspace, path })
+	return row.policy.execution_mode ?? undefined
+}
+
 async function describeAppExposure(
 	workspace: string,
 	mode: string | undefined
@@ -4152,14 +4163,14 @@ export const globalTools: SessionTool<{}>[] = [
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Read draft ${type} "${parsed.path}"`
 				})
-				// The mode reported is the draft's, which is what deploying it will write. The
-				// deployed app's own mode is a different question, asked with version:
-				// "deployed", and must not be fetched here.
+				// The mode reported is the one deploying the draft leaves: a deployed app keeps its
+				// own, which the Share dialog sets, and a never-deployed one takes the draft's.
 				const executionMode =
 					type === 'app'
 						? await describeAppExposure(
 								workspace,
-								(draft.value as AppDraftValue)?.policy?.execution_mode
+								(await deployedAppExecutionMode(workspace, parsed.path)) ??
+									(draft.value as AppDraftValue)?.policy?.execution_mode
 							)
 						: undefined
 				return JSON.stringify(serializeWorkspaceItemForRead({ ...draft, executionMode }), null, 2)
@@ -9195,27 +9206,6 @@ async function deployDraft(
 						`not working until they are.`
 				}
 
-				// `policy` is the mode being written, so the exposure is stated from the value in
-				// hand. What a runnable runs as is the server's to decide, so the note names who
-				// can reach the app and never an identity.
-				if (policy.execution_mode === 'anonymous') {
-					deployNote =
-						`${deployNote ? `${deployNote} ` : ''}This app is deployed as anonymous: its ` +
-						`backend runnables are now reachable by anyone with the URL, without logging in. ` +
-						`Tell the user plainly what is now reachable and by whom.`
-				} else if (policy.execution_mode === 'guest') {
-					// Only where the guest door actually opens: below that, silence — a false note
-					// is worse than none. The standing cap is a live count no read settles, so the
-					// note says the door is open, not that every newcomer gets in.
-					if (await guestAccessIsLive(workspace)) {
-						deployNote =
-							`${deployNote ? `${deployNote} ` : ''}This app is deployed as guest: anyone ` +
-							`the instance's identity provider authenticates can now open it and run its ` +
-							`backend runnables, member of this workspace or not. Tell the user plainly ` +
-							`what is now reachable and by whom.`
-					}
-				}
-
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Bundling app "${path}"...`
 				})
@@ -9279,12 +9269,37 @@ async function deployDraft(
 					}
 				}
 				deployedPath = targetPath
-				if (await AppService.existsApp({ workspace, path: targetPath })) {
+				const exists = await AppService.existsApp({ workspace, path: targetPath })
+				if (exists) {
 					// Who can open the app and its custom URL are set from the Share dialog: the
 					// deployed mode stands over the drafted one, and custom_path is omitted, which
 					// the backend keeps.
 					const row = await AppService.getAppLiteByPath({ workspace, path: targetPath })
 					policy.execution_mode = row.policy.execution_mode ?? policy.execution_mode
+				}
+
+				// `policy` holds the mode being written, so the exposure is stated from the value in
+				// hand. What a runnable runs as is the server's to decide, so the note names who
+				// can reach the app and never an identity.
+				if (policy.execution_mode === 'anonymous') {
+					deployNote =
+						`${deployNote ? `${deployNote} ` : ''}This app is deployed as anonymous: its ` +
+						`backend runnables are now reachable by anyone with the URL, without logging in. ` +
+						`Tell the user plainly what is now reachable and by whom.`
+				} else if (policy.execution_mode === 'guest') {
+					// Only where the guest door actually opens: below that, silence — a false note
+					// is worse than none. The standing cap is a live count no read settles, so the
+					// note says the door is open, not that every newcomer gets in.
+					if (await guestAccessIsLive(workspace)) {
+						deployNote =
+							`${deployNote ? `${deployNote} ` : ''}This app is deployed as guest: anyone ` +
+							`the instance's identity provider authenticates can now open it and run its ` +
+							`backend runnables, member of this workspace or not. Tell the user plainly ` +
+							`what is now reachable and by whom.`
+					}
+				}
+
+				if (exists) {
 					await AppService.updateAppRaw({
 						workspace,
 						path: targetPath,

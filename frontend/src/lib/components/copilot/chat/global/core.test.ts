@@ -3669,7 +3669,7 @@ describe('global AI tools', () => {
 		})
 	})
 
-	// The draft carries the deployed policy from the fork, so nothing is fetched to answer.
+	// Deploying the draft keeps the deployed app's mode, which the draft does not carry.
 	it('reports exposure for an app that has a draft over it', async () => {
 		seedBackendDraft(
 			'raw_app',
@@ -3677,10 +3677,14 @@ describe('global AI tools', () => {
 			{
 				files: { '/src/App.tsx': 'x' },
 				runnables: {},
-				policy: { execution_mode: 'anonymous' }
+				policy: {}
 			} as any,
 			{ workspace: WORKSPACE }
 		)
+		vi.mocked(AppService.existsApp).mockResolvedValueOnce(true)
+		vi.mocked(AppService.getAppLiteByPath).mockResolvedValueOnce({
+			policy: { execution_mode: 'anonymous' }
+		} as any)
 
 		const read = await callGlobalTool('read_workspace_item', {
 			type: 'app',
@@ -4632,9 +4636,17 @@ describe('global AI tools', () => {
 	// Deploying is what makes an app's runnables reachable, so it is the one moment the
 	// exposure is both true and known.
 	it('discloses who can open an app after a deploy', async () => {
-		const deployApp = async (path: string, policy: Record<string, unknown>) => {
+		// The deployed app is in the mode its draft names, unless `deployedMode` says otherwise.
+		const deployApp = async (
+			path: string,
+			policy: Record<string, unknown>,
+			deployedMode = policy.execution_mode
+		) => {
 			vi.mocked(AppService.existsApp).mockResolvedValueOnce(true)
 			vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
+			vi.mocked(AppService.getAppLiteByPath).mockResolvedValueOnce({
+				policy: { execution_mode: deployedMode }
+			} as any)
 			seedBackendDraft(
 				'raw_app',
 				path,
@@ -4659,6 +4671,11 @@ describe('global AI tools', () => {
 		// The server decides what a deployed app runs as — it overwrites on_behalf_of for
 		// anyone outside the deployers group — so the note must not name an identity.
 		expect(open.message).not.toContain('u/alice')
+
+		// A deploy keeps the deployed app's mode, so a draft naming a wider one discloses nothing.
+		const kept = await deployApp('f/apps/kept', { execution_mode: 'anonymous' }, 'publisher')
+		expect(kept.success).toBe(true)
+		expect(kept.message).not.toContain('anyone with the URL')
 
 		// Guest is a real widening only where the deployment, the instance and the
 		// workspace all admit guests; stored below that, it is inert.

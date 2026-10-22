@@ -92,7 +92,9 @@
 	let secretUrlHref = $derived(
 		secretUrl ? `${window.location.origin}/public/${workspace}/${secretUrl}` : undefined
 	)
-	let appUrl = $derived(`${window.location.origin}/${rawApp ? 'apps_raw' : 'apps'}/get/${appPath}`)
+	let appUrl = $derived(
+		`${window.location.origin}/${rawApp ? 'apps_raw' : 'apps'}/get/${appPath}?workspace=${workspace}`
+	)
 
 	// Custom URL: at most one per app. Adding, editing and removing it each write at once.
 	let editingCustomPath = $state(false)

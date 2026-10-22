@@ -4,16 +4,6 @@ export type AppAccessMode = 'publisher' | 'guest' | 'anonymous'
 
 export const CUSTOM_PATH_RE = /^[\w-]+(\/[\w-]+)*$/
 
-/** Whether a write by this user may keep another identity's run-as; the backend resolves it to
- *  the writer otherwise. Mirrors `can_preserve_on_behalf_of`. */
-export function canPreserveOnBehalfOf(
-	user: { is_admin?: boolean; is_super_admin?: boolean; groups?: string[] } | undefined
-): boolean {
-	return (
-		!!user?.is_admin || !!user?.is_super_admin || (user?.groups?.includes('wm_deployers') ?? false)
-	)
-}
-
 /** The access a policy grants, on the three rungs the Share dialog offers. `viewer` runs the
  *  app as its viewer, which a guest cannot be, so it shows as members-only. */
 export function accessModeOf(policy: Policy | undefined): AppAccessMode {

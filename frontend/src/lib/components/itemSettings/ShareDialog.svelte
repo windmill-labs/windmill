@@ -15,12 +15,8 @@
 	} from '$lib/components/operatingWorkspace.svelte'
 	import ItemAccessList from './ItemAccessList.svelte'
 	import AppAccessSection from './AppAccessSection.svelte'
-	import {
-		accessModeOf,
-		canPreserveOnBehalfOf,
-		updateDeployedAppAccess,
-		type AppAccessMode
-	} from './appAccess'
+	import { accessModeOf, updateDeployedAppAccess, type AppAccessMode } from './appAccess'
+	import { canPreserveOnBehalfOf } from './onBehalfOf'
 	import Label from '$lib/components/Label.svelte'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import { logShareOpen, type ShareOpenSource } from './sharingTelemetry'

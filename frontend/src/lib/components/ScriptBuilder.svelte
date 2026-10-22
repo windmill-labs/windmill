@@ -243,16 +243,18 @@
 
 	let shareDialog: ShareDialog | undefined = $state()
 	let firstDeployDialog: FirstDeployDialog | undefined = $state()
-	/** Set by a deploy from this editor: `savedScript.no_deployed` survives a deploy that stays. */
-	let deployedHere = $state(false)
+	/** Where a deploy from this editor left the script. After a deploy that stays,
+	 *  `savedScript.no_deployed` survives and the route's path still names the draft or the
+	 *  pre-rename row. */
+	let deployedPath: string | undefined = $state()
 	const neverDeployed = $derived(
-		!deployedHere && (initialPath == '' || savedScript?.no_deployed === true)
+		deployedPath === undefined && (initialPath == '' || savedScript?.no_deployed === true)
 	)
 	let pendingFirstDeploy: FirstDeployChoice | undefined = undefined
 
 	function openShare() {
 		// The deployed row's path: `initialPath` follows the path being typed.
-		shareDialog?.openDialog('script', userDraftPath || initialPath, {
+		shareDialog?.openDialog('script', deployedPath ?? (userDraftPath || initialPath), {
 			source: 'editor_header',
 			fromEditor: true
 		})
@@ -929,7 +931,7 @@
 			const { draft_triggers: _, ...newScript } = structuredClone($state.snapshot(script))
 			savedScript = structuredClone($state.snapshot(newScript))
 			setDraftTriggers([])
-			deployedHere = true
+			deployedPath = script.path
 			if (pendingFirstDeploy) {
 				const { members } = pendingFirstDeploy
 				pendingFirstDeploy = undefined

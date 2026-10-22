@@ -532,16 +532,17 @@
 
 	let shareDialog: ShareDialog | undefined = $state()
 	let firstDeployDialog: FirstDeployDialog | undefined = $state()
-	/** Set by a deploy from this editor, which an embedder may keep mounted. */
-	let deployedHere = $state(false)
+	/** Where a deploy from this editor left the flow, which an embedder may keep mounted: the
+	 *  route's path then still names the draft or the pre-rename row. */
+	let deployedPath: string | undefined = $state()
 	const neverDeployed = $derived(
-		!deployedHere && (newFlow || initialPath == '' || savedFlow?.no_deployed === true)
+		deployedPath === undefined && (newFlow || initialPath == '' || savedFlow?.no_deployed === true)
 	)
 	let pendingFirstDeploy: FirstDeployChoice | undefined = undefined
 
 	function openShare() {
 		// The deployed row's path: `initialPath` is re-seeded from a staged rename.
-		shareDialog?.openDialog('flow', userDraftPath || initialPath, {
+		shareDialog?.openDialog('flow', deployedPath ?? (userDraftPath || initialPath), {
 			source: 'editor_header',
 			fromEditor: true
 		})
@@ -802,7 +803,7 @@
 				path: $pathStore
 			} as Flow
 			setDraftTriggers([])
-			deployedHere = true
+			deployedPath = $pathStore
 			if (pendingFirstDeploy) {
 				const { members } = pendingFirstDeploy
 				pendingFirstDeploy = undefined

@@ -88,29 +88,32 @@
 		resolve?.(undefined)
 		kind = opts.kind
 		summary = opts.summary
-		path = opts.path
 		pathError = ''
 		// A new item is parked at `draft_<uuid>` or named `<adjective>_<kind>` until someone names it.
+		const segments = opts.path.split('/')
 		const generated =
-			isPlaceholderName(opts.path) || /^draft_[0-9a-f_]+$/.test(opts.path.split('/').pop() ?? '')
+			isPlaceholderName(opts.path) || /^draft_[0-9a-f_]+$/.test(segments.at(-1) ?? '')
 		dirtyPath = !!opts.pathChosen || !generated
+		const name = slug(opts.summary)
+		// Named here rather than through Path once it is open: Path parses the path it is handed a
+		// tick after mounting, and drops a name set before that.
+		path = !dirtyPath && name ? [...segments.slice(0, -1), name].join('/') : opts.path
 		members = {}
 		appMode = opts.appMode ?? 'publisher'
 		message = ''
 		open = true
-		if (!dirtyPath && slug(summary)) {
-			// After Path has parsed the path it was handed.
-			queueMicrotask(() => pathField?.setName(slug(summary)))
-		}
 		return new Promise((r) => (resolve = r))
 	}
 
 	function finish(choice: FirstDeployChoice | undefined) {
-		logFirstDeploy(choice ? 'deployed' : 'cancelled')
+		// Modal writes `open` back on every close, an unchanged `false` included: only an `ask`
+		// still waiting is answered.
 		const r = resolve
+		if (!r) return
 		resolve = undefined
+		logFirstDeploy(choice ? 'deployed' : 'cancelled')
 		open = false
-		r?.(choice)
+		r(choice)
 	}
 
 	function deploy() {
