@@ -10,6 +10,8 @@ vi.mock('$lib/utils_workspace_deploy', () => ({ checkDeployRules: deployRules })
 
 import { capabilitiesForRole, resolveSessionAccess } from './sessionAccess'
 import { clearWorkspaceRoleCache } from '$lib/user'
+import { FULL_CAPABILITIES, legacyOperatorCapabilities } from '$lib/roleCapabilities'
+import type { OperatorSettings, RoleCapabilities } from '$lib/gen'
 
 type WhoamiOverrides = { is_admin?: boolean; is_super_admin?: boolean; operator?: boolean }
 
@@ -57,6 +59,8 @@ describe('resolveSessionAccess', () => {
 			'write_app_draft',
 			'write_draft',
 			'write_flow_draft',
+			'write_inline_app_code',
+			'write_inline_flow_code',
 			'write_resource_draft',
 			'write_schedule_draft',
 			'write_trigger_draft',
@@ -92,20 +96,27 @@ describe('resolveSessionAccess', () => {
 		])
 	})
 
-	// Both spellings of `authed.is_admin`, which the draft path honours and the handlers
-	// refusing `authed.is_operator` do not — the session path never clears that flag.
+	// Both spellings of `authed.is_admin`: `caller_capabilities` gives an admin every role
+	// capability, whatever role the membership row names.
 	it.each([{ is_admin: true }, { is_super_admin: true }])(
-		'lets an admin who is also an operator draft and deploy, but not preview or manage code (%o)',
+		'gives an admin whose role is operator everything (%o)',
 		async (role) => {
 			const caps = await capabilitiesFor({ ...role, operator: true })
 			expect([...caps].sort()).toEqual([
 				'admin',
 				'deploy',
+				'manage_apps',
+				'manage_code',
+				'manage_flows',
 				'manage_schedules',
 				'manage_triggers',
+				'run_flow_preview',
+				'run_preview',
 				'write_app_draft',
 				'write_draft',
 				'write_flow_draft',
+				'write_inline_app_code',
+				'write_inline_flow_code',
 				'write_resource_draft',
 				'write_schedule_draft',
 				'write_trigger_draft',
@@ -130,9 +141,8 @@ describe('resolveSessionAccess', () => {
 	it("gives a builder operator the flow capabilities and nothing a script's handler refuses", () => {
 		const caps = capabilitiesForRole({
 			isAdmin: false,
-			operator: true,
 			deployRulesPass: true,
-			operatorSettings: { builder_flows: true }
+			capabilities: legacyOperatorCapabilities({ builder_flows: true } as OperatorSettings)
 		})
 		expect([...caps].sort()).toEqual([
 			'deploy',
@@ -152,9 +162,8 @@ describe('resolveSessionAccess', () => {
 	it('gives an app builder operator the app capabilities alone', () => {
 		const caps = capabilitiesForRole({
 			isAdmin: false,
-			operator: true,
 			deployRulesPass: true,
-			operatorSettings: { builder_apps: true }
+			capabilities: legacyOperatorCapabilities({ builder_apps: true } as OperatorSettings)
 		})
 		expect([...caps].sort()).toEqual([
 			'deploy',
@@ -173,14 +182,27 @@ describe('resolveSessionAccess', () => {
 	it('withholds schedule and trigger writes only where the workspace set them to false', () => {
 		const caps = capabilitiesForRole({
 			isAdmin: false,
-			operator: true,
 			deployRulesPass: true,
-			operatorSettings: { manage_schedules: false }
+			capabilities: legacyOperatorCapabilities({ manage_schedules: false } as OperatorSettings)
 		})
 		expect(caps.has('manage_schedules')).toBe(false)
 		expect(caps.has('write_schedule_draft')).toBe(false)
 		expect(caps.has('manage_triggers')).toBe(true)
 		expect(caps.has('write_trigger_draft')).toBe(true)
+	})
+
+	// A role that codes but builds no apps: scripts and flows, and nothing apps.rs refuses.
+	it('follows the capabilities of a custom role rather than the operator flag', () => {
+		const scripter: RoleCapabilities = { ...FULL_CAPABILITIES, apps: 'none' }
+		const caps = capabilitiesForRole({
+			isAdmin: false,
+			deployRulesPass: true,
+			capabilities: scripter
+		})
+		expect(caps.has('manage_code')).toBe(true)
+		expect(caps.has('manage_flows')).toBe(true)
+		expect(caps.has('manage_apps')).toBe(false)
+		expect(caps.has('write_app_draft')).toBe(false)
 	})
 
 	it('grants everything when the role cannot be resolved', async () => {

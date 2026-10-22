@@ -79,7 +79,9 @@ import {
 } from '$lib/components/raw_apps/dataTableRefUtils'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
 import { conformBuilderAppPolicy } from '$lib/components/raw_apps/builderAppPolicy'
-import { operatorBuilderAppsIn } from '$lib/operatorWriteRights'
+import { capabilitiesInWorkspace } from '$lib/operatorWriteRights'
+import { capabilitiesIn } from '$lib/roleCapabilities'
+import type { RoleCapabilities } from '$lib/gen'
 import type { RawAppDomQuery } from '$lib/components/raw_apps/rawAppDom'
 import { dataUrlToImagePart, normalizeImageDataUrl, type AttachedImage } from '../imageUtils'
 import { sanitizeAttachmentName, textLineCount, type AttachedTextFile } from '../textFileUtils'
@@ -328,7 +330,10 @@ const INSTRUCTION_SUBJECTS = [
 // annotated scripts in a folder, so it gets authoring guidance, not a CRUD type.
 // `workspace_settings` is the settings document an admin reads and changes.
 const INSTRUCTION_SUBJECTS_EXTRA = ['datatable', 'pipeline', 'workspace_settings'] as const
-const ALL_INSTRUCTION_SUBJECTS = [...INSTRUCTION_SUBJECTS, ...INSTRUCTION_SUBJECTS_EXTRA] as const
+export const ALL_INSTRUCTION_SUBJECTS = [
+	...INSTRUCTION_SUBJECTS,
+	...INSTRUCTION_SUBJECTS_EXTRA
+] as const
 const MAX_LIST_LIMIT = 100
 type ActiveGlobalEditorType = Extract<WorkspaceItemType, 'script' | 'flow' | 'app'>
 type LiveEditorDraftKind = Parameters<typeof UserDraft.getLiveEditorDraft>[0]
@@ -1427,7 +1432,8 @@ type FolderPromptContext = {
 function buildFolderGuidance(
 	username: string,
 	ctx: FolderPromptContext | undefined,
-	canCreateFolder: boolean
+	canCreateFolder: boolean,
+	external = false
 ): string {
 	if (!ctx) return ''
 	const MAX = 40
@@ -1455,7 +1461,7 @@ function buildFolderGuidance(
 	const lines: string[] = []
 	if (writable.length > 0) {
 		lines.push(
-			`- Folders you can write to in this workspace: ${fmt(writable)}. For shared/team work, pick the one whose purpose matches the request; if none clearly fits, ask which folder to use (askUserQuestion) rather than inventing a path.${canCreateFolder ? ' Use `create_folder` only when the user explicitly asks for a new folder.' : ''}`
+			`- Folders you can write to in this workspace: ${fmt(writable)}. For shared/team work, pick the one whose purpose matches the request; if none clearly fits, ask which folder to use${external ? '' : ' (askUserQuestion)'} rather than inventing a path.${canCreateFolder ? ' Use `create_folder` only when the user explicitly asks for a new folder.' : ''}`
 		)
 	} else {
 		lines.push(
@@ -1483,7 +1489,10 @@ const buildGlobalSystemPrompt = (
 	folderCtx?: FolderPromptContext,
 	skills: AiSkillListItem[] = [],
 	mcpServers: McpServer[] = [],
-	access?: SessionAccess
+	access?: SessionAccess,
+	// The prompt as an external MCP client reads it: the same rules, minus the tools and
+	// surfaces only the Windmill UI has (pages, the run form, questions, the open editor).
+	external = false
 ) => {
 	// Each `can*` mirrors the capability the matching tools declare in `requires`, so a
 	// rule cannot outlive the tool it describes. An unresolved profile keeps every block.
@@ -1494,11 +1503,13 @@ const buildGlobalSystemPrompt = (
 	const canDraftTriggers = !access || access.has('write_trigger_draft')
 	const canDraftResources = !access || access.has('write_resource_draft')
 	const canDraftVariables = !access || access.has('write_variable_draft')
-	// A builder operator: drafts of the kinds the workspace lets them compose, and nothing else.
+	const inlineFlowCode = !access || access.has('write_inline_flow_code')
+	const inlineAppCode = !access || access.has('write_inline_app_code')
+	// A role that composes a kind out of deployed runnables, with no inline code of its own.
 	// Blocks about drafting in general follow `canWriteAnyDraft`; blocks naming scripts or the
 	// other kinds keep `canWriteDraft`.
-	const buildsFlows = canWriteFlowDraft && !canWriteDraft
-	const buildsApps = canWriteAppDraft && !canWriteDraft
+	const buildsFlows = canWriteFlowDraft && !inlineFlowCode
+	const buildsApps = canWriteAppDraft && !inlineAppCode
 	const canWriteAnyDraft =
 		canWriteDraft ||
 		canWriteFlowDraft ||
@@ -1538,6 +1549,11 @@ const buildGlobalSystemPrompt = (
 		(k): k is string => !!k
 	)
 	const canRunPreview = !access || access.has('run_preview')
+	const canRunFlowPreview = !access || access.has('run_flow_preview')
+	// A role may code without composing flows, so the flow test tool is named only where it ships.
+	const testRunTools = canRunFlowPreview
+		? 'test_run_script, test_run_flow, or test_run_step'
+		: 'test_run_script or test_run_step'
 	const canManageSchedules = !access || access.has('manage_schedules')
 	const canManageTriggers = !access || access.has('manage_triggers')
 	// The deploy tools take their kind as an argument, so `deploy` gates only the folder and
@@ -1547,7 +1563,7 @@ const buildGlobalSystemPrompt = (
 	// Each gated block carries its own leading newline, so dropping one leaves no blank
 	// line behind and a full-access prompt is byte-for-byte the ungated text.
 	const when = (cond: boolean, block: string) => (cond ? block : '')
-	const folderGuidance = buildFolderGuidance(username, folderCtx, canCreateFolder)
+	const folderGuidance = buildFolderGuidance(username, folderCtx, canCreateFolder, external)
 	const folderGuidanceBlock = folderGuidance ? `\n${folderGuidance}` : ''
 	// A grant to `g/<group>` reaches the user only through membership, which no permission
 	// list shows. Outside the folder guidance, which a role that cannot draft never gets.
@@ -1591,15 +1607,52 @@ const buildGlobalSystemPrompt = (
 				get(enterpriseLicense) ? 'Enterprise Edition' : 'Community Edition'
 			}. Use that to judge whether a feature is available before promising it.`
 		: ''
+	// The core rules, placed differently for an MCP client (see `coreRules`).
+	const draftsOnlyRule = when(
+		canWriteAnyDraft,
+		`
+- Draft tools create or update drafts only; they do not deploy or mutate deployed workspace items.`
+	)
+	const findItemsRule =
+		'- Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.'
+	const deployRule = when(
+		canWriteAnyDraft && canDeployAnyKind,
+		`
+- Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.`
+	)
+	const instructionsRule =
+		'- Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.'
+	const testDraftRule = `- After creating or editing a script${canWriteFlowDraft ? ' or flow' : ''} draft, run ${testRunTools} with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.`
+	const testRunList = canRunFlowPreview
+		? 'test_run_script, test_run_flow, test_run_step'
+		: 'test_run_script, test_run_step'
+	const runRule = `${when(
+		canRunPreview,
+		`
+- Default to ${testRunTools} for any run request, an existing script included; they prefer drafts and need no deployment. Use run_script or run_flow only when the user names the deployed version ("the deployed X", "in production", "for real") — a bare "run X" is not that. For those two, read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema. ${
+			external
+				? `${testRunList}, run_script and run_flow run with exactly the arguments you send, so fill in every argument the schema asks for. test_run_step takes the step's own inputs, not the flow's.`
+				: `${testRunList}, run_script and run_flow all show the user an argument form prefilled with what you sent, so fill in every argument you can infer rather than asking for it in chat. test_run_step's form is the step's own inputs, not the flow's.`
+		}`
+	)}${when(
+		!canRunPreview,
+		`
+- run_script and run_flow are how you run anything here: they run the DEPLOYED item under this user's own permissions, and show them an argument form prefilled with what you sent. Read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema, and fill in every argument you can infer rather than asking for it in chat.`
+	)}`
 
-	return `You are Windmill's global workspace assistant.
+	const intro = `${external ? 'You are working in a Windmill workspace through its MCP server.' : "You are Windmill's global workspace assistant."}${when(
+		external,
+		`
+
+The user sees no Windmill page next to this conversation. Tool results carry links instead: a run's page, a script, flow or agent draft's url (its editor), an app draft's preview_url (the app editor with its live preview, which these instructions call "the preview"), a deployed item's url. Whenever the user will want to see what you built or ran, or has to do a step in Windmill themselves, open the link in a browser they can see from this conversation if you have one, and otherwise give them the link to open.`
+	)}
 
 The current user's workspace username is "${username}".${instanceLine}
 
 ${
 	canWriteDraft
 		? 'Use tools to inspect workspace items and create per-user drafts (saved server-side, visible only to this user — not deployed) for scripts, flows, schedules, triggers, resources, variables, and raw apps.'
-		: `Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit ${listJoin(refusedKinds, 'disjunction')} here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had. Their role is refused ${listJoin(refusedCode)} outside this chat too, so for those suggest asking a workspace admin, who grants operators more in ${OPERATOR_SETTINGS_LOCATION}, rather than creating them in the editor.${when(
+		: `Use tools to inspect workspace items and the workspace's run history, and to run items that are already deployed. You cannot create or edit ${listJoin(refusedKinds, 'disjunction')} here — this user's role does not allow it — so when they ask for such a change, say plainly that you cannot make it rather than describing steps as if you had. Their role is refused ${listJoin(refusedCode)} outside this chat too, so for those suggest asking a workspace admin, who can grant their role more in ${OPERATOR_SETTINGS_LOCATION}, rather than creating them in the editor.${when(
 				canManageSchedules,
 				' To make something recur, they can schedule a deployed script or flow themselves; only when none does the job is there something to ask an admin for, and it is that script.'
 			)} When you decline something, give the reason stated here and keep to it.${when(
@@ -1624,7 +1677,8 @@ ${
 						: ''
 				}.`
 			)}`
-}${when(
+}`
+	const paths = `${when(
 		canWriteAnyDraft,
 		`
 
@@ -1640,24 +1694,27 @@ Path conventions:
 	)}${when(
 		canCreateFolder && !canWriteAnyDraft,
 		'\n- You can create a shared folder with `create_folder` when the user explicitly asks for one. You cannot create anything inside it here, so do not offer to.'
-	)}
+	)}`
+	// An MCP client may keep only the first 4096 characters of its instructions, so there
+	// these rules come before the path conventions and are left out of the later list.
+	const coreRules = `${draftsOnlyRule}
+${findItemsRule}${deployRule}${when(canWriteDraft, `\n${instructionsRule}`)}${when(
+		canRunPreview && canWriteDraft,
+		`\n${testDraftRule}`
+	)}${runRule}`
 
-Rules:${when(
-		canWriteAnyDraft,
-		`
-- Draft tools create or update drafts only; they do not deploy or mutate deployed workspace items.`
-	)}
-- Use list_workspace_items to find items and read_workspace_item before changing an existing item. For triggers, pass trigger_kind.
+	return `${intro}${when(external, `\n\nRules:${coreRules}`)}${paths}
+
+${external ? 'More rules:' : `Rules:${draftsOnlyRule}\n${findItemsRule}`}
 ${groupMembershipRule}- Listings and reads return only what this user can see: items in folders they cannot read are hidden from you both. When an item the user names is missing, say it is not among what they can see and may be in a folder they cannot read, where someone with access can run it — never state that it does not exist or is not deployed.
 - An agent, as the Agents page lists it, is a resource of type \`ai_agent\`: read it with read_workspace_item type "resource".${when(
 		canDraftResources,
 		" You may draft a change to an agent, but never deploy or rename one here: the user reviews and deploys it from the agent's page, `/agents/edit/<path>`, so point them there."
-	)}
-- If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".${activePreviewRule}${when(
-		canWriteAnyDraft && canDeployAnyKind,
-		`
-- Use deploy_workspace_item only after the user explicitly asks to deploy. It persists a draft to the workspace.`
 	)}${when(
+		!external,
+		`
+- If the user message includes an ACTIVE EDITOR section, treat it as the currently open item and use it for references like "this", "current", or "open editor".`
+	)}${activePreviewRule}${when(!external, deployRule)}${when(
 		canWriteAnyDraft,
 		`
 - To undo something you created or changed in this chat, use discard_local_draft: everything you write is a draft until it is explicitly deployed, so "delete it" / "never mind" / "remove that" about your own work means discarding the draft (it also clears the matching open editor draft).${when(
@@ -1686,17 +1743,19 @@ ${groupMembershipRule}- Listings and reads return only what this user can see: i
 	)}${when(
 		canWriteDraft,
 		`
-- Use search_resource_types before write_resource, and get_trigger_schema before write_trigger: the trigger config fields differ per kind and are not listed in the write_trigger definition.
+- Use search_resource_types before write_resource${
+			canDraftTriggers
+				? ', and get_trigger_schema before write_trigger: the trigger config fields differ per kind and are not listed in the write_trigger definition.'
+				: '.'
+		}
 - When script or raw app code needs an external npm package you are not fully familiar with, use search_npm_packages to find it and get its documentation and type definitions. Link the package documentation in your answer when you rely on it.
 - Hub scripts are prebuilt, vetted integrations for third-party services, hosted outside the workspace under \`hub/<version>/<app>/<name>\` paths. Check search_hub_scripts before hand-writing code against a third-party API, even when the user never mentions the hub; read a result with read_workspace_item type "script" and its hub path to get its code, language, and input schema. Use what you find in whichever way fits: reference the hub path directly from a flow module or app runnable when a script already does the job, copy it into a workspace draft and adapt it when it is close (note the source hub path in a comment at the top of the code), or take it as a worked example and write your own. A script that does not do what the user asked is still worth reading when it is the only example of that integration: pass its \`integration\` back to search_hub_scripts to list that integration's other scripts with their descriptions, or use the \`suggested_integrations\` a search hands back when it finds nothing.
 - Before writing your own code against an integration the hub covers, call get_hub_integration with its slug: it returns the resource type to take, its auth fields and the integration's most-used scripts, which beats inferring them from script bodies. Call it for the integration you are about to write against, whichever it is. A search marks an integration \`documented\` when the hub additionally holds provider knowledge checked against the live API — pagination, enums, error codes and gotchas — so read that closely where it appears rather than trusting your own memory of the API.
 - If you have a web search tool and the hub does not cover a third-party API, search for the vendor's own API documentation rather than writing its endpoints and auth from memory, and link the page you relied on. Reserve it for external APIs: search_docs answers questions about Windmill itself.
-${when(canCreateResourceType, '- create_resource_type creates a resource type the workspace lacks. The user confirms the schema in the call itself, so that is where you propose it rather than asking first in chat.\n')}${when(!canCreateResourceType, '- This user cannot create a resource type here, in chat or on the Resources page, since the workspace refuses their direct deployment: when one is needed, give them its name and JSON Schema to pass to a workspace admin, who can add it.\n')}${when(canRunPreview, '- Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).\n')}- Use get_instructions before writing scripts, flows, resources, or apps. For scripts, pass the target language.
-${pipelineBullet}`
+${when(canCreateResourceType, `- create_resource_type creates a resource type the workspace lacks. ${external ? 'Show the user the schema you propose and create it once they agree.' : 'The user confirms the schema in the call itself, so that is where you propose it rather than asking first in chat.'}\n`)}${when(!canCreateResourceType, '- This user cannot create a resource type here, in chat or on the Resources page, since the workspace refuses their direct deployment: when one is needed, give them its name and JSON Schema to pass to a workspace admin, who can add it.\n')}${when(canRunPreview, '- Use get_db_schema with a database resource path to fetch its tables and columns before writing SQL (or a script querying that database).\n')}${when(!external, `${instructionsRule}\n`)}${pipelineBullet}`
 	)}${when(
 		canRunPreview && canWriteDraft,
-		`
-- After creating or editing a script or flow draft, run test_run_script, test_run_flow, or test_run_step with representative args before reporting that it works. These tools prefer drafts, so testing does not require deployment.
+		`${when(!external, `\n${testDraftRule}`)}
 - Do the same for a raw app: run test_run_app_runnable on each backend runnable you wrote or changed before saying the app works. A bundle that compiles proves nothing about whether the runnables run. An inline runnable executes the app's draft code; a path runnable executes the DEPLOYED script/flow it names, so a path runnable aimed at something you have not deployed fails here — that failure is the point: report it and offer to deploy that one target. The app itself does not need deploying to be tested.`
 	)}${when(
 		buildsFlows && (!access || access.has('run_flow_preview')),
@@ -1704,23 +1763,21 @@ ${pipelineBullet}`
 - After creating or editing a flow draft, run test_run_flow with representative args before reporting that it works. It prefers drafts, so testing does not require deployment.`
 	)}
 - Use list_runs to find recent runs (optionally filtered by path, creator, label, or status), then get_run with a returned id to see what that run was called with, what it returned and what it logged — without starting a new test run.
-- get_run also covers what a flow run did per step — statuses and results across the whole execution tree, subflow steps and loop iterations included — and works while the flow is still running. Pass step to read one step's result in full (capped at 12k chars).
+- get_run also covers what a flow run did per step — statuses and results across the whole execution tree, subflow steps and loop iterations included — and works while the flow is still running. Pass step to read one step's result in full (capped at 12k chars).${when(
+		!external,
+		`
 - Use open_page to show a workspace page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, or Workspace settings on a specific tab (e.g. "open the failed runs of f/foo/bar", "open the schedule for X", "open the git sync settings"). Carry over every filter the user described — Runs takes the page's whole filter set (time window, path, user, folder, label, tag, worker, trigger kind, args/result, ...), so don't drop a criterion just because it wasn't in the request's main clause. Only the pages listed for this user in the tool are available; don't offer pages that aren't listed. Don't use it as a substitute for list_runs when you just need the data yourself.
-- Whenever you ask the user to perform a manual step in the UI — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its editor, or the page's filters otherwise). Never just describe where to click.${when(
-		canWriteDraft,
+- Whenever you ask the user to perform a manual step in the UI — fill in a resource's credentials, set a secret variable's value, adjust a schedule or setting — call open_page in the same message, targeted at that item (pass open with its path to land in its editor, or the page's filters otherwise). Never just describe where to click.`
+	)}${when(
+		canWriteDraft && !external,
 		`
 - Do not offer or open the Compare & Deploy page for normal draft review. Only use open_page with page "compare" when the user explicitly asks to deploy a forked workspace's changes to its parent workspace.`
-	)}${when(
-		canRunPreview,
+	)}${when(!external, runRule)}${when(
+		!external,
 		`
-- Default to test_run_script, test_run_flow, or test_run_step for any run request, an existing script included; they prefer drafts and need no deployment. Use run_script or run_flow only when the user names the deployed version ("the deployed X", "in production", "for real") — a bare "run X" is not that. For those two, read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema. test_run_script, test_run_flow, test_run_step, run_script and run_flow all show the user an argument form prefilled with what you sent, so fill in every argument you can infer rather than asking for it in chat. test_run_step's form is the step's own inputs, not the flow's.`
-	)}${when(
-		!canRunPreview,
-		`
-- run_script and run_flow are how you run anything here: they run the DEPLOYED item under this user's own permissions, and show them an argument form prefilled with what you sent. Read the item with read_workspace_item version: "deployed" first so the arguments match the deployed schema, and fill in every argument you can infer rather than asking for it in chat.`
-	)}
 - When a required decision is ambiguous, use askUserQuestion with two to ten clear proposed answer strings instead of guessing. The user can also type a custom answer when none of the proposed answers fit. Set multiSelect: true only when the answers can genuinely co-apply and the user may pick several (not mutually exclusive).
-- When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.
+- When the user asks you to remember a lasting preference, always/never do something, or change/stop a behavior going forward, call update_user_instructions to persist it. It edits only the USER INSTRUCTIONS block (not WORKSPACE INSTRUCTIONS). Keep each instruction concise; do not use it for one-off requests scoped to the current task.`
+	)}
 - Keep context targeted.${
 		previewTools
 			? `${when(
@@ -1763,7 +1820,7 @@ Documentation:
 
 Flows:
 - read_workspace_item returns compact flow JSON. Inline script bodies appear as "inline_script.<moduleId>".
-- Use read_flow_module_code${when(canWriteDraft, ' and set_flow_module_code')} for inline script bodies.${when(
+- Use read_flow_module_code${when(inlineFlowCode && canWriteFlowDraft, ' and set_flow_module_code')} for inline script bodies.${when(
 		canWriteFlowDraft,
 		`
 - Use patch_flow_json for structural flow edits and write_flow for full flow rewrites.`
@@ -1774,15 +1831,15 @@ Raw apps:
 - read_workspace_item returns app metadata only. Use read_app_file for file and inline runnable contents.${when(
 		canWriteAppDraft,
 		`
-- A draft app is reachable by nobody; deploying is what exposes its backend runnables. deploy_workspace_item says so when the deploy widens who may open the app: anonymous means anyone with the URL, without logging in; guest means anyone the instance's identity provider authenticates, member of this workspace or not. Relay that in plain words and carry on. This is disclosure, not a gate: do not stop and ask for permission, and do not refuse the deploy. You cannot change who may open an app from chat; it is set on the app's deploy settings.
+- A draft app is reachable by nobody; deploying is what exposes its backend runnables. ${canDeployAnyKind ? 'deploy_workspace_item' : 'A deploy'} says so when the deploy widens who may open the app: anonymous means anyone with the URL, without logging in; guest means anyone the instance's identity provider authenticates, member of this workspace or not. Relay that in plain words and carry on. This is disclosure, not a gate: do not stop and ask for permission, and do not refuse the deploy. You cannot change who may open an app from chat; it is set on the app's deploy settings.
 - Use write_app_file, patch_app_file, and delete_app_file for frontend files.
 - Use write_app_runnable and delete_app_runnable for backend runnables.
 - Use init_app for a new app, with framework react19 unless the user named one or points at an app to follow: do not ask about the framework, and write the summary and pick the path (path conventions above) yourself. ${
 			buildsApps
 				? 'An app this user builds reads and stores data only through the deployed runnables it calls: do not ask about a data setup or pass init_app a data config.'
-				: 'When the app has to store data and the user did not say where, settle the data setup with askUserQuestion BEFORE init_app or any SQL (get_instructions subject "app" lists the questions, one askUserQuestion each), then pass the outcome as init_app\'s data.'
+				: `When the app has to store data and the user did not say where, settle the data setup with ${external ? 'the user' : 'askUserQuestion'} BEFORE init_app or any SQL (get_instructions subject "app" lists the questions${external ? '' : ', one askUserQuestion each'}), then pass the outcome as init_app's data.`
 		}
-- Use deploy_workspace_item after explicit user deploy intent; raw app deploy bundles JS/CSS before saving.`
+${when(canDeployAnyKind, '- Use deploy_workspace_item after explicit user deploy intent; raw app deploy bundles JS/CSS before saving.')}`
 	)}
 
 Data Tables:
@@ -2241,7 +2298,7 @@ async function saveAppDraft(
 	path: string,
 	value: AppDraftValue
 ): Promise<DraftPersistResult> {
-	if (operatorBuilderAppsIn(workspace)) {
+	if (capabilitiesInWorkspace(workspace).apps === 'compose') {
 		const role = await roleForWorkspace(workspace)
 		value.policy ??= {}
 		conformBuilderAppPolicy(value.policy, role.kind === 'resolved' ? role.user : undefined)
@@ -2687,14 +2744,15 @@ ${getScriptPrompt(selected)}`
 
 async function getFlowInstructions(
 	workspace: string | undefined,
-	composeOnly: boolean
+	composeOnly: boolean,
+	external = false
 ): Promise<string> {
-	const aiAgentProviders = formatAiAgentProvidersPrompt(
-		await getAiAgentProviderCatalog(workspace),
-		{
-			canAskUser: true
-		}
-	)
+	// An external client's catalog is rendered where no workspace is known, so it gets none.
+	const aiAgentProviders = external
+		? ''
+		: formatAiAgentProvidersPrompt(await getAiAgentProviderCatalog(workspace), {
+				canAskUser: true
+			})
 	return `# Global draft flow instructions
 
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
@@ -2739,7 +2797,11 @@ ${composeOnly ? 'This reference is written for every author. For this user, skip
 
 type InstructionSubject = (typeof ALL_INSTRUCTION_SUBJECTS)[number]
 
-function getAppInstructions(language: ScriptLang | undefined, composeOnly: boolean): string {
+function getAppInstructions(
+	language: ScriptLang | undefined,
+	composeOnly: boolean,
+	external = false
+): string {
 	// getRawAppPrompt swaps in the Python SDK for python3, so the pointer has to swap with
 	// it: telling the model to re-fetch a reference it is already holding wastes a turn, and
 	// naming the wrong SDK contradicts the text right below the sentence.
@@ -2754,7 +2816,7 @@ function getAppInstructions(language: ScriptLang | undefined, composeOnly: boole
 - To create a new app, use \`init_app\` with a path, optional summary, a framework (\`react19\` / \`react18\` / \`svelte5\`)${
 		composeOnly
 			? '. "Starting a new app" below decides the framework. No data setup: the app reads and stores data only through the deployed runnables it calls.'
-			: ' and, for an app that stores data, its `data` setup. "Starting a new app" below decides the framework and when the data setup is asked. Ask each of its questions with `askUserQuestion`, one question per call with the suggested answer first, before `init_app` and before any SQL. `init_app` only records `data`: a new schema is yours to create with the datatable SQL tool.'
+			: ` and, for an app that stores data, its \`data\` setup. "Starting a new app" below decides the framework and when the data setup is asked. ${external ? 'Ask the user each of its questions, suggested answer first,' : 'Ask each of its questions with \`askUserQuestion\`, one question per call with the suggested answer first,'} before \`init_app\` and before any SQL. \`init_app\` only records \`data\`: a new schema is yours to create with the datatable SQL tool.`
 	} \`init_app\` errors if an app already exists at the path or a draft is already in flight; in that case, edit the existing one rather than re-initializing.
 ${
 	composeOnly
@@ -2823,21 +2885,22 @@ function getPipelineInstructions(): string {
 	return getPipelinePrompt()
 }
 
-function getInstructions(
+export function getInstructions(
 	subject: InstructionSubject,
 	language: ScriptLang | undefined,
 	workspace: string | undefined,
-	composeOnly: boolean
+	composeOnly: boolean,
+	external = false
 ): string | Promise<string> {
 	switch (subject) {
 		case 'script':
 			return getScriptInstructions(language)
 		case 'flow':
-			return getFlowInstructions(workspace, composeOnly)
+			return getFlowInstructions(workspace, composeOnly, external)
 		case 'resource':
 			return getResourceInstructions()
 		case 'app':
-			return getAppInstructions(language, composeOnly)
+			return getAppInstructions(language, composeOnly, external)
 		case 'datatable':
 			return getDatatableInstructions(language)
 		case 'pipeline':
@@ -3085,40 +3148,25 @@ function allowedTriggerKinds(): PageTriggerKind[] {
 	return (Object.keys(TRIGGER_PAGES) as PageTriggerKind[]).filter((k) => ee || !TRIGGER_PAGES[k].ee)
 }
 
-// Pages an operator may reach: exactly the ones enabled in the workspace's
-// operator_settings, the same source the sidebar gates on. Operators are never admins, so
-// workspace_settings is excluded whatever the settings say.
-function operatorOpenPages(workspaceId: string | undefined): OpenPageName[] {
-	const settings = get(userWorkspaces).find((w) => w.id === workspaceId)?.operator_settings
-	return OPEN_PAGE_NAMES.filter(
-		(p) =>
-			p !== 'workspace_settings' && settings?.[p as keyof NonNullable<typeof settings>] === true
+// Pages a role may reach: the ones its visibility shows, the same source the sidebar gates
+// on. workspace_settings is admin/superadmin only, and compare deploys code, so it follows
+// `code`.
+function roleOpenPages(caps: RoleCapabilities, isAdmin: boolean): OpenPageName[] {
+	return OPEN_PAGE_NAMES.filter((p) =>
+		p === 'workspace_settings' ? isAdmin : p === 'compare' ? caps.code : caps.visibility[p]
 	)
 }
 
-// workspace_settings is admin/superadmin only; the rest are open to any non-operator member.
-const NON_ADMIN_OPEN_PAGES = new Set<OpenPageName>([
-	'runs',
-	'assets',
-	'schedules',
-	'variables',
-	'resources',
-	'audit_logs',
-	'folders',
-	'groups',
-	'triggers',
-	'compare'
-])
-
-// What to advertise before the role in `workspaceId` has been resolved.
-// `user_workspaces` nulls operator_settings for a workspace the user is not an operator
-// in, so a non-null value narrows an operator correctly; the converse does not hold,
-// which is why the real role is still fetched.
+// What to advertise before the role in `workspaceId` has been resolved: the role the
+// workspace list names, which is why the real role is still fetched.
 function restrictedOpenPages(workspaceId: string | undefined): OpenPageName[] {
-	if (get(userWorkspaces).find((w) => w.id === workspaceId)?.operator_settings) {
-		return operatorOpenPages(workspaceId)
-	}
-	return OPEN_PAGE_NAMES.filter((p) => NON_ADMIN_OPEN_PAGES.has(p))
+	return roleOpenPages(
+		capabilitiesIn(
+			undefined,
+			get(userWorkspaces).find((w) => w.id === workspaceId)
+		),
+		false
+	)
 }
 
 // The role to gate `workspaceId` on. `userStore` answers only when it describes that same
@@ -3210,14 +3258,12 @@ async function allowedOpenPages(
 		return { pages: restrictedOpenPages(workspaceId), roleUnverified: false }
 	}
 	const u = role.user
-	if (u.operator) return { pages: operatorOpenPages(workspaceId), roleUnverified: false }
 	const isAdmin = !!u.is_admin || !!u.is_super_admin || !!get(superadmin)
-	return {
-		pages: OPEN_PAGE_NAMES.filter(
-			(p) => NON_ADMIN_OPEN_PAGES.has(p) || (isAdmin && p === 'workspace_settings')
-		),
-		roleUnverified: false
-	}
+	const caps = capabilitiesIn(
+		{ ...u, is_admin: isAdmin },
+		get(userWorkspaces).find((w) => w.id === workspaceId)
+	)
+	return { pages: roleOpenPages(caps, isAdmin), roleUnverified: false }
 }
 
 // The Runs page only offers its cross-workspace filter to a superadmin or devops user in
@@ -3458,8 +3504,8 @@ function buildOpenPageDefSchema(
 	roleUnverified = false
 ): z.ZodTypeAny {
 	const full = openPageFullSchema.shape as Record<string, z.ZodTypeAny>
-	// z.enum() rejects an empty list, and a user with no reachable pages (e.g. an operator
-	// with every operator_settings flag off) yields exactly that. Fall back to a plain
+	// z.enum() rejects an empty list, and a user with no reachable pages (e.g. a role with
+	// every visibility flag off) yields exactly that. Fall back to a plain
 	// string so schema-building can't throw; the handler still fails closed on every page.
 	// The model reads this before it can reach the handler's message, so an unresolved role
 	// must not be described as a denial here either.
@@ -3817,9 +3863,17 @@ export const globalTools: SessionTool<{}>[] = [
 					? `${parsed.subject} (${parsed.language})`
 					: parsed.subject
 			toolCallbacks.setToolStatus(toolId, { content: `Loaded ${label} instructions` })
-			// Past the gate without `write_draft` means a builder: guidance for inline code would
-			// steer the model at writes the server refuses and tools it was not given.
-			const composeOnly = !!access && !access.has('write_draft')
+			// Guidance for inline code would steer a composing role at writes the server refuses
+			// and tools it was not given.
+			const composeOnly =
+				!!access &&
+				!access.has(
+					parsed.subject === 'flow'
+						? 'write_inline_flow_code'
+						: parsed.subject === 'app'
+							? 'write_inline_app_code'
+							: 'write_draft'
+				)
 			return getInstructions(parsed.subject, parsed.language, ctx.workspace, composeOnly)
 		}
 	},
@@ -4601,7 +4655,7 @@ export const globalTools: SessionTool<{}>[] = [
 		def: createToolDef(
 			rebaseDraftSchema,
 			'rebase_draft',
-			'Discard a stale script, flow, or app draft and return your changes as a diff to re-apply on the latest deployed version. Use when deploy_workspace_item reports the draft was started from an older deployed version.',
+			'Discard a stale script, flow, or app draft and return your changes as a diff to re-apply on the latest deployed version. Use when a deploy reports the draft was started from an older deployed version.',
 			{ strict: false }
 		),
 		showDetails: true,
@@ -4819,7 +4873,7 @@ export const globalTools: SessionTool<{}>[] = [
 		}
 	},
 	{
-		requires: WRITE_DRAFT,
+		requires: [...WRITE_FLOW_DRAFT, 'write_inline_flow_code'],
 		def: createToolDef(
 			setFlowModuleCodeSchema,
 			'set_flow_module_code',
@@ -5371,11 +5425,14 @@ async function canEditItemPath(
 	if (role.kind === 'not_a_member') return 'denied'
 	if (role.kind !== 'resolved' || !role.user) return 'unverified'
 	const user = role.user
-	const settings = get(userWorkspaces).find((w) => w.id === workspace)?.operator_settings
-	if (!roleCanDraft(kind, user, settings)) return 'denied'
+	const caps = capabilitiesIn(
+		user,
+		get(userWorkspaces).find((w) => w.id === workspace)
+	)
+	if (!roleCanDraft(kind, caps)) return 'denied'
 	// Folder and ownership rules answer most calls without a request. An item's own
 	// `extra_perms` can only widen them, so the item is fetched only to overturn a denial.
-	if (canDraftItem(kind, path, {}, user, settings)) return 'allowed'
+	if (canDraftItem(kind, path, {}, user, caps)) return 'allowed'
 	try {
 		const extraPerms =
 			kind === 'script'
@@ -5383,7 +5440,7 @@ async function canEditItemPath(
 				: kind === 'flow'
 					? (await FlowService.getFlowByPath({ workspace, path })).extra_perms
 					: (await AppService.getAppByPath({ workspace, path })).extra_perms
-		return canDraftItem(kind, path, extraPerms, user, settings) ? 'allowed' : 'denied'
+		return canDraftItem(kind, path, extraPerms, user, caps) ? 'allowed' : 'denied'
 	} catch (e) {
 		// Nothing deployed means no sharing to widen the folder rules with.
 		return (e as { status?: number } | null | undefined)?.status === 404 ? 'denied' : 'unverified'
@@ -7197,7 +7254,7 @@ async function initApp(
 	})
 
 	// A builder can save no inline runnable, so they start from a static page instead of the tour.
-	const builder = operatorBuilderAppsIn(workspace)
+	const builder = capabilitiesInWorkspace(workspace).apps === 'compose'
 	const value: AppDraftValue = {
 		summary,
 		files: { ...(builder ? BUILDER_FRAMEWORK_TEMPLATES : FRAMEWORK_TEMPLATES)[framework] },
@@ -9105,8 +9162,19 @@ async function deployDraft(
 				break
 			}
 			case 'resource': {
-				const requestBody = draft.value as any
+				let requestBody = draft.value as any
 				if (await ResourceService.existsResource({ workspace, path })) {
+					// The server resets an agent's identity to whoever deploys, unless told to keep
+					// it: the identity is the deployed one, never the draft's.
+					const deployed = await ResourceService.getResource({ workspace, path })
+					const obo = (deployed.value as any)?.on_behalf_of
+					if (deployed.resource_type === 'ai_agent' && obo) {
+						requestBody = {
+							...requestBody,
+							value: { ...requestBody.value, on_behalf_of: obo },
+							preserve_on_behalf_of: true
+						}
+					}
 					await ResourceService.updateResource({ workspace, path, requestBody })
 				} else {
 					await ResourceService.createResource({ workspace, requestBody })
@@ -9545,6 +9613,8 @@ export function prepareGlobalSystemMessage(
 		/** Capabilities of the chat's operating workspace; undefined keeps every block. Must
 		 * match the profile the toolset was filtered with, or the prompt names withheld tools. */
 		access?: SessionAccess
+		/** Render for an external MCP client rather than the Windmill chat. */
+		external?: boolean
 	}
 ): ChatCompletionSystemMessageParam {
 	const user = opts?.user ?? get(userStore)
@@ -9563,7 +9633,8 @@ export function prepareGlobalSystemMessage(
 		folderCtx,
 		opts?.skills ?? [],
 		opts?.mcpServers ?? [],
-		opts?.access
+		opts?.access,
+		opts?.external ?? false
 	)
 	if (instructions?.workspace?.trim()) {
 		content = `${content}\n\nWORKSPACE INSTRUCTIONS (configured by a workspace admin, shared by everyone in this workspace — you cannot modify these):\n${instructions.workspace.trim()}`

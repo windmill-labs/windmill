@@ -105,7 +105,6 @@
 	}: Props = $props()
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
-	const actingUser = $derived(operatingUser.current)
 	const operatingHref = useOperatingWorkspaceHref()
 	const wsId = $derived($operatingWorkspace)
 
@@ -637,7 +636,7 @@
 								bind:itemKind
 								bind:scriptPath={script_path}
 								allowRefresh={can_write}
-								allowEdit={!actingUser?.operator}
+								allowEdit={editRights.roleCanAuthor(itemKind)}
 								clearable
 							/>
 							{#if emptyString(script_path)}

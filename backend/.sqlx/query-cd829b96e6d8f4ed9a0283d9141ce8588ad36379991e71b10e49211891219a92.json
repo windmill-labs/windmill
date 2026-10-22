@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings\n         SET slack_oauth_client_id = NULL, slack_oauth_client_secret = NULL,\n             slack_signing_secret = NULL\n         WHERE workspace_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cd829b96e6d8f4ed9a0283d9141ce8588ad36379991e71b10e49211891219a92"
+}

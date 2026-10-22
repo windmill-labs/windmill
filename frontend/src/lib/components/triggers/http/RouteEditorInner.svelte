@@ -778,7 +778,7 @@
 										bind:itemKind
 										bind:scriptPath={script_path}
 										allowRefresh={can_write}
-										allowEdit={!actingUser?.operator}
+										allowEdit={editRights.roleCanAuthor(itemKind)}
 										clearable
 									/>
 

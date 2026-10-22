@@ -55,11 +55,16 @@
       },
       {
         "ordinal": 10,
+        "name": "workspace_role",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 11,
         "name": "super_admin!",
         "type_info": "Bool"
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "name",
         "type_info": "Varchar"
       }
@@ -81,6 +86,7 @@
       true,
       true,
       false,
+      true,
       null,
       true
     ]

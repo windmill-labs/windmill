@@ -28,6 +28,7 @@ import { emailOfScopedKey, scopedKeyFor } from '$lib/userScopedStorage'
 import { deleteItemsForSession } from '../copilot/chat/files/attachedFilesDB'
 import { deleteArtifactsForSession } from '../copilot/chat/artifacts/artifactsDB'
 import { deleteSessionChats } from '../copilot/chat/HistoryManager.svelte'
+import type { DraftAttachments } from '../copilot/chat/messageDraft.svelte'
 import {
 	markSessionDirty,
 	markSessionRemoved,
@@ -385,6 +386,32 @@ export function getSessionDraftPrompt(sessionId: string): string | undefined {
 	const s = sessionState.sessions.find((x) => x.id === sessionId)
 	if (!s || s.workspace_id) return undefined
 	return s.draftPrompt
+}
+
+// The rest of an unsent draft (collapsed pastes, images, files), so a composer mounted again
+// for the same session, on Home or the session page, gets the draft whole: a collapsed paste
+// is a token in `draftPrompt` whose content lives here. In memory only, like the attachments
+// themselves before a send, so a reload drops them as it always has.
+const draftAttachments = new Map<string, DraftAttachments>()
+
+export function setSessionDraftAttachments(sessionId: string, attachments: DraftAttachments): void {
+	const empty = Object.values(attachments).every((lane) => lane.length === 0)
+	if (empty) {
+		draftAttachments.delete(sessionId)
+		return
+	}
+	const s = sessionState.sessions.find((x) => x.id === sessionId)
+	if (!s || s.workspace_id) return
+	draftAttachments.set(sessionId, attachments)
+	// Attaching is a touch, as typing is: a draft holding only an image would otherwise still
+	// read as a blank, be reused by the next hand-off with the image in it, or be dropped.
+	if (s.transient) persistTouched(s)
+}
+
+export function getSessionDraftAttachments(sessionId: string): DraftAttachments | undefined {
+	const s = sessionState.sessions.find((x) => x.id === sessionId)
+	if (!s || s.workspace_id) return undefined
+	return draftAttachments.get(sessionId)
 }
 
 // A hand-off arrives within a navigation; anything older than this is the debris
@@ -1070,7 +1097,24 @@ export function createSession(): Session {
 		requestComposerFocus()
 		return reusable
 	}
+	const session = newTransientSession()
+	sessionState.currentSessionId = session.id
+	return session
+}
+
+// Told which never-touched drafts were dropped, so their runtimes go with them. Set by
+// sessionRuntime, which imports this module and so cannot be imported back. Home builds a
+// runtime for its draft on every mount, so a dropped draft would otherwise leave its
+// manager and its history database handle open.
+let onDraftsDiscarded: ((ids: string[]) => void) | undefined
+export function setDraftsDiscardedHandler(handler: (ids: string[]) => void): void {
+	onDraftsDiscarded = handler
+}
+
+function newTransientSession(): Session {
+	const discarded = sessionState.sessions.filter(isDiscardableDraft).map((s) => s.id)
 	sessionState.sessions = sessionState.sessions.filter((s) => !isDiscardableDraft(s))
+	if (discarded.length > 0) onDraftsDiscarded?.(discarded)
 	// Start in the workspace you're in. The one exception: a root you can't
 	// deploy to (locked, no bypass) steers to its dev, since a session there
 	// couldn't edit anything. The picker lets you switch.
@@ -1103,10 +1147,30 @@ export function createSession(): Session {
 		transient: true
 	}
 	sessionState.sessions = [session, ...sessionState.sessions]
-	sessionState.currentSessionId = session.id
 	// Transient until first touch: no DB record yet. Persisting is deferred to the
 	// first user edit (the mutation helpers below route through persistTouched).
 	return session
+}
+
+/** The unsent session Home's composer writes into, so a prompt half-typed on Home is the
+ * one the empty session page shows, and the reverse. Never selects it: merely opening Home
+ * must not change which session the AI Sessions switch resumes. A session opened on an
+ * item (it carries preview tabs) is about that item, so Home starts its own instead. */
+export function homeStarterSession(): Session {
+	const unsent = (s: Session) =>
+		!s.archived && !s.workspace_id && !s.previewTabs?.length && sessionInCurrentFamily(s)
+	const current = sessionState.sessions.find((s) => s.id === sessionState.currentSessionId)
+	if (current && unsent(current)) return current
+	// Stored but never sent: a draft the user touched, by typing or by picking where it acts.
+	// Either is theirs to come back to, and leaving it would strand it in the sidebar.
+	const touched = sessionState.sessions
+		.filter((s) => unsent(s) && !s.transient)
+		.sort((a, b) => sessionLastActivityAt(b) - sessionLastActivityAt(a))[0]
+	return (
+		touched ??
+		sessionState.sessions.find((s) => isDiscardableDraft(s) && sessionInCurrentFamily(s)) ??
+		newTransientSession()
+	)
 }
 
 // Promote an in-memory transient session to a persisted IndexedDB record.
@@ -1457,6 +1521,7 @@ export function deleteSession(id: string) {
 	// a draft deleted inside the debounce window.
 	clearTimeout(draftPromptFlushHandles.get(id))
 	draftPromptFlushHandles.delete(id)
+	draftAttachments.delete(id)
 	sessionState.sessions = sessionState.sessions.filter((x) => x.id !== id)
 	if (sessionState.currentSessionId === id) {
 		sessionState.currentSessionId = sessionState.sessions[0]?.id

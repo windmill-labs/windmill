@@ -18,7 +18,8 @@
 	import { goto } from '$lib/navigation'
 	import { OtherUserDraftLoad, editRouteFor } from '$lib/components/otherUserDraftLoad.svelte'
 	import { fetchDeployedValueForDiff } from '$lib/components/otherUserDraftDiff'
-	import { userStore } from '$lib/stores'
+	import { roleCapabilities, userStore } from '$lib/stores'
+	import { roleCanAuthor } from '$lib/editRights'
 
 	type DraftUser = { username?: string | null }
 
@@ -116,6 +117,10 @@
 
 	// Inline actions need full context to fetch and fork drafts.
 	const actionsEnabled = $derived(!!workspace && !!itemKind && !!path && draft_users.length > 0)
+	// The editors these open are the full ones, which a role without code cannot use.
+	const canOpenEditor = $derived(
+		!!itemKind && $roleCapabilities.code && roleCanAuthor(itemKind, $roleCapabilities)
+	)
 
 	const kindLabel = $derived(
 		itemKind === 'flow' ? 'flow' : itemKind === 'app' || itemKind === 'raw_app' ? 'app' : 'script'
@@ -303,7 +308,7 @@
 								</span>
 								{#if actionsEnabled && isSelf}
 									<!-- Own draft: jump straight into the editor. -->
-									{#if !$userStore?.operator && itemKind && path}
+									{#if canOpenEditor && itemKind && path}
 										<Button
 											variant="subtle"
 											size="xs3"
@@ -326,9 +331,9 @@
 											View Diff
 										</Button>
 									{/if}
-									<!-- Operators can't edit items, so Load is hidden (View Diff stays, it's
-									     read-only). `allowFork=false` (deploy/review page) hides it too. -->
-									{#if allowFork && !$userStore?.operator}
+									<!-- Load is hidden from a role that can't edit the item (View Diff stays,
+									     it's read-only). `allowFork=false` (deploy/review page) hides it too. -->
+									{#if allowFork && canOpenEditor}
 										<Button
 											variant="subtle"
 											size="xs3"
