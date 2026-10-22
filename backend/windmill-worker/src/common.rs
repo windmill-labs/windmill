@@ -986,10 +986,15 @@ pub fn build_command_with_isolation(program: &str, args: &[&str]) -> Command {
     }
 }
 
-/// Under `NSJAIL_GVISOR_COMPAT`, rewrites the config of an nsjail `cmd` for gVisor. A spawn of
-/// nsjail that bypasses `start_child_process` must call this itself.
-pub fn apply_nsjail_gvisor_compat(cmd: &Command) -> Result<(), Error> {
-    if *crate::NSJAIL_GVISOR_COMPAT && cmd.as_std().get_program() == crate::NSJAIL_PATH.as_str() {
+/// Strips the worker group's `nsjail_env_denylist` from an nsjail `cmd` and, under
+/// `NSJAIL_GVISOR_COMPAT`, rewrites its config for gVisor. A spawn of nsjail that bypasses
+/// `start_child_process` must call this itself.
+pub fn prepare_nsjail_spawn(cmd: &mut Command) -> Result<(), Error> {
+    if cmd.as_std().get_program() != crate::NSJAIL_PATH.as_str() {
+        return Ok(());
+    }
+    strip_denylisted_envs(cmd, &WORKER_CONFIG.load().nsjail_env_denylist);
+    if *crate::NSJAIL_GVISOR_COMPAT {
         crate::nsjail_compat::apply(cmd.as_std()).map_err(|e| {
             Error::ExecutionErr(format!(
                 "NSJAIL_GVISOR_COMPAT could not prepare nsjail: {e}"
@@ -999,13 +1004,35 @@ pub fn apply_nsjail_gvisor_compat(cmd: &Command) -> Result<(), Error> {
     Ok(())
 }
 
+/// Removes both the vars set on `cmd` and the ones it would inherit from the worker, since
+/// not every nsjail spawn clears its env. Case-insensitive so `HTTP_PROXY` also drops
+/// `http_proxy`.
+fn strip_denylisted_envs(cmd: &mut Command, denylist: &[String]) {
+    if denylist.is_empty() {
+        return;
+    }
+    let names: Vec<std::ffi::OsString> = cmd
+        .as_std()
+        .get_envs()
+        .map(|(k, _)| k.to_os_string())
+        .chain(std::env::vars_os().map(|(k, _)| k))
+        .filter(|k| {
+            let k = k.to_string_lossy();
+            denylist.iter().any(|d| d.eq_ignore_ascii_case(&k))
+        })
+        .collect();
+    for name in names {
+        cmd.env_remove(name);
+    }
+}
+
 pub async fn start_child_process(
-    cmd: Command,
+    mut cmd: Command,
     executable: &str,
     disable_process_group: bool,
 ) -> Result<Box<dyn TokioChildWrapper>, Error> {
     use process_wrap::tokio::*;
-    apply_nsjail_gvisor_compat(&cmd)?;
+    prepare_nsjail_spawn(&mut cmd)?;
     let mut cmd = TokioCommandWrap::from(cmd);
 
     // On Windows, put the child in its own console process group so a CTRL_BREAK_EVENT
@@ -2585,6 +2612,30 @@ mod tests {
     use super::*;
     use serde_json::json;
     use windmill_common::client::AuthedClient;
+
+    #[test]
+    fn denylisted_envs_are_stripped_whatever_their_case() {
+        let mut cmd = Command::new("nsjail");
+        cmd.env("HTTPS_PROXY", "http://proxy:3128")
+            .env("https_proxy", "http://proxy:3128")
+            .env("KEEP", "1");
+        strip_denylisted_envs(&mut cmd, &["https_proxy".to_string(), "PATH".to_string()]);
+        let envs: HashMap<String, Option<String>> = cmd
+            .as_std()
+            .get_envs()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().to_string(),
+                    v.map(|v| v.to_string_lossy().to_string()),
+                )
+            })
+            .collect();
+        assert_eq!(envs["HTTPS_PROXY"], None);
+        assert_eq!(envs["https_proxy"], None);
+        assert_eq!(envs["KEEP"].as_deref(), Some("1"));
+        // inherited from the worker, never set on the command
+        assert_eq!(envs["PATH"], None);
+    }
 
     fn test_client() -> AuthedClient {
         AuthedClient::new(

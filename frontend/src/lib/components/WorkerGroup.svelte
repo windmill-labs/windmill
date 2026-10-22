@@ -105,6 +105,7 @@
 		periodic_script_interval_seconds?: number
 		env_vars_static?: Map<string, string>
 		env_vars_allowlist?: string[]
+		nsjail_env_denylist?: string[]
 		additional_python_paths?: string[]
 		pip_local_dependencies?: string[]
 		min_alive_workers_alert_threshold?: number
@@ -212,6 +213,7 @@
 					init_bash?: string
 					env_vars_static?: Map<string, string>
 					env_vars_allowlist?: string[]
+					nsjail_env_denylist?: string[]
 					additional_python_paths?: string[]
 					pip_local_dependencies?: string[]
 					min_alive_workers_alert_threshold?: number
@@ -327,6 +329,7 @@
 		'priority_tags',
 		'additional_python_paths',
 		'pip_local_dependencies',
+		'nsjail_env_denylist',
 		'object_store_cache_config',
 		'serves_dev_workspaces'
 	] as const
@@ -1044,6 +1047,57 @@
 								{/snippet}
 							</Dropdown>
 						</span>
+					</div>
+				{/if}
+			</div>
+		</Label>
+		<div class="mt-8"></div>
+
+		<Label
+			label="Environment variables removed from the sandbox"
+			tooltip="Environment variables never passed into the nsjail sandbox, even when the worker host sets them (e.g. HTTP_PROXY, HTTPS_PROXY, NO_PROXY). Names match case-insensitively. Also settable with the NSJAIL_ENV_DENYLIST worker env var (comma-separated)."
+			eeOnly={!hasEnterpriseFeatures}
+		>
+			<div class="flex flex-col gap-y-2 pb-2">
+				{#each nconfig.nsjail_env_denylist ?? [] as _, i}
+					<div class="flex gap-1 items-center">
+						<TextInput
+							inputProps={{
+								type: 'text',
+								disabled: !canEditEEConfig,
+								placeholder: 'HTTPS_PROXY'
+							}}
+							bind:value={nconfig.nsjail_env_denylist![i]}
+						/>
+						{#if canEditEEConfig}
+							<Button
+								variant="subtle"
+								unifiedSize="md"
+								aria-label="Remove"
+								onClick={() => {
+									nconfig.nsjail_env_denylist = nconfig.nsjail_env_denylist?.filter(
+										(_, j) => j != i
+									)
+								}}
+								startIcon={{ icon: Trash }}
+								iconOnly
+								destructive
+							/>
+						{/if}
+					</div>
+				{/each}
+				{#if canEditEEConfig}
+					<div class="flex">
+						<Button
+							variant="default"
+							unifiedSize="md"
+							startIcon={{ icon: Plus }}
+							onClick={() => {
+								nconfig.nsjail_env_denylist = [...(nconfig.nsjail_env_denylist ?? []), '']
+							}}
+						>
+							Add environment variable
+						</Button>
 					</div>
 				{/if}
 			</div>

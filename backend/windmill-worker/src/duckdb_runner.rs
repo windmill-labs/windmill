@@ -476,7 +476,7 @@ async fn spawn_runner(
             });
         }
     }
-    crate::common::apply_nsjail_gvisor_compat(&cmd)?;
+    crate::common::prepare_nsjail_spawn(&mut cmd)?;
     let mut child = cmd.spawn().map_err(|e| {
         Error::InternalErr(format!("Could not start the DuckDB runner ({mode:?}): {e}"))
     })?;
