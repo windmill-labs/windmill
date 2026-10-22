@@ -390,10 +390,10 @@ try {{
     let job_id = Deno.env.get("WM_JOB_ID");
     if (job_id) {{
         err["job_id"] = job_id;
+    }}
     let flow_path = Deno.env.get("WM_FLOW_PATH");
     if (flow_path) {{
         err["flow_path"] = flow_path;
-    }}
     }}
     await Deno.writeTextFile("result.json", JSON.stringify(err));
     Deno.exit(1);
