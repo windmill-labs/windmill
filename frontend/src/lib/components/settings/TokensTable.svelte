@@ -129,7 +129,7 @@
 		editModalOpen = true
 	}
 
-	async function listTokens(): Promise<void> {
+	export async function listTokens(): Promise<void> {
 		tokens = await UserService.listTokens({
 			excludeEphemeral: true,
 			page: tokenPage,

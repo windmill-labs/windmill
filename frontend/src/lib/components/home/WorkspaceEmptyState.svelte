@@ -57,7 +57,7 @@
 </script>
 
 <div
-	class="rounded-md border-[1.5px] border-dashed border-border-normal/60 bg-surface"
+	class="rounded-md border-[1.5px] border-dashed border-border-normal/60"
 	role="status"
 	aria-label={archivedOnly ? 'Everything here is archived' : 'Your workspace is empty'}
 >

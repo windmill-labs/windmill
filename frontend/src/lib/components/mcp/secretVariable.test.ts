@@ -71,7 +71,7 @@ describe('upsertSecretVariable', () => {
 		existsVariable.mockResolvedValue(true)
 		getVariable.mockResolvedValue({ description: OURS })
 
-		await upsertSecretVariable({ ...ARGS, isOauth: true, account: 7 })
+		await upsertSecretVariable({ ...ARGS, isOauth: true })
 
 		expect(deleteVariable).toHaveBeenCalled()
 		expect(createVariable).toHaveBeenCalledWith({
@@ -81,7 +81,6 @@ describe('upsertSecretVariable', () => {
 				value: 'token',
 				is_secret: true,
 				is_oauth: true,
-				account: 7,
 				description: OURS
 			}
 		})

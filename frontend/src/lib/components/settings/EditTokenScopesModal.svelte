@@ -6,6 +6,7 @@
 	import Modal from '../common/modal/Modal.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import ScopesPicker from './ScopesPicker.svelte'
+	import McpAccessPicker, { mcpAccessOf } from '../mcp/McpAccessPicker.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -41,7 +42,25 @@
 
 	let labelValue = $state('')
 	let pickedScopes = $state<string[] | null>(null)
+	let mcpScopes = $state<string[]>([])
 	let saving = $state(false)
+
+	// The access picker re-derives a token's scopes from what it can show, which drops what it
+	// does not model (an old token's endpoint list, say). So they are rewritten only once the
+	// user has used the picker; until then the token keeps exactly the scopes it had.
+	let mcpTouched = $state(false)
+	// Carried over as is, the picker knowing nothing of them: dropping the workspace list
+	// would widen the token to every workspace.
+	const isWorkspaceList = (s: string) => s.startsWith('mcp:workspaces:')
+	const keptAside = (s: string) =>
+		isWorkspaceList(s) || (mcpAccessOf(mcpScopes) !== 'selected' && s.startsWith('mcp:hub:'))
+	const scopesToSave = $derived(
+		isMcp
+			? mcpTouched
+				? [...mcpScopes, ...(initialScopes ?? []).filter(keptAside)]
+				: (initialScopes ?? [])
+			: pickedScopes
+	)
 
 	// Seed the label field from the token whenever the modal opens or the token
 	// identity changes (untracked read so typing doesn't reset it). ScopesPicker
@@ -51,6 +70,7 @@
 		if (open) {
 			untrack(() => {
 				labelValue = initialLabel ?? ''
+				mcpTouched = false
 			})
 		}
 	})
@@ -69,7 +89,7 @@
 		try {
 			const trimmed = labelValue.trim()
 			const labelChanged = labelEditable && trimmed !== (initialLabel ?? '')
-			const scopesChanged = !scopesEqual(pickedScopes, initialScopes ?? null)
+			const scopesChanged = !scopesEqual(scopesToSave, initialScopes ?? null)
 
 			if (labelChanged) {
 				await UserService.updateTokenLabel({
@@ -80,7 +100,7 @@
 			if (scopesChanged) {
 				await UserService.updateTokenScopes({
 					tokenPrefix,
-					requestBody: { scopes: pickedScopes }
+					requestBody: { scopes: scopesToSave }
 				})
 			}
 			if (labelChanged || scopesChanged) {
@@ -95,7 +115,7 @@
 		}
 	}
 
-	const saveDisabled = $derived(saving || !tokenPrefix || (isMcp && !pickedScopes))
+	const saveDisabled = $derived(saving || !tokenPrefix || (isMcp && mcpScopes.length === 0))
 </script>
 
 <Modal bind:open title="Edit token" class="!max-w-3xl">
@@ -117,14 +137,30 @@
 		</div>
 
 		<div class="flex flex-col gap-1">
-			<span class="text-xs font-semibold text-emphasis">Scopes</span>
+			{#if !isMcp}
+				<span class="text-xs font-semibold text-emphasis">Scopes</span>
+			{/if}
 			{#key tokenPrefix}
-				<ScopesPicker
-					mode={isMcp ? 'mcp' : 'standard'}
-					workspaceId={mcpWorkspaceId}
-					{initialScopes}
-					bind:value={pickedScopes}
-				/>
+				{#if isMcp}
+					<div
+						role="group"
+						onpointerdown={() => (mcpTouched = true)}
+						onkeydown={() => (mcpTouched = true)}
+					>
+						<McpAccessPicker
+							workspaceId={mcpWorkspaceId}
+							initialScopes={(initialScopes ?? []).filter((s) => !isWorkspaceList(s))}
+							bind:scopes={mcpScopes}
+						/>
+					</div>
+				{:else}
+					<ScopesPicker
+						mode="standard"
+						workspaceId={mcpWorkspaceId}
+						{initialScopes}
+						bind:value={pickedScopes}
+					/>
+				{/if}
 			{/key}
 		</div>
 	</div>

@@ -488,7 +488,7 @@ export const variableRequestSchema = z.object({
 	"value": z.string().describe("The value of the variable"),
 	"is_secret": z.boolean().describe("Whether the variable is a secret"),
 	"description": z.string().describe("The description of the variable"),
-	"account": z.number().int().describe("The account identifier").optional(),
+	"account": z.number().int().describe("Ignored. A variable is linked to an OAuth account only when `createAccount` creates both.").optional(),
 	"is_oauth": z.boolean().describe("Whether the variable is an OAuth variable").optional(),
 	"expires_at": z.string().datetime({ offset: true }).describe("When to garbage-collect the variable. Used for ephemeral secrets; the variable is deleted once this is reached. Not the value's expiry \u2014 see value_valid_until.\n").optional(),
 	"value_valid_until": z.string().datetime({ offset: true }).describe("When the value stored in this variable stops working. Triggers the workspace's variable expiration handler ahead of it, by the handler's `notify_before_secs` (1 day by default); never causes the variable to be deleted.\n").optional(),

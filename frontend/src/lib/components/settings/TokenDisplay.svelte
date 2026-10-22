@@ -74,8 +74,8 @@
 					<!-- Additional info using alert info styling -->
 					<div class="mt-1 {alertStyles.bgClass} rounded-md p-2">
 						<p class="text-xs {alertStyles.descriptionClass}">
-							<strong>Next steps:</strong> Use this URL in your MCP-compatible client (like Claude Desktop)
-							to access your Windmill scripts and flows as tools.
+							<strong>Next steps:</strong> Add this URL to your MCP-compatible client (like Claude Desktop)
+							as a remote MCP server.
 						</p>
 					</div>
 				{/if}

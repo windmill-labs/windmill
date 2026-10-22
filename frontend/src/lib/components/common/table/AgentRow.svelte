@@ -4,7 +4,7 @@
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import type DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
-	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
+	import RowLabels from './RowLabels.svelte'
 	import type { ListableResource } from '$lib/gen'
 	import { roleCapabilities, userStore, workspaceStore } from '$lib/stores'
 	import { createEventDispatcher } from 'svelte'
@@ -84,6 +84,7 @@
 >
 	{#snippet badges()}
 		<SharedBadge canWrite={agent.canWrite} extraPerms={agent.extra_perms} />
+		<RowLabels inherited={agent.inherited_labels} />
 		<DraftBadge
 			is_draft={agent.is_draft}
 			draft_only={agent.draft_only}
@@ -93,24 +94,18 @@
 			path={agent.path}
 			onMigrated={() => dispatch('change')}
 		/>
-		<InheritedLabels labels={agent.inherited_labels} />
 	{/snippet}
 
 	{#snippet actions()}
 		{#if agent.canWrite}
 			<span class="hidden md:inline-flex">
-				<Button
-					variant="subtle"
-					wrapperClasses="w-20"
-					unifiedSize="md"
-					startIcon={{ icon: Pen }}
-					href={editHref}
-				>
+				<Button variant="subtle" unifiedSize="sm" startIcon={{ icon: Pen }} href={editHref}>
 					Edit
 				</Button>
 			</span>
 		{/if}
 		<Dropdown
+			size="sm"
 			items={async () => [
 				...selectMenuItems(rowSelection),
 				...agentMenuItems({

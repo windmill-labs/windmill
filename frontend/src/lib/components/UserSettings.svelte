@@ -6,7 +6,8 @@
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import TokensTable from './settings/TokensTable.svelte'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, tick } from 'svelte'
+	import CreateToken from './settings/CreateToken.svelte'
 	import UserInfoSettings from './settings/UserInfoSettings.svelte'
 	import AIUserSettings from './settings/AIUserSettings.svelte'
 	import AiUsagePanel from './workspaceSettings/AiUsagePanel.svelte'
@@ -36,14 +37,18 @@
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
-	let openWithMcpMode = $state(false)
+	let mcpSection: HTMLDivElement | undefined = $state()
+	let tokensTable: TokensTable | undefined = $state()
 	let darkVariant = $state<DarkModeVariant>(getDarkModeVariant())
 
 	const dispatch = createEventDispatcher()
 
-	export function openDrawer(mcpMode: boolean = false) {
-		openWithMcpMode = mcpMode
+	export async function openDrawer(mcpMode: boolean = false) {
 		drawer?.openDrawer()
+		if (mcpMode) {
+			await tick()
+			mcpSection?.scrollIntoView({ block: 'start' })
+		}
 	}
 
 	export function closeDrawer() {
@@ -120,10 +125,22 @@
 				{/if}
 			{/if}
 
+			{#if showMcpMode}
+				<div bind:this={mcpSection} class="flex flex-col p-4 border border-border-light rounded-md">
+					<h2 class="text-emphasis text-sm font-semibold mb-1">
+						Build and run from your AI client
+					</h2>
+					<div class="text-xs text-secondary mb-2">
+						Connect Claude, ChatGPT or Cursor to Windmill over MCP: build scripts, flows and apps,
+						run your automations and check their runs, from your chat.
+					</div>
+					<CreateToken mcpOnly onTokenCreated={() => tokensTable?.listTokens()} />
+				</div>
+			{/if}
+
 			<div class="grow min-h-0">
 				<TokensTable
-					{showMcpMode}
-					{openWithMcpMode}
+					bind:this={tokensTable}
 					defaultNewTokenLabel={newTokenLabel}
 					defaultNewTokenWorkspace={newTokenWorkspace}
 					{scopes}

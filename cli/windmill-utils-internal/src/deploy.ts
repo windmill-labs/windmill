@@ -929,7 +929,11 @@ export async function getItemValue(
         path,
         decryptSecret: true,
       });
-      return variable.value;
+      return {
+        value: variable.value,
+        is_secret: variable.is_secret,
+        description: variable.description,
+      };
     } else if (kind === "resource") {
       const resource = await provider.getResource({ workspace, path });
       // Each workspace resolves its own agent identity, which a deploy never copies.
