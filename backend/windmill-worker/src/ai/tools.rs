@@ -366,7 +366,9 @@ async fn refuse_tool_call(
         };
         stream_event_processor.send(event, final_events_str).await?;
     }
-    let (content, extras) = windmill_tool_row(tool_call, false, error_msg);
+    // Refused before running: "Error executing" would claim it ran and failed.
+    let (_, extras) = windmill_tool_row(tool_call, false, error_msg);
+    let content = format!("Did not run {}", tool_call.function.name);
     let agent_job_id = ctx.job.id;
     add_tool_message_to_chat(ctx, Some(agent_job_id), &content, false, Some(extras)).await;
     Ok(())

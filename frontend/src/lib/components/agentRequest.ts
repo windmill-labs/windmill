@@ -1,4 +1,4 @@
-import { JobService, type FlowStatusModule, type Job } from '$lib/gen'
+import { JobService, type FlowStatus, type FlowStatusModule } from '$lib/gen'
 
 export type AgentRequest = Extract<
 	NonNullable<FlowStatusModule['agent_actions']>[number],
@@ -23,11 +23,16 @@ export function waitingRequest(
 
 /** The approval or question a flow's current agent step is parked on: the step stays in
  *  progress while its own job waits. */
-export function pendingAgentApproval(job: Job | undefined) {
+export function pendingAgentApproval(job: { flow_status?: FlowStatus } | undefined) {
 	const mod = job?.flow_status?.modules?.[job?.flow_status?.step]
 	if (mod?.type !== 'InProgress' || !mod.job) return undefined
 	const action = waitingRequest(mod)
 	return action && { agentJobId: mod.job, action }
+}
+
+/** Suspended, as the run's badge and icon say: an approval step, or an agent waiting on a person. */
+export function isSuspended(job: { suspend?: number; flow_status?: FlowStatus }) {
+	return !!job.suspend || !!pendingAgentApproval(job)
 }
 
 export type PendingAgentRequest = NonNullable<ReturnType<typeof pendingAgentApproval>>
