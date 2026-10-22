@@ -18,6 +18,10 @@
 		type HandlerDraft
 	} from '$lib/components/handlerDraft.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { WORKSPACE_SETTINGS_PATH } from '$lib/components/sessions/previewPaths'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -50,6 +54,8 @@
 	import { clone, emptyString, encodeState, hasUnsavedChanges } from '$lib/utils'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { ExternalLink, Slack, Target } from 'lucide-svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
@@ -1568,6 +1574,13 @@
 	const tabLabel = $derived(
 		navigationGroups.flatMap((g) => g.items).find((i) => i.id === tab)?.label
 	)
+
+	const sessionSource: OpenInSessionSource = $derived({
+		// Read at click time: the tab lives in the query, so the preview opens on the tab being
+		// viewed. YAML mode is component state and does not carry over.
+		page: () => WORKSPACE_SETTINGS_PATH + window.location.search,
+		workspaceId: $workspaceStore ?? undefined
+	})
 </script>
 
 <CenteredPage wrapperClasses="pb-0 h-full" handleOverflow={false} class="flex flex-col h-full">
@@ -1582,6 +1595,8 @@
 					? { parent: 'Workspace settings', label: tabLabel }
 					: undefined}
 			actions={settingsActions}
+			{sessionSource}
+			actionFolds={1}
 			separator="always"
 		/>
 
@@ -2612,10 +2627,21 @@ export async function main(
 		{/key}
 	{/if}
 	{#if $superadmin}
-		<Button variant="default" unifiedSize="sm" on:click={() => goto('#superadmin-settings')}>
-			Instance settings
-		</Button>
+		<!-- Goes into a menu on a phone, where the AI session button that ends the row would
+		     otherwise squeeze the breadcrumb under these controls. -->
+		{#if pageHeader.actionFold >= 1}
+			<DropdownV2
+				size="sm"
+				items={[{ displayName: 'Instance settings', action: () => goto('#superadmin-settings') }]}
+			/>
+		{:else}
+			<Button variant="default" unifiedSize="sm" on:click={() => goto('#superadmin-settings')}>
+				Instance settings
+			</Button>
+		{/if}
 	{/if}
+	<!-- No main action on this page: the session button ends the row. -->
+	<OpenInSessionButton source={sessionSource} />
 {/snippet}
 
 <style>

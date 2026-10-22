@@ -22,9 +22,16 @@ export function composerBoxClass(disabled: boolean = false): string {
 	}`
 }
 
+/** Added to a usable box that opens a session (Home, an empty session). Focus shows as the
+ * base box's border colour alone: the brand has no focus ring. */
+export const HERO_BOX_CLASS = 'rounded-[10px]'
+
 /** Applied to the field inside the box; without it the field draws a second border. */
 export const COMPOSER_FIELD_RESET =
 	'!border-transparent !bg-transparent !shadow-none focus:!border-transparent focus:!ring-0 disabled:cursor-not-allowed disabled:placeholder:text-disabled'
+
+/** The placeholder of a composer that opens a session. */
+export const STARTER_PLACEHOLDER = 'Ask about this workspace, or describe what to build…'
 
 /** A caret or selected range in the composer's text. */
 export type ComposerSelection = { start: number; end: number }

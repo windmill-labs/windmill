@@ -80,6 +80,7 @@
 	{#snippet actions()}
 		{#if $roleCapabilities.code}
 			<Dropdown
+				size="sm"
 				items={[
 					{
 						displayName: 'Delete',

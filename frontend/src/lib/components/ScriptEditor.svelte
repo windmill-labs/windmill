@@ -2720,7 +2720,7 @@
 				{/if}
 				{#if !aiChatManager.open && !disableAi && !inSessionPane}
 					{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
-						<OpenInSessionButton source={sessionOpen}>
+						<OpenInSessionButton source={sessionOpen} deferToHeader>
 							{#snippet fallback()}
 								<HideButton
 									hidden={true}

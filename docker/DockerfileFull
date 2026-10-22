@@ -26,7 +26,7 @@ RUN wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh \
     && ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet \
     && rm dotnet-install.sh
 # PHP
-COPY --from=php:8.3.33-cli-trixie /usr/local/bin/php /usr/bin/php
+COPY --from=php:8.3.36-cli-trixie /usr/local/bin/php /usr/bin/php
 COPY --from=composer:2.9.5 /usr/bin/composer /usr/bin/composer
 
 # Nushell

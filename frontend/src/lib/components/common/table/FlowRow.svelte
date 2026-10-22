@@ -36,7 +36,8 @@
 	} from 'lucide-svelte'
 	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
 	import ChatFlowBadge from '$lib/components/flows/ChatFlowBadge.svelte'
-	import InheritedLabels from '$lib/components/InheritedLabels.svelte'
+	import RowLabels from './RowLabels.svelte'
+	import AskAiRowButton from './AskAiRowButton.svelte'
 	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
 	import { editInForkAllowed, editInForkLabel, onEditInForkClick } from '$lib/utils/editInFork'
 	import EditInForkButton from './EditInForkButton.svelte'
@@ -159,6 +160,7 @@
 			<Badge color="red" baseClass="border">archived</Badge>
 		{/if}
 		<SharedBadge canWrite={flow.canWrite} extraPerms={flow.extra_perms} />
+		<RowLabels labels={flow.labels} inherited={flow.inherited_labels} />
 		<DraftBadge
 			is_draft={flow.is_draft}
 			draft_only={flow.draft_only}
@@ -169,35 +171,15 @@
 			path={flow.path}
 			onMigrated={() => dispatch('change')}
 		/>
-		{#if flow.labels?.length}
-			<div class="flex items-center gap-0.5">
-				{#each flow.labels.slice(0, 3) as label}
-					<Badge color="blue" small class="px-1" title="Label: {label}">{label}</Badge>
-				{/each}
-				{#if flow.labels.length > 3}
-					<Badge
-						color="blue"
-						small
-						class="px-1"
-						title={flow.labels
-							.slice(3)
-							.map((l) => 'Label: ' + l)
-							.join('\n')}>+{flow.labels.length - 3}</Badge
-					>
-				{/if}
-			</div>
-		{/if}
-		<InheritedLabels labels={flow.inherited_labels} />
-		<div class="w-8 center-center"></div>
 	{/snippet}
 	{#snippet actions()}
-		<span class="hidden md:inline-flex gap-x-1">
+		<span class="hidden md:inline-flex">
+			<AskAiRowButton kind="flow" path={flow.path} summary={flow.summary} />
 			{#if !hideForOperator && showEditButton && flow.canWrite && !flow.archived}
 				<div>
 					<Button
 						variant="subtle"
-						wrapperClasses="w-20"
-						unifiedSize="md"
+						unifiedSize="sm"
 						startIcon={{ icon: Pen }}
 						href="/flows/edit/{flow.path}"
 						aiId={`edit-flow-button-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
@@ -214,6 +196,7 @@
 		</span>
 
 		<Dropdown
+			size="sm"
 			aiId={`flow-row-dropdown-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
 			aiDescription={`Open dropdown for flow ${flow.summary?.length > 0 ? flow.summary : flow.path} options`}
 			items={async () => {
