@@ -40,7 +40,7 @@
 	import type { ButtonProp } from '$lib/components/diffEditorTypes'
 	import { loadSchemaFromModule } from '../flowInfers'
 	import { type Job } from '$lib/gen'
-	import { useOperatorBuilderFlows } from '$lib/operatorWriteRights'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { checkIfParentLoop } from '../utils.svelte'
 	import { useWorkspaceScriptSettings } from '../useWorkspaceScriptSettings.svelte'
 	import ScriptSettingsBadges from '$lib/components/ScriptSettingsBadges.svelte'
@@ -76,7 +76,8 @@
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const roleCaps = useRoleCapabilities()
+	const composeOnlyFlows = $derived($roleCaps.flows === 'compose')
 
 	const {
 		selectionManager,
@@ -247,11 +248,11 @@
 			!flowModule.value.path?.startsWith('hub/') &&
 			flowModule.value.hash == undefined &&
 			customUi?.scriptEdit != false &&
-			!$operatorBuilderFlows &&
+			!composeOnlyFlows &&
 			$workspaceScriptSettingsDrawer != undefined
 	)
 	// Same rule as the graph node's Run button (FlowModuleSchemaItem).
-	let builderCannotTestStep = $derived($operatorBuilderFlows && flowModule.value.type === 'script')
+	let builderCannotTestStep = $derived(composeOnlyFlows && flowModule.value.type === 'script')
 	let workspaceScriptNoEditReason = $derived(
 		flowModule.value.type !== 'script' || canEditWorkspaceScriptSettings
 			? undefined

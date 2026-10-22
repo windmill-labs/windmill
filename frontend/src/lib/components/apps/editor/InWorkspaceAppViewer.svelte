@@ -25,6 +25,7 @@
 	import { isMenuHidden } from '$lib/components/sessions/sessionMode.svelte'
 	import { setOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 	import { useEditRights } from '$lib/operatorWriteRights'
+	import { recentItems } from '$lib/components/home/recentItems.svelte'
 
 	let {
 		workspace,
@@ -179,6 +180,15 @@
 			isRawApp = !!lite?.raw_app
 			executionMode = lite?.policy?.execution_mode ?? lite?.execution_mode
 			summary = lite?.summary || undefined
+			// Only the route's own page is a visit; a session's preview tab opens it on its own.
+			if (ownsPageHeader) {
+				recentItems.record(workspace, {
+					kind: isRawApp ? 'raw_app' : 'app',
+					path: appPerms.path,
+					summary,
+					via: 'view'
+				})
+			}
 		} catch (_) {
 			appPerms = undefined
 			summary = undefined

@@ -6,39 +6,221 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::future::Future;
+use std::sync::Arc;
+
+use windmill_common::db::DB;
+use windmill_common::error::{self, Error};
+use windmill_oauth::{OAuthAccountInfo, RefreshError, RefreshedToken};
+
 #[cfg(feature = "private")]
 pub use crate::oauth_refresh_ee::_refresh_token;
 
-#[cfg(not(feature = "private"))]
-use sqlx::{Postgres, Transaction};
-#[cfg(not(feature = "private"))]
-use windmill_common::db::DB;
-#[cfg(not(feature = "private"))]
-use windmill_common::error;
+/// The `account` row a refresh starts from.
+pub struct RefreshAccount {
+    pub mcp_server_url: Option<String>,
+    pub is_workspace_integration: bool,
+    pub info: OAuthAccountInfo,
+}
 
-#[cfg(not(feature = "private"))]
-pub async fn _refresh_token<'c>(
-    tx: Transaction<'c, Postgres>,
-    path: &str,
-    w_id: &str,
-    id: i32,
+lazy_static::lazy_static! {
+    static ref REFRESH_LOCKS: dashmap::DashMap<(String, i32), Arc<tokio::sync::Mutex<()>>> =
+        dashmap::DashMap::new();
+}
+
+/// Refresh the token of account `id`, which backs the secret variable at `path`.
+///
+/// No connection is held across `exchange`: it does its own config reads and the provider
+/// call, and every write here is a single autocommit statement. Concurrent refreshers of one
+/// account are serialized within a process, and across processes the account is only
+/// committed if its refresh token is still the one exchanged, so a rotated refresh token is
+/// never overwritten by a stale one. An account refreshed by someone else while we waited for
+/// the lock is not refreshed again: without `force` any fresh account counts, with it only one
+/// whose expiry moved since we asked. Callers must have authorized `w_id`/`path`/`id`.
+pub(crate) async fn refresh_account_token<F, Fut>(
     db: &DB,
-) -> error::Result<String> {
-    let token = windmill_oauth::refresh_token(
-        tx,
+    w_id: &str,
+    path: &str,
+    id: i32,
+    force: bool,
+    exchange: F,
+) -> error::Result<String>
+where
+    F: FnOnce(RefreshAccount) -> Fut,
+    Fut: Future<Output = Result<RefreshedToken, RefreshError>>,
+{
+    let seen_expiry = if force {
+        sqlx::query_scalar!(
+            "SELECT expires_at FROM account WHERE workspace_id = $1 AND id = $2",
+            w_id,
+            id
+        )
+        .fetch_optional(db)
+        .await?
+    } else {
+        None
+    };
+
+    let lock = REFRESH_LOCKS
+        .entry((w_id.to_string(), id))
+        .or_default()
+        .clone();
+    let _guard = lock.lock().await;
+
+    let row = sqlx::query!(
+        "SELECT mcp_server_url, is_workspace_integration, client, refresh_token, grant_type,
+            cc_client_id, cc_client_secret, cc_token_url, scopes, expires_at,
+            now() > expires_at AS \"expired!\"
+         FROM account WHERE workspace_id = $1 AND id = $2",
         w_id,
         id,
+    )
+    .fetch_optional(db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Account {id} not found")))?;
+
+    // A failed store moves `expires_at` too, into the past: only a fresh account counts.
+    let refreshed_meanwhile = !row.expired && (!force || Some(row.expires_at) != seen_expiry);
+    if refreshed_meanwhile {
+        return current_token(db, w_id, path).await;
+    }
+
+    let used = row.refresh_token.clone();
+    let account = RefreshAccount {
+        mcp_server_url: row.mcp_server_url,
+        is_workspace_integration: row.is_workspace_integration,
+        info: OAuthAccountInfo {
+            client: row.client,
+            refresh_token: row.refresh_token,
+            grant_type: row.grant_type,
+            cc_client_id: row.cc_client_id,
+            cc_client_secret: row.cc_client_secret,
+            cc_token_url: row.cc_token_url,
+            scopes: row.scopes,
+        },
+    };
+
+    let token = match exchange(account).await {
+        Ok(token) => token,
+        Err(RefreshError::Other(e)) => return Err(e),
+        Err(RefreshError::Provider(msg)) => {
+            let recorded = sqlx::query!(
+                "UPDATE account SET refresh_error = $1
+                 WHERE workspace_id = $2 AND id = $3 AND refresh_token = $4",
+                msg,
+                w_id,
+                id,
+                used,
+            )
+            .execute(db)
+            .await?
+            .rows_affected();
+            // Another process rotated the refresh token first, so the one we sent was spent:
+            // its token is the one to serve, unless storing it failed too.
+            if recorded == 0 {
+                let expired = sqlx::query_scalar!(
+                    "SELECT now() > expires_at AS \"expired!\" FROM account
+                     WHERE workspace_id = $1 AND id = $2",
+                    w_id,
+                    id
+                )
+                .fetch_optional(db)
+                .await?;
+                if expired == Some(false) {
+                    return current_token(db, w_id, path).await;
+                }
+            }
+            return Err(Error::BadRequest(format!("Error refreshing token: {msg}")));
+        }
+    };
+
+    // The lifetime runs from the exchange, not from the end of the stores below.
+    let expires_at = windmill_common::utils::now_from_db(db).await?
+        + chrono::Duration::try_seconds(token.expires_in).unwrap_or_default();
+
+    // Store at every secret variable of the account before marking it fresh, so no reader of
+    // any of them sees the account fresh with the old token. A failed store already marks the
+    // account for a retry; the rotated refresh token must still be saved, or the next refresh
+    // sends one the provider has revoked.
+    let mut paths = sqlx::query_scalar!(
+        "SELECT path FROM variable WHERE workspace_id = $1 AND account = $2 AND is_secret",
+        w_id,
+        id
+    )
+    .fetch_all(db)
+    .await?;
+    if !paths.iter().any(|p| p == path) {
+        paths.push(path.to_string());
+    }
+    let mut stored = Ok(());
+    for p in &paths {
+        stored =
+            crate::secret_backend_ext::store_oauth_token_value(db, w_id, p, &token.access_token)
+                .await;
+        if stored.is_err() {
+            break;
+        }
+    }
+    sqlx::query!(
+        "UPDATE account SET refresh_token = COALESCE($1, refresh_token),
+            expires_at = CASE WHEN $2 THEN $3 ELSE expires_at END,
+            refresh_error = CASE WHEN $2 THEN NULL ELSE refresh_error END
+         WHERE workspace_id = $4 AND id = $5 AND refresh_token = $6",
+        token.refresh_token,
+        stored.is_ok(),
+        expires_at,
+        w_id,
+        id,
+        used,
+    )
+    .execute(db)
+    .await?;
+    stored?;
+
+    Ok(token.access_token)
+}
+
+async fn current_token(db: &DB, w_id: &str, path: &str) -> error::Result<String> {
+    let value = sqlx::query_scalar!(
+        "SELECT value FROM variable WHERE workspace_id = $1 AND path = $2",
+        w_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?
+    .ok_or_else(|| Error::NotFound(format!("Variable {path} not found")))?;
+    crate::secret_backend_ext::get_secret_value(db, w_id, path, &value).await
+}
+
+/// The standard OAuth / client-credentials exchange.
+pub(crate) async fn exchange_standard(
+    db: &DB,
+    w_id: &str,
+    id: i32,
+    account: &OAuthAccountInfo,
+) -> Result<RefreshedToken, RefreshError> {
+    windmill_oauth::exchange_account_token(
         db,
+        w_id,
+        id,
+        account,
         &*windmill_oauth::OAUTH_CLIENTS.load(),
         &windmill_oauth::OAUTH_HTTP_CLIENT,
         include_str!("../../oauth_connect.json"),
     )
-    .await?;
+    .await
+}
 
-    // Persist the refreshed token through the configured secret backend so an
-    // external backend (Vault / Azure KV / AWS Secrets Manager) is updated too,
-    // not just the in-DB variable mirror.
-    crate::secret_backend_ext::store_oauth_token_value(db, w_id, path, &token).await?;
-
-    Ok(token)
+#[cfg(not(feature = "private"))]
+pub async fn _refresh_token(
+    path: &str,
+    w_id: &str,
+    id: i32,
+    db: &DB,
+    force: bool,
+) -> error::Result<String> {
+    refresh_account_token(db, w_id, path, id, force, |account| async move {
+        exchange_standard(db, w_id, id, &account.info).await
+    })
+    .await
 }

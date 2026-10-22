@@ -96,7 +96,6 @@
 	}: Props = $props()
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
-	const actingUser = $derived(operatingUser.current)
 	const operatingHref = useOperatingWorkspaceHref()
 	const wsId = $derived($operatingWorkspace)
 
@@ -582,7 +581,7 @@
 						bind:scriptPath={script_path}
 						{initialScriptPath}
 						canWrite={can_write}
-						isOperator={!!actingUser?.operator}
+						allowEdit={editRights.roleCanAuthor(itemKind)}
 					>
 						{#snippet createButton()}
 							{#if emptyString(script_path)}

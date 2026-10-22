@@ -8,8 +8,9 @@
 	import ResourcePathHint from '$lib/components/ResourcePathHint.svelte'
 	import { ResourceService, type InputTransform, type Resource } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { userStore, userWorkspaces } from '$lib/stores'
+	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { canEditItem } from '$lib/editRights'
+	import { capabilitiesIn } from '$lib/roleCapabilities'
 	import { Bot, ChevronDown, ChevronUp, Save, Unlink, Pencil } from 'lucide-svelte'
 	import {
 		AGENT_BRAIN_KEYS,
@@ -244,7 +245,10 @@
 				agent,
 				linkedInfo?.extraPerms,
 				$userStore ?? undefined,
-				$userWorkspaces.find((w) => w.id === ws)?.operator_settings
+				capabilitiesIn(
+					ws === $workspaceStore ? $userStore : undefined,
+					$userWorkspaces.find((w) => w.id === ws)
+				)
 			)
 	)
 	// The hint flips on the first keystroke in the agent editor, so the badge does not wait for the

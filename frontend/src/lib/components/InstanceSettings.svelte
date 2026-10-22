@@ -1140,6 +1140,12 @@
 				description="Configure default timeouts and retention policies for job execution."
 				link="https://www.windmill.dev/docs/advanced/instance_settings#jobs"
 			/>
+		{:else if category == 'Workspace roles'}
+			<SettingsPageHeader
+				title="Workspace roles"
+				description="Define the roles workspace members can hold and what each one may author, manage and see. Workspace admin is separate and holds everything."
+				link="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
+			/>
 		{:else if category == 'Service logs'}
 			<SettingsPageHeader
 				title="Service logs"

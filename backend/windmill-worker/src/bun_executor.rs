@@ -2828,6 +2828,14 @@ try {{
     if (step_id) {{
         err["step_id"] = step_id;
     }}
+    let job_id = process.env.WM_JOB_ID;
+    if (job_id) {{
+        err["job_id"] = job_id;
+    }}
+    let flow_path = process.env.WM_FLOW_PATH;
+    if (flow_path) {{
+        err["flow_path"] = flow_path;
+    }}
     const extra = {{}};
     Object.getOwnPropertyNames(e).forEach((key) => {{
         if (['line', 'name', 'stack', 'column', 'message', 'sourceURL', 'originalLine', 'originalColumn'].includes(key)) {{
@@ -2893,6 +2901,14 @@ try {{
     let step_id = process.env.WM_FLOW_STEP_ID;
     if (step_id) {{
         err["step_id"] = step_id;
+    }}
+    let job_id = process.env.WM_JOB_ID;
+    if (job_id) {{
+        err["job_id"] = job_id;
+    }}
+    let flow_path = process.env.WM_FLOW_PATH;
+    if (flow_path) {{
+        err["flow_path"] = flow_path;
     }}
     const extra = {{}};
     Object.getOwnPropertyNames(e).forEach((key) => {{
@@ -4142,6 +4158,43 @@ pub async fn handle_wac_v2_output(
                 job_ids: serde_json::Map::new(),
             });
 
+            // Generate resume URLs for the inline approval buttons. The resume_id
+            // is derived from the step key so each waitForApproval() in the same
+            // workflow gets a unique resume_job record, and so URLs the workflow
+            // minted for this step ahead of time (getApprovalUrls) address the
+            // same one.
+            let resume_id: u32 = windmill_common::wac::approval_resume_id(&key);
+            // Read before the tx: it holds the queue row lock, and a pool checkout under it
+            // waits on the connections every other suspending parent is holding.
+            let wkey =
+                windmill_common::variables::get_workspace_key(&job.workspace_id, db).await?;
+            let approval_token =
+                windmill_common::variables::approval_token_from_key(&wkey, job.id)?;
+
+            let (resume_url, cancel_url, approval_page_url) = {
+                use hmac::{Hmac, Mac};
+                use sha2::Sha256;
+                let mut mac = Hmac::<Sha256>::new_from_slice(wkey.as_bytes())
+                    .map_err(|e| error::Error::internal_err(format!("HMAC key error: {e}")))?;
+                mac.update(job.id.as_bytes());
+                mac.update(resume_id.to_be_bytes().as_ref());
+                let signature = hex::encode(mac.finalize().into_bytes());
+
+                let base_url = (**windmill_common::BASE_URL.load()).clone();
+                let w_id = &job.workspace_id;
+                let job_id = &job.id;
+
+                let resume = format!(
+                    "{base_url}/api/w/{w_id}/jobs_u/resume/{job_id}/{resume_id}/{signature}"
+                );
+                let cancel = format!(
+                    "{base_url}/api/w/{w_id}/jobs_u/cancel/{job_id}/{resume_id}/{signature}"
+                );
+                let approval_page =
+                    format!("{base_url}/approve/{w_id}/{job_id}?token={approval_token}");
+                (resume, cancel, approval_page)
+            };
+
             let mut tx = db.begin().await?;
 
             // Park first: the queue row is locked before the status row, the order every
@@ -4215,44 +4268,6 @@ pub async fn handle_wac_v2_output(
                     })?;
                 }
             }
-
-            // Generate resume URLs for the inline approval buttons. The resume_id
-            // is derived from the step key so each waitForApproval() in the same
-            // workflow gets a unique resume_job record, and so URLs the workflow
-            // minted for this step ahead of time (getApprovalUrls) address the
-            // same one.
-            let resume_id: u32 = windmill_common::wac::approval_resume_id(&key);
-            // Generate stateless approval token using shared utility
-            let approval_token =
-                windmill_common::variables::generate_approval_token(&job.workspace_id, job.id, db)
-                    .await?;
-
-            let (resume_url, cancel_url, approval_page_url) = {
-                use hmac::{Hmac, Mac};
-                use sha2::Sha256;
-                use windmill_common::variables::get_workspace_key;
-
-                let wkey = get_workspace_key(&job.workspace_id, db).await?;
-                let mut mac = Hmac::<Sha256>::new_from_slice(wkey.as_bytes())
-                    .map_err(|e| error::Error::internal_err(format!("HMAC key error: {e}")))?;
-                mac.update(job.id.as_bytes());
-                mac.update(resume_id.to_be_bytes().as_ref());
-                let signature = hex::encode(mac.finalize().into_bytes());
-
-                let base_url = (**windmill_common::BASE_URL.load()).clone();
-                let w_id = &job.workspace_id;
-                let job_id = &job.id;
-
-                let resume = format!(
-                    "{base_url}/api/w/{w_id}/jobs_u/resume/{job_id}/{resume_id}/{signature}"
-                );
-                let cancel = format!(
-                    "{base_url}/api/w/{w_id}/jobs_u/cancel/{job_id}/{resume_id}/{signature}"
-                );
-                let approval_page =
-                    format!("{base_url}/approve/{w_id}/{job_id}?token={approval_token}");
-                (resume, cancel, approval_page)
-            };
 
             // Store approval form metadata for the approval page endpoint
             let mut approval_meta = serde_json::json!({

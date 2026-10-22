@@ -117,7 +117,7 @@ async fn handle_piptar_uploads(mut rx: tokio::sync::mpsc::UnboundedReceiver<Pipt
 const NSJAIL_CONFIG_DOWNLOAD_PY_CONTENT: &str = include_str!("../nsjail/download.py.config.proto");
 const NSJAIL_CONFIG_RUN_PYTHON3_CONTENT: &str = include_str!("../nsjail/run.python3.config.proto");
 const NSJAIL_CONFIG_LOCK_PY_CONTENT: &str = include_str!("../nsjail/lock.py.config.proto");
-pub const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
+const RELATIVE_PYTHON_LOADER: &str = include_str!("../loader.py");
 
 /// Every file exchanged with a job is UTF-8 by construction, so the interpreter
 /// must agree. A job env carries no locale: Linux then picks UTF-8 on its own
@@ -129,7 +129,9 @@ pub const PYTHON_UTF8_ENVS: [(&str, &str); 1] = [("PYTHONUTF8", "1")];
 /// Python dict literal. Preview jobs pass a path -> temp-hash map so relative
 /// imports resolve from not-yet-deployed local content; deployed runs pass
 /// `None` which renders an empty dict (deployed resolution unchanged).
-fn render_relative_python_loader(temp_script_refs: &Option<HashMap<String, String>>) -> String {
+pub(crate) fn render_relative_python_loader(
+    temp_script_refs: &Option<HashMap<String, String>>,
+) -> String {
     let temp_refs_py = temp_script_refs
         .as_ref()
         .and_then(|m| serde_json::to_string(m).ok())
@@ -1001,6 +1003,12 @@ except BaseException as e:
         flow_node_id = os.environ.get('WM_FLOW_STEP_ID')
         if flow_node_id:
             err['step_id'] = flow_node_id
+        job_id = os.environ.get('WM_JOB_ID')
+        if job_id:
+            err['job_id'] = job_id
+        flow_path = os.environ.get('WM_FLOW_PATH')
+        if flow_path:
+            err['flow_path'] = flow_path
         err_json = json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
         f.write(err_json)
         sys.exit(1)
@@ -1071,6 +1079,12 @@ except BaseException as e:
         flow_node_id = os.environ.get('WM_FLOW_STEP_ID')
         if flow_node_id:
             err['step_id'] = flow_node_id
+        job_id = os.environ.get('WM_JOB_ID')
+        if job_id:
+            err['job_id'] = job_id
+        flow_path = os.environ.get('WM_FLOW_PATH')
+        if flow_path:
+            err['flow_path'] = flow_path
         err_json = json.dumps(err, separators=(',', ':'), default=str).replace('\n', '')
         f.write(err_json)
         sys.exit(1)

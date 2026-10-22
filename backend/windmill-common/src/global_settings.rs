@@ -432,6 +432,9 @@ pub const WORKSPACE_REGISTRIES_SETTING: &str = "workspace_registries";
 pub const RESTART_COORDINATION_SETTING: &str = "_restart_coordination";
 pub const ALERT_CONFIG_SETTING: &str = "alert_job_queue_waiting";
 
+/// The instance's workspace roles (EE), a list of `crate::roles::RoleDefinition`.
+pub const WORKSPACE_ROLES_SETTING: &str = "workspace_roles";
+
 // Workspace fairness: cloud-only mechanism that caps any single workspace at
 // `workspace_fairness_max_percent`% of the shared worker pool once it has been
 // occupying it for more than `workspace_fairness_duration_secs` seconds. See
@@ -945,6 +948,7 @@ pub fn workspace_integration_oauth_key(client_name: &str) -> &str {
 pub fn workspace_integration_token_endpoint(client_name: &str, base_url: &str) -> String {
     match client_name {
         "google" => "https://oauth2.googleapis.com/token".to_string(),
+        "github" => "https://github.com/login/oauth/access_token".to_string(),
         _ => format!("{}/apps/oauth2/api/v1/token", base_url),
     }
 }
@@ -953,6 +957,7 @@ pub fn workspace_integration_token_endpoint(client_name: &str, base_url: &str) -
 pub fn workspace_integration_auth_endpoint(client_name: &str, base_url: &str) -> String {
     match client_name {
         "google" => "https://accounts.google.com/o/oauth2/v2/auth".to_string(),
+        "github" => "https://github.com/login/oauth/authorize".to_string(),
         _ => format!("{}/apps/oauth2/authorize", base_url),
     }
 }
