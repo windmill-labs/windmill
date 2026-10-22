@@ -277,6 +277,18 @@ pub(super) async fn get_deployed(
         .await
 }
 
+/// Who can open the deployed app at `path`, which the Share dialog sets and a deploy keeps.
+pub(super) async fn deployed_execution_mode(
+    ctx: &Ctx<'_>,
+    path: &str,
+) -> Result<Option<Value>, String> {
+    Ok(ctx
+        .get(&ctx.ws(&format!("apps/get/lite/{}", path_enc(path))))
+        .await?
+        .pointer("/policy/execution_mode")
+        .cloned())
+}
+
 pub(super) struct Draft {
     pub value: Value,
     pub created_at: Option<String>,
@@ -1432,12 +1444,19 @@ async fn read_workspace_item(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
 
     if !deployed_only && !hub {
         if let Some((item, _)) = get_draft_item(ctx, item_type, path, trigger_kind).await? {
-            // The mode reported is the draft's, which is what deploying it will write.
+            // The mode reported is the one deploying the draft leaves: a deployed app keeps
+            // its own, which the Share dialog sets, and a never-deployed one takes the draft's.
             let mode = if item_type == "app" {
-                let mode = item
-                    .get("value")
-                    .and_then(|v| v.get("policy"))
-                    .and_then(|p| p.get("execution_mode"));
+                let deployed = if item_exists(ctx, "app", None, path).await? {
+                    deployed_execution_mode(ctx, path).await?
+                } else {
+                    None
+                };
+                let mode = deployed.as_ref().or_else(|| {
+                    item.get("value")
+                        .and_then(|v| v.get("policy"))
+                        .and_then(|p| p.get("execution_mode"))
+                });
                 describe_app_exposure(ctx, mode).await
             } else {
                 None

@@ -8,9 +8,9 @@ use serde_json::{json, Map, Value};
 
 use super::flows::drop_stale_step_locks;
 use super::workspace::{
-    api_message, app_source_to_draft_value, delete_draft, deployed_item_exists, draft_kind,
-    get_deployed, get_draft_item, item_exists, item_type_arg, path_enc, service, unified_patch,
-    ITEM_TYPES, TRIGGER_KINDS,
+    api_message, app_source_to_draft_value, delete_draft, deployed_execution_mode,
+    deployed_item_exists, draft_kind, get_deployed, get_draft_item, item_exists, item_type_arg,
+    path_enc, service, unified_patch, ITEM_TYPES, TRIGGER_KINDS,
 };
 use super::{
     array, bool_arg, is_not_found, js_str, matches_glob, non_null, opt_str_arg, pretty, str_arg,
@@ -323,6 +323,18 @@ async fn guest_access_is_live(ctx: &Ctx<'_>) -> bool {
         && truthy(settings.get("guest_access_enabled"))
 }
 
+/// Sets the access mode a raw app deploy writes. Who can open a deployed app is set from the
+/// Share dialog and kept by a deploy, so its deployed mode stands over the drafted one, which
+/// the editor does not draft for a deployed app. A new app takes the drafted mode, members-only
+/// when the draft names none.
+fn settle_execution_mode(policy: &mut Map<String, Value>, deployed_mode: Option<&Value>) {
+    if let Some(mode) = deployed_mode.filter(|mode| truthy(Some(mode))) {
+        policy.insert("execution_mode".into(), mode.clone());
+    } else if !truthy(policy.get("execution_mode")) {
+        policy.insert("execution_mode".into(), json!("publisher"));
+    }
+}
+
 /// Deploys a raw app draft from its sources: the server bundles them on a worker and
 /// derives the policy's triggerables from the runnables. Returns the note for the result.
 async fn deploy_app(
@@ -354,10 +366,6 @@ async fn deploy_app(
             .unwrap_or_default()
     };
     let runnables = object_or_empty("runnables");
-    let mut policy = object_or_empty("policy");
-    if !truthy(policy.get("execution_mode")) {
-        policy.insert("execution_mode".into(), json!("publisher"));
-    }
 
     let mut notes = Vec::new();
     let undeployed = undeployed_runnable_targets(ctx, &runnables).await;
@@ -367,23 +375,6 @@ async fn deploy_app(
              {}. Deploy those items too, and tell the user the app is not working until they are.",
             undeployed.join(", ")
         ));
-    }
-    // What a runnable runs as is the server's to decide, so the note names who can
-    // reach the app and never an identity.
-    match policy.get("execution_mode").and_then(Value::as_str) {
-        Some("anonymous") => notes.push(
-            "This app is deployed as anonymous: its backend runnables are now reachable by anyone \
-             with the URL, without logging in. Tell the user plainly what is now reachable and by whom."
-                .to_string(),
-        ),
-        // `guest` is stored whether or not a guest is admitted: silent unless it is live.
-        Some("guest") if guest_access_is_live(ctx).await => notes.push(
-            "This app is deployed as guest: anyone the instance's identity provider authenticates \
-             can now open it and run its backend runnables, member of this workspace or not. Tell \
-             the user plainly what is now reachable and by whom."
-                .to_string(),
-        ),
-        _ => {}
     }
 
     // An editor-created draft is parked at a synthetic storage key, its chosen path in
@@ -404,6 +395,32 @@ async fn deploy_app(
         Err(e) if is_not_found(&e) => path.to_string(),
         Err(e) => return Err(e),
     };
+    let exists = item_exists(ctx, "app", None, &target).await?;
+
+    let mut policy = object_or_empty("policy");
+    let deployed_mode = if exists {
+        deployed_execution_mode(ctx, &target).await?
+    } else {
+        None
+    };
+    settle_execution_mode(&mut policy, deployed_mode.as_ref());
+    // What a runnable runs as is the server's to decide, so the note names who can
+    // reach the app and never an identity.
+    match policy.get("execution_mode").and_then(Value::as_str) {
+        Some("anonymous") => notes.push(
+            "This app is deployed as anonymous: its backend runnables are now reachable by anyone \
+             with the URL, without logging in. Tell the user plainly what is now reachable and by whom."
+                .to_string(),
+        ),
+        // `guest` is stored whether or not a guest is admitted: silent unless it is live.
+        Some("guest") if guest_access_is_live(ctx).await => notes.push(
+            "This app is deployed as guest: anyone the instance's identity provider authenticates \
+             can now open it and run its backend runnables, member of this workspace or not. Tell \
+             the user plainly what is now reachable and by whom."
+                .to_string(),
+        ),
+        _ => {}
+    }
 
     let mut app = Map::new();
     app.insert("path".into(), json!(target));
@@ -429,7 +446,7 @@ async fn deploy_app(
     if let Some(message) = message {
         app.insert("deployment_message".into(), json!(message));
     }
-    if item_exists(ctx, "app", None, &target).await? {
+    if exists {
         // `custom_path` stays out of an update: the server keeps it when absent, and
         // sending it takes admin rights.
         ctx.post(
@@ -2117,5 +2134,32 @@ mod tests {
         assert!(matches_glob("f/dash/main/src/App.tsx", "f/dash/**"));
         assert!(!matches_glob("f/dash/main/src/App.tsx", "f/dash/*.tsx"));
         assert!(!matches_glob("f/dash/main", "*.tsx"));
+    }
+
+    #[test]
+    fn a_deploy_keeps_the_deployed_access_mode() {
+        let settled = |drafted: Value, deployed: Option<Value>| {
+            let mut policy = drafted.as_object().cloned().unwrap_or_default();
+            settle_execution_mode(&mut policy, deployed.as_ref());
+            policy.get("execution_mode").cloned()
+        };
+        // A deployed app keeps its mode, whether its draft names none or another one.
+        assert_eq!(
+            settled(json!({}), Some(json!("anonymous"))),
+            Some(json!("anonymous"))
+        );
+        assert_eq!(
+            settled(
+                json!({ "execution_mode": "publisher" }),
+                Some(json!("guest"))
+            ),
+            Some(json!("guest"))
+        );
+        // A new app takes the drafted mode, members-only when there is none.
+        assert_eq!(
+            settled(json!({ "execution_mode": "anonymous" }), None),
+            Some(json!("anonymous"))
+        );
+        assert_eq!(settled(json!({}), None), Some(json!("publisher")));
     }
 }
