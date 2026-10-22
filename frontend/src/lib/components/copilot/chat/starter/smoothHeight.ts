@@ -44,8 +44,10 @@ export function smoothHeight(node: HTMLElement, params: SmoothHeightParams) {
 		ro ??= new ResizeObserver(apply)
 		ro.observe(inner)
 	}
+	// No measuring at mount: the content's height is not settled yet (a newly mounted session
+	// composer reads ~60px too tall), and a view transition captures the box at that height.
+	// The observer's first callback comes after layout and sets the right one.
 	observe()
-	apply()
 
 	return {
 		update(next: SmoothHeightParams) {

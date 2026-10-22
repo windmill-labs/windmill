@@ -18,6 +18,7 @@
 	import { onDestroy, untrack } from 'svelte'
 	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 	import { page } from '$app/state'
+	import { recentItems } from '$lib/components/home/recentItems.svelte'
 	import { UserDraft, draftValuesEqual } from '$lib/userDraft.svelte'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { discardDraftAfterDeploy, runResetToDeployed } from '$lib/userDraftToast'
@@ -311,6 +312,15 @@
 				getDraft
 			})
 			if (tok !== loadScriptToken) return
+			// A draft-only script has no page for Home's card to open.
+			if (!backendScript.no_deployed) {
+				recentItems.record($workspaceStore!, {
+					kind: 'script',
+					path: backendScript.path,
+					summary: backendScript.summary,
+					via: 'edit'
+				})
+			}
 			// The editor re-infers the schema as soon as it mounts, so a baseline
 			// taken from the raw stored schema would flag every unedited open of a
 			// script whose stored schema differs from what this parser emits.

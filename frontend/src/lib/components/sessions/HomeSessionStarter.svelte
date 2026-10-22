@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount, setContext } from 'svelte'
+	import { onMount, setContext, type Snippet } from 'svelte'
 	import AIChat from '$lib/components/copilot/chat/AIChat.svelte'
 	import type { DraftAttachments } from '$lib/components/copilot/chat/messageDraft.svelte'
 	import type { AIChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
@@ -27,7 +27,14 @@
 	// Home's block is the empty session's own chat, run by that session's manager: the
 	// composer, its controls and what a send does are the session's, not a copy of them.
 	// Picked once; the parent remounts this on a workspace switch, which changes the family.
-	let { onShown }: { onShown?: () => void } = $props()
+	// `placeholder` stands in while the chat waits on its config; `onSettled` reports the height
+	// the chat first took, for the next placeholder to take.
+	let {
+		onShown,
+		placeholder,
+		onSettled
+	}: { onShown?: () => void; placeholder?: Snippet; onSettled?: (height: number) => void } =
+		$props()
 
 	const initialSession = homeStarterSession()
 	const sessionId = initialSession.id
@@ -70,6 +77,19 @@
 	}
 
 	let aiChat: AIChat | undefined = $state(undefined)
+	let chatWrapper: HTMLDivElement | undefined = $state(undefined)
+	// A seeded draft holds the composer open, which is not the shape it rests in once the
+	// draft is sent, so only a mount with an empty draft is measured.
+	const initialAttachments = getSessionDraftAttachments(sessionId)
+	let settled =
+		!!getSessionDraftPrompt(sessionId)?.trim() ||
+		(!!initialAttachments && Object.values(initialAttachments).some((lane) => lane.length > 0))
+	$effect(() => {
+		if (!aiChat || !chatWrapper || settled) return
+		settled = true
+		const wrapper = chatWrapper
+		requestAnimationFrame(() => onSettled?.(wrapper.offsetHeight))
+	})
 	onMount(() => {
 		onShown?.()
 		if (takeComposerFocus()) setTimeout(() => aiChat?.focusInput(), 0)
@@ -83,7 +103,7 @@
 
 {#snippet actingOn()}
 	{#if session}
-		<SessionWorkspaceBar {session} />
+		<SessionWorkspaceBar {session} switchesWorkspace />
 	{/if}
 {/snippet}
 
@@ -92,22 +112,26 @@
      The item count decides whether the composer rests collapsed, so it waits for that too
      rather than open and fold up a moment later. -->
 {#if session && $copilotWorkspace !== undefined && starterPrompts.fewItems !== undefined}
-	<AIChat
-		bind:this={aiChat}
-		hideHeader
-		hideModeSelector
-		wideLayout
-		initialInstructions={getSessionDraftPrompt(sessionId)}
-		{onDraftChange}
-		initialAttachments={getSessionDraftAttachments(sessionId)}
-		{onAttachmentsChange}
-		starter={{
-			where: 'home',
-			suggestions: starterPrompts.suggestions,
-			fewItems: starterPrompts.fewItems
-		}}
-		viewTransitionNames
-		{onSent}
-		{actingOn}
-	/>
+	<div bind:this={chatWrapper}>
+		<AIChat
+			bind:this={aiChat}
+			hideHeader
+			hideModeSelector
+			wideLayout
+			initialInstructions={getSessionDraftPrompt(sessionId)}
+			{onDraftChange}
+			initialAttachments={getSessionDraftAttachments(sessionId)}
+			{onAttachmentsChange}
+			starter={{
+				where: 'home',
+				suggestions: starterPrompts.suggestions,
+				fewItems: starterPrompts.fewItems
+			}}
+			viewTransitionNames
+			{onSent}
+			{actingOn}
+		/>
+	</div>
+{:else}
+	{@render placeholder?.()}
 {/if}

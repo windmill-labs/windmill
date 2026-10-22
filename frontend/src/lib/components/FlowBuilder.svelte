@@ -84,6 +84,7 @@
 	import { type TriggerContext, type ScheduleTrigger } from './triggers'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
+	import OpenInSessionButton from './sessions/OpenInSessionButton.svelte'
 	import { invalidateWorkspacePaths } from './PathNameAutocomplete.svelte'
 	import type { Trigger } from './triggers/utils'
 	import { deployTriggers, handleSelectTriggerFromKind } from './triggers/utils'
@@ -117,13 +118,14 @@
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from './sessions/openInSessionContext'
 	import { getEditorStoragePath, setEditorStoragePath } from './editorStoragePathContext'
-	import { useEditRights, useOperatorBuilderFlows, useTriggerLock } from '$lib/operatorWriteRights'
+	import { useEditRights, useRoleCapabilities, useTriggerLock } from '$lib/operatorWriteRights'
+	import { capabilitiesIn } from '$lib/roleCapabilities'
 	import {
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 	const triggerLock = useTriggerLock()
-	const operatorBuilderFlows = useOperatorBuilderFlows()
+	const roleCaps = useRoleCapabilities()
 	const editRights = useEditRights()
 
 	const operatingWorkspace = useOperatingWorkspace()
@@ -561,11 +563,12 @@
 				const user =
 					(await getUserExt(opWorkspace ?? '')) ??
 					(opWorkspace === $workspaceStore ? $userStore : undefined)
-				const operatorSettings = $userWorkspaces.find(
-					(w) => w.id === opWorkspace
-				)?.operator_settings
+				const caps = capabilitiesIn(
+					user,
+					$userWorkspaces.find((w) => w.id === opWorkspace)
+				)
 				agentCanWrite = Object.fromEntries(
-					draftAgents.map((a) => [a.path, agentDraftCanWrite(a, user, operatorSettings)])
+					draftAgents.map((a) => [a.path, agentDraftCanWrite(a, user, caps)])
 				)
 				// The path is passed, so a draft that renames the agent is refused here too: a rename is
 				// the agent editor's to deploy, and this dialog lists the agent under the path the flow
@@ -906,6 +909,9 @@
 	// falling back to `$pathStore` in drawer mounts that carry no storage path.
 	const sessionTargetPath = $derived(liveEditorDraftStoragePath || $pathStore)
 
+	const aiBuilderShown = $derived(!disableAi && customUi?.topBar?.aiBuilder != false)
+	const showFlowAiButton = $derived(aiBuilderShown && $roleCaps.flows !== 'compose')
+
 	const sessionOpen = $derived(
 		sessionTargetPath
 			? {
@@ -915,6 +921,7 @@
 				}
 			: undefined
 	)
+	const headerSessionOpen = $derived(aiBuilderShown ? sessionOpen : undefined)
 
 	// Reaches the AI entry point in a step's inline-editor toolbar, which the
 	// recursive module wrapper sits too deep under to be handed a prop. `selected`
@@ -1609,6 +1616,7 @@
 								: undefined
 					}}
 					actions={flowHeaderActions}
+					sessionSource={headerSessionOpen}
 					actionFolds={2}
 					contexts={headerContexts}
 					separator="none"
@@ -1791,6 +1799,7 @@
 					{@render previewButtons()}
 				{/if}
 
+				<OpenInSessionButton source={headerSessionOpen} />
 				<DeployButton
 					on:save={async ({ detail }) => await handleSaveFlow(detail)}
 					{loading}
@@ -1873,9 +1882,7 @@
 					{forceTestTab}
 					{highlightArg}
 					aiChatOpen={aiChatManager.open}
-					showFlowAiButton={!disableAi &&
-						customUi?.topBar?.aiBuilder != false &&
-						!$operatorBuilderFlows}
+					{showFlowAiButton}
 					toggleAiChat={() => aiChatManager.toggleOpen()}
 					{sessionOpen}
 					onOpenPreview={flowPreviewButtons?.openPreview}

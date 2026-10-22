@@ -21,6 +21,7 @@ export function rowRule(unruled: boolean): string {
  * or with one of its menus open. Opacity rather than visibility, so Tab still reaches them;
  * focus counts only when visible, since a menu hands focus back to its trigger on close and a
  * mouse user would otherwise keep that row's actions up after leaving it. Needs `group/row`
- * on the row. */
+ * on the row. Set per child, not on the container: the menu trigger (`button[data-menu]`)
+ * stays visible so every row ends on the same control. */
 export const HOVER_ACTIONS_CLASS =
-	'opacity-0 transition-opacity duration-100 group-hover/row:opacity-100 group-has-[:focus-visible]/row:opacity-100 group-data-[row-keyboard-selected=true]/row:opacity-100 has-[[aria-expanded=true]]:opacity-100'
+	'*:opacity-0 *:transition-opacity *:duration-100 group-hover/row:*:opacity-100 group-has-[:focus-visible]/row:*:opacity-100 group-data-[row-keyboard-selected=true]/row:*:opacity-100 *:has-[[aria-expanded=true]]:opacity-100 [&>button[data-menu]]:opacity-100'

@@ -63,7 +63,6 @@
 	let mode = $state<TriggerMode>('enabled')
 	let dirtyPath = $state(false)
 	const operatingUser = useOperatingUser()
-	const actingUser = $derived(operatingUser.current)
 	let permsPath = $state<string | undefined>(undefined)
 	let permsForWrite = $state<Record<string, boolean> | undefined>(undefined)
 	// The acting user in the operating workspace arrives asynchronously, and an unknown user
@@ -599,7 +598,7 @@
 						bind:scriptPath={script_path}
 						{initialScriptPath}
 						canWrite={can_write}
-						isOperator={!!actingUser?.operator}
+						allowEdit={editRights.roleCanAuthor(itemKind)}
 						promptText="Pick a script or flow to be triggered "
 					>
 						{#snippet createButton()}

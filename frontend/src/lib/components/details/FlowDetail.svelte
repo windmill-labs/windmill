@@ -95,6 +95,7 @@
 		openEditInFork
 	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
+	import { recentItems } from '$lib/components/home/recentItems.svelte'
 
 	let {
 		path: routePath,
@@ -263,6 +264,15 @@
 		if (!flow.path.startsWith(`u/${actingUser?.username}`) && flow.path.split('/').length > 2) {
 			invisible_to_owner = flow.visible_to_runner_only
 		}
+		// Opened from a session's preview tab, it was the session's doing, not a visit.
+		if (!embedded) {
+			recentItems.record(workspace!, {
+				kind: 'flow',
+				path: flow.path,
+				summary: flow.summary,
+				via: 'view'
+			})
+		}
 		intervalId && clearInterval(intervalId)
 		deploymentInProgress = flow.lock_error_logs == ''
 		if (deploymentInProgress) {
@@ -374,6 +384,7 @@
 	if (pendingRun) args = { ...untrack(() => pendingRun.proposedArgs) }
 
 	let canAuthorFlow = $derived(editRights.roleCanAuthor('flow'))
+	const caps = $derived(editRights.capabilities)
 
 	let moveDrawer: MoveDrawer | undefined = $state()
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
@@ -410,12 +421,7 @@
 			})
 		}
 
-		if (
-			flow &&
-			!actingUser?.operator &&
-			!isCloudHosted() &&
-			editInForkAllowed(workspace, $userWorkspaces)
-		) {
+		if (flow && caps.code && !isCloudHosted() && editInForkAllowed(workspace, $userWorkspaces)) {
 			buttons.push({
 				label: editInForkLabel(workspace, $userWorkspaces),
 				description: editInForkDescription('flow', workspace, $userWorkspaces),
@@ -460,8 +466,8 @@
 			return buttons
 		}
 
-		// Build app makes a low-code app, which no builder right covers.
-		if (!actingUser?.operator) {
+		// Build app starts from the full template, not the builder one a compose-only role deploys.
+		if (caps.apps === 'full') {
 			buttons.push({
 				label: 'Build app',
 				placement: 'menu',
@@ -530,11 +536,8 @@
 			})
 		}
 
-		// The builder right opens this menu to operators; audit logs stay behind their own setting.
-		if (
-			!actingUser?.operator ||
-			$userWorkspaces.find((w) => w.id === workspace)?.operator_settings?.audit_logs
-		) {
+		// A flow-composing role opens this menu; audit logs stay behind their own visibility flag.
+		if (caps.visibility.audit_logs) {
 			menuItems.push({
 				label: 'Audit logs',
 				Icon: Eye,
@@ -544,7 +547,7 @@
 			})
 		}
 
-		if (isDeployable('flow', flow?.path ?? '', deployUiSettings) && !actingUser?.operator) {
+		if (isDeployable('flow', flow?.path ?? '', deployUiSettings) && caps.flows === 'full') {
 			menuItems.push({
 				label: 'Deploy to staging/prod',
 				onclick: () => deploymentDrawer?.openDrawer(flow?.path ?? '', 'flow'),
@@ -670,7 +673,7 @@
 <DetailPageLayout
 	bind:this={detailLayout}
 	bind:selected={rightPaneSelected}
-	isOperator={actingUser?.operator}
+	isOperator={!caps.code}
 	forceSmallScreen={chatInputEnabled}
 	isChatMode={chatInputEnabled}
 	flow_json={{

@@ -50,6 +50,7 @@
 	import ToolGroupDisplay from './ToolGroupDisplay.svelte'
 	import { chatItemKey, groupToolRuns } from './toolGroups'
 	import AIChatInput from './AIChatInput.svelte'
+	import { STARTER_PLACEHOLDER, type ComposerSelection } from './composerBox'
 	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
 	import QueuedMessageChip from './QueuedMessageChip.svelte'
 	import JobsSegment from './JobsSegment.svelte'
@@ -76,7 +77,6 @@
 	import { smoothHeight } from './starter/smoothHeight'
 
 	const MAX_YOLO_TOOLTIP_TOOLS = 8
-	const STARTER_PLACEHOLDER = 'Ask about this workspace, or describe what to build…'
 	const chatHost = getChatViewHost()
 	// The skill and MCP menus take an AIChatManager itself, which the seam deliberately
 	// doesn't carry. They render only under GLOBAL, which a non-copilot host never sets.
@@ -308,8 +308,8 @@
 		chatHost.sendRequest({ instructions: suggestion })
 	}
 
-	export function focusInput() {
-		aiChatInput?.focusInput()
+	export function focusInput(selection?: ComposerSelection) {
+		aiChatInput?.focusInput(selection)
 	}
 
 	/** Mention a workspace item in the draft, as "+" → Mention file does, and hand the user
@@ -601,12 +601,22 @@
 	// Anything the user has started (text, an attachment) or is in the middle of (they opened it
 	// and have not left) keeps it open, and so does a workspace small enough that the composer is
 	// the page's main way in.
+	// Until the input is bound, the draft it starts with is the one it is seeded with: reading
+	// it as empty collapses a remounted composer that holds text for a frame, and the box then
+	// animates open as if the user had opened it.
+	const seededDraftEmpty = $derived(
+		!initialInstructions?.trim() &&
+			!initialAttachments?.pastes.length &&
+			!initialAttachments?.images.length &&
+			!initialAttachments?.files.length &&
+			!initialAttachments?.blobs.length
+	)
 	const composerCollapsed = $derived(
 		homeComposer &&
 			!disabled &&
 			!(starter?.where === 'home' && starter.fewItems) &&
 			!composerOpened &&
-			(aiChatInput?.isDraftEmpty() ?? true)
+			(aiChatInput ? aiChatInput.isDraftEmpty() : seededDraftEmpty)
 	)
 	function closeComposer() {
 		if (aiChatInput?.isDraftEmpty() ?? true) composerOpened = false
@@ -844,7 +854,10 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 			     has none: there the composer is one control among the page's. -->
 			{#if centreComposer}
 				<div class="flex-1 min-h-0 flex flex-col justify-end">
-					<div class={columnClass}>
+					<div
+						class={columnClass}
+						style:view-transition-name={viewTransitionNames ? 'greeting' : undefined}
+					>
 						<SessionGreeting />
 					</div>
 				</div>
@@ -1389,6 +1402,7 @@ the panel, or the Escape-to-stop focus check would wrongly reject them. -->
 					<div class="pt-2">
 						<ComposerSuggestions
 							suggestions={starter.suggestions}
+							wrap={starter.where === 'session'}
 							onPick={(prompt) => aiChatInput?.setText(prompt)}
 						/>
 					</div>

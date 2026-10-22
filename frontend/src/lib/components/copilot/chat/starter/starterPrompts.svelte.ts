@@ -1,5 +1,5 @@
 import { onboardingProfile, type StarterPrompt } from '$lib/onboardingProfile'
-import { userStore } from '$lib/stores'
+import { roleCapabilities, userStore } from '$lib/stores'
 import { canEditItem } from '$lib/editRights'
 import { scopedKey } from '$lib/userScopedStorage'
 import { fromStore, get } from 'svelte/store'
@@ -38,6 +38,7 @@ const RESOURCES_READ = 20
 export class StarterPrompts {
 	#invite = $state<StarterPrompt[]>()
 	#user = fromStore(userStore)
+	#capabilities = fromStore(roleCapabilities)
 	#workspace: () => string | undefined
 	#signals: { readonly current: Tagged<ComposerSignals> | undefined }
 
@@ -69,7 +70,7 @@ export class StarterPrompts {
 		if (!user) return undefined
 		const own = user.workspace_id === this.#workspace()
 		return {
-			operator: own && user.operator,
+			operator: own && !this.#capabilities.current.code,
 			workspaceAdmin: own && user.is_admin,
 			instanceAdmin: user.is_super_admin
 		}
@@ -176,7 +177,7 @@ async function fetchSignals(workspace: string): Promise<ComposerSignals> {
 			i.path,
 			i.extra_perms,
 			user,
-			undefined
+			get(roleCapabilities)
 		)
 	const shared = deployed.find(
 		(i) => i.type === 'flow' && !(username && i.path.startsWith(`u/${username}/`))

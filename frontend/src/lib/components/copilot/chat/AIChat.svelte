@@ -10,6 +10,7 @@
 	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './script/core'
 	import { copilotInfo } from '$lib/aiStore'
+	import type { ComposerSelection } from './composerBox'
 
 	let {
 		hideHeader = false,
@@ -26,7 +27,8 @@
 		initialInstructions = undefined,
 		onDraftChange = undefined,
 		initialAttachments = undefined,
-		onAttachmentsChange = undefined
+		onAttachmentsChange = undefined,
+		placeholder = undefined
 	}: {
 		hideHeader?: boolean
 		hideModeSelector?: boolean
@@ -52,6 +54,8 @@
 		onDraftChange?: (text: string) => void
 		initialAttachments?: import('./messageDraft.svelte').DraftAttachments
 		onAttachmentsChange?: (attachments: import('./messageDraft.svelte').DraftAttachments) => void
+		/** Composer placeholder for the first message. Falls back to the per-AI-mode wording. */
+		placeholder?: string
 	} = $props()
 
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
@@ -119,8 +123,8 @@
 		aiChatManager.sendRequest(options)
 	}
 
-	export function focusInput() {
-		aiChatDisplay?.focusInput()
+	export function focusInput(selection?: ComposerSelection) {
+		aiChatDisplay?.focusInput(selection)
 	}
 
 	export async function attachContext(element: import('./context').ContextElement) {
@@ -224,4 +228,5 @@
 	{onDraftChange}
 	{initialAttachments}
 	{onAttachmentsChange}
+	{placeholder}
 ></AIChatDisplay>

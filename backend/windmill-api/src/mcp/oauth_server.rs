@@ -201,7 +201,7 @@ struct AuthorizationCode {
     code: String,
     client_id: String,
     user_email: String,
-    workspace_id: String,
+    workspace_id: Option<String>,
     scopes: Vec<String>,
     redirect_uri: String,
     code_challenge: Option<String>,
@@ -216,7 +216,7 @@ struct RefreshTokenRow {
     access_token_hash: String,
     client_id: String,
     user_email: String,
-    workspace_id: String,
+    workspace_id: Option<String>,
     scopes: Vec<String>,
     token_family: sqlx::types::Uuid,
     created_at: chrono::DateTime<chrono::Utc>,
@@ -232,6 +232,9 @@ fn supported_scopes() -> Vec<String> {
         "mcp:scripts:*".to_string(),
         "mcp:flows:*".to_string(),
         "mcp:endpoints:*".to_string(),
+        "mcp:read_only".to_string(),
+        "mcp:read_run".to_string(),
+        "mcp:runnables_as_tools".to_string(),
     ]
 }
 
@@ -365,18 +368,59 @@ pub async fn oauth_token(
     Extension(db): Extension<DB>,
     Form(req): Form<TokenRequest>,
 ) -> std::result::Result<Json<TokenResponse>, OAuthTokenError> {
-    match req.grant_type.as_str() {
-        "authorization_code" => handle_authorization_code_grant(&db, &req).await,
-        "refresh_token" => handle_refresh_token_grant(&db, &req).await,
-        _ => Err(OAuthTokenError::unsupported_grant_type(
-            "Supported grant types: authorization_code, refresh_token",
-        )),
+    let db_error = |e: sqlx::Error| {
+        tracing::error!("Database error issuing MCP OAuth token: {}", e);
+        OAuthTokenError::server_error("Database error")
+    };
+    let owner = match req.grant_type.as_str() {
+        "authorization_code" => sqlx::query_scalar!(
+            "SELECT user_email FROM mcp_oauth_server_code WHERE code = $1",
+            req.code
+        )
+        .fetch_optional(&db)
+        .await
+        .map_err(db_error)?,
+        "refresh_token" => sqlx::query_scalar!(
+            "SELECT user_email FROM mcp_oauth_refresh_token WHERE refresh_token = $1",
+            req.refresh_token.as_deref().unwrap_or_default()
+        )
+        .fetch_optional(&db)
+        .await
+        .map_err(db_error)?,
+        _ => {
+            return Err(OAuthTokenError::unsupported_grant_type(
+                "Supported grant types: authorization_code, refresh_token",
+            ))
+        }
+    };
+    let mut tx = db.begin().await.map_err(db_error)?;
+    if let Some(email) = &owner {
+        crate::users::lock_mcp_oauth_grants(&mut tx, email, false)
+            .await
+            .map_err(db_error)?;
+    }
+    let res = if req.grant_type == "authorization_code" {
+        handle_authorization_code_grant(&mut tx, &req).await
+    } else {
+        handle_refresh_token_grant(&mut tx, &req).await
+    };
+    // Committed on error too, so a rejected exchange still consumes its code or refresh token.
+    let committed = tx.commit().await;
+    match (res, committed) {
+        (Ok(res), Ok(())) => Ok(res),
+        (Err(e), committed) => {
+            if let Err(ce) = committed {
+                tracing::error!("Failed to commit rejected MCP OAuth exchange: {}", ce);
+            }
+            Err(e)
+        }
+        (Ok(_), Err(e)) => Err(db_error(e)),
     }
 }
 
 /// Handle authorization_code grant type
 async fn handle_authorization_code_grant(
-    db: &DB,
+    tx: &mut sqlx::PgConnection,
     req: &TokenRequest,
 ) -> std::result::Result<Json<TokenResponse>, OAuthTokenError> {
     let auth_code = match sqlx::query_as!(
@@ -387,7 +431,7 @@ async fn handle_authorization_code_grant(
                    code_challenge, code_challenge_method",
         req.code
     )
-    .fetch_optional(db)
+    .fetch_optional(&mut *tx)
     .await
     {
         Ok(Some(code)) => code,
@@ -458,7 +502,7 @@ async fn handle_authorization_code_grant(
         &scopes,
         auth_code.workspace_id,
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| {
         tracing::error!("Failed to create access token: {}", e);
@@ -471,7 +515,7 @@ async fn handle_authorization_code_grant(
     }
 
     // Create refresh token — store the hash of the access token so we can delete it later
-    let refresh_token_result = sqlx::query!(
+    sqlx::query!(
         "INSERT INTO mcp_oauth_refresh_token
          (refresh_token, access_token_hash, client_id, user_email, workspace_id, scopes, token_family, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, now() + ($8 || ' seconds')::interval)",
@@ -484,29 +528,25 @@ async fn handle_authorization_code_grant(
         token_family,
         MCP_OAUTH_REFRESH_TOKEN_EXPIRATION_SECS.to_string(),
     )
-    .execute(db)
-    .await;
-
-    let refresh_token_value = match refresh_token_result {
-        Ok(_) => Some(refresh_token),
-        Err(e) => {
-            tracing::error!("Failed to create refresh token: {}", e);
-            None // Don't include invalid refresh token
-        }
-    };
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to create refresh token: {}", e);
+        OAuthTokenError::server_error("Failed to create refresh token")
+    })?;
 
     Ok(Json(TokenResponse {
         access_token,
         token_type: "Bearer".to_string(),
         expires_in: MCP_OAUTH_TOKEN_EXPIRATION_SECS,
         scope: Some(scopes.join(" ")),
-        refresh_token: refresh_token_value,
+        refresh_token: Some(refresh_token),
     }))
 }
 
 /// Handle refresh_token grant type with token rotation and theft detection
 async fn handle_refresh_token_grant(
-    db: &DB,
+    tx: &mut sqlx::PgConnection,
     req: &TokenRequest,
 ) -> std::result::Result<Json<TokenResponse>, OAuthTokenError> {
     let refresh_token_value = req
@@ -533,7 +573,7 @@ async fn handle_refresh_token_grant(
         refresh_token_value,
         req.client_id
     )
-    .fetch_optional(db)
+    .fetch_optional(&mut *tx)
     .await
     {
         Ok(Some(row)) => row,
@@ -544,7 +584,7 @@ async fn handle_refresh_token_grant(
                  WHERE refresh_token = $1 AND used_at IS NOT NULL",
                 refresh_token_value
             )
-            .fetch_optional(db)
+            .fetch_optional(&mut *tx)
             .await
             {
                 tracing::warn!("Refresh token reuse detected, revoking family {:?}", family);
@@ -552,7 +592,7 @@ async fn handle_refresh_token_grant(
                     "UPDATE mcp_oauth_refresh_token SET revoked = TRUE WHERE token_family = $1",
                     family
                 )
-                .execute(db)
+                .execute(&mut *tx)
                 .await;
             }
             return Err(OAuthTokenError::invalid_grant("Invalid refresh token"));
@@ -564,16 +604,16 @@ async fn handle_refresh_token_grant(
     };
 
     // Delete old access token using the stored hash
-    if let Err(e) = sqlx::query!(
+    sqlx::query!(
         "DELETE FROM token WHERE token_hash = $1",
         token_row.access_token_hash
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await
-    {
+    .map_err(|e| {
         tracing::error!("Failed to delete old access token: {}", e);
-        // Non-fatal, continue with token creation
-    }
+        OAuthTokenError::server_error("Database error")
+    })?;
 
     // Generate new tokens
     let new_access_token = rd_string(32);
@@ -605,7 +645,7 @@ async fn handle_refresh_token_grant(
         &scopes,
         token_row.workspace_id,
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await
     .map_err(|e| {
         tracing::error!("Failed to create new access token: {}", e);
@@ -618,7 +658,7 @@ async fn handle_refresh_token_grant(
     }
 
     // Create new refresh token (same token family for tracking) — store hash of access token
-    if let Err(e) = sqlx::query!(
+    sqlx::query!(
         "INSERT INTO mcp_oauth_refresh_token
          (refresh_token, access_token_hash, client_id, user_email, workspace_id, scopes, token_family, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, now() + ($8 || ' seconds')::interval)",
@@ -631,12 +671,12 @@ async fn handle_refresh_token_grant(
         token_row.token_family,
         MCP_OAUTH_REFRESH_TOKEN_EXPIRATION_SECS.to_string(),
     )
-    .execute(db)
+    .execute(&mut *tx)
     .await
-    {
+    .map_err(|e| {
         tracing::error!("Failed to create new refresh token: {}", e);
-        // Access token was created, return success without refresh token
-    }
+        OAuthTokenError::server_error("Failed to create refresh token")
+    })?;
 
     Ok(Json(TokenResponse {
         access_token: new_access_token,
@@ -758,10 +798,31 @@ async fn oauth_authorize_inner(
 }
 
 /// Shared approve logic — validates form, checks membership, stores auth code.
+async fn ensure_member(db: &DB, workspace_id: &str, email: &str) -> Result<()> {
+    let is_member = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2 AND NOT disabled)",
+        workspace_id,
+        email
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|e| Error::InternalErr(format!("Database error: {}", e)))?
+    .unwrap_or(false);
+
+    if !is_member {
+        return Err(Error::NotAuthorized(format!(
+            "User is not a member of workspace '{workspace_id}'"
+        )));
+    }
+    Ok(())
+}
+
+/// `workspace_id` is the workspace the minted token is bound to; without one, the token
+/// reaches what its scopes allow (`mcp:workspaces:`), or every workspace of its owner.
 async fn oauth_approve_inner(
     db: &DB,
     authed: &ApiAuthed,
-    workspace_id: &str,
+    workspace_id: Option<&str>,
     form: ApprovalForm,
 ) -> Result<Json<ApprovalResponse>> {
     // The code approved here is exchanged for a database token carrying only this
@@ -771,21 +832,8 @@ async fn oauth_approve_inner(
     // the gateway approve route reach the exchange through here.
     forbid_elevated_job_token(db, &authed.email, authed.job_id).await?;
 
-    // Verify user is a member of the workspace
-    let is_member = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2 AND NOT disabled)",
-        workspace_id,
-        authed.email
-    )
-    .fetch_one(db)
-    .await
-    .map_err(|e| Error::InternalErr(format!("Database error: {}", e)))?
-    .unwrap_or(false);
-
-    if !is_member {
-        return Err(Error::NotAuthorized(
-            "User is not a member of this workspace".to_string(),
-        ));
+    if let Some(workspace_id) = workspace_id {
+        ensure_member(db, workspace_id, &authed.email).await?;
     }
 
     // Verify client exists and redirect_uri is registered
@@ -908,7 +956,7 @@ pub async fn workspaced_oauth_approve(
     authed: ApiAuthed,
     Json(form): Json<ApprovalForm>,
 ) -> Result<Json<ApprovalResponse>> {
-    oauth_approve_inner(&db, &authed, &workspace_id, form).await
+    oauth_approve_inner(&db, &authed, Some(&workspace_id), form).await
 }
 
 /// PKCE validation (S256 only)
@@ -990,6 +1038,16 @@ pub async fn gateway_protected_resource_metadata() -> Json<ProtectedResourceMeta
     ))
 }
 
+/// GET /.well-known/oauth-protected-resource/api/mcp
+pub async fn gateway_session_protected_resource_metadata() -> Json<ProtectedResourceMetadata> {
+    let base_url = BASE_URL.load();
+    Json(build_protected_resource_metadata(
+        "/api/mcp",
+        "/api/mcp/gateway/oauth/server",
+        &base_url,
+    ))
+}
+
 /// GET /api/mcp/gateway/oauth/server/authorize — gateway mode (no workspace in path)
 pub async fn gateway_oauth_authorize(
     Extension(db): Extension<DB>,
@@ -998,23 +1056,44 @@ pub async fn gateway_oauth_authorize(
     oauth_authorize_inner(&db, params, None).await
 }
 
-/// POST /api/mcp/gateway/oauth/server/approve — workspace_id comes from JSON body
+/// POST /api/mcp/gateway/oauth/server/approve — the workspaces come from the JSON body
 pub async fn gateway_oauth_approve(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
     Json(form): Json<GatewayApprovalForm>,
 ) -> Result<Json<ApprovalResponse>> {
-    if form.workspace_id.is_empty() {
-        return Err(Error::BadRequest("workspace_id is required".to_string()));
+    let mut scope = form.scope;
+    let mut workspace_ids = form.workspace_ids;
+    if workspace_ids.is_empty() {
+        workspace_ids.extend(form.workspace_id);
     }
+    let workspace_id = if form.all_workspaces {
+        None
+    } else {
+        match workspace_ids.as_slice() {
+            [] => {
+                return Err(Error::BadRequest(
+                    "Pick at least one workspace, or all of them".to_string(),
+                ))
+            }
+            [only] => Some(only.as_str()),
+            several => {
+                for workspace_id in several {
+                    ensure_member(&db, workspace_id, &authed.email).await?;
+                }
+                scope.push_str(&format!(" mcp:workspaces:{}", several.join(",")));
+                None
+            }
+        }
+    };
     oauth_approve_inner(
         &db,
         &authed,
-        &form.workspace_id,
+        workspace_id,
         ApprovalForm {
             client_id: form.client_id,
             redirect_uri: form.redirect_uri,
-            scope: form.scope,
+            scope,
             state: form.state,
             code_challenge: form.code_challenge,
             code_challenge_method: form.code_challenge_method,
@@ -1023,7 +1102,8 @@ pub async fn gateway_oauth_approve(
     .await
 }
 
-/// Gateway approval form — same as ApprovalForm but includes workspace_id
+/// Gateway approval form — same as ApprovalForm, plus the workspaces the token reaches:
+/// one binds the token to it, several are listed in its scopes.
 #[derive(Debug, Deserialize)]
 pub struct GatewayApprovalForm {
     pub client_id: String,
@@ -1032,7 +1112,14 @@ pub struct GatewayApprovalForm {
     pub state: String,
     pub code_challenge: String,
     pub code_challenge_method: String,
-    pub workspace_id: String,
+    #[serde(default)]
+    pub workspace_ids: Vec<String>,
+    /// The single workspace a consent page loaded before `workspace_ids` existed sends.
+    #[serde(default)]
+    pub workspace_id: Option<String>,
+    /// Every workspace the user is a member of, including ones they join later.
+    #[serde(default)]
+    pub all_workspaces: bool,
 }
 
 // ── Router constructors ──

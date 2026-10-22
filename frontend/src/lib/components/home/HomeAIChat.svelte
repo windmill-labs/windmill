@@ -11,11 +11,11 @@
 </script>
 
 <script lang="ts">
-	import { ExternalLink, Globe2, PinOff, PlugZap, WandSparkles } from 'lucide-svelte'
+	import { ExternalLink, Globe2, PinOff, PlugZap } from 'lucide-svelte'
 	import Button from '../common/button/Button.svelte'
 	import CloseButton from '../common/CloseButton.svelte'
 	import { logFeatureUsage } from '$lib/utils/featureUsage'
-	import { hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import { hubBaseUrlStore, roleCapabilities, workspaceStore } from '$lib/stores'
 	import { sessionState } from '../sessions/sessionState.svelte'
 	import { currentWorkspaceRootId } from '../sessions/sessionScope.svelte'
 	import { HOME_SHOW_HUB } from '$lib/consts'
@@ -24,12 +24,17 @@
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import { BROWSER } from 'esm-env'
 	import HomeConnectDrawer from './HomeConnectDrawer.svelte'
+	import HomeComposerSkeleton, {
+		composerHeight,
+		rememberComposerHeight
+	} from './HomeComposerSkeleton.svelte'
 	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { prefetchComposerSignals } from '../copilot/chat/starter/starterPrompts.svelte'
 	import { useWorkspaceAiHidden } from '../copilot/workspaceAiHidden.svelte'
+	import { homeQuickAccessSettings } from './homeQuickAccessSettings.svelte'
 
 	const COLLAPSED_SETTING = 'home-ai-composer-collapsed'
 
@@ -38,7 +43,7 @@
 	 *  labelled buttons without the trail starting to truncate. Below it they fold back. */
 	const BAR_FITS_SIDE_TRIPS = 1024
 	const sideTripsInBar = $derived(pageHeader.barWidth >= BAR_FITS_SIDE_TRIPS)
-	const hubOffered = $derived(!$userStore?.operator && HOME_SHOW_HUB)
+	const hubOffered = $derived($roleCapabilities.code && HOME_SHOW_HUB)
 
 	let homeConnectDrawer: HomeConnectDrawer | undefined = $state(undefined)
 
@@ -103,11 +108,11 @@
 	// AI would otherwise take the whole block, and the picker that could undo it, off Home.
 	const homeAiHidden = useWorkspaceAiHidden(() => $workspaceStore ?? undefined)
 
-	// The composer hands off to /sessions, which refuses operators and users opted out of the
-	// sessions beta — so hide it from them (the prompt would be silently dropped) while the
+	// The composer hands off to /sessions, which refuses roles that cannot code and users opted out
+	// of the sessions beta — so hide it from them (the prompt would be silently dropped) while the
 	// AI-independent CLI/MCP row below stays.
 	let showComposer = $derived(
-		prefersSessionHandoff($userStore?.operator) && !runOnlyWorkspace && !homeAiHidden.hidden
+		prefersSessionHandoff(!$roleCapabilities.code) && !runOnlyWorkspace && !homeAiHidden.hidden
 	)
 
 	let hero = $derived(showComposer && !removed)
@@ -132,12 +137,22 @@
 			     fork shares its parent's, and remounting for it only flashes the block. -->
 			{#if HomeSessionStarter && sessionState.hydrated && (rulesReady || shownForRoot === $currentWorkspaceRootId)}
 				{#key $currentWorkspaceRootId}
-					<HomeSessionStarter onShown={() => (shownForRoot = $currentWorkspaceRootId)} />
+					<HomeSessionStarter
+						onShown={() => (shownForRoot = $currentWorkspaceRootId)}
+						{placeholder}
+						onSettled={(height) => rememberComposerHeight($workspaceStore ?? undefined, height)}
+					/>
 				{/key}
+			{:else}
+				{@render placeholder()}
 			{/if}
 		{/if}
 	</div>
 </div>
+
+{#snippet placeholder()}
+	<HomeComposerSkeleton height={composerHeight($workspaceStore ?? undefined)} />
+{/snippet}
 
 <HomeConnectDrawer bind:this={homeConnectDrawer} />
 
@@ -186,7 +201,7 @@
 		<!-- No menu while the hero is on the page and its side trips are in the bar: the hero's own
 		     unpin button removes it, so an ellipsis holding a second way to do that is a button whose only
 		     item is a duplicate. -->
-		{#if !sideTripsInBar || (showComposer && removed)}
+		{#if !sideTripsInBar || (showComposer && removed) || homeQuickAccessSettings.hidden}
 			<!-- The flash rides the ellipsis itself, not the row: with the side trips beside it the
 			     row is three controls wide, and marking all three names none of them. -->
 			<span class="relative inline-flex">
@@ -199,24 +214,40 @@
 						class="pointer-events-none absolute -inset-1 rounded-lg bg-blue-500/30 opacity-0 animate-fade-out"
 					></span>
 				{/if}
+				<!-- The same flash for hiding the favorites & recent section. It rests at opacity 0, so
+				     it can stay mounted; the key replays it on each hide. -->
+				{#if homeQuickAccessSettings.hideCount > 0 && !reducedMotion.val}
+					{#key homeQuickAccessSettings.hideCount}
+						<span
+							aria-hidden="true"
+							class="pointer-events-none absolute -inset-1 rounded-lg bg-blue-500/30 opacity-0 animate-fade-out"
+						></span>
+					{/key}
+				{/if}
 				<DropdownV2
 					placement="bottom-end"
 					size="sm"
+					customWidth={240}
 					items={[
-						// The menu shows here only while the bar is narrow, which includes every phone,
-						// where the composer has no room for its own unpin button.
-						...(hero
-							? [{ displayName: 'Unpin from Home', icon: PinOff, action: removeComposer }]
-							: []),
+						// Every phone gets the menu, and there the composer has no room for its own unpin
+						// button. The menu can also hold the section's pin, so the label names the session.
+						...(hero ? [{ displayName: 'Unpin session from Home', action: removeComposer }] : []),
 						...(showComposer && removed
 							? [
 									{
 										displayName: 'Pin session hero to homepage',
-										icon: WandSparkles,
 										action: () => {
 											logFeatureUsage('home', 'ai_hero_pin')
 											setRemoved(false)
 										}
+									}
+								]
+							: []),
+						...(homeQuickAccessSettings.hidden
+							? [
+									{
+										displayName: 'Pin favorites & recent to homepage',
+										action: () => homeQuickAccessSettings.setHidden(false)
 									}
 								]
 							: []),
@@ -225,14 +256,12 @@
 							: [
 									{
 										displayName: 'CLI / MCP',
-										icon: PlugZap,
 										action: () => homeConnectDrawer?.openDrawer?.()
 									},
 									...(hubOffered
 										? [
 												{
 													displayName: 'Hub',
-													icon: Globe2,
 													href: $hubBaseUrlStore,
 													hrefTarget: '_blank' as const
 												}

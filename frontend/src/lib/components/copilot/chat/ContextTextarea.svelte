@@ -1,5 +1,10 @@
 <script lang="ts">
-	import { composerBoxClass, COMPOSER_FIELD_RESET, HERO_BOX_CLASS } from './composerBox'
+	import {
+		composerBoxClass,
+		COMPOSER_FIELD_RESET,
+		HERO_BOX_CLASS,
+		type ComposerSelection
+	} from './composerBox'
 	import { smoothHeight } from './starter/smoothHeight'
 	import { MessagesSquare } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
@@ -775,8 +780,11 @@
 		prevMentionedTitles = cur
 	})
 
-	export function focus() {
+	export function focus(selection?: ComposerSelection) {
 		textarea?.focus()
+		if (selection) {
+			textarea?.setSelectionRange(selection.start, selection.end)
+		}
 	}
 
 	// Wipe after dispatching a send: pre-zero `prevMentionedTitles` so the effect
@@ -875,7 +883,9 @@
 			}}
 			{placeholder}
 			class={twMerge(
-				'textarea-input resize-none caret-black dark:caret-white overflow-clip',
+				// `no-default-style`: the global input rule paints `surface-input` with `!important`
+				// and outranks `!bg-transparent`, so the field showed as a band on a hero box.
+				'textarea-input no-default-style block resize-none caret-black dark:caret-white overflow-clip',
 				COMPOSER_FIELD_RESET,
 				CHAT_INPUT_PADDING,
 				className

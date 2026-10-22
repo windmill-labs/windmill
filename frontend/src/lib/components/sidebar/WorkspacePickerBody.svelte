@@ -2,8 +2,10 @@
 	import { tick, untrack } from 'svelte'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	import { workspaceMenuHref } from './workspaceMenuHref'
-	import { isOperatorInWorkspace } from './operatorRoutes'
+	import { capabilitiesIn, hidesPages, isRestricted } from '$lib/roleCapabilities'
+	import type { RoleCapabilities } from '$lib/gen'
 	import {
+		roleCapabilities,
 		isPremiumStore,
 		maybePremium,
 		superadmin,
@@ -85,16 +87,15 @@
 		await fixupUrlAfterWorkspaceSwitch(id, { landOnHome })
 	}
 
-	// Operator page access is granted per workspace, so a switch lands on home rather than
-	// on a page either side may refuse. Both signals are positive: `userStore.operator` is
-	// an explicit flag for the workspace being left, and `isOperatorInWorkspace` only ever
-	// confirms the target (its NULL is ambiguous, so a `false` from it is never taken as
-	// proof of a developer on its own). Leaving one developer workspace for another keeps
-	// the page, as it always has.
+	// What a role may see and do is per workspace, so a switch that leaves or enters a restricted
+	// role lands on home rather than on a page either side may refuse. Leaving one unrestricted
+	// workspace for another keeps the page.
 	function landsOnHome(id: string): boolean {
 		if (keepPageOnSwitch) return false
-		if ($userStore?.operator) return true
-		return isOperatorInWorkspace(($userWorkspaces ?? []).find((w) => w.id === id))
+		const gated = (caps: RoleCapabilities) => isRestricted(caps) || hidesPages(caps)
+		if (gated($roleCapabilities)) return true
+		const target = ($userWorkspaces ?? []).find((w) => w.id === id)
+		return gated(capabilitiesIn({ is_super_admin: $userStore?.is_super_admin }, target))
 	}
 
 	// Href for the item's navigation (including modifier/middle clicks opening a
@@ -160,7 +161,7 @@
 	// modal carries its own base-workspace picker). Hidden on non-premium cloud,
 	// in the admins workspace, or when forking is disabled.
 	const canForkHere = $derived(
-		(!isCloudHosted() || $maybePremium) && $workspaceStore !== 'admins' && canCreateFork($userStore)
+		(!isCloudHosted() || $maybePremium) && $workspaceStore !== 'admins' && canCreateFork($userStore, $roleCapabilities)
 	)
 	// The row mechanics below — which family to expand, which collapsed row carries the tick — key on
 	// a depth-0 row of the list, which `buildWorkspaceHierarchy` puts at the highest workspace the

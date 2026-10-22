@@ -7,7 +7,7 @@
 	import DraftBadge from '$lib/components/DraftBadge.svelte'
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { FlowService, type Flow } from '$lib/gen'
-	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
+	import { roleCapabilities, userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -189,8 +189,8 @@
 					</Button>
 				</div>
 			{/if}
-			<!-- Hidden from every operator, builder rights included. -->
-			{#if !$userStore?.operator && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !flow.canWrite)}
+			<!-- Hidden from every role without code, flow composers included. -->
+			{#if $roleCapabilities.code && !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !flow.canWrite)}
 				<EditInForkButton itemType="flow" path={flow.path} />
 			{/if}
 		</span>
@@ -217,7 +217,7 @@
 								})
 							},
 							disabled: !showEditButton,
-							hide: $userStore?.operator
+							hide: hideForOperator
 						},
 						{
 							displayName: 'Delete',
@@ -262,7 +262,7 @@
 						// menu item's anchor navigates before a delegated onclick can preventDefault it.
 						action: (e) => onEditInForkClick(e, 'flow', path),
 						hide:
-							$userStore?.operator ||
+							!$roleCapabilities.code ||
 							isCloudHosted() ||
 							!editInForkAllowed($workspaceStore, $userWorkspaces)
 					},
@@ -270,7 +270,7 @@
 						displayName: 'Audit logs',
 						icon: Eye,
 						href: `/audit_logs?resource=${path}`,
-						hide: $userStore?.operator
+						hide: !$roleCapabilities.code || !$roleCapabilities.visibility.audit_logs
 					},
 					{
 						displayName: 'Move/Rename',
@@ -297,7 +297,7 @@
 										deploymentDrawer.openDrawer(path, 'flow')
 									},
 									disabled: archived,
-									hide: $userStore?.operator
+									hide: $roleCapabilities.flows !== 'full'
 								}
 							]
 						: []),
@@ -316,7 +316,7 @@
 							scheduleEditor?.openNew(true, path)
 						},
 						disabled: archived,
-						hide: hideForOperator
+						hide: hideForOperator || !$roleCapabilities.manage_schedules
 					},
 					{
 						displayName: 'Permissions',
