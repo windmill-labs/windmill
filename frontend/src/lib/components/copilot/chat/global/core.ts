@@ -2882,7 +2882,7 @@ async function getAgentInstructions(
 - An agent is drafted with \`write_resource\`: \`{ path, resource_type: "ai_agent", description?, value }\`, where \`value\` is the agent's configuration described below. To change an existing agent, read it with \`read_workspace_item\` type "resource" first and write back the whole value.
 - Paths follow the conventions in the system prompt: default to \`u/<current-user>/<name>\` for a bare name; only use \`f/<folder>/<name>\` when the folder is known to exist.
 - Never deploy or rename an agent here, new or existing: the user reviews and deploys it from the agent's page, \`/agents/edit/<path>\`. Give them that link.
-- Script tools must exist: find them with the workspace search tools, and draft any missing script first.
+- A script tool must point at a deployed script: find it with the workspace search tools. When one is missing, draft it if you can and tell the user to deploy it along with the agent; otherwise tell the user which script the agent needs.
 ${aiAgentProviders ? `\n${aiAgentProviders}\n` : ''}
 # Windmill agent authoring reference
 
