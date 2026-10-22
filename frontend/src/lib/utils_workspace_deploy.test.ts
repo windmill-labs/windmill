@@ -32,8 +32,8 @@ vi.mock('$lib/gen', async (importOriginal) => ({
 	}
 }))
 
-// The deploy runs the published shared package, whose variable body has no `labels`: this
-// pins that the adapter still carries them until a version that does is installed.
+// The variable body is built by the installed shared package: this pins that a deploy from the
+// app sends the source's labels on create and on update.
 describe('deploying a variable to another workspace', () => {
 	it('carries its labels on create and on update', async () => {
 		for (const workspaceTo of ['lacks-it', 'has-it']) {
