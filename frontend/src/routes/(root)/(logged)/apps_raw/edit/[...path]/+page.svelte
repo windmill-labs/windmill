@@ -3,7 +3,7 @@
 	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 
 	import { AppService } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { useRoleCapabilities, workspaceListLoaded } from '$lib/operatorWriteRights'
 	import { readFieldsRecursively } from '$lib/utils'
 	import { goto } from '$lib/navigation'
@@ -244,11 +244,8 @@
 					path
 				})
 			}
+			// No run-as user: the deploy dialog resolves it, the folder's default first.
 			const defaultPolicy = {
-				on_behalf_of: $userStore?.username.includes('@')
-					? $userStore?.username
-					: `u/${$userStore?.username}`,
-				on_behalf_of_email: $userStore?.email,
 				execution_mode: 'publisher',
 				sandbox: true
 			} as any

@@ -821,13 +821,13 @@
 		}
 	])
 
-	let customPath = $state(
-		untrack(() =>
-			initialCustomPath !== undefined ? (initialCustomPath ?? undefined) : savedApp?.custom_path
-		)
+	// Derived, so a draft synced in from another session reaches the header; an edit here overrides
+	// the value until the next one arrives.
+	let customPath = $derived(
+		initialCustomPath !== undefined ? (initialCustomPath ?? undefined) : savedApp?.custom_path
 	)
 	let customPathError = $state('')
-	let labels = $state(untrack(() => initialLabels))
+	let labels = $derived(initialLabels)
 
 	let jobsDrawerOpen = $state(false)
 
