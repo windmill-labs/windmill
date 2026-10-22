@@ -173,11 +173,12 @@ Both live in `windmill-worker/src/ai/pause.rs`.
 - **Answer.** `resume_suspended` with the agent job's id already treats a self-suspended job like a
   WAC approval: it inserts the `resume_job` row and decrements, or zeroes on a rejection, the
   agent's own `suspend`. The run page offers the form from the pending `approval` or `question`
-  agent action (Approve/Reject with the calls and their arguments, or a text answer), and so does a
-  chat flow's chat, above the composer while the turn's top-level agent step waits (it polls the
-  turn's flow job only when a top-level agent step has such a tool or links a saved agent, read off
-  the flow rather than the stream, which a non-streaming agent leaves empty). Both send that
-  request's `call_id` in the payload. There are no signed resume URLs, Slack or Teams messages,
+  agent action (Approve/Reject with the calls and their arguments, or the question with its
+  `choices` and a text answer, sent as a list when `multi_select`), and so does a chat flow's chat,
+  on the waiting call's tool card while the turn's top-level agent step waits (it polls the turn's
+  flow job only when a top-level agent step has such a tool or links a saved agent, read off the
+  flow rather than the stream, which a non-streaming agent leaves empty: the card is then added at
+  the end of the turn). Both send that request's `call_id` in the payload. There are no signed resume URLs, Slack or Teams messages,
   approval page or approver conditions for it: whoever can answer a suspended step without
   conditions can answer it.
 - **Resume.** The suspended pull takes the row back and `run_agent` finds the checkpoint. In one

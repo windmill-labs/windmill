@@ -1548,6 +1548,14 @@ components:
                     type: string
                   question:
                     type: string
+                  choices:
+                    type: array
+                    items:
+                      type: string
+                    description: answers the model proposes; a free-text answer is always possible
+                  multi_select:
+                    type: boolean
+                    description: whether several choices can be picked together
                   expires_at:
                     type: string
                     format: date-time

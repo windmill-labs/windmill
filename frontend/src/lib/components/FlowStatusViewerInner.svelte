@@ -783,11 +783,11 @@
 								job_id: action.job_id,
 								type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
 							})
-						} else if (
-							action.type == 'mcp_tool_call' ||
-							action.type == 'approval' ||
-							action.type == 'question'
-						) {
+						} else if (action.type == 'approval' || action.type == 'question') {
+							setModuleState(stateId, {
+								type: success != undefined ? (success ? 'Success' : 'Failure') : 'WaitingForEvents'
+							})
+						} else if (action.type == 'mcp_tool_call') {
 							setModuleState(stateId, {
 								type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
 							})

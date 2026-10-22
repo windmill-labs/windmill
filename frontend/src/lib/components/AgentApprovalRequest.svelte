@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { answerAgentRequest, type AgentRequest } from './agentRequest'
-	import { sendUserToast } from '$lib/toast'
 	import { Button } from './common'
 	import TextInput from './text_input/TextInput.svelte'
+	import ApprovalActions from './approvals/ApprovalActions.svelte'
 	import { displayDate } from '$lib/utils'
 
 	interface Props {
@@ -20,19 +20,32 @@
 	let { workspaceId, agentJobId, request, pending }: Props = $props()
 
 	let text = $state('')
-	let loading = $state(false)
+	let picked = $state<string[]>([])
 	let answered = $state<boolean | undefined>(undefined)
 
-	async function answer(approved: boolean) {
-		loading = true
-		try {
-			await answerAgentRequest(workspaceId, { agentJobId, action: request }, approved, text.trim())
-			answered = approved
-		} catch (e: any) {
-			sendUserToast(e?.body ?? e?.message ?? 'Failed to answer the request', true)
-		} finally {
-			loading = false
+	const choices = $derived(request.type === 'question' ? (request.choices ?? []) : [])
+	const multiSelect = $derived(request.type === 'question' && !!request.multi_select)
+	// A typed answer joins the picked choices when several can be picked, and replaces the pick
+	// otherwise.
+	const answer = $derived.by((): string | string[] => {
+		const typed = text.trim()
+		if (multiSelect) return typed ? [...picked, typed] : picked
+		return typed || picked[0] || ''
+	})
+
+	function pick(choice: string) {
+		if (multiSelect) {
+			picked = picked.includes(choice) ? picked.filter((c) => c !== choice) : [...picked, choice]
+		} else {
+			picked = [choice]
+			text = ''
 		}
+	}
+
+	async function onAnswer(approved: boolean) {
+		const value = request.type === 'question' ? answer : text.trim()
+		await answerAgentRequest(workspaceId, { agentJobId, action: request }, approved, value)
+		answered = approved
 	}
 </script>
 
@@ -59,58 +72,51 @@
 	{#if answered !== undefined}
 		<div class="text-secondary">
 			{#if request.type === 'question'}
-				Answered, the agent resumes shortly.
+				{answered ? 'Answered' : 'Declined'}, the agent resumes shortly.
 			{:else}
 				{answered ? 'Approved' : 'Rejected'}, the agent resumes shortly.
 			{/if}
 		</div>
 	{:else if pending}
 		<div class="text-hint">Expires {displayDate(request.expires_at)}</div>
+		{#if choices.length > 0}
+			<div class="flex flex-wrap gap-2">
+				{#each choices as choice (choice)}
+					<Button
+						variant="default"
+						unifiedSize="sm"
+						selected={picked.includes(choice)}
+						onClick={() => pick(choice)}
+					>
+						{choice}
+					</Button>
+				{/each}
+			</div>
+		{/if}
+		<TextInput
+			bind:value={text}
+			inputProps={{
+				placeholder:
+					request.type === 'question'
+						? choices.length > 0
+							? 'Or answer in your own words'
+							: 'Your answer'
+						: 'Reason for the agent, if you reject (optional)',
+				oninput: () => {
+					if (!multiSelect) picked = []
+				}
+			}}
+			size="sm"
+		/>
 		{#if request.type === 'question'}
-			<TextInput
-				bind:value={text}
-				inputProps={{
-					placeholder: 'Your answer',
-					disabled: loading,
-					onkeydown: (e) => {
-						if (e.key === 'Enter' && !loading && text.trim()) answer(true)
-					}
-				}}
-				size="sm"
+			<ApprovalActions
+				approveLabel="Send answer"
+				rejectTitle="Decline to answer"
+				approveDisabled={answer.length === 0}
+				{onAnswer}
 			/>
-			<div class="flex justify-end">
-				<Button
-					variant="accent"
-					unifiedSize="sm"
-					disabled={loading || !text.trim()}
-					onClick={() => answer(true)}
-				>
-					Send answer
-				</Button>
-			</div>
 		{:else}
-			<TextInput
-				bind:value={text}
-				inputProps={{
-					placeholder: 'Reason for the agent, if you reject (optional)',
-					disabled: loading
-				}}
-				size="sm"
-			/>
-			<div class="flex gap-2 justify-end">
-				<Button
-					variant="default"
-					destructive
-					unifiedSize="sm"
-					disabled={loading}
-					onClick={() => answer(false)}
-				>
-					Reject
-				</Button>
-				<Button variant="accent" unifiedSize="sm" disabled={loading} onClick={() => answer(true)}>
-					Approve
-				</Button>
-			</div>
+			<ApprovalActions approveLabel="Approve" rejectTitle="Reject" {onAnswer} />
 		{/if}
 	{/if}
 </div>

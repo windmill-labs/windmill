@@ -161,7 +161,11 @@ function requestCard(
 			...row,
 			content: 'Waiting for your answer',
 			isLoading: true,
-			userQuestion: { question: request.question, choices: [] }
+			userQuestion: {
+				question: request.question,
+				choices: request.choices ?? [],
+				multiSelect: request.multi_select
+			}
 		}
 	}
 	const call = request.calls.find((c) => c.function_name === toolName)
@@ -538,12 +542,12 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 		return request?.action.call_id === this.#answeredRequest ? undefined : request
 	}
 
-	#answer(approved: boolean, text?: string): boolean {
+	#answer(approved: boolean, answer?: string | string[]): boolean {
 		const request = this.#agentRequest
 		const workspace = this.#options.workspace?.()
 		if (!request || !workspace) return false
 		this.#answeredRequest = request.action.call_id
-		answerAgentRequest(workspace, request, approved, text).catch((e: any) => {
+		answerAgentRequest(workspace, request, approved, answer).catch((e: any) => {
 			this.#answeredRequest = undefined
 			sendUserToast(e?.body ?? e?.message ?? 'Failed to answer the request', true)
 		})
@@ -795,7 +799,12 @@ export class FlowChatViewHost implements ChatViewHost, DraftSender<ComposerAttac
 	}
 	restartGeneration = () => {}
 	handleUserQuestionAnswer = (_toolId: string, choices: string[]) =>
-		this.#answer(true, choices.join(', '))
+		this.#answer(
+			true,
+			this.#agentRequest?.action.type === 'question' && this.#agentRequest.action.multi_select
+				? choices
+				: choices[0]
+		)
 	handleToolConfirmation = (_toolId: string, confirmed: boolean) => {
 		this.#answer(confirmed)
 	}

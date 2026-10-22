@@ -45,6 +45,17 @@ pub(crate) fn question_tool(timeout_secs: u32, existing: &[ToolDef]) -> Tool {
             "question": {
                 "type": "string",
                 "description": "The question, as the person answering will read it."
+            },
+            "choices": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Answers to offer, when the likely answers are known. The person \
+                                can still answer in their own words."
+            },
+            "multi_select": {
+                "type": "boolean",
+                "description": "Whether the person may pick several choices. The answer is then \
+                                a list."
             }
         },
         "required": ["question"],
@@ -112,12 +123,30 @@ pub(crate) fn start_question(
         .filter(|s| !s.is_empty())
         .ok_or("`question` is required")?
         .to_string();
+    let choices = args
+        .get("choices")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|c| c.as_str().map(str::trim).filter(|s| !s.is_empty()))
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    let multi_select = args
+        .get("multi_select")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let expires_at = expires_at(timeout_secs);
     Ok(PendingPause {
         call_id: tool_call.id.clone(),
         expires_at,
         request: PendingRequest::Question { function_name: tool_call.function.name.clone() },
-        action: Some(AgentAction::Question { call_id: tool_call.id.clone(), question, expires_at }),
+        action: Some(AgentAction::Question {
+            call_id: tool_call.id.clone(),
+            question,
+            choices,
+            multi_select,
+            expires_at,
+        }),
     })
 }
 
@@ -310,7 +339,14 @@ pub(crate) async fn answer_pause(
         (PendingRequest::Question { .. }, true) => Answer::Question(question_message(
             pending,
             actions,
-            serde_json::json!({ "answer": text("answer").unwrap_or_default(), "answered_by": approver }),
+            serde_json::json!({
+                // A list when several choices were picked.
+                "answer": match value.0.get("answer") {
+                    Some(serde_json::Value::Array(picked)) => serde_json::json!(picked),
+                    _ => serde_json::json!(text("answer").unwrap_or_default()),
+                },
+                "answered_by": approver,
+            }),
         )),
         (PendingRequest::Question { .. }, false) => Answer::Question(question_message(
             pending,

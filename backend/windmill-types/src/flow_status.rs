@@ -230,6 +230,11 @@ pub enum AgentAction {
     Question {
         call_id: String,
         question: String,
+        /// Answers the model proposes; a free-text answer is always possible.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        choices: Vec<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        multi_select: bool,
         expires_at: chrono::DateTime<chrono::Utc>,
     },
 }
