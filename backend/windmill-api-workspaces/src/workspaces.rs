@@ -39,7 +39,7 @@ use windmill_common::global_settings::HTTP_ROUTE_WORKSPACED_ROUTE;
 use windmill_common::query_builders::{render_db_quoted_identifier, DbType};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{
-    crypt_from_key_with_suffix, decrypt, encrypt, get_secret_value_as_admin, WORKSPACE_CRYPT_CACHE,
+    crypt_from_key_with_suffix, decrypt, decrypt_secret_value, encrypt, WORKSPACE_CRYPT_CACHE,
 };
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::workspaces::GitRepositorySettings;
@@ -14526,8 +14526,8 @@ async fn compare_two_variables(
             has_changes = !source.is_secret
                 || !matches!(
                     tokio::try_join!(
-                        get_secret_value_as_admin(db, source_workspace_id, path),
-                        get_secret_value_as_admin(db, fork_workspace_id, path),
+                        decrypt_secret_value(db, source_workspace_id, path, source.value.clone()),
+                        decrypt_secret_value(db, fork_workspace_id, path, target.value.clone()),
                     ),
                     Ok((a, b)) if a == b
                 );
