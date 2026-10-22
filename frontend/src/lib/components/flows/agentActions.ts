@@ -1,4 +1,4 @@
-import { Copy, Eye, FileUp, History, List, Shield, Trash } from 'lucide-svelte'
+import { Copy, Eye, FileUp, History, List, Trash, UserPlus } from 'lucide-svelte'
 import { ResourceService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
 import { copyToClipboard, type Item } from '$lib/utils'
@@ -29,7 +29,7 @@ export function agentMenuItems(agent: {
 	noCode?: boolean
 	/** Undefined until loaded, when nothing is offered for deploy. */
 	deployUiSettings: WorkspaceDeployUISettings | undefined
-	onPermissions: () => void
+	onShare: () => void
 	onDeploy: () => void
 	onHistory: () => void
 	onDelete: (event?: MouseEvent) => void
@@ -62,10 +62,10 @@ export function agentMenuItems(agent: {
 					{ displayName: 'Copy path', icon: Copy, action: () => copyToClipboard(agent.path) }
 				]),
 		{
-			displayName: 'Permissions',
-			icon: Shield,
+			displayName: 'Share',
+			icon: UserPlus,
 			disabled: !agent.canWrite || Boolean(agent.draftOnly),
-			action: agent.onPermissions
+			action: agent.onShare
 		},
 		...(deployable
 			? [{ displayName: 'Deploy to prod/staging', icon: FileUp, action: agent.onDeploy }]

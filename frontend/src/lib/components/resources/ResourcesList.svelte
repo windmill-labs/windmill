@@ -70,8 +70,8 @@
 		RotateCw,
 		Save,
 		SearchX,
-		Shield,
 		Trash,
+		UserPlus,
 		Zap
 	} from 'lucide-svelte'
 	import { onMount, untrack } from 'svelte'
@@ -1369,8 +1369,8 @@
 														class="w-fit"
 														items={[
 															{
-																displayName: 'Permissions',
-																icon: Shield,
+																displayName: 'Share',
+																icon: UserPlus,
 																action: () => {
 																	shareModal?.openDrawer?.(path, 'resource')
 																}

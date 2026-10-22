@@ -106,7 +106,7 @@
 <ShareDialog bind:this={shareDialog} onChange={() => dispatch('change', { path, kind })} />
 
 <Drawer bind:this={drawer}>
-	<DrawerContent title="Permissions for {path}" on:close={drawer?.closeDrawer}>
+	<DrawerContent title="Share {path}" on:close={drawer?.closeDrawer}>
 		<!-- Full height, so a long access list scrolls inside the drawer under its own header. -->
 		<div class="flex flex-col gap-4 h-full">
 			{#if linkedVarPaths.length > 0}
