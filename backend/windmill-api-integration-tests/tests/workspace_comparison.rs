@@ -2571,6 +2571,71 @@ async fn test_rename_records_the_vacated_path(db: Pool<Postgres>) -> anyhow::Res
     Ok(())
 }
 
+/// Regression: a resource or resource type can be stored with a NULL description while deploy
+/// writes "", so the comparison must read the two as equal or the item never settles.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_null_description_equals_empty(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let base_url = format!("http://localhost:{port}/api");
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+
+    for q in [
+        "INSERT INTO workspace (id, name, owner, parent_workspace_id)
+         VALUES ('wm-fork-test-workspace', 'Fork', 'test-user', 'test-workspace')",
+        "INSERT INTO workspace_settings (workspace_id) VALUES ('wm-fork-test-workspace')",
+        "INSERT INTO workspace_key(workspace_id, kind, key)
+         VALUES ('wm-fork-test-workspace', 'cloud', 'test-key')",
+        "INSERT INTO resource (workspace_id, path, value, resource_type, description, created_by) VALUES
+         ('test-workspace', 'u/test-user/null_desc', '{}', 'generic', NULL, 'test-user'),
+         ('wm-fork-test-workspace', 'u/test-user/null_desc', '{}', 'generic', '', 'test-user'),
+         ('test-workspace', 'u/test-user/other_desc', '{}', 'generic', NULL, 'test-user'),
+         ('wm-fork-test-workspace', 'u/test-user/other_desc', '{}', 'generic', 'x', 'test-user')",
+        "INSERT INTO resource_type (workspace_id, name, schema, description, created_by) VALUES
+         ('test-workspace', 'null_desc_rt', '{}', NULL, 'test-user'),
+         ('wm-fork-test-workspace', 'null_desc_rt', '{}', '', 'test-user'),
+         ('test-workspace', 'other_desc_rt', '{}', NULL, 'test-user'),
+         ('wm-fork-test-workspace', 'other_desc_rt', '{}', 'x', 'test-user')",
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes) VALUES
+         ('test-workspace', 'wm-fork-test-workspace', 'u/test-user/null_desc', 'resource', 1, 1, NULL),
+         ('test-workspace', 'wm-fork-test-workspace', 'u/test-user/other_desc', 'resource', 1, 1, NULL),
+         ('test-workspace', 'wm-fork-test-workspace', 'null_desc_rt', 'resource_type', 1, 1, NULL),
+         ('test-workspace', 'wm-fork-test-workspace', 'other_desc_rt', 'resource_type', 1, 1, NULL)",
+    ] {
+        sqlx::query(q).execute(&db).await?;
+    }
+
+    let comparison: serde_json::Value = client
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-test-workspace"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let mut paths: Vec<&str> = comparison["diffs"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no diffs: {comparison}"))
+        .iter()
+        .map(|d| d["path"].as_str().unwrap())
+        .collect();
+    paths.sort();
+    assert_eq!(
+        paths,
+        ["other_desc_rt", "u/test-user/other_desc"],
+        "{comparison}"
+    );
+
+    Ok(())
+}
+
 /// Runs its closure when dropped, so process-wide state is put back even when an assertion
 /// fails.
 struct OnDrop<F: FnMut()>(F);
