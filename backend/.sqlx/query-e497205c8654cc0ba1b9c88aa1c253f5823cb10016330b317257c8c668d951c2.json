@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT workspace_id, slack_command_script IS NOT NULL AS \"has_script!\"\n         FROM workspace_settings WHERE slack_team_id = $1\n         ORDER BY slack_command_script IS NOT NULL DESC LIMIT 2",
+  "query": "SELECT workspace_id, slack_command_script IS NOT NULL AS \"has_script!\"\n         FROM workspace_settings ws WHERE slack_team_id = $1\n           AND ws.workspace_id = ANY($2)\n         ORDER BY slack_command_script IS NOT NULL DESC LIMIT 2",
   "describe": {
     "columns": [
       {
@@ -16,7 +16,8 @@
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Text",
+        "TextArray"
       ]
     },
     "nullable": [
@@ -24,5 +25,5 @@
       null
     ]
   },
-  "hash": "f91c3e12549a3e037e8e784ad6ed439d762d17acb70793e9b26454572a156397"
+  "hash": "e497205c8654cc0ba1b9c88aa1c253f5823cb10016330b317257c8c668d951c2"
 }

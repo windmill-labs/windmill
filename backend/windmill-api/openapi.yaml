@@ -4824,6 +4824,10 @@ paths:
                     type: string
                     nullable: true
                     description: Masked with *** if set
+                  slack_signing_secret:
+                    type: string
+                    nullable: true
+                    description: Masked with *** if set
     post:
       summary: set workspace slack oauth config
       operationId: setWorkspaceSlackOauthConfig
@@ -4860,6 +4864,33 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/slack_signing_secret:
+    post:
+      summary: set the signing secret of the workspace's own slack app
+      operationId: setWorkspaceSlackSigningSecret
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: The Slack app's signing secret, null or empty to remove it
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                slack_signing_secret:
+                  type: string
+                  nullable: true
       responses:
         "200":
           description: status
