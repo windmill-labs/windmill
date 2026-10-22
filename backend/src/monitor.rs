@@ -441,7 +441,7 @@ pub async fn initial_load(
                     cache_clear: None,
                     additional_python_paths: None,
                     pip_local_dependencies: None,
-                    nsjail_env_denylist: windmill_common::worker::resolve_nsjail_env_denylist(None),
+                    disable_job_proxy: *windmill_common::worker::DISABLE_JOB_PROXY,
                     native_mode,
                     // an agent worker never reads its group's config, only its token
                     object_store_cache_config: None,

@@ -1006,7 +1006,7 @@ pub struct WorkerGroupConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub env_vars_allowlist: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub nsjail_env_denylist: Option<Vec<String>>,
+    pub disable_job_proxy: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub min_alive_workers_alert_threshold: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]

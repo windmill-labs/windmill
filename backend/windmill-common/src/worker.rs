@@ -386,6 +386,8 @@ lazy_static::lazy_static! {
         .filter(|x| !x.is_empty());
 
     pub static ref NATIVE_MODE: bool = std::env::var("NATIVE_MODE").ok().is_some_and(|x| x == "1" || x == "true");
+    /// Fallback for the worker group's `disable_job_proxy`.
+    pub static ref DISABLE_JOB_PROXY: bool = std::env::var("DISABLE_JOB_PROXY").ok().is_some_and(|x| x == "1" || x == "true");
 
     pub static ref LIMIT_WINDOWS_TO_1CU: bool = std::env::var("LIMIT_WINDOWS_TO_1CU").ok().is_some_and(|x| x == "1" || x == "true");
 
@@ -484,7 +486,7 @@ lazy_static::lazy_static! {
         additional_python_paths: Default::default(),
         pip_local_dependencies: Default::default(),
         env_vars: Default::default(),
-        nsjail_env_denylist: Default::default(),
+        disable_job_proxy: false,
         native_mode: false,
         object_store_cache_config: Default::default(),
         paused: false,
@@ -2768,7 +2770,7 @@ pub async fn load_worker_config(
             .additional_python_paths
             .or_else(|| load_additional_python_paths_from_env()),
         env_vars: resolved_env_vars,
-        nsjail_env_denylist: resolve_nsjail_env_denylist(config.nsjail_env_denylist),
+        disable_job_proxy: config.disable_job_proxy.unwrap_or(*DISABLE_JOB_PROXY),
         native_mode,
         object_store_cache_config: config.object_store_cache_config,
         paused: config.paused.unwrap_or(false),
@@ -2811,20 +2813,6 @@ pub fn load_whitelist_env_vars_from_env() -> std::vec::IntoIter<String> {
         .map(|x| x.split(',').map(|x| x.to_string()).collect_vec())
         .unwrap_or_default()
         .into_iter()
-}
-
-/// The group's `nsjail_env_denylist` merged with the `NSJAIL_ENV_DENYLIST` worker env var.
-pub fn resolve_nsjail_env_denylist(from_config: Option<Vec<String>>) -> Vec<String> {
-    let from_env = std::env::var("NSJAIL_ENV_DENYLIST").unwrap_or_default();
-    from_config
-        .unwrap_or_default()
-        .into_iter()
-        .chain(from_env.split(',').map(|x| x.to_string()))
-        .map(|x| x.trim().to_string())
-        .filter(|x| !x.is_empty())
-        .sorted()
-        .unique()
-        .collect()
 }
 
 /// Warns, by name only, about each `WHITELIST_ENVS` entry that looks like a credential:
@@ -2961,7 +2949,7 @@ pub struct WorkerConfigOpt {
     pub pip_local_dependencies: Option<Vec<String>>,
     pub env_vars_static: Option<HashMap<String, String>>,
     pub env_vars_allowlist: Option<Vec<String>>,
-    pub nsjail_env_denylist: Option<Vec<String>>,
+    pub disable_job_proxy: Option<bool>,
     pub native_mode: Option<bool>,
     pub object_store_cache_config: Option<serde_json::Value>,
     pub paused: Option<bool>,
@@ -2983,7 +2971,7 @@ impl Default for WorkerConfigOpt {
             pip_local_dependencies: Default::default(),
             env_vars_static: Default::default(),
             env_vars_allowlist: Default::default(),
-            nsjail_env_denylist: Default::default(),
+            disable_job_proxy: Default::default(),
             native_mode: Default::default(),
             object_store_cache_config: Default::default(),
             paused: Default::default(),
@@ -3005,8 +2993,8 @@ pub struct WorkerConfig {
     pub additional_python_paths: Option<Vec<String>>,
     pub pip_local_dependencies: Option<Vec<String>>,
     pub env_vars: HashMap<String, String>,
-    /// Env var names, matched case-insensitively, stripped from every nsjail process.
-    pub nsjail_env_denylist: Vec<String>,
+    /// Job runs get none of the worker's `HTTP(S)_PROXY`/`NO_PROXY`; dependency installs keep them.
+    pub disable_job_proxy: bool,
     pub native_mode: bool,
     /// Object store this group's dependency cache uses instead of the instance one, as stored
     /// in the group config. Raw JSON: `windmill-common` cannot depend on the object store crate
@@ -3019,8 +3007,8 @@ pub struct WorkerConfig {
 
 impl std::fmt::Debug for WorkerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, nsjail_env_denylist: {:?}, native_mode: {:?}, paused: {:?}, object_store_cache_config: {} }}",
-        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.nsjail_env_denylist, self.native_mode, self.paused,
+        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?}, disable_job_proxy: {:?}, native_mode: {:?}, paused: {:?}, object_store_cache_config: {} }}",
+        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "), self.disable_job_proxy, self.native_mode, self.paused,
         // holds bucket credentials
         self.object_store_cache_config.as_ref().map(|_| "***").unwrap_or("None"))
     }

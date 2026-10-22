@@ -105,7 +105,7 @@
 		periodic_script_interval_seconds?: number
 		env_vars_static?: Map<string, string>
 		env_vars_allowlist?: string[]
-		nsjail_env_denylist?: string[]
+		disable_job_proxy?: boolean
 		additional_python_paths?: string[]
 		pip_local_dependencies?: string[]
 		min_alive_workers_alert_threshold?: number
@@ -213,7 +213,7 @@
 					init_bash?: string
 					env_vars_static?: Map<string, string>
 					env_vars_allowlist?: string[]
-					nsjail_env_denylist?: string[]
+					disable_job_proxy?: boolean
 					additional_python_paths?: string[]
 					pip_local_dependencies?: string[]
 					min_alive_workers_alert_threshold?: number
@@ -329,7 +329,7 @@
 		'priority_tags',
 		'additional_python_paths',
 		'pip_local_dependencies',
-		'nsjail_env_denylist',
+		'disable_job_proxy',
 		'object_store_cache_config',
 		'serves_dev_workspaces'
 	] as const
@@ -912,6 +912,31 @@
 					disabled={!canEditConfig}
 				/>
 			</Label>
+			<div class="mt-8"></div>
+			<Label label="Worker proxy">
+				{#snippet header()}
+					<Tooltip>
+						{#snippet text()}
+							Whether jobs get the worker's HTTP_PROXY, HTTPS_PROXY and NO_PROXY. Dependency
+							installs always go through the proxy, whatever this is set to. Removing the variables
+							does not stop a job from reaching the proxy if it knows its address. Also settable
+							with the DISABLE_JOB_PROXY worker env var. Workers pick the change up without
+							restarting.
+						{/snippet}
+					</Tooltip>
+				{/snippet}
+				<Toggle
+					size="sm"
+					options={{ right: "Pass the worker's proxy to jobs" }}
+					checked={nconfig?.disable_job_proxy !== true}
+					on:change={(ev) => {
+						if (nconfig !== undefined) {
+							nconfig.disable_job_proxy = ev.detail ? undefined : true
+						}
+					}}
+					disabled={!canEditConfig}
+				/>
+			</Label>
 		{/if}
 
 		<div class="mt-8"></div>
@@ -1047,57 +1072,6 @@
 								{/snippet}
 							</Dropdown>
 						</span>
-					</div>
-				{/if}
-			</div>
-		</Label>
-		<div class="mt-8"></div>
-
-		<Label
-			label="Environment variables removed from the sandbox"
-			tooltip="Environment variables never passed into the nsjail sandbox, even when the worker host sets them (e.g. HTTP_PROXY, HTTPS_PROXY, NO_PROXY). Names match case-insensitively. Dependency installs that run in the sandbox lose them too. Also settable with the NSJAIL_ENV_DENYLIST worker env var (comma-separated)."
-			eeOnly={!hasEnterpriseFeatures}
-		>
-			<div class="flex flex-col gap-y-2 pb-2">
-				{#each nconfig.nsjail_env_denylist ?? [] as _, i}
-					<div class="flex gap-1 items-center">
-						<TextInput
-							inputProps={{
-								type: 'text',
-								disabled: !canEditEEConfig,
-								placeholder: 'HTTPS_PROXY'
-							}}
-							bind:value={nconfig.nsjail_env_denylist![i]}
-						/>
-						{#if canEditEEConfig}
-							<Button
-								variant="subtle"
-								unifiedSize="md"
-								aria-label="Remove"
-								onClick={() => {
-									nconfig.nsjail_env_denylist = nconfig.nsjail_env_denylist?.filter(
-										(_, j) => j != i
-									)
-								}}
-								startIcon={{ icon: Trash }}
-								iconOnly
-								destructive
-							/>
-						{/if}
-					</div>
-				{/each}
-				{#if canEditEEConfig}
-					<div class="flex">
-						<Button
-							variant="default"
-							unifiedSize="md"
-							startIcon={{ icon: Plus }}
-							onClick={() => {
-								nconfig.nsjail_env_denylist = [...(nconfig.nsjail_env_denylist ?? []), '']
-							}}
-						>
-							Add environment variable
-						</Button>
 					</div>
 				{/if}
 			</div>
