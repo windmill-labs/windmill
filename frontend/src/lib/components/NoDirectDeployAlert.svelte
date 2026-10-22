@@ -25,9 +25,11 @@
 		useOperatingWorkspace,
 		useOperatingUser
 	} from '$lib/components/operatingWorkspace.svelte'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
+	const roleCaps = useRoleCapabilities()
 
 	// The shared rules state holds the navigation workspace's rules, so a host acting on another
 	// workspace (an AI session's fork) has to ask for that one's.
@@ -97,7 +99,7 @@
 	)
 </script>
 
-{#if !operatingUser.current?.operator && activeDeployRulesets.length > 0}
+{#if ($roleCaps.code || $roleCaps.flows !== 'none' || $roleCaps.apps !== 'none') && activeDeployRulesets.length > 0}
 	<div class="my-2">
 		<Popover
 			placement="bottom-start"

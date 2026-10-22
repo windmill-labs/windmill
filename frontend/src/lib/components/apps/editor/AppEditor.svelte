@@ -26,7 +26,7 @@
 	import { Alert, Button, Tab } from '$lib/components/common'
 	import TabContent from '$lib/components/common/tabs/TabContent.svelte'
 	import Tabs from '$lib/components/common/tabs/TabsV2.svelte'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { roleCapabilities, userStore, workspaceStore } from '$lib/stores'
 	import {
 		classNames,
 		getModifierKey,
@@ -883,7 +883,7 @@
 />
 
 <!-- {$focusedGrid?.parentComponentId} -->
-{#if !$userStore?.operator}
+{#if $roleCapabilities.apps === 'full'}
 	{#if $appStore}
 		<AppEditorHeader
 			{ownsPageHeader}

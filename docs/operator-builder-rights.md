@@ -14,12 +14,12 @@ without the second, so **never gate on "either"**: a gate that does authorizes t
 workspace never granted, which is the whole point of the split. `BuilderKind` exists to make each
 call site say which one it means.
 
-These are write rights, unlike the visibility flags beside them, and unlike the withdrawable
-rights in `docs/operator-write-rights.md` they are granted on request and cost a seat. Read them
-with `windmill_common::workspaces::operator_builder_rights` (60s cache, shared with the
-withdrawable rights), which returns an `OperatorBuilderRights { flows, apps }`, and gate a write
-with `check_operator_can_build`, naming the `BuilderKind`. `.any()` is only for surfaces that are
-genuinely not per-kind: the seat a membership costs, and listing drafts.
+These rights are now the `compose` level of a role's `flows` and `apps` capabilities
+(`docs/workspace-roles.md`): `builder_flows` / `builder_apps` in the legacy operator settings set
+the `operator` role to it. Gate a write with `check_operator_can_build`, naming the `BuilderKind`:
+it refuses `none` and returns the level held, and the caller MUST run the composition-only checks
+below at `compose` and may skip them only at `full`. `OperatorBuilderRights::any()` is only for
+surfaces that are genuinely not per-kind, such as listing drafts.
 
 ## What the check has to cover
 
@@ -146,16 +146,13 @@ artifacts, and there is no half-author, so granting both costs no more than gran
 introduce per-right pricing — it turns one boolean into a capability matrix that billing, the cap
 check and the displayed count would each have to agree on.
 
-`consumes_operator_seat` is the seat-role helper; the EE counting queries share
-`OPERATOR_SEAT_SQL` so the displayed, enforced and reported numbers agree. The one exception is
-`get_user_usage` in `stats_ee.rs`: it is a compile-checked `query!`, which cannot interpolate the
-constant, so it spells the predicate out. Change both together. On cloud, `billable_seats` applies
-the same rule; see its doc for the out-of-repo invoice it must match.
+Every count reads the role's author flag from `role_seat` through `AUTHOR_SEAT_SQL`; see
+`docs/workspace-roles.md`. On cloud, `billable_seats` applies the same rule; see its doc for the
+out-of-repo invoice it must match.
 
-Granting the first right runs `check_seat_cap_for_operator_builder`, which prices the change by
-counting seats twice rather than by counting the workspace's operators: an operator who already
-authors elsewhere must not be charged again. Adding the second right later, or re-saving settings
-that already have one on, is a zero delta and never blocks.
+A role change runs `check_seat_cap_for_role_change` inside the transaction that writes it, which
+prices the change by counting seats twice rather than by counting the role's members: a member who
+already authors elsewhere must not be charged again. A change that adds no seat never blocks.
 
 ## Accepted risks
 
@@ -186,7 +183,6 @@ that already have one on, is a zero delta and never blocks.
   carries none makes the deployer its run identity, as any deploy does. An admin deploying such a
   draft, from the editor or Compare & Deploy, therefore publishes the builder's code running as
   that admin; the deploy is the admin's explicit act, as it is for a developer's draft.
-- All-or-nothing per workspace: there is no per-user builder role.
 - `operator_settings` is git-synced, so a pull can flip every operator's class in a workspace and
   the billed seat count with it.
 - A builder writes JavaScript expressions: step inputs, branch predicates, `stop_after_if` and

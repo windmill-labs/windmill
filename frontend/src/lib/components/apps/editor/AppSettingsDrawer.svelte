@@ -7,7 +7,7 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import { enterpriseLicense, userStore } from '$lib/stores'
-	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { Loader2 } from 'lucide-svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -37,7 +37,9 @@
 	const operatingWorkspaceStore = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
 	const actingUser = $derived(operatingUser.current)
-	const operatorBuilderApps = useOperatorBuilderApps()
+	const roleCaps = useRoleCapabilities()
+	// The server forces a composed app into sandbox isolation.
+	const composeOnlyApps = $derived($roleCaps.apps === 'compose')
 
 	let {
 		open = $bindable(),
@@ -244,8 +246,8 @@
 </script>
 
 {#snippet sandboxHint()}
-	{#if $operatorBuilderApps}
-		Required for apps built by operators, and cannot be turned off.
+	{#if composeOnlyApps}
+		Required for apps composed by your role, and cannot be turned off.
 	{:else}
 		<Alert type="warning" title="Not isolated" size="xs">
 			The app's frontend code runs with each viewer's full Windmill permissions. A future version
@@ -346,9 +348,9 @@
 									setting="sandbox"
 									label="Sandbox isolation"
 									tooltip="Controls what the app's browser-side code can reach in each viewer's browser, separately from who its runnables run as. A sandboxed app gets a narrowly scoped token on every surface, public URL and in-workspace. On by default for new apps. Turn it off only if the app needs IndexedDB, third-party sign-in or OAuth redirects."
-									checked={$operatorBuilderApps || policy.sandbox == true}
-									disabled={$operatorBuilderApps}
-									hint={$operatorBuilderApps || policy.sandbox != true ? sandboxHint : undefined}
+									checked={composeOnlyApps || policy.sandbox == true}
+									disabled={composeOnlyApps}
+									hint={composeOnlyApps || policy.sandbox != true ? sandboxHint : undefined}
 									onchange={(on) => {
 										policy.sandbox = on || undefined
 										// Counted where the toggle is flipped rather than where the policy is

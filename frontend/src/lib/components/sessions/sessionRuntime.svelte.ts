@@ -36,7 +36,7 @@ import {
 	react19Template,
 	STARTER_RUNNABLES
 } from '$lib/components/raw_apps/templates'
-import { operatorBuilderAppsIn, workspaceListLoaded } from '$lib/operatorWriteRights'
+import { capabilitiesInWorkspace, workspaceListLoaded } from '$lib/operatorWriteRights'
 import { random_adj } from '$lib/components/random_positive_adjetive'
 import { copilotWorkspace } from '$lib/aiStore'
 import { loadCopilot } from '$lib/components/copilot/loadCopilot'
@@ -58,6 +58,7 @@ import {
 	setSessionPreviewCollapsed,
 	setSessionPreviewSize,
 	setSessionTabs,
+	setDraftsDiscardedHandler,
 	type Session
 } from './sessionState.svelte'
 import {
@@ -307,6 +308,7 @@ export interface SessionRuntime {
 }
 
 const runtimes = new SvelteMap<string, SessionRuntime>()
+const runtimeRoots = new Map<string, () => void>()
 
 function emptyFlow(): Flow {
 	return {
@@ -1154,7 +1156,7 @@ function createRuntime(session: Session): SessionRuntime {
 					const user = get(userStore)
 					// A builder can save no inline runnable, so the regular starter could never be saved.
 					await workspaceListLoaded()
-					const builder = operatorBuilderAppsIn(workspace)
+					const builder = capabilitiesInWorkspace(workspace).apps === 'compose'
 					saved.val = undefined
 					store.val = {
 						files: { ...(builder ? BUILDER_FRAMEWORK_TEMPLATES.react19 : react19Template) },
@@ -1332,7 +1334,18 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 export function getOrCreateRuntime(session: Session): SessionRuntime {
 	let runtime = runtimes.get(session.id)
 	if (!runtime) {
-		runtime = createRuntime(session)
+		// The manager's `$derived` fields belong to whatever effect is running when they are
+		// built. A runtime outlives the component that first asked for it (Home hands its
+		// session to /sessions and unmounts), so give it a root of its own; built inside the
+		// component, its deriveds turn inert once that component is gone.
+		let created: SessionRuntime | undefined
+		runtimeRoots.set(
+			session.id,
+			$effect.root(() => {
+				created = createRuntime(session)
+			})
+		)
+		runtime = created!
 		runtimes.set(session.id, runtime)
 		// The gate opens even when the restore fails: a session that cannot read its
 		// history is still usable, and a send that waits forever is not.
@@ -1349,6 +1362,8 @@ export function disposeRuntime(sessionId: string) {
 	runtime.manager.cancel('runtime disposed')
 	runtime.manager.historyManager.close()
 	runtimes.delete(sessionId)
+	runtimeRoots.get(sessionId)?.()
+	runtimeRoots.delete(sessionId)
 	// The sidebar reads the stored chat again rather than trust a read that
 	// predates everything this runtime saw.
 	peeks.delete(sessionId)
@@ -1476,6 +1491,8 @@ export function removeSession(sessionId: string): void {
 	disposeRuntime(sessionId)
 	deleteSessionState(sessionId)
 }
+
+setDraftsDiscardedHandler((ids) => ids.forEach(disposeRuntime))
 
 // The chat calls a new item by its chosen name while its draft is stored at
 // `draft_<uuid>`; resolve the name the way the chat's write tools do.

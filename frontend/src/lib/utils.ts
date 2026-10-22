@@ -1657,7 +1657,8 @@ export type Item = {
 	href?: string
 	hrefTarget?: '_blank' | '_self' | '_parent' | '_top'
 	disabled?: boolean
-	type?: 'action' | 'delete'
+	/** `ai` sets the row in the AI colour, for an action that hands something to the assistant. */
+	type?: 'action' | 'delete' | 'ai'
 	hide?: boolean | undefined
 	extra?: Snippet
 	id?: string

@@ -11,7 +11,8 @@ use crate::common::transform::{
     short_name_last_segments,
 };
 use crate::common::types::{
-    McpToken, MultiWorkspaceMcp, ResourceInfo, SchemaType, ToolableItem, WorkspaceId,
+    McpToken, MultiWorkspaceMcp, NoEndpointTools, ResourceInfo, SchemaType, ToolableItem,
+    WorkspaceId,
 };
 use crate::server::backend::{McpAuth, McpBackend, McpRequest, PathFilter};
 use crate::server::endpoints::{
@@ -37,7 +38,7 @@ use tokio::sync::broadcast;
 /// Protocol revisions this server is willing to speak. `2026-07-28` is served
 /// statelessly with per-request metadata; the older revisions keep the
 /// `initialize` handshake, so both eras are answered on the same endpoint.
-const SUPPORTED_PROTOCOL_VERSIONS: &[ProtocolVersion] = &[
+pub(super) const SUPPORTED_PROTOCOL_VERSIONS: &[ProtocolVersion] = &[
     ProtocolVersion::V_2024_11_05,
     ProtocolVersion::V_2025_03_26,
     ProtocolVersion::V_2025_06_18,
@@ -53,12 +54,12 @@ const SUPPORTED_PROTOCOL_VERSIONS: &[ProtocolVersion] = &[
 /// covers only some of what the listing depends on (not resources, favorites or
 /// permissions), lags by up to a poll interval, and reaches only clients that hold a
 /// `subscriptions/listen` stream.
-const LIST_TTL_MS: u64 = 0;
+pub(super) const LIST_TTL_MS: u64 = 0;
 
 /// Every listing is filtered by the caller's token scopes and workspace
 /// membership, so no two callers necessarily see the same tools — a shared
 /// cache entry would leak one token's view to another.
-const LIST_CACHE_SCOPE: CacheScope = CacheScope::Private;
+pub(super) const LIST_CACHE_SCOPE: CacheScope = CacheScope::Private;
 
 /// How long a `subscriptions/listen` stream waits after a change before notifying,
 /// collecting the rest of the burst into the same notification.
@@ -70,9 +71,9 @@ use http::request::Parts as HttpParts;
 /// Maximum size in bytes for tool result text content.
 /// Anthropic enforces a 25,000 token limit per tool result.
 /// At ~3.5 bytes/token, 87,500 bytes is a safe upper bound.
-const MAX_TOOL_RESULT_BYTES: usize = 87_500;
+pub const MAX_TOOL_RESULT_BYTES: usize = 87_500;
 
-fn truncate_tool_result(text: String) -> String {
+pub(super) fn truncate_tool_result(text: String) -> String {
     if text.len() <= MAX_TOOL_RESULT_BYTES {
         return text;
     }
@@ -103,7 +104,7 @@ impl<B: McpBackend> Clone for Runner<B> {
 
 /// Whether the request targets one bound workspace or spans every workspace the
 /// token can access.
-enum McpMode {
+pub(super) enum McpMode {
     /// A single workspace, resolved from the URL path or the token's bound
     /// workspace. Tools operate against this workspace implicitly.
     Single(String),
@@ -114,10 +115,12 @@ enum McpMode {
 }
 
 /// Everything a request carries besides its MCP payload.
-struct McpContext<A> {
-    auth: A,
-    mode: McpMode,
-    headers: http::HeaderMap,
+pub(super) struct McpContext<A> {
+    pub(super) auth: A,
+    pub(super) mode: McpMode,
+    pub(super) headers: http::HeaderMap,
+    /// See `McpScopeConfig::no_endpoints`.
+    pub(super) no_endpoints: bool,
 }
 
 impl<B: McpBackend> Runner<B> {
@@ -128,7 +131,7 @@ impl<B: McpBackend> Runner<B> {
 
     /// Extract authentication, the workspace mode and the HTTP request itself
     /// from the request context
-    fn extract_context(
+    pub(super) fn extract_context(
         context: &RequestContext<RoleServer>,
     ) -> Result<McpContext<B::Auth>, ErrorData> {
         let http_parts = context.extensions.get::<HttpParts>().ok_or_else(|| {
@@ -165,11 +168,29 @@ impl<B: McpBackend> Runner<B> {
                     ErrorData::internal_error("WorkspaceId not found", None)
                 })
                 .map(|w_id| w_id.0.clone())?;
+            // A token without a bound workspace reaches a workspace's own URL too.
+            let scope_config = parse_mcp_scopes(auth.scopes().unwrap_or(&[]))
+                .map_err(|e| ErrorData::internal_error(e, None))?;
+            if !scope_config.allows_workspace(&workspace_id) {
+                return Err(workspace_not_granted(&workspace_id));
+            }
             McpMode::Single(workspace_id)
         };
 
-        Ok(McpContext { auth: auth.clone(), mode, headers: http_parts.headers.clone() })
+        Ok(McpContext {
+            auth: auth.clone(),
+            mode,
+            headers: http_parts.headers.clone(),
+            no_endpoints: http_parts.extensions.get::<NoEndpointTools>().is_some(),
+        })
     }
+}
+
+pub(super) fn workspace_not_granted(workspace_id: &str) -> ErrorData {
+    ErrorData::invalid_params(
+        format!("This token was not granted workspace '{workspace_id}'"),
+        None,
+    )
 }
 
 /// How an endpoint tool interacts with the token's `mcp:scripts:` / `mcp:flows:`
@@ -301,6 +322,9 @@ fn endpoint_tool_in_scope(
     scope_config: &crate::common::scope::McpScopeConfig,
     endpoint_tool: &EndpointTool,
 ) -> bool {
+    if scope_config.no_endpoints {
+        return false;
+    }
     let endpoint_allowed =
         !scope_config.granular || scope_config.is_allowed("endpoint", &endpoint_tool.name);
     match endpoint_path_policy(&endpoint_tool.name) {
@@ -327,6 +351,15 @@ fn authorize_endpoint_call(
     args: &mut Value,
     read_only: bool,
 ) -> Result<(), ErrorData> {
+    if scope_config.no_endpoints {
+        return Err(ErrorData::invalid_params(
+            format!(
+                "Tool '{}' is not available to this token",
+                endpoint_tool.name
+            ),
+            None,
+        ));
+    }
     // A destination the caller omitted, or left empty because it had to fill in every
     // argument, means "leave the item where it is". Resolved to the path the item is
     // already at, so the endpoint receives a body naming its own path rather than one
@@ -558,14 +591,16 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         _request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let McpContext { auth, mode, .. } = Self::extract_context(&context)?;
+        let McpContext { auth, mode, no_endpoints, .. } = Self::extract_context(&context)?;
 
         // Parse MCP scopes to determine what to expose
         let scopes = auth.scopes().unwrap_or(&[]);
-        let scope_config =
+        let mut scope_config =
             parse_mcp_scopes(scopes).map_err(|e| ErrorData::internal_error(e, None))?;
+        scope_config.no_endpoints |= no_endpoints;
 
-        let read_only = auth.read_only();
+        // v1 has no read-and-run access: such a token reads only.
+        let read_only = auth.read_only() || scope_config.read_run || scope_config.read_only;
 
         match mode {
             McpMode::Single(workspace_id) => {
@@ -586,13 +621,14 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        let McpContext { auth, mode, headers } = Self::extract_context(&context)?;
+        let McpContext { auth, mode, headers, no_endpoints } = Self::extract_context(&context)?;
 
         // Parse MCP scopes for authorization
         let scopes = auth.scopes().unwrap_or(&[]);
-        let scope_config =
+        let mut scope_config =
             parse_mcp_scopes(scopes).map_err(|e| ErrorData::internal_error(e, None))?;
-        let read_only = auth.read_only();
+        scope_config.no_endpoints |= no_endpoints;
+        let read_only = auth.read_only() || scope_config.read_run || scope_config.read_only;
 
         let args = request.arguments.map(Value::Object).unwrap_or(Value::Null);
         let mcp_request = McpRequest { headers: &headers, tool_name: request.name.as_ref() };
@@ -1088,11 +1124,12 @@ impl<B: McpBackend> Runner<B> {
         mut args: Value,
     ) -> Result<CallToolResult, ErrorData> {
         if name.as_ref() == "list_workspaces" {
-            let workspaces = self
+            let mut workspaces = self
                 .backend
                 .list_accessible_workspaces(base_auth)
                 .await
                 .map_err(|e| ErrorData::internal_error(e.message, None))?;
+            workspaces.retain(|w| scope_config.allows_workspace(&w.id));
             return Ok(CallToolResult::success(vec![ContentBlock::text(
                 serde_json::to_string_pretty(&workspaces).unwrap_or_else(|_| "[]".to_string()),
             )]));
@@ -1140,6 +1177,9 @@ impl<B: McpBackend> Runner<B> {
                     )
                 })?
                 .to_string();
+            if !scope_config.allows_workspace(&workspace_id) {
+                return Err(workspace_not_granted(&workspace_id));
+            }
 
             let resolved = self
                 .backend
@@ -1278,6 +1318,17 @@ mod tests {
         // mcp:all (non-granular) allows any endpoint.
         assert!(
             authorize_endpoint_call(&cfg(&["mcp:all"]), &get_var, &mut json!({}), false).is_ok()
+        );
+    }
+
+    #[test]
+    fn a_selection_without_endpoints_gets_none() {
+        // The scope withholds them on every URL, as the server does on `/api/mcp`.
+        let selection = cfg(&["mcp:favorites", "mcp:endpoints:*", "mcp:runnables_as_tools"]);
+        assert!(!endpoint_tool_in_scope(&selection, &ep("listJobs", "GET")));
+        assert!(
+            authorize_endpoint_call(&selection, &ep("listJobs", "GET"), &mut json!({}), false)
+                .is_err()
         );
     }
 

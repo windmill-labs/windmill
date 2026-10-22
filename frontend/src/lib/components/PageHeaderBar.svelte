@@ -33,6 +33,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 
 	const content = $derived(pageHeader.content)
 	const actions = $derived(pageHeader.actions)
+	const hasActions = $derived(actions.length > 0)
 
 	const item = $derived(content?.item)
 	const section = $derived(content?.section)
@@ -82,8 +83,8 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 			trail: trailMeasures.trail,
 			summary: BAR_STAGES.map(() => (hasSummary ? GAP + summaryFloorWidth : 0)),
 			actions:
-				actions.length === 0 ? [0] : actionsRigid ? actionWidths : [GAP + FLEXIBLE_ACTIONS_RESERVE],
-			folds: actions.length > 0 && actionsRigid ? (content?.actionFolds ?? 0) : 0,
+				!hasActions ? [0] : actionsRigid ? actionWidths : [GAP + FLEXIBLE_ACTIONS_RESERVE],
+			folds: hasActions && actionsRigid ? (content?.actionFolds ?? 0) : 0,
 			earlyFolds: content?.earlyActionFolds,
 			summaryNamesItem,
 			natural: {
@@ -314,7 +315,7 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 			</div>
 		{/if}
 
-		{#if actions.length > 0}
+		{#if hasActions}
 			<!-- A plain row of buttons holds its width (shrink-0): squeezing it only pushes buttons out
 		     of the bar, so the bar makes room by dropping breadcrumb parts and then by asking the
 		     page to fold (`actionFolds`). Flexible actions (the Runs filter row) are a control that

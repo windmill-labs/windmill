@@ -943,7 +943,7 @@ pub async fn gate_operator_writes(
     let w_id = params.get("workspace_id").ok_or_else(|| {
         Error::internal_err("operator write gate layered outside a workspaced router".to_string())
     })?;
-    check_operator_can_manage(&db, w_id, authed.is_operator, kind).await?;
+    check_operator_can_manage(&db, w_id, &authed, kind).await?;
 
     Ok(next.run(Request::from_parts(parts, body)).await)
 }

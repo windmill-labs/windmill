@@ -101,7 +101,7 @@
 		</Popover>
 	{/if}
 	{#if showFlowAiButton}
-		<OpenInSessionButton source={sessionOpen}>
+		<OpenInSessionButton source={sessionOpen} deferToHeader>
 			{#snippet fallback()}
 				<AIButton
 					label="Open AI chat"
