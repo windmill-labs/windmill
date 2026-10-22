@@ -48,7 +48,7 @@
 	import { getAiChatManager } from './aiChatManagerContext'
 	import ChatTypingIndicator from './ChatTypingIndicator.svelte'
 	import ToolGroupDisplay from './ToolGroupDisplay.svelte'
-	import { chatItemKey, groupToolRuns } from './toolGroups'
+	import { chatItemKey, createChatItemGrouper } from './toolGroups'
 	import AIChatInput from './AIChatInput.svelte'
 	import { STARTER_PLACEHOLDER, type ComposerSelection } from './composerBox'
 	import AttachedFilesBar from './files/AttachedFilesBar.svelte'
@@ -189,7 +189,8 @@
 	const mcpMenu = new McpMenu(aiChatManager, () => assistantSettings?.open('mcp'))
 	let plusMenuOpen = $state(false)
 	let editingMessageIndex = $state<number | null>(null)
-	const chatItems = $derived(groupToolRuns(messages))
+	const groupChatItems = createChatItemGrouper()
+	const chatItems = $derived(groupChatItems(messages))
 
 	// Escape stops the generation when focus is on the chat (or parked on
 	// body), but stays with other widgets (e.g. the session's Monaco editor).
