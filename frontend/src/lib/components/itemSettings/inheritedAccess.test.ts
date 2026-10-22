@@ -55,6 +55,15 @@ describe('accessLostByMove', () => {
 		expect(movesToAnotherOwner('f/sales/sync', 'u/bob/sync')).toBe(true)
 	})
 
+	it('keeps a user whom a group reaching the item after the move covers', () => {
+		const from = inheritedAccess('f/sales/sync', folder('sales', { 'u/bob': true, 'u/eve': true }))
+		const to = inheritedAccess('f/ops/sync', folder('ops', { 'g/ops': false }))
+		expect(accessLostByMove(from, to, {}, { 'g/ops': ['bob'] })).toEqual({
+			lost: ['u/eve'],
+			demoted: ['u/bob']
+		})
+	})
+
 	it('says nothing when a folder could not be read', () => {
 		const from = inheritedAccess('f/sales/sync', undefined)
 		const to = inheritedAccess('u/bob/sync', undefined)

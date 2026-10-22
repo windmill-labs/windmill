@@ -43,15 +43,24 @@ export function ownerLabel(path: string): string {
 
 /** What moving an item to another owner takes away: the users and groups that reach it through
  *  the old owner and through neither the new one nor the item's own members, and the writers left
- *  with a viewer's role. Undefined when either owner's members could not be read. */
+ *  with a viewer's role. `groupMembers` lists the usernames in each group that reaches the item
+ *  after the move, so that a user one of them covers keeps access; a group missing from it counts
+ *  as empty, which can only overstate the loss. Undefined when either owner's members could not be
+ *  read. */
 export function accessLostByMove(
 	from: InheritedAccess | undefined,
 	to: InheritedAccess | undefined,
-	members: Record<string, boolean>
+	members: Record<string, boolean>,
+	groupMembers: Record<string, string[]> = {}
 ): { lost: string[]; demoted: string[] } | undefined {
 	if (!from || !to || from.note !== undefined || to.note !== undefined) return undefined
 	const after = new Map<string, boolean>(to.rows.map((r) => [r.name, r.write]))
 	for (const [name, write] of Object.entries(members)) after.set(name, after.get(name) || write)
+	for (const [name, write] of [...after]) {
+		for (const username of groupMembers[name] ?? []) {
+			after.set(`u/${username}`, after.get(`u/${username}`) || write)
+		}
+	}
 	const lost: string[] = []
 	const demoted: string[] = []
 	for (const row of from.rows) {

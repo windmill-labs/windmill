@@ -9,6 +9,7 @@
 		AppService,
 		FolderService,
 		GranularAclService,
+		GroupService,
 		type AppWithLastVersion,
 		type Folder
 	} from '$lib/gen'
@@ -160,12 +161,26 @@
 					kind: kind as any
 				})
 			])
-			if (read !== moveLossReads) return
-			moveLoss = accessLostByMove(
-				inheritedAccess(from, fromFolder),
-				inheritedAccess(to, toFolder),
-				members
+			const after = inheritedAccess(to, toFolder)
+			const groups = new Set(
+				[...(after?.rows ?? []).map((r) => r.name), ...Object.keys(members)].filter((n) =>
+					n.startsWith('g/')
+				)
 			)
+			const groupMembers: Record<string, string[]> = Object.fromEntries(
+				await Promise.all(
+					[...groups].map(
+						async (g): Promise<[string, string[]]> => [
+							g,
+							await GroupService.getGroup({ workspace: $operatingWorkspace!, name: g.slice(2) })
+								.then((group) => group.members ?? [])
+								.catch(() => [])
+						]
+					)
+				)
+			)
+			if (read !== moveLossReads) return
+			moveLoss = accessLostByMove(inheritedAccess(from, fromFolder), after, members, groupMembers)
 		} catch {
 			if (read === moveLossReads) moveLoss = undefined
 		}
