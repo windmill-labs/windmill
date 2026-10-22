@@ -1,4 +1,12 @@
 <script lang="ts">
+	import DeployOnBehalfOfNote from '$lib/components/itemSettings/DeployOnBehalfOfNote.svelte'
+	import {
+		appDeployAsksOnBehalfOf,
+		deployedPermissionedAs,
+		setDeployedOnBehalfOf
+	} from '$lib/components/itemSettings/onBehalfOf'
+	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
+	import AppDeployDialog from './AppDeployDialog.svelte'
 	import { Drawer, DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
 
@@ -276,6 +284,14 @@
 	let preserveOnDeploy = $derived(
 		(preserveOnBehalfOf ?? !!savedApp?.policy?.on_behalf_of) || undefined
 	)
+	const operatingUser = useOperatingUser()
+	let runsAs = $derived(
+		deployedPermissionedAs(operatingUser.current, policy.on_behalf_of, preserveOnDeploy)
+	)
+	let asksOnBehalfOf = $derived(
+		appDeployAsksOnBehalfOf(newApp, savedApp?.policy?.on_behalf_of, runsAs)
+	)
+	let deployDialogOpen = $state(false)
 
 	// Top-bar responsive collapse — container width, not viewport.
 	let topbarWidth = $state(0)
@@ -301,6 +317,7 @@
 	async function createApp(path: string) {
 		// In place: the settings drawer and the draft mirror hold this object.
 		Object.assign(policy, await updatePolicy($app, policy))
+		setDeployedOnBehalfOf(policy, operatingUser.current, preserveOnDeploy)
 		try {
 			await AppService.createApp({
 				workspace: $workspaceStore!,
@@ -418,6 +435,7 @@
 	async function updateApp(npath: string) {
 		// In place: the settings drawer and the draft mirror hold this object.
 		Object.assign(policy, await updatePolicy($app, policy))
+		setDeployedOnBehalfOf(policy, operatingUser.current, preserveOnDeploy)
 		const deployed = await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: $appPath!,
@@ -492,6 +510,14 @@
 			return
 		}
 		deploymentMsg = message ?? ''
+		if (asksOnBehalfOf) {
+			deployDialogOpen = true
+			return
+		}
+		await deployNow()
+	}
+
+	async function deployNow() {
 		// Use `newApp` (set for /apps/add and draft-only paths), not
 		// `$appPath` — its `draft_{uuid}` is a poor create signal.
 		if (newApp) {
@@ -852,7 +878,27 @@
 	let hasErrors = $derived(Object.keys($errorByComponent).length > 0)
 </script>
 
+{#snippet deployNote()}
+	<DeployOnBehalfOfNote
+		enabled
+		permissionedAs={policy.on_behalf_of}
+		savedPermissionedAs={newApp ? undefined : savedApp?.policy?.on_behalf_of}
+		preserve={preserveOnDeploy}
+	/>
+{/snippet}
+
 <svelte:window onkeydown={onKeyDown} />
+
+<AppDeployDialog
+	bind:open={deployDialogOpen}
+	bind:message={deploymentMsg}
+	{policy}
+	bind:preserveOnBehalfOf
+	savedPolicy={newApp ? undefined : savedApp?.policy}
+	{runsAs}
+	targetWorkspace={$workspaceStore ?? ''}
+	onConfirmed={deployNow}
+/>
 
 <DeployOverrideConfirmationModal
 	{deployedBy}
@@ -1274,6 +1320,7 @@
 		{/if}
 		<DeployButton
 			loadingSave={loading.save}
+			note={deployNote}
 			iconOnly={phoneTopbar}
 			unifiedSize={phoneTopbar ? 'sm' : 'md'}
 			on:save={({ detail }) => deploy(detail)}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import DeployOnBehalfOfNote from '$lib/components/itemSettings/DeployOnBehalfOfNote.svelte'
 	import {
 		FlowService,
 		type Flow,
@@ -1551,6 +1552,15 @@
 	const flowHasChanged = $derived(flowPreviewContent?.flowHasChanged())
 </script>
 
+{#snippet deployNote()}
+	<DeployOnBehalfOfNote
+		enabled={!!flowStore.val.on_behalf_of_email}
+		permissionedAs={flowStore.val.on_behalf_of}
+		savedPermissionedAs={$savedOnBehalfOfPermissionedAs}
+		preserve={($preserveOnBehalfOf ?? !!$savedOnBehalfOfEmail) || undefined}
+	/>
+{/snippet}
+
 <svelte:window onkeydown={onKeyDown} />
 
 {@render children?.()}
@@ -1682,6 +1692,7 @@
 
 						<DeployButton
 							on:save={async ({ detail }) => await handleSaveFlow(detail)}
+							note={deployNote}
 							{loading}
 							{loadingSave}
 							unifiedSize={headerBtnSize}
@@ -1796,6 +1807,7 @@
 
 				<DeployButton
 					on:save={async ({ detail }) => await handleSaveFlow(detail)}
+					note={deployNote}
 					{loading}
 					{loadingSave}
 					unifiedSize={headerBtnSize}

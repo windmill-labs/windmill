@@ -420,7 +420,11 @@
 			summary: backendApp_.summary,
 			value: backendApp_.value as any,
 			path: backendApp_.path,
-			policy: backendApp_.policy,
+			// The deployed policy, not the draft's swapped in above: the header and the settings
+			// measure what a deploy changes against it, the user the app runs on behalf of first.
+			policy: deployedBaseline
+				? structuredClone(stateSnapshot(deployedBaseline.policy))
+				: backendApp_.policy,
 			custom_path: backendApp_.custom_path,
 			labels: backendApp_.labels,
 			no_deployed: backendApp_.no_deployed

@@ -209,7 +209,7 @@ export function getActiveScriptSettingsBadges(
 	return badges
 }
 
-// The active settings of a script's or flow's Access group, in the order the group lists them.
+// The active settings of a script's or flow's Permissions tab, in the order the tab lists them.
 export function getActivePermissionBadges(settings: {
 	on_behalf_of_email?: string
 	job_token_scopes?: string[] | null
@@ -219,7 +219,7 @@ export function getActivePermissionBadges(settings: {
 	if (settings.on_behalf_of_email) {
 		badges.push({
 			key: 'on_behalf_of',
-			label: 'Uses the access of',
+			label: 'Run on behalf of',
 			icon: UserCog,
 			detail: settings.on_behalf_of_email
 		})

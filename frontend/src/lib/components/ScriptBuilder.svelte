@@ -1,4 +1,5 @@
 <script lang="ts">
+	import DeployOnBehalfOfNote from '$lib/components/itemSettings/DeployOnBehalfOfNote.svelte'
 	import {
 		ScriptService,
 		type Script,
@@ -297,6 +298,7 @@
 				[
 					['metadata', customUi?.settingsPanel?.disableMetadata],
 					['runtime', customUi?.settingsPanel?.disableRuntime],
+					['permissions', customUi?.settingsPanel?.disableRuntime],
 					['triggers', customUi?.settingsPanel?.disableTriggers]
 				] as const
 			).find(([, disabled]) => disabled !== true)?.[0]
@@ -1152,7 +1154,7 @@
 	// (empty initialPath) but with a path the AI already picked.
 	let dirtyPath = $state(initialPathChosen)
 
-	let selectedTab: 'metadata' | 'runtime' | 'ui' | 'triggers' = $state(
+	let selectedTab: 'metadata' | 'runtime' | 'permissions' | 'ui' | 'triggers' = $state(
 		(() => {
 			if (customUi?.settingsPanel?.disableMetadata !== true) {
 				// first option: either no custom UI or metadata is enabled
@@ -1343,6 +1345,15 @@
 	}
 </script>
 
+{#snippet deployNote()}
+	<DeployOnBehalfOfNote
+		enabled={!!script.on_behalf_of_email}
+		permissionedAs={script.on_behalf_of}
+		savedPermissionedAs={savedScript?.on_behalf_of}
+		preserve={(preserveOnBehalfOf ?? !!savedScript?.on_behalf_of_email) || undefined}
+	/>
+{/snippet}
+
 <svelte:window onkeydown={onKeyDown} />
 {@render children?.()}
 
@@ -1400,16 +1411,21 @@
 						<Tab
 							value="runtime"
 							aiId="script-builder-runtime"
-							aiDescription="Runtime settings, including whose access runs use (run on behalf of), runs visibility and the job token"
+							aiDescription="Runtime settings"
 							label="Runtime"
 						>
 							{#snippet extra()}
-								<SettingIcons
-									badges={[
-										...getActiveScriptSettingsBadges(script),
-										...getActivePermissionBadges(script)
-									]}
-								/>
+								<SettingIcons badges={getActiveScriptSettingsBadges(script)} />
+							{/snippet}
+						</Tab>
+						<Tab
+							value="permissions"
+							aiId="script-builder-permissions"
+							aiDescription="Permissions settings: run on behalf of, runs visibility, job token"
+							label="Permissions"
+						>
+							{#snippet extra()}
+								<SettingIcons badges={getActivePermissionBadges(script)} />
 							{/snippet}
 						</Tab>
 					{/if}
@@ -1737,32 +1753,32 @@
 								</div>
 							</TabContent>
 							<TabContent value="runtime">
-								<div class="flex flex-col gap-8 p-4 pb-8">
+								<div class="p-4 pb-8">
 									<ScriptRuntimeSettings
 										bind:script
 										tagPlaceholder={customUi?.tagSelectPlaceholder}
 										defaultTimeout={customUi?.defaultTimeout}
 										hideMute={customUi?.settingsPanel?.metadata?.disableMute === true}
 									/>
-									<!-- Kept out of ScriptRuntimeSettings: the flow editor's script drawers reuse it,
-									     and their Save deploys a version with no on-behalf-of plumbing. -->
-									<Section label="Access" class="flex flex-col gap-6">
-										<RunOnBehalfOfSetting
-											kind="script"
-											bind:email={script.on_behalf_of_email}
-											bind:permissionedAs={script.on_behalf_of}
-											bind:preserve={preserveOnBehalfOf}
-											savedEmail={savedScript?.on_behalf_of_email}
-											savedPermissionedAs={savedScript?.on_behalf_of}
-											targetWorkspace={opWorkspace ?? ''}
-											isNew={initialPath == ''}
-										/>
-										<InvisibleRunsSetting
-											kind="script"
-											bind:visibleToRunnerOnly={script.visible_to_runner_only}
-										/>
-										<JobTokenScopesSetting bind:value={script.job_token_scopes} kind="script" />
-									</Section>
+								</div>
+							</TabContent>
+							<TabContent value="permissions">
+								<div class="flex flex-col gap-6 p-4 pb-8">
+									<RunOnBehalfOfSetting
+										kind="script"
+										bind:email={script.on_behalf_of_email}
+										bind:permissionedAs={script.on_behalf_of}
+										bind:preserve={preserveOnBehalfOf}
+										savedEmail={savedScript?.on_behalf_of_email}
+										savedPermissionedAs={savedScript?.on_behalf_of}
+										targetWorkspace={opWorkspace ?? ''}
+										isNew={initialPath == ''}
+									/>
+									<InvisibleRunsSetting
+										kind="script"
+										bind:visibleToRunnerOnly={script.visible_to_runner_only}
+									/>
+									<JobTokenScopesSetting bind:value={script.job_token_scopes} kind="script" />
 								</div>
 							</TabContent>
 							{#if !isDbt}
@@ -2094,6 +2110,7 @@
 				unifiedSize={headerBtnSize}
 				dropdownItems={computeDropdownItems(initialPath, savedScript)}
 				on:save={({ detail }) => handleEditScript(false, detail)}
+				note={deployNote}
 			/>
 		{/snippet}
 

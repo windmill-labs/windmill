@@ -12,7 +12,7 @@
 	import type { Schema } from '$lib/common'
 	import Label from '$lib/components/Label.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import Section from '$lib/components/Section.svelte'
+	import SettingGroup from '$lib/components/itemSettings/SettingGroup.svelte'
 	import MetadataGen from '$lib/components/copilot/MetadataGen.svelte'
 	import LabelsInput from '$lib/components/LabelsInput.svelte'
 	import AIFormSettings from '$lib/components/copilot/AIFormSettings.svelte'
@@ -61,7 +61,7 @@
 		opWorkspace
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
-	type FlowSettingsTab = 'metadata' | 'runtime'
+	type FlowSettingsTab = 'metadata' | 'runtime' | 'permissions'
 
 	// Other panels open the settings on one setting by selecting `settings-<setting>`; the value
 	// is the row's `data-setting`.
@@ -119,11 +119,13 @@
 				<Tab value="runtime" label="Runtime">
 					{#snippet extra()}
 						<SettingIcons
-							badges={[
-								...getActiveScriptSettingsBadges(flowRuntimeFields(flowStore.val)),
-								...getActivePermissionBadges(flowStore.val)
-							]}
+							badges={getActiveScriptSettingsBadges(flowRuntimeFields(flowStore.val))}
 						/>
+					{/snippet}
+				</Tab>
+				<Tab value="permissions" label="Permissions">
+					{#snippet extra()}
+						<SettingIcons badges={getActivePermissionBadges(flowStore.val)} />
 					{/snippet}
 				</Tab>
 
@@ -218,7 +220,7 @@
 						<TabContent value="runtime">
 							<div class="flex flex-col gap-8 p-4 pb-8" {@attach scrollToSelectedRow}>
 								{#if customUi?.settingsTabs?.earlyStop != false || customUi?.settingsTabs?.earlyReturn != false}
-									<Section label="Flow control" class="flex flex-col gap-6">
+									<SettingGroup label="Flow control" class="flex flex-col gap-6">
 										{#if customUi?.settingsTabs?.earlyStop != false}
 											<SettingToggle
 												setting="early-stop"
@@ -300,10 +302,10 @@
 												{/if}
 											</SettingToggle>
 										{/if}
-									</Section>
+									</SettingGroup>
 								{/if}
 
-								<Section label="Execution policy" class="flex flex-col gap-6">
+								<SettingGroup label="Execution policy" class="flex flex-col gap-6">
 									{#if customUi?.settingsTabs?.concurrency != false}
 										<ConcurrencyLimitSetting
 											kind="flow"
@@ -344,9 +346,9 @@
 										kind="flow"
 										bind:muted={flowStore.val.ws_error_handler_muted}
 									/>
-								</Section>
+								</SettingGroup>
 
-								<Section label="Workers" class="flex flex-col gap-6">
+								<SettingGroup label="Workers" class="flex flex-col gap-6">
 									{#if customUi?.settingsTabs?.workerGroup != false}
 										<WorkerTagSetting
 											kind="flow"
@@ -371,25 +373,27 @@
 											hint={conflictingModuleIds.length > 0 ? sameWorkerConflict : undefined}
 										/>
 									{/if}
-								</Section>
+								</SettingGroup>
+							</div>
+						</TabContent>
 
-								<Section label="Access" class="flex flex-col gap-6">
-									<RunOnBehalfOfSetting
-										kind="flow"
-										bind:email={flowStore.val.on_behalf_of_email}
-										bind:permissionedAs={flowStore.val.on_behalf_of}
-										bind:preserve={$preserveOnBehalfOf}
-										savedEmail={$savedOnBehalfOfEmail}
-										savedPermissionedAs={$savedOnBehalfOfPermissionedAs}
-										targetWorkspace={opWorkspace?.() ?? $operatingWorkspace ?? ''}
-										isNew={$initialPathStore == ''}
-									/>
-									<InvisibleRunsSetting
-										kind="flow"
-										bind:visibleToRunnerOnly={flowStore.val.visible_to_runner_only}
-									/>
-									<JobTokenScopesSetting bind:value={flowStore.val.job_token_scopes} kind="flow" />
-								</Section>
+						<TabContent value="permissions">
+							<div class="flex flex-col gap-6 p-4 pb-8">
+								<RunOnBehalfOfSetting
+									kind="flow"
+									bind:email={flowStore.val.on_behalf_of_email}
+									bind:permissionedAs={flowStore.val.on_behalf_of}
+									bind:preserve={$preserveOnBehalfOf}
+									savedEmail={$savedOnBehalfOfEmail}
+									savedPermissionedAs={$savedOnBehalfOfPermissionedAs}
+									targetWorkspace={opWorkspace?.() ?? $operatingWorkspace ?? ''}
+									isNew={$initialPathStore == ''}
+								/>
+								<InvisibleRunsSetting
+									kind="flow"
+									bind:visibleToRunnerOnly={flowStore.val.visible_to_runner_only}
+								/>
+								<JobTokenScopesSetting bind:value={flowStore.val.job_token_scopes} kind="flow" />
 							</div>
 						</TabContent>
 					</div>

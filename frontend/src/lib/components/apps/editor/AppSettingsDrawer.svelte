@@ -1,12 +1,11 @@
 <script lang="ts" module>
-	export type AppSettingsTab = 'metadata' | 'runtime' | 'sharing'
+	export type AppSettingsTab = 'metadata' | 'permissions' | 'sharing'
 </script>
 
 <script lang="ts">
 	import { Alert, Drawer, DrawerContent, Tab, TabContent, Tabs } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Label from '$lib/components/Label.svelte'
-	import Section from '$lib/components/Section.svelte'
 	import { enterpriseLicense, userStore } from '$lib/stores'
 	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
 	import { Loader2 } from 'lucide-svelte'
@@ -25,6 +24,7 @@
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import LabelsInput from '$lib/components/LabelsInput.svelte'
 	import RunOnBehalfOfSetting from '$lib/components/itemSettings/RunOnBehalfOfSetting.svelte'
+	import { appOnBehalfOfTooltip } from '$lib/components/itemSettings/onBehalfOf'
 	import SettingToggle from '$lib/components/itemSettings/SettingToggle.svelte'
 	import { canUserBypassRuleKind, protectionRulesState } from '$lib/workspaceProtectionRules.svelte'
 	import { FRONTEND_SDK_SCOPES, sdkScopesToConfirm } from '$lib/components/raw_apps/sdkScopes'
@@ -260,7 +260,7 @@
 		<div class="flex flex-col h-full">
 			<Tabs bind:selected={tab} wrapperClass="flex-none w-full">
 				<Tab value="metadata" label="Metadata" />
-				<Tab value="runtime" label="Runtime" />
+				<Tab value="permissions" label="Permissions" />
 				<Tab value="sharing" label="Sharing" />
 
 				{#snippet content()}
@@ -324,104 +324,100 @@
 							</div>
 						</TabContent>
 
-						<TabContent value="runtime">
-							<div class="flex flex-col gap-8 p-4 pb-8">
-								<Section label="Access" class="flex flex-col gap-6">
-									<RunOnBehalfOfSetting
-										kind="app"
-										required
-										tooltip={`To keep this safe, the app can call only the runnables it was deployed with, and viewers can't override their static inputs.${rawApp ? " Inline runnables can instead be set to read data tables and object storage with the viewer's own access." : ''} The docs call this “run on behalf of”.`}
-										bind:email={policy.on_behalf_of_email}
-										bind:permissionedAs={policy.on_behalf_of}
-										bind:preserve={preserveOnBehalfOf}
-										savedEmail={savedApp?.policy?.on_behalf_of_email}
-										savedPermissionedAs={savedApp?.policy?.on_behalf_of}
-										targetWorkspace={opWs ?? ''}
-										isNew={newApp}
-									/>
-								</Section>
+						<TabContent value="permissions">
+							<div class="flex flex-col gap-6 p-4 pb-8">
+								<RunOnBehalfOfSetting
+									kind="app"
+									required
+									tooltip={appOnBehalfOfTooltip(rawApp)}
+									bind:email={policy.on_behalf_of_email}
+									bind:permissionedAs={policy.on_behalf_of}
+									bind:preserve={preserveOnBehalfOf}
+									savedEmail={savedApp?.policy?.on_behalf_of_email}
+									savedPermissionedAs={savedApp?.policy?.on_behalf_of}
+									targetWorkspace={opWs ?? ''}
+									isNew={newApp}
+								/>
 
-								<Section label="Isolation" class="flex flex-col gap-6">
-									<SettingToggle
-										setting="sandbox"
-										label="Sandbox isolation"
-										tooltip="Controls what the app's browser-side code can reach in each viewer's browser, separately from who its runnables run as. A sandboxed app gets a narrowly scoped token on every surface, public URL and in-workspace. On by default for new apps. Turn it off only if the app needs IndexedDB, third-party sign-in or OAuth redirects."
-										checked={$operatorBuilderApps || policy.sandbox == true}
-										disabled={$operatorBuilderApps}
-										hint={$operatorBuilderApps || policy.sandbox != true ? sandboxHint : undefined}
-										onchange={(on) => {
-											policy.sandbox = on || undefined
-											// Counted where the toggle is flipped rather than where the policy is
-											// persisted, so a choice made before the first deploy counts too.
-											logFeatureUsage('app_sandbox', 'toggled', {
-												key: `${rawApp ? 'raw' : 'low_code'}:${on ? 'on' : 'off'}`
-											})
-											// Frontend API access exists only for a sandboxed app, so turning
-											// isolation off drops the declared scopes with it rather than leaving
-											// them set but inert.
-											if (!on) {
-												policy.frontend_sdk_scopes = undefined
-											}
-										}}
-									>
-										{#if rawApp}
-											<Label
-												label="Frontend API access"
-												tooltip="Each viewer approves these scopes before the app runs. The app's code, or an XSS bug in it, can use them as that viewer."
-											>
-												<div class="text-xs text-secondary">
-													Let the app's frontend call the Windmill API as <b>the viewer</b> through
-													the
-													<code>windmill-client</code> SDK, which it lists as a dependency. Grant only
-													what the app needs.
-												</div>
-												<div class="flex flex-col gap-2 mt-2">
-													{#each FRONTEND_SDK_SCOPES as scope (scope.value)}
-														<div>
-															<Toggle
-																size="xs"
-																options={{ right: scope.label }}
-																checked={policy.frontend_sdk_scopes?.includes(scope.value) ?? false}
-																on:change={(e) => {
-																	const current: string[] = policy.frontend_sdk_scopes ?? []
-																	const next = e.detail
-																		? [...current, scope.value]
-																		: current.filter((s) => s !== scope.value)
-																	// Keep the curated order so the consent banner and the stored
-																	// consent compare stably across deploys. A leftover implicit scope is
-																	// not in the list, so it drops here rather than keep minting a token
-																	// for an app whose toggles all read off.
-																	const ordered = FRONTEND_SDK_SCOPES.map((s) => s.value).filter(
-																		(s) => next.includes(s)
-																	)
-																	policy.frontend_sdk_scopes =
-																		ordered.length > 0 ? ordered : undefined
-																}}
-															/>
-															<div class="text-2xs text-secondary pl-9">{scope.description}</div>
-														</div>
-													{/each}
-												</div>
-												{#if sdkScopesToConfirm(policy.frontend_sdk_scopes ?? []).length}
-													<div class="mt-2">
-														<Alert
-															type="info"
-															title="Redeploy to use the SDK from a sandboxed app"
+								<SettingToggle
+									setting="sandbox"
+									label="Sandbox isolation"
+									tooltip="Controls what the app's browser-side code can reach in each viewer's browser, separately from who its runnables run as. A sandboxed app gets a narrowly scoped token on every surface, public URL and in-workspace. On by default for new apps. Turn it off only if the app needs IndexedDB, third-party sign-in or OAuth redirects."
+									checked={$operatorBuilderApps || policy.sandbox == true}
+									disabled={$operatorBuilderApps}
+									hint={$operatorBuilderApps || policy.sandbox != true ? sandboxHint : undefined}
+									onchange={(on) => {
+										policy.sandbox = on || undefined
+										// Counted where the toggle is flipped rather than where the policy is
+										// persisted, so a choice made before the first deploy counts too.
+										logFeatureUsage('app_sandbox', 'toggled', {
+											key: `${rawApp ? 'raw' : 'low_code'}:${on ? 'on' : 'off'}`
+										})
+										// Frontend API access exists only for a sandboxed app, so turning
+										// isolation off drops the declared scopes with it rather than leaving
+										// them set but inert.
+										if (!on) {
+											policy.frontend_sdk_scopes = undefined
+										}
+									}}
+								>
+									{#if rawApp}
+										<Label
+											label="Frontend API access"
+											tooltip="Each viewer approves these scopes before the app runs. The app's code, or an XSS bug in it, can use them as that viewer."
+										>
+											<div class="text-xs text-secondary">
+												Let the app's frontend call the Windmill API as <b>the viewer</b> through
+												the
+												<code>windmill-client</code> SDK, which it lists as a dependency. Grant only
+												what the app needs.
+											</div>
+											<div class="flex flex-col gap-2 mt-2">
+												{#each FRONTEND_SDK_SCOPES as scope (scope.value)}
+													<div>
+														<Toggle
 															size="xs"
-														>
-															A sandboxed app calls the API cross-origin, which older <code
-																>windmill-client</code
-															>
-															versions cannot do. An app bundled before this Windmill version fails with
-															a CORS error until you deploy it again, which re-bundles it against a current
-															client.
-														</Alert>
+															options={{ right: scope.label }}
+															checked={policy.frontend_sdk_scopes?.includes(scope.value) ?? false}
+															on:change={(e) => {
+																const current: string[] = policy.frontend_sdk_scopes ?? []
+																const next = e.detail
+																	? [...current, scope.value]
+																	: current.filter((s) => s !== scope.value)
+																// Keep the curated order so the consent banner and the stored
+																// consent compare stably across deploys. A leftover implicit scope is
+																// not in the list, so it drops here rather than keep minting a token
+																// for an app whose toggles all read off.
+																const ordered = FRONTEND_SDK_SCOPES.map((s) => s.value).filter(
+																	(s) => next.includes(s)
+																)
+																policy.frontend_sdk_scopes =
+																	ordered.length > 0 ? ordered : undefined
+															}}
+														/>
+														<div class="text-2xs text-secondary pl-9">{scope.description}</div>
 													</div>
-												{/if}
-											</Label>
-										{/if}
-									</SettingToggle>
-								</Section>
+												{/each}
+											</div>
+											{#if sdkScopesToConfirm(policy.frontend_sdk_scopes ?? []).length}
+												<div class="mt-2">
+													<Alert
+														type="info"
+														title="Redeploy to use the SDK from a sandboxed app"
+														size="xs"
+													>
+														A sandboxed app calls the API cross-origin, which older <code
+															>windmill-client</code
+														>
+														versions cannot do. An app bundled before this Windmill version fails with
+														a CORS error until you deploy it again, which re-bundles it against a current
+														client.
+													</Alert>
+												</div>
+											{/if}
+										</Label>
+									{/if}
+								</SettingToggle>
 							</div>
 						</TabContent>
 

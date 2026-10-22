@@ -1,4 +1,11 @@
 <script lang="ts">
+	import DeployOnBehalfOfNote from '$lib/components/itemSettings/DeployOnBehalfOfNote.svelte'
+	import {
+		appDeployAsksOnBehalfOf,
+		deployedPermissionedAs,
+		setDeployedOnBehalfOf
+	} from '$lib/components/itemSettings/onBehalfOf'
+	import AppDeployDialog from '../apps/editor/AppDeployDialog.svelte'
 	import { Drawer, DrawerContent } from '$lib/components/common'
 	import RawAppRecordSession from '$lib/components/workspaceSettings/RawAppRecordSession.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -261,6 +268,11 @@
 	let preserveOnDeploy = $derived(
 		(preserveOnBehalfOf ?? !!savedApp?.policy?.on_behalf_of) || undefined
 	)
+	let runsAs = $derived(deployedPermissionedAs(actingUser, policy.on_behalf_of, preserveOnDeploy))
+	let asksOnBehalfOf = $derived(
+		appDeployAsksOnBehalfOf(newApp || appPath == '', savedApp?.policy?.on_behalf_of, runsAs)
+	)
+	let deployDialogOpen = $state(false)
 
 	// The AutosaveIndicator watches these; in the sessions preview they're the
 	// session's (workspace, path), else the full-page editor's own values.
@@ -374,6 +386,7 @@
 		if (!policy.execution_mode) {
 			policy.execution_mode = 'publisher'
 		}
+		setDeployedOnBehalfOf(policy, actingUser, preserveOnDeploy)
 		try {
 			const { js, css } = await getBundle()
 			const deployedPolicy = await policyWithTriggerables()
@@ -602,6 +615,7 @@
 		if (!policy.execution_mode) {
 			policy.execution_mode = 'publisher'
 		}
+		setDeployedOnBehalfOf(policy, actingUser, preserveOnDeploy)
 		const deployedPolicy = await policyWithTriggerables()
 		const deployed = await AppService.updateAppRaw({
 			workspace: opWorkspace!,
@@ -676,6 +690,14 @@
 			return
 		}
 		deploymentMsg = message
+		if (asksOnBehalfOf) {
+			deployDialogOpen = true
+			return
+		}
+		await deployNow()
+	}
+
+	async function deployNow() {
 		if (newApp || appPath == '') {
 			await createApp(newEditedPath)
 		} else {
@@ -799,6 +821,27 @@
 
 	let settingsHaveErrors = $derived(pathError != '' || customPathError != '')
 </script>
+
+{#snippet deployNote()}
+	<DeployOnBehalfOfNote
+		enabled
+		permissionedAs={policy.on_behalf_of}
+		savedPermissionedAs={newApp ? undefined : savedApp?.policy?.on_behalf_of}
+		preserve={preserveOnDeploy}
+	/>
+{/snippet}
+
+<AppDeployDialog
+	bind:open={deployDialogOpen}
+	bind:message={() => deploymentMsg ?? '', (v) => (deploymentMsg = v)}
+	{policy}
+	bind:preserveOnBehalfOf
+	savedPolicy={newApp ? undefined : savedApp?.policy}
+	{runsAs}
+	targetWorkspace={opWorkspace ?? ''}
+	rawApp
+	onConfirmed={deployNow}
+/>
 
 <DeployOverrideConfirmationModal
 	{deployedBy}
@@ -1130,6 +1173,7 @@
 	<DeployButton
 		loadingSave={loading.save}
 		loading={app == undefined}
+		note={deployNote}
 		on:save={({ detail }) => deploy(detail)}
 		unifiedSize={headerBtnSize}
 		dropdownItems={appPath != ''
