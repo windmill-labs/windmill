@@ -37869,6 +37869,10 @@ components:
             type: string
         grant_type:
           type: string
+        extra:
+          type: object
+          description: Token response fields the provider's registry entry lists in `token_response_fields`, like Salesforce's `instance_url`
+          additionalProperties: {}
 
       required:
         - access_token

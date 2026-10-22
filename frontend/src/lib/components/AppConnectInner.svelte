@@ -673,6 +673,8 @@
 			value = data.res.access_token!
 			valueToken = data.res
 			responseExtra = data.extra ?? {}
+			// Before step 4, so the `resource_fields` form opens with them prefilled.
+			Object.assign(args, data.res.extra ?? {})
 			fillGeneratedDescription()
 			step = 4
 			// `fillPath` decides the path as surely as express does, so neither stops here.

@@ -92,6 +92,7 @@ pub struct OAuthConfig {
     /// dialog, deliberately not modelled here: `scope_options`, a scope pick
     /// list, `resource_fields`, the fields of the resource type the dialog
     /// asks for once the token is in (Snowflake's database and warehouse),
+    /// `token_response_fields`, read by [`token_response_extra`],
     /// `user_scopes`, Slack's user-token scopes, sent as `user_scope`, and
     /// `user_scope_options`, the pick list offered alongside `user_scopes`.
     pub scopes: Option<Vec<String>>,
@@ -312,7 +313,10 @@ impl std::fmt::Debug for AllClients {
             .field("logins", &self.logins)
             .field("connects", &self.connects)
             .field("slack", &self.slack)
-            .field("slack_signing_secret", &self.slack_signing_secret.as_ref().map(|_| "***"))
+            .field(
+                "slack_signing_secret",
+                &self.slack_signing_secret.as_ref().map(|_| "***"),
+            )
             .finish()
     }
 }
@@ -339,6 +343,10 @@ pub struct TokenResponse {
     #[serde(serialize_with = "helpers::serialize_space_delimited_vec")]
     #[serde(default)]
     pub scope: Option<Vec<Scope>>,
+    /// Fields the provider's registry entry lists in `token_response_fields`, filled by the
+    /// connect callback only: anything else in the response (`id_token`, …) stays server-side.
+    #[serde(default, skip_deserializing, skip_serializing_if = "HashMap::is_empty")]
+    pub extra: HashMap<String, serde_json::Value>,
 }
 
 /// Slack team info from OAuth v2 response
@@ -902,6 +910,29 @@ pub fn parse_token_response(
     })
 }
 
+/// The top-level fields of a token response that the registry entry of `client_name`
+/// (sandbox suffix stripped) lists in `token_response_fields`, like Salesforce's
+/// `instance_url`. Read from the registry, not an instance connect_config: which fields
+/// a provider returns is a property of the provider.
+pub fn token_response_extra(
+    connect_configs_json: &str,
+    client_name: &str,
+    token_json: &serde_json::Value,
+) -> HashMap<String, serde_json::Value> {
+    let registry = serde_json::from_str::<serde_json::Value>(connect_configs_json).ok();
+    let fields = registry
+        .as_ref()
+        .and_then(|r| r.get(canonical_provider_name(client_name)))
+        .and_then(|e| e.get("token_response_fields"))
+        .and_then(|f| f.as_array());
+    fields
+        .into_iter()
+        .flatten()
+        .filter_map(|f| f.as_str())
+        .filter_map(|f| token_json.get(f).map(|v| (f.to_string(), v.clone())))
+        .collect()
+}
+
 /// Pre-fetched account fields needed for token refresh.
 pub struct OAuthAccountInfo {
     pub client: String,
@@ -1222,6 +1253,27 @@ mod tests {
             registry.get("sage_intacct").unwrap().req_body_auth,
             Some(true)
         );
+    }
+
+    #[test]
+    fn token_response_extra_keeps_only_registry_fields() {
+        let registry = include_str!("../../oauth_connect.json");
+        let token = serde_json::json!({
+            "access_token": "t",
+            "instance_url": "https://acme.my.salesforce.com",
+            "id_token": "secret",
+            "signature": "sig",
+        });
+        let want = HashMap::from([(
+            "instance_url".to_string(),
+            serde_json::json!("https://acme.my.salesforce.com"),
+        )]);
+        assert_eq!(token_response_extra(registry, "salesforce", &token), want);
+        assert_eq!(
+            token_response_extra(registry, "salesforce_sandbox", &token),
+            want
+        );
+        assert!(token_response_extra(registry, "github", &token).is_empty());
     }
 
     #[test]
