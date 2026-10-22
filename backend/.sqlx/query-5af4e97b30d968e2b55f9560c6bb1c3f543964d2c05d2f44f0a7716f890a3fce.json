@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n             (SELECT created_by FROM resource WHERE workspace_id = $1 AND path = $2) AS \"owner?\",\n             EXISTS(SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2)\n               OR EXISTS(SELECT 1 FROM variable WHERE workspace_id = $1 AND path = $2) AS \"taken!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "owner?",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "taken!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "5af4e97b30d968e2b55f9560c6bb1c3f543964d2c05d2f44f0a7716f890a3fce"
+}

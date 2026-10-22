@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE native_trigger SET connection_path = REGEXP_REPLACE(connection_path, 'u/' || $2 || '/(.*)', $1 || '/\\1') WHERE connection_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c17ac5cf890831ede0811263a0f35e8cb2fe4df224e2ab633a1e69c4bcfa6cd1"
+}
