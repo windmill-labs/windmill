@@ -474,7 +474,7 @@ pub async fn get_secret_value_as_admin(
 
 /// Plaintext of a secret variable's stored `value`, read from the external secret backend when it
 /// holds a reference to one. Bypasses variable permissions: callers MUST have authorized the
-/// reader before the plaintext, or anything derived from it, reaches them.
+/// reader before returning the plaintext to them.
 pub async fn decrypt_secret_value(
     db: &DB,
     w_id: &str,

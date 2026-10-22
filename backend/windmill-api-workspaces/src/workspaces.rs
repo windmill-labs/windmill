@@ -76,7 +76,9 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Row, Transaction};
 use windmill_common::oauth2::InstanceEvent;
-use windmill_common::secret_backend::{get_secret_backend, is_vault_backend_configured};
+use windmill_common::secret_backend::{
+    get_secret_backend, is_external_stored_value, is_vault_backend_configured,
+};
 use windmill_common::utils::not_found_if_none;
 
 lazy_static::lazy_static! {
@@ -14526,9 +14528,12 @@ async fn compare_two_variables(
     if let (Some(source), Some(target)) = (&source_variable, &target_variable) {
         if source.is_secret != target.is_secret || source.description != target.description {
             has_changes = true;
-        } else if source.value != target.value {
+        } else if source.value != target.value
+            || (source.is_secret && is_external_stored_value(&source.value))
+        {
             // A secret's ciphertext is randomized on every write, so equal secrets are compared
-            // by plaintext, each decrypted with its own workspace's key.
+            // by plaintext, each decrypted with its own workspace's key. An external backend
+            // reference is the same text on both sides but names a per-workspace entry.
             has_changes = !source.is_secret
                 || !matches!(
                     tokio::try_join!(
