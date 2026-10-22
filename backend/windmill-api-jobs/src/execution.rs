@@ -933,8 +933,7 @@ pub async fn handle_chat_conversation_messages(
 }
 
 /// [`handle_chat_conversation_messages`] for a conversation owned by `owner`, which need not be a
-/// user: an anonymous app visitor's is owned by a name no username can take, so nobody lists or
-/// continues it but through its id.
+/// user: an anonymous app visitor's is owned by `ANONYMOUS_CONVERSATION_OWNER`.
 pub async fn file_chat_turn(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     owner: &str,
