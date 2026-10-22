@@ -5193,6 +5193,10 @@ async fn execute_component(
                     run_path,
                     &format!("anonymous:{memory_id}"),
                 );
+                windmill_common::flow_conversations::refuse_running_memory_turn(
+                    &mut tx, &w_id, key, uuid,
+                )
+                .await?;
                 crate::jobs::set_flow_memory_id(&mut tx, uuid, key).await?;
             }
         }
