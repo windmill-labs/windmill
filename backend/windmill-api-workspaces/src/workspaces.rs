@@ -14372,6 +14372,12 @@ async fn compare_two_apps(
     });
 }
 
+// Resources and resource types can be stored with a NULL description, but deploy writes "",
+// so the two must compare equal or the item never settles after a deploy.
+fn description_differs(a: &Option<String>, b: &Option<String>) -> bool {
+    a.as_deref().unwrap_or("") != b.as_deref().unwrap_or("")
+}
+
 async fn compare_two_resources(
     db: &DB,
     source_workspace_id: &str,
@@ -14440,7 +14446,7 @@ async fn compare_two_resources(
             source.value != target.value
         };
         if values_differ
-            || source.description != target.description
+            || description_differs(&source.description, &target.description)
             || source.resource_type != target.resource_type
         {
             has_changes = true;
@@ -14568,7 +14574,7 @@ async fn compare_two_resource_types(
     // Check metadata differences
     if let (Some(source), Some(target)) = (&source_resource_type, &target_resource_type) {
         if source.schema != target.schema
-            || source.description != target.description
+            || description_differs(&source.description, &target.description)
             || source.format_extension != target.format_extension
             || source.is_fileset != target.is_fileset
         {
