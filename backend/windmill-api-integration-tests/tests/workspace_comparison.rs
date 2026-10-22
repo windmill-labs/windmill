@@ -2571,6 +2571,15 @@ async fn test_rename_records_the_vacated_path(db: Pool<Postgres>) -> anyhow::Res
     Ok(())
 }
 
+/// Runs its closure when dropped, so process-wide state is put back even when an assertion
+/// fails.
+struct OnDrop<F: FnMut()>(F);
+impl<F: FnMut()> Drop for OnDrop<F> {
+    fn drop(&mut self) {
+        (self.0)()
+    }
+}
+
 /// Secrets are encrypted with a fresh nonce on every write, so a secret holding the same value on
 /// both sides must compare by plaintext, not ciphertext.
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
@@ -2602,6 +2611,7 @@ async fn test_compare_secret_variables_by_value(db: Pool<Postgres>) -> anyhow::R
     // Secrets are written in CBC, which is deterministic, until every worker reads AES-GCM.
     use windmill_common::min_version::{MIN_VERSION, MIN_VERSION_SUPPORTS_AEAD_SECRETS};
     let before = MIN_VERSION.load_full();
+    let _restore = OnDrop(move || MIN_VERSION.store(before.clone()));
     MIN_VERSION.store(std::sync::Arc::new(
         MIN_VERSION_SUPPORTS_AEAD_SECRETS.version().clone(),
     ));
@@ -2620,7 +2630,6 @@ async fn test_compare_secret_variables_by_value(db: Pool<Postgres>) -> anyhow::R
             .await?;
         assert_eq!(resp.status(), 201, "{}", resp.text().await?);
     }
-    MIN_VERSION.store(before);
     let stored = sqlx::query_scalar!(
         "SELECT COUNT(DISTINCT value) FROM variable WHERE path = 'u/test-user/same'"
     )
