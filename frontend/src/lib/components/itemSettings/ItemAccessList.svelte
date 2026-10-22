@@ -256,7 +256,7 @@
 	bind:clientHeight={
 		null,
 		(h) => {
-			if (!query) fullHeight = h
+			if (!query) fullHeight = h ?? 0
 		}
 	}
 >

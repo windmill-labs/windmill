@@ -233,6 +233,8 @@ vi.mock('$lib/gen', async () => {
 			getAppByVersion: vi.fn(async () => {
 				throw new Error('getAppByVersion mock not configured')
 			}),
+			// A row without an access mode, so a deploy keeps the drafted one.
+			getAppLiteByPath: vi.fn(async () => ({ policy: {} }) as any),
 			listApps: vi.fn(async () => [])
 		}),
 		ResourceService: wrapService(actual.ResourceService, {
@@ -4593,6 +4595,11 @@ describe('global AI tools', () => {
 		)
 
 		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
+		// Who can open a deployed app is set from the Share dialog: the deployed mode stands over
+		// the drafted one.
+		vi.mocked(AppService.getAppLiteByPath).mockResolvedValueOnce({
+			policy: { execution_mode: 'publisher' }
+		} as any)
 
 		await callGlobalTool('deploy_workspace_item', {
 			type: 'app',
@@ -4611,7 +4618,7 @@ describe('global AI tools', () => {
 						data: { tables: ['orders'] }
 					},
 					summary: 'Updated report',
-					policy: expect.objectContaining({ execution_mode: 'anonymous' }),
+					policy: expect.objectContaining({ execution_mode: 'publisher' }),
 					deployment_message: undefined
 				},
 				js: 'bundled js',
