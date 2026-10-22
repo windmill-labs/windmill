@@ -213,8 +213,8 @@ async fn load_app(ctx: &Ctx<'_>, path: &str) -> Result<Loaded, String> {
     Ok(Loaded { value: app_source_to_draft_value(&app, Some(&app)), last_sync })
 }
 
-/// Whether the caller is an operator the workspace lets compose apps out of deployed
-/// runnables. They can save no inline runnable.
+/// Whether the caller's role composes apps out of deployed runnables. They can save no inline
+/// runnable.
 async fn builds_apps(ctx: &Ctx<'_>) -> bool {
     if !ctx.auth.is_operator {
         return false;
@@ -226,12 +226,12 @@ async fn builds_apps(ctx: &Ctx<'_>) -> bool {
         .get("workspaces")
         .and_then(Value::as_array)
         .and_then(|list| list.iter().find(|w| text_of(w, "id") == Some(ctx.w_id)))
-        .and_then(|w| w.get("operator_settings"))
-        .and_then(|s| s.get("builder_apps"))
-        == Some(&Value::Bool(true))
+        .and_then(|w| w.get("capabilities"))
+        .and_then(|c| text_of(c, "apps"))
+        == Some("compose")
 }
 
-/// What the backend requires of a draft from an operator with builder rights: sandboxed,
+/// What the backend requires of a draft from a role that composes apps: sandboxed,
 /// never in viewer mode, and running as nobody but its builder.
 async fn conform_builder_policy(ctx: &Ctx<'_>, value: &mut Value) {
     if !builds_apps(ctx).await {
@@ -279,8 +279,10 @@ async fn save_app(
             put(
                 &mut out,
                 "preview_url",
-                ctx.link(&format!("/apps_raw/edit/{path}?view=preview&nomenubar=true"))
-                    .map(Value::from),
+                ctx.link(&format!(
+                    "/apps_raw/edit/{path}?view=preview&nomenubar=true"
+                ))
+                .map(Value::from),
             );
             if let Some(warning) = warning {
                 out.insert("warning".into(), json!(warning));
@@ -479,7 +481,10 @@ async fn init_app(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let message = format!(
         "Initialized a per-user draft app \"{path}\" from the {framework} template (saved server-side, not a deployed workspace item). {start} Use write_app_file / write_app_runnable to evolve it.{data_note}{open_preview}"
     );
-    ctx.status_after_save(format!("Saved app \"{path}\" draft ({framework})"), Some("Saved as draft"));
+    ctx.status_after_save(
+        format!("Saved app \"{path}\" draft ({framework})"),
+        Some("Saved as draft"),
+    );
     save_app(ctx, path, value, None, message, None).await
 }
 
@@ -743,7 +748,10 @@ async fn write_app_file(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         .unwrap_or_default()
         .to_string();
     ctx.file_diff(&before, content, &file_path, &file_path);
-    ctx.status_after_save(format!("Updated {file_path} in app \"{path}\""), Some("Saved as draft"));
+    ctx.status_after_save(
+        format!("Updated {file_path} in app \"{path}\""),
+        Some("Saved as draft"),
+    );
     object_mut(&mut value, "files").insert(file_path.clone(), json!(content));
     let message = format!("Updated draft app \"{path}\" with frontend file \"{file_path}\".");
     save_app(ctx, path, value, last_sync.as_deref(), message, None).await
@@ -768,7 +776,10 @@ async fn delete_app_file(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         &file_path,
         &file_path,
     );
-    ctx.status_after_save(format!("Removed {file_path} from app \"{path}\""), Some("Saved as draft"));
+    ctx.status_after_save(
+        format!("Removed {file_path} from app \"{path}\""),
+        Some("Saved as draft"),
+    );
     let message = format!("Removed \"{file_path}\" from draft app \"{path}\".");
     save_app(ctx, path, value, last_sync.as_deref(), message, None).await
 }
@@ -813,7 +824,10 @@ async fn patch_app_file(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
             object_mut(&mut value, "runnables").insert(key.clone(), runnable);
         }
     }
-    ctx.status_after_save(format!("Patched {} in app \"{path}\"", target.file_path()), Some("Saved as draft"));
+    ctx.status_after_save(
+        format!("Patched {} in app \"{path}\"", target.file_path()),
+        Some("Saved as draft"),
+    );
     let message = format!(
         "Patched \"{}\" in draft app \"{path}\".",
         target.file_path()
@@ -961,7 +975,10 @@ async fn write_app_runnable(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let existing = value.get("runnables").and_then(|r| r.get(key));
     let persisted = build_persisted_runnable(input, existing)?;
     runnable_diff(ctx, key, existing, Some(&persisted));
-    ctx.status_after_save(format!("Updated runnable \"{key}\" in app \"{path}\""), Some("Saved as draft"));
+    ctx.status_after_save(
+        format!("Updated runnable \"{key}\" in app \"{path}\""),
+        Some("Saved as draft"),
+    );
     let warning = match path_target_deployed(ctx, &persisted).await {
         Some(false) => Some(format!(
             "This runnable points at an item that is NOT deployed (\"{key}\" → {} \"{}\"), so it fails at runtime — a path runnable runs the deployed item, never a draft. Offer to deploy just that item with deploy_workspace_item; the app itself does not need deploying, since the preview runs its draft.",
@@ -986,7 +1003,10 @@ async fn delete_app_runnable(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         ));
     };
     runnable_diff(ctx, key, Some(&removed), None);
-    ctx.status_after_save(format!("Removed runnable \"{key}\" from app \"{path}\""), Some("Saved as draft"));
+    ctx.status_after_save(
+        format!("Removed runnable \"{key}\" from app \"{path}\""),
+        Some("Saved as draft"),
+    );
     recompute_policy(&mut value);
     let message = format!("Removed runnable \"{key}\" from draft app \"{path}\".");
     save_app(ctx, path, value, last_sync.as_deref(), message, None).await
@@ -1129,21 +1149,41 @@ async fn resolve_app_runnable(ctx: &Ctx<'_>, path: &str, key: &str) -> Result<Re
 async fn test_run_app_runnable(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
     let path = str_arg(args, "path")?;
     let key = str_arg(args, "key")?;
-    run_tool(ctx, args, resolve_app_runnable(ctx, path, key), async |resolved: Resolved| {
-        let run_args = args.get("args").and_then(Value::as_object).cloned().unwrap_or_default();
-        let id = start_run(ctx, &resolved.target, run_args, &[])
+    run_tool(
+        ctx,
+        args,
+        resolve_app_runnable(ctx, path, key),
+        async |resolved: Resolved| {
+            let run_args = args
+                .get("args")
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default();
+            let id = start_run(ctx, &resolved.target, run_args, &[])
+                .await
+                .map_err(|message| {
+                    let message = if js_len(&message) > MAX_TOOL_ERROR_LENGTH {
+                        format!(
+                            "{}... (truncated)",
+                            js_head(&message, MAX_TOOL_ERROR_LENGTH)
+                        )
+                    } else {
+                        message
+                    };
+                    format!("Failed to execute test run: {message}")
+                })?;
+            let label = format!("{path} / {key}");
+            finish_run(
+                ctx,
+                Ok(id),
+                &label,
+                resolved.runnable_kind == "flow",
+                "test",
+                args,
+            )
             .await
-            .map_err(|message| {
-                let message = if js_len(&message) > MAX_TOOL_ERROR_LENGTH {
-                    format!("{}... (truncated)", js_head(&message, MAX_TOOL_ERROR_LENGTH))
-                } else {
-                    message
-                };
-                format!("Failed to execute test run: {message}")
-            })?;
-        let label = format!("{path} / {key}");
-        finish_run(ctx, Ok(id), &label, resolved.runnable_kind == "flow", "test", args).await
-    })
+        },
+    )
     .await
 }
 

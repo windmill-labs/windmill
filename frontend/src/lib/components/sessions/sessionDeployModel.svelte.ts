@@ -1,7 +1,6 @@
 import { getDraftItems, type DraftItem } from '$lib/workspaceDrafts.svelte'
-import { get } from 'svelte/store'
-import { userWorkspaces } from '$lib/stores'
 import { roleCanAuthor } from '$lib/editRights'
+import { capabilitiesInWorkspace } from '$lib/operatorWriteRights'
 import {
 	checkDeployPermission,
 	checkDeployRules,
@@ -232,8 +231,8 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	// button disables with a reason instead of failing on click. `ok` defaults
 	// true while resolving (fail-open).
 	let deployPerm = $state<DeployPermission>({ ok: true })
-	// `checkDeployPermission` refuses every operator, but flows.rs and apps.rs let one with the
-	// workspace's matching builder right deploy that kind, under the rules alone.
+	// `checkDeployPermission` refuses every role that cannot code, but flows.rs and apps.rs let one
+	// that composes that kind deploy it, under the rules alone.
 	let builder = $state<{ perm: DeployPermission; kinds: Kind[] } | undefined>(undefined)
 	let deployPermFetchedFor = ''
 	$effect(() => {
@@ -248,10 +247,8 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 			void checkDeployPermission(ws).then(async (perm) => {
 				if (deployPermFetchedFor !== ws) return
 				deployPerm = perm
-				const settings = get(userWorkspaces).find((w) => w.id === ws)?.operator_settings
-				const kinds = (['flow', 'raw_app'] as const).filter((k) =>
-					roleCanAuthor(k, { operator: true }, settings)
-				)
+				const caps = capabilitiesInWorkspace(ws)
+				const kinds = (['flow', 'raw_app'] as const).filter((k) => roleCanAuthor(k, caps))
 				if (perm.refusedBy === 'operator' && kinds.length) {
 					const rules = await checkDeployRules(ws)
 					if (deployPermFetchedFor === ws) builder = { perm: rules, kinds }
@@ -261,8 +258,9 @@ export function useSessionDeployModel(getArgs: () => SessionDeployModelArgs) {
 	})
 
 	function permissionFor(kind: Kind): DeployPermission {
-		if (builder?.kinds.includes(kind)) return deployPermissionForKind(builder.perm, kind)
-		return deployPermissionForKind(deployPerm, kind)
+		const caps = capabilitiesInWorkspace(getArgs().workspaceId)
+		if (builder?.kinds.includes(kind)) return deployPermissionForKind(builder.perm, kind, caps)
+		return deployPermissionForKind(deployPerm, kind, caps)
 	}
 
 	// ── Deploy execution ─────────────────────────────────────────────────────

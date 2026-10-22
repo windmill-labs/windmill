@@ -4,11 +4,11 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import type { HubProjectPick } from '$lib/hubProject'
 	import { disableHubStore } from '$lib/stores'
-	import { useOperatorBuilderRights } from '$lib/operatorWriteRights'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import CreateActionsMenu from './CreateActionsMenu.svelte'
 	import HubTemplatePicker from './HubTemplatePicker.svelte'
 
-	const operatorBuilderRights = useOperatorBuilderRights()
+	const roleCaps = useRoleCapabilities()
 
 	interface Props {
 		/** A project was chosen here. The list owns the import dialog, and opens it on this. */
@@ -38,8 +38,8 @@
 	// `border-light`; only the container outline steps up, so nothing outweighs its frame.
 	const rowOpacities = [1, 0.7, 0.4]
 
-	// A builder gets no hub template: a hub project brings scripts and apps along.
-	const showHub = $derived(!$disableHubStore && !$operatorBuilderRights)
+	// A hub project brings scripts and apps along, which only a role with code may deploy.
+	const showHub = $derived(!$disableHubStore && $roleCaps.code)
 
 	// The inline "create a new one" link is the anchor for the very same New menu the
 	// toolbar button opens, so the menu pops next to the words that promised it.
@@ -57,7 +57,7 @@
 </script>
 
 <div
-	class="rounded-md border-[1.5px] border-dashed border-border-normal/60 bg-surface"
+	class="rounded-md border-[1.5px] border-dashed border-border-normal/60"
 	role="status"
 	aria-label={archivedOnly ? 'Everything here is archived' : 'Your workspace is empty'}
 >

@@ -509,7 +509,7 @@ async fn fetch_authed_from_permissioned_as_inner(
     let member = match permissioned_as.split_once('/') {
         Some(("u", name)) => {
             sqlx::query!(
-                "SELECT is_admin, operator, email FROM usr where username = $1 AND \
+                "SELECT is_admin, operator, workspace_role, email FROM usr where username = $1 AND \
                                          workspace_id = $2 AND disabled = false",
                 name,
                 &w_id
@@ -552,7 +552,14 @@ async fn fetch_authed_from_permissioned_as_inner(
             let (is_admin, is_operator) = if is_super_admin {
                 (true, false)
             } else if let Some(m) = member.as_ref() {
-                (m.is_admin, m.operator)
+                let restricted = crate::roles::member_is_restricted(
+                    &mut *conn,
+                    w_id,
+                    m.workspace_role.clone(),
+                    m.operator,
+                )
+                .await?;
+                (m.is_admin, restricted && !m.is_admin)
             } else {
                 return Err(Error::NotFound(format!(
                     "user {name} not found in workspace {w_id}"

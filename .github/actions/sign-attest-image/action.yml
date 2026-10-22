@@ -46,7 +46,15 @@ runs:
       env:
         IMAGE: ${{ inputs.image }}
         DIGEST: ${{ inputs.digest }}
-      run: cosign sign --yes --recursive "${IMAGE}@${DIGEST}"
+      # Fulcio and Rekor return transient 5xx often enough to fail a release;
+      # re-signing the same digest only adds a signature, so retrying is safe.
+      run: |
+        for attempt in 1 2 3 4 5; do
+          cosign sign --yes --recursive "${IMAGE}@${DIGEST}" && exit 0
+          echo "::warning::cosign sign failed (attempt $attempt/5)"
+          [ "$attempt" -lt 5 ] && sleep $((attempt * 30))
+        done
+        exit 1
 
     - name: SLSA provenance (GitHub artifact attestation)
       uses: actions/attest-build-provenance@v4

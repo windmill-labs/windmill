@@ -10,6 +10,7 @@
 	import HideButton from '$lib/components/apps/editor/settingsPanel/HideButton.svelte'
 	import { SUPPORTED_CHAT_SCRIPT_LANGUAGES } from './script/core'
 	import { copilotInfo } from '$lib/aiStore'
+	import type { ComposerSelection } from './composerBox'
 
 	let {
 		hideHeader = false,
@@ -18,9 +19,16 @@
 		forceDisabledMessage = '',
 		wideLayout = false,
 		emptyHint,
+		starter = undefined,
+		viewTransitionNames = false,
+		onSent = undefined,
 		inputPreface,
+		actingOn,
 		initialInstructions = undefined,
-		onDraftChange = undefined
+		onDraftChange = undefined,
+		initialAttachments = undefined,
+		onAttachmentsChange = undefined,
+		placeholder = undefined
 	}: {
 		hideHeader?: boolean
 		hideModeSelector?: boolean
@@ -35,10 +43,19 @@
 		// in; the narrow global-chat panel leaves it off.
 		wideLayout?: boolean
 		emptyHint?: import('svelte').Snippet
+		starter?: import('./starter/starterPrompts.svelte').ChatStarter
+		viewTransitionNames?: boolean
+		onSent?: () => void
 		inputPreface?: import('svelte').Snippet
-		// Seed / observe the composer's draft text (forwarded to AIChatDisplay).
+		/** Forwarded to AIChatDisplay: where the session acts, first among the controls. */
+		actingOn?: import('svelte').Snippet
+		// Seed / observe the composer's draft (forwarded to AIChatDisplay).
 		initialInstructions?: string
 		onDraftChange?: (text: string) => void
+		initialAttachments?: import('./messageDraft.svelte').DraftAttachments
+		onAttachmentsChange?: (attachments: import('./messageDraft.svelte').DraftAttachments) => void
+		/** Composer placeholder for the first message. Falls back to the per-AI-mode wording. */
+		placeholder?: string
 	} = $props()
 
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
@@ -106,8 +123,12 @@
 		aiChatManager.sendRequest(options)
 	}
 
-	export function focusInput() {
-		aiChatDisplay?.focusInput()
+	export function focusInput(selection?: ComposerSelection) {
+		aiChatDisplay?.focusInput(selection)
+	}
+
+	export async function attachContext(element: import('./context').ContextElement) {
+		await aiChatDisplay?.attachContext(element)
 	}
 
 	const historyManager = aiChatManager.historyManager
@@ -198,7 +219,14 @@
 	{hideModeSelector}
 	{wideLayout}
 	{emptyHint}
+	{starter}
+	{viewTransitionNames}
+	{onSent}
 	{inputPreface}
+	{actingOn}
 	{initialInstructions}
 	{onDraftChange}
+	{initialAttachments}
+	{onAttachmentsChange}
+	{placeholder}
 ></AIChatDisplay>

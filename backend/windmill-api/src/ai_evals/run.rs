@@ -561,7 +561,7 @@ pub async fn run_experiment(
 ) -> Result<String> {
     check_scopes(&authed, || "jobs:run".to_string())?;
     // A write, not a read: it persists an experiment into the dataset.
-    require_dataset_writable(&authed, &user_db, &w_id, &payload.dataset).await?;
+    require_dataset_writable(&authed, &db, &user_db, &w_id, &payload.dataset).await?;
 
     let mut subject = payload.subject;
     let draft = validate_subject(&subject)?;

@@ -41,6 +41,9 @@ Open-source platform for internal tools, workflows, API integrations, background
   for an inline app runnable that opts in), why an admin's roles are not added, the per-role-set
   logins and the order their rows and logins are written in
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow
+- **Workspace roles**: `docs/workspace-roles.md` — instance-defined roles with per-workspace
+  overrides, the capabilities a role holds, why `ApiAuthed::is_operator` must be derived from the
+  role, and the `role_seat` table billing reads
 - **Operator write rights**: `docs/operator-write-rights.md` — which `operator_settings` flags are
   enforced rather than cosmetic, and why a right that is granted-unless-withdrawn needs `Option`
   fields and a jsonb merge rather than a serde default

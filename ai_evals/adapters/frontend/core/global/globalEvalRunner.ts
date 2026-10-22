@@ -11,6 +11,10 @@ import {
   listGlobalDrafts,
 } from "../../../../../frontend/src/lib/components/copilot/chat/global/userDraftAdapter";
 import { capabilitiesForRole } from "../../../../../frontend/src/lib/components/copilot/chat/global/sessionAccess";
+import {
+  FULL_CAPABILITIES,
+  legacyOperatorCapabilities,
+} from "../../../../../frontend/src/lib/roleCapabilities";
 import { filterSessionTools } from "../../../../../frontend/src/lib/components/copilot/chat/global/sessionToolset";
 import { usersWorkspaceStore } from "../../../../../frontend/src/lib/stores";
 import { resolveResourceTypeSync } from "../../../../../frontend/src/lib/components/copilot/chat/script/core";
@@ -162,9 +166,12 @@ export async function runGlobalEval(
     options.profile &&
     capabilitiesForRole({
       isAdmin: false,
-      operator: options.profile.operator,
       deployRulesPass: true,
-      operatorSettings: options.profile.operatorSettings as OperatorSettings,
+      capabilities: options.profile.operator
+        ? legacyOperatorCapabilities(
+            options.profile.operatorSettings as OperatorSettings,
+          )
+        : FULL_CAPABILITIES,
     });
   seedOperatorSettings(workspaceRoot, options.profile);
   // Declared out here only so `finally` can reach it; a malformed fixture throws while
@@ -371,6 +378,10 @@ function seedOperatorSettings(
         username: "",
         color: "",
         operator_settings: operatorSettings as OperatorSettings,
+        role: "operator",
+        capabilities: legacyOperatorCapabilities(
+          operatorSettings as OperatorSettings,
+        ),
         is_dev_workspace: false,
         disabled: false,
       });
