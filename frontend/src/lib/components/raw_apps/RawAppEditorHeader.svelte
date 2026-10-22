@@ -3,6 +3,7 @@
 	import {
 		appDeployAsksOnBehalfOf,
 		deployedPermissionedAs,
+		preserveOnBehalfOfOnDeploy,
 		setDeployedOnBehalfOf
 	} from '$lib/components/itemSettings/onBehalfOf'
 	import AppDeployDialog from '../apps/editor/AppDeployDialog.svelte'
@@ -140,6 +141,9 @@
 		newPath?: string
 		/** Initial labels for the app, threaded from the loaded app data. */
 		labels?: string[]
+		/** Initial custom path, the draft's over the deployed one; `null` for none. Undefined falls
+		 *  back to `savedApp`'s, which is the deployed one. */
+		customPath?: string | null
 		appPath: string
 		/** "Open in AI session" hand-off, owned by the editor (it persists the
 		 * draft the session preview loads). Undefined until the app has a path. */
@@ -227,6 +231,7 @@
 		newApp,
 		newPath = '',
 		labels: initialLabels = undefined,
+		customPath: initialCustomPath = undefined,
 		appPath,
 		sessionOpen,
 		runnables,
@@ -260,13 +265,10 @@
 		onSavedNewAppPath
 	}: Props = $props()
 
-	// Set by the on-behalf-of selector. Undefined until a user is picked there, and then a
-	// redeploy keeps the deployed identity: the settings may never be opened, and without the
-	// flag the backend runs the app as the deployer. It ignores the flag for a deployer who may
-	// not preserve.
+	// Set by the on-behalf-of selector.
 	let preserveOnBehalfOf: boolean | undefined = $state(undefined)
 	let preserveOnDeploy = $derived(
-		(preserveOnBehalfOf ?? !!savedApp?.policy?.on_behalf_of) || undefined
+		preserveOnBehalfOfOnDeploy(preserveOnBehalfOf, !!savedApp?.policy?.on_behalf_of)
 	)
 	let runsAs = $derived(deployedPermissionedAs(actingUser, policy.on_behalf_of, preserveOnDeploy))
 	let asksOnBehalfOf = $derived(
@@ -340,6 +342,7 @@
 
 	let settingsOpen = $state(false)
 	let settingsTab: AppSettingsTab = $state('metadata')
+	let deployRefused = $state(false)
 	let historyBrowserDrawerOpen = $state(false)
 	let recordDrawer = $state<Drawer | undefined>(undefined)
 	let deploymentMsg: string | undefined = $state(undefined)
@@ -686,6 +689,7 @@
 	async function deploy(message?: string) {
 		if (app == undefined) return
 		if (pathError != '' || customPathError != '') {
+			deployRefused = true
 			openSettings(pathError != '' ? 'metadata' : 'sharing')
 			return
 		}
@@ -798,7 +802,11 @@
 		}
 	])
 
-	let customPath = $state(savedApp?.custom_path)
+	let customPath = $state(
+		untrack(() =>
+			initialCustomPath !== undefined ? (initialCustomPath ?? undefined) : savedApp?.custom_path
+		)
+	)
 	let customPathError = $state('')
 	let labels = $state(untrack(() => initialLabels))
 
@@ -871,6 +879,7 @@
 	bind:newEditedPath
 	bind:preserveOnBehalfOf
 	bind:labels
+	showErrors={deployRefused}
 />
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">

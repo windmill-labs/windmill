@@ -1,5 +1,6 @@
 <script lang="ts">
 	import DeployOnBehalfOfNote from '$lib/components/itemSettings/DeployOnBehalfOfNote.svelte'
+	import { preserveOnBehalfOfOnDeploy } from '$lib/components/itemSettings/onBehalfOf'
 	import {
 		ScriptService,
 		type Script,
@@ -267,10 +268,10 @@
 	let args: Record<string, any> = $state(untrack(() => initialArgs)) // Test args input
 	let selectedInputTab: 'main' | 'preprocessor' | 'diagram' = $state('main')
 	let hasPreprocessor = $state(false)
-	// Undefined until a user is picked in the settings, and then a redeploy keeps the deployed
-	// identity: the settings may never be opened, and without the flag the backend runs the
-	// script as the deployer. It ignores the flag for a deployer who may not preserve.
 	let preserveOnBehalfOf: boolean | undefined = $state(undefined)
+	let preserveOnDeploy = $derived(
+		preserveOnBehalfOfOnDeploy(preserveOnBehalfOf, !!savedScript?.on_behalf_of_email)
+	)
 
 	let metadataOpen = $state(
 		!untrack(() => neverShowMeta) &&
@@ -809,8 +810,7 @@
 					deployment_message: deploymentMsg || undefined,
 					on_behalf_of_email: script.on_behalf_of_email,
 					on_behalf_of: script.on_behalf_of,
-					preserve_on_behalf_of:
-						(preserveOnBehalfOf ?? !!savedScript?.on_behalf_of_email) || undefined,
+					preserve_on_behalf_of: preserveOnDeploy,
 					assets: script.assets,
 					modules: script.modules,
 					labels: script.labels,
@@ -1350,7 +1350,7 @@
 		enabled={!!script.on_behalf_of_email}
 		permissionedAs={script.on_behalf_of}
 		savedPermissionedAs={savedScript?.on_behalf_of}
-		preserve={(preserveOnBehalfOf ?? !!savedScript?.on_behalf_of_email) || undefined}
+		preserve={preserveOnDeploy}
 	/>
 {/snippet}
 

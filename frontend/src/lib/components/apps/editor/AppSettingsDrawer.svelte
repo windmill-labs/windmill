@@ -55,7 +55,8 @@
 		labels = $bindable(),
 		rawApp = false,
 		newApp = false,
-		operatingWorkspace = undefined
+		operatingWorkspace = undefined,
+		showErrors = false
 	}: {
 		open: boolean
 		tab: AppSettingsTab
@@ -83,6 +84,8 @@
 		/** Workspace the app is deployed to. The secret-URL / custom-path / folder /
 		 *  on-behalf-of lookups target it; defaults to the operating workspace. */
 		operatingWorkspace?: string
+		/** A deploy was refused over these errors: show them before the fields are edited. */
+		showErrors?: boolean
 	} = $props()
 
 	const opWs = $derived(operatingWorkspace ?? $operatingWorkspaceStore)
@@ -619,9 +622,9 @@
 												}
 											}}
 											bind:value={customPath}
-											error={dirtyCustomPath ? customPathError : undefined}
+											error={dirtyCustomPath || showErrors ? customPathError : undefined}
 										/>
-										{#if dirtyCustomPath && customPathError}
+										{#if (dirtyCustomPath || showErrors) && customPathError}
 											<div class="text-2xs text-red-600 dark:text-red-400">{customPathError}</div>
 										{/if}
 									</Label>

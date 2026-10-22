@@ -3,6 +3,7 @@
 	import {
 		appDeployAsksOnBehalfOf,
 		deployedPermissionedAs,
+		preserveOnBehalfOfOnDeploy,
 		setDeployedOnBehalfOf
 	} from '$lib/components/itemSettings/onBehalfOf'
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
@@ -272,17 +273,15 @@
 
 	let settingsOpen = $state(false)
 	let settingsTab: AppSettingsTab = $state('metadata')
+	let deployRefused = $state(false)
 	let inputsDrawerOpen = $state(untrack(() => fromHub))
 	let historyBrowserDrawerOpen = $state(false)
 	let debugAppDrawerOpen = $state(false)
 	let lazyDrawerOpen = $state(false)
 	let deploymentMsg = $state('')
-	// Undefined until a user is picked in the settings, and then a redeploy keeps the deployed
-	// identity: the settings may never be opened, and without the flag the backend runs the app as
-	// the deployer. It ignores the flag for a deployer who may not preserve.
 	let preserveOnBehalfOf: boolean | undefined = $state(undefined)
 	let preserveOnDeploy = $derived(
-		(preserveOnBehalfOf ?? !!savedApp?.policy?.on_behalf_of) || undefined
+		preserveOnBehalfOfOnDeploy(preserveOnBehalfOf, !!savedApp?.policy?.on_behalf_of)
 	)
 	const operatingUser = useOperatingUser()
 	let runsAs = $derived(
@@ -308,7 +307,8 @@
 
 	// The draft-only fields mirrored onto `$app` (fork base, staged path, summary and settings)
 	// are columns of the app row or editor state. Deployed inside the value, they would land in
-	// git-synced files and version diffs, `parent_version` changing on every deploy.
+	// git-synced files and version diffs, `parent_version` changing on every deploy; exported,
+	// they would hand out the publisher's email and the custom URL.
 	function withoutDraftBase<T extends App | undefined>(a: T): T {
 		if (!a) return a
 		return classicAppDraftParts(a).value as T
@@ -506,6 +506,7 @@
 
 	async function deploy(message?: string) {
 		if (pathError != '' || customPathError != '') {
+			deployRefused = true
 			openSettings(pathError != '' ? 'metadata' : 'sharing')
 			return
 		}
@@ -736,7 +737,7 @@
 			displayName: 'Export',
 			icon: FileJson,
 			action: () => {
-				appExport?.open($app)
+				appExport?.open(withoutDraftBase($app))
 			}
 		},
 		{
@@ -824,7 +825,7 @@
 			displayName: 'Hub export',
 			icon: FileUp,
 			action: () => {
-				appExport?.open(toStatic($app, $staticExporter, $summary).app)
+				appExport?.open(toStatic(withoutDraftBase($app), $staticExporter, $summary).app)
 			}
 		}
 	]) as Item[]
@@ -949,6 +950,7 @@
 	bind:newEditedPath
 	bind:preserveOnBehalfOf
 	bind:labels
+	showErrors={deployRefused}
 />
 
 <Drawer bind:open={inputsDrawerOpen} size="600px">

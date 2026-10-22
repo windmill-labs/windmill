@@ -9224,6 +9224,7 @@ async function deployDraft(
 								value: rawAppValue,
 								summary,
 								policy,
+								labels: appValue.labels,
 								deployment_message: deploymentMessage,
 								// Preserve the policy's on_behalf_of: this chat deploy path has no
 								// on-behalf-of selector, so without the flag the backend resets it to
@@ -9245,6 +9246,7 @@ async function deployDraft(
 								policy,
 								deployment_message: deploymentMessage,
 								custom_path: appValue.custom_path ?? undefined,
+								labels: appValue.labels,
 								// Preserve the policy's on_behalf_of (see update branch above).
 								preserve_on_behalf_of: policy.on_behalf_of ? true : undefined
 							},

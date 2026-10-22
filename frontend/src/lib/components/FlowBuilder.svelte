@@ -1,5 +1,6 @@
 <script lang="ts">
 	import DeployOnBehalfOfNote from '$lib/components/itemSettings/DeployOnBehalfOfNote.svelte'
+	import { preserveOnBehalfOfOnDeploy } from '$lib/components/itemSettings/onBehalfOf'
 	import {
 		FlowService,
 		type Flow,
@@ -193,13 +194,12 @@
 
 	let initialPathStore = writable(initialPath)
 
-	// For preserve_on_behalf_of feature. Undefined until a user is picked in the settings, and
-	// then a redeploy keeps the deployed identity: the settings may never be opened, and without
-	// the flag the backend runs the flow as the deployer. It ignores the flag for a deployer who
-	// may not preserve.
 	let preserveOnBehalfOf = writable<boolean | undefined>(undefined)
 	let savedOnBehalfOfEmail = writable<string | undefined>(savedFlow?.on_behalf_of_email)
 	let savedOnBehalfOfPermissionedAs = writable<string | undefined>(savedFlow?.on_behalf_of)
+	const preserveOnDeploy = $derived(
+		preserveOnBehalfOfOnDeploy($preserveOnBehalfOf, !!$savedOnBehalfOfEmail)
+	)
 
 	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously
 	$effect(() => {
@@ -662,7 +662,7 @@
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
 						on_behalf_of: flow.on_behalf_of,
-						preserve_on_behalf_of: ($preserveOnBehalfOf ?? !!$savedOnBehalfOfEmail) || undefined,
+						preserve_on_behalf_of: preserveOnDeploy,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels,
 						// Sent explicitly: an omitted field keeps the deployed value.
@@ -716,7 +716,7 @@
 						visible_to_runner_only: flow.visible_to_runner_only,
 						on_behalf_of_email: flow.on_behalf_of_email,
 						on_behalf_of: flow.on_behalf_of,
-						preserve_on_behalf_of: ($preserveOnBehalfOf ?? !!$savedOnBehalfOfEmail) || undefined,
+						preserve_on_behalf_of: preserveOnDeploy,
 						deployment_message: deploymentMsg || undefined,
 						labels: (flow as any).labels,
 						// Sent explicitly: an omitted field keeps the deployed value.
@@ -1557,7 +1557,7 @@
 		enabled={!!flowStore.val.on_behalf_of_email}
 		permissionedAs={flowStore.val.on_behalf_of}
 		savedPermissionedAs={$savedOnBehalfOfPermissionedAs}
-		preserve={($preserveOnBehalfOf ?? !!$savedOnBehalfOfEmail) || undefined}
+		preserve={preserveOnDeploy}
 	/>
 {/snippet}
 

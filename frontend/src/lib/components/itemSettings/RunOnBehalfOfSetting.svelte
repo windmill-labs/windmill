@@ -8,7 +8,12 @@
 	import { useOperatingUser } from '$lib/components/operatingWorkspace.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
 	import SettingToggle from './SettingToggle.svelte'
-	import { canPreserveOnBehalfOf, deployedPermissionedAs, WM_DEPLOYERS_GROUP } from './onBehalfOf'
+	import {
+		canPreserveOnBehalfOf,
+		deployedPermissionedAs,
+		preserveOnBehalfOfOnDeploy,
+		WM_DEPLOYERS_GROUP
+	} from './onBehalfOf'
 	const DOCS_LINK =
 		'https://www.windmill.dev/docs/core_concepts/roles_and_permissions#run-on-behalf-of'
 
@@ -83,13 +88,12 @@
 
 	let enabled = $derived(required || !!email)
 	let chosenUser = $derived(permissionedAs ?? email ?? 'the chosen user')
-	// An unset `preserve` keeps the deployed identity, as the hosts send it.
 	let deployPermissionedAs = $derived(
 		enabled
 			? deployedPermissionedAs(
 					actingUser,
 					permissionedAs,
-					preserve ?? !!(savedPermissionedAs || savedEmail)
+					preserveOnBehalfOfOnDeploy(preserve, !!(savedPermissionedAs || savedEmail))
 				)
 			: undefined
 	)

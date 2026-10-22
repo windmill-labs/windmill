@@ -66,6 +66,8 @@
 	let policy: any = $state({})
 	let summary = $state('')
 	let labels = $state<string[] | undefined>(undefined)
+	/** The custom path the editor opens with, the draft's over the deployed one; `null` for none. */
+	let customPath = $state<string | null | undefined>(undefined)
 	/** User-typed path from `RawAppEditorHeader` when it differs from
 	 *  `savedApp.path`; mirrored into the draft below as `draft_path` for the
 	 *  home list's friendly name. */
@@ -136,9 +138,7 @@
 			data,
 			summary,
 			policy,
-			custom_path: pendingDraftSettings
-				? pendingDraftSettings.custom_path
-				: (savedApp?.custom_path ?? null),
+			custom_path: pendingDraftSettings ? pendingDraftSettings.custom_path : (customPath ?? null),
 			labels: pendingDraftSettings ? pendingDraftSettings.labels : (labels ?? []),
 			parent_version: parentVersion,
 			// Persist the typed path as `draft_path` only when it actually differs
@@ -162,6 +162,7 @@
 		files = app.value.files
 		summary = app.summary
 		labels = app.labels
+		customPath = app.custom_path ?? null
 		// lastVersion = app.version
 		policy = app.policy
 		// Prefer the saved `draft_path` so the topbar shows the pending name, not
@@ -218,10 +219,11 @@
 			draftBaseVersion = undefined
 			deployedHeadVersion = undefined
 			deployedBy = undefined
-			// `labels` is route-level state; reset it too so a fresh draft doesn't
-			// inherit (and then deploy) the previously-opened app's labels. The
-			// import branch re-seeds it via extractRawApp below.
+			// `labels` and `customPath` are route-level state; reset them too so a fresh draft
+			// doesn't inherit (and then deploy) the previously-opened app's. The import branch
+			// re-seeds them via extractRawApp below.
 			labels = undefined
+			customPath = null
 			// Brand-new raw app: no deployed baseline, so never discard-on-equal.
 			deployedBaseline = undefined
 			// Suspend autosave across the bootstrap: the seed template and the
@@ -420,12 +422,12 @@
 			summary: backendApp_.summary,
 			value: backendApp_.value as any,
 			path: backendApp_.path,
-			// The deployed policy, not the draft's swapped in above: the header and the settings
-			// measure what a deploy changes against it, the user the app runs on behalf of first.
+			// The deployed policy and custom path, not the draft's swapped in above: the header and
+			// the settings measure what a deploy changes against them.
 			policy: deployedBaseline
 				? structuredClone(stateSnapshot(deployedBaseline.policy))
 				: backendApp_.policy,
-			custom_path: backendApp_.custom_path,
+			custom_path: deployedBaseline?.custom_path ?? undefined,
 			labels: backendApp_.labels,
 			no_deployed: backendApp_.no_deployed
 		}
@@ -472,7 +474,7 @@
 						data,
 						summary,
 						policy,
-						custom_path: savedApp?.custom_path ?? null,
+						custom_path: customPath ?? null,
 						labels: labels ?? [],
 						parent_version: parentVersion,
 						...(pendingDraftPath ? { draft_path: pendingDraftPath } : {})
@@ -680,6 +682,7 @@
 				bind:pendingDraftSettings
 				{newPath}
 				{labels}
+				{customPath}
 				path={page.params.path ?? ''}
 				liveEditorDraftStoragePath={path}
 				{policy}
