@@ -53,6 +53,7 @@
 	import ResourcePathHint from './ResourcePathHint.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import type { NativeConnect } from './triggers/native/utils'
 
 	const operatingWorkspace = useOperatingWorkspace()
 
@@ -73,6 +74,11 @@
 		 * Opt-in: without it this flow still refuses to write over anything.
 		 */
 		fillPath?: string
+		/**
+		 * Connect a native trigger account: only the path is asked, and `connect` runs the
+		 * popup through the trigger service's OAuth app, whose callback saves the connection.
+		 */
+		native?: NativeConnect
 	}
 
 	let {
@@ -83,7 +89,8 @@
 		manual = $bindable(true),
 		express = false,
 		workspace = undefined,
-		fillPath = undefined
+		fillPath = undefined,
+		native = undefined
 	}: Props = $props()
 
 	let effectiveWorkspace = $derived(workspace ?? $operatingWorkspace!)
@@ -419,6 +426,13 @@
 	let pathError = $state('')
 
 	export async function open(rt?: string) {
+		if (native) {
+			resourceType = rt ?? ''
+			manual = false
+			path = ''
+			step = 4
+			return
+		}
 		if (!rt) {
 			loadResourceTypes()
 			loadPopularity()
@@ -507,7 +521,7 @@
 	// authorize endpoint counts; `google` itself is a login provider, not a registry entry.
 	run(() => {
 		isGoogleSignin =
-			step == 2 &&
+			(step == 2 || (!!native && step == 4)) &&
 			!manual &&
 			(resourceType == 'google' ||
 				(registryEntryFor(resourceType)?.auth_url?.startsWith('https://accounts.google.com/') ??
@@ -532,7 +546,7 @@
 							clientSecret.trim() == '' ||
 							(!!ccInstanceMeta && ccInstance.trim() == '')))) ||
 			step == 3 ||
-			(step == 4 && pathError != '') ||
+			(step == 4 && (pathError != '' || (!!native && !path))) ||
 			!isValid
 	})
 
@@ -729,6 +743,16 @@
 		}
 	}
 	export async function next() {
+		if (native) {
+			step = 3
+			try {
+				await native.connect(path)
+				dispatch('close')
+			} catch {
+				step = 4
+			}
+			return
+		}
 		if (step == 1) {
 			linkedSecrets = []
 			// Both branches: the OAuth one fills `resourceFields` into the same map, and fields
@@ -939,9 +963,9 @@
 				args['realmId'] = responseExtra['realmId']
 			}
 
-			let account: number | undefined = undefined
+			let accountData: any = undefined
 			if (valueToken?.expires_in != undefined) {
-				const accountData: any = {
+				accountData = {
 					refresh_token: valueToken.refresh_token ?? '',
 					expires_in: valueToken.expires_in,
 					client: connectClient,
@@ -970,13 +994,6 @@
 						accountData.cc_token_url = tokenUrl.trim()
 					}
 				}
-
-				account = Number(
-					await OauthService.createAccount({
-						workspace: effectiveWorkspace,
-						requestBody: accountData
-					})
-				)
 			}
 
 			// A copy: the form is still mounted and bound to `args` across the awaits below, and
@@ -995,21 +1012,27 @@
 				// OAuth flow: single secret variable for the token
 				if (typeof value == 'string' && value != '' && !value.startsWith('$var:')) {
 					savedVariableCount++
-					await VariableService.createVariable({
-						workspace: effectiveWorkspace,
-						requestBody: {
-							path,
-							value: value,
-							is_secret: true,
-							description: emptyString(description)
-								? `OAuth token for ${resourceType}`
-								: description,
-							is_oauth: true,
-							account: account,
-							ws_specific: wsSpecific
-						}
-					})
-					resourceValue['token'] = `$var:${path}`
+					const tokenVariable = {
+						path,
+						value: value,
+						is_secret: true,
+						description: emptyString(description) ? `OAuth token for ${resourceType}` : description,
+						is_oauth: true,
+						ws_specific: wsSpecific
+					}
+					if (accountData) {
+						// Creates the variable with the account it refreshes through, in one transaction.
+						await OauthService.createAccount({
+							workspace: effectiveWorkspace,
+							requestBody: { ...accountData, variable: tokenVariable }
+						})
+					} else {
+						await VariableService.createVariable({
+							workspace: effectiveWorkspace,
+							requestBody: tokenVariable
+						})
+					}
+					resourceValue['token'] = `$var:${tokenVariable.path}`
 				}
 			} else if (linkedSecrets.length === 1) {
 				// Single secret: use the resource path as variable name (original behavior)
@@ -1654,47 +1677,56 @@
 		<Label label="Path">
 			<Path
 				initialPath=""
-				namePlaceholder={defaultName}
+				namePlaceholder={native?.defaultName ?? defaultName}
+				fullNamePlaceholder={native?.defaultName}
 				bind:error={pathError}
 				bind:path
 				kind="resource"
 			/>
 		</Label>
-		<LabelsInput bind:labels class="-mt-5" />
-		{#if deployTo}
-			<Label
-				label="Workspace specific"
-				tooltip="Prevents this resource from being deployed to prod/staging"
-			>
-				<Toggle bind:checked={wsSpecific} />
-			</Label>
-		{/if}
-		<!-- Not for express or `fillPath`, which save as soon as the token arrives: the fields
+		{#if native}
+			<p class="text-xs text-secondary">
+				The account is saved as a resource and its token as a variable at this path. Anyone who can
+				read them can create triggers that act as this account.
+			</p>
+		{:else}
+			<LabelsInput bind:labels class="-mt-5" />
+			{#if deployTo}
+				<Label
+					label="Workspace specific"
+					tooltip="Prevents this resource from being deployed to prod/staging"
+				>
+					<Toggle bind:checked={wsSpecific} />
+				</Label>
+			{/if}
+			<!-- Not for express or `fillPath`, which save as soon as the token arrives: the fields
 		     are then filled by editing the resource. -->
-		{#if step == 4 && !manual && !express && !fillPath && resourceFields.length > 0}
-			<Label
-				label="Connection details"
-				tooltip="Saved on the resource with the token, and editable later"
-				class="mt-6"
-			>
-				<SchemaForm onlyMaskPassword noDelete schema={resourceFieldsSchema} bind:args />
-			</Label>
-		{/if}
-		{#if apiTokenApps[resourceType] || !manual}
-			<ul class="mt-6">
-				<li class="text-xs text-primary font-normal">
-					1. A secret variable containing the {apiTokenApps[resourceType]?.linkedSecret ?? 'token'}
-					<span class="font-semibold text-emphasis">{truncateRev(value, 5, '*****')}</span>
-					will be stored a
-					<span class="font-mono whitespace-nowrap text-emphasis">{path}</span>.
-				</li>
-				<li class="mt-2 text-xs text-primary font-normal">
-					2. The resource containing that token will be stored at the same path <span
-						class="font-mono whitespace-nowrap text-emphasis">{path}</span
-					>. The Variable and Resource will be "linked together", they will be deleted and renamed
-					together.
-				</li></ul
-			>
+			{#if step == 4 && !manual && !express && !fillPath && resourceFields.length > 0}
+				<Label
+					label="Connection details"
+					tooltip="Saved on the resource with the token, and editable later"
+					class="mt-6"
+				>
+					<SchemaForm onlyMaskPassword noDelete schema={resourceFieldsSchema} bind:args />
+				</Label>
+			{/if}
+			{#if apiTokenApps[resourceType] || !manual}
+				<ul class="mt-6">
+					<li class="text-xs text-primary font-normal">
+						1. A secret variable containing the {apiTokenApps[resourceType]?.linkedSecret ??
+							'token'}
+						<span class="font-semibold text-emphasis">{truncateRev(value, 5, '*****')}</span>
+						will be stored a
+						<span class="font-mono whitespace-nowrap text-emphasis">{path}</span>.
+					</li>
+					<li class="mt-2 text-xs text-primary font-normal">
+						2. The resource containing that token will be stored at the same path <span
+							class="font-mono whitespace-nowrap text-emphasis">{path}</span
+						>. The Variable and Resource will be "linked together", they will be deleted and renamed
+						together.
+					</li></ul
+				>
+			{/if}
 		{/if}
 	{/if}
 {/if}

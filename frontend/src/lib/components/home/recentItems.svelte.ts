@@ -1,3 +1,4 @@
+import { untrack } from 'svelte'
 import { onUserChange, scopedKey } from '$lib/userScopedStorage'
 
 export type RecentKind = 'script' | 'flow' | 'app' | 'raw_app' | 'agent'
@@ -6,9 +7,16 @@ export type RecentItem = {
 	kind: RecentKind
 	path: string
 	summary?: string
-	/** Epoch ms of the last time the item was opened in its editor. */
+	/** Epoch ms of the last time the item was opened, in its editor or on its own page. */
 	at: number
+	/** How it was last opened: in its editor, or on its page to run or use it. Items stored
+	 * before views were recorded have none, and were all edits. */
+	via?: RecentVia
 }
+
+export type RecentVia = 'edit' | 'view'
+
+type RecordedItem = Omit<RecentItem, 'at' | 'via'> & { via: RecentVia }
 
 const MAX_ITEMS = 30
 export const MAX_AGE_DAYS = 7
@@ -49,9 +57,14 @@ function write(workspace: string, items: RecentItem[]): void {
 class RecentItems {
 	// Bumped on every write and on the user resolving, so readers re-read storage.
 	#version = $state(0)
+	// `++` reads the counter too: bumped from an effect (a page recording its visit), the effect
+	// would depend on it and re-run on its own write, forever.
+	#bump() {
+		untrack(() => this.#version++)
+	}
 	// A page opened by a cold load can finish loading before the user's email resolves, and the
 	// storage key needs it; those visits wait here instead of being dropped.
-	#pending: { workspace: string; item: Omit<RecentItem, 'at'> }[] = []
+	#pending: { workspace: string; item: RecordedItem }[] = []
 
 	constructor() {
 		onUserChange((email) => {
@@ -60,7 +73,7 @@ class RecentItems {
 				this.#pending = []
 				for (const p of pending) this.record(p.workspace, p.item)
 			}
-			this.#version++
+			this.#bump()
 		})
 	}
 
@@ -70,7 +83,7 @@ class RecentItems {
 	}
 
 	/** Records an item as just opened. A missing summary keeps the one already stored. */
-	record(workspace: string, item: Omit<RecentItem, 'at'>): void {
+	record(workspace: string, item: RecordedItem): void {
 		if (!workspace || !item.path) return
 		if (!storageKey(workspace)) {
 			this.#pending.push({ workspace, item })
@@ -84,7 +97,7 @@ class RecentItems {
 			at: Date.now()
 		}
 		write(workspace, [next, ...previous.filter((x) => x !== existing)].slice(0, MAX_ITEMS))
-		this.#version++
+		this.#bump()
 	}
 
 	forget(workspace: string, kind: RecentKind, path: string): void {
@@ -92,7 +105,7 @@ class RecentItems {
 			workspace,
 			read(workspace).filter((x) => !(x.kind === kind && x.path === path))
 		)
-		this.#version++
+		this.#bump()
 	}
 }
 

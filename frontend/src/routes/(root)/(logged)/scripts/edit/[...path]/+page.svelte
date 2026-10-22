@@ -317,7 +317,8 @@
 				recentItems.record($workspaceStore!, {
 					kind: 'script',
 					path: backendScript.path,
-					summary: backendScript.summary
+					summary: backendScript.summary,
+					via: 'edit'
 				})
 			}
 			// The editor re-infers the schema as soon as it mounts, so a baseline

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.845.0
+  version: 1.846.1
   title: Windmill API
 
   contact:
@@ -4824,6 +4824,10 @@ paths:
                     type: string
                     nullable: true
                     description: Masked with *** if set
+                  slack_signing_secret:
+                    type: string
+                    nullable: true
+                    description: Masked with *** if set
     post:
       summary: set workspace slack oauth config
       operationId: setWorkspaceSlackOauthConfig
@@ -4860,6 +4864,33 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/slack_signing_secret:
+    post:
+      summary: set the signing secret of the workspace's own slack app
+      operationId: setWorkspaceSlackSigningSecret
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: The Slack app's signing secret, null or empty to remove it
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                slack_signing_secret:
+                  type: string
+                  nullable: true
       responses:
         "200":
           description: status
@@ -8863,6 +8894,9 @@ paths:
                   items:
                     type: string
                   description: "OAuth scopes to use for token refresh. Overrides instance-level scopes."
+                variable:
+                  $ref: "#/components/schemas/CreateVariable"
+                  description: "The variable holding this account's access token. It is created with the account, in one transaction and with the same checks as createVariable, and linked to it so it refreshes through it."
               required:
                 - refresh_token
                 - expires_in
@@ -17073,6 +17107,12 @@ paths:
                 user_attachments:
                   type: array
                   items: {}
+                previous_messages:
+                  description: |
+                    The history to answer from, as chat messages, when the agent's memory is off.
+                    An agent with managed memory reads its conversation instead and ignores this.
+                  type: array
+                  items: {}
       responses:
         "201":
           description: job created
@@ -21068,12 +21108,22 @@ paths:
           schema:
             $ref: "#/components/schemas/NativeServiceName"
       requestBody:
-        description: redirect_uri
+        description: >-
+          redirect_uri, and where to save the connection (defaults to
+          u/{caller}/native_{resource_type}). Uses the workspace OAuth client, or the instance
+          one when the instance shares it.
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/RedirectUri"
+              type: object
+              properties:
+                redirect_uri:
+                  type: string
+                resource_path:
+                  type: string
+              required:
+                - redirect_uri
       responses:
         "200":
           description: native trigger service connect url
@@ -21103,10 +21153,59 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/native_triggers/integrations/{service_name}/generate_instance_connect_url:
+  /w/{workspace}/native_triggers/integrations/{service_name}/connections:
+    get:
+      summary: list the native trigger connections of a service the caller can use
+      operationId: listNativeTriggerConnections
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      responses:
+        "200":
+          description: connections
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NativeTriggerConnection"
+
+  /w/{workspace}/native_triggers/integrations/{service_name}/connections/delete:
+    delete:
+      summary: disconnect a native trigger connection and delete the triggers using it
+      operationId: deleteNativeTriggerConnection
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: connection deleted
+          content:
+            application/json:
+              schema:
+                type: string
+
+  /w/{workspace}/native_triggers/integrations/{service_name}/workspace_connection:
     post:
-      summary: generate connect url using instance-level credentials
-      operationId: generateInstanceConnectUrl
+      summary: share a connection of this service with every member of the workspace (admin only), or stop sharing
+      operationId: setNativeTriggerWorkspaceConnection
       tags:
         - workspace_integration
       parameters:
@@ -21117,15 +21216,19 @@ paths:
           schema:
             $ref: "#/components/schemas/NativeServiceName"
       requestBody:
-        description: redirect_uri
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/RedirectUri"
+              type: object
+              properties:
+                path:
+                  type: string
+                  nullable: true
+                  description: The connection to share, or null to stop sharing
       responses:
         "200":
-          description: authorization URL using instance credentials
+          description: workspace connection updated
           content:
             application/json:
               schema:
@@ -21179,17 +21282,15 @@ paths:
                   type: string
                 redirect_uri:
                   type: string
-                resource_path:
-                  type: string
               required:
                 - code
                 - state
                 - redirect_uri
       responses:
         "200":
-          description: native trigger service oauth completed
+          description: path of the saved connection
           content:
-            text/plain:
+            application/json:
               schema:
                 type: string
 
@@ -21464,6 +21565,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: connection_path
+          in: query
+          description: Connection to browse through; defaults to the caller's only usable one
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: list of available NextCloud events
@@ -21486,6 +21593,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: connection_path
+          in: query
+          description: Connection to browse through; defaults to the caller's only usable one
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: list of Google Calendars
@@ -21506,6 +21619,12 @@ paths:
         - name: workspace
           in: path
           required: true
+          schema:
+            type: string
+        - name: connection_path
+          in: query
+          description: Connection to browse through; defaults to the caller's only usable one
+          required: false
           schema:
             type: string
         - name: q
@@ -21549,6 +21668,12 @@ paths:
           required: true
           schema:
             type: string
+        - name: connection_path
+          in: query
+          description: Connection to browse through; defaults to the caller's only usable one
+          required: false
+          schema:
+            type: string
       responses:
         "200":
           description: list of shared drives
@@ -21569,6 +21694,12 @@ paths:
         - name: workspace
           in: path
           required: true
+          schema:
+            type: string
+        - name: connection_path
+          in: query
+          description: Connection to browse through; defaults to the caller's only usable one
+          required: false
           schema:
             type: string
       responses:
@@ -32492,7 +32623,8 @@ components:
           description: The description of the variable
         account:
           type: integer
-          description: The account identifier
+          deprecated: true
+          description: Ignored. A variable is linked to an OAuth account only when `createAccount` creates both.
         is_oauth:
           type: boolean
           description: Whether the variable is an OAuth variable
@@ -39722,6 +39854,10 @@ components:
         enabled:
           type: boolean
           description: Whether the trigger starts a job when it fires
+        connection_path:
+          type: string
+          nullable: true
+          description: Path of the connection the trigger acts through on the external service
       required:
         - external_id
         - workspace_id
@@ -39764,6 +39900,10 @@ components:
         enabled:
           type: boolean
           description: Whether the trigger starts a job when it fires
+        connection_path:
+          type: string
+          nullable: true
+          description: Path of the connection the trigger acts through on the external service
         external_data:
           type: object
           nullable: true
@@ -39795,10 +39935,6 @@ components:
         oauth_data:
           nullable: true
           $ref: "#/components/schemas/WorkspaceOAuthConfig"
-        resource_path:
-          type: string
-          nullable: true
-          description: Path to the resource storing the OAuth token
       required:
         - service_name
 
@@ -39844,14 +39980,6 @@ components:
         - async
         - sync
 
-    RedirectUri:
-      type: object
-      properties:
-        redirect_uri:
-          type: string
-      required:
-        - redirect_uri
-
     NativeTriggerData:
       type: object
       description: Data for creating or updating a native trigger
@@ -39876,10 +40004,35 @@ components:
             Whether the trigger starts a job when it fires. Honoured on create only, so a
             trigger can be registered already paused; an update ignores it and setenabled is
             the only way to change an existing trigger's state. Defaults to true.
+        connection_path:
+          type: string
+          nullable: true
+          description: >-
+            Path of the connection the trigger acts through. Honoured on create only; an update
+            keeps the trigger's connection. When omitted on create, the caller's only usable
+            connection for the service is used.
       required:
         - script_path
         - is_flow
         - service_config
+
+    NativeTriggerConnection:
+      type: object
+      description: An account connected for native triggers, stored as an OAuth resource
+      properties:
+        path:
+          type: string
+          description: Path of the resource and variable holding the connection
+        owner:
+          type: string
+          nullable: true
+          description: Username of whoever connected the account, when the caller can read its resource
+        workspace:
+          type: boolean
+          description: Whether this is the workspace connection, which every member may use
+      required:
+        - path
+        - workspace
 
     CreateTriggerResponse:
       type: object

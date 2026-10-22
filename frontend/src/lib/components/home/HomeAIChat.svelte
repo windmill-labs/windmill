@@ -24,6 +24,10 @@
 	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 	import { BROWSER } from 'esm-env'
 	import HomeConnectDrawer from './HomeConnectDrawer.svelte'
+	import HomeComposerSkeleton, {
+		composerHeight,
+		rememberComposerHeight
+	} from './HomeComposerSkeleton.svelte'
 	import { prefersSessionHandoff } from '../copilot/chat/global/gate'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
@@ -132,12 +136,22 @@
 			     fork shares its parent's, and remounting for it only flashes the block. -->
 			{#if HomeSessionStarter && sessionState.hydrated && (rulesReady || shownForRoot === $currentWorkspaceRootId)}
 				{#key $currentWorkspaceRootId}
-					<HomeSessionStarter onShown={() => (shownForRoot = $currentWorkspaceRootId)} />
+					<HomeSessionStarter
+						onShown={() => (shownForRoot = $currentWorkspaceRootId)}
+						{placeholder}
+						onSettled={(height) => rememberComposerHeight($workspaceStore ?? undefined, height)}
+					/>
 				{/key}
+			{:else}
+				{@render placeholder()}
 			{/if}
 		{/if}
 	</div>
 </div>
+
+{#snippet placeholder()}
+	<HomeComposerSkeleton height={composerHeight($workspaceStore ?? undefined)} />
+{/snippet}
 
 <HomeConnectDrawer bind:this={homeConnectDrawer} />
 

@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.846.1](https://github.com/windmill-labs/windmill/compare/v1.846.0...v1.846.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* home recent cards include items opened on their own page ([#11934](https://github.com/windmill-labs/windmill/issues/11934)) ([5019fab](https://github.com/windmill-labs/windmill/commit/5019fab5a5f996796a07524c770f86309a7a3500))
+* home search suggests filters whose name matches the typed text ([#11933](https://github.com/windmill-labs/windmill/issues/11933)) ([bf1eb85](https://github.com/windmill-labs/windmill/commit/bf1eb85577419cc08482158c1835d5262ebb87d2))
+
+## [1.846.0](https://github.com/windmill-labs/windmill/compare/v1.845.0...v1.846.0) (2026-10-21)
+
+
+### Features
+
+* home list settings menu with sort, library and user-folder toggles ([#11928](https://github.com/windmill-labs/windmill/issues/11928)) ([73f655d](https://github.com/windmill-labs/windmill/commit/73f655db98dd0f0fd03881c36e6c9310fb2687a2))
+
+
+### Bug Fixes
+
+* home's acting-on pick switches the current workspace ([#11929](https://github.com/windmill-labs/windmill/issues/11929)) ([cdaddcc](https://github.com/windmill-labs/windmill/commit/cdaddcce594378bf502f80e8f225f16b5def5eb4))
+
 ## [1.845.0](https://github.com/windmill-labs/windmill/compare/v1.844.0...v1.845.0) (2026-10-21)
 
 

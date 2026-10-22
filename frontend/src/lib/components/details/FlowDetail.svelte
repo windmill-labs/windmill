@@ -95,6 +95,7 @@
 		openEditInFork
 	} from '$lib/utils/editInFork'
 	import { isCloudHosted } from '$lib/cloud'
+	import { recentItems } from '$lib/components/home/recentItems.svelte'
 
 	let {
 		path: routePath,
@@ -262,6 +263,15 @@
 		}
 		if (!flow.path.startsWith(`u/${actingUser?.username}`) && flow.path.split('/').length > 2) {
 			invisible_to_owner = flow.visible_to_runner_only
+		}
+		// Opened from a session's preview tab, it was the session's doing, not a visit.
+		if (!embedded) {
+			recentItems.record(workspace!, {
+				kind: 'flow',
+				path: flow.path,
+				summary: flow.summary,
+				via: 'view'
+			})
 		}
 		intervalId && clearInterval(intervalId)
 		deploymentInProgress = flow.lock_error_logs == ''

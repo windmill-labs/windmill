@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT slack_oauth_client_id, slack_oauth_client_secret, slack_signing_secret\n         FROM workspace_settings WHERE workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "slack_oauth_client_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "slack_oauth_client_secret",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "slack_signing_secret",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "c01d2853ab35a404e0cce34c273c7ad58cd9add49f45fd50f4fcf909703d01a2"
+}

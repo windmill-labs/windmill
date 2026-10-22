@@ -119,6 +119,7 @@
 	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import CiTestResults from '$lib/components/CiTestResults.svelte'
+	import { recentItems } from '$lib/components/home/recentItems.svelte'
 
 	let {
 		hash: routeHash,
@@ -369,6 +370,16 @@
 		}
 		if (!script.path.startsWith(`u/${actingUser?.username}`) && script.path.split('/').length > 2) {
 			invisible_to_owner = script.visible_to_runner_only
+		}
+		// Opened from a session's preview tab, it was the session's doing, not a visit. An
+		// archived script has no page for Home's card to open.
+		if (!embedded && !script.archived) {
+			recentItems.record(workspace!, {
+				kind: 'script',
+				path: script.path,
+				summary: script.summary,
+				via: 'view'
+			})
 		}
 		onLoadState?.('loaded')
 	}

@@ -255,6 +255,8 @@ fn agent_module(config: &AgentDraft) -> Result<serde_json::Value> {
             .entry("input_transforms")
             .or_insert_with(|| serde_json::json!({}));
         if let Some(transforms) = transforms.as_object_mut() {
+            // A case carries no history: each one is asked fresh.
+            transforms.remove("previous_messages");
             for key in ["user_message", "user_attachments"] {
                 transforms.insert(
                     key.to_string(),
