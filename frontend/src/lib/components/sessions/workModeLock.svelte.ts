@@ -29,7 +29,7 @@ export function useWorkModeLock(session: () => Session | undefined, switchesWork
 		// A staged fork is created at the first send and the session builds there, so nothing
 		// about the workspace it forks holds the session in Use.
 		if (!s || !ws || s.pending_fork) return undefined
-		if (protectedWorkspace.current) {
+		if (protectedWorkspace.known) {
 			const dev = findCanonicalDevWorkspace(ws, workspaces.current)
 			if (!dev)
 				return { reason: 'This workspace is protected against direct changes. Build in a fork.' }

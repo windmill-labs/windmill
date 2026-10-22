@@ -5,7 +5,10 @@ import { userWorkspaces } from '$lib/stores'
 import { useActingUser } from '$lib/actingUser.svelte'
 import { useEditRights } from '$lib/operatorWriteRights'
 import { buildsAnything } from '$lib/roleCapabilities'
-import { isReadOnlySessionWorkspace } from '$lib/components/copilot/chat/global/sessionAccess'
+import {
+	isReadOnlySessionWorkspace,
+	settledReadOnlyVerdict
+} from '$lib/components/copilot/chat/global/sessionAccess'
 import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 import type { WorkspaceItem } from '$lib/components/workspacePicker'
 import { previewPageAllowed, type PreviewPage } from './previewRouter'
@@ -13,14 +16,31 @@ import { previewPageAllowed, type PreviewPage } from './previewRouter'
 /**
  * Whether a session in `workspace` is read-only: the workspace is protected by
  * `DisableDirectDeployment`, which holds every user, admins included. The same verdict
- * `resolveSessionAccess` gives the chat, so the UI and the toolset agree. Reads as false until
- * resolved, and on a failed check.
+ * `resolveSessionAccess` gives the chat, so the UI and the toolset agree, and like it a failed
+ * check reads as read-only.
  */
 export function useSessionReadOnly(workspace: () => string | undefined) {
-	const verdict = resource(workspace, async (ws) => (ws ? isReadOnlySessionWorkspace(ws) : false))
+	const verdict = resource(workspace, async (ws) =>
+		ws ? { workspace: ws, readOnly: await isReadOnlySessionWorkspace(ws) } : undefined
+	)
+	// `resource` keeps the previous workspace's verdict while it asks about the next one.
+	const verdictFor = (ws: string): boolean | undefined => {
+		const landed = verdict.current
+		return landed?.workspace === ws ? landed.readOnly : settledReadOnlyVerdict(ws)
+	}
 	return {
+		/** Read-only, and also while the rules have not been read yet: the preview's writes wait
+		 * for the lookup rather than race it. */
 		get current() {
-			return !!workspace() && verdict.current === true
+			const ws = workspace()
+			return !!ws && (verdictFor(ws) ?? true)
+		},
+		/** Read-only as far as is known, so false while the rules are read. For what only shows the
+		 * verdict, the picker's lock or a label, which would otherwise flash a reason that is not
+		 * true. */
+		get known() {
+			const ws = workspace()
+			return !!ws && (verdictFor(ws) ?? false)
 		}
 	}
 }

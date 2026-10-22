@@ -778,12 +778,12 @@ export class AIChatManager implements ChatViewHost {
 			this.autoAcceptToolConfirmationsAvailable &&
 			!this.planModeActive
 	)
-	/** What the tools and the prompt are built for. */
-	#toolAccess = $derived(
+	/** The chat is in Use, by the user's pick or because Use is the only mode. */
+	useModeActive = $derived(
 		this.workModesAvailable && (this.workMode === AIWorkMode.USE || this.#useOnly)
-			? USE_MODE_ACCESS
-			: this.sessionAccess
 	)
+	/** What the tools and the prompt are built for. */
+	#toolAccess = $derived(this.useModeActive ? USE_MODE_ACCESS : this.sessionAccess)
 	// The posture's own state — its two tools, the plan document and the planning round.
 	// Everything it needs from this manager goes through the host above.
 	planMode = new PlanModeController(planModeHostFor(this))

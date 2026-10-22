@@ -373,7 +373,7 @@
 					<div class="relative group shrink-0">
 						<button
 							type="button"
-							title={rootReadOnly.current
+							title={rootReadOnly.known
 								? `Sessions in ${root.name} can read and run deployed items, but not edit. Pick ${
 										devOfRoot ? `its ${devLabelNoun(devOfRoot.dev_workspace_label)}` : 'a fork'
 									} to make changes.`
@@ -385,7 +385,7 @@
 							<Building size={14} class="shrink-0 text-tertiary" />
 							<span class="truncate">{root.name}</span>
 							<span class="text-2xs text-tertiary shrink-0 ml-auto"
-								>{rootReadOnly.current ? 'read-only' : 'root'}</span
+								>{rootReadOnly.known ? 'read-only' : 'root'}</span
 							>
 							{#if isSelected(root.id) && !pendingFork}
 								<Check size={14} class="shrink-0 text-accent" />

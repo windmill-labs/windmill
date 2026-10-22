@@ -126,18 +126,28 @@ async function readProtection(workspace: string): Promise<boolean | undefined> {
 // fetch behind it is not cached, so they share one verdict per workspace for a minute.
 const READ_ONLY_TTL_MS = 60_000
 const readOnlyVerdicts = new Map<string, { at: number; verdict: Promise<boolean> }>()
+const settledVerdicts = new Map<string, { at: number; readOnly: boolean }>()
 
 /** The read-only verdict alone, for the UI around a session. Fails closed as the chat does; a
  * failed read is not kept, so the next ask reads the rules again. */
 export function isReadOnlySessionWorkspace(workspace: string): Promise<boolean> {
 	const cached = readOnlyVerdicts.get(workspace)
 	if (cached && Date.now() - cached.at < READ_ONLY_TTL_MS) return cached.verdict
+	const at = Date.now()
 	const verdict = readProtection(workspace).then((isProtected) => {
 		if (isProtected === undefined) readOnlyVerdicts.delete(workspace)
+		else settledVerdicts.set(workspace, { at, readOnly: isProtected })
 		return isProtected !== false
 	})
-	readOnlyVerdicts.set(workspace, { at: Date.now(), verdict })
+	readOnlyVerdicts.set(workspace, { at, verdict })
 	return verdict
+}
+
+/** The verdict read for `workspace` within the minute, without asking: what the UI stands on
+ * while a fresh component waits for its own ask. */
+export function settledReadOnlyVerdict(workspace: string): boolean | undefined {
+	const settled = settledVerdicts.get(workspace)
+	return settled && Date.now() - settled.at < READ_ONLY_TTL_MS ? settled.readOnly : undefined
 }
 
 export async function resolveSessionAccess(workspace: string): Promise<SessionAccess> {

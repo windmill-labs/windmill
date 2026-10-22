@@ -20,5 +20,7 @@ export type WorkModeLock = {
 export const USE_MODE_WITHDRAWN = {
 	label: 'Not run: the session is in Use',
 	result:
-		'Not run: the user switched this session to Use mode, which changes nothing, while this call waited for them. Do not retry it; it can run once they switch back to Build.'
+		'Not run: the user switched this session to Use mode, which changes nothing, while this call waited for them. Do not retry it; it can run once they switch back to Build.',
+	/** On a test-run form left open across the switch. */
+	testRunRefused: 'Use mode does not run undeployed code. Switch to Build to run this test.'
 }
