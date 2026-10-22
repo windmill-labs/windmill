@@ -475,6 +475,7 @@
     }
   },
   "salesforce": {
+    "resource_fields": ["instance_url"],
     "auth_url": "https://login.salesforce.com/services/oauth2/authorize",
     "token_url": "https://login.salesforce.com/services/oauth2/token",
     "scopes": ["api", "refresh_token", "offline_access"],
