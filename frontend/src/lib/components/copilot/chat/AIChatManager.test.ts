@@ -8,7 +8,7 @@ import type { ChatCompletionMessageParam } from 'openai/resources/chat/completio
 import type { DisplayMessage } from './shared'
 import type { AttachedImage } from './imageUtils'
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
-import { AIWorkMode } from './workMode'
+import { AIWorkMode, USE_MODE_WITHDRAWN } from './workMode'
 import { makePasteToken } from './pasteTokens'
 import { chatState } from './sharedChatState.svelte'
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
@@ -1114,6 +1114,44 @@ describe('AIChatManager plan mode posture', () => {
 		await Promise.resolve()
 		expect(settled).toBe(false)
 		expect(manager.planMode.tools.map((t) => t.def.function.name)).toEqual(['exit_plan_mode'])
+	})
+
+	// The call was made with Build's tools; approving its card after the switch to Use must not
+	// run the write the session no longer ships.
+	it('does not run a write approved after the session switched to Use', async () => {
+		const { processToolCall } = await import('./shared')
+		const manager = sessionManager()
+		manager.configureGlobalMode()
+		const write = manager.availableTools.find((t) => t.def.function.name === 'write_script')!
+		const fn = vi.fn(async () => 'written')
+		let asked = false
+		const result = processToolCall({
+			tools: [{ ...write, fn, requiresConfirmation: true }] as any,
+			toolCall: {
+				id: 'call_write',
+				type: 'function',
+				function: { name: 'write_script', arguments: '{}' }
+			} as any,
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				requestConfirmation: (id: string, name?: string) => {
+					asked = true
+					return manager.requestConfirmation(id, name)
+				},
+				shouldAutoAcceptToolConfirmations: manager.shouldAutoAcceptTool,
+				isToolWithdrawn: manager.isToolWithdrawn
+			} as any
+		})
+		await vi.waitFor(() => expect(asked).toBe(true))
+
+		manager.setWorkMode(AIWorkMode.USE)
+		manager.handleToolConfirmation('call_write', true)
+
+		expect((await result).content).toBe(USE_MODE_WITHDRAWN.result)
+		expect(fn).not.toHaveBeenCalled()
 	})
 })
 

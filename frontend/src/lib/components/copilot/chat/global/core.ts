@@ -73,6 +73,7 @@ import {
 import { processSecretArgs } from '$lib/components/secretArgUtils'
 import { parsePipelineAnnotations } from '$lib/components/assets/AssetGraph/parsePipelineAnnotations'
 import { PLAN_MODE_MESSAGES } from '../planModeMessages'
+import { USE_MODE_WITHDRAWN } from '../workMode'
 import {
 	DEFAULT_DATA as DEFAULT_RAW_APP_DATA,
 	formatDataTableRef
@@ -6787,6 +6788,17 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	}
 	const blockedBeforeForm = blockedByPlanMode()
 	if (blockedBeforeForm) return blockedBeforeForm
+	// The form is this call's confirmation, and a session can switch to Use while it waits.
+	const withdrawnByUseMode = (): string | undefined => {
+		if (!toolCallbacks.isToolWithdrawn?.(spec.toolName)) return undefined
+		toolCallbacks.setToolStatus(toolId, {
+			content: USE_MODE_WITHDRAWN.label,
+			isLoading: false,
+			isStreamingArguments: false,
+			error: USE_MODE_WITHDRAWN.result
+		})
+		return USE_MODE_WITHDRAWN.result
+	}
 
 	const schema = spec.schema
 	// Whether to ask is the only question decided here. What a mounted field would hold — a
@@ -6881,7 +6893,7 @@ async function runThroughForm(spec: FormRunSpec, ctx: WriteDraftCtx): Promise<st
 	const adopted = answer.kind === 'job' ? answer : undefined
 	const submitted = answer.args
 
-	const blockedBeforeRun = adopted ? undefined : blockedByPlanMode()
+	const blockedBeforeRun = adopted ? undefined : (blockedByPlanMode() ?? withdrawnByUseMode())
 	if (blockedBeforeRun) {
 		toolCallbacks.markRunFormEnded?.(toolId)
 		return blockedBeforeRun

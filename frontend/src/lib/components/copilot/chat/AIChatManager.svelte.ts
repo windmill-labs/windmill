@@ -146,7 +146,7 @@ import {
 	type SessionAccess
 } from './sessionCapabilities'
 import { AIWorkMode } from './workMode'
-import { filterSessionTools } from './global/sessionToolset'
+import { filterSessionTools, sessionToolAllowed } from './global/sessionToolset'
 import {
 	listFolderInstructions,
 	type FolderInstruction,
@@ -809,6 +809,14 @@ export class AIChatManager implements ChatViewHost {
 	 * transitions, whichever one is offered right now. A reference answer, so flipping the
 	 * autonomy picker must not change it. */
 	availableTools: Tool<any>[] = $derived(this.#shipped(this.planMode.availableTools))
+	/** Whether a tool the call was made with is no longer shipped: a switch to Use withdraws
+	 * every write while its card waits. Plan's own tools are not assembled, so never are. */
+	isToolWithdrawn = (toolName: string): boolean => {
+		const access = this.#toolAccess
+		if (!access) return false
+		const tool = this.#assembledTools.find((t) => t.def.function.name === toolName)
+		return !!tool && !sessionToolAllowed(tool, access)
+	}
 	#copilotInfo = fromStore(copilotInfo)
 	#sessionModel = fromStore(copilotSessionModel)
 	/** Capabilities the provider runs on its own servers, attached by the adapter at send
@@ -4347,6 +4355,7 @@ export class AIChatManager implements ChatViewHost {
 					shouldAutoAcceptToolConfirmations: this.shouldAutoAcceptTool,
 					isPlanModeActive: () => this.planModeActive,
 					onToolBlockedByPlanMode: this.planMode.noteBlockedTool,
+					isToolWithdrawn: this.isToolWithdrawn,
 					requestUserQuestion: this.requestUserQuestion,
 					requestRunArgs: this.requestRunArgs,
 					markRunFormStarted: this.markRunFormStarted,

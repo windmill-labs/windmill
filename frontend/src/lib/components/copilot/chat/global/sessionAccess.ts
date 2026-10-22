@@ -6,10 +6,10 @@ import { roleCanAuthor, roleCanDraft } from '$lib/editRights'
 import { capabilitiesIn, FULL_CAPABILITIES } from '$lib/roleCapabilities'
 import { checkDeployRules } from '$lib/utils_workspace_deploy'
 import {
-	fetchProtectionRulesForWorkspace,
-	isRuleActiveInRulesets
+	isRuleActiveInRulesets,
+	readProtectionRulesForWorkspace
 } from '$lib/workspaceProtectionRules.svelte'
-import type { SessionAccess, SessionCapability } from '../sessionCapabilities'
+import { USE_MODE_ACCESS, type SessionAccess, type SessionCapability } from '../sessionCapabilities'
 
 const ALL_CAPABILITIES: SessionCapability[] = [
 	'write_draft',
@@ -33,10 +33,11 @@ const ALL_CAPABILITIES: SessionCapability[] = [
 	'modify_workspace'
 ]
 
-/** Fail open, here and at every resolution failure below: blanking a toolset on a
+/** Fail open, here and at every role resolution failure below: blanking a toolset on a
  * transient error tells a developer mid-session that they cannot author anything,
  * which is worse and far less legible than the 403 they get by trying. Matches
- * `checkDeployPermission`, which fails open for the same reason. */
+ * `checkDeployPermission`, which fails open for the same reason. The protection rule is
+ * the exception: no 403 backs it for drafts (`resolveSessionAccess`). */
 export function fullSessionAccess(): SessionAccess {
 	return new Set(ALL_CAPABILITIES)
 }
@@ -115,12 +116,10 @@ export function capabilitiesForRole(role: {
 /** A session on a workspace protected by `DisableDirectDeployment` is read-only for everyone,
  * admins and bypassers included: changes to production go through its dev workspace or a fork.
  * `RestrictDeployToDeployers` alone does not qualify: its users keep their drafts and hand the
- * deploy to a deployer. False when the rules cannot be read, as the rest of the access does. */
-async function protectsWorkspace(workspace: string): Promise<boolean> {
-	return isRuleActiveInRulesets(
-		await fetchProtectionRulesForWorkspace(workspace),
-		'DisableDirectDeployment'
-	)
+ * deploy to a deployer. Undefined when the rules cannot be read. */
+async function readProtection(workspace: string): Promise<boolean | undefined> {
+	const rulesets = await readProtectionRulesForWorkspace(workspace)
+	return rulesets && isRuleActiveInRulesets(rulesets, 'DisableDirectDeployment')
 }
 
 // The session UI asks this from every preview tab, the composer and the picker, and the rules
@@ -128,30 +127,37 @@ async function protectsWorkspace(workspace: string): Promise<boolean> {
 const READ_ONLY_TTL_MS = 60_000
 const readOnlyVerdicts = new Map<string, { at: number; verdict: Promise<boolean> }>()
 
-/** The read-only verdict alone, for the UI around a session. */
+/** The read-only verdict alone, for the UI around a session. Fails closed as the chat does; a
+ * failed read is not kept, so the next ask reads the rules again. */
 export function isReadOnlySessionWorkspace(workspace: string): Promise<boolean> {
 	const cached = readOnlyVerdicts.get(workspace)
 	if (cached && Date.now() - cached.at < READ_ONLY_TTL_MS) return cached.verdict
-	const verdict = protectsWorkspace(workspace)
+	const verdict = readProtection(workspace).then((isProtected) => {
+		if (isProtected === undefined) readOnlyVerdicts.delete(workspace)
+		return isProtected !== false
+	})
 	readOnlyVerdicts.set(workspace, { at: Date.now(), verdict })
 	return verdict
 }
 
 export async function resolveSessionAccess(workspace: string): Promise<SessionAccess> {
-	// Shares the 5-minute memo with the identity the same pre-flight resolves beside this
-	// one, so a send costs one `whoami` rather than two, at the cost of a role changed
-	// elsewhere landing within that window rather than on the very next message.
-	// `lookup_failed` covers a rejected request AND a body too malformed to map.
-	const lookup = await getWorkspaceRole(workspace)
+	const [protection, lookup] = await Promise.all([
+		// Not the memoized verdict above: the chat's toolset follows a rule change on the next send.
+		readProtection(workspace),
+		// Shares the 5-minute memo with the identity the same pre-flight resolves beside this
+		// one, so a send costs one `whoami` rather than two, at the cost of a role changed
+		// elsewhere landing within that window rather than on the very next message.
+		// `lookup_failed` covers a rejected request AND a body too malformed to map.
+		getWorkspaceRole(workspace)
+	])
+	// The one part that fails closed: the server holds deploys to the rule but not drafts, so a
+	// session that cannot read the rules must not be handed the writes production refuses.
+	const readOnly = protection !== false
 	if (lookup.kind !== 'resolved') {
-		return fullSessionAccess()
+		return readOnly ? USE_MODE_ACCESS : fullSessionAccess()
 	}
 	const me = lookup.user
-	// Not the memoized verdict above: the chat's toolset follows a rule change on the next send.
-	const [rules, readOnly] = await Promise.all([
-		checkDeployRules(workspace, me),
-		protectsWorkspace(workspace)
-	])
+	const rules = await checkDeployRules(workspace, me)
 
 	return capabilitiesForRole({
 		isAdmin: !!me.is_admin || !!me.is_super_admin,

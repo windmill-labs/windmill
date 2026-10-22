@@ -1059,7 +1059,10 @@
 															variant="subtle"
 															unifiedSize="sm"
 															destructive
-															disabled={model.deploying || !!staged[d.key]}
+															disabled={model.deploying || !!staged[d.key] || model.readOnly}
+															title={model.readOnly
+																? 'A session in Use mode discards nothing. Switch it to Build to discard.'
+																: undefined}
 															onclick={() => confirmDiscard(d)}
 														>
 															{action.secondary[0].label}

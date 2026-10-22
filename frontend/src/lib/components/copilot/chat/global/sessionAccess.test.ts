@@ -9,7 +9,7 @@ const { whoami, deployRules, protectionRules } = vi.hoisted(() => ({
 vi.mock('$lib/gen', () => ({ UserService: { whoami } }))
 vi.mock('$lib/utils_workspace_deploy', () => ({ checkDeployRules: deployRules }))
 vi.mock('$lib/workspaceProtectionRules.svelte', () => ({
-	fetchProtectionRulesForWorkspace: protectionRules,
+	readProtectionRulesForWorkspace: protectionRules,
 	isRuleActiveInRulesets: (rulesets: { rules: string[] }[], kind: string) =>
 		rulesets.some((r) => r.rules.includes(kind))
 }))
@@ -142,6 +142,18 @@ describe('resolveSessionAccess', () => {
 		protectionRules.mockResolvedValue([{ rules: ['DisableDirectDeployment'] }])
 		const caps = await capabilitiesFor({ is_admin: true })
 		expect([...caps]).toEqual([])
+	})
+
+	// The server holds deploys to the rule but not drafts, so neither failure may hand a
+	// production session its writes.
+	it('stays read-only when the rules cannot be read, or the role of a protected workspace', async () => {
+		protectionRules.mockResolvedValue(undefined)
+		expect([...(await capabilitiesFor({ is_admin: true }))]).toEqual([])
+
+		// Another workspace: the role memo answers for the first one.
+		protectionRules.mockResolvedValue([{ rules: ['DisableDirectDeployment'] }])
+		whoami.mockRejectedValueOnce(new Error('network'))
+		expect([...(await resolveSessionAccess('prod'))]).toEqual([])
 	})
 
 	it('keeps drafting when a rule refuses deploy', async () => {
