@@ -2570,3 +2570,105 @@ async fn test_rename_records_the_vacated_path(db: Pool<Postgres>) -> anyhow::Res
 
     Ok(())
 }
+
+/// Secrets are encrypted with a fresh nonce on every write, so a secret holding the same value on
+/// both sides must compare by plaintext, not ciphertext.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_compare_secret_variables_by_value(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let client = windmill_api_client::create_client(
+        &format!("http://localhost:{port}"),
+        "SECRET_TOKEN".to_string(),
+    );
+    let base_url = format!("http://localhost:{port}/api");
+
+    let resp = client
+        .client()
+        .post(&format!(
+            "{base_url}/w/test-workspace/workspaces/create_fork"
+        ))
+        .json(&json!({ "id": "wm-fork-secrets", "name": "Secrets Fork" }))
+        .send()
+        .await?;
+    assert!(
+        resp.status().is_success(),
+        "fork creation failed: {}",
+        resp.status()
+    );
+
+    // Secrets are written in CBC, which is deterministic, until every worker reads AES-GCM.
+    use windmill_common::min_version::{MIN_VERSION, MIN_VERSION_SUPPORTS_AEAD_SECRETS};
+    let before = MIN_VERSION.load_full();
+    MIN_VERSION.store(std::sync::Arc::new(
+        MIN_VERSION_SUPPORTS_AEAD_SECRETS.version().clone(),
+    ));
+
+    for (ws, path, value) in [
+        ("test-workspace", "u/test-user/same", "s3cret"),
+        ("wm-fork-secrets", "u/test-user/same", "s3cret"),
+        ("test-workspace", "u/test-user/different", "one"),
+        ("wm-fork-secrets", "u/test-user/different", "two"),
+    ] {
+        let resp = client
+            .client()
+            .post(&format!("{base_url}/w/{ws}/variables/create"))
+            .json(&json!({ "path": path, "value": value, "is_secret": true, "description": "" }))
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    }
+    MIN_VERSION.store(before);
+    let stored = sqlx::query_scalar!(
+        "SELECT COUNT(DISTINCT value) FROM variable WHERE path = 'u/test-user/same'"
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(
+        stored,
+        Some(2),
+        "the same secret must be stored as two different ciphertexts"
+    );
+
+    sqlx::query!("DELETE FROM workspace_diff WHERE fork_workspace_id = 'wm-fork-secrets'")
+        .execute(&db)
+        .await?;
+    sqlx::query!(
+        "INSERT INTO workspace_diff
+         (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)
+         VALUES
+         ('test-workspace', 'wm-fork-secrets', 'u/test-user/same', 'variable', 1, 1, NULL),
+         ('test-workspace', 'wm-fork-secrets', 'u/test-user/different', 'variable', 1, 1, NULL)"
+    )
+    .execute(&db)
+    .await?;
+
+    let comparison: serde_json::Value = client
+        .client()
+        .get(&format!(
+            "{base_url}/w/test-workspace/workspaces/compare/wm-fork-secrets"
+        ))
+        .send()
+        .await?
+        .json()
+        .await?;
+    let diffs = comparison["diffs"].as_array().unwrap();
+    let listed = |path: &str| {
+        diffs
+            .iter()
+            .any(|d| d["path"] == path && d["kind"] == "variable")
+    };
+
+    assert!(
+        !listed("u/test-user/same"),
+        "equal secrets must compare as unchanged: {comparison}"
+    );
+    assert!(
+        listed("u/test-user/different"),
+        "different secrets must compare as changed: {comparison}"
+    );
+
+    Ok(())
+}

@@ -39,7 +39,7 @@ use windmill_common::global_settings::HTTP_ROUTE_WORKSPACED_ROUTE;
 use windmill_common::query_builders::{render_db_quoted_identifier, DbType};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{
-    crypt_from_key_with_suffix, decrypt, encrypt, WORKSPACE_CRYPT_CACHE,
+    crypt_from_key_with_suffix, decrypt, encrypt, get_secret_value_as_admin, WORKSPACE_CRYPT_CACHE,
 };
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::workspaces::GitRepositorySettings;
@@ -14518,11 +14518,19 @@ async fn compare_two_variables(
 
     // Check metadata differences
     if let (Some(source), Some(target)) = (&source_variable, &target_variable) {
-        if source.is_secret != target.is_secret
-            || source.value != target.value
-            || source.description != target.description
-        {
+        if source.is_secret != target.is_secret || source.description != target.description {
             has_changes = true;
+        } else if source.value != target.value {
+            // A secret's ciphertext is randomized on every write, so equal secrets are compared
+            // by plaintext, each decrypted with its own workspace's key.
+            has_changes = !source.is_secret
+                || !matches!(
+                    tokio::try_join!(
+                        get_secret_value_as_admin(db, source_workspace_id, path),
+                        get_secret_value_as_admin(db, fork_workspace_id, path),
+                    ),
+                    Ok((a, b)) if a == b
+                );
         }
     } else if source_variable.is_some() || target_variable.is_some() {
         // The variable exists in one of source or target, but not the other, this is considered as a change
