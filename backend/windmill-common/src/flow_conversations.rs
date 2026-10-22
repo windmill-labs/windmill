@@ -128,56 +128,21 @@ async fn refuse_running_turn(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     conversation_id: Uuid,
 ) -> Result<()> {
-    match running_turns(&mut **tx, &[conversation_id])
+    let Some(turn) = running_turns(&mut **tx, &[conversation_id])
         .await?
         .remove(&conversation_id)
-    {
-        Some(turn) => Err(turn_running(turn)),
-        None => Ok(()),
-    }
-}
-
-/// [`refuse_running_turn`] for a turn filed under no conversation, such as an anonymous app
-/// visitor's: its memory key stands in for the conversation's row lock, and the running turn is
-/// any other queued or running job holding that key. It has no saved message, so `user_seq` is 0.
-pub async fn refuse_running_memory_turn(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    w_id: &str,
-    memory_key: Uuid,
-    job_id: Uuid,
-) -> Result<()> {
-    sqlx::query!(
-        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
-        memory_key.to_string()
-    )
-    .execute(&mut **tx)
-    .await?;
-    let running = sqlx::query_scalar!(
-        "SELECT q.id FROM v2_job_queue q JOIN v2_job_status s ON s.id = q.id
-         WHERE q.workspace_id = $1 AND q.id <> $2 AND s.flow_status->>'memory_id' = $3
-         LIMIT 1",
-        w_id,
-        job_id,
-        memory_key.to_string()
-    )
-    .fetch_optional(&mut **tx)
-    .await?;
-    match running {
-        Some(job_id) => Err(turn_running(RunningTurn { job_id, user_seq: 0 })),
-        None => Ok(()),
-    }
-}
-
-/// A JSON body, so a chat client can follow the running turn instead of failing.
-fn turn_running(turn: RunningTurn) -> crate::error::Error {
-    crate::error::Error::Generic(
+    else {
+        return Ok(());
+    };
+    // A JSON body, so a chat client can follow the running turn instead of failing.
+    Err(crate::error::Error::Generic(
         axum::http::StatusCode::CONFLICT,
         serde_json::json!({
             "error": "this conversation is still answering a message; wait for it to finish or stop it before sending another",
             "running_turn": turn,
         })
         .to_string(),
-    )
+    ))
 }
 
 /// The running turn of each of `conversation_ids` that has one.

@@ -917,6 +917,36 @@ pub async fn handle_chat_conversation_messages(
     // The run's args, for the files the message carried.
     args: &HashMap<String, Box<serde_json::value::RawValue>>,
 ) -> error::Result<()> {
+    file_chat_turn(
+        tx,
+        &authed.username,
+        authed.is_admin,
+        w_id,
+        flow_path,
+        run_query,
+        user_message_raw,
+        job_id,
+        is_test,
+        args,
+    )
+    .await
+}
+
+/// [`handle_chat_conversation_messages`] for a conversation owned by `owner`, which need not be a
+/// user: an anonymous app visitor's is owned by a name no username can take, so nobody lists or
+/// continues it but through its id.
+pub async fn file_chat_turn(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    owner: &str,
+    is_admin: bool,
+    w_id: &str,
+    flow_path: &str,
+    run_query: &RunJobQuery,
+    user_message_raw: Option<&Box<serde_json::value::RawValue>>,
+    job_id: Uuid,
+    is_test: bool,
+    args: &HashMap<String, Box<serde_json::value::RawValue>>,
+) -> error::Result<()> {
     // Names the query parameter rather than the field: it is not a flow argument, and
     // supplying it as one is the first thing tried on reading `memory_id is required`.
     let memory_id = run_query.memory_key(w_id, flow_path).ok_or_else(|| {
@@ -945,8 +975,8 @@ pub async fn handle_chat_conversation_messages(
         tx,
         w_id,
         flow_path,
-        &authed.username,
-        authed.is_admin,
+        owner,
+        is_admin,
         &user_message,
         memory_id,
         is_test,

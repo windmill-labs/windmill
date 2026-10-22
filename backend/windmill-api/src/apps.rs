@@ -5162,44 +5162,41 @@ async fn execute_component(
     }
 
     if let (Some(run_path), Some(memory_id)) = (agent_run_path.as_deref(), agent_memory_id) {
+        // A signed-in viewer's turn is filed under them: nobody else may continue their
+        // conversation. An anonymous visitor's is filed under a name no username can take, and its
+        // id is derived per app so that it can name no signed-in user's conversation (a bare UUID
+        // is used as is). Either way the conversation's row lock refuses a turn while one runs,
+        // and retention collects its memory with its messages.
+        let (owner, is_admin, memory_id) = match agent_viewer.as_ref() {
+            Some(viewer) => (viewer.username.clone(), viewer.is_admin, memory_id),
+            None => (
+                format!("anonymous:{path}"),
+                false,
+                windmill_common::flow_conversations::memory_key(
+                    &w_id,
+                    run_path,
+                    &format!("anonymous:{path}:{memory_id}"),
+                )
+                .to_string(),
+            ),
+        };
         let run_query = RunJobQuery { memory_id: Some(memory_id), ..Default::default() };
-        match agent_viewer.as_ref() {
-            // A signed-in viewer's turn is filed under them: nobody else may continue their
-            // conversation, and a turn still running refuses the next one.
-            Some(viewer) => {
-                if let Some(key) = run_query.memory_key(&w_id, run_path) {
-                    crate::jobs::set_flow_memory_id(&mut tx, uuid, key).await?;
-                }
-                crate::jobs::handle_chat_conversation_messages(
-                    &mut tx,
-                    viewer,
-                    &w_id,
-                    run_path,
-                    &run_query,
-                    args.args.get("user_message"),
-                    uuid,
-                    is_preview,
-                    &args.args,
-                )
-                .await?;
-            }
-            // An anonymous visitor has nobody to file the turn under, so it keeps only its
-            // memory, keyed so that no filed conversation's memory can be named: a bare UUID
-            // would be used as the key verbatim.
-            None => {
-                let memory_id = run_query.memory_id.as_deref().unwrap_or_default();
-                let key = windmill_common::flow_conversations::memory_key(
-                    &w_id,
-                    run_path,
-                    &format!("anonymous:{memory_id}"),
-                );
-                windmill_common::flow_conversations::refuse_running_memory_turn(
-                    &mut tx, &w_id, key, uuid,
-                )
-                .await?;
-                crate::jobs::set_flow_memory_id(&mut tx, uuid, key).await?;
-            }
+        if let Some(key) = run_query.memory_key(&w_id, run_path) {
+            crate::jobs::set_flow_memory_id(&mut tx, uuid, key).await?;
         }
+        crate::jobs::file_chat_turn(
+            &mut tx,
+            &owner,
+            is_admin,
+            &w_id,
+            run_path,
+            &run_query,
+            args.args.get("user_message"),
+            uuid,
+            is_preview,
+            &args.args,
+        )
+        .await?;
     }
 
     // Apply runnable query parameters if provided
