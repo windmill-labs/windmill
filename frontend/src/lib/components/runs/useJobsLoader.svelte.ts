@@ -74,6 +74,8 @@ export interface UseJobLoaderArgs {
 	lookback?: number
 	perPage?: number
 	excludesEntrypointOverride?: boolean
+	/** Also list runs that are steps of a flow, without widening the job kinds. */
+	includeFlowSteps?: boolean
 }
 
 export function useJobsLoader(args: () => UseJobLoaderArgs) {
@@ -91,6 +93,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let timeframe = $derived(_args?.timeframe)
 	let perPage = $derived(_args?.perPage ?? 1000)
 	let excludesEntrypointOverride = $derived(_args.excludesEntrypointOverride ?? false)
+	let includeFlowSteps = $derived(_args.includeFlowSteps ?? false)
 
 	let label = $derived(filters?.label ?? null)
 	let worker = $derived(filters?.worker ?? null)
@@ -486,7 +489,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 						? false
 						: undefined,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
-			hasNullParent: jobKindsCat != 'all' ? true : undefined,
+			hasNullParent: jobKindsCat != 'all' && !includeFlowSteps ? true : undefined,
 			label: label == null || label === '' ? undefined : label,
 			tag: tag == null || tag === '' ? undefined : tag,
 			worker: worker == null || worker === '' ? undefined : worker,
@@ -939,6 +942,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		perPage
 		showSchedules
 		showFutureJobs
+		includeFlowSteps
 		clearTimeout(paramChangeTimeout)
 		paramChangePromise?.cancel()
 		paramChangeTimeout = setTimeout(() => {

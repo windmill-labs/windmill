@@ -21,6 +21,7 @@
 		searchArgs?: Record<string, any> | undefined
 		/** Workspace to read run history from; defaults to the nav workspace. */
 		workspace?: string
+		includeFlowSteps?: boolean
 	}
 
 	let {
@@ -31,7 +32,8 @@
 		placement = 'top-end',
 		limitPayloadSize = false,
 		searchArgs = undefined,
-		workspace = undefined
+		workspace = undefined,
+		includeFlowSteps = false
 	}: Props = $props()
 
 	let ws = $derived(workspace ?? $operatingWorkspace)
@@ -120,7 +122,8 @@
 				refreshRate: 10000,
 				currentWorkspace: ws ?? '',
 				skip: !runnableId,
-				excludesEntrypointOverride: true
+				excludesEntrypointOverride: true,
+				includeFlowSteps
 			}) satisfies UseJobLoaderArgs
 	)
 	let jobs = $derived(jobsLoader?.jobs ?? [])
@@ -176,6 +179,7 @@
 			{placement}
 			{limitPayloadSize}
 			{searchArgs}
+			{includeFlowSteps}
 		/>
 	</div>
 </div>

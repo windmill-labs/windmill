@@ -25274,6 +25274,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: include_non_root
+          in: query
+          description: also include runs of the runnable as a step of a flow
+          schema:
+            type: boolean
       responses:
         "200":
           description: Input history for completed jobs
@@ -31411,6 +31416,10 @@ components:
           type: boolean
         success:
           type: boolean
+        parent_job:
+          type: string
+          format: uuid
+          description: set when the run was a step of a flow
       required:
         - id
         - name
