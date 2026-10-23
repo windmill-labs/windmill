@@ -58,7 +58,7 @@ pub(super) async fn call(ctx: &Ctx<'_>, name: &str, args: &Value) -> ToolResult 
 //                     is_template, language, kind`, + `parent_hash` once forked from a deploy)
 //   flow              the `Flow` object (`path, summary, description, value, schema`, +
 //                     `version_id` when forked from a deploy)
-//   raw_app           `{summary, files, runnables, data, policy?, custom_path?,
+//   raw_app           `{summary, files, runnables, data, policy?, custom_path?, labels?,
 //                     parent_version?, draft_path?}` (`normalize_app_draft`)
 //   trigger_schedule  the schedule request body; `trigger_<kind>` that trigger's body
 //   resource          `{path, description, args, labels, wsSpecific, resource_type}`
@@ -396,7 +396,13 @@ pub(super) fn normalize_app_draft(value: &Value) -> Value {
             .cloned()
             .unwrap_or_else(|| json!({ "tables": [] })),
     );
-    for key in ["policy", "custom_path", "parent_version", "draft_path"] {
+    for key in [
+        "policy",
+        "custom_path",
+        "labels",
+        "parent_version",
+        "draft_path",
+    ] {
         put(&mut out, key, value.get(key).cloned());
     }
     Value::Object(out)
@@ -706,6 +712,7 @@ pub(super) fn app_source_to_draft_value(app: &Value, fallback: Option<&Value>) -
     out.insert("data".into(), data);
     put(&mut out, "policy", or_fallback("policy"));
     put(&mut out, "custom_path", or_fallback("custom_path"));
+    put(&mut out, "labels", or_fallback("labels"));
     // The fork base: the head of a deployed app's versions, or what a draft already pinned.
     let head = app
         .get("versions")
@@ -1990,5 +1997,16 @@ mod tests {
             json!({ "type": "script", "path": "u/a/s", "summary": "s", "language": "bun", "value": "x", "parentHash": "h", "isDraft": true })
         );
         assert!(draft_item("app", "u/a/s", &draft).is_none());
+    }
+
+    #[test]
+    fn normalize_app_draft_keeps_labels() {
+        // Every session save goes through this whitelist: a field missing here is
+        // stripped from a draft the editor wrote.
+        let draft = json!({ "files": {}, "labels": ["a"] });
+        assert_eq!(
+            normalize_app_draft(&draft).get("labels"),
+            Some(&json!(["a"]))
+        );
     }
 }

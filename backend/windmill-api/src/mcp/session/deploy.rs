@@ -444,6 +444,9 @@ async fn deploy_app(
         app.insert("preserve_on_behalf_of".into(), json!(true));
     }
     app.insert("policy".into(), Value::Object(policy));
+    if let Some(labels) = non_null(draft.get("labels")) {
+        app.insert("labels".into(), labels.clone());
+    }
     if let Some(message) = message {
         app.insert("deployment_message".into(), json!(message));
     }

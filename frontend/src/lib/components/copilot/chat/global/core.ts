@@ -78,6 +78,7 @@ import {
 	formatDataTableRef
 } from '$lib/components/raw_apps/dataTableRefUtils'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
+import { policyForUpdate } from '$lib/components/apps/editor/publishAccessMode'
 import { conformBuilderAppPolicy } from '$lib/components/raw_apps/builderAppPolicy'
 import { capabilitiesInWorkspace } from '$lib/operatorWriteRights'
 import { capabilitiesIn } from '$lib/roleCapabilities'
@@ -9308,7 +9309,7 @@ async function deployDraft(
 								path: targetPath,
 								value: rawAppValue,
 								summary,
-								policy,
+								policy: policyForUpdate(policy),
 								labels: appValue.labels,
 								deployment_message: deploymentMessage,
 								// Preserve the policy's on_behalf_of: this chat deploy path has no
