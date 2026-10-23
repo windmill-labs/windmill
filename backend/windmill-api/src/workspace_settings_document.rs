@@ -910,7 +910,8 @@ struct ForkParent {
     is_dev: bool,
 }
 
-/// `Some` when `w_id` is a fork, by the same test as `reject_parent_only_git_sync_settings_on_fork`.
+/// `Some` when `w_id` is a fork, by the same test as
+/// `reject_parent_only_git_sync_settings_on_fork`.
 async fn fork_parent(conn: &mut PgConnection, w_id: &str) -> Result<Option<ForkParent>> {
     // The workspace itself, then its ancestors nearest first; the depth bound only guards
     // against a cycle.
@@ -941,9 +942,10 @@ async fn fork_parent(conn: &mut PgConnection, w_id: &str) -> Result<Option<ForkP
 
 // A fork shares its parent's settings.yaml (the CLI maps `wm-fork/<branch>/<id>` to the parent's
 // entry), so its `git_sync` there is the parent's. Of it, a fork applies only what selects the
-// items synced (a repo's `settings` and the keys listed here), on the repos it carries: auto-pull,
-// fork PRs and promotion mode are not a fork's to take
-// (`reject_parent_only_git_sync_settings_on_fork`), and any other field stays the fork's own. The fork's document is the parent's block with the fork's values for these keys,
+// items synced, on the repos it carries: the keys listed here, and a repo's `settings` when
+// neither side uses workspace-level filters. Auto-pull, fork PRs and promotion mode are not a
+// fork's to take (`reject_parent_only_git_sync_settings_on_fork`), and any other field stays the
+// fork's own. The fork's document is the parent's block with the fork's values for the same keys,
 // the inverse of the apply, so a merge of the fork's branch changes only them in the parent.
 const FORK_SYNCED_REPO_KEYS: [&str; 2] = ["exclude_types_override", "group_by_folder"];
 
@@ -963,16 +965,13 @@ fn same_repo<'a>(repos: &'a [Value], repo: &Value) -> Option<&'a Value> {
 
 /// Whether repos fall back to the workspace-level filters, where an empty or missing `settings`
 /// list means "use the workspace's". A repo's filters cross only when neither side does, as
-/// that layout cannot state some of what the other can.
+/// that layout cannot state some of what the other can. Only these two are fallen back to on
+/// their own (`exclude_path`/`extra_include_path` only beside `include_path`), and the save
+/// leaves the other two behind once every repo has migrated.
 fn uses_workspace_filters(git_sync: &Value) -> bool {
-    [
-        "include_path",
-        "include_type",
-        "exclude_path",
-        "extra_include_path",
-    ]
-    .iter()
-    .any(|k| !is_null(git_sync.get(*k)))
+    ["include_path", "include_type"]
+        .iter()
+        .any(|k| !is_null(git_sync.get(*k)))
 }
 
 /// An unset key and a null one are left as they are: stored blobs differ in which they write, and
@@ -2196,6 +2195,14 @@ mod tests {
         assert_eq!(
             fork_git_sync_to_apply(&Value::Null, Some(&legacy_fork), false).unwrap(),
             legacy_fork
+        );
+        // An `exclude_path` the save leaves behind after migrating is no fallback.
+        let mut leftover = migrated.clone();
+        leftover["exclude_path"] = json!(["x/**"]);
+        assert_eq!(
+            fork_git_sync_to_apply(&migrated_parent, Some(&leftover), false).unwrap()
+                ["repositories"][0]["settings"],
+            migrated_parent["repositories"][0]["settings"]
         );
 
         assert!(
