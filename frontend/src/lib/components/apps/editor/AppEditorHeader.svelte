@@ -467,27 +467,20 @@
 		}
 	}
 
-	async function setPublishState(message: string) {
+	async function setPublishState(message?: string) {
 		policy = await updatePolicy($app, policy)
 		await AppService.updateApp({
 			workspace: $workspaceStore!,
 			path: $appPath,
 			requestBody: { policy }
 		})
-		sendUserToast(message)
-	}
-
-	async function setAccessMode(mode: NonNullable<Policy['execution_mode']>) {
-		await AppService.updateApp({
-			workspace: $workspaceStore!,
-			path: $appPath,
-			requestBody: { execution_mode: mode }
-		})
-		sendUserToast(
-			mode == 'anonymous'
-				? 'App require no login to be accessed'
-				: 'App require login and read-access'
-		)
+		if (message) {
+			sendUserToast(message)
+		} else if (policy.execution_mode == 'anonymous') {
+			sendUserToast('App require no login to be accessed')
+		} else {
+			sendUserToast('App require login and read-access')
+		}
 	}
 
 	async function save() {
@@ -955,7 +948,6 @@
 			{newApp}
 			{policy}
 			{setPublishState}
-			{setAccessMode}
 			appPath={$appPath}
 			{onLatest}
 			{headUnknown}
