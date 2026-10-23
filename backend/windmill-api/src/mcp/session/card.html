@@ -330,6 +330,7 @@
     const fields = formFields() ?? [];
     const args = run.form.args ?? {};
     const required = new Set(run.form.schema?.required ?? []);
+    const asText = new Set();
     const inputs = fields.map(([name, prop]) => {
       const value = args[name] ?? prop.default;
       const title = `${prop.title || name}${required.has(name) ? ' *' : ''}`;
@@ -338,6 +339,7 @@
       // A reference stands for a value of any type; it is shown, and sent, as written.
       const reference = typeof value === 'string' && /^\$(var|res|jsonvar):/.test(value);
       if (reference && !prop.password) {
+        asText.add(name);
         input = el('input', { type: 'text', name, value });
         return el('label', {}, title, hint, input);
       }
@@ -379,7 +381,10 @@
           if (!touched.has(name)) {
             if (name in args) next[name] = args[name];
           } else if (/^\$(var|res|jsonvar):/.test(input.value)) next[name] = input.value;
-          else if (prop.type === 'boolean') next[name] = input.checked;
+          else if (asText.has(name)) {
+            // A reference replaced by a literal, typed as text whatever the field's type.
+            if (input.value !== '') next[name] = prop.type === 'string' ? input.value : JSON.parse(input.value);
+          } else if (prop.type === 'boolean') next[name] = input.checked;
           else if (input.value === '') {
             if (prop.password && args[name]) next[name] = args[name];
           } else if (Array.isArray(prop.enum)) next[name] = JSON.parse(input.value);
@@ -392,7 +397,8 @@
         error.textContent = 'A field holds invalid JSON.';
         return;
       }
-      const missing = fields.find(([name, prop]) => required.has(name) && prop.default === undefined && (next[name] === undefined || next[name] === ''));
+      const missing = fields.find(([name, prop]) => required.has(name) && prop.default === undefined
+        && (touched.has(name) ? next[name] === undefined || next[name] === '' : !(name in args)));
       if (missing) {
         error.hidden = false;
         error.textContent = `Fill in ${missing[1].title || missing[0]}.`;
