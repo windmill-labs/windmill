@@ -92,9 +92,11 @@ pub struct OAuthConfig {
     pub userinfo_url: Option<String>,
     /// Resource fields the connect callback fills from what the provider returns,
     /// as field -> path (see [`connect_resource_fields`]). A path starts with its
-    /// source: `token.` (the token response), `userinfo.` (`userinfo_url`'s
-    /// response, fetched only when a path needs it) or `callback.` (the callback
-    /// URL's query params).
+    /// source: `token.` (the raw token response, before `token_response_path`
+    /// unwraps it), `userinfo.` (`userinfo_url`'s response, fetched only when a
+    /// path needs it) or `callback.` (the callback URL's query params). The browser
+    /// relays `callback.` values, so they only prefill the user's own resource:
+    /// nothing server-side may trust them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub connect_fields: Option<HashMap<String, String>>,
     /// The registry JSON may also carry frontend-only keys for the connect
@@ -1342,6 +1344,8 @@ mod tests {
             connect_resource_fields(&salesforce, &fields("salesforce")),
             want
         );
+        let sandbox = registry["salesforce"].as_sandbox().unwrap();
+        assert_eq!(sandbox.connect_fields, registry["salesforce"].connect_fields);
 
         let quickbooks = serde_json::json!({"callback": {"realmId": "9130"}});
         let got = connect_resource_fields(&quickbooks, &fields("quickbooks"));
