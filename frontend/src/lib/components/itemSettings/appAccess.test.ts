@@ -8,7 +8,7 @@ vi.mock('$lib/gen', () => ({
 }))
 
 import { AppService } from '$lib/gen'
-import { updateDeployedAppAccess } from './appAccess'
+import { modeChangeRefusal, updateDeployedAppAccess } from './appAccess'
 
 describe('updateDeployedAppAccess', () => {
 	// A policy is written whole, so sending one would put back whatever a deploy wrote since it
@@ -19,5 +19,33 @@ describe('updateDeployedAppAccess', () => {
 			execution_mode: 'anonymous',
 			skip_draft_deletion: true
 		})
+	})
+})
+
+// The server's mode-only checks: a mismatch shows enabled buttons that answer with a 403.
+describe('modeChangeRefusal', () => {
+	const bob = { on_behalf_of: 'u/bob', sandbox: true }
+	const mine = { on_behalf_of: 'u/me', sandbox: true }
+	const as = (o: { canPreserveRunAs?: boolean; composeOnly?: boolean }) => ({
+		username: 'me',
+		canPreserveRunAs: false,
+		composeOnly: false,
+		...o
+	})
+
+	it('refuses an app run as someone else to a caller who may not keep that user', () => {
+		expect(modeChangeRefusal(bob, as({}))).toBe('run_as')
+		expect(modeChangeRefusal(bob, as({ canPreserveRunAs: true }))).toBeUndefined()
+		expect(modeChangeRefusal(mine, as({}))).toBeUndefined()
+	})
+
+	it('refuses a builder on an app run as someone else, or not sandboxed', () => {
+		expect(modeChangeRefusal(bob, as({ composeOnly: true, canPreserveRunAs: true }))).toBe(
+			'builder_run_as'
+		)
+		expect(modeChangeRefusal({ ...mine, sandbox: undefined }, as({ composeOnly: true }))).toBe(
+			'builder_unsandboxed'
+		)
+		expect(modeChangeRefusal(mine, as({ composeOnly: true }))).toBeUndefined()
 	})
 })

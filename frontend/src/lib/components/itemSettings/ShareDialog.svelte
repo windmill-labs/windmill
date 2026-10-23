@@ -22,7 +22,12 @@
 	} from '$lib/components/operatingWorkspace.svelte'
 	import ItemAccessList from './ItemAccessList.svelte'
 	import AppAccessSection from './AppAccessSection.svelte'
-	import { accessModeOf, updateDeployedAppAccess, type AppAccessMode } from './appAccess'
+	import {
+		accessModeOf,
+		modeChangeRefusal,
+		updateDeployedAppAccess,
+		type AppAccessMode
+	} from './appAccess'
 	import { canPreserveOnBehalfOf } from './onBehalfOf'
 	import {
 		accessLostByMove,
@@ -79,15 +84,13 @@
 	let canWriteApp = $derived(
 		!!app && editRights.canEditItem(app.raw_app ? 'raw_app' : 'app', app.path, app.extra_perms)
 	)
-	// The server refuses to change who can open an app that runs as someone else to a caller who
-	// may not keep that run-as user, and to a compose-only builder: the app's new viewers would run
-	// its runnables as that user.
-	let runsAsSomeoneElse = $derived(
-		!!app?.policy.on_behalf_of && app.policy.on_behalf_of !== `u/${operatingUser.current?.username}`
-	)
-	let composeOnly = $derived($roleCaps.apps === 'compose')
-	let modeRefused = $derived(
-		runsAsSomeoneElse && (composeOnly || !canPreserveOnBehalfOf(operatingUser.current))
+	let modeRefusal = $derived(
+		app &&
+			modeChangeRefusal(app.policy, {
+				username: operatingUser.current?.username,
+				canPreserveRunAs: canPreserveOnBehalfOf(operatingUser.current),
+				composeOnly: $roleCaps.apps === 'compose'
+			})
 	)
 	let itemUrl = $derived(
 		`${window.location.origin}/${kind === 'flow' ? 'flows' : 'scripts'}/get/${path}?workspace=${$operatingWorkspace}`
@@ -340,9 +343,12 @@
 						<span class="text-xs text-secondary">
 							Only people who can edit this app can change who can open it.
 						</span>
-					{:else if modeRefused}
+					{:else if modeRefusal}
 						<span class="text-xs text-secondary">
-							{#if composeOnly}
+							{#if modeRefusal === 'builder_unsandboxed'}
+								As a builder, you can change who can open this app once it is sandboxed. Deploying
+								it sandboxes it.
+							{:else if modeRefusal === 'builder_run_as'}
 								Its runnables run on behalf of {runAs}. As a builder, you can change who can open
 								only the apps that run on behalf of you.
 							{:else}
@@ -362,7 +368,7 @@
 								customPath: app.custom_path ?? undefined,
 								onCustomPathChange: (p) => changeApp({ custom_path: p })
 							}}
-							disabled={appBusy || !canWriteApp || modeRefused}
+							disabled={appBusy || !canWriteApp || !!modeRefusal}
 						/>
 					{/key}
 				{:else}
