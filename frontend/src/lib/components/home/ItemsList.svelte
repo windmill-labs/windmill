@@ -1053,8 +1053,10 @@
 	)
 	// Unfiltered, the tree lists every folder, empty ones too, so a workspace holding only
 	// folders is not empty: its first folder is created from here and managed from its row.
+	// A role without the Folders page gets no folder menu, so empty rows would be noise.
+	let keepEmptyFolders = $derived(itemKind === 'all' && $roleCapabilities.visibility.folders)
 	let treeShowsFolders = $derived(
-		treeLazyMode && !archived && itemKind === 'all' && (folderNamesRes.current?.length ?? 0) > 0
+		treeLazyMode && !archived && keepEmptyFolders && (folderNamesRes.current?.length ?? 0) > 0
 	)
 	// How many runnables each owner (`f/<folder>` / `u/<user>`) holds for this user,
 	// in one request. It labels every tree node up front — a lazy owner's own count is
@@ -1889,9 +1891,10 @@
 	bind:this={folderEditorDrawer}
 	onSaved={async (name, created) => {
 		if (created) {
-			// Folder pickers derive write access from this membership, which the server only
-			// resends on the next whoami.
+			// Folder pickers and the tree's folder menu derive write access from these, which
+			// the server only resends on the next whoami. The creator is the folder's owner.
 			$userStore?.folders.push(name)
+			$userStore?.folders_owners.push(name)
 			await folderNamesRes.refetch()
 		}
 		await reloadItemsAndCounts()
@@ -2106,6 +2109,7 @@
 								<WorkspaceEmptyState
 									archivedOnly={archivedProbe?.hasArchived === true}
 									canCreate={canCreateHere}
+									onCreateFolder={canCreateFolder ? () => folderEditorDrawer?.initNew() : undefined}
 									onPick={(project) => (hubPick = project)}
 									onShowArchived={() =>
 										(filterValues.val = { ...filterValues.val, archived: true })}
@@ -2205,7 +2209,7 @@
 						onManageFolder={$roleCapabilities.visibility.folders
 							? (name) => folderEditorDrawer?.initEdit(name)
 							: undefined}
-						keepEmptyFolders={itemKind === 'all'}
+						{keepEmptyFolders}
 					/>
 				{/key}
 			{/if}
