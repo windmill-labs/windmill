@@ -345,15 +345,12 @@
 						</span>
 					{:else if modeRefusal}
 						<span class="text-xs text-secondary">
-							{#if modeRefusal === 'builder_unsandboxed'}
-								As a builder, you can change who can open this app once it is sandboxed. Deploying
-								it sandboxes it.
-							{:else if modeRefusal === 'builder_run_as'}
-								Its runnables run on behalf of {runAs}. As a builder, you can change who can open
-								only the apps that run on behalf of you.
+							{#if modeRefusal === 'unsandboxed'}
+								This app is not sandboxed yet. Deploy it so it is sandboxed, then change who can
+								open it.
 							{:else}
-								Its runnables run on behalf of {runAs}, so only workspace admins and members of
-								wm_deployers can change who can open it.
+								This app runs on behalf of {runAs}. Deploy it so it runs on behalf of you, then
+								change who can open it.
 							{/if}
 						</span>
 					{/if}

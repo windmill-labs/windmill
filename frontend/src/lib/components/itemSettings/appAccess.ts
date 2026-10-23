@@ -14,19 +14,17 @@ export function accessModeOf(policy: Policy | undefined): AppAccessMode {
 /**
  * Why the server refuses to change who can open a deployed app, or undefined. Mirrors the
  * mode-only checks of `update_app_internal`: an app that runs as someone else is refused to a
- * caller who may not keep that run-as user, and to a compose-only builder, who is also refused
- * on an app that is not sandboxed (their deploy sandboxes it).
+ * caller who may not keep that run-as user and to a compose-only builder, who is also refused on
+ * an app that is not sandboxed. A deploy by the caller lifts either refusal.
  */
 export function modeChangeRefusal(
 	policy: Pick<Policy, 'on_behalf_of' | 'sandbox'>,
 	opts: { username: string | undefined; canPreserveRunAs: boolean; composeOnly: boolean }
-): 'run_as' | 'builder_run_as' | 'builder_unsandboxed' | undefined {
+): 'run_as' | 'unsandboxed' | undefined {
 	const runsAsSomeoneElse = !!policy.on_behalf_of && policy.on_behalf_of !== `u/${opts.username}`
-	if (opts.composeOnly) {
-		if (runsAsSomeoneElse) return 'builder_run_as'
-		return policy.sandbox === true ? undefined : 'builder_unsandboxed'
-	}
-	return runsAsSomeoneElse && !opts.canPreserveRunAs ? 'run_as' : undefined
+	if (runsAsSomeoneElse && (opts.composeOnly || !opts.canPreserveRunAs)) return 'run_as'
+	if (opts.composeOnly && policy.sandbox !== true) return 'unsandboxed'
+	return undefined
 }
 
 /** Why a custom path cannot be used, or undefined. `own` is the app's current custom path. */

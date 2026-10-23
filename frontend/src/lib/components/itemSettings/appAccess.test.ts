@@ -40,11 +40,9 @@ describe('modeChangeRefusal', () => {
 	})
 
 	it('refuses a builder on an app run as someone else, or not sandboxed', () => {
-		expect(modeChangeRefusal(bob, as({ composeOnly: true, canPreserveRunAs: true }))).toBe(
-			'builder_run_as'
-		)
+		expect(modeChangeRefusal(bob, as({ composeOnly: true, canPreserveRunAs: true }))).toBe('run_as')
 		expect(modeChangeRefusal({ ...mine, sandbox: undefined }, as({ composeOnly: true }))).toBe(
-			'builder_unsandboxed'
+			'unsandboxed'
 		)
 		expect(modeChangeRefusal(mine, as({ composeOnly: true }))).toBeUndefined()
 	})
