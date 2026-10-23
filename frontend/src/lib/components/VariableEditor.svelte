@@ -442,10 +442,10 @@
 		const dirty = dirtyWorkspaces
 		const savedPath = (curWs ? states[curWs]?.draft?.path : undefined) ?? editPath ?? ''
 		// Before the loop rewrites the baselines; once per save, not per workspace.
-		const expiryEdited = dirty.some(
+		const expiryChanged = dirty.filter(
 			(ws) => initialStates[ws]?.value_valid_until !== states[ws].draft?.value_valid_until
 		)
-		const expiryNowSet = dirty.some((ws) => !!states[ws].draft?.value_valid_until)
+		const expiryNowSet = expiryChanged.some((ws) => !!states[ws].draft?.value_valid_until)
 		try {
 			for (const ws of dirty) {
 				const s = states[ws].draft!
@@ -497,7 +497,7 @@
 				// it shows up immediately instead of after the 60s TTL.
 				invalidateWorkspacePaths(ws)
 			}
-			if (expiryEdited) {
+			if (expiryChanged.length > 0) {
 				logFeatureUsage('variable_expiration', 'expiry_edited', {
 					key: expiryNowSet ? 'set' : 'cleared'
 				})
