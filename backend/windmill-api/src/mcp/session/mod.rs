@@ -154,21 +154,23 @@ fn result_size_meta() -> MetaObject {
     MetaObject(meta)
 }
 
-/// The MCP Apps view a client that renders them draws a run tool's result in. It reads
-/// the run from the result's `_meta` (see `runs::report_run`) and polls `get_run`.
-pub(super) const RUN_CARD_URI: &str = "ui://windmill/run";
-const RUN_CARD_HTML: &str = include_str!("run_card.html");
-const RUN_CARD_TOOLS: &[&str] = &[
+/// The MCP Apps view a client that renders them draws these tools' results in. It draws
+/// what the tool put in its result's `_meta` (`Ctx::view`), and acts by calling tools.
+pub(super) const CARD_URI: &str = "ui://windmill/card";
+const CARD_HTML: &str = include_str!("card.html");
+const CARD_TOOLS: &[&str] = &[
     "run_script",
     "run_flow",
     "test_run_script",
     "test_run_flow",
     "get_run",
+    "diff",
+    "read_workspace_item",
 ];
 
 /// The `ui://` views the session's tools render in, as `(uri, html)`.
 pub(super) fn session_views() -> &'static [(&'static str, &'static str)] {
-    &[(RUN_CARD_URI, RUN_CARD_HTML)]
+    &[(CARD_URI, CARD_HTML)]
 }
 
 pub(super) fn session_tools(access: SessionAccess) -> Vec<Tool> {
@@ -179,9 +181,9 @@ pub(super) fn session_tools(access: SessionAccess) -> Vec<Tool> {
         .map(|def| {
             let name = def.name.as_str();
             let mut meta = result_size_meta();
-            if RUN_CARD_TOOLS.contains(&name) {
+            if CARD_TOOLS.contains(&name) {
                 meta.0
-                    .insert("ui".into(), json!({ "resourceUri": RUN_CARD_URI }));
+                    .insert("ui".into(), json!({ "resourceUri": CARD_URI }));
             } else if DESTRUCTIVE.contains(&name) {
                 // A view acts as the user with no one confirming, so none may deploy or delete.
                 meta.0
@@ -216,9 +218,9 @@ pub(super) struct Ctx<'a> {
     /// Minted once per tool call: every JWT the API sees is cached by the auth layer, and a
     /// tool can make dozens of calls, which would evict other users' cached sessions.
     pub jwt: tokio::sync::OnceCell<String>,
-    /// The run a run tool started or read, for the run card: returned in the result's
+    /// What the card draws of this call, as `(key, value)`: returned in the result's
     /// `_meta`, which the model never reads.
-    pub run: std::sync::OnceLock<Value>,
+    pub view: std::sync::OnceLock<(&'static str, Value)>,
 }
 
 impl Ctx<'_> {
@@ -580,10 +582,10 @@ pub(super) async fn call_session_tool(
             CallToolResult::error(vec![ContentBlock::text(text.to_string())])
         }
     };
-    if let Some(run) = ctx.run.get() {
+    if let Some((key, view)) = ctx.view.get() {
         result.meta = Some(MetaObject(Map::from_iter([(
-            "windmill/run".to_string(),
-            run.clone(),
+            key.to_string(),
+            view.clone(),
         )])));
     }
     Ok(result)
@@ -651,7 +653,7 @@ mod tests {
                 "session tool `{name}` must be implemented here or listed in EDITOR_ONLY, not both"
             );
         }
-        for name in implemented.iter().chain(EDITOR_ONLY).chain(RUN_CARD_TOOLS) {
+        for name in implemented.iter().chain(EDITOR_ONLY).chain(CARD_TOOLS) {
             assert!(
                 TOOL_DEFS.iter().any(|def| def.name == *name),
                 "`{name}` is not a session tool any more"

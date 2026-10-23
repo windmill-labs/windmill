@@ -89,7 +89,7 @@ impl WindmillBackend {
             access,
             origin: None,
             jwt: Default::default(),
-            run: Default::default(),
+            view: Default::default(),
         }
     }
 
