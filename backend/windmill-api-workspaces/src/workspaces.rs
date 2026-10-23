@@ -6350,8 +6350,9 @@ async fn edit_variable_expiration_handler(
             variable_expiration_handler["remind_every_secs"] = remind_every_secs.into();
         }
 
+        // A recorded failure is the sweep's: it ends at the handler's next start.
         sqlx::query!(
-            "UPDATE workspace_settings SET variable_expiration_handler = $1, variable_expiration_failed_at = NULL WHERE workspace_id = $2",
+            "UPDATE workspace_settings SET variable_expiration_handler = $1 WHERE workspace_id = $2",
             variable_expiration_handler,
             &w_id
         )
@@ -6359,7 +6360,7 @@ async fn edit_variable_expiration_handler(
         .await?;
     } else {
         sqlx::query!(
-            "UPDATE workspace_settings SET variable_expiration_handler = NULL, variable_expiration_failed_at = NULL WHERE workspace_id = $1",
+            "UPDATE workspace_settings SET variable_expiration_handler = NULL WHERE workspace_id = $1",
             &w_id
         )
         .execute(&mut *tx)

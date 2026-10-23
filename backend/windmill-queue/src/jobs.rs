@@ -3618,13 +3618,14 @@ pub(crate) async fn push_variable_expiration_handler<'c>(
     db: &Pool<Postgres>,
     tx: Transaction<'c, Postgres>,
     w_id: &str,
-    handler_path: &str,
+    (payload, tag, on_behalf_of): (
+        JobPayload,
+        Option<String>,
+        Option<windmill_common::jobs::OnBehalfOf>,
+    ),
     expiring: &ExpiringVariable,
     extra_args: Option<Json<Box<RawValue>>>,
 ) -> windmill_common::error::Result<(Uuid, Transaction<'c, Postgres>)> {
-    let (payload, tag, on_behalf_of) =
-        get_payload_tag_from_prefixed_path(handler_path, db, w_id).await?;
-
     // Serialized whole so a new `ExpiringVariable` field reaches handlers. Any writer of the
     // variable controls these, so only they are neutralized: the admin's `extra_args` keep their
     // `$res:` references, which is how the handler gets its token.

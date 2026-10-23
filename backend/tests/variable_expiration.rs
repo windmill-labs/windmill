@@ -192,41 +192,6 @@ async fn test_remind_every_repeats_the_notice(db: Pool<Postgres>) -> anyhow::Res
     Ok(())
 }
 
-/// Reminders due across a full pass's worth of workspaces must not delay a first notice.
-#[sqlx::test(fixtures("base"))]
-async fn test_first_notice_goes_before_reminders(db: Pool<Postgres>) -> anyhow::Result<()> {
-    initialize_tracing().await;
-    seed_handler_script(&db, "u/test-user/expiry_handler").await?;
-    configure_handler(&db, r#"{"path": "script/u/test-user/expiry_handler"}"#).await?;
-    seed_variable(&db, "u/test-user/fresh", "20 minutes").await?;
-    sqlx::raw_sql(
-        r#"INSERT INTO workspace (id, name, owner) SELECT 'busy-' || i, 'busy-' || i, 'test-user' FROM generate_series(1, 100) i;
-           INSERT INTO workspace_key (workspace_id, kind, key) SELECT 'busy-' || i, 'cloud', 'k' FROM generate_series(1, 100) i;
-           INSERT INTO workspace_settings (workspace_id, variable_expiration_handler)
-           SELECT 'busy-' || i, '{"path": "script/u/test-user/expiry_handler", "remind_every_secs": 60}'::jsonb FROM generate_series(1, 100) i;
-           INSERT INTO variable (workspace_id, path, value, is_secret, description, value_valid_until,
-                                 expiration_dispatched_for, expiration_notified_at)
-           SELECT 'busy-' || i, 'f/creds/v', 'v', false, '', now() + interval '10 minutes',
-                  now() + interval '10 minutes', now() - interval '2 minutes'
-           FROM generate_series(1, 100) i;"#,
-    )
-    .execute(&db)
-    .await?;
-
-    dispatch_expiring_variables(&db).await;
-
-    let notified: bool = sqlx::query_scalar(
-        "SELECT expiration_dispatched_for IS NOT NULL FROM variable WHERE path = 'u/test-user/fresh'",
-    )
-    .fetch_one(&db)
-    .await?;
-    assert!(
-        notified,
-        "the first notice waited behind other workspaces' reminders"
-    );
-    Ok(())
-}
-
 /// Moving `value_valid_until` re-arms the variable; re-writing the same date does not.
 #[sqlx::test(fixtures("base"))]
 async fn test_rearm_on_date_change(db: Pool<Postgres>) -> anyhow::Result<()> {
@@ -331,148 +296,100 @@ async fn test_muted_user_paths(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// A workspace whose handler cannot be resolved must not starve the others of the per-pass
-/// cap, although its variables are the most overdue on the instance.
+/// Broken workspaces' due rows must not hold back anyone else's first notice or reminder: every
+/// due row is tried each pass, and a broken handler only once per pass. The broken rows go in
+/// first, so a cap on the pass would cut off the working workspace.
 #[sqlx::test(fixtures("base"))]
-async fn test_broken_handler_does_not_starve_other_workspaces(
-    db: Pool<Postgres>,
-) -> anyhow::Result<()> {
+async fn test_broken_handlers_do_not_hold_back_others(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
-    seed_handler_script(&db, "u/test-user/expiry_handler").await?;
-    configure_handler(&db, r#"{"path": "script/u/test-user/expiry_handler"}"#).await?;
-    seed_variable(&db, "u/test-user/due", "30 minutes").await?;
-
-    // More overdue rows than one pass carries.
-    sqlx::raw_sql(
-        r#"INSERT INTO workspace (id, name, owner) VALUES ('poison-ws', 'poison-ws', 'test-user');
-           INSERT INTO workspace_key (workspace_id, kind, key) VALUES ('poison-ws', 'cloud', 'k');
-           INSERT INTO workspace_settings (workspace_id, variable_expiration_handler)
-           VALUES ('poison-ws', '{"path": "script/u/test-user/does_not_exist"}'::jsonb);
-           INSERT INTO variable (workspace_id, path, value, is_secret, description, value_valid_until)
-           SELECT 'poison-ws', 'f/creds/v' || i, 'v', false, '', now() - (i || ' minutes')::interval
-           FROM generate_series(1, 120) i;"#,
-    )
-    .execute(&db)
-    .await?;
-
-    dispatch_expiring_variables(&db).await;
-
-    assert_eq!(
-        queued_handler_jobs(&db, "u/test-user/expiry_handler").await?,
-        1,
-        "a workspace with an unresolvable handler must not starve the rest of the instance"
-    );
-    assert_eq!(
-        queued_handler_jobs(&db, "u/test-user/does_not_exist").await?,
-        0
-    );
-    let claimed: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM variable WHERE workspace_id = 'poison-ws' AND expiration_dispatched_for IS NOT NULL",
-    )
-    .fetch_one(&db)
-    .await?;
-    assert_eq!(
-        claimed, 0,
-        "a handler that failed to start must leave its rows to retry"
-    );
-
-    Ok(())
-}
-
-/// A pass's worth of workspaces with broken handlers and older expiries must not starve a
-/// healthy one forever: their rows stay due, so every pass would pick them again.
-#[sqlx::test(fixtures("base"))]
-async fn test_many_broken_handlers_do_not_starve_a_healthy_one(
-    db: Pool<Postgres>,
-) -> anyhow::Result<()> {
-    initialize_tracing().await;
-    seed_handler_script(&db, "u/test-user/expiry_handler").await?;
-    configure_handler(&db, r#"{"path": "script/u/test-user/expiry_handler"}"#).await?;
-    seed_variable(&db, "u/test-user/due", "30 minutes").await?;
     sqlx::raw_sql(
         r#"INSERT INTO workspace (id, name, owner) SELECT 'broken-' || i, 'broken-' || i, 'test-user' FROM generate_series(1, 100) i;
            INSERT INTO workspace_key (workspace_id, kind, key) SELECT 'broken-' || i, 'cloud', 'k' FROM generate_series(1, 100) i;
            INSERT INTO workspace_settings (workspace_id, variable_expiration_handler)
            SELECT 'broken-' || i, '{"path": "script/u/test-user/does_not_exist"}'::jsonb FROM generate_series(1, 100) i;
            INSERT INTO variable (workspace_id, path, value, is_secret, description, value_valid_until)
-           SELECT 'broken-' || i, 'f/creds/v', 'v', false, '', now() - interval '1 day' FROM generate_series(1, 100) i;"#,
+           SELECT 'broken-' || i, 'f/creds/v' || j, 'v', false, '', now() - interval '1 day'
+           FROM generate_series(1, 100) i, generate_series(1, 2) j;"#,
     )
     .execute(&db)
     .await?;
+    seed_handler_script(&db, "u/test-user/expiry_handler").await?;
+    configure_handler(
+        &db,
+        r#"{"path": "script/u/test-user/expiry_handler", "remind_every_secs": 60}"#,
+    )
+    .await?;
+    seed_variable(&db, "u/test-user/fresh", "30 minutes").await?;
+    sqlx::query(
+        "INSERT INTO variable (workspace_id, path, value, is_secret, description, value_valid_until,
+                               expiration_dispatched_for, expiration_notified_at)
+         VALUES ($1, 'u/test-user/reminded', 'v', false, '', now() + interval '10 minutes',
+                 now() + interval '10 minutes', now() - interval '2 minutes')",
+    )
+    .bind(WS)
+    .execute(&db)
+    .await?;
 
-    for _ in 0..10 {
-        dispatch_expiring_variables(&db).await;
-    }
+    dispatch_expiring_variables(&db).await;
 
     assert_eq!(
         queued_handler_jobs(&db, "u/test-user/expiry_handler").await?,
-        1,
-        "the healthy workspace never got a pass"
+        2,
+        "the first notice and the reminder must both go out"
+    );
+    assert_eq!(
+        queued_handler_jobs(&db, "u/test-user/does_not_exist").await?,
+        0
     );
     Ok(())
 }
 
-/// A workspace waiting out a failed start must not keep waiting once its handler is deployed.
+/// A broken handler alerts once, however many passes it fails, runs on the first pass after
+/// it is deployed, and that resolves its alert.
 #[sqlx::test(fixtures("base"))]
-async fn test_deploying_the_handler_ends_the_wait(db: Pool<Postgres>) -> anyhow::Result<()> {
+async fn test_deploying_the_handler_ends_the_failure(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
     configure_handler(&db, r#"{"path": "script/u/test-user/redeployed_handler"}"#).await?;
     seed_variable(&db, "u/test-user/due", "30 minutes").await?;
+    let alerts = || async {
+        Ok::<_, anyhow::Error>(sqlx::query_as::<_, (i64, i64)>(
+            "SELECT count(*), count(*) FILTER (WHERE NOT acknowledged) FROM alerts
+             WHERE alert_type = 'critical_error' AND resource = 'variable_expiration_handler:test-workspace'",
+        )
+        .fetch_one(&db)
+        .await?)
+    };
 
     dispatch_expiring_variables(&db).await;
+    dispatch_expiring_variables(&db).await;
+    assert_eq!(
+        alerts().await?,
+        (1, 1),
+        "one alert per failure, not per pass"
+    );
+
     seed_handler_script(&db, "u/test-user/redeployed_handler").await?;
     dispatch_expiring_variables(&db).await;
 
     assert_eq!(
         queued_handler_jobs(&db, "u/test-user/redeployed_handler").await?,
         1,
-        "the deployed handler waited out the delay"
+        "the deployed handler did not run on the next pass"
     );
+    assert_eq!(alerts().await?, (1, 0), "starting again resolves the alert");
     Ok(())
 }
 
-/// A handler deployed while the failing pass is still running must end the wait too. The
-/// trigger deploys it in the same statement that records the failure.
+/// A handler script still waiting on its dependency job runs on the first pass after its lock
+/// lands, though nothing about the script changes but the lock.
 #[sqlx::test(fixtures("base"))]
-async fn test_deploying_the_handler_mid_pass_ends_the_wait(
-    db: Pool<Postgres>,
-) -> anyhow::Result<()> {
+async fn test_handler_runs_once_its_lock_lands(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
-    configure_handler(&db, r#"{"path": "script/u/test-user/mid_pass_handler"}"#).await?;
-    seed_variable(&db, "u/test-user/due", "30 minutes").await?;
-    sqlx::raw_sql(
-        r#"CREATE FUNCTION deploy_mid_pass() RETURNS trigger LANGUAGE plpgsql AS $$
-           BEGIN
-               INSERT INTO script (workspace_id, hash, path, summary, description, content, created_by, language, lock)
-               VALUES (NEW.workspace_id, 42, 'u/test-user/mid_pass_handler', '', '', 'export function main() {}', 'test-user', 'bun', '');
-               RETURN NEW;
-           END $$;
-           CREATE TRIGGER deploy_mid_pass BEFORE UPDATE OF variable_expiration_failed_at ON workspace_settings
-           FOR EACH ROW EXECUTE FUNCTION deploy_mid_pass();"#,
+    configure_handler(
+        &db,
+        r#"{"path": "script/u/test-user/pending_lock_handler"}"#,
     )
-    .execute(&db)
     .await?;
-
-    dispatch_expiring_variables(&db).await;
-    sqlx::raw_sql("DROP TRIGGER deploy_mid_pass ON workspace_settings")
-        .execute(&db)
-        .await?;
-    dispatch_expiring_variables(&db).await;
-
-    assert_eq!(
-        queued_handler_jobs(&db, "u/test-user/mid_pass_handler").await?,
-        1,
-        "the handler deployed mid-pass waited out the delay"
-    );
-    Ok(())
-}
-
-/// A handler script still waiting on its dependency job is not a failure: writing its lock
-/// changes nothing the wait would see.
-#[sqlx::test(fixtures("base"))]
-async fn test_pending_handler_lock_is_not_a_failure(db: Pool<Postgres>) -> anyhow::Result<()> {
-    initialize_tracing().await;
-    configure_handler(&db, r#"{"path": "script/u/test-user/pending_lock_handler"}"#).await?;
     seed_variable(&db, "u/test-user/due", "30 minutes").await?;
     seed_handler_script(&db, "u/test-user/pending_lock_handler").await?;
     sqlx::query("UPDATE script SET lock = NULL WHERE workspace_id = $1")
@@ -494,7 +411,48 @@ async fn test_pending_handler_lock_is_not_a_failure(db: Pool<Postgres>) -> anyho
     assert_eq!(
         queued_handler_jobs(&db, "u/test-user/pending_lock_handler").await?,
         1,
-        "the handler waited out the delay once its lock landed"
+        "the handler did not run once its lock landed"
+    );
+    Ok(())
+}
+
+/// A removed handler has nothing left to retry, so the next pass ends its failure and resolves
+/// its alert.
+#[sqlx::test(fixtures("base"))]
+async fn test_removing_a_failing_handler_resolves_its_alert(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    sqlx::query(
+        "UPDATE workspace_settings SET variable_expiration_handler = NULL,
+         variable_expiration_failed_at = now() WHERE workspace_id = $1",
+    )
+    .bind(WS)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO alerts (alert_type, message, acknowledged, acknowledged_workspace, workspace_id, resource)
+         VALUES ('critical_error', 'failed', false, false, $1, 'variable_expiration_handler:' || $1)",
+    )
+    .bind(WS)
+    .execute(&db)
+    .await?;
+
+    dispatch_expiring_variables(&db).await;
+
+    let (failing, open_alerts): (bool, i64) = sqlx::query_as(
+        "SELECT ws.variable_expiration_failed_at IS NOT NULL,
+                (SELECT count(*) FROM alerts WHERE alert_type = 'critical_error' AND NOT acknowledged
+                 AND workspace_id = $1)
+         FROM workspace_settings ws WHERE ws.workspace_id = $1",
+    )
+    .bind(WS)
+    .fetch_one(&db)
+    .await?;
+    assert!(!failing, "the removed handler's failure must end");
+    assert_eq!(
+        open_alerts, 0,
+        "the removed handler's alert must be resolved"
     );
     Ok(())
 }
@@ -544,11 +502,19 @@ async fn test_edit_handler_endpoint(db: Pool<Postgres>) -> anyhow::Result<()> {
         );
     }
 
-    // A handler that failed to start waits out its retry delay; saving a fix must not.
+    // A recorded failure is the sweep's to end, so the endpoint leaves it alone either way.
     sqlx::query("UPDATE workspace_settings SET variable_expiration_failed_at = now() WHERE workspace_id = $1")
         .bind(WS)
         .execute(&db)
         .await?;
+    let failing = || async {
+        Ok::<_, anyhow::Error>(sqlx::query_scalar::<_, bool>(
+            "SELECT variable_expiration_failed_at IS NOT NULL FROM workspace_settings WHERE workspace_id = $1",
+        )
+        .bind(WS)
+        .fetch_one(&db)
+        .await?)
+    };
     assert_eq!(edit("SECRET_TOKEN", handler).await?, 200);
     assert_eq!(
         stored()
@@ -556,13 +522,7 @@ async fn test_edit_handler_endpoint(db: Pool<Postgres>) -> anyhow::Result<()> {
             .and_then(|h| h["path"].as_str().map(String::from)),
         Some("script/u/test-user/expiry_handler".to_string())
     );
-    let waiting: bool = sqlx::query_scalar(
-        "SELECT variable_expiration_failed_at IS NOT NULL FROM workspace_settings WHERE workspace_id = $1",
-    )
-    .bind(WS)
-    .fetch_one(&db)
-    .await?;
-    assert!(!waiting, "saving the handler must end its retry delay");
+    assert!(failing().await?, "saving the handler must keep its failure");
 
     assert_eq!(edit("SECRET_TOKEN", serde_json::json!({})).await?, 200);
     assert!(

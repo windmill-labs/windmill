@@ -2544,9 +2544,8 @@ export async function main(
 										{/if}
 									</Alert>
 									<span class="text-xs text-secondary">
-										If the handler fails to start, a critical alert is raised and the workspace's
-										variables are tried again an hour later, or as soon as the handler is redeployed
-										or this setting is saved.
+										If the handler fails to start, a critical alert is raised once and the handler
+										is tried again at every check. The alert is resolved as soon as it starts.
 									</span>
 								</div>
 
