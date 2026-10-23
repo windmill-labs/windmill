@@ -8,7 +8,9 @@
 		type RawAppBuildMode,
 		type RawAppTemplatePickerResult
 	} from '$lib/components/raw_apps/RawAppTemplatePicker.svelte'
-	import { runtimeRawAppToDraft } from './appDraftCodec'
+	import { runtimeRawAppToDraft, type RawAppDraft } from './appDraftCodec'
+	import { userStore } from '$lib/stores'
+	import { mintDraftPath } from '$lib/mintDraftPath'
 	import ViewportOverlays from '$lib/components/common/ViewportOverlays.svelte'
 	import { withWorkspaceParam } from './sessionMode.svelte'
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
@@ -100,7 +102,9 @@
 			files: { ...result.files },
 			runnables: {
 				...result.runnables,
-				...(capabilitiesInWorkspace(workspaceId).apps === 'compose' ? {} : structuredClone(STARTER_RUNNABLES))
+				...(capabilitiesInWorkspace(workspaceId).apps === 'compose'
+					? {}
+					: structuredClone(STARTER_RUNNABLES))
 			},
 			data: result.data,
 			policy: result.policy
@@ -161,6 +165,41 @@
 			}
 		})
 	})
+
+	// The fork is saved as a draft under a fresh path before its tab opens: the tab's
+	// editor loads it by path, and the session reopens it from there after a reload.
+	async function forkApp() {
+		const source = cell.store.val
+		if (!source) return
+		const forkPath = mintDraftPath()
+		const draft: RawAppDraft = {
+			summary: '',
+			files: $state.snapshot(source.files),
+			runnables: $state.snapshot(source.runnables),
+			data: $state.snapshot(source.data),
+			// The forker's own: the source's would publish as its owner.
+			policy: {
+				on_behalf_of: $userStore?.username.includes('@')
+					? $userStore?.username
+					: `u/${$userStore?.username}`,
+				on_behalf_of_email: $userStore?.email,
+				execution_mode: 'publisher',
+				sandbox: true
+			}
+		}
+		const key = { workspace: workspaceId, itemKind: 'raw_app' as const, path: forkPath }
+		UserDraft.save('raw_app', forkPath, draft, { workspace: workspaceId })
+		await UserDraft.forcePersist('raw_app', forkPath, { workspace: workspaceId })
+		const saved = UserDraftDbSyncer.getState(key)
+		if (saved.state === 'failed') {
+			sendUserToast(`Could not save the fork: ${saved.failureMessage ?? 'unknown error'}`, true)
+			return
+		}
+		runtime.previewTabs.open({
+			type: 'item',
+			item: { kind: 'app', raw_app: true, path: forkPath, summary: '' }
+		})
+	}
 
 	async function reloadDeployed() {
 		await runtime.loadRawApp(workspaceId, path, true, true)
@@ -380,6 +419,7 @@
 				{diffDrawer}
 				{onNavigate}
 				onDetails={onSeeDetails}
+				onFork={forkApp}
 				condensedHeader={true}
 				onResetToDeployed={reloadDeployed}
 				onDeploy={(e) => runtime.itemDeployed(workspaceId, 'raw_app', path, e.path)}

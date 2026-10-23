@@ -188,6 +188,9 @@
 		/** `Exit & see details`: leaves the editor for the app's deployed page. A session hosts that
 		 *  page itself, so it flips the tab there rather than navigating out of the session. */
 		onDetails?: (e: { path: string }) => void
+		/** `Fork`: opens a new app seeded from the deployed one. A session opens it as one of
+		 *  its own tabs rather than a new browser tab. */
+		onFork?: () => void
 		onResetToDeployed?: () => void | Promise<void>
 		// See ScriptBuilderProps — same semantics for the raw-app editor's
 		// indicator.
@@ -239,6 +242,7 @@
 		onDeploy = undefined,
 		pendingDraftPath = $bindable(undefined),
 		onDetails,
+		onFork,
 		onResetToDeployed,
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
@@ -1218,7 +1222,8 @@
 					{
 						label: 'Fork',
 						onClick: () => {
-							window.open(`/apps/add?template=${appPath}`)
+							if (onFork) onFork()
+							else window.open(`/apps_raw/add?template=${encodeURIComponent(appPath)}`)
 						}
 					},
 					...(!isCloudHosted() && editInForkAllowed(opWorkspace, $userWorkspaces)

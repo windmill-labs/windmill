@@ -280,6 +280,43 @@
 				templatePicker = false
 				return
 			}
+			// Fork of a raw app, from the forker's draft of it when there is one: that is what
+			// their editor shows, and a never-deployed app has nothing else. Only its content
+			// is copied: the policy stays the forker's, since the source's would publish as its owner.
+			const templatePath = page.url.searchParams.get('template')
+			if (templatePath) {
+				try {
+					const template = (await AppService.getAppByPath({
+						workspace: $workspaceStore!,
+						path: templatePath,
+						getDraft: true,
+						rawApp: true
+					})) as any
+					if (tok !== loadAppToken) return
+					const sourceDraft = template.is_draft ? template.draft : undefined
+					const value = sourceDraft
+						? { files: sourceDraft.files, runnables: sourceDraft.runnables, data: sourceDraft.data }
+						: template.value
+					if (value?.files) {
+						savedApp = {
+							summary: '',
+							value,
+							path: '',
+							policy: defaultPolicy,
+							custom_path: undefined
+						}
+						extractRawApp({ summary: '', value, policy: defaultPolicy })
+						newPath = pathParam ?? ''
+						templatePicker = false
+						sendUserToast('App loaded from template')
+						return
+					}
+				} catch (err: any) {
+					if (tok !== loadAppToken) return
+					console.error('Error loading template', err)
+					sendUserToast('Error loading template: ' + (err.body ?? err.message), true)
+				}
+			}
 			// Seed the React 19 template so the editor has a usable state even if the
 			// user dismisses the picker without selecting.
 			const seedFiles = {
