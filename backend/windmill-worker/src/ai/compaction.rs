@@ -533,6 +533,8 @@ async fn summarize_prefix(
         // The summarization request carries no tools, so its prefix does not match the
         // agent's own requests: routing it onto the step's cache key would only evict.
         prompt_cache_key: None,
+        extra_body: request.credentials.extra_body.as_ref(),
+        reasoning_effort_mapping: request.credentials.reasoning_effort_mapping.as_ref(),
     };
 
     let parsed = if request.credentials.provider == AIProvider::AWSBedrock {

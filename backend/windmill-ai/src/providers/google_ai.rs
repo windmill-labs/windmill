@@ -807,6 +807,8 @@ mod tests {
             oidc_role_arn: None,
             platform,
             custom_headers: HashMap::new(),
+            extra_body: None,
+            reasoning_effort_mapping: None,
         }
     }
 

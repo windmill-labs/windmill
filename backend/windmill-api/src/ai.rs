@@ -234,6 +234,12 @@ struct AIStandardResource {
     /// Custom HTTP headers to include in AI requests
     #[serde(default)]
     headers: HashMap<String, String>,
+    /// Optional provider-specific extra request body fields or overrides
+    #[serde(default)]
+    extra_body: Option<serde_json::Value>,
+    /// Optional map from reasoning effort token (e.g. none, low, medium, high) to request body overrides
+    #[serde(default)]
+    reasoning_effort_mapping: Option<HashMap<String, serde_json::Value>>,
     /// The API token of a `cloudflare` resource, which names it `token` rather than `api_key`.
     #[serde(default, deserialize_with = "empty_string_as_none")]
     token: Option<String>,
@@ -347,6 +353,8 @@ async fn resolve_provider_credentials(
                 oidc_role_arn,
                 platform: resource.platform,
                 custom_headers: resource.headers,
+                extra_body: resource.extra_body,
+                reasoning_effort_mapping: resource.reasoning_effort_mapping,
             })
         }
         AIResource::OAuth(resource) => {
@@ -372,6 +380,8 @@ async fn resolve_provider_credentials(
                 oidc_role_arn: None,
                 platform: AIPlatform::Standard,
                 custom_headers: HashMap::new(),
+                extra_body: None,
+                reasoning_effort_mapping: None,
             })
         }
     }
@@ -1131,6 +1141,8 @@ async fn global_proxy(
         oidc_role_arn: None,
         platform: AIPlatform::Standard,
         custom_headers: HashMap::new(),
+        extra_body: None,
+        reasoning_effort_mapping: None,
     };
 
     let client = pinned_ai_client_for(&credentials.base_url).await?;
@@ -1645,6 +1657,8 @@ mod tests {
             oidc_role_arn: None,
             platform: AIPlatform::Standard,
             custom_headers: HashMap::new(),
+            extra_body: None,
+            reasoning_effort_mapping: None,
         }
     }
 
