@@ -233,6 +233,9 @@ vi.mock('$lib/gen', async () => {
 			getAppByVersion: vi.fn(async () => {
 				throw new Error('getAppByVersion mock not configured')
 			}),
+			getAppLiteByPath: vi.fn(async () => {
+				throw new Error('getAppLiteByPath mock not configured')
+			}),
 			listApps: vi.fn(async () => [])
 		}),
 		ResourceService: wrapService(actual.ResourceService, {
@@ -4643,7 +4646,8 @@ describe('global AI tools', () => {
 						data: { tables: ['orders'] }
 					},
 					summary: 'Updated report',
-					policy: expect.objectContaining({ execution_mode: 'anonymous' }),
+					// An update leaves the mode to the deployed row, so a stale draft can't revert it.
+					policy: expect.not.objectContaining({ execution_mode: expect.anything() }),
 					deployment_message: undefined
 				},
 				js: 'bundled js',
@@ -4657,9 +4661,16 @@ describe('global AI tools', () => {
 	// Deploying is what makes an app's runnables reachable, so it is the one moment the
 	// exposure is both true and known.
 	it('discloses who can open an app after a deploy', async () => {
-		const deployApp = async (path: string, policy: Record<string, unknown>) => {
+		const deployApp = async (
+			path: string,
+			policy: Record<string, unknown>,
+			storedMode = policy.execution_mode
+		) => {
 			vi.mocked(AppService.existsApp).mockResolvedValueOnce(true)
 			vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
+			vi.mocked(AppService.getAppLiteByPath).mockResolvedValueOnce({
+				policy: { execution_mode: storedMode }
+			} as any)
 			seedBackendDraft(
 				'raw_app',
 				path,
@@ -4684,6 +4695,10 @@ describe('global AI tools', () => {
 		// The server decides what a deployed app runs as — it overwrites on_behalf_of for
 		// anyone outside the deployers group — so the note must not name an identity.
 		expect(open.message).not.toContain('u/alice')
+
+		// An update keeps the deployed mode, so the note follows the stored row, not a stale draft.
+		const keptPublic = await deployApp('f/apps/kept', { execution_mode: 'publisher' }, 'anonymous')
+		expect(keptPublic.message).toContain('anyone with the URL, without logging in')
 
 		// Guest is a real widening only where the deployment, the instance and the
 		// workspace all admit guests; stored below that, it is inert.

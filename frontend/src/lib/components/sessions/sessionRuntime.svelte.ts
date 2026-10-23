@@ -165,6 +165,7 @@ export interface RawAppRuntimeValue {
 	summary: string
 	path: string
 	custom_path?: string
+	labels?: string[]
 	draft_path?: string
 	/** The app_version this cell's content forked from, carried so the editor's deploy
 	 *  guard and diff drawer compare the same pair the full-page editor does. */
@@ -1135,6 +1136,7 @@ function createRuntime(session: Session): SessionRuntime {
 					summary: draftValue?.summary ?? result.summary ?? '',
 					path: result.path,
 					custom_path: draftValue?.custom_path ?? result.custom_path,
+					labels: draftValue?.labels ?? result.labels,
 					draft_path: draftValue?.draft_path,
 					// Only a fresh checkout forks from the head; a draft keeps its own base,
 					// unknown included, or it would read as up to date. See loadScript.
@@ -1167,9 +1169,8 @@ function createRuntime(session: Session): SessionRuntime {
 						files: { ...(builder ? BUILDER_FRAMEWORK_TEMPLATES.react19 : react19Template) },
 						runnables: builder ? {} : structuredClone(STARTER_RUNNABLES),
 						data: { ...DEFAULT_DATA },
+						// No run-as user: the deploy dialog resolves it, the folder's default first.
 						policy: {
-							on_behalf_of: user?.username.includes('@') ? user.username : `u/${user?.username}`,
-							on_behalf_of_email: user?.email,
 							execution_mode: 'publisher',
 							sandbox: true
 						},

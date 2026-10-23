@@ -16,15 +16,16 @@ describe('getActiveScriptSettingsBadges', () => {
 			priority: 50,
 			tag: 'gpu'
 		}).map((b) => b.key)
-		expect(keys).toEqual(['concurrency', 'cache', 'timeout', 'priority', 'tag'])
+		expect(keys).toEqual(['timeout', 'concurrency', 'cache', 'priority', 'tag'])
 	})
 
-	it('treats a zero/absent priority and non-positive debounce as inactive', () => {
+	it('treats non-positive debounce as inactive, and priority 0 as set', () => {
 		const keys = getActiveScriptSettingsBadges({
 			priority: 0,
 			debounce_delay_s: 0
 		}).map((b) => b.key)
-		expect(keys).toEqual([])
+		// The queue orders by priority with nulls last, so 0 still runs ahead of no priority.
+		expect(keys).toEqual(['priority'])
 	})
 
 	it('treats non-positive concurrency limits, timeouts and cache ttl as inactive (legacy zero rows)', () => {

@@ -1,54 +1,54 @@
 <script lang="ts">
-	import { run, createBubbler } from 'svelte/legacy'
+	import { run } from 'svelte/legacy'
 
-	const bubble = createBubbler()
 	import Path from '$lib/components/Path.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
 	import JobTokenScopesSetting from '$lib/components/JobTokenScopesSetting.svelte'
-	import { Alert, Button, SecondsInput } from '$lib/components/common'
+	import { Alert, Tab, TabContent, Tabs } from '$lib/components/common'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import { enterpriseLicense, userStore } from '$lib/stores'
-	import { isCloudHosted } from '$lib/cloud'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import { schemaToObject } from '$lib/schema'
 	import type { Schema } from '$lib/common'
-	import Section from '$lib/components/Section.svelte'
 	import Label from '$lib/components/Label.svelte'
-	import ErrorHandlerToggleButtonV2 from '$lib/components/details/ErrorHandlerToggleButtonV2.svelte'
-	import WorkerTagPicker from '$lib/components/WorkerTagPicker.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
+	import SettingGroup from '$lib/components/itemSettings/SettingGroup.svelte'
 	import MetadataGen from '$lib/components/copilot/MetadataGen.svelte'
-	import Badge from '$lib/components/Badge.svelte'
 	import LabelsInput from '$lib/components/LabelsInput.svelte'
 	import AIFormSettings from '$lib/components/copilot/AIFormSettings.svelte'
-	import { twMerge } from 'tailwind-merge'
-	import { inputBaseClass, inputBorderClass } from '$lib/components/text_input/TextInput.svelte'
-	import { slide } from 'svelte/transition'
 	import DebounceLimit from '../DebounceLimit.svelte'
-	import EEOnly from '$lib/components/EEOnly.svelte'
-	import OnBehalfOfSelector, {
-		type OnBehalfOfChoice
-	} from '$lib/components/OnBehalfOfSelector.svelte'
+	import SettingToggle from '$lib/components/itemSettings/SettingToggle.svelte'
+	import WorkerTagSetting from '$lib/components/itemSettings/WorkerTagSetting.svelte'
+	import ConcurrencyLimitSetting from '$lib/components/itemSettings/ConcurrencyLimitSetting.svelte'
+	import CacheSetting from '$lib/components/itemSettings/CacheSetting.svelte'
+	import PrioritySetting from '$lib/components/itemSettings/PrioritySetting.svelte'
+	import DedicatedWorkersSetting from '$lib/components/itemSettings/DedicatedWorkersSetting.svelte'
+	import DeleteAfterUseSetting from '$lib/components/itemSettings/DeleteAfterUseSetting.svelte'
+	import RunOnBehalfOfSetting from '$lib/components/itemSettings/RunOnBehalfOfSetting.svelte'
+	import InvisibleRunsSetting from '$lib/components/itemSettings/InvisibleRunsSetting.svelte'
+	import SettingIcons from '$lib/components/itemSettings/SettingIcons.svelte'
+	import {
+		flowRuntimeFields,
+		getActivePermissionBadges,
+		getActiveScriptSettingsBadges
+	} from '$lib/components/scriptSettings'
 	import { modulesWithRetryOrSleep, SAME_WORKER_INCOMPATIBLE_MSG } from '../utils.svelte'
 	import { earlyReturnCandidates } from '../earlyReturnCandidates'
 	import Select from '$lib/components/select/Select.svelte'
-	import {
-		useOperatingUser,
-		useOperatingWorkspace
-	} from '$lib/components/operatingWorkspace.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatingUser = useOperatingUser()
-	const actingUser = $derived(operatingUser.current)
 
 	interface Props {
 		noEditor: boolean
 		enableAi?: boolean
+		/** The `settings-…` selection id the panel was opened with. */
+		selectedId?: string
+		/** Never deployed, though it may already have a path: a draft-only flow. */
+		newFlow?: boolean
 	}
 
-	let { noEditor, enableAi }: Props = $props()
+	let { noEditor, enableAi, selectedId, newFlow = false }: Props = $props()
 
 	const {
 		flowStore,
@@ -56,18 +56,34 @@
 		previewArgs,
 		pathStore,
 		customUi,
-		preserveOnBehalfOf,
 		savedOnBehalfOfEmail,
 		savedOnBehalfOfPermissionedAs,
 		opWorkspace
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
-	const WM_DEPLOYERS_GROUP = 'wm_deployers'
-	let isDeployer = $derived(actingUser?.groups?.includes(WM_DEPLOYERS_GROUP) ?? false)
-	let canPreserve = $derived(!!actingUser?.is_admin || !!actingUser?.is_super_admin || isDeployer)
-	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
-	let customOnBehalfOfEmail: string = $state('')
-	let myPermissionedAs = $derived($userStore?.username ? `u/${$userStore.username}` : undefined)
+	type FlowSettingsTab = 'metadata' | 'runtime' | 'permissions'
+
+	// Other panels open the settings on one setting by selecting `settings-<setting>`; the value
+	// is the row's `data-setting`.
+	const RUNTIME_ROW_OF_SELECTION: Record<string, string> = {
+		'settings-worker-group': 'worker-group',
+		'settings-concurrency': 'concurrency',
+		'settings-cache': 'cache',
+		'settings-early-stop': 'early-stop',
+		'settings-early-return': 'early-return',
+		'settings-same-worker': 'same-worker'
+	}
+	function tabOf(id: string | undefined): FlowSettingsTab {
+		if (id === 'settings-runtime' || (id && id in RUNTIME_ROW_OF_SELECTION)) return 'runtime'
+		return 'metadata'
+	}
+	// Follows the selection, and a click on a tab overrides it until the next one.
+	let tab: FlowSettingsTab = $derived(tabOf(selectedId))
+
+	function scrollToSelectedRow(node: HTMLElement) {
+		const row = selectedId ? RUNTIME_ROW_OF_SELECTION[selectedId] : undefined
+		if (row) node.querySelector(`[data-setting="${row}"]`)?.scrollIntoView({ block: 'nearest' })
+	}
 
 	function asSchema(x: any) {
 		return x as Schema
@@ -75,670 +91,309 @@
 	let path: Path | undefined = $state(undefined)
 	let dirtyPath = $state(false)
 
-	let displayWorkerTagPicker = $state(false)
-
 	// Only block turning it on: a flow deployed with both (CLI, YAML editor) must stay fixable.
 	let conflictingModuleIds = $derived(
 		flowStore.val.value.same_worker ? [] : modulesWithRetryOrSleep(flowStore.val.value)
 	)
 
 	run(() => {
-		if (flowStore.val.tag) {
-			displayWorkerTagPicker = true
-		} else if (flowStore.val.value.preserve_step_tags) {
-			// preserve_step_tags has no effect without a flow worker tag; clear it so it
-			// doesn't linger as invisible state when the tag is removed via any path
-			// (the picker, the toggle, or the YAML editor).
+		// preserve_step_tags has no effect without a flow worker tag; clear it so it doesn't
+		// linger as invisible state when the tag is removed via any path (the picker, the
+		// toggle, or the YAML editor).
+		if (!flowStore.val.tag && flowStore.val.value.preserve_step_tags) {
 			flowStore.val.value.preserve_step_tags = undefined
 		}
 	})
-
-	let activeAdvancedOptions = $derived([
-		{
-			name: 'AI prompt',
-			active: !!flowStore.val.schema?.prompt_for_ai
-		},
-		{
-			name: 'High Priority',
-			active: flowStore.val.value.priority !== undefined && flowStore.val.value.priority > 0
-		},
-		{ name: 'Error Handler Muted', active: Boolean(flowStore.val.ws_error_handler_muted) },
-		{ name: 'Invisible to Others', active: Boolean(flowStore.val.visible_to_runner_only) },
-		{ name: 'Restricted Job Token', active: flowStore.val.job_token_scopes != null },
-		{ name: 'Shared Directory', active: Boolean(flowStore.val.value.same_worker) },
-		{ name: 'Preserve Step Tags', active: Boolean(flowStore.val.value.preserve_step_tags) },
-		{ name: 'Cache Results', active: Boolean(flowStore.val.value.cache_ttl) },
-		{ name: 'Early Stop', active: Boolean(flowStore.val.value.skip_expr) },
-		{ name: 'Early Return', active: Boolean(flowStore.val.value.early_return) },
-		{ name: 'Dedicated Worker', active: Boolean(flowStore.val.dedicated_worker) },
-		{ name: 'Concurrent Limit', active: Boolean(flowStore.val.value.concurrent_limit) },
-		{ name: 'Debouncing', active: Boolean(flowStore.val.value.debounce_delay_s) },
-		{
-			name: `Run on Behalf of ${flowStore.val.on_behalf_of_email ?? 'Last Editor'}`,
-			active: Boolean(flowStore.val.on_behalf_of_email)
-		},
-		{ name: 'Worker Tag', active: displayWorkerTagPicker }
-	])
-
-	let activeAdvancedOptionNames = $derived(
-		activeAdvancedOptions.filter((option) => option.active).map((option) => option.name)
-	)
-	let numberOfAdvancedOptionsOn = $derived(activeAdvancedOptionNames.length)
 </script>
+
+{#snippet sameWorkerConflict()}
+	{SAME_WORKER_INCOMPATIBLE_MSG} Remove them from step{conflictingModuleIds.length > 1 ? 's' : ''}
+	{conflictingModuleIds.join(', ')} first.
+{/snippet}
 
 <div class="h-full flex flex-col">
 	<FlowCard {noEditor} title="Settings">
-		<div class="grow min-h-0 p-4 h-full flex flex-col gap-6 overflow-y-auto">
-			<!-- Metadata Section -->
-			<div class="gap-6 flex flex-col">
-				<Label label="Summary">
-					<MetadataGen
-						bind:content={flowStore.val.summary}
-						promptConfigName="flowSummary"
-						flow={flowStore.val.value}
-						onChange={() => {
-							if ($initialPathStore == '' && flowStore.val.summary?.length > 0 && !dirtyPath) {
-								path?.setName(
-									flowStore.val.summary
-										.toLowerCase()
-										.replace(/[^a-z0-9_]/g, '_')
-										.replace(/-+/g, '_')
-										.replace(/^-|-$/g, '')
-								)
-							}
-						}}
-						elementProps={{
-							type: 'text',
-							id: 'flow-summary',
-							placeholder: 'Short summary to be displayed when listed'
-						}}
-					/>
-				</Label>
-				<!-- prettier-ignore -->
-				<LabelsInput bind:labels={(flowStore.val as any).labels} class="-mt-4" />
-
-				{#if !noEditor && customUi?.topBar?.editablePath != false}
-					<Label label="Path">
-						<Path
-							autofocus={false}
-							bind:this={path}
-							bind:dirty={dirtyPath}
-							bind:path={$pathStore}
-							initialPath={$initialPathStore}
-							namePlaceholder="flow"
-							kind="flow"
-							workspaceOverride={opWorkspace?.()}
-						/>
-						{#if $initialPathStore && $pathStore && $pathStore !== $initialPathStore}
-							<Alert
-								type="info"
-								size="xs"
-								title="Deploy the flow to make the path change effective."
-								class="mt-2"
-							/>
-						{/if}
-					</Label>
-				{/if}
-
-				<Label label="Description">
-					<MetadataGen
-						bind:content={flowStore.val.description}
-						promptConfigName="flowDescription"
-						flow={flowStore.val.value}
-						class="w-full"
-						elementType="textarea"
-						elementProps={{
-							id: 'inp',
-							placeholder: 'What this flow does and how to use it'
-						}}
-					/>
-				</Label>
-			</div>
-
-			<!-- Deployable Section -->
-			<Section
-				label="Advanced"
-				collapsable={true}
-				small={true}
-				class="h-full grow mt-2 min-h-0 flex flex-col gap-6 pb-2"
-			>
-				<!-- Worker Group Section -->
-				{#if customUi?.settingsTabs?.workerGroup != false}
-					<div>
-						<Toggle
-							textClass="font-medium"
-							size="xs"
-							checked={displayWorkerTagPicker}
-							on:change={() => {
-								displayWorkerTagPicker = !displayWorkerTagPicker
-								if (!displayWorkerTagPicker) {
-									// Clearing the tag triggers the reactive block above, which also
-									// resets preserve_step_tags so it doesn't linger as invisible state.
-									flowStore.val.tag = undefined
-								}
-							}}
-							options={{
-								right: 'Worker group tag (queue)',
-								rightTooltip:
-									"When a worker group tag is defined at the flow level, any steps inside the flow will run on any worker group that listen to that tag, regardless of the steps tag. If no worker group tags is defined, the flow controls will be executed with the default tag 'flow' and the steps will be executed with their respective tag",
-								rightDocumentationLink: 'https://www.windmill.dev/docs/core_concepts/worker_groups'
-							}}
-						/>
-
-						{#if displayWorkerTagPicker}
-							<div transition:slide={{ duration: 120 }} class="mt-2">
-								<WorkerTagPicker
-									bind:tag={flowStore.val.tag}
-									popupPlacement="top-end"
-									workspaceId={opWorkspace?.()}
-								/>
-							</div>
-							{#if flowStore.val.tag}
-								<div
-									transition:slide={{ duration: 120 }}
-									class="mt-2 pl-4 border-l border-surface-selected"
-								>
-									<Toggle
-										textClass="font-medium"
-										size="xs"
-										bind:checked={flowStore.val.value.preserve_step_tags}
-										options={{
-											right: 'Preserve step worker tags',
-											rightTooltip:
-												'By default the flow worker tag above is propagated to and overrides every step, script and nested sub-flow. Enable this to instead let steps that declare their own worker tag run on it. Steps without their own tag still inherit the flow tag.',
-											rightDocumentationLink:
-												'https://www.windmill.dev/docs/core_concepts/worker_groups'
-										}}
-									/>
-								</div>
-							{/if}
-						{/if}
-					</div>
-
-					<!-- <Tooltip
-								>In this mode, every scripts of this flow is run on the workers dedicated to this flow
-								that keep the scripts "hot" so that there is not cold start cost incurred. Steps can run
-								at >1500 rps in this mode.</Tooltip
-							> -->
-				{/if}
-
-				<!-- Metadata Advanced Section -->
-				{#snippet badge()}
-					{#if numberOfAdvancedOptionsOn > 0}
-						<div class="flex grow min-w-0 w-full flex-wrap gap-1 ps-2">
-							{#each activeAdvancedOptionNames as optionName}
-								<Badge twBgColor="bg-surface-sunken" twTextColor="text-primary">{optionName}</Badge>
-							{/each}
-						</div>
-					{/if}
-				{/snippet}
-
-				<!-- Cache Section -->
-				{#if customUi?.settingsTabs?.cache != false}
-					<div>
-						<Toggle
-							textClass="font-medium"
-							size="xs"
-							checked={Boolean(flowStore.val.value.cache_ttl)}
-							on:change={() => {
-								if (flowStore.val.value.cache_ttl && flowStore.val.value.cache_ttl != undefined) {
-									flowStore.val.value.cache_ttl = undefined
-								} else {
-									flowStore.val.value.cache_ttl = 300
-								}
-							}}
-							options={{
-								right: 'Cache the results for each possible inputs',
-								rightTooltip:
-									'When enabled, the flow will cache the results of the flow for each possible set of inputs.',
-								rightDocumentationLink: 'https://www.windmill.dev/docs/flows/cache#cache-flows'
-							}}
-						/>
-						{#if flowStore.val.value.cache_ttl}
-							<div class="flex gap-x-4 flex-col gap-1 mt-2" transition:slide={{ duration: 120 }}>
-								<div class="text-2xs text-secondary">How long to keep the cache valid</div>
-								<SecondsInput bind:seconds={flowStore.val.value.cache_ttl} />
-								<Toggle
-									size="2xs"
-									bind:checked={
-										() => flowStore.val.value.cache_ignore_s3_path,
-										(v) => (flowStore.val.value.cache_ignore_s3_path = v || undefined)
-									}
-									options={{
-										right: 'Ignore S3 Object paths for caching purposes',
-										rightTooltip:
-											'If two S3 objects passed as input have the same content, they will hit the same cache entry, regardless of their path.'
-									}}
-								/>
-							</div>
-						{/if}
-					</div>
-				{/if}
-
-				<!-- Early Stop Section -->
-				{#if customUi?.settingsTabs?.earlyStop != false}
-					<div>
-						<!-- documentationLink="https://www.windmill.dev/docs/flows/early_stop -->
-						<Toggle
-							textClass="font-medium"
-							size="xs"
-							checked={Boolean(flowStore.val.value.skip_expr)}
-							on:change={() => {
-								if (Boolean(flowStore.val.value.skip_expr) && flowStore.val.value.skip_expr) {
-									flowStore.val.value.skip_expr = undefined
-								} else {
-									flowStore.val.value.skip_expr = 'flow_input.foo == undefined'
-								}
-							}}
-							options={{
-								right: 'Early stop if condition met',
-								rightTooltip:
-									'If the inputs meet the predefined condition, the flow will not run.' +
-									'to decide if the flow should stop early.',
-								rightDocumentationLink:
-									'https://www.windmill.dev/docs/flows/early_stop#early-stop-for-flow'
-							}}
-						/>
-						{#if flowStore.val.value.skip_expr}
-							<div
-								class="w-full border rounded-md flex flex-col mt-2 {flowStore.val.value.skip_expr
-									? ''
-									: 'bg-surface-secondary'}"
-							>
-								<div class="w-full rounded-md overflow-auto">
-									<SimpleEditor
-										lang="javascript"
-										small
-										bind:code={flowStore.val.value.skip_expr}
-										class="small-editor"
-										extraLib={`declare const flow_input = ${JSON.stringify(
-											schemaToObject(asSchema(flowStore.val.schema), previewArgs.val)
-										)};
-									declare const WM_SCHEDULED_FOR: string;`}
-									/>
-									<div class="text-xs text-hint p-2">
-										You can use the variable `flow_input` to access the inputs of the flow. <br
-										/>The variable `WM_SCHEDULED_FOR` contains the time the flow was scheduled for
-										which you can use to stop early non fresh jobs:
-										<pre>new Date().getTime() - new Date(WM_SCHEDULED_FOR).getTime() {'>'} X</pre>
-									</div>
-								</div>
-							</div>
-						{/if}
-					</div>
-				{/if}
-
-				<!-- Early Return Section -->
-				{#if customUi?.settingsTabs?.earlyReturn != false}
-					<div>
-						<Toggle
-							textClass="font-medium"
-							size="xs"
-							checked={Boolean(flowStore.val.value.early_return)}
-							on:change={() => {
-								if (Boolean(flowStore.val.value.early_return) && flowStore.val.value.early_return) {
-									flowStore.val.value.early_return = undefined
-								} else {
-									flowStore.val.value.early_return = flowStore.val.value.modules?.[0]?.id ?? 'a'
-								}
-							}}
-							options={{
-								right: 'Early return for sync webhooks',
-								rightTooltip:
-									'If defined, sync endpoints will return early at the node defined here while the rest of the flow continue asynchronously.',
-								rightDocumentationLink: 'https://www.windmill.dev/docs/flows/early_return'
-							}}
-						/>
-						{#if flowStore.val.value.early_return}
-							{@const candidates = earlyReturnCandidates(flowStore.val.value.modules ?? [])}
-							{@const selected = candidates.find((c) => c.id === flowStore.val.value.early_return)}
-							<div class="mt-2 flex flex-col gap-1 max-w-sm" transition:slide={{ duration: 120 }}>
-								<Select
-									items={candidates.map((c) => ({ value: c.id, label: c.id }))}
-									bind:value={flowStore.val.value.early_return}
-									placeholder="Node's id"
-									size="sm"
-								/>
-								{#if !selected}
-									<span class="text-2xs text-red-600 dark:text-red-400">
-										Step {flowStore.val.value.early_return} is not one of the steps above. Pick another
-										step.
-									</span>
-								{:else if !selected.deterministic}
-									<span class="text-2xs text-secondary">
-										This step only runs if its branch is taken. Otherwise, sync calls return the
-										flow's final result.
-									</span>
-								{/if}
-							</div>
-						{/if}
-					</div>
-				{/if}
-
-				<!-- Shared Directory Section -->
-				{#if customUi?.settingsTabs?.sharedDiretory != false}
-					<div class="flex flex-col gap-1">
-						<Toggle
-							textClass="font-medium"
-							size="xs"
-							disabled={conflictingModuleIds.length > 0}
-							bind:checked={flowStore.val.value.same_worker}
-							options={{
-								right: 'Same Worker + Shared directory on `./shared`',
-								rightTooltip:
-									'Steps will share a folder at `./shared` in which they can store heavier data and ' +
-									'pass them to the next step. Beware that the `./shared` folder is not ' +
-									'preserved across suspends and sleeps.',
-								rightDocumentationLink:
-									'https://www.windmill.dev/docs/core_concepts/persistent_storage/within_windmill#shared-directory'
-							}}
-						/>
-						{#if conflictingModuleIds.length > 0}
-							<span class="text-xs text-secondary">
-								{SAME_WORKER_INCOMPATIBLE_MSG} Remove them from step{conflictingModuleIds.length > 1
-									? 's'
-									: ''}
-								{conflictingModuleIds.join(', ')} first.
-							</span>
-						{/if}
-					</div>
-				{/if}
-
-				<!-- Visibility Section -->
-				<Toggle
-					textClass="font-medium"
-					size="xs"
-					checked={Boolean(flowStore.val.visible_to_runner_only)}
-					on:change={() => {
-						if (flowStore.val.visible_to_runner_only) {
-							flowStore.val.visible_to_runner_only = undefined
-						} else {
-							flowStore.val.visible_to_runner_only = true
-						}
-					}}
-					options={{
-						right: 'Make runs invisible to others',
-						rightTooltip:
-							'When this option is enabled, manual executions of this script are invisible to users other than the user running it, including the owner(s). This setting can be overridden when this script is run manually from the advanced menu.',
-						rightDocumentationLink:
-							'https://www.windmill.dev/docs/core_concepts/monitor_past_and_future_runs#invisible-runs'
-					}}
-				/>
-
-				<!-- On behalf of last editor section -->
-				<span class="inline-flex gap-2">
-					<Toggle
-						textClass="font-medium"
-						size="xs"
-						checked={Boolean(flowStore.val.on_behalf_of_email)}
-						on:change={() => {
-							if (flowStore.val.on_behalf_of_email) {
-								flowStore.val.on_behalf_of_email = undefined
-								flowStore.val.on_behalf_of = undefined
-								$preserveOnBehalfOf = false
-								onBehalfOfChoice = undefined
-							} else {
-								flowStore.val.on_behalf_of_email = $userStore?.email
-								flowStore.val.on_behalf_of = myPermissionedAs
-							}
-						}}
-						options={{
-							right: `Run on behalf of ${canPreserve ? 'a specified user' : 'last editor'}`,
-							rightTooltip:
-								'When this option is enabled, the flow will be run with the permissions of the corresponding user.'
-						}}
-					/>
-					{#if flowStore.val.on_behalf_of_email && canPreserve}
-						&rarr; <OnBehalfOfSelector
-							targetWorkspace={opWorkspace?.() ?? $operatingWorkspace ?? ''}
-							targetValue={$savedOnBehalfOfEmail}
-							selected={onBehalfOfChoice}
-							onSelect={(choice, details) => {
-								onBehalfOfChoice = choice
-								if (choice === 'me') {
-									flowStore.val.on_behalf_of_email = $userStore?.email
-									flowStore.val.on_behalf_of = myPermissionedAs
-									customOnBehalfOfEmail = ''
-									$preserveOnBehalfOf = false
-								} else if (choice === 'target') {
-									// Keep the saved pair. A flow that has no recorded principal yet
-									// sends the email alone and the backend derives one from it.
-									flowStore.val.on_behalf_of_email = $savedOnBehalfOfEmail
-									flowStore.val.on_behalf_of = $savedOnBehalfOfPermissionedAs
-									customOnBehalfOfEmail = ''
-									$preserveOnBehalfOf = true
-								} else if (choice === 'custom' && details) {
-									flowStore.val.on_behalf_of_email = details.email
-									flowStore.val.on_behalf_of = details.permissionedAs
-									customOnBehalfOfEmail = details.email
-									$preserveOnBehalfOf = true
-								}
-							}}
-							kind="flow"
-							{canPreserve}
-							customValue={customOnBehalfOfEmail}
-							isDeployment={false}
-						/>
-					{:else if flowStore.val.on_behalf_of_email && !canPreserve}
-						<span class="text-xs text-tertiary">
-							Currently: <span class="font-medium"
-								>{$savedOnBehalfOfEmail ?? flowStore.val.on_behalf_of_email}</span
-							>. Will be set to <span class="font-medium">{$userStore?.email}</span> on deploy (requires
-							admin or wm_deployers group to override)
-						</span>
-					{/if}
-				</span>
-
-				<!-- Error Handler Section -->
-				<div class="flex flex-row items-center py-1">
-					<ErrorHandlerToggleButtonV2
-						kind="flow"
-						scriptOrFlowPath={$pathStore}
-						bind:errorHandlerMuted={flowStore.val.ws_error_handler_muted}
-					/>
-					{#if !$enterpriseLicense}
-						<EEOnly />
-					{/if}
-				</div>
-
-				<!-- Concurrency Section -->
-				{#if customUi?.settingsTabs?.concurrency != false}
-					<div>
-						<Toggle
-							textClass="font-medium"
-							size="xs"
-							disabled={!$enterpriseLicense}
-							checked={Boolean(flowStore.val.value.concurrent_limit)}
-							on:change={() => {
-								if (flowStore.val.value.concurrent_limit) {
-									flowStore.val.value.concurrent_limit = undefined
-								} else {
-									flowStore.val.value.concurrent_limit = 1
-								}
-							}}
-							options={{
-								right: 'Concurrency limits',
-								rightTooltip: 'Allowed concurrency within a given timeframe',
-								rightDocumentationLink: 'https://www.windmill.dev/docs/flows/concurrency_limit'
-							}}
-							eeOnly={true}
-						/>
-
-						{#if flowStore.val.value.concurrent_limit}
-							<div class="flex flex-col gap-6 mt-6" transition:slide={{ duration: 120 }}>
-								<Label label="Max number of executions within the time window">
-									<div class="flex flex-row gap-2 max-w-sm whitespace-nowrap">
-										<input
-											disabled={!$enterpriseLicense}
-											bind:value={flowStore.val.value.concurrent_limit}
-											type="number"
-										/>
-										<Button
-											size="sm"
-											color="light"
-											on:click={() => {
-												flowStore.val.value.concurrent_limit = undefined
-											}}
-											variant="border">Remove Limits</Button
-										>
-									</div>
-								</Label>
-								<Label label="Time window in seconds">
-									<div class="-mt-5">
-										<SecondsInput
-											disabled={!$enterpriseLicense}
-											bind:seconds={flowStore.val.value.concurrency_time_window_s}
-										/>
-									</div>
-								</Label>
-								<Label label="Custom concurrency key (optional)">
-									{#snippet header()}
-										<Tooltip>
-											Concurrency keys are global, you can have them be workspace specific using the
-											variable `$workspace`. You can also use an argument's value using
-											`$args[name_of_arg]`</Tooltip
-										>
-									{/snippet}
-									<!-- svelte-ignore a11y_autofocus -->
-									<input
-										type="text"
-										autofocus
-										disabled={!$enterpriseLicense}
-										bind:value={flowStore.val.value.concurrency_key}
-										placeholder={`$workspace/script/${$pathStore}-$args[foo]`}
-									/>
-								</Label>
-							</div>
-						{/if}
-					</div>
-				{/if}
-
-				<!-- Debouncing Section -->
-				{#if customUi?.settingsTabs?.debouncing != false}
-					<DebounceLimit
-						size="xs"
-						fontClass="font-medium"
-						bind:debounce_delay_s={flowStore.val.value.debounce_delay_s}
-						bind:debounce_key={flowStore.val.value.debounce_key}
-						bind:debounce_args_to_accumulate={flowStore.val.value.debounce_args_to_accumulate}
-						bind:max_total_debouncing_time={flowStore.val.value.max_total_debouncing_time}
-						bind:max_total_debounces_amount={flowStore.val.value.max_total_debounces_amount}
-						schema={asSchema(flowStore.val.schema)}
-						placeholder={`$workspace/flow/${$pathStore}-$args[foo]`}
-					/>
-				{/if}
-
-				<!-- Priority Section -->
-				<Toggle
-					textClass="font-medium"
-					size="xs"
-					disabled={!$enterpriseLicense || isCloudHosted()}
-					checked={flowStore.val.value.priority !== undefined && flowStore.val.value.priority > 0}
-					on:change={() => {
-						if (flowStore.val.value.priority) {
-							flowStore.val.value.priority = undefined
-						} else {
-							flowStore.val.value.priority = 100
-						}
-					}}
-					eeOnly={true}
-					options={{
-						right: `Label as high priority`,
-						rightTooltip: `All jobs scheduled by flows labeled as high priority take precedence over the other jobs in the jobs queue. Higher priority numbers are executed first.`,
-						rightDocumentationLink: 'https://www.windmill.dev/docs/flows/priority'
-					}}
-				>
-					{#snippet right()}
-						<input
-							type="number"
-							class={twMerge(inputBaseClass, inputBorderClass(), '!w-16 text-xs ml-4')}
-							disabled={flowStore.val.value.priority === undefined}
-							bind:value={flowStore.val.value.priority}
-							onfocus={bubble('focus')}
-							onchange={() => {
-								if (flowStore.val.value.priority && flowStore.val.value.priority > 100) {
-									flowStore.val.value.priority = 100
-								} else if (flowStore.val.value.priority && flowStore.val.value.priority < 0) {
-									flowStore.val.value.priority = 0
-								}
-							}}
+		<div class="flex flex-col h-full">
+			<Tabs bind:selected={tab} wrapperClass="flex-none w-full">
+				<Tab value="metadata" label="Metadata" />
+				<Tab value="runtime" label="Runtime">
+					{#snippet extra()}
+						<SettingIcons
+							badges={getActiveScriptSettingsBadges(flowRuntimeFields(flowStore.val))}
 						/>
 					{/snippet}
-				</Toggle>
+				</Tab>
+				<Tab value="permissions" label="Permissions">
+					{#snippet extra()}
+						<SettingIcons badges={getActivePermissionBadges(flowStore.val)} />
+					{/snippet}
+				</Tab>
 
-				<Toggle
-					textClass="font-medium"
-					size="xs"
-					disabled={!$enterpriseLicense}
-					checked={flowStore.val.value.delete_after_secs != null}
-					on:change={() => {
-						if (flowStore.val.value.delete_after_secs != null) {
-							flowStore.val.value.delete_after_secs = undefined
-						} else {
-							flowStore.val.value.delete_after_secs = 0
-						}
-					}}
-					options={{
-						right: 'Delete all step results after completion',
-						rightTooltip: `When enabled, the logs, arguments and results of all flow steps will be deleted after the specified delay once the flow completes. Set to 0 for immediate deletion. The deletion is irreversible.`
-					}}
-					eeOnly={true}
-				/>
-				{#if flowStore.val.value.delete_after_secs != null}
-					<div class="ml-6 mt-1">
-						<SecondsInput
-							bind:seconds={flowStore.val.value.delete_after_secs}
-							disabled={!$enterpriseLicense}
-							size="sm"
-						/>
+				{#snippet content()}
+					<div class="min-h-0 grow overflow-y-auto">
+						<TabContent value="metadata">
+							<div class="flex flex-col gap-6 p-4 pb-8">
+								<Label label="Summary">
+									<MetadataGen
+										bind:content={flowStore.val.summary}
+										promptConfigName="flowSummary"
+										flow={flowStore.val.value}
+										onChange={() => {
+											if (
+												$initialPathStore == '' &&
+												flowStore.val.summary?.length > 0 &&
+												!dirtyPath
+											) {
+												path?.setName(
+													flowStore.val.summary
+														.toLowerCase()
+														.replace(/[^a-z0-9_]/g, '_')
+														.replace(/-+/g, '_')
+														.replace(/^-|-$/g, '')
+												)
+											}
+										}}
+										elementProps={{
+											type: 'text',
+											id: 'flow-summary',
+											placeholder: 'Short summary to be displayed when listed'
+										}}
+									/>
+								</Label>
+								<!-- prettier-ignore -->
+								<LabelsInput bind:labels={(flowStore.val as any).labels} class="-mt-4" />
+
+								{#if !noEditor && customUi?.topBar?.editablePath != false}
+									<Label label="Path">
+										{#snippet header()}
+											<Tooltip
+												documentationLink="https://www.windmill.dev/docs/core_concepts/roles_and_permissions#path"
+											>
+												The unique identifier of the flow in the workspace that defines permissions
+											</Tooltip>
+										{/snippet}
+										<Path
+											autofocus={false}
+											bind:this={path}
+											bind:dirty={dirtyPath}
+											bind:path={$pathStore}
+											initialPath={$initialPathStore}
+											namePlaceholder="flow"
+											kind="flow"
+											workspaceOverride={opWorkspace?.()}
+										/>
+										{#if $initialPathStore && $pathStore && $pathStore !== $initialPathStore}
+											<Alert
+												type="info"
+												size="xs"
+												title="Deploy the flow to make the path change effective."
+												class="mt-2"
+											/>
+										{/if}
+									</Label>
+								{/if}
+
+								<Label label="Description">
+									<MetadataGen
+										bind:content={flowStore.val.description}
+										promptConfigName="flowDescription"
+										flow={flowStore.val.value}
+										class="w-full"
+										elementType="textarea"
+										elementProps={{
+											id: 'inp',
+											placeholder: 'What this flow does and how to use it'
+										}}
+									/>
+								</Label>
+
+								{#if flowStore.val.schema && enableAi}
+									<AIFormSettings
+										bind:prompt={flowStore.val.schema.prompt_for_ai as string | undefined}
+										type="flow"
+									/>
+								{/if}
+							</div>
+						</TabContent>
+
+						<!-- The rows, their wording and order are the script Runtime tab's; Flow control is flow-only. -->
+						<TabContent value="runtime">
+							<div class="flex flex-col gap-8 p-4 pb-8" {@attach scrollToSelectedRow}>
+								{#if customUi?.settingsTabs?.earlyStop != false || customUi?.settingsTabs?.earlyReturn != false}
+									<SettingGroup label="Flow control" class="flex flex-col gap-6">
+										{#if customUi?.settingsTabs?.earlyStop != false}
+											<SettingToggle
+												setting="early-stop"
+												label="Stop flow if"
+												tooltip="Evaluated on the flow inputs before the first step. When true, the flow stops right away and returns 'stopped early'."
+												documentationLink="https://www.windmill.dev/docs/flows/early_stop#early-stop-for-flow"
+												checked={!!flowStore.val.value.skip_expr}
+												onchange={(on) =>
+													(flowStore.val.value.skip_expr = on
+														? 'flow_input.foo == undefined'
+														: undefined)}
+											>
+												<div class="w-full border rounded-md overflow-auto">
+													<SimpleEditor
+														lang="javascript"
+														small
+														bind:code={
+															() => flowStore.val.value.skip_expr,
+															(code) => {
+																// The editor writes its text back when it loses focus, which can
+																// land while the row closes and would turn the setting back on.
+																if (flowStore.val.value.skip_expr !== undefined) {
+																	flowStore.val.value.skip_expr = code
+																}
+															}
+														}
+														class="few-lines-editor"
+														extraLib={`declare const flow_input = ${JSON.stringify(
+															schemaToObject(asSchema(flowStore.val.schema), previewArgs.val)
+														)};
+												declare const WM_SCHEDULED_FOR: string;`}
+													/>
+												</div>
+												<div class="text-2xs text-secondary">
+													<code>flow_input</code> holds the flow inputs and
+													<code>WM_SCHEDULED_FOR</code> the time the run was scheduled for, e.g. to
+													stop runs that started too late:
+													<code
+														>new Date().getTime() - new Date(WM_SCHEDULED_FOR).getTime() {'>'} X</code
+													>
+												</div>
+											</SettingToggle>
+										{/if}
+										{#if customUi?.settingsTabs?.earlyReturn != false}
+											<SettingToggle
+												setting="early-return"
+												label="Early return for sync webhooks"
+												tooltip="Sync endpoints return the result of the step picked here while the rest of the flow keeps running."
+												documentationLink="https://www.windmill.dev/docs/flows/early_return"
+												checked={!!flowStore.val.value.early_return}
+												onchange={(on) =>
+													(flowStore.val.value.early_return = on
+														? (flowStore.val.value.modules?.[0]?.id ?? 'a')
+														: undefined)}
+											>
+												{@const candidates = earlyReturnCandidates(
+													flowStore.val.value.modules ?? []
+												)}
+												{@const selected = candidates.find(
+													(c) => c.id === flowStore.val.value.early_return
+												)}
+												<div class="max-w-sm">
+													<Select
+														items={candidates.map((c) => ({ value: c.id, label: c.id }))}
+														bind:value={flowStore.val.value.early_return}
+														placeholder="Node's id"
+													/>
+												</div>
+												{#if !selected}
+													<span class="text-2xs text-red-600 dark:text-red-400">
+														Step {flowStore.val.value.early_return} is not one of the steps above. Pick
+														another step.
+													</span>
+												{:else if !selected.deterministic}
+													<span class="text-2xs text-secondary">
+														This step only runs if its branch is taken. Otherwise, sync calls return
+														the flow's final result.
+													</span>
+												{/if}
+											</SettingToggle>
+										{/if}
+									</SettingGroup>
+								{/if}
+
+								<SettingGroup label="Execution policy" class="flex flex-col gap-6">
+									{#if customUi?.settingsTabs?.concurrency != false}
+										<ConcurrencyLimitSetting
+											kind="flow"
+											bind:limit={flowStore.val.value.concurrent_limit}
+											bind:timeWindowS={flowStore.val.value.concurrency_time_window_s}
+											bind:concurrencyKey={flowStore.val.value.concurrency_key}
+											keyPlaceholder={`$workspace/flow/${$pathStore}-$args[foo]`}
+										/>
+									{/if}
+									{#if customUi?.settingsTabs?.debouncing != false}
+										<DebounceLimit
+											bind:debounce_delay_s={flowStore.val.value.debounce_delay_s}
+											bind:debounce_key={flowStore.val.value.debounce_key}
+											bind:debounce_args_to_accumulate={
+												flowStore.val.value.debounce_args_to_accumulate
+											}
+											bind:max_total_debouncing_time={flowStore.val.value.max_total_debouncing_time}
+											bind:max_total_debounces_amount={
+												flowStore.val.value.max_total_debounces_amount
+											}
+											schema={asSchema(flowStore.val.schema)}
+											placeholder={`$workspace/flow/${$pathStore}-$args[foo]`}
+										/>
+									{/if}
+									{#if customUi?.settingsTabs?.cache != false}
+										<CacheSetting
+											kind="flow"
+											bind:ttl={flowStore.val.value.cache_ttl}
+											bind:ignoreS3Path={flowStore.val.value.cache_ignore_s3_path}
+										/>
+									{/if}
+									<PrioritySetting kind="flow" bind:priority={flowStore.val.value.priority} />
+									<DeleteAfterUseSetting
+										kind="flow"
+										bind:deleteAfterSecs={flowStore.val.value.delete_after_secs}
+									/>
+								</SettingGroup>
+
+								<SettingGroup label="Workers" class="flex flex-col gap-6">
+									{#if customUi?.settingsTabs?.workerGroup != false}
+										<WorkerTagSetting
+											kind="flow"
+											bind:tag={flowStore.val.tag}
+											bind:preserveStepTags={flowStore.val.value.preserve_step_tags}
+											workspaceId={opWorkspace?.()}
+										/>
+									{/if}
+									<DedicatedWorkersSetting
+										kind="flow"
+										bind:dedicatedWorker={flowStore.val.dedicated_worker}
+									/>
+									{#if customUi?.settingsTabs?.sharedDiretory != false}
+										<SettingToggle
+											setting="same-worker"
+											label="Shared directory"
+											tooltip="Every step runs on the same worker and shares a `./shared` folder to pass heavier data to the next step. The folder is not kept across suspends and sleeps."
+											documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage/within_windmill#shared-directory"
+											disabled={conflictingModuleIds.length > 0}
+											checked={!!flowStore.val.value.same_worker}
+											onchange={(on) => (flowStore.val.value.same_worker = on)}
+											hint={conflictingModuleIds.length > 0 ? sameWorkerConflict : undefined}
+										/>
+									{/if}
+								</SettingGroup>
+							</div>
+						</TabContent>
+
+						<TabContent value="permissions">
+							<div class="flex flex-col gap-6 p-4 pb-8">
+								<RunOnBehalfOfSetting
+									kind="flow"
+									bind:email={flowStore.val.on_behalf_of_email}
+									bind:permissionedAs={flowStore.val.on_behalf_of}
+									savedEmail={$savedOnBehalfOfEmail}
+									savedPermissionedAs={$savedOnBehalfOfPermissionedAs}
+									targetWorkspace={opWorkspace?.() ?? $operatingWorkspace ?? ''}
+									isNew={newFlow || $initialPathStore == ''}
+								/>
+								<InvisibleRunsSetting
+									kind="flow"
+									bind:visibleToRunnerOnly={flowStore.val.visible_to_runner_only}
+								/>
+								<JobTokenScopesSetting bind:value={flowStore.val.job_token_scopes} kind="flow" />
+							</div>
+						</TabContent>
 					</div>
-				{/if}
-
-				<div>
-					<Toggle
-						textClass="font-medium"
-						size="xs"
-						disabled={!$enterpriseLicense || isCloudHosted()}
-						checked={Boolean(flowStore.val.dedicated_worker)}
-						on:change={() => {
-							if (flowStore.val.dedicated_worker) {
-								flowStore.val.dedicated_worker = undefined
-							} else {
-								flowStore.val.dedicated_worker = true
-							}
-						}}
-						options={{
-							right: 'Flow is run on dedicated workers',
-							rightTooltip: 'When enabled, the flow will be executed on a dedicated worker.',
-							rightDocumentationLink:
-								'https://www.windmill.dev/docs/core_concepts/jobs#high-priority-jobs'
-						}}
-						eeOnly={true}
-					/>
-
-					{#if flowStore.val.dedicated_worker}
-						<div class="mt-2">
-							<Alert type="info" title="Require dedicated workers">
-								A worker group needs to be configured to listen to this flow. Select it in the
-								dedicated workers section of the worker group configuration.
-							</Alert>
-						</div>
-					{/if}
-				</div>
-				{#if flowStore.val.schema && enableAi}
-					<AIFormSettings
-						bind:prompt={flowStore.val.schema.prompt_for_ai as string | undefined}
-						type="flow"
-					/>
-				{/if}
-
-				<JobTokenScopesSetting
-					bind:value={flowStore.val.job_token_scopes}
-					kind="flow"
-					size="xs"
-					textClass="font-medium"
-				/>
-			</Section>
+				{/snippet}
+			</Tabs>
 		</div>
 	</FlowCard>
 </div>
