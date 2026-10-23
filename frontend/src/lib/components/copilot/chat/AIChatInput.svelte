@@ -162,7 +162,10 @@
 	const toolbarInBox = $derived(!!toolbar && hero)
 
 	// Picked at mount-time so each new session lands on a different prompt.
-	const permissions = useSessionPermissions(() => chatHost.operatingWorkspace)
+	const permissions = useSessionPermissions(
+		() => chatHost.operatingWorkspace,
+		() => chatHost
+	)
 	const suggestionPick = Math.random()
 	const globalSuggestion = $derived(
 		globalComposerSuggestion(suggestionPick, permissions.canOpenEditor)

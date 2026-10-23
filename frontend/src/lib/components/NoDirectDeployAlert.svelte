@@ -23,13 +23,15 @@
 	import { GitFork, Lock, ShieldOff } from 'lucide-svelte'
 	import {
 		useOperatingWorkspace,
-		useOperatingUser
+		useOperatingUser,
+		useReadOnlyWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
 	const roleCaps = useRoleCapabilities()
+	const readOnly = useReadOnlyWorkspace()
 
 	// The shared rules state holds the navigation workspace's rules, so a host acting on another
 	// workspace (an AI session's fork) has to ask for that one's.
@@ -61,12 +63,16 @@
 			? 'You will need to either fork the workspace, or make your changes locally and submit a PR to an authorized user.'
 			: 'You will need to make your changes locally and submit a PR to an authorized user.'
 	)
+	// A session in Use edits nothing, so no rule or bypass opens the lists' create, edit and
+	// delete actions there.
+	let sessionReadOnly = $derived(readOnly($operatingWorkspace))
 	let overrideChecked = $state(false)
 	// The toggle is only offered to a user who can bypass, but the answer can change under a
 	// workspace switch, so the checked flag alone never grants the edit.
-	let bypassActive = $derived(canBypass && overrideChecked)
+	let bypassActive = $derived(canBypass && !sessionReadOnly && overrideChecked)
 	let canEdit = $derived(
-		!isRuleActiveInRulesets(rulesets, 'DisableDirectDeployment') || bypassActive
+		!sessionReadOnly &&
+			(!isRuleActiveInRulesets(rulesets, 'DisableDirectDeployment') || bypassActive)
 	)
 
 	let {
@@ -146,7 +152,7 @@
 							{editAdvice}
 						</p>
 					{/if}
-					{#if canBypass}
+					{#if canBypass && !sessionReadOnly}
 						<Toggle
 							size="xs"
 							bind:checked={overrideChecked}

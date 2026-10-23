@@ -21,6 +21,12 @@
 		PLAN_CARD_COPY,
 		PLAN_MODE_TEXT_COLOR
 	} from './planMode'
+	import {
+		isWorkModeSwitchTool,
+		WORK_MODE_SWITCH_CARD_COPY,
+		WORK_MODE_SWITCH_TARGET
+	} from './workMode'
+	import { workModeOption } from './autonomyModes'
 	import { Button } from '$lib/components/common'
 	import { markdownProse } from '$lib/components/markdownProse'
 	import { getChatViewHost } from './chatViewHost'
@@ -61,9 +67,17 @@
 	const mcpServer = $derived(message.mcpServer)
 
 	const isPlanReview = $derived(message.toolName === EXIT_PLAN_MODE_TOOL)
-	const isPlanCard = $derived(isPlanCardTool(message.toolName))
+	// A switch between Use and Use & build renders as enter_plan_mode's card, with its own copy
+	// and the icon of the mode it leads to.
+	const switchTool = $derived(isWorkModeSwitchTool(message.toolName) ? message.toolName : undefined)
+	const isPlanCard = $derived(isPlanCardTool(message.toolName) || switchTool !== undefined)
 	const planCopy = $derived(
-		isPlanCardTool(message.toolName) ? PLAN_CARD_COPY[message.toolName] : undefined
+		isPlanCardTool(message.toolName)
+			? PLAN_CARD_COPY[message.toolName]
+			: switchTool && WORK_MODE_SWITCH_CARD_COPY[switchTool]
+	)
+	const CardIcon = $derived(
+		switchTool ? workModeOption(WORK_MODE_SWITCH_TARGET[switchTool]).icon : ClipboardList
 	)
 	// exit_plan_mode carries the plan, enter_plan_mode the one-line justification.
 	const planBody = $derived(isPlanReview ? message.parameters?.summary : message.parameters?.reason)
@@ -225,13 +239,18 @@
 					{#if message.isLoading && !message.needsConfirmation}
 						<Loader2 class="w-3.5 h-3.5 animate-spin text-blue-500 shrink-0" />
 					{:else if planState === 'settled'}
-						<Check class={twMerge('w-3.5 h-3.5 shrink-0', PLAN_MODE_TEXT_COLOR)} />
+						<Check
+							class={twMerge(
+								'w-3.5 h-3.5 shrink-0',
+								switchTool ? 'text-secondary' : PLAN_MODE_TEXT_COLOR
+							)}
+						/>
 					{:else if planState === 'declined'}
 						<!-- Muted and not red: declining a plan is an outcome, not a failure, and
 						     this state also covers a card resolved by leaving plan mode. -->
 						<CircleMinus class="w-3.5 h-3.5 text-tertiary shrink-0" />
 					{:else}
-						<ClipboardList class="w-3.5 h-3.5 text-secondary shrink-0" />
+						<CardIcon class="w-3.5 h-3.5 text-secondary shrink-0" />
 					{/if}
 					<span class="text-primary font-medium text-2xs">{planLabel}</span>
 					{#if planBodyText}
@@ -264,7 +283,7 @@
 				toolCallId={message.tool_call_id}
 				rejectLabel={planCopy?.reject}
 				confirmLabel={planCopy?.confirm ?? ''}
-				confirmIcon={isPlanReview ? undefined : ClipboardList}
+				confirmIcon={isPlanReview ? undefined : CardIcon}
 				class={extraClass}
 			/>
 		{/snippet}

@@ -1078,6 +1078,7 @@
 		<div class="mt-8"></div>
 
 		<AutoscalingConfigEditor
+			worker_group={name}
 			worker_tags={config?.worker_tags}
 			group_has_tags={nconfig.worker_tags !== undefined
 				? nconfig.worker_tags.length > 0

@@ -89,12 +89,19 @@ export async function loadProtectionRules(workspace: string): Promise<void> {
 export async function fetchProtectionRulesForWorkspace(
 	workspace: string
 ): Promise<ProtectionRuleset[]> {
+	return (await readProtectionRulesForWorkspace(workspace)) ?? []
+}
+
+/** The same rules, but `undefined` when they cannot be read, for a caller that has to fail
+ * closed rather than read an error as "no rules". */
+export async function readProtectionRulesForWorkspace(
+	workspace: string
+): Promise<ProtectionRuleset[] | undefined> {
 	try {
-		const rulesets = await WorkspaceService.listProtectionRules({ workspace })
-		return rulesets
+		return await WorkspaceService.listProtectionRules({ workspace })
 	} catch (error) {
 		console.error(`Failed to fetch protection rules for workspace ${workspace}:`, error)
-		return []
+		return undefined
 	}
 }
 

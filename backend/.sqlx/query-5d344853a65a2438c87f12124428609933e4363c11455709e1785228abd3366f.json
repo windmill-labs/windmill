@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT value, is_secret, path from variable WHERE variable.path = $1 AND variable.workspace_id = $2",
+  "query": "SELECT value::text AS \"value!\", is_secret, path from variable WHERE variable.path = $1 AND variable.workspace_id = $2",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "value",
-        "type_info": "Varchar"
+        "name": "value!",
+        "type_info": "Text"
       },
       {
         "ordinal": 1,
@@ -26,10 +26,10 @@
       ]
     },
     "nullable": [
-      false,
+      null,
       false,
       false
     ]
   },
-  "hash": "1587639f13a1a3ad97bd324df38661f3e846f1992704c86ddad74dea151b0ec4"
+  "hash": "5d344853a65a2438c87f12124428609933e4363c11455709e1785228abd3366f"
 }

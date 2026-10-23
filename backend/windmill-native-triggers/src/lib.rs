@@ -815,7 +815,7 @@ pub async fn decrypt_oauth_data<T: DeserializeOwned>(
     let mc = build_crypt(db, workspace_id).await?;
 
     let row = sqlx::query!(
-        "SELECT v.value, a.id AS account_id, a.refresh_token
+        "SELECT v.value::text AS \"value!\", a.id AS account_id, a.refresh_token
          FROM variable v
          JOIN account a ON a.workspace_id = v.workspace_id AND a.id = v.account
          WHERE v.workspace_id = $1 AND v.path = $2

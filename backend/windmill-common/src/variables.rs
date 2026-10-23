@@ -458,7 +458,7 @@ pub async fn get_secret_value_as_admin(
     path: &str,
 ) -> crate::error::Result<String> {
     let variable_o = sqlx::query!(
-        "SELECT value, is_secret, path from variable WHERE variable.path = $1 AND variable.workspace_id = $2", path, w_id
+        "SELECT value::text AS \"value!\", is_secret, path from variable WHERE variable.path = $1 AND variable.workspace_id = $2", path, w_id
     )
     .fetch_optional(db)
     .await?;
@@ -549,9 +549,8 @@ pub fn variable_value_widen_pending() -> bool {
 
 /// Widen `variable.value` to [`VARIABLE_VALUE_WIDTH`], or `false` when it is too early to.
 /// Not a migration: changing a column's type, even its length, fails every statement a live
-/// process prepared on it until its connection closes. It waits for v2 writes, gated on a
-/// worker version that retires such connections on the first failure, so that no process too
-/// old to recover is still running.
+/// process prepared on it until its connection closes. It waits until no process returns the
+/// column uncast. Any new query returning `variable.value` must select `value::text`.
 async fn widen_variable_value(db: &DB) -> error::Result<bool> {
     if VARIABLE_VALUE_WIDENED.load(Ordering::Relaxed) {
         return Ok(true);
@@ -563,7 +562,9 @@ async fn widen_variable_value(db: &DB) -> error::Result<bool> {
     .fetch_one(db)
     .await?;
     if typmod >= 0 && typmod - 4 < VARIABLE_VALUE_WIDTH {
-        if crate::db::process_uptime() < crate::db::PREVIOUS_RELEASE_ROLLOUT_UPTIME {
+        if !crate::min_version::MIN_VERSION_SUPPORTS_VARIABLE_VALUE_WIDENING.met_conservatively()
+            || crate::db::process_uptime() < crate::db::PREVIOUS_RELEASE_ROLLOUT_UPTIME
+        {
             return Ok(false);
         }
         tracing::info!("widening variable.value to VARCHAR({VARIABLE_VALUE_WIDTH})");
@@ -676,7 +677,7 @@ async fn upgrade_workspace_secret_variables(db: &DB, w_id: &str) -> error::Resul
         };
         let mc = crypt_from_key_with_suffix(&key, "");
         let rows: Vec<(String, String)> = sqlx::query_as(
-            "SELECT path, value FROM variable WHERE workspace_id = $1 AND is_secret AND path > $2 \
+            "SELECT path, value::text FROM variable WHERE workspace_id = $1 AND is_secret AND path > $2 \
              ORDER BY path LIMIT $3",
         )
         .bind(w_id)
@@ -1016,7 +1017,7 @@ pub async fn get_variable_or_self(
     let path = path.strip_prefix("$var:").unwrap().to_string();
 
     let record = sqlx::query!(
-        "SELECT value, is_secret
+        "SELECT value::text AS \"value!\", is_secret
          FROM variable
          WHERE path = $1 AND workspace_id = $2",
         &path,
@@ -1064,7 +1065,7 @@ pub async fn get_variable_or_self_as<T: Authable + Sync>(
     // Use an RLS-scoped transaction so the query respects row-level security
     let mut tx = user_db.clone().begin(authed).await?;
     let record = sqlx::query!(
-        "SELECT value, is_secret
+        "SELECT value::text AS \"value!\", is_secret
          FROM variable
          WHERE path = $1 AND workspace_id = $2",
         &var_path,
