@@ -648,6 +648,15 @@ export class SessionPreviewTabs {
 		this.#flush()
 	}
 
+	/** Name a page item's tab after what its editor holds, as `setEditorFriendlyLabel` does for
+	 * the live editors; undefined falls back to the path. */
+	setPageItemFriendlyLabel(ref: PageItemRef, label: string | undefined): void {
+		const tab = this.#tabs.find((t) => t.url === pageItemUrl(ref))
+		if (!tab || tab.friendlyLabel === label) return
+		tab.friendlyLabel = label
+		this.#flush()
+	}
+
 	/** Follow an item its editor deployed under a new path, in place: the editor is keyed
 	 * on the path, and nothing is left to edit at the old one. */
 	retargetEditor(from: SessionTarget, to: SessionTarget): void {

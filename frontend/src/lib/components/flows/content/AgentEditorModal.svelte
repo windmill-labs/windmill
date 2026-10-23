@@ -65,6 +65,8 @@
 		 *  for a host that shows several at once (a session's tabs). Navigating and closing then stay
 		 *  with this mount, and `owns` is not consulted. */
 		fixedTarget?: AgentEditorTarget
+		/** The agent's summary as it stands in the editor, edits included, for a host that names it. */
+		onSummary?: (summary: string | undefined) => void
 	}
 
 	let {
@@ -75,7 +77,8 @@
 		onClose = undefined,
 		onDeployed = undefined,
 		startInSettings = false,
-		fixedTarget = undefined
+		fixedTarget = undefined,
+		onSummary = undefined
 	}: Props = $props()
 
 	// Every target names the surface that opened it, and only a flow step or a resource row can:
@@ -168,6 +171,10 @@
 	// stored at a minted `draft_<uuid>` path and named by the path its first deploy will create,
 	// as the home list names it. Falls back to the target while the draft is still loading.
 	let shownPath = $derived(draft?.state?.path || target?.path)
+	$effect(() => {
+		const summary = draft?.state?.description?.trim() || undefined
+		untrack(() => onSummary?.(summary))
+	})
 
 	// Where the evals pane is within itself, so its levels extend this dialog's trail rather than
 	// opening a dialog of their own. Cleared on the way in: the pane reports a level once it is on

@@ -181,6 +181,7 @@
 						enableAi={$copilotInfo.enabled}
 						onClose={closeTab}
 						onRenamed={(_, to) => onSaved(to)}
+						onSummary={(summary) => runtime.previewTabs.setPageItemFriendlyLabel(item, summary)}
 					/>
 				{/await}
 			{:else if item.kind === 'resource'}
