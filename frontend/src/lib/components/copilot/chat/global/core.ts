@@ -1656,7 +1656,7 @@ ${
 				' To make something recur, they can schedule a deployed script or flow themselves; only when none does the job is there something to ask an admin for, and it is that script.'
 			)} When you decline something, give the reason stated here and keep to it.${when(
 				buildsFlows,
-				'\n\nFlows are the exception: this workspace lets them compose flows out of scripts and flows that are already deployed. Write flow drafts with write_flow and patch_flow_json, using only steps that call a deployed script or flow by path. The server refuses inline code anywhere in the flow, so never add a rawscript step or inline code; when the flow needs logic no deployed script provides, say so and suggest asking a workspace admin for that script.'
+				'\n\nFlows are the exception: this workspace lets them compose flows out of scripts and flows that are already deployed. Write flow drafts with write_flow and patch_flow_json, using only steps that call a deployed script or flow by path. The server refuses inline code anywhere in the flow, so never add a rawscript step or inline code; when the flow needs logic no deployed script provides, say so and suggest asking a workspace admin for that script. An AI agent step may link a saved agent they can read, which runs its tools as the agent defines them. Its `tool_inputs` may only fill tool inputs the agent leaves for the AI to fill: the server refuses a step that changes an input the agent sets.'
 			)}${when(
 				buildsApps,
 				`\n\nRaw apps are ${buildsFlows ? 'an exception too' : 'the exception'}: this workspace lets them build raw apps whose backend calls scripts and flows that are already deployed. Call get_instructions with subject "app" first, then write app drafts with init_app and the app file and runnable tools, making every backend runnable a path runnable to a deployed script or flow. The server refuses inline and hub runnables, so never write one; when the app needs logic no deployed script provides, say so and suggest asking a workspace admin for that script. An app this user deploys always runs sandboxed, and runs its runnables as the user who deployed it: turning the sandbox off or running them as the viewer is refused. If asked, say operators cannot, because the app's code would then run with the permissions of whoever opens it.`
@@ -1707,8 +1707,12 @@ ${findItemsRule}${deployRule}${when(canWriteDraft, `\n${instructionsRule}`)}${wh
 ${external ? 'More rules:' : `Rules:${draftsOnlyRule}\n${findItemsRule}`}
 ${groupMembershipRule}- Listings and reads return only what this user can see: items in folders they cannot read are hidden from you both. When an item the user names is missing, say it is not among what they can see and may be in a folder they cannot read, where someone with access can run it — never state that it does not exist or is not deployed.
 - An agent, as the Agents page lists it, is a resource of type \`ai_agent\`: read it with read_workspace_item type "resource".${when(
-		canDraftResources,
+		// An agent draft is a resource draft that the server checks under the flow builder right.
+		canDraftResources && canWriteFlowDraft,
 		" You may draft a change to an agent, but never deploy or rename one here: the user reviews and deploys it from the agent's page, `/agents/edit/<path>`, so point them there."
+	)}${when(
+		buildsFlows,
+		' Its tools, like flow steps, may only reference deployed scripts and flows by path: the server refuses inline code and hub scripts.'
 	)}${when(
 		!external,
 		`

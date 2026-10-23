@@ -85,12 +85,52 @@ vi.mock('@codingame/monaco-vscode-languages-service-override', () => ({
 
 vi.mock('$lib/components/vscode', () => ({}))
 
+// get_db_schema reads a database's tables by running a query job; a benchmark database
+// answers with the tables its fixture seeds instead.
+vi.mock('$lib/components/apps/components/display/dbtable/metadata', async () => {
+	const actual = await vi.importActual<any>(
+		'$lib/components/apps/components/display/dbtable/metadata'
+	)
+	const { getBenchmarkDbSchemaSeed } = await import('./mockBackend')
+	const { stringifySchema } = await import('$lib/components/copilot/lib')
+	const { resourceTypeToLang } = await import(
+		'$lib/components/apps/components/display/dbtable/utils'
+	)
+	return {
+		...actual,
+		getDbSchemas: async (
+			resourceType: string,
+			resourcePath: string,
+			workspace: string | undefined,
+			...rest: unknown[]
+		) => {
+			const seed = workspace ? getBenchmarkDbSchemaSeed(workspace, resourcePath) : null
+			if (!seed) return actual.getDbSchemas(resourceType, resourcePath, workspace, ...rest)
+			const dbSchema = {
+				lang: resourceTypeToLang(seed.resourceType),
+				schema: seed.schema,
+				publicOnly: !!seed.schema.public
+			}
+			return { ...dbSchema, stringified: stringifySchema(dbSchema) }
+		}
+	}
+})
+
 vi.mock('$lib/gen', async () => {
 	const actual = await vi.importActual<any>('$lib/gen')
 	const {
 		getBenchmarkAppByPath,
-		getBenchmarkCompletedJob,
+		getBenchmarkJob,
 		getBenchmarkCompletedJobResultMaybe,
+		listBenchmarkWorkers,
+		listBenchmarkSchedules,
+		getBenchmarkSchedule,
+		listBenchmarkFolders,
+		getBenchmarkFolder,
+		getBenchmarkGroup,
+		listBenchmarkGroups,
+		getBenchmarkWorkspaceSettingsDocument,
+		applyBenchmarkWorkspaceSettingsDocument,
 		getBenchmarkDatatableSchema,
 		getBenchmarkDatatableMigrationsStatus,
 		createBenchmarkDatatableMigration,
@@ -175,7 +215,29 @@ vi.mock('$lib/gen', async () => {
 			createFolder: async (data: { workspace: string; requestBody: { name: string } }) =>
 				hasBenchmarkWorkspace(data.workspace)
 					? createBenchmarkFolder(data.workspace, data.requestBody.name)
-					: actual.FolderService.createFolder(data)
+					: actual.FolderService.createFolder(data),
+			listFolders: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? listBenchmarkFolders(data.workspace)
+					: actual.FolderService.listFolders(data),
+			getFolder: async (data: { workspace: string; name: string }) => {
+				if (!hasBenchmarkWorkspace(data.workspace)) return actual.FolderService.getFolder(data)
+				const folder = getBenchmarkFolder(data.workspace, data.name)
+				if (!folder) throw new Error(`Folder "${data.name}" not found in benchmark workspace`)
+				return folder
+			}
+		}),
+		GroupService: wrapService(actual.GroupService, {
+			listGroups: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? listBenchmarkGroups(data.workspace)
+					: actual.GroupService.listGroups(data),
+			getGroup: async (data: { workspace: string; name: string }) => {
+				if (!hasBenchmarkWorkspace(data.workspace)) return actual.GroupService.getGroup(data)
+				const group = getBenchmarkGroup(data.workspace, data.name)
+				if (!group) throw new Error(`Group "${data.name}" not found in benchmark workspace`)
+				return group
+			}
 		}),
 		ScriptService: wrapService(actual.ScriptService, {
 			listScripts: async (data: { workspace: string }) =>
@@ -357,7 +419,7 @@ vi.mock('$lib/gen', async () => {
 					: actual.JobService.runFlowByPath(data),
 			getJob: async (data: { workspace: string; id: string }) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
-					const job = getBenchmarkCompletedJob(data.workspace, data.id)
+					const job = getBenchmarkJob(data.workspace, data.id)
 					if (!job) {
 						throw new Error(`Job "${data.id}" not found in benchmark workspace`)
 					}
@@ -383,6 +445,14 @@ vi.mock('$lib/gen', async () => {
 					: actual.JobService.getFlowAllResults(data)
 		}),
 		WorkspaceService: wrapService(actual.WorkspaceService, {
+			getWorkspaceSettingsDocument: async (data: { workspace: string }) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? getBenchmarkWorkspaceSettingsDocument(data.workspace)
+					: actual.WorkspaceService.getWorkspaceSettingsDocument(data),
+			applyWorkspaceSettingsDocument: async (data: any) =>
+				hasBenchmarkWorkspace(data.workspace)
+					? applyBenchmarkWorkspaceSettingsDocument(data)
+					: actual.WorkspaceService.applyWorkspaceSettingsDocument(data),
 			getCopilotInfo: async (data: { workspace: string }) =>
 				hasBenchmarkWorkspace(data.workspace)
 					? (getBenchmarkAiConfig(data.workspace) ?? {})
@@ -436,13 +506,21 @@ vi.mock('$lib/gen', async () => {
 					? { metrics: listBenchmarkDataMetrics(data.workspace) ?? [] }
 					: actual.DataMetricService.listDataMetrics(data)
 		}),
+		WorkerService: wrapService(actual.WorkerService, {
+			listWorkers: async (data: Record<string, unknown>) =>
+				listBenchmarkWorkers() ?? actual.WorkerService.listWorkers(data)
+		}),
 		ScheduleService: wrapService(actual.ScheduleService, {
 			existsSchedule: async (data: { workspace: string; path: string }) =>
 				hasBenchmarkWorkspace(data.workspace) ? false : actual.ScheduleService.existsSchedule(data),
 			listSchedules: async (data: { workspace: string }) =>
-				hasBenchmarkWorkspace(data.workspace) ? [] : actual.ScheduleService.listSchedules(data),
+				hasBenchmarkWorkspace(data.workspace)
+					? listBenchmarkSchedules(data.workspace)
+					: actual.ScheduleService.listSchedules(data),
 			getSchedule: async (data: { workspace: string; path: string }) => {
 				if (hasBenchmarkWorkspace(data.workspace)) {
+					const schedule = getBenchmarkSchedule(data.workspace, data.path)
+					if (schedule) return schedule
 					throw new Error(`Schedule "${data.path}" not found in benchmark workspace`)
 				}
 				return actual.ScheduleService.getSchedule(data)
