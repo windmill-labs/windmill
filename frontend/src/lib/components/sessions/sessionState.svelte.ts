@@ -1155,10 +1155,17 @@ function newTransientSession(): Session {
 /** The unsent session Home's composer writes into, so a prompt half-typed on Home is the
  * one the empty session page shows, and the reverse. Never selects it: merely opening Home
  * must not change which session the AI Sessions switch resumes. A session opened on an
- * item (it carries preview tabs) is about that item, so Home starts its own instead. */
+ * item (it carries preview tabs) is about that item, and one picked onto another workspace
+ * of the family is about that workspace: Home acts on the workspace it shows, so it starts
+ * its own instead of moving either. */
 export function homeStarterSession(): Session {
+	const homeWs = get(workspaceStore)
 	const unsent = (s: Session) =>
-		!s.archived && !s.workspace_id && !s.previewTabs?.length && sessionInCurrentFamily(s)
+		!s.archived &&
+		!s.workspace_id &&
+		!s.previewTabs?.length &&
+		s.pending_workspace_id === homeWs &&
+		sessionInCurrentFamily(s)
 	const current = sessionState.sessions.find((s) => s.id === sessionState.currentSessionId)
 	if (current && unsent(current)) return current
 	// Stored but never sent: a draft the user touched, by typing or by picking where it acts.

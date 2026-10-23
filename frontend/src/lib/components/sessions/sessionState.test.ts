@@ -714,7 +714,7 @@ describe('withOpenSessionTeardown — the gate that holds recovery off during a 
 
 describe('homeStarterSession', () => {
 	it("shows the family's stored draft, not the conversation in view, and selects nothing", () => {
-		const restore = withTwoFamilies('rootA')
+		const restore = withTwoFamilies('forkA')
 		const prevCurrent = sessionState.currentSessionId
 		const conversation = session({ id: 'conversation', workspace_id: 'rootA' })
 		// Touched only by picking where it acts: no text, but stored, so it is the user's draft.
@@ -734,6 +734,26 @@ describe('homeStarterSession', () => {
 		} finally {
 			sessionState.sessions = sessionState.sessions.filter(
 				(s) => !['conversation', 'picked-draft', 'other-family-draft'].includes(s.id)
+			)
+			sessionState.currentSessionId = prevCurrent
+			restore()
+		}
+	})
+
+	it('leaves a draft picked onto another workspace of the family to that workspace', () => {
+		const restore = withTwoFamilies('rootA')
+		const prevCurrent = sessionState.currentSessionId
+		const picked = session({ id: 'picked-fork-draft', pending_workspace_id: 'forkA' })
+		sessionState.sessions.push(picked)
+		sessionState.currentSessionId = 'picked-fork-draft'
+		let createdId: string | undefined
+		try {
+			createdId = homeStarterSession().id
+			expect(createdId).not.toBe('picked-fork-draft')
+			expect(picked.pending_workspace_id).toBe('forkA')
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter(
+				(s) => !['picked-fork-draft', createdId].includes(s.id)
 			)
 			sessionState.currentSessionId = prevCurrent
 			restore()
