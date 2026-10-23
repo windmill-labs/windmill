@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.848.1](https://github.com/windmill-labs/windmill/compare/v1.848.0...v1.848.1) (2026-10-23)
+
+
+### Bug Fixes
+
+* restore workspace pg_dump changes reverted by 812ff6ea5e ([#11988](https://github.com/windmill-labs/windmill/issues/11988)) ([45d3c95](https://github.com/windmill-labs/windmill/commit/45d3c951bb8827c67daaaf75ed52f3c3e1215911))
+* use linkedin openid connect default scopes ([#11953](https://github.com/windmill-labs/windmill/issues/11953)) ([001313a](https://github.com/windmill-labs/windmill/commit/001313aa242c6de053a9deb0c6cdb64580ce1cee))
+
 ## [1.848.0](https://github.com/windmill-labs/windmill/compare/v1.847.0...v1.848.0) (2026-10-23)
 
 
