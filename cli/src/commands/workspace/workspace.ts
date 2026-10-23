@@ -19,6 +19,12 @@ import { createWorkspaceFork, deleteWorkspaceFork } from "./fork.ts";
 import { mergeWorkspaces } from "./merge.ts";
 import { connectSlack, disconnectSlack } from "./slack.ts";
 import { applySettings, getSettings } from "./settings.ts";
+import {
+  DEFAULT_PAUSE_DURATION,
+  jobsPausedCommand,
+  pauseJobsCommand,
+  resumeJobsCommand,
+} from "./jobsPause.ts";
 
 import * as wmill from "../../../gen/services.gen.ts";
 
@@ -922,6 +928,20 @@ Arguments (omit both to be prompted interactively):
   .option("--dry-run", "Only show the changes")
   .option("--replace", "Also clear the settings the file omits, as 'wmill sync push' does")
   .option("-y --yes", "Apply without asking")
-  .action(applySettings as any);
+  .action(applySettings as any)
+  .command("pause-jobs")
+  .description(
+    "Pause new jobs of the active workspace, e.g. while a deploy or a migration is in progress. Jobs from triggers, schedules and async runs are held until 'wmill workspace resume-jobs' or the end of the pause; callers waiting for a result get a 503. Dependency and git sync jobs, steps of running flows and runs started directly by an admin are not held. Admin only."
+  )
+  .option("--for <duration:string>", "How long the pause lasts at most (e.g. 30m, 2h, 1d; at most 7d)", { default: DEFAULT_PAUSE_DURATION })
+  .option("--reason <reason:string>", "Shown to users of the workspace while paused")
+  .action(pauseJobsCommand as any)
+  .command("resume-jobs")
+  .description("Resume new jobs of the active workspace and release the jobs the pause held. Admin only.")
+  .action(resumeJobsCommand as any)
+  .command("jobs-paused")
+  .description("Show whether new jobs of the active workspace are paused")
+  .option("--json", "Output as JSON")
+  .action(jobsPausedCommand as any);
 
 export default command;

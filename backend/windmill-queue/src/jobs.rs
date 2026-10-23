@@ -7669,6 +7669,27 @@ async fn push_inner<'c, 'd>(
         root_job
     };
 
+    // A suspended trigger holds its jobs itself; they are not the workspace pause's to release.
+    let held_by_pause = if parent_job.is_none() && !running && !suspended_mode.unwrap_or(false) {
+        windmill_common::job_pause::check_push(
+            db,
+            workspace_id,
+            job_kind,
+            trigger_kind.as_ref(),
+            trigger_path.as_ref().and_then(|p| p.as_deref()),
+            job_authed.is_admin,
+        )
+        .await?
+        .map(|_| scheduled_for_o.unwrap_or_else(Utc::now))
+    } else {
+        None
+    };
+    let suspended_mode = if held_by_pause.is_some() {
+        Some(true)
+    } else {
+        suspended_mode
+    };
+
     let (job_kind, scheduled_for_o) = if suspended_mode.unwrap_or(false) {
         let unassigned_job_kind = match job_kind {
             JobKind::Script => JobKind::UnassignedScript,
@@ -7815,6 +7836,17 @@ async fn push_inner<'c, 'd>(
     .execute(&mut *tx)
     .warn_after_seconds(1)
     .await?;
+
+    if let Some(due) = held_by_pause {
+        sqlx::query!(
+            "INSERT INTO workspace_held_job (job_id, workspace_id, scheduled_for) VALUES ($1, $2, $3)",
+            job_id,
+            workspace_id,
+            due,
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
 
     // RunnableSettings::insert(RunnableType::Job)
 

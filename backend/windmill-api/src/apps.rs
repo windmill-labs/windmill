@@ -5109,42 +5109,46 @@ async fn execute_component(
         None => None,
     };
     let preview_obo_author = preview_obo.as_ref().and(opt_authed.clone());
-    let (uuid, mut tx) = push(
-        &db,
-        tx,
-        &w_id,
-        job_payload,
-        push_args,
-        &username,
-        email,
-        permissioned_as,
-        opt_authed
-            .and_then(|a| a.token_prefix)
-            .or_else(|| tokened.token.map(|t| t[0..TOKEN_PREFIX_LEN].to_string()))
-            .as_deref(),
-        // The caller of an app run is whoever used the app, which `push` already derives from
-        // `username` here — the app identity took `permissioned_as`.
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        job_id,
-        false,
-        false,
-        None,
-        true,
-        tag,
-        None,
-        None,
-        None,
-        None,
-        false,
-        end_user_email,
-        app_trigger,
-        None,
-        scope_ceiling.as_deref(),
+    // The app's viewer is waiting on the result: refuse rather than hold while jobs are paused.
+    let (uuid, mut tx) = windmill_common::job_pause::with_policy(
+        windmill_common::job_pause::PausePolicy::Refuse,
+        push(
+            &db,
+            tx,
+            &w_id,
+            job_payload,
+            push_args,
+            &username,
+            email,
+            permissioned_as,
+            opt_authed
+                .and_then(|a| a.token_prefix)
+                .or_else(|| tokened.token.map(|t| t[0..TOKEN_PREFIX_LEN].to_string()))
+                .as_deref(),
+            // The caller of an app run is whoever used the app, which `push` already derives from
+            // `username` here — the app identity took `permissioned_as`.
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            job_id,
+            false,
+            false,
+            None,
+            true,
+            tag,
+            None,
+            None,
+            None,
+            None,
+            false,
+            end_user_email,
+            app_trigger,
+            None,
+            scope_ceiling.as_deref(),
+        ),
     )
     .await?;
 

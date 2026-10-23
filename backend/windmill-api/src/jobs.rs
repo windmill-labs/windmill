@@ -34,6 +34,7 @@ use windmill_common::client::AuthedClient;
 use windmill_common::db::UserDbWithAuthed;
 use windmill_common::error::JsonResult;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
+use windmill_common::job_pause::{with_policy, PausePolicy};
 use windmill_common::jobs::{
     format_completed_job_result, format_result, is_safe_log_file_path, is_valid_entrypoint_name,
     DynamicInput, ENTRYPOINT_OVERRIDE,
@@ -8217,37 +8218,40 @@ pub async fn run_wait_result_job_by_path_get(
 
     let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
-    let (uuid, tx) = push(
-        &db,
-        tx,
-        &w_id,
-        job_payload,
-        push_args,
-        authed.display_username(),
-        email,
-        permissioned_as,
-        authed.token_prefix.as_deref(),
-        authed.username_override.as_deref(),
-        None,
-        None,
-        run_query.parent_job,
-        None,
-        run_query.root_job,
-        run_query.job_id,
-        false,
-        false,
-        None,
-        !run_query.invisible_to_owner.unwrap_or(false),
-        tag,
-        timeout,
-        None,
-        None,
-        push_authed.as_ref(),
-        false,
-        end_user_email,
-        authed.trigger_or_fallback(None),
-        run_query.suspended_mode,
-        scope_ceiling.as_deref(),
+    let (uuid, tx) = with_policy(
+        PausePolicy::Refuse,
+        push(
+            &db,
+            tx,
+            &w_id,
+            job_payload,
+            push_args,
+            authed.display_username(),
+            email,
+            permissioned_as,
+            authed.token_prefix.as_deref(),
+            authed.username_override.as_deref(),
+            None,
+            None,
+            run_query.parent_job,
+            None,
+            run_query.root_job,
+            run_query.job_id,
+            false,
+            false,
+            None,
+            !run_query.invisible_to_owner.unwrap_or(false),
+            tag,
+            timeout,
+            None,
+            None,
+            push_authed.as_ref(),
+            false,
+            end_user_email,
+            authed.trigger_or_fallback(None),
+            run_query.suspended_mode,
+            scope_ceiling.as_deref(),
+        ),
     )
     .await?;
     tx.commit().await?;
@@ -8368,37 +8372,40 @@ pub async fn run_wait_result_script_by_path_internal(
 
     let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
-    let (uuid, tx) = push(
-        &db,
-        tx,
-        &w_id,
-        job_payload,
-        push_args,
-        authed.display_username(),
-        email,
-        permissioned_as,
-        authed.token_prefix.as_deref(),
-        authed.username_override.as_deref(),
-        None,
-        None,
-        run_query.parent_job,
-        None,
-        run_query.root_job,
-        run_query.job_id,
-        false,
-        false,
-        None,
-        !run_query.invisible_to_owner.unwrap_or(false),
-        tag,
-        timeout,
-        None,
-        None,
-        push_authed.as_ref(),
-        false,
-        end_user_email,
-        authed.trigger_or_fallback(None),
-        run_query.suspended_mode,
-        scope_ceiling.as_deref(),
+    let (uuid, tx) = with_policy(
+        PausePolicy::Refuse,
+        push(
+            &db,
+            tx,
+            &w_id,
+            job_payload,
+            push_args,
+            authed.display_username(),
+            email,
+            permissioned_as,
+            authed.token_prefix.as_deref(),
+            authed.username_override.as_deref(),
+            None,
+            None,
+            run_query.parent_job,
+            None,
+            run_query.root_job,
+            run_query.job_id,
+            false,
+            false,
+            None,
+            !run_query.invisible_to_owner.unwrap_or(false),
+            tag,
+            timeout,
+            None,
+            None,
+            push_authed.as_ref(),
+            false,
+            end_user_email,
+            authed.trigger_or_fallback(None),
+            run_query.suspended_mode,
+            scope_ceiling.as_deref(),
+        ),
     )
     .await?;
     tx.commit().await?;
@@ -8487,51 +8494,54 @@ pub async fn run_wait_result_script_by_hash(
 
     let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
-    let (uuid, tx) = push(
-        &db,
-        tx,
-        &w_id,
-        JobPayload::ScriptHash {
-            hash: ScriptHash(hash),
-            path: path,
-            concurrency_settings,
-            debouncing_settings,
-            cache_ttl,
-            cache_ignore_s3_path,
-            language,
-            dedicated_worker,
-            priority,
-            apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
-                && has_preprocessor.unwrap_or(false),
-            labels,
-            job_token_scopes,
-        },
-        push_args,
-        authed.display_username(),
-        email,
-        permissioned_as,
-        authed.token_prefix.as_deref(),
-        authed.username_override.as_deref(),
-        None,
-        None,
-        run_query.parent_job,
-        None,
-        run_query.root_job,
-        run_query.job_id,
-        false,
-        false,
-        None,
-        !run_query.invisible_to_owner.unwrap_or(false),
-        tag,
-        timeout,
-        None,
-        None,
-        push_authed.as_ref(),
-        false,
-        end_user_email,
-        authed.trigger_or_fallback(None),
-        run_query.suspended_mode,
-        scope_ceiling.as_deref(),
+    let (uuid, tx) = with_policy(
+        PausePolicy::Refuse,
+        push(
+            &db,
+            tx,
+            &w_id,
+            JobPayload::ScriptHash {
+                hash: ScriptHash(hash),
+                path: path,
+                concurrency_settings,
+                debouncing_settings,
+                cache_ttl,
+                cache_ignore_s3_path,
+                language,
+                dedicated_worker,
+                priority,
+                apply_preprocessor: !run_query.skip_preprocessor.unwrap_or(false)
+                    && has_preprocessor.unwrap_or(false),
+                labels,
+                job_token_scopes,
+            },
+            push_args,
+            authed.display_username(),
+            email,
+            permissioned_as,
+            authed.token_prefix.as_deref(),
+            authed.username_override.as_deref(),
+            None,
+            None,
+            run_query.parent_job,
+            None,
+            run_query.root_job,
+            run_query.job_id,
+            false,
+            false,
+            None,
+            !run_query.invisible_to_owner.unwrap_or(false),
+            tag,
+            timeout,
+            None,
+            None,
+            push_authed.as_ref(),
+            false,
+            end_user_email,
+            authed.trigger_or_fallback(None),
+            run_query.suspended_mode,
+            scope_ceiling.as_deref(),
+        ),
     )
     .await?;
     tx.commit().await?;
@@ -8696,67 +8706,71 @@ pub async fn stream_job(
     };
 
     let poll_delay_ms = run_query.poll_delay_ms;
-    let (uuid, early_return, has_failure_module) = match runnable_id {
-        RunnableId::ScriptId(ScriptId::ScriptPath(script_path))
-        | RunnableId::HubScript(script_path) => {
-            let (uuid, _, _) = push_script_job_by_path_into_queue(
-                authed.clone(),
-                db.clone(),
-                None,
-                user_db,
-                w_id.clone(),
-                StripPath(script_path),
-                run_query,
-                args,
-                None,
-            )
-            .await?;
-            (uuid, None, false)
-        }
-        RunnableId::ScriptId(ScriptId::ScriptHash(script_hash)) => {
-            let (uuid, _, _) = run_job_by_hash_inner(
-                authed.clone(),
-                db.clone(),
-                user_db,
-                w_id.clone(),
-                script_hash,
-                run_query,
-                args,
-                None,
-            )
-            .await?;
-            (uuid, None, false)
-        }
-        RunnableId::FlowId(FlowId::FlowPath(flow_path)) => {
-            let (uuid, early_return, has_failure_module, _) = push_flow_job_by_path_into_queue(
-                authed.clone(),
-                db.clone(),
-                None,
-                user_db,
-                w_id.clone(),
-                StripPath(flow_path),
-                run_query,
-                args,
-                None,
-            )
-            .await?;
-            (uuid, early_return, has_failure_module)
-        }
-        RunnableId::FlowId(FlowId::FlowVersion(version)) => {
-            let (uuid, early_return, has_failure_module) = run_flow_by_version_inner(
-                authed.clone(),
-                db.clone(),
-                user_db,
-                w_id.clone(),
-                version,
-                run_query,
-                args,
-                None,
-            )
-            .await?;
-            (uuid, early_return, has_failure_module)
-        }
-    };
+    let (uuid, early_return, has_failure_module) = with_policy(PausePolicy::Refuse, async {
+        let pushed = match runnable_id {
+            RunnableId::ScriptId(ScriptId::ScriptPath(script_path))
+            | RunnableId::HubScript(script_path) => {
+                let (uuid, _, _) = push_script_job_by_path_into_queue(
+                    authed.clone(),
+                    db.clone(),
+                    None,
+                    user_db,
+                    w_id.clone(),
+                    StripPath(script_path),
+                    run_query,
+                    args,
+                    None,
+                )
+                .await?;
+                (uuid, None, false)
+            }
+            RunnableId::ScriptId(ScriptId::ScriptHash(script_hash)) => {
+                let (uuid, _, _) = run_job_by_hash_inner(
+                    authed.clone(),
+                    db.clone(),
+                    user_db,
+                    w_id.clone(),
+                    script_hash,
+                    run_query,
+                    args,
+                    None,
+                )
+                .await?;
+                (uuid, None, false)
+            }
+            RunnableId::FlowId(FlowId::FlowPath(flow_path)) => {
+                let (uuid, early_return, has_failure_module, _) = push_flow_job_by_path_into_queue(
+                    authed.clone(),
+                    db.clone(),
+                    None,
+                    user_db,
+                    w_id.clone(),
+                    StripPath(flow_path),
+                    run_query,
+                    args,
+                    None,
+                )
+                .await?;
+                (uuid, early_return, has_failure_module)
+            }
+            RunnableId::FlowId(FlowId::FlowVersion(version)) => {
+                let (uuid, early_return, has_failure_module) = run_flow_by_version_inner(
+                    authed.clone(),
+                    db.clone(),
+                    user_db,
+                    w_id.clone(),
+                    version,
+                    run_query,
+                    args,
+                    None,
+                )
+                .await?;
+                (uuid, early_return, has_failure_module)
+            }
+        };
+        Ok::<_, Error>(pushed)
+    })
+    .await?;
 
     let opt_authed = Some(authed.clone());
     let opt_tokened = OptTokened { token: None }; // ignored when authed is some
@@ -10528,16 +10542,19 @@ async fn run_dynamic_select(
                 );
                 let push_args = PushArgsOwned { extra: None, args: script_args };
 
-                let (uuid, _, _) = push_script_job_by_path_into_queue(
-                    authed.clone(),
-                    db.clone(),
-                    None,
-                    user_db.clone(),
-                    w_id.clone(),
-                    StripPath(path),
-                    run_query.clone(),
-                    push_args,
-                    None,
+                let (uuid, _, _) = with_policy(
+                    PausePolicy::Refuse,
+                    push_script_job_by_path_into_queue(
+                        authed.clone(),
+                        db.clone(),
+                        None,
+                        user_db.clone(),
+                        w_id.clone(),
+                        StripPath(path),
+                        run_query.clone(),
+                        push_args,
+                        None,
+                    ),
                 )
                 .await?;
 

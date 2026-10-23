@@ -132,6 +132,7 @@ pub async fn resume_suspended_trigger_jobs(
                       )
                       AND trigger_kind = $2
                       AND trigger = $3
+                      AND NOT EXISTS (SELECT 1 FROM workspace_held_job h WHERE h.job_id = v2_job.id)
                       AND id = ANY($4)
                 "#,
                 w_id,
@@ -160,6 +161,7 @@ pub async fn resume_suspended_trigger_jobs(
                   )
                   AND trigger_kind = $2
                   AND trigger = $3
+                  AND NOT EXISTS (SELECT 1 FROM workspace_held_job h WHERE h.job_id = v2_job.id)
             "#,
             w_id,
             trigger_kind as _,
@@ -310,6 +312,7 @@ pub async fn cancel_suspended_trigger_jobs(
                    AND (kind = 'unassigned_script'::JOB_KIND OR kind = 'unassigned_flow'::JOB_KIND OR kind = 'unassigned_singlestepflow'::JOB_KIND)
                    AND trigger_kind = $2
                    AND trigger = $3
+                   AND NOT EXISTS (SELECT 1 FROM workspace_held_job h WHERE h.job_id = v2_job.id)
                    AND id = ANY($4)",
                 w_id,
                 trigger_kind as _,
@@ -325,7 +328,8 @@ pub async fn cancel_suspended_trigger_jobs(
              WHERE workspace_id = $1
                AND (kind = 'unassigned_script'::JOB_KIND OR kind = 'unassigned_flow'::JOB_KIND OR kind = 'unassigned_singlestepflow'::JOB_KIND)
                AND trigger_kind = $2
-               AND trigger = $3",
+               AND trigger = $3
+               AND NOT EXISTS (SELECT 1 FROM workspace_held_job h WHERE h.job_id = v2_job.id)",
             w_id,
             trigger_kind as _,
             trigger_path,

@@ -663,6 +663,8 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--extra-includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy
   - `--message <message:string>` - Include a message that will be added to all scripts/flows/apps updated during this push
   - `--parallel <number>` - Number of changes to process in parallel
+  - `--pause-jobs [duration:string]` - Pause new jobs of the workspace while pushing (default 30m, at most 7d): triggers, schedules and async runs are held, then released once the dependency jobs of the push finish. Admin only
+  - `--keep-paused` - With --pause-jobs, leave jobs paused after the push (e.g. to run migrations first); resume with 'wmill workspace resume-jobs'
   - `--repository <repo:string>` - Specify repository path (e.g., u/user/repo) when multiple repositories exist
   - `--branch, --env <branch:string>` - [Deprecated: use --workspace] Override the current git branch/environment
   - `--lint` - Run lint validation before pushing
@@ -853,6 +855,12 @@ Arguments (omit both to be prompted interactively):
   - `--dry-run` - Only show the changes
   - `--replace` - Also clear the settings the file omits, as 'wmill sync push' does
   - `-y --yes` - Apply without asking
+- `workspace pause-jobs` - Pause new jobs of the active workspace, e.g. while a deploy or a migration is in progress. Jobs from triggers, schedules and async runs are held until 'wmill workspace resume-jobs' or the end of the pause; callers waiting for a result get a 503. Dependency and git sync jobs, steps of running flows and runs started directly by an admin are not held. Admin only.
+  - `--for <duration:string>` - How long the pause lasts at most (e.g. 30m, 2h, 1d; at most 7d)
+  - `--reason <reason:string>` - Shown to users of the workspace while paused
+- `workspace resume-jobs` - Resume new jobs of the active workspace and release the jobs the pause held. Admin only.
+- `workspace jobs-paused` - Show whether new jobs of the active workspace are paused
+  - `--json` - Output as JSON
 
 
 

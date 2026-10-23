@@ -94,6 +94,8 @@ pub enum Error {
     MigrationNeeded { version: String, feature: String, guide_url: url::Url },
     #[error("{0} is unavailable. It is possible for this worker to be behind.")]
     FeatureUnavailable(String),
+    #[error("New jobs of this workspace are paused until {}", .until.to_rfc3339())]
+    JobsPaused { until: chrono::DateTime<chrono::Utc> },
 }
 
 impl Error {
@@ -130,6 +132,7 @@ impl Error {
             Self::NotAuthorized(_) => "NotAuthorized",
             Self::MetricNotFound(_) => "MetricNotFound",
             Self::PermissionDenied(_) => "PermissionDenied",
+            Self::JobsPaused { .. } => "JobsPaused",
             _ => "InternalErr",
         }
     }
@@ -302,6 +305,7 @@ impl Error {
             | Self::QuotaExceeded(_) => axum::http::StatusCode::BAD_REQUEST,
             Self::BadGateway(_) => axum::http::StatusCode::BAD_GATEWAY,
             Self::Generic(status_code, _) => *status_code,
+            Self::JobsPaused { .. } => axum::http::StatusCode::SERVICE_UNAVAILABLE,
             _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -319,17 +323,22 @@ impl IntoResponse for Error {
             axum::http::StatusCode::NOT_FOUND | axum::http::StatusCode::CONFLICT
         ) {
             tracing::warn!(message = e.to_string());
+        } else if matches!(e, Self::JobsPaused { .. }) {
+            tracing::info!(message = e.to_string());
         } else {
             tracing::error!(message = e.to_string(), error = ?e);
         };
 
         let body = Body::from(e.to_string());
 
-        axum::response::Response::builder()
+        let mut builder = axum::response::Response::builder()
             .header("Content-Type", "text/plain")
-            .status(status)
-            .body(body)
-            .unwrap()
+            .status(status);
+        if let Self::JobsPaused { until } = e {
+            let secs = (*until - chrono::Utc::now()).num_seconds().max(1);
+            builder = builder.header("Retry-After", secs.to_string());
+        }
+        builder.body(body).unwrap()
     }
 }
 

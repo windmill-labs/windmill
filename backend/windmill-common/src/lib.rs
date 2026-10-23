@@ -82,6 +82,7 @@ pub mod hub_resource_types;
 pub mod indexer;
 pub mod instance_config;
 pub mod job_metrics;
+pub mod job_pause;
 pub mod log_context;
 pub mod materialization;
 pub mod min_version;

@@ -1724,6 +1724,9 @@ async fn process_notify_event(
             );
             windmill_common::workspaces::TEAM_PLAN_CACHE.remove(payload);
         }
+        windmill_common::job_pause::JOB_PAUSE_CHANGE_CHANNEL => {
+            windmill_common::job_pause::evict(payload);
+        }
         "notify_workspace_rate_limit_change" => {
             tracing::info!(
                 "Workspace rate limit change detected, invalidating rate limit cache: {}",

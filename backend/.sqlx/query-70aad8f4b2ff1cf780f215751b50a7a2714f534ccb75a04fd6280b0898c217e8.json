@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH held AS (\n            DELETE FROM workspace_held_job WHERE workspace_id = $1\n            RETURNING job_id, scheduled_for\n        ),\n        queued AS (\n            UPDATE v2_job_queue q SET scheduled_for = GREATEST(h.scheduled_for, now())\n            FROM held h\n            WHERE q.id = h.job_id AND NOT q.running\n            RETURNING q.id\n        ),\n        kinds AS (\n            UPDATE v2_job j SET kind = CASE j.kind\n                    WHEN 'unassigned_script' THEN 'script'::JOB_KIND\n                    WHEN 'unassigned_flow' THEN 'flow'::JOB_KIND\n                    WHEN 'unassigned_singlestepflow' THEN 'singlestepflow'::JOB_KIND\n                    ELSE j.kind\n                END\n            FROM queued q WHERE j.id = q.id\n        )\n        SELECT count(*) AS \"count!\" FROM queued",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "70aad8f4b2ff1cf780f215751b50a7a2714f534ccb75a04fd6280b0898c217e8"
+}

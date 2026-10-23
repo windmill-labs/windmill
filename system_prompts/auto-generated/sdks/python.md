@@ -132,6 +132,26 @@ def get_job(job_id: str) -> dict
 #     Root job ID
 def get_root_job_id(job_id: str | None = None) -> dict
 
+# Pause new jobs of the workspace, e.g. while a flow runs migrations.
+# 
+# Jobs from triggers, schedules and async runs are held until resume_workspace_jobs or
+# the end of the pause; callers waiting for a result get a 503. The steps of the calling
+# flow, and runs started directly by an admin, keep running. Requires a workspace admin.
+# 
+# Args:
+#     duration_s: How long the pause lasts at most, in seconds (at most 7 days)
+#     reason: Shown to users of the workspace while paused
+# 
+# Returns:
+#     The pause now in effect
+def pause_workspace_jobs(duration_s: int, reason: str | None = None) -> dict
+
+# Resume new jobs of the workspace and release the jobs the pause held.
+# 
+# Returns:
+#     The number of held jobs released
+def resume_workspace_jobs() -> int
+
 # Get an OIDC JWT token for authentication to external services.
 # 
 # Args:

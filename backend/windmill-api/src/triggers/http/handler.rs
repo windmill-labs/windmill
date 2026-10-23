@@ -22,6 +22,7 @@ use axum::{
 use futures::StreamExt;
 use http::{HeaderMap, StatusCode};
 use std::{collections::HashMap, sync::Arc};
+use windmill_common::job_pause::{with_policy, PausePolicy};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
@@ -798,22 +799,25 @@ async fn route_job(
     match trigger.request_type {
         RequestType::SyncSse => {
             // Trigger the job (always async when streaming)
-            let (uuid, _, early_return, has_failure_module, _) = trigger_runnable_inner(
-                &db,
-                None,
-                Some(user_db.clone()),
-                authed.clone(),
-                &trigger.workspace_id,
-                &trigger.script_path,
-                trigger.is_flow,
-                args,
-                trigger.retry.as_ref(),
-                trigger.error_handler_path.as_deref(),
-                trigger.error_handler_args.as_ref(),
-                format!("http_trigger/{}", trigger.path),
-                None,
-                trigger_info,
-                None,
+            let (uuid, _, early_return, has_failure_module, _) = with_policy(
+                PausePolicy::Refuse,
+                trigger_runnable_inner(
+                    &db,
+                    None,
+                    Some(user_db.clone()),
+                    authed.clone(),
+                    &trigger.workspace_id,
+                    &trigger.script_path,
+                    trigger.is_flow,
+                    args,
+                    trigger.retry.as_ref(),
+                    trigger.error_handler_path.as_deref(),
+                    trigger.error_handler_args.as_ref(),
+                    format!("http_trigger/{}", trigger.path),
+                    None,
+                    trigger_info,
+                    None,
+                ),
             )
             .await
             .map_err(|e| e.into_response())?;
@@ -880,19 +884,22 @@ async fn route_job(
         )
         .await
         .map_err(|e| e.into_response()),
-        RequestType::Sync => trigger_runnable_and_wait_for_result(
-            &db,
-            Some(user_db),
-            authed,
-            &trigger.workspace_id,
-            &trigger.script_path,
-            trigger.is_flow,
-            args,
-            trigger.retry.as_ref(),
-            trigger.error_handler_path.as_deref(),
-            trigger.error_handler_args.as_ref(),
-            format!("http_trigger/{}", trigger.path),
-            trigger_info,
+        RequestType::Sync => with_policy(
+            PausePolicy::Refuse,
+            trigger_runnable_and_wait_for_result(
+                &db,
+                Some(user_db),
+                authed,
+                &trigger.workspace_id,
+                &trigger.script_path,
+                trigger.is_flow,
+                args,
+                trigger.retry.as_ref(),
+                trigger.error_handler_path.as_deref(),
+                trigger.error_handler_args.as_ref(),
+                format!("http_trigger/{}", trigger.path),
+                trigger_info,
+            ),
         )
         .await
         .map_err(|e| e.into_response()),

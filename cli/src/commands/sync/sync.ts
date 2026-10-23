@@ -65,6 +65,13 @@ import {
 
 import { DbtPathCollisionError, handleFile } from "../script/script.ts";
 import {
+  DEFAULT_PAUSE_DURATION,
+  parseDuration,
+  pauseWorkspaceJobs,
+  resumeWorkspaceJobs,
+  waitForDependencyJobs,
+} from "../workspace/jobsPause.ts";
+import {
   deepEqual,
   fetchRemoteVersion,
   getHeaders,
@@ -4876,6 +4883,8 @@ export async function push(
       branch?: string;
       keepDeleted?: boolean;
       acceptOverridingPermissionedAsWithSelf?: boolean;
+      pauseJobs?: boolean | string;
+      keepPaused?: boolean;
     },
 ) {
   if ((opts as any).jsonOutput) log.setSilent(true);
@@ -5830,6 +5839,15 @@ export async function push(
 
     const start = performance.now();
     const pushStartedAt = new Date().toISOString();
+    const jobsPause = opts.pauseJobs
+      ? await pauseWorkspaceJobs(
+          workspace.workspaceId,
+          parseDuration(
+            opts.pauseJobs === true ? DEFAULT_PAUSE_DURATION : opts.pauseJobs,
+          ),
+          "wmill sync push",
+        )
+      : undefined;
     log.info(colors.gray(`Applying changes to files ...`));
 
     let stateful = opts.stateful;
@@ -6784,11 +6802,40 @@ export async function push(
         );
       }
     }
+    let jobsResumed = false;
+    if (jobsPause) {
+      const depsDone = await waitForDependencyJobs(
+        workspace.workspaceId,
+        pushStartedAt,
+        new Date(jobsPause.paused_until),
+      );
+      if (opts.keepPaused) {
+        log.info(
+          colors.yellow(
+            `Jobs stay paused until ${jobsPause.paused_until} (--keep-paused). Run 'wmill workspace resume-jobs' when ready.`,
+          ),
+        );
+      } else if (failedChanges.length > 0 || !depsDone) {
+        log.warn(
+          `Jobs stay paused until ${jobsPause.paused_until} because ` +
+            (failedChanges.length > 0
+              ? "some changes failed to push"
+              : "dependency jobs are still running") +
+            ". Run 'wmill workspace resume-jobs' once the workspace is consistent.",
+        );
+      } else {
+        await resumeWorkspaceJobs(workspace.workspaceId);
+        jobsResumed = true;
+      }
+    }
     const pushedCount = changes.length - failedChanges.length;
     if (opts.jsonOutput) {
       const result = {
         success: failedChanges.length === 0,
         lock_jobs: lockJobs,
+        ...(jobsPause
+          ? { jobs_paused_until: jobsResumed ? null : jobsPause.paused_until }
+          : {}),
         ...(failedChanges.length > 0 ? { failed: failedChanges } : {}),
         message:
           failedChanges.length > 0
@@ -7030,6 +7077,15 @@ const command = new Command()
     "Include a message that will be added to all scripts/flows/apps updated during this push",
   )
   .option("--parallel <number>", "Number of changes to process in parallel")
+  .option(
+    "--pause-jobs [duration:string]",
+    "Pause new jobs of the workspace while pushing (default 30m, at most 7d): triggers, schedules and async runs are held, then released once the dependency jobs of the push finish. Admin only",
+  )
+  .option(
+    "--keep-paused",
+    "With --pause-jobs, leave jobs paused after the push (e.g. to run migrations first); resume with 'wmill workspace resume-jobs'",
+    { depends: ["pause-jobs"] },
+  )
   .option(
     "--repository <repo:string>",
     "Specify repository path (e.g., u/user/repo) when multiple repositories exist",

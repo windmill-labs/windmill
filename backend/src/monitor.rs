@@ -4467,6 +4467,16 @@ pub async fn monitor_db(
         }
     };
 
+    let resume_expired_job_pauses_f = async {
+        if server_mode && !initial_load {
+            if let Some(db) = conn.as_sql() {
+                if let Err(e) = windmill_common::job_pause::resume_expired(&db).await {
+                    tracing::error!("Error resuming expired workspace job pauses: {e:#}");
+                }
+            }
+        }
+    };
+
     // run every 30 iterations (~5min at the default LISTEN_NEW_EVENTS_INTERVAL_SEC).
     let reconcile_unarmed_schedules_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(30) {
@@ -4629,6 +4639,7 @@ pub async fn monitor_db(
         pipeline_freshness_watchdog_f,
         reconcile_unarmed_schedules_f,
         stranded_jobs_f,
+        resume_expired_job_pauses_f,
     );
 }
 

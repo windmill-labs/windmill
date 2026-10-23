@@ -1174,17 +1174,20 @@ pub async fn run_flow_and_wait_result(
     args: PushArgsOwned,
     trigger: Option<TriggerMetadata>,
 ) -> error::Result<Response> {
-    let (uuid, early_return, has_failure_module, _) = run_flow(
-        authed,
-        db,
-        None,
-        user_db,
-        w_id,
-        flow_path,
-        flow_version_info,
-        run_query,
-        args,
-        trigger,
+    let (uuid, early_return, has_failure_module, _) = windmill_common::job_pause::with_policy(
+        windmill_common::job_pause::PausePolicy::Refuse,
+        run_flow(
+            authed,
+            db,
+            None,
+            user_db,
+            w_id,
+            flow_path,
+            flow_version_info,
+            run_query,
+            args,
+            trigger,
+        ),
     )
     .await?;
 
