@@ -38995,9 +38995,12 @@ components:
           type: boolean
         manage_triggers:
           type: boolean
+        fork:
+          type: boolean
+          description: Create a fork of the workspace. The forker is a developer in the fork whatever the role holds.
         visibility:
           $ref: "#/components/schemas/RoleVisibility"
-      required: [code, flows, apps, manage_schedules, manage_triggers, visibility]
+      required: [code, flows, apps, manage_schedules, manage_triggers, fork, visibility]
 
     RoleCapabilitiesPatch:
       type: object
@@ -39010,6 +39013,7 @@ components:
           $ref: "#/components/schemas/AuthorLevel"
         manage_schedules: { type: boolean }
         manage_triggers: { type: boolean }
+        fork: { type: boolean }
         visibility:
           type: object
           additionalProperties:

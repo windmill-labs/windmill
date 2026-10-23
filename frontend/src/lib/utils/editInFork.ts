@@ -1,5 +1,4 @@
 import { get } from 'svelte/store'
-import { isRestricted } from '$lib/roleCapabilities'
 import type { RoleCapabilities } from '$lib/gen'
 import {
 	roleCapabilities,
@@ -22,17 +21,21 @@ export type ItemType = 'script' | 'flow' | 'app' | 'raw_app'
  * Whether to show the "edit in fork / dev workspace" affordance. Allowed when the user may create a
  * fork, OR when the current workspace has a canonical dev to route to — routing into an existing dev
  * workspace creates no fork, so it survives a locked prod that has `DisableWorkspaceForking` set.
- * Never for a role without `code`, which has nothing to edit at the other end either way. User
- * identity is read non-reactively (it's stable within a session); reactivity comes from the
- * workspace args.
+ * A role without `code` gets it only when it may fork and there is no canonical dev: a new fork
+ * makes the member a developer, but in an existing dev workspace they keep their role and have
+ * nothing to edit. User identity is read non-reactively (it's stable within a session); reactivity
+ * comes from the workspace args. Pass `caps` when `currentWorkspaceId` is not the navigation
+ * workspace: `$roleCapabilities` describes only that one.
  */
 export function editInForkAllowed(
 	currentWorkspaceId: string | undefined,
-	allWorkspaces: UserWorkspace[]
+	allWorkspaces: UserWorkspace[],
+	caps: RoleCapabilities = get(roleCapabilities)
 ): boolean {
-	const caps = get(roleCapabilities)
-	if (!caps.code) return false
-	return canCreateFork(get(userStore), caps) || !!findCanonicalDevWorkspace(currentWorkspaceId, allWorkspaces)
+	const user = get(userStore)
+	const dev = findCanonicalDevWorkspace(currentWorkspaceId, allWorkspaces)
+	if (!caps.code) return canCreateFork(user, caps) && !dev
+	return canCreateFork(user, caps) || !!dev
 }
 
 /** Label for the affordance: "Edit in <dev name>" when routed to a canonical dev, else "Edit in fork". */
@@ -58,21 +61,29 @@ export function editInForkDescription(
 }
 
 /**
- * Whether the user may CREATE a new fork of the current workspace: their role is unrestricted, and
+ * Whether the user may CREATE a new fork of the current workspace: their role holds `fork`, and
  * either forking isn't disabled or they can bypass the rule (workspace admins). Keeps the "Fork
- * workspace" entry available to admins as the last-resort escape hatch on a locked prod.
- *
- * Any restricted role is refused because a fork does not carry the role: the server writes the
- * forker's membership row from the parent's `is_admin` alone, so the forker gets the default role
- * and forking would hand a restricted member a full-rights copy of the workspace. The server does
- * not refuse it: this hides the affordance, it does not enforce the rule.
+ * workspace" entry available to admins as the last-resort escape hatch on a locked prod. The server
+ * enforces both.
  */
 export function canCreateFork(user: UserExt | undefined, caps: RoleCapabilities): boolean {
-	if (isRestricted(caps)) return false
+	if (!caps.fork) return false
 	return (
 		!isRuleActive('DisableWorkspaceForking') ||
 		canUserBypassRuleKind('DisableWorkspaceForking', user)
 	)
+}
+
+export const OPERATOR_FORK_BLOCKED_REASON =
+	'Your role cannot fork this workspace. A workspace admin can grant "Fork the workspace" to your role, under Workspace settings > Users > Workspace roles.'
+
+/**
+ * Whether the only thing refusing this user a fork is their role lacking `fork`. The fork entries
+ * then stay visible, disabled, so the member learns an admin can grant it; when forking is disabled
+ * for everyone they stay hidden, as they are for developers.
+ */
+export function operatorForkBlocked(caps: RoleCapabilities): boolean {
+	return !caps.fork && !isRuleActive('DisableWorkspaceForking')
 }
 
 function editPathFor(itemType: ItemType, itemPath: string): string {

@@ -122,3 +122,27 @@ their behaviour is unchanged.
 
 Do not model a right that an admin *grants* on these. Granted-by-default and granted-on-request
 are opposite polarities, and a gate written for one is wrong for the other.
+
+## Forking is a role capability
+
+Forking is the `fork` capability of a role (`docs/workspace-roles.md`): `developer` holds it,
+`operator` and any other role does not until an admin grants it, per role, in the instance roles
+or a workspace override. `check_can_fork` refuses a caller whose role lacks it on both
+`create_fork` and `create_workspace_fork_branch`, before `DisableWorkspaceForking`, which still
+restricts everyone it does not exempt. `canCreateFork` in `frontend/src/lib/utils/editInFork.ts`
+mirrors it.
+
+A member who forks is a developer in the fork whatever their role: the creator row copies only
+`is_admin`, so `workspace_role` stays NULL and `operator` keeps its false default. The exception
+is a dev workspace created with `copy_members`: the copy brings the creator's parent row, role
+included, and the creator row is then a no-op, so they keep their parent role there. That is the
+point of granting `fork`, a copy to build in, and it means granting it to a restricted role grants
+that role arbitrary code execution. Deploying scripts, flows and apps back runs with the user's
+role in the parent, where its write checks refuse what the role cannot author, so an admin or a
+`wm_deployers` member deploys them instead. Data is not behind that check: a data table kept on
+fork (`KeepOriginal`, the default) is a pointer at the parent's database, and a shared object
+storage or ducklake writes the parent's, so code in the fork reads and writes the parent's data
+directly. The capability's help text says so; an admin who grants it accepts it, or also turns on
+the `RequireIsolatedForks` ruleset rule (`docs/fork-object-storage.md`), which binds restricted
+roles too. The developer row also costs a seat: the self-hosted seat count takes a user who is a
+developer in any workspace, forks included, as a full seat.

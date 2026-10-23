@@ -9011,6 +9011,33 @@ async fn deprecated_create_workspace_fork(_authed: ApiAuthed) -> Result<String> 
     return Err(Error::BadRequest("This API endpoint has been relocated. Your Windmill CLI version is outdated and needs to be updated.".to_string()));
 }
 
+async fn check_can_fork(db: &DB, authed: &ApiAuthed, w_id: &str) -> Result<()> {
+    if *DISABLE_WORKSPACE_FORK {
+        require_super_admin(db, authed).await?;
+    }
+    if !windmill_common::roles::caller_role_capabilities(db, w_id, authed)
+        .await?
+        .fork
+    {
+        return Err(Error::PermissionDenied(
+            "Your role cannot fork this workspace".to_string(),
+        ));
+    }
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        w_id,
+        &ProtectionRuleKind::DisableWorkspaceForking,
+        AuditAuthorable::username(authed),
+        &authed.groups,
+        authed.is_admin,
+        db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+    Ok(())
+}
+
 /// Return the uuids of the git sync jobs to create the branch before creating the fork
 async fn create_workspace_fork_branch(
     authed: ApiAuthed,
@@ -9026,21 +9053,7 @@ async fn create_workspace_fork_branch(
         enforce_cloud_fork_cap(&db, &w_id).await?;
     }
 
-    if *DISABLE_WORKSPACE_FORK {
-        require_super_admin(&db, &authed).await?;
-    }
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
-        &w_id,
-        &ProtectionRuleKind::DisableWorkspaceForking,
-        AuditAuthorable::username(&authed),
-        &authed.groups,
-        authed.is_admin,
-        &db,
-    )
-    .await?
-    {
-        return Err(Error::PermissionDenied(msg));
-    }
+    check_can_fork(&db, &authed, &w_id).await?;
     enforce_isolated_forks(&db, &authed, &w_id, &nw).await?;
 
     // Two-phase create for git-synced workspaces: this endpoint only creates the git branch(es) and
@@ -9684,6 +9697,8 @@ async fn create_workspace_fork(
     Query(q): Query<CreateWorkspaceForkQuery>,
     Json(nw): Json<CreateWorkspaceFork>,
 ) -> Result<String> {
+    // Ahead of everything below: the stale-state purges must not run for a caller refused here.
+    check_can_fork(&db, &authed, &parent_workspace_id).await?;
     enforce_fork_depth(&db, &parent_workspace_id, 0).await?;
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
@@ -9777,21 +9792,6 @@ async fn create_workspace_fork(
     #[cfg(not(feature = "enterprise"))]
     _check_nb_of_workspaces(&db).await?;
 
-    if *DISABLE_WORKSPACE_FORK {
-        require_super_admin(&db, &authed).await?;
-    }
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
-        &parent_workspace_id,
-        &ProtectionRuleKind::DisableWorkspaceForking,
-        AuditAuthorable::username(&authed),
-        &authed.groups,
-        authed.is_admin,
-        &db,
-    )
-    .await?
-    {
-        return Err(Error::PermissionDenied(msg));
-    }
     enforce_isolated_forks(&db, &authed, &parent_workspace_id, &nw).await?;
 
     if nw.is_dev_workspace {
@@ -10042,6 +10042,7 @@ async fn make_workspace_fork(
         .filter(|c| c.replayed)
         .map(|c| c.behavior)
         .collect();
+    let restricted_fork = authed.is_operator && !authed.is_admin;
     match write_workspace_fork(
         db.clone(),
         authed,
@@ -10063,6 +10064,9 @@ async fn make_workspace_fork(
                         _ => "schema_and_data",
                     },
                 );
+            }
+            if restricted_fork {
+                windmill_common::feature_usage::log_feature_usage("operator_fork", "forked", "");
             }
             Ok(message)
         }
@@ -10444,7 +10448,11 @@ async fn write_workspace_fork(
     }
 
     // Ensure the creator is a member of the fork even without copy_members (or if they aren't a parent
-    // member). No-op when copy_members already brought their full row.
+    // member). No-op when copy_members already brought their full row. `workspace_role` and
+    // `operator` are left at their defaults on purpose: a restricted role granted `fork` is a
+    // developer in the fork, including over the parent's kept data tables and shared object storage
+    // and ducklakes, which the fork reaches directly; only item deploys back run with their parent
+    // role and are refused.
     sqlx::query!(
         "INSERT INTO usr
            (workspace_id, email, username, is_admin)
