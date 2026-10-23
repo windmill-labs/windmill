@@ -3,6 +3,7 @@ import { get } from 'svelte/store'
 import {
 	commitSessionWorkspace,
 	createSession,
+	setNewSessionWorkspace,
 	decideSessionLifecycle,
 	findEmptyLandingSession,
 	getSessionDraftAttachments,
@@ -773,6 +774,25 @@ describe('homeStarterSession', () => {
 			expect(homeStarterSession().id).toBe('home-draft')
 		} finally {
 			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'home-draft')
+			restore()
+		}
+	})
+
+	it('lets go of its draft once the session page reuses it for a new session', () => {
+		const restore = withTwoFamilies('forkA')
+		const prevCurrent = sessionState.currentSessionId
+		const ids: string[] = []
+		try {
+			ids.push(homeStarterSession().id)
+			const reused = createSession()
+			expect(reused.id).toBe(ids[0])
+			setNewSessionWorkspace(reused.id, 'rootA')
+			ids.push(homeStarterSession().id)
+			expect(ids[1]).not.toBe(ids[0])
+			expect(reused.pending_workspace_id).toBe('rootA')
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter((s) => !ids.includes(s.id))
+			sessionState.currentSessionId = prevCurrent
 			restore()
 		}
 	})

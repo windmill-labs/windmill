@@ -1091,6 +1091,9 @@ export function createSession(): Session {
 		(s) => isDiscardableDraft(s) && sessionInCurrentFamily(s)
 	)
 	if (reusable) {
+		// It may be Home's draft; asked for here, it is the session page's now, and callers
+		// park it on a workspace of their own that Home must not move it off.
+		delete reusable.followsHome
 		sessionState.currentSessionId = reusable.id
 		// The blank recovery just landed on is exactly what this reuses, so `+`
 		// would otherwise hand back a session still carrying the recovery notice:
@@ -1164,12 +1167,10 @@ function newTransientSession(): Session {
  * shows, so it starts its own instead of moving either. */
 export function homeStarterSession(): Session {
 	const homeWs = get(workspaceStore)
+	const homes = (s: Session) =>
+		(s.followsHome || s.pending_workspace_id === homeWs) && sessionInCurrentFamily(s)
 	const unsent = (s: Session) =>
-		!s.archived &&
-		!s.workspace_id &&
-		!s.previewTabs?.length &&
-		(s.followsHome || s.pending_workspace_id === homeWs) &&
-		sessionInCurrentFamily(s)
+		!s.archived && !s.workspace_id && !s.previewTabs?.length && homes(s)
 	const current = sessionState.sessions.find((s) => s.id === sessionState.currentSessionId)
 	// Stored but never sent: a draft the user touched, by typing or by picking where it acts.
 	// Either is theirs to come back to, and leaving it would strand it in the sidebar.
@@ -1179,7 +1180,7 @@ export function homeStarterSession(): Session {
 	const draft =
 		(current && unsent(current) ? current : undefined) ??
 		touched ??
-		sessionState.sessions.find((s) => isDiscardableDraft(s) && sessionInCurrentFamily(s)) ??
+		sessionState.sessions.find((s) => isDiscardableDraft(s) && homes(s)) ??
 		newTransientSession()
 	if (!draft.followsHome) {
 		draft.followsHome = true
@@ -1209,10 +1210,11 @@ export function setSessionPendingWorkspace(id: string, workspace_id: string) {
 	if (changed) persistTouched(s)
 }
 
-// Unpersisted on its own: the pick that follows it is the touch that stores the session.
 export function stopFollowingHome(id: string) {
 	const s = sessionState.sessions.find((x) => x.id === id)
-	if (s) delete s.followsHome
+	if (!s?.followsHome) return
+	delete s.followsHome
+	if (!s.transient) void putSession(s)
 }
 
 // Park a just-created session on a workspace. Deliberately does not persist a
