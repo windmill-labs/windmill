@@ -21,6 +21,8 @@
 		setSessionDraftPrompt
 	} from './sessionState.svelte'
 	import SessionWorkspaceBar from './SessionWorkspaceBar.svelte'
+	import { useWorkModeLock } from './workModeLock.svelte'
+	import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 	import { composerSentFromHome, takeComposerFocus } from './homeSessionsTransition.svelte'
 	import { homeComposerContext } from './homeComposerContext.svelte'
 
@@ -42,10 +44,15 @@
 	setContext<AIChatManager>('aiChatManager', runtime.manager)
 
 	const session = $derived(sessionState.sessions.find((s) => s.id === sessionId))
+	// Switches the page along with the session, as the workspace bar below does.
+	const workModeLock = useWorkModeLock(() => session, true)
 	const actingWorkspaceId = $derived(
 		(session ? getEffectiveWorkspaceId(session) : undefined) ?? $workspaceStore ?? undefined
 	)
-	const starterPrompts = new StarterPrompts(() => actingWorkspaceId)
+	const starterPrompts = new StarterPrompts(
+		() => actingWorkspaceId,
+		() => !workModeLock.current && runtime.manager.workMode !== AIWorkMode.USE
+	)
 
 	// The AI config (models, whether AI is hidden) of the workspace the draft acts on, as the
 	// session page loads it, so a fork picked here shows its own models and the session page
@@ -130,6 +137,7 @@
 			viewTransitionNames
 			{onSent}
 			{actingOn}
+			workModeLock={workModeLock.current}
 		/>
 	</div>
 {:else}

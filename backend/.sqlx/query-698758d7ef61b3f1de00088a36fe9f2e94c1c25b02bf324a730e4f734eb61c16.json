@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT value, is_secret FROM variable WHERE path = $1",
+  "query": "SELECT value::text AS \"value!\", is_secret FROM variable WHERE path = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "value",
-        "type_info": "Varchar"
+        "name": "value!",
+        "type_info": "Text"
       },
       {
         "ordinal": 1,
@@ -20,9 +20,9 @@
       ]
     },
     "nullable": [
-      false,
+      null,
       false
     ]
   },
-  "hash": "0c2e53960dc7786c848079b155e62994d4a861f1dbb9752c0a27428d83040e13"
+  "hash": "698758d7ef61b3f1de00088a36fe9f2e94c1c25b02bf324a730e4f734eb61c16"
 }
