@@ -323,7 +323,7 @@
 									>Test scaling</Button
 								>
 								<div class="flex text-xs flex-row gap-2 items-center">
-									<input class="!w-16" type="number" bind:value={test_input} />
+									<input class="!w-16" type="number" min="0" bind:value={test_input} />
 									workers
 								</div>
 							</div>
@@ -363,7 +363,7 @@
 										>Test scaling</Button
 									>
 									<div class="flex text-xs flex-row gap-2 items-center">
-										<input class="!w-16" type="number" bind:value={test_input} />
+										<input class="!w-16" type="number" min="0" bind:value={test_input} />
 										workers
 									</div>
 								</div>
