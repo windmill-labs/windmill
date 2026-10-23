@@ -617,6 +617,8 @@ export async function deployItem(
             is_secret: variable.is_secret,
             description: variable.description ?? "",
             labels: variable.labels,
+            // `null` clears; absent would keep the target's stored date.
+            value_valid_until: variable.value_valid_until ?? null,
           },
           alreadyEncrypted: false,
         });
@@ -629,6 +631,7 @@ export async function deployItem(
             is_secret: variable.is_secret,
             description: variable.description ?? "",
             labels: variable.labels,
+            value_valid_until: variable.value_valid_until ?? null,
           },
         });
       }
@@ -930,6 +933,7 @@ export async function getItemValue(
         value: variable.value,
         is_secret: variable.is_secret,
         description: variable.description,
+        value_valid_until: variable.value_valid_until ?? undefined,
       };
     } else if (kind === "resource") {
       const resource = await provider.getResource({ workspace, path });

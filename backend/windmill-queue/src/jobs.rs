@@ -170,12 +170,15 @@ const ERROR_HANDLER_USERNAME: &str = "error_handler";
 pub const SCHEDULE_ERROR_HANDLER_USERNAME: &str = "schedule_error_handler";
 const GLOBAL_ERROR_HANDLER_USERNAME: &str = "global";
 const SUCCESS_HANDLER_USERNAME: &str = "success_handler";
+const VARIABLE_EXPIRATION_HANDLER_USERNAME: &str = "variable_expiration_handler";
 
 pub const ERROR_HANDLER_USER_GROUP: &str = "g/error_handler";
 pub const ERROR_HANDLER_USER_EMAIL: &str = "error_handler@windmill.dev";
 pub const SCHEDULE_ERROR_HANDLER_USER_EMAIL: &str = "schedule_error_handler@windmill.dev";
 pub const SUCCESS_HANDLER_USER_GROUP: &str = "g/success_handler";
 pub const SUCCESS_HANDLER_USER_EMAIL: &str = "success_handler@windmill.dev";
+pub const VARIABLE_EXPIRATION_HANDLER_USER_GROUP: &str = "g/variable_expiration_handler";
+pub const VARIABLE_EXPIRATION_HANDLER_USER_EMAIL: &str = "variable_expiration_handler@windmill.dev";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CanceledBy {
@@ -3599,6 +3602,100 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
     return Ok(uuid);
 }
 
+/// Handler arguments, so the field names are wire format. Never add the value: job args and
+/// results are stored in cleartext and shown in Runs.
+#[derive(Serialize)]
+pub struct ExpiringVariable {
+    pub workspace_id: String,
+    pub variable_path: String,
+    pub description: String,
+    pub value_valid_until: DateTime<Utc>,
+    pub is_secret: bool,
+}
+
+/// Takes and returns the caller's transaction so the claim and the push commit together.
+pub(crate) async fn push_variable_expiration_handler<'c>(
+    db: &Pool<Postgres>,
+    tx: Transaction<'c, Postgres>,
+    w_id: &str,
+    (payload, tag, on_behalf_of): (
+        JobPayload,
+        Option<String>,
+        Option<windmill_common::jobs::OnBehalfOf>,
+    ),
+    expiring: &ExpiringVariable,
+    extra_args: Option<Json<Box<RawValue>>>,
+) -> windmill_common::error::Result<(Uuid, Transaction<'c, Postgres>)> {
+    // Serialized whole so a new `ExpiringVariable` field reaches handlers. Any writer of the
+    // variable controls these, so only they are neutralized: the admin's `extra_args` keep their
+    // `$res:` references, which is how the handler gets its token.
+    let mut extra = omit_untrusted_interpolation(
+        serde_json::from_value(serde_json::to_value(expiring)?)?,
+        "The following resource has been omitted for security reasons: ",
+    );
+
+    if let Some(args_v) = extra_args {
+        if let Ok(args_m) = serde_json::from_str::<HashMap<String, Box<RawValue>>>(args_v.get()) {
+            extra.extend(args_m);
+        } else {
+            return Err(error::Error::ExecutionErr(
+                "args of scripts needs to be dict".to_string(),
+            ));
+        }
+    }
+
+    let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of.as_ref() {
+        (
+            on_behalf_of.email.as_str(),
+            on_behalf_of.permissioned_as.clone(),
+        )
+    } else {
+        (
+            VARIABLE_EXPIRATION_HANDLER_USER_EMAIL,
+            VARIABLE_EXPIRATION_HANDLER_USER_GROUP.to_string(),
+        )
+    };
+
+    let empty: HashMap<String, Box<RawValue>> = HashMap::new();
+    let args = PushArgs { extra: Some(extra), args: &empty };
+    push(
+        db,
+        PushIsolationLevel::Transaction(tx),
+        w_id,
+        payload,
+        args,
+        VARIABLE_EXPIRATION_HANDLER_USERNAME,
+        email,
+        permissioned_as,
+        Some(&format!(
+            "variable.expiration.{}",
+            expiring.variable_path.replace('/', ".")
+        )),
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        false,
+        None,
+        true,
+        tag,
+        None,
+        None,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+}
+
 pub async fn push_success_handler<'a, 'c, T: Serialize + Send + Sync>(
     db: &Pool<Postgres>,
     job_id: Uuid,
@@ -6357,6 +6454,7 @@ async fn push_inner<'c, 'd>(
                 if !team_plan_status.premium
                     && email != ERROR_HANDLER_USER_EMAIL
                     && email != SCHEDULE_ERROR_HANDLER_USER_EMAIL
+                    && email != VARIABLE_EXPIRATION_HANDLER_USER_EMAIL
                     && email != recovery_email
                     && email != "worker@windmill.dev"
                     && email != SUPERADMIN_SECRET_EMAIL
@@ -8886,7 +8984,8 @@ mod preset_handler_path_tests {
         let hub_paths: std::collections::HashMap<String, String> =
             serde_json::from_str(include_str!("../../../frontend/src/lib/hubPaths.json")).unwrap();
         for (name, path) in hub_paths {
-            if path.contains("-handler-") {
+            // Variable expiration handlers run as their own group whatever their path.
+            if path.contains("-handler-") && !path.contains("variable-expiration") {
                 assert!(
                     is_preset_handler_path(&path),
                     "{name}: {path} is not pinned"
