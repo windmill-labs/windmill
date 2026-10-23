@@ -4,10 +4,9 @@
 	let { noEditor = false }: { noEditor?: boolean } = $props()
 </script>
 
-<FlowCard {noEditor} title="Web search">
-	<div class="flex flex-col gap-4 overflow-auto p-4" style="scrollbar-gutter: stable">
-		<p class="text-xs font-normal text-secondary">
-			Lets the agent search the web. Works with OpenAI, Anthropic and Google models.
-		</p>
-	</div>
-</FlowCard>
+<FlowCard
+	{noEditor}
+	title="Web search"
+	subtitle="Works with OpenAI, Anthropic and Google models."
+	subtitleDocLink="https://www.windmill.dev/docs/core_concepts/ai_agents"
+/>

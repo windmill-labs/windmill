@@ -12,16 +12,15 @@
 	let value = $derived(tool.value as { tool_type: 'question'; timeout?: number })
 </script>
 
-<FlowCard {noEditor} title={BUILTIN_TOOLS.question.label}>
+<FlowCard
+	{noEditor}
+	title={BUILTIN_TOOLS.question.label}
+	subtitle="The agent waits for the answer from the run page or the chat, without holding a worker."
+	subtitleDocLink="https://www.windmill.dev/docs/core_concepts/ai_agents"
+>
 	<div class="flex flex-col gap-4 overflow-auto p-4" style="scrollbar-gutter: stable">
-		<p class="text-xs font-normal text-secondary">
-			Lets the agent ask a person a question and wait for the answer, from the run page or the chat,
-			without holding a worker.
-		</p>
-		<Label
-			label="Timeout"
-			tooltip="How long to wait for an answer. Past it, the agent is told nobody answered."
-		>
+		<Label label="Timeout">
+			<p class="text-xs font-normal text-secondary">Past it, the agent is told nobody answered</p>
 			<SecondsInput
 				disabled={noEditor}
 				bind:seconds={
