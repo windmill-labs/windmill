@@ -95,7 +95,8 @@
 	// The draft acts on the workspace Home shows, whichever picker switched it: a switch within
 	// the family keeps this mount, so the draft's pick has to follow. A switch to another family
 	// remounts with that family's draft, so this one is left where it was. A staged fork of the
-	// shown workspace stays. On mount only a never-touched draft can differ (homeStarterSession).
+	// shown workspace stays. On mount, a draft that differs is one that follows Home, moved off it
+	// by a switch made elsewhere (homeStarterSession).
 	onMount(() =>
 		workspaceStore.subscribe((ws) => {
 			const s = sessionState.sessions.find((x) => x.id === sessionId)

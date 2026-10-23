@@ -4,6 +4,7 @@
 		getEffectiveWorkspaceId,
 		setSessionPendingFork,
 		setSessionPendingWorkspace,
+		stopFollowingHome,
 		type Session
 	} from './sessionState.svelte'
 	import WorkspaceFamilyPicker from './WorkspaceFamilyPicker.svelte'
@@ -29,7 +30,14 @@
 	const effectiveId = $derived(getEffectiveWorkspaceId(session) ?? $workspaceStore ?? undefined)
 	const pendingFork = $derived(session.pending_fork)
 
+	// Before the pick, which stores the session: Home would otherwise move a draft picked
+	// here back to the workspace it shows.
+	function releaseFromHome() {
+		if (!switchesWorkspace) stopFollowingHome(session.id)
+	}
+
 	function pick(id: string) {
+		releaseFromHome()
 		// Pre-send only: writes the pending pick. workspace_id stays undefined until
 		// the user sends their first message. The chat targets this pending workspace
 		// via the manager's workspace resolver, not the global workspaceStore.
@@ -38,6 +46,7 @@
 	}
 
 	function stageFork(req: { parent_workspace_id: string; id: string; name: string }) {
+		releaseFromHome()
 		setSessionPendingFork(session.id, req)
 		followPick(req.parent_workspace_id)
 	}

@@ -102,6 +102,10 @@ export type Session = {
 	// deferred to first send (via commitSessionWorkspace) so cancelling
 	// the draft doesn't leave an orphan fork behind.
 	pending_fork?: PendingFork
+	// Home's draft: it acts on whatever workspace Home shows, so a switch made on another page
+	// moves it on Home's next mount. Cleared by a pick made on the session page, whose picker
+	// leaves the navigation workspace where it is.
+	followsHome?: boolean
 	// Stable root workspace id used only for sidebar grouping. Lifecycle follows
 	// workspace_id, not this field. Root sessions store the same id in both fields.
 	workspace_root_id?: string
@@ -1155,29 +1159,33 @@ function newTransientSession(): Session {
 /** The unsent session Home's composer writes into, so a prompt half-typed on Home is the
  * one the empty session page shows, and the reverse. Never selects it: merely opening Home
  * must not change which session the AI Sessions switch resumes. A session opened on an
- * item (it carries preview tabs) is about that item, and one picked onto another workspace
- * of the family is about that workspace: Home acts on the workspace it shows, so it starts
- * its own instead of moving either. */
+ * item (it carries preview tabs) is about that item, and one the session page picked onto
+ * another workspace of the family is about that workspace: Home acts on the workspace it
+ * shows, so it starts its own instead of moving either. */
 export function homeStarterSession(): Session {
 	const homeWs = get(workspaceStore)
 	const unsent = (s: Session) =>
 		!s.archived &&
 		!s.workspace_id &&
 		!s.previewTabs?.length &&
-		s.pending_workspace_id === homeWs &&
+		(s.followsHome || s.pending_workspace_id === homeWs) &&
 		sessionInCurrentFamily(s)
 	const current = sessionState.sessions.find((s) => s.id === sessionState.currentSessionId)
-	if (current && unsent(current)) return current
 	// Stored but never sent: a draft the user touched, by typing or by picking where it acts.
 	// Either is theirs to come back to, and leaving it would strand it in the sidebar.
 	const touched = sessionState.sessions
 		.filter((s) => unsent(s) && !s.transient)
 		.sort((a, b) => sessionLastActivityAt(b) - sessionLastActivityAt(a))[0]
-	return (
+	const draft =
+		(current && unsent(current) ? current : undefined) ??
 		touched ??
 		sessionState.sessions.find((s) => isDiscardableDraft(s) && sessionInCurrentFamily(s)) ??
 		newTransientSession()
-	)
+	if (!draft.followsHome) {
+		draft.followsHome = true
+		if (!draft.transient) void putSession(draft)
+	}
+	return draft
 }
 
 // Promote an in-memory transient session to a persisted IndexedDB record.
@@ -1199,6 +1207,12 @@ export function setSessionPendingWorkspace(id: string, workspace_id: string) {
 	// Picking an existing workspace cancels any pending fork intent.
 	s.pending_fork = undefined
 	if (changed) persistTouched(s)
+}
+
+// Unpersisted on its own: the pick that follows it is the touch that stores the session.
+export function stopFollowingHome(id: string) {
+	const s = sessionState.sessions.find((x) => x.id === id)
+	if (s) delete s.followsHome
 }
 
 // Park a just-created session on a workspace. Deliberately does not persist a

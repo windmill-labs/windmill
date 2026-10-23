@@ -760,6 +760,23 @@ describe('homeStarterSession', () => {
 		}
 	})
 
+	it('keeps its own draft when the workspace was switched on another page', () => {
+		const restore = withTwoFamilies('forkA')
+		const typed = session({
+			id: 'home-draft',
+			pending_workspace_id: 'rootA',
+			draftPrompt: 'typed on Home',
+			followsHome: true
+		})
+		sessionState.sessions.push(typed)
+		try {
+			expect(homeStarterSession().id).toBe('home-draft')
+		} finally {
+			sessionState.sessions = sessionState.sessions.filter((s) => s.id !== 'home-draft')
+			restore()
+		}
+	})
+
 	it('reports the never-touched drafts it drops, so their runtimes can be disposed', () => {
 		const restore = withTwoFamilies('rootB')
 		const prevCurrent = sessionState.currentSessionId
