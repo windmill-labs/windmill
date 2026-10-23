@@ -258,7 +258,7 @@ export function createMcpTool(id: string): McpTool {
 export function createWebsearchTool(id: string): WebsearchTool {
 	return {
 		id,
-		summary: 'Web Search',
+		summary: 'Web search',
 		value: {
 			tool_type: 'websearch'
 		}

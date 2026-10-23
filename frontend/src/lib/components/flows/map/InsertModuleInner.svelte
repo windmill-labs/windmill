@@ -242,7 +242,7 @@
 						}}
 					/>
 					<TopLevelNode
-						label="Web Search"
+						label="Web search"
 						onSelect={() => {
 							dispatch('pickWebsearchTool')
 							dispatch('close')

@@ -196,7 +196,7 @@
 					if (a.type === 'tool_call' || a.type === 'mcp_tool_call') {
 						return { id, name: a.function_name }
 					} else if (a.type === 'web_search') {
-						return { id, name: 'Web Search', type: 'websearch' }
+						return { id, name: 'Web search', type: 'websearch' }
 					} else if (a.type === 'approval') {
 						const names = a.calls.map((call) => call.function_name).join(', ')
 						return { id, name: `Approval: ${names}`, type: 'approval' }

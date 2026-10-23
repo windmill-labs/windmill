@@ -55,7 +55,7 @@
 		'Claude Code': { icon: BotIcon, iconClass: 'text-ai' },
 		Pi: { icon: BotIcon, iconClass: 'text-ai' },
 		MCP: { icon: Plug },
-		'Web Search': { icon: Globe },
+		'Web search': { icon: Globe },
 		'Ask a question': { icon: MessageCircleQuestion }
 	}
 
