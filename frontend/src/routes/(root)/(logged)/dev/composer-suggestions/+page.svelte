@@ -19,12 +19,20 @@
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 	import { Download } from 'lucide-svelte'
 
-	type RoleName = 'operator' | 'developer' | 'workspaceAdmin' | 'instanceAdmin'
+	type RoleName =
+		| 'operator'
+		| 'developer'
+		| 'workspaceAdmin'
+		| 'instanceAdmin'
+		| 'instanceAdminMember'
 	const ROLES: Record<RoleName, ComposerRole> = {
 		operator: { operator: true, workspaceAdmin: false, instanceAdmin: false },
 		developer: { operator: false, workspaceAdmin: false, instanceAdmin: false },
 		workspaceAdmin: { operator: false, workspaceAdmin: true, instanceAdmin: false },
-		instanceAdmin: { operator: false, workspaceAdmin: true, instanceAdmin: true }
+		// Not a member: `whoami` makes them the workspace's admin.
+		instanceAdmin: { operator: false, workspaceAdmin: true, instanceAdmin: true },
+		// A member keeps the role of their member row.
+		instanceAdminMember: { operator: false, workspaceAdmin: false, instanceAdmin: true }
 	}
 
 	// Every field as the form holds it: a blank field is an absent signal, which fires no rule.
@@ -215,6 +223,11 @@
 							<ToggleButton value="developer" label="Developer" {item} />
 							<ToggleButton value="workspaceAdmin" label="Workspace admin" {item} />
 							<ToggleButton value="instanceAdmin" label="Instance admin" {item} />
+							<ToggleButton
+								value="instanceAdminMember"
+								label="Instance admin, developer member"
+								{item}
+							/>
 						{/snippet}
 					</ToggleButtonGroup>
 					<p class="text-2xs text-hint">An instance admin here is also a workspace admin.</p>
