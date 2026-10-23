@@ -883,6 +883,7 @@
 	savedPermissionedAs={newApp ? undefined : savedApp?.policy?.on_behalf_of}
 	isNew={newApp}
 	folderDefault={folderDefault.value}
+	folderDefaultLoading={folderDefault.loading}
 	executionMode={policy.execution_mode}
 	targetWorkspace={$workspaceStore ?? ''}
 	onConfirmed={deployNow}

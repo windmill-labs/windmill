@@ -1622,6 +1622,7 @@
 	savedPermissionedAs={isNewFlow ? undefined : $savedOnBehalfOfPermissionedAs}
 	isNew={isNewFlow}
 	folderDefault={folderDefault.value}
+	folderDefaultLoading={folderDefault.loading}
 	targetWorkspace={opWorkspace ?? ''}
 	onConfirmed={() => deployFlow(deployDialogMsg)}
 />

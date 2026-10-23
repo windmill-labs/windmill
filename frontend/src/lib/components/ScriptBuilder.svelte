@@ -1446,6 +1446,7 @@
 	savedPermissionedAs={isNewScript ? undefined : savedScript?.on_behalf_of}
 	isNew={isNewScript}
 	folderDefault={folderDefault.value}
+	folderDefaultLoading={folderDefault.loading}
 	targetWorkspace={opWorkspace ?? ''}
 	onConfirmed={() => deployScript(deployDialogStay, deployDialogMsg)}
 />

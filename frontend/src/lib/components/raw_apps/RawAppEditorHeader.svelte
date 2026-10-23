@@ -860,6 +860,7 @@
 	savedPermissionedAs={isNewApp ? undefined : savedApp?.policy?.on_behalf_of}
 	isNew={isNewApp}
 	folderDefault={folderDefault.value}
+	folderDefaultLoading={folderDefault.loading}
 	executionMode={policy.execution_mode}
 	targetWorkspace={opWorkspace ?? ''}
 	rawApp
