@@ -602,6 +602,11 @@ pub struct EditApp {
     pub summary: Option<String>,
     pub value: Option<sqlx::types::Json<Box<RawValue>>>,
     pub policy: Option<Policy>,
+    /// Changes only who may open the app: applied to the deployed policy under the row lock a
+    /// deploy takes, so it neither reverts a concurrent deploy's policy nor is reverted by it.
+    /// Exclusive with `policy`, which states its own mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_mode: Option<ExecutionMode>,
     pub deployment_message: Option<String>,
     pub custom_path: Option<String>,
     pub preserve_on_behalf_of: Option<bool>,
@@ -2366,18 +2371,12 @@ fn check_operator_composed_app(
 
     // Viewer mode would make the triggerables collected above non-exhaustive (see the docs), and
     // the deploy panel shows it as members-only, so an admin deploying a draft would not see it.
-    // Pin an omitted mode on deploy: `update_app_internal` resolves it to the deployed app's, so a
-    // redeploy over an admin's viewer-mode app would otherwise inherit `Viewer`.
-    match policy.stated_execution_mode() {
-        Some(ExecutionMode::Viewer) => {
-            return Err(Error::PermissionDenied(format!(
-                "Operators with builder rights cannot {verb} an app that runs as its viewer"
-            )))
-        }
-        None if write == BuilderAppWrite::Deploy => {
-            policy.set_execution_mode(ExecutionMode::Publisher)
-        }
-        _ => {}
+    // An omitted mode is resolved by the deploy: create's default, or on update the deployed mode,
+    // which `update_app_internal` turns into `Publisher` for a builder when it is `Viewer`.
+    if policy.stated_execution_mode() == Some(ExecutionMode::Viewer) {
+        return Err(Error::PermissionDenied(format!(
+            "Operators with builder rights cannot {verb} an app that runs as its viewer"
+        )));
     }
 
     referenced.sort();
@@ -2470,15 +2469,7 @@ pub(crate) async fn validate_operator_composed_app(
     // docs/operator-builder-rights.md); a draft keeps whatever it names, which an admin's
     // one-click draft deploy preserves without showing it.
     if let (BuilderAppWrite::Draft, Some(policy)) = (write, policy.as_deref()) {
-        let names_another = policy
-            .on_behalf_of
-            .as_deref()
-            .is_some_and(|p| p != username_to_permissioned_as(&authed.username))
-            || policy
-                .on_behalf_of_email
-                .as_deref()
-                .is_some_and(|e| e != authed.email);
-        if names_another {
+        if policy_runs_as_another(policy, authed) {
             return Err(Error::PermissionDenied(
                 "Operators with builder rights cannot save an app that runs as someone else"
                     .to_string(),
@@ -2487,6 +2478,17 @@ pub(crate) async fn validate_operator_composed_app(
     }
     let referenced = check_operator_composed_app(write, raw_app, value, policy)?;
     require_runnables_readable(authed, db, user_db, w_id, referenced).await
+}
+
+fn policy_runs_as_another(policy: &Policy, authed: &ApiAuthed) -> bool {
+    policy
+        .on_behalf_of
+        .as_deref()
+        .is_some_and(|p| p != username_to_permissioned_as(&authed.username))
+        || policy
+            .on_behalf_of_email
+            .as_deref()
+            .is_some_and(|e| e != authed.email)
 }
 
 async fn require_runnables_readable(
@@ -3795,10 +3797,22 @@ async fn update_app_internal<'a>(
         }
     }
 
-    if caller_capabilities(&db, w_id, &authed).await?.apps == AuthorLevel::Compose {
+    if ns.policy.is_some() && ns.execution_mode.is_some() {
+        return Err(Error::BadRequest(
+            "Send execution_mode either inside the policy or alone, not both".to_string(),
+        ));
+    }
+    // The policy a mode-only change writes is only known under the row lock, so a builder's
+    // check on it runs there.
+    let mode_only = ns.policy.is_none() && ns.value.is_none() && ns.execution_mode.is_some();
+
+    let composes_only = caller_capabilities(&db, w_id, &authed).await?.apps == AuthorLevel::Compose;
+    if composes_only {
         // Restoring a full-code version always sends allow_kind_change. A builder converts
         // nothing, so drop it and let the locked kind check below refuse an actual conversion.
         ns.allow_kind_change = None;
+    }
+    if composes_only && !mode_only {
         validate_operator_composed_app(
             &authed,
             &db,
@@ -3876,6 +3890,7 @@ async fn update_app_internal<'a>(
         || ns.summary.is_some()
         || ns.custom_path.is_some()
         || ns.labels.is_some()
+        || ns.execution_mode.is_some()
         // A source deploy may send nothing but the value, and its runnables are
         // what the derived grants describe: skipping the UPDATE here would keep
         // the grants keyed to the sources this deploy just replaced.
@@ -3893,7 +3908,12 @@ async fn update_app_internal<'a>(
                 // that carries no policy keeps the deployed mode, read under the row
                 // lock so a policy update landing alongside cannot slip a guest app
                 // onto a path it cannot be scoped to.
-                let mode = match ns.policy.as_ref().and_then(|p| p.stated_execution_mode()) {
+                let stated = ns
+                    .policy
+                    .as_ref()
+                    .and_then(|p| p.stated_execution_mode())
+                    .or(ns.execution_mode);
+                let mode = match stated {
                     Some(mode) => mode,
                     None => sqlx::query_scalar::<_, Option<String>>(
                         "SELECT policy->>'execution_mode' FROM app
@@ -3973,12 +3993,13 @@ async fn update_app_internal<'a>(
         // no policy at all, in which case the rest of the deployed one carries
         // over. Either way a policy is about to be written wholesale.
         let caller_sent_policy = ns.policy.is_some();
-        if caller_sent_policy || derived_triggerables.is_some() {
+        if caller_sent_policy || derived_triggerables.is_some() || ns.execution_mode.is_some() {
             // One locked read serving everything below: the mode an omitted one
             // inherits, the already-anonymous check, and the policy a source
-            // deploy carries over. FOR UPDATE holds the row until this
-            // transaction's UPDATE commits, so a policy edit landing between the
-            // read and the write cannot be clobbered by this stale snapshot.
+            // deploy or a mode-only change carries over. FOR UPDATE holds the row
+            // until this transaction's UPDATE commits, so a policy edit landing
+            // between the read and the write cannot be clobbered by this stale
+            // snapshot.
             let deployed = sqlx::query_scalar!(
                 "SELECT policy FROM app WHERE path = $1 AND workspace_id = $2 FOR UPDATE",
                 path,
@@ -3992,30 +4013,65 @@ async fn update_app_internal<'a>(
 
             let mut npolicy = match ns.policy.take() {
                 Some(npolicy) => npolicy,
+                None if deployed.is_none() => {
+                    return Err(Error::NotFound(format!("App {path} not found")))
+                }
                 // Carrying the deployed policy forward is only safe if all of it
                 // survived the round trip; a partial one would silently drop
                 // `on_behalf_of`, sandboxing or S3 rules.
                 None => deployed_policy.clone().ok_or_else(|| {
-                    Error::internal_err(format!(
-                        "app {path} has no readable policy to deploy its new sources under"
-                    ))
+                    Error::internal_err(format!("app {path} has no readable policy to update"))
                 })?,
             };
             if let Some(triggerables) = derived_triggerables {
                 npolicy.triggerables = None;
                 npolicy.triggerables_v2 = Some(triggerables);
             }
+            if let Some(mode) = ns.execution_mode {
+                // A policy write from someone who cannot keep the run-as user rebinds it
+                // to them, so the mode alone must not let them open an app running as
+                // someone else to a new audience.
+                if !windmill_common::can_preserve_on_behalf_of(&authed)
+                    && policy_runs_as_another(&npolicy, &authed)
+                {
+                    return Err(Error::PermissionDenied(format!(
+                        "app {path} runs as {}: only admins and members of wm_deployers can \
+                         change who can open it",
+                        npolicy
+                            .on_behalf_of_email
+                            .as_deref()
+                            .or(npolicy.on_behalf_of.as_deref())
+                            .unwrap_or("another user")
+                    )));
+                }
+                npolicy.set_execution_mode(mode);
+                if composes_only {
+                    check_operator_composed_app(
+                        BuilderAppWrite::Deploy,
+                        raw_app,
+                        None,
+                        Some(&mut npolicy),
+                    )?;
+                }
+            }
             validate_frontend_sdk_scopes(&npolicy)?;
             // The policy is written wholesale, so one that states no mode would
             // otherwise re-permission the app to the create-time default: a
             // `viewer` app would start running on the publisher's identity. Keep
-            // the deployed mode instead, and make the stored policy state it.
+            // the deployed mode instead, and make the stored policy state it. A
+            // builder may not deploy `Viewer` (see `check_operator_composed_app`),
+            // so a builder's redeploy over a viewer-mode app makes it `Publisher`.
             if npolicy.stated_execution_mode().is_none() {
+                let deployed_mode = deployed_policy
+                    .as_ref()
+                    .map(|d| d.execution_mode())
+                    .unwrap_or_default();
                 npolicy.set_execution_mode(
-                    deployed_policy
-                        .as_ref()
-                        .map(|d| d.execution_mode())
-                        .unwrap_or_default(),
+                    if composes_only && deployed_mode == ExecutionMode::Viewer {
+                        ExecutionMode::Publisher
+                    } else {
+                        deployed_mode
+                    },
                 );
             }
             refuse_unscopable_guest_app(

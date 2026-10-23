@@ -11,7 +11,7 @@
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import { untrack } from 'svelte'
 	import { AppService, SettingService, WorkspaceService } from '$lib/gen'
-	import type { GuestUsage } from '$lib/gen'
+	import type { GuestUsage, Policy } from '$lib/gen'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Path from '$lib/components/Path.svelte'
@@ -43,6 +43,7 @@
 	let {
 		policy,
 		setPublishState,
+		setAccessMode,
 		appPath,
 		customPath = $bindable(),
 		onLatest,
@@ -62,7 +63,9 @@
 		operatingWorkspace = undefined
 	}: {
 		policy: any
-		setPublishState: (message?: string) => void
+		setPublishState: (message: string) => void
+		/** Changes who may open the deployed app, leaving the rest of its deployed policy as is. */
+		setAccessMode: (mode: NonNullable<Policy['execution_mode']>) => Promise<void>
 		appPath: string
 		customPath: string | undefined
 		onLatest: boolean
@@ -145,14 +148,20 @@
 		})
 	})
 
-	function onAccessModeChange(mode: string | undefined) {
+	async function onAccessModeChange(mode: string | undefined) {
 		if (mode === undefined || mode === accessMode) return
+		const previous = policy.execution_mode
 		policy.execution_mode = mode
-		// Same as sandbox: a not-yet-deployed app has no row to PATCH, so
-		// `setPublishState` would 404. The mode is carried by the first deploy's
+		// Same as sandbox: a not-yet-deployed app has no row to update, so
+		// `setAccessMode` would 404. The mode is carried by the first deploy's
 		// policy; persist incrementally only once the app exists.
 		if (savedApp && !newApp) {
-			setPublishState()
+			try {
+				await setAccessMode(mode as NonNullable<Policy['execution_mode']>)
+			} catch (e) {
+				policy.execution_mode = previous
+				throw e
+			}
 		}
 	}
 	let canPreserve = $derived(!!actingUser?.is_admin || !!actingUser?.is_super_admin || isDeployer)
