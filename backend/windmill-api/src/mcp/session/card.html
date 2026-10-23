@@ -255,10 +255,12 @@
   }
 
   // A form is offered for an input schema the card can fill: a file, at any depth, comes
-  // back as a size marker the form would send in its place.
+  // back as a size marker, and a secret not stored as a reference as `<hidden>`, either of
+  // which the form would send in place of the value.
   function formFields() {
     const schema = run?.form?.schema;
     if (!schema || /"contentEncoding":\s*"base64"/.test(JSON.stringify(schema))) return null;
+    if (JSON.stringify(run.form.args ?? {}).includes('"<hidden>"')) return null;
     const properties = schema.properties ?? {};
     return [...new Set([...(schema.order ?? []), ...Object.keys(properties)])]
       .filter((name) => properties[name])
@@ -356,13 +358,19 @@
     const error = el('div', { class: 'form-error', hidden: true });
     const submit = el('button', { class: 'primary', type: 'submit' }, 'Run');
     form.replaceChildren(...inputs, error, el('div', { class: 'actions' }, submit));
+    // A field the user left alone is sent exactly as the run had it: a reference, an empty
+    // string, a null or an omission would not survive the round trip through an input.
+    const touched = new Set();
+    form.oninput = form.onchange = (event) => touched.add(event.target.name);
     form.onsubmit = async (event) => {
       event.preventDefault();
       const next = {};
       try {
         for (const [name, prop] of fields) {
           const input = form.elements.namedItem(name);
-          if (prop.type === 'boolean') next[name] = input.checked;
+          if (!touched.has(name)) {
+            if (name in args) next[name] = args[name];
+          } else if (prop.type === 'boolean') next[name] = input.checked;
           else if (input.value === '') {
             if (prop.password && args[name]) next[name] = args[name];
           } else if (Array.isArray(prop.enum)) next[name] = JSON.parse(input.value);
@@ -383,6 +391,7 @@
         form.hidden = true;
         $('toggle-form').textContent = 'Run with other inputs';
         pollStarted = Date.now();
+        window.clearTimeout(pollTimer);
         run = null;
         onResult(result);
         request('ui/update-model-context', {
@@ -425,11 +434,14 @@
   }
 
   async function poll() {
-    if (!run?.id) return;
+    const id = run?.id;
+    if (!id) return;
     try {
-      onResult(await callTool('get_run', { workspace_id: run.workspace, id: run.id }));
+      const result = await callTool('get_run', { workspace_id: run.workspace, id });
+      // The form may have started another run while this one was being read.
+      if (run?.id === id) onResult(result);
     } catch {
-      if (RUNNING.includes(run.status)) schedulePoll();
+      if (run?.id === id && RUNNING.includes(run.status)) schedulePoll();
     }
   }
 
