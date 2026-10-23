@@ -15744,7 +15744,7 @@ paths:
                 execution_mode:
                   type: string
                   enum: [viewer, publisher, guest, anonymous]
-                  description: "Changes who may open the app and leaves the rest of the deployed policy, its run-as user included, as it is. Applied under the same lock as a deploy, so neither overwrites the other. Cannot be sent with `policy`, which states its own mode. Refused to a caller who is neither an admin nor in 'wm_deployers' when the app runs as another user."
+                  description: "Changes who may open the app and leaves the rest of the deployed policy, its run-as user included, as it is. Applied under the same lock as a deploy, so neither overwrites the other. Cannot be sent with `policy`, which states its own mode. When the app runs as another user, refused to a caller who is neither an admin nor in 'wm_deployers', and to an operator with builder rights even in 'wm_deployers'; they change the mode by deploying."
                 deployment_message:
                   type: string
                 custom_path:

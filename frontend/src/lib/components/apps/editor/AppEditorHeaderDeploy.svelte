@@ -148,19 +148,25 @@
 		})
 	})
 
+	// One change at a time: a failed request puts back the mode it replaced, which would
+	// overwrite a newer selection that already succeeded.
+	let accessModePending = $state(false)
 	async function onAccessModeChange(mode: string | undefined) {
-		if (mode === undefined || mode === accessMode) return
+		if (mode === undefined || mode === accessMode || accessModePending) return
 		const previous = policy.execution_mode
 		policy.execution_mode = mode
 		// Same as sandbox: a not-yet-deployed app has no row to update, so
 		// `setAccessMode` would 404. The mode is carried by the first deploy's
 		// policy; persist incrementally only once the app exists.
 		if (savedApp && !newApp && !modeChangesOnDeploy) {
+			accessModePending = true
 			try {
 				await setAccessMode(mode as NonNullable<Policy['execution_mode']>)
 			} catch (e) {
 				policy.execution_mode = previous
 				throw e
+			} finally {
+				accessModePending = false
 			}
 		}
 	}
@@ -532,7 +538,7 @@
 					<ToggleButtonGroup
 						selected={accessMode}
 						on:selected={(e) => onAccessModeChange(e.detail)}
-						disabled={!savedApp}
+						disabled={!savedApp || accessModePending}
 					>
 						{#snippet children({ item })}
 							<ToggleButton
