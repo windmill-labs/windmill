@@ -180,7 +180,7 @@ import { fileTools } from '../files/fileTools'
 import type { AttachedFilesStore } from '../files/attachedFiles.svelte'
 import { artifactTools } from '../artifacts/artifactTools'
 import type { SessionArtifactsStore } from '../artifacts/artifactsState.svelte'
-import type { Runnable } from '$lib/components/apps/inputType'
+import type { PathRunType, Runnable } from '$lib/components/apps/inputType'
 import { UserDraft } from '$lib/userDraft.svelte'
 import { emptySchema } from '$lib/utils'
 import type { Schema } from '$lib/common'
@@ -1076,9 +1076,9 @@ const backendRunnableSchema = z
 	.object({
 		name: z.string().describe('Short summary/description of what the runnable does.'),
 		type: z
-			.enum(['inline', 'script', 'flow', 'hubscript'])
+			.enum(['inline', 'script', 'flow', 'hubscript', 'agent'])
 			.describe(
-				'Runnable kind: "inline" for custom code stored on the app; "script"/"flow" for a workspace runnable; "hubscript" for a hub script.'
+				'Runnable kind: "inline" for custom code stored on the app; "script"/"flow" for a workspace runnable; "hubscript" for a hub script; "agent" for a saved AI agent, run as one chat turn.'
 			),
 		staticInputs: z
 			.record(z.string(), z.any())
@@ -1097,7 +1097,7 @@ const backendRunnableSchema = z
 			.string()
 			.optional()
 			.describe(
-				'Required when type is "script", "flow", or "hubscript". Workspace path of the runnable.'
+				'Required when type is "script", "flow", "hubscript" or "agent". Workspace path of the runnable.'
 			),
 		viewerDataAccess: z
 			.boolean()
@@ -2008,7 +2008,7 @@ type BackendRunnableInput = z.infer<typeof backendRunnableSchema>
 type PersistedRunnable = {
 	name: string
 	type: 'inline' | 'path' | 'runnableByName' | 'runnableByPath'
-	runType?: 'script' | 'flow' | 'hubscript'
+	runType?: PathRunType
 	path?: string
 	inlineScript?: { language: string; content: string }
 	fields?: Record<string, any>
@@ -2041,6 +2041,7 @@ function convertPersistedToBackendRunnable(
 	} else if (persisted.type === 'path' || persisted.type === 'runnableByPath') {
 		if (persisted.runType === 'flow') out.type = 'flow'
 		else if (persisted.runType === 'hubscript') out.type = 'hubscript'
+		else if (persisted.runType === 'agent') out.type = 'agent'
 		else out.type = 'script'
 		out.path = persisted.path
 	}
@@ -2062,14 +2063,19 @@ function buildPersistedRunnable(
 	input: BackendRunnableInput,
 	existing: PersistedRunnable | undefined
 ): PersistedRunnable {
-	const fields = input.staticInputs
-		? Object.fromEntries(
-				Object.entries(input.staticInputs).map(([k, v]) => [
-					k,
-					{ type: 'static', value: v, fieldType: 'object' }
-				])
-			)
-		: (existing?.fields ?? {})
+	// An agent runnable takes every input from the app: a static one inherited from the kind it was
+	// converted from would be pinned by the deployed policy over every viewer's message.
+	const fields =
+		input.type === 'agent'
+			? {}
+			: input.staticInputs
+				? Object.fromEntries(
+						Object.entries(input.staticInputs).map(([k, v]) => [
+							k,
+							{ type: 'static', value: v, fieldType: 'object' }
+						])
+					)
+				: (existing?.fields ?? {})
 
 	// Converting between kinds must drop the other kind's fields. Every consumer dispatches on
 	// `type` (isRunnableByName / isRunnableByPath), so a leftover does not change which code
@@ -2110,7 +2116,15 @@ function buildPersistedRunnable(
 	}
 
 	if (!input.path) {
-		throw new Error('path is required when runnable type is "script", "flow", or "hubscript".')
+		throw new Error(
+			'path is required when runnable type is "script", "flow", "hubscript" or "agent".'
+		)
+	}
+	// A static input is pinned by the deployed policy: every viewer's turn would send the same one.
+	if (input.type === 'agent' && Object.keys(input.staticInputs ?? {}).length > 0) {
+		throw new Error(
+			'An "agent" runnable takes no staticInputs: each turn\'s inputs come from the app.'
+		)
 	}
 	return {
 		...carried,
@@ -2854,7 +2868,7 @@ function getResourceInstructions(): string {
 - Global mode writes complete draft payloads only; it does not save, deploy, run, scaffold local files, or generate metadata.
 - A resource draft is a workspace item: \`{ type: 'resource', path, summary?, value, isDraft }\`. \`value\` is a CreateResource body: \`{ path, value, description?, resource_type, labels? }\` where the inner \`value\` is the resource type's data shape.
 - Reading a variable returns \`{ type: 'variable', path, summary?, isSecret, isDraft }\` — never its value, secret or not. \`isSecret\` tells you whether the value is encrypted.
-- \`write_variable\` takes \`{ path, value?, is_secret?, description?, account?, is_oauth?, expires_at?, labels? }\`. Creating a variable needs \`value\` and \`is_secret\`; editing one needs only the fields you are changing. Omitting \`value\` keeps the stored value, which is the only way to edit a secret variable — you cannot read its value, so passing any \`value\` you did not get from the user destroys it.
+- \`write_variable\` takes \`{ path, value?, is_secret?, description?, is_oauth?, expires_at?, labels? }\`. Creating a variable needs \`value\` and \`is_secret\`; editing one needs only the fields you are changing. Omitting \`value\` keeps the stored value, which is the only way to edit a secret variable — you cannot read its value, so passing any \`value\` you did not get from the user destroys it.
 - For secret fields in a resource value, create the variable with \`write_variable\` and \`is_secret: true\`, and deploy it before the resource (see "Secrets" in the reference below).
 - Reference formats inside resource values: \`$var:g/all/name\` (global), \`$var:u/user/name\` (user), \`$var:f/folder/name\` (folder). Reference another resource with \`$res:path/to/resource\`. The same strings are also how a resource or variable is passed as a run argument (see the run-argument rule in the resource reference below); what they are never valid as is a variable's own value.
 - Use \`search_resource_types\` to discover valid \`resource_type\` names and their JSON Schemas. Match the resource value to that schema.
@@ -9425,9 +9439,16 @@ async function undeployedRunnableTargets(
 				? runnable?.runType
 				: runnable?.type
 		const path = runnable?.path
-		if ((type !== 'script' && type !== 'flow') || !path) continue
+		if ((type !== 'script' && type !== 'flow' && type !== 'agent') || !path) continue
 		try {
-			if (await deployedItemExists(workspace, type, path, undefined)) continue
+			if (type === 'agent') {
+				// A saved agent is an `ai_agent` resource; another resource at the path runs nothing.
+				const found = await ResourceService.getResource({ workspace, path }).catch((e) => {
+					if ((e as { status?: number } | null | undefined)?.status === 404) return undefined
+					throw e
+				})
+				if (found?.resource_type === 'ai_agent') continue
+			} else if (await deployedItemExists(workspace, type, path, undefined)) continue
 		} catch {
 			// The probe is advisory: a lookup failure must never block the write or
 			// the deploy it annotates.

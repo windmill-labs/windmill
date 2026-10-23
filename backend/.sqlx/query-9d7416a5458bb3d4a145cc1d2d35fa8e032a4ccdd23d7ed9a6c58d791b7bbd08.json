@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT account FROM variable WHERE path = $1 AND workspace_id = $2",
+  "query": "DELETE FROM variable WHERE workspace_id = $1 AND path = $2 RETURNING account",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       true
     ]
   },
-  "hash": "c925264b7b0fd44ea7ab01c9af1514b9a9f2200e5a5db0a741697b28cd8b505f"
+  "hash": "9d7416a5458bb3d4a145cc1d2d35fa8e032a4ccdd23d7ed9a6c58d791b7bbd08"
 }

@@ -293,7 +293,7 @@ COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
 # DuckDB jobs run in this binary, which the worker looks for next to its own.
 COPY --from=windmill_duckdb_ffi_internal_builder /windmill-duckdb-ffi-internal/target/release/windmill_duckdb_runner ${APP}/windmill_duckdb_runner
 
-COPY --from=oven/bun:1.4.0 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.4.4 /usr/local/bin/bun /usr/bin/bun
 
 # Install windmill CLI
 RUN bun install -g windmill-cli \
