@@ -71,6 +71,9 @@
 		view?: boolean
 		/** Opens the agent's configuration, offered beside the model it runs with. */
 		onOpenConfig?: () => void
+		/** Takes a view's run once it has started, instead of opening its run page: for a host that
+		 *  is not the app's top-level route (a session tab), or a call waiting on that run. */
+		onRunStarted?: (jobId: string, args: Record<string, any>) => void
 		/** A view's form mode: the run form, drawn by the page. Kept out of this component because
 		 *  the flow editor reaches it, and the run form reads the navigation workspace. */
 		viewForm?: import('svelte').Snippet<
@@ -95,6 +98,7 @@
 		isNew = false,
 		view = false,
 		onOpenConfig = undefined,
+		onRunStarted = undefined,
 		viewForm = undefined
 	}: Props = $props()
 
@@ -414,7 +418,8 @@
 		runLoading = true
 		try {
 			const id = await JobService.runAgent({ workspace, path, requestBody: args })
-			await goto(`/run/${id}?workspace=${workspace}`)
+			if (onRunStarted) onRunStarted(id, args)
+			else await goto(`/run/${id}?workspace=${workspace}`)
 		} finally {
 			runLoading = false
 		}

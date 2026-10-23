@@ -598,7 +598,7 @@ export class AIChatManager implements ChatViewHost {
 	 * control elsewhere. */
 	openRunOnDeployedPage?: (a: {
 		toolCallId: string
-		kind: 'script' | 'flow'
+		kind: 'script' | 'flow' | 'agent'
 		path: string
 		summary: string
 		carries: boolean
@@ -2231,10 +2231,10 @@ export class AIChatManager implements ChatViewHost {
 		// it. Only a tab already there — opening one for every proposed run would take the
 		// panel away from whatever the reader is doing. After the resolve above is installed,
 		// since the page reads the call back through `isRunFormPending`.
-		if (form.kind === 'run' && form.path && !form.conversational && !form.noDeployedPage) {
+		if (form.kind === 'run' && form.path && !form.conversational) {
 			this.openRunOnDeployedPage?.({
 				toolCallId: toolId,
-				kind: form.runnableKind === 'flow' ? 'flow' : 'script',
+				kind: form.agentPage ? 'agent' : form.runnableKind === 'flow' ? 'flow' : 'script',
 				path: form.path,
 				summary: form.summary || form.path,
 				carries: true,

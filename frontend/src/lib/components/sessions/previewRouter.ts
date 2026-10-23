@@ -630,7 +630,7 @@ export const isArtifactKey = (key: string) => key.startsWith('artifact:')
 // else (static pages, regular drag-and-drop apps, any other route) stays an iframe.
 export type PreviewSlot =
 	| { kind: 'editor'; editorKind: SessionTargetKind | 'pipeline'; path: string }
-	| { kind: 'viewer'; viewerKind: SessionTargetKind; path: string }
+	| { kind: 'viewer'; viewerKind: SessionTargetKind | 'agent'; path: string }
 	| { kind: 'artifact'; id: string; version?: number }
 	| { kind: 'runform'; toolCallId: string }
 	| { kind: 'pageitem'; ref: PageItemRef }
@@ -668,6 +668,15 @@ export function resolvePreviewTab(url: string): PreviewSlot {
 	const pipelineFolder = parsePipelineRoute(url)
 	if (pipelineFolder) {
 		return { kind: 'editor', editorKind: 'pipeline', path: pipelineFolder }
+	}
+	// An agent's deployed page; its editor is the resource tab, which hosts it in process.
+	const agent = barePath(url).match(/^\/agents\/get\/(.+)$/)
+	if (agent) {
+		try {
+			return { kind: 'viewer', viewerKind: 'agent', path: decodeURIComponent(agent[1]) }
+		} catch {
+			return { kind: 'iframe' }
+		}
 	}
 	const item = parsePreviewItemRoute(url)
 	if (!item || parseHistoricalScriptEdit(url)) return { kind: 'iframe' }

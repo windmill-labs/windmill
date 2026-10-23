@@ -434,11 +434,7 @@
 	// takes over the call, so Run there is Run here. A test run has no deployed page — it
 	// executes the draft being written — so it keeps the chat's own form tab.
 	const asDeployedPage = $derived(
-		pending &&
-			runForm?.kind === 'run' &&
-			!runForm.noDeployedPage &&
-			!!path &&
-			!!aiChatManager.openRunOnDeployedPage
+		pending && runForm?.kind === 'run' && !!path && !!aiChatManager.openRunOnDeployedPage
 	)
 	const previewTarget = $derived(
 		pending
@@ -454,13 +450,16 @@
 	// A conversational flow's page has no run form, so opening it is all it can offer: the
 	// run stays on this card, where there is one to confirm.
 	const carries = $derived(asDeployedPage && !runForm?.conversational)
+	const deployedNoun = $derived(
+		runForm?.agentPage ? 'agent' : runnableKind === 'flow' ? 'flow' : 'script'
+	)
 	const previewTitle = $derived(
 		previewTarget === 'form'
 			? `Open this form in the preview panel: ${path}`
 			: previewTarget === 'deployed'
 				? carries
-					? `Open the deployed ${runnableKind === 'flow' ? 'flow' : 'script'} and confirm this run there: ${path}`
-					: `Open the deployed ${runnableKind === 'flow' ? 'flow' : 'script'}: ${path}`
+					? `Open the deployed ${deployedNoun} and confirm this run there: ${path}`
+					: `Open the deployed ${deployedNoun}: ${path}`
 				: aiChatManager.openRunInPreview
 					? `Open this run in the preview panel: ${path || runnableName}`
 					: `Open this run in a new tab: ${path || runnableName}`
@@ -475,7 +474,7 @@
 		if (previewTarget === 'deployed') {
 			aiChatManager.openRunOnDeployedPage?.({
 				toolCallId: message.tool_call_id,
-				kind: runnableKind === 'flow' ? 'flow' : 'script',
+				kind: deployedNoun,
 				path,
 				summary: label,
 				carries

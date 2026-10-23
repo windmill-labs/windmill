@@ -577,9 +577,9 @@ export type RunFormDisplay = {
 	 * flow. Its page can be opened to look at, but it has no form to confirm this call on, so
 	 * the card keeps the run. */
 	conversational?: boolean
-	/** What runs is not a script or flow, such as an agent, so no deployed page of either kind
-	 * can take the form over: the card keeps it. */
-	noDeployedPage?: boolean
+	/** What runs is a deployed agent, whose own page takes the form over rather than a script's
+	 * or a flow's. */
+	agentPage?: boolean
 	/** What the card's prose calls the runnable when `runnableKind` would name it wrongly. */
 	cardNoun?: string
 	/** Of whatever version is about to run: the deployed script, or the draft a test
