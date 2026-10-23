@@ -27,11 +27,10 @@ export async function customPathError(
 /**
  * Change who can open a deployed app, or its custom URL, without deploying it.
  *
- * Starts from the deployed row, never the editor's working copy: rebuilding the policy from the
- * working copy would ship undeployed runnables and static inputs. No `value` is sent, so no new
- * version is written, and `skip_draft_deletion` keeps every draft. `preserve_on_behalf_of` keeps
- * the run-as identity for a caller allowed to; for anyone else the backend resolves it to them.
- * Resolves to the row as it is after the write.
+ * The mode is sent alone, never in a policy: the server applies it to the deployed policy under
+ * the lock a deploy takes, so neither overwrites the other, and keeps the run-as user. No `value`
+ * is sent, so no new version is written, and `skip_draft_deletion` keeps every draft. Resolves to
+ * the row as it is after the write.
  */
 export async function updateDeployedAppAccess(
 	workspace: string,
@@ -39,15 +38,10 @@ export async function updateDeployedAppAccess(
 	change: { execution_mode: AppAccessMode } | { custom_path: string | null }
 ): Promise<AppWithLastVersion> {
 	if ('execution_mode' in change) {
-		const row = await AppService.getAppLiteByPath({ workspace, path })
 		await AppService.updateApp({
 			workspace,
 			path,
-			requestBody: {
-				policy: { ...row.policy, execution_mode: change.execution_mode },
-				preserve_on_behalf_of: row.policy.on_behalf_of ? true : undefined,
-				skip_draft_deletion: true
-			}
+			requestBody: { execution_mode: change.execution_mode, skip_draft_deletion: true }
 		})
 	} else {
 		// The backend clears the custom path on an empty string and keeps it when absent.

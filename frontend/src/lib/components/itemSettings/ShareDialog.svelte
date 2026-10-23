@@ -32,7 +32,7 @@
 	import Label from '$lib/components/Label.svelte'
 	import ClipboardPanel from '$lib/components/details/ClipboardPanel.svelte'
 	import { logShareOpen, type ShareOpenSource } from './sharingTelemetry'
-	import { useEditRights } from '$lib/operatorWriteRights'
+	import { useEditRights, useRoleCapabilities } from '$lib/operatorWriteRights'
 
 	interface Props {
 		/** Called after a write to the app row, with the row as it now is. */
@@ -46,6 +46,7 @@
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
 	const editRights = useEditRights()
+	const roleCaps = useRoleCapabilities()
 
 	let open = $state(false)
 	let kind = $state<ShareKind>('flow')
@@ -73,12 +74,15 @@
 	let canWriteApp = $derived(
 		!!app && editRights.canEditItem(app.raw_app ? 'raw_app' : 'app', app.path, app.extra_perms)
 	)
-	// Writing the policy makes the app run as the writer unless they may keep its run-as user, so
-	// changing who can open it would also change whose access its runnables use.
-	let modeChangesRunAs = $derived(
-		!!app?.policy.on_behalf_of &&
-			app.policy.on_behalf_of !== `u/${operatingUser.current?.username}` &&
-			!canPreserveOnBehalfOf(operatingUser.current)
+	// The server refuses to change who can open an app that runs as someone else to a caller who
+	// may not keep that run-as user, and to a compose-only builder: the app's new viewers would run
+	// its runnables as that user.
+	let runsAsSomeoneElse = $derived(
+		!!app?.policy.on_behalf_of && app.policy.on_behalf_of !== `u/${operatingUser.current?.username}`
+	)
+	let composeOnly = $derived($roleCaps.apps === 'compose')
+	let modeRefused = $derived(
+		runsAsSomeoneElse && (composeOnly || !canPreserveOnBehalfOf(operatingUser.current))
 	)
 	let itemUrl = $derived(
 		`${window.location.origin}/${kind === 'flow' ? 'flows' : 'scripts'}/get/${path}?workspace=${$operatingWorkspace}`
@@ -275,10 +279,15 @@
 						<span class="text-xs text-secondary">
 							Only people who can edit this app can change who can open it.
 						</span>
-					{:else if modeChangesRunAs}
+					{:else if modeRefused}
 						<span class="text-xs text-secondary">
-							Its runnables run on behalf of {runAs}. A change here would make them run on behalf of
-							you, so only workspace admins and members of wm_deployers can make it.
+							{#if composeOnly}
+								Its runnables run on behalf of {runAs}. As a builder, you can change who can open
+								only the apps that run on behalf of you.
+							{:else}
+								Its runnables run on behalf of {runAs}, so only workspace admins and members of
+								wm_deployers can change who can open it.
+							{/if}
 						</span>
 					{/if}
 					{#key path}
@@ -292,7 +301,7 @@
 								customPath: app.custom_path ?? undefined,
 								onCustomPathChange: (p) => changeApp({ custom_path: p })
 							}}
-							disabled={appBusy || !canWriteApp || modeChangesRunAs}
+							disabled={appBusy || !canWriteApp || modeRefused}
 						/>
 					{/key}
 				{:else}
