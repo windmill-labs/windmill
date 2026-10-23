@@ -16,8 +16,10 @@
 		Workflow,
 		Import,
 		Store,
-		PanelLeftClose
+		PanelLeftClose,
+		Folder
 	} from 'lucide-svelte'
+	import MenuItem from '$lib/components/meltComponents/MenuItem.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
 	import { PythonIcon, TypeScriptIcon } from '$lib/components/common/languageIcons'
@@ -48,9 +50,17 @@
 		 * serve both this menu and the empty state's own link.
 		 */
 		onImportHubProject?: () => void
+		/** Opens the host's folder drawer. The entry is offered only when this is set. */
+		onCreateFolder?: () => void
 	}
 
-	let { trigger, triggerElement, source = 'toolbar', onImportHubProject }: Props = $props()
+	let {
+		trigger,
+		triggerElement,
+		source = 'toolbar',
+		onImportHubProject,
+		onCreateFolder
+	}: Props = $props()
 
 	type Variant = {
 		label: string
@@ -713,8 +723,26 @@
 					{/if}
 				{/each}
 
-				<!-- bottom import section: one entry whose submenu imports any artifact -->
+				<!-- bottom section: a folder, then one entry whose submenu imports any artifact -->
 				<div class="mx-1 my-1 border-t border-gray-200 dark:border-gray-700"></div>
+				{#if onCreateFolder}
+					<!-- Focus also arrives on hover: melt focuses the highlighted item. -->
+					<MenuItem
+						{item}
+						class="w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
+						onFocusIn={() => highlightOption(undefined)}
+						onClick={() => onCreateFolder()}
+					>
+						<div
+							class="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-gray-100 dark:bg-gray-700"
+						>
+							<Folder size={14} class="text-gray-600 dark:text-gray-300" />
+						</div>
+						<span class="text-xs font-medium text-primary flex-1 min-w-0 whitespace-nowrap">
+							Folder
+						</span>
+					</MenuItem>
+				{/if}
 				<button
 					use:melt={$importSubTrigger}
 					class="w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"

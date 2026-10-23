@@ -31,7 +31,7 @@
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
-	import { prefetchItemCount } from '../copilot/chat/starter/starterPrompts.svelte'
+	import { prefetchComposerSignals } from '../copilot/chat/starter/starterPrompts.svelte'
 	import { useWorkspaceAiHidden } from '../copilot/workspaceAiHidden.svelte'
 	import { homeQuickAccessSettings } from './homeQuickAccessSettings.svelte'
 
@@ -80,9 +80,10 @@
 
 	let HomeSessionStarter = $state(loadedStarter)
 	if (!loadedStarter) void loadStarter().then((c) => (HomeSessionStarter = c))
-	// The starter waits on the workspace's item count before it mounts; asked alongside its code
-	// rather than once the code has loaded, it is no extra wait.
-	if ($workspaceStore) prefetchItemCount($workspaceStore)
+	// The starter waits on the workspace's item count before it mounts, and its suggestions on
+	// the other signals; asked alongside its code rather than once the code has loaded, they
+	// are no extra wait.
+	if ($workspaceStore) prefetchComposerSignals($workspaceStore)
 
 	// Whether Home's own workspace hides the assistant, read for that workspace: once the block
 	// shows, the shared copilot config is the draft's, so a draft acting on a workspace that hides

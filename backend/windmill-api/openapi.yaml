@@ -15741,6 +15741,10 @@ paths:
                 value: {}
                 policy:
                   $ref: "#/components/schemas/Policy"
+                execution_mode:
+                  type: string
+                  enum: [viewer, publisher, guest, anonymous]
+                  description: "Changes who may open the app and leaves the rest of the deployed policy, its run-as user included, as it is. Applied under the same lock as a deploy, so neither overwrites the other. Cannot be sent with `policy`, which states its own mode. When the app runs as another user, refused to a caller who is neither an admin nor in 'wm_deployers', and to an operator with builder rights even in 'wm_deployers'; they change the mode by deploying."
                 deployment_message:
                   type: string
                 custom_path:
@@ -24648,6 +24652,56 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/AutoscalingEvent"
+
+  /configs/test_autoscaling/{worker_group}:
+    post:
+      summary: Run an autoscaling integration once for a worker group, without recording an autoscaling event
+      operationId: testAutoscaling
+      tags:
+        - config
+      parameters:
+        - name: worker_group
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                desired_workers:
+                  type: integer
+                  minimum: 0
+                integration:
+                  description: The integration to run, as in the worker group's autoscaling config
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                      enum: [script, kubernetes, dryrun]
+                    path:
+                      type: string
+                    tag:
+                      type: string
+                  required:
+                    - type
+              required:
+                - desired_workers
+                - integration
+      responses:
+        "200":
+          description: The job queued for a script integration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id:
+                    type: string
+                    nullable: true
 
   /configs/native_kubernetes_autoscaling_healthcheck:
     get:

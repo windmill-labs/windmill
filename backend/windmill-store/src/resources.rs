@@ -2489,6 +2489,9 @@ async fn update_resource_value(
 /// `run_on_behalf_of` is set: then the writer's own, unless one allowed to keep the one the value
 /// names asks to, and a folder's default for a new agent. The value is written by anyone who can
 /// write the agent, so the key it arrives with is only a request.
+///
+/// Every write of an agent passes here, so this is also where an operator's is held to the
+/// composed-flow rules: a flow step linking the agent runs its tools unchecked.
 async fn resolve_agent_on_behalf_of(
     tx: &mut Transaction<'_, Postgres>,
     authed: &ApiAuthed,
@@ -2499,6 +2502,9 @@ async fn resolve_agent_on_behalf_of(
     preserve: bool,
     created: bool,
 ) -> Result<()> {
+    if authed.is_operator {
+        windmill_api_auth::composed::validate_operator_agent(value, authed, db, tx, w_id).await?;
+    }
     let Some(obj) = value.as_object_mut() else {
         return Ok(());
     };

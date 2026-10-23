@@ -28,9 +28,12 @@ const role = (overrides: Partial<RoleCapabilities>): RoleCapabilities => ({
 })
 
 describe('edit rights', () => {
-	it('lets a compose-only flow role author flows and nothing else', () => {
+	it('lets a compose-only flow role author flows and agents and nothing else', () => {
 		const builder = role({ flows: 'compose' })
 		expect(roleCanAuthor('flow', builder)).toBe(true)
+		expect(roleCanAuthor('agent', builder)).toBe(true)
+		expect(roleCanDraft('agent', builder)).toBe(true)
+		expect(roleCanAuthor('agent', role({ apps: 'compose' }))).toBe(false)
 		expect(roleCanAuthor('script', builder)).toBe(false)
 		expect(roleCanAuthor('raw_app', builder)).toBe(false)
 		expect(roleCanDraft('raw_app', builder)).toBe(false)

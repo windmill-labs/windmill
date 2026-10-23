@@ -2549,12 +2549,12 @@ export class AIChatManager implements ChatViewHost {
 	 *
 	 * Gated on `sendInFlight` as well as `loading`: `loading` only rises after a
 	 * send's attachment upkeep, so between the two a click would slip past. */
-	sendOrQueue(text: string) {
+	sendOrQueue(text: string, context?: ContextElement[]) {
 		if (this.loading || this.sendInFlight || this.sendPending) {
-			this.queueMessage(text)
+			this.queueMessage(text, [], context)
 			return
 		}
-		void this.sendRequest({ instructions: text })
+		void this.sendRequest({ instructions: text, contextOverride: context })
 	}
 
 	/** Remove the queued message and put it back into the input, images included. */
@@ -3821,7 +3821,10 @@ export class AIChatManager implements ChatViewHost {
 						options.images ?? [],
 						options.files ?? []
 					) === true
-				if (taken) this.#restoreMentionContext(options.contextOverride, requestedMode)
+				if (taken) {
+					this.#restoreDomContext(options.contextOverride, true)
+					this.#restoreMentionContext(options.contextOverride, requestedMode)
+				}
 			}
 			return false
 		}
@@ -3931,7 +3934,10 @@ export class AIChatManager implements ChatViewHost {
 					// mentions on that draft and every turn after it.
 					const taken =
 						this.aiChatInput?.restoreInstructions(this.instructions, pastes, images, files) === true
-					if (taken) this.#restoreMentionContext(options.contextOverride, requestedMode)
+					if (taken) {
+						this.#restoreDomContext(options.contextOverride, true)
+						this.#restoreMentionContext(options.contextOverride, requestedMode)
+					}
 				}
 				sendUserToast(
 					`Could not prepare the session before sending: ${
@@ -3981,7 +3987,10 @@ export class AIChatManager implements ChatViewHost {
 				// text, only if the composer took it.
 				const taken =
 					this.aiChatInput?.restoreInstructions(this.instructions, pastes, images, files) === true
-				if (taken) this.#restoreMentionContext(options.contextOverride, requestedMode)
+				if (taken) {
+					this.#restoreDomContext(options.contextOverride, true)
+					this.#restoreMentionContext(options.contextOverride, requestedMode)
+				}
 			}
 			return true
 		}

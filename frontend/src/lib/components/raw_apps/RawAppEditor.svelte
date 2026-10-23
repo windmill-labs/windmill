@@ -48,10 +48,15 @@
 		LintResult,
 		InspectorElementInfo
 	} from '../copilot/chat/app/core'
-	import { createAppSelectedContext, type AppCodeSelectionElement } from '../copilot/chat/context'
+	import {
+		createAppDomSelectorElement,
+		createAppSelectedContext,
+		type AppCodeSelectionElement
+	} from '../copilot/chat/context'
 	import { captureScale, MAX_IMAGE_EDGE } from '../copilot/chat/imageUtils'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas, userStore } from '$lib/stores'
+	import { copilotInfo } from '$lib/aiStore'
 	import { useActingUser } from '$lib/actingUser.svelte'
 	import { appPreviewOnBehalfOf } from '$lib/utils/previewOnBehalfOf'
 	import RawAppSdkConsent from './RawAppSdkConsent.svelte'
@@ -77,6 +82,8 @@
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { setOpenInSessionHandoff } from '$lib/components/sessions/openInSessionContext'
+	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
+	import { openSourceInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import {
 		buildDataTableWhitelist,
 		parseDataTableRef,
@@ -478,6 +485,12 @@ addEventListener('message', function (e) {
 	}
 	let previewIframe: HTMLIFrameElement | undefined = $state(undefined)
 	let previewIframeLoaded = $state(false)
+	// The shell answers every build with `inspectorClear`, and the UI Builder
+	// rebuilds unchanged code (twice on load). Only a changed build can move what a
+	// chip points at, so the clears of the others are skipped: they would drop a
+	// chip handed in from the editor before it is sent.
+	let previewShellBuild: { css: string; js: string } | undefined = undefined
+	let previewClearsToSkip = 0
 	// Sandboxed only: the handshake's port, the one channel to the preview that
 	// can't reach a document app code navigated the frame to.
 	let previewPort: MessagePort | undefined = undefined
@@ -1544,7 +1557,7 @@ addEventListener('message', function (e) {
 		// Escape inside the preview exits inspect mode, and also dismisses a lingering
 		// green "selected" overlay after a pick (which auto-disables hover).
 		if (fromPreview && e.data.type === 'previewEscape') {
-			if (inspectorEnabled || inspectorElement || selectedDomSelectors.length > 0) {
+			if (inspectorEnabled || inspectorElement || previewSelectors.length > 0) {
 				disableInspector()
 			}
 			return
@@ -1581,15 +1594,28 @@ addEventListener('message', function (e) {
 			// picking (the chip list, not the harness, holds the selection). Shift
 			// held → add to the selection; a plain click replaces it.
 			if (onInspectorSelect) onInspectorSelect(inspectorElement, !!e.data.additive)
-			else inspectorEnabled = false
+			else {
+				inspectorEnabled = false
+				// The preview keeps picking until told to stop.
+				postToPreview({ type: 'inspectorDisable' })
+			}
 			return
 		}
 		if (fromPreview && e.data.type === 'inspectorDeselect') {
 			// User clicked × on a selected overlay in the preview — drop that chip.
 			if (typeof e.data.selector === 'string') onInspectorDeselect?.(e.data.selector)
+			if (!onInspectorSelect && e.data.selector === inspectorElement?.path) {
+				inspectorElement = undefined
+			}
 			return
 		}
 		if (fromPreview && e.data.type === 'inspectorClear') {
+			if (previewClearsToSkip > 0) {
+				previewClearsToSkip--
+				// The shell dropped its outlines along with the old DOM.
+				postToPreview({ type: 'inspectorSetSelection', selectors: [...previewSelectors] })
+				return
+			}
 			inspectorElement = undefined
 			// A rebuild invalidates the selection — clear all session chips.
 			onInspectorClearAll?.()
@@ -1851,6 +1877,13 @@ addEventListener('message', function (e) {
 		if (previewSdkPending || previewUserPending || !previewIframeLoaded) return
 		runtimeError = undefined
 		emptyRender = false
+		if (
+			!previewShellBuild ||
+			(previewShellBuild.css === build.css && previewShellBuild.js === build.js)
+		) {
+			previewClearsToSkip++
+		}
+		previewShellBuild = build
 		postToPreview({
 			type: 'preview',
 			css: build.css,
@@ -2106,18 +2139,55 @@ addEventListener('message', function (e) {
 		return { text }
 	}
 
-	// ---- Inline "prompt this element" mini-composer (session preview only) ----
+	// What the preview outlines as selected: the session's chips when a session
+	// drives the inspector, else this editor's single pick.
+	const previewSelectors = $derived.by(() =>
+		onInspectorSelect ? selectedDomSelectors : inspectorElement ? [inspectorElement.path] : []
+	)
+
+	// ---- Inline "prompt this element" mini-composer ----
 	// Anchored over the most-recently selected element in the live preview. It's a
 	// host overlay (position: fixed in the top document) computed from the element's
 	// rect inside the preview iframe, repositioned as the preview scrolls.
 	let inlinePromptDismissed = $state(false)
 	let inlinePromptPos = $state<{ x: number; y: number } | undefined>(undefined)
 	let inlinePromptLabel = $state('')
+	// Outside a session, with sessions on, there is no docked chat to take the pick:
+	// the prompt opens a new session instead, carrying the element as its chip.
+	const inlinePrompt: ((selector: string, prompt: string) => void | Promise<boolean>) | undefined =
+		$derived(
+			onInlinePrompt ??
+				(!onInspectorSelect && sessionOpen && prefersSessionHandoff(!$roleCaps.code)
+					? sendPickToNewSession
+					: undefined)
+		)
 	const inlinePromptSelector = $derived(
-		onInlinePrompt && selectedDomSelectors.length > 0
-			? selectedDomSelectors[selectedDomSelectors.length - 1]
+		inlinePrompt && previewSelectors.length > 0
+			? previewSelectors[previewSelectors.length - 1]
 			: undefined
 	)
+
+	async function sendPickToNewSession(selector: string, prompt: string) {
+		const el = inspectorElement
+		if (!sessionOpen || !el) return false
+		try {
+			await openSourceInSession(sessionOpen, {
+				seedPrompt: prompt,
+				autoSend: true,
+				seedDomElement: createAppDomSelectorElement({
+					selector,
+					appPath: sessionOpen.target.path,
+					tagName: el.tagName,
+					id: el.id,
+					className: el.className
+				})
+			})
+			return true
+		} catch (e) {
+			sendUserToast(e instanceof Error ? e.message : String(e), true)
+			return false
+		}
+	}
 
 	function shortElementLabel(el: { tagName: string; id: string; className: string }): string {
 		const tag = el.tagName.toLowerCase()
@@ -2181,7 +2251,7 @@ addEventListener('message', function (e) {
 		// overlay pinned as the host scrolls/resizes. The preview's own scrolls arrive
 		// as `previewScroll` messages.
 		inlinePromptSelector
-		selectedDomSelectors
+		previewSelectors
 		previewIframeLoaded
 		inlinePromptDismissed
 		updateInlinePromptPos()
@@ -2299,6 +2369,8 @@ addEventListener('message', function (e) {
 	})
 	function onPreviewShellReady() {
 		previewIframeLoaded = true
+		previewShellBuild = undefined
+		previewClearsToSkip = 0
 		// Replay the last build so the preview repopulates without
 		// waiting for the user to trigger another bundle.
 		if (lastBuild) {
@@ -2342,7 +2414,7 @@ addEventListener('message', function (e) {
 		// Push the chat's DOM-selector chips into the preview (source of truth):
 		// the harness renders one highlight per selector. Re-posts on every
 		// selection change and on preview (re)load.
-		const selectors = selectedDomSelectors
+		const selectors = previewSelectors
 		if (previewIframeLoaded) {
 			postToPreview({ type: 'inspectorSetSelection', selectors: [...selectors] })
 		}
@@ -2491,7 +2563,7 @@ addEventListener('message', function (e) {
 		// selection (highlights + the inline prompt), so a chip-only selection
 		// (picking already toggled off) must still be dismissable. Bail only
 		// when there is genuinely nothing to dismiss.
-		if (!inspectorEnabled && !inspectorElement && selectedDomSelectors.length === 0) return
+		if (!inspectorEnabled && !inspectorElement && previewSelectors.length === 0) return
 		inspectorEnabled = false
 		// `inspectorDisable` only stops hover/click; the green "selected"
 		// overlay from a prior pick persists until we explicitly clear it.
@@ -2514,7 +2586,7 @@ addEventListener('message', function (e) {
 		const onEscapeCapture = (e: KeyboardEvent) => {
 			if (
 				e.key === 'Escape' &&
-				(inspectorEnabled || inspectorElement || selectedDomSelectors.length > 0)
+				(inspectorEnabled || inspectorElement || previewSelectors.length > 0)
 			) {
 				disableInspector()
 				e.stopImmediatePropagation()
@@ -2873,28 +2945,30 @@ addEventListener('message', function (e) {
 													{bundlerType}
 												</Button>
 											{/if}
-											<Button
-												variant="subtle"
-												unifiedSize="sm"
-												iconOnly
-												startIcon={{ icon: MousePointerSquareDashed }}
-												selected={inspectorEnabled}
-												title={inspectorEnabled
-													? 'Click to disable element inspector'
-													: 'Click to enable element inspector'}
-												aria-label="Toggle element inspector"
-												aria-pressed={inspectorEnabled}
-												onClick={() => {
-													if (inspectorEnabled) {
-														// Turning off is a full exit: stop picking and clear the
-														// selection + inline prompt (mirrors Escape).
-														disableInspector()
-													} else {
-														inspectorEnabled = true
-														postToPreview({ type: 'inspectorEnable' })
-													}
-												}}
-											/>
+											{#if !$copilotInfo.workspaceDisabled}
+												<Button
+													variant="subtle"
+													unifiedSize="sm"
+													iconOnly
+													startIcon={{ icon: MousePointerSquareDashed }}
+													selected={inspectorEnabled}
+													title={inspectorEnabled
+														? 'Click to disable element inspector'
+														: 'Click to enable element inspector'}
+													aria-label="Toggle element inspector"
+													aria-pressed={inspectorEnabled}
+													onClick={() => {
+														if (inspectorEnabled) {
+															// Turning off is a full exit: stop picking and clear the
+															// selection + inline prompt (mirrors Escape).
+															disableInspector()
+														} else {
+															inspectorEnabled = true
+															postToPreview({ type: 'inspectorEnable' })
+														}
+													}}
+												/>
+											{/if}
 											<Button
 												variant="subtle"
 												unifiedSize="sm"
@@ -3054,7 +3128,7 @@ addEventListener('message', function (e) {
 	</div>
 </div>
 
-{#if inlinePromptPos && inlinePromptSelector && onInlinePrompt}
+{#if inlinePromptPos && inlinePromptSelector && inlinePrompt}
 	<!-- Key on the selector so selecting a different element remounts the input
 	     (fresh value + autofocus); repositioning on scroll keeps the same key so
 	     it never steals focus mid-scroll. -->
@@ -3063,8 +3137,9 @@ addEventListener('message', function (e) {
 			x={inlinePromptPos.x}
 			y={inlinePromptPos.y}
 			label={inlinePromptLabel}
-			onSend={(prompt) => {
-				onInlinePrompt?.(inlinePromptSelector!, prompt)
+			inNewSession={!onInlinePrompt}
+			onSend={async (prompt) => {
+				if ((await inlinePrompt?.(inlinePromptSelector!, prompt)) === false) return false
 				inlinePromptDismissed = true
 			}}
 			onClose={() => (inlinePromptDismissed = true)}
