@@ -488,8 +488,7 @@ async fn list_resources(
         && lq.broad_filter.is_none()
         && lq.label.is_none()
         && !lq.starred_only.unwrap_or(false)
-        && (!authed.is_operator
-            || operator_can_draft(&db, &w_id, UserDraftItemKind::Resource).await?)
+        && operator_can_draft(&db, &w_id, &authed, UserDraftItemKind::Resource).await?
     {
         let rt_filter: Option<Vec<&str>> = lq
             .resource_type
@@ -2221,6 +2220,15 @@ async fn update_resource(
                 npath,
                 path,
                 w_id
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query!(
+                "UPDATE native_trigger SET connection_path = $1 WHERE workspace_id = $2 AND connection_path = $3",
+                npath,
+                w_id,
+                path
             )
             .execute(&mut *tx)
             .await?;

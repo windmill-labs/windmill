@@ -236,8 +236,7 @@ async fn list_variables(
         && lq.value.is_none()
         && lq.broad_filter.is_none()
         && lq.label.is_none()
-        && (!authed.is_operator
-            || operator_can_draft(&db, &w_id, UserDraftItemKind::Variable).await?)
+        && operator_can_draft(&db, &w_id, &authed, UserDraftItemKind::Variable).await?
     {
         let draft_only_rows =
             fetch_draft_only_list_rows(&db, &w_id, &authed.email, UserDraftItemKind::Variable)
@@ -595,6 +594,49 @@ async fn create_variable(
     Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
     Json(variable): Json<CreateVariable>,
 ) -> Result<(StatusCode, String)> {
+    let path = variable.path.clone();
+    create_variable_with_account(
+        authed,
+        &db,
+        user_db,
+        &webhook,
+        w_id,
+        variable,
+        already_encrypted.unwrap_or(false),
+        None,
+    )
+    .await?;
+    Ok((StatusCode::CREATED, format!("variable {path} created")))
+}
+
+/// An OAuth account to create with the variable that holds its access token.
+pub struct NewOAuthAccount {
+    pub client: String,
+    pub expires_in: i64,
+    pub refresh_token: Option<String>,
+    pub grant_type: String,
+    pub cc_client_id: Option<String>,
+    pub cc_client_secret: Option<String>,
+    pub cc_token_url: Option<String>,
+    pub mcp_server_url: Option<String>,
+    pub scopes: Option<Vec<String>>,
+}
+
+/// Creates a variable and, given `account`, the OAuth account it refreshes through, linked in the
+/// same transaction. Reading a linked variable refreshes through its account and hands the reader
+/// the fresh token, so this is the only way a variable gets a link: `variable.account` is ignored.
+/// Returns the new account's id.
+pub async fn create_variable_with_account(
+    authed: ApiAuthed,
+    db: &DB,
+    user_db: UserDB,
+    webhook: &WebhookShared,
+    w_id: String,
+    variable: CreateVariable,
+    already_encrypted: bool,
+    account: Option<NewOAuthAccount>,
+) -> Result<Option<i32>> {
+    let db = db.clone();
     check_scopes(&authed, || format!("variables:write:{}", variable.path))?;
     check_proper_path(&variable.path)?;
     if let RuleCheckResult::Blocked(msg) = check_deploy_rules(
@@ -626,7 +668,7 @@ async fn create_variable(
     let authed = maybe_refresh_folders(&variable.path, &w_id, authed, &db).await;
 
     check_path_conflict(&db, &w_id, &variable.path).await?;
-    let value = if variable.is_secret && !already_encrypted.unwrap_or(false) {
+    let value = if variable.is_secret && !already_encrypted {
         // A restored draft sends the `$encrypted:` marker as-is; decrypt it back
         // (validating against the workspace key) before the secret backend re-stores it.
         let plain = if variable.value.starts_with(ENCRYPTED_DRAFT_PREFIX) {
@@ -647,6 +689,27 @@ async fn create_variable(
 
     let mut tx = user_db.begin(&authed).await?;
 
+    let account_id = match account {
+        Some(a) => Some(
+            sqlx::query_scalar!(
+                "INSERT INTO account (workspace_id, client, expires_at, refresh_token, grant_type, cc_client_id, cc_client_secret, cc_token_url, mcp_server_url, scopes) VALUES ($1, $2, now() + ($3 || ' seconds')::interval, $4, $5, $6, $7, $8, $9, $10) RETURNING id",
+                &w_id,
+                a.client,
+                a.expires_in.to_string(),
+                a.refresh_token,
+                a.grant_type,
+                a.cc_client_id,
+                a.cc_client_secret,
+                a.cc_token_url,
+                a.mcp_server_url,
+                a.scopes.as_deref()
+            )
+            .fetch_one(&mut *tx)
+            .await?,
+        ),
+        None => None,
+    };
+
     sqlx::query!(
         "INSERT INTO variable
             (workspace_id, path, value, is_secret, description, account, is_oauth, expires_at, labels, edited_by)
@@ -656,7 +719,7 @@ async fn create_variable(
         value,
         variable.is_secret,
         variable.description,
-        variable.account,
+        account_id,
         variable.is_oauth.unwrap_or(false),
         variable.expires_at,
         variable.labels.as_deref() as Option<&[String]>,
@@ -706,10 +769,7 @@ async fn create_variable(
         WebhookMessage::CreateVariable { workspace: w_id, path: variable.path.clone() },
     );
 
-    Ok((
-        StatusCode::CREATED,
-        format!("variable {} created", variable.path),
-    ))
+    Ok(account_id)
 }
 
 async fn encrypt_value(
@@ -1060,7 +1120,6 @@ struct EditVariable {
     value: Option<String>,
     is_secret: Option<bool>,
     description: Option<String>,
-    account: Option<i32>,
     labels: Option<Vec<String>>,
     ws_specific: Option<bool>,
 }
@@ -1157,11 +1216,6 @@ async fn update_variable(
         has_sql_updates = true;
     }
 
-    if let Some(account_id) = ns.account {
-        sqlb.set_str("account", account_id);
-        has_sql_updates = true;
-    }
-
     if let Some(nbool) = ns.is_secret {
         let old_secret = sqlx::query_scalar!(
             "SELECT is_secret from variable WHERE path = $1 AND workspace_id = $2",
@@ -1179,20 +1233,6 @@ async fn update_variable(
         sqlb.set_str("is_secret", nbool);
         has_sql_updates = true;
     }
-
-    // Get old account_id if we're updating the account field
-    let old_account_id = if ns.account.is_some() {
-        sqlx::query_scalar!(
-            "SELECT account FROM variable WHERE path = $1 AND workspace_id = $2",
-            &path,
-            &w_id
-        )
-        .fetch_optional(&db)
-        .await?
-        .flatten()
-    } else {
-        None
-    };
 
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
@@ -1252,6 +1292,15 @@ async fn update_variable(
                 v,
                 path,
                 w_id
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query!(
+                "UPDATE native_trigger SET connection_path = $1 WHERE workspace_id = $2 AND connection_path = $3",
+                npath,
+                w_id,
+                path
             )
             .execute(&mut *tx)
             .await?;
@@ -1366,32 +1415,6 @@ async fn update_variable(
         None,
     )
     .await?;
-
-    // Clean up old account if it's no longer referenced and different from new account
-    if let Some(old_acc_id) = old_account_id {
-        if ns.account.is_some() && ns.account != Some(old_acc_id) {
-            // Check if old account is still referenced by other variables or resources
-            let account_still_used = sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM variable WHERE account = $1 AND workspace_id = $2)",
-                old_acc_id,
-                &w_id
-            )
-            .fetch_one(&mut *tx)
-            .await?
-            .unwrap_or(true);
-
-            if !account_still_used {
-                // Delete the orphaned account
-                sqlx::query!(
-                    "DELETE FROM account WHERE id = $1 AND workspace_id = $2",
-                    old_acc_id,
-                    &w_id
-                )
-                .execute(&mut *tx)
-                .await?;
-            }
-        }
-    }
 
     tx.commit().await?;
 

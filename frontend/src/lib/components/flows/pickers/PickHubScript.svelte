@@ -174,7 +174,7 @@
 		<div class="relative w-full">
 			<TextInput
 				inputProps={{
-					placeholder: 'Search Hub Scripts'
+					placeholder: 'Search Hub scripts'
 				}}
 				bind:value={filter}
 				class="grow !pr-9"

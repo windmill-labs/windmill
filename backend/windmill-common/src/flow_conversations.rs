@@ -14,6 +14,11 @@ use crate::utils::truncate_with_ellipsis;
 /// Changing it detaches every memory stored under a string memory id.
 const MEMORY_ID_NAMESPACE: Uuid = Uuid::from_u128(0x6f1c2d4e_8a3b_5c7d_9e0f_1a2b3c4d5e6f);
 
+/// Owns anonymous app visitors' agent conversations, as `created_by` names an anonymous app run.
+/// It is also a valid username, so listing conversations leaves these out: a user of that name
+/// would otherwise list every anonymous visitor's.
+pub const ANONYMOUS_CONVERSATION_OWNER: &str = "anonymous";
+
 /// Memory is stored and carried in `flow_status.memory_id` as a uuid, which names the same memory
 /// wherever it is passed, as a chat conversation id must. Any other string names a memory through a
 /// name-based (v5) uuid scoped to its workspace and flow, so the same key in two flows or two

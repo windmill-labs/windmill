@@ -2343,7 +2343,12 @@ pub(crate) fn dbt_command(p: &PreparedProject, args: &[&str]) -> Command {
     }
     cmd.current_dir(&p.project_dir)
         .env_clear()
-        .envs(PROXY_ENVS.clone())
+        // `deps` is a dependency install, which keeps the proxy whatever the group says.
+        .envs(if args == ["deps"] {
+            PROXY_ENVS.clone()
+        } else {
+            crate::job_proxy_envs()
+        })
         .env("PATH", PATH_ENV.as_str())
         .env("TZ", TZ_ENV.as_str())
         .env("GIT_PATH", GIT_PATH.as_str())

@@ -42,7 +42,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { ResourceType, WorkspaceDeployUISettings } from '$lib/gen'
 	import { OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
-	import { enterpriseLicense, userWorkspaces } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { useEditRights } from '$lib/operatorWriteRights'
 	import {
@@ -1027,10 +1027,10 @@
 	</DrawerContent>
 </Drawer>
 
-{#if operatingUser.current?.operator && $operatingWorkspace && !$userWorkspaces.find((_) => _.id === $operatingWorkspace)?.operator_settings?.resources}
+{#if $operatingWorkspace && !editRights.capabilities.visibility.resources}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
-		<p>Page not available for operators</p>
+		<p>Page not available for your role</p>
 	</div>
 {:else}
 	<CenteredPage>
@@ -1358,7 +1358,7 @@
 											</Cell>
 											<Cell last actions>
 												<div class="flex justify-end items-center gap-2">
-													{#if path && assetCanBeExplored({ kind: 'resource', path }, { resource_type }) && !operatingUser.current?.operator}
+													{#if path && assetCanBeExplored({ kind: 'resource', path }, { resource_type }) && editRights.capabilities.code}
 														<ExploreAssetButton
 															asset={{ kind: 'resource', path }}
 															_resourceMetadata={{ resource_type }}

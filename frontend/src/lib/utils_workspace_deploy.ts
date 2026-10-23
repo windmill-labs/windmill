@@ -22,6 +22,11 @@ import {
 	type User
 } from '$lib/gen'
 import type { UserDraftItemKind } from '$lib/gen'
+import { get } from 'svelte/store'
+import { userWorkspaces } from '$lib/stores'
+import { capabilitiesIn } from '$lib/roleCapabilities'
+import { roleCanAuthor } from '$lib/editRights'
+import type { RoleCapabilities } from '$lib/gen'
 import {
 	fetchProtectionRulesForWorkspace,
 	canUserBypassRuleKindInRulesets
@@ -181,30 +186,13 @@ export type AppIdentity = { email: string; permissionedAs: string }
 export type DeployConflict = { hit: boolean }
 
 /**
- * `deployItem` overrides only the email half of the identity, while the body it builds
- * spreads the *source* item — which carries the source workspace's permissioned_as, valid
- * nowhere else since usernames are per-workspace. The key is therefore always overwritten:
- * with the picked user's principal for a custom choice, and cleared otherwise so the
- * backend derives the target's own from the email it is given. The shared `deployItem`
- * does the same, but this app consumes the published package, so the rewrite has to exist
- * on both sides until that version ships.
- *
- * An app carries both halves inside its `policy` instead, so it needs both stamped here:
- * the published package leaves the policy untouched, and a source principal beside a
- * target address is rejected as a pair naming two different accounts.
- *
- * A group kept as the target identity travels as its synthetic `group-*@windmill.dev`
- * address, which an admin-created account holding it would win on the backend: known and
- * accepted, see `users::permissioned_as_from_email`.
- *
- * An agent carries its principal inside its resource value, and is handed the chosen one as a
- * principal, as a trigger is. Every read here drops the source's, so a diff never shows it and
- * the published `deployItem` copies none; the write then stamps the chosen one, or none, which
- * leaves the backend to make it the deployer's.
+ * `deployItem` takes the identity only as an email and clears the source workspace's
+ * principal, leaving the backend to derive the target's own from that email. When the user
+ * picked a specific user, their principal is known here, so it is stamped on the body: on a
+ * flow or script directly, and inside the `policy` for an app, which holds both halves.
  */
 function makeProvider(
 	onBehalfOfPrincipal?: string,
-	onBehalfOf?: string,
 	/**
 	 * Refuse the writes the shared `deployItem` reaches for only when the item already exists in
 	 * the target, turning its silent switch to an update into a failure the caller can act on.
@@ -214,48 +202,16 @@ function makeProvider(
 	 */
 	conflict?: DeployConflict
 ): DeployProvider {
-	const withPermissionedAs = <T extends Record<string, any>>(requestBody: T): T => ({
-		...requestBody,
-		on_behalf_of: onBehalfOfPrincipal
-	})
+	const withPermissionedAs = <T extends Record<string, any>>(requestBody: T): T =>
+		onBehalfOfPrincipal ? { ...requestBody, on_behalf_of: onBehalfOfPrincipal } : requestBody
 	const withPolicyIdentity = <T extends Record<string, any>>(app: T): T =>
-		app.policy
-			? {
-					...app,
-					policy: {
-						...app.policy,
-						on_behalf_of: onBehalfOfPrincipal,
-						on_behalf_of_email: onBehalfOf
-					}
-				}
+		onBehalfOfPrincipal && app.policy
+			? { ...app, policy: { ...app.policy, on_behalf_of: onBehalfOfPrincipal } }
 			: app
-	const agents = new Set<string>()
-	const withAgentIdentity = <T extends Record<string, any>>(requestBody: T, path: string): T =>
-		agents.has(path) && requestBody.value && typeof requestBody.value === 'object'
-			? {
-					...requestBody,
-					value: onBehalfOf
-						? { ...requestBody.value, on_behalf_of: onBehalfOf }
-						: requestBody.value,
-					preserve_on_behalf_of: onBehalfOf !== undefined
-				}
-			: requestBody
 	const refuseUpdate = (): never => {
 		if (conflict) conflict.hit = true
 		throw new Error('item already exists in the target workspace')
 	}
-	// The published package builds variable, resource and folder bodies field by field without
-	// `labels`, so carry the source item's across from the read `deployItem` does just before the
-	// write. One provider serves one deploy, so the read always belongs to the write that follows.
-	let sourceLabels: string[] | undefined
-	const readLabels = <T extends { labels?: string[] }>(item: T): T => {
-		sourceLabels = item.labels
-		return item
-	}
-	const withLabels = <T extends Record<string, any>>(requestBody: T): T => ({
-		...requestBody,
-		labels: sourceLabels
-	})
 	return {
 		existsFlowByPath: (p) => FlowService.existsFlowByPath(p),
 		existsScriptByPath: (p) => ScriptService.existsScriptByPath(p),
@@ -300,43 +256,21 @@ function makeProvider(
 		getPublicSecretOfLatestVersionOfApp: (p) => AppService.getPublicSecretOfLatestVersionOfApp(p),
 		getRawAppData: (p) => AppService.getRawAppData(p),
 		deleteApp: (p) => AppService.deleteApp(p),
-		getVariable: (p) => VariableService.getVariable(p).then(readLabels),
-		createVariable: (p) =>
-			VariableService.createVariable({ ...p, requestBody: withLabels(p.requestBody) }),
-		updateVariable: (p) =>
-			VariableService.updateVariable({ ...p, requestBody: withLabels(p.requestBody) }),
+		getVariable: (p) => VariableService.getVariable(p),
+		createVariable: (p) => VariableService.createVariable(p),
+		updateVariable: (p) => VariableService.updateVariable(p),
 		deleteVariable: (p) => VariableService.deleteVariable(p),
-		getResource: async (p) => {
-			const resource = readLabels(await ResourceService.getResource(p))
-			if (resource.resource_type !== 'ai_agent' || !resource.value) return resource
-			agents.add(p.path)
-			const { on_behalf_of: _, ...value } = resource.value as Record<string, any>
-			return { ...resource, value }
-		},
-		createResource: (p) =>
-			ResourceService.createResource({
-				...p,
-				requestBody: withAgentIdentity(withLabels(p.requestBody), p.requestBody.path)
-			}),
-		updateResource: (p) =>
-			ResourceService.updateResource({
-				...p,
-				requestBody: withAgentIdentity(withLabels(p.requestBody), p.path)
-			}),
+		getResource: (p) => ResourceService.getResource(p),
+		createResource: (p) => ResourceService.createResource(p),
+		updateResource: (p) => ResourceService.updateResource(p),
 		deleteResource: (p) => ResourceService.deleteResource(p),
 		getResourceType: (p) => ResourceService.getResourceType(p),
 		createResourceType: (p) => ResourceService.createResourceType(p),
 		updateResourceType: (p) => ResourceService.updateResourceType(p),
 		deleteResourceType: (p) => ResourceService.deleteResourceType(p),
-		getFolder: (p) => FolderService.getFolder(p).then(readLabels),
-		createFolder: (p) =>
-			FolderService.createFolder({ ...p, requestBody: withLabels(p.requestBody) }),
-		// A folder with no labels reads back without the field, so clearing them needs an explicit [].
-		updateFolder: (p) =>
-			FolderService.updateFolder({
-				...p,
-				requestBody: { ...p.requestBody, labels: sourceLabels ?? [] }
-			}),
+		getFolder: (p) => FolderService.getFolder(p),
+		createFolder: (p) => FolderService.createFolder(p),
+		updateFolder: (p) => FolderService.updateFolder(p),
 		deleteFolder: (p) => FolderService.deleteFolder(p),
 		// Triggers
 		existsTriggerByKind: (kind, p) => triggerServiceFor(kind).exists(p),
@@ -478,7 +412,7 @@ export async function deployItem(
 
 	const conflict: DeployConflict | undefined = createOnly ? { hit: false } : undefined
 	const result = await sharedDeployItem(
-		makeProvider(onBehalfOfPrincipal, onBehalfOf, conflict),
+		makeProvider(onBehalfOfPrincipal, conflict),
 		kind as DeployKind,
 		path,
 		workspaceFrom,
@@ -836,6 +770,24 @@ export function kindGatedByDeployRules(kind: Kind | UserDraftItemKind): boolean 
 	return GATED_KIND_NAMES.has(kind)
 }
 
+// The kinds whose item handlers refuse a role per kind (`check_role_can_code`,
+// `check_operator_can_build`, `require_full_apps`). `checkDeployPermission` only asks for `code`,
+// so a role that codes but cannot author flows or apps is caught here.
+const ROLE_GATED_KINDS = new Set<string>(['script', 'flow', 'app', 'raw_app', 'data_pipeline'])
+
+function roleRefusal(
+	kind: Kind | UserDraftItemKind,
+	caps: RoleCapabilities
+): DeployPermission | undefined {
+	if (!ROLE_GATED_KINDS.has(kind) || roleCanAuthor(kind === 'data_pipeline' ? 'script' : kind, caps))
+		return undefined
+	return {
+		ok: false,
+		reason: `Your role in this workspace can't deploy ${kind.replace('_', ' ')}s`,
+		refusedBy: 'operator'
+	}
+}
+
 /**
  * Narrow a workspace-level refusal to one item kind. Only the direct-deployment term is scoped:
  * the deployers-only term over-reaches the same way, but it does so on `main` too, and loosening
@@ -843,8 +795,11 @@ export function kindGatedByDeployRules(kind: Kind | UserDraftItemKind): boolean 
  */
 export function deployPermissionForKind(
 	perm: DeployPermission,
-	kind: Kind | UserDraftItemKind
+	kind: Kind | UserDraftItemKind,
+	caps?: RoleCapabilities
 ): DeployPermission {
+	const refusal = caps && roleRefusal(kind, caps)
+	if (refusal) return refusal
 	if (perm.ok) return perm
 	if (perm.refusedBy === 'DisableDirectDeployment' && !kindGatedByDeployRules(kind)) {
 		return { ok: true }
@@ -855,8 +810,11 @@ export function deployPermissionForKind(
 /** The refusal a bulk action carries: it applies as soon as one selected kind is still refused. */
 export function deployPermissionForKinds(
 	perm: DeployPermission,
-	kinds: (Kind | UserDraftItemKind)[]
+	kinds: (Kind | UserDraftItemKind)[],
+	caps?: RoleCapabilities
 ): DeployPermission {
+	const refusal = caps && kinds.map((k) => roleRefusal(k, caps)).find((r) => r)
+	if (refusal) return refusal
 	if (perm.ok) return perm
 	// An empty selection keeps the workspace-level refusal, which is then the only thing left
 	// to say why the action is unavailable.
@@ -933,9 +891,9 @@ export async function checkDeployRules(
 
 /**
  * Whether the current user may deploy into `workspace` at all: the protection rules above,
- * plus a refusal of every operator.
+ * plus a refusal of every role without `code`.
  *
- * That refusal is not part of the `check_deploy_rules` mirror. The server refuses operators
+ * That refusal is not part of the `check_deploy_rules` mirror. The server refuses such roles
  * in the item handlers instead, and for fewer kinds, so refusing them for everything here is
  * deliberately stricter than the server rather than a faithful copy of it. A caller mirroring
  * one handler wants `checkDeployRules`.
@@ -948,10 +906,10 @@ export async function checkDeployPermission(
 ): Promise<DeployPermission> {
 	try {
 		const me = whoami ?? (await UserService.whoami({ workspace }))
-		if (me.operator) {
+		if (!capabilitiesIn(me, get(userWorkspaces).find((w) => w.id === workspace)).code) {
 			return {
 				ok: false,
-				reason: "You're an operator in this workspace — operators can't deploy",
+				reason: "Your role in this workspace can't deploy",
 				refusedBy: 'operator'
 			}
 		}

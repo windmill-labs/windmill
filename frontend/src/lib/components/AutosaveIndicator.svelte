@@ -25,7 +25,8 @@
 		// Count of OTHER users with a draft here. >0 makes the on-mount hint
 		// take priority over "Loaded from draft" and offers "See others' drafts".
 		othersDraftsCount = 0,
-		onOpenOthersDrafts
+		onOpenOthersDrafts,
+		compact = false
 	}: {
 		workspace: string
 		itemKind: UserDraftItemKind
@@ -35,6 +36,8 @@
 		loadedFromDraft?: boolean
 		othersDraftsCount?: number
 		onOpenOthersDrafts?: () => void
+		/** The icon alone, for a bar with no room for the label, which stays for screen readers. */
+		compact?: boolean
 	} = $props()
 
 	// Reactive to the in-memory draft appearing/disappearing.
@@ -365,7 +368,7 @@
 	</Popover>
 	{#if label}
 		<span
-			class="relative text-2xs pr-1.5 {labelIsError
+			class="{compact ? 'sr-only' : 'relative'} text-2xs pr-1.5 {labelIsError
 				? 'text-red-500 font-semibold'
 				: 'text-secondary'}">{label}</span
 		>

@@ -1,0 +1,2543 @@
+[
+	{
+		"name": "read_skill",
+		"description": "Load the full instructions for an AI skill by resource path. Skills are listed in the system prompt under \"Skills\"; call this before acting on a task a skill covers, then follow its instructions.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "The exact skill resource path as listed in the Skills section of the system prompt.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"path"
+			],
+			"additionalProperties": false
+		},
+		"read_only": true
+	},
+	{
+		"name": "open_page",
+		"description": "Open a Windmill page with filters applied — Runs, Schedules, Variables, Resources, Assets, Audit logs, Folders, Groups, Triggers (by kind), Workspace settings (on a specific tab), or the Compare & Deploy page. Inside an AI session it opens as a tab in the side-panel preview next to the chat; elsewhere it offers a clickable link. Use after surfacing something the user likely wants to inspect (e.g. \"show me the failed runs of X\", \"open the schedule for Y\", \"open the git sync settings\", \"open the kafka triggers\"), and ALWAYS when asking the user to perform a manual step themselves (fill in a resource's credentials, set a variable's value — pass open with the item path so its editor opens directly). Never offer page \"compare\" for draft review. Use it only when the user explicitly asks to deploy a forked workspace into its parent; it always opens the fork-vs-parent comparison. This is the only way to show one of these pages in the session preview — open_preview only handles editable items (scripts, flows, raw apps, pipelines). Only pages listed for this user are available; do not offer others.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"page": {
+					"description": "Which page to open",
+					"type": "string",
+					"enum": [
+						"runs",
+						"schedules",
+						"variables",
+						"resources",
+						"assets",
+						"audit_logs",
+						"folders",
+						"groups",
+						"triggers",
+						"compare"
+					]
+				},
+				"path": {
+					"description": "Runs/Schedules/Variables/Resources/Assets: the script, flow or item path to filter by. On Runs, comma-separate to match several values, or prefix each with ! to exclude them instead (never mix included and excluded values in one filter).",
+					"type": "string"
+				},
+				"status": {
+					"description": "Runs: filter by job execution status",
+					"type": "string",
+					"enum": [
+						"running",
+						"success",
+						"failure",
+						"canceled",
+						"waiting",
+						"suspended"
+					]
+				},
+				"schedule_path": {
+					"description": "Runs: only runs triggered by this schedule path. Schedules: filter by this exact schedule path.",
+					"type": "string"
+				},
+				"job_kinds": {
+					"description": "Runs: filter by job category (defaults to top-level runs)",
+					"type": "string",
+					"enum": [
+						"all",
+						"runs",
+						"dependencies",
+						"previews",
+						"deploymentcallbacks"
+					]
+				},
+				"user": {
+					"description": "Runs: filter by the user who created the job. comma-separate to match several values, or prefix each with ! to exclude them instead (never mix included and excluded values in one filter). (e.g. 'admin' or '!admin')",
+					"type": "string"
+				},
+				"folder": {
+					"description": "Runs: filter by the folder containing the script or flow — one folder name, without the 'f/' prefix and without ! or commas (use path for anything finer)",
+					"type": "string"
+				},
+				"job_trigger_kind": {
+					"description": "Runs: filter by how the job was triggered — one of webhook, default_email, http, websocket, kafka, email, nats, mqtt, amqp, sqs, postgres, schedule, gcp, azure, google, github, asset, freshness, app. comma-separate to match several values, or prefix each with ! to exclude them instead (never mix included and excluded values in one filter). (e.g. '!schedule' to hide scheduled runs)",
+					"type": "string"
+				},
+				"label": {
+					"description": "Runs: filter by a custom label attached to the job. Comma-separate to match several values; * matches any substring.",
+					"type": "string"
+				},
+				"tag": {
+					"description": "Runs: filter by worker tag. Comma-separate to match several values; * matches any substring.",
+					"type": "string"
+				},
+				"worker": {
+					"description": "Runs: filter by the worker instance that ran the job. Comma-separate to match several values; * matches any substring.",
+					"type": "string"
+				},
+				"concurrency_key": {
+					"description": "Runs: filter by concurrency limit key, e.g. custom-key or a full script path. Cannot be combined with worker, search, or a waiting/suspended status — that view has no way to apply them.",
+					"type": "string"
+				},
+				"arg": {
+					"description": "Runs: only runs whose arguments contain these key/value pairs, as a JSON object string, e.g. {\"customer_id\":\"42\"}",
+					"type": "string"
+				},
+				"result": {
+					"description": "Runs: only runs whose result contains these key/value pairs, as a JSON object string, e.g. {\"status\":\"ko\"}",
+					"type": "string"
+				},
+				"search": {
+					"description": "Runs: free-text search matched case-insensitively across several run fields at once. Prefer a specific filter when you know which one applies.",
+					"type": "string"
+				},
+				"timeframe": {
+					"description": "Runs: relative time window to look at, ending now. Ignored when min_ts or max_ts is set.",
+					"type": "string",
+					"enum": [
+						"Latest runs",
+						"Within 30 seconds",
+						"Within last minute",
+						"Within last 5 minutes",
+						"Within last 30 minutes",
+						"Within last 24 hours",
+						"Within last 7 days",
+						"Within last month"
+					]
+				},
+				"min_ts": {
+					"description": "Runs: only runs after this instant, as an ISO 8601 timestamp (e.g. 2026-08-01T09:00:00Z); a bare 2026-08-01 means local midnight. Use it with max_ts for an absolute window; prefer timeframe for a relative one.",
+					"type": "string"
+				},
+				"max_ts": {
+					"description": "Runs: only runs before this instant, as an ISO 8601 timestamp. A bare 2026-08-01 means local midnight, so it excludes that day — pass the next day, or an explicit time, to include it.",
+					"type": "string"
+				},
+				"resolved": {
+					"description": "Runs: filter failures by whether they have been marked as handled — 'unresolved' hides the ones already resolved",
+					"type": "string",
+					"enum": [
+						"all",
+						"unresolved",
+						"resolved"
+					]
+				},
+				"show_skipped": {
+					"description": "Runs: include skipped flow steps (excluded by default)",
+					"type": "boolean"
+				},
+				"show_future_jobs": {
+					"description": "Runs: include jobs scheduled for later (included by default — pass false to hide)",
+					"type": "boolean"
+				},
+				"open": {
+					"description": "Schedules/Triggers/Variables/Resources: exact item path to open in its editor, e.g. f/foo/my_schedule — in a session, a preview tab of its own instead of the list page. Use it whenever the user should act on one specific item (e.g. fill in credentials) so they land directly in its editor.",
+					"type": "string"
+				},
+				"summary": {
+					"description": "Schedules: search text matched against schedule summaries",
+					"type": "string"
+				},
+				"trigger_kind": {
+					"description": "Triggers: which trigger kind page to open",
+					"type": "string",
+					"enum": [
+						"http",
+						"websocket",
+						"postgres",
+						"mqtt",
+						"amqp",
+						"email"
+					]
+				},
+				"resource_type": {
+					"description": "Resources: filter by resource type, e.g. postgres",
+					"type": "string"
+				},
+				"owner": {
+					"description": "Variables/Resources: filter by owner, e.g. u/alice or f/team",
+					"type": "string"
+				},
+				"username": {
+					"description": "Audit logs: filter by the acting username",
+					"type": "string"
+				},
+				"operation": {
+					"description": "Audit logs: filter by operation, e.g. jobs.run",
+					"type": "string"
+				},
+				"resource": {
+					"description": "Audit logs: filter by the affected resource path",
+					"type": "string"
+				},
+				"items": {
+					"description": "Compare: preselect exactly these fork changes, each as '<kind>:<path>' where kind is script, flow, raw_app, app, resource, variable, or a trigger kind like trigger_schedule / trigger_http (e.g. 'script:f/foo/bar'). Omit to use the page's default selection; pass items only when the user asked to deploy specific ones.",
+					"minItems": 1,
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				},
+				"new_tab": {
+					"description": "Open in a NEW preview tab instead of updating the tab already showing this page. Only set true when the user explicitly asks for a new or separate tab; by default changing filters reuses the existing tab.",
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"page"
+			],
+			"additionalProperties": false
+		},
+		"read_only": true
+	},
+	{
+		"name": "get_instructions",
+		"description": "Get authoring guidance for scripts, flows, data pipelines, resources, apps, or data tables: their migrations and permissions, and the SQL SDK (wmill.datatable()) used inside runnables.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"subject": {
+					"description": "What to get authoring instructions for: a workspace item type (script, flow, resource, app), \"pipeline\" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or \"datatable\" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, or \"workspace_settings\" for the keys and rules of the workspace settings (admins only). Schedules, triggers, and variables don't need instructions — their tool schemas describe everything.",
+					"type": "string",
+					"enum": [
+						"script",
+						"flow",
+						"resource",
+						"app",
+						"datatable",
+						"pipeline",
+						"workspace_settings"
+					]
+				},
+				"language": {
+					"description": "The target language. Required when subject is script. For subjects \"datatable\" and \"app\" it selects which SDK reference to return (e.g. \"bun\" for TypeScript, \"python3\" for Python) and defaults to TypeScript if omitted. Use the existing language when modifying, or the requested target language when creating. Other subjects ignore it.",
+					"type": "string",
+					"enum": [
+						"python3",
+						"deno",
+						"go",
+						"bash",
+						"powershell",
+						"postgresql",
+						"mysql",
+						"bigquery",
+						"snowflake",
+						"mssql",
+						"oracledb",
+						"graphql",
+						"nativets",
+						"bun",
+						"php",
+						"rust",
+						"ansible",
+						"csharp",
+						"nu",
+						"java",
+						"ruby",
+						"rlang",
+						"duckdb",
+						"bunnative",
+						"dbt"
+					]
+				}
+			},
+			"required": [
+				"subject"
+			],
+			"additionalProperties": false
+		},
+		"read_only": true
+	},
+	{
+		"name": "search_hub_scripts",
+		"description": "Search the Windmill Hub for prebuilt integration scripts, or list one integration's scripts with `integration`.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"query": {
+					"description": "What you want the script to do, e.g. \"send email\", \"list stripe invoices\". Semantic search, so describe the intent. Omit when browsing with `integration` alone.",
+					"type": "string"
+				},
+				"integration": {
+					"description": "Integration slug (e.g. \"stripe\") from a previous result's `integration` or `suggested_integrations`, or the vendor the user named. Alone, lists that integration's scripts with descriptions, including ones that do not match your task but show how the integration is used. With `query`, narrows the search to it; pass it whenever the user names the vendor, since ranking alone can surface another integration's scripts that merely mention it.",
+					"type": "string"
+				}
+			},
+			"additionalProperties": false,
+			"required": []
+		},
+		"read_only": true
+	},
+	{
+		"name": "get_hub_integration",
+		"description": "Read how one integration works before writing code against it: the resource type it takes, its auth fields, and its most-used scripts as examples. For an integration a search marked `documented` it also returns provider knowledge checked against the live API: pagination, enums, error codes and gotchas.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"integration": {
+					"description": "Integration slug, e.g. \"stripe\". Take it from a search_hub_scripts result's `integration`, or guess the vendor name: a wrong guess comes back with the closest real slugs.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"integration"
+			],
+			"additionalProperties": false
+		},
+		"read_only": true
+	},
+	{
+		"name": "search_npm_packages",
+		"description": "Search for npm packages and their documentation",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"query": {
+					"type": "string",
+					"description": "The query to search for"
+				}
+			},
+			"required": [
+				"query"
+			]
+		},
+		"read_only": true
+	},
+	{
+		"name": "search_docs",
+		"description": "Full-text search across the entire Windmill documentation. Provide one or more keywords; returns the most relevant docs pages, each with its Source URL and short matching snippets. Use this FIRST to find relevant pages by their content (a flag, function, error message, config key or concept). If the snippets answer the question, answer directly; otherwise call read_docs_page with a returned Source URL to read the full page or a section.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"query": {
+					"type": "string",
+					"description": "Keywords to search for in the documentation body, e.g. \"chromium worker tag\" or \"retry exponential backoff\". Fewer, more distinctive words match better."
+				}
+			},
+			"required": [
+				"query"
+			]
+		},
+		"read_only": true
+	},
+	{
+		"name": "read_docs_page",
+		"description": "Fetch the raw markdown of a single Windmill documentation page. Provide the `url` of a page found via search_docs (its Source URL). If the page is large, this returns its list of section headings instead of the full content; call again with the `section` argument set to one of those headings to read that section.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"url": {
+					"type": "string",
+					"description": "The docs page to read, as a Source URL returned by search_docs (e.g. https://www.windmill.dev/docs/core_concepts/jobs). A bare path (e.g. /docs/core_concepts/jobs) is also accepted."
+				},
+				"section": {
+					"type": "string",
+					"description": "Optional. A heading title from the page outline to read just that section instead of the full page."
+				}
+			},
+			"required": [
+				"url"
+			]
+		},
+		"read_only": true
+	},
+	{
+		"name": "askUserQuestion",
+		"description": "Ask the user a question with proposed answers and wait for their selected or custom answer before continuing.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"question": {
+					"description": "The concise question to show to the user before continuing.",
+					"type": "string",
+					"minLength": 1
+				},
+				"choices": {
+					"description": "Two to ten proposed answer strings.",
+					"minItems": 2,
+					"maxItems": 10,
+					"type": "array",
+					"items": {
+						"description": "Proposed answer text shown to the user and returned as-is.",
+						"type": "string",
+						"minLength": 1
+					}
+				},
+				"multiSelect": {
+					"description": "When true, the user may select several answers; use only when the choices can genuinely co-apply (not mutually exclusive). Defaults to single-select.",
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"question",
+				"choices"
+			],
+			"additionalProperties": false
+		},
+		"read_only": true
+	},
+	{
+		"name": "update_user_instructions",
+		"description": "Modify your own persistent personal instructions for the Global assistant. Use when the user asks you to remember a preference, always/never do something, or change/stop a behavior. Edits only the user-level instructions (the USER INSTRUCTIONS block, not workspace-level); changes persist in this browser and take effect on your next message.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"operation": {
+					"description": "What to do with your personal Global instructions. 'append' adds a new instruction to the end (use for \"remember this\" / \"always do X\"). 'replace' performs an exact find-and-replace to edit or remove existing text (use for \"change X\" / \"stop doing Y\"); set new_string to \"\" to remove.",
+					"type": "string",
+					"enum": [
+						"append",
+						"replace"
+					]
+				},
+				"text": {
+					"description": "Required when operation is 'append': the instruction to add. Ignored for 'replace'.",
+					"type": "string",
+					"minLength": 1
+				},
+				"old_string": {
+					"description": "Required when operation is 'replace': exact text to find in your current personal instructions. Ignored for 'append'.",
+					"type": "string",
+					"minLength": 1
+				},
+				"new_string": {
+					"description": "Required when operation is 'replace': replacement text. Use an empty string to delete the matched text. Ignored for 'append'.",
+					"type": "string"
+				},
+				"replace_all": {
+					"description": "For operation 'replace': when true, replace every exact match; when false, old_string must match exactly once.",
+					"default": false,
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"operation",
+				"replace_all"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "list_workspace_items",
+		"description": "List workspace items and drafts. Returns metadata only, up to limit items per item type per page (default 50); pass page to continue past a full page.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"types": {
+					"description": "Optional item types to list. Defaults to scripts and flows. Pass schedule or trigger explicitly when needed (listing triggers spans 9 kinds and is heavier). \"folder\" lists folders with their owners and extraPerms; \"group\" lists groups with their extraPerms (read one for its members). path_prefix does not apply to these two.",
+					"type": "array",
+					"items": {
+						"type": "string",
+						"enum": [
+							"script",
+							"flow",
+							"schedule",
+							"trigger",
+							"resource",
+							"variable",
+							"app",
+							"folder",
+							"group"
+						]
+					}
+				},
+				"query": {
+					"description": "Optional case-insensitive path or summary search string.",
+					"type": "string"
+				},
+				"path_prefix": {
+					"description": "Optional path prefix filter, such as f/ or u/user/.",
+					"type": "string"
+				},
+				"limit": {
+					"description": "Maximum items per item type per page (for triggers, per trigger kind). Defaults to 50 and is capped at 100.",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 100
+				},
+				"page": {
+					"description": "Page number, starting at 1. Each item type pages independently: request the next page while any type still returns a full page. Drafts appear on page 1 only, capped at limit per type.",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 9007199254740991
+				}
+			},
+			"additionalProperties": false,
+			"required": []
+		},
+		"read_only": true
+	},
+	{
+		"name": "list_pipelines",
+		"description": "List the data pipelines of the workspace: each folder holding at least one pipeline script, with its number of scripts. A pipeline is named by its folder, not by an item path.",
+		"parameters": {
+			"type": "object",
+			"properties": {},
+			"additionalProperties": false,
+			"required": []
+		},
+		"read_only": true
+	},
+	{
+		"name": "read_workspace_item",
+		"description": "Read one workspace item or draft. Prefers your draft when one exists; pass version: \"deployed\" to read the deployed state instead. A deployed item carries extraPerms (a draft does not; pass version: \"deployed\" for it): who it is shared with beyond its owner, as u/<user> or g/<group> → true (write) or false (read-only). A folder returns its owners and extraPerms; a group returns its members and extraPerms (who may manage it). For a folder or group, path is its name. A g/<group> entry grants every member of that group (g/all is everyone), and workspace admins can read and write every folder and item whatever these lists say.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"type": {
+					"type": "string",
+					"enum": [
+						"script",
+						"flow",
+						"schedule",
+						"trigger",
+						"resource",
+						"variable",
+						"app",
+						"folder",
+						"group"
+					]
+				},
+				"path": {
+					"description": "Workspace path of the item to read, or a hub/<version>/<app>/<name> path from search_hub_scripts to read a hub script. For a folder or group, its name.",
+					"type": "string"
+				},
+				"trigger_kind": {
+					"description": "Required when type is trigger. Identifies which trigger service to call.",
+					"type": "string",
+					"enum": [
+						"http",
+						"websocket",
+						"kafka",
+						"nats",
+						"postgres",
+						"mqtt",
+						"amqp",
+						"sqs",
+						"gcp",
+						"azure",
+						"email"
+					]
+				},
+				"version": {
+					"description": "Pass \"deployed\" to read the deployed workspace state even when a draft exists (e.g. to learn the deployed input schema before running the deployed version). Default reads your draft when one exists.",
+					"type": "string",
+					"enum": [
+						"deployed"
+					]
+				}
+			},
+			"required": [
+				"type",
+				"path"
+			],
+			"additionalProperties": false
+		},
+		"read_only": true
+	},
+	{
+		"name": "create_folder",
+		"description": "Create a new shared folder (addressable as f/<name>/) in the workspace. The current user is added as an owner.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"name": {
+					"description": "Folder name — letters, digits, underscores or hyphens only. The folder becomes addressable as `f/<name>/<item>`.",
+					"type": "string"
+				},
+				"summary": {
+					"description": "Optional human-readable description of the folder.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"name"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "write_script",
+		"description": "Create or overwrite a draft script.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the script, e.g. f/folder/name or u/user/name.",
+					"type": "string"
+				},
+				"summary": {
+					"description": "Short human-readable summary.",
+					"type": "string"
+				},
+				"language": {
+					"description": "Script language.",
+					"type": "string",
+					"enum": [
+						"python3",
+						"deno",
+						"go",
+						"bash",
+						"powershell",
+						"postgresql",
+						"mysql",
+						"bigquery",
+						"snowflake",
+						"mssql",
+						"oracledb",
+						"graphql",
+						"nativets",
+						"bun",
+						"php",
+						"rust",
+						"ansible",
+						"csharp",
+						"nu",
+						"java",
+						"ruby",
+						"rlang",
+						"duckdb",
+						"bunnative",
+						"dbt"
+					]
+				},
+				"content": {
+					"description": "Full script source code.",
+					"type": "string"
+				},
+				"override": {
+					"description": "Overwrite the server draft even if it changed externally since you last read it (resolve a save conflict, your version wins).",
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"path",
+				"language",
+				"content"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "write_flow",
+		"description": "Create or overwrite a draft flow.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the flow, e.g. f/folder/name or u/user/name.",
+					"type": "string"
+				},
+				"summary": {
+					"description": "Short human-readable summary.",
+					"type": "string"
+				},
+				"description": {
+					"description": "Longer human-readable description of what the flow does. Top-level flow metadata, separate from the modules — not part of the compact value patched by patch_flow_json.",
+					"type": "string"
+				},
+				"modules": {
+					"description": "JSON string containing the complete flow modules array.",
+					"type": "string"
+				},
+				"schema": {
+					"description": "JSON string containing the flow input schema.",
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"preprocessor_module": {
+					"description": "JSON string containing the optional preprocessor module.",
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"failure_module": {
+					"description": "JSON string containing the optional failure module.",
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"groups": {
+					"description": "JSON string, array of semantic flow groups (call get_instructions subject:\"flow\" for the full field reference). color MUST be one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray — never hex codes. Pass null to clear groups.",
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"notes": {
+					"description": "JSON string, array of free-floating sticky notes (type must be \"free\"; call get_instructions subject:\"flow\" for the full field reference). color MUST be one of: yellow, blue, green, purple, pink, orange, red, cyan, lime, gray — never hex codes. Pass null to clear notes.",
+					"anyOf": [
+						{
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"override": {
+					"description": "Overwrite the server draft even if it changed externally since you last read it (resolve a save conflict, your version wins).",
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"path",
+				"modules"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "write_schedule",
+		"description": "Create or overwrite a draft schedule.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "The unique Windmill path for this schedule. Must be of the form `u/<user>/<path>` or `f/<folder>/<path>`.",
+					"type": "string"
+				},
+				"schedule": {
+					"description": "Cron expression with 6 fields (seconds, minutes, hours, day of month, month, day of week). Example '0 0 12 * * *' for daily at noon",
+					"type": "string"
+				},
+				"timezone": {
+					"description": "IANA timezone for the schedule (e.g., 'UTC', 'Europe/Paris', 'America/New_York')",
+					"type": "string"
+				},
+				"script_path": {
+					"description": "Path to the script or flow to execute when triggered",
+					"type": "string"
+				},
+				"is_flow": {
+					"description": "True if script_path points to a flow, false if it points to a script",
+					"type": "boolean"
+				},
+				"args": {
+					"anyOf": [
+						{
+							"description": "The arguments to pass to the script or flow",
+							"type": "object",
+							"propertyNames": {
+								"type": "string"
+							},
+							"additionalProperties": {}
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"enabled": {
+					"description": "Whether the schedule is currently active and will trigger jobs",
+					"type": "boolean"
+				},
+				"summary": {
+					"anyOf": [
+						{
+							"description": "Short summary describing the purpose of this schedule",
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"description": {
+					"anyOf": [
+						{
+							"description": "Detailed description of what this schedule does",
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"on_failure": {
+					"anyOf": [
+						{
+							"description": "Path to a script or flow to run when the scheduled job fails",
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"on_recovery": {
+					"anyOf": [
+						{
+							"description": "Path to a script or flow to run when the schedule recovers after failures",
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"on_success": {
+					"anyOf": [
+						{
+							"description": "Path to a script or flow to run after each successful execution",
+							"type": "string"
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"advanced": {
+					"description": "Less common schedule options (on_failure_times, on_failure_exact, on_failure_extra_args, on_recovery_times, on_recovery_extra_args, on_success_extra_args, ws_error_handler_muted, retry, no_flow_overlap, tag, paused_until, cron_version, dynamic_skip, permissioned_as, preserve_permissioned_as, labels). Call get_schedule_schema for their exact shape.",
+					"type": "object",
+					"propertyNames": {
+						"type": "string"
+					},
+					"additionalProperties": {}
+				},
+				"override": {
+					"description": "Overwrite the server draft even if it changed externally since you last read it (resolve a save conflict, your version wins).",
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"path",
+				"schedule",
+				"timezone",
+				"script_path",
+				"is_flow",
+				"args"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "write_trigger",
+		"description": "Create or overwrite a draft trigger.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"kind": {
+					"description": "Trigger kind. Determines which fields are valid in config.",
+					"type": "string",
+					"enum": [
+						"http",
+						"websocket",
+						"kafka",
+						"nats",
+						"postgres",
+						"mqtt",
+						"amqp",
+						"sqs",
+						"gcp",
+						"azure",
+						"email"
+					]
+				},
+				"config": {
+					"description": "Full trigger configuration: path, script_path, is_flow plus the kind-specific fields. Call get_trigger_schema with the same kind first to get its exact fields.",
+					"type": "object",
+					"propertyNames": {
+						"type": "string"
+					},
+					"additionalProperties": {}
+				},
+				"override": {
+					"description": "Overwrite the server draft even if it changed externally since you last read it (resolve a save conflict, your version wins).",
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"kind",
+				"config"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "get_trigger_schema",
+		"description": "Get the configuration schema for one trigger kind — its config fields differ per kind.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"kind": {
+					"description": "Trigger kind whose configuration schema to return.",
+					"type": "string",
+					"enum": [
+						"http",
+						"websocket",
+						"kafka",
+						"nats",
+						"postgres",
+						"mqtt",
+						"amqp",
+						"sqs",
+						"gcp",
+						"azure",
+						"email"
+					]
+				}
+			},
+			"required": [
+				"kind"
+			],
+			"additionalProperties": false
+		},
+		"read_only": true
+	},
+	{
+		"name": "get_schedule_schema",
+		"description": "Get the shape of a schedule's `advanced` object: retry, pausing, tags, and error-handler tuning.",
+		"parameters": {
+			"type": "object",
+			"properties": {},
+			"additionalProperties": false,
+			"required": []
+		},
+		"read_only": true
+	},
+	{
+		"name": "edit_script",
+		"description": "Find/replace exact text in a script and save a draft.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the script to edit.",
+					"type": "string"
+				},
+				"old_string": {
+					"description": "Exact text to find in the script source.",
+					"type": "string",
+					"minLength": 1
+				},
+				"new_string": {
+					"description": "Replacement text.",
+					"type": "string"
+				},
+				"replace_all": {
+					"description": "When true, replace every exact match. When false, old_string must match exactly once.",
+					"default": false,
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"path",
+				"old_string",
+				"new_string",
+				"replace_all"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "patch_flow_json",
+		"description": "Find/replace exact text in compact flow JSON and save a draft.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the flow to edit.",
+					"type": "string"
+				},
+				"old_string": {
+					"description": "Exact text to find in the flow value, serialized as compact JSON (no indent).",
+					"type": "string",
+					"minLength": 1
+				},
+				"new_string": {
+					"description": "Replacement JSON text.",
+					"type": "string"
+				},
+				"replace_all": {
+					"description": "When true, replace every exact match. When false, old_string must match exactly once.",
+					"default": false,
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"path",
+				"old_string",
+				"new_string",
+				"replace_all"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "test_run_script",
+		"description": "Execute a preview-style test run of a script by path, preferring draft content when it exists. It runs with exactly the `args` you send. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the script to test.",
+					"type": "string"
+				},
+				"args": {
+					"description": "Arguments to pass to the runnable. Omit or pass null when no arguments are needed. An argument typed as a resource (format \"resource-<type>\" in the input schema) takes the bare string \"$res:<path>\" as its whole value — never an object wrapper like {\"$res\": \"<path>\"}, and never a plain path, both of which reach the runnable unresolved. Same for a variable, with \"$var:<path>\". The prefixed string can also sit in a nested field, e.g. {\"gh_auth\": {\"token\": \"$var:g/all/gh_token\"}}. When the input schema carries a top-level \"prompt_for_ai\", it is the author's own instructions for choosing these arguments: follow it.",
+					"anyOf": [
+						{
+							"type": "object",
+							"propertyNames": {
+								"type": "string"
+							},
+							"additionalProperties": {}
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"background": {
+					"description": "Run in the background without waiting. Set true for jobs you expect to be long (deploys, backfills, big queries) — you will be notified when it finishes. Leave unset for normal runs, which wait briefly and only background automatically if slow.",
+					"type": "boolean"
+				},
+				"wait_seconds": {
+					"description": "How many seconds to wait for the job in-turn before it detaches into the background jobs tray. Defaults to 15. Raise it (capped at 120) for a job you expect to finish in, say, 30–60s and want the result in this same turn. Ignored when background is true. Do not use this to poll — larger values just hold the turn longer.",
+					"type": "number"
+				}
+			},
+			"required": [
+				"path"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "run_script",
+		"description": "Run a DEPLOYED script for real, under the user's own permissions. It runs with exactly the `args` you send. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call. A required file is the user's to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version (\"the deployed X\", \"in production\", \"for real\").",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the deployed script to run.",
+					"type": "string"
+				},
+				"args": {
+					"description": "Arguments to pass to the runnable. Omit or pass null when no arguments are needed. An argument typed as a resource (format \"resource-<type>\" in the input schema) takes the bare string \"$res:<path>\" as its whole value — never an object wrapper like {\"$res\": \"<path>\"}, and never a plain path, both of which reach the runnable unresolved. Same for a variable, with \"$var:<path>\". The prefixed string can also sit in a nested field, e.g. {\"gh_auth\": {\"token\": \"$var:g/all/gh_token\"}}. When the input schema carries a top-level \"prompt_for_ai\", it is the author's own instructions for choosing these arguments: follow it.",
+					"anyOf": [
+						{
+							"type": "object",
+							"propertyNames": {
+								"type": "string"
+							},
+							"additionalProperties": {}
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"background": {
+					"description": "Run in the background without waiting. Set true for jobs you expect to be long (deploys, backfills, big queries) — you will be notified when it finishes. Leave unset for normal runs, which wait briefly and only background automatically if slow.",
+					"type": "boolean"
+				},
+				"wait_seconds": {
+					"description": "How many seconds to wait for the job in-turn before it detaches into the background jobs tray. Defaults to 15. Raise it (capped at 120) for a job you expect to finish in, say, 30–60s and want the result in this same turn. Ignored when background is true. Do not use this to poll — larger values just hold the turn longer.",
+					"type": "number"
+				}
+			},
+			"required": [
+				"path"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "test_run_flow",
+		"description": "Execute a preview-style test run of a flow by path, preferring draft content when it exists. It runs with exactly the `args` you send. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the flow to test.",
+					"type": "string"
+				},
+				"args": {
+					"description": "Arguments to pass to the runnable. Omit or pass null when no arguments are needed. An argument typed as a resource (format \"resource-<type>\" in the input schema) takes the bare string \"$res:<path>\" as its whole value — never an object wrapper like {\"$res\": \"<path>\"}, and never a plain path, both of which reach the runnable unresolved. Same for a variable, with \"$var:<path>\". The prefixed string can also sit in a nested field, e.g. {\"gh_auth\": {\"token\": \"$var:g/all/gh_token\"}}. When the input schema carries a top-level \"prompt_for_ai\", it is the author's own instructions for choosing these arguments: follow it.",
+					"anyOf": [
+						{
+							"type": "object",
+							"propertyNames": {
+								"type": "string"
+							},
+							"additionalProperties": {}
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"memory_id": {
+					"description": "Chat-mode flows only. A UUID naming the conversation this turn belongs to, whose memory the agent steps read: reuse the same one across calls to test memory and follow-ups, and omit it for a one-off turn in a conversation of its own. Generate the UUID yourself so you can pass it again.",
+					"type": "string"
+				},
+				"background": {
+					"description": "Run in the background without waiting. Set true for jobs you expect to be long (deploys, backfills, big queries) — you will be notified when it finishes. Leave unset for normal runs, which wait briefly and only background automatically if slow.",
+					"type": "boolean"
+				},
+				"wait_seconds": {
+					"description": "How many seconds to wait for the job in-turn before it detaches into the background jobs tray. Defaults to 15. Raise it (capped at 120) for a job you expect to finish in, say, 30–60s and want the result in this same turn. Ignored when background is true. Do not use this to poll — larger values just hold the turn longer.",
+					"type": "number"
+				}
+			},
+			"required": [
+				"path"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "run_flow",
+		"description": "Run a DEPLOYED flow for real, under the user's own permissions. It runs with exactly the `args` you send. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call. A required file is the user's to attach, so call this even when you cannot supply one rather than asking in chat. Use only when the user names the deployed version (\"the deployed X\", \"in production\", \"for real\").",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the deployed flow to run.",
+					"type": "string"
+				},
+				"args": {
+					"description": "Arguments to pass to the runnable. Omit or pass null when no arguments are needed. An argument typed as a resource (format \"resource-<type>\" in the input schema) takes the bare string \"$res:<path>\" as its whole value — never an object wrapper like {\"$res\": \"<path>\"}, and never a plain path, both of which reach the runnable unresolved. Same for a variable, with \"$var:<path>\". The prefixed string can also sit in a nested field, e.g. {\"gh_auth\": {\"token\": \"$var:g/all/gh_token\"}}. When the input schema carries a top-level \"prompt_for_ai\", it is the author's own instructions for choosing these arguments: follow it.",
+					"anyOf": [
+						{
+							"type": "object",
+							"propertyNames": {
+								"type": "string"
+							},
+							"additionalProperties": {}
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"background": {
+					"description": "Run in the background without waiting. Set true for jobs you expect to be long (deploys, backfills, big queries) — you will be notified when it finishes. Leave unset for normal runs, which wait briefly and only background automatically if slow.",
+					"type": "boolean"
+				},
+				"wait_seconds": {
+					"description": "How many seconds to wait for the job in-turn before it detaches into the background jobs tray. Defaults to 15. Raise it (capped at 120) for a job you expect to finish in, say, 30–60s and want the result in this same turn. Ignored when background is true. Do not use this to poll — larger values just hold the turn longer.",
+					"type": "number"
+				}
+			},
+			"required": [
+				"path"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "test_run_step",
+		"description": "Execute a test run of one step in a flow by path, preferring draft flow/script content when it exists. `args` are the step's OWN inputs, not the flow's: a step is normally fed by its input transforms, so send what that step's code takes, not what the flow takes. An AI agent step takes the inputs a run supplies rather than code arguments, `user_message` above all; its form opens on the step's own configuration, so send only what this run should change. An AI decision step takes `state`, what its questions are asked about; its provider and questions are the step's own. It runs with exactly the `args` you send. For a secret argument prefer `$var:<path>` naming an existing workspace variable; a literal is minted into a short-lived secret before the run, but stays in this call.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the flow containing the step to test.",
+					"type": "string"
+				},
+				"stepId": {
+					"description": "The id of the step/module to test.",
+					"type": "string"
+				},
+				"args": {
+					"description": "Arguments to pass to the runnable. Omit or pass null when no arguments are needed. An argument typed as a resource (format \"resource-<type>\" in the input schema) takes the bare string \"$res:<path>\" as its whole value — never an object wrapper like {\"$res\": \"<path>\"}, and never a plain path, both of which reach the runnable unresolved. Same for a variable, with \"$var:<path>\". The prefixed string can also sit in a nested field, e.g. {\"gh_auth\": {\"token\": \"$var:g/all/gh_token\"}}. When the input schema carries a top-level \"prompt_for_ai\", it is the author's own instructions for choosing these arguments: follow it.",
+					"anyOf": [
+						{
+							"type": "object",
+							"propertyNames": {
+								"type": "string"
+							},
+							"additionalProperties": {}
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"background": {
+					"description": "Run in the background without waiting. Set true for jobs you expect to be long (deploys, backfills, big queries) — you will be notified when it finishes. Leave unset for normal runs, which wait briefly and only background automatically if slow.",
+					"type": "boolean"
+				},
+				"wait_seconds": {
+					"description": "How many seconds to wait for the job in-turn before it detaches into the background jobs tray. Defaults to 15. Raise it (capped at 120) for a job you expect to finish in, say, 30–60s and want the result in this same turn. Ignored when background is true. Do not use this to poll — larger values just hold the turn longer.",
+					"type": "number"
+				}
+			},
+			"required": [
+				"path",
+				"stepId"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "list_runs",
+		"description": "List recent runs (jobs), most recent first. Optionally filter by path, creator, label, or status. Returns compact metadata only — use get_run with a returned id to see what a run was called with, returned and logged.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Filter to runs of this exact script or flow path.",
+					"type": "string"
+				},
+				"created_by": {
+					"description": "Filter by the username that started the run.",
+					"type": "string"
+				},
+				"label": {
+					"description": "Filter by job label.",
+					"type": "string"
+				},
+				"success": {
+					"description": "Only completed runs with this outcome (true = succeeded, false = failed).",
+					"type": "boolean"
+				},
+				"running": {
+					"description": "Only currently running runs.",
+					"type": "boolean"
+				},
+				"limit": {
+					"description": "Max number of runs to return, most recent first. Defaults to 30.",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 100
+				}
+			},
+			"additionalProperties": false,
+			"required": []
+		},
+		"read_only": true
+	},
+	{
+		"name": "list_workers",
+		"description": "List the workers connected to this Windmill instance (those that pinged in the last 5 minutes), with their worker group, custom tags, seconds since their last ping, and jobs executed. Pair with list_runs to diagnose a stuck queue: runs queued on a tag no listed worker picks up will never start. Three blind spots to report rather than reason past: an empty result states whether no worker is connected or whether workers may be hidden from you, so relay the one it gives instead of picking; a missing custom_tags can mean tags are hidden from you, not unset; and only the 100 most recently pinging workers are listed, so on a bigger instance a tag none of them carries may still be served.",
+		"parameters": {
+			"type": "object",
+			"properties": {},
+			"additionalProperties": false,
+			"required": []
+		},
+		"read_only": true
+	},
+	{
+		"name": "get_run",
+		"description": "Inspect one run: its status, arguments, result and logs, plus — for a flow — the per-step execution tree with each step's status and truncated result (subflow steps, loop iterations, branches and retries included). Works on running jobs too. Pass step to fetch one step's result in full (up to 12k chars).",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"id": {
+					"description": "The UUID of the run (job) to inspect.",
+					"type": "string"
+				},
+				"step": {
+					"description": "Step to drill into for its result (returned in full up to 12k chars), addressed by the step ids shown in the tree: \"b\" for a top-level step, \"b/c\" for a step inside a subflow, \"b[12]\" for iteration 12 of a loop or attempt 12 of a retried step (1-based), composable as \"b[12]/c\". Omit to get the run itself.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"id"
+			],
+			"additionalProperties": false
+		},
+		"read_only": true
+	},
+	{
+		"name": "cancel_job",
+		"description": "Cancel a running or queued job by its id (e.g. a background test run you started that is no longer needed).",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"id": {
+					"description": "The UUID of the job to cancel.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"id"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "deploy_workspace_item",
+		"description": "Deploy a draft to the workspace. Mutates the workspace.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"type": {
+					"type": "string",
+					"enum": [
+						"script",
+						"flow",
+						"schedule",
+						"trigger",
+						"resource",
+						"variable",
+						"app"
+					]
+				},
+				"path": {
+					"description": "Workspace path of the draft to deploy.",
+					"type": "string"
+				},
+				"trigger_kind": {
+					"description": "Required when type is trigger. Must match the draft trigger kind.",
+					"type": "string",
+					"enum": [
+						"http",
+						"websocket",
+						"kafka",
+						"nats",
+						"postgres",
+						"mqtt",
+						"amqp",
+						"sqs",
+						"gcp",
+						"azure",
+						"email"
+					]
+				},
+				"deployment_message": {
+					"description": "Optional deployment message recorded with the change.",
+					"type": "string"
+				},
+				"force": {
+					"description": "Deploy even if the draft was started from an older deployed version, overwriting the version deployed since. Defaults to false.",
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"type",
+				"path"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "rebase_draft",
+		"description": "Discard a stale script, flow, or app draft and return your changes as a diff to re-apply on the latest deployed version. Use when deploy_workspace_item reports the draft was started from an older deployed version.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"type": {
+					"type": "string",
+					"enum": [
+						"script",
+						"flow",
+						"schedule",
+						"trigger",
+						"resource",
+						"variable",
+						"app"
+					]
+				},
+				"path": {
+					"description": "Workspace path of the draft to rebase onto the latest deployed version.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"type",
+				"path"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "diff",
+		"description": "Diff workspace changes. Read-only. Default: drafts vs deployed versions (index without type/path, one item's unified diff with them; file=<name> for one file inside an app). against='parent_workspace': deployed fork vs its parent workspace. search=<text> greps changed lines across all diffs.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"against": {
+					"description": "What to compare against. 'deployed' (default): the current draft vs the deployed version. 'parent_workspace': the deployed fork vs its parent workspace (only in a fork; local drafts are flagged but not part of that comparison).",
+					"type": "string",
+					"enum": [
+						"deployed",
+						"parent_workspace"
+					]
+				},
+				"type": {
+					"description": "With path: the item to diff. Omit both type and path for the workspace index.",
+					"type": "string",
+					"enum": [
+						"script",
+						"flow",
+						"schedule",
+						"trigger",
+						"resource",
+						"variable",
+						"app"
+					]
+				},
+				"path": {
+					"description": "Workspace path of the item to diff (draft vs deployed). Omit for the index of every draft in the workspace.",
+					"type": "string"
+				},
+				"trigger_kind": {
+					"description": "Required when type is trigger. Must match the draft trigger kind.",
+					"type": "string",
+					"enum": [
+						"http",
+						"websocket",
+						"kafka",
+						"nats",
+						"postgres",
+						"mqtt",
+						"amqp",
+						"sqs",
+						"gcp",
+						"azure",
+						"email"
+					]
+				},
+				"file": {
+					"description": "Item mode, multi-file apps only: read one file's diff inside the app (e.g. \"src/App.tsx\"). Omit for the per-file summary plus config changes.",
+					"type": "string"
+				},
+				"search": {
+					"description": "Search mode: literal substring (case-insensitive, not a regex) matched against added/removed diff lines across every diff in the comparison. Ignores type/path.",
+					"type": "string"
+				},
+				"file_glob": {
+					"description": "Search mode: optional glob filter on item paths and app file paths (e.g. \"*.ts\" matches file names, \"f/dash/**\" matches full paths).",
+					"type": "string"
+				},
+				"max_matches": {
+					"description": "Search mode: maximum matching diff lines returned (default 50, hard cap 200).",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 9007199254740991
+				},
+				"types": {
+					"description": "Index mode: only list drafts of these item types.",
+					"type": "array",
+					"items": {
+						"type": "string",
+						"enum": [
+							"script",
+							"flow",
+							"schedule",
+							"trigger",
+							"resource",
+							"variable",
+							"app"
+						]
+					}
+				},
+				"path_prefix": {
+					"description": "Index mode: only list drafts under this path prefix, such as f/billing/.",
+					"type": "string"
+				},
+				"offset": {
+					"description": "Item mode: skip this many patch lines (paginate a large diff).",
+					"type": "integer",
+					"minimum": 0,
+					"maximum": 9007199254740991
+				},
+				"limit": {
+					"description": "Index mode: max items to list (default 50, capped at 100). Item mode: max patch lines to return (default 500).",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 9007199254740991
+				}
+			},
+			"additionalProperties": false,
+			"required": []
+		},
+		"read_only": true
+	},
+	{
+		"name": "delete_workspace_item",
+		"description": "Delete an item that is already deployed in the workspace. Mutates the workspace. FAILS if the path has no deployed item, so never call it to undo something you created in this chat — that is a draft; use discard_local_draft instead.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"type": {
+					"type": "string",
+					"enum": [
+						"script",
+						"flow",
+						"schedule",
+						"trigger",
+						"resource",
+						"variable",
+						"app"
+					]
+				},
+				"path": {
+					"description": "Workspace path of the item to delete.",
+					"type": "string"
+				},
+				"trigger_kind": {
+					"description": "Required when type is trigger. Identifies which trigger service to call.",
+					"type": "string",
+					"enum": [
+						"http",
+						"websocket",
+						"kafka",
+						"nats",
+						"postgres",
+						"mqtt",
+						"amqp",
+						"sqs",
+						"gcp",
+						"azure",
+						"email"
+					]
+				}
+			},
+			"required": [
+				"type",
+				"path"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "discard_local_draft",
+		"description": "Discard a draft only — the tool to undo an item you created or edited in this chat and have not deployed. Does not mutate deployed workspace items, but clears the matching open editor draft if one is mounted.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"type": {
+					"type": "string",
+					"enum": [
+						"script",
+						"flow",
+						"schedule",
+						"trigger",
+						"resource",
+						"variable",
+						"app"
+					]
+				},
+				"path": {
+					"description": "Workspace path of the draft to discard.",
+					"type": "string"
+				},
+				"trigger_kind": {
+					"description": "Required when type is trigger. Must match the draft trigger kind.",
+					"type": "string",
+					"enum": [
+						"http",
+						"websocket",
+						"kafka",
+						"nats",
+						"postgres",
+						"mqtt",
+						"amqp",
+						"sqs",
+						"gcp",
+						"azure",
+						"email"
+					]
+				}
+			},
+			"required": [
+				"type",
+				"path"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "write_resource",
+		"description": "Create or overwrite a draft resource.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "The path to the resource",
+					"type": "string"
+				},
+				"value": {},
+				"description": {
+					"description": "The description of the resource",
+					"type": "string"
+				},
+				"resource_type": {
+					"description": "The resource_type associated with the resource",
+					"type": "string"
+				},
+				"labels": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				},
+				"ws_specific": {
+					"type": "boolean"
+				},
+				"preserve_on_behalf_of": {
+					"description": "ai_agent only. Keep the identity `value.on_behalf_of` names (`u/<username>`, `g/<group>`) rather than the caller's own. Honoured for admins and members of wm_deployers; otherwise every write of an agent sets it to the caller.",
+					"type": "boolean"
+				},
+				"override": {
+					"description": "Overwrite the server draft even if it changed externally since you last read it (resolve a save conflict, your version wins).",
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"path",
+				"value",
+				"resource_type"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "write_variable",
+		"description": "Create or edit a draft variable. Editing is a partial update: pass only the fields you are changing. You can never read the value of a variable, so to edit a secret variable you MUST omit value — any value you pass replaces the stored secret. FAILS if you pass a \"$var:\" self-reference as the value, or un-secret a variable without giving its new value.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "The path to the variable",
+					"type": "string"
+				},
+				"value": {
+					"description": "The value of the variable. Omit it to leave the value alone — required only when creating a new variable, or when changing a secret variable into a non-secret one. Never invent or guess the value of an existing variable: you cannot read it, and a \"$var:...\" reference is NOT a valid value (a variable cannot reference itself). Omitting it keeps whatever the draft already holds, so a value you set earlier in this conversation stays set; discard_local_draft abandons it.",
+					"type": "string"
+				},
+				"is_secret": {
+					"description": "Whether the variable is a secret. Omit it to keep the current secrecy — required only when creating a new variable. Never pass false for an existing secret variable unless the user explicitly asked to reveal it and you also pass its new value.",
+					"type": "boolean"
+				},
+				"description": {
+					"description": "The description of the variable. Omit it to keep the current description.",
+					"type": "string"
+				},
+				"account": {
+					"description": "The account identifier",
+					"type": "integer",
+					"minimum": -9007199254740991,
+					"maximum": 9007199254740991
+				},
+				"is_oauth": {
+					"description": "Whether the variable is an OAuth variable",
+					"type": "boolean"
+				},
+				"expires_at": {
+					"description": "The expiration date of the variable",
+					"type": "string",
+					"format": "date-time",
+					"pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+				},
+				"labels": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				},
+				"ws_specific": {
+					"type": "boolean"
+				},
+				"override": {
+					"description": "Overwrite the server draft even if it changed externally since you last read it (resolve a save conflict, your version wins).",
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"path"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "search_resource_types",
+		"description": "Search workspace resource types and schemas.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"query": {
+					"description": "Natural-language description of the integration or capability you need, e.g. \"stripe\", \"postgres database\", or \"send emails\". Matched semantically against resource type names and descriptions, so describe the intent rather than guessing the exact name.",
+					"type": "string"
+				},
+				"limit": {
+					"description": "Max number of resource types to return. Defaults to 5.",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 20
+				}
+			},
+			"required": [
+				"query"
+			],
+			"additionalProperties": false
+		},
+		"read_only": true
+	},
+	{
+		"name": "create_resource_type",
+		"description": "Create a resource type in the workspace. Mutates the workspace.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"name": {
+					"description": "Type name with the c_ prefix of custom types, e.g. c_acme_billing (added when missing): 1 to 50 letters, digits, \"_\" or \"-\". Resources and resource-typed parameters refer to it by this name.",
+					"type": "string"
+				},
+				"description": {
+					"description": "What a resource of this type connects to.",
+					"type": "string"
+				},
+				"schema": {
+					"description": "JSON Schema of a resource value of this type: { \"type\": \"object\", \"properties\": {...}, \"required\": [...] }, with every connection field, secrets included (a resource fills those with \"$var:\" references).",
+					"type": "object",
+					"propertyNames": {
+						"type": "string"
+					},
+					"additionalProperties": {}
+				}
+			},
+			"required": [
+				"name",
+				"description",
+				"schema"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "get_db_schema",
+		"description": "Fetch the schema (tables and columns) of a database resource by its path. Supports postgresql, mysql, ms_sql_server, snowflake and bigquery resources.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"resourcePath": {
+					"type": "string",
+					"description": "The path of the database resource"
+				}
+			},
+			"required": [
+				"resourcePath"
+			]
+		},
+		"read_only": true
+	},
+	{
+		"name": "read_flow_module_code",
+		"description": "Read inline script code from one flow module.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the flow.",
+					"type": "string"
+				},
+				"module_id": {
+					"description": "Module id whose inline rawscript content to read. Must reference a module whose value.type is \"rawscript\".",
+					"type": "string"
+				}
+			},
+			"required": [
+				"path",
+				"module_id"
+			],
+			"additionalProperties": false
+		},
+		"read_only": true
+	},
+	{
+		"name": "set_flow_module_code",
+		"description": "Overwrite inline script code in one flow module and save a draft.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the flow.",
+					"type": "string"
+				},
+				"module_id": {
+					"description": "Module id whose inline rawscript content to overwrite. Must reference a module whose value.type is \"rawscript\". Use patch_flow_json for structural changes.",
+					"type": "string"
+				},
+				"code": {
+					"description": "New script source. Replaces the module's value.content entirely.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"path",
+				"module_id",
+				"code"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "init_app",
+		"description": "Initialize a draft raw app from a framework template.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path for the new app, e.g. f/folder/my_app or u/username/my_app. Errors if an app already exists at this path or a draft is already in flight.",
+					"type": "string"
+				},
+				"summary": {
+					"description": "Short human-readable summary of the app.",
+					"type": "string"
+				},
+				"framework": {
+					"description": "Frontend framework template: the one the user named or an app they point at uses, otherwise react19. Do not ask.",
+					"type": "string",
+					"enum": [
+						"react19",
+						"react18",
+						"svelte5"
+					]
+				},
+				"data": {
+					"description": "Data setup of an app that stores data, as the user gave or chose it. Omit for an app that stores nothing.",
+					"type": "object",
+					"properties": {
+						"datatable": {
+							"description": "Data table the app stores its data in.",
+							"type": "string"
+						},
+						"schema": {
+							"description": "Schema the app's new tables go in. Omit for public.",
+							"type": "string"
+						},
+						"tables": {
+							"description": "Tables the app queries, reused or about to be created, each as `<datatable>/<table>` (public) or `<datatable>/<schema>:<table>`.",
+							"type": "array",
+							"items": {
+								"type": "string"
+							}
+						}
+					},
+					"required": [
+						"datatable"
+					],
+					"additionalProperties": false
+				}
+			},
+			"required": [
+				"path",
+				"framework"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "read_app_file",
+		"description": "Read one raw app frontend file or inline backend runnable. Large files are truncated to a head slice; pass offset/limit to page through the rest.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the app, e.g. f/folder/name.",
+					"type": "string"
+				},
+				"file_path": {
+					"description": "Frontend file path like /index.tsx, or backend inline runnable path like backend/<key>/main.ts (or main.py).",
+					"type": "string"
+				},
+				"offset": {
+					"description": "1-based line number to start reading from. Use to page through a large file.",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 9007199254740991
+				},
+				"limit": {
+					"description": "Maximum number of lines to return. Large files are truncated by default; pass offset/limit to read a specific line range.",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 9007199254740991
+				}
+			},
+			"required": [
+				"path",
+				"file_path"
+			],
+			"additionalProperties": false
+		},
+		"read_only": true
+	},
+	{
+		"name": "search_app",
+		"description": "Grep across all of a raw app's frontend files and inline backend runnables in one call. Returns matching file:line rows (capped), not file bodies — use it to locate a symbol or string before read_app_file instead of reading whole files one by one.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the app, e.g. f/folder/name.",
+					"type": "string"
+				},
+				"query": {
+					"description": "Literal substring to find across all app files (case-insensitive) — not a regex, so spaces and operators match verbatim. Returns matching file:line rows, not file bodies. To find call sites and skip similarly-named helpers, include the call paren (e.g. \"formatCurrency(\" matches calls but not \"formatCurrencyPrecise\"). Then read_app_file to inspect the ranges.",
+					"type": "string"
+				},
+				"file_glob": {
+					"description": "Optional path filter. A pattern without \"/\" matches the file name anywhere (e.g. \"*.tsx\"); a pattern with \"/\" matches the full path (e.g. \"/components/*\", \"backend/**\"). Supports * (any chars except /), ** (any chars), and ?.",
+					"type": "string"
+				},
+				"max_matches": {
+					"description": "Maximum number of matching lines to return (default 100, hard cap 200); each is shown with a few lines of surrounding context, so the output has more rows than this.",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 9007199254740991
+				}
+			},
+			"required": [
+				"path",
+				"query"
+			],
+			"additionalProperties": false
+		},
+		"read_only": true
+	},
+	{
+		"name": "write_app_file",
+		"description": "Create or overwrite a frontend file in a local app draft.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the app.",
+					"type": "string"
+				},
+				"file_path": {
+					"description": "Frontend file path (must start with /). Use write_app_runnable to set inline backend script content.",
+					"type": "string"
+				},
+				"content": {
+					"description": "Full file content.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"path",
+				"file_path",
+				"content"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "delete_app_file",
+		"description": "Remove a frontend file from a local app draft.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the app.",
+					"type": "string"
+				},
+				"file_path": {
+					"description": "Frontend file path to remove from the draft. Use delete_app_runnable for backend runnables.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"path",
+				"file_path"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "patch_app_file",
+		"description": "Find/replace exact text in a raw app file and save a draft.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the app.",
+					"type": "string"
+				},
+				"file_path": {
+					"description": "Frontend file path like /index.tsx, or backend inline runnable path like backend/<key>/main.ts.",
+					"type": "string"
+				},
+				"old_string": {
+					"description": "Exact text to find.",
+					"type": "string",
+					"minLength": 1
+				},
+				"new_string": {
+					"description": "Replacement text.",
+					"type": "string"
+				},
+				"replace_all": {
+					"description": "When true, replace every exact match. When false, old_string must match exactly once.",
+					"default": false,
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"path",
+				"file_path",
+				"old_string",
+				"new_string",
+				"replace_all"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "write_app_runnable",
+		"description": "Create or overwrite a backend runnable in a local app draft.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the app.",
+					"type": "string"
+				},
+				"key": {
+					"description": "Unique key for the backend runnable (called from frontend as backend.<key>()). Becomes the file id at backend/<key>/main.{ts|py}.",
+					"type": "string"
+				},
+				"runnable": {
+					"description": "Backend runnable shape: same as in app mode. Inline runnables carry their script content; path runnables reference an existing workspace/hub item.",
+					"type": "object",
+					"properties": {
+						"name": {
+							"description": "Short summary/description of what the runnable does.",
+							"type": "string"
+						},
+						"type": {
+							"description": "Runnable kind: \"inline\" for custom code stored on the app; \"script\"/\"flow\" for a workspace runnable; \"hubscript\" for a hub script.",
+							"type": "string",
+							"enum": [
+								"inline",
+								"script",
+								"flow",
+								"hubscript"
+							]
+						},
+						"staticInputs": {
+							"description": "Static inputs that are not overridable by the frontend caller. Useful for workspace/hub scripts to pre-fill arguments.",
+							"type": "object",
+							"propertyNames": {
+								"type": "string"
+							},
+							"additionalProperties": {}
+						},
+						"inlineScript": {
+							"description": "Required when type is \"inline\".",
+							"type": "object",
+							"properties": {
+								"language": {
+									"description": "Inline script language.",
+									"type": "string",
+									"enum": [
+										"bun",
+										"python3"
+									]
+								},
+								"content": {
+									"description": "Inline script source. Must export a main function.",
+									"type": "string"
+								}
+							},
+							"required": [
+								"language",
+								"content"
+							],
+							"additionalProperties": false
+						},
+						"path": {
+							"description": "Required when type is \"script\", \"flow\", or \"hubscript\". Workspace path of the runnable.",
+							"type": "string"
+						},
+						"viewerDataAccess": {
+							"description": "Inline only. When true, the runnable reads data as the person viewing the app instead of as the app's identity: data table connections that name no role hold the viewer's roles, and object storage permission rules are checked against the viewer, so row-level security and per-user storage paths answer per viewer. Resources and variables stay the app's. Anonymous viewers are refused. Omit to keep the current setting.",
+							"type": "boolean"
+						}
+					},
+					"required": [
+						"name",
+						"type"
+					],
+					"additionalProperties": false
+				}
+			},
+			"required": [
+				"path",
+				"key",
+				"runnable"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "delete_app_runnable",
+		"description": "Remove a backend runnable from a local app draft.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the app.",
+					"type": "string"
+				},
+				"key": {
+					"description": "Key of the backend runnable to remove.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"path",
+				"key"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "test_run_app_runnable",
+		"description": "Run one of an app's backend runnables with test arguments, the way the editor preview runs it. An inline runnable executes the draft code; a path runnable executes the deployed script/flow it points at. A deployed app runs under its stored policy instead, so this does not prove the runnable is reachable once deployed.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the app.",
+					"type": "string"
+				},
+				"key": {
+					"description": "Key of the backend runnable to run.",
+					"type": "string"
+				},
+				"args": {
+					"description": "Arguments to pass to the runnable. Omit or pass null when no arguments are needed. An argument typed as a resource (format \"resource-<type>\" in the input schema) takes the bare string \"$res:<path>\" as its whole value — never an object wrapper like {\"$res\": \"<path>\"}, and never a plain path, both of which reach the runnable unresolved. Same for a variable, with \"$var:<path>\". The prefixed string can also sit in a nested field, e.g. {\"gh_auth\": {\"token\": \"$var:g/all/gh_token\"}}. When the input schema carries a top-level \"prompt_for_ai\", it is the author's own instructions for choosing these arguments: follow it.",
+					"anyOf": [
+						{
+							"type": "object",
+							"propertyNames": {
+								"type": "string"
+							},
+							"additionalProperties": {}
+						},
+						{
+							"type": "null"
+						}
+					]
+				},
+				"background": {
+					"description": "Run in the background without waiting. Set true for jobs you expect to be long (deploys, backfills, big queries) — you will be notified when it finishes. Leave unset for normal runs, which wait briefly and only background automatically if slow.",
+					"type": "boolean"
+				},
+				"wait_seconds": {
+					"description": "How many seconds to wait for the job in-turn before it detaches into the background jobs tray. Defaults to 15. Raise it (capped at 120) for a job you expect to finish in, say, 30–60s and want the result in this same turn. Ignored when background is true. Do not use this to poll — larger values just hold the turn longer.",
+					"type": "number"
+				}
+			},
+			"required": [
+				"path",
+				"key"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "list_datatables",
+		"description": "List datatables configured in the workspace with schema and table names only. Does not include column definitions. Use this directly for table-list or available-tables summaries. Only call get_datatable_table_schema when column names/types are required.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"datatable_name": {
+					"description": "List only this datatable. Required with `role`.",
+					"type": "string"
+				},
+				"role": {
+					"description": "The datatable role to connect as, when the code you are working on uses one (an app's `data.roles` entry, or the `role` it passes to wmill.datatable). Omit for the datatable's default role.",
+					"type": "string",
+					"pattern": "^[A-Za-z0-9_-]{1,63}$"
+				}
+			},
+			"additionalProperties": false,
+			"required": []
+		},
+		"read_only": true
+	},
+	{
+		"name": "get_datatable_table_schema",
+		"description": "Get column definitions for one datatable table. Do not call this for row counts or table-list summaries; list_datatables is enough for those.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"datatable_name": {
+					"description": "The datatable name to inspect, e.g. \"main\".",
+					"type": "string"
+				},
+				"schema_name": {
+					"description": "The schema name, e.g. \"public\".",
+					"type": "string"
+				},
+				"table_name": {
+					"description": "The table name to inspect.",
+					"type": "string"
+				},
+				"role": {
+					"description": "The datatable role to connect as, when the code you are working on uses one (an app's `data.roles` entry, or the `role` it passes to wmill.datatable). Omit for the datatable's default role.",
+					"type": "string",
+					"pattern": "^[A-Za-z0-9_-]{1,63}$"
+				}
+			},
+			"required": [
+				"datatable_name",
+				"schema_name",
+				"table_name"
+			],
+			"additionalProperties": false
+		},
+		"read_only": true
+	},
+	{
+		"name": "exec_datatable_sql",
+		"description": "Execute a SQL query on a workspace datatable. Use this to explore data, test queries, create/alter tables, or make changes. Creating a table is a normal CREATE TABLE statement — no registration step is needed.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"datatable_name": {
+					"description": "The name of the datatable to query (e.g., \"main\"). Must be one of the datatables configured in the workspace.",
+					"type": "string"
+				},
+				"sql": {
+					"description": "The SQL query to execute. Supports SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, ALTER TABLE, DROP TABLE, etc. For SELECT queries, results are returned as an array of objects. A newly created table will appear in list_datatables automatically.",
+					"type": "string"
+				},
+				"role": {
+					"description": "The datatable role to connect as, when the code you are working on uses one (an app's `data.roles` entry, or the `role` it passes to wmill.datatable). Omit for the datatable's default role.",
+					"type": "string",
+					"pattern": "^[A-Za-z0-9_-]{1,63}$"
+				},
+				"background": {
+					"description": "Run in the background without waiting. Set true for queries you expect to be slow (large scans, heavy migrations) — you will be notified when it finishes. Leave unset for normal queries, which wait briefly and only background automatically if slow.",
+					"type": "boolean"
+				},
+				"wait_seconds": {
+					"description": "How many seconds to wait for the query in-turn before it detaches into the background jobs tray. Defaults to 15. Raise it (capped at 120) for a query you expect to finish in ~30–60s and want the result in this same turn. Ignored when background is true.",
+					"type": "number"
+				}
+			},
+			"required": [
+				"datatable_name",
+				"sql"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "list_datatable_migrations",
+		"description": "List a datatable's migrations in order, each with its version, name and whether it is applied or pending. Pass `version` to read one migration's SQL.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"datatable_name": {
+					"description": "The datatable the migrations belong to, e.g. \"main\".",
+					"type": "string"
+				},
+				"version": {
+					"description": "Return the SQL of this one migration instead of the list.",
+					"type": "number"
+				}
+			},
+			"required": [
+				"datatable_name"
+			],
+			"additionalProperties": false
+		},
+		"read_only": true
+	},
+	{
+		"name": "create_datatable_migration",
+		"description": "Change the schema of a datatable that has migrations enabled: saves the change as a new migration and applies it. One that fails to apply stays saved as pending: call this again with its `version` to fix it.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"datatable_name": {
+					"description": "The datatable the migrations belong to, e.g. \"main\".",
+					"type": "string"
+				},
+				"name": {
+					"description": "Short name of the change, e.g. \"add_refunds_table\". Letters, digits, \"_\" and \"-\" only.",
+					"type": "string",
+					"pattern": "^[A-Za-z0-9_-]+$"
+				},
+				"code_up": {
+					"description": "The SQL that makes the change. Wrap the statements in `BEGIN; ... END;` so they apply atomically, unless one of them cannot run in a transaction.",
+					"type": "string"
+				},
+				"code_down": {
+					"description": "The SQL that undoes `code_up`. Without it the migration cannot be rolled back, so provide it whenever the change is reversible.",
+					"type": "string"
+				},
+				"role": {
+					"description": "The datatable role the migration runs as, on a datatable that has roles. Omit to run as admin, which only the datatable admins may do.",
+					"type": "string",
+					"pattern": "^[A-Za-z0-9_-]{1,63}$"
+				},
+				"schemas": {
+					"description": "Every schema the migration changes or depends on (including schemas of referenced tables, types and functions), with every name in `code_up` schema-qualified. A migration then waits only on earlier migrations touching those schemas. Omit only for a change that spans the whole database (an extension, a grant across schemas): every later migration then waits for it.",
+					"type": "array",
+					"items": {
+						"type": "string",
+						"pattern": "^[A-Za-z0-9_$-]{1,63}$"
+					}
+				},
+				"version": {
+					"description": "Rewrite this migration instead of adding one: only for a pending migration, typically the one that just failed to apply.",
+					"type": "number"
+				},
+				"apply": {
+					"description": "Set false to save the migration as pending without running it. Defaults to true.",
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"datatable_name",
+				"name",
+				"code_up"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "run_datatable_migrations",
+		"description": "Apply a datatable's pending migrations, oldest first. It stops at the first one that fails.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"datatable_name": {
+					"description": "The datatable the migrations belong to, e.g. \"main\".",
+					"type": "string"
+				}
+			},
+			"required": [
+				"datatable_name"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "rollback_datatable_migration",
+		"description": "Undo one applied migration of a datatable by running its down SQL. The migration stays in the list as pending.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"datatable_name": {
+					"description": "The datatable the migrations belong to, e.g. \"main\".",
+					"type": "string"
+				},
+				"version": {
+					"description": "The applied migration to undo, normally the most recent one, as listed.",
+					"type": "number"
+				}
+			},
+			"required": [
+				"datatable_name",
+				"version"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "list_data_metrics",
+		"description": "List the measures and dimensions declared on DuckLake tables (from `// measure` / `// dimension` annotations in deployed scripts). Call this before writing any aggregate query over a DuckLake table: a declared measure is the canonical definition of that number, and reproducing it yourself silently disagrees with it (a `revenue` measure typically excludes refunds or test rows). Use each returned `expr` verbatim, and when a measure has a `filter` write it as `expr FILTER (WHERE filter)` so measures with different predicates share one GROUP BY. Only declarations whose producing script you can read are returned, so what comes back is never proof of what exists: if the number you need is not here you may still write your own aggregate, but say that you found no declared measure for it rather than implying none exists.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"table": {
+					"description": "Only declarations on this DuckLake table, as `<lake>/<table>` or `<lake>/<schema>.<table>`, with or without the `ducklake://` scheme. A name with no lake matches nothing and comes back empty.",
+					"type": "string"
+				},
+				"path_prefix": {
+					"description": "Only declarations made by scripts under this path, e.g. `f/analytics`.",
+					"type": "string"
+				},
+				"limit": {
+					"description": "Max number of declarations to return. Defaults to 200.",
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 1000
+				}
+			},
+			"additionalProperties": false,
+			"required": []
+		},
+		"read_only": true
+	},
+	{
+		"name": "list_ducklakes",
+		"description": "List the DuckLake catalogs configured in this workspace, by name. Call this before building or deploying a data pipeline that materializes DuckLake tables or reads/writes S3 assets: if it returns none, the workspace has no object storage + DuckLake configured and the pipeline cannot run until a workspace admin sets it up. Returns names only.",
+		"parameters": {
+			"type": "object",
+			"properties": {},
+			"additionalProperties": false,
+			"required": []
+		},
+		"read_only": true
+	},
+	{
+		"name": "search_files",
+		"description": "Search the user-attached files with a regular expression and return matching lines with their line numbers. Use this to locate content before reading a specific window with read_file.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"pattern": {
+					"description": "JavaScript regular expression to search for.",
+					"type": "string"
+				},
+				"file": {
+					"description": "Optional file to restrict the search to: its file id when one is listed, otherwise its exact filename. Omit to search across all attached files.",
+					"type": "string"
+				},
+				"ignore_case": {
+					"description": "Case-insensitive matching. Defaults to false.",
+					"type": "boolean"
+				}
+			},
+			"required": [
+				"pattern"
+			],
+			"additionalProperties": false
+		},
+		"read_only": true
+	},
+	{
+		"name": "read_file",
+		"description": "Read a bounded window of lines from a user-attached file. Returns each line prefixed with its 1-based number (`<n>→<content>`) plus a pagination note. Files are not in context, so use this to inspect their contents.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"file": {
+					"description": "File to read: its file id when one is listed, otherwise its exact filename.",
+					"type": "string"
+				},
+				"start_line": {
+					"description": "1-based first line to read. Defaults to 1.",
+					"type": "integer",
+					"minimum": -9007199254740991,
+					"maximum": 9007199254740991
+				},
+				"end_line": {
+					"description": "1-based last line to read. The window is capped at 200 lines.",
+					"type": "integer",
+					"minimum": -9007199254740991,
+					"maximum": 9007199254740991
+				}
+			},
+			"required": [
+				"file"
+			],
+			"additionalProperties": false
+		},
+		"read_only": true
+	},
+	{
+		"name": "get_workspace_settings",
+		"description": "Read the workspace settings as YAML, in the layout of the settings.yaml file the CLI syncs. Secrets read as `__SENSITIVE_AND_UNCHANGED__`.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"keys": {
+					"description": "Only these top-level keys. Omit for the whole document.",
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				}
+			},
+			"additionalProperties": false,
+			"required": []
+		},
+		"read_only": true
+	},
+	{
+		"name": "set_workspace_settings",
+		"description": "Change workspace settings. Keys the yaml omits are left as they are. Read get_instructions subject \"workspace_settings\" before your first change.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"yaml": {
+					"description": "A YAML mapping of only the top-level keys to change, each given whole (a nested object replaces the stored one). A key set to null clears it.",
+					"type": "string"
+				}
+			},
+			"required": [
+				"yaml"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	}
+]

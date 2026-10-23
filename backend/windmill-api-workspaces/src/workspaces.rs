@@ -39,7 +39,7 @@ use windmill_common::global_settings::HTTP_ROUTE_WORKSPACED_ROUTE;
 use windmill_common::query_builders::{render_db_quoted_identifier, DbType};
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{
-    crypt_from_key_with_suffix, decrypt, encrypt, WORKSPACE_CRYPT_CACHE,
+    crypt_from_key_with_suffix, decrypt, decrypt_secret_value, encrypt, WORKSPACE_CRYPT_CACHE,
 };
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::workspaces::GitRepositorySettings;
@@ -76,7 +76,9 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Row, Transaction};
 use windmill_common::oauth2::InstanceEvent;
-use windmill_common::secret_backend::{get_secret_backend, is_vault_backend_configured};
+use windmill_common::secret_backend::{
+    get_secret_backend, is_external_stored_value, is_vault_backend_configured,
+};
 use windmill_common::utils::not_found_if_none;
 
 lazy_static::lazy_static! {
@@ -113,6 +115,7 @@ pub fn workspaced_service() -> Router {
         .route("/slack_oauth_config", get(get_slack_oauth_config))
         .route("/slack_oauth_config", post(set_slack_oauth_config))
         .route("/slack_oauth_config", delete(delete_slack_oauth_config))
+        .route("/slack_signing_secret", post(set_slack_signing_secret))
         .route("/edit_webhook", post(edit_webhook))
         .route("/edit_auto_invite", post(edit_auto_invite))
         .route("/edit_instance_groups", post(edit_instance_groups))
@@ -192,7 +195,11 @@ pub fn workspaced_service() -> Router {
         .route("/usage", get(get_usage))
         .route("/used_triggers", get(get_used_triggers))
         .route("/public_app_rate_limit", post(edit_public_app_rate_limit))
-        .route("/operator_settings", post(update_operator_settings))
+        .route(
+            "/operator_settings",
+            post(crate::workspace_roles::update_operator_settings),
+        )
+        .merge(crate::workspace_roles::workspaced_service())
         .route(
             "/create_workspace_fork_branch",
             post(create_workspace_fork_branch),
@@ -442,6 +449,8 @@ struct RunSlackMessageTestJobResponse {
 #[derive(Deserialize)]
 pub struct EditAutoInvite {
     pub operator: Option<bool>,
+    /// The role auto-invited members get; wins over `operator`.
+    pub role: Option<String>,
     pub invite_all: Option<bool>,
     pub auto_add: Option<bool>,
 }
@@ -579,6 +588,9 @@ struct UserWorkspace {
     pub created_by: Option<String>,
     pub disabled: bool,
     pub is_service_account: bool,
+    /// The member's role in this workspace.
+    pub role: String,
+    pub capabilities: windmill_common::roles::RoleCapabilities,
 }
 
 #[derive(Deserialize)]
@@ -596,7 +608,11 @@ struct ValidateUsername {
 pub struct NewWorkspaceInvite {
     pub email: String,
     pub is_admin: bool,
+    /// Legacy role selector, `true` for the `operator` role; `role` wins.
+    #[serde(default)]
     pub operator: bool,
+    #[serde(default)]
+    pub role: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -604,7 +620,34 @@ pub struct NewWorkspaceUser {
     pub email: String,
     pub username: Option<String>,
     pub is_admin: bool,
+    #[serde(default)]
     pub operator: bool,
+    #[serde(default)]
+    pub role: Option<String>,
+}
+
+/// The role a new member or invite gets, `role` if given, else the one the legacy `operator` flag
+/// names, and the `usr.operator` value that goes with it: "cannot write code".
+async fn resolve_new_member_role(
+    db: &DB,
+    w_id: &str,
+    operator: bool,
+    role: Option<&str>,
+) -> Result<(String, bool)> {
+    let roles = windmill_common::roles::workspace_roles(db, w_id).await?;
+    let name = match role {
+        Some(role) => role.to_string(),
+        None if operator => windmill_common::roles::OPERATOR_ROLE.to_string(),
+        None => windmill_common::roles::default_role_name(roles.iter().map(|r| r.name.as_str())),
+    };
+    let caps = roles
+        .iter()
+        .find(|r| r.name == name)
+        .ok_or_else(|| {
+            Error::BadRequest(format!("role `{name}` is not defined in workspace {w_id}"))
+        })?
+        .capabilities;
+    Ok((name, !caps.code))
 }
 
 /// The role is one choice stored as two flags; both set would show as admin in the UI while the
@@ -718,6 +761,7 @@ async fn list_pending_invites(
             workspace_invite.email,
             workspace_invite.is_admin,
             workspace_invite.operator,
+            COALESCE(workspace_invite.workspace_role, CASE WHEN workspace_invite.operator THEN 'operator' ELSE 'developer' END) AS \"role!\",
             workspace.parent_workspace_id
         FROM workspace_invite JOIN workspace ON workspace_invite.workspace_id = workspace.id
         WHERE workspace_id = $1
@@ -1729,6 +1773,7 @@ struct SetSlackOAuthConfigRequest {
 struct GetSlackOAuthConfigResponse {
     slack_oauth_client_id: Option<String>,
     slack_oauth_client_secret: Option<String>,
+    slack_signing_secret: Option<String>,
 }
 
 async fn get_slack_oauth_config(
@@ -1739,7 +1784,8 @@ async fn get_slack_oauth_config(
     require_admin(authed.is_admin, &authed.username)?;
 
     let settings = sqlx::query!(
-        "SELECT slack_oauth_client_id, slack_oauth_client_secret FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT slack_oauth_client_id, slack_oauth_client_secret, slack_signing_secret
+         FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
     .fetch_one(&db)
@@ -1753,6 +1799,7 @@ async fn get_slack_oauth_config(
     Ok(Json(GetSlackOAuthConfigResponse {
         slack_oauth_client_id: settings.slack_oauth_client_id,
         slack_oauth_client_secret: masked_secret,
+        slack_signing_secret: settings.slack_signing_secret.map(|_| "***".to_string()),
     }))
 }
 
@@ -1810,8 +1857,11 @@ async fn set_slack_oauth_config(
     let mut tx = db.begin().await?;
 
     sqlx::query!(
+        // Another app's signing secret would reject every request the new app sends.
         "UPDATE workspace_settings
-         SET slack_oauth_client_id = $1, slack_oauth_client_secret = $2
+         SET slack_oauth_client_id = $1, slack_oauth_client_secret = $2,
+             slack_signing_secret = CASE WHEN slack_oauth_client_id = $1::varchar
+                 THEN slack_signing_secret END
          WHERE workspace_id = $3",
         &req.slack_oauth_client_id,
         &req.slack_oauth_client_secret,
@@ -1848,6 +1898,51 @@ async fn set_slack_oauth_config(
     Ok(format!("Slack OAuth config set for workspace {}", &w_id))
 }
 
+#[derive(Deserialize)]
+struct SetSlackSigningSecretRequest {
+    slack_signing_secret: Option<String>,
+}
+
+/// The signing secret of the workspace's own Slack app, which authenticates what Slack sends for it.
+async fn set_slack_signing_secret(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(req): Json<SetSlackSigningSecretRequest>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+    let secret = req
+        .slack_signing_secret
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let mut tx = db.begin().await?;
+    sqlx::query!(
+        "UPDATE workspace_settings SET slack_signing_secret = $1 WHERE workspace_id = $2",
+        secret,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.set_slack_signing_secret",
+        if secret.is_some() {
+            ActionKind::Update
+        } else {
+            ActionKind::Delete
+        },
+        &w_id,
+        Some(&authed.email),
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(format!("Slack signing secret updated for workspace {w_id}"))
+}
+
 async fn delete_slack_oauth_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1859,7 +1954,8 @@ async fn delete_slack_oauth_config(
 
     sqlx::query!(
         "UPDATE workspace_settings
-         SET slack_oauth_client_id = NULL, slack_oauth_client_secret = NULL
+         SET slack_oauth_client_id = NULL, slack_oauth_client_secret = NULL,
+             slack_signing_secret = NULL
          WHERE workspace_id = $1",
         &w_id
     )
@@ -6689,13 +6785,11 @@ async fn user_workspaces(
     Extension(db): Extension<DB>,
     ApiAuthed { email, .. }: ApiAuthed,
 ) -> JsonResult<WorkspaceList> {
-    let mut tx = db.begin().await?;
-    let workspaces = sqlx::query_as!(
-        UserWorkspace,
+    let rows = sqlx::query!(
         "SELECT workspace.id, workspace.name, usr.username, workspace_settings.color, workspace.parent_workspace_id,
                 workspace.is_dev_workspace, workspace.dev_workspace_label,
                 workspace.owner AS \"created_by?\",
-                CASE WHEN usr.operator THEN workspace_settings.operator_settings ELSE NULL END as operator_settings,
+                usr.is_admin, usr.operator, usr.workspace_role,
                 usr.disabled, usr.is_service_account
          FROM workspace
          JOIN usr ON usr.workspace_id = workspace.id
@@ -6703,9 +6797,46 @@ async fn user_workspaces(
          WHERE usr.email = $1 AND workspace.deleted = false",
         email
     )
-    .fetch_all(&mut *tx)
+    .fetch_all(&db)
     .await?;
-    tx.commit().await?;
+    let mut workspaces = Vec::with_capacity(rows.len());
+    for r in rows {
+        let role = windmill_common::roles::resolve_role_name(r.workspace_role, r.operator);
+        let capabilities = if r.is_admin {
+            windmill_common::roles::RoleCapabilities::FULL
+        } else {
+            windmill_common::roles::role_capabilities_by_name(&db, &r.id, &role).await?
+        };
+        // The pre-roles shape the frontend gates on: present exactly for a restricted member.
+        let operator_settings = (capabilities.is_restricted()).then(|| {
+            let v = &capabilities.visibility;
+            Some(serde_json::json!({
+                "runs": v.runs, "schedules": v.schedules, "resources": v.resources,
+                "variables": v.variables, "assets": v.assets, "triggers": v.triggers,
+                "audit_logs": v.audit_logs, "groups": v.groups, "folders": v.folders,
+                "workers": v.workers,
+                "builder_flows": capabilities.flows != windmill_common::roles::AuthorLevel::None,
+                "builder_apps": capabilities.apps != windmill_common::roles::AuthorLevel::None,
+                "manage_schedules": capabilities.manage_schedules,
+                "manage_triggers": capabilities.manage_triggers,
+            }))
+        });
+        workspaces.push(UserWorkspace {
+            id: r.id,
+            name: r.name,
+            username: r.username,
+            color: r.color,
+            operator_settings,
+            parent_workspace_id: r.parent_workspace_id,
+            is_dev_workspace: r.is_dev_workspace,
+            dev_workspace_label: r.dev_workspace_label,
+            created_by: r.created_by,
+            disabled: r.disabled,
+            is_service_account: r.is_service_account,
+            role,
+            capabilities,
+        });
+    }
     Ok(Json(WorkspaceList { email, workspaces }))
 }
 
@@ -7672,9 +7803,9 @@ async fn copy_workspace_members(
     // instance-group config, so a copied `instance_group` provenance would let the fork's
     // reconciliation delete them and their data.
     sqlx::query!(
-        "INSERT INTO usr (workspace_id, username, email, is_admin, created_at, operator, disabled, role, is_service_account, added_via)
+        "INSERT INTO usr (workspace_id, username, email, is_admin, created_at, operator, disabled, role, is_service_account, added_via, workspace_role)
          SELECT $1, username, email, is_admin, created_at, operator, disabled, role, is_service_account,
-                CASE WHEN $3 THEN NULL ELSE added_via END
+                CASE WHEN $3 THEN NULL ELSE added_via END, workspace_role
          FROM usr WHERE workspace_id = $2
            AND (NOT $3 OR (NOT operator AND NOT disabled AND NOT is_service_account))
          ON CONFLICT DO NOTHING",
@@ -7684,6 +7815,27 @@ async fn copy_workspace_members(
     )
     .execute(&mut **tx)
     .await?;
+    // The members keep their roles, so the fork needs the source's workspace-only roles and
+    // overrides to give them the same meaning.
+    sqlx::query!(
+        "UPDATE workspace_settings SET role_overrides =
+            (SELECT role_overrides FROM workspace_settings WHERE workspace_id = $2)
+         WHERE workspace_id = $1",
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query!(
+        "INSERT INTO role_seat (workspace_id, role, author)
+         SELECT $1, role, author FROM role_seat WHERE workspace_id = $2
+         ON CONFLICT DO NOTHING",
+        target_workspace_id,
+        source_workspace_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    windmill_common::roles::invalidate_workspace_roles_cache(target_workspace_id);
     Ok(())
 }
 
@@ -11389,7 +11541,11 @@ async fn invite_user(
     Json(mut nu): Json<NewWorkspaceInvite>,
 ) -> Result<(StatusCode, String)> {
     require_admin(is_admin, &username)?;
-    reject_admin_and_operator(nu.is_admin, nu.operator)?;
+    if nu.role.is_none() {
+        reject_admin_and_operator(nu.is_admin, nu.operator)?;
+    }
+    let (role, role_operator) =
+        resolve_new_member_role(&db, &w_id, nu.operator, nu.role.as_deref()).await?;
 
     #[cfg(not(feature = "enterprise"))]
     if w_id == "admins" {
@@ -11404,7 +11560,7 @@ async fn invite_user(
     if let Some(msg) = windmill_common::ee_oss::check_seat_cap_for_new_user(
         &db,
         &nu.email,
-        windmill_common::workspaces::consumes_operator_seat(&db, &w_id, nu.operator).await?,
+        windmill_common::workspaces::consumes_operator_seat(&db, &w_id, nu.is_admin, &role).await?,
     )
     .await?
     {
@@ -11431,13 +11587,15 @@ async fn invite_user(
 
     sqlx::query!(
         "INSERT INTO workspace_invite
-            (workspace_id, email, is_admin, operator)
-            VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, email)
-            DO UPDATE SET is_admin = EXCLUDED.is_admin, operator = EXCLUDED.operator",
+            (workspace_id, email, is_admin, operator, workspace_role)
+            VALUES ($1, $2, $3, $4, $5) ON CONFLICT (workspace_id, email)
+            DO UPDATE SET is_admin = EXCLUDED.is_admin, operator = EXCLUDED.operator,
+                workspace_role = EXCLUDED.workspace_role",
         &w_id,
         nu.email,
         nu.is_admin,
-        nu.operator
+        role_operator,
+        &role
     )
     .execute(&mut *tx)
     .await?;
@@ -11490,7 +11648,13 @@ async fn authorize_fork_owner_add_user(
         .await?
         .ok_or_else(|| Error::RequireAdmin(authed.username.clone()))?;
 
-    if nu.is_admin || nu.operator {
+    if nu.is_admin
+        || nu.operator
+        || nu
+            .role
+            .as_deref()
+            .is_some_and(|r| r != windmill_common::roles::DEVELOPER_ROLE)
+    {
         return Err(Error::PermissionDenied(format!(
             "as the creator of fork {w_id} you can only add members as developers; ask an admin of \
              {w_id} for any other role"
@@ -11541,7 +11705,11 @@ async fn add_user(
     Path(w_id): Path<String>,
     Json(mut nu): Json<NewWorkspaceUser>,
 ) -> Result<(StatusCode, String)> {
-    reject_admin_and_operator(nu.is_admin, nu.operator)?;
+    if nu.role.is_none() {
+        reject_admin_and_operator(nu.is_admin, nu.operator)?;
+    }
+    let (role, role_operator) =
+        resolve_new_member_role(&db, &w_id, nu.operator, nu.role.as_deref()).await?;
 
     #[cfg(not(feature = "enterprise"))]
     if w_id == "admins" {
@@ -11562,7 +11730,7 @@ async fn add_user(
     if let Some(msg) = windmill_common::ee_oss::check_seat_cap_for_new_user(
         &db,
         &nu.email,
-        windmill_common::workspaces::consumes_operator_seat(&db, &w_id, nu.operator).await?,
+        windmill_common::workspaces::consumes_operator_seat(&db, &w_id, nu.is_admin, &role).await?,
     )
     .await?
     {
@@ -11622,13 +11790,14 @@ async fn add_user(
 
     sqlx::query!(
         "INSERT INTO usr
-            (workspace_id, email, username, is_admin, operator)
-            VALUES ($1, $2, $3, $4, $5)",
+            (workspace_id, email, username, is_admin, operator, workspace_role)
+            VALUES ($1, $2, $3, $4, $5, $6)",
         &w_id,
         nu.email,
         username,
         nu.is_admin,
-        nu.operator
+        role_operator,
+        &role
     )
     .execute(&mut *tx)
     .await?;
@@ -11737,11 +11906,14 @@ async fn delete_invite(
 
     sqlx::query!(
         "DELETE FROM workspace_invite WHERE
-        workspace_id = $1 AND email = $2 AND is_admin = $3 AND operator = $4",
+        workspace_id = $1 AND email = $2 AND is_admin = $3
+        AND ($5::text IS NOT NULL OR operator = $4)
+        AND ($5::text IS NULL OR $5 = COALESCE(workspace_role, CASE WHEN operator THEN 'operator' ELSE 'developer' END))",
         &w_id,
         nu.email,
         nu.is_admin,
-        nu.operator
+        nu.operator,
+        nu.role
     )
     .execute(&mut *tx)
     .await?;
@@ -12103,114 +12275,6 @@ pub async fn get_public_app_rate_limit(db: &DB, w_id: &str) -> Result<Option<i32
     let rate_limit = result.flatten();
     PUBLIC_APP_RATE_LIMIT_CACHE.insert(w_id.to_string(), (rate_limit, now));
     Ok(rate_limit)
-}
-
-#[derive(Deserialize, Serialize)]
-struct ChangeOperatorSettings {
-    #[serde(default)]
-    runs: bool,
-    #[serde(default)]
-    schedules: bool,
-    #[serde(default)]
-    resources: bool,
-    #[serde(default)]
-    variables: bool,
-    #[serde(default)]
-    assets: bool,
-    #[serde(default)]
-    triggers: bool,
-    #[serde(default)]
-    audit_logs: bool,
-    #[serde(default)]
-    groups: bool,
-    #[serde(default)]
-    folders: bool,
-    #[serde(default)]
-    workers: bool,
-    /// Write rights, so `None` (key absent) must mean "leave as stored" rather than a value: the
-    /// row is merged, not overwritten, and this endpoint takes whole-object payloads from git-sync
-    /// files that predate the key. Defaulting either way here would make an older file silently
-    /// withdraw or grant the right on every push.
-    ///
-    /// `builder_flows` lets every operator of this workspace compose flows out of already-deployed
-    /// runnables, `builder_apps` full-code apps. Either makes each operator consume a full author
-    /// seat instead of half of one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    builder_flows: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    builder_apps: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    manage_schedules: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    manage_triggers: Option<bool>,
-}
-
-async fn update_operator_settings(
-    authed: ApiAuthed,
-    Path(w_id): Path<String>,
-    Extension(db): Extension<DB>,
-    Json(settings): Json<ChangeOperatorSettings>,
-) -> Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
-
-    // Every operator of the workspace turns into a full seat, which an offline license may not
-    // cover. Either right costs the same seat, so this prices "any", and it is a no-op delta when
-    // one of them is already on.
-    #[cfg(feature = "enterprise")]
-    if settings.builder_flows == Some(true) || settings.builder_apps == Some(true) {
-        if let Some(msg) =
-            windmill_common::ee_oss::check_seat_cap_for_operator_builder(&db, &w_id).await?
-        {
-            return Err(Error::BadRequest(msg));
-        }
-    }
-
-    let mut tx = db.begin().await?;
-
-    let settings_json = serde_json::json!(settings);
-
-    // Merged for the `Option` fields above; the visibility flags always serialize, so for them
-    // this is a plain overwrite.
-    sqlx::query!(
-        "UPDATE workspace_settings
-         SET operator_settings = COALESCE(operator_settings, '{}'::jsonb) || $1
-         WHERE workspace_id = $2",
-        settings_json,
-        &w_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    audit_log(
-        &mut *tx,
-        &authed,
-        "workspaces.update_operator_settings",
-        ActionKind::Update,
-        &w_id,
-        None,
-        Some([("operator_settings", settings_json.to_string().as_str())].into()),
-    )
-    .await?;
-    tx.commit().await?;
-
-    windmill_common::workspaces::invalidate_operator_rights_cache(&w_id);
-
-    // Trigger git sync for operator settings changes
-    handle_deployment_metadata(
-        &authed.email,
-        &authed.username,
-        &db,
-        &w_id,
-        windmill_git_sync::DeployedObject::Settings {
-            setting_type: "operator_settings".to_string(),
-        },
-        Some("Operator settings updated".to_string()),
-        false,
-        None,
-    )
-    .await?;
-
-    Ok("Operator settings updated successfully".to_string())
 }
 
 // Protection Rules API endpoints
@@ -13812,7 +13876,7 @@ async fn load_workspace_authed(
     let is_super_admin = windmill_api_auth::is_super_admin_authed(db, base_authed).await?;
 
     let user_row = sqlx::query!(
-        "SELECT username, is_admin, operator FROM usr
+        "SELECT username, is_admin, operator, workspace_role FROM usr
          WHERE workspace_id = $1 AND email = $2 AND disabled = false",
         workspace_id,
         &base_authed.email
@@ -13858,7 +13922,14 @@ async fn load_workspace_authed(
         email: base_authed.email.clone(),
         username: user_row.username,
         is_admin: is_super_admin || user_row.is_admin,
-        is_operator: user_row.operator,
+        is_operator: !user_row.is_admin
+            && windmill_common::roles::member_is_restricted(
+                &mut conn,
+                workspace_id,
+                user_row.workspace_role.clone(),
+                user_row.operator,
+            )
+            .await?,
         groups,
         folders,
         scopes: base_authed.scopes.clone(),
@@ -14303,6 +14374,12 @@ async fn compare_two_apps(
     });
 }
 
+// Resources and resource types can be stored with a NULL description, but deploy writes "",
+// so the two must compare equal or the item never settles after a deploy.
+fn description_differs(a: &Option<String>, b: &Option<String>) -> bool {
+    a.as_deref().unwrap_or("") != b.as_deref().unwrap_or("")
+}
+
 async fn compare_two_resources(
     db: &DB,
     source_workspace_id: &str,
@@ -14371,7 +14448,7 @@ async fn compare_two_resources(
             source.value != target.value
         };
         if values_differ
-            || source.description != target.description
+            || description_differs(&source.description, &target.description)
             || source.resource_type != target.resource_type
         {
             has_changes = true;
@@ -14449,11 +14526,22 @@ async fn compare_two_variables(
 
     // Check metadata differences
     if let (Some(source), Some(target)) = (&source_variable, &target_variable) {
-        if source.is_secret != target.is_secret
-            || source.value != target.value
-            || source.description != target.description
-        {
+        if source.is_secret != target.is_secret || source.description != target.description {
             has_changes = true;
+        } else if source.value != target.value
+            || (source.is_secret && is_external_stored_value(&source.value))
+        {
+            // A secret's ciphertext is randomized on every write, so equal secrets are compared
+            // by plaintext, each decrypted with its own workspace's key. An external backend
+            // reference is the same text on both sides but names a per-workspace entry.
+            has_changes = !source.is_secret
+                || !matches!(
+                    tokio::try_join!(
+                        decrypt_secret_value(db, source_workspace_id, path, source.value.clone()),
+                        decrypt_secret_value(db, fork_workspace_id, path, target.value.clone()),
+                    ),
+                    Ok((a, b)) if a == b
+                );
         }
     } else if source_variable.is_some() || target_variable.is_some() {
         // The variable exists in one of source or target, but not the other, this is considered as a change
@@ -14499,7 +14587,7 @@ async fn compare_two_resource_types(
     // Check metadata differences
     if let (Some(source), Some(target)) = (&source_resource_type, &target_resource_type) {
         if source.schema != target.schema
-            || source.description != target.description
+            || description_differs(&source.description, &target.description)
             || source.format_extension != target.format_extension
             || source.is_fileset != target.is_fileset
         {
@@ -15327,7 +15415,13 @@ pub async fn apply_settings_edit(
         DefaultApp => edit_default_app(a, d, p, settings_edit_body(edit, body)?).await?,
         Color => change_workspace_color(a, p, d, settings_edit_body(edit, body)?).await?,
         OperatorSettings => {
-            update_operator_settings(a, p, d, settings_edit_body(edit, body)?).await?
+            crate::workspace_roles::update_operator_settings(
+                a,
+                p,
+                d,
+                settings_edit_body(edit, body)?,
+            )
+            .await?
         }
         Datatable => {
             let Json(result) =

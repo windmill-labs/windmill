@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { AppService, FlowService, type OpenFlow, type Script } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { roleCapabilities, userStore, workspaceStore } from '$lib/stores'
+	import { HOME_COLUMN_WIDTH } from '$lib/consts'
 	import { Alert, Button, Drawer, DrawerContent } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
@@ -97,6 +98,12 @@
 	// the mount animation below never covers. Replay it by hand instead of keying the page on the
 	// workspace: a remount would drop the list's own state and refetch what it is already loading.
 	let pageEl: HTMLDivElement | undefined = $state(undefined)
+
+	// Back from AI Sessions the view transition (homeSessionsTransition.svelte.ts) carries the arrival, so
+	// the page skips its own fade-in. Decided once at mount: gating the class on the attribute
+	// instead would start the fade from transparent the moment the transition removes it.
+	const fadeIn =
+		typeof document === 'undefined' || !document.documentElement.dataset.homeSessionsTransition
 	const reducedMotion = useReducedMotion()
 	let animatedWorkspace = $workspaceStore
 	$effect(() => {
@@ -131,7 +138,7 @@
 			replaceState(url, page.state)
 			// Gated here too: the parameter is part of a URL anyone can type, and the tour
 			// describes a home page that only operators see.
-			if (user.operator) startTour()
+			if (!$roleCapabilities.code) startTour()
 		})
 	})
 
@@ -139,7 +146,7 @@
 		// Operators get the tour once, and only when they have not been through it: they cannot
 		// create anything, so the home page is the whole product to them and it is worth naming
 		// its three tabs. Anyone who can build gets nothing — they have the create button.
-		if (!$userStore?.operator || page.url.searchParams.has(TOUR_PARAM)) return
+		if ($roleCapabilities.code || page.url.searchParams.has(TOUR_PARAM)) return
 		if (await hasSeenOperatorTour()) return
 		startTour()
 	})
@@ -285,7 +292,7 @@
 
 <div
 	bind:this={pageEl}
-	class="wm-page-in flex flex-col w-full h-full overflow-y-auto items-center"
+	class="{fadeIn ? 'wm-page-in' : ''} flex flex-col w-full h-full overflow-y-auto items-center"
 	style="scrollbar-gutter: stable both-edges;"
 >
 	<!-- Where edits to this workspace are made is a fact about the workspace, so it sits in the
@@ -294,7 +301,7 @@
 
 	<ForkWorkspaceBanner />
 	<WorkspaceDraftsBanner />
-	<div class="max-w-7xl px-4 sm:px-8 md:px-8 h-fit w-full mb-6">
+	<div class="{HOME_COLUMN_WIDTH} px-4 sm:px-8 md:px-8 h-fit w-full mb-6 shrink-0">
 		<!-- HomeAIChat carries both the AI composer and the AI-independent CLI/MCP connect row,
 		     so it shows whenever the sessions beta is on; the composer itself is gated on the
 		     workspace inside the component, which owns its own vertical spacing
@@ -391,7 +398,7 @@
 	{/if}
 </div>
 
-{#if $userStore?.operator}
+{#if !$roleCapabilities.code}
 	<OperatorTour bind:this={operatorTour} />
 {/if}
 

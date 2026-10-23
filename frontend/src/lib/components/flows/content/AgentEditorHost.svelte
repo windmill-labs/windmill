@@ -47,7 +47,8 @@
 		AGENT_EDITOR_RUN_INPUTS,
 		AGENT_TOOLS_ROW,
 		DEFAULT_AGENT_MEMORY,
-		keepsManagedMemory
+		keepsManagedMemory,
+		agentMemoryMode
 	} from '../agentFormFields'
 	import { toolDisplayName, type AgentTool } from '../agentToolUtils'
 	import { useAgentDraft, type AgentRunAs } from '../agentDraft.svelte'
@@ -246,6 +247,23 @@
 	// apart from the echo of their own write.
 	let lastArgs = $state<string | undefined>(undefined)
 
+	// With memory off a run keeps no history of its own, so the form also takes the one to answer
+	// from; managed memory and an older setting would ignore one.
+	let formSchema = $derived(
+		agentMemoryMode((agentValue?.input_transforms?.memory as any)?.value) !== 'off'
+			? AGENT_CHAT_SCHEMA
+			: {
+					...AGENT_CHAT_SCHEMA,
+					properties: {
+						...AGENT_CHAT_SCHEMA.properties,
+						previous_messages: {
+							type: 'array',
+							items: { type: 'object' },
+							description: 'The conversation so far, as chat messages, for the agent to answer from'
+						}
+					}
+				}
+	)
 	// Picked on the first load, after which it is the reader's: following the memory setting live
 	// would pull them out of a chat for switching memory off in the form.
 	let testMode = $state<'form' | 'chat' | undefined>(undefined)
@@ -615,7 +633,7 @@
 				<div class="flex-1 min-h-0 overflow-auto p-4 {testMode === 'chat' ? 'hidden' : ''}">
 					<div class="max-w-3xl mx-auto">
 						{@render viewForm?.({
-							schema: AGENT_CHAT_SCHEMA,
+							schema: formSchema,
 							run: runOnce,
 							loading: runLoading,
 							actions: onOpenConfig ? configurationButton : undefined

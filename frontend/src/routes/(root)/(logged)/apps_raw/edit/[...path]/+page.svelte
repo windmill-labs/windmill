@@ -4,7 +4,7 @@
 
 	import { AppService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { useOperatorBuilderApps, workspaceListLoaded } from '$lib/operatorWriteRights'
+	import { useRoleCapabilities, workspaceListLoaded } from '$lib/operatorWriteRights'
 	import { readFieldsRecursively } from '$lib/utils'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -15,6 +15,7 @@
 	import { openEditorInSession } from '$lib/components/sessions/sessionSwitch.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
+	import { recentItems } from '$lib/components/home/recentItems.svelte'
 	import {
 		type RawAppData,
 		DEFAULT_DATA,
@@ -102,7 +103,8 @@
 	// edits to the just-deployed app autosaved to a dead key (autosave appeared
 	// broken). See /scripts/edit, which derives its draft path the same way.
 	// effectivePath omitted: the live-editor-draft entry is owned by RawAppEditor.
-	const operatorBuilderApps = useOperatorBuilderApps()
+	const roleCaps = useRoleCapabilities()
+	const composeOnlyApps = $derived($roleCaps.apps === 'compose')
 
 	const draftSync = usePageDraftSync<RawAppDraft>({
 		itemKind: 'raw_app',
@@ -281,7 +283,7 @@
 			// Seed the React 19 template so the editor has a usable state even if the
 			// user dismisses the picker without selecting.
 			const seedFiles = {
-				...($operatorBuilderApps ? BUILDER_FRAMEWORK_TEMPLATES.react19 : react19Template)
+				...(composeOnlyApps ? BUILDER_FRAMEWORK_TEMPLATES.react19 : react19Template)
 			}
 			const seedRunnables = starterRunnables()
 			savedApp = {
@@ -311,6 +313,15 @@
 			rawApp: true
 		})) as any
 		if (tok !== loadAppToken) return
+		// A draft-only app has no page for Home's card to open.
+		if (!backendApp.no_deployed) {
+			recentItems.record($workspaceStore!, {
+				kind: 'raw_app',
+				path: backendApp.path,
+				summary: backendApp.summary,
+				via: 'edit'
+			})
+		}
 		// `other_drafts_users` only computed when `getDraft`; don't clobber the
 		// known list on a `getDraft:false` reload. See /scripts/edit's loader.
 		if (getDraft) {
@@ -532,10 +543,10 @@
 
 	let rawAppEditor: RawAppEditor | undefined = $state()
 
-	// The starter runnables are inline scripts, which the backend refuses from an operator with
-	// builder rights: seeding them would make their very first deploy fail.
+	// The starter runnables are inline scripts, which the backend refuses from a role that only
+	// composes apps: seeding them would make their very first deploy fail.
 	function starterRunnables() {
-		return $operatorBuilderApps ? {} : structuredClone(STARTER_RUNNABLES)
+		return composeOnlyApps ? {} : structuredClone(STARTER_RUNNABLES)
 	}
 
 	async function onTemplatePickerStart(result: RawAppTemplatePickerResult, mode: RawAppBuildMode) {
@@ -547,7 +558,7 @@
 			policy: result.policy
 		}
 		const workspace = $workspaceStore
-		if (mode === 'ai' && prefersSessionHandoff($userStore?.operator) && workspace) {
+		if (mode === 'ai' && prefersSessionHandoff(!$roleCaps.code) && workspace) {
 			// The session loads the app by path, so the picked setup is saved before it
 			// opens. `new_draft` tells it the app is still the starter template.
 			try {
@@ -646,6 +657,7 @@
 			<RawAppEditor
 				bind:this={rawAppEditor}
 				ownsPageHeader
+				compact={page.url.searchParams.get('view') === 'preview'}
 				onDetails={(e) => goto(`/apps_raw/get/${e.path}?workspace=${$workspaceStore}`)}
 				onSavedNewAppPath={(savedPath) => {
 					draftSync.remove()

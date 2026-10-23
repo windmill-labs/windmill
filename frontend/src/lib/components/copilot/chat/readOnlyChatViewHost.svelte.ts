@@ -42,6 +42,7 @@ export function readOnlyChatViewHost(options: {
 		sendRequest: async () => false,
 		cancel: noop,
 		setAiChatInput: noop,
+		releaseAiChatInput: noop,
 		queuedMessage: '',
 		queuedContext: undefined,
 		queuedImages: [],

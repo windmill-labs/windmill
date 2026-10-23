@@ -1,5 +1,12 @@
 <script lang="ts">
-	import { composerBoxClass, COMPOSER_FIELD_RESET, type ComposerSelection } from './composerBox'
+	import {
+		composerBoxClass,
+		COMPOSER_FIELD_RESET,
+		HERO_BOX_CLASS,
+		type ComposerSelection
+	} from './composerBox'
+	import { smoothHeight } from './starter/smoothHeight'
+	import { MessagesSquare } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
 	import { tick, type Snippet } from 'svelte'
 	import type { ContextElement } from './context'
@@ -50,6 +57,14 @@
 		onKeyDown?: (e: KeyboardEvent) => void
 		/** Rendered inside the input box, above the textarea (e.g. context chips). */
 		leading?: Snippet
+		/** Rendered inside the input box, below the textarea (the composer's controls). */
+		trailing?: Snippet
+		/** The taller box that opens a session, matching Home's composer. */
+		hero?: boolean
+		/** One row: the field and `trailing` side by side, for Home's composer at rest. */
+		oneLine?: boolean
+		/** The assistant's chat mark before the field. */
+		chatIcon?: boolean
 	}
 
 	let {
@@ -66,7 +81,11 @@
 		onTextFiles,
 		className = '',
 		onKeyDown = undefined,
-		leading
+		leading,
+		trailing,
+		hero = false,
+		oneLine = false,
+		chatIcon = false
 	}: Props = $props()
 
 	const aiChatManager = getAiChatManager()
@@ -792,11 +811,35 @@
 	}
 </script>
 
-<div class={composerBoxClass(disabled)}>
-	<!-- Context chips live inside the input box, above the textarea. The snippet
+<!-- The box that opens a session grows and shrinks between its one-line and full shapes. -->
+<div
+	class={twMerge(composerBoxClass(disabled), hero && HERO_BOX_CLASS)}
+	use:smoothHeight={{ enabled: hero, key: oneLine }}
+>
+	<div class={oneLine ? 'flex flex-row items-center' : ''}>
+		<!-- Context chips live inside the input box, above the textarea. The snippet
 	     self-guards (renders nothing when empty) so no blank row appears. -->
-	{@render leading?.()}
-	<div class="relative w-full">
+		{@render leading?.()}
+		{#if chatIcon}
+			<!-- The same mark as the "open in chat" buttons, centred on the field's first text line in
+			     both shapes: the slot is that line (1px border + 12px padding down, 20px tall), so it
+			     relies on the field's `!py-3`/`!pt-3` and the `leading-5` set alongside `chatIcon`.
+			     Centring on the field box instead follows its autosized height, which varies. -->
+			<div class="flex items-start {oneLine ? 'flex-1 min-w-0' : ''}">
+				<span class="flex items-center h-5 mt-[13px] ml-4 shrink-0">
+					<MessagesSquare size={16} class="text-ai" />
+				</span>
+				{@render field()}
+			</div>
+		{:else}
+			{@render field()}
+		{/if}
+		{@render trailing?.()}
+	</div>
+</div>
+
+{#snippet field()}
+	<div class="relative w-full {oneLine ? 'flex-1 min-w-0' : ''}">
 		<div
 			class={twMerge(
 				'textarea-input absolute inset-0 overflow-hidden pointer-events-none',
@@ -814,7 +857,7 @@
 			bind:this={textarea}
 			onkeydown={handleKeyDown}
 			bind:value
-			use:autosize={{ maxHeight: '40vh' }}
+			use:autosize={hero && !oneLine ? { maxHeight: 160, minHeight: 56 } : { maxHeight: '40vh' }}
 			rows={1}
 			oninput={handleInput}
 			onpaste={handlePaste}
@@ -840,7 +883,9 @@
 			}}
 			{placeholder}
 			class={twMerge(
-				'textarea-input resize-none caret-black dark:caret-white overflow-clip',
+				// `no-default-style`: the global input rule paints `surface-input` with `!important`
+				// and outranks `!bg-transparent`, so the field showed as a band on a hero box.
+				'textarea-input no-default-style block resize-none caret-black dark:caret-white overflow-clip',
 				COMPOSER_FIELD_RESET,
 				CHAT_INPUT_PADDING,
 				className
@@ -849,7 +894,7 @@
 			{disabled}
 		></textarea>
 	</div>
-</div>
+{/snippet}
 
 {#if showContextTooltip || showCommandTooltip}
 	<Portal target="body">

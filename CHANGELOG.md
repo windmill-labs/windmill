@@ -1,5 +1,78 @@
 # Changelog
 
+## [1.847.0](https://github.com/windmill-labs/windmill/compare/v1.846.1...v1.847.0) (2026-10-22)
+
+
+### Features
+
+* add job_id and flow_path to flow step error objects ([#11941](https://github.com/windmill-labs/windmill/issues/11941)) ([eeb48f0](https://github.com/windmill-labs/windmill/commit/eeb48f0c26ccc5162430eddec24adc2601eb5f99))
+* chat with a saved agent from a raw app through an agent runnable ([#11921](https://github.com/windmill-labs/windmill/issues/11921)) ([c6a93a9](https://github.com/windmill-labs/windmill/commit/c6a93a9b565752da6c8b55d383e5bee88f00f229))
+* let native triggers act through per-user or shared connections ([#11352](https://github.com/windmill-labs/windmill/issues/11352)) ([dc1fb50](https://github.com/windmill-labs/windmill/commit/dc1fb5087be7169045aad57e955dabe3e29de82e))
+* slack agents through a workspace's own slack app ([#11912](https://github.com/windmill-labs/windmill/issues/11912)) ([34de8bc](https://github.com/windmill-labs/windmill/commit/34de8bc06d2b04f7929bb8cf35f9a34d0e0071fa))
+* worker group toggle to keep the worker's proxy out of jobs ([#11958](https://github.com/windmill-labs/windmill/issues/11958)) ([8a0318a](https://github.com/windmill-labs/windmill/commit/8a0318a28f5cfda7557b0f94db20ef17b0664ee4))
+
+
+### Bug Fixes
+
+* compare a null resource description as empty ([#11947](https://github.com/windmill-labs/windmill/issues/11947)) ([8a7b148](https://github.com/windmill-labs/windmill/commit/8a7b1481bd270df3a98c9db5e7824d13b8cd37b6))
+* compare fork secret variables by decrypted value ([#11952](https://github.com/windmill-labs/windmill/issues/11952)) ([0dd131b](https://github.com/windmill-labs/windmill/commit/0dd131b38074423de5c769cae478c6ea0ae365c2))
+* hold home's ai composer space with a matching placeholder ([#11936](https://github.com/windmill-labs/windmill/issues/11936)) ([9202a74](https://github.com/windmill-labs/windmill/commit/9202a74071ba424ad6cfc1cfded518ee7db002dc))
+* link a variable to its OAuth account only in the connect flow ([#11361](https://github.com/windmill-labs/windmill/issues/11361)) ([d6adac8](https://github.com/windmill-labs/windmill/commit/d6adac8b7579ad6c3df5caab9a735451c1ddd896))
+* stop audit inserts from silently rolling back saves ([#11938](https://github.com/windmill-labs/windmill/issues/11938)) ([5ef19a8](https://github.com/windmill-labs/windmill/commit/5ef19a88a90b3a4fe05a78547416082dc51763f5))
+
+## [1.846.1](https://github.com/windmill-labs/windmill/compare/v1.846.0...v1.846.1) (2026-10-21)
+
+
+### Bug Fixes
+
+* home recent cards include items opened on their own page ([#11934](https://github.com/windmill-labs/windmill/issues/11934)) ([5019fab](https://github.com/windmill-labs/windmill/commit/5019fab5a5f996796a07524c770f86309a7a3500))
+* home search suggests filters whose name matches the typed text ([#11933](https://github.com/windmill-labs/windmill/issues/11933)) ([bf1eb85](https://github.com/windmill-labs/windmill/commit/bf1eb85577419cc08482158c1835d5262ebb87d2))
+
+## [1.846.0](https://github.com/windmill-labs/windmill/compare/v1.845.0...v1.846.0) (2026-10-21)
+
+
+### Features
+
+* home list settings menu with sort, library and user-folder toggles ([#11928](https://github.com/windmill-labs/windmill/issues/11928)) ([73f655d](https://github.com/windmill-labs/windmill/commit/73f655db98dd0f0fd03881c36e6c9310fb2687a2))
+
+
+### Bug Fixes
+
+* home's acting-on pick switches the current workspace ([#11929](https://github.com/windmill-labs/windmill/issues/11929)) ([cdaddcc](https://github.com/windmill-labs/windmill/commit/cdaddcce594378bf502f80e8f225f16b5def5eb4))
+
+## [1.845.0](https://github.com/windmill-labs/windmill/compare/v1.844.0...v1.845.0) (2026-10-21)
+
+
+### Features
+
+* home and empty ai sessions share one session composer ([#11635](https://github.com/windmill-labs/windmill/issues/11635)) ([56b2e10](https://github.com/windmill-labs/windmill/commit/56b2e106daedb5ae381052d3116346a88ba3f206))
+
+## [1.844.0](https://github.com/windmill-labs/windmill/compare/v1.843.0...v1.844.0) (2026-10-21)
+
+
+### Features
+
+* serve the ai session toolset over mcp at /api/mcp ([#11738](https://github.com/windmill-labs/windmill/issues/11738)) ([892334f](https://github.com/windmill-labs/windmill/commit/892334f008d5b6b73de38fdf2831b1a63eeb0a51))
+
+## [1.843.0](https://github.com/windmill-labs/windmill/compare/v1.842.0...v1.843.0) (2026-10-21)
+
+
+### Features
+
+* configurable workspace roles with per-workspace overrides ([#11821](https://github.com/windmill-labs/windmill/issues/11821)) ([21d2a49](https://github.com/windmill-labs/windmill/commit/21d2a49971b858ff8aef2776a36989b57ba49415))
+* move the open in AI session button to the page header ([#11888](https://github.com/windmill-labs/windmill/issues/11888)) ([34db239](https://github.com/windmill-labs/windmill/commit/34db23952a765bbb9c912d74d2a37092703f50f7))
+* ship php only on the full images ([#11922](https://github.com/windmill-labs/windmill/issues/11922)) ([b874861](https://github.com/windmill-labs/windmill/commit/b87486141df5b4f9b93900c0ee3264cf4b4610ec))
+* workspace roles settings UI and capability-based gating ([#11824](https://github.com/windmill-labs/windmill/issues/11824)) ([8dbdfa1](https://github.com/windmill-labs/windmill/commit/8dbdfa194912bf36a705392899b9f84b5a54fd55))
+
+
+### Bug Fixes
+
+* compact the AI chat history between tool iterations ([#11911](https://github.com/windmill-labs/windmill/issues/11911)) ([17de2ba](https://github.com/windmill-labs/windmill/commit/17de2ba983bee5cb7df700476ec8a0169c97ecbd))
+* refuse restarting a flow past an approval that was never granted ([#11920](https://github.com/windmill-labs/windmill/issues/11920)) ([2c6bcc0](https://github.com/windmill-labs/windmill/commit/2c6bcc09c9b6f768592b31ec540d727263a807cc))
+* remove horizontal scroll in the new workspace form ([#11909](https://github.com/windmill-labs/windmill/issues/11909)) ([d35c868](https://github.com/windmill-labs/windmill/commit/d35c86896fa4f5f9936a9f61735553e2ff42b218))
+* revoke mcp oauth grants on password change and reset ([#11908](https://github.com/windmill-labs/windmill/issues/11908)) ([c044777](https://github.com/windmill-labs/windmill/commit/c04477723c9d7544ea9c595e33fdcff5cce0c79d))
+* **worker:** render TEMP_SCRIPT_REFS placeholder in Python runner-group loader.py ([#11915](https://github.com/windmill-labs/windmill/issues/11915)) ([78fb800](https://github.com/windmill-labs/windmill/commit/78fb800904351f6b549b8b2227cb9c0d5dafd55d))
+
 ## [1.842.0](https://github.com/windmill-labs/windmill/compare/v1.841.0...v1.842.0) (2026-10-20)
 
 

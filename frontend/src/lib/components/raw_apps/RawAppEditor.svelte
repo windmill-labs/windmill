@@ -40,7 +40,7 @@
 	import { getAppliedDarkModeVariant, type DarkModeVariant } from '$lib/darkModeVariant'
 	import RawAppSidebar from './RawAppSidebar.svelte'
 	import type { Modules } from './RawAppModules.svelte'
-	import { isRunnableByName, isRunnableByPath } from '../apps/inputType'
+	import { isRunnableByName, isRunnableByPath, type PathRunType } from '../apps/inputType'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import { onMount, onDestroy, untrack } from 'svelte'
 	import type {
@@ -90,11 +90,11 @@
 	import { randomSecret, randomUUID } from '$lib/utils/uuid'
 	import { editorFontSize } from '$lib/editorFontSize.svelte'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
-	import { useOperatorBuilderApps } from '$lib/operatorWriteRights'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { conformBuilderAppPolicy } from './builderAppPolicy'
 
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatorBuilderApps = useOperatorBuilderApps()
+	const roleCaps = useRoleCapabilities()
 
 	interface Props {
 		files?: Record<string, string>
@@ -156,6 +156,10 @@
 		 * still toggle the mode after mount; this prop only seeds the
 		 * initial state. */
 		defaultSplitWithPreview?: boolean
+		/** Open on the preview alone, with the file sidebar and the build logs retracted,
+		 * whatever the width, as a narrow container does. The saved sidebar preference is
+		 * left as it is. */
+		compact?: boolean
 		/** User-typed path when it differs from `savedApp.path`. The route injects
 		 *  it as `draft_path` so the home row shows the friendly name, not `draft_{uuid}`. */
 		pendingDraftPath?: string | undefined
@@ -230,6 +234,7 @@
 		autosaveWorkspace = undefined,
 		autosavePath = undefined,
 		defaultSplitWithPreview = true,
+		compact = false,
 		pendingDraftPath = $bindable(undefined),
 		onDetails,
 		onResetToDeployed,
@@ -423,7 +428,7 @@
 	// The deploy panel cannot switch Viewer mode off, nor drop the identity an app another user
 	// deployed carries, so the editor conforms the policy as soon as it opens.
 	$effect(() => {
-		if ($operatorBuilderApps && policy) conformBuilderAppPolicy(policy, $userStore)
+		if ($roleCaps.apps === 'compose' && policy) conformBuilderAppPolicy(policy, $userStore)
 	})
 	// An app with sandbox isolation previews the way it runs once deployed: in the
 	// served, opaque-origin shell, framed with the deployed wrapper's flags. The nonce
@@ -538,7 +543,9 @@ addEventListener('message', function (e) {
 			call: "createRoot(document.getElementById('root')!).render(<App />)"
 		}
 	})
-	let logsCollapsed = $state(false)
+	// Folded when the editor opens on the preview alone, where the log matters only on a
+	// failed build (the Preview tab turns red then); shown beside the code in split view.
+	let logsCollapsed = $state(untrack(() => !defaultSplitWithPreview || compact))
 	let logsDiv: HTMLDivElement | undefined = $state(undefined)
 	$effect(() => {
 		if (logsDiv && logs && !logsCollapsed) {
@@ -566,7 +573,7 @@ addEventListener('message', function (e) {
 	let activeTabId: string = $state(PREVIEW_TAB_ID)
 	// Seed from the prop, then own the state locally so the user's toggle
 	// after mount sticks even if the prop reference changes.
-	let splitWithPreview: boolean = $state(untrack(() => defaultSplitWithPreview))
+	let splitWithPreview: boolean = $state(untrack(() => defaultSplitWithPreview && !compact))
 	const activeTabKind = $derived<'file' | 'runnable' | 'preview'>(
 		activeTabId === PREVIEW_TAB_ID
 			? 'preview'
@@ -840,7 +847,7 @@ addEventListener('message', function (e) {
 		const w = rootWidth
 		if (appliedNarrowDefault || w <= 0) return
 		appliedNarrowDefault = true
-		if (w < NARROW_PX) {
+		if (compact || w < NARROW_PX) {
 			splitWithPreview = false
 			sidebarCollapsed.setWithoutPersist(true)
 		}
@@ -910,6 +917,8 @@ addEventListener('message', function (e) {
 				backendRunnable.type = 'flow'
 			} else if (runnable.runType === 'hubscript') {
 				backendRunnable.type = 'hubscript'
+			} else if (runnable.runType === 'agent') {
+				backendRunnable.type = 'agent'
 			} else {
 				backendRunnable.type = 'script'
 			}
@@ -1223,7 +1232,7 @@ addEventListener('message', function (e) {
 					runnables[key] = {
 						name: runnable.name,
 						type: 'path',
-						runType: runnable.type as 'script' | 'flow' | 'hubscript',
+						runType: runnable.type as PathRunType,
 						path: runnable.path,
 						fields: runnable.staticInputs
 							? Object.fromEntries(
@@ -1854,7 +1863,7 @@ addEventListener('message', function (e) {
 
 	// The deployed app's `window.ctx`: the viewer's membership in the app's workspace.
 	function previewCtx() {
-		return $state.snapshot({ ctx: operatingUser.current, workspace: opWorkspace })
+		return $state.snapshot({ ctx: operatingUser.current, workspace: opWorkspace, path })
 	}
 
 	// A build fed before the viewer is known keeps that viewer until the next one. Outside
