@@ -4055,6 +4055,13 @@ async fn update_app_internal<'a>(
                 }
                 npolicy.set_execution_mode(mode);
                 if composes_only {
+                    // The check below sandboxes an app whose policy leaves `sandbox` unset; a
+                    // mode-only change keeps every other field, so that is left to a deploy.
+                    if npolicy.sandbox != Some(true) {
+                        return Err(Error::PermissionDenied(format!(
+                            "app {path} is not sandboxed: change who can open it by deploying it"
+                        )));
+                    }
                     check_operator_composed_app(
                         BuilderAppWrite::Deploy,
                         raw_app,
