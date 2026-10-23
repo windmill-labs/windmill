@@ -859,17 +859,67 @@ fn normalize_protection_rules(v: &Value, warnings: &mut Vec<String>) -> Result<V
     Ok(Value::Object(out))
 }
 
-async fn plan(db: &DB, w_id: &str, desired: Map<String, Value>, replace: bool) -> Result<Plan> {
+async fn plan(db: &DB, w_id: &str, mut desired: Map<String, Value>, replace: bool) -> Result<Plan> {
     let current = {
         let mut conn = db.acquire().await?;
         load_settings_document(&mut conn, db, w_id, SecretMode::Plain).await?
     };
+    if let Some(git_sync) = desired.get_mut("git_sync").filter(|v| v.is_object()) {
+        let fork = sqlx::query!(
+            "SELECT parent_workspace_id, is_dev_workspace FROM workspace WHERE id = $1",
+            w_id
+        )
+        .fetch_optional(db)
+        .await?;
+        let is_fork = fork
+            .as_ref()
+            .is_some_and(|r| r.parent_workspace_id.is_some())
+            || w_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX);
+        if is_fork {
+            let is_dev = fork.is_some_and(|r| r.is_dev_workspace);
+            keep_fork_owned_git_sync(git_sync, current.get("git_sync"), is_dev);
+        }
+    }
     let mc = build_crypt(db, w_id).await?;
     let names = match desired.get("datatable_permissions") {
         Some(v) if !v.is_null() => DatatableNames::load(db, w_id, v).await?,
         _ => DatatableNames::default(),
     };
     plan_document(current, desired, replace, &mc, &names)
+}
+
+/// The settings.yaml on a fork's branch is the parent's, so its `git_sync` carries the parent's
+/// auto-pull and fork-PR config, which a fork may not hold
+/// (`reject_parent_only_git_sync_settings_on_fork`). The fork keeps its own values for those, and
+/// a throwaway fork drops promotion repos, as it does at fork creation.
+fn keep_fork_owned_git_sync(desired: &mut Value, current: Option<&Value>, is_dev: bool) {
+    let Some(repos) = desired
+        .get_mut("repositories")
+        .and_then(Value::as_array_mut)
+    else {
+        return;
+    };
+    if !is_dev {
+        repos.retain(|r| r.get("use_individual_branch") != Some(&Value::Bool(true)));
+    }
+    let current_repos = current
+        .and_then(|c| c.get("repositories"))
+        .and_then(Value::as_array);
+    for repo in repos.iter_mut().filter_map(Value::as_object_mut) {
+        let path = repo.get("git_repo_resource_path").cloned();
+        let ours = current_repos
+            .and_then(|rs| {
+                rs.iter()
+                    .find(|r| r.get("git_repo_resource_path") == path.as_ref())
+            })
+            .and_then(Value::as_object);
+        for key in ["auto_pull", "fork_open_prs"] {
+            match ours.and_then(|o| o.get(key)) {
+                Some(v) => repo.insert(key.to_string(), v.clone()),
+                None => repo.remove(key),
+            };
+        }
+    }
 }
 
 fn plan_document(
@@ -1946,5 +1996,35 @@ mod tests {
             Target::Edit(SettingsEdit::DeleteProtectionRule)
         ));
         assert_eq!(p.warnings.len(), 1);
+    }
+
+    #[test]
+    fn a_fork_keeps_its_own_parent_owned_git_sync_fields() {
+        let parent = json!({ "repositories": [
+            { "git_repo_resource_path": "f/r", "include_path": ["f/**"],
+              "auto_pull": { "enabled": true, "sync_forks": true }, "fork_open_prs": true },
+            { "git_repo_resource_path": "f/promo", "use_individual_branch": true },
+        ] });
+        let fork = json!({ "repositories": [
+            { "git_repo_resource_path": "f/r", "include_path": ["u/**"],
+              "auto_pull": { "enabled": false }, "fork_open_prs": false },
+        ] });
+        let expected = json!({ "repositories": [
+            { "git_repo_resource_path": "f/r", "include_path": ["f/**"],
+              "auto_pull": { "enabled": false }, "fork_open_prs": false },
+        ] });
+        let mut d = parent.clone();
+        keep_fork_owned_git_sync(&mut d, Some(&fork), false);
+        assert_eq!(d, expected);
+
+        let mut d = parent;
+        keep_fork_owned_git_sync(&mut d, None, true);
+        assert_eq!(
+            d,
+            json!({ "repositories": [
+                { "git_repo_resource_path": "f/r", "include_path": ["f/**"] },
+                { "git_repo_resource_path": "f/promo", "use_individual_branch": true },
+            ] })
+        );
     }
 }
