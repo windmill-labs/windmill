@@ -884,22 +884,19 @@ async fn route_job(
         )
         .await
         .map_err(|e| e.into_response()),
-        RequestType::Sync => with_policy(
-            PausePolicy::Refuse,
-            trigger_runnable_and_wait_for_result(
-                &db,
-                Some(user_db),
-                authed,
-                &trigger.workspace_id,
-                &trigger.script_path,
-                trigger.is_flow,
-                args,
-                trigger.retry.as_ref(),
-                trigger.error_handler_path.as_deref(),
-                trigger.error_handler_args.as_ref(),
-                format!("http_trigger/{}", trigger.path),
-                trigger_info,
-            ),
+        RequestType::Sync => trigger_runnable_and_wait_for_result(
+            &db,
+            Some(user_db),
+            authed,
+            &trigger.workspace_id,
+            &trigger.script_path,
+            trigger.is_flow,
+            args,
+            trigger.retry.as_ref(),
+            trigger.error_handler_path.as_deref(),
+            trigger.error_handler_args.as_ref(),
+            format!("http_trigger/{}", trigger.path),
+            trigger_info,
         )
         .await
         .map_err(|e| e.into_response()),

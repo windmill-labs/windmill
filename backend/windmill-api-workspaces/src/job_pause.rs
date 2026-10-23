@@ -78,9 +78,11 @@ async fn pause_jobs(
     require_admin(authed.is_admin, &authed.username)?;
 
     let now = Utc::now();
+    let max = Duration::days(MAX_PAUSE_DAYS);
     let until = match (req.until, req.duration_s) {
         (Some(until), None) => until,
-        (None, Some(secs)) if secs > 0 => now + Duration::seconds(secs),
+        // Bounded before the arithmetic, which panics on a large enough duration.
+        (None, Some(secs)) if secs > 0 => now + Duration::seconds(secs.min(max.num_seconds() + 1)),
         _ => {
             return Err(Error::BadRequest(
                 "give either `until` or a positive `duration_s`".to_string(),
@@ -92,7 +94,7 @@ async fn pause_jobs(
             "`until` must be in the future".to_string(),
         ));
     }
-    if until > now + Duration::days(MAX_PAUSE_DAYS) {
+    if until > now + max {
         return Err(Error::BadRequest(format!(
             "jobs cannot be paused for more than {MAX_PAUSE_DAYS} days"
         )));

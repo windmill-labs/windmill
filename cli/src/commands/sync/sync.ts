@@ -6804,7 +6804,7 @@ export async function push(
     }
     let jobsResumed = false;
     if (jobsPause) {
-      const depsDone = await waitForDependencyJobs(
+      const deps = await waitForDependencyJobs(
         workspace.workspaceId,
         pushStartedAt,
         new Date(jobsPause.paused_until),
@@ -6815,12 +6815,14 @@ export async function push(
             `Jobs stay paused until ${jobsPause.paused_until} (--keep-paused). Run 'wmill workspace resume-jobs' when ready.`,
           ),
         );
-      } else if (failedChanges.length > 0 || !depsDone) {
+      } else if (failedChanges.length > 0 || !deps.finished || deps.failed > 0) {
         log.warn(
           `Jobs stay paused until ${jobsPause.paused_until} because ` +
             (failedChanges.length > 0
               ? "some changes failed to push"
-              : "dependency jobs are still running") +
+              : deps.failed > 0
+                ? `${deps.failed} dependency job(s) failed`
+                : "dependency jobs are still running") +
             ". Run 'wmill workspace resume-jobs' once the workspace is consistent.",
         );
       } else {

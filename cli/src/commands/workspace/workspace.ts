@@ -20,7 +20,6 @@ import { mergeWorkspaces } from "./merge.ts";
 import { connectSlack, disconnectSlack } from "./slack.ts";
 import { applySettings, getSettings } from "./settings.ts";
 import {
-  DEFAULT_PAUSE_DURATION,
   jobsPausedCommand,
   pauseJobsCommand,
   resumeJobsCommand,
@@ -933,7 +932,7 @@ Arguments (omit both to be prompted interactively):
   .description(
     "Pause new jobs of the active workspace, e.g. while a deploy or a migration is in progress. Jobs from triggers, schedules and async runs are held until 'wmill workspace resume-jobs' or the end of the pause; callers waiting for a result get a 503. Dependency and git sync jobs, steps of running flows and runs started directly by an admin are not held. Admin only."
   )
-  .option("--for <duration:string>", "How long the pause lasts at most (e.g. 30m, 2h, 1d; at most 7d)", { default: DEFAULT_PAUSE_DURATION })
+  .option("--for <duration:string>", "How long the pause lasts at most (e.g. 30m, 2h, 1d; at most 7d; default 30m)")
   .option("--reason <reason:string>", "Shown to users of the workspace while paused")
   .action(pauseJobsCommand as any)
   .command("resume-jobs")

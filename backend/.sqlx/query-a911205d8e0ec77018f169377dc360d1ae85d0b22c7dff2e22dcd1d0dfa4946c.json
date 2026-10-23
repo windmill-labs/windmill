@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE v2_job_queue q SET scheduled_for = now() + interval '30 days'\n        FROM workspace_held_job h\n        WHERE h.job_id = q.id AND h.workspace_id = $1 AND NOT q.running",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a911205d8e0ec77018f169377dc360d1ae85d0b22c7dff2e22dcd1d0dfa4946c"
+}

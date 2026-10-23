@@ -53,27 +53,33 @@ const DEPENDENCY_JOB_KINDS = "dependencies,flowdependencies,appdependencies";
 
 /**
  * Waits until no dependency job created since `sinceIso` is still queued or running, or until
- * `deadline`. Returns whether they all finished.
+ * `deadline`. `finished` is false when some are still running at the deadline; `failed` counts
+ * those that failed.
  */
 export async function waitForDependencyJobs(
   workspaceId: string,
   sinceIso: string,
   deadline: Date,
-): Promise<boolean> {
-  // Raw fetch: the generated client has no `created_after` filter on the queue list.
+): Promise<{ finished: boolean; failed: number }> {
+  // Raw fetch: the generated client has no `created_after` filter on the job lists.
   const { OpenAPI } = await import("../../../gen/index.ts");
-  const url =
-    `${OpenAPI.BASE}/w/${workspaceId}/jobs/queue/list?job_kinds=${DEPENDENCY_JOB_KINDS}` +
-    `&created_after=${encodeURIComponent(sinceIso)}&per_page=100`;
-  let announced = false;
-  while (true) {
-    const resp = await fetch(url, {
+  const filter =
+    `job_kinds=${DEPENDENCY_JOB_KINDS}&created_after=${encodeURIComponent(sinceIso)}&per_page=100`;
+  const list = async (route: string) => {
+    const resp = await fetch(`${OpenAPI.BASE}/w/${workspaceId}/jobs/${route}`, {
       headers: { ...getHeaders(), Authorization: `Bearer ${OpenAPI.TOKEN}` },
     });
     if (!resp.ok) throw new Error(`Listing dependency jobs failed: ${resp.status}`);
-    const queued = (await resp.json()) as unknown[];
-    if (queued.length === 0) return true;
-    if (Date.now() >= deadline.getTime()) return false;
+    return (await resp.json()) as unknown[];
+  };
+  let announced = false;
+  while (true) {
+    const queued = await list(`queue/list?${filter}`);
+    const finished = queued.length === 0;
+    if (finished || Date.now() >= deadline.getTime()) {
+      const failed = await list(`completed/list?${filter}&success=false`);
+      return { finished, failed: failed.length };
+    }
     if (!announced) {
       log.info(
         colors.gray(

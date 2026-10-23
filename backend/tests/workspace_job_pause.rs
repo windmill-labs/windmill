@@ -40,12 +40,29 @@ async fn pause_holds_and_resume_releases(db: Pool<Postgres>) -> anyhow::Result<(
         .send()
         .await?;
     assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    // Runs as the admin whoever starts it.
+    let resp = post(format!("{ws}/scripts/create"), ADMIN)
+        .json(&json!({
+            "path": "u/test-user/obo", "summary": "", "description": "",
+            "content": "echo hi", "language": "bash", "on_behalf_of": "u/test-user",
+            "schema": {"type": "object", "properties": {}, "required": []}
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    let resp = post(format!("{ws}/acls/add/script/u/test-user/obo"), ADMIN)
+        .json(&json!({"owner": "u/test-user-2", "write": false}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
     let run = |token: &'static str, query: &str| {
         post(format!("{ws}/jobs/run/p/u/test-user-2/s{query}"), token).json(&json!({}))
     };
     let job_id = |resp: reqwest::Response| async move {
-        assert_eq!(resp.status(), 201);
-        resp.text().await.unwrap().parse::<Uuid>().unwrap()
+        let status = resp.status();
+        let body = resp.text().await.unwrap();
+        assert_eq!(status, 201, "{body}");
+        body.parse::<Uuid>().unwrap()
     };
 
     // Queued before the pause, due later: the pause holds it and resume keeps its time.
@@ -90,6 +107,21 @@ async fn pause_holds_and_resume_releases(db: Pool<Postgres>) -> anyhow::Result<(
     .await;
     assert_eq!(kind_and_due(&db, forged).await.0, "unassigned_script");
 
+    // Running a script on behalf of an admin does not make the run an admin's.
+    let obo = job_id(
+        post(format!("{ws}/jobs/run/p/u/test-user/obo"), MEMBER)
+            .json(&json!({}))
+            .send()
+            .await?,
+    )
+    .await;
+    let run_as: String = sqlx::query_scalar("SELECT permissioned_as FROM v2_job WHERE id = $1")
+        .bind(obo)
+        .fetch_one(&db)
+        .await?;
+    assert_eq!(run_as, "u/test-user");
+    assert_eq!(kind_and_due(&db, obo).await.0, "unassigned_script");
+
     // An admin's direct run is not held.
     let direct = job_id(run(ADMIN, "").send().await?).await;
     assert_eq!(kind_and_due(&db, direct).await.0, "script");
@@ -109,7 +141,7 @@ async fn pause_holds_and_resume_releases(db: Pool<Postgres>) -> anyhow::Result<(
         .send()
         .await?;
     assert_eq!(resp.status(), 200);
-    assert_eq!(resp.json::<i64>().await?, 3);
+    assert_eq!(resp.json::<i64>().await?, 4);
 
     for id in [held, forged] {
         let (kind, at) = kind_and_due(&db, id).await;

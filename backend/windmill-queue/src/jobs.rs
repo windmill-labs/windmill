@@ -7672,12 +7672,14 @@ async fn push_inner<'c, 'd>(
     // A suspended trigger holds its jobs itself; they are not the workspace pause's to release.
     let held_by_pause = if parent_job.is_none() && !running && !suspended_mode.unwrap_or(false) {
         windmill_common::job_pause::check_push(
-            db,
+            &mut *tx,
             workspace_id,
             job_kind,
             trigger_kind.as_ref(),
             trigger_path.as_ref().and_then(|p| p.as_deref()),
-            job_authed.is_admin,
+            // Who started the job, not who it runs as: a member running an on-behalf-of-admin
+            // runnable is not an admin's run. Callers pass no `authed` for such runs.
+            authed.is_some_and(|a| a.is_admin),
         )
         .await?
         .map(|_| scheduled_for_o.unwrap_or_else(Utc::now))

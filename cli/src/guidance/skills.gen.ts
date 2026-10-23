@@ -9340,7 +9340,7 @@ Arguments (omit both to be prompted interactively):
   - \`--replace\` - Also clear the settings the file omits, as 'wmill sync push' does
   - \`-y --yes\` - Apply without asking
 - \`workspace pause-jobs\` - Pause new jobs of the active workspace, e.g. while a deploy or a migration is in progress. Jobs from triggers, schedules and async runs are held until 'wmill workspace resume-jobs' or the end of the pause; callers waiting for a result get a 503. Dependency and git sync jobs, steps of running flows and runs started directly by an admin are not held. Admin only.
-  - \`--for <duration:string>\` - How long the pause lasts at most (e.g. 30m, 2h, 1d; at most 7d)
+  - \`--for <duration:string>\` - How long the pause lasts at most (e.g. 30m, 2h, 1d; at most 7d; default 30m)
   - \`--reason <reason:string>\` - Shown to users of the workspace while paused
 - \`workspace resume-jobs\` - Resume new jobs of the active workspace and release the jobs the pause held. Admin only.
 - \`workspace jobs-paused\` - Show whether new jobs of the active workspace are paused

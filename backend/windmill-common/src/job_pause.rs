@@ -36,8 +36,12 @@ pub const JOB_PAUSE_CHANGE_CHANNEL: &str = "notify_workspace_job_pause_change";
 
 /// The deadline of the workspace's pause, `None` when it is not paused. A pause past its deadline
 /// reads as over even before the monitor deletes it. Fails open: a job is never held because the
-/// pause could not be read.
-pub async fn jobs_paused_until(db: &DB, w_id: &str) -> Option<DateTime<Utc>> {
+/// pause could not be read. Takes the caller's connection: `push` reads it inside its own
+/// transaction, where asking the pool for a second connection can starve it.
+pub async fn jobs_paused_until<'c, E: sqlx::PgExecutor<'c>>(
+    db: E,
+    w_id: &str,
+) -> Option<DateTime<Utc>> {
     let now = Utc::now();
     let cached = JOB_PAUSE_CACHE
         .get(w_id)
@@ -138,8 +142,8 @@ pub fn current_policy() -> Option<PausePolicy> {
 
 /// Applies the pause to a top-level job about to be pushed: `Ok(None)` runs it, `Ok(Some(until))`
 /// holds it, an error refuses it.
-pub async fn check_push(
-    db: &DB,
+pub async fn check_push<'c, E: sqlx::PgExecutor<'c>>(
+    db: E,
     w_id: &str,
     kind: JobKind,
     trigger_kind: Option<&JobTriggerKind>,
@@ -162,7 +166,20 @@ pub async fn check_push(
 
 /// Holds the workspace's queued jobs that have not started and that the pause would have held had
 /// they been pushed now, keeping when each was due. A worker that already claimed a job keeps it.
+///
+/// Like [`release_held_jobs`] and [`resume`], it checks no permission: the caller must be a
+/// workspace admin's request or the monitor.
 pub async fn hold_queued_jobs(tx: &mut Transaction<'_, Postgres>, w_id: &str) -> Result<i64> {
+    // Extending a pause moves the jobs it already holds out of reach again, so a pause renewed
+    // past 30 days never lets a worker reach (and fail) one of them.
+    sqlx::query!(
+        "UPDATE v2_job_queue q SET scheduled_for = now() + interval '30 days'
+        FROM workspace_held_job h
+        WHERE h.job_id = q.id AND h.workspace_id = $1 AND NOT q.running",
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
     let held = sqlx::query_scalar!(
         r#"WITH candidates AS (
             SELECT q.id, q.scheduled_for
@@ -171,10 +188,13 @@ pub async fn hold_queued_jobs(tx: &mut Transaction<'_, Postgres>, w_id: &str) ->
             LEFT JOIN job_perms p ON p.job_id = q.id
             WHERE q.workspace_id = $1
               AND NOT q.running
+              -- a flow requeued after its preprocessor is not running but has started
+              AND q.started_at IS NULL
               AND j.parent_job IS NULL
               AND j.kind IN ('script', 'flow', 'singlestepflow')
               AND NOT (
                     COALESCE(p.is_admin, false)
+                    AND j.permissioned_as = 'u/' || j.created_by
                     AND j.trigger IS NULL
                     AND (j.trigger_kind IS NULL OR j.trigger_kind = 'webhook')
               )
@@ -207,7 +227,7 @@ pub async fn hold_queued_jobs(tx: &mut Transaction<'_, Postgres>, w_id: &str) ->
 
 /// Releases every job the workspace's pause holds, each due when it was before being held, or now.
 /// Jobs held by a suspended trigger are not in `workspace_held_job` and stay held.
-pub async fn release_held_jobs(tx: &mut Transaction<'_, Postgres>, w_id: &str) -> Result<i64> {
+async fn release_held_jobs(tx: &mut Transaction<'_, Postgres>, w_id: &str) -> Result<i64> {
     let released = sqlx::query_scalar!(
         r#"WITH held AS (
             DELETE FROM workspace_held_job WHERE workspace_id = $1
@@ -236,7 +256,26 @@ pub async fn release_held_jobs(tx: &mut Transaction<'_, Postgres>, w_id: &str) -
     Ok(released)
 }
 
-/// Ends the pause of `w_id` and releases its jobs.
+/// Hands an `unassigned_*` job a suspended trigger held over to the workspace pause, which then
+/// releases it with the jobs it holds itself. Used when the trigger releases its jobs mid-pause.
+pub async fn hold_released_trigger_job(
+    tx: &mut Transaction<'_, Postgres>,
+    w_id: &str,
+    job_id: uuid::Uuid,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO workspace_held_job (job_id, workspace_id, scheduled_for) VALUES ($1, $2, now())
+        ON CONFLICT (job_id) DO NOTHING",
+        job_id,
+        w_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Ends the pause of `w_id` and releases its jobs. Checks no permission: the caller must be a
+/// workspace admin's request.
 pub async fn resume(tx: &mut Transaction<'_, Postgres>, w_id: &str) -> Result<i64> {
     sqlx::query!(
         "DELETE FROM workspace_job_pause WHERE workspace_id = $1",
