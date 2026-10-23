@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT fork_last_event_kind, fork_last_event_origin FROM workspace_diff\n             WHERE fork_workspace_id = 'wm-fork-renamed' AND kind = 'script'\n               AND path = 'u/admin/inline' AND fork_last_event_kind IS NOT NULL",
+  "query": "SELECT fork_last_event_kind, fork_last_event_origin FROM workspace_diff\n             WHERE fork_workspace_id = 'wm-fork-renamed' AND kind = 'script'\n               AND path = 'u/admin/inline' AND fork_last_event_kind <> 'write'",
   "describe": {
     "columns": [
       {
@@ -22,5 +22,5 @@
       true
     ]
   },
-  "hash": "f0d8ebbf62a1d92f39c2f86a70236cece6d6c9e28cce9aff7fe5496bba569807"
+  "hash": "df8f616f7ace1d45cb9022d70e53bef3389884cdde284ed3eb3b8d6979761b98"
 }

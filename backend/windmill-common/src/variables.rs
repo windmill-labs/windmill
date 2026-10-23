@@ -472,28 +472,32 @@ pub async fn get_secret_value_as_admin(
         )));
     };
 
-    let r = if variable.is_secret {
-        let value = variable.value;
-        if !value.is_empty() {
-            if is_external_stored_value(&value) {
-                get_secret_value(db, w_id, &variable.path, &value).await?
-            } else {
-                let mc = build_crypt(db, w_id).await?;
-                decrypt(&mc, value).map_err(|e| {
-                    crate::error::Error::internal_err(format!(
-                        "Error decrypting variable {}: {}",
-                        variable.path, e
-                    ))
-                })?
-            }
-        } else {
-            "".to_string()
-        }
+    if variable.is_secret {
+        decrypt_secret_value(db, w_id, &variable.path, variable.value).await
     } else {
-        variable.value
-    };
+        Ok(variable.value)
+    }
+}
 
-    Ok(r)
+/// Plaintext of a secret variable's stored `value`, read from the external secret backend when it
+/// holds a reference to one. Bypasses variable permissions: callers MUST have authorized the
+/// reader before returning the plaintext to them.
+pub async fn decrypt_secret_value(
+    db: &DB,
+    w_id: &str,
+    path: &str,
+    value: String,
+) -> crate::error::Result<String> {
+    if value.is_empty() {
+        Ok(value)
+    } else if is_external_stored_value(&value) {
+        get_secret_value(db, w_id, path, &value).await
+    } else {
+        let mc = build_crypt(db, w_id).await?;
+        decrypt(&mc, value).map_err(|e| {
+            crate::error::Error::internal_err(format!("Error decrypting variable {}: {}", path, e))
+        })
+    }
 }
 
 /// Marks a workspace setting's secret written into the settings document encrypted with the

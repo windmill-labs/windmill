@@ -2582,6 +2582,38 @@ describe('global AI tools', () => {
 		expect(asPath.inlineScript).toBeUndefined()
 	})
 
+	// A static input is pinned by the deployed policy: carried into an agent runnable, it would
+	// replace every viewer's message.
+	it('drops inherited static inputs when a runnable becomes an agent', async () => {
+		seedBackendDraft(
+			'raw_app',
+			'u/admin/agent_conv_app',
+			{ summary: 'Converted', files: {}, runnables: {}, data: { tables: [] } },
+			{ workspace: WORKSPACE }
+		)
+		await callGlobalTool('write_app_runnable', {
+			path: 'u/admin/agent_conv_app',
+			key: 'chat',
+			runnable: {
+				name: 'Run the flow',
+				type: 'flow',
+				path: 'u/admin/hello_flow',
+				staticInputs: { user_message: 'pinned' }
+			}
+		})
+		await callGlobalTool('write_app_runnable', {
+			path: 'u/admin/agent_conv_app',
+			key: 'chat',
+			runnable: { name: 'Chat', type: 'agent', path: 'u/admin/assistant' }
+		})
+
+		const asAgent = getBackendDraft<any>('raw_app', 'u/admin/agent_conv_app', {
+			workspace: WORKSPACE
+		}).runnables.chat
+		expect(asAgent.runType).toBe('agent')
+		expect(asAgent.fields).toEqual({})
+	})
+
 	it("resets a path runnable's schema when it is retargeted, and keeps it when it is not", async () => {
 		// The editor populates `schema` from the item the runnable points at, and
 		// genWmillTs types `backend.<key>(args)` from it — so it must not outlive the target.

@@ -442,6 +442,7 @@ pub async fn initial_load(
                     cache_clear: None,
                     additional_python_paths: None,
                     pip_local_dependencies: None,
+                    disable_job_proxy: false,
                     native_mode,
                     // an agent worker never reads its group's config, only its token
                     object_store_cache_config: None,

@@ -36,7 +36,7 @@ use crate::{
     handle_child::handle_child,
     is_sandboxing_enabled, read_ee_registry_with_workspace_override, DISABLE_NUSER, HOME_ENV,
     NSJAIL_PATH, PATH_ENV, POWERSHELL_CACHE_DIR, POWERSHELL_PATH, POWERSHELL_REPO_PAT,
-    POWERSHELL_REPO_URL, PROXY_ENVS, TZ_ENV,
+    POWERSHELL_REPO_URL, TZ_ENV,
 };
 
 fn val_to_pwsh_param(v: serde_json::Value) -> String {
@@ -728,7 +728,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         let mut cmd = Command::new(NSJAIL_PATH.as_str());
         cmd.current_dir(job_dir)
             .env_clear()
-            .envs(PROXY_ENVS.clone())
+            .envs(crate::job_proxy_envs())
             .envs(reserved_variables)
             .env("TZ", TZ_ENV.as_str())
             .env("PATH", PATH_ENV.as_str())
