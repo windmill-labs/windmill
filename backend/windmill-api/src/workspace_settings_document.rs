@@ -941,11 +941,11 @@ async fn fork_parent(conn: &mut PgConnection, w_id: &str) -> Result<Option<ForkP
 
 // A fork shares its parent's settings.yaml (the CLI maps `wm-fork/<branch>/<id>` to the parent's
 // entry), so its `git_sync` there is the parent's. Of it, a fork applies only what selects the
-// items synced, on the repos it carries: auto-pull, fork PRs and promotion mode are not a fork's
-// to take (`reject_parent_only_git_sync_settings_on_fork`), and a field not listed here stays the
-// fork's own. The fork's document is the parent's block with the fork's values for these keys,
+// items synced (a repo's `settings` and the keys listed here), on the repos it carries: auto-pull,
+// fork PRs and promotion mode are not a fork's to take
+// (`reject_parent_only_git_sync_settings_on_fork`), and any other field stays the fork's own. The fork's document is the parent's block with the fork's values for these keys,
 // the inverse of the apply, so a merge of the fork's branch changes only them in the parent.
-const FORK_SYNCED_REPO_KEYS: [&str; 3] = ["settings", "exclude_types_override", "group_by_folder"];
+const FORK_SYNCED_REPO_KEYS: [&str; 2] = ["exclude_types_override", "group_by_folder"];
 
 fn repos(git_sync: Option<&Value>) -> &[Value] {
     git_sync
@@ -961,46 +961,18 @@ fn same_repo<'a>(repos: &'a [Value], repo: &Value) -> Option<&'a Value> {
         .find(|r| r.get("git_repo_resource_path") == Some(path))
 }
 
-/// A repo's `settings` with the workspace-level filters it falls back to filled in, as
-/// `get_effective_path_filters` and `get_effective_include_types` read them. The fork and the
-/// file may each be on either layout, so the copy goes between the filters each one syncs by.
-fn with_effective_settings(repo: &Value, git_sync: &Value) -> Value {
-    let top = |k: &str| git_sync.get(k).filter(|v| !v.is_null()).cloned();
-    let legacy = [
+/// Whether repos fall back to the workspace-level filters, where an empty or missing `settings`
+/// list means "use the workspace's". A repo's filters cross only when neither side does, as
+/// that layout cannot state some of what the other can.
+fn uses_workspace_filters(git_sync: &Value) -> bool {
+    [
         "include_path",
         "include_type",
         "exclude_path",
         "extra_include_path",
-    ];
-    if legacy.iter().all(|k| top(k).is_none()) {
-        return repo.clone();
-    }
-    let empty = |v: Option<&Value>| v.and_then(Value::as_array).is_none_or(Vec::is_empty);
-    let mut settings = repo
-        .get("settings")
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
-    if empty(settings.get("include_path")) {
-        for key in ["include_path", "exclude_path", "extra_include_path"] {
-            match top(key) {
-                Some(v) => settings.insert(key.to_string(), v),
-                None => settings.remove(key),
-            };
-        }
-        settings.entry("include_path").or_insert_with(|| json!([]));
-    }
-    if empty(settings.get("include_type")) {
-        settings.insert(
-            "include_type".to_string(),
-            top("include_type").unwrap_or_else(|| json!([])),
-        );
-    }
-    let mut repo = repo.clone();
-    if let Some(obj) = repo.as_object_mut() {
-        obj.insert("settings".to_string(), Value::Object(settings));
-    }
-    repo
+    ]
+    .iter()
+    .any(|k| !is_null(git_sync.get(*k)))
 }
 
 /// An unset key and a null one are left as they are: stored blobs differ in which they write, and
@@ -1019,6 +991,7 @@ fn copy_keys(onto: &mut Map<String, Value>, from: &Value, keys: &[&str]) {
 
 /// Sets `onto` to `from`'s values for the synced keys, on each repo `from` also lists.
 fn copy_synced_keys(onto: &mut Value, from: &Value) {
+    let filters = !uses_workspace_filters(onto) && !uses_workspace_filters(from);
     let from_repos = repos(Some(from));
     let Some(repos) = onto.get_mut("repositories").and_then(Value::as_array_mut) else {
         return;
@@ -1027,9 +1000,11 @@ fn copy_synced_keys(onto: &mut Value, from: &Value) {
         let Some(src) = same_repo(from_repos, repo) else {
             continue;
         };
-        let src = with_effective_settings(src, from);
         if let Some(repo) = repo.as_object_mut() {
-            copy_keys(repo, &src, &FORK_SYNCED_REPO_KEYS);
+            copy_keys(repo, src, &FORK_SYNCED_REPO_KEYS);
+            if filters {
+                copy_keys(repo, src, &["settings"]);
+            }
         }
     }
 }
@@ -2189,30 +2164,34 @@ mod tests {
             json!({ "repositories": [{ "git_repo_resource_path": "f/own" }] })
         );
 
-        // Either side may filter by the workspace-level lists instead of the repo's settings: the
-        // filters a repo syncs by are what crosses, in both directions.
+        // Filters cross only between two sides on per-repo settings: with workspace-level ones on
+        // either side, the fork keeps its own and the document keeps the parent's.
         let legacy_parent = json!({ "include_path": ["f/**"], "include_type": ["script"],
                                     "repositories": [{ "git_repo_resource_path": "f/r" }] });
         let migrated = json!({ "repositories": [{ "git_repo_resource_path": "f/r",
-            "settings": { "include_path": ["u/**"], "include_type": ["flow"] } }] });
+            "settings": { "include_path": ["u/**"], "include_type": [] } }] });
         assert_eq!(
             fork_git_sync_to_apply(&legacy_parent, Some(&migrated), false).unwrap(),
-            json!({ "repositories": [{ "git_repo_resource_path": "f/r",
-                "settings": { "include_path": ["f/**"], "include_type": ["script"] } }] })
+            migrated
+        );
+        let shown =
+            fork_git_sync_document(Some(migrated.clone()), Some(legacy_parent.clone())).unwrap();
+        assert_eq!(shown, legacy_parent);
+        assert_eq!(
+            fork_git_sync_to_apply(&shown, Some(&migrated), false).unwrap(),
+            migrated
         );
         let legacy_fork = json!({ "include_path": ["u/**"], "include_type": ["flow"],
                                   "repositories": [{ "git_repo_resource_path": "f/r" }] });
-        let shown =
-            fork_git_sync_document(Some(legacy_fork.clone()), Some(legacy_parent.clone())).unwrap();
+        let migrated_parent = json!({ "repositories": [{ "git_repo_resource_path": "f/r",
+            "settings": { "include_path": ["f/**"], "include_type": ["script"] } }] });
         assert_eq!(
-            shown["repositories"][0]["settings"],
-            json!({ "include_path": ["u/**"], "include_type": ["flow"] })
+            fork_git_sync_document(Some(legacy_fork.clone()), Some(migrated_parent.clone())),
+            Some(migrated_parent.clone())
         );
-        let applied = fork_git_sync_to_apply(&shown, Some(&legacy_fork), false).unwrap();
-        assert_eq!(applied["include_path"], json!(["u/**"]));
         assert_eq!(
-            applied["repositories"][0]["settings"],
-            shown["repositories"][0]["settings"]
+            fork_git_sync_to_apply(&migrated_parent, Some(&legacy_fork), false).unwrap(),
+            legacy_fork
         );
         assert_eq!(
             fork_git_sync_to_apply(&Value::Null, Some(&legacy_fork), false).unwrap(),
