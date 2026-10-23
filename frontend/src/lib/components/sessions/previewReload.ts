@@ -82,7 +82,8 @@ export function toolReloadEffect(name: string, args: any): ToolReloadEffect {
 // show the deployed side of. Other types (schedule, resource, …) have list pages instead.
 function deployedItems(args: any): string[] {
 	const type = args?.type
-	if (type !== 'script' && type !== 'flow' && type !== 'app') return []
+	// A resource has no deployed page, except an agent's, which `viewerTabsToReload` matches.
+	if (type !== 'script' && type !== 'flow' && type !== 'app' && type !== 'resource') return []
 	return typeof args?.path === 'string' && args.path ? [args.path] : []
 }
 
@@ -152,7 +153,10 @@ export function viewerTabsToReload(
 ): SessionPreviewTab[] {
 	if (items.size === 0) return []
 	return tabs.filter((t) => {
-		const route = parsePreviewItemRoute(whereIs(t))
+		const loc = whereIs(t)
+		const agent = barePath(loc).match(/^\/agents\/get\/(.+)$/)
+		if (agent) return items.has(decodeURIComponent(agent[1]))
+		const route = parsePreviewItemRoute(loc)
 		return route?.mode === 'view' && items.has(route.itemPath)
 	})
 }

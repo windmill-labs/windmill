@@ -131,6 +131,19 @@ describe('viewerTabsToReload', () => {
 		])
 	})
 
+	it("refreshes an agent's deployed page when the chat deletes or deploys it", () => {
+		const agentTab: SessionPreviewTab = {
+			id: 'a',
+			url: '/agents/get/u/me/bot',
+			loc: '/agents/get/u/me/bot'
+		}
+		const { deployed } = toolReloadEffect('delete_workspace_item', {
+			type: 'resource',
+			path: 'u/me/bot'
+		})
+		expect(viewerTabsToReload([agentTab, viewTab], new Set(deployed))).toEqual([agentTab])
+	})
+
 	// The editor holds what the user is writing; refetching the deployed version over it
 	// would discard that, and it self-syncs from the store the chat already mutated.
 	it('never returns the edit side, even for the item that was deployed', () => {
