@@ -202,13 +202,19 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
                 // ahead of every other workspace.
                 failed_this_pass.insert(row.workspace_id.clone());
                 if let Err(e) = sqlx::query!(
-                    "UPDATE workspace_settings SET variable_expiration_failed_at = now() WHERE workspace_id = $1",
+                    // A handler saved since this pass read it gets its own first try.
+                    "UPDATE workspace_settings SET variable_expiration_failed_at = now()
+                     WHERE workspace_id = $1 AND variable_expiration_handler->>'path' = $2",
                     row.workspace_id,
+                    row.handler_path,
                 )
                 .execute(db)
                 .await
                 {
-                    tracing::error!("Error deferring variable expiration handler of {}: {e:#}", row.workspace_id);
+                    tracing::error!(
+                        "Error deferring variable expiration handler of {}: {e:#}",
+                        row.workspace_id
+                    );
                 }
                 report_critical_error(
                     format!(
