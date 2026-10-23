@@ -155,7 +155,7 @@
 		// Same as sandbox: a not-yet-deployed app has no row to update, so
 		// `setAccessMode` would 404. The mode is carried by the first deploy's
 		// policy; persist incrementally only once the app exists.
-		if (savedApp && !newApp) {
+		if (savedApp && !newApp && !modeChangesOnDeploy) {
 			try {
 				await setAccessMode(mode as NonNullable<Policy['execution_mode']>)
 			} catch (e) {
@@ -170,6 +170,11 @@
 	let onBehalfOfChoice: OnBehalfOfChoice = $state(undefined)
 	let customOnBehalfOfEmail: string = $state('')
 	let myOnBehalfOf = $derived(actingUser?.username ? `u/${actingUser.username}` : undefined)
+	// The server refuses to change the mode alone of an app that runs as someone else unless the
+	// caller may keep that identity, and always for a builder; for them it changes on deploy.
+	let modeChangesOnDeploy = $derived(
+		!!savedOnBehalfOf && savedOnBehalfOf !== myOnBehalfOf && (!canPreserve || composeOnlyApps)
+	)
 	// Without the right to preserve, the backend runs the redeployed app as the deployer whatever
 	// the policy says, as it does for "me".
 	let deployOnBehalfOf = $derived.by(() => {
@@ -555,6 +560,12 @@
 						{/snippet}
 					</ToggleButtonGroup>
 				</div>
+				{#if savedApp && !newApp && modeChangesOnDeploy}
+					<div class="text-xs text-secondary">
+						This app runs as <strong>{savedOnBehalfOf}</strong>, so a change here takes effect when
+						you deploy.
+					</div>
+				{/if}
 				<div class="text-xs text-secondary">
 					{#if policy.execution_mode == 'anonymous'}
 						Anyone holding the secret URL below can open this app without signing in.

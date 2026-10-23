@@ -4030,19 +4030,28 @@ async fn update_app_internal<'a>(
             if let Some(mode) = ns.execution_mode {
                 // A policy write from someone who cannot keep the run-as user rebinds it
                 // to them, so the mode alone must not let them open an app running as
-                // someone else to a new audience.
-                if !windmill_common::can_preserve_on_behalf_of(&authed)
-                    && policy_runs_as_another(&npolicy, &authed)
+                // someone else to a new audience. A builder who may keep it is refused too:
+                // its deploy checks the triggerables against its own RLS, which needs a
+                // second pool connection and so cannot run under this lock.
+                if policy_runs_as_another(&npolicy, &authed)
+                    && (composes_only || !windmill_common::can_preserve_on_behalf_of(&authed))
                 {
-                    return Err(Error::PermissionDenied(format!(
-                        "app {path} runs as {}: only admins and members of wm_deployers can \
-                         change who can open it",
-                        npolicy
-                            .on_behalf_of_email
-                            .as_deref()
-                            .or(npolicy.on_behalf_of.as_deref())
-                            .unwrap_or("another user")
-                    )));
+                    let runs_as = npolicy
+                        .on_behalf_of_email
+                        .as_deref()
+                        .or(npolicy.on_behalf_of.as_deref())
+                        .unwrap_or("another user");
+                    return Err(Error::PermissionDenied(if composes_only {
+                        format!(
+                            "app {path} runs as {runs_as}: change who can open it by deploying it"
+                        )
+                    } else {
+                        format!(
+                            "app {path} runs as {runs_as}: only admins and members of \
+                             wm_deployers can change who can open it without deploying it, and a \
+                             deploy from you makes it run as you"
+                        )
+                    }));
                 }
                 npolicy.set_execution_mode(mode);
                 if composes_only {

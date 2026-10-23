@@ -104,8 +104,10 @@ ignored into `inlineScript`.
 `update_app` takes a builder too, but settings only: the deploy panel saves a deployed full-code
 app's access and frontend scopes through it with no value. It reaches the same check, so a builder
 can no more switch the sandbox off there than on deploy. A change of `execution_mode` alone runs
-that check on the deployed policy under the row lock, and is refused when the app runs as someone
-else unless the builder is in `wm_deployers`.
+`check_operator_composed_app` on the deployed policy under the row lock, but not the readability
+check, which resolves script versions on a second pool connection. It is therefore refused when
+the app runs as anyone but the builder, `wm_deployers` or not: what an app running as its builder
+invokes runs as that builder, who can already run it as themselves by opening the app.
 
 A builder's **draft** goes through the same `check_operator_composed_app` as its deploy, with
 `BuilderAppWrite::Draft`: an admin may open it in the editor or deploy it as it stands, so any

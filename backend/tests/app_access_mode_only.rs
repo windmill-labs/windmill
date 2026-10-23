@@ -48,6 +48,35 @@ async fn create(ws: &str, token: &str, path: &str, policy: Value) -> anyhow::Res
     Ok(())
 }
 
+/// An anonymous, sandboxed raw app with no runnables, as a builder may deploy one.
+async fn create_raw(ws: &str, token: &str, path: &str) -> anyhow::Result<()> {
+    let app = json!({
+        "path": path,
+        "summary": "",
+        "value": { "files": {}, "runnables": {} },
+        "policy": { "execution_mode": "anonymous", "sandbox": true, "triggerables_v2": {} },
+    });
+    let form = multipart::Form::new()
+        .part(
+            "app",
+            multipart::Part::text(app.to_string()).mime_str("application/json")?,
+        )
+        .part("js", multipart::Part::text("console.log('app')"));
+    let resp = client()
+        .post(format!("{ws}/apps/create_raw"))
+        .bearer_auth(token)
+        .multipart(form)
+        .send()
+        .await?;
+    assert_eq!(
+        resp.status(),
+        201,
+        "create_raw {path}: {}",
+        resp.text().await?
+    );
+    Ok(())
+}
+
 async fn policy(db: &Pool<Postgres>, path: &str) -> anyhow::Result<Value> {
     Ok(sqlx::query_scalar(
         "SELECT policy FROM app WHERE path = $1 AND workspace_id = 'test-workspace'",
@@ -155,34 +184,23 @@ async fn test_access_mode_only_update(db: Pool<Postgres>) -> anyhow::Result<()> 
     )
     .execute(&db)
     .await?;
+    // In wm_deployers, so the refusal in the last step below holds for a builder who may keep
+    // another user's identity on deploy.
+    sqlx::query(
+        "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ('test-workspace', 'wm_deployers', '', '{}')",
+    )
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO usr_to_group (workspace_id, group_, usr) VALUES ('test-workspace', 'wm_deployers', 'test-user-3')",
+    )
+    .execute(&db)
+    .await?;
     windmill_common::roles::invalidate_workspace_roles_cache("test-workspace");
     windmill_common::roles::invalidate_member_role_cache("test-workspace", "test-user-3");
 
     const BUILT: &str = "u/test-user-3/built";
-    let app = json!({
-        "path": BUILT,
-        "summary": "",
-        "value": { "files": {}, "runnables": {} },
-        "policy": { "execution_mode": "anonymous", "sandbox": true, "triggerables_v2": {} },
-    });
-    let form = multipart::Form::new()
-        .part(
-            "app",
-            multipart::Part::text(app.to_string()).mime_str("application/json")?,
-        )
-        .part("js", multipart::Part::text("console.log('app')"));
-    let resp = client()
-        .post(format!("{ws}/apps/create_raw"))
-        .bearer_auth(BUILDER)
-        .multipart(form)
-        .send()
-        .await?;
-    assert_eq!(
-        resp.status(),
-        201,
-        "builder create_raw: {}",
-        resp.text().await?
-    );
+    create_raw(&ws, BUILDER, BUILT).await?;
 
     let settings_only = json!({ "policy": { "sandbox": true, "triggerables_v2": {} } });
     let (status, body) = update(&ws, BUILT, BUILDER, settings_only.clone()).await?;
@@ -217,6 +235,20 @@ async fn test_access_mode_only_update(db: Pool<Postgres>) -> anyhow::Result<()> 
         "a builder may change the mode of its own app: {body}"
     );
     assert_eq!(policy(&db, BUILT).await?["execution_mode"], "anonymous");
+
+    // Changing the mode alone skips the check of the triggerables against the builder's RLS, so
+    // it stays refused on an app that runs as someone else; deploying it is the way.
+    const ADMIN_RUN: &str = "u/test-user-3/admin_run";
+    create_raw(&ws, ADMIN, ADMIN_RUN).await?;
+    let (status, body) = update(
+        &ws,
+        ADMIN_RUN,
+        BUILDER,
+        json!({ "execution_mode": "publisher" }),
+    )
+    .await?;
+    assert_eq!(status, 403, "{body}");
+    assert!(body.contains("by deploying it"), "{body}");
 
     // ========================================
     // 5. Widening is gated by the protection rule; narrowing is not.
