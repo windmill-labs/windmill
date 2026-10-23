@@ -272,10 +272,11 @@
 		if (mode === 'chat') chatMounted = true
 	}
 
-	// Too narrow for the two panes side by side (a session's side panel), they take turns as tabs.
-	// Both stay mounted, sized to nothing when hidden: unmounting the test pane would end its chat.
+	// Too narrow for the two panes side by side (a session's side panel), they take turns as tabs:
+	// each needs about 400px, the test pane's floor in the script editor too. Both stay mounted,
+	// sized to nothing when hidden: unmounting the test pane would end its chat.
 	let editorWidth = $state(0)
-	let narrow = $derived(editorWidth > 0 && editorWidth < 720)
+	let narrow = $derived(editorWidth > 0 && editorWidth < 900)
 	let narrowTab = $state<'config' | 'test'>('config')
 
 	// draft.args -> module. Only when the draft moved on its own (a load, an external write, a
