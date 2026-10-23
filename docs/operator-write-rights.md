@@ -54,6 +54,32 @@ It refuses with `PermissionDenied` (403), never `NotAuthorized` (401): the front
 uncaught 401 as an expired session and logs the user out, so 401 here ejects an operator from the
 app rather than telling them why. Both integration tests assert the status for that reason.
 
+## Drafts
+
+An operator may save a draft of a kind they could deploy, and no other: a resource or variable
+draft always, since no operator setting gates those routes; a schedule draft while they hold
+`manage_schedules`, a trigger draft (every trigger kind, native ones included) while they hold
+`manage_triggers`, a flow or full-code app draft under `builder_flows` / `builder_apps`.
+drafts.rs `require_can_write_path` asks `operator_can_draft`, which reads the same cached rights
+as the router gate, and `UserDraftItemKind::manage_kind` maps each draft kind to its right. The AI
+session chat writes resources, variables, schedules and triggers only as drafts and then deploys
+them, so without this rule an operator who may create a schedule on its page could not ask the
+chat for one.
+
+A secret variable draft is stored as an `$encrypted:` marker and decrypted by the variable create
+and update routes on deploy. Those routes accept the marker from any caller, so a draft gives an
+operator nothing the direct route does not.
+
+The schedule, trigger, resource and variable list routes append an operator's draft-only rows
+under the same `operator_can_draft` check, so a saved draft shows on its list page exactly while
+the operator may still save it.
+
+Deploying a draft goes through the ordinary create and update routes, so the router gate is still
+what decides the write. The draft rule only has to agree with it: a draft the gate would refuse to
+deploy should not be saved in the first place. The frontend mirrors the rule in `roleCanDraft`
+(`editRights.ts`), which the chat's `write_schedule_draft` / `write_trigger_draft` capabilities
+come from.
+
 ## In the UI
 
 The shared lists (`TriggerList`, `SchedulesList`, `NativeTriggerTable`) derive a per-row `canEdit`
@@ -69,20 +95,22 @@ toolbar, which takes its permissions from `can_write`, needs no lock of its own.
 `ShareModal`, which locks itself off the kind it was opened on rather than relying on each of the
 dozen menu entries that open it.
 
-The cache is per process, so withdrawing a right has to reach every replica: an `AFTER UPDATE OF
-operator_settings` trigger writes a `notify_operator_settings_change` row and `process_notify_event`
-drops the entry. Keep both ends if you touch either, or a workspace that withdrew a right keeps
-authorizing writes on every other replica until its own entry expires.
+These rights are now capabilities of a member's role (`docs/workspace-roles.md`), and the legacy
+operator settings write them as an override of the `operator` role. The roles cache is per process,
+so withdrawing a right has to reach every replica: `write_role_overrides` calls
+`roles::notify_role_overrides_change` in its transaction and `process_notify_event` drops the
+entry. A new writer of `role_overrides` has to call it too, or a workspace that withdrew a right
+keeps authorizing writes on every other replica until its own entry expires.
 
 ## Granted unless withdrawn
 
 These name capabilities operators already hold, so absence has to mean "never configured", not a
 value. That is easy to get wrong in two places, and the obvious implementation gets both wrong:
 
-- The read coalesces to **true** (`operator_rights`), including for a workspace with no
-  `workspace_settings` row, which is what `OperatorManageRights::default` is for. Coalescing to
-  false instead revokes the right on upgrade for every workspace that ever saved operator settings,
-  since those rows carry explicit keys and none of them is this one.
+- An unset key falls through to **true** (`RoleCapabilities::OPERATOR`), including for a
+  workspace with no override. A default of false instead revokes the right on upgrade for every
+  workspace that ever saved operator settings, since those rows carry explicit keys and none of
+  them is this one.
 - The update endpoint **merges** into the stored jsonb and takes these two as `Option<bool>`, so an
   omitted key keeps its stored value. It has to: `operator_settings` is git-synced as a whole
   object (`cli/src/core/settings.ts` posts the file's contents verbatim), so a settings file

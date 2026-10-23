@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    UPDATE v2_job_status\n                    SET flow_status = jsonb_set(flow_status, array['stream_job'], to_jsonb($1::UUID::TEXT))\n                    WHERE id = $2 AND NOT COALESCE(flow_leaf_jobs ? $3, false)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ae695dce1a5740aa2b0283bc80dea6f924cc4246bce4ac13e8256a96085bcce1"
+}

@@ -45,10 +45,12 @@
 	} from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
+	import type { PendingRun } from '$lib/components/details/pendingRun'
 	import DbtRunGraph from '$lib/components/dbt/DbtRunGraph.svelte'
 	import { goto } from '$lib/navigation'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 
+	import { PLAN_MODE_MESSAGES } from '$lib/components/copilot/chat/planModeMessages'
 	import { sendUserToast } from '$lib/toast'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
@@ -117,6 +119,7 @@
 	import WacDiagram from '$lib/components/graph/WacDiagram.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import CiTestResults from '$lib/components/CiTestResults.svelte'
+	import { recentItems } from '$lib/components/home/recentItems.svelte'
 
 	let {
 		hash: routeHash,
@@ -126,6 +129,7 @@
 		onNavigate = goto,
 		active = true,
 		embedded = false,
+		pendingRun,
 		onLoadState
 	}: {
 		/** The `[...hash]` route segment: either a script hash or a script path. */
@@ -141,6 +145,8 @@
 		/** Rendered inside a page that is not the script's own (an AI session preview tab), whose
 		 * URL this must leave alone and which a cross-workspace link must not navigate away. */
 		embedded?: boolean
+		/** A chat tool call confirmed here rather than on its card. See {@link PendingRun}. */
+		pendingRun?: PendingRun
 		/** How the load ended, for a host that renders its own state around this page.
 		 * Providing it also suppresses the "could not load" toast: a 404 here is the normal
 		 * state of a not-yet-deployed path, which the host explains in place instead. */
@@ -174,7 +180,8 @@
 			canWrite(script.path, script.extra_perms!, actingUser)
 	)
 	const editRights = useEditRights()
-	// The edit actions also need a role that authors scripts, which no operator has.
+	const caps = $derived(editRights.capabilities)
+	// The edit actions also need a role that authors scripts.
 	const canEdit = $derived(can_write && editRights.roleCanAuthor('script'))
 	let deploymentInProgress = $state(false)
 	let expandedModuleLocks: Record<string, boolean> = $state({})
@@ -364,6 +371,16 @@
 		if (!script.path.startsWith(`u/${actingUser?.username}`) && script.path.split('/').length > 2) {
 			invisible_to_owner = script.visible_to_runner_only
 		}
+		// Opened from a session's preview tab, it was the session's doing, not a visit. An
+		// archived script has no page for Home's card to open.
+		if (!embedded && !script.archived) {
+			recentItems.record(workspace!, {
+				kind: 'script',
+				path: script.path,
+				summary: script.summary,
+				via: 'view'
+			})
+		}
 		onLoadState?.('loaded')
 	}
 
@@ -380,6 +397,10 @@
 		invisibleToOwner: boolean | undefined,
 		overrideTag: string | undefined
 	) {
+		// Taken before the round trip below: the call this press answers is the one it was
+		// pressed under, and a call settled meanwhile — declined, then another proposed for
+		// this same script — must not be answered with a job it never asked for.
+		const call = pendingRun
 		try {
 			runLoading = true
 			const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
@@ -405,7 +426,11 @@
 					skipPreprocessor: true
 				})
 			}
-			await onNavigate('/run/' + run + '?workspace=' + workspace)
+			// The call asked for this run; it follows the job rather than starting one, and
+			// shows it in place of this page — so navigating here as well would leave two
+			// surfaces open on the same job.
+			if (!call?.adopt(run, args, script?.schema ?? {}))
+				await onNavigate('/run/' + run + '?workspace=' + workspace)
 		} catch (err) {
 			sendUserToast(`Could not create job: ${err.body}`, true)
 		} finally {
@@ -434,6 +459,10 @@
 			console.error('Was not able to transform hash as args', e)
 		}
 	}
+	// A chat call confirmed here opens its form on what the chat proposed. Read at init like
+	// the hash above, and for the same reason; the host remounts this page when the call
+	// changes, so a tab already open on this script still builds its form from the new one.
+	if (pendingRun) args = { ...untrack(() => pendingRun.proposedArgs) }
 
 	// A dbt retry must name the run it resumes, and a job id is not something to
 	// type from memory: picking `retry` fills the field with the run this caller's
@@ -528,7 +557,7 @@
 	) {
 		const buttons: any = []
 
-		if (!topHash && script && !actingUser?.operator && !script.codebase) {
+		if (!topHash && script && caps.code && !script.codebase) {
 			buttons.push({
 				label: 'Fork',
 				description: `Start a new script from a copy of this one`,
@@ -544,12 +573,7 @@
 			})
 		}
 
-		if (
-			script &&
-			!actingUser?.operator &&
-			!isCloudHosted() &&
-			editInForkAllowed(workspace, $userWorkspaces)
-		) {
+		if (script && caps.code && !isCloudHosted() && editInForkAllowed(workspace, $userWorkspaces)) {
 			buttons.push({
 				label: editInForkLabel(workspace, $userWorkspaces),
 				description: editInForkDescription('script', workspace, $userWorkspaces),
@@ -599,24 +623,26 @@
 			})
 		}
 
-		if (!actingUser?.operator) {
-			buttons.push({
-				label: 'Build app',
-				placement: 'menu',
-				alwaysPlaced: true,
-				buttonProps: {
-					onClick: async () => {
-						const app = createRawAppFromScript(script.path, script.summary, script.schema)
-						// The raw app editor reads the payload from sessionStorage on mount.
-						sessionStorage.setItem('rawAppImport', JSON.stringify(app))
-						await onNavigate('/apps_raw/add')
-					},
-					disabled: !showEditButtons,
-					unifiedSize: 'md',
-					variant: 'subtle',
-					startIcon: LayoutDashboard
-				}
-			})
+		if (caps.code) {
+			// It starts from the full template, not the builder one a compose-only role deploys.
+			if (caps.apps === 'full')
+				buttons.push({
+					label: 'Build app',
+					placement: 'menu',
+					alwaysPlaced: true,
+					buttonProps: {
+						onClick: async () => {
+							const app = createRawAppFromScript(script.path, script.summary, script.schema)
+							// The raw app editor reads the payload from sessionStorage on mount.
+							sessionStorage.setItem('rawAppImport', JSON.stringify(app))
+							await onNavigate('/apps_raw/add')
+						},
+						disabled: !showEditButtons,
+						unifiedSize: 'md',
+						variant: 'subtle',
+						startIcon: LayoutDashboard
+					}
+				})
 
 			if (script?.restart_unless_cancelled ?? false) {
 				buttons.push({
@@ -671,7 +697,7 @@
 		script: Script | undefined,
 		deployUiSettings: WorkspaceDeployUISettings | undefined
 	) {
-		if (!script || actingUser?.operator) return []
+		if (!script || !caps.code) return []
 
 		const menuItems: any = []
 
@@ -838,7 +864,7 @@
 	</DrawerContent>
 </Drawer>
 {#key script?.hash}
-	<DetailPageLayout bind:selected={rightPaneSelected} isOperator={actingUser?.operator}>
+	<DetailPageLayout bind:selected={rightPaneSelected} isOperator={!caps.code}>
 		{#snippet header({ wide }: { wide: boolean })}
 			<DetailPageHeader
 				{wide}
@@ -1031,20 +1057,32 @@
 						{/if}
 
 						<div class="flex flex-col align-left">
-							{#if (script.schema && Object.keys(script.schema.properties ?? {}).length > 0) || inputSelected}
+							{#if (script.schema && Object.keys(script.schema.properties ?? {}).length > 0) || inputSelected || pendingRun}
 								{@const hasSchema =
 									script.schema && Object.keys(script.schema.properties ?? {}).length > 0}
 								<div
 									class="flex flex-row justify-between min-h-12"
 									transition:slide={{ duration: 150 }}
 								>
-									<InputSelectedBadge
-										onReject={() => {
-											savedInputsV2?.resetSelected()
-										}}
-										{inputSelected}
-									/>
-									{#if hasSchema}
+									<div class="flex flex-row items-start gap-2">
+										{#if pendingRun}
+											<InputSelectedBadge
+												inputSelected="pending_run"
+												onReject={() => pendingRun.decline()}
+											/>
+										{/if}
+										<InputSelectedBadge
+											onReject={() => {
+												savedInputsV2?.resetSelected()
+											}}
+											{inputSelected}
+										/>
+									</div>
+									<!-- Not offered while the form refuses writes: each side of this toggle
+									     mounts what the other unmounts, and a `password` field mints a
+									     variable from the literal it opens on. The form stays on whichever
+									     side it is already showing, read-only. -->
+									{#if hasSchema && !pendingRun?.planModeActive}
 										<Toggle
 											bind:checked={jsonView}
 											size="xs"
@@ -1108,8 +1146,11 @@
 								bind:isValid
 								runnable={script}
 								runAction={runScript}
+								runRefusal={pendingRun?.planModeActive
+									? PLAN_MODE_MESSAGES.runFormRefused
+									: undefined}
 								bind:args
-								schedulable={true}
+								schedulable={!pendingRun}
 								bind:this={runForm}
 								{jsonView}
 								actions={promptForAi ? undefined : aiAssistant}

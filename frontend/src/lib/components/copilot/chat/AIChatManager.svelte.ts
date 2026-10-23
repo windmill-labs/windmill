@@ -25,6 +25,7 @@ import {
 	type ToolCallbacks,
 	type ToolDisplayMessage,
 	type UserQuestionDisplay,
+	type RunFormAnswer,
 	type RunFormDisplay,
 	type RunFormDraft,
 	type ChatJob,
@@ -49,10 +50,14 @@ import {
 import type { ScriptLintResult } from './shared'
 import { navigatorTools, prepareNavigatorSystemMessage } from './navigator/core'
 import { loadApiTools } from './api/apiTools'
-import { prepareScriptUserMessage } from './script/core'
+import {
+	prepareScriptUserMessage,
+	resolveResourceTypeSync,
+	type ResourceTypeSync
+} from './script/core'
 import { prepareNavigatorUserMessage } from './navigator/core'
 import { sendUserToast } from '$lib/toast'
-import { workspaceAIClients, getStreamedCompletionText } from '../lib'
+import { AI_PROVIDERS, workspaceAIClients, getStreamedCompletionText } from '../lib'
 import { logFeatureUsage } from '$lib/utils/featureUsage'
 import { modelSupportsVision } from '../modelConfig'
 import { getEffectiveModelContextWindow } from '../modelConfig'
@@ -92,7 +97,7 @@ import { untrack } from 'svelte'
 import { fromStore, get } from 'svelte/store'
 import type { ProviderToolSummary } from './agentContext'
 import { BROWSER } from 'esm-env'
-import { workspaceStore, type DBSchemas } from '$lib/stores'
+import { roleCapabilities, workspaceStore, type DBSchemas } from '$lib/stores'
 import { copilotInfo, copilotSessionModel } from '$lib/aiStore'
 import { copilotWorkspaceRequested, loadCopilot } from '$lib/components/copilot/loadCopilot'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
@@ -114,6 +119,7 @@ import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
 import {
 	closeInterruptedToolBatch,
 	runChatLoop,
+	type ChatLoopConfig,
 	sendsWebSearch,
 	truncateToToolPairedPrefix
 } from './chatLoop'
@@ -168,11 +174,6 @@ import type { ArtifactVersionTarget } from '$lib/components/sessions/previewRout
 import { appendAttachedFilesRoster } from './files/fileTools'
 import { ENTER_PLAN_MODE_TOOL, EXIT_PLAN_MODE_TOOL } from './planMode'
 import { PlanModeController, type PlanModeHost } from './planModeController.svelte'
-import {
-	navigationOperatorBuilderApps,
-	navigationOperatorBuilderFlows,
-	navigationOperatorBuilderRights
-} from '$lib/operatorWriteRights'
 
 // Compaction of the stored history: once the projected request size
 // (contextTokens — the provider's report when current, a fresh chars/4
@@ -224,7 +225,7 @@ const settledRunForm = (runForm: RunFormDisplay): RunFormDisplay =>
 type PendingRunForm = {
 	/** Absent once the loop is no longer waiting: a card restored from history still mounts
 	 * its form and still holds edits, but nothing is left to receive them. */
-	resolve?: (args: Record<string, any> | undefined) => void
+	resolve?: (answer: RunFormAnswer | undefined) => void
 	draft: RunFormDraft
 	submitting: boolean
 }
@@ -246,12 +247,12 @@ const WEB_SEARCH_ERROR_HINT =
 const REASONING_SUMMARY_WARNED_STORAGE_KEY = 'ai-chat-reasoning-summary-unverified-warned'
 
 function providerDisplayName(provider: string): string {
-	return provider === 'azure_openai' ? 'Azure OpenAI' : 'OpenAI'
+	return AI_PROVIDERS[provider as keyof typeof AI_PROVIDERS]?.label ?? 'OpenAI'
 }
 
 function reasoningSummaryUnavailableMessage(provider: string): string {
 	const verifyHint =
-		provider === 'azure_openai'
+		provider === 'azure_openai' || provider === 'azure_foundry'
 			? 'To display it, verify your organization with your provider, then reload this page.'
 			: 'To display it, verify your organization in the OpenAI platform settings (Settings > General), then reload this page.'
 	return `This model is reasoning, but your ${providerDisplayName(provider)} organization is not verified to generate reasoning summaries, so its thinking stays hidden. ${verifyHint}`
@@ -305,9 +306,7 @@ export function supportsPlanMode(mode: AIMode): boolean {
 	return PLAN_MODES.has(mode)
 }
 
-const isOperatorBuilder = fromStore(navigationOperatorBuilderRights)
-const isOperatorBuilderFlows = fromStore(navigationOperatorBuilderFlows)
-const isOperatorBuilderApps = fromStore(navigationOperatorBuilderApps)
+const navCapabilities = fromStore(roleCapabilities)
 
 export function isAIModeVisible(mode: AIMode): boolean {
 	return mode !== AIMode.GLOBAL || isGlobalAiEnabled()
@@ -594,6 +593,23 @@ export class AIChatManager implements ChatViewHost {
 	 * chat card holds. Unset outside a session: a chat-bound form has nowhere else to go,
 	 * so the card hides the control rather than offering a tab that cannot run. */
 	openRunForm?: (a: { toolCallId: string; label: string }) => void
+	/** Show a DEPLOYED run's item on its own page. With `carries`, that page is handed this
+	 * call: it opens its own form on what the call proposed, and the job its Run starts is
+	 * the one the tool follows. Without it the page is only opened to look at — a
+	 * conversational flow's page has no form to confirm on — and the card keeps the run. Set
+	 * only where that page can be shown, a session's preview panel, so the card hides the
+	 * control elsewhere. */
+	openRunOnDeployedPage?: (a: {
+		toolCallId: string
+		kind: 'script' | 'flow'
+		path: string
+		summary: string
+		carries: boolean
+		/** Re-point a tab already on that page, and answer `false` rather than opening one.
+		 * For handing a call to a page the reader already has in front of them: a tab showing
+		 * something else, a run included, has no form to confirm this call on. */
+		onlyIfAlreadyOpen?: boolean
+	}) => boolean
 	closeRunForm?: (toolCallId: string) => void
 	/** Hands that tab from the form to the run it just started, in place: the tab keeps its
 	 * position in the strip and stays active if it was. */
@@ -603,11 +619,16 @@ export class AIChatManager implements ChatViewHost {
 		workspace: string
 		label: string
 	}) => void
-	/** Whether the panel holds this call's pending form. Answered off the session's tab list,
-	 * so it stays true while the user is on another tab, and per call rather than "the open
-	 * one". Read from a `$derived` — the reader subscribes to the tab list through the call.
-	 * The card hides its form on it, which is what keeps exactly one mounted per call. */
+	/** Whether the panel holds this call's pending form, on either surface. Answered off the
+	 * session's tab list, so it stays true while the user is on another tab, and per call
+	 * rather than "the open one". Read from a `$derived` — the reader subscribes to the tab
+	 * list through the call. The card folds its row on it, and a started job takes over
+	 * whichever surface was waiting. */
 	isRunFormInPreview?: (toolCallId: string) => boolean
+	/** Whether the panel holds this call on the chat's own form, as opposed to on the item's
+	 * page. The card's form is exclusive with this one alone: it is the same draft, and two
+	 * mounts of it each reorder the schema SchemaForm edits in place. */
+	isRunFormTabOpen?: (toolCallId: string) => boolean
 	openArtifact?: (artifactId: string, name: string, version?: ArtifactVersionTarget) => void
 	closeArtifact?: (artifactId: string) => void
 	#loading = $state<boolean>(false)
@@ -1485,23 +1506,22 @@ export class AIChatManager implements ChatViewHost {
 			.map((s) => ({ ...s, kind: 'skill' as const }))
 	])
 
-	// The flow, app and script builders all write code, which the backend refuses from an
-	// operator with builder rights: leaving them reachable would only produce work that cannot be
-	// deployed.
+	// The flow, app and script builders all write code, which the backend refuses from a role
+	// that only composes: leaving them reachable would only produce work that cannot be deployed.
 	allowedModes: Record<AIMode, boolean> = $derived({
 		script:
 			this.flowAiChatHelpers === undefined &&
 			this.scriptEditorOptions !== undefined &&
 			!this.disabledModes.script &&
-			!isOperatorBuilder.current,
+			navCapabilities.current.code,
 		flow:
 			this.flowAiChatHelpers !== undefined &&
 			!this.disabledModes.flow &&
-			!isOperatorBuilderFlows.current,
+			navCapabilities.current.flows === 'full',
 		app:
 			this.appAiChatHelpers !== undefined &&
 			!this.disabledModes.app &&
-			!isOperatorBuilderApps.current,
+			navCapabilities.current.apps === 'full',
 		navigator: !this.disabledModes.navigator,
 		ask: !this.disabledModes.ask,
 		API: !this.disabledModes.API,
@@ -1726,8 +1746,15 @@ export class AIChatManager implements ChatViewHost {
 	 * Returns true on success. Returns false — caller falls back to drop-oldest —
 	 * when summarization isn't worthwhile or fails (user abort, empty summary, or
 	 * the circuit breaker being tripped).
+	 *
+	 * `inFlightTokens` is the running turn's output, which is not in `messages` but
+	 * rides on every request after it: the tail shrinks by that much, or the next
+	 * tool result re-triggers at once and drop-oldest discards this summary.
 	 */
-	private summarizeAndCompact = async (contextWindow: number): Promise<boolean> => {
+	private summarizeAndCompact = async (
+		contextWindow: number,
+		inFlightTokens = 0
+	): Promise<boolean> => {
 		if (this.consecutiveCompactionFailures >= MAX_CONSECUTIVE_COMPACTION_FAILURES) {
 			return false
 		}
@@ -1736,13 +1763,14 @@ export class AIChatManager implements ChatViewHost {
 			return false
 		}
 
-		const tailBudget =
+		const historyBudget =
 			contextWindow * COMPACTION_TARGET_RATIO -
 			SUMMARY_OUTPUT_RESERVE_TOKENS -
 			this.estimateOverheadTokens()
-		if (tailBudget <= 0) {
+		if (historyBudget <= 0) {
 			return false
 		}
+		const tailBudget = historyBudget - inFlightTokens
 
 		const last = this.messages.length - 1
 		if (last < 1) {
@@ -1776,7 +1804,10 @@ export class AIChatManager implements ChatViewHost {
 
 		const prefix = this.messages.slice(0, keepFrom)
 		const tail = this.messages.slice(keepFrom)
-		if (prefix.length < MIN_PREFIX_MESSAGES_TO_SUMMARIZE || tail.length === 0) {
+		// Mid-turn, drop-oldest would cut context the running turn may rely on, so any
+		// prefix beyond a lone previous summary is worth the round-trip.
+		const minPrefix = inFlightTokens > 0 ? 2 : MIN_PREFIX_MESSAGES_TO_SUMMARIZE
+		if (prefix.length < minPrefix || tail.length === 0) {
 			return false
 		}
 
@@ -1807,6 +1838,65 @@ export class AIChatManager implements ChatViewHost {
 			this.consecutiveCompactionFailures++
 		}
 		return false
+	}
+
+	/**
+	 * Automatic compaction trigger, checked when a turn is sent and again before
+	 * each tool-loop iteration, since one turn's tool results can carry the request
+	 * past the window on their own. Rewrites the stored history (not the turn in
+	 * flight) once `projectedTokens` reaches the trigger ratio of `model`'s window.
+	 * Returns whether it rewrote; callers persist. An unrecognized model still gets
+	 * the conservative assumed window rather than no limit: without one the context
+	 * grows unbounded until the provider (or a proxy in front of it) times out.
+	 * Guessing low only compacts earlier, which is always recoverable.
+	 */
+	private compactIfOverTrigger = async (
+		projectedTokens: number,
+		model: ChatLoopConfig['modelProvider'] | undefined,
+		inFlightTokens = 0
+	): Promise<boolean> => {
+		const contextWindow = model
+			? getEffectiveModelContextWindow(
+					model.provider,
+					model.model,
+					get(copilotInfo).contextWindowPerModel
+				)
+			: undefined
+		if (contextWindow === undefined || projectedTokens < contextWindow * COMPACTION_TRIGGER_RATIO) {
+			return false
+		}
+		// Preferred path: summarize the older prefix, keep the recent tail.
+		const summarized = await this.summarizeAndCompact(contextWindow, inFlightTokens)
+		// A Stop during the in-flight summary aborts this turn's controller;
+		// summarizeAndCompact then returns false without touching history. Skip
+		// the drop-oldest fallback — it would destructively compact a conversation
+		// the user only meant to cancel, and the request can't run on an aborted
+		// controller anyway. The cancel path rolls the turn back cleanly on its own.
+		if (this.abortController?.signal.aborted) {
+			return false
+		}
+		if (!summarized) {
+			// Fallback when summarization isn't worthwhile or fails: drop the
+			// oldest messages. A report stays meaningful only debited by what
+			// was dropped; the estimate path needs no bookkeeping — the next
+			// read re-estimates the compacted history. chars/4 can
+			// underestimate the freed tokens, which errs toward compacting
+			// again — never toward overflowing.
+			const lengthBefore = this.messages.length
+			const freed = this.compactOldestMessages(
+				projectedTokens - contextWindow * COMPACTION_TARGET_RATIO
+			)
+			if (this.messages.length === lengthBefore) {
+				return false
+			}
+			if (this.contextUsage !== undefined) {
+				this.contextUsage = Math.max(0, this.contextUsage - freed)
+			}
+		}
+		// Reconcile file registrations with the compacted transcript — the
+		// summary message carries the folded-away turns' files forward.
+		this.#syncMessageFiles()
+		return true
 	}
 
 	/**
@@ -2053,7 +2143,7 @@ export class AIChatManager implements ChatViewHost {
 		toolId: string,
 		form: RunFormDisplay,
 		opts?: { autoAccepted?: boolean }
-	): Promise<Record<string, any> | undefined> => {
+	): Promise<RunFormAnswer | undefined> => {
 		// The tool reads the schema before it asks, so a stop during that read drains the
 		// callbacks and settles the card before this runs. Installing one then would park
 		// the turn on a form the settled card no longer renders, leaving nothing able to
@@ -2070,15 +2160,32 @@ export class AIChatManager implements ChatViewHost {
 		// Ahead of the wait, not of the stop above: the caller settled this form before
 		// attaching it, so its card renders no fields and nothing here could ever resolve.
 		if (opts?.autoAccepted) {
-			return Promise.resolve(form.args)
+			return Promise.resolve({ kind: 'args' as const, args: form.args })
 		}
 		// Seeded from the caller's copy, before the card renders: the file arguments on
 		// `displayMessages` are redacted, so a draft built from those would open the form on
 		// the marker rather than on the bytes the model proposed.
 		const entry = this.#runFormEntry(toolId, form)
-		return new Promise((resolve) => {
+		const answer = new Promise<RunFormAnswer | undefined>((resolve) => {
 			this.#runForms.set(toolId, { ...entry, resolve })
 		})
+		// A tab already on this item's deployed page is where the reader would be sent anyway,
+		// so the call goes there without waiting to be asked: declining a proposal and having
+		// the agent propose another leaves that page open, and the second proposal belongs on
+		// it. Only a tab already there — opening one for every proposed run would take the
+		// panel away from whatever the reader is doing. After the resolve above is installed,
+		// since the page reads the call back through `isRunFormPending`.
+		if (form.kind === 'run' && form.path && !form.conversational) {
+			this.openRunOnDeployedPage?.({
+				toolCallId: toolId,
+				kind: form.runnableKind === 'flow' ? 'flow' : 'script',
+				path: form.path,
+				summary: form.summary || form.path,
+				carries: true,
+				onlyIfAlreadyOpen: true
+			})
+		}
+		return answer
 	}
 
 	/**
@@ -2105,6 +2212,10 @@ export class AIChatManager implements ChatViewHost {
 		this.#runFormEntry(toolId, runForm).draft
 
 	markRunFormStarted = (toolId: string) => this.#patchRunForm(toolId, { started: true })
+
+	// Nothing to patch on the card — it already carries the tool's own error — so this exists
+	// for the surfaces that confirmed the run and would otherwise wait forever for a job.
+	markRunFormEnded = (toolId: string) => this.closeRunForm?.(toolId)
 
 	// A form restored from history has an entry once it mounts, but no resolve: the loop
 	// that opened it is gone.
@@ -2139,9 +2250,33 @@ export class AIChatManager implements ChatViewHost {
 	 * leaving its submit button spinning on a run that will never start. */
 	handleRunFormSubmit = (toolId: string, args: Record<string, any>): boolean => {
 		if (!this.isRunFormPending(toolId)) return false
-		this.#settleRunForm(toolId, args)
+		this.#settleRunForm(toolId, { kind: 'args', args })
 		return true
 	}
+
+	/** The reader ran the item on its own page; the tool follows that job rather than
+	 * starting one. False when the call is no longer waiting. */
+	handleRunFormJob = (
+		toolId: string,
+		jobId: string,
+		args: Record<string, any>,
+		schema: Record<string, any>
+	): boolean => {
+		if (!this.isRunFormPending(toolId)) return false
+		// Snapshotted for the same reason the draft is: these are `$state` proxies off the
+		// page's own form, which keeps editing them after the run.
+		this.#settleRunForm(toolId, {
+			kind: 'job',
+			jobId,
+			args: ($state.snapshot(args) ?? {}) as Record<string, any>,
+			schema: ($state.snapshot(schema) ?? {}) as Record<string, any>
+		})
+		return true
+	}
+
+	/** What a parked form is waiting on, for a surface opening its own form on the same call. */
+	pendingRunFormArgs = (toolId: string): Record<string, any> | undefined =>
+		this.#runForms.get(toolId)?.draft?.args
 
 	handleRunFormCancel = (toolId: string) => {
 		// The card's own copy is settled here rather than only in the tool's fn, which a form
@@ -2165,9 +2300,10 @@ export class AIChatManager implements ChatViewHost {
 	 */
 	#settleRunForm = (
 		toolId: string,
-		submitted: Record<string, any> | undefined,
+		answer: RunFormAnswer | undefined,
 		card?: (runForm: RunFormDisplay) => Partial<ToolDisplayMessage>
 	) => {
+		const submitted = answer?.args
 		const entry = this.#runForms.get(toolId)
 		// Its draft holds whatever was typed into the form, a minted password included.
 		this.#runForms.delete(toolId)
@@ -2181,7 +2317,7 @@ export class AIChatManager implements ChatViewHost {
 			submitted ? { submitted: true } : { canceled: true },
 			cancelledArgs ? (runForm) => ({ ...card?.(runForm), parameters: cancelledArgs }) : card
 		)
-		entry?.resolve?.(submitted)
+		entry?.resolve?.(answer)
 	}
 
 	/**
@@ -2209,8 +2345,12 @@ export class AIChatManager implements ChatViewHost {
 		)
 	}
 
-	setAiChatInput(aiChatInput: AIChatInput | null) {
+	setAiChatInput(aiChatInput: AIChatInput) {
 		this.aiChatInput = aiChatInput
+	}
+
+	releaseAiChatInput(aiChatInput: AIChatInput) {
+		if (this.aiChatInput === aiChatInput) this.aiChatInput = null
 	}
 
 	/** Queue the message typed while a turn is streaming. There is only ever
@@ -2706,6 +2846,9 @@ export class AIChatManager implements ChatViewHost {
 		this.systemMessage = { ...target, content: `${target.content}\n\n${section}` }
 	}
 
+	/** Resolved per send with the rest of the pre-flight; see `resolveResourceTypeSync`. */
+	resourceTypeSync: ResourceTypeSync | undefined = undefined
+
 	// Same shape as refreshGlobalSkills. Re-resolved per send rather than once for the
 	// session's life: the operating workspace can change between sends, and a transient
 	// failure resolves fail-open, so the next message re-asks rather than keeping that answer.
@@ -3113,7 +3256,8 @@ export class AIChatManager implements ChatViewHost {
 		callbacks,
 		addedMessages,
 		systemMessage: systemMessageOverride,
-		onWebSearchUnavailable
+		onWebSearchUnavailable,
+		onBeforeIteration
 	}: {
 		messages: ChatCompletionMessageParam[]
 		abortController: AbortController
@@ -3125,6 +3269,7 @@ export class AIChatManager implements ChatViewHost {
 		addedMessages?: ChatCompletionMessageParam[]
 		systemMessage?: ChatCompletionSystemMessageParam
 		onWebSearchUnavailable?: () => void
+		onBeforeIteration?: ChatLoopConfig['onBeforeIteration']
 	}) => {
 		// Fresh batch for this turn — drop any images an aborted prior turn left buffered.
 		this.pendingToolImages.clear()
@@ -3212,7 +3357,8 @@ export class AIChatManager implements ChatViewHost {
 							this.contextManager.getSelectedContext(),
 							{
 								workspace: this.operatingWorkspace,
-								activePreview: this.activePreviewResolver?.()
+								activePreview: this.activePreviewResolver?.(),
+								resourceTypeSync: this.resourceTypeSync
 							}
 						)
 					}
@@ -3226,8 +3372,9 @@ export class AIChatManager implements ChatViewHost {
 						console.error('Failed to record AI usage', e)
 					}
 				},
-				onBeforeIteration: async (modelProvider) => {
+				onBeforeIteration: async (modelProvider, lastIterationUsage) => {
 					this.lastIterationModel = modelProvider
+					await onBeforeIteration?.(modelProvider, lastIterationUsage)
 				}
 			})
 			if (this.isSessionChat && this.sessionId && result.tokenUsage.total > 0) {
@@ -3742,7 +3889,10 @@ export class AIChatManager implements ChatViewHost {
 				this.refreshGlobalSkills(this.operatingWorkspace ?? ''),
 				this.refreshGlobalFolderInstructions(this.operatingWorkspace ?? ''),
 				this.refreshMcpServers(this.operatingWorkspace ?? ''),
-				this.refreshSessionAccess(this.operatingWorkspace ?? '')
+				this.refreshSessionAccess(this.operatingWorkspace ?? ''),
+				resolveResourceTypeSync(this.operatingWorkspace ?? '', this.messages).then((sync) => {
+					this.resourceTypeSync = sync
+				})
 			])
 		}
 		// Stop/Escape during the beforeSend pre-flight aborted this send before any
@@ -4039,7 +4189,8 @@ export class AIChatManager implements ChatViewHost {
 						workspace: this.operatingWorkspace,
 						activePreview: this.activePreviewResolver?.(),
 						images: sentImages,
-						files: files
+						files: files,
+						resourceTypeSync: this.resourceTypeSync
 					})
 					break
 				case AIMode.APP:
@@ -4073,61 +4224,24 @@ export class AIChatManager implements ChatViewHost {
 			this.currentReasoningActive = false
 			this.resetReasoningTiming()
 
-			// Compaction trigger. An unrecognized model still gets the conservative
-			// assumed window rather than no limit: without one the context grows
-			// unbounded until the provider (or a proxy in front of it) times out.
-			// Guessing low only compacts earlier, which is always recoverable.
-			const contextWindow = model
-				? getEffectiveModelContextWindow(
-						model.provider,
-						model.model,
-						get(copilotInfo).contextWindowPerModel
-					)
-				: undefined
-			if (
-				contextWindow !== undefined &&
-				projectedContextTokens >= contextWindow * COMPACTION_TRIGGER_RATIO
-			) {
-				// Preferred path: summarize the older prefix, keep the recent tail.
-				const summarized = await this.summarizeAndCompact(contextWindow)
-				// A Stop during the in-flight summary aborts this turn's controller;
-				// summarizeAndCompact then returns false without touching history. Skip
-				// the drop-oldest fallback (and its save) — it would destructively
-				// compact a conversation the user only meant to cancel, and the request
-				// can't run on an aborted controller anyway. The cancel path below rolls
-				// the pushed turn back cleanly on its own.
-				if (!this.abortController?.signal.aborted) {
-					if (!summarized) {
-						// Fallback when summarization isn't worthwhile or fails: drop the
-						// oldest messages. A report stays meaningful only debited by what
-						// was dropped; the estimate path needs no bookkeeping — the next
-						// read re-estimates the compacted history. chars/4 can
-						// underestimate the freed tokens, which errs toward compacting
-						// again — never toward overflowing.
-						const freed = this.compactOldestMessages(
-							projectedContextTokens - contextWindow * COMPACTION_TARGET_RATIO
-						)
-						if (this.contextUsage !== undefined) {
-							this.contextUsage = Math.max(0, this.contextUsage - freed)
-						}
-					}
-					// Reconcile file registrations with the compacted transcript — the
-					// summary message carries the folded-away turns' files forward.
-					this.#syncMessageFiles()
-					await this.historyManager.saveChat(
-						this.displayMessages,
-						this.messages,
-						this.contextUsage,
-						this.modifiedItems ? [...this.modifiedItems] : undefined
-					)
-				}
+			if (await this.compactIfOverTrigger(projectedContextTokens, model)) {
+				await this.historyManager.saveChat(
+					this.displayMessages,
+					this.messages,
+					this.contextUsage,
+					this.modifiedItems ? [...this.modifiedItems] : undefined
+				)
 			}
 			// Rollback anchors for restoreUnsentTurn: captured after compaction so
 			// they index into the (possibly compacted) stored history. The summary
 			// path shrinks displayMessages too, so the display anchor must also be
 			// read here, not before compaction.
+			// Mid-turn compaction leaves these stale, but it runs only once the turn has
+			// tool-paired output, which keeps the turn off the restore path.
 			const modelLenAfterUser = this.messages.length
 			const displayLenAfterUser = this.displayMessages.length
+			// Set when a mid-turn compaction makes the latest provider report stale.
+			let usageBeforeCompaction: ChatTokenUsage | null = null
 
 			const params: {
 				messages: ChatCompletionMessageParam[]
@@ -4230,6 +4344,7 @@ export class AIChatManager implements ChatViewHost {
 					requestUserQuestion: this.requestUserQuestion,
 					requestRunArgs: this.requestRunArgs,
 					markRunFormStarted: this.markRunFormStarted,
+					markRunFormEnded: this.markRunFormEnded,
 					onItemModified: (kind, path) => this.recordModifiedItem(kind, path),
 					onItemDeployed: (kind, from, to) => void this.renameModifiedItem(kind, from, to),
 					onItemDiscarded: (kind, path) => void this.removeModifiedItem(kind, path),
@@ -4254,6 +4369,46 @@ export class AIChatManager implements ChatViewHost {
 				addedMessages: collectedMessages,
 				onWebSearchUnavailable: () => {
 					webSearchUnavailable = true
+				},
+				onBeforeIteration: async (iterationModel, lastIterationUsage) => {
+					// The first iteration sends exactly what the send-time check measured.
+					if (collectedMessages.length === 0) return
+					// The last report's prompt covers everything before its assistant message.
+					// That message counts as its `completion` only on Anthropic, which replays
+					// its thinking verbatim (`_anthropicContent`); other providers bill reasoning
+					// the next request does not replay, so it is estimated. The estimate is
+					// the floor in case a later iteration's report never arrived. A report
+					// from before a compaction measured the history it replaced.
+					const lastAssistant = collectedMessages.findLastIndex((m) => m.role === 'assistant')
+					const replaysOutput = !!(collectedMessages[lastAssistant] as any)?._anthropicContent
+					const reported =
+						lastIterationUsage && lastIterationUsage !== usageBeforeCompaction
+							? lastIterationUsage.prompt +
+								(replaysOutput ? lastIterationUsage.completion : 0) +
+								this.estimateMessagesTokens(
+									collectedMessages.slice(replaysOutput ? lastAssistant + 1 : lastAssistant)
+								)
+							: 0
+					const historyTokens = this.estimateWholeContextTokens()
+					// Whatever the report sees beyond the stored history is the turn's, replayed
+					// thinking included, so the summary leaves room for it.
+					const inFlightTokens = Math.max(
+						this.estimateMessagesTokens(collectedMessages),
+						reported - historyTokens
+					)
+					const projected = Math.max(reported, historyTokens + inFlightTokens)
+					if (await this.compactIfOverTrigger(projected, iterationModel, inFlightTokens)) {
+						usageBeforeCompaction = lastIterationUsage
+						// The loop sends from this array, which mirrors the stored history
+						// plus the turn so far.
+						params.messages.splice(
+							0,
+							params.messages.length,
+							...this.messages,
+							...collectedMessages
+						)
+						await checkpointTurn(true)
+					}
 				}
 			})
 			stopCheckpoints()
@@ -4275,9 +4430,10 @@ export class AIChatManager implements ChatViewHost {
 				// stored history it was sent with (the kept partial tail is a small
 				// undercount the trigger headroom absorbs). Without one, clear the
 				// stale value — readers estimate via contextTokens.
-				this.contextUsage = result?.lastIterationUsage
-					? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
-					: undefined
+				this.contextUsage =
+					result?.lastIterationUsage && result.lastIterationUsage !== usageBeforeCompaction
+						? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
+						: undefined
 				await this.historyManager.saveChat(
 					this.displayMessages,
 					this.messages,
@@ -4346,9 +4502,10 @@ export class AIChatManager implements ChatViewHost {
 				// stored — no anchoring or index bookkeeping needed. Without a
 				// report, clear the now-stale value — readers estimate via
 				// contextTokens.
-				this.contextUsage = result?.lastIterationUsage
-					? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
-					: undefined
+				this.contextUsage =
+					result?.lastIterationUsage && result.lastIterationUsage !== usageBeforeCompaction
+						? result.lastIterationUsage.prompt + result.lastIterationUsage.completion
+						: undefined
 				if (this.autoAcceptEditsActive) {
 					this.acceptPendingFlowEdits()
 				}

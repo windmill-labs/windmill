@@ -42,6 +42,7 @@ use windmill_common::jobs::{
 use windmill_common::jobs::{
     InlineScriptTarget, RunInlinePreviewScriptFnParams, RunInlineScriptFnParams,
 };
+use windmill_common::roles::AuthorLevel;
 use windmill_common::runnable_settings::{
     ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
 };
@@ -115,7 +116,9 @@ use windmill_common::{
         add_virtual_items_if_necessary, resolve_maybe_value, ApprovalSkin, FlowModule, FlowValue,
         Suspend,
     },
-    jobs::{script_path_to_payload, CompletedJob, JobKind, JobPayload, QueuedJob, RawCode},
+    jobs::{
+        script_path_to_payload, CompletedJob, JobKind, JobPayload, OnBehalfOf, QueuedJob, RawCode,
+    },
     oauth2::HmacSha256,
     query_builders,
     scripts::{ScriptHash, ScriptLang},
@@ -6736,6 +6739,12 @@ struct Preview {
     /// preview job resolves those imports from not-yet-deployed local content
     /// (uploaded to raw_script_temp) instead of the deployed script.
     temp_script_refs: Option<HashMap<String, String>>,
+    /// Run the preview as this identity (an email or a `u/`/`g/` principal) instead of the
+    /// caller. See `preview_on_behalf_of`.
+    on_behalf_of: Option<String>,
+    /// Data table and object storage access as the caller rather than as the job's identity,
+    /// as a full-code app's inline runnable flagged `viewer_data_access` does for its viewer.
+    viewer_data_access: Option<bool>,
 }
 
 #[cfg(feature = "run_inline")]
@@ -6768,6 +6777,8 @@ struct PreviewFlow {
     /// each flow step so inline-script relative imports resolve from
     /// not-yet-deployed local content instead of the deployed script.
     temp_script_refs: Option<HashMap<String, String>>,
+    /// See `Preview::on_behalf_of`.
+    on_behalf_of: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -7048,6 +7059,7 @@ async fn batch_rerun_handle_job(
             )
             .await;
             if let Ok((uuid, _, _, _)) = result {
+                resolve_batch_rerun_source(authed, db, user_db, w_id, job.id, uuid).await;
                 return Ok(uuid.to_string());
             }
         }
@@ -7081,6 +7093,7 @@ async fn batch_rerun_handle_job(
                 .map(|r| r.0)
             };
             if let Ok(uuid) = result {
+                resolve_batch_rerun_source(authed, db, user_db, w_id, job.id, uuid).await;
                 return Ok(uuid.to_string());
             }
         }
@@ -7089,6 +7102,68 @@ async fn batch_rerun_handle_job(
     Err(error::Error::ExecutionErr(
         format!("Couldn't re-run job {}", job.id).to_string(),
     ))
+}
+
+/// Marks a failed or canceled source of a batch re-run as handled, with the re-run as its note.
+/// This is the only moment the link exists (the re-run is pushed with no back-pointer), and it
+/// is what lets "hide resolved" exclude already re-run jobs from the next batch. Never fails the
+/// re-run, which is already queued: a source that cannot be resolved is logged and left as is.
+async fn resolve_batch_rerun_source(
+    authed: &ApiAuthed,
+    db: &DB,
+    user_db: &UserDB,
+    w_id: &str,
+    source: Uuid,
+    rerun: Uuid,
+) {
+    if !role_can_code(db, w_id, authed).await.unwrap_or(false) {
+        return;
+    }
+    let result: error::Result<()> = async {
+        let mut tx = user_db.clone().begin(authed).await?;
+        let tags = get_scope_tags(authed);
+        let (resolved_by, _) = resolution_attribution(authed, None);
+        // Same authorization and eligibility as `resolve_completed_jobs`. DO NOTHING keeps a
+        // resolution someone already explained.
+        let resolved = sqlx::query_scalar!(
+            "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note, automatic)
+                SELECT c.id, c.workspace_id, $4, $5, false
+                    FROM v2_job_completed c
+                    JOIN v2_job j ON j.id = c.id
+                    WHERE c.id = $1
+                        AND c.workspace_id = $2
+                        AND ($3::TEXT[] IS NULL OR j.tag = ANY($3))
+                        AND c.status IN ('failure', 'canceled')
+                        AND j.flow_step_id IS NULL
+                ON CONFLICT (job_id) DO NOTHING
+                RETURNING job_id",
+            source,
+            w_id,
+            tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
+            resolved_by,
+            format!("Re-run as {rerun}"),
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if resolved.is_some() {
+            audit_log(
+                &mut *tx,
+                authed,
+                "jobs.resolve",
+                ActionKind::Update,
+                w_id,
+                Some(&source.to_string()),
+                None,
+            )
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+    .await;
+    if let Err(e) = result {
+        tracing::error!("Could not resolve job {source} after re-running it as {rerun}: {e}");
+    }
 }
 
 pub async fn run_flow_by_path(
@@ -8916,18 +8991,136 @@ async fn operator_may_run_datatable_query(
     .unwrap_or(false))
 }
 
-/// The refusal an operator gets from a preview route. Inside a job the caller never ran a
-/// preview themselves, so name the one thing the job's token may do.
+/// Whether the caller's role may run code of its own: previews, dependency jobs, inline dynamic
+/// selects, resolving jobs.
+async fn role_can_code(db: &DB, w_id: &str, authed: &ApiAuthed) -> error::Result<bool> {
+    Ok(
+        windmill_common::roles::caller_capabilities(db, w_id, authed)
+            .await?
+            .code,
+    )
+}
+
+/// The refusal a member whose role cannot code gets from a preview route. Inside a job the caller
+/// never ran a preview themselves, so name the one thing the job's token may do.
 fn operator_preview_refusal(job_id: Option<Uuid>) -> error::Error {
     let reason = if job_id.is_some() {
-        "Operators cannot run preview jobs for security reasons: from inside a job, an \
-         operator may only run a wmill.datatable() query while that job is running"
+        "Your role cannot run preview jobs in this workspace: from inside a job, a member \
+         whose role cannot code may only run a wmill.datatable() query while that job is running"
     } else {
-        "Operators cannot run preview jobs for security reasons"
+        "Your role cannot run preview jobs in this workspace"
     };
     // 403, not 401: the frontend reads a 401 as a dead session and logs the user out, and the
     // flow editor builders open reaches this route.
     error::Error::PermissionDenied(reason.to_string())
+}
+
+/// The identity a preview asks to run as, or `None` when it runs as the caller.
+///
+/// A preview is request-supplied code, so running it as someone else is impersonation, not
+/// "running their runnable": only those who may set a runnable's `on_behalf_of` on deploy
+/// (admins and `wm_deployers`) may ask for it. Naming oneself is always allowed. Operators are
+/// refused even in `wm_deployers`: the datatable-query exemption lets them reach this route
+/// without being able to deploy anything.
+pub(crate) async fn preview_on_behalf_of(
+    authed: &ApiAuthed,
+    requested: Option<&str>,
+    w_id: &str,
+    db: &DB,
+) -> error::Result<Option<OnBehalfOf>> {
+    let Some(requested) = requested.filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    let own = username_to_permissioned_as(&authed.username);
+    if requested == own || requested == authed.email {
+        return Ok(None);
+    }
+    if !role_can_code(db, w_id, authed).await?
+        || !windmill_common::can_preserve_on_behalf_of(authed)
+    {
+        return Err(Error::PermissionDenied(
+            "Only admins and members of wm_deployers can run a preview on behalf of another user"
+                .to_string(),
+        ));
+    }
+    let permissioned_as =
+        windmill_common::resolve_on_behalf_of(None, Some(requested), true, authed, w_id, db)
+            .await?
+            .unwrap_or(own.clone());
+    if permissioned_as == own {
+        return Ok(None);
+    }
+    let email =
+        windmill_common::users::get_email_from_permissioned_as_uncached(&permissioned_as, w_id, db)
+            .await?;
+    Ok(Some(OnBehalfOf { email, permissioned_as }))
+}
+
+/// Audits the impersonation and opens the job's own logs with it, so whoever reads the run sees
+/// who it ran as and who asked, not only the identity columns.
+pub(crate) async fn audit_preview_on_behalf_of(
+    tx: &mut Transaction<'_, Postgres>,
+    authed: &ApiAuthed,
+    w_id: &str,
+    job_id: Uuid,
+    path: Option<&str>,
+    obo: &OnBehalfOf,
+) -> error::Result<()> {
+    let mut params = HashMap::from([("on_behalf_of", obo.permissioned_as.as_str())]);
+    if let Some(path) = path {
+        params.insert("path", path);
+    }
+    audit_log(
+        &mut **tx,
+        authed,
+        "jobs.run.preview_on_behalf_of",
+        ActionKind::Execute,
+        w_id,
+        Some(&job_id.to_string()),
+        Some(params),
+    )
+    .await?;
+    sqlx::query!(
+        "INSERT INTO job_logs (logs, job_id, workspace_id) VALUES ($1, $2, $3) ON CONFLICT (job_id) DO UPDATE SET logs = concat(job_logs.logs, EXCLUDED.logs)",
+        format!(
+            "Preview run on behalf of {} ({}), requested by {}\n",
+            obo.permissioned_as, obo.email, authed.email
+        ),
+        job_id,
+        w_id,
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// The push identity and isolation level for a preview: the caller's own, or the requested
+/// `on_behalf_of`'s, pushed through the root pool like a deployed `on_behalf_of` run.
+fn preview_push_identity(
+    authed: &ApiAuthed,
+    user_db: &UserDB,
+    db: &DB,
+    obo: Option<&OnBehalfOf>,
+) -> (
+    String,
+    String,
+    Option<windmill_common::db::Authed>,
+    PushIsolationLevel<'static>,
+) {
+    match obo {
+        Some(obo) => (
+            obo.email.clone(),
+            obo.permissioned_as.clone(),
+            None,
+            PushIsolationLevel::IsolatedRoot(db.clone()),
+        ),
+        None => (
+            authed.email.clone(),
+            username_to_permissioned_as(&authed.username),
+            Some(authed.clone().into()),
+            PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
+        ),
+    }
 }
 
 async fn run_preview_script(
@@ -8940,7 +9133,7 @@ async fn run_preview_script(
 ) -> error::Result<(StatusCode, String)> {
     #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
-    if authed.is_operator {
+    if !role_can_code(&db, &w_id, &authed).await? {
         // A deferred run would outlive the running job the exemption keys off.
         if run_query.get_scheduled_for(&db).await?.is_some()
             || !operator_may_run_datatable_query(
@@ -8964,7 +9157,13 @@ async fn run_preview_script(
     require_path_read_access_for_preview(&authed, &preview.path)?;
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(preview.tag.clone());
-    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
+    let obo = preview_on_behalf_of(&authed, preview.on_behalf_of.as_deref(), &w_id, &db).await?;
+    let (email, permissioned_as, push_authed, tx) =
+        preview_push_identity(&authed, &user_db, &db, obo.as_ref());
+    let audited_path = preview.path.clone();
+    // A job token's end user is whoever ran the calling job, who never consented to that job's
+    // code reading data as them: only a direct caller, reading as themselves, may ask for it.
+    let viewer_data_access = authed.job_id.is_none() && preview.viewer_data_access.unwrap_or(false);
 
     let preview_args = preview.args.unwrap_or_default();
     let mut extra = HashMap::new();
@@ -9010,8 +9209,8 @@ async fn run_preview_script(
         },
         push_args,
         authed.display_username(),
-        &authed.email,
-        username_to_permissioned_as(&authed.username),
+        &email,
+        permissioned_as,
         authed.token_prefix.as_deref(),
         authed.username_override.as_deref(),
         scheduled_for,
@@ -9028,7 +9227,7 @@ async fn run_preview_script(
         run_query.timeout,
         None,
         None,
-        Some(&authed.clone().into()),
+        push_authed.as_ref(),
         false,
         end_user_email,
         authed.trigger_or_fallback(None),
@@ -9036,6 +9235,19 @@ async fn run_preview_script(
         scope_ceiling.as_deref(),
     )
     .await?;
+    let mut tx = tx;
+    if let Some(obo) = obo.as_ref() {
+        audit_preview_on_behalf_of(&mut tx, &authed, &w_id, uuid, audited_path.as_deref(), obo)
+            .await?;
+    }
+    if viewer_data_access {
+        sqlx::query!(
+            "UPDATE job_perms SET viewer_data_access = true WHERE job_id = $1",
+            uuid
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
     tx.commit().await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
@@ -9052,7 +9264,7 @@ async fn run_inline_preview_script(
     // Same arbitrary-code class as run_preview_script, and every worker and standalone
     // server exposes this route, so an operator is refused on the same terms. A
     // narrowly-scoped token must not escape its scope through inline preview either.
-    if authed.is_operator
+    if !role_can_code(&db, &w_id, &authed).await?
         && !operator_may_run_datatable_query(
             &db,
             &w_id,
@@ -9066,6 +9278,7 @@ async fn run_inline_preview_script(
         return Err(operator_preview_refusal(job_id));
     }
     check_scopes(&authed, || format!("jobs:run"))?;
+    windmill_queue::tags::check_inline_run_allowed(&w_id, &db).await?;
     if let Some(job_id) = job_id {
         register_potential_assets_on_inline_execution(job_id, &w_id, &preview);
     }
@@ -9084,7 +9297,6 @@ async fn run_inline_preview_script(
         end_user_email,
         viewer_data_access,
         lang: preview.language,
-        job_dir: "".to_string(),
         worker_name: "".to_string(),
         worker_dir: "".to_string(),
         client: AuthedClient {
@@ -9186,6 +9398,7 @@ async fn run_inline_script_inner(
     args: Option<HashMap<String, Box<JsonRawValue>>>,
     user_db: Option<UserDB>,
 ) -> error::Result<Response> {
+    windmill_queue::tags::check_inline_run_allowed(&w_id, &db).await?;
     // An inline run executes with the caller's own token, so it cannot honour a script's
     // `job_token_scopes`: such a script only runs as a job. A path is resolved here, once, and
     // the version checked is the version run.
@@ -9235,7 +9448,6 @@ async fn run_inline_script_inner(
         permissioned_as: username_to_permissioned_as(&authed.username),
         permissioned_as_email: authed.email.clone(),
         end_user_email,
-        job_dir: "".to_string(),
         worker_name: "".to_string(),
         worker_dir: "".to_string(),
         client: AuthedClient {
@@ -9358,10 +9570,8 @@ async fn run_bundle_preview_script(
     Query(run_query): Query<RunJobQuery>,
     mut multipart: axum::extract::Multipart,
 ) -> error::Result<(StatusCode, String)> {
-    if authed.is_operator {
-        return Err(error::Error::NotAuthorized(
-            "Operators cannot run preview jobs for security reasons".to_string(),
-        ));
+    if !role_can_code(&db, &w_id, &authed).await? {
+        return Err(operator_preview_refusal(None));
     }
     // Bundle preview runs arbitrary, request-supplied code; require the broad jobs:run
     // scope so a narrowly-scoped token cannot escape its scope. See run_preview_script.
@@ -9387,7 +9597,11 @@ async fn run_bundle_preview_script(
 
             let scheduled_for = run_query.get_scheduled_for(&db).await?;
             let tag = run_query.tag.clone().or(preview.tag.clone());
-            let ltx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
+            let obo =
+                preview_on_behalf_of(&authed, preview.on_behalf_of.as_deref(), &w_id, &db).await?;
+            let (email, permissioned_as, push_authed, ltx) =
+                preview_push_identity(&authed, &user_db, &db, obo.as_ref());
+            let audited_path = preview.path.clone();
 
             let args = preview.args.unwrap_or_default();
 
@@ -9435,8 +9649,8 @@ async fn run_bundle_preview_script(
                 }),
                 push_args,
                 authed.display_username(),
-                &authed.email,
-                username_to_permissioned_as(&authed.username),
+                &email,
+                permissioned_as,
                 authed.token_prefix.as_deref(),
                 authed.username_override.as_deref(),
                 scheduled_for,
@@ -9453,7 +9667,7 @@ async fn run_bundle_preview_script(
                 run_query.timeout,
                 None,
                 None,
-                Some(&authed.clone().into()),
+                push_authed.as_ref(),
                 false,
                 end_user_email,
                 authed.trigger_or_fallback(None),
@@ -9461,6 +9675,18 @@ async fn run_bundle_preview_script(
                 scope_ceiling.as_deref(),
             )
             .await?;
+            let mut ntx = ntx;
+            if let Some(obo) = obo.as_ref() {
+                audit_preview_on_behalf_of(
+                    &mut ntx,
+                    &authed,
+                    &w_id,
+                    uuid,
+                    audited_path.as_deref(),
+                    obo,
+                )
+                .await?;
+            }
             job_id = Some(uuid);
             tx = Some(ntx);
         }
@@ -9552,9 +9778,9 @@ async fn push_dependencies_job(
     req: RunDependenciesRequest,
 ) -> error::Result<Uuid> {
     check_dependencies_scope(authed, &req.entrypoint)?;
-    if authed.is_operator {
-        return Err(error::Error::NotAuthorized(
-            "Operators cannot run dependencies jobs for security reasons".to_string(),
+    if !role_can_code(db, w_id, authed).await? {
+        return Err(error::Error::PermissionDenied(
+            "Your role cannot run dependencies jobs in this workspace".to_string(),
         ));
     }
 
@@ -9675,10 +9901,10 @@ async fn push_flow_dependencies_job(
     req: RunFlowDependenciesRequest,
 ) -> error::Result<Uuid> {
     check_dependencies_scope(authed, &req.path)?;
-    check_operator_can_build(
+    let flows_level = check_operator_can_build(
         db,
         w_id,
-        authed.is_operator,
+        authed,
         BuilderKind::Flows,
         "run dependencies jobs",
     )
@@ -9686,7 +9912,7 @@ async fn push_flow_dependencies_job(
     // The dependency job locks whatever inline code this request carries, on a worker. A
     // composition-only flow has none, so validating here costs a builder nothing and keeps the
     // lock step from becoming the way to run code the write path refuses.
-    if authed.is_operator {
+    if flows_level == AuthorLevel::Compose {
         validate_operator_composed_flow(&req.flow_value, &None, authed, db, user_db, w_id).await?;
         // The job rewrites bookkeeping stored under `req.path` (dependency map, asset usages,
         // lock error) even with `skip_flow_update`, so a builder must be able to write there.
@@ -9971,17 +10197,22 @@ async fn add_batch_jobs(
 
     let language = language.unwrap_or(ScriptLang::Deno);
 
-    let tag = if let Some(dedicated_worker) = dedicated_worker {
+    let tag = match (dedicated_worker, batch_info.tag) {
         // Same rule as `push`: a dedicated worker would run it with its own unscoped token.
-        if dedicated_worker && path.is_some() && job_token_scopes.is_none() {
+        (Some(true), _) if path.is_some() && job_token_scopes.is_none() => {
             windmill_common::worker::dedicated_worker_tag(&w_id, &path.clone().unwrap())
-        } else {
-            format!("{}", language.as_str())
         }
-    } else if let Some(tag) = batch_info.tag {
-        tag
-    } else {
-        format!("{}", language.as_str())
+        (None, Some(tag)) => {
+            windmill_queue::tags::apply_dev_workspace_suffix(tag, &w_id, &db).await?
+        }
+        _ => {
+            windmill_queue::tags::apply_dev_workspace_suffix(
+                language.as_str().to_string(),
+                &w_id,
+                &db,
+            )
+            .await?
+        }
     };
 
     let mut tx = user_db.begin(&authed).await?;
@@ -10097,14 +10328,9 @@ async fn run_preview_flow_job(
     Query(run_query): Query<RunJobQuery>,
     Json(raw_flow): Json<PreviewFlow>,
 ) -> error::Result<(StatusCode, String)> {
-    check_operator_can_build(
-        &db,
-        &w_id,
-        authed.is_operator,
-        BuilderKind::Flows,
-        "run preview jobs",
-    )
-    .await?;
+    let flows_level =
+        check_operator_can_build(&db, &w_id, &authed, BuilderKind::Flows, "run preview jobs")
+            .await?;
     // Flow preview runs an arbitrary, request-supplied flow definition; require the broad
     // jobs:run scope so a narrowly-scoped token cannot escape its scope. See run_preview_script.
     check_scopes(&authed, || format!("jobs:run"))?;
@@ -10118,7 +10344,7 @@ async fn run_preview_flow_job(
     }
     // A builder must be able to test what it composes, but the submitted value is not the stored
     // one: without this the preview is a way to run inline code the write path refuses.
-    if authed.is_operator {
+    if flows_level == AuthorLevel::Compose {
         validate_operator_composed_flow(
             &raw_flow.value,
             &raw_flow.tag,
@@ -10138,7 +10364,9 @@ async fn run_preview_flow_job(
     }
     let scheduled_for = run_query.get_scheduled_for(&db).await?;
     let tag = run_query.tag.clone().or(raw_flow.tag.clone());
-    let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
+    let obo = preview_on_behalf_of(&authed, raw_flow.on_behalf_of.as_deref(), &w_id, &db).await?;
+    let (email, permissioned_as, push_authed, tx) =
+        preview_push_identity(&authed, &user_db, &db, obo.as_ref());
 
     let chat_input_enabled = raw_flow.value.chat_input_enabled.unwrap_or(false);
     let flow_path = raw_flow.path.clone().unwrap_or_default();
@@ -10171,8 +10399,8 @@ async fn run_preview_flow_job(
         },
         PushArgs::from(&flow_args),
         authed.display_username(),
-        &authed.email,
-        username_to_permissioned_as(&authed.username),
+        &email,
+        permissioned_as,
         authed.token_prefix.as_deref(),
         authed.username_override.as_deref(),
         scheduled_for,
@@ -10189,7 +10417,7 @@ async fn run_preview_flow_job(
         None,
         None,
         None,
-        Some(&authed.clone().into()),
+        push_authed.as_ref(),
         false,
         end_user_email,
         authed.trigger_or_fallback(None),
@@ -10197,6 +10425,11 @@ async fn run_preview_flow_job(
         scope_ceiling.as_deref(),
     )
     .await?;
+
+    if let Some(obo) = obo.as_ref() {
+        let audited_path = Some(flow_path.as_str()).filter(|p| !p.is_empty());
+        audit_preview_on_behalf_of(&mut tx, &authed, &w_id, uuid, audited_path, obo).await?;
+    }
 
     // Set memory_id if provided (for agent memory)
     if let Some(memory_id) = run_query.memory_key(&w_id, &flow_path) {
@@ -10263,7 +10496,7 @@ async fn run_dynamic_select(
     if matches!(
         request.runnable_ref,
         DynamicSelectRunnableRef::Inline { .. }
-    ) && authed.is_operator
+    ) && !role_can_code(&db, &w_id, &authed).await?
     {
         return Err(operator_preview_refusal(None));
     }
@@ -12346,14 +12579,16 @@ fn resolution_attribution<'a>(
     (None, None)
 }
 
-fn check_resolution_request(
+async fn check_resolution_request(
     authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
     job_ids: &[Uuid],
     note: Option<&str>,
 ) -> error::Result<()> {
-    if authed.is_operator {
-        return Err(error::Error::NotAuthorized(
-            "Operators cannot resolve jobs".to_string(),
+    if !role_can_code(db, w_id, authed).await? {
+        return Err(error::Error::PermissionDenied(
+            "Your role cannot resolve jobs in this workspace".to_string(),
         ));
     }
     if job_ids.len() > MAX_RESOLUTION_BATCH {
@@ -12373,23 +12608,24 @@ fn check_resolution_request(
     Ok(())
 }
 
-/// Marks failed jobs as handled. Returns the ids actually affected: an id that is not
-/// visible to the caller, carries an out-of-scope tag, or did not fail is silently
+/// Marks failed or canceled jobs as handled. Returns the ids actually affected: an id that is
+/// not visible to the caller, carries an out-of-scope tag, or did not fail nor get canceled is silently
 /// absent rather than an error, so a bulk selection never fails as a whole.
 async fn resolve_completed_jobs(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(req): Json<ResolveJobsRequest>,
 ) -> error::JsonResult<Vec<Uuid>> {
-    check_resolution_request(&authed, &req.job_ids, req.note.as_deref())?;
+    check_resolution_request(&authed, &db, &w_id, &req.job_ids, req.note.as_deref()).await?;
     let mut tx = user_db.begin(&authed).await?;
     let tags = get_scope_tags(&authed);
     let (resolved_by, typed_note) = resolution_attribution(&authed, req.note.as_deref());
     let system_note = req.superseded_by.map(|_| SUPERSEDED_NOTE);
     // The join on v2_job is what authorizes this write: v2_job_completed has RLS
     // disabled, so v2_job's policies are the only thing scoping rows to the caller.
-    // `status = 'failure'` keeps the invariant that only a failure can be resolved.
+    // Only a failed or canceled run can be resolved: a success has nothing to handle.
     let resolved = sqlx::query_scalar!(
         "INSERT INTO job_resolution (job_id, workspace_id, resolved_by, note, automatic)
             SELECT c.id, c.workspace_id, $4, COALESCE($5, $7), false
@@ -12398,7 +12634,7 @@ async fn resolve_completed_jobs(
                 WHERE c.id = ANY($1)
                     AND c.workspace_id = $2
                     AND ($3::TEXT[] IS NULL OR j.tag = ANY($3))
-                    AND c.status = 'failure'
+                    AND c.status IN ('failure', 'canceled')
                     -- Resolution is a top-level triage state: a step resolved on its own
                     -- would render orange inside a flow whose status is still red.
                     AND j.flow_step_id IS NULL
@@ -12464,11 +12700,12 @@ async fn resolve_completed_jobs(
 
 async fn unresolve_completed_jobs(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(w_id): Path<String>,
     Json(req): Json<ResolveJobsRequest>,
 ) -> error::JsonResult<Vec<Uuid>> {
-    check_resolution_request(&authed, &req.job_ids, None)?;
+    check_resolution_request(&authed, &db, &w_id, &req.job_ids, None).await?;
     let mut tx = user_db.begin(&authed).await?;
     let tags = get_scope_tags(&authed);
     let unresolved = sqlx::query_scalar!(

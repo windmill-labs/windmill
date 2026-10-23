@@ -810,7 +810,7 @@ async fn a_data_table_under_roles_is_cloned_only_with_its_grants(
 
     // The copy an admin asks for goes ahead in an edition that replays grants, and is refused
     // before any database exists in one that does not. The fixture's database does not exist, so
-    // the dump fails either way — and leaves neither a database nor a fork behind.
+    // reading it fails either way — and leaves neither a database nor a fork behind.
     let resp = fork(
         "SECRET_TOKEN",
         json!({"name": "main", "new_dbname": target, "fork_behavior": "schema_only"}),
@@ -820,7 +820,7 @@ async fn a_data_table_under_roles_is_cloned_only_with_its_grants(
     assert_ne!(resp.status(), 200);
     let body = resp.text().await?;
     #[cfg(all(feature = "private", feature = "enterprise"))]
-    assert!(body.contains("pg_dump"), "{body}");
+    assert!(body.contains("\"dt_main\" does not exist"), "{body}");
     #[cfg(not(all(feature = "private", feature = "enterprise")))]
     assert!(body.contains("Enterprise Edition"), "{body}");
     assert!(!database_exists(&db, target).await?);
@@ -977,6 +977,104 @@ async fn a_data_table_under_roles_is_not_copied_without_its_grants(
     assert!(
         resp.text().await?.contains("under roles"),
         "the copy was refused for some other reason"
+    );
+    Ok(())
+}
+
+#[sqlx::test(migrations = "../migrations", fixtures("base", "datatable_roles"))]
+async fn data_tables_on_one_database_are_copied_together(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let shared = json!({"database": {"resource_type": "instance", "resource_path": "dt_shared"}});
+    sqlx::query(
+        "UPDATE workspace_settings SET datatable = jsonb_set(jsonb_set(datatable,
+             '{datatables,a}', $1), '{datatables,b}', $1) WHERE workspace_id = 'test-workspace'",
+    )
+    .bind(&shared)
+    .execute(&db)
+    .await?;
+
+    // One copy is made for both, so it cannot be made two ways.
+    let resp = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/test-workspace/workspaces/create_fork"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(
+        &json!({"id": "wm-fork-pair", "name": "pair", "forked_datatables": [
+            {"name": "a", "new_dbname": "wm_fork_pair__a", "fork_behavior": "schema_only"},
+            {"name": "b", "new_dbname": "wm_fork_pair__b", "fork_behavior": "schema_and_data"}
+        ]}),
+    )
+    .send()
+    .await?;
+    assert_eq!(resp.status(), 400);
+    assert!(resp.text().await?.contains("same database"));
+    assert!(!database_exists(&db, "wm_fork_pair__a").await?);
+
+    // A fork's entries sharing a copy each count as a use of it: dropped together, neither blocks
+    // the other.
+    let copy = json!({"database": {"resource_type": "instance", "resource_path": "wm_fork_dt__a"},
+                      "forked_from": {"schema": {}}});
+    sqlx::query(
+        "UPDATE workspace_settings SET datatable = jsonb_build_object('datatables',
+             jsonb_build_object('a', $1::jsonb, 'b', $1::jsonb)) WHERE workspace_id = 'wm-fork-dt'",
+    )
+    .bind(&copy)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "UPDATE global_settings SET value = jsonb_set(value, '{databases,wm_fork_dt__a}',
+             '{\"tag\": \"datatable\", \"workspace_id\": \"test-workspace\"}')
+         WHERE name = 'custom_instance_pg_databases'",
+    )
+    .execute(&db)
+    .await?;
+    let errors: Vec<String> = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/wm-fork-dt/workspaces/drop_forked_datatable_databases"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({"datatable_names": ["a", "b"]}))
+    .send()
+    .await?
+    .json()
+    .await?;
+    assert!(errors.is_empty(), "{errors:?}");
+    let left: Value = sqlx::query_scalar(
+        "SELECT datatable->'datatables' FROM workspace_settings WHERE workspace_id = 'wm-fork-dt'",
+    )
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(left, json!({}));
+
+    // Clones on one resource share its copy too: dropping it for one would take the other's data.
+    let copy = json!({"database": {"resource_type": "postgresql", "resource_path": "u/test-user/pg"},
+                      "forked_from": {"schema": {}}});
+    sqlx::query(
+        "UPDATE workspace_settings SET datatable = jsonb_build_object('datatables',
+             jsonb_build_object('a', $1::jsonb, 'b', $1::jsonb)) WHERE workspace_id = 'wm-fork-dt'",
+    )
+    .bind(&copy)
+    .execute(&db)
+    .await?;
+    let errors: Vec<String> = authed(
+        client().post(format!(
+            "http://localhost:{port}/api/w/wm-fork-dt/workspaces/drop_forked_datatable_databases"
+        )),
+        "SECRET_TOKEN",
+    )
+    .json(&json!({"datatable_names": ["a"]}))
+    .send()
+    .await?
+    .json()
+    .await?;
+    assert!(
+        errors.len() == 1 && errors[0].contains("still used by data tables 'b'"),
+        "{errors:?}"
     );
     Ok(())
 }
@@ -1639,7 +1737,7 @@ async fn an_operator_neither_writes_nor_runs_a_migration(db: Pool<Postgres>) -> 
         let status = resp.status();
         let text = resp.text().await?;
         assert!(
-            status == 401 && text.contains("Operators cannot"),
+            status == 403 && text.contains("Your role cannot"),
             "{status}: {text}"
         );
     }

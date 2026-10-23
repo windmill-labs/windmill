@@ -9,8 +9,6 @@
 use crate::db::ApiAuthed;
 #[cfg(feature = "embedding")]
 use crate::embeddings::load_embeddings_db;
-#[cfg(feature = "oauth2")]
-use crate::oauth2_oss::SlackVerifier;
 #[cfg(feature = "smtp")]
 use crate::smtp_server_oss::SmtpServer;
 use axum::middleware::from_fn_with_state;
@@ -77,6 +75,7 @@ mod ai_sessions;
 #[cfg(feature = "parquet")]
 pub use ai_sessions::sweep_expired_ai_session_backups;
 mod ai_shared_artifacts;
+mod ai_shared_sessions;
 mod apps;
 mod apps_raw_bundle;
 pub use apps::invalidate_app_policy_cache;
@@ -163,6 +162,9 @@ mod scim_oss;
 mod scripts;
 mod secret_backend_ext;
 mod service_logs;
+// Answering in Slack is only reached from the EE Slack event handlers.
+#[cfg_attr(not(all(feature = "oauth2", feature = "private")), allow(dead_code))]
+mod slack_agents;
 mod slack_approvals;
 #[cfg(all(feature = "smtp", feature = "private"))]
 pub mod smtp_server_ee;
@@ -209,6 +211,7 @@ mod workspaces;
 #[cfg(feature = "private")]
 pub mod workspaces_ee;
 mod workspaces_export;
+mod workspace_settings_document;
 
 #[cfg(feature = "mcp")]
 mod mcp_tools;
@@ -245,16 +248,17 @@ pub use windmill_oauth::OAUTH_CLIENTS;
 
 #[cfg(feature = "oauth2")]
 lazy_static::lazy_static! {
-    pub static ref SLACK_SIGNING_SECRET: Option<SlackVerifier> = std::env::var("SLACK_SIGNING_SECRET")
-        .ok()
-        .map(|x| SlackVerifier::new(x).unwrap());
-
     // Comma-separated Slack v2 OAuth bot scopes requested when connecting a workspace.
     // Must be a subset of the bot scopes declared in the Slack app manifest. Default matches
     // Windmill's recommended manifest at docs.windmill.dev/docs/misc/setup_oauth.
     pub static ref SLACK_OAUTH_SCOPES: String = std::env::var("SLACK_OAUTH_SCOPES")
         .unwrap_or_else(|_| "commands,chat:write,chat:write.public,channels:join,files:write,app_mentions:read,im:history,im:read".to_string());
 }
+
+/// Added to `SLACK_OAUTH_SCOPES` when a workspace connects with AI agents enabled: whether a
+/// message's sender is a person of the team and, for agents that run as their asker, their email,
+/// and the channel picker. Opt-in, as a Slack app must declare every scope it is asked for.
+pub const SLACK_AGENT_SCOPES: &[&str] = &["users:read", "users:read.email", "channels:read"];
 
 // Compliance with cloud events spec.
 pub async fn add_webhook_allowed_origin(
@@ -566,14 +570,14 @@ pub async fn run_server(
 
     // Setup MCP server
     #[allow(unused_variables)]
-    let (mcp_router, gateway_mcp_router, mcp_cancellation_token) = {
+    let (mcp_router, gateway_mcp_router, gateway_session_router, mcp_cancellation_token) = {
         #[cfg(feature = "mcp")]
         if server_mode || mcp_mode {
             use mcp::{
                 add_www_authenticate_header, add_www_authenticate_header_gateway,
                 extract_workspace_from_token, reject_token_query_param,
             };
-            let (mcp_router, mcp_cancellation_token) = setup_mcp_server(
+            let (mcp_router, session_router, mcp_cancellation_token) = setup_mcp_server(
                 db.clone(),
                 user_db,
                 _base_internal_url.clone(),
@@ -595,17 +599,32 @@ pub async fn run_server(
                 .layer(axum::middleware::from_fn(
                     add_www_authenticate_header_gateway,
                 ));
+            // The workspace server. Its tools name their workspace; the token bounds which.
+            let gateway_session_router = session_router
+                .route_layer(from_extractor::<ApiAuthed>())
+                .layer(axum::middleware::from_fn(extract_workspace_from_token))
+                .layer(axum::middleware::from_fn(reject_token_query_param))
+                .layer(axum::middleware::from_fn(
+                    add_www_authenticate_header_gateway,
+                ))
+                .layer(Extension(mcp::McpEndpoint("/api/mcp")));
             (
                 workspaced_mcp_router,
                 gateway_mcp_router,
+                gateway_session_router,
                 Some(mcp_cancellation_token),
             )
         } else {
-            (Router::new(), Router::new(), None)
+            (Router::new(), Router::new(), Router::new(), None)
         }
 
         #[cfg(not(feature = "mcp"))]
-        (Router::new(), Router::new(), Option::<()>::None)
+        (
+            Router::new(),
+            Router::new(),
+            Router::new(),
+            Option::<()>::None,
+        )
     };
 
     // Workers block on this before pulling their first job, so it is released ahead of
@@ -618,15 +637,15 @@ pub async fn run_server(
     }
     tokio::task::yield_now().await;
 
-    let mcp_list_tools_service = {
+    let (mcp_list_tools_service, mcp_toolset_service) = {
         #[cfg(feature = "mcp")]
         {
-            mcp::list_tools_service()
+            (mcp::list_tools_service(), mcp::toolset_service())
         }
 
         #[cfg(not(feature = "mcp"))]
         {
-            Router::new()
+            (Router::new(), Router::new())
         }
     };
 
@@ -680,6 +699,7 @@ pub async fn run_server(
                         .nest("/embeddings", embeddings::workspaced_service())
                         .nest("/favorites", favorite::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
+                        .nest("/slack_agents", slack_agents::workspaced_service())
                         .nest("/runnables", runnables::workspaced_service())
                         .nest(
                             "/workspace_dependencies",
@@ -843,6 +863,7 @@ pub async fn run_server(
                 .nest("/docs", docs::global_service())
                 .nest("/indexer", indexer_oss::management_service())
                 .nest("/mcp/w/{workspace_id}/list_tools", mcp_list_tools_service)
+                .nest("/mcp/toolset", mcp_toolset_service)
                 .nest("/db_health", db_health::global_service())
                 .nest("/health/detailed", health::detailed_service())
                 .nest(
@@ -923,6 +944,10 @@ pub async fn run_server(
                         .layer(from_extractor::<OptAuthed>())
                         .layer(cors.clone()),
                 )
+                .nest(
+                    "/w/{workspace_id}/ai_u/shared_sessions",
+                    ai_shared_sessions::workspaced_unauthed_service(),
+                )
                 .layer(from_extractor::<OptAuthed>())
                 // Deprecated, here for backwards compatibility: user should use /mcp/w/{workspace_id}/mcp instead
                 .nest(
@@ -934,6 +959,7 @@ pub async fn run_server(
                     mcp_router.clone().layer(mcp_cors.clone()),
                 )
                 .nest("/mcp/gateway", gateway_mcp_router.layer(mcp_cors.clone()))
+                .merge(gateway_session_router.layer(mcp_cors.clone()))
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
                     {
@@ -1171,6 +1197,16 @@ pub async fn run_server(
                 get(|| async { axum::http::StatusCode::NOT_FOUND })
             }
         })
+        .route("/.well-known/oauth-protected-resource/api/mcp", {
+            #[cfg(feature = "mcp")]
+            {
+                get(mcp::oauth_server::gateway_session_protected_resource_metadata)
+            }
+            #[cfg(not(feature = "mcp"))]
+            {
+                get(|| async { axum::http::StatusCode::NOT_FOUND })
+            }
+        })
         // JWKS endpoint for HashiCorp Vault JWT authentication (must be outside /api prefix)
         .route("/.well-known/jwks.json", {
             #[cfg(all(feature = "private", feature = "enterprise", feature = "openidconnect"))]
@@ -1244,6 +1280,9 @@ pub async fn run_server(
     if let Some(name) = name.as_ref() {
         tracing::info!("server starting for name={name}");
     }
+    #[cfg(feature = "mcp")]
+    mcp::register_router(&_base_internal_url, Some(app.clone()));
+
     let listener = listener.tap_io(move |tcp_stream| {
         let _ = tcp_stream.set_nodelay(!server_mode);
     });
@@ -1281,7 +1320,10 @@ pub async fn run_server(
         }
     });
 
-    server.await?;
+    let served = server.await;
+    #[cfg(feature = "mcp")]
+    mcp::register_router(&_base_internal_url, None);
+    served?;
     let forks = &windmill_api_workspaces::workspaces::BACKGROUND_FORKS;
     forks.close();
     if !forks.is_empty() {

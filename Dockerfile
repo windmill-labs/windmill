@@ -18,7 +18,9 @@ RUN apt-get -y update \
     pkg-config=1.8.* \
     protobuf-compiler=3.21.*
 
-RUN git clone -b master --single-branch https://github.com/google/nsjail.git . && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800
+COPY docker/nsjail-patches/ /nsjail-patches/
+RUN git clone -b master --single-branch https://github.com/google/nsjail.git . && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800 \
+    && git apply /nsjail-patches/*.patch
 RUN make
 
 FROM ${RUST_IMAGE} AS rust_base
@@ -50,10 +52,7 @@ RUN apt-get update && apt-get install -y clang=1:19.0* libclang-dev=1:19.0* cmak
 
 COPY ./backend/windmill-duckdb-ffi-internal .
 
-# The `duckdb` crate comes from a git dependency (a fork carrying an engine patch),
-# which cargo checks out under $CARGO_HOME/git rather than the registry cache.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     cargo build --release -p windmill_duckdb_ffi_internal
 
@@ -242,7 +241,7 @@ ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
 # Install UV
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.13.0/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.13.4/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
 
 # Preinstall python runtimes to temp build location (will copy with world-writable perms later)
 # --compile-bytecode precompiles the stdlib to .pyc so jobs don't recompile it on every run
@@ -256,6 +255,11 @@ RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_r
 RUN curl -sL https://deb.nodesource.com/setup_24.x | bash -
 RUN apt-get -y update && apt-get install -y --no-install-recommends curl procps nodejs awscli && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
+
+# The npm bundled with nodejs is replaced by a pinned one: it is what `//npm` scripts install with
+# (NPM_PATH=/usr/bin/npm). npm 12 skips dependency install scripts not covered by an allowScripts
+# policy (package.json or .npmrc).
+RUN npm install -g npm@12.2.0 && npm cache clean --force
 
 # go build is slower the first time it is ran, so we prewarm it in the build
 # This mirrors Windmill's Go wrapper structure: main.go imports inner package, uses encoding/json, os, fmt
@@ -286,9 +290,10 @@ ENV TZ=Etc/UTC
 
 COPY --from=builder /frontend/build /static_frontend
 COPY --from=builder /windmill/target/release/windmill ${APP}/windmill
-COPY --from=windmill_duckdb_ffi_internal_builder /windmill-duckdb-ffi-internal/target/release/libwindmill_duckdb_ffi_internal.so ${APP}/libwindmill_duckdb_ffi_internal.so
+# DuckDB jobs run in this binary, which the worker looks for next to its own.
+COPY --from=windmill_duckdb_ffi_internal_builder /windmill-duckdb-ffi-internal/target/release/windmill_duckdb_runner ${APP}/windmill_duckdb_runner
 
-COPY --from=oven/bun:1.4.0 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.4.4 /usr/local/bin/bun /usr/bin/bun
 
 # Install windmill CLI
 RUN bun install -g windmill-cli \
@@ -299,9 +304,6 @@ RUN bun install -g windmill-cli \
 # Copy it to /usr/bin/claude so it's accessible inside nsjail sandbox (which mounts /usr but not /root)
 RUN curl -fsSL https://claude.ai/install.sh | bash \
     && cp /root/.local/share/claude/versions/* /usr/bin/claude
-
-COPY --from=php:8.3.33-cli-trixie /usr/local/bin/php /usr/bin/php
-COPY --from=composer:2.9.5 /usr/bin/composer /usr/bin/composer
 
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:29-dind /usr/local/bin/docker /usr/local/bin/

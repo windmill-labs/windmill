@@ -6,11 +6,13 @@
 use crate::common::schema::extract_resource_types_from_schema;
 use crate::common::scope::parse_mcp_scopes;
 use crate::common::transform::{
-    extract_hub_version_id_from_hashed, extract_path_prefix_from_hashed, parse_tool_prefix,
-    reverse_transform, reverse_transform_key,
+    assign_tool_names, extract_hub_version_id_from_hashed, extract_path_prefix_from_hashed,
+    is_encoded_tool_name, parse_tool_prefix, reverse_transform, reverse_transform_key,
+    short_name_last_segments,
 };
 use crate::common::types::{
-    McpToken, MultiWorkspaceMcp, ResourceInfo, SchemaType, ToolableItem, WorkspaceId,
+    McpToken, MultiWorkspaceMcp, NoEndpointTools, ResourceInfo, SchemaType, ToolableItem,
+    WorkspaceId,
 };
 use crate::server::backend::{McpAuth, McpBackend, McpRequest, PathFilter};
 use crate::server::endpoints::{
@@ -36,7 +38,7 @@ use tokio::sync::broadcast;
 /// Protocol revisions this server is willing to speak. `2026-07-28` is served
 /// statelessly with per-request metadata; the older revisions keep the
 /// `initialize` handshake, so both eras are answered on the same endpoint.
-const SUPPORTED_PROTOCOL_VERSIONS: &[ProtocolVersion] = &[
+pub(super) const SUPPORTED_PROTOCOL_VERSIONS: &[ProtocolVersion] = &[
     ProtocolVersion::V_2024_11_05,
     ProtocolVersion::V_2025_03_26,
     ProtocolVersion::V_2025_06_18,
@@ -52,12 +54,12 @@ const SUPPORTED_PROTOCOL_VERSIONS: &[ProtocolVersion] = &[
 /// covers only some of what the listing depends on (not resources, favorites or
 /// permissions), lags by up to a poll interval, and reaches only clients that hold a
 /// `subscriptions/listen` stream.
-const LIST_TTL_MS: u64 = 0;
+pub(super) const LIST_TTL_MS: u64 = 0;
 
 /// Every listing is filtered by the caller's token scopes and workspace
 /// membership, so no two callers necessarily see the same tools — a shared
 /// cache entry would leak one token's view to another.
-const LIST_CACHE_SCOPE: CacheScope = CacheScope::Private;
+pub(super) const LIST_CACHE_SCOPE: CacheScope = CacheScope::Private;
 
 /// How long a `subscriptions/listen` stream waits after a change before notifying,
 /// collecting the rest of the burst into the same notification.
@@ -69,9 +71,9 @@ use http::request::Parts as HttpParts;
 /// Maximum size in bytes for tool result text content.
 /// Anthropic enforces a 25,000 token limit per tool result.
 /// At ~3.5 bytes/token, 87,500 bytes is a safe upper bound.
-const MAX_TOOL_RESULT_BYTES: usize = 87_500;
+pub const MAX_TOOL_RESULT_BYTES: usize = 87_500;
 
-fn truncate_tool_result(text: String) -> String {
+pub(super) fn truncate_tool_result(text: String) -> String {
     if text.len() <= MAX_TOOL_RESULT_BYTES {
         return text;
     }
@@ -102,7 +104,7 @@ impl<B: McpBackend> Clone for Runner<B> {
 
 /// Whether the request targets one bound workspace or spans every workspace the
 /// token can access.
-enum McpMode {
+pub(super) enum McpMode {
     /// A single workspace, resolved from the URL path or the token's bound
     /// workspace. Tools operate against this workspace implicitly.
     Single(String),
@@ -113,10 +115,12 @@ enum McpMode {
 }
 
 /// Everything a request carries besides its MCP payload.
-struct McpContext<A> {
-    auth: A,
-    mode: McpMode,
-    headers: http::HeaderMap,
+pub(super) struct McpContext<A> {
+    pub(super) auth: A,
+    pub(super) mode: McpMode,
+    pub(super) headers: http::HeaderMap,
+    /// See `McpScopeConfig::no_endpoints`.
+    pub(super) no_endpoints: bool,
 }
 
 impl<B: McpBackend> Runner<B> {
@@ -127,7 +131,7 @@ impl<B: McpBackend> Runner<B> {
 
     /// Extract authentication, the workspace mode and the HTTP request itself
     /// from the request context
-    fn extract_context(
+    pub(super) fn extract_context(
         context: &RequestContext<RoleServer>,
     ) -> Result<McpContext<B::Auth>, ErrorData> {
         let http_parts = context.extensions.get::<HttpParts>().ok_or_else(|| {
@@ -164,11 +168,29 @@ impl<B: McpBackend> Runner<B> {
                     ErrorData::internal_error("WorkspaceId not found", None)
                 })
                 .map(|w_id| w_id.0.clone())?;
+            // A token without a bound workspace reaches a workspace's own URL too.
+            let scope_config = parse_mcp_scopes(auth.scopes().unwrap_or(&[]))
+                .map_err(|e| ErrorData::internal_error(e, None))?;
+            if !scope_config.allows_workspace(&workspace_id) {
+                return Err(workspace_not_granted(&workspace_id));
+            }
             McpMode::Single(workspace_id)
         };
 
-        Ok(McpContext { auth: auth.clone(), mode, headers: http_parts.headers.clone() })
+        Ok(McpContext {
+            auth: auth.clone(),
+            mode,
+            headers: http_parts.headers.clone(),
+            no_endpoints: http_parts.extensions.get::<NoEndpointTools>().is_some(),
+        })
     }
+}
+
+pub(super) fn workspace_not_granted(workspace_id: &str) -> ErrorData {
+    ErrorData::invalid_params(
+        format!("This token was not granted workspace '{workspace_id}'"),
+        None,
+    )
 }
 
 /// How an endpoint tool interacts with the token's `mcp:scripts:` / `mcp:flows:`
@@ -300,6 +322,9 @@ fn endpoint_tool_in_scope(
     scope_config: &crate::common::scope::McpScopeConfig,
     endpoint_tool: &EndpointTool,
 ) -> bool {
+    if scope_config.no_endpoints {
+        return false;
+    }
     let endpoint_allowed =
         !scope_config.granular || scope_config.is_allowed("endpoint", &endpoint_tool.name);
     match endpoint_path_policy(&endpoint_tool.name) {
@@ -326,6 +351,15 @@ fn authorize_endpoint_call(
     args: &mut Value,
     read_only: bool,
 ) -> Result<(), ErrorData> {
+    if scope_config.no_endpoints {
+        return Err(ErrorData::invalid_params(
+            format!(
+                "Tool '{}' is not available to this token",
+                endpoint_tool.name
+            ),
+            None,
+        ));
+    }
     // A destination the caller omitted, or left empty because it had to fill in every
     // argument, means "leave the item where it is". Resolved to the path the item is
     // already at, so the endpoint receives a body naming its own path rather than one
@@ -557,14 +591,16 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         _request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        let McpContext { auth, mode, .. } = Self::extract_context(&context)?;
+        let McpContext { auth, mode, no_endpoints, .. } = Self::extract_context(&context)?;
 
         // Parse MCP scopes to determine what to expose
         let scopes = auth.scopes().unwrap_or(&[]);
-        let scope_config =
+        let mut scope_config =
             parse_mcp_scopes(scopes).map_err(|e| ErrorData::internal_error(e, None))?;
+        scope_config.no_endpoints |= no_endpoints;
 
-        let read_only = auth.read_only();
+        // v1 has no read-and-run access: such a token reads only.
+        let read_only = auth.read_only() || scope_config.read_run || scope_config.read_only;
 
         match mode {
             McpMode::Single(workspace_id) => {
@@ -585,13 +621,14 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
-        let McpContext { auth, mode, headers } = Self::extract_context(&context)?;
+        let McpContext { auth, mode, headers, no_endpoints } = Self::extract_context(&context)?;
 
         // Parse MCP scopes for authorization
         let scopes = auth.scopes().unwrap_or(&[]);
-        let scope_config =
+        let mut scope_config =
             parse_mcp_scopes(scopes).map_err(|e| ErrorData::internal_error(e, None))?;
-        let read_only = auth.read_only();
+        scope_config.no_endpoints |= no_endpoints;
+        let read_only = auth.read_only() || scope_config.read_run || scope_config.read_only;
 
         let args = request.arguments.map(Value::Object).unwrap_or(Value::Null);
         let mcp_request = McpRequest { headers: &headers, tool_name: request.name.as_ref() };
@@ -658,6 +695,51 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
 }
 
 impl<B: McpBackend> Runner<B> {
+    /// Name every script and flow the token can see under the given path filters, as
+    /// `(item_type, path, tool_name)`. Listing and calling must both go through here
+    /// so that a listed name resolves to the item it was listed for.
+    async fn name_runnables(
+        &self,
+        auth: &B::Auth,
+        workspace_id: &str,
+        scope_config: &crate::common::scope::McpScopeConfig,
+        script_filter: Option<PathFilter<'_>>,
+        flow_filter: Option<PathFilter<'_>>,
+    ) -> Result<Vec<(&'static str, String, String)>, ErrorData> {
+        let favorites_only = scope_config.favorites;
+        let (scripts, flows) = tokio::try_join!(
+            self.backend.list_runnable_paths(
+                auth,
+                workspace_id,
+                "script",
+                favorites_only,
+                script_filter
+            ),
+            self.backend.list_runnable_paths(
+                auth,
+                workspace_id,
+                "flow",
+                favorites_only,
+                flow_filter
+            ),
+        )?;
+        let items: Vec<(&'static str, String)> = scripts
+            .into_iter()
+            .map(|p| ("script", p))
+            .chain(flows.into_iter().map(|p| ("flow", p)))
+            .filter(|(t, p)| !scope_config.granular || scope_config.is_allowed(t, p))
+            .collect();
+        let endpoint_tools = self.backend.all_endpoint_tools();
+        let reserved: HashSet<&str> = endpoint_tools.iter().map(|t| t.name.as_ref()).collect();
+        let pairs: Vec<(&str, &str)> = items.iter().map(|(t, p)| (*t, p.as_str())).collect();
+        let names = assign_tool_names(&pairs, &reserved);
+        Ok(items
+            .into_iter()
+            .zip(names)
+            .map(|((t, p), n)| (t, p, n))
+            .collect())
+    }
+
     /// List tools for a single, bound workspace (URL-path or token-bound).
     async fn list_tools_single(
         &self,
@@ -686,11 +768,12 @@ impl<B: McpBackend> Runner<B> {
                 .granular
                 .then(|| PathFilter::Patterns(scope_config.flows.as_slice()));
 
-            let (scripts, flows, resource_types, hub_scripts) = tokio::try_join!(
+            let (scripts, flows, named, resource_types, hub_scripts) = tokio::try_join!(
                 self.backend
                     .list_scripts(auth, workspace_id, favorites_only, script_filter),
                 self.backend
                     .list_flows(auth, workspace_id, favorites_only, flow_filter),
+                self.name_runnables(auth, workspace_id, scope_config, script_filter, flow_filter),
                 self.backend.list_resource_types(auth, workspace_id),
                 async {
                     if let Some(ref apps) = scope_config.hub_apps {
@@ -746,9 +829,22 @@ impl<B: McpBackend> Runner<B> {
             let resources_cache: HashMap<String, Vec<ResourceInfo>> =
                 resource_results.into_iter().collect();
 
+            let names: HashMap<(&str, &str), &str> = named
+                .iter()
+                .map(|(t, p, n)| ((*t, p.as_str()), n.as_str()))
+                .collect();
+            // An item created between the two queries has no short name yet.
+            let name_of = |item: &dyn ToolableItem| {
+                names
+                    .get(&(item.item_type(), item.get_full_path()))
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| item.get_transformed_path())
+            };
+
             for script in &filtered_scripts {
                 tools.push(create_tool_from_item(
                     script,
+                    name_of(script),
                     self.backend.as_ref(),
                     &resources_cache,
                     &resource_types,
@@ -758,6 +854,7 @@ impl<B: McpBackend> Runner<B> {
             for flow in &filtered_flows {
                 tools.push(create_tool_from_item(
                     flow,
+                    name_of(flow),
                     self.backend.as_ref(),
                     &resources_cache,
                     &resource_types,
@@ -767,6 +864,7 @@ impl<B: McpBackend> Runner<B> {
             for hub_script in &hub_scripts {
                 tools.push(create_tool_from_item(
                     hub_script,
+                    hub_script.get_transformed_path(),
                     self.backend.as_ref(),
                     &resources_cache,
                     &resource_types,
@@ -847,49 +945,71 @@ impl<B: McpBackend> Runner<B> {
         }
 
         // Resolve the tool name to (type, path, is_hub)
-        let (type_str, is_hub, is_hashed) = parse_tool_prefix(name.as_ref()).map_err(|e| {
-            ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
-        })?;
-
-        let (tool_type, path, is_hub) = if !is_hashed {
-            reverse_transform(name.as_ref()).map_err(|e| {
-                ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
-            })?
-        } else if is_hub {
-            let version_id = extract_hub_version_id_from_hashed(name.as_ref()).map_err(|e| {
-                ErrorData::internal_error(format!("Failed to extract hub version_id: {}", e), None)
-            })?;
-            (type_str, version_id, true)
+        let (tool_type, path, is_hub) = if !is_encoded_tool_name(name.as_ref()) {
+            let segments = short_name_last_segments(name.as_ref());
+            let filter = Some(PathFilter::LastSegment(segments.as_slice()));
+            let named = self
+                .name_runnables(auth, workspace_id, scope_config, filter, filter)
+                .await?;
+            let (tool_type, path, _) = named
+                .into_iter()
+                .find(|(_, _, n)| n == name.as_ref())
+                .ok_or_else(|| {
+                    ErrorData::internal_error(format!("No tool named '{}'", name), None)
+                })?;
+            (tool_type, path, false)
         } else {
-            let path_prefix = extract_path_prefix_from_hashed(name.as_ref());
-            let path_filter = path_prefix.as_deref().map(PathFilter::Prefix);
-            let favorites_only = scope_config.favorites;
-            let matched_path = if type_str == "script" {
-                find_matching_path(
-                    self.backend
-                        .list_scripts(auth, workspace_id, favorites_only, path_filter)
-                        .await
-                        .map_err(|e| ErrorData::internal_error(e.message, None))?,
-                    name.as_ref(),
-                )
-            } else {
-                find_matching_path(
-                    self.backend
-                        .list_flows(auth, workspace_id, favorites_only, path_filter)
-                        .await
-                        .map_err(|e| ErrorData::internal_error(e.message, None))?,
-                    name.as_ref(),
-                )
-            };
-
-            let matched_path = matched_path.ok_or_else(|| {
-                ErrorData::internal_error(
-                    format!("No {} found matching hashed tool name '{}'", type_str, name),
-                    None,
-                )
+            // The `s-`/`f-`/`hs-` encoding: what hub scripts and items whose short
+            // names all collide are listed under, and what clients listed before short
+            // names existed still call.
+            let (type_str, is_hub, is_hashed) = parse_tool_prefix(name.as_ref()).map_err(|e| {
+                ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
             })?;
 
-            (type_str, matched_path, false)
+            if !is_hashed {
+                reverse_transform(name.as_ref()).map_err(|e| {
+                    ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
+                })?
+            } else if is_hub {
+                let version_id =
+                    extract_hub_version_id_from_hashed(name.as_ref()).map_err(|e| {
+                        ErrorData::internal_error(
+                            format!("Failed to extract hub version_id: {}", e),
+                            None,
+                        )
+                    })?;
+                (type_str, version_id, true)
+            } else {
+                let path_prefix = extract_path_prefix_from_hashed(name.as_ref());
+                let path_filter = path_prefix.as_deref().map(PathFilter::Prefix);
+                let favorites_only = scope_config.favorites;
+                let matched_path = if type_str == "script" {
+                    find_matching_path(
+                        self.backend
+                            .list_scripts(auth, workspace_id, favorites_only, path_filter)
+                            .await
+                            .map_err(|e| ErrorData::internal_error(e.message, None))?,
+                        name.as_ref(),
+                    )
+                } else {
+                    find_matching_path(
+                        self.backend
+                            .list_flows(auth, workspace_id, favorites_only, path_filter)
+                            .await
+                            .map_err(|e| ErrorData::internal_error(e.message, None))?,
+                        name.as_ref(),
+                    )
+                };
+
+                let matched_path = matched_path.ok_or_else(|| {
+                    ErrorData::internal_error(
+                        format!("No {} found matching hashed tool name '{}'", type_str, name),
+                        None,
+                    )
+                })?;
+
+                (type_str, matched_path, false)
+            }
         };
 
         // Validate script/flow scope
@@ -1004,11 +1124,12 @@ impl<B: McpBackend> Runner<B> {
         mut args: Value,
     ) -> Result<CallToolResult, ErrorData> {
         if name.as_ref() == "list_workspaces" {
-            let workspaces = self
+            let mut workspaces = self
                 .backend
                 .list_accessible_workspaces(base_auth)
                 .await
                 .map_err(|e| ErrorData::internal_error(e.message, None))?;
+            workspaces.retain(|w| scope_config.allows_workspace(&w.id));
             return Ok(CallToolResult::success(vec![ContentBlock::text(
                 serde_json::to_string_pretty(&workspaces).unwrap_or_else(|_| "[]".to_string()),
             )]));
@@ -1056,6 +1177,9 @@ impl<B: McpBackend> Runner<B> {
                     )
                 })?
                 .to_string();
+            if !scope_config.allows_workspace(&workspace_id) {
+                return Err(workspace_not_granted(&workspace_id));
+            }
 
             let resolved = self
                 .backend
@@ -1194,6 +1318,17 @@ mod tests {
         // mcp:all (non-granular) allows any endpoint.
         assert!(
             authorize_endpoint_call(&cfg(&["mcp:all"]), &get_var, &mut json!({}), false).is_ok()
+        );
+    }
+
+    #[test]
+    fn a_selection_without_endpoints_gets_none() {
+        // The scope withholds them on every URL, as the server does on `/api/mcp`.
+        let selection = cfg(&["mcp:favorites", "mcp:endpoints:*", "mcp:runnables_as_tools"]);
+        assert!(!endpoint_tool_in_scope(&selection, &ep("listJobs", "GET")));
+        assert!(
+            authorize_endpoint_call(&selection, &ep("listJobs", "GET"), &mut json!({}), false)
+                .is_err()
         );
     }
 

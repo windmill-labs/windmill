@@ -25,6 +25,7 @@
 	import { resource } from 'runed'
 	import {
 		composerDrivenFields,
+		wiredFieldValue,
 		type AgentModelWiring,
 		type ProviderField
 	} from './agentChatInputs'
@@ -40,9 +41,7 @@
 	let { wiring, values, setValue, workspace }: Props = $props()
 
 	function fieldValue(field: ProviderField): any {
-		if (wiring.whole) return values[wiring.whole]?.[field]
-		const name = wiring.fields[field]
-		return name ? values[name] : wiring.fixed[field]
+		return wiredFieldValue(wiring, values, field)
 	}
 
 	const driven = $derived(composerDrivenFields(wiring))

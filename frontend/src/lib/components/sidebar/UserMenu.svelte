@@ -6,8 +6,11 @@
 		usageStore,
 		workspaceUsageStore,
 		isPremiumStore,
-		workspaceStore
+		workspaceStore,
+		userWorkspaces,
+		roleCapabilities
 	} from '$lib/stores'
+	import { isRestricted } from '$lib/roleCapabilities'
 	import { USER_SETTINGS_HASH } from './settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { twMerge } from 'tailwind-merge'
@@ -31,6 +34,12 @@
 
 	// An account entered through an invite link that still has no credentials of its own.
 	let pendingSetup = $derived(accountSetup.pending)
+
+	// A server that predates roles sends no role name, and its only restricted role is operator.
+	const roleName = $derived(
+		$userWorkspaces.find((w) => w.id === $workspaceStore)?.role ?? 'operator'
+	)
+	const roleLabel = $derived(roleName.charAt(0).toUpperCase() + roleName.slice(1))
 
 	const itemClass = twMerge(
 		'text-secondary text-left font-normal text-xs ',
@@ -62,8 +71,8 @@
 					Superadmin, not a member of this workspace <Crown size={14} />
 				{:else if $userStore?.is_admin}
 					Admin of this workspace <Crown size={14} />
-				{:else if $userStore?.operator}
-					Operator in this workspace <ServerCog size={14} />
+				{:else if isRestricted($roleCapabilities)}
+					{roleLabel} in this workspace <ServerCog size={14} />
 				{/if}
 			</span>
 			{#if $userStore?.non_member}

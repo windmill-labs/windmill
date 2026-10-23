@@ -7,11 +7,12 @@ section name — and the route's own buttons at the far end.
 The row's height matches the sidebar's own header row, so the two read as one band.
 -->
 <script lang="ts">
-	import { PanelLeft } from 'lucide-svelte'
+	import { ChevronDown, PanelLeft } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { navDetached } from './sidebar/navDetached.svelte'
 	import { navHandleSlot } from './sidebar/navHandlePlacement.svelte'
 	import NavBreadcrumb from './NavBreadcrumb.svelte'
+	import BreadcrumbNavPicker from './BreadcrumbNavPicker.svelte'
 	import { BAR_HEIGHT, pageHeader, PHONE_BAR } from './pageHeaderRegistry.svelte'
 	import ContextBridge from './ContextBridge.svelte'
 	import { afterNavigate } from '$app/navigation'
@@ -32,12 +33,14 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 
 	const content = $derived(pageHeader.content)
 	const actions = $derived(pageHeader.actions)
+	const hasActions = $derived(actions.length > 0)
 
 	const item = $derived(content?.item)
 	const section = $derived(content?.section)
 	const hasSummary = $derived(!!item && !!(item.summaryContent || item.summary))
 	/** A summary control can be a placeholder offering to add one; the text is what names the item. */
 	const summaryNamesItem = $derived(!!item?.summary?.trim())
+	const pickerAfterSummary = $derived(hasSummary && !navHidden && !!item?.path)
 
 	/** A phone's bar: a tighter gutter around the same row. */
 	const phone = $derived(pageHeader.barWidth > 0 && pageHeader.barWidth < PHONE_BAR)
@@ -80,8 +83,8 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 			trail: trailMeasures.trail,
 			summary: BAR_STAGES.map(() => (hasSummary ? GAP + summaryFloorWidth : 0)),
 			actions:
-				actions.length === 0 ? [0] : actionsRigid ? actionWidths : [GAP + FLEXIBLE_ACTIONS_RESERVE],
-			folds: actions.length > 0 && actionsRigid ? (content?.actionFolds ?? 0) : 0,
+				!hasActions ? [0] : actionsRigid ? actionWidths : [GAP + FLEXIBLE_ACTIONS_RESERVE],
+			folds: hasActions && actionsRigid ? (content?.actionFolds ?? 0) : 0,
 			earlyFolds: content?.earlyActionFolds,
 			summaryNamesItem,
 			natural: {
@@ -304,10 +307,15 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 						>{item.summary}</span
 					>
 				{/if}
+				<!-- The summary ends the trail here, so the breadcrumb's chevron follows it instead. Not
+				     before the path lands: the picker opens in the item's folder, which it reads once. -->
+				{#if pickerAfterSummary}
+					<BreadcrumbNavPicker {item} actingWorkspaceId={content?.actingWorkspaceId} />
+				{/if}
 			</div>
 		{/if}
 
-		{#if actions.length > 0}
+		{#if hasActions}
 			<!-- A plain row of buttons holds its width (shrink-0): squeezing it only pushes buttons out
 		     of the bar, so the bar makes room by dropping breadcrumb parts and then by asking the
 		     page to fold (`actionFolds`). Flexible actions (the Runs filter row) are a control that
@@ -355,6 +363,9 @@ The row's height matches the sidebar's own header row, so the two read as one ba
 						<span class="truncate text-xs font-medium" style="max-width: {FLOOR.summary}px"
 							>{item.summary}</span
 						>
+					{/if}
+					{#if pickerAfterSummary}
+						<span class="flex items-center h-9 px-1.5 shrink-0"><ChevronDown size={14} /></span>
 					{/if}
 				</div>
 				<span

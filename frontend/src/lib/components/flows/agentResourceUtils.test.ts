@@ -6,6 +6,7 @@ import {
 	flowLocalInputs,
 	inputTransformsToAgentConfig,
 	nonStaticBrainKeys,
+	providerWithOverrides,
 	summarizeAgentBrain,
 	toolInputOverrides,
 	transformValuedBrainKeys
@@ -191,5 +192,56 @@ describe('toolInputOverrides', () => {
 		expect(toolInputOverrides({ extra: { type: 'static', value: 1 } } as any, base)).toEqual({
 			extra: { type: 'static', value: 1 }
 		})
+	})
+})
+
+describe('providerWithOverrides', () => {
+	const saved = {
+		kind: 'openai',
+		resource: '$res:u/a/openai',
+		model: 'gpt-5',
+		reasoning_effort: 'high'
+	}
+
+	it('folds static overrides into a static provider, as the worker reads them', () => {
+		expect(
+			providerWithOverrides(saved, { reasoning_effort: { type: 'static', value: 'low' } })
+		).toEqual({ type: 'static', value: { ...saved, reasoning_effort: 'low' } })
+		// The saved effort names a level of the saved model, so it does not follow to another one.
+		expect(
+			providerWithOverrides(saved, { model: { type: 'static', value: 'gpt-5-mini' } })
+		).toEqual({
+			type: 'static',
+			value: { kind: 'openai', resource: '$res:u/a/openai', model: 'gpt-5-mini' }
+		})
+		expect(providerWithOverrides(saved, { model: { type: 'static', value: '' } })).toEqual({
+			type: 'static',
+			value: saved
+		})
+	})
+
+	it('keeps an expression, resolving as the linked step did', () => {
+		const run = (overrides: Record<string, string>, flow_input: Record<string, unknown>) => {
+			const folded = providerWithOverrides(
+				saved,
+				Object.fromEntries(
+					Object.entries(overrides).map(([key, expr]) => [key, { type: 'javascript', expr }])
+				)
+			) as { type: 'javascript'; expr: string }
+			expect(folded.type).toBe('javascript')
+			return JSON.parse(
+				JSON.stringify(new Function('flow_input', `return ${folded.expr}`)(flow_input))
+			)
+		}
+		const other = { kind: 'openai', resource: '$res:u/a/openai', model: 'gpt-5-mini' }
+		const effort = { reasoning_effort: 'flow_input.effort' }
+		const model = { model: 'flow_input.model' }
+
+		expect(run(effort, { effort: 'low' })).toEqual({ ...saved, reasoning_effort: 'low' })
+		// An effort the step sets to nothing is no effort, not the saved one.
+		expect(run(effort, { effort: '' })).toEqual({ ...other, model: 'gpt-5' })
+		expect(run(model, { model: '' })).toEqual(saved)
+		expect(run(model, { model: 'gpt-5-mini' })).toEqual(other)
+		expect(run({ ...model, ...effort }, { model: 'gpt-5-mini', effort: '' })).toEqual(other)
 	})
 })

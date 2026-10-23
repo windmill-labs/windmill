@@ -74,7 +74,7 @@ use windmill_common::{
         RETENTION_PERIOD_SECS_OVERRIDES_SETTING, RUFF_CONFIG_SETTING, UNIQUE_ID_SETTING,
         WORKSPACE_FAIRNESS_DURATION_SECS_SETTING, WORKSPACE_FAIRNESS_ENABLED_SETTING,
         WORKSPACE_FAIRNESS_MAX_PERCENT_SETTING, WORKSPACE_FAIRNESS_MIN_TOTAL_SETTING,
-        WS_BASE_URL_SETTING,
+        WORKSPACE_ROLES_SETTING, WS_BASE_URL_SETTING,
     },
     instance_config::{self, ApplyMode, InstanceConfig},
     server::Smtp,
@@ -916,6 +916,7 @@ pub async fn set_global_setting_internal(
 
     run_setting_pre_write_hook(db, &key, &value).await?;
 
+    let turns_on = value.as_bool() == Some(true);
     match value {
         serde_json::Value::Null => {
             if instance_config::PROTECTED_SETTINGS.contains(&key.as_str()) {
@@ -949,9 +950,26 @@ pub async fn set_global_setting_internal(
         }
     };
 
+    if key == windmill_common::global_settings::DEV_WORKSPACE_ISOLATION_SETTING {
+        windmill_common::feature_usage::log_feature_usage(
+            "dev_workspace_isolation",
+            "toggle",
+            if turns_on { "on" } else { "off" },
+        );
+    }
+    if key == windmill_common::global_settings::DEV_WORKSPACE_ISOLATION_SKIP_NON_DEV_FORKS_SETTING {
+        windmill_common::feature_usage::log_feature_usage(
+            "dev_workspace_isolation",
+            "skip_non_dev_forks_toggle",
+            if turns_on { "on" } else { "off" },
+        );
+    }
+
     if should_bump_instance_ai_revision {
         bump_instance_ai_config_revision();
     }
+
+    run_setting_post_write_hook(db, &key).await?;
 
     // Tag reads are served from an in-memory cache that this process otherwise only
     // refreshes on the next global-settings poll, so without this a refetch right after
@@ -967,6 +985,14 @@ pub async fn set_global_setting_internal(
     Ok(())
 }
 
+/// Side effects a setting needs once it is stored, for both the per-key and the bulk endpoint.
+async fn run_setting_post_write_hook(db: &DB, key: &str) -> error::Result<()> {
+    if key == WORKSPACE_ROLES_SETTING {
+        windmill_common::roles::after_instance_roles_write(db).await?;
+    }
+    Ok(())
+}
+
 /// Run side-effect hooks for specific settings before writing to DB.
 /// Extracted from `set_global_setting_internal` for reuse by the bulk endpoint.
 async fn run_setting_pre_write_hook(
@@ -975,6 +1001,17 @@ async fn run_setting_pre_write_hook(
     value: &serde_json::Value,
 ) -> error::Result<()> {
     match key {
+        windmill_common::global_settings::DEV_WORKSPACE_TAG_SUFFIX_SETTING => match value {
+            serde_json::Value::Null => {}
+            serde_json::Value::String(s) if s.trim().is_empty() => {}
+            suffix => windmill_common::global_settings::validate_dev_workspace_tag_suffix(suffix)
+                .map_err(|e| {
+                error::Error::BadRequest(format!("The dev workspace tag suffix {e}"))
+            })?,
+        },
+        WORKSPACE_ROLES_SETTING => {
+            windmill_common::roles::validate_instance_roles_write(db, Some(value)).await?;
+        }
         // The instance AI config is written as an untyped blob through this generic
         // endpoint, so it never passes the typed check the workspace handler applies.
         // Rates that reach a cost total unbounded would make it negative or infinite.
@@ -1254,6 +1291,13 @@ async fn run_setting_pre_write_hook(
             v => windmill_common::global_settings::validate_accent_color(v)
                 .map_err(|e| error::Error::BadRequest(format!("{ACCENT_COLOR_SETTING}: {e}")))?,
         },
+        windmill_common::global_settings::AGENT_WORKLOAD_IDENTITY_ISSUERS_SETTING => {
+            if !value.is_null() {
+                let key = windmill_common::global_settings::AGENT_WORKLOAD_IDENTITY_ISSUERS_SETTING;
+                windmill_common::agent_workload_identity::validate_issuers_value(value)
+                    .map_err(|e| error::Error::BadRequest(format!("{key}: {e}")))?;
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -1338,6 +1382,14 @@ async fn set_instance_config(
                 run_setting_pre_write_hook(&db, key, value).await?;
             }
         }
+        if settings_diff
+            .deletes
+            .iter()
+            .any(|k| k == WORKSPACE_ROLES_SETTING)
+        {
+            run_setting_pre_write_hook(&db, WORKSPACE_ROLES_SETTING, &serde_json::Value::Null)
+                .await?;
+        }
         let auditor = InstanceConfigAuditor { db: &db, author: &authed, source: None };
         // The external-instance write removes its own key from the diff.
         windmill_common::external_instance_pg::write_external_instance_pg_from_diff(
@@ -1352,6 +1404,14 @@ async fn set_instance_config(
 
         if ai_config_changed {
             bump_instance_ai_config_revision();
+        }
+        for key in settings_diff
+            .upserts
+            .iter()
+            .map(|(k, _)| k)
+            .chain(settings_diff.deletes.iter())
+        {
+            run_setting_post_write_hook(&db, key).await?;
         }
     }
 

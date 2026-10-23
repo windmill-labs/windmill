@@ -114,7 +114,16 @@ vi.mock('$lib/stores', () => {
 		// non-membership once this has resolved.
 		usersWorkspaceStore: readable({ workspaces: [] as unknown[] }),
 		NON_MEMBER_USERNAME: 'superadmin',
-		enterpriseLicense: readable(undefined)
+		enterpriseLicense: readable(undefined),
+		// The admin above holds every role capability.
+		roleCapabilities: readable({
+			code: true,
+			flows: 'full',
+			apps: 'full',
+			manage_schedules: true,
+			manage_triggers: true,
+			visibility: {}
+		})
 	}
 })
 
@@ -328,6 +337,54 @@ describe('AIChatManager run form', () => {
 			spare: '<hidden>',
 			note: 'goodbye'
 		})
+	})
+
+	// Only a deployed item has a page with a form to confirm on: a test run executes the
+	// draft being written, and a chat-enabled flow's page is a conversation. Routing either
+	// there would park the call on a page that can never answer it.
+	it('hands a deployed run to a page already open, and nothing else', async () => {
+		const manager = new AIChatManager()
+		const routed: any[] = []
+		manager.openRunOnDeployedPage = (a) => {
+			routed.push(a)
+			return true
+		}
+
+		void manager.requestRunArgs('call_run', {
+			path: 'f/a/b',
+			kind: 'run',
+			runnableKind: 'flow',
+			summary: 'Plain flow',
+			schema: {},
+			args: {}
+		})
+		void manager.requestRunArgs('call_test', {
+			path: 'f/a/b',
+			kind: 'test',
+			schema: {},
+			args: {}
+		})
+		void manager.requestRunArgs('call_chat', {
+			path: 'f/a/c',
+			kind: 'run',
+			conversational: true,
+			schema: {},
+			args: {}
+		})
+
+		expect(routed).toEqual([
+			{
+				toolCallId: 'call_run',
+				kind: 'flow',
+				path: 'f/a/b',
+				summary: 'Plain flow',
+				carries: true,
+				// Never opens a tab of its own: the reader did not ask for one here.
+				onlyIfAlreadyOpen: true
+			}
+		])
+		// Routed after the form is installed, so the page finds the call the moment it mounts.
+		expect(manager.isRunFormPending('call_run')).toBe(true)
 	})
 
 	// Stopping the turn is the form's other way out, and it settles cards through
@@ -3345,6 +3402,186 @@ describe('AIChatManager context compaction', () => {
 		]
 		manager.instructions = 'next question'
 	}
+
+	it('compacts between tool iterations once tool results carry the turn over the trigger', async () => {
+		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.getStreamedCompletionText
+			.mockResolvedValueOnce('<summary>SUMMARY ONE</summary>')
+			.mockResolvedValueOnce('<summary>SUMMARY TWO</summary>')
+		const step = (id: string, chars: number) => [
+			{
+				role: 'assistant' as const,
+				content: '',
+				tool_calls: [{ id, type: 'function', function: { name: 'x', arguments: '{}' } }]
+			},
+			{ role: 'tool' as const, tool_call_id: id, content: 'r'.repeat(chars) }
+		]
+		// ~25k estimated tokens: enough to push a ~60% history past the 0.8 * 128k trigger.
+		const first = step('t1', 100_000)
+		// ~70k more: crosses the trigger again within the same turn.
+		const second = step('t2', 280_000)
+		let secondIteration: any[] = []
+		let thirdIteration: any[] = []
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const push = (ms: any[]) => {
+				for (const m of ms) {
+					config.messages.push(m)
+					config.addedMessages.push(m)
+				}
+			}
+			await config.onBeforeIteration(gpt4oModel, null)
+			push(first)
+			await config.onBeforeIteration(gpt4oModel, null)
+			secondIteration = [...config.messages]
+			push(second)
+			await config.onBeforeIteration(gpt4oModel, null)
+			thirdIteration = [...config.messages]
+			const reply = { role: 'assistant' as const, content: 'done' }
+			push([reply])
+			return {
+				addedMessages: [...first, ...second, reply],
+				tokenUsage: { prompt: 0, completion: 0, total: 0 },
+				lastIterationUsage: null,
+				hitMaxIterations: false
+			}
+		})
+		const manager = new AIChatManager()
+		// ~80k estimated tokens over ten messages: under the trigger at send time.
+		manager.messages = Array.from({ length: 10 }, (_, i) => ({
+			role: i % 2 === 0 ? ('user' as const) : ('assistant' as const),
+			content: `m${i}` + 'x'.repeat(32_000)
+		}))
+		manager.displayMessages = manager.messages.map((m, i) =>
+			m.role === 'user'
+				? { role: 'user', content: `m${i}`, index: i }
+				: { role: 'assistant', content: `m${i}` }
+		)
+		manager.instructions = 'next question'
+
+		await manager.sendRequest()
+
+		// Not at send time (under the trigger), only once the tool result landed.
+		expect(secondIteration[0].content).toContain('SUMMARY ONE')
+		expect(secondIteration.slice(-2)).toEqual(first)
+		// The second trigger folds the first summary into a new one instead of
+		// dropping it to make room for the turn.
+		expect(mocks.getStreamedCompletionText).toHaveBeenCalledTimes(2)
+		expect(mocks.getStreamedCompletionText.mock.calls[1][0][0].content).toContain('SUMMARY ONE')
+		expect(thirdIteration[0].content).toContain('SUMMARY TWO')
+		expect(thirdIteration.slice(-4)).toEqual([...first, ...second])
+		expect(manager.messages[0].content).toContain('SUMMARY TWO')
+		expect(manager.displayMessages[0].role).toBe('summary')
+	})
+
+	it('compacts mid-turn off the provider report, then stops trusting the report it replaced', async () => {
+		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.getStreamedCompletionText.mockResolvedValue('<summary>SUMMARY ONE</summary>')
+		const step = (id: string) => [
+			{
+				role: 'assistant' as const,
+				content: '',
+				tool_calls: [{ id, type: 'function', function: { name: 'x', arguments: '{}' } }]
+			},
+			{ role: 'tool' as const, tool_call_id: id, content: 'r'.repeat(8_000) }
+		]
+		// The provider counts far more than chars/4 sees: over the 0.8 * 128k trigger.
+		const report = { prompt: 101_000, completion: 1_000, total: 102_000 }
+		let thirdIteration: any[] = []
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			const push = (ms: any[]) => {
+				for (const m of ms) {
+					config.messages.push(m)
+					config.addedMessages.push(m)
+				}
+			}
+			await config.onBeforeIteration(gpt4oModel, null)
+			push(step('t1'))
+			await config.onBeforeIteration(gpt4oModel, report)
+			push(step('t2'))
+			// The iteration after the compaction reported nothing, so the loop hands the
+			// pre-compaction report back.
+			await config.onBeforeIteration(gpt4oModel, report)
+			thirdIteration = [...config.messages]
+			const reply = { role: 'assistant' as const, content: 'done' }
+			push([reply])
+			return {
+				addedMessages: [...step('t1'), ...step('t2'), reply],
+				tokenUsage: report,
+				lastIterationUsage: report,
+				hitMaxIterations: false
+			}
+		})
+		const manager = new AIChatManager()
+		// ~75k estimated tokens: under the trigger by the estimate alone.
+		manager.messages = Array.from({ length: 10 }, (_, i) => ({
+			role: i % 2 === 0 ? ('user' as const) : ('assistant' as const),
+			content: `m${i}` + 'x'.repeat(30_000)
+		}))
+		manager.displayMessages = manager.messages.map((m, i) =>
+			m.role === 'user'
+				? { role: 'user', content: `m${i}`, index: i }
+				: { role: 'assistant', content: `m${i}` }
+		)
+		manager.instructions = 'next question'
+
+		await manager.sendRequest()
+
+		expect(mocks.getStreamedCompletionText).toHaveBeenCalledTimes(1)
+		expect(thirdIteration[0].content).toContain('SUMMARY ONE')
+		// Nor does the stale report become the stored usage at commit.
+		expect(manager.contextUsage).toBeUndefined()
+	})
+
+	it('counts replayed Anthropic thinking toward the mid-turn projection', async () => {
+		mocks.getCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.tryGetCurrentModel.mockReturnValue(gpt4oModel)
+		mocks.getStreamedCompletionText.mockResolvedValue('<summary>SUMMARY ONE</summary>')
+		// Under the 0.8 * 128k trigger without the thinking the next request replays.
+		const report = { prompt: 80_000, completion: 25_000, total: 105_000 }
+		let historyAfter: any[] = []
+		mocks.runChatLoop.mockImplementation(async (config: any) => {
+			await config.onBeforeIteration(gpt4oModel, null)
+			const assistant = {
+				role: 'assistant' as const,
+				content: '',
+				tool_calls: [{ id: 't1', type: 'function', function: { name: 'x', arguments: '{}' } }],
+				_anthropicContent: [{ type: 'thinking', thinking: '...', signature: 'sig' }]
+			}
+			const tool = { role: 'tool' as const, tool_call_id: 't1', content: 'r'.repeat(4_000) }
+			for (const m of [assistant, tool]) {
+				config.messages.push(m)
+				config.addedMessages.push(m)
+			}
+			await config.onBeforeIteration(gpt4oModel, report)
+			historyAfter = config.messages.slice(0, -2)
+			return {
+				addedMessages: [assistant, tool],
+				tokenUsage: report,
+				lastIterationUsage: report,
+				hitMaxIterations: false
+			}
+		})
+		const manager = new AIChatManager()
+		manager.messages = Array.from({ length: 10 }, (_, i) => ({
+			role: i % 2 === 0 ? ('user' as const) : ('assistant' as const),
+			content: `m${i}` + 'x'.repeat(30_000)
+		}))
+		manager.displayMessages = manager.messages.map((m, i) =>
+			m.role === 'user'
+				? { role: 'user', content: `m${i}`, index: i }
+				: { role: 'assistant', content: `m${i}` }
+		)
+		manager.instructions = 'next question'
+
+		await manager.sendRequest()
+
+		expect(mocks.getStreamedCompletionText).toHaveBeenCalledTimes(1)
+		// The kept history leaves room for the replayed thinking within the 0.5 target.
+		const keptTokens = historyAfter.reduce((acc, m) => acc + String(m.content).length / 4, 0)
+		expect(keptTokens + report.completion).toBeLessThan(128_000 * 0.5)
+	})
 
 	it('summarizes the older prefix and keeps the recent tail verbatim', async () => {
 		mocks.getCurrentModel.mockReturnValue(gpt4oModel)

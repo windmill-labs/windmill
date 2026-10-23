@@ -139,7 +139,7 @@ An app can be demoed by recording a session: every interaction becomes a step ca
 
 Apply it to customer data, internal notes and anything else a viewer of the demo should not see. It costs nothing when the app is never recorded.
 
-### Chat UIs over a flow in chat mode
+### Chat UIs over a flow in chat mode or a saved agent
 
 A flow deployed with chat mode on is a chat backend (streaming answer, tool calls, memory, conversation history). Do not drive it through a runnable: add `@windmill-labs/chat-sdk` to `package.json` and use it directly, it detects the app's Windmill and credential.
 
@@ -152,9 +152,38 @@ const chat = useWindmillChat({ flowPath: 'f/support/assistant' })
 
 `@windmill-labs/chat-sdk/ai-sdk` gives a `ChatTransport` for the Vercel AI SDK's `useChat`, `@windmill-labs/chat-sdk/assistant-ui` a runtime for assistant-ui. The flow must be deployed, not a draft. A sandboxed app needs `jobs:run` in its frontend SDK scopes, plus `flow_conversations:write` for the conversation sidebar; without them the chat keeps history in the browser.
 
+#### A saved agent: an `agent` runnable
+
+Chat with a saved AI agent (an `ai_agent` resource) through an `agent` runnable, a path runnable whose `path` is the agent's. Each call runs one turn of the agent's chat as the app, so a sandboxed app declares no frontend SDK scope, viewers get no consent prompt and need no access to the agent. Prefer it in every app, sandboxed or not:
+
+<!-- cli-only -->
+In `raw_app.yaml`:
+
+```yaml
+runnables:
+  chat:
+    type: agent
+    path: f/support/agent
+```
+<!-- /cli-only -->
+<!-- chat-only -->
+```json
+{ "chat": { "type": "agent", "path": "f/support/agent" } }
+```
+<!-- /chat-only -->
+
+```tsx
+import { useWindmillChat } from '@windmill-labs/chat-sdk/react'
+import * as wmill from './wmill'
+
+const chat = useWindmillChat({ wmill, runnable: 'chat' })
+```
+
+`runnable` is the runnable's key; each runnable keeps its own conversations. The runnable takes `user_message` and `memory_id`, the conversation id, which the chat fills in: the agent remembers earlier turns of a conversation, and a signed-in viewer's conversations are theirs alone. Called directly as `backend.<key>({ user_message })` without `memory_id`, it is a single run with no conversation, for a one-off question. The chat needs an agent with managed memory. An agent whose memory is off keeps none: its runnable takes `previous_messages` (chat messages) instead of `memory_id`, and the app keeps the history itself. The chat keeps its transcript in the app's own storage. `chat.stop()` stops following without cancelling the turn, and a message sent while it still runs is refused with `TurnRunningError`. Attachments are not supported this way.
+
 ## Backend runnables
 
-Each runnable has a unique key (used to call it from the frontend) and one of four types:
+Each runnable has a unique key (used to call it from the frontend) and one of five types:
 
 | Type | What it is |
 |---|---|
@@ -162,6 +191,7 @@ Each runnable has a unique key (used to call it from the frontend) and one of fo
 | `script` | Reference to an existing workspace script by path. |
 | `flow` | Reference to an existing workspace flow by path. |
 | `hubscript` | Reference to a hub script by path. |
+| `agent` | Reference to a saved AI agent by path. Each call is one turn of its chat (see the chat section above). |
 
 ### Inline runnables
 
@@ -193,6 +223,10 @@ def main(user_id: str):
     return user
 ```
 
+#### Sharing code between runnables
+
+An inline runnable can import another inline runnable of the same app by its id, as a relative import: `import { getDb } from './shared'` (TypeScript, Bun) or `from .shared import get_db` (Python). This works across TypeScript (Bun) runnables and across Python runnables, not between the two. The imported runnable's own dependencies are picked up, and it can import further runnables in turn. A runnable that only holds helpers needs no `main`; the frontend just never calls it. A TypeScript runnable whose id is `main` cannot be imported, because that name is taken by the entrypoint file of every TypeScript job: give shared code any other id.
+
 #### The `wmill` client is already authenticated
 
 An inline runnable runs as an ordinary Windmill job. `import * as wmill from 'windmill-client'` (TypeScript) and `import wmill` (Python) are already pointed at this instance and this workspace — there is nothing to configure.
@@ -201,9 +235,9 @@ An inline runnable runs as an ordinary Windmill job. `import * as wmill from 'wi
 
 Use only `wmill` functions the SDK actually exports; for an endpoint none of them covers, the generated service classes (`JobService`, `ScriptService`, ...) are importable from `windmill-client`. What is not available is a name you guessed at: `getBaseUrl` and `getWorkspaceToken` are inventions, not API.
 
-### Path runnables (script / flow / hubscript)
+### Path runnables (script / flow / hubscript / agent)
 
-When `type` is `script`, `flow`, or `hubscript`, the runnable just stores a `path` to an existing workspace or hub item — no inline code. The referenced item's input/output schema becomes the runnable's surface.
+When `type` is `script`, `flow`, `hubscript` or `agent`, the runnable just stores a `path` to an existing workspace or hub item — no inline code. The referenced item's input/output schema becomes the runnable's surface; an agent's is `user_message` and `user_attachments`, plus `memory_id` when the agent keeps managed memory or `previous_messages` when its memory is off.
 
 Before writing an inline runnable, look for a workspace script or flow that already does the job, or a Hub script (a prebuilt integration at `hub/<version>/<app>/<name>`) for a third-party service, and reference it instead of copying its logic.
 
@@ -212,7 +246,7 @@ Before writing an inline runnable, look for a workspace script or flow that alre
 This decides whether an app works before anything is deployed:
 
 - **Inline runnables run the app's current code.** The editor sends the runnable's source with each request, so an inline runnable works in the preview with nothing deployed.
-- **Path runnables (`script` / `flow` / `hubscript`) run the DEPLOYED item at that path.** So do `wmill.runFlow`, `wmill.runFlowAsync` and `wmill.runScriptByPath` called from inside a runnable. A draft — including a draft you just created — does not exist for them.
+- **Path runnables (`script` / `flow` / `hubscript` / `agent`) run the DEPLOYED item at that path.** So do `wmill.runFlow`, `wmill.runFlowAsync` and `wmill.runScriptByPath` called from inside a runnable. A draft — including a draft you just created — does not exist for them.
 
 So an app wired to a flow you just wrote does nothing until **that flow is deployed**. The app itself does NOT have to be deployed for this: the preview runs the app's draft, so the referenced flow is the only thing that has to exist deployed.
 
@@ -240,16 +274,25 @@ Either one lets those people run the app's backend runnables, so never open an a
 <!-- chat-only -->
 When a deploy widens who may open the app, tell the user in plain words.
 <!-- /chat-only -->
+<!-- cli-only -->
+
+An app's custom URL is not in `raw_app.yaml`: each workspace has its own file next to the app folder, `<app path>.<workspace>.custom_path.yaml` (for example `f/sales/dashboard.prod.custom_path.yaml` holding `custom_path: dashboard`), where `<workspace>` is the workspace's name in `wmill.yaml`, or its id. A push applies only the target workspace's file and leaves the deployed custom URL alone when there is none, so deleting the file does not remove the URL: `custom_path: ''` does. Setting or clearing one takes a workspace admin.
+<!-- /cli-only -->
 
 ## Sandbox isolation and frontend API access
 
-By default a deployed app's frontend runs with the viewer's own Windmill session. A sandboxed app is isolated from it: the frontend reaches Windmill only through its backend runnables, plus whatever frontend API scopes the app declares, which each viewer approves before the app runs. The scopes are `jobs:run`, `jobs:read`, `users:read`, `resources:read`, `variables:read`, `flow_conversations:read` and `flow_conversations:write`; grant only the ones the frontend calls.
+New apps are sandboxed: the frontend is isolated from the viewer's own Windmill session and reaches Windmill only through its backend runnables, plus whatever frontend API scopes the app declares, which each viewer approves before the app runs. With isolation turned off, the frontend runs with the viewer's full session. The scopes are `jobs:run`, `jobs:read`, `resources:read`, `variables:read`, `flow_conversations:read` and `flow_conversations:write`; grant only the ones the frontend calls. The viewer's identity needs no scope: it is in `window.ctx`, and whoami works with any of them.
+
+Inside the sandbox, IndexedDB is unavailable, third-party sign-in and OAuth redirects fail, and requests to other services carry `Origin: null`, which an API that checks the origin rejects. Work around these first: call the service from a backend runnable, keep state in a data table or `localStorage`, or grant the frontend API scope the code needs. Suggest turning isolation off only when none of that works, and say plainly that it is a security risk: the app's code, and any XSS bug in it, then runs with the full Windmill permissions of everyone who opens the app.
+<!-- chat-only -->
+You cannot turn isolation off; the user does it in the app's deploy settings.
+<!-- /chat-only -->
 <!-- cli-only -->
 In `raw_app.yaml`:
 
 ```yaml
 sandbox: true
-frontend_api: [jobs:run, users:read]
+frontend_api: [jobs:run]
 ```
 
 A file with a `sandbox` key states both settings: `sandbox: false` turns isolation off, and a missing `frontend_api` means no scopes. A file without the key leaves the deployed app's isolation and scopes as they are, so removing `sandbox: true` does not unsandbox it. `frontend_api` needs `sandbox: true`; the push fails otherwise.
@@ -332,4 +375,4 @@ def main(user_id: str):
 7. **Mark sensitive UI with `data-wm-no-record`** — it is what keeps that data out of a recorded demo; passwords are handled for you.
 8. **Reach for `backendAsync` + `waitJob`** for long work — never a hand-written job-polling runnable.
 9. **Deploy what a path runnable points at** — a path runnable aimed at a draft fails at runtime; tell the user what needs deploying.
-10. **Use `@windmill-labs/chat-sdk` for a chat over a chat-mode flow** — never a runnable that runs the flow and polls its stream.
+10. **Use `@windmill-labs/chat-sdk` for a chat over a chat-mode flow or a saved agent** — never hand-roll a runnable that runs it and polls its stream; a saved agent is an `agent` runnable passed as `{ wmill, runnable }`.

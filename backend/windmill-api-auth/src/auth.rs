@@ -6,6 +6,7 @@ use axum::{
 };
 use chrono::TimeZone;
 use http::{request::Parts, StatusCode};
+use itertools::Itertools;
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -465,8 +466,8 @@ impl AuthCache {
                                         let lookup = if super_admin {
                                             Some((true, false))
                                         } else {
-                                            sqlx::query!(
-                                                "SELECT is_admin, operator FROM usr where username = $1 AND \
+                                            let row = sqlx::query!(
+                                                "SELECT is_admin, operator, workspace_role FROM usr where username = $1 AND \
                                                  workspace_id = $2 AND disabled = false",
                                                 name,
                                                 &w_id.as_ref().unwrap()
@@ -474,8 +475,24 @@ impl AuthCache {
                                             .fetch_optional(&self.db)
                                             .await
                                             .ok()
-                                            .flatten()
-                                            .map(|r| (r.is_admin, r.operator))
+                                            .flatten();
+                                            match row {
+                                                Some(r) => {
+                                                    // Fails closed: an unreadable role config
+                                                    // gates the member rather than freeing it.
+                                                    let restricted =
+                                                        windmill_common::roles::member_is_restricted_db(
+                                                            &self.db,
+                                                            w_id.as_ref().unwrap(),
+                                                            r.workspace_role,
+                                                            r.operator,
+                                                        )
+                                                        .await
+                                                        .unwrap_or(true);
+                                                    Some((r.is_admin, restricted && !r.is_admin))
+                                                }
+                                                None => None,
+                                            }
                                         };
 
                                         if let Some((is_admin, is_operator)) = lookup {
@@ -595,15 +612,35 @@ impl AuthCache {
                                     username_override_from_label(label);
                                 if w_id.is_some() {
                                     let row_o = sqlx::query!(
-                                        "SELECT username, is_admin, operator FROM usr WHERE
+                                        "SELECT username, is_admin, operator, workspace_role FROM usr WHERE
                                             email = $1 AND workspace_id = $2 AND disabled = false",
                                         &email,
                                         w_id.as_ref().unwrap()
                                     )
-                                    .map(|x| (x.username, x.is_admin, x.operator))
+                                    .map(|x| (x.username, x.is_admin, x.operator, x.workspace_role))
                                     .fetch_optional(&self.db)
                                     .await
-                                    .unwrap_or(Some(("error".to_string(), false, false)));
+                                    .unwrap_or(Some(("error".to_string(), false, false, None)));
+                                    let row_o = match row_o {
+                                        Some((username, is_admin, operator, workspace_role)) => {
+                                            // Fails closed, as above.
+                                            let restricted =
+                                                windmill_common::roles::member_is_restricted_db(
+                                                    &self.db,
+                                                    w_id.as_ref().unwrap(),
+                                                    workspace_role,
+                                                    operator,
+                                                )
+                                                .await
+                                                .unwrap_or(true);
+                                            Some((
+                                                username,
+                                                is_admin,
+                                                restricted && !is_admin && !super_admin,
+                                            ))
+                                        }
+                                        None => None,
+                                    };
 
                                     match row_o {
                                         Some((username, is_admin, is_operator)) => {
@@ -866,10 +903,9 @@ async fn admit_and_record_guest_jwt(db: &DB, w_id: &str, email: &str, app_path: 
         return false;
     }
     GUEST_JWT_ACTIVITY_CACHE.insert(cache_key, ());
-    // Audit last, best-effort, on its own connection: the EE writer swallows an
-    // `audit_partitioned` failure but that failing statement still aborts the
-    // transaction it runs in, so auditing before the commit would let the whole
-    // activity row roll back while this returned success, admitting an uncounted guest.
+    // Audit last, best-effort, on its own connection: a failed `audit_partitioned`
+    // insert aborts the transaction it runs in, so auditing before the commit would
+    // let an audit failure drop the activity row that counts this guest.
     if first_jwt {
         let author = windmill_common::audit::AuditAuthor {
             email: email.to_string(),
@@ -1022,6 +1058,49 @@ where
     }
 }
 
+/// Adds the suffixed form of each tag of an `if_jobs:filter_tags:` scope: in a dev workspace a
+/// job allowed on `gpu` is queued on `gpu-dev`, and the token must still reach the jobs it starts.
+fn expand_filter_tags_with_dev_suffix(scopes: &mut [String], suffix: &str) {
+    for scope in scopes.iter_mut() {
+        if let Some(tags) = scope.strip_prefix("if_jobs:filter_tags:") {
+            let expanded = tags
+                .split(',')
+                .flat_map(|t| {
+                    let suffixed = windmill_common::worker::with_dev_workspace_suffix(t, suffix);
+                    [t.to_string(), suffixed]
+                })
+                .unique()
+                .join(",");
+            *scope = format!("if_jobs:filter_tags:{expanded}");
+        }
+    }
+}
+
+/// Only while isolation is on and for a workspace whose jobs get the suffix then: otherwise the
+/// suffixed tags are other tags the token was not given.
+async fn expand_filter_tags_for_dev_workspace(
+    db: &DB,
+    workspace_id: &str,
+    scopes: Option<&mut Vec<String>>,
+) {
+    let Some(scopes) = scopes else { return };
+    if !windmill_common::worker::DEV_WORKSPACE_ISOLATION.load(std::sync::atomic::Ordering::Relaxed)
+        || !scopes.iter().any(|s| s.starts_with("if_jobs:filter_tags:"))
+    {
+        return;
+    }
+    let (is_dev, in_dev_lineage) = windmill_common::workspaces::dev_lineage(db, workspace_id)
+        .await
+        .unwrap_or((
+            workspace_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX),
+            true,
+        ));
+    if windmill_common::worker::is_isolated_workspace(is_dev, in_dev_lineage) {
+        let suffix = windmill_common::worker::DEV_WORKSPACE_TAG_SUFFIX.load();
+        expand_filter_tags_with_dev_suffix(scopes, &suffix);
+    }
+}
+
 pub fn transform_old_scope_to_new_scope(scopes: Option<&mut Vec<String>>) {
     if let Some(scopes) = scopes {
         for scope in scopes.iter_mut() {
@@ -1110,10 +1189,10 @@ pub async fn resolve_opt_job_authed(
     };
 
     if is_no_auth() {
-        return Ok((
-            OptJobAuthed { authed: no_auth_admin_authed(), job_id: None },
-            parts,
-        ));
+        let authed = no_auth_admin_authed();
+        // Handlers taking `Extension<ApiAuthed>` read this insert, as on the token path.
+        parts.extensions.insert(authed.clone());
+        return Ok((OptJobAuthed { authed, job_id: None }, parts));
     }
 
     // Safe only while what the route checks below read is fixed before the first
@@ -1172,6 +1251,14 @@ pub async fn resolve_opt_job_authed(
                 let authed = &mut opt_job_authed.authed;
                 if authed.scopes.is_some() && !own_job_runtime_route {
                     transform_old_scope_to_new_scope(authed.scopes.as_mut());
+                    if let Some(w_id) = workspace_id.as_deref() {
+                        expand_filter_tags_for_dev_workspace(
+                            &cache.db,
+                            w_id,
+                            authed.scopes.as_mut(),
+                        )
+                        .await;
+                    }
 
                     if let Err(err) = crate::scopes::check_scopes_for_route(
                         authed.scopes.as_deref(),
@@ -1192,6 +1279,7 @@ pub async fn resolve_opt_job_authed(
                     // could approve an OAuth flow that mints a new non-read-only
                     // token.
                     let is_mcp_transport = path == "/api/mcp/gateway"
+                        || path == "/api/mcp"
                         || (path.starts_with("/api/mcp/w/")
                             && (path.ends_with("/mcp")
                                 || path.ends_with("/sse")
@@ -1358,6 +1446,19 @@ pub async fn list_tokens_internal(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn filter_tags_reach_their_dev_workspace_form() {
+        let mut scopes = vec![
+            "jobs:read".to_string(),
+            "if_jobs:filter_tags:gpu,bash-dev".to_string(),
+        ];
+        expand_filter_tags_with_dev_suffix(&mut scopes, "-dev");
+        assert_eq!(
+            scopes,
+            vec!["jobs:read", "if_jobs:filter_tags:gpu,gpu-dev,bash-dev"]
+        );
+    }
 
     /// Dropping the `AUTH_CACHE` entry between the two resolutions is what makes a memo
     /// hit observable: only a working memo can answer the second one.

@@ -7,15 +7,17 @@
  */
 
 //! Unified, keyset-paginated listing of a workspace's runnables (scripts,
-//! flows, apps) merged into one globally-ordered stream. The homepage uses it
-//! so a chosen order (recently updated / oldest / name) is correct and complete
-//! across all three kinds at any workspace size, instead of client-sorting a
+//! flows, apps, and the `ai_agent` resources listed as agents) merged into one
+//! globally-ordered stream. The homepage uses it so a chosen order (recently
+//! updated / oldest / name) is correct and complete across every kind at any
+//! workspace size, instead of client-sorting a
 //! per-kind capped window.
 //!
 //! Efficiency: each kind is a UNION ALL branch ordered by an index on
 //! `(workspace_id, archived, <sort key>)` (created_at / edited_at, or the lowered
 //! summary-or-path expression for name orders); Postgres merges the ordered
-//! branches and stops at the page limit. Pagination is keyset — a
+//! branches and stops at the page limit. Agents, which are few, are instead
+//! reached through the partial `idx_resource_agent_owner_prefix` and sorted whole. Pagination is keyset — a
 //! `(sort_key, path, kind, tiebreak)` cursor, where `tiebreak` (a script's hash,
 //! 0 for flow/app) is a stable final key that keeps the order total even when rows
 //! tie on (sort_key, path, kind) — so deep pages don't re-scan. Visibility is
@@ -34,7 +36,7 @@ use std::collections::HashMap;
 use windmill_common::{
     db::UserDB,
     error::{Error, JsonResult},
-    workspaces::{operator_builder_rights, OperatorBuilderRights},
+    roles::{caller_capabilities, AuthorLevel, RoleCapabilities},
 };
 use windmill_types::scripts::ScriptHash;
 use windmill_types::user_drafts::DraftUserRef;
@@ -51,7 +53,7 @@ struct ListRunnablesQuery {
     order_by: Option<String>,
     /// Descending when true (default true).
     order_desc: Option<bool>,
-    /// Comma-separated subset of `script,flow,app`; omitted means all.
+    /// Comma-separated subset of `script,flow,app,agent`; omitted means all.
     kinds: Option<String>,
     show_archived: Option<bool>,
     /// Include library scripts (no runnable main). Ignored for flows/apps.
@@ -80,7 +82,7 @@ struct ListRunnablesQuery {
 #[derive(Serialize, sqlx::FromRow)]
 struct RunnableItem {
     #[serde(rename = "type")]
-    kind: String, // 'script' | 'flow' | 'app'
+    kind: String, // 'script' | 'flow' | 'app' | 'agent'
     path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     summary: Option<String>,
@@ -130,6 +132,11 @@ struct RunnableItem {
     id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     version: Option<i64>,
+    // agent-only: the `memory` setting, which decides whether the agent opens as a chat.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agent_memory: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ws_specific: Option<bool>,
     // sort keys, echoed into the cursor (not serialized to the client)
     #[serde(skip)]
     sort_time: chrono::DateTime<chrono::Utc>,
@@ -247,7 +254,7 @@ fn scope_path_predicate(
     }
 }
 
-/// The three UNION-ALL branch SELECTs, each projecting the shared `RunnableItem`
+/// The UNION-ALL branch SELECTs, each projecting the shared `RunnableItem`
 /// column set (NULL for columns that don't apply to that kind). `$1`=workspace,
 /// `$2`=username (favorites), `$3`=email (drafts). Kind-specific and per-request
 /// WHERE fragments are appended by the caller.
@@ -255,6 +262,7 @@ struct Branches {
     script: String,
     flow: String,
     app: String,
+    agent: String,
 }
 
 fn branch_sqls() -> Branches {
@@ -281,6 +289,7 @@ fn branch_sqls() -> Branches {
                 o.codebase IS NOT NULL as use_codebase, \
                 (o.lock_error_logs IS NOT NULL) as has_deploy_errors, NULL::bool as chat_input_enabled, \
                 NULL::bool as raw_app, NULL::text as execution_mode, NULL::bigint as id, NULL::bigint as version, \
+                NULL::jsonb as agent_memory, NULL::bool as ws_specific, \
                 o.created_at as sort_time, lower(COALESCE(NULLIF(o.summary, ''), o.path)) as sort_name, o.hash as tiebreak \
          FROM script o \
          LEFT JOIN favorite ON favorite.favorite_kind = 'script' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = $2 \
@@ -298,6 +307,7 @@ fn branch_sqls() -> Branches {
                 NULL::bool as use_codebase, NULL::bool as has_deploy_errors, \
                 (o.value->>'chat_input_enabled')::bool as chat_input_enabled, \
                 NULL::bool as raw_app, NULL::text as execution_mode, NULL::bigint as id, NULL::bigint as version, \
+                NULL::jsonb as agent_memory, NULL::bool as ws_specific, \
                 o.edited_at as sort_time, lower(COALESCE(NULLIF(o.summary, ''), o.path)) as sort_name, 0::bigint as tiebreak \
          FROM flow o \
          LEFT JOIN favorite ON favorite.favorite_kind = 'flow' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = $2 \
@@ -315,6 +325,7 @@ fn branch_sqls() -> Branches {
                 NULL::bool as use_codebase, NULL::bool as has_deploy_errors, NULL::bool as chat_input_enabled, \
                 av.raw_app, o.policy->>'execution_mode' as execution_mode, o.id, \
                 o.versions[array_upper(o.versions, 1)] as version, \
+                NULL::jsonb as agent_memory, NULL::bool as ws_specific, \
                 COALESCE(av.created_at, 'epoch'::timestamptz) as sort_time, lower(COALESCE(NULLIF(o.summary, ''), o.path)) as sort_name, 0::bigint as tiebreak \
          FROM app o \
          LEFT JOIN favorite ON favorite.favorite_kind = 'app' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = $2 \
@@ -323,25 +334,68 @@ fn branch_sqls() -> Branches {
         draft_users = draft_users("d.typ IN ('app', 'raw_app')")
     );
 
-    Branches { script, flow, app }
+    // An agent is an `ai_agent` resource; the subquery renames its description to the
+    // `summary` the shared search and name sort read.
+    let agent = format!(
+        "SELECT 'agent' as kind, o.path, o.summary, o.workspace_id, o.extra_perms, \
+                favorite.path IS NOT NULL as starred, false as archived, \
+                draft.email IS NOT NULL as is_draft, NULL::bool as draft_only, NULL::text as draft_path, \
+                {draft_users}, o.labels, folder_labels(o.workspace_id, o.path) as inherited_labels, \
+                NULL::bool as ws_error_handler_muted, o.edited_at, \
+                NULL::bigint as hash, NULL::text as language, NULL::text as script_kind, NULL::text as auto_kind, \
+                NULL::bool as use_codebase, NULL::bool as has_deploy_errors, NULL::bool as chat_input_enabled, \
+                NULL::bool as raw_app, NULL::text as execution_mode, NULL::bigint as id, NULL::bigint as version, \
+                o.agent_memory, ws_specific.path IS NOT NULL as ws_specific, \
+                COALESCE(o.edited_at, 'epoch'::timestamptz) as sort_time, lower(COALESCE(NULLIF(o.summary, ''), o.path)) as sort_name, 0::bigint as tiebreak \
+         FROM (SELECT workspace_id, path, description as summary, extra_perms, labels, edited_at, \
+                      value->'memory' as agent_memory \
+               FROM resource WHERE resource_type = 'ai_agent') o \
+         LEFT JOIN favorite ON favorite.favorite_kind = 'agent' AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = $2 \
+         LEFT JOIN draft ON draft.path = o.path AND draft.workspace_id = o.workspace_id AND draft.typ = 'resource' AND draft.email = $3 \
+         LEFT JOIN ws_specific ON ws_specific.path = o.path AND ws_specific.workspace_id = o.workspace_id AND ws_specific.item_kind = 'resource'",
+        draft_users = draft_users("d.typ = 'resource'")
+    );
+
+    Branches { script, flow, app, agent }
+}
+
+/// The draft rows a kind lists and the table whose rows make a draft not draft-only.
+fn draft_kind_source(kind: &str) -> (&'static str, &'static str) {
+    match kind {
+        "script" => ("d.typ = 'script'", "script"),
+        "flow" => ("d.typ = 'flow'", "flow"),
+        // Typed by the draft itself, as the resource listing filters its draft-only rows.
+        "agent" => (
+            "d.typ = 'resource' AND d.value->>'resource_type' = 'ai_agent'",
+            "resource",
+        ),
+        _ => ("d.typ IN ('app', 'raw_app')", "app"),
+    }
+}
+
+/// Where a draft records the path its editor has staged. Scripts and resources bind the
+/// Path widget to the item's own `path`, so it round-trips through the draft JSON's
+/// `path`; flows and apps write a separate `draft_path` only when it differs from the
+/// deployed one. See scripts.rs.
+fn draft_typed_path(kind: &str) -> &'static str {
+    if kind == "script" || kind == "agent" {
+        "path"
+    } else {
+        "draft_path"
+    }
 }
 
 /// The draft-only branch for a kind: the caller's drafts at paths carrying no
 /// deployed row, projected into the same column set as `branch_sqls` so they
 /// sort, search and paginate as ordinary rows. Same `$1`/`$2`/`$3` contract.
 fn draft_branch_sql(kind: &str) -> String {
-    let (typ_pred, deployed) = match kind {
-        "script" => ("d.typ = 'script'", "script"),
-        "flow" => ("d.typ = 'flow'", "flow"),
-        _ => ("d.typ IN ('app', 'raw_app')", "app"),
-    };
-    // Scripts bind the Path widget to `script.path`, so the typed path round-trips
-    // through the draft JSON's own `path`; flows and apps write a separate
-    // `draft_path` only when it differs from the deployed one. See scripts.rs.
-    let typed_path = if kind == "script" {
-        "path"
+    let (typ_pred, deployed) = draft_kind_source(kind);
+    let typed_path = draft_typed_path(kind);
+    // A resource draft carries the description where the other kinds carry a summary.
+    let summary_field = if kind == "agent" {
+        "description"
     } else {
-        "draft_path"
+        "summary"
     };
     // `auto_kind` is only what the editor stamped into the draft — a `// pipeline`
     // annotation is not re-derived from the content here, unlike the per-kind
@@ -351,7 +405,8 @@ fn draft_branch_sql(kind: &str) -> String {
         "script" => {
             "d.value->>'language' as language, d.value->>'kind' as script_kind, \
                      d.value->>'auto_kind' as auto_kind, false as raw_app, \
-                     NULL::bool as chat_input_enabled"
+                     NULL::bool as chat_input_enabled, \
+                     NULL::jsonb as agent_memory, NULL::bool as ws_specific"
         }
         // Type-guarded rather than a bare `::bool` cast: draft JSON is stored
         // unvalidated, so a malformed value must yield NULL, not abort the list,
@@ -360,11 +415,20 @@ fn draft_branch_sql(kind: &str) -> String {
             "NULL::text as language, NULL::text as script_kind, NULL::text as auto_kind, \
               false as raw_app, \
               CASE WHEN json_typeof(d.value->'value'->'chat_input_enabled') = 'boolean' \
-                   THEN (d.value->'value'->>'chat_input_enabled')::bool END as chat_input_enabled"
+                   THEN (d.value->'value'->>'chat_input_enabled')::bool END as chat_input_enabled, \
+              NULL::jsonb as agent_memory, NULL::bool as ws_specific"
+        }
+        "agent" => {
+            "NULL::text as language, NULL::text as script_kind, NULL::text as auto_kind, \
+              false as raw_app, NULL::bool as chat_input_enabled, \
+              (d.value->'args'->'memory')::jsonb as agent_memory, \
+              CASE WHEN json_typeof(d.value->'wsSpecific') = 'boolean' \
+                   THEN (d.value->>'wsSpecific')::bool END as ws_specific"
         }
         _ => {
             "NULL::text as language, NULL::text as script_kind, NULL::text as auto_kind, \
-              (d.typ = 'raw_app') as raw_app, NULL::bool as chat_input_enabled"
+              (d.typ = 'raw_app') as raw_app, NULL::bool as chat_input_enabled, \
+              NULL::jsonb as agent_memory, NULL::bool as ws_specific"
         }
     };
     format!(
@@ -378,11 +442,12 @@ fn draft_branch_sql(kind: &str) -> String {
                 NULL::bigint as hash, o.language, o.script_kind, o.auto_kind, \
                 NULL::bool as use_codebase, NULL::bool as has_deploy_errors, o.chat_input_enabled, \
                 o.raw_app, NULL::text as execution_mode, NULL::bigint as id, NULL::bigint as version, \
+                o.agent_memory, o.ws_specific, \
                 o.created_at as sort_time, lower(COALESCE(NULLIF(o.summary, ''), o.draft_path, o.path)) as sort_name, 0::bigint as tiebreak \
          FROM ( \
              SELECT DISTINCT ON (d.path) d.workspace_id, d.path, d.created_at, \
                     d.email IS NULL as legacy, \
-                    COALESCE(d.value->>'summary', '') as summary, \
+                    COALESCE(d.value->>'{summary_field}', '') as summary, \
                     NULLIF(NULLIF(d.value->>'{typed_path}', ''), d.path) as draft_path, \
                     {kind_cols} \
              FROM draft d \
@@ -397,6 +462,8 @@ fn draft_branch_sql(kind: &str) -> String {
     )
 }
 
+const ALL_KINDS: [&str; 4] = ["script", "flow", "app", "agent"];
+
 async fn list_runnables(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
@@ -404,6 +471,7 @@ async fn list_runnables(
     Path(w_id): Path<String>,
     Query(q): Query<ListRunnablesQuery>,
 ) -> JsonResult<ListRunnablesResponse> {
+    let caps = caller_capabilities(&db, &w_id, &authed).await?;
     let order_by_name = q.order_by.as_deref() == Some("name");
     let desc = q.order_desc.unwrap_or(true);
     let per_page = q.per_page.unwrap_or(50).clamp(1, 1000);
@@ -416,16 +484,16 @@ async fn list_runnables(
     };
 
     let mut kinds: Vec<&str> = match q.kinds.as_deref() {
-        None | Some("") => vec!["script", "flow", "app"],
+        None | Some("") => ALL_KINDS.to_vec(),
         Some(csv) => csv
             .split(',')
             .map(|s| s.trim())
-            .filter(|s| ["script", "flow", "app"].contains(s))
+            .filter(|s| ALL_KINDS.contains(s))
             .collect(),
     };
-    // Apps carry no `archived` column and are never listed as archived.
+    // Apps and agents carry no `archived` column and are never listed as archived.
     if show_archived {
-        kinds.retain(|k| *k != "app");
+        kinds.retain(|k| *k != "app" && *k != "agent");
     }
 
     let branches = branch_sqls();
@@ -533,6 +601,11 @@ async fn list_runnables(
     } else {
         None
     };
+    let agent_scope = if kinds.contains(&"agent") {
+        scope_path_predicate(&authed, "resources", "o", 3, &mut binds)
+    } else {
+        None
+    };
 
     // Per-kind archived predicate (scripts/flows have the column; apps don't and
     // are excluded from the archived view).
@@ -542,7 +615,7 @@ async fn list_runnables(
         "o.archived = false"
     };
     let mut script_extras: Vec<String> = vec![];
-    if !q.include_without_main.unwrap_or(false) || authed.is_operator {
+    if !q.include_without_main.unwrap_or(false) || !caps.code {
         script_extras.push("(o.auto_kind IS NULL OR o.auto_kind <> 'lib')".to_string());
     }
     script_extras.push(archived_pred.to_string());
@@ -570,18 +643,17 @@ async fn list_runnables(
     if let Some(s) = &app_scope {
         app_extras.push(s.clone());
     }
+    let mut agent_extras: Vec<String> = vec![];
+    if let Some(s) = &agent_scope {
+        agent_extras.push(s.clone());
+    }
 
     // Draft-only rows are the caller's own work in progress: never archived, so they
     // have no place in the archived view, and carrying no labels of their own they are
     // out of scope of a label filter (as in the per-kind endpoints). Operators don't
     // see other people's drafts and have none of their own, except of what they may build.
-    let builder = if authed.is_operator {
-        operator_builder_rights(&db, &w_id).await?
-    } else {
-        OperatorBuilderRights::default()
-    };
     let include_drafts = q.include_draft_only.unwrap_or(false)
-        && (!authed.is_operator || builder.any())
+        && ALL_KINDS.iter().any(|k| role_drafts_kind(&caps, k))
         && !show_archived
         && q.label.as_ref().filter(|s| !s.is_empty()).is_none();
     let draft_extras_for = |kind: &str| -> Vec<String> {
@@ -589,11 +661,12 @@ async fn list_runnables(
         let scope = match kind {
             "script" => &script_scope,
             "flow" => &flow_scope,
+            "agent" => &agent_scope,
             _ => &app_scope,
         };
         // The lib filter reads the same projected `auto_kind`, so a draft-only library
         // script hides with the deployed ones.
-        if kind == "script" && (!q.include_without_main.unwrap_or(false) || authed.is_operator) {
+        if kind == "script" && (!q.include_without_main.unwrap_or(false) || !caps.code) {
             extras.push("(o.auto_kind IS NULL OR o.auto_kind <> 'lib')".to_string());
         }
         if let Some(s) = scope {
@@ -649,6 +722,7 @@ async fn list_runnables(
             "script" => (&branches.script, &script_extras),
             "flow" => (&branches.flow, &flow_extras),
             "app" => (&branches.app, &app_extras),
+            "agent" => (&branches.agent, &agent_extras),
             _ => return None,
         };
         Some(build_branch(
@@ -667,10 +741,7 @@ async fn list_runnables(
                             keyset: Option<&str>,
                             limit: Option<usize>|
      -> Option<String> {
-        if !include_drafts
-            || !kinds.contains(&kind)
-            || (authed.is_operator && !operator_drafts_kind(builder, kind))
-        {
+        if !include_drafts || !kinds.contains(&kind) || !role_drafts_kind(&caps, kind) {
             return None;
         }
         // `fav` is ignored: with no favorite join there is nothing to filter on, and the
@@ -708,7 +779,7 @@ async fn list_runnables(
         // No draft branch here: a draft-only path has no favorite row (the UI won't let
         // you star one), so it would scan the caller's whole draft slice per kind to
         // return nothing. The main stream below takes them unfiltered instead.
-        let starred_branches: Vec<String> = ["script", "flow", "app"]
+        let starred_branches: Vec<String> = ALL_KINDS
             .iter()
             .filter_map(|k| branch_for(k, Some(true), None, None))
             .collect();
@@ -728,10 +799,10 @@ async fn list_runnables(
     // Main paged stream: non-starred rows (starred were pinned on the first page above).
     let main_fav = Some(false);
     let ns_branches: Vec<String> =
-        ["script", "flow", "app"]
+        ALL_KINDS
             .iter()
             .filter_map(|k| branch_for(k, main_fav, keyset_sql.as_deref(), Some(per_page)))
-            .chain(["script", "flow", "app"].iter().filter_map(|k| {
+            .chain(ALL_KINDS.iter().filter_map(|k| {
                 draft_branch_for(k, main_fav, keyset_sql.as_deref(), Some(per_page))
             }))
             .collect();
@@ -762,7 +833,7 @@ async fn list_runnables(
 
 #[derive(Deserialize)]
 struct CountRunnablesQuery {
-    /// Comma-separated subset of `script,flow,app`; omitted means all.
+    /// Comma-separated subset of `script,flow,app,agent`; omitted means all.
     kinds: Option<String>,
     /// Include library scripts (no runnable main). Ignored for flows/apps.
     include_without_main: Option<bool>,
@@ -789,7 +860,7 @@ struct OwnerCount {
 /// `owner/<rest>` is >= `owner || '/'` and, since '/' (0x2F) is immediately
 /// followed by '0' (0x30), < `owner || '0'`. `~>=~` / `~<~` are the
 /// text_pattern_ops operators, which is what lets `idx_<kind>_owner_prefix`
-/// answer the count with an index-only scan — the default opclass sorts by the
+/// (`idx_resource_agent_owner_prefix` for agents) answer the count with an index-only scan — the default opclass sorts by the
 /// database collation and cannot serve a byte-prefix range.
 fn owner_prefix_range(alias: &str) -> String {
     format!("{alias}.path ~>=~ (o.owner || '/') AND {alias}.path ~<~ (o.owner || '0')")
@@ -817,14 +888,15 @@ async fn count_runnables_by_owner(
     Path(w_id): Path<String>,
     Query(q): Query<CountRunnablesQuery>,
 ) -> JsonResult<RunnableCountsResponse> {
+    let caps = caller_capabilities(&db, &w_id, &authed).await?;
     let kinds: Vec<&str> = match q.kinds.as_deref() {
-        None | Some("") => vec!["script", "flow", "app"],
+        None | Some("") => ALL_KINDS.to_vec(),
         // Deduplicated: every kind becomes its own count subquery, so a repeated
         // entry would both double that kind's count and multiply the scans.
         Some(csv) => {
             let mut ks: Vec<&str> = vec![];
             for k in csv.split(',').map(|s| s.trim()) {
-                if ["script", "flow", "app"].contains(&k) && !ks.contains(&k) {
+                if ALL_KINDS.contains(&k) && !ks.contains(&k) {
                     ks.push(k);
                 }
             }
@@ -834,7 +906,7 @@ async fn count_runnables_by_owner(
     if kinds.is_empty() {
         return Ok(Json(RunnableCountsResponse { counts: HashMap::new() }));
     }
-    let with_libs = q.include_without_main.unwrap_or(false) && !authed.is_operator;
+    let with_libs = q.include_without_main.unwrap_or(false) && caps.code;
 
     // Per-kind predicates shared by both passes. `alias` is the branch's table
     // alias; `binds` collects the scope values, numbered from `base + 1`.
@@ -866,6 +938,13 @@ async fn count_runnables_by_owner(
                         w.push(s);
                     }
                 }
+                "agent" => {
+                    w.push(format!("{alias}.resource_type = 'ai_agent'"));
+                    if let Some(s) = scope_path_predicate(&authed, "resources", alias, base, binds)
+                    {
+                        w.push(s);
+                    }
+                }
                 _ => {
                     if let Some(s) = scope_path_predicate(&authed, "apps", alias, base, binds) {
                         w.push(s);
@@ -877,6 +956,7 @@ async fn count_runnables_by_owner(
     let table_of = |kind: &str| match kind {
         "script" => "script",
         "flow" => "flow",
+        "agent" => "resource",
         _ => "app",
     };
 
@@ -920,7 +1000,17 @@ async fn count_runnables_by_owner(
         for r in query.fetch_all(&db).await? {
             counts.insert(r.owner, r.count);
         }
-        add_draft_counts(&authed, &db, &w_id, &kinds, with_libs, &q, &mut counts).await?;
+        add_draft_counts(
+            &caps,
+            &db,
+            &w_id,
+            &authed,
+            &kinds,
+            with_libs,
+            &q,
+            &mut counts,
+        )
+        .await?;
         counts.retain(|_, c| *c > 0);
         return Ok(Json(RunnableCountsResponse { counts }));
     }
@@ -993,17 +1083,27 @@ async fn count_runnables_by_owner(
         counts.entry(r.owner).or_insert(r.count);
     }
 
-    add_draft_counts(&authed, &db, &w_id, &kinds, with_libs, &q, &mut counts).await?;
+    add_draft_counts(
+        &caps,
+        &db,
+        &w_id,
+        &authed,
+        &kinds,
+        with_libs,
+        &q,
+        &mut counts,
+    )
+    .await?;
     counts.retain(|_, c| *c > 0);
     Ok(Json(RunnableCountsResponse { counts }))
 }
 
-/// Whether an operator with `builder` rights can have drafts of a `/list` kind.
-fn operator_drafts_kind(builder: OperatorBuilderRights, kind: &str) -> bool {
+/// Whether a role can have drafts of a `/list` kind: one it may write.
+fn role_drafts_kind(caps: &RoleCapabilities, kind: &str) -> bool {
     match kind {
-        "flow" => builder.flows,
-        "app" => builder.apps,
-        _ => false,
+        "flow" => caps.flows != AuthorLevel::None,
+        "app" => caps.apps != AuthorLevel::None,
+        _ => caps.code,
     }
 }
 
@@ -1016,9 +1116,10 @@ fn operator_drafts_kind(builder: OperatorBuilderRights, kind: &str) -> bool {
 /// Deployed and draft rows can't overlap (the anti-join is what makes a draft
 /// "draft-only"), so the two counts add.
 async fn add_draft_counts(
-    authed: &ApiAuthed,
+    caps: &RoleCapabilities,
     db: &DB,
     w_id: &str,
+    authed: &ApiAuthed,
     kinds: &[&str],
     with_libs: bool,
     q: &CountRunnablesQuery,
@@ -1027,37 +1128,32 @@ async fn add_draft_counts(
     if !q.include_draft_only.unwrap_or(false) {
         return Ok(());
     }
-    // An operator has no drafts of their own, except of what they may build.
-    let builder_kinds: Vec<&str>;
-    let kinds: &[&str] = if !authed.is_operator {
-        kinds
-    } else {
-        let builder = operator_builder_rights(db, w_id).await?;
-        builder_kinds = kinds
-            .iter()
-            .copied()
-            .filter(|k| operator_drafts_kind(builder, k))
-            .collect();
-        if builder_kinds.is_empty() {
-            return Ok(());
-        }
-        &builder_kinds
-    };
+    // A role has no drafts of its own except of what it may write.
+    let kinds: Vec<&str> = kinds
+        .iter()
+        .copied()
+        .filter(|k| role_drafts_kind(caps, k))
+        .collect();
+    if kinds.is_empty() {
+        return Ok(());
+    }
+    let kinds = kinds.as_slice();
     // $1 = workspace, $2 = the caller's email.
     let mut binds: Vec<String> = vec![];
     let branches: Vec<String> = kinds
         .iter()
         .map(|kind| {
-            let (typ_pred, deployed, domain) = match *kind {
-                "script" => ("d.typ = 'script'", "script", "scripts"),
-                "flow" => ("d.typ = 'flow'", "flow", "flows"),
-                _ => ("d.typ IN ('app', 'raw_app')", "app", "apps"),
+            let (typ_pred, deployed) = draft_kind_source(kind);
+            let domain = match *kind {
+                "script" => "scripts",
+                "flow" => "flows",
+                "agent" => "resources",
+                _ => "apps",
             };
             // The owner a draft counts under is where it says it will live, not the
             // `u/<caller>/draft_<uuid>` it is parked at — same path `/list` groups and
-            // filters on. Scripts round-trip the typed path through the draft JSON's
-            // own `path`; flows and apps write `draft_path`. See scripts.rs.
-            let typed_path = if *kind == "script" { "path" } else { "draft_path" };
+            // filters on.
+            let typed_path = draft_typed_path(kind);
             let effective_path =
                 format!("COALESCE(NULLIF(d.value->>'{typed_path}', ''), d.path) as path");
             let mut w = vec![

@@ -281,6 +281,8 @@ export async function pushNativeTrigger(
     is_flow: localTrigger.is_flow,
     service_config: localTrigger.service_config,
     summary: localTrigger.summary,
+    // Used on create only; an update keeps the connection the webhook was registered under.
+    connection_path: localTrigger.connection_path,
   };
 
   if (remoteTrigger) {

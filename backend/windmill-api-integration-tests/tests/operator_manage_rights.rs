@@ -1,13 +1,12 @@
 use serde_json::json;
 use serial_test::serial;
 use sqlx::{Pool, Postgres};
-use windmill_common::workspaces::invalidate_operator_rights_cache;
 use windmill_test_utils::*;
 
-/// Every test here must be `#[serial]`. The rights cache is process-global and keyed by workspace
-/// id alone, while `sqlx::test` gives each test its own database under this same id — so two
-/// running at once can answer each other's reads from one cached entry, and a withdrawal in one
-/// database reads as granted in the other.
+/// Every test here must be `#[serial]`, and start by dropping the cache entry. The rights cache is
+/// process-global and keyed by workspace id alone, while `sqlx::test` gives each test its own
+/// database under this same id — so two running at once can answer each other's reads from one
+/// cached entry, and a withdrawal a test ends on reads as withdrawn in the next one's database.
 const WS: &str = "test-workspace";
 
 fn operator_client() -> reqwest::Client {
@@ -44,7 +43,7 @@ async fn set_settings(api: &str, body: serde_json::Value) -> anyhow::Result<u16>
         .send()
         .await?;
     let status = resp.status().as_u16();
-    invalidate_operator_rights_cache(WS);
+    windmill_common::roles::invalidate_all_roles_cache();
     Ok(status)
 }
 
@@ -53,6 +52,7 @@ async fn set_settings(api: &str, body: serde_json::Value) -> anyhow::Result<u16>
 #[serial]
 async fn test_operator_manage_rights(db: Pool<Postgres>) -> anyhow::Result<()> {
     initialize_tracing().await;
+    windmill_common::roles::invalidate_all_roles_cache();
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
     let api = format!("http://localhost:{port}/api/w/{WS}");
@@ -145,6 +145,7 @@ async fn test_manage_triggers_covers_a_route_outside_the_shared_handler(
     db: Pool<Postgres>,
 ) -> anyhow::Result<()> {
     initialize_tracing().await;
+    windmill_common::roles::invalidate_all_roles_cache();
     let server = ApiServer::start(db.clone()).await?;
     let port = server.addr.port();
     let api = format!("http://localhost:{port}/api/w/{WS}");
@@ -210,6 +211,198 @@ async fn test_manage_triggers_covers_a_route_outside_the_shared_handler(
         .send()
         .await?;
     assert_eq!(resp.status(), 403, "{}", resp.text().await?);
+
+    Ok(())
+}
+
+/// A draft is what the AI chat writes before it deploys, so an operator holding a manage right
+/// may draft that kind, and only while they hold it. Builder rights are left off throughout: they
+/// open flow drafts, and would otherwise be what admits these.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+#[serial]
+async fn test_manage_rights_admit_matching_drafts(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    windmill_common::roles::invalidate_all_roles_cache();
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let api = format!("http://localhost:{port}/api/w/{WS}");
+    let c = operator_client();
+
+    let save = async |kind: &str, path: &str| -> anyhow::Result<(u16, String)> {
+        let resp = c
+            .post(format!("{api}/drafts/update/{kind}/{path}"))
+            .json(&json!({ "value": { "path": path } }))
+            .send()
+            .await?;
+        Ok((resp.status().as_u16(), resp.text().await?))
+    };
+    let listed = async || -> anyhow::Result<serde_json::Value> {
+        let resp = c.get(format!("{api}/drafts/list")).send().await?;
+        assert_eq!(resp.status(), 200);
+        Ok(resp.json().await?)
+    };
+    let schedule_list_has_draft = async || -> anyhow::Result<bool> {
+        let resp = c
+            .get(format!("{api}/schedules/list?include_draft_only=true"))
+            .send()
+            .await?;
+        assert_eq!(resp.status(), 200);
+        let rows: Vec<serde_json::Value> = resp.json().await?;
+        Ok(rows.iter().any(|r| r["path"] == "u/operator/sched_draft"))
+    };
+
+    let resp = c
+        .post(format!(
+            "{api}/drafts/update/trigger_schedule/u/operator/sched_draft"
+        ))
+        .json(&json!({ "value": {
+            "path": "u/operator/sched_draft",
+            "schedule": "0 0 12 * * *",
+            "timezone": "UTC",
+            "script_path": "f/system/hello",
+            "is_flow": false,
+            "args": {},
+            "enabled": false
+        } }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    assert!(schedule_list_has_draft().await?);
+    let (status, body) = save("trigger_http", "u/operator/http_draft").await?;
+    assert_eq!(status, 200, "{body}");
+    // The rights name schedules and triggers, nothing else.
+    let (status, body) = save("script", "u/operator/script_draft").await?;
+    assert_eq!(status, 403, "{body}");
+
+    let drafts = listed().await?;
+    assert_eq!(drafts.as_array().map(Vec::len), Some(2), "{drafts}");
+
+    assert_eq!(
+        set_settings(&api, json!({"manage_schedules": false})).await?,
+        200
+    );
+    let (status, body) = save("trigger_schedule", "u/operator/sched_draft").await?;
+    assert_eq!(status, 403, "{body}");
+    // The list follows the right too, as the app list follows `builder_apps`.
+    assert!(!schedule_list_has_draft().await?);
+    let (status, body) = save("trigger_http", "u/operator/http_draft").await?;
+    assert_eq!(status, 200, "{body}");
+
+    assert_eq!(
+        set_settings(&api, json!({"manage_triggers": false})).await?,
+        200
+    );
+    let (status, body) = save("trigger_http", "u/operator/http_draft").await?;
+    assert_eq!(status, 403, "{body}");
+    // Still listed, as their own, but no longer writable.
+    let drafts = listed().await?;
+    assert_eq!(drafts.as_array().map(Vec::len), Some(2), "{drafts}");
+    assert!(
+        drafts
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|d| d["can_write"] == json!(false)),
+        "{drafts}"
+    );
+
+    Ok(())
+}
+
+/// Operators create resources and variables on their pages with no operator setting in the way,
+/// so they may draft them in any workspace — even one that withdrew every manage right — and
+/// deploying a secret variable draft goes through the create route like a direct write.
+#[sqlx::test(migrations = "../migrations", fixtures("base", "permissions_test"))]
+#[serial]
+async fn test_operators_draft_resources_and_variables(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    windmill_common::roles::invalidate_all_roles_cache();
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+    let api = format!("http://localhost:{port}/api/w/{WS}");
+    let c = operator_client();
+
+    assert_eq!(
+        set_settings(
+            &api,
+            json!({"manage_schedules": false, "manage_triggers": false})
+        )
+        .await?,
+        200
+    );
+
+    let save = async |kind: &str, path: &str, value: serde_json::Value| {
+        let resp = c
+            .post(format!("{api}/drafts/update/{kind}/{path}"))
+            .json(&json!({ "value": value }))
+            .send()
+            .await?;
+        anyhow::Ok((resp.status().as_u16(), resp.text().await?))
+    };
+
+    let (status, body) = save(
+        "resource",
+        "u/operator/res_draft",
+        json!({ "path": "u/operator/res_draft", "args": {}, "resource_type": "object" }),
+    )
+    .await?;
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = save(
+        "variable",
+        "u/operator/secret_draft",
+        json!({ "path": "u/operator/secret_draft", "variable": { "value": "hunter2", "is_secret": true } }),
+    )
+    .await?;
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = save("script", "u/operator/script_draft", json!({})).await?;
+    assert_eq!(status, 403, "{body}");
+
+    // The Resources and Variables pages list a draft that has never been deployed.
+    for (route, path) in [
+        ("resources", "u/operator/res_draft"),
+        ("variables", "u/operator/secret_draft"),
+    ] {
+        let listed: serde_json::Value = c
+            .get(format!("{api}/{route}/list?include_draft_only=true"))
+            .send()
+            .await?
+            .json()
+            .await?;
+        assert!(
+            listed
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["path"] == path && r["draft_only"] == json!(true)),
+            "{route}: {listed}"
+        );
+    }
+
+    // Deploying a draft sends its stored value, the `$encrypted:` marker, to the create route.
+    let stored: String = sqlx::query_scalar(
+        "SELECT value::jsonb->'variable'->>'value' FROM draft
+         WHERE workspace_id = $1 AND path = 'u/operator/secret_draft'",
+    )
+    .bind(WS)
+    .fetch_one(&db)
+    .await?;
+    assert!(stored.starts_with("$encrypted:"), "{stored}");
+    let resp = c
+        .post(format!("{api}/variables/create"))
+        .json(&json!({
+            "path": "u/operator/secret_draft",
+            "value": stored,
+            "is_secret": true,
+            "description": "",
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    let resp = c
+        .get(format!("{api}/variables/get_value/u/operator/secret_draft"))
+        .send()
+        .await?;
+    assert_eq!(resp.json::<String>().await?, "hunter2");
 
     Ok(())
 }

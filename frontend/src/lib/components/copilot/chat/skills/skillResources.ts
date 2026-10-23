@@ -1,5 +1,6 @@
 import { ResourceService } from '$lib/gen'
 import { canEditItem } from '$lib/editRights'
+import { capabilitiesIn } from '$lib/roleCapabilities'
 import { userWorkspaces, type UserExt } from '$lib/stores'
 import { get } from 'svelte/store'
 
@@ -57,7 +58,10 @@ export type SkillListing = { skills: SkillResource[]; truncated: boolean }
  * the shared `canEditItem` rather than reading `extra_perms` alone. */
 export async function listSkillResources(workspace: string, user?: UserExt): Promise<SkillListing> {
 	if (!workspace) return { skills: [], truncated: false }
-	const operatorSettings = get(userWorkspaces).find((w) => w.id === workspace)?.operator_settings
+	const caps = capabilitiesIn(
+		user,
+		get(userWorkspaces).find((w) => w.id === workspace)
+	)
 	const rows: SkillResource[] = []
 	for (let page = 1; page <= MAX_SKILLS_PAGES; page++) {
 		const resources = await ResourceService.listResource({
@@ -72,7 +76,7 @@ export async function listSkillResources(workspace: string, user?: UserExt): Pro
 				name: skillNameFromPath(r.path),
 				description: r.description ?? '',
 				editedAt: r.edited_at,
-				canWrite: canEditItem('resource', r.path, r.extra_perms, user, operatorSettings)
+				canWrite: canEditItem('resource', r.path, r.extra_perms, user, caps)
 			}))
 		)
 		if (resources.length < SKILLS_PAGE_SIZE) return { skills: rows, truncated: false }

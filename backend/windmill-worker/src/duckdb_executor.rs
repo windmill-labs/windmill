@@ -1,10 +1,6 @@
-use std::cell::RefCell;
 use std::env;
-use std::ffi::{c_char, c_uint, CStr, CString};
-use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
 
-use libloading::{Library, Symbol};
 use serde::Serialize;
 use serde_json::value::RawValue;
 use serde_json::{json, Value};
@@ -14,7 +10,8 @@ use windmill_common::utils::sanitize_string_from_password;
 use windmill_common::worker::{get_memory, to_raw_value, Connection, SqlResultCollectionStrategy};
 use windmill_common::workspaces::{
     get_datatable_resource_from_db, get_ducklake_from_db_unchecked,
-    strip_fork_reserved_attach_args, DatatableAccess, DatatableConnectAs, DucklakeCatalogResourceType,
+    strip_fork_reserved_attach_args, DatatableAccess, DatatableConnectAs,
+    DucklakeCatalogResourceType,
 };
 use windmill_common::PgDatabase;
 use windmill_object_store::S3_PROXY_LAST_ERRORS_CACHE;
@@ -24,6 +21,7 @@ use windmill_types::s3::S3Object;
 
 use crate::agent_workers::{get_datatable_resource_from_agent_http, get_ducklake_from_agent_http};
 use crate::common::{build_args_values, get_reserved_variables, OccupancyMetrics};
+use crate::duckdb_runner::{RequestMode, RunnerMode, RunnerRequest};
 use crate::handle_child::run_future_with_polling_update_job_poller;
 #[cfg(feature = "mysql")]
 use crate::mysql_executor::MysqlDatabase;
@@ -405,23 +403,19 @@ async fn compute_sync_alter_ddl(
     base_internal_url: String,
     w_id: String,
     job_dir: String,
+    runner: RunnerMode,
 ) -> Result<String> {
-    let n = probe_blocks.len();
-    let (result, _) = tokio::task::spawn_blocking(move || {
-        run_duckdb_ffi_safe(
-            probe_blocks.iter().map(String::as_str),
-            n,
-            job_args,
-            &token,
-            &base_internal_url,
-            &w_id,
-            &job_dir,
-            SqlResultCollectionStrategy::LastStatementAllRows,
-        )
-    })
+    let (result, _) = run_duckdb(
+        runner,
+        probe_blocks,
+        job_args,
+        token,
+        base_internal_url,
+        w_id,
+        job_dir,
+        SqlResultCollectionStrategy::LastStatementAllRows,
+    )
     .await
-    .map_err(|e| Error::from(to_anyhow(e)))
-    .and_then(|r| r)
     .map_err(|e| {
         Error::ExecutionErr(format!(
             "on_schema_change=sync: the schema pre-pass probe failed ({e}); refusing to write"
@@ -1328,6 +1322,7 @@ pub async fn do_duckdb(
 
     let token = client.token.clone();
     let hidden_passwords = Arc::new(Mutex::new(Vec::<String>::new()));
+    let runner = crate::duckdb_runner::runner_mode();
 
     let result_f = async {
         let mut hidden_passwords = hidden_passwords.clone();
@@ -1522,10 +1517,6 @@ pub async fn do_duckdb(
                 probe_blocks,
             )
             .await?;
-            // The probe opens its own DuckDB connection, so it needs the same
-            // connection policy as the main query below.
-            #[cfg(feature = "private")]
-            let probe_blocks = crate::duckdb_isolation_ee::apply_duckdb_isolation(probe_blocks)?;
             let alter_ddl = compute_sync_alter_ddl(
                 probe_blocks,
                 job_args.clone(),
@@ -1534,6 +1525,7 @@ pub async fn do_duckdb(
                 client.base_internal_url.clone(),
                 job.workspace_id.clone(),
                 job_dir.to_string(),
+                runner,
             )
             .await?;
             query = query.replace(
@@ -1610,46 +1602,34 @@ pub async fn do_duckdb(
         )
         .await?;
 
-        #[cfg(feature = "private")]
-        let query_block_list =
-            crate::duckdb_isolation_ee::apply_duckdb_isolation(query_block_list)?;
 
         let base_internal_url = client.base_internal_url.clone();
         let w_id = job.workspace_id.clone();
         let job_dir = job_dir.to_string();
 
         if annotations.prepare {
-            let result = tokio::task::spawn_blocking(move || {
-                prepare_duckdb_ffi_safe(
-                    query_block_list.iter().map(String::as_str),
-                    &token,
-                    &base_internal_url,
-                    &w_id,
-                    &job_dir,
-                )
-            })
-            .await
-            .map_err(|e| Error::from(to_anyhow(e)))
-            .and_then(|r| r)?;
-
-            return Ok(result);
+            return prepare_duckdb(
+                runner,
+                query_block_list,
+                token.clone(),
+                base_internal_url,
+                w_id,
+                job_dir,
+            )
+            .await;
         }
 
-        let result = tokio::task::spawn_blocking(move || {
-            run_duckdb_ffi_safe(
-                query_block_list.iter().map(String::as_str),
-                query_block_list.len(),
-                job_args,
-                &token,
-                &base_internal_url,
-                &w_id,
-                &job_dir,
-                collection_strategy,
-            )
-        })
-        .await
-        .map_err(|e| Error::from(to_anyhow(e)))
-        .and_then(|r| r);
+        let result = run_duckdb(
+            runner,
+            query_block_list,
+            job_args,
+            token.clone(),
+            base_internal_url,
+            w_id,
+            job_dir,
+            collection_strategy,
+        )
+        .await;
 
         let (result, column_order) = match result {
             Ok(r) => r,
@@ -1812,6 +1792,8 @@ pub async fn do_duckdb(
                 return Err(Error::ExecutionRawError(to_raw_value(&json!({
                     "message": message,
                     "name": "ExecutionErr",
+                    "flow_path": reserved_variables.get("WM_FLOW_PATH").filter(|p| !p.is_empty()),
+                    "job_id": job.id,
                     "step_id": job.flow_step_id,
                     "data_tests": data_tests,
                 }))));
@@ -1857,8 +1839,6 @@ pub async fn do_duckdb(
     match result {
         Ok(result) => Ok(result),
         Err(e) => {
-            #[cfg(feature = "private")]
-            let e = crate::duckdb_isolation_ee::explain_error(e);
             // Passwords might appear in the error message — and, for the
             // structured data-test failure, in sampled row data read from an
             // attached database — so every outgoing error is sanitized here.
@@ -1903,111 +1883,6 @@ pub async fn do_duckdb(
     }
 }
 
-thread_local! {
-    static DUCKDB_FFI_LIB_SINGLETON: RefCell<*const DuckDbFfiLib> = RefCell::new(std::ptr::null());
-}
-
-struct DuckDbFfiLib {
-    run_duckdb_ffi: Symbol<
-        'static,
-        unsafe extern "C" fn(
-            query_block_list: *const *const c_char,
-            query_block_list_count: usize,
-            job_args: *const c_char,
-            token: *const c_char,
-            base_internal_url: *const c_char,
-            w_id: *const c_char,
-            memory_limit: *const c_char,
-            temp_directory: *const c_char,
-            max_result_size: usize,
-            column_order_ptr: *mut *mut c_char,
-            collect_last_only: bool,
-            collect_first_row_only: bool,
-        ) -> *mut c_char,
-    >,
-    prepare_duckdb_ffi: Option<
-        Symbol<
-            'static,
-            unsafe extern "C" fn(
-                query_block_list: *const *const c_char,
-                query_block_list_count: usize,
-                token: *const c_char,
-                base_internal_url: *const c_char,
-                w_id: *const c_char,
-                memory_limit: *const c_char,
-                temp_directory: *const c_char,
-            ) -> *mut c_char,
-        >,
-    >,
-    free_cstr: Symbol<'static, unsafe extern "C" fn(string: *mut c_char) -> ()>,
-}
-
-impl DuckDbFfiLib {
-    fn get_singleton() -> Result<&'static DuckDbFfiLib> {
-        DUCKDB_FFI_LIB_SINGLETON.with(|cell| unsafe {
-            let mut singleton = cell.borrow_mut();
-            if singleton.is_null() {
-                let lib = DuckDbFfiLib::init()?;
-                let boxed_lib = Box::new(lib);
-                let lib_ptr = Box::leak(boxed_lib);
-                *singleton = lib_ptr as *const _;
-                Ok(NonNull::new_unchecked(*singleton as *mut DuckDbFfiLib).as_ref())
-            } else {
-                Ok(&**singleton)
-            }
-        })
-    }
-    fn init() -> Result<Self> {
-        let lib = unsafe {
-            Library::new(if cfg!(target_os = "macos") {
-                "libwindmill_duckdb_ffi_internal.dylib"
-            } else if cfg!(target_os = "windows") {
-                "windmill_duckdb_ffi_internal.dll"
-            } else {
-                "libwindmill_duckdb_ffi_internal.so"
-            })
-            .map_err(|e| {
-                Error::InternalErr(format!(
-                    "Could not init duckdb. Make sure you have the latest windmill_duckdb_ffi_lib.{} alongside your binary : https://github.com/windmill-labs/windmill/releases \n{}",
-                    if cfg!(target_os = "macos") { "dylib" }
-                        else if cfg!(target_os = "windows") { "dll" }
-                        else { "so" },
-                    e.to_string()
-                ))
-            })?
-        };
-
-        let lib = Box::leak(Box::new(lib));
-
-        // Version mismatch should only be possible on Windows agent workers
-        // We check for it because FFI interface mismatch will cause undefined behavior / crashes
-        unsafe {
-            let expected_version: c_uint = 3;
-            let get_version: Symbol<'static, unsafe extern "C" fn() -> c_uint> = 
-            lib.get(b"get_version")
-                .map_err(|e| return Error::ExecutionErr(format!("Could not find get_version in the duckdb ffi library. If you are not using docker, consider manually upgrading windmill_duckdb_ffi_lib. {}", e.to_string())))?;
-            let actual_version = get_version();
-            if actual_version < expected_version {
-                return Err(Error::InternalErr(
-                    format!("Incompatible duckdb ffi library version. Expected: {expected_version}, actual: {actual_version}. Please update to the latest windmill_duckdb_ffi_lib."),
-                ));
-            } else if actual_version > expected_version {
-                return Err(Error::InternalErr(
-                    format!("Incompatible duckdb ffi library version. Expected: {expected_version}, actual: {actual_version}. Please upgrade your worker to the latest windmill version."),
-                ));
-            }
-        }
-
-        let prepare_duckdb_ffi = unsafe { lib.get(b"prepare_duckdb_ffi").ok() };
-
-        Ok(DuckDbFfiLib {
-            run_duckdb_ffi: unsafe { lib.get(b"run_duckdb_ffi").map_err(to_anyhow)? },
-            prepare_duckdb_ffi,
-            free_cstr: unsafe { lib.get(b"free_cstr").map_err(to_anyhow)? },
-        })
-    }
-}
-
 // 20% headroom for Rust runtime + DuckDB's untracked allocations. Mirrors
 // DuckDB's own default ratio, but applied to the worker's cgroup budget
 // instead of host RAM.
@@ -2037,123 +1912,29 @@ fn cgroup_bytes_to_duckdb_memory_limit(bytes: i64) -> Option<String> {
     Some(format!("{}MiB", mib.max(64)))
 }
 
-// Read backend/windmill-duckdb-ffi-internal/README_DEV.md for details about why we use FFI
-// The FFI returns errors as `ERROR <json-encoded-message>` (the message is
-// serde_json::to_string'd). Decode the JSON string back so multi-line errors
-// render with real newlines, not escaped `\n` inside wrapping quotes; fall back
-// to the raw slice if it is somehow not a JSON string.
+// The runner reports an engine error as `ERROR <json-encoded-message>`. Decode the JSON string
+// back so multi-line errors render with real newlines, not escaped `\n` inside wrapping quotes;
+// fall back to the raw slice if it is somehow not a JSON string.
 fn decode_ffi_error(result_str: &str) -> String {
     let raw = result_str.strip_prefix("ERROR ").unwrap_or(result_str);
-    let msg = serde_json::from_str::<String>(raw).unwrap_or_else(|_| raw.to_string());
-    // Mirrors the filter the FFI applies to the same variable (`ResourceLimits::from_ffi`);
-    // they live in separate crates, so the rule is stated twice and must stay one rule.
-    let configured = env::var("DUCKDB_MAX_TEMP_DIRECTORY_SIZE").is_ok_and(|v| !v.trim().is_empty());
-    match spill_cap_hint(&msg, configured) {
-        Some(hint) => format!("{msg}\n{hint}"),
-        None => msg,
-    }
+    serde_json::from_str::<String>(raw).unwrap_or_else(|_| raw.to_string())
 }
 
-/// DuckDB's own wording when a query outgrows the spill cap. Asserted against real engine
-/// output by `spilling_past_the_configured_cap_fails_the_query_and_cleans_up` in
-/// `windmill-duckdb-ffi-internal`, so an engine bump that rewords it fails there rather than
-/// silently dropping the hint.
-const SPILL_CAP_ENGINE_MARKER: &str = "This limit was set by the 'max_temp_directory_size' setting";
-
-/// Split out of [`decode_ffi_error`] so the branch is testable without mutating the process
-/// environment. The engine emits the same text for a configured cap and for its own default,
-/// so which limit was hit has to come from the worker's config, not from the message.
-fn spill_cap_hint(msg: &str, configured: bool) -> Option<&'static str> {
-    if !msg.contains(SPILL_CAP_ENGINE_MARKER) {
-        return None;
-    }
-    Some(if configured {
-        SPILL_CAP_CONFIGURED
-    } else {
-        SPILL_CAP_DEFAULT
-    })
-}
-
-/// Both hints open by contradicting the engine, whose message ends by suggesting
-/// `PRAGMA max_temp_directory_size='10GiB'`: every windmill connection refuses that, since the
-/// cap is frozen along with the temp directory, so following it yields a second,
-/// unrelated-looking permission error. True either way, because the lock is unconditional.
-const SPILL_CAP_CONFIGURED: &str = "\nThe PRAGMA suggested above is refused: this connection's \
-     temp directory and the cap on it are frozen, so a script cannot raise the limit. That limit \
-     is the worker's DUCKDB_MAX_TEMP_DIRECTORY_SIZE. Spill less (fewer threads, a narrower scan, \
-     aggregating before the join), or ask an operator to raise it.";
-
-/// Nothing configured a cap, so this is DuckDB's own default and the worker is genuinely low on
-/// disk. Naming the env var here would send the reader after a knob nobody set.
-const SPILL_CAP_DEFAULT: &str = "\nThe PRAGMA suggested above is refused: this connection's temp \
-     directory and the cap on it are frozen, so a script cannot raise the limit. No cap is \
-     configured on this worker, so that limit is DuckDB's default of 90% of the free space on \
-     its temp volume: the worker is low on disk. Free space on it, or spill less (fewer threads, \
-     a narrower scan, aggregating before the join).";
-
-fn run_duckdb_ffi_safe<'a>(
-    query_block_list: impl Iterator<Item = &'a str>,
+/// Turns what the runner returned into the job result.
+fn finish_run(
+    result_str: String,
+    column_order: Option<String>,
     query_block_list_count: usize,
-    job_args: Vec<Arg>,
-    token: &str,
-    base_internal_url: &str,
-    w_id: &str,
-    job_dir: &str,
     collection_strategy: SqlResultCollectionStrategy,
 ) -> Result<(Box<RawValue>, Option<Vec<String>>)> {
-    let query_block_list = query_block_list
-        .map(|s| {
-            CString::new(s).map_err(|e| {
-                Error::ExecutionErr(format!("Failed CString conversion: {}", e.to_string()))
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let query_block_list = query_block_list
-        .iter()
-        .map(|s| s.as_ptr())
-        .collect::<Vec<_>>();
-    let job_args = serde_json::to_string(&job_args).map_err(to_anyhow)?;
-
-    let job_args = CString::new(job_args).map_err(to_anyhow)?;
-    let token = CString::new(token).map_err(to_anyhow)?;
-    let base_internal_url = CString::new(base_internal_url).map_err(to_anyhow)?;
-    let w_id = CString::new(w_id).map_err(to_anyhow)?;
-    let memory_limit =
-        CString::new(resolve_duckdb_memory_limit().unwrap_or_default()).map_err(to_anyhow)?;
-    let temp_directory = CString::new(job_dir).map_err(to_anyhow)?;
-
-    let run_duckdb_ffi = &DuckDbFfiLib::get_singleton()?.run_duckdb_ffi;
-    let free_cstr = &DuckDbFfiLib::get_singleton()?.free_cstr;
-    let mut column_order: *mut c_char = std::ptr::null_mut();
-    let result_str = unsafe {
-        let ptr = run_duckdb_ffi(
-            query_block_list.as_ptr(),
-            query_block_list_count,
-            job_args.as_ptr(),
-            token.as_ptr(),
-            base_internal_url.as_ptr(),
-            w_id.as_ptr(),
-            memory_limit.as_ptr(),
-            temp_directory.as_ptr(),
-            *MAX_SQL_RESULT_SIZE,
-            &mut column_order,
-            collection_strategy.collect_last_statement_only(query_block_list_count),
-            collection_strategy.collect_first_row_only(),
-        );
-        let str = CStr::from_ptr(ptr).to_string_lossy().to_string();
-        free_cstr(ptr);
-        str
-    };
-
-    let column_order = if column_order.is_null()
-        || !collection_strategy.collect_last_statement_only(query_block_list_count)
-        || collection_strategy.collect_scalar()
-    {
-        None
-    } else {
-        let str = unsafe { CStr::from_ptr(column_order).to_string_lossy().to_string() };
-        unsafe { free_cstr(column_order) };
-        Some(serde_json::from_str::<Vec<String>>(&str)?)
+    let column_order = match column_order {
+        Some(str)
+            if collection_strategy.collect_last_statement_only(query_block_list_count)
+                && !collection_strategy.collect_scalar() =>
+        {
+            Some(serde_json::from_str::<Vec<String>>(&str)?)
+        }
+        _ => None,
     };
 
     if result_str.starts_with("ERROR") {
@@ -2171,60 +1952,76 @@ fn run_duckdb_ffi_safe<'a>(
     }
 }
 
-fn prepare_duckdb_ffi_safe<'a>(
-    query_block_list: impl Iterator<Item = &'a str>,
-    token: &str,
-    base_internal_url: &str,
-    w_id: &str,
-    job_dir: &str,
-) -> Result<Box<RawValue>> {
-    let query_block_list = query_block_list
-        .map(|s| {
-            CString::new(s).map_err(|e| {
-                Error::ExecutionErr(format!("Failed CString conversion: {}", e.to_string()))
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
-    let query_block_list = query_block_list
-        .iter()
-        .map(|s| s.as_ptr())
-        .collect::<Vec<_>>();
-
-    let token = CString::new(token).map_err(to_anyhow)?;
-    let base_internal_url = CString::new(base_internal_url).map_err(to_anyhow)?;
-    let w_id = CString::new(w_id).map_err(to_anyhow)?;
-    let memory_limit =
-        CString::new(resolve_duckdb_memory_limit().unwrap_or_default()).map_err(to_anyhow)?;
-    let temp_directory = CString::new(job_dir).map_err(to_anyhow)?;
-
-    let lib = DuckDbFfiLib::get_singleton()?;
-    let prepare_fn = lib.prepare_duckdb_ffi.as_ref().ok_or_else(|| {
-        Error::InternalErr(
-            "prepare_duckdb_ffi not available in duckdb ffi library. Please update to the latest windmill_duckdb_ffi_lib.".to_string(),
-        )
-    })?;
-    let free_cstr = &lib.free_cstr;
-
-    let result_str = unsafe {
-        let ptr = prepare_fn(
-            query_block_list.as_ptr(),
-            query_block_list.len(),
-            token.as_ptr(),
-            base_internal_url.as_ptr(),
-            w_id.as_ptr(),
-            memory_limit.as_ptr(),
-            temp_directory.as_ptr(),
-        );
-        let str = CStr::from_ptr(ptr).to_string_lossy().to_string();
-        free_cstr(ptr);
-        str
-    };
-
+fn finish_prepare(result_str: String) -> Result<Box<RawValue>> {
     if result_str.starts_with("ERROR") {
         Err(Error::ExecutionErr(decode_ffi_error(&result_str)))
     } else {
         Ok(serde_json::value::RawValue::from_string(result_str).map_err(to_anyhow)?)
     }
+}
+
+async fn run_duckdb(
+    runner: RunnerMode,
+    query_block_list: Vec<String>,
+    job_args: Vec<Arg>,
+    token: String,
+    base_internal_url: String,
+    w_id: String,
+    job_dir: String,
+    collection_strategy: SqlResultCollectionStrategy,
+) -> Result<(Box<RawValue>, Option<Vec<String>>)> {
+    let n = query_block_list.len();
+    let job_args = serde_json::value::to_raw_value(&job_args).map_err(to_anyhow)?;
+    let memory_limit = resolve_duckdb_memory_limit().unwrap_or_default();
+    let out = crate::duckdb_runner::run(
+        runner,
+        &RunnerRequest {
+            mode: RequestMode::Run,
+            blocks: &query_block_list,
+            job_args: Some(&job_args),
+            token: &token,
+            base_internal_url: &base_internal_url,
+            w_id: &w_id,
+            memory_limit: &memory_limit,
+            temp_directory: &job_dir,
+            max_result_size: *MAX_SQL_RESULT_SIZE,
+            collect_last_only: collection_strategy.collect_last_statement_only(n),
+            collect_first_row_only: collection_strategy.collect_first_row_only(),
+        },
+        &job_dir,
+    )
+    .await?;
+    finish_run(out.result, out.column_order, n, collection_strategy)
+}
+
+async fn prepare_duckdb(
+    runner: RunnerMode,
+    query_block_list: Vec<String>,
+    token: String,
+    base_internal_url: String,
+    w_id: String,
+    job_dir: String,
+) -> Result<Box<RawValue>> {
+    let memory_limit = resolve_duckdb_memory_limit().unwrap_or_default();
+    let out = crate::duckdb_runner::run(
+        runner,
+        &RunnerRequest {
+            mode: RequestMode::Prepare,
+            blocks: &query_block_list,
+            job_args: None,
+            token: &token,
+            base_internal_url: &base_internal_url,
+            w_id: &w_id,
+            memory_limit: &memory_limit,
+            temp_directory: &job_dir,
+            max_result_size: 0,
+            collect_last_only: false,
+            collect_first_row_only: false,
+        },
+        &job_dir,
+    )
+    .await?;
+    finish_prepare(out.result)
 }
 
 struct ParsedAttachDbResource<'a> {
@@ -3055,33 +2852,6 @@ mod tests {
         );
         // non-JSON payload falls back to the raw slice
         assert_eq!(decode_ffi_error("ERROR not json"), "not json");
-    }
-
-    /// The engine says the same thing whether the cap came from the worker or is its own
-    /// default, so the attribution has to come from the config — naming the env var on a
-    /// worker that never set it would send the reader after the wrong problem.
-    #[test]
-    fn spill_cap_hint_attributes_the_limit_to_whoever_set_it() {
-        let capped = "Out of Memory Error: failed to offload data block of size 256.0 KiB \
-             (18.9 MiB/19.0 MiB used).\nThis limit was set by the 'max_temp_directory_size' \
-             setting.\nYou can adjust this setting, by using (for example) PRAGMA \
-             max_temp_directory_size='10GiB'";
-
-        let configured = spill_cap_hint(capped, true).expect("the cap error must be recognised");
-        assert!(configured.contains("DUCKDB_MAX_TEMP_DIRECTORY_SIZE"));
-
-        let default = spill_cap_hint(capped, false).expect("the cap error must be recognised");
-        assert!(
-            !default.contains("DUCKDB_MAX_TEMP_DIRECTORY_SIZE") && default.contains("low on disk"),
-            "with nothing configured the hint must point at the disk, not at an unset variable"
-        );
-
-        // Both must contradict the PRAGMA the engine suggests, which the lock always refuses.
-        assert!([configured, default]
-            .iter()
-            .all(|h| h.contains("PRAGMA suggested above is refused")));
-
-        assert!(spill_cap_hint("Binder Error: column \"x\" not found", true).is_none());
     }
 
     fn test_ancestor(wid: &str) -> windmill_common::workspaces::DucklakeAncestorAttach {

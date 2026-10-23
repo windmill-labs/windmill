@@ -248,6 +248,8 @@ export async function getScriptByPath(
 	lock?: string
 	created_at?: string
 	hash?: string
+	on_behalf_of?: string
+	on_behalf_of_email?: string
 }> {
 	if (path.startsWith('hub/')) {
 		const { content, language, schema, lockfile } = await ScriptService.getHubScriptByPath({ path })
@@ -277,7 +279,9 @@ export async function getScriptByPath(
 			concurrency_time_window_s: script.concurrency_time_window_s,
 			lock: script.lock,
 			hash: script.hash,
-			created_at: script.created_at
+			created_at: script.created_at,
+			on_behalf_of: script.on_behalf_of,
+			on_behalf_of_email: script.on_behalf_of_email
 		}
 	}
 }

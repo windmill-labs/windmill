@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_invite\n                    (workspace_id, email, is_admin, operator, workspace_role)\n                    VALUES ($1, $2, false, $3, $4)\n                    ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Bool",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ca4c2768d111fbd653f1a73afc669b58a0016bfb4f0dad133ef2c25b8cd8b4b6"
+}

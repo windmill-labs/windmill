@@ -54,6 +54,7 @@ use windmill_common::runnable_settings::{
 };
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{calculate_hash, configure_client, now_from_db, strip_json_nul};
+use windmill_common::variables::omit_untrusted_interpolation;
 use windmill_common::worker::Connection;
 
 use windmill_common::otel_oss::{
@@ -1641,6 +1642,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     }
 
     let mut _skip_downstream_error_handlers = false;
+    let mut schedule_for_handlers = None;
     if completed_job.is_flow_step() {
         if let Some(parent_job) = monitor_parent {
             let r = sqlx::query_scalar!(
@@ -1720,49 +1722,9 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 // per-occurrence failure/recovery status across the whole retry
                 // chain, so multi-count/exact handler policies work even though
                 // each attempt is its own completed job.
-                #[cfg(all(feature = "enterprise", feature = "private"))]
                 if !retry_pending {
-                    if let Err(err) = crate::jobs_ee::apply_schedule_handlers(
-                        db,
-                        &schedule,
-                        &script_path,
-                        &completed_job.workspace_id,
-                        success,
-                        result,
-                        job_id,
-                        // Current occurrence's root: the terminal native-retry
-                        // attempt's parent, else the job itself.
-                        completed_job.parent_job.unwrap_or(job_id),
-                        completed_job.started_at.unwrap_or(chrono::Utc::now()),
-                        completed_job.priority,
-                    )
-                    .warn_after_seconds(10)
-                    .await
-                    {
-                        if !success {
-                            tracing::error!("Could not apply schedule error handler: {}", err);
-                            let base_url = windmill_common::BASE_URL.load();
-                            let w_id: &String = &completed_job.workspace_id;
-                            if !matches!(err, Error::QuotaExceeded(_)) {
-                                report_error_to_workspace_handler_or_critical_side_channel(
-                                        &completed_job,
-                                        db,
-                                        format!(
-                                            "Failed to push schedule error handler job to handle failed job ({base_url}/run/{}?workspace={w_id}): {}",
-                                            completed_job.id,
-                                            err
-                                        ),
-                                    )
-                                    .warn_after_seconds(10)
-                                    .await;
-                            }
-                        } else {
-                            tracing::error!("Could not apply schedule recovery handler: {}", err);
-                        }
-                    };
+                    schedule_for_handlers = Some((schedule, script_path));
                 }
-                #[cfg(not(all(feature = "enterprise", feature = "private")))]
-                let _ = retry_pending;
             } else {
                 tracing::error!(
                         "Schedule {schedule_path} in {} not found. Impossible to schedule again and apply schedule handlers",
@@ -1823,6 +1785,52 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     }
 
     tx.commit().warn_after_seconds(10).await?;
+
+    // The handlers read and push through `db`, so they run after the commit: inside the
+    // transaction they would hold its connection while waiting for more from the same pool.
+    #[cfg(all(feature = "enterprise", feature = "private"))]
+    if let Some((schedule, script_path)) = schedule_for_handlers {
+        if let Err(err) = crate::jobs_ee::apply_schedule_handlers(
+            db,
+            &schedule,
+            script_path,
+            &completed_job.workspace_id,
+            success,
+            result,
+            job_id,
+            // Current occurrence's root: the terminal native-retry
+            // attempt's parent, else the job itself.
+            completed_job.parent_job.unwrap_or(job_id),
+            completed_job.started_at.unwrap_or(chrono::Utc::now()),
+            completed_job.priority,
+        )
+        .warn_after_seconds(10)
+        .await
+        {
+            if !success {
+                tracing::error!("Could not apply schedule error handler: {}", err);
+                let base_url = windmill_common::BASE_URL.load();
+                let w_id: &String = &completed_job.workspace_id;
+                if !matches!(err, Error::QuotaExceeded(_)) {
+                    report_error_to_workspace_handler_or_critical_side_channel(
+                            &completed_job,
+                            db,
+                            format!(
+                                "Failed to push schedule error handler job to handle failed job ({base_url}/run/{}?workspace={w_id}): {}",
+                                completed_job.id,
+                                err
+                            ),
+                        )
+                        .warn_after_seconds(10)
+                        .await;
+                }
+            } else {
+                tracing::error!("Could not apply schedule recovery handler: {}", err);
+            }
+        };
+    }
+    #[cfg(not(all(feature = "enterprise", feature = "private")))]
+    let _ = schedule_for_handlers;
 
     log_completed_job(completed_job, completed.duration_ms, success);
     // tracing::info!("completed job: {:?}", start.elapsed().as_micros());
@@ -3681,10 +3689,16 @@ pub async fn push_success_handler<'a, 'c, T: Serialize + Send + Sync>(
     return Ok(uuid);
 }
 
+/// A handler's args from the job's result, which the job's author controls while the handler
+/// runs as its own identity.
 fn sanitize_result<T: Serialize + Send + Sync>(result: Json<&T>) -> HashMap<String, Box<RawValue>> {
     let as_str = serde_json::to_string(result.0).unwrap_or_else(|_| "{}".to_string());
-    serde_json::from_str::<HashMap<String, Box<RawValue>>>(&as_str)
-        .unwrap_or_else(|_| [("error".to_string(), RawValue::from_string(as_str).unwrap())].into())
+    let args = serde_json::from_str::<HashMap<String, Box<RawValue>>>(&as_str)
+        .unwrap_or_else(|_| [("error".to_string(), RawValue::from_string(as_str).unwrap())].into());
+    omit_untrusted_interpolation(
+        args,
+        "The following resource has been omitted for security reasons: ",
+    )
 }
 
 // #[derive(Serialize)]
@@ -4661,7 +4675,9 @@ async fn clone_runnable(j: &mut PulledJob, db: &DB) -> error::Result<()> {
             // A script gets its new version from the worker, once the generated lock is known
             // to differ from the live version's: minting one here would deploy, and walk the
             // importers of, a version whose lock turns out byte-identical to its parent's.
-            JobKind::Dependencies => *base_hash,
+            // An app is relocked in place: a raw app's bundle is stored under its version id,
+            // so a copy minted here could never be published.
+            JobKind::Dependencies | JobKind::AppDependencies => *base_hash,
             JobKind::FlowDependencies => {
                 sqlx::query_scalar!(
                     "INSERT INTO flow_version
@@ -4675,18 +4691,6 @@ async fn clone_runnable(j: &mut PulledJob, db: &DB) -> error::Result<()> {
                     j.runnable_path(),
                     j.workspace_id,
                     *base_hash,
-                )
-                .fetch_one(db)
-                .await?
-            }
-            JobKind::AppDependencies => {
-                sqlx::query_scalar!(
-                    "INSERT INTO app_version
-                        (app_id, value, created_by, raw_app)
-                    SELECT app_id, value, created_by, raw_app
-                    FROM app_version WHERE id = $1
-                    RETURNING id",
-                    *base_hash
                 )
                 .fetch_one(db)
                 .await?
@@ -4788,6 +4792,9 @@ pub async fn pull(
                                 }
                             }
                         };
+                        let tag =
+                            crate::tags::apply_dev_workspace_suffix(tag, &job.workspace_id, db)
+                                .await?;
                         sqlx::query!(
                             "UPDATE v2_job_queue SET tag = $1, running = false WHERE id = $2",
                             tag,
@@ -5590,8 +5597,6 @@ pub async fn get_result_and_success_by_id_from_flow(
             },
         };
 
-    let mut completed = false;
-
     if job_result.is_none() {
         job_result =
             match get_result_by_id_from_original_flow_inner(db, w_id, flow_id, node_id).await {
@@ -5601,7 +5606,6 @@ pub async fn get_result_and_success_by_id_from_flow(
                     _ => return Err(err),
                 },
             };
-        completed = job_result.is_some();
     }
 
     let job_result = not_found_if_none(
@@ -5621,32 +5625,37 @@ pub async fn get_result_and_success_by_id_from_flow(
             .fetch_one(db)
             .await?
         }
-        JobResult::ListJob(_) => {
-            let query = format!(
-                r#"WITH modules AS (
-                    SELECT jsonb_array_elements(flow_status->'modules') AS module
-                    FROM {}
-                    WHERE id = $1
-                )
-                SELECT module->>'type' = 'Success'
-                FROM modules
-                WHERE module->>'id' = $2"#,
-                if completed {
-                    "v2_job_completed"
-                } else {
-                    "v2_job_status"
+        JobResult::ListJob(jobs) => {
+            // The step's status lives in the flow job that ran it, which is the root only for a
+            // top-level step: one nested in a branch is a module of that branch's job. An empty
+            // container has no job to start from, so only a top-level one resolves; a nested one
+            // falls back to the flow's final result.
+            let holder = match jobs.first() {
+                Some(job) => {
+                    sqlx::query_scalar!("SELECT parent_job FROM v2_job WHERE id = $1", job)
+                        .fetch_optional(db)
+                        .await?
+                        .flatten()
                 }
-            );
-            sqlx::query_scalar(&query)
-                .bind(flow_id)
-                .bind(node_id)
-                .fetch_optional(db)
-                .await?
-                .ok_or_else(|| {
-                    error::Error::internal_err(format!(
-                        "Could not get success from flow job status"
-                    ))
-                })?
+                None => None,
+            }
+            .unwrap_or(*flow_id);
+            // That job can complete before the root does, so its status may be in either table.
+            sqlx::query_scalar(
+                r#"SELECT module->>'type' = 'Success'
+                FROM jsonb_array_elements(COALESCE(
+                    (SELECT flow_status FROM v2_job_completed WHERE id = $1),
+                    (SELECT flow_status FROM v2_job_status WHERE id = $1)
+                )->'modules') AS module
+                WHERE module->>'id' = $2"#,
+            )
+            .bind(holder)
+            .bind(node_id)
+            .fetch_optional(db)
+            .await?
+            .ok_or_else(|| {
+                error::Error::internal_err(format!("Could not get success from flow job status"))
+            })?
         }
     };
 
@@ -6203,6 +6212,38 @@ pub async fn push<'c, 'd>(
         scope_ceiling,
     ))
     .await
+}
+
+/// Reads a flow version through the pool unless the caller handed `push` its own transaction,
+/// which may hold that version uncommitted. Opening a transaction just for this read would hold
+/// its connection while `push` still writes the runnable settings through the pool.
+async fn fetch_pushed_flow_version(
+    tx: &mut PushIsolationLevel<'_>,
+    db: &Pool<Postgres>,
+    version: i64,
+) -> error::Result<Arc<FlowData>> {
+    // Do not use the lite version unless all workers are updated.
+    let lite =
+        !(*DISABLE_FLOW_SCRIPT || (!MIN_VERSION_IS_AT_LEAST_1_432.met().await && !*CLOUD_HOSTED));
+    // Fallback to the original version if the lite version is not found.
+    // This also prevent a race condition where the flow is run just after deploy and
+    // the lite version is still being created.
+    macro_rules! fetch {
+        ($e:expr) => {
+            if lite {
+                match cache::flow::fetch_version_lite($e, version).await {
+                    Ok(data) => Ok(data),
+                    Err(_) => cache::flow::fetch_version($e, version).await,
+                }
+            } else {
+                cache::flow::fetch_version($e, version).await
+            }
+        };
+    }
+    match tx {
+        PushIsolationLevel::Transaction(ntx) => fetch!(&mut **ntx),
+        PushIsolationLevel::Isolated(..) | PushIsolationLevel::IsolatedRoot(_) => fetch!(db),
+    }
 }
 
 // #[instrument(level = "trace", skip_all)]
@@ -6768,9 +6809,7 @@ async fn push_inner<'c, 'd>(
                             restarted_from_val.branch_or_iteration_n,
                             restarted_from_val.flow_version,
                             restarted_from_val.nested.is_some(),
-                            // RawFlow queues the request's (possibly edited) definition, not the
-                            // stored one, so zombie reuse of the stored step is unsafe here.
-                            false,
+                            Some(&value),
                         )
                         .await?;
                     FlowStatus {
@@ -7083,22 +7122,7 @@ async fn push_inner<'c, 'd>(
             labels,
             job_token_scopes,
         } => {
-            let mut ntx = tx.into_tx().await?;
-            // Do not use the lite version unless all workers are updated.
-            let data = if *DISABLE_FLOW_SCRIPT
-                || (!MIN_VERSION_IS_AT_LEAST_1_432.met().await && !*CLOUD_HOSTED)
-            {
-                cache::flow::fetch_version(&mut *ntx, version).await
-            } else {
-                // Fallback to the original version if the lite version is not found.
-                // This also prevent a race condition where the flow is run just after deploy and
-                // the lite version is still being created.
-                match cache::flow::fetch_version_lite(&mut *ntx, version).await {
-                    Ok(data) => Ok(data),
-                    Err(_) => cache::flow::fetch_version(&mut *ntx, version).await,
-                }
-            }?;
-            tx = PushIsolationLevel::Transaction(ntx);
+            let data = fetch_pushed_flow_version(&mut tx, db, version).await?;
 
             let mut value = data.value().clone();
             refuse_step_scopes_on_outdated_workers(&value).await?;
@@ -7181,7 +7205,7 @@ async fn push_inner<'c, 'd>(
                 nested.is_some(),
                 // RestartedFlow resolves and queues the completed job's stored definition, so the
                 // step validated for reuse is the one that will run.
-                true,
+                None,
             )
             .await?;
 
@@ -7380,7 +7404,8 @@ async fn push_inner<'c, 'd>(
 
     // A dedicated worker runs every job it serves with its own unscoped worker token, so a
     // job with a restricted token runs on the regular workers of its language instead.
-    let tag = if dedicated_worker.is_some_and(|x| x) && job_token_scopes.is_none() {
+    let on_dedicated_worker = dedicated_worker.is_some_and(|x| x) && job_token_scopes.is_none();
+    let tag = if on_dedicated_worker {
         let flow_prefix = if job_kind == JobKind::Flow || job_kind == JobKind::FlowDependencies {
             "flow/"
         } else {
@@ -7461,6 +7486,24 @@ async fn push_inner<'c, 'd>(
             }
         })
     };
+    let tag = if on_dedicated_worker {
+        tag
+    } else {
+        crate::tags::apply_dev_workspace_suffix(tag, workspace_id, db).await?
+    };
+
+    // Before `into_tx`: these write through the pool on a cache miss, and a burst of pushes each
+    // holding its transaction would then wait on each other for a second connection. They stay
+    // off `tx` because they are cached as written, which a rollback would undo.
+    let runnable_settings_handle = windmill_common::runnable_settings::insert_rs(
+        RunnableSettings {
+            debouncing_settings: debouncing_settings.insert_cached(db).await?,
+            concurrency_settings: concurrency_settings.insert_cached(db).await?,
+            retry_settings: retry_settings.insert_cached(db).await?,
+        },
+        db,
+    )
+    .await?;
 
     let mut tx = tx.into_tx().await?;
 
@@ -7640,16 +7683,6 @@ async fn push_inner<'c, 'd>(
     } else {
         (job_kind, scheduled_for_o)
     };
-
-    let runnable_settings_handle = windmill_common::runnable_settings::insert_rs(
-        RunnableSettings {
-            debouncing_settings: debouncing_settings.insert_cached(db).await?,
-            concurrency_settings: concurrency_settings.insert_cached(db).await?,
-            retry_settings: retry_settings.insert_cached(db).await?,
-        },
-        db,
-    )
-    .await?;
 
     let (guarded_concurrent_limit, guarded_concurrency_time_window_s) =
         if windmill_common::runnable_settings::min_version_supports_runnable_settings_v0().await {
@@ -8381,6 +8414,29 @@ pub async fn fetch_restart_flow_version(
     cache::flow::fetch_version(db, version).await
 }
 
+// A restart copies the steps before the restart step as completed, and the worker only gates the
+// restart step on a copied approval when that gate opened in the original run. So a copied step
+// whose gate never opened (timed out, disapproved) would let the restart skip its approval.
+fn refuse_restart_past_unopened_suspend_gate(
+    flow_value: &FlowValue,
+    copied_modules: &[FlowStatusModule],
+) -> Result<(), Error> {
+    for module in copied_modules {
+        let id = module.id();
+        let suspend = flow_value
+            .modules
+            .iter()
+            .find(|m| m.id == id)
+            .and_then(|m| m.suspend.as_ref());
+        if module.suspend_gate_never_opened(suspend) {
+            return Err(Error::BadRequest(format!(
+                "Step {id} was never approved. Restart the flow from step {id} to request the approval again."
+            )));
+        }
+    }
+    Ok(())
+}
+
 async fn restarted_flows_resolution(
     db: &Pool<Postgres>,
     workspace_id: &str,
@@ -8391,12 +8447,12 @@ async fn restarted_flows_resolution(
     // A nested restart chain (RestartedFrom.nested) descends into the restart step's child to
     // re-run an inner step; zombie reuse would skip the whole container and ignore it.
     nested_restart: bool,
-    // Zombie reuse validates the restart step against the completed job's STORED definition and
-    // synthesizes Success from its recorded children. That is only sound when the run being queued
-    // uses that same definition (JobPayload::RestartedFlow). A JobPayload::RawFlow restart queues
-    // the editor's current, possibly EDITED, definition instead, so reuse would skip the edited
-    // step and reuse the old child result; disable it there.
-    allow_zombie_reuse: bool,
+    // The definition the restart queues when it is not the completed job's stored one
+    // (JobPayload::RawFlow queues the editor's, possibly EDITED, definition). Approval gates are
+    // read from it. Zombie reuse validates the restart step against the STORED definition and
+    // synthesizes Success from its recorded children, so it is disabled when this is set: reuse
+    // would skip the edited step and reuse the old child result.
+    queued_flow: Option<&FlowValue>,
 ) -> Result<
     (
         Option<i64>,
@@ -8457,6 +8513,8 @@ async fn restarted_flows_resolution(
     };
 
     let flow_value = flow_data.value();
+    let allow_zombie_reuse = queued_flow.is_none();
+    let gate_flow = queued_flow.unwrap_or(flow_value);
     let flow_status = row
         .flow_status
         .as_ref()
@@ -8477,6 +8535,7 @@ async fn restarted_flows_resolution(
             let module_id = &module_definition.id;
 
             if module_id == restart_step_id {
+                refuse_restart_past_unopened_suspend_gate(gate_flow, &truncated_modules)?;
                 // Mark this and all following modules as WaitingForPriorSteps
                 if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
                     truncated_modules
@@ -8528,6 +8587,7 @@ async fn restarted_flows_resolution(
                 continue;
             };
             if module.id() == restart_step_id {
+                refuse_restart_past_unopened_suspend_gate(gate_flow, &truncated_modules)?;
                 // Reuse is only safe when there is a NEXT step to advance into (advancing past the
                 // last module lands on the failure step) and the step's definition carries no
                 // completion/arming semantics that reuse would skip (stop predicates, skip_if,
@@ -8913,5 +8973,40 @@ mod render_tag_path_tests {
 
     fn raw(json: &str) -> Box<RawValue> {
         RawValue::from_string(json.to_string()).unwrap()
+    }
+}
+
+#[cfg(test)]
+mod restart_past_suspend_gate_tests {
+    use super::refuse_restart_past_unopened_suspend_gate;
+    use serde_json::json;
+    use windmill_common::{flow_status::FlowStatusModule, flows::FlowValue};
+
+    #[test]
+    fn refuses_only_a_blocking_gate_that_never_opened() {
+        let flow = |suspend: serde_json::Value| -> FlowValue {
+            serde_json::from_value(json!({"modules": [
+                {"id": "a", "value": {"type": "identity"}, "suspend": suspend},
+                {"id": "b", "value": {"type": "identity"}},
+            ]}))
+            .unwrap()
+        };
+        let copied_a = |approvers: serde_json::Value| -> Vec<FlowStatusModule> {
+            vec![serde_json::from_value(json!({
+                "type": "Success", "id": "a", "job": uuid::Uuid::new_v4(), "approvers": approvers
+            }))
+            .unwrap()]
+        };
+        let blocking = flow(json!({"required_events": 1}));
+        let approved = json!([{"resume_id": 0, "approver": "admin"}]);
+
+        assert!(
+            refuse_restart_past_unopened_suspend_gate(&blocking, &copied_a(json!([]))).is_err()
+        );
+        assert!(refuse_restart_past_unopened_suspend_gate(&blocking, &copied_a(approved)).is_ok());
+        let continues = flow(json!({"required_events": 1, "continue_on_disapprove_timeout": true}));
+        assert!(
+            refuse_restart_past_unopened_suspend_gate(&continues, &copied_a(json!([]))).is_ok()
+        );
     }
 }

@@ -171,18 +171,16 @@ pub async fn get_resources(
     Ok(rows)
 }
 
-/// Generic function to get items (scripts or flows) from the database
-pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Send + Unpin>(
-    user_db: &UserDB,
+/// The scripts or flows a listing covers: the caller's workspace, unarchived,
+/// callable, and narrowed by favorites and `path_filter`.
+fn items_query(
     authed: &ApiAuthed,
     workspace_id: &str,
     scope_type: &str,
     item_type: &str,
     path_filter: Option<PathFilter<'_>>,
-) -> Result<Vec<T>, ErrorData> {
+) -> SqlBuilder {
     let mut sqlb = SqlBuilder::select_from(&format!("{} as o", item_type));
-    let fields = vec!["o.path", "o.summary", "o.description", "o.schema"];
-    sqlb.fields(&fields);
     if scope_type == "favorites" {
         sqlb.join("favorite")
             .on("favorite.favorite_kind = ? AND favorite.workspace_id = o.workspace_id AND favorite.path = o.path AND favorite.usr = ?".bind(&item_type)
@@ -209,17 +207,29 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
                 sqlb.and_where(cond);
             }
         }
+        Some(PathFilter::LastSegment(segments)) => {
+            if segments.is_empty() {
+                sqlb.and_where("false");
+            } else {
+                let conds: Vec<String> = segments
+                    .iter()
+                    .map(|s| {
+                        "o.path LIKE ? ESCAPE '\\'".bind(&format!("%/{}", escape_like(s)))
+                    })
+                    .collect();
+                sqlb.and_where(format!("({})", conds.join(" OR ")));
+            }
+        }
     }
+    sqlb
+}
 
-    sqlb.order_by(
-        if item_type == "flow" {
-            "o.edited_at"
-        } else {
-            "o.created_at"
-        },
-        false,
-    )
-    .limit(ITEMS_FETCH_MAX_LIMIT);
+async fn fetch_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Send + Unpin>(
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    sqlb: &SqlBuilder,
+    item_type: &str,
+) -> Result<Vec<T>, ErrorData> {
     let sql = sqlb.sql().map_err(|e| {
         tracing::error!("failed to build sql: {}", e);
         ErrorData::internal_error(format!("failed to build sql: {}", e), None)
@@ -240,6 +250,44 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
         ErrorData::internal_error(format!("failed to commit transaction: {}", e), None)
     })?;
     Ok(rows)
+}
+
+/// Generic function to get items (scripts or flows) from the database
+pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Send + Unpin>(
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    workspace_id: &str,
+    scope_type: &str,
+    item_type: &str,
+    path_filter: Option<PathFilter<'_>>,
+) -> Result<Vec<T>, ErrorData> {
+    let mut sqlb = items_query(authed, workspace_id, scope_type, item_type, path_filter);
+    sqlb.fields(&["o.path", "o.summary", "o.description", "o.schema"]);
+    sqlb.order_by(
+        if item_type == "flow" {
+            "o.edited_at"
+        } else {
+            "o.created_at"
+        },
+        false,
+    )
+    .limit(ITEMS_FETCH_MAX_LIMIT);
+    fetch_items(user_db, authed, &sqlb, item_type).await
+}
+
+/// Every path `get_items` would return with no fetch cap.
+pub async fn get_item_paths(
+    user_db: &UserDB,
+    authed: &ApiAuthed,
+    workspace_id: &str,
+    scope_type: &str,
+    item_type: &str,
+    path_filter: Option<PathFilter<'_>>,
+) -> Result<Vec<String>, ErrorData> {
+    let mut sqlb = items_query(authed, workspace_id, scope_type, item_type, path_filter);
+    sqlb.distinct().field("o.path");
+    let rows: Vec<(String,)> = fetch_items(user_db, authed, &sqlb, item_type).await?;
+    Ok(rows.into_iter().map(|(path,)| path).collect())
 }
 
 /// Get scripts from the Hub
@@ -653,6 +701,47 @@ pub async fn create_http_request(
     api_authed: &ApiAuthed,
     body_json: Option<Value>,
 ) -> BackendResult<reqwest::Response> {
+    // Scope the minted JWT to the proxied route so a scope-restricted MCP token
+    // can't be widened into a full-privilege blank check. See
+    // `jwt_scopes_for_proxied_route`.
+    let parsed = reqwest::Url::parse(url)
+        .map_err(|e| ErrorData::internal_error(format!("Invalid proxied URL: {}", e), None))?;
+    let scopes = jwt_scopes_for_proxied_route(api_authed.scopes.as_deref(), method, parsed.path())?;
+    send_as_caller(method, url, workspace_id, api_authed, body_json, scopes).await
+}
+
+/// A JWT that acts as `api_authed`, carrying `scopes`; `None` is the caller's full rights.
+pub(crate) async fn mint_caller_jwt(
+    workspace_id: &str,
+    api_authed: &ApiAuthed,
+    scopes: Option<Vec<String>>,
+) -> BackendResult<String> {
+    // Carry the caller's job provenance into the JWT: a job's WM_TOKEN is capped at
+    // workspace admin (GHSA-hfh4-cx4h-3fcr), and dropping `job_id` here would re-mint an
+    // uncapped token that satisfies require_super_admin / require_devops_role.
+    create_jwt_token(
+        Authed::from(api_authed.clone()),
+        workspace_id,
+        3600,
+        api_authed.job_id,
+        None,
+        None,
+        scopes,
+    )
+    .await
+    .map_err(|e| ErrorData::internal_error(e.to_string(), None))
+}
+
+/// Call the API as `api_authed` with a JWT carrying `scopes`; `None` is the caller's
+/// full rights, for a server whose own code picks every route it calls.
+pub async fn send_as_caller(
+    method: &str,
+    url: &str,
+    workspace_id: &str,
+    api_authed: &ApiAuthed,
+    body_json: Option<Value>,
+    scopes: Option<Vec<String>>,
+) -> BackendResult<reqwest::Response> {
     let client = &HTTP_CLIENT;
     let mut request_builder = match method {
         "GET" => client.get(url),
@@ -668,29 +757,7 @@ pub async fn create_http_request(
         }
     };
 
-    // Scope the minted JWT to the proxied route so a scope-restricted MCP token
-    // can't be widened into a full-privilege blank check. See
-    // `jwt_scopes_for_proxied_route`.
-    let parsed = reqwest::Url::parse(url)
-        .map_err(|e| ErrorData::internal_error(format!("Invalid proxied URL: {}", e), None))?;
-    let scopes = jwt_scopes_for_proxied_route(api_authed.scopes.as_deref(), method, parsed.path())?;
-
-    // Add authorization header. Carry the caller's job provenance into the proxy
-    // JWT: a job's WM_TOKEN is capped at workspace admin (GHSA-hfh4-cx4h-3fcr), and
-    // dropping `job_id` here would re-mint an uncapped token that satisfies
-    // require_super_admin / require_devops_role on the proxied route.
-    let authed = Authed::from(api_authed.clone());
-    let token = create_jwt_token(
-        authed,
-        workspace_id,
-        3600,
-        api_authed.job_id,
-        None,
-        None,
-        scopes,
-    )
-    .await
-    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+    let token = mint_caller_jwt(workspace_id, api_authed, scopes).await?;
     request_builder = request_builder.header("Authorization", format!("Bearer {}", token));
 
     // Add body if present

@@ -261,6 +261,7 @@ const NUM_SECS_PING: u64 = 5;
 const NUM_SECS_READINGS: u64 = 60;
 
 const INCLUDE_DEPS_PY_SH_CONTENT: &str = include_str!("../nsjail/download_deps.py.sh");
+const NSJAIL_CONFIG_PROBE_CONTENT: &str = include_str!("../nsjail/probe.config.proto");
 
 const WORKER_SHELL_NAP_TIME_DURATION: u64 = 15;
 const WORKER_SHELL_INITIAL_NAP_TIME_DURATION: u64 = 5;
@@ -335,6 +336,14 @@ pub struct PowershellRepo {
     pub pat: String,
 }
 
+/// Runs nsjail in a form gVisor (runsc) accepts, see `nsjail_compat`.
+pub static NSJAIL_GVISOR_COMPAT: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+    std::env::var("NSJAIL_GVISOR_COMPAT")
+        .ok()
+        .and_then(|x| x.parse::<bool>().ok())
+        .unwrap_or(false)
+});
+
 lazy_static::lazy_static! {
 
     static ref SLEEP_QUEUE_BASE: u64 = std::env::var("SLEEP_QUEUE")
@@ -354,6 +363,15 @@ lazy_static::lazy_static! {
 
 
     pub static ref DISABLE_NUSER: bool = std::env::var("DISABLE_NUSER")
+    .ok()
+    .and_then(|x| x.parse::<bool>().ok())
+    .unwrap_or(false);
+
+    /// Runs Bun scripts' dependency installs (bun and `//npm`) outside nsjail even when
+    /// sandboxing is on, for a worker whose installs need host files the install jail
+    /// does not mount (keys for private git dependencies, a package cache outside HOME).
+    /// The run step stays jailed; the installs' lifecycle scripts see the worker again.
+    pub static ref DISABLE_BUN_INSTALL_SANDBOX: bool = std::env::var("DISABLE_BUN_INSTALL_SANDBOX")
     .ok()
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
@@ -537,29 +555,41 @@ lazy_static::lazy_static! {
     pub static ref NSJAIL_AVAILABLE: Option<String> = {
         let nsjail_path = NSJAIL_PATH.as_str();
 
-        let test_result = std::process::Command::new(nsjail_path)
-            .arg("--help")
-            .output();
-
-        match test_result {
+        match probe_nsjail(nsjail_path) {
             Ok(output) if output.status.success() => {
-                tracing::info!("nsjail available at: {}", nsjail_path);
+                tracing::info!(
+                    "nsjail available at: {}{}",
+                    nsjail_path,
+                    if *NSJAIL_GVISOR_COMPAT { " (NSJAIL_GVISOR_COMPAT)" } else { "" }
+                );
                 Some(nsjail_path.to_string())
             },
             Ok(output) => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                tracing::error!(
-                    "nsjail test failed (exit code: {}). stderr: '{}'. path: '{}'. \
-                    Nsjail sandboxing will NOT be available. \
-                    nsjail should be included in all standard windmill images. \
-                    If job_isolation is set to 'nsjail_sandboxing' in Instance Settings, jobs will fail.",
+                let msg = format!(
+                    "nsjail could not run a test jail (exit code: {}). stderr: '{}'. path: '{}'. \
+                    Nsjail sandboxing will NOT be available: the worker reports its job isolation \
+                    without nsjail, and jobs that require nsjail fail. Under gVisor (runsc), see \
+                    NSJAIL_GVISOR_COMPAT.",
                     output.status,
-                    stderr.trim(),
+                    String::from_utf8_lossy(&output.stderr).trim(),
                     nsjail_path
+                );
+                // Most workers never jail anything, and most containers cannot.
+                if *DISABLE_NSJAIL {
+                    tracing::info!("{msg}");
+                } else {
+                    tracing::error!("{msg}");
+                }
+                None
+            },
+            Err(NsjailProbeError::Setup(e)) => {
+                tracing::error!(
+                    "Could not prepare the nsjail test jail: {}. Nsjail sandboxing will NOT be available.",
+                    e
                 );
                 None
             },
-            Err(e) => {
+            Err(NsjailProbeError::Start(e)) => {
                 if e.kind() == std::io::ErrorKind::NotFound {
                     tracing::error!(
                         "nsjail not found at '{}'. Nsjail sandboxing will NOT be available. \
@@ -1012,6 +1042,44 @@ pub(crate) fn artifact_cache_name(
     format!("mod-{}", windmill_common::utils::calculate_hash(&keyed))
 }
 
+/// Runs `/bin/true` in a jail built like a job's, through the same spawn path, so a worker
+/// whose runtime lets nsjail start but not jail (a container without the privileges, gVisor)
+/// does not report nsjail isolation.
+enum NsjailProbeError {
+    /// The probe could not be prepared: nothing is known about nsjail.
+    Setup(std::io::Error),
+    /// nsjail itself could not be executed.
+    Start(std::io::Error),
+}
+
+fn probe_nsjail(nsjail_path: &str) -> Result<std::process::Output, NsjailProbeError> {
+    // A fresh private directory: the worker runs what this config says, as itself.
+    let dir = std::env::temp_dir().join(format!("windmill-nsjail-probe-{}", uuid::Uuid::new_v4()));
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(&dir).map_err(NsjailProbeError::Setup)?;
+    let output = (|| {
+        std::fs::write(
+            dir.join("probe.config.proto"),
+            NSJAIL_CONFIG_PROBE_CONTENT.replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
+        )
+        .map_err(NsjailProbeError::Setup)?;
+        let mut cmd = std::process::Command::new(nsjail_path);
+        cmd.current_dir(&dir)
+            .env_clear()
+            .env("PATH", PATH_ENV.as_str())
+            .args(["--config", "probe.config.proto"]);
+        if *NSJAIL_GVISOR_COMPAT {
+            crate::nsjail_compat::apply(&cmd).map_err(NsjailProbeError::Setup)?;
+        }
+        cmd.output().map_err(NsjailProbeError::Start)
+    })();
+    let _ = std::fs::remove_dir_all(&dir);
+    output
+}
+
 pub fn is_sandboxing_enabled() -> bool {
     if !*DISABLE_NSJAIL {
         return true;
@@ -1019,6 +1087,204 @@ pub fn is_sandboxing_enabled() -> bool {
     match get_job_isolation() {
         JobIsolationLevel::NsjailSandboxing => true,
         _ => false,
+    }
+}
+
+/// A `no_network` job loses its network only through the fresh network namespace its
+/// nsjail run step is given, so a run step that would not be jailed is refused rather
+/// than run with the worker's network. `jailed` is the executor's own decision to jail.
+pub fn check_no_network_jailed(
+    no_network: bool,
+    jailed: bool,
+) -> windmill_common::error::Result<()> {
+    no_network_refusal(no_network, jailed, NSJAIL_AVAILABLE.is_some())
+}
+
+fn no_network_refusal(
+    no_network: bool,
+    jailed: bool,
+    nsjail_available: bool,
+) -> windmill_common::error::Result<()> {
+    if !no_network || (jailed && nsjail_available) {
+        return Ok(());
+    }
+    let reason = if jailed {
+        "nsjail is not available on this worker"
+    } else {
+        "this job would not run in an nsjail sandbox: add the `sandbox` annotation, or enable \
+        nsjail sandboxing for the instance"
+    };
+    Err(windmill_common::error::Error::ExecutionErr(format!(
+        "Script has the `no_network` annotation, which removes the network from its nsjail \
+        sandbox, but {reason}. Refusing to run it with network."
+    )))
+}
+
+/// Whether a script asks for a run step without network, which only nsjail provides. A
+/// dedicated worker runs its script outside nsjail, so it leaves such a script to the
+/// regular executor.
+pub fn runs_no_network_in_jail(language: Option<ScriptLang>, content: &str) -> bool {
+    match language {
+        Some(ScriptLang::Python3) => {
+            windmill_common::worker::PythonAnnotations::parse(content).no_network
+        }
+        Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) => {
+            let annotation = windmill_common::worker::TypeScriptAnnotations::parse(content);
+            annotation.no_network && !annotation.native
+        }
+        _ => false,
+    }
+}
+
+/// Refuses a `no_network` job that imports another workspace script its run step would fetch
+/// from the API, which it cannot reach. Without this the fetch fails inside the script, where
+/// Python's loader falls back to an empty namespace module and the error names something else.
+/// `imports` are workspace paths; the job's own module files (keyed relative to
+/// `script_path`'s folder) are on disk and need no fetch.
+pub fn check_no_network_imports(
+    imports: impl IntoIterator<Item = String>,
+    script_path: &str,
+    modules: Option<&HashMap<String, ScriptModule>>,
+    fetched_by: &str,
+) -> windmill_common::error::Result<()> {
+    let dir = script_path
+        .rsplit_once('/')
+        .map(|(dir, _)| dir)
+        .unwrap_or("");
+    let local: Vec<String> = modules
+        .into_iter()
+        .flat_map(|m| m.keys())
+        .map(|key| {
+            let stem = key.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(key);
+            if dir.is_empty() {
+                stem.to_string()
+            } else {
+                format!("{dir}/{stem}")
+            }
+        })
+        .collect();
+    let fetched = imports.into_iter().find(|import| {
+        !local
+            .iter()
+            .any(|l| l == import || l.starts_with(&format!("{import}/")))
+    });
+    match fetched {
+        None => Ok(()),
+        Some(import) => Err(windmill_common::error::Error::ExecutionErr(format!(
+            "Script has the `no_network` annotation but imports the workspace script \
+            `{import}`, which {fetched_by} fetches from the Windmill API while the script runs, \
+            and the script has no network. Remove `no_network`, or copy that code into the \
+            script."
+        ))),
+    }
+}
+
+/// Drops `WM_TOKEN` from a `no_network` run step's env: it is useless without network, and
+/// the script could still hand it out through its result.
+pub fn strip_no_network_token(
+    reserved_variables: &mut std::collections::HashMap<String, String>,
+    no_network: bool,
+) {
+    if no_network {
+        reserved_variables.remove("WM_TOKEN");
+    }
+}
+
+/// `clone_newnet` for a run step's nsjail profile.
+pub fn nsjail_clone_newnet(no_network: bool) -> &'static str {
+    if no_network {
+        "true"
+    } else {
+        "false"
+    }
+}
+
+/// Whether job runs get the worker's proxy settings. Dependency installs always do: they read
+/// [`PROXY_ENVS`] directly, so a group that turns the proxy off for jobs still installs through it.
+pub fn passes_proxy_to_jobs() -> bool {
+    !WORKER_CONFIG.load().disable_job_proxy
+}
+
+/// [`PROXY_ENVS`] as a job run sees them; see [`passes_proxy_to_jobs`].
+pub fn job_proxy_envs() -> Vec<(&'static str, String)> {
+    if passes_proxy_to_jobs() {
+        PROXY_ENVS.clone()
+    } else {
+        vec![]
+    }
+}
+
+/// [`get_proxy_envs_for_lang`] for a run step. A `no_network` one reaches no proxy, the
+/// OTel tracing proxy included, so it gets only the trace context.
+pub async fn get_run_proxy_envs(
+    lang: &ScriptLang,
+    job_kind: JobKind,
+    job_id: &uuid::Uuid,
+    w_id: &str,
+    conn: &Connection,
+    no_network: bool,
+) -> anyhow::Result<Vec<(&'static str, String)>> {
+    if no_network {
+        return Ok(get_otel_context_envs(job_id));
+    }
+    get_proxy_envs_for_lang(lang, job_kind, job_id, w_id, conn).await
+}
+
+#[cfg(test)]
+mod no_network_tests {
+    use super::{check_no_network_imports, no_network_refusal, runs_no_network_in_jail};
+    use windmill_common::scripts::ScriptLang;
+
+    #[test]
+    fn no_network_runs_only_in_an_available_jail() {
+        assert!(no_network_refusal(false, false, false).is_ok());
+        assert!(no_network_refusal(true, true, true).is_ok());
+        assert!(no_network_refusal(true, false, true).is_err());
+        assert!(no_network_refusal(true, true, false).is_err());
+        assert!(no_network_refusal(true, false, false).is_err());
+    }
+
+    #[test]
+    fn no_network_refuses_only_imports_it_would_fetch() {
+        let modules = std::collections::HashMap::from([(
+            "lib/util.py".to_string(),
+            windmill_common::scripts::ScriptModule {
+                content: String::new(),
+                lock: None,
+                language: ScriptLang::Python3,
+            },
+        )]);
+        let check = |imports: &[&str]| {
+            check_no_network_imports(
+                imports.iter().map(|s| s.to_string()),
+                "u/admin/main",
+                Some(&modules),
+                "Python",
+            )
+        };
+        assert!(check(&["u/admin/lib/util", "u/admin/lib"]).is_ok());
+        let err = check(&["u/admin/lib/util", "u/admin/helper"]).unwrap_err();
+        assert!(err.to_string().contains("`u/admin/helper`"), "{err}");
+    }
+
+    #[test]
+    fn dedicated_workers_leave_jailed_no_network_scripts() {
+        let py = Some(ScriptLang::Python3);
+        let bun = Some(ScriptLang::Bun);
+        assert!(runs_no_network_in_jail(
+            py,
+            "# no_network\ndef main(): pass"
+        ));
+        assert!(!runs_no_network_in_jail(py, "def main(): pass"));
+        assert!(runs_no_network_in_jail(
+            bun,
+            "// no_network\nexport function main() {}"
+        ));
+        // Native scripts take their network away inside the isolate.
+        assert!(!runs_no_network_in_jail(
+            bun,
+            "//native\n//no_network\nexport function main() {}"
+        ));
     }
 }
 
@@ -1121,12 +1387,12 @@ pub async fn get_proxy_envs_for_lang(
     {
         envs = get_otel_tracing_proxy_envs(job_id, w_id, conn).await?;
     } else {
-        envs = PROXY_ENVS.clone();
+        envs = job_proxy_envs();
     }
     #[cfg(not(all(feature = "private", feature = "enterprise")))]
     {
         let _ = (lang, job_kind, w_id, conn);
-        envs = PROXY_ENVS.clone();
+        envs = job_proxy_envs();
     }
     envs.extend(get_otel_context_envs(job_id));
     Ok(envs)
@@ -1148,7 +1414,7 @@ async fn get_otel_tracing_proxy_envs(
                 This job's HTTP requests will not be traced.";
             tracing::warn!("{}", reason);
             append_logs(job_id, w_id, format!("\n[warning] {reason}\n"), conn).await;
-            return Ok(PROXY_ENVS.clone());
+            return Ok(job_proxy_envs());
         }
     };
     let proxy_url = format!("http://127.0.0.1:{}", port);
@@ -5189,8 +5455,8 @@ pub fn build_envs(
         hm
     };
 
-    for (k, v) in PROXY_ENVS.iter() {
-        envs.insert(k.to_string(), v.clone());
+    for (k, v) in job_proxy_envs() {
+        envs.insert(k.to_string(), v);
     }
 
     Ok(envs)
@@ -5779,7 +6045,7 @@ async fn record_declared_warehouse_write(
 /// True when `path` contains only `Normal`/`CurDir` components, i.e. it cannot
 /// escape the directory it is joined onto (no `..`, no absolute root, no Windows
 /// drive prefix).
-fn is_contained_relative_path(path: &str) -> bool {
+pub(crate) fn is_contained_relative_path(path: &str) -> bool {
     use std::path::Component;
     std::path::Path::new(path)
         .components()
@@ -7245,6 +7511,33 @@ pub async fn parse_sig_of_lang(
     })
 }
 
+/// Inline runs happen outside any worker's job loop, so they get no job dir from it. Executors
+/// write there (DuckDB's spill and result files), so each run needs its own: an empty one
+/// resolves to `/`, shared by every concurrent run and unwritable to a non-root server.
+/// Removed on drop: no job loop owns it, and the run's future is dropped mid-await when the
+/// HTTP client disconnects.
+struct InlineJobDir(String);
+
+impl Drop for InlineJobDir {
+    fn drop(&mut self) {
+        let dir = std::mem::take(&mut self.0);
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                handle.spawn_blocking(move || std::fs::remove_dir_all(dir));
+            }
+            Err(_) => {
+                let _ = std::fs::remove_dir_all(dir);
+            }
+        }
+    }
+}
+
+async fn create_inline_job_dir() -> error::Result<InlineJobDir> {
+    let job_dir = format!("{}/inline/{}", *WINDMILL_DIR, Uuid::new_v4());
+    tokio::fs::create_dir_all(&job_dir).await?;
+    Ok(InlineJobDir(job_dir))
+}
+
 pub fn init_worker_internal_server_inline_utils(
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
     base_internal_url: String,
@@ -7275,13 +7568,14 @@ pub fn init_worker_internal_server_inline_utils(
                 let mut occupancy_metrics = OccupancyMetrics::new(Instant::now());
                 let mut has_stream: bool = false;
                 let mut killpill_rx = params.killpill_rx;
+                let job_dir = create_inline_job_dir().await?;
 
                 run_language_executor(
                     &job,
                     &params.conn,
                     &params.client,
                     None,
-                    &params.job_dir,
+                    &job_dir.0,
                     &params.worker_dir,
                     &mut mem_peak,
                     &mut canceled_by,
@@ -7336,13 +7630,14 @@ pub fn init_worker_internal_server_inline_utils(
                 let mut occupancy_metrics = OccupancyMetrics::new(Instant::now());
                 let mut has_stream: bool = false;
                 let mut killpill_rx = params.killpill_rx;
+                let job_dir = create_inline_job_dir().await?;
 
                 run_language_executor(
                     &job,
                     &params.conn,
                     &params.client,
                     None,
-                    &params.job_dir,
+                    &job_dir.0,
                     &params.worker_dir,
                     &mut mem_peak,
                     &mut canceled_by,

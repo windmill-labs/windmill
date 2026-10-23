@@ -488,7 +488,7 @@ export const variableRequestSchema = z.object({
 	"value": z.string().describe("The value of the variable"),
 	"is_secret": z.boolean().describe("Whether the variable is a secret"),
 	"description": z.string().describe("The description of the variable"),
-	"account": z.number().int().describe("The account identifier").optional(),
+	"account": z.number().int().describe("Ignored. A variable is linked to an OAuth account only when `createAccount` creates both.").optional(),
 	"is_oauth": z.boolean().describe("Whether the variable is an OAuth variable").optional(),
 	"expires_at": z.string().datetime({ offset: true }).describe("The expiration date of the variable").optional(),
 	"labels": z.array(z.string()).optional(),
@@ -501,7 +501,8 @@ export const resourceRequestSchema = z.object({
 	"description": z.string().describe("The description of the resource").optional(),
 	"resource_type": z.string().describe("The resource_type associated with the resource"),
 	"labels": z.array(z.string()).optional(),
-	"ws_specific": z.boolean().optional()
+	"ws_specific": z.boolean().optional(),
+	"preserve_on_behalf_of": z.boolean().describe("ai_agent only. Keep the identity `value.on_behalf_of` names (`u/<username>`, `g/<group>`) rather than the caller's own. Honoured for admins and members of wm_deployers; otherwise every write of an agent sets it to the caller.").optional()
 })
 
 export const triggerRequestSchemas = {

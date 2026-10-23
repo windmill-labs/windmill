@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO role_seat (workspace_id, role, author)\n         SELECT $1, role, author FROM role_seat WHERE workspace_id = $2\n         ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c7a1a350f95523df4e2012d2d21ec87a0016b1949cfe2d901aacc281d9442738"
+}

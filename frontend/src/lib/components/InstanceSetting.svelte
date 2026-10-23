@@ -21,6 +21,8 @@
 	import SimpleEditor from './SimpleEditor.svelte'
 	import CriticalAlertChannels from './instanceSettings/CriticalAlertChannels.svelte'
 	import RetentionPeriodOverrides from './instanceSettings/RetentionPeriodOverrides.svelte'
+	import AgentWorkloadIdentityIssuers from './instanceSettings/AgentWorkloadIdentityIssuers.svelte'
+	import WorkspaceRolesSetting from './instanceSettings/WorkspaceRolesSetting.svelte'
 	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
 	import SecretBackendConfig from './instanceSettings/SecretBackendConfig.svelte'
 	import ExternalInstancePgSettings from './instanceSettings/ExternalInstancePgSettings.svelte'
@@ -341,6 +343,8 @@
 		     getInstanceConfig() has populated the persisted overrides (which would let a save drop
 		     them). -->
 		<RetentionPeriodOverrides {values} disabled={!$enterpriseLicense || loading} />
+	{:else if setting.fieldType == 'workspace_roles'}
+		<WorkspaceRolesSetting {values} {loading} unlicensed={!$enterpriseLicense} />
 	{:else}
 		<SettingCard
 			label={setting.key === 'disable_stats'
@@ -629,6 +633,8 @@
 							</Button>
 						</div>
 					</div>
+				{:else if setting.fieldType == 'agent_workload_identity_issuers'}
+					<AgentWorkloadIdentityIssuers {values} disabled={!$enterpriseLicense} />
 				{:else if setting.fieldType == 'critical_error_channels'}
 					<CriticalAlertChannels {values} {openSmtpSettings} {oauths} />
 				{:else if setting.fieldType == 'otel'}

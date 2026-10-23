@@ -10,6 +10,7 @@ import { getCompletion, parseOpenAICompletion, providerSupportsWebSearch } from 
 import {
 	resolveEffectiveReasoning,
 	resolveRequestReasoning,
+	usesOpenAIResponsesApi,
 	type ReasoningProviderModel
 } from '../reasoningRegistry'
 import { getAnthropicCompletion, parseAnthropicCompletion } from './anthropic'
@@ -72,8 +73,13 @@ export interface ChatLoopConfig {
 	 * lets the caller recover partial output if the loop throws or is aborted.
 	 */
 	addedMessages?: ChatCompletionMessageParam[]
-	/** Called before each iteration (e.g. to record which model it is about to use). */
-	onBeforeIteration?: (modelProvider: ReasoningProviderModel) => Promise<void>
+	/** Called before each iteration (e.g. to record which model it is about to use), with
+	 * the last usage report that carried a prompt count, which can predate the latest
+	 * iteration. It may rewrite `messages` in place. */
+	onBeforeIteration?: (
+		modelProvider: ReasoningProviderModel,
+		lastIterationUsage: ChatTokenUsage | null
+	) => Promise<void>
 	/** Fired for each completed provider response, before the loop continues. The
 	 * loop can fail or be aborted at any iteration, so spend has to be handed over
 	 * as it happens — a callback only at the end would discard everything the
@@ -419,7 +425,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 		const webSearch = sendsWebSearch(workspace, modelProvider, config.webSearch ?? true)
 
 		if (onBeforeIteration) {
-			await onBeforeIteration(modelProvider)
+			await onBeforeIteration(modelProvider, lastIterationUsage)
 		}
 		const tools = await Promise.all(
 			config.tools.map(async (t) => (t.schemaFor ? { ...t, def: await t.schemaFor(helpers) } : t))
@@ -427,8 +433,7 @@ export async function runChatLoop(config: ChatLoopConfig): Promise<ChatLoopResul
 
 		const pendingUserMessage = getPendingUserMessage?.()
 
-		const isOpenAI =
-			modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai'
+		const isOpenAI = usesOpenAIResponsesApi(modelProvider.provider, modelProvider.model)
 		const isAnthropic = usesAnthropicMessagesApi(modelProvider.provider, modelProvider.model)
 		// Resolve effort once in chat context (applies the default-on level for
 		// capable models, and the provider-native disable token for an explicit

@@ -11,6 +11,8 @@ use windmill_common::{
 
 use std::collections::HashSet;
 
+use crate::raw_app_runnables::RawAppRunnables;
+
 lazy_static::lazy_static! {
     pub static ref WMDEBUG_NO_DMAP_DISSOLVE: bool = std::env::var("WMDEBUG_NO_DMAP_DISSOLVE").is_ok();
 }
@@ -506,15 +508,19 @@ SELECT importer_node_id, imported_path, imported_lockfile_hash
                     let mut dmap = ScopedDependencyMap::fetch(w_id, &r.path, "app", db).await?;
                     let mut tx = db.begin().await?;
                     let mut to_process = vec![];
+                    let runnables = RawAppRunnables::from_value(&r.path, &value);
                     traverse_app_inline_scripts(&value, None, &mut |ais, id| {
-                        to_process.push((
-                            crate::extract_referenced_paths(
+                        let referenced_paths = match ais.language {
+                            Some(language) => {
+                                runnables.referenced_paths(&r.path, &ais.content, language)
+                            }
+                            None => crate::extract_referenced_paths(
                                 &ais.content,
                                 &(r.path.clone() + "/app"),
-                                ais.language,
+                                None,
                             ),
-                            id,
-                        ));
+                        };
+                        to_process.push((referenced_paths, id));
 
                         Ok(())
                     })?;

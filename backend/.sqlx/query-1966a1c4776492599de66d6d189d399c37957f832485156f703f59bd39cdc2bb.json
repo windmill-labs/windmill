@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(SELECT 1 FROM variable v\n             JOIN account a ON a.workspace_id = v.workspace_id AND a.id = v.account\n             WHERE v.workspace_id = $1 AND v.path = $2 AND a.client = $3\n               AND a.is_workspace_integration = true)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "1966a1c4776492599de66d6d189d399c37957f832485156f703f59bd39cdc2bb"
+}

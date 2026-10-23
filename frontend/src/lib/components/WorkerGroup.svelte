@@ -56,6 +56,12 @@
 	import DedicatedWorkersSelector from './DedicatedWorkersSelector.svelte'
 	import { computeHashedTag } from './dedicated_worker'
 	import { apiBaseUrl } from '$lib/apiBaseUrl.svelte'
+	import {
+		devWorkspaceListenSuffix,
+		devWorkspaceTagSuffix,
+		loadDevWorkspaceTagSuffix,
+		withDevSuffix
+	} from '$lib/devWorkspaceTags'
 	import ObjectStoreConfigSettings, {
 		type ObjectStoreConfig
 	} from './ObjectStoreConfigSettings.svelte'
@@ -99,6 +105,7 @@
 		periodic_script_interval_seconds?: number
 		env_vars_static?: Map<string, string>
 		env_vars_allowlist?: string[]
+		disable_job_proxy?: boolean
 		additional_python_paths?: string[]
 		pip_local_dependencies?: string[]
 		min_alive_workers_alert_threshold?: number
@@ -106,6 +113,7 @@
 		native_mode?: boolean
 		object_store_cache_config?: ObjectStoreConfig
 		paused?: boolean
+		serves_dev_workspaces?: boolean
 	} = $state({})
 
 	function loadNConfig() {
@@ -205,6 +213,7 @@
 					init_bash?: string
 					env_vars_static?: Map<string, string>
 					env_vars_allowlist?: string[]
+					disable_job_proxy?: boolean
 					additional_python_paths?: string[]
 					pip_local_dependencies?: string[]
 					min_alive_workers_alert_threshold?: number
@@ -214,6 +223,7 @@
 					native_mode?: boolean
 					object_store_cache_config?: ObjectStoreConfig
 					paused?: boolean
+					serves_dev_workspaces?: boolean
 			  }
 		activeWorkers: number
 		customTags: string[] | undefined
@@ -319,7 +329,9 @@
 		'priority_tags',
 		'additional_python_paths',
 		'pip_local_dependencies',
-		'object_store_cache_config'
+		'disable_job_proxy',
+		'object_store_cache_config',
+		'serves_dev_workspaces'
 	] as const
 	function restartsWorkers(body: typeof nconfig): boolean {
 		if (activeWorkers === 0) return false
@@ -362,6 +374,15 @@
 
 	let drawer: Drawer | undefined = $state()
 	let vcpus_memory = $derived(computeVCpuAndMemory(workers))
+	let reportedTags = $derived(
+		[
+			...new Set(
+				workers.flatMap(([_, pings]) =>
+					pings.filter((p) => (p.last_ping ?? Infinity) < 60).flatMap((p) => p.custom_tags ?? [])
+				)
+			)
+		].sort()
+	)
 	let selected = $derived(
 		nconfig?.dedicated_worker != undefined || nconfig?.dedicated_workers != undefined
 			? 'dedicated'
@@ -380,6 +401,13 @@
 				t !== 'flow' &&
 				!t.startsWith('flow-')
 		)
+	)
+	loadDevWorkspaceTagSuffix()
+	let devSuffix = $derived($devWorkspaceListenSuffix)
+	let servesDev = $derived(
+		config?.serves_dev_workspaces === true &&
+			config?.dedicated_worker == undefined &&
+			!config?.dedicated_workers?.length
 	)
 	let isAutoNativeMode = $derived(name === 'native')
 	let isNativeModeEnabled = $derived(nconfig?.native_mode === true || isAutoNativeMode)
@@ -647,6 +675,63 @@
 				{/if}
 			</Label>
 
+			{#if nconfig !== undefined}
+				{@const flagged = nconfig.serves_dev_workspaces === true}
+				{@const draftTags = nconfig.worker_tags ?? []}
+				{@const handSuffixed = draftTags.filter((t) => t.endsWith(devSuffix))}
+				<div class="mt-8"></div>
+				<Label label="Dev workspaces" eeOnly={!hasEnterpriseFeatures}>
+					<Toggle
+						size="sm"
+						options={{
+							right: 'Serves dev workspaces and forks',
+							rightTooltip:
+								'Runs jobs from dev workspaces and forks only. The group listens to each of its tags with the dev suffix, and no longer to the tags themselves.'
+						}}
+						checked={flagged}
+						on:change={(ev) => {
+							if (nconfig !== undefined) {
+								nconfig.serves_dev_workspaces = ev.detail ? true : undefined
+							}
+						}}
+						disabled={!canEditEEConfig}
+					/>
+					<p class="text-2xs text-secondary">Runs jobs from dev workspaces and forks only.</p>
+					{#if flagged}
+						<div class="flex flex-col gap-1 mt-1">
+							<span class="text-2xs text-secondary">Tags this group listens to:</span>
+							{#if draftTags.length > 0}
+								<TagList
+									tags={[...new Set(draftTags.map((t) => withDevSuffix(t, devSuffix)))]}
+									class="flex-wrap"
+								/>
+							{:else}
+								<span class="text-2xs text-secondary">
+									Add tags above: each is listened to as <code
+										>{withDevSuffix('tag', devSuffix)}</code
+									>.
+								</span>
+							{/if}
+						</div>
+						{#if $devWorkspaceTagSuffix === null}
+							<Alert size="xs" type="info" title="Dev workspace isolation is off">
+								New jobs get the <code>{devSuffix}</code> suffix only while dev workspace isolation is
+								on (Workers page). Until then this group only runs jobs already queued on suffixed tags,
+								and never takes jobs of root workspaces.
+							</Alert>
+						{/if}
+					{:else if handSuffixed.length > 0}
+						<Alert size="xs" type="warning" title="This group would take dev workspace jobs">
+							{handSuffixed.join(', ')}
+							{handSuffixed.length === 1 ? 'is a tag' : 'are tags'} of dev workspace and fork jobs. Listing
+							{handSuffixed.length === 1 ? 'it' : 'them'} here runs those jobs next to root workspace
+							jobs. Remove {handSuffixed.length === 1 ? 'it' : 'them'}, or flag this group as
+							serving dev workspaces instead.
+						</Alert>
+					{/if}
+				</Label>
+			{/if}
+
 			{#if nconfig?.worker_tags !== undefined && nconfig?.worker_tags.length > 0}
 				<div class="mt-8"></div>
 				<Label label="High-priority tags" eeOnly={!hasEnterpriseFeatures}>
@@ -827,6 +912,30 @@
 					disabled={!canEditConfig}
 				/>
 			</Label>
+			<div class="mt-8"></div>
+			<Label label="Worker proxy">
+				{#snippet header()}
+					<Tooltip>
+						{#snippet text()}
+							Whether jobs get the worker's HTTP_PROXY, HTTPS_PROXY and NO_PROXY. Dependency
+							installs always go through the proxy, whatever this is set to. Removing the variables
+							does not stop a job from reaching the proxy if it knows its address. Workers pick the
+							change up without restarting.
+						{/snippet}
+					</Tooltip>
+				{/snippet}
+				<Toggle
+					size="sm"
+					options={{ right: "Pass the worker's proxy to jobs" }}
+					checked={nconfig?.disable_job_proxy !== true}
+					on:change={(ev) => {
+						if (nconfig !== undefined) {
+							nconfig.disable_job_proxy = ev.detail ? undefined : true
+						}
+					}}
+					disabled={!canEditConfig}
+				/>
+			</Label>
 		{/if}
 
 		<div class="mt-8"></div>
@@ -970,6 +1079,10 @@
 
 		<AutoscalingConfigEditor
 			worker_tags={config?.worker_tags}
+			group_has_tags={nconfig.worker_tags !== undefined
+				? nconfig.worker_tags.length > 0
+				: (nconfig.dedicated_workers?.length ?? 0) > 0 || nconfig.dedicated_worker !== undefined}
+			reported_tags={reportedTags}
 			bind:config={nconfig.autoscaling}
 			disabled={!canEditEEConfig}
 			eeOnly={!hasEnterpriseFeatures}
@@ -1364,6 +1477,17 @@
 				{#if isNativeMode}
 					<Badge color="blue" small>Native</Badge>
 				{/if}
+				{#if servesDev}
+					<Badge color="violet" small>
+						Dev
+						<Tooltip>
+							{#snippet text()}
+								Serves dev workspaces and forks only: listens to its tags suffixed with
+								<code>{devSuffix}</code>, never to the tags of root workspace jobs.
+							{/snippet}
+						</Tooltip>
+					</Badge>
+				{/if}
 				{#if config?.paused === true}
 					<Badge color="yellow" small>
 						Paused
@@ -1410,7 +1534,7 @@
 				</div>
 			{/if}
 		</div>
-		{#if !isAgent}
+		{#if !isAgent || config}
 			<div class="flex gap-4 items-center justify-end flex-row">
 				{#if canEditConfig}
 					{#if width > 1000}
@@ -1521,7 +1645,13 @@
 	{#if config?.worker_tags && config.worker_tags.length > 0}
 		<div class="flex flex-row items-start gap-2 w-full">
 			<div class="text-secondary text-xs mt-1">Tags:</div>
-			<TagList tags={config.worker_tags} maxVisible={25} class="flex-wrap" />
+			<TagList
+				tags={servesDev
+					? [...new Set(config.worker_tags.map((t) => withDevSuffix(t, devSuffix)))]
+					: config.worker_tags}
+				maxVisible={25}
+				class="flex-wrap"
+			/>
 		</div>
 	{:else if config?.dedicated_workers && config.dedicated_workers.length > 0}
 		<div class="flex flex-row items-start gap-2 w-full min-w-0">
@@ -1554,7 +1684,12 @@
 	<div class="mt-4">
 		<Alert type="info" title="Agent Worker Group" size="xs">
 			{#snippet children()}
-				This group is formed with agent workers, there is no associated config. {#if $superadmin || $devopsRole}
+				{#if config}
+					This group is formed with agent workers, which ignore its config except for autoscaling.
+				{:else}
+					This group is formed with agent workers, there is no associated config.
+				{/if}
+				{#if $superadmin || $devopsRole}
 					To modify the tags, generate a new <a
 						href="https://www.windmill.dev/docs/core_concepts/agent_workers#quickstart"
 						target="_blank"

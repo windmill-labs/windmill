@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.833.0
+  version: 1.847.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -112,7 +112,10 @@ components:
           description: Execution priority (higher numbers run first)
         early_return:
           type: string
-          description: JavaScript expression to return early from the flow
+          description: >-
+            Id of the step whose result a sync webhook returns as soon as that step completes, while
+            the rest of the flow keeps running. When the step does not run, or fails while the flow
+            has a failure module, the flow's final result is returned instead.
         chat_input_enabled:
           type: boolean
           description: Whether this flow accepts chat-style input
@@ -1183,6 +1186,23 @@ components:
               description: |
                 Number. Limits how many times the agent can loop through reasoning and tool use.
                 Range: 1-1000.
+            model:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                String. Only on a step linked to a saved agent (see `agent`): replaces the model
+                saved on the agent for this step's runs, on the agent's own provider resource. An
+                empty value keeps the saved model. Set it to an expression such as
+                `flow_input.model` to choose the model per run.
+            reasoning_effort:
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                String. Only on a step linked to a saved agent (see `agent`): replaces the reasoning
+                effort saved on the agent for this step's runs, as a provider-native token (e.g.
+                'low', 'high', 'none'). An empty value sends no effort, so the model runs at its
+                default. Leave the input out to keep the saved effort, which holds only while the
+                step runs the saved model. A step that is not linked sets both inside `provider`.
           # Only the flow-local inputs are always present: a step linked to an `ai_agent` resource
           # (see `agent`) keeps just those and takes provider/output_type from the resource. Even
           # `user_message` may be absent, when memory is off and `previous_messages` is the prompt.
@@ -1208,7 +1228,8 @@ components:
             Path of a reusable `ai_agent` resource (hybrid linking). When set, the agent brain
             config (provider/model/system prompt/etc.) and tool set are resolved at runtime from
             that resource; the module's input_transforms then only carry the flow-local inputs
-            (user_message, user_attachments, enabled_tools and the history inputs memory_id and previous_messages).
+            (user_message, user_attachments, enabled_tools and the history inputs memory_id and previous_messages)
+            and, optionally, the `model` and `reasoning_effort` overrides of what the agent saved.
         tool_inputs:
           type: object
           description: |

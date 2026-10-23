@@ -29,7 +29,9 @@ vi.mock('../lib', () => ({
 	providerSupportsWebSearch: mocks.providerSupportsWebSearch
 }))
 
-vi.mock('../reasoningRegistry', () => ({
+vi.mock('../reasoningRegistry', async (importOriginal) => ({
+	usesOpenAIResponsesApi: (await importOriginal<typeof import('../reasoningRegistry')>())
+		.usesOpenAIResponsesApi,
 	resolveRequestReasoning: mocks.resolveRequestReasoning,
 	resolveEffectiveReasoning: mocks.resolveEffectiveReasoning
 }))

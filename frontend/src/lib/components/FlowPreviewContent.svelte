@@ -48,9 +48,12 @@
 		useOperatingUser,
 		useOperatingWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
+	import { previewOnBehalfOf } from '$lib/utils/previewOnBehalfOf'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
+	const roleCaps = useRoleCapabilities()
 
 	interface Props {
 		previewMode: 'upTo' | 'whole'
@@ -211,7 +214,12 @@
 				restartedFrom,
 				conversationId,
 				devTempScriptRefs?.(),
-				opWorkspace?.()
+				opWorkspace?.(),
+				previewOnBehalfOf(
+					operatingUser.current,
+					flowStore.val.on_behalf_of,
+					flowStore.val.on_behalf_of_email
+				)
 			)
 			jobId = newJobId
 			isRunning = true
@@ -562,7 +570,7 @@
 												| ScriptLang
 												| undefined,
 											$initialPathStore,
-											operatingUser.current?.operator
+											!$roleCaps.code
 										)}
 									/>
 								</div>

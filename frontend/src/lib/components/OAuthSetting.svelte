@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ExternalLink, Plus, X } from 'lucide-svelte'
+	import { Plus, X } from 'lucide-svelte'
 	import CollapseLink from './CollapseLink.svelte'
 	import IconedResourceType from './IconedResourceType.svelte'
 	import Toggle from './Toggle.svelte'
@@ -9,6 +9,7 @@
 	import TextInput from './text_input/TextInput.svelte'
 	import Password from './Password.svelte'
 	import SettingCard from './instanceSettings/SettingCard.svelte'
+	import SlackAppSetup from './common/slack/SlackAppSetup.svelte'
 
 	interface Props {
 		name: string
@@ -90,7 +91,7 @@
 			disabled={eeOnly && !$enterpriseLicense}
 			on:change={(e) => {
 				if (e.detail) {
-					if (name === 'teams') {
+					if (name === 'ms_teams') {
 						value = { id: '', secret: '', tenant: '' }
 					} else {
 						value = { id: '', secret: '' }
@@ -106,7 +107,7 @@
 	</label>
 	{#if enabled}
 		<SettingCard class="mb-4 flex flex-col gap-6">
-			{#if name != 'slack' && name != 'teams'}
+			{#if name != 'slack' && name != 'ms_teams'}
 				<label class="flex flex-col gap-1">
 					<span class="text-emphasis font-semibold text-xs">Custom Name</span>
 					<TextInput
@@ -130,10 +131,24 @@
 					bind:password={value['secret']}
 				/>
 			</label>
-			{#if name == 'microsoft' || name == 'teams'}
+			{#if name == 'slack'}
+				<label for="slack_signing_secret" class="flex flex-col gap-1">
+					<span class="text-emphasis font-semibold text-xs">Signing Secret</span>
+					<Password
+						id="slack_signing_secret"
+						placeholder="Signing Secret"
+						bind:password={value['signing_secret']}
+					/>
+					<span class="text-2xs text-hint">
+						Lets Windmill check that requests come from Slack. Required for AI agents; recommended
+						for <code>/windmill</code> commands.
+					</span>
+				</label>
+			{/if}
+			{#if name == 'microsoft' || name == 'ms_teams'}
 				<label class="flex flex-col gap-1">
 					<span class="text-emphasis font-semibold text-xs">Tenant Id</span>
-					{#if name === 'teams'}
+					{#if name === 'ms_teams'}
 						<TextInput
 							inputProps={{ type: 'text', placeholder: 'Tenant Id' }}
 							bind:value={value['tenant']}
@@ -203,17 +218,7 @@
 				</CollapseLink>
 			{:else if name == 'slack'}
 				<CollapseLink text="Set up slack">
-					<div class="text-xs text-primary rounded-md">
-						To use Slack OAuth, create a new Slack app <a
-							href="https://api.slack.com/apps?new_app=1"
-							target="_blank"
-							>in slack API console
-							<ExternalLink size={12} class="inline-block" />
-						</a>. Pick "From a manifest", then YAML and paste manifest template found on
-						<a href="https://www.windmill.dev/docs/misc/setup_oauth#slack" target="_blank"
-							>Windmill docs <ExternalLink size={12} class="inline-block" /></a
-						> and then paste Client ID and Client Secret here.
-					</div>
+					<SlackAppSetup />
 				</CollapseLink>
 			{:else if name == 'microsoft'}
 				<CollapseLink text="Instructions">
@@ -280,14 +285,18 @@
 						</div>
 					</div>
 				</CollapseLink>
-			{:else if name == 'teams'}
+			{:else if name == 'ms_teams'}
 				<CollapseLink text="Instructions">
 					<div class="text-xs text-primary rounded-md">
 						Follow this guide on <a
 							href="https://www.windmill.dev/docs/misc/setup_oauth#microsoft-teams"
 							target="_blank">Windmill Docs</a
-						> to create a new Microsoft Teams App. Then paste Client ID, Tenant ID, and Client Secret
-						here.
+						>
+						to create a new Microsoft Teams App. Then paste Client ID, Tenant ID, and Client Secret here.
+						The same app serves the Teams bot (Enterprise Edition) and the Microsoft Teams OAuth resource:
+						to connect that resource, also add the redirect URI
+						<code>BASE_URL/oauth/callback/ms_teams</code> and the delegated Microsoft Graph permissions
+						you need to the app.
 					</div>
 				</CollapseLink>
 			{/if}

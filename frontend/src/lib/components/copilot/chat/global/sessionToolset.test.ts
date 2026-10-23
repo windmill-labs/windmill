@@ -29,6 +29,8 @@ import { assembleGlobalSystemMessage, assembleGlobalTools } from './globalAssemb
 import { filterSessionTools, sessionToolAllowed } from './sessionToolset'
 import { capabilitiesForRole, fullSessionAccess } from './sessionAccess'
 import type { SessionAccess, SessionCapability, SessionTool } from '../sessionCapabilities'
+import { FULL_CAPABILITIES, legacyOperatorCapabilities } from '$lib/roleCapabilities'
+import type { AuthorLevel, OperatorSettings, RoleCapabilities } from '$lib/gen'
 
 const ASSEMBLY_OPTS = {
 	previewTools: true,
@@ -54,9 +56,13 @@ function sessionReachableTools(): SessionTool<any>[] {
 }
 
 function withheldNames(access: SessionAccess): string[] {
+	// Shipped, not merely allowed: a kind-taking tool left with no kind is dropped too.
+	const shipped = new Set(
+		filterSessionTools(sessionReachableTools(), access).map((t) => t.def.function.name)
+	)
 	return sessionReachableTools()
-		.filter((t) => !sessionToolAllowed(t, access))
 		.map((t) => t.def.function.name)
+		.filter((n) => !shipped.has(n))
 }
 
 /** The tools a session actually ships, through the same assembly production uses. */
@@ -68,31 +74,40 @@ function accessWith(capabilities: SessionCapability[]): SessionAccess {
 	return new Set(capabilities)
 }
 
+const LEVELS: AuthorLevel[] = ['none', 'compose', 'full']
+
+/** Every role a workspace can define, over the capabilities `capabilitiesForRole` reads: `full`
+ * flows or apps require `code`, as `RoleCapabilities::validate` refuses otherwise. */
+const ROLES: RoleCapabilities[] = [false, true]
+	.flatMap((code) =>
+		LEVELS.flatMap((flows) =>
+			LEVELS.flatMap((apps) =>
+				[false, true].flatMap((manage_schedules) =>
+					[false, true].map((manage_triggers) => ({
+						...FULL_CAPABILITIES,
+						code,
+						flows,
+						apps,
+						manage_schedules,
+						manage_triggers
+					}))
+				)
+			)
+		)
+	)
+	.filter((c) => c.code || (c.flows !== 'full' && c.apps !== 'full'))
+
 /** The profiles a real session can hold, keyed for the test name, over every combination
  * of the role facts `capabilitiesForRole` reads. */
 const REACHABLE_PROFILES = [
 	...new Map(
 		[false, true].flatMap((isAdmin) =>
-			[false, true].flatMap((operator) =>
-				// `checkDeployRules` bypasses on admin, so an admin has only the one outcome.
-				(isAdmin ? [true] : [false, true]).flatMap((deployRulesPass) =>
-					// The operator rights a workspace can set: none, the builder right, both locks.
-					[
-						undefined,
-						{ builder_flows: true },
-						{ builder_apps: true },
-						{ builder_flows: true, builder_apps: true },
-						{ manage_schedules: false, manage_triggers: false }
-					].map((operatorSettings) => {
-						const access = capabilitiesForRole({
-							isAdmin,
-							operator,
-							deployRulesPass,
-							operatorSettings
-						})
-						return [[...access].sort().join(',') || 'none', access] as const
-					})
-				)
+			// `checkDeployRules` bypasses on admin, so an admin has only the one outcome.
+			(isAdmin ? [true] : [false, true]).flatMap((deployRulesPass) =>
+				ROLES.map((capabilities) => {
+					const access = capabilitiesForRole({ isAdmin, deployRulesPass, capabilities })
+					return [[...access].sort().join(',') || 'none', access] as const
+				})
 			)
 		)
 	).entries()
@@ -197,6 +212,15 @@ describe('session tool policies', () => {
 		expect((original.def.function.parameters as any).properties.type.enum).toContain('script')
 	})
 
+	it('offers the workspace settings tools to admins only', () => {
+		const settingsTools = ['get_workspace_settings', 'set_workspace_settings']
+		for (const [, access] of REACHABLE_PROFILES) {
+			const names = shippedSessionTools(access).map((t) => t.def.function.name)
+			const offered = settingsTools.filter((n) => names.includes(n))
+			expect(offered).toEqual(access.has('admin') ? settingsTools : [])
+		}
+	})
+
 	// Naming a tool the model was not given produces invented calls. Asserted over the
 	// ASSEMBLED message: the session-state, pipeline and plan-mode sections are each
 	// appended by a different caller, and each can name a withheld tool.
@@ -291,19 +315,20 @@ describe('session tool policies', () => {
 	// The operator's own rights outrun the chat's tools: what they schedule in the UI must not
 	// be sent to an admin.
 	it("sends an operator to the UI for what their role allows and the chat's tools do not", () => {
-		const prompt = (operatorSettings: { manage_schedules?: boolean }): string =>
+		const prompt = (operatorSettings: Partial<OperatorSettings>): string =>
 			prepareGlobalSystemMessage(undefined, {
 				user: { username: 'op' },
 				access: capabilitiesForRole({
 					isAdmin: false,
-					operator: true,
 					deployRulesPass: true,
-					operatorSettings
+					capabilities: legacyOperatorCapabilities(operatorSettings as OperatorSettings)
 				})
 			}).content as string
 
+		// None of these is sent to the UI: the chat drafts them itself.
+		expect(prompt({})).not.toContain('they can still edit themselves on their pages')
 		expect(prompt({})).toContain(
-			'Resources, variables, schedules, and triggers they can still edit'
+			'lets them create and edit resources, variables, schedules, and triggers'
 		)
 		expect(prompt({})).toContain('schedule a deployed script or flow themselves')
 		expect(prompt({ manage_schedules: false })).not.toContain('schedule a deployed script')

@@ -224,13 +224,15 @@ async fn update_config(
 
     #[cfg(not(feature = "enterprise"))]
     let config = if name.starts_with("worker__") {
-        // In CE, only allow setting worker_tags, cache_clear, init_bash, native_mode and paused
+        // In CE, only allow setting worker_tags, cache_clear, init_bash, native_mode, paused and
+        // disable_job_proxy
         serde_json::json!({
             "worker_tags": config.get("worker_tags"),
             "cache_clear": config.get("cache_clear"),
             "init_bash": config.get("init_bash"),
             "native_mode": config.get("native_mode"),
-            "paused": config.get("paused")
+            "paused": config.get("paused"),
+            "disable_job_proxy": config.get("disable_job_proxy")
         })
     } else {
         config
@@ -273,18 +275,22 @@ async fn update_config(
     }
 
     let mut tx = db.begin().await?;
-    let was_paused = if name.starts_with("worker__") {
+    let previous = if name.starts_with("worker__") {
         sqlx::query_scalar!(
-            "SELECT COALESCE(config->'paused' = 'true'::jsonb, false) FROM config WHERE name = $1 FOR UPDATE",
+            "SELECT config FROM config WHERE name = $1 FOR UPDATE",
             &name
         )
         .fetch_optional(&mut *tx)
         .await?
         .flatten()
-        .unwrap_or(false)
     } else {
-        false
+        None
     };
+    let is_set = |c: Option<&serde_json::Value>, k: &str| {
+        c.and_then(|c| c.get(k)).and_then(|v| v.as_bool()) == Some(true)
+    };
+    let was_paused = is_set(previous.as_ref(), "paused");
+    let was_serving_dev = is_set(previous.as_ref(), "serves_dev_workspaces");
     sqlx::query!(
         "INSERT INTO config (name, config) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET config = EXCLUDED.config",
         &name,
@@ -306,12 +312,20 @@ async fn update_config(
     tx.commit().await?;
 
     if name.starts_with("worker__") {
-        let paused = config.get("paused").and_then(|v| v.as_bool()) == Some(true);
+        let paused = is_set(Some(&config), "paused");
         if paused != was_paused {
             windmill_common::feature_usage::log_feature_usage(
                 "worker_group",
                 "pause_toggle",
                 if paused { "pause" } else { "resume" },
+            );
+        }
+        let serving_dev = is_set(Some(&config), "serves_dev_workspaces");
+        if serving_dev != was_serving_dev {
+            windmill_common::feature_usage::log_feature_usage(
+                "worker_group",
+                "dev_workspaces_toggle",
+                if serving_dev { "serve" } else { "stop" },
             );
         }
     }

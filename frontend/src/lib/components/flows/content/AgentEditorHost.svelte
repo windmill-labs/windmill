@@ -47,10 +47,11 @@
 		AGENT_EDITOR_RUN_INPUTS,
 		AGENT_TOOLS_ROW,
 		DEFAULT_AGENT_MEMORY,
-		keepsManagedMemory
+		keepsManagedMemory,
+		agentMemoryMode
 	} from '../agentFormFields'
 	import { toolDisplayName, type AgentTool } from '../agentToolUtils'
-	import { useAgentDraft } from '../agentDraft.svelte'
+	import { useAgentDraft, type AgentRunAs } from '../agentDraft.svelte'
 	import { sendUserToast } from '$lib/toast'
 
 	interface Props {
@@ -243,6 +244,23 @@
 	// apart from the echo of their own write.
 	let lastArgs = $state<string | undefined>(undefined)
 
+	// With memory off a run keeps no history of its own, so the form also takes the one to answer
+	// from; managed memory and an older setting would ignore one.
+	let formSchema = $derived(
+		agentMemoryMode((agentValue?.input_transforms?.memory as any)?.value) !== 'off'
+			? AGENT_CHAT_SCHEMA
+			: {
+					...AGENT_CHAT_SCHEMA,
+					properties: {
+						...AGENT_CHAT_SCHEMA.properties,
+						previous_messages: {
+							type: 'array',
+							items: { type: 'object' },
+							description: 'The conversation so far, as chat messages, for the agent to answer from'
+						}
+					}
+				}
+	)
 	// Picked on the first load, after which it is the reader's: following the memory setting live
 	// would pull them out of a chat for switching memory off in the form.
 	let testMode = $state<'form' | 'chat' | undefined>(undefined)
@@ -359,8 +377,8 @@
 		inputs?: Record<string, any>
 	): Promise<string | undefined> {
 		if (!agentModule) return undefined
-		// A view runs the deployed agent, which anyone who can read it may do; the editor previews
-		// the draft. Both run as the caller.
+		// A view runs the deployed agent, which anyone who can read it may do, as the server picks
+		// the identity; the editor previews the draft as the one editing it.
 		if (view && workspace) {
 			return await JobService.runAgent({
 				workspace,
@@ -456,12 +474,21 @@
 		pathErrorValue = error ?? ''
 	}
 
+	/** Who the next deploy makes the agent run as, as the "Permissioned as" line picked it. Unset
+	 *  while the line was never shown, which keeps the current identity as the line would have
+	 *  preselected it: an admin deploying without looking must not take the agent over. */
+	let runAs = $state<AgentRunAs | undefined>(undefined)
+	export function setRunAs(next: AgentRunAs) {
+		runAs = next
+	}
+
 	export function deploy(): Promise<boolean> {
 		if (pathErrorValue) {
 			sendUserToast(`Cannot deploy the agent: ${pathErrorValue}`, true)
 			return Promise.resolve(false)
 		}
-		return draft.deploy().then(async (written) => {
+		const keep = draft.onBehalfOf ? { permissionedAs: draft.onBehalfOf, preserve: true } : undefined
+		return draft.deploy(runAs ?? keep).then(async (written) => {
 			// The path the write landed on, which a rename moves off the one this editor opened.
 			if (written) await onSaved?.(written)
 			return written !== undefined
@@ -594,7 +621,7 @@
 				<div class="flex-1 min-h-0 overflow-auto p-4 {testMode === 'chat' ? 'hidden' : ''}">
 					<div class="max-w-3xl mx-auto">
 						{@render viewForm?.({
-							schema: AGENT_CHAT_SCHEMA,
+							schema: formSchema,
 							run: runOnce,
 							loading: runLoading,
 							actions: onOpenConfig ? configurationButton : undefined

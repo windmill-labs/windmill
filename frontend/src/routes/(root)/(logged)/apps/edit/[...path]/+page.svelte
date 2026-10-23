@@ -17,6 +17,7 @@
 	import { importStore } from '$lib/components/apps/store'
 	import { onDestroy, untrack } from 'svelte'
 	import { page } from '$app/state'
+	import { recentItems } from '$lib/components/home/recentItems.svelte'
 	import { UserDraft } from '$lib/userDraft.svelte'
 	import { stripNewDraftFlag, stripNewDraftFlagOnSave, shouldSeedNewDraft } from '$lib/newDraftFlag'
 	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
@@ -108,7 +109,7 @@
 				itemKind: 'app',
 				path
 			})
-			const emptyPolicy = { execution_mode: 'publisher' } as any
+			const emptyPolicy = { execution_mode: 'publisher', sandbox: true } as any
 			// One-shot import handoff via $importStore (YAML/JSON or "Build app").
 			// Wrapped exports carry { summary, value, policy }; bare ones are the App value.
 			const importRaw = $importStore
@@ -206,6 +207,15 @@
 			getDraft
 		})
 		if (tok !== loadAppToken) return
+		// A draft-only app has no page for Home's card to open.
+		if (!backendApp.no_deployed) {
+			recentItems.record($workspaceStore!, {
+				kind: 'app',
+				path: backendApp.path,
+				summary: backendApp.summary,
+				via: 'edit'
+			})
+		}
 		// Deployed App value for AppEditor's autosave `discardIf`, captured BEFORE
 		// the draft swap below replaces `backendApp.value`. `undefined` when
 		// there's no deployed row (draft-only path).
@@ -246,7 +256,7 @@
 				summary: savedDraftApp?.summary ?? '',
 				value: (savedDraftApp ?? {}) as App,
 				path: page.params.path ?? '',
-				policy: { execution_mode: 'publisher' } as any,
+				policy: { execution_mode: 'publisher', sandbox: true } as any,
 				custom_path: undefined,
 				versions: undefined as any,
 				id: 0 as any,

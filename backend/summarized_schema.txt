@@ -10,7 +10,7 @@ autoscaling_event_type: full_scaleout, scalein, scaleout
 aws_auth_resource_type: oidc, credentials
 delivery_mode: push, pull
 draft_type: script, flow, app
-favorite_kind: app, script, flow, raw_app, asset
+favorite_kind: app, script, flow, raw_app, asset, agent
 gcp_subscription_mode: create_update, existing
 http_method: get, post, put, delete, patch
 importer_kind: script, flow, app
@@ -41,6 +41,7 @@ ai_agent_memory: workspace_id(char), conversation_id(uuid), step_id(char), messa
 ai_free_token_daily_usage: day(date), cost_nanos(bigint), updated_at(ts)
 ai_free_token_usage: email(char), cost_nanos(bigint), updated_at(ts)
 ai_shared_artifact: id(uuid), workspace_id(char), artifact_id(char), email(char), created_by(char), name(char), kind(char), version(int), content(text), shared_at(ts)
+ai_shared_session: id(uuid), workspace_id(char), session_id(char), email(char), created_by(char), name(char), is_public(bool), message_count(int), snapshot(text), shared_at(ts)
   FK: (workspace_id) -> workspace(id)
 ai_token_usage: workspace_id(char), day(date), email(char), provider(char), model(char), session_id(char), input_tokens(bigint), cache_read_tokens(bigint), cache_write_tokens(bigint), output_tokens(bigint), reported_cost_nano_usd(bigint), requests(bigint), updated_at(ts)
   FK: (workspace_id) -> workspace(id)
@@ -48,7 +49,7 @@ alerts: id(int), alert_type(char), message(text), created_at(ts), acknowledged(b
 app: id(bigint), workspace_id(char), path(char), summary(char), policy(jsonb), versions(bigint[]), extra_perms(jsonb), draft_only(bool), custom_path(text), labels(text[])
   FK: (workspace_id) -> workspace(id)
 app_bundles: app_version_id(bigint), w_id(char), file_type(char), data(bytes)
-app_script: id(bigint), app(bigint), hash(char(64)), lock(text), code(text), code_sha256(char(64))
+app_script: id(bigint), app(bigint), hash(char(64)), lock(text), code(text), code_sha256(char(64)), modules(jsonb)
   FK: (app) -> app(id)
 app_version: id(bigint), app_id(bigint), value(json), created_by(char), created_at(ts), raw_app(bool)
   FK: (app_id) -> app(id)
@@ -187,6 +188,11 @@ schedule: workspace_id(char), path(char), edited_by(char), edited_at(ts), schedu
 script: workspace_id(char), hash(bigint), path(char), parent_hashes(bigint[]), summary(text), description(text), content(text), created_by(char), created_at(ts), archived(bool), schema(json), deleted(bool), is_template(bool), extra_perms(jsonb), lock(text), lock_error_logs(text), language(script_lang), kind(script_kind), tag(char), draft_only(bool), envs(char), concurrent_limit(int), concurrency_time_window_s(int), cache_ttl(int), dedicated_worker(bool), ws_error_handler_muted(bool), priority(smallint), timeout(int), delete_after_use(bool), restart_unless_cancelled(bool), concurrency_key(char), visible_to_runner_only(bool), auto_kind(varchar), codebase(char), has_preprocessor(bool), schema_validation(bool), assets(jsonb), debounce_key(char), debounce_delay_s(int), cache_ignore_s3_path(bool), runnable_settings_handle(bigint), labels(text[]), on_behalf_of(varchar), on_behalf_of_email(text), job_token_scopes(text[])
   FK: (workspace_id) -> workspace(id)
 skip_workspace_diff_tally: workspace_id(char), added_at(ts)
+slack_agent_channel: slack_team_id(char), channel_id(char), channel_name(char), workspace_id(char), agent_path(char), is_default(bool)
+  FK: (workspace_id, agent_path) -> resource(workspace_id, path)
+slack_answered_message: slack_team_id(char), channel_id(char), ts(char), created_at(timestamptz)
+slack_thread_agent: slack_team_id(char), channel_id(char), thread_ts(char), workspace_id(char), agent_path(char), created_at(timestamptz)
+  FK: (workspace_id, agent_path) -> resource(workspace_id, path)
 sqs_trigger: path(char), queue_url(char), aws_resource_path(char), message_attributes(text[]), script_path(char), is_flow(bool), workspace_id(char), edited_by(char), email(char), edited_at(ts), extra_perms(jsonb), error(text), server_id(char), last_server_ping(ts), aws_auth_resource_type(aws_auth_resource_type), error_handler_path(char), error_handler_args(jsonb), retry(jsonb), mode(trigger_mode), labels(text[])
   FK: (workspace_id) -> workspace(id)
 trashbin: id(bigint), workspace_id(char), item_kind(char), item_path(char), item_data(jsonb), deleted_by(char), deleted_at(ts), expires_at(ts)

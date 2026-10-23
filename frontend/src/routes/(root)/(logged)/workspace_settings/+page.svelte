@@ -18,6 +18,10 @@
 		type HandlerDraft
 	} from '$lib/components/handlerDraft.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
+	import { WORKSPACE_SETTINGS_PATH } from '$lib/components/sessions/previewPaths'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 
 	import Tooltip from '$lib/components/Tooltip.svelte'
@@ -27,6 +31,7 @@
 	import { WORKSPACE_SHOW_SLACK_CMD, WORKSPACE_SHOW_WEBHOOK_CLI_SYNC } from '$lib/consts'
 	import {
 		OauthService,
+		SlackAgentsService,
 		WorkspaceService,
 		SettingService,
 		type AIConfig,
@@ -49,10 +54,13 @@
 	import { clone, emptyString, encodeState, hasUnsavedChanges } from '$lib/utils'
 	import { downloadViaClient, shouldDownloadViaClient } from '$lib/utils/downloadFile'
 	import { ExternalLink, Slack, Target } from 'lucide-svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
+	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
+	import SlackChannelAgents from '$lib/components/workspaceSettings/SlackChannelAgents.svelte'
 
 	import ChangeWorkspaceName from '$lib/components/settings/ChangeWorkspaceName.svelte'
 	import ChangeWorkspaceId from '$lib/components/settings/ChangeWorkspaceId.svelte'
@@ -70,6 +78,10 @@
 	import GitSyncSection from '$lib/components/git_sync/GitSyncSection.svelte'
 	import Trashbin from '$lib/components/settings/Trashbin.svelte'
 	import { untrack } from 'svelte'
+	import { resource } from 'runed'
+	import NativeOAuthCallback from '$lib/components/triggers/native/NativeOAuthCallback.svelte'
+	import { nativeOAuthRedirectUri } from '$lib/components/triggers/native/utils'
+	import type { NativeServiceName } from '$lib/gen'
 	import DbtSettings, {
 		convertDbtSettingsFromBackend,
 		type DbtSettingsType
@@ -88,6 +100,7 @@
 	} from '$lib/components/sessions/sessionState.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import CollapseLink from '$lib/components/CollapseLink.svelte'
+	import SlackAppSetup from '$lib/components/common/slack/SlackAppSetup.svelte'
 	import { validateWebhookUrl, validateEncryptionKey } from '$lib/validators/workspaceSettings'
 	import DataTableSettings, {
 		convertDataTableSettingsFromBackend,
@@ -97,6 +110,8 @@
 	import SettingsFooter from '$lib/components/workspaceSettings/SettingsFooter.svelte'
 	import WorkspaceRulesets from '$lib/components/workspaceSettings/WorkspaceRulesets.svelte'
 	import SettingCard from '$lib/components/instanceSettings/SettingCard.svelte'
+	import WorkspaceSettingsYaml from '$lib/components/workspaceSettings/WorkspaceSettingsYaml.svelte'
+	import { loadCopilot } from '$lib/components/copilot/loadCopilot'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -165,7 +180,19 @@
 		await goto('/user/workspaces')
 	}
 	let useCustomSlackApp: boolean = $state(false)
+	// Opt-in: Slack refuses a connection asking for a scope its app doesn't declare. An agent's page
+	// links here with `agents=true`.
+	let slackAgents = $state($page.url.searchParams.get('agents') === 'true')
 	let slackAppType: 'instance' | 'workspace' = $state('instance')
+	// Agents answer only once Windmill can verify Slack's requests with the signing secret of the
+	// app the workspace connects through.
+	let slackSigningSecret: string = $state('')
+	let slackSigningSecretSet: boolean = $state(false)
+	const slackAgentsStatus = resource(
+		() => (slackAgents ? $workspaceStore : undefined),
+		async (workspace) =>
+			workspace ? await SlackAgentsService.getSlackAgentsStatus({ workspace }) : undefined
+	)
 
 	// Keep slackAppType and useCustomSlackApp in sync
 	$effect(() => {
@@ -383,7 +410,58 @@
 	// The deploy filters configure what may be promoted into the parent, so they only mean
 	// something for a fork. A root workspace deploys nowhere by lineage.
 	const showDeployToTab = $derived(Boolean(currentWorkspace?.parent_workspace_id))
+	// The page native trigger OAuth providers redirect to. Anyone can connect an account, so the
+	// callback is handled before the admin gate.
+	const nativeOAuthService = $derived(
+		$page.url.searchParams.get('tab') === 'native_triggers' && $page.url.searchParams.has('state')
+			? ($page.url.searchParams.get('service') as NativeServiceName | null)
+			: null
+	)
 	const canAdmin = $derived(($userStore?.is_admin ?? false) || Boolean($superadmin))
+	let yamlMode = $state(false)
+	// A workspace where the user is not an admin hides the toggle, so it must not stay in YAML mode.
+	const showYaml = $derived(yamlMode && canAdmin)
+	let yamlEditor: WorkspaceSettingsYaml | undefined = $state(undefined)
+	let yamlConfirm: 'enter' | 'leave' | undefined = $state(undefined)
+
+	function paneHasUnsavedChanges() {
+		const changes = getAllUnsavedChanges()
+		return hasUnsavedChanges(changes.savedValue ?? {}, changes.modifiedValue ?? {})
+	}
+
+	// Switching mode unmounts either the editor or the current pane, so the check runs in the
+	// binding's setter, before that happens. A refused change still leaves the toggle's checkbox
+	// flipped, so the toggle is remounted to show the mode again.
+	let yamlToggleKey = $state(0)
+	function setYamlMode(on: boolean) {
+		if (on === yamlMode) return
+		if (paneHasUnsavedChanges()) {
+			yamlToggleKey++
+			yamlConfirm = on ? 'enter' : 'leave'
+			return
+		}
+		yamlMode = on
+	}
+
+	function confirmYamlSwitch() {
+		if (yamlConfirm === 'enter') {
+			discardAllChanges()
+			yamlMode = true
+		} else {
+			yamlMode = false
+		}
+		yamlConfirm = undefined
+	}
+
+	async function reloadAfterYamlApply() {
+		await Promise.all([
+			loadSettings(),
+			loadSlackOAuthConfig(),
+			WorkspaceService.listUserWorkspaces().then((w) => usersWorkspaceStore.set(w)),
+			loadCopilot($workspaceStore!)
+		])
+	}
+
 	// The creator of a fork gets the fork members screen even when they are not an admin of it:
 	// their `usr` row is copied from the parent, so forking as an ordinary developer leaves them
 	// unable to bring anyone in to collaborate. Nothing else on this page opens up — the backend
@@ -464,7 +542,8 @@
 	}
 
 	const isSlackOAuthEnabled = $derived(isSlackOAuthConfigured(oauths?.slack))
-	const isTeamsOAuthEnabled = $derived(isTeamsOAuthConfigured(oauths?.teams))
+	// TODO: drop the pre-rename `teams` fallback with the backend one.
+	const isTeamsOAuthEnabled = $derived(isTeamsOAuthConfigured(oauths?.ms_teams ?? oauths?.teams))
 
 	async function editWorkspaceCommand(platform: 'slack' | 'teams'): Promise<void> {
 		if (platform === 'slack') {
@@ -676,12 +755,8 @@
 		slack_team_name = settings.slack_name
 		teams_team_id = settings.teams_team_id
 		teams_team_name = settings.teams_team_name
-		if (settings.slack_command_script) {
-			itemKind = settings.slack_command_script.split('/')[0] as 'flow' | 'script'
-		}
-		if (settings.teams_command_script) {
-			itemKind = settings.teams_command_script.split('/')[0] as 'flow' | 'script'
-		}
+		const commandScript = settings.teams_command_script || settings.slack_command_script
+		itemKind = commandScript ? (commandScript.split('/')[0] as 'flow' | 'script') : 'flow'
 		slackScriptPath = (settings.slack_command_script ?? '').split('/').slice(1).join('/')
 		teamsScriptPath = (settings.teams_command_script ?? '').split('/').slice(1).join('/')
 		slackInitialPath = slackScriptPath
@@ -764,6 +839,8 @@
 					triggers: (settings.deploy_ui.include_type?.indexOf('trigger') ?? -1) >= 0
 				}
 			}
+		} else {
+			deployUiSettings = defaultDeployUiSettings()
 		}
 
 		// Store initial deploy settings state for unsaved changes detection
@@ -798,6 +875,7 @@
 			slackOAuthClientId = config.slack_oauth_client_id || ''
 			slackOAuthClientSecret = config.slack_oauth_client_secret || ''
 			slackOAuthConfigLoaded = !!config.slack_oauth_client_id
+			slackSigningSecretSet = !!config.slack_signing_secret
 		} catch (e) {
 			console.error('Failed to load Slack OAuth config:', e)
 		}
@@ -833,11 +911,34 @@
 					slack_oauth_client_secret: slackOAuthClientSecret
 				}
 			})
+			if (slackSigningSecret.trim()) {
+				await WorkspaceService.setWorkspaceSlackSigningSecret({
+					workspace: $workspaceStore,
+					requestBody: { slack_signing_secret: slackSigningSecret }
+				})
+			}
 
 			// Redirect to OAuth flow
-			window.location.href = `/api/oauth/connect_slack?workspace=${$workspaceStore}`
+			window.location.href = `/api/oauth/connect_slack?workspace=${$workspaceStore}${slackAgents ? '&agents=true' : ''}`
 		} catch (e) {
 			sendUserToast('Failed to save Slack OAuth configuration', true)
+			console.error(e)
+		}
+	}
+
+	async function saveSlackSigningSecret(): Promise<void> {
+		if (!$workspaceStore) return
+		const secret = slackSigningSecret.trim() || null
+		try {
+			await WorkspaceService.setWorkspaceSlackSigningSecret({
+				workspace: $workspaceStore,
+				requestBody: { slack_signing_secret: secret }
+			})
+			slackSigningSecret = ''
+			slackSigningSecretSet = !!secret
+			sendUserToast(secret ? 'Signing secret saved' : 'Signing secret removed')
+		} catch (e) {
+			sendUserToast('Failed to save the signing secret', true)
 			console.error(e)
 		}
 	}
@@ -859,6 +960,7 @@
 			slackOAuthClientId = ''
 			slackOAuthClientSecret = ''
 			slackOAuthConfigLoaded = false
+			slackSigningSecretSet = false
 			await loadSettings()
 			sendUserToast('Workspace Slack app deleted')
 		} catch (e) {
@@ -867,7 +969,7 @@
 		}
 	}
 
-	let deployUiSettings: {
+	type DeployUiSettings = {
 		include_path: string[]
 		include_type: {
 			scripts: boolean
@@ -878,18 +980,22 @@
 			secrets: boolean
 			triggers: boolean
 		}
-	} = $state({
-		include_path: [],
-		include_type: {
-			scripts: true,
-			flows: true,
-			apps: true,
-			resources: true,
-			variables: true,
-			secrets: true,
-			triggers: true
+	}
+	function defaultDeployUiSettings(): DeployUiSettings {
+		return {
+			include_path: [],
+			include_type: {
+				scripts: true,
+				flows: true,
+				apps: true,
+				resources: true,
+				variables: true,
+				secrets: true,
+				triggers: true
+			}
 		}
-	})
+	}
+	let deployUiSettings: DeployUiSettings = $state(defaultDeployUiSettings())
 
 	$effect(() => {
 		// `canAdmin` is read as a dependency, not inside untrack: $userStore is repopulated
@@ -1187,6 +1293,9 @@
 
 	// Combined function to check for unsaved changes across all tabs
 	function getAllUnsavedChanges() {
+		if (showYaml) {
+			return yamlEditor?.unsavedChanges() ?? { savedValue: {}, modifiedValue: {} }
+		}
 		switch (tab) {
 			case 'windmill_data_tables':
 				return dataTableSettingsComponent?.unsavedChanges() ?? { savedValue: {}, modifiedValue: {} }
@@ -1235,6 +1344,10 @@
 
 	// Combined function to discard changes based on current tab
 	function discardAllChanges() {
+		if (showYaml) {
+			yamlEditor?.discard()
+			return
+		}
 		switch (tab) {
 			case 'ai':
 				aiSettingsComponent?.discard()
@@ -1474,16 +1587,31 @@
 	const tabLabel = $derived(
 		navigationGroups.flatMap((g) => g.items).find((i) => i.id === tab)?.label
 	)
+
+	const sessionSource: OpenInSessionSource = $derived({
+		// Read at click time: the tab lives in the query, so the preview opens on the tab being
+		// viewed. YAML mode is component state and does not carry over.
+		page: () => WORKSPACE_SETTINGS_PATH + window.location.search,
+		workspaceId: $workspaceStore ?? undefined
+	})
 </script>
 
 <CenteredPage wrapperClasses="pb-0 h-full" handleOverflow={false} class="flex flex-col h-full">
-	{#if canAdmin || isForkOwner}
+	{#if nativeOAuthService}
+		<NativeOAuthCallback redirectUri={nativeOAuthRedirectUri(nativeOAuthService)} />
+	{:else if canAdmin || isForkOwner}
 		<!-- No title of its own: the band already says which workspace's settings these are, and the
 		     two controls that sat beside the title are the page's actions. The panes below scroll
 		     inside themselves, so the bar keeps its edge at rest rather than only under a scroll. -->
 		<PageHeaderContent
-			section={tabLabel ? { parent: 'Workspace settings', label: tabLabel } : undefined}
+			section={showYaml
+				? { parent: 'Workspace settings', label: 'YAML' }
+				: tabLabel
+					? { parent: 'Workspace settings', label: tabLabel }
+					: undefined}
 			actions={settingsActions}
+			{sessionSource}
+			actionFolds={1}
 			separator="always"
 		/>
 
@@ -1492,17 +1620,19 @@
 			<!-- The top padding belongs inside both scrollers, not above them: it is the gap under the
 			     separator at rest, and it has to travel with the content so what scrolls passes under
 			     the line rather than stopping short of it. -->
-			<div class="w-60 shrink-0 h-full overflow-auto pt-6 pb-4 pr-4 -ml-2">
-				<SidebarNavigation
-					groups={navigationGroups}
-					selectedId={tab}
-					onNavigate={(id) => {
-						const params = new URLSearchParams($page.url.searchParams)
-						params.set('tab', id)
-						goto(`?${params.toString()}`)
-					}}
-				/>
-			</div>
+			{#if !showYaml}
+				<div class="w-60 shrink-0 h-full overflow-auto pt-6 pb-4 pr-4 -ml-2">
+					<SidebarNavigation
+						groups={navigationGroups}
+						selectedId={tab}
+						onNavigate={(id) => {
+							const params = new URLSearchParams($page.url.searchParams)
+							params.set('tab', id)
+							goto(`?${params.toString()}`)
+						}}
+					/>
+				</div>
+			{/if}
 
 			<!-- Main Content -->
 			<div class="flex-1 min-w-0 h-full">
@@ -1510,6 +1640,8 @@
 					<div class="h-fit px-6 pt-6" style="scrollbar-gutter: stable both-edges;">
 						{#if !loadedSettings}
 							<Skeleton layout={[1, [40]]} />
+						{:else if showYaml}
+							<WorkspaceSettingsYaml bind:this={yamlEditor} onApplied={reloadAfterYamlApply} />
 						{:else if tab == 'users'}
 							{#if canAdmin}
 								<WorkspaceUserSettings />
@@ -1655,7 +1787,7 @@
 											}
 										}}
 										onSelect={editSlackCommand}
-										connectHref="/api/oauth/connect_slack"
+										connectHref="/api/oauth/connect_slack{slackAgents ? '?agents=true' : ''}"
 										createScriptHref="/scripts/add?hub=hub%2F28071%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
 										createFlowHref="/flows/add?hub=28"
 										documentationLink="https://www.windmill.dev/docs/integrations/slack"
@@ -1668,27 +1800,42 @@
 										{#snippet workspaceConfig()}
 											<!-- Workspace OAuth Configuration Section -->
 											{#if !slack_team_name}
-												<div class="flex flex-col gap-1">
-													<!-- Show toggle buttons for app type selection -->
-													<ToggleButtonGroup bind:selected={slackAppType}>
-														{#snippet children({ item })}
-															<ToggleButton
-																{item}
-																value="instance"
-																label="Instance specific Slack app"
-															/>
-															<ToggleButton
-																{item}
-																value="workspace"
-																label="Workspace specific Slack app"
-															/>
-														{/snippet}
-													</ToggleButtonGroup>
-													<div class="text-2xs text-hint"
-														>Use the Slack app configured at the instance level if you want to use
-														the same Slack app for all workspaces. Configure your Slack app here if
-														you want to use a specific Slack app for this workspace.</div
-													>
+												<div class="flex flex-col gap-4 pb-3">
+													<div class="flex flex-col gap-1">
+														<ToggleButtonGroup bind:selected={slackAppType}>
+															{#snippet children({ item })}
+																<ToggleButton
+																	{item}
+																	value="instance"
+																	label="Instance specific Slack app"
+																/>
+																<ToggleButton
+																	{item}
+																	value="workspace"
+																	label="Workspace specific Slack app"
+																/>
+															{/snippet}
+														</ToggleButtonGroup>
+														<div class="text-2xs text-hint"
+															>The instance app is shared by all workspaces. A workspace app is your
+															own, for this workspace only.</div
+														>
+													</div>
+													<Toggle
+														size="xs"
+														bind:checked={slackAgents}
+														options={{
+															right: 'Let AI agents answer in Slack',
+															rightTooltip:
+																'Lets editors share agents in Slack channels, where people ask them by mentioning the bot. Needs users:read, users:read.email and channels:read on the Slack app.'
+														}}
+													/>
+													{#if slackAppType === 'instance' && slackAgentsStatus.current?.signing_secret_set === false}
+														<Alert type="warning" size="xs" title="Agents won't answer yet">
+															An instance admin needs to set the Slack app's signing secret in the
+															instance settings.
+														</Alert>
+													{/if}
 												</div>
 											{/if}
 											{#if slackOAuthConfigLoaded}
@@ -1704,6 +1851,32 @@
 													/>
 													<div class="text-2xs text-hint"
 														>Client ID for the Slack app configured at the workspace level</div
+													>
+												</div>
+												<div class="flex flex-col gap-1">
+													<div class="text-xs text-primary font-normal">Signing secret</div>
+													<div class="flex gap-2">
+														<TextInput
+															inputProps={{
+																type: 'password',
+																placeholder: slackSigningSecretSet
+																	? '••••••••••••••••••••••••••••••••'
+																	: 'Enter signing secret'
+															}}
+															bind:value={slackSigningSecret}
+														/>
+														<Button
+															unifiedSize="md"
+															variant="default"
+															onclick={saveSlackSigningSecret}
+															disabled={!slackSigningSecret.trim() && !slackSigningSecretSet}
+														>
+															{slackSigningSecret.trim() || !slackSigningSecretSet ? 'Save' : 'Remove'}
+														</Button>
+													</div>
+													<div class="text-2xs text-hint"
+														>Lets Windmill check that requests come from Slack. Required for AI
+														agents; recommended for <code>/windmill</code> commands.</div
 													>
 												</div>
 											{:else if slackAppType === 'workspace'}
@@ -1730,21 +1903,23 @@
 														/>
 													</label>
 
+													<label class="flex flex-col gap-1">
+														<span class="text-primary font-semibold text-xs">Signing secret</span>
+														<TextInput
+															inputProps={{
+																type: 'password',
+																placeholder: 'Enter signing secret'
+															}}
+															bind:value={slackSigningSecret}
+														/>
+														<span class="text-2xs text-hint"
+															>Lets Windmill check that requests come from Slack. Required for AI
+															agents; recommended for <code>/windmill</code> commands.</span
+														>
+													</label>
+
 													<CollapseLink text="Instructions">
-														<div class="text-xs text-secondary">
-															Create a Slack app at{' '}
-															<a
-																href="https://api.slack.com/apps"
-																target="_blank"
-																rel="noopener noreferrer"
-																class="text-blue-600 dark:text-blue-400 hover:underline"
-															>
-																Slack API
-															</a>. Set the redirect URI to:{' '}
-															<code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">
-																{window.location.origin}/oauth/callback_slack
-															</code>
-														</div>
+														<SlackAppSetup />
 													</CollapseLink>
 
 													<div class="pt-2">
@@ -1752,7 +1927,9 @@
 															size="xs"
 															variant="accent"
 															onclick={saveAndConnectSlack}
-															disabled={!slackOAuthClientId || !slackOAuthClientSecret}
+															disabled={!slackOAuthClientId ||
+																!slackOAuthClientSecret ||
+																(slackAgents && !slackSigningSecret.trim())}
 															startIcon={{ icon: Slack }}
 															btnClasses="w-fit"
 														>
@@ -1769,6 +1946,9 @@
 											{/if}
 										{/snippet}
 									</ConnectionSection>
+									{#if slack_team_name && $workspaceStore}
+										<SlackChannelAgents workspace={$workspaceStore} />
+									{/if}
 								{:else if slack_tabs === 'teams_commands'}
 									{#if !$enterpriseLicense}
 										<div class="pt-4"></div>
@@ -2439,12 +2619,44 @@ export async function main(
 	tabMode={true}
 />
 
+<ConfirmationModal
+	open={yamlConfirm !== undefined}
+	title="Unsaved changes detected"
+	confirmationText="Discard changes"
+	onConfirmed={confirmYamlSwitch}
+	onCanceled={() => {
+		yamlConfirm = undefined
+	}}
+>
+	<span>
+		{yamlConfirm === 'enter'
+			? 'Switching to YAML mode discards the changes you made in this pane.'
+			: 'Leaving YAML mode discards the changes you made in the editor.'}
+	</span>
+</ConfirmationModal>
+
 {#snippet settingsActions()}
-	{#if $superadmin}
-		<Button variant="default" unifiedSize="sm" on:click={() => goto('#superadmin-settings')}>
-			Instance settings
-		</Button>
+	{#if canAdmin}
+		{#key yamlToggleKey}
+			<Toggle bind:checked={() => yamlMode, setYamlMode} options={{ right: 'YAML' }} size="sm" />
+		{/key}
 	{/if}
+	{#if $superadmin}
+		<!-- Goes into a menu on a phone, where the AI session button that ends the row would
+		     otherwise squeeze the breadcrumb under these controls. -->
+		{#if pageHeader.actionFold >= 1}
+			<DropdownV2
+				size="sm"
+				items={[{ displayName: 'Instance settings', action: () => goto('#superadmin-settings') }]}
+			/>
+		{:else}
+			<Button variant="default" unifiedSize="sm" on:click={() => goto('#superadmin-settings')}>
+				Instance settings
+			</Button>
+		{/if}
+	{/if}
+	<!-- No main action on this page: the session button ends the row. -->
+	<OpenInSessionButton source={sessionSource} />
 {/snippet}
 
 <style>

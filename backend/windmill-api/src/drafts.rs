@@ -16,6 +16,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use windmill_api_flows::flows::validate_operator_flow;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
+use windmill_common::roles::AuthorLevel;
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
@@ -24,7 +25,7 @@ use windmill_common::{
     users::resolve_username_to_email,
     utils::{check_proper_path, require_admin, strip_json_nul},
     variables::{build_crypt, encrypt},
-    workspaces::{operator_builder_rights, BuilderKind},
+    workspaces::operator_can_draft,
 };
 
 pub fn workspaced_service() -> Router {
@@ -110,12 +111,6 @@ async fn list_drafts(
     Path(w_id): Path<String>,
     Query(query): Query<ListDraftsQuery>,
 ) -> Result<Json<Vec<DraftListItem>>> {
-    // Without builder rights an operator has no drafts of their own (they can't write any, see
-    // `require_can_write_path`), so this list is always empty for them. They can still READ some
-    // collaborators' drafts via `/drafts/get`.
-    if authed.is_operator && !operator_builder_rights(&db, &w_id).await?.any() {
-        return Ok(Json(vec![]));
-    }
     let all_users = query.all_users.unwrap_or(false);
     // Only honor `compare_to_workspace` when it is genuinely this workspace's
     // parent (a fork comparing against its source). Any other value is dropped
@@ -476,7 +471,10 @@ async fn update_draft(
         }
     }
 
-    if authed.is_operator && kind == UserDraftItemKind::Flow {
+    // A role that composes but does not author in full is held to the composition-only rules on
+    // its drafts as on its deploys.
+    let caps = windmill_common::roles::caller_capabilities(&db, &w_id, &authed).await?;
+    if caps.flows == AuthorLevel::Compose && kind == UserDraftItemKind::Flow {
         if let Some(value) = &req.value {
             #[derive(Deserialize)]
             struct FlowDraft {
@@ -503,7 +501,7 @@ async fn update_draft(
     }
 
     // A raw-app draft carries the app value and its policy side by side.
-    if authed.is_operator && kind == UserDraftItemKind::RawApp {
+    if caps.apps == AuthorLevel::Compose && kind == UserDraftItemKind::RawApp {
         if let Some(value) = &req.value {
             let draft: serde_json::Value = serde_json::from_str(&strip_json_nul(value.0.get()))
                 .map_err(|e| Error::BadRequest(format!("Invalid app draft: {e}")))?;
@@ -1437,8 +1435,7 @@ fn table_for_kind(kind: UserDraftItemKind) -> Option<&'static str> {
 }
 
 /// Resolves to `Ok(())` if `authed` may SAVE a draft at `path`. Operators are
-/// rejected, except for flow drafts in a workspace that granted them builder
-/// rights. Two layers:
+/// rejected, except for a kind they could deploy (`operator_can_draft`). Two layers:
 ///   1. Claim-based namespace rules (admin, own `u/`, member `g/`, writable
 ///      `f/`) — mirror what RLS reads from the same JWT claims, and are the
 ///      ENTIRE check for draft-only paths (no deployed row for RLS to use).
@@ -1455,26 +1452,17 @@ pub(crate) async fn require_can_write_path(
     if authed.is_admin {
         return Ok(());
     }
-    // Operators are read-only and never WRITE drafts, except of a kind the workspace granted them
-    // the matching builder right for: a flows-only workspace must not get raw-app drafts through
-    // here. Read access is deliberately asymmetric:
-    // `require_can_read_path` has no operator block, so an operator can still READ a draft they
-    // can read via `/drafts/get`, mirroring their read access to deployed content. Intended.
-    if authed.is_operator {
-        let allowed = match kind {
-            UserDraftItemKind::Flow => Some(BuilderKind::Flows),
-            UserDraftItemKind::RawApp => Some(BuilderKind::Apps),
-            _ => None,
-        };
-        let granted = match allowed {
-            Some(kind) => operator_builder_rights(db, w_id).await?.has(kind),
-            None => false,
-        };
-        if !granted {
-            return Err(Error::PermissionDenied(
-                "operators cannot save drafts".to_string(),
-            ));
-        }
+    // Operators WRITE drafts only of a kind they could deploy: resources and variables always,
+    // flows and full-code apps under their builder right, schedules and triggers under the manage
+    // rights. The kind has to be checked, or one right would open drafts of kinds it says nothing
+    // about. Read access is deliberately asymmetric: `require_can_read_path` has no operator block,
+    // so an operator can still READ a draft they can read via `/drafts/get`, mirroring their read
+    // access to deployed content. Intended.
+    if !operator_can_draft(db, w_id, authed, kind).await? {
+        return Err(Error::PermissionDenied(format!(
+            "your role cannot save {} drafts in this workspace",
+            kind.as_str()
+        )));
     }
     // Cheap claim-based namespace checks first: they evaluate the same JWT
     // claims RLS reads, so the outcome matches the policies while sparing the

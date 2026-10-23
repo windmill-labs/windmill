@@ -1,6 +1,7 @@
 import {
 	ASSETS_PATH,
 	AUDIT_LOGS_PATH,
+	isPageKey,
 	FOLDERS_PATH,
 	GROUPS_PATH,
 	isPreviewListPath,
@@ -27,11 +28,12 @@ import {
 	type PreviewItemRoute,
 	type TriggerKind
 } from './previewPaths'
-import type { UserExt, UserWorkspace } from '$lib/stores'
-import { sidebarPageAllowed, type OperatorPageKey } from '../sidebar/operatorRoutes'
+import type { UserWorkspace } from '$lib/stores'
+import { capabilitiesIn, type CapabilitiesUser, type VisibilityKey } from '$lib/roleCapabilities'
 // Re-exported so the preview code that already reads locations through this module keeps
 // one import, while a caller needing only a path can reach for the leaf instead.
 export {
+	isPageKey,
 	pageItemListPath,
 	pageItemUrl,
 	pageKey,
@@ -86,7 +88,19 @@ export type PreviewTarget =
 	// caller that predates the View side keeps opening the editor. `version` pins the
 	// View side to one deployed version, in the query so the tab's identity stays the
 	// item's path rather than becoming the version's own hash.
-	| { type: 'item'; item: WorkspaceItem; mode?: PreviewItemMode; version?: string }
+	// `pendingRunId` hands this tab a chat tool call parked on a run form: the deployed page
+	// shows that form, and Run there answers the call instead of starting a job of its own.
+	// In the query for the same reason as `version` — the tab stays the item's, and the call
+	// is a property of this tab rather than of the item. The id alone: what the call proposed
+	// is read off the chat, since a tab's url is persisted with the session and those
+	// arguments can hold file bytes and secrets typed into the form.
+	| {
+			type: 'item'
+			item: WorkspaceItem
+			mode?: PreviewItemMode
+			version?: string
+			pendingRunId?: string
+	  }
 	| { type: 'artifact'; id: string; name: string; version?: ArtifactVersionTarget }
 	| { type: 'runform'; toolCallId: string; label: string }
 	| { type: 'pageitem'; ref: PageItemRef }
@@ -108,20 +122,20 @@ export type PreviewPage = {
 	label: string
 	path: string
 	icon: DrillIcon
-	/** The `operator_settings` key that admits an operator, as the sidebar reads it. */
-	operatorKey?: OperatorPageKey
+	/** The role visibility flag that shows the page, as the sidebar reads it. */
+	visibilityKey?: VisibilityKey
 	adminOnly?: boolean
 }
 
 /** Whether `page` loads for `user` rather than showing its "not available" state. An unknown
- * user is let through to every page but the admin-only ones. */
+ * user is held to the workspace entry's role, and kept off the admin-only pages. */
 export function previewPageAllowed(
 	page: PreviewPage,
-	user: Pick<UserExt, 'operator' | 'is_admin' | 'is_super_admin'> | undefined,
+	user: CapabilitiesUser | undefined,
 	workspace: UserWorkspace | undefined
 ): boolean {
-	if (page.adminOnly) return !!user && (user.is_admin || user.is_super_admin)
-	return !page.operatorKey || sidebarPageAllowed(user?.operator, workspace, page.operatorKey)
+	if (page.adminOnly) return !!user && (!!user.is_admin || !!user.is_super_admin)
+	return !page.visibilityKey || capabilitiesIn(user, workspace).visibility[page.visibilityKey]
 }
 
 // Core workspace-level destinations the preview can route to. Intentionally
@@ -129,15 +143,15 @@ export function previewPageAllowed(
 // EE/feature gating in SidebarContent and aren't worth duplicating here).
 export const PREVIEW_PAGES: PreviewPage[] = [
 	{ label: 'Home', path: '/', icon: Home },
-	{ label: 'Runs', path: RUNS_PATH, icon: Play, operatorKey: 'runs' },
-	{ label: 'Variables', path: VARIABLES_PATH, icon: DollarSign, operatorKey: 'variables' },
-	{ label: 'Resources', path: RESOURCES_PATH, icon: Boxes, operatorKey: 'resources' },
-	{ label: 'Schedules', path: SCHEDULES_PATH, icon: Calendar, operatorKey: 'schedules' },
-	{ label: 'Assets', path: ASSETS_PATH, icon: Database, operatorKey: 'assets' },
-	{ label: 'Folders', path: FOLDERS_PATH, icon: FolderOpen, operatorKey: 'folders' },
-	{ label: 'Groups', path: GROUPS_PATH, icon: Users, operatorKey: 'groups' },
+	{ label: 'Runs', path: RUNS_PATH, icon: Play, visibilityKey: 'runs' },
+	{ label: 'Variables', path: VARIABLES_PATH, icon: DollarSign, visibilityKey: 'variables' },
+	{ label: 'Resources', path: RESOURCES_PATH, icon: Boxes, visibilityKey: 'resources' },
+	{ label: 'Schedules', path: SCHEDULES_PATH, icon: Calendar, visibilityKey: 'schedules' },
+	{ label: 'Assets', path: ASSETS_PATH, icon: Database, visibilityKey: 'assets' },
+	{ label: 'Folders', path: FOLDERS_PATH, icon: FolderOpen, visibilityKey: 'folders' },
+	{ label: 'Groups', path: GROUPS_PATH, icon: Users, visibilityKey: 'groups' },
 	{ label: 'Workspace settings', path: WORKSPACE_SETTINGS_PATH, icon: Settings, adminOnly: true },
-	{ label: 'Audit logs', path: AUDIT_LOGS_PATH, icon: ScrollText, operatorKey: 'audit_logs' }
+	{ label: 'Audit logs', path: AUDIT_LOGS_PATH, icon: ScrollText, visibilityKey: 'audit_logs' }
 ]
 
 // The Compare & Deploy review page. Kept out of PREVIEW_PAGES (it's not a picker
@@ -554,6 +568,15 @@ export function parseRunFormRoute(url: string): { toolCallId: string; label: str
 		toolCallId: decodeURIComponent(m[1]),
 		label: m[2] ? decodeURIComponent(m[2]) : ''
 	}
+}
+
+/** The chat tool call a viewer tab was opened to answer, read off the tab's url. A deployed
+ * page tab is still the item's tab — only the call rides in its query — so this is how a tab
+ * says which call it is carrying, and re-pointing it anywhere drops the answer. */
+export function pendingRunIdOf(url: string): string | undefined {
+	const slot = resolvePreviewTab(url)
+	if (slot.kind !== 'viewer') return undefined
+	return new URL(url, 'http://x').searchParams.get('pending_run') ?? undefined
 }
 
 /** The run a `/run/<id>` location shows, in the workspace its query names (the opener's,

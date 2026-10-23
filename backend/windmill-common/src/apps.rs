@@ -34,14 +34,23 @@ pub fn app_value_has_inline_script(value: &Value) -> bool {
     }
 }
 
-/// Every workspace runnable the app value points a component at, as `(is_flow, path)`.
+/// What a path runnable of an app runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum AppRunnableKind {
+    Script,
+    Flow,
+    /// A saved AI agent (an `ai_agent` resource), run as one chat turn.
+    Agent,
+}
+
+/// Every workspace runnable the app value points a component at, as `(kind, path)`.
 ///
 /// This is what the deployed bundle actually asks `execute_component` to run: it resolves a
 /// `runnable_id` against the stored `runnables` and sends `{runType}/{path}`. The policy's
 /// triggerables are a separate surface, so both have to be authorized. Anything not plain text
 /// is refused, never skipped: the editor compares `type` loosely (`["path"] == "path"`) and
 /// interpolates `path` (`["u/x"]` → `u/x`), so a skipped entry still runs.
-pub fn app_value_runnable_paths(value: &Value) -> error::Result<Vec<(bool, String)>> {
+pub fn app_value_runnable_paths(value: &Value) -> error::Result<Vec<(AppRunnableKind, String)>> {
     let bad = |msg: String| error::Error::BadRequest(msg);
     let runnables = match value.get("runnables") {
         None | Some(Value::Null) => return Ok(vec![]),
@@ -61,14 +70,33 @@ pub fn app_value_runnable_paths(value: &Value) -> error::Result<Vec<(bool, Strin
         let Some(Value::String(path)) = runnable.get("path") else {
             return Err(bad(format!("Runnable {id} must name its path as text")));
         };
-        let is_flow = match runnable.get("runType") {
-            Some(Value::String(t)) if t == "flow" => true,
-            Some(Value::String(t)) if t == "script" || t == "hubscript" => false,
+        let kind = match runnable.get("runType") {
+            Some(Value::String(t)) if t == "flow" => AppRunnableKind::Flow,
+            Some(Value::String(t)) if t == "script" || t == "hubscript" => AppRunnableKind::Script,
+            Some(Value::String(t)) if t == "agent" => AppRunnableKind::Agent,
             _ => return Err(bad(format!("Unsupported runType for runnable {path}"))),
         };
-        out.push((is_flow, path.clone()));
+        out.push((kind, path.clone()));
     }
     Ok(out)
+}
+
+pub const RAW_APP_RUNNABLES: &str = "runnables";
+
+/// The `runnables` map of a raw app, when `value` is it. An inline script's dependency-map node
+/// id is its closest enclosing component `id`; raw app runnables carry none, so each is keyed by
+/// its name in this map instead, or a relock could not tell them apart.
+pub fn raw_app_runnables_map<'a>(
+    key: &str,
+    value: &'a Value,
+    container_id: Option<&String>,
+) -> Option<&'a serde_json::Map<String, Value>> {
+    match value {
+        Value::Object(runnables) if container_id.is_none() && key == RAW_APP_RUNNABLES => {
+            Some(runnables)
+        }
+        _ => None,
+    }
 }
 
 /// Traverse FlowValue while invoking provided by caller callback on leafs
@@ -109,7 +137,15 @@ pub fn traverse_app_inline_scripts<
                     )?;
                 }
             } else {
-                for (_, value) in object {
+                for (key, value) in object {
+                    if let Some(runnables) =
+                        raw_app_runnables_map(key, value, container_id.as_ref())
+                    {
+                        for (id, runnable) in runnables {
+                            traverse_app_inline_scripts(runnable, Some(id.clone()), cb)?;
+                        }
+                        continue;
+                    }
                     traverse_app_inline_scripts(
                         value,
                         object

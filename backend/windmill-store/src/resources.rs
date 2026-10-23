@@ -17,10 +17,11 @@ use windmill_api_auth::{
 };
 use windmill_common::db::DB;
 use windmill_common::per_minute_counter::PerMinuteCounter;
+use windmill_common::scopes::ScopeDefinition;
 use windmill_common::ssrf::{
     is_private_ip, private_git_host_allowed, private_git_host_hint, GitRemoteCaller,
 };
-use windmill_common::workspaces::{check_deploy_rules, RuleCheckResult};
+use windmill_common::workspaces::{check_deploy_rules, operator_can_draft, RuleCheckResult};
 
 use crate::secret_backend_ext::rename_vault_secret;
 use crate::var_resource_cache::{auth_identity, cache_resource, get_cached_resource};
@@ -236,6 +237,10 @@ pub struct CreateResource {
     pub labels: Option<Vec<String>>,
     #[serde(default)]
     pub ws_specific: Option<bool>,
+    /// `ai_agent` only: keep the identity `value.on_behalf_of` names, for a caller allowed to
+    /// (see `resolve_agent_on_behalf_of`).
+    #[serde(default)]
+    pub preserve_on_behalf_of: Option<bool>,
 }
 #[derive(Deserialize)]
 struct EditResource {
@@ -245,6 +250,7 @@ struct EditResource {
     resource_type: Option<String>,
     labels: Option<Vec<String>>,
     ws_specific: Option<bool>,
+    preserve_on_behalf_of: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -261,6 +267,8 @@ pub struct ListResourceQuery {
     /// When true, append per-user draft-only rows; picker callers leave it off
     /// to stay deployed-only. See list synthesis in scripts.rs.
     pub include_draft_only: Option<bool>,
+    /// Only the `ai_agent` resources the authed user starred.
+    pub starred_only: Option<bool>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -437,6 +445,14 @@ async fn list_resources(
         );
     }
 
+    if lq.starred_only.unwrap_or(false) {
+        sqlb.and_where(
+            "EXISTS(SELECT 1 FROM favorite WHERE favorite.workspace_id = resource.workspace_id \
+             AND favorite.path = resource.path AND favorite.favorite_kind = 'agent' AND favorite.usr = ?)"
+                .bind(&authed.username),
+        );
+    }
+
     if let Some(label) = &lq.label {
         for l in label.split(',') {
             sqlb.and_where(
@@ -464,7 +480,6 @@ async fn list_resources(
     // list (the resources page always passes `resource_type_exclude`); they're applied
     // per-row below against the draft JSON's `resource_type` instead.
     if lq.include_draft_only.unwrap_or(false)
-        && !authed.is_operator
         && offset == 0
         && lq.path_start.is_none()
         && lq.path.is_none()
@@ -472,6 +487,8 @@ async fn list_resources(
         && lq.value.is_none()
         && lq.broad_filter.is_none()
         && lq.label.is_none()
+        && !lq.starred_only.unwrap_or(false)
+        && operator_can_draft(&db, &w_id, &authed, UserDraftItemKind::Resource).await?
     {
         let rt_filter: Option<Vec<&str>> = lq
             .resource_type
@@ -890,18 +907,61 @@ pub async fn transform_json_value(
 /// RLS resolves a reference as the token's user, not as the token: a token scoped to one
 /// resource would otherwise read, through that resource, every variable or resource its
 /// user can. Job tokens carry no scopes, so what a runnable resolves is unaffected.
-/// `resource_path` is the resource being expanded: its own linked secrets
-/// ([`is_owned_linked_var`]) are covered by the read of it.
+/// `resource_path` is the resource being expanded: see [`check_resource_var_ref_scope`].
 fn check_interpolation_scope(
     db_with_opt_authed: &DbWithOptAuthed<'_, ApiAuthed>,
     domain: &str,
     path: &str,
     resource_path: Option<&str>,
 ) -> Result<()> {
-    match db_with_opt_authed.authed() {
-        Some(_) if resource_path.is_some_and(|r| is_owned_linked_var(r, path)) => Ok(()),
-        Some(authed) => check_scopes(authed, || format!("{domain}:read:{path}")),
-        None => Ok(()),
+    match (db_with_opt_authed.authed(), resource_path) {
+        (Some(authed), Some(r)) if domain == "variables" => {
+            check_resource_var_ref_scope(authed, r, path)
+        }
+        (Some(authed), _) => check_scopes(authed, || format!("{domain}:read:{path}")),
+        (None, _) => Ok(()),
+    }
+}
+
+/// The scope a token needs to resolve variable `var_path` referenced by resource
+/// `resource_path`: `variables:read` on it, unless it is the resource's own linked secret
+/// ([`is_owned_linked_var`]) or a wildcard pattern of the token's `resources:` scopes
+/// matches it. An exact path, or a scope naming no path at all, grants no variable: RLS
+/// lets the token resolve any variable its user can read.
+pub fn check_resource_var_ref_scope(
+    authed: &ApiAuthed,
+    resource_path: &str,
+    var_path: &str,
+) -> Result<()> {
+    if is_owned_linked_var(resource_path, var_path) {
+        return Ok(());
+    }
+    let denied = match check_scopes(authed, || format!("variables:read:{var_path}")) {
+        Ok(()) => return Ok(()),
+        Err(e) => e,
+    };
+    let required = ScopeDefinition::new("variables", "read", None, Some(vec![var_path.into()]));
+    let covered = authed.scopes.iter().flatten().any(|scope| {
+        let Ok(scope) = ScopeDefinition::from_scope_string(scope) else {
+            return false;
+        };
+        if scope.domain != "resources" {
+            return false;
+        }
+        let patterns = scope
+            .resource
+            .into_iter()
+            .flatten()
+            .filter(|r| r.contains('*'))
+            .collect::<Vec<_>>();
+        !patterns.is_empty()
+            && ScopeDefinition::new("variables", &scope.action, None, Some(patterns))
+                .includes(&required)
+    });
+    if covered {
+        Ok(())
+    } else {
+        Err(denied)
     }
 }
 
@@ -1242,7 +1302,20 @@ async fn create_resource(
         check_path_conflict(&mut tx, &w_id, &resource.path).await?;
     }
 
-    let res_value = resource.value.unwrap_or_default();
+    let mut res_value = resource.value.unwrap_or_default();
+    if resource.resource_type == "ai_agent" {
+        res_value = resolve_agent_raw_value(
+            &mut tx,
+            &authed,
+            &db,
+            &w_id,
+            &resource.path,
+            &res_value,
+            resource.preserve_on_behalf_of.unwrap_or(false),
+            true,
+        )
+        .await?;
+    }
     let raw_json = sqlx::types::Json(res_value.as_ref());
 
     if resource.path.starts_with("f/app_themes/") {
@@ -2083,9 +2156,6 @@ async fn update_resource(
     if let Some(npath) = &ns.path {
         sqlb.set_str("path", npath);
     }
-    if let Some(nvalue) = &ns.value {
-        sqlb.set_str("value", nvalue.to_string());
-    }
     if let Some(nrt) = &ns.resource_type {
         sqlb.set_str("resource_type", nrt);
     }
@@ -2155,6 +2225,15 @@ async fn update_resource(
             .await?;
 
             sqlx::query!(
+                "UPDATE native_trigger SET connection_path = $1 WHERE workspace_id = $2 AND connection_path = $3",
+                npath,
+                w_id,
+                path
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            sqlx::query!(
                 "UPDATE workspace_integrations SET resource_path = $1 WHERE workspace_id = $2 AND resource_path = $3",
                 npath,
                 w_id,
@@ -2191,6 +2270,49 @@ async fn update_resource(
             .execute(&mut *tx)
             .await?;
         }
+    }
+
+    lock_resource_row(&mut tx, &w_id, path).await?;
+    let current = sqlx::query!(
+        "SELECT resource_type, value AS \"value: sqlx::types::Json<Box<RawValue>>\"
+         FROM resource WHERE workspace_id = $1 AND path = $2",
+        &w_id,
+        path
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let resource_type = ns
+        .resource_type
+        .clone()
+        .or_else(|| current.as_ref().map(|c| c.resource_type.clone()));
+    // Retyping a resource into an agent makes its value an agent's, identity included, so it is
+    // resolved as a written one is.
+    let retyped = ns.resource_type.as_deref() == Some("ai_agent")
+        && current
+            .as_ref()
+            .is_some_and(|c| c.resource_type != "ai_agent");
+    let nvalue = match &ns.value {
+        Some(v) => Some(v.clone()),
+        None if retyped => current.and_then(|c| c.value).map(|v| v.0),
+        None => None,
+    };
+    if let Some(nvalue) = nvalue {
+        let nvalue = if resource_type.as_deref() == Some("ai_agent") {
+            resolve_agent_raw_value(
+                &mut tx,
+                &authed,
+                &db,
+                &w_id,
+                ns.path.as_deref().unwrap_or(path),
+                &nvalue,
+                ns.preserve_on_behalf_of.unwrap_or(false),
+                false,
+            )
+            .await?
+        } else {
+            nvalue
+        };
+        sqlb.set_str("value", nvalue.to_string());
     }
 
     let sql = sqlb.sql().map_err(|e| Error::internal_err(e.to_string()))?;
@@ -2362,6 +2484,110 @@ async fn update_resource_value(
     Ok(format!("value of resource {} updated", path))
 }
 
+/// Rewrites the identity an `ai_agent` runs as (`value.on_behalf_of`), resolved on every write of
+/// it as a flow's `on_behalf_of` is on every deploy. It exists only while the agent's
+/// `run_on_behalf_of` is set: then the writer's own, unless one allowed to keep the one the value
+/// names asks to, and a folder's default for a new agent. The value is written by anyone who can
+/// write the agent, so the key it arrives with is only a request.
+async fn resolve_agent_on_behalf_of(
+    tx: &mut Transaction<'_, Postgres>,
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+    path: &str,
+    value: &mut serde_json::Value,
+    preserve: bool,
+    created: bool,
+) -> Result<()> {
+    let Some(obj) = value.as_object_mut() else {
+        return Ok(());
+    };
+    let mut requested = obj
+        .remove("on_behalf_of")
+        .and_then(|v| v.as_str().map(str::to_string));
+    if obj.get("run_on_behalf_of").and_then(|v| v.as_bool()) != Some(true) {
+        return Ok(());
+    }
+    let mut preserve = preserve;
+    let explicit =
+        requested.is_some() && preserve && windmill_common::can_preserve_on_behalf_of(authed);
+    if created && !explicit && windmill_common::can_preserve_on_behalf_of(authed) {
+        if let Some((_, folder_default)) =
+            windmill_common::folders::resolve_folder_default_on_behalf_of(db, w_id, path).await?
+        {
+            requested = Some(folder_default);
+            preserve = true;
+        }
+    }
+    let own = windmill_common::users::username_to_permissioned_as(&authed.username);
+    // Nothing requested is the writer's own.
+    let resolved = windmill_common::resolve_on_behalf_of(
+        None,
+        Some(requested.as_deref().unwrap_or(&own)),
+        preserve,
+        authed,
+        w_id,
+        db,
+    )
+    .await?;
+    if let Some(resolved) = resolved.as_ref() {
+        obj.insert("on_behalf_of".to_string(), resolved.clone().into());
+    }
+    if let Some(kept) = windmill_common::check_on_behalf_of_preservation(
+        resolved.as_deref(),
+        preserve,
+        authed,
+        &own,
+    ) {
+        audit_log(
+            &mut **tx,
+            authed,
+            "resources.on_behalf_of",
+            if created {
+                ActionKind::Create
+            } else {
+                ActionKind::Update
+            },
+            w_id,
+            Some(path),
+            Some([("on_behalf_of", kept.as_str())].into()),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// Held until the write commits: whether a value is resolved as an agent's depends on the type
+/// read after this, and a concurrent retype into an agent must not land between the two.
+async fn lock_resource_row(
+    tx: &mut Transaction<'_, Postgres>,
+    w_id: &str,
+    path: &str,
+) -> Result<()> {
+    sqlx::query("SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2 FOR UPDATE")
+        .bind(w_id)
+        .bind(path)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+/// `resolve_agent_on_behalf_of` on a value as the request carried it.
+async fn resolve_agent_raw_value(
+    tx: &mut Transaction<'_, Postgres>,
+    authed: &ApiAuthed,
+    db: &DB,
+    w_id: &str,
+    path: &str,
+    value: &RawValue,
+    preserve: bool,
+    created: bool,
+) -> Result<Box<RawValue>> {
+    let mut parsed: serde_json::Value = serde_json::from_str(value.get())?;
+    resolve_agent_on_behalf_of(tx, authed, db, w_id, path, &mut parsed, preserve, created).await?;
+    Ok(serde_json::value::to_raw_value(&parsed)?)
+}
+
 /// Write a resource's value and run everything that has to follow it: a version row, the audit
 /// entry, deployment metadata, the webhook, and dependent CI tests. Shared with version restore
 /// so a restored value is indistinguishable downstream from any other edit.
@@ -2389,6 +2615,21 @@ async fn set_resource_value(
     authorize_azure_devops_reference(authed, db, user_db, w_id, value.as_ref()).await?;
 
     let mut tx = user_db.clone().begin(authed).await?;
+
+    let mut value = value;
+    if let Some(v) = value.as_mut() {
+        lock_resource_row(&mut tx, w_id, path).await?;
+        let resource_type = sqlx::query_scalar!(
+            "SELECT resource_type FROM resource WHERE workspace_id = $1 AND path = $2",
+            w_id,
+            path
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if resource_type.as_deref() == Some("ai_agent") {
+            resolve_agent_on_behalf_of(&mut tx, authed, db, w_id, path, v, false, false).await?;
+        }
+    }
 
     // `RETURNING resource_type` rather than a second lookup: the advisory below has to know the
     // type to leave `state` and `cache` alone, and this statement already runs.

@@ -81,5 +81,5 @@ jobs:
       - name: Upload dynamic libraries artifact
         uses: actions/upload-artifact@v4
         with:
-          name: windmill_duckdb_ffi_internal.dll
-          path: ./backend/windmill-duckdb-ffi-internal/target/release/windmill_duckdb_ffi_internal.dll
+          name: windmill_duckdb_runner.exe
+          path: ./backend/windmill-duckdb-ffi-internal/target/release/windmill_duckdb_runner.exe

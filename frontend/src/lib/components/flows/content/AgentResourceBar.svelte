@@ -8,8 +8,9 @@
 	import ResourcePathHint from '$lib/components/ResourcePathHint.svelte'
 	import { ResourceService, type InputTransform, type Resource } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
-	import { userStore, userWorkspaces } from '$lib/stores'
+	import { userStore, userWorkspaces, workspaceStore } from '$lib/stores'
 	import { canEditItem } from '$lib/editRights'
+	import { capabilitiesIn } from '$lib/roleCapabilities'
 	import { Bot, ChevronDown, ChevronUp, Save, Unlink, Pencil } from 'lucide-svelte'
 	import {
 		AGENT_BRAIN_KEYS,
@@ -18,6 +19,7 @@
 		flowLocalInputs,
 		inputTransformsToAgentConfig,
 		nonStaticBrainKeys,
+		providerWithOverrides,
 		summarizeAgentBrain,
 		type AIAgentConfig,
 		type AgentTool
@@ -61,7 +63,7 @@
 		flowPath = '',
 		fromAgentEditor = false,
 		chatInputEnabled = false,
-		linkedMemory = $bindable()
+		linkedAgent = $bindable()
 	}: {
 		agent: string | undefined
 		inputTransforms: Record<string, InputTransform>
@@ -80,8 +82,9 @@
 		// is the wrong way in.
 		fromAgentEditor?: boolean
 		chatInputEnabled?: boolean
-		// The linked agent's memory once its config has loaded, for the step's history inputs.
-		linkedMemory?: { memory: unknown } | undefined
+		// The linked agent's memory and provider once its config has loaded, for the step's history
+		// inputs and its overrides.
+		linkedAgent?: { memory: unknown; provider?: unknown } | undefined
 	} = $props()
 
 	let ws = $derived(opWorkspace ?? $operatingWorkspace)
@@ -226,7 +229,9 @@
 		loadedInfo?.ws === ws && loadedInfo?.path === agent ? loadedInfo : undefined
 	)
 	$effect(() => {
-		linkedMemory = linkedInfo ? { memory: linkedInfo.config?.memory } : undefined
+		linkedAgent = linkedInfo
+			? { memory: linkedInfo.config?.memory, provider: linkedInfo.config?.provider }
+			: undefined
 	})
 	let inheritedTools = $derived(linkedInfo?.tools ?? [])
 	let brainParams = $derived(summarizeAgentBrain(linkedInfo?.config))
@@ -240,7 +245,10 @@
 				agent,
 				linkedInfo?.extraPerms,
 				$userStore ?? undefined,
-				$userWorkspaces.find((w) => w.id === ws)?.operator_settings
+				capabilitiesIn(
+					ws === $workspaceStore ? $userStore : undefined,
+					$userWorkspaces.find((w) => w.id === ws)
+				)
 			)
 	)
 	// The hint flips on the first keystroke in the agent editor, so the badge does not wait for the
@@ -512,7 +520,13 @@
 				local[key] = inputTransforms[key]
 			}
 		}
-		const forkedInputs = { ...agentConfigToInputTransforms(cfg), ...local }
+		// An unlinked step sets model and effort inside `provider`, so its overrides move there.
+		const provider = providerWithOverrides(cfg.provider, inputTransforms)
+		const forkedInputs = {
+			...agentConfigToInputTransforms(cfg),
+			...(provider ? { provider } : {}),
+			...local
+		}
 		const forkedTools = cfg.tools ?? []
 		inputTransforms = forkedInputs
 		for (const tool of forkedTools) {

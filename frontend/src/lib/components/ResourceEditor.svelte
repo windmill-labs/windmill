@@ -9,6 +9,7 @@
 	} from '$lib/gen'
 	import { canEditItem } from '$lib/editRights'
 	import { userWorkspaces } from '$lib/stores'
+	import { capabilitiesIn } from '$lib/roleCapabilities'
 	import { createEventDispatcher, onDestroy, untrack } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { clearJsonSchemaResourceCache } from './schema/jsonSchemaResource.svelte'
@@ -269,8 +270,12 @@
 		path: string,
 		extraPerms: Record<string, boolean> | undefined
 	): boolean {
-		const settings = $userWorkspaces.find((w) => w.id === ws)?.operator_settings
-		return canEditItem('resource', path, extraPerms, acting.in(ws), settings)
+		const user = acting.in(ws)
+		const caps = capabilitiesIn(
+			user,
+			$userWorkspaces.find((w) => w.id === ws)
+		)
+		return canEditItem('resource', path, extraPerms, user, caps)
 	}
 
 	const dirtyWorkspaces = $derived(
@@ -652,6 +657,11 @@
 				const s = states[ws].draft!
 				const ini = initialStates[ws]
 				if (existedInitially[ws]) {
+					const fetched = fetchedResources[ws]
+					// An agent keeps the identity its value names, as its own editor keeps it: without
+					// the flag an admin's save would take it over. The backend resets it to the writer
+					// for anyone not allowed to keep it.
+					const keepAgentObo = fetched?.resource_type === 'ai_agent' && !!s.args?.on_behalf_of
 					await ResourceService.updateResource({
 						workspace: ws,
 						path: ini.path,
@@ -660,10 +670,10 @@
 							value: s.args,
 							description: s.description,
 							labels: s.labels,
-							ws_specific: s.wsSpecific
+							ws_specific: s.wsSpecific,
+							preserve_on_behalf_of: keepAgentObo ? true : undefined
 						}
 					})
-					const fetched = fetchedResources[ws]
 					if (fetched?.resource_type === 'json_schema') {
 						clearJsonSchemaResourceCache(ini.path, ws)
 					}

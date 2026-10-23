@@ -9,11 +9,13 @@
 	import { UserService, type WorkspaceInvite, WorkspaceService } from '$lib/gen'
 	import {
 		superadmin,
+		devopsRole,
 		usersWorkspaceStore,
 		userWorkspaces,
 		workspaceStore,
 		userStore,
-		getWorkspaceFromStorage
+		getWorkspaceFromStorage,
+		roleCapabilities
 	} from '$lib/stores'
 	import { Button, Skeleton } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -30,7 +32,9 @@
 		Search,
 		ChevronsDownUp,
 		ChevronsUpDown,
-		LogOut
+		LogOut,
+		Logs,
+		ServerCog
 	} from 'lucide-svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import { isValidLogoutRedirect, toSameOriginRelativePath } from '$lib/logoutRedirect'
@@ -169,17 +173,17 @@
 	let workspacesLoaded = $derived.by(
 		() => workspaces !== undefined && $usersWorkspaceStore !== undefined
 	)
-	// Not for a superadmin: this page is also where they reach the instance settings and the
-	// list-all toggle, and standing the picker down takes both away — a superadmin with no
-	// membership of their own has business here besides creating a workspace. Waiting for the
-	// store to answer rather than reading `!$superadmin`, which is true while `globalWhoami`
-	// is still in flight.
+	// Not for a superadmin or devops user: this page is also where they reach the instance
+	// settings, the list-all toggle and the instance pages, and standing the picker down takes
+	// those away — they have business here besides creating a workspace. `$devopsRole` is truthy
+	// for a superadmin too. Waiting for the store to answer rather than reading `!$devopsRole`,
+	// which is true while `globalWhoami` is still in flight.
 	let nothingToChoose = $derived(
 		workspacesLoaded &&
 			invitesLoaded &&
 			createWorkspace &&
-			$superadmin !== undefined &&
-			!$superadmin &&
+			$devopsRole !== undefined &&
+			!$devopsRole &&
 			!list_all_as_super_admin &&
 			allWorkspaces.length === 0 &&
 			invites.length === 0
@@ -206,11 +210,11 @@
 	let showCreate = $state(false)
 	$effect(() => {
 		if (nothingToChoose) showCreate = true
-		// Except for a superadmin, whom `nothingToChoose` excludes — so this only ever undoes a
-		// latch that should not have happened: one taken on a stale `false` before the forced
-		// `refreshSuperadmin` above answered. Without it that superadmin would be stuck on the
-		// create form, instance settings and the list-all toggle gone with it, until a reload.
-		else if ($superadmin) showCreate = false
+		// Except for a superadmin or devops user, whom `nothingToChoose` excludes — so this only
+		// ever undoes a latch that should not have happened: one taken on a stale `false` before
+		// the forced `refreshSuperadmin` above answered. Without it they would be stuck on the
+		// create form, with what they came here for gone with it, until a reload.
+		else if ($devopsRole) showCreate = false
 	})
 
 	async function speakFriendAndEnterWorkspace(workspaceId: string) {
@@ -232,7 +236,7 @@
 		workspaceStore.set(undefined)
 		workspaceStore.set(workspaceId)
 		$userStore = await getUserExt($workspaceStore!)
-		if (!$userStore?.is_super_admin && $userStore?.operator) {
+		if (!$roleCapabilities.code) {
 			let defaultApp = await WorkspaceService.getWorkspaceDefaultApp({
 				workspace: $workspaceStore!
 			})
@@ -516,6 +520,20 @@
 					{/each}
 				{/if}
 			{/if}
+		{/if}
+
+		<!-- A superadmin reaches these from the `admins` workspace; devops alone grants no
+		     workspace, so without this row the role's pages have no way in. -->
+		{#if !showCreate && $devopsRole && !$superadmin}
+			<h2 class="text-sm font-semibold text-emphasis mt-10 mb-2">Instance</h2>
+			<div class="flex items-center flex-wrap gap-2">
+				<Button variant="default" unifiedSize="sm" href="/workers" startIcon={{ icon: ServerCog }}>
+					Workers
+				</Button>
+				<Button variant="default" unifiedSize="sm" href="/service_logs" startIcon={{ icon: Logs }}>
+					Service logs
+				</Button>
+			</div>
 		{/if}
 
 		<!-- Settings are for someone who lives here; a user with no workspace yet has one thing

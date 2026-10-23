@@ -194,6 +194,41 @@ async fn list_guests(
     Ok(Json(GuestList { usage, guests }))
 }
 
+/// Shared while issuing an MCP OAuth grant, exclusive while revoking: no grant outlives a revoke.
+pub(crate) async fn lock_mcp_oauth_grants(
+    conn: &mut sqlx::PgConnection,
+    email: &str,
+    exclusive: bool,
+) -> std::result::Result<(), sqlx::Error> {
+    let q = if exclusive {
+        "SELECT pg_advisory_xact_lock(hashtext('mcp_oauth_grant:' || $1))"
+    } else {
+        "SELECT pg_advisory_xact_lock_shared(hashtext('mcp_oauth_grant:' || $1))"
+    };
+    sqlx::query(q).bind(email).execute(conn).await?;
+    Ok(())
+}
+
+async fn revoke_mcp_oauth_grants(tx: &mut sqlx::PgConnection, email: &str) -> Result<()> {
+    lock_mcp_oauth_grants(&mut *tx, email, true).await?;
+    // The token trigger only notifies for sessions, so evict deleted MCP access tokens explicitly.
+    sqlx::query!(
+        "WITH revoked AS (
+             DELETE FROM token WHERE email = $1 AND label LIKE 'mcp-oauth-%' RETURNING token_prefix
+         ), refresh AS (
+             DELETE FROM mcp_oauth_refresh_token WHERE user_email = $1
+         ), code AS (
+             DELETE FROM mcp_oauth_server_code WHERE user_email = $1
+         )
+         INSERT INTO notify_event (channel, payload)
+         SELECT 'notify_token_invalidation', token_prefix FROM revoked",
+        email
+    )
+    .execute(&mut *tx)
+    .await?;
+    Ok(())
+}
+
 async fn set_password(
     Extension(db): Extension<DB>,
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
@@ -215,6 +250,9 @@ async fn set_password(
     )
     .execute(&db)
     .await?;
+    let mut tx = db.begin().await?;
+    revoke_mcp_oauth_grants(&mut *tx, &email).await?;
+    tx.commit().await?;
     Ok(res)
 }
 
@@ -235,6 +273,9 @@ async fn set_password_of_user(
     )
     .execute(&db)
     .await?;
+    let mut tx = db.begin().await?;
+    revoke_mcp_oauth_grants(&mut *tx, &email).await?;
+    tx.commit().await?;
     Ok(res)
 }
 
@@ -297,8 +338,21 @@ async fn rename_user(
     // keeps a like-named member of some other workspace out of it.
     if let Some(old_username) = old_instance_username.filter(|u| *u != ru.new_username) {
         let old_principal = windmill_common::users::username_to_permissioned_as(&old_username);
-        let new_principal =
-            windmill_common::users::username_to_permissioned_as(&ru.new_username);
+        let new_principal = windmill_common::users::username_to_permissioned_as(&ru.new_username);
+        // An agent records no address, so a workspace where the name is a member's own is
+        // left to the per-workspace sweep: there the principal is that member.
+        sqlx::query(
+            "UPDATE resource SET value = jsonb_set(value, '{on_behalf_of}', to_jsonb($1::text))
+             WHERE resource_type = 'ai_agent' AND value->>'on_behalf_of' = $2
+               AND NOT EXISTS (SELECT 1 FROM usr
+                               WHERE usr.workspace_id = resource.workspace_id
+                                 AND usr.username = $3)",
+        )
+        .bind(&new_principal)
+        .bind(&old_principal)
+        .bind(&old_username)
+        .execute(&mut *tx)
+        .await?;
         sqlx::query!(
             "UPDATE app SET policy = jsonb_set(policy, ARRAY['on_behalf_of'], to_jsonb($1::text))
              WHERE policy->>'on_behalf_of' = $2 AND policy->>'on_behalf_of_email' = $3",
@@ -618,6 +672,15 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     sqlx::query!(
+        r#"UPDATE native_trigger SET connection_path = REGEXP_REPLACE(connection_path, 'u/' || $2 || '/(.*)', 'u/' || $1 || '/\1') WHERE connection_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
+        new_username,
+        old_username,
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query!(
         r#"UPDATE workspace_integrations SET resource_path = REGEXP_REPLACE(resource_path, 'u/' || $2 || '/(.*)', 'u/' || $1 || '/\1') WHERE resource_path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,
         old_username,
@@ -814,6 +877,17 @@ async fn update_username_in_workpsace<'c>(
         old_username,
         w_id
     )
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query(
+        "UPDATE resource SET value = jsonb_set(value, '{on_behalf_of}', to_jsonb('u/' || $1))
+         WHERE resource_type = 'ai_agent' AND value->>'on_behalf_of' = ('u/' || $2)
+           AND workspace_id = $3",
+    )
+    .bind(new_username)
+    .bind(old_username)
+    .bind(w_id)
     .execute(&mut **tx)
     .await?;
 
@@ -1063,6 +1137,7 @@ async fn reset_password(
     )
     .execute(&mut *tx)
     .await?;
+    revoke_mcp_oauth_grants(&mut *tx, &email).await?;
 
     // Audit log
     let audit_author = AuditAuthor {

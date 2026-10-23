@@ -1,4 +1,5 @@
 import { SvelteMap } from 'svelte/reactivity'
+import type { PendingRun } from '$lib/components/details/pendingRun'
 import { get } from 'svelte/store'
 import { invalidate as invalidateWorkspaceItems } from '$lib/components/workspacePicker'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
@@ -35,7 +36,7 @@ import {
 	react19Template,
 	STARTER_RUNNABLES
 } from '$lib/components/raw_apps/templates'
-import { operatorBuilderAppsIn, workspaceListLoaded } from '$lib/operatorWriteRights'
+import { capabilitiesInWorkspace, workspaceListLoaded } from '$lib/operatorWriteRights'
 import { random_adj } from '$lib/components/random_positive_adjetive'
 import { copilotWorkspace } from '$lib/aiStore'
 import { loadCopilot } from '$lib/components/copilot/loadCopilot'
@@ -57,6 +58,7 @@ import {
 	setSessionPreviewCollapsed,
 	setSessionPreviewSize,
 	setSessionTabs,
+	setDraftsDiscardedHandler,
 	type Session
 } from './sessionState.svelte'
 import {
@@ -77,6 +79,7 @@ import {
 	promptSafe,
 	parseRunFormRoute,
 	resolvePreviewTab,
+	pendingRunIdOf,
 	slotShowsPage,
 	type PreviewSlot
 } from './previewRouter'
@@ -248,6 +251,8 @@ export interface SessionRuntime {
 	 * viewer refetches when this changes — it reads the deployed version from the
 	 * API, so nothing else tells it the editor beside it just published. */
 	deployedRevision(kind: SessionTargetKind, path: string): number
+	/** The chat tool call a viewer tab was opened to answer, named by that tab's own url. */
+	pendingRunFor(toolCallId: string): PendingRun | undefined
 	/** Record that a preview tab landed on `url`. Fires for a newly opened tab and
 	 * for an existing one switched to the other side of its item. */
 	logTabUsage(url: string): void
@@ -302,6 +307,7 @@ export interface SessionRuntime {
 }
 
 const runtimes = new SvelteMap<string, SessionRuntime>()
+const runtimeRoots = new Map<string, () => void>()
 
 function emptyFlow(): Flow {
 	return {
@@ -588,9 +594,29 @@ function createRuntime(session: Session): SessionRuntime {
 			// Only persist a real width; undefined means "never resized" (defaults to 50).
 			if (snap.previewSize != null) setSessionPreviewSize(session.id, snap.previewSize)
 		},
+		// Closing a tab that carried a call is not a refusal: the card still has the form.
 		onTabsChanged: pruneEditorCells,
 		onTabOpened: logTabUsage
 	})
+
+	/** The call a viewer tab was opened to answer, for the page that renders it. Built from
+	 * the id the tab carries rather than from state of our own, so there is nothing to keep in
+	 * step: the tab names the call, and the manager says whether it is still waiting. */
+	function pendingRunFor(toolCallId: string): PendingRun | undefined {
+		if (!manager.isRunFormPending(toolCallId)) return undefined
+		return {
+			toolCallId,
+			// Read here, so the page's `$derived` rebuilds when the posture changes under it.
+			planModeActive: manager.planModeActive,
+			// A getter, not a value: the page reads it once, when it builds the form, and this
+			// object is rebuilt on every keystroke of the card's draft otherwise.
+			get proposedArgs() {
+				return manager.pendingRunFormArgs(toolCallId) ?? {}
+			},
+			adopt: (jobId, args, schema) => manager.handleRunFormJob(toolCallId, jobId, args, schema),
+			decline: () => manager.handleRunFormCancel(toolCallId)
+		}
+	}
 
 	// Let the jobs tray open a run in this session's preview panel (as a tab on
 	// the run's page). The global side-panel chat leaves this unset and
@@ -609,15 +635,89 @@ function createRuntime(session: Session): SessionRuntime {
 	manager.openRunForm = ({ toolCallId, label }) => {
 		previewTabs.open({ type: 'runform', toolCallId, label })
 	}
-	manager.closeRunForm = (toolCallId) => previewTabs.closeRunForm(toolCallId)
-	manager.showRunInPlaceOfForm = ({ toolCallId, jobId, workspace }) => {
-		previewTabs.retargetRunForm(toolCallId, `/run/${jobId}?workspace=${workspace}`)
+	// Show a deployed run on the item's own page. With `carries`, that page answers the call:
+	// the job its Run starts is the one the tool follows.
+	manager.openRunOnDeployedPage = ({
+		toolCallId,
+		kind,
+		path,
+		summary,
+		carries,
+		onlyIfAlreadyOpen
+	}) => {
+		// Through the shared adapter: a session target spells a code-based app `raw_app` and a
+		// workspace item spells it `app` with a flag, and one place should know that.
+		const target = previewTargetForSessionTarget(kind, path)
+		if (target?.type !== 'item') return false
+		const viewTarget = {
+			...target,
+			item: { ...target.item, summary },
+			mode: 'view' as const,
+			pendingRunId: carries ? toolCallId : undefined
+		}
+		// Re-pointed rather than focused: the url is what hands the tab the call, and
+		// rebuilding it also drops whatever version the reader had pinned.
+		const open = previewTabs.tabs.find((t) => {
+			const slot = resolvePreviewTab(t.url)
+			return slot.kind === 'viewer' && slot.viewerKind === kind && slot.path === path
+		})
+		if (open) {
+			// An unasked-for hand-off goes only to the page the reader already has in front of
+			// them. `navigate` below re-points the tab, which reloads it and rebuilds its url:
+			// on a tab they cannot see that silently drops whatever they had typed into its
+			// form and leaves the call on an off-screen page, and on a pinned one it moves them
+			// off the version they chose. Declining leaves the call on the card, which can run
+			// it. A reader who presses Preview is asking for all of that.
+			if (
+				onlyIfAlreadyOpen &&
+				(previewTabs.activeId !== open.id ||
+					previewTabs.collapsed ||
+					new URL(open.url, 'http://x').searchParams.get('version'))
+			) {
+				return false
+			}
+			previewTabs.navigate(viewTarget, open.id)
+			// `navigate` re-points a tab in place and nothing more, while the call is about to
+			// tell the reader the page is open. `open` would have brought it forward and shown
+			// the panel; this path has to do both itself.
+			previewTabs.select(open.id)
+			previewTabs.setCollapsed(false)
+		} else {
+			// Only the item's own page carries a form for this call, so a caller routing a call
+			// that was not asked to open anything gets a no rather than a new tab.
+			if (onlyIfAlreadyOpen) return false
+			previewTabs.open(viewTarget)
+		}
+		return true
 	}
-	// Read off the tab list rather than the slot's lifecycle: a tab the user has switched
-	// away from is unmounted but still open, and the card must keep its form hidden until it
-	// is closed. A resolver, like activePreviewResolver: the reader's own $derived subscribes
-	// to `tabs` through it, and the runtime is not inside an effect root to push from.
+	manager.closeRunForm = (toolCallId) => {
+		// A page carrying the call outlives it, and stops carrying it because the call stops
+		// being pending. Only the chat's own form tab, which is the call, goes with it.
+		previewTabs.closeRunForm(toolCallId)
+	}
+	manager.showRunInPlaceOfForm = ({ toolCallId, jobId, workspace }) => {
+		const runHref = `/run/${jobId}?workspace=${workspace}`
+		// Either surface the call was waiting on becomes the run it started, in place.
+		const carrying = previewTabs.tabs.find((t) => pendingRunIdOf(t.url) === toolCallId)
+		if (carrying) previewTabs.retargetById(carrying.id, runHref)
+		previewTabs.retargetRunForm(toolCallId, runHref)
+	}
+	// Both read off the tab list rather than the slot's lifecycle: a tab the user has switched
+	// away from is unmounted but still open. Resolvers, like activePreviewResolver: the
+	// reader's own $derived subscribes to `tabs` through them, and the runtime is not inside
+	// an effect root to push from. So a tab closed or re-pointed hands the card back whatever
+	// it had given up.
+	// Either surface — the chat's own form in a tab, or the item's page carrying the call.
 	manager.isRunFormInPreview = (toolCallId) =>
+		previewTabs.tabs.some(
+			(t) =>
+				parseRunFormRoute(t.url)?.toolCallId === toolCallId || pendingRunIdOf(t.url) === toolCallId
+		)
+	// The chat's own form alone. The card's form is exclusive with this one and no other:
+	// both bind the one draft, and SchemaForm reorders in place the schema it is handed, so a
+	// second mount reorders it again. A page builds its own form from a copy of the proposal
+	// and shares nothing, so the card keeps its form while a page carries the call.
+	manager.isRunFormTabOpen = (toolCallId) =>
 		previewTabs.tabs.some((t) => parseRunFormRoute(t.url)?.toolCallId === toolCallId)
 
 	manager.openArtifact = (id, name, version) => {
@@ -725,6 +825,7 @@ function createRuntime(session: Session): SessionRuntime {
 		flowCell,
 		loadedEditorPath,
 		deployedRevision,
+		pendingRunFor,
 		logTabUsage,
 
 		async loadFlow(workspace: string, path: string, force = false) {
@@ -1053,7 +1154,7 @@ function createRuntime(session: Session): SessionRuntime {
 					const user = get(userStore)
 					// A builder can save no inline runnable, so the regular starter could never be saved.
 					await workspaceListLoaded()
-					const builder = operatorBuilderAppsIn(workspace)
+					const builder = capabilitiesInWorkspace(workspace).apps === 'compose'
 					saved.val = undefined
 					store.val = {
 						files: { ...(builder ? BUILDER_FRAMEWORK_TEMPLATES.react19 : react19Template) },
@@ -1062,7 +1163,8 @@ function createRuntime(session: Session): SessionRuntime {
 						policy: {
 							on_behalf_of: user?.username.includes('@') ? user.username : `u/${user?.username}`,
 							on_behalf_of_email: user?.email,
-							execution_mode: 'publisher'
+							execution_mode: 'publisher',
+							sandbox: true
 						},
 						summary: '',
 						path,
@@ -1230,7 +1332,18 @@ async function initRuntime(runtime: SessionRuntime, session: Session) {
 export function getOrCreateRuntime(session: Session): SessionRuntime {
 	let runtime = runtimes.get(session.id)
 	if (!runtime) {
-		runtime = createRuntime(session)
+		// The manager's `$derived` fields belong to whatever effect is running when they are
+		// built. A runtime outlives the component that first asked for it (Home hands its
+		// session to /sessions and unmounts), so give it a root of its own; built inside the
+		// component, its deriveds turn inert once that component is gone.
+		let created: SessionRuntime | undefined
+		runtimeRoots.set(
+			session.id,
+			$effect.root(() => {
+				created = createRuntime(session)
+			})
+		)
+		runtime = created!
 		runtimes.set(session.id, runtime)
 		// The gate opens even when the restore fails: a session that cannot read its
 		// history is still usable, and a send that waits forever is not.
@@ -1247,6 +1360,8 @@ export function disposeRuntime(sessionId: string) {
 	runtime.manager.cancel('runtime disposed')
 	runtime.manager.historyManager.close()
 	runtimes.delete(sessionId)
+	runtimeRoots.get(sessionId)?.()
+	runtimeRoots.delete(sessionId)
 	// The sidebar reads the stored chat again rather than trust a read that
 	// predates everything this runtime saw.
 	peeks.delete(sessionId)
@@ -1374,6 +1489,8 @@ export function removeSession(sessionId: string): void {
 	disposeRuntime(sessionId)
 	deleteSessionState(sessionId)
 }
+
+setDraftsDiscardedHandler((ids) => ids.forEach(disposeRuntime))
 
 // The chat calls a new item by its chosen name while its draft is stored at
 // `draft_<uuid>`; resolve the name the way the chat's write tools do.

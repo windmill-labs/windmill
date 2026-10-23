@@ -10,6 +10,10 @@ are built from it:
   `cli/src/guidance/skills.gen.ts`, next to the `AGENTS.wmill.md` template in
   `cli/src/guidance/core.ts`.
 
+The workspace MCP server (`backend/windmill-api/src/mcp/session/`) is a third reader, one step
+removed: it serves the global chat's own `get_instructions` texts and system prompt, rendered for
+an external client by `npm run gen:mcp-session` in `frontend/`. Rerun that after `generate.py`.
+
 Guidance written in one consumer only is guidance the other never gets. Write it here.
 
 ## Structure
@@ -47,6 +51,7 @@ a CLI-only workflow file (`flow-cli.md`, `script-cli.md`, `raw-app-cli.md`).
 | workflow-as-code | `getWorkflowAsCodePrompt(lang)` | `write-workflow-as-code` | `workflow-as-code.md`, the WAC SDK |
 | pipeline | `getPipelinePrompt()` | `write-pipeline` | `pipeline-base.md` |
 | data tables | `getDatatablePrompt()` | `datatables` | `datatable.md` |
+| workspace settings | `getWorkspaceSettingsPrompt()` | `workspace-settings` | `workspace-settings.md` |
 | triggers, schedules, preview, CLI commands | — | same names | CLI only |
 
 The app chat embeds `RAW_APP_BASE` directly (`chat/app/core.ts`).

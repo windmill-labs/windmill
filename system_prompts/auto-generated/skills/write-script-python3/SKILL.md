@@ -53,6 +53,9 @@ Use `wmill resource-type list --schema` to discover available resource types.
 ## General Principles
 
 - A script's inputs are its parameters. Credentials and configuration come in as resource-typed parameters, never hard-coded or read from the environment; the language section below shows how that language declares parameters
+- When no resource type exists for a service, still take its connection as one resource-typed parameter, of a custom type holding the connection fields (base URL, account identifiers, credentials), its secret in a variable the resource references. A custom type is named `c_<name>`, which keeps it apart from a hub type synced later: the parameter takes `RT.C<Name>` in TypeScript, a `c_<name>` TypedDict in Python. A plain string parameter or a variable read inside the code only when the user asks for it: the resource keeps a connection's fields together, lets whoever runs the script pick an existing connection, and keeps the secret out of the arguments a run records. If the instance is reported as not having synced the Windmill Hub's resource types, mention that a superadmin can sync them, since the hub has types for most services. Otherwise, or when the user prefers it to syncing, propose the resource type and ask before creating it
+- A Windmill Hub script takes a resource type the hub publishes, so on an instance that has not synced the hub's types that type is missing: say so, and that a superadmin can sync them, before asking for a resource of it. Hub scripts often declare the type inline (`type Stripe = { token: string }`), which is still the `stripe` resource type; in code you write, name it the way the language section shows (`RT.Stripe` in TypeScript) rather than copying the inline declaration
+- Before relying on a resource type, a hub script's included, run `wmill resource-type list`: it shows whether the workspace has the type, and warns when the instance has not synced the hub's types
 - Libraries are installed automatically - do not show installation instructions
 - In a language with an entrypoint function (TypeScript, Python, Go, Rust, PHP, R, …), name it `main` (`Main` in C#) and do not call it; in TypeScript it must be async. SQL, GraphQL, Bash, PowerShell and Ansible scripts have no `main`: their language section shows how they take arguments
 - Where the language has a Windmill client (`wmill`), use it to interact with the platform
@@ -473,15 +476,31 @@ def get_flow_user_state(key: str) -> Any
 def version()
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-# initiate an S3 connection from DuckDB
+# initiate an S3 connection from DuckDB.
+# 
+# Without a resource path, the connection goes to the workspace storage through Windmill's
+# S3 proxy when that storage is S3: address it as ``s3://<bucket>/<key>`` with the
+# storage's own bucket, returned as ``s3_bucket``. Pass the resource path to connect with
+# the storage's own credentials instead.
 def get_duckdb_connection_settings(s3_resource_path: str = '') -> DuckDbConnectionSettings | None
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-# initiate an S3 connection from Polars
+# initiate an S3 connection from Polars.
+# 
+# Without a resource path, the connection goes to the workspace storage through Windmill's
+# S3 proxy when that storage is S3: address it as ``s3://<bucket>/<key>`` with the
+# storage's own bucket, returned as ``s3_bucket``. Pass the resource path to connect with
+# the storage's own credentials instead.
 def get_polars_connection_settings(s3_resource_path: str = '') -> PolarsConnectionSettings
 
 # Convenient helpers that takes an S3 resource as input and returns the settings necessary to
-# initiate an S3 connection using boto3
+# initiate an S3 connection using boto3.
+# 
+# Without a resource path, the connection goes to the workspace storage through Windmill's
+# S3 proxy when that storage is S3: pass the storage's own bucket as ``Bucket``. The proxy
+# serves object reads, writes, deletes, listing and multipart uploads of that bucket only;
+# presigned URLs, other buckets and bucket-level APIs need the storage's own credentials,
+# which passing the resource path returns.
 def get_boto3_connection_settings(s3_resource_path: str = '') -> Boto3ConnectionSettings
 
 # Load a file from the workspace s3 bucket and returns its content as bytes.

@@ -139,6 +139,8 @@
 		code: string
 		path: string | undefined
 		lang: Preview['language']
+		/** Identity the test runs as instead of the user (see `previewOnBehalfOf`). */
+		previewOnBehalfOf?: string
 		kind?: string | undefined
 		autoKind?: string | undefined
 		template?:
@@ -240,6 +242,7 @@
 		code = $bindable(),
 		path,
 		lang,
+		previewOnBehalfOf,
 		kind = undefined,
 		autoKind = undefined,
 		template = 'script',
@@ -994,7 +997,8 @@
 			// A `__mod` helper is tested alone, so its siblings are left out.
 			onModule ? undefined : modules,
 			undefined,
-			timeout
+			timeout,
+			{ onBehalfOf: previewOnBehalfOf }
 		)
 		if (job) {
 			onTestJob?.({ jobId: job })
@@ -2716,7 +2720,7 @@
 				{/if}
 				{#if !aiChatManager.open && !disableAi && !inSessionPane}
 					{#if customUi?.editorBar?.aiGen != false && SUPPORTED_CHAT_SCRIPT_LANGUAGES.includes(lang ?? '')}
-						<OpenInSessionButton source={sessionOpen}>
+						<OpenInSessionButton source={sessionOpen} deferToHeader>
 							{#snippet fallback()}
 								<HideButton
 									hidden={true}

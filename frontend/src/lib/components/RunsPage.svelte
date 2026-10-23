@@ -11,12 +11,10 @@
 
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate } from '$lib/utils'
-	import { userWorkspaces, superadmin, devopsRole, enterpriseLicense } from '$lib/stores'
+	import { superadmin, devopsRole, enterpriseLicense } from '$lib/stores'
 	import { useHostedPage } from '$lib/components/hostedPage'
-	import {
-		useOperatingUser,
-		useOperatingWorkspace
-	} from '$lib/components/operatingWorkspace.svelte'
+	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
+	import { useRoleCapabilities } from '$lib/operatorWriteRights'
 	import { Button, Drawer, DrawerContent, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import RunChart from '$lib/components/RunChart.svelte'
@@ -33,10 +31,12 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
-	import OpenInSessionButton from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { pageHeader } from '$lib/components/pageHeaderRegistry.svelte'
 	import { RUNS_PATH } from '$lib/components/sessions/previewPaths'
+	import OpenInSessionButton, {
+		type OpenInSessionSource
+	} from '$lib/components/sessions/OpenInSessionButton.svelte'
 	import { computeJobKinds, useJobsLoader } from '$lib/components/runs/useJobsLoader.svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
 	import BatchLoadProgress from '$lib/components/BatchLoadProgress.svelte'
@@ -83,7 +83,7 @@
 	// the filter row renders in the page, and requests go to the workspace it names.
 	const hosted = useHostedPage()
 	const operatingWorkspace = useOperatingWorkspace()
-	const operatingUser = useOperatingUser()
+	const roleCaps = useRoleCapabilities()
 
 	let paths: string[] = $state([])
 	let usernames: string[] = $state([])
@@ -152,6 +152,7 @@
 				title: string
 				confirmBtnText: string
 				loading?: boolean
+				description?: string
 				preContent?: string
 				onConfirm?: (forceCancel: boolean) => void
 				type?: ConfirmationModal['$$prop_def']['type']
@@ -177,9 +178,7 @@
 	let manualTimeframe = $derived(timeframe.type === 'manual' ? timeframe : undefined)
 
 	let graph: 'RunChart' | 'ConcurrencyChart' = $state(
-		typeOfChart(
-			(hosted ? new URLSearchParams(hosted.search) : page.url.searchParams).get('graph')
-		)
+		typeOfChart((hosted ? new URLSearchParams(hosted.search) : page.url.searchParams).get('graph'))
 	)
 	let innerWidth = $state(window.innerWidth)
 	let jobsLoader = useJobsLoader(() => ({
@@ -229,7 +228,9 @@
 	}
 
 	async function loadPaths() {
-		const npaths_scripts = await ScriptService.listScriptPaths({ workspace: $operatingWorkspace ?? '' })
+		const npaths_scripts = await ScriptService.listScriptPaths({
+			workspace: $operatingWorkspace ?? ''
+		})
 		const npaths_flows = await FlowService.listFlowPaths({ workspace: $operatingWorkspace ?? '' })
 		paths = npaths_scripts.concat(npaths_flows).sort()
 	}
@@ -437,6 +438,7 @@
 
 	async function reRunJobs(jobIdsToReRun: string[], batchReRunOptions: BatchReRunOptions) {
 		if (!$operatingWorkspace) return
+		const batching = filterMatchedIds !== undefined
 
 		if (askingForConfirmation) {
 			askingForConfirmation.loading = true
@@ -450,11 +452,14 @@
 
 		// workaround because EventSource does not support POST requests
 		// https://medium.com/@david.richards.tech/sse-server-sent-events-using-a-post-request-without-eventsource-1c0bd6f14425
-		const response = await fetch(`${OpenAPI.BASE}/w/${$operatingWorkspace}/jobs/run/batch_rerun_jobs`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(body)
-		})
+		const response = await fetch(
+			`${OpenAPI.BASE}/w/${$operatingWorkspace}/jobs/run/batch_rerun_jobs`,
+			{
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body)
+			}
+		)
 		await new Promise(async (resolve) => {
 			const reader = response?.body?.pipeThrough(new TextDecoderStream()).getReader()
 			let reRanUuids: string[] = []
@@ -486,7 +491,11 @@
 						}
 						if (reRanUuids.length !== jobIdsToReRun.length) {
 							sendUserToast(
-								`Failed to re-run ${jobIdsToReRun.length - reRanUuids.length} jobs. Check console for details`,
+								`Failed to re-run ${jobIdsToReRun.length - reRanUuids.length} jobs. Check console for details` +
+									// Only a re-run resolves its source, so these stay first in line.
+									(batching
+										? '. They stay unresolved and the next batch will try them again: resolve them to skip them'
+										: ''),
 								true
 							)
 							// We do not get explicit error from backend if the job script don't exist
@@ -509,13 +518,31 @@
 		jobsLoader?.loadJobs(true, true)
 	}
 
+	// Every failed or canceled job "Re-run all jobs matching filters" found, oldest first, so a
+	// batch limit takes the oldest ones. Re-running resolves them, so under "Hide resolved runs"
+	// the next click picks up where the previous batch stopped.
+	let filterMatchedIds: string[] | undefined = $state()
+	let rerunLimit: number | undefined = $state()
+	// The pane closes from several places, the table included; a stale match list would then
+	// offer its limit over a selection it no longer describes.
+	$effect(() => {
+		if (!batchRerunOptionsIsOpen) untrack(() => (filterMatchedIds = undefined))
+	})
+
+	function setRerunLimit(limit: number | undefined) {
+		if (!filterMatchedIds) return
+		rerunLimit = limit && limit > 0 ? limit : undefined
+		selectedIds = filterMatchedIds.slice(0, rerunLimit ?? filterMatchedIds.length)
+	}
+
 	async function onRerunAllJobsMatchingFilters() {
 		const selectedFilters = getSelectedFilters()
 		selectedIds = []
 
 		const loadingToast = sendUserToast('Loading job ids', 'info')
 
-		if (filters.val.job_kinds !== 'runs') {
+		// Selecting "runs" deletes the key, since it is the default.
+		if ((filters.val.job_kinds ?? 'runs') !== 'runs') {
 			sendUserToast('Batch re-run is only supported for scripts and flows', true)
 			loadingToast.destroy()
 			return
@@ -524,11 +551,21 @@
 		// workspace. started_at >= minTs implies completed_at >= minTs, so completedAfter adds a
 		// lossless indexed lower bound ((workspace_id, completed_at DESC)); started_at stays the
 		// exact recheck. (completedBefore is omitted: it would drop jobs that finish after maxTs.)
-		selectedIds = await JobService.listFilteredJobsUuids({
+		const ids = await JobService.listFilteredJobsUuids({
 			...selectedFilters,
 			completedAfter: selectedFilters.startedAfter,
-			jobKinds: 'script,flow'
+			orderDesc: false
 		})
+		// Batching needs both halves of its promise: only failed or canceled sources are resolved
+		// by a re-run, and only a status filter keeps the queue out of the lookup, whose union
+		// drops the ordering. Anything else re-runs every match, as one batch.
+		if (selectedFilters.status === 'failure' || selectedFilters.status === 'canceled') {
+			filterMatchedIds = ids
+			setRerunLimit(rerunLimit)
+		} else {
+			filterMatchedIds = undefined
+			selectedIds = ids
+		}
 		loadingToast.destroy()
 		batchRerunOptionsIsOpen = true
 	}
@@ -538,6 +575,10 @@
 		askingForConfirmation = {
 			title: `Confirm re-running the selected jobs`,
 			confirmBtnText: `Re-run ${jobIdsToReRun.length} jobs`,
+			// The server skips resolution for a role without `code`, which cannot resolve.
+			description: !$roleCaps.code
+				? undefined
+				: "Failed or canceled jobs among them will be marked resolved, with the new run's id as the note.",
 			type: 'reload',
 			onConfirm: async () => {
 				await reRunJobs(jobIdsToReRun, batchReRunOptions)
@@ -612,11 +653,19 @@
 	}
 	let resolutionNote = $state('')
 	// The bar folds this row (`actionFolds` below) once its breadcrumb has given all it can: first
-	// the counters, which are a glance and repeat the chart below; then the session button; then
-	// the filter field moves to a row of its own rather than shrinking past usable. Hosted, the row
-	// is the page's own and wraps instead.
+	// the counters, which are a glance and repeat the chart below; then the filter field moves to a
+	// row of its own rather than shrinking past usable. Hosted, the row is the page's own and wraps
+	// instead.
 	const fold = $derived(hosted ? 0 : pageHeader.actionFold)
-	const filterBelow = $derived(fold >= 3)
+	const filterBelow = $derived(fold >= 2)
+
+	const sessionSource: OpenInSessionSource = $derived({
+		// The filters are shallow-routed, so the search has to come off `window.location` at click
+		// time — `page.url` never sees them. Always the canonical `/runs`: only that is a recognized
+		// preview page, and the `/runs/<path>` route mirrors its path into `?path=` anyway.
+		page: () => RUNS_PATH + window.location.search,
+		workspaceId: $operatingWorkspace ?? undefined
+	})
 </script>
 
 {#snippet runsHint()}
@@ -837,19 +886,11 @@
 			items={runsTimeframes}
 			bind:value={_timeframe.val}
 		/>
-		<!-- The filters are shallow-routed, so the search has to come off `window.location` at click
-		     time — `page.url` never sees them. Always the canonical `/runs`: only that is a recognized
-		     preview page, and the `/runs/<path>` route mirrors its path into `?path=` anyway. -->
-		<div class={fold >= 2 || hosted ? 'hidden' : 'contents'}>
-			<OpenInSessionButton
-				source={{
-					page: () => RUNS_PATH + window.location.search,
-					workspaceId: $operatingWorkspace ?? undefined
-				}}
-				btnProps={{ unifiedSize: 'sm' }}
-			/>
-		</div>
 	</div>
+	{#if !hosted}
+		<!-- No main action on this page: the session button ends the row. -->
+		<OpenInSessionButton source={sessionSource} />
+	{/if}
 {/snippet}
 
 <ConfirmationModal
@@ -867,6 +908,9 @@
 		askingForConfirmation = undefined
 	}}
 >
+	{#if askingForConfirmation?.description}
+		<p class="text-xs text-secondary">{askingForConfirmation.description}</p>
+	{/if}
 	{#if askingForConfirmation?.preContent}
 		<pre>{askingForConfirmation.preContent}</pre>
 		<Toggle
@@ -914,10 +958,10 @@
 	}}
 />
 
-{#if operatingUser.current?.operator && $operatingWorkspace && !$userWorkspaces.find((_) => _.id === $operatingWorkspace)?.operator_settings?.runs}
+{#if $operatingWorkspace && !$roleCaps.visibility.runs}
 	<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4 mt-12" role="alert">
 		<p class="font-bold">Unauthorized</p>
-		<p>Page not available for operators</p>
+		<p>Page not available for your role</p>
 	</div>
 {:else}
 	<div class="w-full h-full flex flex-col" bind:clientWidth={innerWidth}>
@@ -929,9 +973,10 @@
 			<PageHeaderContent
 				afterName={runsHint}
 				actions={headerActions}
-				actionFolds={3}
+				{sessionSource}
+				actionFolds={2}
 				belowBar={filterRow}
-				belowBarFold={3}
+				belowBarFold={2}
 			/>
 		{/if}
 
@@ -1121,14 +1166,15 @@
 								action: () => {
 									manualSelectionMode = 'rerun'
 									selectedIds = []
+									filterMatchedIds = undefined
 									batchRerunOptionsIsOpen = true
 								}
 							},
-							...(!operatingUser.current?.operator
+							...($roleCaps.code
 								? [
 										{
-											// Operators are rejected by the endpoint, so offering it would only 403.
-											displayName: 'Resolve failed jobs',
+											// A role without `code` is rejected by the endpoint, so offering it would only 403.
+											displayName: 'Resolve failed or canceled jobs',
 											action: () => (
 												(manualSelectionMode = 'resolve'),
 												(selectedIds = []),
@@ -1210,7 +1256,7 @@
 				class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex flex-col items-center justify-center gap-3 p-4"
 			>
 				<p class="text-xs text-secondary text-center max-w-xs">
-					Resolving keeps the run a failure but stops it showing as one in the runs list.
+					Resolving keeps the run's status but marks it as handled in the runs list.
 				</p>
 				<TextInput
 					bind:value={resolutionNote}
@@ -1303,15 +1349,59 @@
 {/snippet}
 
 {#snippet batchRerunOptions()}
-	{#await import('$lib/components/runs/BatchReRunOptionsPane.svelte') then BatchReRunOptionsPane}
-		<BatchReRunOptionsPane.default
-			{selectedIds}
-			onCancel={() => ((batchRerunOptionsIsOpen = false), (manualSelectionMode = undefined))}
-			onConfirm={async (options) => {
-				await onReRunSelectedJobs(options)
-			}}
-		/>
-	{/await}
+	<div class="flex flex-col h-full">
+		{#if filterMatchedIds}
+			<div class="flex flex-col gap-1 pb-2 text-xs text-secondary">
+				<div class="flex flex-row items-center gap-2">
+					<span>{filterMatchedIds.length} jobs match the filters, re-run at most</span>
+					<TextInput
+						inputProps={{ type: 'number', min: 1, placeholder: 'All' }}
+						size="sm"
+						class="w-24"
+						bind:value={
+							() => rerunLimit?.toString() ?? '',
+							(v) => setRerunLimit(v ? parseInt(v.toString()) : undefined)
+						}
+					/>
+				</div>
+				{#if filters.val.resolved === 'unresolved'}
+					<span class="text-hint">
+						Oldest first. Re-run jobs are marked resolved, so the next batch starts where this one
+						stops.
+					</span>
+				{:else}
+					<div class="flex flex-row items-center gap-2 text-orange-600 dark:text-orange-400">
+						<TriangleAlertIcon size={14} class="shrink-0" />
+						<span>
+							Resolved runs are included, so the next batch will pick these same jobs again.
+						</span>
+						<Button
+							variant="default"
+							unifiedSize="xs"
+							btnClasses="shrink-0"
+							onClick={() => {
+								filters.val.resolved = 'unresolved'
+								onRerunAllJobsMatchingFilters()
+							}}
+						>
+							Hide resolved runs
+						</Button>
+					</div>
+				{/if}
+			</div>
+		{/if}
+		<div class="flex-1 min-h-0 flex flex-col">
+			{#await import('$lib/components/runs/BatchReRunOptionsPane.svelte') then BatchReRunOptionsPane}
+				<BatchReRunOptionsPane.default
+					{selectedIds}
+					onCancel={() => ((batchRerunOptionsIsOpen = false), (manualSelectionMode = undefined))}
+					onConfirm={async (options) => {
+						await onReRunSelectedJobs(options)
+					}}
+				/>
+			{/await}
+		</div>
+	</div>
 {/snippet}
 
 {#snippet jobPreview(pending?: Snippet)}

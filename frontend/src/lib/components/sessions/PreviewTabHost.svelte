@@ -100,6 +100,11 @@
 	// What a run's `Run again` hands the deployed page it opens: the run's args in the
 	// fragment, and for a dbt run the failure it could resume instead.
 	const viewerUrl = $derived(slot.kind === 'viewer' ? new URL(tab.url, 'http://x') : undefined)
+	// The chat tool call this tab was opened to answer rides in the same query. Re-pointing
+	// the tab rebuilds its url without it, so a tab sent anywhere else — another item,
+	// another version — stops carrying the call rather than answering it from a page it was
+	// never confirmed against.
+	const pendingRunId = $derived(viewerUrl?.searchParams.get('pending_run') ?? undefined)
 
 	// The path an editor reports is its deployed one, which a staged rename can make
 	// differ from this tab's — so the view opens on what actually exists.
@@ -401,6 +406,7 @@
 						kind={itemKind}
 						path={itemPath}
 						version={pinnedVersion}
+						{pendingRunId}
 						locationHash={viewerUrl?.hash}
 						dbtRetryFrom={viewerUrl?.searchParams.get('dbt_retry_from') ?? undefined}
 						{workspaceId}

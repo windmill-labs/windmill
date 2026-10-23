@@ -7,6 +7,8 @@ authors.workspace = true
 [lib]
 name = "windmill_parser_ts_asset"
 path = "./src/lib.rs"
+# src/ has no doctests: remove this line before adding one, or cargo test never runs it.
+doctest = false
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen.workspace = true

@@ -21,15 +21,16 @@
 	import SchemaForm from '../SchemaForm.svelte'
 	import RunnableJobPanelInner from '../apps/editor/RunnableJobPanelInner.svelte'
 	import JobLoader from '../JobLoader.svelte'
-	import type { Job, OpenFlow, ScriptLang } from '$lib/gen'
+	import { FlowService, JobService, type Job, type OpenFlow, type ScriptLang } from '$lib/gen'
+	import { getScriptByPath } from '$lib/scripts'
 	import { slide } from 'svelte/transition'
 	import { DebugToolbar, DebugPanel, debugState } from '$lib/components/debug'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
 	import RunButton from '$lib/components/RunButton.svelte'
-	import { userStore } from '$lib/stores'
 	import { isHubFlowPath } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
+	import { rawAppPreviewModules } from './utils'
 	import {
 		useOperatingUser,
 		useOperatingWorkspace
@@ -50,6 +51,10 @@
 		runnable: Runnable
 		id: string
 		appPath: string
+		/** All of the app's runnables, which a test run ships as modules for `./<id>` imports */
+		runnables?: Record<string, Runnable>
+		/** Identity the test runs as instead of the user (see `appPreviewOnBehalfOf`). */
+		previewOnBehalfOf?: string
 		lastDeployedCode?: string | undefined
 		/** Called when code is selected in the editor */
 		onSelectionChange?: (
@@ -63,7 +68,14 @@
 		) => void
 	}
 
-	let { runnable = $bindable(), id, appPath, onSelectionChange }: Props = $props()
+	let {
+		runnable = $bindable(),
+		id,
+		appPath,
+		runnables,
+		previewOnBehalfOf,
+		onSelectionChange
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -143,15 +155,15 @@
 	function getCtxValue(expr: string): any {
 		switch (expr) {
 			case 'username':
-				return $userStore?.username ?? ''
+				return actingUser?.username ?? ''
 			case 'email':
-				return $userStore?.email ?? ''
+				return actingUser?.email ?? ''
 			case 'groups':
 				return actingUser?.groups ?? []
 			case 'workspace':
 				return opWs ?? ''
 			case 'author':
-				return $userStore?.email ?? '' // In editor, author is the current user
+				return actingUser?.email ?? '' // In editor, author is the current user
 			default:
 				return ''
 		}
@@ -179,7 +191,15 @@
 				runnable.inlineScript?.content ?? '',
 				runnable.inlineScript?.language,
 				args,
-				undefined
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				runnables ? rawAppPreviewModules(runnables, id) : undefined,
+				undefined,
+				undefined,
+				{ onBehalfOf: previewOnBehalfOf, viewerDataAccess: runnable.viewer_data_access }
 			)
 		} else if (isRunnableByPath(runnable)) {
 			if (jobLoader && isRunnableByPath(runnable)) {
@@ -189,12 +209,58 @@
 							sendUserToast('Hub flow preview is still loading', true)
 							return
 						}
-						await jobLoader.runFlowPreview(args, hubFlowPreview, undefined, runnable.path)
+						await jobLoader.runFlowPreview(
+							args,
+							hubFlowPreview,
+							undefined,
+							runnable.path,
+							previewOnBehalfOf
+						)
+					} else if (previewOnBehalfOf) {
+						// The deployed app runs a path runnable as the app's identity, which a run
+						// by path cannot ask for: preview the deployed definition instead.
+						const flow = await FlowService.getFlowByPath({ workspace: opWs!, path: runnable.path })
+						await jobLoader.runFlowPreview(args, flow, undefined, runnable.path, previewOnBehalfOf)
 					} else {
 						await jobLoader.runFlowByPath(runnable.path, args)
 					}
+				} else if (runnable.runType == 'agent') {
+					// A turn of the agent as it is deployed, as the editor: the direct run has no way
+					// to ask for the app's identity.
+					const path = runnable.path
+					const { user_message, memory_id, user_attachments, previous_messages } = args as Record<
+						string,
+						any
+					>
+					await jobLoader.abstractRun(() =>
+						JobService.runAgent({
+							workspace: opWs!,
+							path,
+							memoryId: memory_id || undefined,
+							requestBody: { user_message, user_attachments, previous_messages }
+						})
+					)
 				} else if (runnable.runType == 'script' || runnable.runType == 'hubscript') {
-					await jobLoader.runScriptByPath(runnable.path, args)
+					if (previewOnBehalfOf) {
+						const script = await getScriptByPath(runnable.path, opWs)
+						await jobLoader.runPreview(
+							runnable.path,
+							script.content,
+							script.language,
+							args,
+							script.tag,
+							script.lock,
+							script.hash,
+							undefined,
+							undefined,
+							undefined,
+							undefined,
+							undefined,
+							{ onBehalfOf: previewOnBehalfOf }
+						)
+					} else {
+						await jobLoader.runScriptByPath(runnable.path, args)
+					}
 				}
 			}
 		}

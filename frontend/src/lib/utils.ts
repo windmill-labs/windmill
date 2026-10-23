@@ -83,13 +83,13 @@ export function isJobReRunnable(j: Job): boolean {
 	return (j.job_kind === 'script' || j.job_kind === 'flow') && j.parent_job === undefined
 }
 
-// Only a top-level failure can carry a resolution: cancellations and skipped steps are not
-// failures, and a flow step resolved on its own would render orange inside a flow whose status
-// is still red. The resolve endpoint enforces the same three conditions.
+// Only a top-level failed or canceled run can carry a resolution: successes and skipped steps
+// have nothing to handle, and a flow step resolved on its own would render orange inside a flow
+// whose status is still red. The resolve endpoint enforces the same conditions.
 // Runs obscured from another workspace stand in with `id: '-'`; they look like failures but
 // address nothing, and one reaching the endpoint fails the whole batch on UUID parsing.
 export function isJobResolvable(j: Job): j is CompletedJob {
-	return j.type === 'CompletedJob' && !j.success && !j.canceled && !j.is_flow_step && j.id !== '-'
+	return j.type === 'CompletedJob' && !j.success && !j.is_flow_step && j.id !== '-'
 }
 
 // Mirror the caps enforced by /jobs/completed/resolve, so the UI can chunk and validate
@@ -1657,7 +1657,8 @@ export type Item = {
 	href?: string
 	hrefTarget?: '_blank' | '_self' | '_parent' | '_top'
 	disabled?: boolean
-	type?: 'action' | 'delete'
+	/** `ai` sets the row in the AI colour, for an action that hands something to the assistant. */
+	type?: 'action' | 'delete' | 'ai'
 	hide?: boolean | undefined
 	extra?: Snippet
 	id?: string
