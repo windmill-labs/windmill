@@ -197,7 +197,9 @@ pub(super) async fn finish_run(
 ) -> ToolResult {
     let id = started.map_err(|e| format!("Failed to execute {action}: {}", api_message(&e)))?;
     let run_page = format!("\n\nRun page: {}", ctx.page_url(&format!("/run/{id}")));
-    let Some(job) = wait_job(ctx, &id, wait_budget(tool_args), true).await else {
+    let job = wait_job(ctx, &id, wait_budget(tool_args), true).await;
+    report_run(ctx, &id, job.as_ref());
+    let Some(job) = job else {
         return Ok(format!("{}{run_page}", backgrounded_summary(&id, label)));
     };
     let mut summary = format_result_summary(&job);
@@ -1707,11 +1709,55 @@ async fn get_run(ctx: &Ctx<'_>, args: &Value) -> ToolResult {
         ctx.get(&tree_route),
     );
     let results = results.unwrap_or_else(|_| json!({ "entries": [] }));
+    if let Ok(job) = &job {
+        report_run(ctx, id, Some(job));
+    }
     Ok(format!(
         "{}\n\nRun page: {}",
         shape_run(id, &job?, logs, &results),
         ctx.page_url(&format!("/run/{}", enc(id)))
     ))
+}
+
+/// Result head the run card shows; the full result is one click away on the run page.
+const CARD_RESULT_CHARS: usize = 1500;
+
+/// Hand the run card the run `id`, read as `job` (`None` while it is still running).
+fn report_run(ctx: &Ctx<'_>, id: &str, job: Option<&Value>) {
+    let mut run = job.map(summarize_run).unwrap_or_default();
+    run.insert("id".into(), id.into());
+    run.entry("status").or_insert("running".into());
+    if let Some(job) = job {
+        let result = job.get("result").filter(|r| !r.is_null());
+        let error = result
+            .and_then(|r| r["error"]["message"].as_str())
+            .filter(|_| job.get("success") == Some(&json!(false)));
+        if let Some(text) = error
+            .map(String::from)
+            .or_else(|| result.map(|r| format_result(Some(r))))
+        {
+            run.insert("result".into(), js_head(&text, CARD_RESULT_CHARS).into());
+        }
+        // A running flow's progress: its top-level step, 1-based, of how many.
+        let status = &job["flow_status"];
+        if let Some(modules) = status["modules"]
+            .as_array()
+            .filter(|_| job.get("success").is_none())
+        {
+            let step = status["step"].as_u64().unwrap_or(0) as usize;
+            run.insert("steps".into(), modules.len().into());
+            run.insert("step".into(), (step + 1).min(modules.len()).into());
+            if let Some(step_id) = modules.get(step).and_then(|m| m.get("id")) {
+                run.insert("step_id".into(), step_id.clone());
+            }
+        }
+    }
+    run.insert("workspace".into(), ctx.w_id.into());
+    run.insert(
+        "url".into(),
+        ctx.page_url(&format!("/run/{}", enc(id))).into(),
+    );
+    let _ = ctx.run.set(Value::Object(run));
 }
 
 /// A run as `get_run` reports it: its summary, args, result and logs around the step

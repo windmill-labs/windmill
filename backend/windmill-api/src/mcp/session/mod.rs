@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use serde::Deserialize;
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 use windmill_mcp::server::{
     BackendResult, CallToolResult, ContentBlock, ErrorData, MetaObject, SessionAccess, Tool,
     ToolAnnotations,
@@ -154,12 +154,39 @@ fn result_size_meta() -> MetaObject {
     MetaObject(meta)
 }
 
+/// The MCP Apps view a client that renders them draws a run tool's result in. It reads
+/// the run from the result's `_meta` (see `runs::report_run`) and polls `get_run`.
+pub(super) const RUN_CARD_URI: &str = "ui://windmill/run";
+const RUN_CARD_HTML: &str = include_str!("run_card.html");
+const RUN_CARD_TOOLS: &[&str] = &[
+    "run_script",
+    "run_flow",
+    "test_run_script",
+    "test_run_flow",
+    "get_run",
+];
+
+/// The `ui://` views the session's tools render in, as `(uri, html)`.
+pub(super) fn session_views() -> &'static [(&'static str, &'static str)] {
+    &[(RUN_CARD_URI, RUN_CARD_HTML)]
+}
+
 pub(super) fn session_tools(access: SessionAccess) -> Vec<Tool> {
     TOOL_DEFS
         .iter()
         .filter(|def| implemented().any(|name| name == def.name))
         .filter(|def| allowed(def, access))
         .map(|def| {
+            let name = def.name.as_str();
+            let mut meta = result_size_meta();
+            if RUN_CARD_TOOLS.contains(&name) {
+                meta.0
+                    .insert("ui".into(), json!({ "resourceUri": RUN_CARD_URI }));
+            } else if DESTRUCTIVE.contains(&name) {
+                // A view acts as the user with no one confirming, so none may deploy or delete.
+                meta.0
+                    .insert("ui".into(), json!({ "visibility": ["model"] }));
+            }
             Tool::new(
                 def.name.clone(),
                 def.description.clone(),
@@ -168,9 +195,9 @@ pub(super) fn session_tools(access: SessionAccess) -> Vec<Tool> {
             .with_annotations(
                 ToolAnnotations::new()
                     .read_only(def.read_only)
-                    .destructive(DESTRUCTIVE.contains(&def.name.as_str())),
+                    .destructive(DESTRUCTIVE.contains(&name)),
             )
-            .with_meta(result_size_meta())
+            .with_meta(meta)
         })
         .collect()
 }
@@ -189,6 +216,9 @@ pub(super) struct Ctx<'a> {
     /// Minted once per tool call: every JWT the API sees is cached by the auth layer, and a
     /// tool can make dozens of calls, which would evict other users' cached sessions.
     pub jwt: tokio::sync::OnceCell<String>,
+    /// The run a run tool started or read, for the run card: returned in the result's
+    /// `_meta`, which the model never reads.
+    pub run: std::sync::OnceLock<Value>,
 }
 
 impl Ctx<'_> {
@@ -541,7 +571,7 @@ pub(super) async fn call_session_tool(
         ));
     };
     windmill_common::feature_usage::log_feature_usage("mcp_workspace", "tool_call", name);
-    Ok(match result {
+    let mut result = match result {
         Ok(text) => CallToolResult::success(vec![ContentBlock::text(text)]),
         // Without the status code `Ctx` prefixes an API failure with, as the session reads it.
         Err(message) => {
@@ -549,7 +579,14 @@ pub(super) async fn call_session_tool(
             let text = if body.is_empty() { &message } else { body };
             CallToolResult::error(vec![ContentBlock::text(text.to_string())])
         }
-    })
+    };
+    if let Some(run) = ctx.run.get() {
+        result.meta = Some(MetaObject(Map::from_iter([(
+            "windmill/run".to_string(),
+            run.clone(),
+        )])));
+    }
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -599,7 +636,7 @@ mod tests {
                 "session tool `{name}` must be implemented here or listed in EDITOR_ONLY, not both"
             );
         }
-        for name in implemented.iter().chain(EDITOR_ONLY) {
+        for name in implemented.iter().chain(EDITOR_ONLY).chain(RUN_CARD_TOOLS) {
             assert!(
                 TOOL_DEFS.iter().any(|def| def.name == *name),
                 "`{name}` is not a session tool any more"

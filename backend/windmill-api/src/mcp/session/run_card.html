@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Windmill run</title>
+<!--
+  The MCP Apps view of a run tool's result (`ui://windmill/run`). It holds no credential:
+  it reads the run from the result's `_meta["windmill/run"]` and refreshes it by calling
+  `get_run` through the host, as the user the connection belongs to. Everything it shows
+  is set as text, never as markup: a run's result is whatever its script returned.
+-->
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: var(--color-background-primary, #ffffff);
+    --bg-2: var(--color-background-secondary, #f5f4ed);
+    --fg: var(--color-text-primary, #141413);
+    --fg-2: var(--color-text-secondary, #3d3d3a);
+    --fg-3: var(--color-text-tertiary, #73726c);
+    --line: var(--color-border-tertiary, rgba(31, 30, 29, 0.15));
+    --info-bg: var(--color-background-info, #d6e4f6);
+    --info-fg: var(--color-text-info, #3266ad);
+    --ok-bg: var(--color-background-success, #e9f1dc);
+    --ok-fg: var(--color-text-success, #265b19);
+    --bad-bg: var(--color-background-danger, #f7ecec);
+    --bad-fg: var(--color-text-danger, #7f2c28);
+    --inv-bg: var(--color-background-inverse, #141413);
+    --inv-fg: var(--color-text-inverse, #ffffff);
+    --radius: var(--border-radius-md, 8px);
+    --sans: var(--font-sans, system-ui, -apple-system, sans-serif);
+    --mono: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: var(--color-background-primary, #30302e);
+      --bg-2: var(--color-background-secondary, #262624);
+      --fg: var(--color-text-primary, #faf9f5);
+      --fg-2: var(--color-text-secondary, #c2c0b6);
+      --fg-3: var(--color-text-tertiary, #9c9a92);
+      --line: var(--color-border-tertiary, rgba(222, 220, 209, 0.15));
+      --info-bg: var(--color-background-info, #253e5f);
+      --info-fg: var(--color-text-info, #80aadd);
+      --ok-bg: var(--color-background-success, #1b4614);
+      --ok-fg: var(--color-text-success, #7ab948);
+      --bad-bg: var(--color-background-danger, #602a28);
+      --bad-fg: var(--color-text-danger, #ee8884);
+      --inv-bg: var(--color-background-inverse, #faf9f5);
+      --inv-fg: var(--color-text-inverse, #141413);
+    }
+  }
+  html, body { margin: 0; background: transparent; }
+  body { font: 14px/1.4 var(--sans); color: var(--fg); }
+  .card { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; }
+  .head { display: flex; align-items: flex-start; gap: 12px; }
+  .title { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .path { font: 600 14px/1.3 var(--mono); overflow-wrap: anywhere; }
+  .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-3); }
+  .ws { background: var(--bg-2); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; color: var(--fg-2); font-weight: 500; }
+  .pill { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; background: var(--info-bg); color: var(--info-fg); }
+  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .pill.success { background: var(--ok-bg); color: var(--ok-fg); }
+  .pill.failure, .pill.canceled, .pill.not_started { background: var(--bad-bg); color: var(--bad-fg); }
+  .step { font-size: 13px; color: var(--fg-2); }
+  .step code { font-family: var(--mono); }
+  pre { margin: 0; padding: 10px 12px; border-radius: var(--radius); background: var(--bg-2); font: 12px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: hidden; }
+  pre.error { background: var(--bad-bg); color: var(--bad-fg); }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  button { font: 600 13px var(--sans); min-height: 32px; padding: 0 12px; border-radius: var(--radius); cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--fg); }
+  button.primary { background: var(--inv-bg); color: var(--inv-fg); border-color: transparent; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main class="card" aria-live="polite">
+  <div class="head">
+    <div class="title">
+      <div class="path" id="path">Windmill run</div>
+      <div class="meta">
+        <span class="ws" id="ws" hidden></span>
+        <span id="kind"></span>
+        <span id="duration"></span>
+      </div>
+    </div>
+    <span class="pill" id="status">Starting</span>
+  </div>
+  <div class="step" id="step" hidden></div>
+  <pre id="result" hidden></pre>
+  <div class="actions">
+    <button class="primary" id="open" hidden>Open in Windmill</button>
+    <button id="cancel" hidden>Cancel run</button>
+  </div>
+</main>
+<script>
+(() => {
+  const POLL_MS = 2000;
+  const MAX_POLL_MS = 30 * 60 * 1000;
+  const RUNNING = ['running', 'queued', 'suspended'];
+  const LABELS = {
+    running: 'Running', queued: 'Queued', suspended: 'Waiting', success: 'Success',
+    failure: 'Failed', canceled: 'Canceled', skipped: 'Skipped', not_started: 'Not started',
+    step: 'Step result'
+  };
+  const $ = (id) => document.getElementById(id);
+
+  let nextId = 1;
+  const pending = new Map();
+  let toolArgs = {};
+  let run = null;
+  let pollStarted = 0;
+  let pollTimer = null;
+  let tickTimer = null;
+
+  function post(message) {
+    window.parent.postMessage({ jsonrpc: '2.0', ...message }, '*');
+  }
+  function request(method, params) {
+    const id = nextId++;
+    post({ id, method, params });
+    return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+  }
+
+  function formatMs(ms) {
+    if (ms == null || ms < 0) return '';
+    if (ms < 1000) return `${Math.round(ms)}ms`;
+    const s = ms / 1000;
+    if (s < 60) return `${s.toFixed(1)}s`;
+    return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
+  }
+
+  function elapsed() {
+    if (!run) return '';
+    if (run.duration_ms != null) return formatMs(run.duration_ms);
+    if (run.started_at && RUNNING.includes(run.status)) {
+      return formatMs(Date.now() - Date.parse(run.started_at));
+    }
+    return '';
+  }
+
+  function render() {
+    const status = run?.status ?? 'running';
+    const path = run?.path ?? toolArgs.path;
+    $('path').textContent = path || (run?.id ? `Run ${run.id.slice(0, 8)}` : 'Windmill run');
+    const ws = run?.workspace ?? toolArgs.workspace_id;
+    $('ws').hidden = !ws;
+    $('ws').textContent = ws || '';
+    $('kind').textContent = run?.job_kind ? run.job_kind.replace(/preview$/, ' test') : '';
+    $('duration').textContent = elapsed();
+    const pill = $('status');
+    pill.className = `pill ${status}`;
+    pill.textContent = run ? (LABELS[status] ?? status) : 'Starting';
+
+    const running = RUNNING.includes(status);
+    const step = $('step');
+    step.hidden = !(running && run?.steps);
+    if (!step.hidden) {
+      step.textContent = `Step ${run.step} of ${run.steps}`;
+      if (run.step_id) {
+        const code = document.createElement('code');
+        code.textContent = run.step_id;
+        step.append(' · ', code);
+      }
+    }
+
+    const result = $('result');
+    result.hidden = running || run?.result == null;
+    result.textContent = run?.result ?? '';
+    result.classList.toggle('error', status === 'failure' || status === 'not_started');
+
+    $('open').hidden = !run?.url;
+    $('cancel').hidden = !(running && run?.id);
+    window.clearInterval(tickTimer);
+    if (running && run?.started_at) tickTimer = window.setInterval(() => {
+      $('duration').textContent = elapsed();
+    }, 1000);
+  }
+
+  // A tool result without a run, shown as the model got it: a call that started nothing,
+  // or a `get_run` drilling into one step.
+  function renderText(result) {
+    const text = (result.content ?? []).filter((c) => c.type === 'text').map((c) => c.text).join('\n');
+    const inspected = toolArgs.id && !result.isError;
+    run = { status: inspected ? 'step' : 'not_started', result: text.slice(0, 1500) };
+    render();
+  }
+
+  function onResult(result) {
+    const next = result?._meta?.['windmill/run'];
+    if (!next) {
+      if (!run?.id) renderText(result ?? {});
+      return;
+    }
+    run = next;
+    render();
+    window.clearTimeout(pollTimer);
+    if (RUNNING.includes(run.status) && Date.now() - pollStarted < MAX_POLL_MS) {
+      pollTimer = window.setTimeout(poll, POLL_MS);
+    }
+  }
+
+  async function poll() {
+    if (!run?.id) return;
+    try {
+      onResult(await request('tools/call', {
+        name: 'get_run',
+        arguments: { workspace_id: run.workspace, id: run.id }
+      }));
+    } catch {
+      pollTimer = window.setTimeout(poll, POLL_MS * 2);
+    }
+  }
+
+  function applyContext(context) {
+    if (!context) return;
+    if (context.theme) document.documentElement.dataset.theme = context.theme;
+    for (const [name, value] of Object.entries(context.styles?.variables ?? {})) {
+      if (value) document.documentElement.style.setProperty(name, value);
+    }
+  }
+
+  $('open').addEventListener('click', () => {
+    if (run?.url) request('ui/open-link', { url: run.url }).catch(() => {});
+  });
+  $('cancel').addEventListener('click', async () => {
+    const button = $('cancel');
+    button.disabled = true;
+    try {
+      await request('tools/call', {
+        name: 'cancel_job',
+        arguments: { workspace_id: run.workspace, id: run.id }
+      });
+    } catch {}
+    button.disabled = false;
+    window.clearTimeout(pollTimer);
+    poll();
+  });
+
+  window.addEventListener('message', (event) => {
+    if (event.source !== window.parent) return;
+    const message = event.data;
+    if (!message || message.jsonrpc !== '2.0') return;
+    if (message.id != null && pending.has(message.id) && !message.method) {
+      const { resolve, reject } = pending.get(message.id);
+      pending.delete(message.id);
+      if (message.error) reject(message.error); else resolve(message.result);
+      return;
+    }
+    switch (message.method) {
+      case 'ui/notifications/tool-input':
+        toolArgs = message.params?.arguments ?? {};
+        render();
+        break;
+      case 'ui/notifications/tool-result':
+        pollStarted = Date.now();
+        onResult(message.params);
+        break;
+      case 'ui/notifications/tool-cancelled':
+        if (!run?.id) {
+          run = { status: 'not_started', result: message.params?.reason ?? null };
+          render();
+        }
+        break;
+      case 'ui/notifications/host-context-changed':
+        applyContext(message.params);
+        break;
+      case 'ui/resource-teardown':
+        window.clearTimeout(pollTimer);
+        window.clearInterval(tickTimer);
+        if (message.id != null) post({ id: message.id, result: {} });
+        break;
+    }
+  });
+
+  new ResizeObserver(() => {
+    post({
+      method: 'ui/notifications/size-changed',
+      params: { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight }
+    });
+  }).observe(document.body);
+
+  request('ui/initialize', {
+    protocolVersion: '2026-01-26',
+    appInfo: { name: 'windmill-run-card', version: '1.0.0' },
+    appCapabilities: { availableDisplayModes: ['inline'] }
+  }).then((result) => {
+    applyContext(result?.hostContext);
+    post({ method: 'ui/notifications/initialized', params: {} });
+  }).catch(() => {});
+
+  render();
+})();
+</script>
+</body>
+</html>
