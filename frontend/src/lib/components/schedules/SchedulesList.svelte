@@ -34,9 +34,9 @@
 		Play,
 		Plus,
 		SearchX,
-		Shield,
 		Trash,
-		TriangleAlert
+		TriangleAlert,
+		UserPlus
 	} from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -658,8 +658,8 @@
 							}
 						},
 						{
-							displayName: 'Permissions',
-							icon: Shield,
+							displayName: 'Share',
+							icon: UserPlus,
 							action: () => {
 								shareModal?.openDrawer(path, 'schedule')
 							}

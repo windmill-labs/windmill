@@ -71,7 +71,6 @@
 		Loader2,
 		Pen,
 		ChevronUpSquare,
-		Shield,
 		Trash,
 		Play,
 		ClipboardCopy,
@@ -719,14 +718,6 @@
 			}
 		})
 
-		menuItems.push({
-			label: 'Permissions',
-			Icon: Shield,
-			onclick: () => {
-				shareModal?.openDrawer(script?.path ?? '', 'script')
-			}
-		})
-
 		if (!$disableHubStore) {
 			menuItems.push({
 				label: 'Publish to Hub',
@@ -845,7 +836,7 @@
 
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
 <PersistentScriptDrawer bind:this={persistentScriptDrawer} />
-<ShareModal bind:this={shareModal} />
+<ShareModal bind:this={shareModal} source="detail" />
 
 <Drawer bind:open={versionsDrawerOpen} size="1200px">
 	<DrawerContent title="Versions History" on:close={() => (versionsDrawerOpen = false)} noPadding>
@@ -871,6 +862,9 @@
 				ownsPageHeader={!embedded}
 				{mainButtons}
 				menuItems={getMenuItems(script, deployUiSettings)}
+				onShare={script && caps.code
+					? () => shareModal?.openDrawer(script?.path ?? '', 'script')
+					: undefined}
 				bind:errorHandlerMuted={
 					() => script?.ws_error_handler_muted ?? false,
 					(v) => {

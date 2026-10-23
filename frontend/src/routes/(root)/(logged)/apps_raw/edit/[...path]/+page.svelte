@@ -23,6 +23,7 @@
 	} from '$lib/components/raw_apps/dataTableRefUtils'
 	import { importStore } from '$lib/components/apps/store'
 	import { UserDraft, draftValuesEqual } from '$lib/userDraft.svelte'
+	import { withoutSharedPolicySettings } from '$lib/components/apps/editor/appDraftSettings'
 	import { UserDraftDbSyncer } from '$lib/userDraftDbSyncer.svelte'
 	import { usePageDraftSync } from '$lib/components/usePageDraftSync.svelte'
 	import { OtherUserDraftLoad } from '$lib/components/otherUserDraftLoad.svelte'
@@ -129,12 +130,15 @@
 		void summary
 		void pendingDraftPath
 		void pendingDraftSettings
+		// Who can open a deployed app is set from the Share dialog, not drafted; the custom URL is
+		// the deployed one.
+		const deployed = deployedBaseline !== undefined
 		draftSync.draft = {
 			files: currentFiles,
 			runnables,
 			data,
 			summary,
-			policy,
+			policy: deployed ? withoutSharedPolicySettings(policy) : policy,
 			custom_path: savedApp?.custom_path,
 			labels: pendingDraftSettings ? pendingDraftSettings.labels : (labels ?? []),
 			parent_version: parentVersion,
@@ -366,7 +370,7 @@
 						runnables: backendApp.value?.runnables ?? {},
 						data: extractDataConfig(backendApp.value) ?? { ...DEFAULT_DATA },
 						summary: backendApp.summary ?? '',
-						policy: backendApp.policy,
+						policy: withoutSharedPolicySettings(backendApp.policy),
 						custom_path: backendApp.custom_path,
 						labels: backendApp.labels ?? [],
 						parent_version: parentVersion
@@ -413,9 +417,13 @@
 				data: savedRawAppDraft.data ?? backendApp.value?.data
 			}
 			if (savedRawAppDraft.summary !== undefined) backendApp.summary = savedRawAppDraft.summary
-			if (savedRawAppDraft.policy !== undefined) backendApp.policy = savedRawAppDraft.policy
-			if (savedRawAppDraft.custom_path !== undefined)
-				backendApp.custom_path = savedRawAppDraft.custom_path
+			// Who can open the app and its custom URL stay the deployed ones: a draft saved before
+			// a Share change must not revert it.
+			if (savedRawAppDraft.policy !== undefined)
+				backendApp.policy = {
+					...savedRawAppDraft.policy,
+					execution_mode: backendApp.policy.execution_mode
+				}
 			if (savedRawAppDraft.labels !== undefined) backendApp.labels = savedRawAppDraft.labels
 		}
 		const backendApp_ = structuredClone(stateSnapshot(backendApp))
@@ -424,7 +432,8 @@
 			value: backendApp_.value as any,
 			path: backendApp_.path,
 			// The deployed policy, not the draft's swapped in above: the header and the settings
-			// measure what a deploy changes against it.
+			// measure what a deploy changes against it. A deployed app's custom path is never
+			// swapped in, so the row's is the deployed one.
 			policy: deployedBaseline
 				? structuredClone(stateSnapshot(deployedBaseline.policy))
 				: backendApp_.policy,
@@ -474,7 +483,7 @@
 						runnables,
 						data,
 						summary,
-						policy,
+						policy: deployedBaseline ? withoutSharedPolicySettings(policy) : policy,
 						custom_path: savedApp?.custom_path,
 						labels: labels ?? [],
 						parent_version: parentVersion,

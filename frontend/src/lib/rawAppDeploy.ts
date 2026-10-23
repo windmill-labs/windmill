@@ -10,14 +10,12 @@
  * files, then createAppRaw/updateAppRaw. The source→AppDraftValue projection is
  * shared via `rawAppDraftValue` so the two deploy paths can't drift.
  */
-import { get } from 'svelte/store'
 import { AppService } from '$lib/gen'
 import type { Policy } from '$lib/gen'
-import { userStore } from '$lib/stores'
 import { bundleRawAppDraft } from '$lib/components/copilot/chat/global/rawAppBundlerBridge'
 import type { AppDraftValue } from '$lib/components/copilot/chat/global/workspaceItems'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
-import { policyForUpdate } from '$lib/components/apps/editor/publishAccessMode'
+import { withoutSharedPolicySettings } from '$lib/components/apps/editor/appDraftSettings'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import {
 	appSourceToDraftValue,
@@ -35,7 +33,6 @@ export async function deployRawAppValue({
 	value,
 	summary,
 	policy: currentPolicy,
-	customPath,
 	deploymentMessage,
 	allowKindChange
 }: {
@@ -44,7 +41,6 @@ export async function deployRawAppValue({
 	value: any
 	summary?: string
 	policy?: Policy
-	customPath?: string | null
 	deploymentMessage?: string
 	/** Let this deploy turn a low-code app into a raw one. Off for every ordinary
 	 * deploy — see the backend's `allow_kind_change`. */
@@ -58,13 +54,9 @@ export async function deployRawAppValue({
 	// The value carries the runnables, so the policy's triggerables have to be
 	// recomputed from it or the deployed app can't call what it now contains.
 	const policy = (await updateRawAppPolicy(runnables, currentPolicy)) as Policy
-	if (!policy.execution_mode) {
-		policy.execution_mode = 'publisher'
-	}
 
 	const bundle = await bundleRawAppDraft({ workspace, files })
 
-	const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
 	await AppService.updateAppRaw({
 		workspace,
 		path,
@@ -74,10 +66,12 @@ export async function deployRawAppValue({
 				// version can still carry the pre-`data` datatable shapes.
 				value: { files, runnables, data: normalizeRawAppData(plainValue) },
 				summary: summary ?? '',
-				policy,
+				// Without the mode, which the Share dialog sets: the server keeps the deployed one,
+				// read under the row lock a mode change also takes.
+				policy: withoutSharedPolicySettings(policy),
 				deployment_message: deploymentMessage,
-				// custom_path changes require admin (see deployRawAppDraft).
-				custom_path: isAdmin ? (customPath ?? '') : undefined,
+				// Absent keeps the custom URL, which the Share dialog sets.
+				custom_path: undefined,
 				preserve_on_behalf_of: policy.on_behalf_of ? true : undefined,
 				allow_kind_change: allowKindChange || undefined
 			},
@@ -126,13 +120,8 @@ export async function deployRawAppDraft(
 	const summary = value.summary ?? ''
 
 	if (await AppService.existsApp({ workspace, path })) {
-		// custom_path changes require admin. Mirror RawAppEditorHeader's update path:
-		// admins send the draft's value (`''` to clear), non-admins send undefined so
-		// the backend ignores it and preserves the existing route — otherwise a
-		// non-admin deploying a draft for an app that has a custom route would hit
-		// RequireAdmin (the deployed custom_path is sent via the appSourceToDraftValue
-		// fallback even when unchanged).
-		const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
+		// Who can open the app and its custom URL are set from the Share dialog: the update states
+		// neither, and the server keeps the deployed ones.
 		await AppService.updateAppRaw({
 			workspace,
 			path,
@@ -141,9 +130,9 @@ export async function deployRawAppDraft(
 					path: targetPath,
 					value: rawAppValue,
 					summary,
-					policy: policyForUpdate(policy),
+					policy: withoutSharedPolicySettings(policy),
 					deployment_message: deploymentMessage,
-					custom_path: isAdmin ? (value.custom_path ?? '') : undefined,
+					custom_path: undefined,
 					labels: value.labels,
 					// Preserve the policy's on_behalf_of: this draft-deploy path has no
 					// on-behalf-of selector, so without the flag the backend resets it to

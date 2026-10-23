@@ -29,7 +29,6 @@
 				value: app.value,
 				summary: app.summary,
 				policy: app.policy,
-				customPath: app.custom_path,
 				allowKindChange: true
 			})
 		} else {

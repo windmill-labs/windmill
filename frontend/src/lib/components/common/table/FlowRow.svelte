@@ -28,7 +28,7 @@
 		FolderOpen,
 		ChevronUpSquare,
 		Calendar,
-		Shield,
+		UserPlus,
 		Archive,
 		Copy,
 		Eye,
@@ -321,8 +321,8 @@
 							hide: hideForOperator || !$roleCapabilities.manage_schedules
 						},
 						{
-							displayName: 'Permissions',
-							icon: Shield,
+							displayName: 'Share',
+							icon: UserPlus,
 							action: () => {
 								shareModal.openDrawer && shareModal.openDrawer(path, 'flow')
 							},

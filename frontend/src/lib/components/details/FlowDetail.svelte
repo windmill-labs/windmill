@@ -42,7 +42,6 @@
 		Archive,
 		Trash,
 		ChevronUpSquare,
-		Shield,
 		Loader2,
 		GitFork,
 		Play,
@@ -521,13 +520,6 @@
 
 		const menuItems: any = []
 
-		menuItems.push({
-			label: 'Permissions',
-			onclick: () => shareModal?.openDrawer(flow?.path ?? '', 'flow'),
-			Icon: Shield,
-			disabled: !can_write
-		})
-
 		if (showEditButtons) {
 			menuItems.push({
 				label: 'Move/Rename',
@@ -658,7 +650,7 @@
 
 <svelte:window onkeydown={onKeyDown} />
 <DeployWorkspaceDrawer bind:this={deploymentDrawer} />
-<ShareModal bind:this={shareModal} />
+<ShareModal bind:this={shareModal} source="detail" />
 <MoveDrawer
 	bind:this={moveDrawer}
 	on:update={async (e) => {
@@ -692,6 +684,9 @@
 			}}
 			{mainButtons}
 			menuItems={getMenuItems(flow, deployUiSettings)}
+			onShare={flow && canAuthorFlow
+				? () => shareModal?.openDrawer(flow?.path ?? '', 'flow')
+				: undefined}
 			bind:errorHandlerMuted={
 				() => flow?.ws_error_handler_muted ?? false,
 				(v) => {

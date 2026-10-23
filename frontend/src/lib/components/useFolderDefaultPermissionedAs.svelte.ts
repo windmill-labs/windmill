@@ -68,6 +68,10 @@ export function useFolderDefaultPermissionedAs(
 		},
 		get loading() {
 			return folderResource.loading
+		},
+		/** Reads the default for the path as it is now: `value` follows a path change a fetch later. */
+		refetch() {
+			return folderResource.refetch()
 		}
 	}
 }

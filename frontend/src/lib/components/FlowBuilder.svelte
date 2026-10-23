@@ -1,6 +1,7 @@
 <script lang="ts">
 	import DeployOnBehalfOfDialog from '$lib/components/itemSettings/DeployOnBehalfOfDialog.svelte'
 	import { deployAsksOnBehalfOf } from '$lib/components/itemSettings/onBehalfOf'
+	import { movesToAnotherOwner } from '$lib/components/itemSettings/inheritedAccess'
 	import { useFolderDefaultPermissionedAs } from '$lib/components/useFolderDefaultPermissionedAs.svelte'
 	import {
 		FlowService,
@@ -73,9 +74,24 @@
 	import { setNoteEditorContext } from './graph/noteEditor.svelte'
 	import { GroupEditor, setGroupEditorContext } from './graph/groupEditor.svelte'
 	import { cleanFlow } from './flows/utils.svelte'
-	import { DiffIcon, HistoryIcon, FileJson, Settings, Undo, Redo, Disc } from 'lucide-svelte'
+	import {
+		DiffIcon,
+		HistoryIcon,
+		FileJson,
+		Settings,
+		Undo,
+		Redo,
+		Disc,
+		UserPlus
+	} from 'lucide-svelte'
 	import { muteErrorHandlerMenuItem } from './details/errorHandlerToggle'
 	import { useDeployedErrorHandlerMuted } from './details/deployedErrorHandlerMuted.svelte'
+	import ShareDialog from './itemSettings/ShareDialog.svelte'
+	import FirstDeployDialog, {
+		applyFirstDeployMembers,
+		type FirstDeployChoice
+	} from './itemSettings/FirstDeployDialog.svelte'
+	import ShareButton from './itemSettings/ShareButton.svelte'
 	import Awareness from './Awareness.svelte'
 	import { getAllModules } from './flows/flowExplorer'
 	import { type FlowCopilotContext } from './copilot/flow'
@@ -482,14 +498,46 @@
 	}
 
 	async function handleSaveFlow(deploymentMsg?: string) {
+		pendingFirstDeploy = undefined
+		if (ownsPageHeader && neverDeployed) {
+			// The dialog also asks who the flow runs on behalf of, for the path it chose.
+			const choice = await firstDeployDialog?.ask({
+				kind: 'flow',
+				summary: flowStore.val.summary ?? '',
+				path: $pathStore,
+				runAs: {
+					email: flowStore.val.on_behalf_of_email,
+					permissionedAs: flowStore.val.on_behalf_of,
+					targetWorkspace: opWorkspace ?? ''
+				}
+			})
+			if (!choice) return
+			flowStore.val.summary = choice.summary
+			$pathStore = choice.path
+			if (choice.runAs) {
+				flowStore.val.on_behalf_of_email = choice.runAs.email
+				flowStore.val.on_behalf_of = choice.runAs.permissionedAs
+			}
+			pendingFirstDeploy = choice
+			await deployFlow(choice.message)
+			return
+		}
+		const asksRunAs = deployAsksOnBehalfOf(
+			'flow',
+			!!flowStore.val.on_behalf_of_email,
+			!isNewFlow && !!$savedOnBehalfOfEmail,
+			folderDefault.value
+		)
+		const from = deployedRowPath
 		if (
-			deployAsksOnBehalfOf(
-				'flow',
-				!!flowStore.val.on_behalf_of_email,
-				!isNewFlow && !!$savedOnBehalfOfEmail,
-				folderDefault.value
-			)
+			shareDialog &&
+			from &&
+			movesToAnotherOwner(from, $pathStore) &&
+			!(await shareDialog.confirmMove('flow', from, $pathStore, asksRunAs ? 'Next' : 'Deploy'))
 		) {
+			return
+		}
+		if (asksRunAs) {
 			deployDialogMsg = deploymentMsg ?? ''
 			deployDialogOpen = true
 			return
@@ -500,6 +548,30 @@
 	async function deployFlow(deploymentMsg?: string) {
 		withAIChangesWarning(async () => {
 			await handleSaveFlowInternal(deploymentMsg)
+		})
+	}
+
+	let shareDialog: ShareDialog | undefined = $state()
+	let firstDeployDialog: FirstDeployDialog | undefined = $state()
+	/** Where a deploy from this editor left the flow, which an embedder may keep mounted: the
+	 *  route's path then still names the draft or the pre-rename row. */
+	let deployedPath: string | undefined = $state()
+	const neverDeployed = $derived(
+		deployedPath === undefined && (newFlow || initialPath == '' || savedFlow?.no_deployed === true)
+	)
+	let pendingFirstDeploy: FirstDeployChoice | undefined = undefined
+	// Where the deployed flow is, which a staged path change moves it from: `initialPath` is
+	// re-seeded from a staged rename.
+	const deployedRowPath = $derived(
+		neverDeployed ? undefined : (deployedPath ?? (userDraftPath || initialPath))
+	)
+
+	function openShare() {
+		if (!deployedRowPath) return
+		shareDialog?.openDialog('flow', deployedRowPath, {
+			source: 'editor_header',
+			fromEditor: true,
+			stagedPath: $pathStore
 		})
 	}
 
@@ -762,6 +834,12 @@
 				path: $pathStore
 			} as Flow
 			setDraftTriggers([])
+			deployedPath = $pathStore
+			if (pendingFirstDeploy) {
+				const { members } = pendingFirstDeploy
+				pendingFirstDeploy = undefined
+				await applyFirstDeployMembers(opWorkspace!, 'flow', $pathStore, members)
+			}
 			loadingSave = false
 			onDeploy?.({ path: $pathStore })
 		} catch (err) {
@@ -1030,7 +1108,8 @@
 		outputPickerOpenFns,
 		savedOnBehalfOfEmail,
 		savedOnBehalfOfPermissionedAs,
-		opWorkspace: () => opWorkspace
+		opWorkspace: () => opWorkspace,
+		deployedPath: () => deployedRowPath
 	})
 
 	// Set up NoteEditor context for note editing capabilities
@@ -1378,7 +1457,20 @@
 	const mod = isMac() ? '⌘' : 'Ctrl+'
 
 	function getMoreItems(): Item[] {
-		const leadingItems = [...diffMenuItems, ...baseMenuItems]
+		const leadingItems = [
+			...diffMenuItems,
+			...(ownsPageHeader
+				? [
+						{
+							displayName: 'Share',
+							icon: UserPlus,
+							disabled: neverDeployed,
+							action: openShare
+						}
+					]
+				: []),
+			...baseMenuItems
+		]
 		return [
 			...leadingItems,
 			{
@@ -1608,6 +1700,11 @@
 <svelte:window onkeydown={onKeyDown} />
 
 {@render children?.()}
+
+{#if ownsPageHeader}
+	<ShareDialog bind:this={shareDialog} />
+	<FirstDeployDialog bind:this={firstDeployDialog} />
+{/if}
 
 <DeployOnBehalfOfDialog
 	kind="flow"
@@ -1864,6 +1961,14 @@
 				{/if}
 
 				<OpenInSessionButton source={headerSessionOpen} />
+				{#if !phoneTopbar}
+					<ShareButton
+						deployed={!neverDeployed}
+						iconOnly={compactTopbar}
+						unifiedSize={headerBtnSize}
+						onclick={openShare}
+					/>
+				{/if}
 				<DeployButton
 					on:save={async ({ detail }) => await handleSaveFlow(detail)}
 					{loading}

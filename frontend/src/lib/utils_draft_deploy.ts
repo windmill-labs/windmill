@@ -46,9 +46,9 @@ import {
 	appDraftSettings,
 	draftOrDeployedSettings,
 	policySettings,
-	withDraftPolicySettings
+	withDraftPolicySettings,
+	withoutSharedPolicySettings
 } from '$lib/components/apps/editor/appDraftSettings'
-import { policyForUpdate } from '$lib/components/apps/editor/publishAccessMode'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
 import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
@@ -343,11 +343,14 @@ export async function getDraftDiffValues(
 			// A staged rename (`draft_path`) changes where deploy lands the app —
 			// compare it as `path` on both sides so a rename-only draft diffs.
 			const rawDraftPath = (r.draft?.draft_path as string | undefined) ?? r.path
+			// Who can open a deployed app is set from the Share dialog, never drafted.
+			const shared = (v: Record<string, any>) =>
+				draftOnly ? v : { ...v, policy: withoutSharedPolicySettings(v.policy) }
 			return {
 				deployed: draftOnly
 					? canonicalRawAppDiffValue({})
-					: { ...canonicalRawAppDiffValue(r), path: r.path },
-				draft: { ...canonicalRawAppDiffValue(r.draft ?? r), path: rawDraftPath },
+					: shared({ ...canonicalRawAppDiffValue(r), path: r.path }),
+				draft: shared({ ...canonicalRawAppDiffValue(r.draft ?? r), path: rawDraftPath }),
 				hasDraft: r.draft != null,
 				noDeployed: r.no_deployed === true
 			}
@@ -597,18 +600,18 @@ export async function deployDraft(
 				appValue,
 				withDraftPolicySettings(deployedPolicy, settings.policy)
 			)
-			// custom_path requires admin on update; non-admins send undefined so the
-			// backend preserves the existing route. The draft has no custom_path, so
-			// admins fall back to the deployed route (`''` when none).
-			const isAdmin = !!(get(userStore)?.is_admin || get(userStore)?.is_super_admin)
 			const requestBody = {
 				value: appValue,
 				summary: parts.summary ?? r.summary ?? '',
-				policy: draftOnly ? policy : policyForUpdate(policy),
+				// An update states no mode: the Share dialog sets it, and the server keeps the
+				// deployed one.
+				policy: draftOnly ? policy : withoutSharedPolicySettings(policy),
 				// Honor the draft's intended path; `draft_path` holds the user-typed path
 				// for a never-deployed app parked at a `u/{user}/draft_{uuid}` storage key.
 				path: parts.draftPath ?? r.path ?? path,
-				custom_path: isAdmin ? (r.custom_path ?? '') : undefined,
+				// A deploy never writes the custom URL: the Share dialog sets it, and an update
+				// without one keeps it.
+				custom_path: undefined,
 				labels: settings.labels,
 				deployment_message: deploymentMessage,
 				// Preserve the drafted on_behalf_of (the backend resets it to the deploying

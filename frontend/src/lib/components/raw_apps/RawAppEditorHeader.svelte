@@ -29,8 +29,16 @@
 		Redo,
 		Settings,
 		Undo,
+		UserPlus,
 		WandSparkles
 	} from 'lucide-svelte'
+	import ShareDialog from '$lib/components/itemSettings/ShareDialog.svelte'
+	import FirstDeployDialog, {
+		applyFirstDeployMembers
+	} from '$lib/components/itemSettings/FirstDeployDialog.svelte'
+	import ShareButton from '$lib/components/itemSettings/ShareButton.svelte'
+	import { accessModeOf } from '$lib/components/itemSettings/appAccess'
+	import { movesToAnotherOwner } from '$lib/components/itemSettings/inheritedAccess'
 	import { onDestroy, untrack, type Snippet } from 'svelte'
 	import { orderedJsonStringify, type Value, replaceFalseWithUndefined } from '../../utils'
 	import { random_adj } from '$lib/components/random_positive_adjetive'
@@ -56,7 +64,7 @@
 	import DeployButton from '$lib/components/DeployButton.svelte'
 	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { updateRawAppPolicy } from './rawAppPolicy'
-	import { policyForUpdate, publishAccessMode } from '$lib/components/apps/editor/publishAccessMode'
+	import { withoutSharedPolicySettings } from '../apps/editor/appDraftSettings'
 	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
 	import { getContext } from 'svelte'
 
@@ -327,7 +335,6 @@
 
 	let settingsOpen = $state(false)
 	let settingsTab: AppSettingsTab = $state('metadata')
-	let deployRefused = $state(false)
 	let historyBrowserDrawerOpen = $state(false)
 	let recordDrawer = $state<Drawer | undefined>(undefined)
 	let deploymentMsg: string | undefined = $state(undefined)
@@ -375,25 +382,17 @@
 		return updateRawAppPolicy(runnables, policy)
 	}
 
-	async function setAccessMode(mode: NonNullable<Policy['execution_mode']>) {
-		await publishAccessMode(opWorkspace!, appPath, mode)
-		if (savedApp) savedApp.policy = { ...savedApp.policy, execution_mode: mode }
-		sendUserToast(
-			mode == 'anonymous'
-				? 'App require no login to be accessed'
-				: 'App require login and read-access'
-		)
-	}
-
-	async function createApp(path: string) {
+	/** Resolves to whether the app was created. */
+	async function createApp(path: string): Promise<boolean> {
 		if (!app) {
 			sendUserToast(`App hasn't been loaded yet`, true)
-			return
+			return false
 		}
 		if (!policy.execution_mode) {
 			policy.execution_mode = 'publisher'
 		}
-		setDeployedOnBehalfOf(policy, actingUser, folderDefault.value)
+		// Read for the path being created: the first-deploy dialog may have just chosen it.
+		setDeployedOnBehalfOf(policy, actingUser, await folderDefault.refetch())
 		try {
 			const { js, css } = await getBundle()
 			const deployedPolicy = await policyWithTriggerables()
@@ -444,8 +443,10 @@
 			}
 			onSavedNewAppPath?.(path)
 			onDeploy?.({ path })
+			return true
 		} catch (e) {
 			sendUserToast(`Error creating app: ${e.body ?? e.message}`, true)
+			return false
 		}
 	}
 
@@ -621,9 +622,6 @@
 			return
 		}
 		const { js, css } = await getBundle()
-		if (!policy.execution_mode) {
-			policy.execution_mode = 'publisher'
-		}
 		setDeployedOnBehalfOf(policy, actingUser)
 		const deployedPolicy = await policyWithTriggerables()
 		const deployed = await AppService.updateAppRaw({
@@ -633,14 +631,14 @@
 				app: {
 					value: app!,
 					summary: summary,
-					policy: policyForUpdate(deployedPolicy, savedApp?.policy?.execution_mode),
+					// Without the mode, which the Share dialog sets: the server keeps the deployed one,
+					// read under the row lock a mode change also takes.
+					policy: withoutSharedPolicySettings(deployedPolicy),
 					path: npath,
 					deployment_message: deploymentMsg,
 					preserve_on_behalf_of: true,
-					// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)
-					// it also means that customPath needs to be set to '' instead of undefined to unset it (when admin)
-					custom_path:
-						actingUser?.is_admin || actingUser?.is_super_admin ? (customPath ?? '') : undefined,
+					// Absent keeps the custom URL, which the Share dialog sets.
+					custom_path: undefined,
 					labels
 				},
 				js,
@@ -692,20 +690,72 @@
 		settingsOpen = true
 	}
 
+	const neverDeployed = $derived(newApp || appPath == '' || savedApp?.no_deployed === true)
+	let shareDialog: ShareDialog | undefined = $state()
+	let firstDeployDialog: FirstDeployDialog | undefined = $state()
+
+	function openShare() {
+		shareDialog?.openDialog('raw_app', appPath, {
+			source: 'editor_header',
+			fromEditor: true,
+			stagedPath: newEditedPath
+		})
+	}
+
+	// Chosen in the first-deploy dialog, added once the run-as confirmation has created the app.
+	let firstDeployMembers: Record<string, boolean> = {}
+
 	async function deploy(message?: string) {
 		if (app == undefined) return
-		if (pathError != '' || customPathError != '') {
-			deployRefused = true
-			openSettings(pathError != '' ? 'metadata' : 'sharing')
+		if (pathError != '') {
+			openSettings('metadata')
 			return
 		}
 		deploymentMsg = message
+		firstDeployMembers = {}
+		if (isNewApp && ownsPageHeader) {
+			// The dialog also asks who the app runs on behalf of, for the path it chose.
+			const choice = await firstDeployDialog?.ask({
+				kind: 'raw_app',
+				summary,
+				path: newEditedPath,
+				appMode: accessModeOf(policy),
+				runAs: {
+					email: policy.on_behalf_of_email,
+					permissionedAs: policy.on_behalf_of,
+					targetWorkspace: opWorkspace ?? ''
+				}
+			})
+			if (!choice) return
+			summary = choice.summary
+			newEditedPath = choice.path
+			policy.execution_mode = choice.appMode
+			if (choice.runAs) {
+				policy.on_behalf_of_email = choice.runAs.email
+				policy.on_behalf_of = choice.runAs.permissionedAs
+			}
+			deploymentMsg = choice.message
+			firstDeployMembers = choice.members
+			await deployNow()
+			return
+		}
+		if (
+			shareDialog &&
+			movesToAnotherOwner(appPath, newEditedPath) &&
+			!(await shareDialog.confirmMove('raw_app', appPath, newEditedPath, 'Next'))
+		) {
+			return
+		}
 		deployDialogOpen = true
 	}
 
 	async function deployNow() {
 		if (isNewApp) {
-			await createApp(newEditedPath)
+			const members = firstDeployMembers
+			const workspace = opWorkspace!
+			if (await createApp(newEditedPath)) {
+				await applyFirstDeployMembers(workspace, 'raw_app', newEditedPath, members)
+			}
 		} else {
 			await handleUpdateApp(newEditedPath)
 		}
@@ -797,10 +847,27 @@
 			icon: Settings,
 			action: () => openSettings('metadata')
 		},
+		...(ownsPageHeader
+			? [
+					{
+						displayName: 'Share',
+						icon: UserPlus,
+						disabled: neverDeployed,
+						action: openShare
+					}
+				]
+			: []),
 		{
 			displayName: 'Public URL',
 			icon: Globe,
-			action: () => openSettings('sharing')
+			disabled: neverDeployed,
+			action: async () => {
+				const secretUrl = await AppService.getPublicSecretOfApp({
+					workspace: opWorkspace!,
+					path: appPath
+				})
+				window.open(`${window.location.origin}/public/${opWorkspace}/${secretUrl}`, '_blank')
+			}
 		},
 		{
 			displayName: 'Export',
@@ -824,11 +891,11 @@
 		}
 	])
 
+	let customPath = $state(savedApp?.custom_path)
 	// Derived, so a draft synced in from another session reaches the header; an edit here overrides
 	// the value until the next one arrives.
-	let customPath = $state(savedApp?.custom_path)
-	let customPathError = $state('')
 	let labels = $derived(initialLabels)
+	let settingsHaveErrors = $derived(pathError != '')
 
 	let jobsDrawerOpen = $state(false)
 
@@ -846,8 +913,6 @@
 			labels
 		})
 	)
-
-	let settingsHaveErrors = $derived(pathError != '' || customPathError != '')
 </script>
 
 <DeployOnBehalfOfDialog
@@ -888,14 +953,25 @@
 	rawApp
 	operatingWorkspace={opWorkspace}
 	bind:summary
-	bind:customPath
-	bind:customPathError
 	bind:pathError
 	bind:newEditedPath
 	bind:labels
-	showErrors={deployRefused}
-	{setAccessMode}
 />
+
+{#if ownsPageHeader}
+	<ShareDialog
+		bind:this={shareDialog}
+		onAppChanged={(row) => {
+			policy.execution_mode = row.policy.execution_mode
+			customPath = row.custom_path ?? undefined
+			if (savedApp) {
+				savedApp.policy = { ...savedApp.policy, execution_mode: row.policy.execution_mode }
+				savedApp.custom_path = row.custom_path ?? undefined
+			}
+		}}
+	/>
+	<FirstDeployDialog bind:this={firstDeployDialog} />
+{/if}
 
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
 	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
@@ -1183,7 +1259,7 @@
 	<!-- Draws nothing in the bar: it is the export drawer, opened from the menu's Export entry
 	     through this instance. -->
 	<AppExportButton bind:this={appExport} />
-	<!-- Right before Deploy at every fold; only the opted-out docked-chat toggle gives way on a
+	<!-- Right before Share and Deploy at every fold; only the opted-out docked-chat toggle gives way on a
 	     phone. -->
 	<OpenInSessionButton source={sessionOpen}>
 		{#snippet fallback()}
@@ -1201,6 +1277,14 @@
 			{/if}
 		{/snippet}
 	</OpenInSessionButton>
+	{#if ownsPageHeader && !phoneTopbar}
+		<ShareButton
+			deployed={!neverDeployed}
+			iconOnly={compactTopbar}
+			unifiedSize={headerBtnSize}
+			onclick={openShare}
+		/>
+	{/if}
 	<DeployButton
 		loadingSave={loading.save}
 		loading={app == undefined}

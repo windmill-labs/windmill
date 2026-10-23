@@ -25,7 +25,7 @@
 		ChevronUpSquare,
 		History,
 		Pen,
-		Shield,
+		UserPlus,
 		Trash,
 		Copy
 	} from 'lucide-svelte'
@@ -302,8 +302,8 @@
 							hide: !fullApps
 						},
 						{
-							displayName: 'Permissions',
-							icon: Shield,
+							displayName: 'Share',
+							icon: UserPlus,
 							action: () => {
 								shareModal.openDrawer && shareModal.openDrawer(path, 'app')
 							},
