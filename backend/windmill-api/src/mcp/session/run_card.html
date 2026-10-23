@@ -86,6 +86,7 @@
     <span class="pill" id="status">Starting</span>
   </div>
   <div class="step" id="step" hidden></div>
+  <div class="step" id="stale" hidden>No longer refreshing here. Open it in Windmill for its live status.</div>
   <pre id="result" hidden></pre>
   <div class="actions">
     <button class="primary" id="open" hidden>Open in Windmill</button>
@@ -94,8 +95,10 @@
 </main>
 <script>
 (() => {
-  const POLL_MS = 2000;
-  const MAX_POLL_MS = 30 * 60 * 1000;
+  // Every poll is a tool call the server serves with a freshly minted token, which lands in
+  // the API's shared auth cache: polls back off and stop after ten minutes (~50 per card).
+  const MAX_POLL_MS = 10 * 60 * 1000;
+  const pollDelay = (age) => (age < 10_000 ? 2_000 : age < 60_000 ? 5_000 : 15_000);
   const RUNNING = ['running', 'queued', 'suspended'];
   const LABELS = {
     running: 'Running', queued: 'Queued', suspended: 'Waiting', success: 'Success',
@@ -152,6 +155,7 @@
     pill.textContent = run ? (LABELS[status] ?? status) : 'Starting';
 
     const running = RUNNING.includes(status);
+    if (!running) $('stale').hidden = true;
     const step = $('step');
     step.hidden = !(running && run?.steps);
     if (!step.hidden) {
@@ -193,9 +197,16 @@
     }
     run = next;
     render();
+    if (RUNNING.includes(run.status)) schedulePoll();
+  }
+
+  function schedulePoll() {
     window.clearTimeout(pollTimer);
-    if (RUNNING.includes(run.status) && Date.now() - pollStarted < MAX_POLL_MS) {
-      pollTimer = window.setTimeout(poll, POLL_MS);
+    const age = Date.now() - pollStarted;
+    if (age < MAX_POLL_MS) {
+      pollTimer = window.setTimeout(poll, pollDelay(age));
+    } else {
+      $('stale').hidden = false;
     }
   }
 
@@ -207,7 +218,7 @@
         arguments: { workspace_id: run.workspace, id: run.id }
       }));
     } catch {
-      pollTimer = window.setTimeout(poll, POLL_MS * 2);
+      schedulePoll();
     }
   }
 

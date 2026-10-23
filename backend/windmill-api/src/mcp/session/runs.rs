@@ -1724,6 +1724,18 @@ const CARD_RESULT_CHARS: usize = 1500;
 
 /// Hand the run card the run `id`, read as `job` (`None` while it is still running).
 fn report_run(ctx: &Ctx<'_>, id: &str, job: Option<&Value>) {
+    let mut run = run_card(id, job);
+    run.insert("workspace".into(), ctx.w_id.into());
+    run.insert(
+        "url".into(),
+        ctx.page_url(&format!("/run/{}", enc(id))).into(),
+    );
+    let _ = ctx.run.set(Value::Object(run));
+}
+
+/// What the run card draws of a run: its summary, the head of its result (a failure's
+/// message alone), and a running flow's top-level step.
+fn run_card(id: &str, job: Option<&Value>) -> Map<String, Value> {
     let mut run = job.map(summarize_run).unwrap_or_default();
     run.insert("id".into(), id.into());
     run.entry("status").or_insert("running".into());
@@ -1738,7 +1750,7 @@ fn report_run(ctx: &Ctx<'_>, id: &str, job: Option<&Value>) {
         {
             run.insert("result".into(), js_head(&text, CARD_RESULT_CHARS).into());
         }
-        // A running flow's progress: its top-level step, 1-based, of how many.
+        // 1-based, of how many: `step` already points past the last module once it is done.
         let status = &job["flow_status"];
         if let Some(modules) = status["modules"]
             .as_array()
@@ -1752,12 +1764,7 @@ fn report_run(ctx: &Ctx<'_>, id: &str, job: Option<&Value>) {
             }
         }
     }
-    run.insert("workspace".into(), ctx.w_id.into());
-    run.insert(
-        "url".into(),
-        ctx.page_url(&format!("/run/{}", enc(id))).into(),
-    );
-    let _ = ctx.run.set(Value::Object(run));
+    run
 }
 
 /// A run as `get_run` reports it: its summary, args, result and logs around the step
@@ -2051,5 +2058,30 @@ mod tests {
         );
         assert_eq!(transforms["max_iterations"]["value"], 10);
         assert!(!transforms.contains_key("memory_id"));
+    }
+
+    #[test]
+    fn run_card_shows_a_failure_message_and_a_running_flow_step() {
+        let failed = json!({
+            "type": "CompletedJob", "success": false, "duration_ms": 3600,
+            "result": { "error": { "name": "Error", "message": "duplicate key" } },
+        });
+        let card = run_card("j", Some(&failed));
+        assert_eq!(card["status"], "failure");
+        assert_eq!(card["result"], "duplicate key");
+
+        let running = json!({
+            "type": "QueuedJob", "running": true,
+            "flow_status": { "step": 1, "modules": [{ "id": "a" }, { "id": "b" }] },
+        });
+        let card = run_card("j", Some(&running));
+        assert_eq!(
+            (card["step"].clone(), card["steps"].clone()),
+            (json!(2), json!(2))
+        );
+        assert_eq!(card["step_id"], "b");
+
+        // Not read yet: still running, by id alone.
+        assert_eq!(run_card("j", None)["status"], "running");
     }
 }

@@ -627,6 +627,21 @@ mod tests {
     }
 
     #[test]
+    fn no_view_can_call_a_destructive_tool() {
+        for tool in session_tools(SessionAccess::Full) {
+            if DESTRUCTIVE.contains(&tool.name.as_ref()) {
+                let meta = tool.meta.as_ref().map(|m| &m.0["ui"]);
+                assert_eq!(
+                    meta,
+                    Some(&json!({ "visibility": ["model"] })),
+                    "{}",
+                    tool.name
+                );
+            }
+        }
+    }
+
+    #[test]
     fn every_session_tool_is_implemented_or_editor_only() {
         let implemented: Vec<&str> = implemented().collect();
         for def in TOOL_DEFS.iter() {
