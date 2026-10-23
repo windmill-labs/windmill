@@ -50,6 +50,22 @@
       --inv-fg: var(--color-text-inverse, #141413);
     }
   }
+  :root[data-theme="dark"] {
+    --bg: var(--color-background-primary, #30302e);
+    --bg-2: var(--color-background-secondary, #262624);
+    --fg: var(--color-text-primary, #faf9f5);
+    --fg-2: var(--color-text-secondary, #c2c0b6);
+    --fg-3: var(--color-text-tertiary, #9c9a92);
+    --line: var(--color-border-tertiary, rgba(222, 220, 209, 0.15));
+    --info-bg: var(--color-background-info, #253e5f);
+    --info-fg: var(--color-text-info, #80aadd);
+    --ok-bg: var(--color-background-success, #1b4614);
+    --ok-fg: var(--color-text-success, #7ab948);
+    --bad-bg: var(--color-background-danger, #602a28);
+    --bad-fg: var(--color-text-danger, #ee8884);
+    --inv-bg: var(--color-background-inverse, #faf9f5);
+    --inv-fg: var(--color-text-inverse, #141413);
+  }
   html, body { margin: 0; background: transparent; }
   body { font: 14px/1.4 var(--sans); color: var(--fg); }
   .card { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px; }
