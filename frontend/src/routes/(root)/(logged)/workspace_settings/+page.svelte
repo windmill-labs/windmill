@@ -2557,6 +2557,7 @@ export async function main(
 									onSave={editVariableExpirationHandler}
 									onDiscard={discardVariableExpirationChanges}
 									saveLabel="Save variable expiration handler"
+									disabled={!$enterpriseLicense && variableExpirationDraft.selected !== 'custom'}
 								/>
 							</Section>
 						{:else if tab == 'critical_alerts'}
