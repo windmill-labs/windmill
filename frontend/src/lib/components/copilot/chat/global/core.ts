@@ -78,7 +78,7 @@ import {
 	formatDataTableRef
 } from '$lib/components/raw_apps/dataTableRefUtils'
 import { appSourceToDraftValue } from '$lib/components/raw_apps/rawAppDraftValue'
-import { policyForUpdate } from '$lib/components/apps/editor/publishAccessMode'
+import { withoutSharedPolicySettings } from '$lib/components/apps/editor/appDraftSettings'
 import { conformBuilderAppPolicy } from '$lib/components/raw_apps/builderAppPolicy'
 import { capabilitiesInWorkspace } from '$lib/operatorWriteRights'
 import { capabilitiesIn } from '$lib/roleCapabilities'
@@ -9272,16 +9272,16 @@ async function deployDraft(
 				deployedPath = targetPath
 				const exists = await AppService.existsApp({ workspace, path: targetPath })
 				if (exists) {
-					// Who can open the app and its custom URL are set from the Share dialog: the
-					// deployed mode stands over the drafted one, and custom_path is omitted, which
-					// the backend keeps.
+					// Who can open the app and its custom URL are set from the Share dialog: the update
+					// states neither, and the server keeps the deployed ones. The deployed mode is read
+					// only for the note below.
 					const row = await AppService.getAppLiteByPath({ workspace, path: targetPath })
 					policy.execution_mode = row.policy.execution_mode ?? policy.execution_mode
 				}
 
-				// `policy` holds the mode being written, so the exposure is stated from the value in
-				// hand. What a runnable runs as is the server's to decide, so the note names who
-				// can reach the app and never an identity.
+				// `policy` holds the mode the app ends up with, so the exposure is stated from the
+				// value in hand. What a runnable runs as is the server's to decide, so the note names
+				// who can reach the app and never an identity.
 				if (policy.execution_mode === 'anonymous') {
 					deployNote =
 						`${deployNote ? `${deployNote} ` : ''}This app is deployed as anonymous: its ` +
@@ -9309,7 +9309,7 @@ async function deployDraft(
 								path: targetPath,
 								value: rawAppValue,
 								summary,
-								policy: policyForUpdate(policy),
+								policy: withoutSharedPolicySettings(policy),
 								labels: appValue.labels,
 								deployment_message: deploymentMessage,
 								// Preserve the policy's on_behalf_of: this chat deploy path has no

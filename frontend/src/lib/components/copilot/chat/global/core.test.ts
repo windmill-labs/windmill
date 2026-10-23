@@ -4599,8 +4599,7 @@ describe('global AI tools', () => {
 		)
 
 		vi.mocked(AppService.getAppByPath).mockResolvedValueOnce({} as any)
-		// Who can open a deployed app is set from the Share dialog: the deployed mode stands over
-		// the drafted one.
+		// The deployed mode, read for the exposure note.
 		vi.mocked(AppService.getAppLiteByPath).mockResolvedValueOnce({
 			policy: { execution_mode: 'publisher' }
 		} as any)
@@ -4609,6 +4608,9 @@ describe('global AI tools', () => {
 			type: 'app',
 			path: 'f/apps/report'
 		})
+
+		// Who can open a deployed app is set from the Share dialog: the update states no mode, so
+		// the server keeps the deployed one rather than the drafted `anonymous`.
 
 		expect(AppService.updateAppRaw).toHaveBeenCalledWith({
 			workspace: WORKSPACE,
@@ -4622,7 +4624,7 @@ describe('global AI tools', () => {
 						data: { tables: ['orders'] }
 					},
 					summary: 'Updated report',
-					policy: expect.objectContaining({ execution_mode: 'publisher' }),
+					policy: expect.not.objectContaining({ execution_mode: expect.anything() }),
 					deployment_message: undefined
 				},
 				js: 'bundled js',

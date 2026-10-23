@@ -64,6 +64,7 @@
 	import DeployButton from '$lib/components/DeployButton.svelte'
 	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { updateRawAppPolicy } from './rawAppPolicy'
+	import { withoutSharedPolicySettings } from '../apps/editor/appDraftSettings'
 	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
 	import { getContext } from 'svelte'
 
@@ -621,14 +622,6 @@
 			return
 		}
 		const { js, css } = await getBundle()
-		// Who can open the app is set from the Share dialog and applies at once. Read here rather
-		// than at load, so a change made since then is not undone; an omitted mode would reset an
-		// operator-built app to the publisher's.
-		const deployedRow = await AppService.getAppLiteByPath({
-			workspace: opWorkspace!,
-			path: appPath!
-		})
-		policy.execution_mode = deployedRow.policy.execution_mode ?? 'publisher'
 		setDeployedOnBehalfOf(policy, actingUser)
 		const deployedPolicy = await policyWithTriggerables()
 		const deployed = await AppService.updateAppRaw({
@@ -638,7 +631,9 @@
 				app: {
 					value: app!,
 					summary: summary,
-					policy: deployedPolicy,
+					// Without the mode, which the Share dialog sets: the server keeps the deployed one,
+					// read under the row lock a mode change also takes.
+					policy: withoutSharedPolicySettings(deployedPolicy),
 					path: npath,
 					deployment_message: deploymentMsg,
 					preserve_on_behalf_of: true,

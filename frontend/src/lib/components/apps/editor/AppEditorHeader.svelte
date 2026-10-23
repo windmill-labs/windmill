@@ -72,7 +72,7 @@
 	import AppSettingsDrawer, { type AppSettingsTab } from './AppSettingsDrawer.svelte'
 	import DeployButton from '$lib/components/DeployButton.svelte'
 	import { updatePolicy } from './appPolicy'
-	import { appDraftSettings } from './appDraftSettings'
+	import { appDraftSettings, withoutSharedPolicySettings } from './appDraftSettings'
 	import ShareDialog from '$lib/components/itemSettings/ShareDialog.svelte'
 	import FirstDeployDialog, {
 		applyFirstDeployMembers
@@ -435,14 +435,6 @@
 	}
 
 	async function updateApp(npath: string) {
-		// Who can open the app is set from the Share dialog and applies at once. Read here rather
-		// than at load, so a change made since then is not undone; an omitted mode would reset an
-		// operator-built app to the publisher's.
-		const deployedRow = await AppService.getAppLiteByPath({
-			workspace: $workspaceStore!,
-			path: $appPath!
-		})
-		policy.execution_mode = deployedRow.policy.execution_mode
 		// In place: the settings drawer and the draft mirror hold this object.
 		Object.assign(policy, await updatePolicy($app, policy))
 		setDeployedOnBehalfOf(policy, operatingUser.current)
@@ -452,7 +444,9 @@
 			requestBody: {
 				value: withoutDraftBase($app!),
 				summary: $summary,
-				policy,
+				// Without the mode, which the Share dialog sets: the server keeps the deployed one,
+				// read under the row lock a mode change also takes.
+				policy: withoutSharedPolicySettings(policy),
 				path: npath,
 				deployment_message: deploymentMsg,
 				// Absent keeps the custom URL, which the Share dialog sets.

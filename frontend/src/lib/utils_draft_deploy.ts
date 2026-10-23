@@ -49,7 +49,6 @@ import {
 	withDraftPolicySettings,
 	withoutSharedPolicySettings
 } from '$lib/components/apps/editor/appDraftSettings'
-import { policyForUpdate } from '$lib/components/apps/editor/publishAccessMode'
 import { invalidateWorkspaceDrafts } from '$lib/workspaceDrafts.svelte'
 import { invalidateWorkspaceComparison } from '$lib/workspaceComparison'
 import { setLocalDraftHint } from '$lib/localDraftHints.svelte'
@@ -604,7 +603,9 @@ export async function deployDraft(
 			const requestBody = {
 				value: appValue,
 				summary: parts.summary ?? r.summary ?? '',
-				policy: draftOnly ? policy : policyForUpdate(policy),
+				// An update states no mode: the Share dialog sets it, and the server keeps the
+				// deployed one.
+				policy: draftOnly ? policy : withoutSharedPolicySettings(policy),
 				// Honor the draft's intended path; `draft_path` holds the user-typed path
 				// for a never-deployed app parked at a `u/{user}/draft_{uuid}` storage key.
 				path: parts.draftPath ?? r.path ?? path,

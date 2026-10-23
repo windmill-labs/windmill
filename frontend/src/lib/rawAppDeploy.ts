@@ -15,7 +15,7 @@ import type { Policy } from '$lib/gen'
 import { bundleRawAppDraft } from '$lib/components/copilot/chat/global/rawAppBundlerBridge'
 import type { AppDraftValue } from '$lib/components/copilot/chat/global/workspaceItems'
 import { updateRawAppPolicy } from '$lib/components/raw_apps/rawAppPolicy'
-import { policyForUpdate } from '$lib/components/apps/editor/publishAccessMode'
+import { withoutSharedPolicySettings } from '$lib/components/apps/editor/appDraftSettings'
 import { DEFAULT_DATA as DEFAULT_RAW_APP_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 import {
 	appSourceToDraftValue,
@@ -57,11 +57,6 @@ export async function deployRawAppValue({
 
 	const bundle = await bundleRawAppDraft({ workspace, files })
 
-	// Who can open the app is set from the Share dialog: the deployed one stands. Read after the
-	// bundle, which takes seconds, so a Share change made meanwhile is not written back.
-	const row = await AppService.getAppLiteByPath({ workspace, path })
-	policy.execution_mode = row.policy.execution_mode ?? 'publisher'
-
 	await AppService.updateAppRaw({
 		workspace,
 		path,
@@ -71,7 +66,9 @@ export async function deployRawAppValue({
 				// version can still carry the pre-`data` datatable shapes.
 				value: { files, runnables, data: normalizeRawAppData(plainValue) },
 				summary: summary ?? '',
-				policy,
+				// Without the mode, which the Share dialog sets: the server keeps the deployed one,
+				// read under the row lock a mode change also takes.
+				policy: withoutSharedPolicySettings(policy),
 				deployment_message: deploymentMessage,
 				// Absent keeps the custom URL, which the Share dialog sets.
 				custom_path: undefined,
@@ -123,11 +120,8 @@ export async function deployRawAppDraft(
 	const summary = value.summary ?? ''
 
 	if (await AppService.existsApp({ workspace, path })) {
-		// Who can open the app and its custom URL are set from the Share dialog: the deployed
-		// mode stands over the draft's, and an absent custom path keeps the deployed one. The mode
-		// is read after the bundle, so a Share change made while it built is not written back.
-		const deployed = await AppService.getAppLiteByPath({ workspace, path })
-		policy.execution_mode = deployed.policy.execution_mode ?? policy.execution_mode
+		// Who can open the app and its custom URL are set from the Share dialog: the update states
+		// neither, and the server keeps the deployed ones.
 		await AppService.updateAppRaw({
 			workspace,
 			path,
@@ -136,7 +130,7 @@ export async function deployRawAppDraft(
 					path: targetPath,
 					value: rawAppValue,
 					summary,
-					policy: policyForUpdate(policy),
+					policy: withoutSharedPolicySettings(policy),
 					deployment_message: deploymentMessage,
 					custom_path: undefined,
 					labels: value.labels,
