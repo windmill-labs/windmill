@@ -1,7 +1,7 @@
 <script lang="ts" module>
 	import { get } from 'svelte/store'
 	import { workspaceStore } from '$lib/stores'
-	import { setSessionPendingWorkspace } from './sessionState.svelte'
+	import { setSessionPendingWorkspace, stopFollowingHome } from './sessionState.svelte'
 	import { switchWorkspace } from '$lib/storeUtils'
 	import { workspaceAIClients } from '$lib/components/copilot/lib'
 	import { fixupUrlAfterWorkspaceSwitch } from '$lib/components/sidebar/workspaceSwitchUrl'
@@ -13,8 +13,15 @@
 		void fixupUrlAfterWorkspaceSwitch(id)
 	}
 
+	// Before the pick, which stores the session: Home would otherwise move a draft picked off
+	// Home back to the workspace it shows.
+	function releaseFromHome(sessionId: string, switchesWorkspace: boolean) {
+		if (!switchesWorkspace) stopFollowingHome(sessionId)
+	}
+
 	/** Point a session that has not sent yet at workspace `id`, as a pick in this bar does. */
 	export function pickSessionWorkspace(sessionId: string, id: string, switchesWorkspace: boolean) {
+		releaseFromHome(sessionId, switchesWorkspace)
 		// Pre-send only: writes the pending pick. workspace_id stays undefined until
 		// the user sends their first message. The chat targets this pending workspace
 		// via the manager's workspace resolver, not the global workspaceStore.
@@ -47,6 +54,7 @@
 	}
 
 	function stageFork(req: { parent_workspace_id: string; id: string; name: string }) {
+		releaseFromHome(session.id, switchesWorkspace)
 		setSessionPendingFork(session.id, req)
 		followPick(req.parent_workspace_id, switchesWorkspace)
 	}
