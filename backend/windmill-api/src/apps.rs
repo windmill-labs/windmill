@@ -4206,7 +4206,8 @@ async fn update_app_internal<'a>(
     // CLI / git-sync deploys ask us to preserve any existing user draft at this
     // path instead of wiping it as part of the deploy. Only wipe the deployer's
     // own draft (plus the legacy NULL-email row) — see create_app_internal.
-    if !ns.skip_draft_deletion.unwrap_or(false) {
+    // A mode-only change publishes nothing from the draft, so it keeps it.
+    if !ns.skip_draft_deletion.unwrap_or(false) && !mode_only {
         sqlx::query!(
             "DELETE FROM draft WHERE path = $1 AND workspace_id = $2 AND typ IN ('app', 'raw_app') \
              AND (email = $3 OR email IS NULL)",
