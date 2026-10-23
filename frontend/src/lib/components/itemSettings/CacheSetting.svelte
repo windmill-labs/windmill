@@ -20,7 +20,7 @@
 	documentationLink={kind === 'flow'
 		? 'https://www.windmill.dev/docs/flows/cache#cache-flows'
 		: 'https://www.windmill.dev/docs/core_concepts/caching'}
-	checked={ttl !== undefined}
+	checked={ttl !== undefined && ttl > 0}
 	onchange={(on) => {
 		ttl = on ? 300 : undefined
 		if (!on) ignoreS3Path = undefined

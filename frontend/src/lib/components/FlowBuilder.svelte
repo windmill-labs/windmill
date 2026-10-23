@@ -205,9 +205,10 @@
 	let deployDialogOpen = $state(false)
 	let deployDialogMsg = $state('')
 
-	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously
+	// Keep savedOnBehalfOfEmail in sync when savedFlow is loaded asynchronously. A flow that runs
+	// on behalf of nobody has no email field at all, so its absence is synced too.
 	$effect(() => {
-		if (savedFlow?.on_behalf_of_email !== undefined) {
+		if (savedFlow) {
 			savedOnBehalfOfEmail.set(savedFlow.on_behalf_of_email)
 			savedOnBehalfOfPermissionedAs.set(savedFlow.on_behalf_of)
 		}
@@ -483,6 +484,8 @@
 
 	async function handleSaveFlow(deploymentMsg?: string) {
 		if (
+			// Asks while the folder default is loading: the backend would apply it unconfirmed.
+			folderDefault.loading ||
 			deployAsksOnBehalfOf(
 				'flow',
 				!!flowStore.val.on_behalf_of_email,

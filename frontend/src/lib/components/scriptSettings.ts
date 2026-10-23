@@ -143,7 +143,8 @@ export function getActiveScriptSettingsBadges(
 			detail: `Cached for ${settings.cache_ttl}s`
 		})
 	}
-	if (settings.priority != undefined && settings.priority > 0) {
+	// 0 is a priority too: it still runs ahead of jobs that have none.
+	if (settings.priority != undefined) {
 		badges.push({
 			key: 'priority',
 			label: 'High priority',

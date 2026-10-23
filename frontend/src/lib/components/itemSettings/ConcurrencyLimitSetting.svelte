@@ -34,7 +34,7 @@
 		: 'https://www.windmill.dev/docs/core_concepts/concurrency_limits'}
 	eeOnly
 	{disabled}
-	checked={limit !== undefined}
+	checked={limit !== undefined && limit > 0}
 	onchange={(on) => {
 		if (on) {
 			limit = 1

@@ -119,7 +119,7 @@
 		resolvedCount={resolvedModuleIds.length}
 	/>
 {:else if selectedId?.startsWith('settings')}
-	<FlowSettings {enableAi} {noEditor} {selectedId} />
+	<FlowSettings {enableAi} {noEditor} {selectedId} {newFlow} />
 {:else if selectedId === 'Input'}
 	<FlowInput
 		{noEditor}

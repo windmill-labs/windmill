@@ -650,6 +650,8 @@
 
 	async function handleEditScript(stay: boolean, deployMsg?: string): Promise<void> {
 		if (
+			// Asks while the folder default is loading: the backend would apply it unconfirmed.
+			folderDefault.loading ||
 			deployAsksOnBehalfOf(
 				'script',
 				!!script.on_behalf_of_email,
@@ -1861,7 +1863,7 @@
 										savedEmail={savedScript?.on_behalf_of_email}
 										savedPermissionedAs={savedScript?.on_behalf_of}
 										targetWorkspace={opWorkspace ?? ''}
-										isNew={initialPath == ''}
+										isNew={isNewScript}
 									/>
 									<InvisibleRunsSetting
 										kind="script"

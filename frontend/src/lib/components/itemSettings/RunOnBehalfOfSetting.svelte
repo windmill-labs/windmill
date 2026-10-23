@@ -102,7 +102,7 @@
 	<div class="flex flex-wrap items-center gap-1.5">
 		<OnBehalfOfSelector
 			{targetWorkspace}
-			targetValue={savedEmail}
+			targetValue={savedEmail ?? savedPermissionedAs}
 			selected={choice}
 			onSelect={(c, details) => {
 				if (c === 'me') {

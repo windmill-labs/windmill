@@ -44,9 +44,11 @@
 		enableAi?: boolean
 		/** The `settings-…` selection id the panel was opened with. */
 		selectedId?: string
+		/** Never deployed, though it may already have a path: a draft-only flow. */
+		newFlow?: boolean
 	}
 
-	let { noEditor, enableAi, selectedId }: Props = $props()
+	let { noEditor, enableAi, selectedId, newFlow = false }: Props = $props()
 
 	const {
 		flowStore,
@@ -380,7 +382,7 @@
 									savedEmail={$savedOnBehalfOfEmail}
 									savedPermissionedAs={$savedOnBehalfOfPermissionedAs}
 									targetWorkspace={opWorkspace?.() ?? $operatingWorkspace ?? ''}
-									isNew={$initialPathStore == ''}
+									isNew={newFlow || $initialPathStore == ''}
 								/>
 								<InvisibleRunsSetting
 									kind="flow"
