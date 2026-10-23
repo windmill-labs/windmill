@@ -1082,44 +1082,49 @@ pub async fn run_flow<'c>(
 
     let end_user_email = run_end_user_email(db, w_id, authed, trigger.as_ref()).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(db, authed).await?;
-    let (uuid, mut tx) = push(
-        &db,
-        tx,
-        &w_id,
-        JobPayload::Flow {
-            path: flow_path.to_string(),
-            dedicated_worker,
-            version,
-            apply_preprocessor,
-            labels,
-            job_token_scopes,
-        },
-        push_args,
-        authed.display_username(),
-        email,
-        permissioned_as,
-        authed.token_prefix.as_deref(),
-        authed.username_override.as_deref(),
-        scheduled_for,
-        None,
-        run_query.parent_job,
-        None,
-        run_query.root_job,
-        run_query.job_id,
-        false,
-        false,
-        None,
-        !run_query.invisible_to_owner.unwrap_or(false),
-        tag,
-        None,
-        None,
-        None,
-        push_authed.as_ref(),
-        false,
-        end_user_email,
-        authed.trigger_or_fallback(trigger),
-        run_query.suspended_mode,
-        scope_ceiling.as_deref(),
+    // `push` gets no `authed` for an on-behalf-of run, so it cannot see an admin started it.
+    let admin_direct_obo = push_authed.is_none() && authed.is_admin && trigger.is_none();
+    let (uuid, mut tx) = windmill_common::job_pause::exempt_if(
+        admin_direct_obo,
+        push(
+            &db,
+            tx,
+            &w_id,
+            JobPayload::Flow {
+                path: flow_path.to_string(),
+                dedicated_worker,
+                version,
+                apply_preprocessor,
+                labels,
+                job_token_scopes,
+            },
+            push_args,
+            authed.display_username(),
+            email,
+            permissioned_as,
+            authed.token_prefix.as_deref(),
+            authed.username_override.as_deref(),
+            scheduled_for,
+            None,
+            run_query.parent_job,
+            None,
+            run_query.root_job,
+            run_query.job_id,
+            false,
+            false,
+            None,
+            !run_query.invisible_to_owner.unwrap_or(false),
+            tag,
+            None,
+            None,
+            None,
+            push_authed.as_ref(),
+            false,
+            end_user_email,
+            authed.trigger_or_fallback(trigger),
+            run_query.suspended_mode,
+            scope_ceiling.as_deref(),
+        ),
     )
     .await?;
 
@@ -1174,17 +1179,20 @@ pub async fn run_flow_and_wait_result(
     args: PushArgsOwned,
     trigger: Option<TriggerMetadata>,
 ) -> error::Result<Response> {
-    let (uuid, early_return, has_failure_module, _) = run_flow(
-        authed,
-        db,
-        None,
-        user_db,
-        w_id,
-        flow_path,
-        flow_version_info,
-        run_query,
-        args,
-        trigger,
+    let (uuid, early_return, has_failure_module, _) = windmill_common::job_pause::with_policy(
+        windmill_common::job_pause::PausePolicy::Refuse,
+        run_flow(
+            authed,
+            db,
+            None,
+            user_db,
+            w_id,
+            flow_path,
+            flow_version_info,
+            run_query,
+            args,
+            trigger,
+        ),
     )
     .await?;
 
@@ -1314,42 +1322,47 @@ pub async fn push_script_job_by_path_into_queue<'c>(
 
     let end_user_email = run_end_user_email(&db, &w_id, &authed, trigger.as_ref()).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
-    let (uuid, tx) = push(
-        &db,
-        tx,
-        &w_id,
-        job_payload,
-        push_args,
-        authed.display_username(),
-        email,
-        permissioned_as,
-        authed.token_prefix.as_deref(),
-        authed.username_override.as_deref(),
-        scheduled_for,
-        None,
-        run_query.parent_job,
-        None,
-        run_query.root_job,
-        run_query.job_id,
-        false,
-        false,
-        None,
-        !run_query.invisible_to_owner.unwrap_or(false),
-        tag,
-        timeout,
-        None,
-        // If the job has a parent job, set priority to 2 as it may be ran synchronously and block a current worker until being executed. Flow steps have a priority of 1 so this is higher.
-        if run_query.parent_job.is_some() || run_query.root_job.is_some() {
-            Some(2)
-        } else {
-            None
-        },
-        push_authed.as_ref(),
-        false,
-        end_user_email,
-        authed.trigger_or_fallback(trigger),
-        run_query.suspended_mode,
-        scope_ceiling.as_deref(),
+    // `push` gets no `authed` for an on-behalf-of run, so it cannot see an admin started it.
+    let admin_direct_obo = push_authed.is_none() && authed.is_admin && trigger.is_none();
+    let (uuid, tx) = windmill_common::job_pause::exempt_if(
+        admin_direct_obo,
+        push(
+            &db,
+            tx,
+            &w_id,
+            job_payload,
+            push_args,
+            authed.display_username(),
+            email,
+            permissioned_as,
+            authed.token_prefix.as_deref(),
+            authed.username_override.as_deref(),
+            scheduled_for,
+            None,
+            run_query.parent_job,
+            None,
+            run_query.root_job,
+            run_query.job_id,
+            false,
+            false,
+            None,
+            !run_query.invisible_to_owner.unwrap_or(false),
+            tag,
+            timeout,
+            None,
+            // If the job has a parent job, set priority to 2 as it may be ran synchronously and block a current worker until being executed. Flow steps have a priority of 1 so this is higher.
+            if run_query.parent_job.is_some() || run_query.root_job.is_some() {
+                Some(2)
+            } else {
+                None
+            },
+            push_authed.as_ref(),
+            false,
+            end_user_email,
+            authed.trigger_or_fallback(trigger),
+            run_query.suspended_mode,
+            scope_ceiling.as_deref(),
+        ),
     )
     .await?;
 

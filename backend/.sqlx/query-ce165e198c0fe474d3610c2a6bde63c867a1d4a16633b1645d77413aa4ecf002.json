@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM workspace_job_pause WHERE workspace_id = $1 AND paused_until <= now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ce165e198c0fe474d3610c2a6bde63c867a1d4a16633b1645d77413aa4ecf002"
+}

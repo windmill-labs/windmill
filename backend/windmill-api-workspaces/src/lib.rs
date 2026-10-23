@@ -10,6 +10,7 @@ pub mod datatable_permissions;
 pub mod datatable_permissions_oss;
 pub mod datatable_replay_oss;
 pub mod deployment_requests;
+pub mod job_pause;
 pub mod remote_deploy;
 pub mod workspace_roles;
 pub mod workspaces;

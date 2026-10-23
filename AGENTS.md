@@ -41,6 +41,9 @@ Open-source platform for internal tools, workflows, API integrations, background
   for an inline app runnable that opts in), why an admin's roles are not added, the per-role-set
   logins and the order their rows and logins are written in
 - **Enterprise**: `docs/enterprise.md` — EE file conventions and PR workflow
+- **Workspace job pause**: `docs/workspace-job-pause.md` — which pushed jobs a pause runs, holds
+  or refuses, why a synchronous entry point must push under `PausePolicy::Refuse`, and how held
+  jobs are told apart from a suspended trigger's
 - **Workspace roles**: `docs/workspace-roles.md` — instance-defined roles with per-workspace
   overrides, the capabilities a role holds, why `ApiAuthed::is_operator` must be derived from the
   role, and the `role_seat` table billing reads

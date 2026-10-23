@@ -132,6 +132,7 @@ pub async fn resume_suspended_trigger_jobs(
                       )
                       AND trigger_kind = $2
                       AND trigger = $3
+                      AND NOT EXISTS (SELECT 1 FROM workspace_held_job h WHERE h.job_id = v2_job.id)
                       AND id = ANY($4)
                 "#,
                 w_id,
@@ -160,6 +161,7 @@ pub async fn resume_suspended_trigger_jobs(
                   )
                   AND trigger_kind = $2
                   AND trigger = $3
+                  AND NOT EXISTS (SELECT 1 FROM workspace_held_job h WHERE h.job_id = v2_job.id)
             "#,
             w_id,
             trigger_kind as _,
@@ -173,11 +175,21 @@ pub async fn resume_suspended_trigger_jobs(
 
     let l = jobs.len();
     let mut unsuspended_in_place = 0;
+    // Released in place mid-pause, a job would start during the deploy the pause protects; a
+    // repushed one goes through `push`, which applies the pause itself.
+    let workspace_paused = windmill_common::job_pause::jobs_paused_until(&mut *tx, &w_id)
+        .await?
+        .is_some();
 
     for job in jobs {
         // If job was created after trigger was edited, simply update it to unsuspend
         // instead of deleting and repushing
         if job.created_at > trigger.edited_at {
+            if workspace_paused {
+                windmill_common::job_pause::hold_released_trigger_job(&mut tx, &w_id, job.id)
+                    .await?;
+                continue;
+            }
             unsuspended_in_place += 1;
             // Map the placeholder unassigned kind back to its assigned counterpart so
             // singlestepflow wrappers (retry/error_handler/skip_handler) keep their
@@ -310,6 +322,7 @@ pub async fn cancel_suspended_trigger_jobs(
                    AND (kind = 'unassigned_script'::JOB_KIND OR kind = 'unassigned_flow'::JOB_KIND OR kind = 'unassigned_singlestepflow'::JOB_KIND)
                    AND trigger_kind = $2
                    AND trigger = $3
+                   AND NOT EXISTS (SELECT 1 FROM workspace_held_job h WHERE h.job_id = v2_job.id)
                    AND id = ANY($4)",
                 w_id,
                 trigger_kind as _,
@@ -325,7 +338,8 @@ pub async fn cancel_suspended_trigger_jobs(
              WHERE workspace_id = $1
                AND (kind = 'unassigned_script'::JOB_KIND OR kind = 'unassigned_flow'::JOB_KIND OR kind = 'unassigned_singlestepflow'::JOB_KIND)
                AND trigger_kind = $2
-               AND trigger = $3",
+               AND trigger = $3
+               AND NOT EXISTS (SELECT 1 FROM workspace_held_job h WHERE h.job_id = v2_job.id)",
             w_id,
             trigger_kind as _,
             trigger_path,

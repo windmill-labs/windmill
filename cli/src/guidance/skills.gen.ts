@@ -706,6 +706,24 @@ async getResource(path?: string, undefinedIfEmpty?: boolean): Promise<any>
 async getRootJobId(jobId?: string): Promise<string>
 
 /**
+ * Pause new jobs of the current workspace, e.g. while a flow runs migrations. Jobs from triggers,
+ * schedules and async runs are held until {@link resumeWorkspaceJobs} or the end of the pause;
+ * callers waiting for a result get a 503. The steps of the calling flow, and runs started directly
+ * by an admin, keep running. Requires the job to run as a workspace admin.
+ * @param durationS how long the pause lasts at most, in seconds (at most 7 days)
+ * @param reason shown to users of the workspace while paused
+ * @returns the pause now in effect
+ */
+async pauseWorkspaceJobs(durationS: number, reason?: string): Promise<JobsPaused>
+
+/**
+ * Resume new jobs of the current workspace and release the jobs the pause held.
+ * Requires the job to run as a workspace admin.
+ * @returns the number of held jobs released
+ */
+async resumeWorkspaceJobs(): Promise<number>
+
+/**
  * Run a script synchronously by its path and wait for the result
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script
@@ -1553,6 +1571,24 @@ async getResource(path?: string, undefinedIfEmpty?: boolean): Promise<any>
  * @returns root job id
  */
 async getRootJobId(jobId?: string): Promise<string>
+
+/**
+ * Pause new jobs of the current workspace, e.g. while a flow runs migrations. Jobs from triggers,
+ * schedules and async runs are held until {@link resumeWorkspaceJobs} or the end of the pause;
+ * callers waiting for a result get a 503. The steps of the calling flow, and runs started directly
+ * by an admin, keep running. Requires the job to run as a workspace admin.
+ * @param durationS how long the pause lasts at most, in seconds (at most 7 days)
+ * @param reason shown to users of the workspace while paused
+ * @returns the pause now in effect
+ */
+async pauseWorkspaceJobs(durationS: number, reason?: string): Promise<JobsPaused>
+
+/**
+ * Resume new jobs of the current workspace and release the jobs the pause held.
+ * Requires the job to run as a workspace admin.
+ * @returns the number of held jobs released
+ */
+async resumeWorkspaceJobs(): Promise<number>
 
 /**
  * Run a script synchronously by its path and wait for the result
@@ -2511,6 +2547,24 @@ async getResource(path?: string, undefinedIfEmpty?: boolean): Promise<any>
  * @returns root job id
  */
 async getRootJobId(jobId?: string): Promise<string>
+
+/**
+ * Pause new jobs of the current workspace, e.g. while a flow runs migrations. Jobs from triggers,
+ * schedules and async runs are held until {@link resumeWorkspaceJobs} or the end of the pause;
+ * callers waiting for a result get a 503. The steps of the calling flow, and runs started directly
+ * by an admin, keep running. Requires the job to run as a workspace admin.
+ * @param durationS how long the pause lasts at most, in seconds (at most 7 days)
+ * @param reason shown to users of the workspace while paused
+ * @returns the pause now in effect
+ */
+async pauseWorkspaceJobs(durationS: number, reason?: string): Promise<JobsPaused>
+
+/**
+ * Resume new jobs of the current workspace and release the jobs the pause held.
+ * Requires the job to run as a workspace admin.
+ * @returns the number of held jobs released
+ */
+async resumeWorkspaceJobs(): Promise<number>
 
 /**
  * Run a script synchronously by its path and wait for the result
@@ -4597,6 +4651,26 @@ def get_job(job_id: str) -> dict
 # Returns:
 #     Root job ID
 def get_root_job_id(job_id: str | None = None) -> dict
+
+# Pause new jobs of the workspace, e.g. while a flow runs migrations.
+# 
+# Jobs from triggers, schedules and async runs are held until resume_workspace_jobs or
+# the end of the pause; callers waiting for a result get a 503. The steps of the calling
+# flow, and runs started directly by an admin, keep running. Requires a workspace admin.
+# 
+# Args:
+#     duration_s: How long the pause lasts at most, in seconds (at most 7 days)
+#     reason: Shown to users of the workspace while paused
+# 
+# Returns:
+#     The pause now in effect
+def pause_workspace_jobs(duration_s: int, reason: str | None = None) -> dict
+
+# Resume new jobs of the workspace and release the jobs the pause held.
+# 
+# Returns:
+#     The number of held jobs released
+def resume_workspace_jobs() -> int
 
 # Get an OIDC JWT token for authentication to external services.
 # 
@@ -9073,6 +9147,8 @@ sync local with a remote workspaces or the opposite (push or pull)
   - \`--extra-includes <patterns:file[]>\` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy
   - \`--message <message:string>\` - Include a message that will be added to all scripts/flows/apps updated during this push
   - \`--parallel <number>\` - Number of changes to process in parallel
+  - \`--pause-jobs [duration:string]\` - Pause new jobs of the workspace while pushing (default 30m, at most 7d): triggers, schedules and async runs are held, then released once the dependency jobs of the push finish. Admin only
+  - \`--keep-paused\` - With --pause-jobs, leave jobs paused after the push (e.g. to run migrations first); resume with 'wmill workspace resume-jobs'
   - \`--repository <repo:string>\` - Specify repository path (e.g., u/user/repo) when multiple repositories exist
   - \`--branch, --env <branch:string>\` - [Deprecated: use --workspace] Override the current git branch/environment
   - \`--lint\` - Run lint validation before pushing
@@ -9263,6 +9339,12 @@ Arguments (omit both to be prompted interactively):
   - \`--dry-run\` - Only show the changes
   - \`--replace\` - Also clear the settings the file omits, as 'wmill sync push' does
   - \`-y --yes\` - Apply without asking
+- \`workspace pause-jobs\` - Pause new jobs of the active workspace, e.g. while a deploy or a migration is in progress. Jobs from triggers, schedules and async runs are held until 'wmill workspace resume-jobs' or the end of the pause; callers waiting for a result get a 503. Dependency and git sync jobs, steps of running flows and runs started directly by an admin are not held. Admin only.
+  - \`--for <duration:string>\` - How long the pause lasts at most (e.g. 30m, 2h, 1d; at most 7d; default 30m)
+  - \`--reason <reason:string>\` - Shown to users of the workspace while paused
+- \`workspace resume-jobs\` - Resume new jobs of the active workspace and release the jobs the pause held. Admin only.
+- \`workspace jobs-paused\` - Show whether new jobs of the active workspace are paused
+  - \`--json\` - Output as JSON
 
 
 

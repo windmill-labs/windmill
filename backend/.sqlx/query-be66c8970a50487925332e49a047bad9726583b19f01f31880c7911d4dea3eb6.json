@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_job_pause (workspace_id, paused_until, paused_by, reason)\n        VALUES ($1, $2, $3, $4)\n        ON CONFLICT (workspace_id) DO UPDATE\n        SET paused_until = EXCLUDED.paused_until, paused_by = EXCLUDED.paused_by,\n            reason = EXCLUDED.reason, pause_id = gen_random_uuid(),\n            paused_at = CASE WHEN workspace_job_pause.paused_until <= now() THEN now()\n                ELSE workspace_job_pause.paused_at END",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Timestamptz",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "be66c8970a50487925332e49a047bad9726583b19f01f31880c7911d4dea3eb6"
+}

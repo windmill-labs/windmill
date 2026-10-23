@@ -7,6 +7,7 @@ use sqlx::types::Json;
 use std::collections::HashMap;
 use std::future::Future;
 use uuid::Uuid;
+use windmill_common::job_pause::{with_policy, PausePolicy};
 use windmill_common::{
     db::{UserDB, UserDbWithAuthed, DB},
     error::Result,
@@ -638,22 +639,26 @@ pub async fn trigger_runnable_and_wait_for_result(
     trigger: TriggerMetadata,
 ) -> Result<axum::response::Response> {
     let username = authed.username.clone();
-    let (uuid, resolved_delete_secs, early_return, has_failure_module, _) = trigger_runnable_inner(
-        db,
-        None,
-        user_db,
-        authed,
-        workspace_id,
-        runnable_path,
-        is_flow,
-        args,
-        retry,
-        error_handler_path,
-        error_handler_args,
-        trigger_path,
-        None,
-        trigger,
-        None,
+    // The trigger waits for the result: a job a workspace pause would hold is refused instead.
+    let (uuid, resolved_delete_secs, early_return, has_failure_module, _) = with_policy(
+        PausePolicy::Refuse,
+        trigger_runnable_inner(
+            db,
+            None,
+            user_db,
+            authed,
+            workspace_id,
+            runnable_path,
+            is_flow,
+            args,
+            retry,
+            error_handler_path,
+            error_handler_args,
+            trigger_path,
+            None,
+            trigger,
+            None,
+        ),
     )
     .await?;
     let (result, success) = run_wait_result_internal(
@@ -691,22 +696,26 @@ pub async fn trigger_runnable_and_wait_for_raw_result(
     trigger: TriggerMetadata,
 ) -> Result<(Box<RawValue>, bool)> {
     let username = authed.username.clone();
-    let (uuid, resolved_delete_secs, early_return, has_failure_module, _) = trigger_runnable_inner(
-        db,
-        None,
-        user_db,
-        authed,
-        workspace_id,
-        runnable_path,
-        is_flow,
-        args,
-        retry,
-        error_handler_path,
-        error_handler_args,
-        trigger_path,
-        None,
-        trigger,
-        None,
+    // The trigger waits for the result: a job a workspace pause would hold is refused instead.
+    let (uuid, resolved_delete_secs, early_return, has_failure_module, _) = with_policy(
+        PausePolicy::Refuse,
+        trigger_runnable_inner(
+            db,
+            None,
+            user_db,
+            authed,
+            workspace_id,
+            runnable_path,
+            is_flow,
+            args,
+            retry,
+            error_handler_path,
+            error_handler_args,
+            trigger_path,
+            None,
+            trigger,
+            None,
+        ),
     )
     .await?;
 

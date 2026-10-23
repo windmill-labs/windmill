@@ -37,6 +37,7 @@ use windmill_audit::ActionKind;
 use windmill_common::datatable_roles::ADMIN_DATATABLE_ROLE;
 use windmill_common::db::UserDB;
 use windmill_common::error::{pg_error_message, Error, JsonResult, Result};
+use windmill_common::job_pause::{with_policy, PausePolicy};
 use windmill_common::jobs::{JobPayload, RawCode};
 use windmill_common::query_builders::{render_db_quoted_identifier, DbType};
 use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, DebouncingSettings};
@@ -258,50 +259,54 @@ async fn run_datatable_migration_job(
     let push_args = PushArgs { extra: None, args: &args };
 
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(db, authed).await?;
-    let (uuid, mut tx) = push(
-        db,
-        PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
-        w_id,
-        JobPayload::Code(RawCode {
-            content: sql.to_string(),
-            path: Some("datatable_migration".to_string()),
-            hash: None,
-            language: ScriptLang::Postgresql,
-            lock: None,
-            cache_ttl: None,
-            cache_ignore_s3_path: None,
-            dedicated_worker: None,
-            tag: None,
-            concurrency_settings: ConcurrencySettingsWithCustom::default(),
-            debouncing_settings: DebouncingSettings::default(),
-            modules: None,
-        }),
-        push_args,
-        authed.display_username(),
-        &authed.email,
-        username_to_permissioned_as(&authed.username),
-        authed.token_prefix.as_deref(),
-        authed.username_override.as_deref(),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        false,
-        false,
-        None,
-        true,
-        None,
-        None,
-        None,
-        None,
-        Some(&authed.clone().into()),
-        false,
-        None,
-        None,
-        None,
-        scope_ceiling.as_deref(),
+    // Migrations are what a deploy pauses jobs for: they run while jobs are paused.
+    let (uuid, mut tx) = with_policy(
+        PausePolicy::Exempt,
+        push(
+            db,
+            PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into()),
+            w_id,
+            JobPayload::Code(RawCode {
+                content: sql.to_string(),
+                path: Some("datatable_migration".to_string()),
+                hash: None,
+                language: ScriptLang::Postgresql,
+                lock: None,
+                cache_ttl: None,
+                cache_ignore_s3_path: None,
+                dedicated_worker: None,
+                tag: None,
+                concurrency_settings: ConcurrencySettingsWithCustom::default(),
+                debouncing_settings: DebouncingSettings::default(),
+                modules: None,
+            }),
+            push_args,
+            authed.display_username(),
+            &authed.email,
+            username_to_permissioned_as(&authed.username),
+            authed.token_prefix.as_deref(),
+            authed.username_override.as_deref(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            false,
+            None,
+            true,
+            None,
+            None,
+            None,
+            None,
+            Some(&authed.clone().into()),
+            false,
+            None,
+            None,
+            None,
+            scope_ceiling.as_deref(),
+        ),
     )
     .await?;
 

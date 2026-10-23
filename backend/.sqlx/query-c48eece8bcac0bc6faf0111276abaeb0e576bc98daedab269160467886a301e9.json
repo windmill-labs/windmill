@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO workspace_held_job (job_id, workspace_id, scheduled_for) VALUES ($1, $2, now())\n        ON CONFLICT (job_id) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c48eece8bcac0bc6faf0111276abaeb0e576bc98daedab269160467886a301e9"
+}

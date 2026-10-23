@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT workspace_id AS \"workspace_id!\" FROM workspace_job_pause WHERE paused_until <= now()\n        UNION\n        SELECT DISTINCT workspace_id FROM workspace_held_job h\n        WHERE NOT EXISTS (SELECT 1 FROM workspace_job_pause p WHERE p.workspace_id = h.workspace_id)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "workspace_id!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "df40a8d02af6cf9857c033b25748eb0b7dbb70ae1f5bd31b8b05c5d9792d30c5"
+}

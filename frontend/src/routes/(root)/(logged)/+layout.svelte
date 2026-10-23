@@ -105,6 +105,7 @@
 	import { pruneMeaninglessDrafts } from '$lib/userDraftPrune'
 	import DraftMigrationErrorModal from '$lib/components/DraftMigrationErrorModal.svelte'
 	import InstanceBanner from '$lib/components/InstanceBanner.svelte'
+	import JobsPausedBanner from '$lib/components/jobsPause/JobsPausedBanner.svelte'
 	import InstanceUiSync from '$lib/components/InstanceUiSync.svelte'
 	import { onDestroy, setContext, untrack } from 'svelte'
 	import { cubicOut } from 'svelte/easing'
@@ -1541,6 +1542,9 @@ outside this layout, and their shortcut must reopen the URL that is their creden
 				     skipped when the menu is hidden — that is an embed or an OAuth callback,
 				     where the announcement would land inside someone else's page. -->
 				<InstanceBanner />
+			{/if}
+			{#if !menuHidden}
+				<JobsPausedBanner />
 			{/if}
 			{#if $userStore?.is_service_account}
 				<div

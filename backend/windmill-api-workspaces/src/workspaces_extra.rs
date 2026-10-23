@@ -767,6 +767,25 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
+    info!("Moving the job pause and the jobs it holds");
+    sqlx::query!(
+        "INSERT INTO workspace_job_pause (workspace_id, paused_until, paused_by, paused_at, reason)
+         SELECT $1, paused_until, paused_by, paused_at, reason
+         FROM workspace_job_pause WHERE workspace_id = $2
+         ON CONFLICT (workspace_id) DO NOTHING",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "UPDATE workspace_held_job SET workspace_id = $1
+         WHERE job_id IN (SELECT id FROM v2_job WHERE workspace_id = $1)",
+        &rw.new_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
     info!("Updating raw_app table");
     sqlx::query!(
         "UPDATE raw_app SET workspace_id = $1 WHERE workspace_id = $2",

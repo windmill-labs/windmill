@@ -250,6 +250,24 @@ async getResource(path?: string, undefinedIfEmpty?: boolean): Promise<any>
 async getRootJobId(jobId?: string): Promise<string>
 
 /**
+ * Pause new jobs of the current workspace, e.g. while a flow runs migrations. Jobs from triggers,
+ * schedules and async runs are held until {@link resumeWorkspaceJobs} or the end of the pause;
+ * callers waiting for a result get a 503. The steps of the calling flow, and runs started directly
+ * by an admin, keep running. Requires the job to run as a workspace admin.
+ * @param durationS how long the pause lasts at most, in seconds (at most 7 days)
+ * @param reason shown to users of the workspace while paused
+ * @returns the pause now in effect
+ */
+async pauseWorkspaceJobs(durationS: number, reason?: string): Promise<JobsPaused>
+
+/**
+ * Resume new jobs of the current workspace and release the jobs the pause held.
+ * Requires the job to run as a workspace admin.
+ * @returns the number of held jobs released
+ */
+async resumeWorkspaceJobs(): Promise<number>
+
+/**
  * Run a script synchronously by its path and wait for the result
  * @param path - Script path in Windmill
  * @param args - Arguments to pass to the script

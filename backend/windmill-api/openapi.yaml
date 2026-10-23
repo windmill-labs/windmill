@@ -8688,6 +8688,95 @@ paths:
                 type: string
                 example: "Updated public app rate limit for workspace: workspace_id"
 
+  /w/{workspace}/workspaces/jobs_paused:
+    get:
+      summary: get whether new jobs of this workspace are paused
+      description: Returns null when new jobs are not paused.
+      operationId: getJobsPaused
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: the current job pause, or null
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobsPaused"
+
+  /w/{workspace}/workspaces/pause_jobs:
+    post:
+      summary: pause new jobs of this workspace
+      description: |
+        Until the deadline, new top-level jobs from triggers, schedules and async runs are held,
+        and queued jobs that have not started are held too. Callers waiting for a result (run and
+        wait, sync HTTP routes, apps) get a 503 with Retry-After. Dependency, git sync and
+        datatable migration jobs, steps of flows already running, and runs started directly by an
+        admin are not held. Pausing again moves the deadline. Admin only.
+      operationId: pauseJobs
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                until:
+                  type: string
+                  format: date-time
+                  description: when the pause ends. Give either this or duration_s, at most 7 days ahead.
+                duration_s:
+                  type: integer
+                  description: how long the pause lasts, in seconds
+                reason:
+                  type: string
+                source:
+                  type: string
+                  enum: [cli, ui, sdk, api]
+                  description: where the pause was asked from, for usage telemetry only
+      responses:
+        "200":
+          description: the job pause now in effect
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobsPaused"
+
+  /w/{workspace}/workspaces/resume_jobs:
+    post:
+      summary: resume new jobs of this workspace
+      description: Ends the job pause and releases the jobs it held. Admin only.
+      operationId: resumeJobs
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pause_id:
+                  type: string
+                  format: uuid
+                  description: resume only if the current pause still has this id (409 otherwise)
+      responses:
+        "200":
+          description: the number of held jobs released
+          content:
+            application/json:
+              schema:
+                type: integer
+        "409":
+          description: jobs were paused again since the pause named by pause_id; they stay paused
+
   /oauth/login_callback/{client_name}:
     post:
       security: []
@@ -37234,6 +37323,34 @@ components:
       required:
         - imported_path
         - count
+
+    JobsPaused:
+      type: object
+      nullable: true
+      properties:
+        paused_until:
+          type: string
+          format: date-time
+        paused_by:
+          type: string
+        paused_at:
+          type: string
+          format: date-time
+        reason:
+          type: string
+        held_count:
+          type: integer
+          description: jobs held by the pause, waiting to be released
+        pause_id:
+          type: string
+          format: uuid
+          description: renewed by every pause request; pass it to resumeJobs to resume only if no one paused since
+      required:
+        - paused_until
+        - paused_by
+        - paused_at
+        - held_count
+        - pause_id
 
     WorkspaceInvite:
       type: object

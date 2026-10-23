@@ -65,6 +65,14 @@ import {
 
 import { DbtPathCollisionError, handleFile } from "../script/script.ts";
 import {
+  DEFAULT_PAUSE_DURATION,
+  parseDuration,
+  pauseWorkspaceJobs,
+  resumeWorkspaceJobs,
+  waitForDependencyJobs,
+  waitForPauseToPropagate,
+} from "../workspace/jobsPause.ts";
+import {
   deepEqual,
   fetchRemoteVersion,
   getHeaders,
@@ -4876,6 +4884,8 @@ export async function push(
       branch?: string;
       keepDeleted?: boolean;
       acceptOverridingPermissionedAsWithSelf?: boolean;
+      pauseJobs?: boolean | string;
+      keepPaused?: boolean;
     },
 ) {
   if ((opts as any).jsonOutput) log.setSilent(true);
@@ -5830,6 +5840,16 @@ export async function push(
 
     const start = performance.now();
     const pushStartedAt = new Date().toISOString();
+    const jobsPause = opts.pauseJobs
+      ? await pauseWorkspaceJobs(
+          workspace.workspaceId,
+          parseDuration(
+            opts.pauseJobs === true ? DEFAULT_PAUSE_DURATION : opts.pauseJobs,
+          ),
+          "wmill sync push",
+        )
+      : undefined;
+    if (jobsPause) await waitForPauseToPropagate();
     log.info(colors.gray(`Applying changes to files ...`));
 
     let stateful = opts.stateful;
@@ -6750,8 +6770,9 @@ export async function push(
     } catch (e) {
       log.warn(`Failed to push shared UI folder: ${e}`);
     }
+    let migrations: "ok" | "pending" | "failed" = "ok";
     try {
-      await offerToRunNewMigrations(
+      const { pending } = await offerToRunNewMigrations(
         workspace.workspaceId,
         newDatatableMigrations,
         {
@@ -6759,7 +6780,9 @@ export async function push(
           jsonOutput: opts.jsonOutput,
         },
       );
+      if (pending) migrations = "pending";
     } catch (e: any) {
+      migrations = "failed";
       log.warn(
         `Failed to run new datatable migrations: ${e?.body ?? e?.message ?? e}`,
       );
@@ -6784,11 +6807,54 @@ export async function push(
         );
       }
     }
+    let jobsResumed = false;
+    if (jobsPause) {
+      const deps = await waitForDependencyJobs(
+        workspace.workspaceId,
+        pushStartedAt,
+        new Date(jobsPause.paused_until),
+      );
+      if (opts.keepPaused) {
+        log.info(
+          colors.yellow(
+            `Jobs stay paused until ${jobsPause.paused_until} (--keep-paused). Run 'wmill workspace resume-jobs' when ready.`,
+          ),
+        );
+      } else {
+        const stayPausedBecause =
+          failedChanges.length > 0
+            ? "some changes failed to push"
+            : migrations === "failed"
+              ? "the new datatable migrations failed"
+              : migrations === "pending"
+                ? "the new datatable migrations were not run"
+                : deps.failed > 0
+                  ? `${deps.failed} dependency job(s) failed`
+                  : !deps.finished
+                    ? "dependency jobs are still running"
+                    : undefined;
+        if (stayPausedBecause) {
+          log.warn(
+            `Jobs stay paused until ${jobsPause.paused_until} because ${stayPausedBecause}. ` +
+              "Run 'wmill workspace resume-jobs' once the workspace is consistent.",
+          );
+          if (migrations === "failed") process.exitCode = 1;
+        } else {
+          jobsResumed = await resumeWorkspaceJobs(
+            workspace.workspaceId,
+            jobsPause.pause_id,
+          );
+        }
+      }
+    }
     const pushedCount = changes.length - failedChanges.length;
     if (opts.jsonOutput) {
       const result = {
         success: failedChanges.length === 0,
         lock_jobs: lockJobs,
+        ...(jobsPause
+          ? { jobs_paused_until: jobsResumed ? null : jobsPause.paused_until }
+          : {}),
         ...(failedChanges.length > 0 ? { failed: failedChanges } : {}),
         message:
           failedChanges.length > 0
@@ -7030,6 +7096,15 @@ const command = new Command()
     "Include a message that will be added to all scripts/flows/apps updated during this push",
   )
   .option("--parallel <number>", "Number of changes to process in parallel")
+  .option(
+    "--pause-jobs [duration:string]",
+    "Pause new jobs of the workspace while pushing (default 30m, at most 7d): triggers, schedules and async runs are held, then released once the dependency jobs of the push finish. Admin only",
+  )
+  .option(
+    "--keep-paused",
+    "With --pause-jobs, leave jobs paused after the push (e.g. to run migrations first); resume with 'wmill workspace resume-jobs'",
+    { depends: ["pause-jobs"] },
+  )
   .option(
     "--repository <repo:string>",
     "Specify repository path (e.g., u/user/repo) when multiple repositories exist",

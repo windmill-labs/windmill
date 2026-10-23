@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT paused_until, paused_by, paused_at, reason, pause_id,\n            (SELECT count(*) FROM workspace_held_job h WHERE h.workspace_id = p.workspace_id) AS \"held_count!\"\n        FROM workspace_job_pause p\n        WHERE workspace_id = $1 AND paused_until > now()",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "paused_until",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 1,
+        "name": "paused_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "paused_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "pause_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "held_count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "b7e296e30c7b26cbf5d561a03fe20143f99d765eefe643e7a1a39613d9b47a34"
+}

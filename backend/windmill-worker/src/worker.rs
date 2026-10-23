@@ -4898,7 +4898,7 @@ pub async fn handle_queued_job(
 
     match job.kind {
         JobKind::UnassignedScript | JobKind::UnassignedFlow | JobKind::UnassignedSinglestepFlow => {
-            return Err(Error::ExecutionErr("Suspended job was not handled by the user within 30 days, job will not be executed.".to_string()));
+            return Err(Error::ExecutionErr("Suspended job (held by a suspended trigger or a workspace job pause) was not released within 30 days, job will not be executed.".to_string()));
         }
         _ => {}
     }

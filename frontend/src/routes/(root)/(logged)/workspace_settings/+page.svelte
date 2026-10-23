@@ -65,6 +65,7 @@
 	import ChangeWorkspaceName from '$lib/components/settings/ChangeWorkspaceName.svelte'
 	import ChangeWorkspaceId from '$lib/components/settings/ChangeWorkspaceId.svelte'
 	import ChangeWorkspaceColor from '$lib/components/settings/ChangeWorkspaceColor.svelte'
+	import PauseJobsSection from '$lib/components/jobsPause/PauseJobsSection.svelte'
 	import CloudQuotas from '$lib/components/settings/CloudQuotas.svelte'
 	import {
 		convertBackendSettingsToFrontendSettings,
@@ -2008,6 +2009,7 @@
 								<ChangeWorkspaceName />
 								<ChangeWorkspaceId />
 								<ChangeWorkspaceColor />
+								<PauseJobsSection />
 							</div>
 
 							<div class="text-xs font-semibold text-emphasis mt-6 mb-1">Export workspace</div>
