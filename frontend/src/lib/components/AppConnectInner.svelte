@@ -185,7 +185,6 @@
 	 * toggling back from client-credentials can restore them. */
 	let instanceScopes: string[] = $state([])
 	let extra_params: [string, string][] = []
-	let responseExtra: Record<string, string> = $state({})
 	let path: string = $state('')
 	let description = $state('')
 	let labels: string[] | undefined = $state(undefined)
@@ -672,7 +671,6 @@
 			resourceType = stripSandboxSuffix(connectClient)
 			value = data.res.access_token!
 			valueToken = data.res
-			responseExtra = data.extra ?? {}
 			Object.assign(args, data.res.resource_fields ?? {})
 			fillGeneratedDescription()
 			step = 4
@@ -959,9 +957,6 @@
 						args[argField] = valueTemplate.replaceAll('{instance}', instanceValue)
 					}
 				}
-			}
-			if (resourceType === 'quickbooks' && responseExtra['realmId']) {
-				args['realmId'] = responseExtra['realmId']
 			}
 
 			let accountData: any = undefined

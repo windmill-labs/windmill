@@ -66,8 +66,8 @@ pub struct ClientWithScopes {
     pub extra_params_callback: Option<HashMap<String, String>>,
     pub allowed_domains: Option<Vec<String>>,
     pub userinfo_url: Option<String>,
-    /// See [`OAuthConfig::userinfo_fields`].
-    pub userinfo_fields: Option<HashMap<String, String>>,
+    /// See [`OAuthConfig::connect_fields`].
+    pub connect_fields: Option<HashMap<String, String>>,
     pub grant_types: Vec<String>,
     pub token_response_path: Option<String>,
     /// Resolved token endpoint, exposed so the connect dialog can prefill and
@@ -90,11 +90,13 @@ pub struct OAuthConfig {
     #[serde(default = "empty_string")]
     pub token_url: String,
     pub userinfo_url: Option<String>,
-    /// Resource fields the connect callback reads from `userinfo_url`'s response,
-    /// as field -> path (see [`userinfo_resource_fields`]): Docusign's account id
-    /// and base URI are in no token response.
+    /// Resource fields the connect callback fills from what the provider returns,
+    /// as field -> path (see [`connect_resource_fields`]). A path starts with its
+    /// source: `token.` (the token response), `userinfo.` (`userinfo_url`'s
+    /// response, fetched only when a path needs it) or `callback.` (the callback
+    /// URL's query params).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub userinfo_fields: Option<HashMap<String, String>>,
+    pub connect_fields: Option<HashMap<String, String>>,
     /// The registry JSON may also carry frontend-only keys for the connect
     /// dialog, deliberately not modelled here: `scope_options`, a scope pick
     /// list, `resource_fields`, the fields of the resource type the dialog
@@ -360,6 +362,10 @@ pub struct SlackTeam {
 pub struct OAuthCallback {
     pub code: String,
     pub state: String,
+    /// The callback URL's other query params (QuickBooks' `realmId`), read by
+    /// `connect_fields` paths under `callback.`.
+    #[serde(default)]
+    pub params: HashMap<String, String>,
 }
 
 /// Build a basic OAuth client from configuration
@@ -909,8 +915,8 @@ pub fn parse_token_response(
     })
 }
 
-/// What the connect callback returns: the token, and the resource fields read from
-/// the provider's userinfo endpoint, which the connect dialog prefills.
+/// What the connect callback returns: the token, and the resource fields its
+/// `connect_fields` picked, which the connect dialog prefills.
 #[derive(Debug, Serialize)]
 pub struct ConnectCallbackResponse {
     #[serde(flatten)]
@@ -919,11 +925,12 @@ pub struct ConnectCallbackResponse {
     pub resource_fields: HashMap<String, serde_json::Value>,
 }
 
-/// Picks each field's value out of a userinfo response. A path is dot-separated
-/// keys, and a `key[k=v]` segment takes the element of array `key` whose `k` is
-/// `v` (`accounts[is_default=true].base_uri`). Fields whose path misses are left out.
-pub fn userinfo_resource_fields(
-    userinfo: &serde_json::Value,
+/// Picks each field's value out of `sources` (`{token, userinfo, callback}`). A path
+/// is dot-separated keys, and a `key[k=v]` segment takes the element of array `key`
+/// whose `k` is `v` (`userinfo.accounts[is_default=true].base_uri`). Only the listed
+/// paths leave the server, and fields whose path misses are left out.
+pub fn connect_resource_fields(
+    sources: &serde_json::Value,
     fields: &HashMap<String, String>,
 ) -> HashMap<String, serde_json::Value> {
     fn get<'a>(v: &'a serde_json::Value, path: &str) -> Option<&'a serde_json::Value> {
@@ -943,7 +950,7 @@ pub fn userinfo_resource_fields(
     fields
         .iter()
         .filter_map(|(field, path)| {
-            get(userinfo, path)
+            get(sources, path)
                 .filter(|v| !v.is_null())
                 .map(|v| (field.clone(), v.clone()))
         })
@@ -1309,21 +1316,39 @@ mod tests {
     }
 
     #[test]
-    fn userinfo_fields_take_the_default_docusign_account() {
+    fn connect_fields_pick_from_each_source() {
         let registry: HashMap<String, OAuthConfig> =
             serde_json::from_str(include_str!("../../oauth_connect.json")).unwrap();
-        let fields = registry["docusign"].userinfo_fields.clone().unwrap();
-        let userinfo = serde_json::json!({
-            "sub": "u1",
-            "accounts": [
-                {"account_id": "a1", "is_default": false, "base_uri": "https://na2.docusign.net"},
-                {"account_id": "a2", "is_default": true, "base_uri": "https://demo.docusign.net"}
-            ]
-        });
-        let got = userinfo_resource_fields(&userinfo, &fields);
+        let fields = |p: &str| registry[p].connect_fields.clone().unwrap();
+
+        let docusign = serde_json::json!({"userinfo": {"accounts": [
+            {"account_id": "a1", "is_default": false, "base_uri": "https://na2.docusign.net"},
+            {"account_id": "a2", "is_default": true, "base_uri": "https://demo.docusign.net"}
+        ]}});
+        let got = connect_resource_fields(&docusign, &fields("docusign"));
         assert_eq!(got["account_id"], "a2");
         assert_eq!(got["base_uri"], "https://demo.docusign.net");
-        assert!(userinfo_resource_fields(&serde_json::json!({"accounts": []}), &fields).is_empty());
+        let no_account = serde_json::json!({"userinfo": {"accounts": []}});
+        assert!(connect_resource_fields(&no_account, &fields("docusign")).is_empty());
+
+        let salesforce = serde_json::json!({"token": {
+            "access_token": "t", "instance_url": "https://acme.my.salesforce.com", "id_token": "x"
+        }});
+        let want = HashMap::from([(
+            "instance_url".to_string(),
+            serde_json::json!("https://acme.my.salesforce.com"),
+        )]);
+        assert_eq!(
+            connect_resource_fields(&salesforce, &fields("salesforce")),
+            want
+        );
+
+        let quickbooks = serde_json::json!({"callback": {"realmId": "9130"}});
+        let got = connect_resource_fields(&quickbooks, &fields("quickbooks"));
+        assert_eq!(
+            got,
+            HashMap::from([("realmId".to_string(), serde_json::json!("9130"))])
+        );
     }
 
     fn sample_oauth_config(with_sandbox: bool) -> OAuthConfig {
@@ -1331,7 +1356,7 @@ mod tests {
             auth_url: "https://account.example.com/oauth/auth".to_string(),
             token_url: "https://account.example.com/oauth/token".to_string(),
             userinfo_url: Some("https://account.example.com/userinfo".to_string()),
-            userinfo_fields: None,
+            connect_fields: None,
             scopes: Some(vec!["signature".to_string()]),
             cc_scopes: None,
             extra_params: None,
