@@ -782,6 +782,13 @@ export class AIChatManager implements ChatViewHost {
 	useModeActive = $derived(
 		this.workModesAvailable && (this.workMode === AIWorkMode.USE || this.#useOnly)
 	)
+	/** Why the chat is in Use; undefined in Plan and Build. A protected workspace's access builds
+	 * nothing too, so it is told apart from the role first. */
+	#useReason = $derived.by((): 'protected' | 'role' | 'chosen' | undefined => {
+		if (!this.useModeActive) return undefined
+		if (isReadOnlyAccess(this.sessionAccess)) return 'protected'
+		return this.#useOnly ? 'role' : 'chosen'
+	})
 	/** What the tools and the prompt are built for. */
 	#toolAccess = $derived(this.useModeActive ? USE_MODE_ACCESS : this.sessionAccess)
 	// The posture's own state — its two tools, the plan document and the planning round.
@@ -2771,10 +2778,10 @@ export class AIChatManager implements ChatViewHost {
 
 	#sessionPromptContext = (): SessionPromptContext | undefined => {
 		const ctx = this.sessionContextResolver?.()
+		const reason = this.#useReason
 		// A protected workspace needs no reason here: the prompt's own read-only line names it.
-		if (!ctx || !this.workModesAvailable || isReadOnlyAccess(this.sessionAccess)) return ctx
-		if (this.#useOnly) return { ...ctx, useMode: 'role' }
-		return this.workMode === AIWorkMode.USE ? { ...ctx, useMode: 'chosen' } : ctx
+		if (!ctx || !reason || reason === 'protected') return ctx
+		return { ...ctx, useMode: reason }
 	}
 
 	// Fetch the workspace's AI skills and, if GLOBAL mode is still active, rebuild
@@ -4092,6 +4099,19 @@ export class AIChatManager implements ChatViewHost {
 					entityId: this.sessionId,
 					workspace: this.operatingWorkspace
 				})
+				if (this.workModesAvailable) {
+					// Keyed by the mode the message runs in, not `workMode`, which a held session keeps.
+					// Held Use has its own keys, so `use_chosen` counts only sessions that could build.
+					logFeatureUsage('ai_session', 'work_mode', {
+						key: this.#useReason
+							? `use_${this.#useReason}`
+							: this.planModeActive
+								? AIWorkMode.PLAN
+								: AIWorkMode.BUILD,
+						entityId: this.sessionId,
+						workspace: this.operatingWorkspace
+					})
+				}
 			}
 
 			if (this.mode === AIMode.FLOW && !this.flowAiChatHelpers) {
