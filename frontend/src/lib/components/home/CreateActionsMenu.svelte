@@ -19,6 +19,7 @@
 		PanelLeftClose,
 		Folder
 	} from 'lucide-svelte'
+	import MenuItem from '$lib/components/meltComponents/MenuItem.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import DbtIcon from '$lib/components/icons/DbtIcon.svelte'
 	import { PythonIcon, TypeScriptIcon } from '$lib/components/common/languageIcons'
@@ -725,12 +726,12 @@
 				<!-- bottom section: a folder, then one entry whose submenu imports any artifact -->
 				<div class="mx-1 my-1 border-t border-gray-200 dark:border-gray-700"></div>
 				{#if onCreateFolder}
-					<button
-						use:melt={$item}
+					<!-- Focus also arrives on hover: melt focuses the highlighted item. -->
+					<MenuItem
+						{item}
 						class="w-full flex flex-row items-center gap-2.5 rounded-md px-2 py-1.5 text-left cursor-pointer transition-colors focus:outline-none data-[highlighted]:bg-surface-hover hover:bg-surface-hover"
-						onfocusin={() => highlightOption(undefined)}
-						onpointerenter={() => highlightOption(undefined)}
-						onclick={() => onCreateFolder()}
+						onFocusIn={() => highlightOption(undefined)}
+						onClick={() => onCreateFolder()}
 					>
 						<div
 							class="w-6 h-6 rounded-md flex items-center justify-center shrink-0 bg-gray-100 dark:bg-gray-700"
@@ -740,7 +741,7 @@
 						<span class="text-xs font-medium text-primary flex-1 min-w-0 whitespace-nowrap">
 							Folder
 						</span>
-					</button>
+					</MenuItem>
 				{/if}
 				<button
 					use:melt={$importSubTrigger}

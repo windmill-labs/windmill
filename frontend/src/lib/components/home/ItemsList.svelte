@@ -1054,7 +1054,7 @@
 	// Unfiltered, the tree lists every folder, empty ones too, so a workspace holding only
 	// folders is not empty: its first folder is created from here and managed from its row.
 	let treeShowsFolders = $derived(
-		treeLazyMode && itemKind === 'all' && (folderNamesRes.current?.length ?? 0) > 0
+		treeLazyMode && !archived && itemKind === 'all' && (folderNamesRes.current?.length ?? 0) > 0
 	)
 	// How many runnables each owner (`f/<folder>` / `u/<user>`) holds for this user,
 	// in one request. It labels every tree node up front — a lazy owner's own count is

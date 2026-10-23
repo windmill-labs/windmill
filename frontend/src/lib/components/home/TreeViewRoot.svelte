@@ -134,10 +134,10 @@
 						.filter((g) => 'folderName' in g)
 						.map((g) => (g as { folderName: string }).folderName)
 				)
-				// Once counts are in, an owner holding nothing the user can see is dropped
-				// rather than injected — a workspace's folder list is mostly noise in the
-				// tree otherwise. Pipeline folders are exempt: their entry is the pipeline
-				// itself, whose member scripts are folded out of the runnable count.
+				// Once counts are in, a user space holding nothing the user can see is dropped
+				// rather than injected — the member list is mostly noise in the tree otherwise.
+				// Empty folders are dropped too unless `keepEmptyFolders`. Pipeline folders are
+				// exempt: their entry is the pipeline, whose scripts the count folds out.
 				const isEmptyOwner = (prefix: string) => ownerCounts != undefined && !ownerCounts[prefix]
 				const missingFolders: { folderName: string; items: [] }[] = []
 				for (const folderName of [...(pipelineFolders ?? []), ...allFolders]) {
