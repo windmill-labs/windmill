@@ -42,8 +42,8 @@ use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
 use windmill_common::jobs::{
-    script_path_to_payload, JobTriggerKind, TriggerKindLabel, EMAIL_ERROR_HANDLER_USER_EMAIL,
-    MODULES_ARG,
+    args_contain_nul, normalize_nul_in_args, sanitize_untrusted_args, script_path_to_payload,
+    JobTriggerKind, TriggerKindLabel, EMAIL_ERROR_HANDLER_USER_EMAIL, MODULES_ARG,
 };
 use windmill_common::min_version::{
     MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
@@ -6153,6 +6153,18 @@ impl PushArgsOwned {
     pub fn empty() -> Self {
         PushArgsOwned { extra: None, args: HashMap::new() }
     }
+
+    /// Mark these args as coming from an untrusted third party: see
+    /// [`windmill_common::jobs::sanitize_untrusted_args`]. Applied to both maps, because a
+    /// name in `extra` wins over the same name in `args` when the job is serialized, and no
+    /// source that builds args from a third party's payload sets a reserved control key of
+    /// its own.
+    pub fn sanitize_untrusted(&mut self) {
+        sanitize_untrusted_args(&mut self.args);
+        if let Some(extra) = self.extra.as_mut() {
+            sanitize_untrusted_args(extra);
+        }
+    }
 }
 
 pub fn empty_result() -> Box<RawValue> {
@@ -6398,21 +6410,34 @@ async fn push_inner<'c, 'd>(
     suspended_mode: Option<bool>,
     scope_ceiling: Option<&[String]>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
-    // The worker builds a preview's `_MODULES` arg into the job as its module code. Every
-    // caller-reachable value lands in `args` or `extra` (webhook query and headers go to
-    // `extra`, WAC children copy their parent's args), so it is dropped from both and only
-    // the `JobPayload::Code` arm below sets it, from the server-side `RawCode::modules`.
-    let args_without_modules;
+    // Normalize the names and values to what the INSERT below will actually store before
+    // anything here goes by a name: `strip_json_nul` runs over the serialized args just
+    // before that INSERT and removes `\u0000` escapes from keys as well as values, so a
+    // name compared as sent is not the name that lands in the job. Without this, `_MODULES`
+    // is dropped below while `_MODULES\0` is stored as `_MODULES` and built into a preview's
+    // job directory as module code; likewise the serializer's "`extra` wins this name" rule
+    // (which is how an app policy's `static_inputs` override a viewer's args) compares the
+    // name as sent, so `tenant\0` is written after the pinned `tenant` and jsonb keeps the
+    // viewer's, as the later of two equal keys. The final strip stays, harmless once this
+    // has run.
+    let normalized_args;
     let mut args = {
         let mut extra = args.extra;
         if let Some(extra) = extra.as_mut() {
+            normalize_nul_in_args(extra);
+            // The worker builds a preview's `_MODULES` arg into the job as its module code.
+            // Every caller-reachable value lands in `args` or `extra` (webhook query and
+            // headers go to `extra`, WAC children copy their parent's args), so it is
+            // dropped from both and only the `JobPayload::Code` arm below sets it, from the
+            // server-side `RawCode::modules`.
             extra.remove(MODULES_ARG);
         }
-        let args = if args.args.contains_key(MODULES_ARG) {
+        let args = if args_contain_nul(args.args) || args.args.contains_key(MODULES_ARG) {
             let mut stripped = args.args.clone();
+            normalize_nul_in_args(&mut stripped);
             stripped.remove(MODULES_ARG);
-            args_without_modules = stripped;
-            &args_without_modules
+            normalized_args = stripped;
+            &normalized_args
         } else {
             args.args
         };
