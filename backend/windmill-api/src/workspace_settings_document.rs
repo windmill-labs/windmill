@@ -343,10 +343,7 @@ pub async fn load_settings_document(
     let protection_rules = protection_rules_document(&mut *conn, w_id).await?;
     let git_sync = redact_git_sync(row.git_sync);
     let git_sync = match fork_parent(&mut *conn, w_id).await? {
-        Some(parent) => match git_sync {
-            Some(own) => Some(fork_git_sync_document(own, parent.git_sync.as_ref())),
-            None => parent.git_sync,
-        },
+        Some(parent) => fork_git_sync_document(git_sync, parent.git_sync),
         None => git_sync,
     };
 
@@ -873,7 +870,7 @@ async fn plan(db: &DB, w_id: &str, mut desired: Map<String, Value>, replace: boo
         let current = load_settings_document(&mut conn, db, w_id, SecretMode::Plain).await?;
         (current, fork_parent(&mut conn, w_id).await?)
     };
-    if let Some(fork) = fork {
+    if fork.is_some() {
         // Diff against what the fork stores, not the parent's view the document shows it.
         let own: Option<Value> =
             sqlx::query_scalar("SELECT git_sync FROM workspace_settings WHERE workspace_id = $1")
@@ -882,11 +879,15 @@ async fn plan(db: &DB, w_id: &str, mut desired: Map<String, Value>, replace: boo
                 .await?
                 .flatten();
         let own = redact_git_sync(own);
-        if let Some(git_sync) = desired.get_mut("git_sync").filter(|v| v.is_object()) {
-            keep_fork_owned_git_sync(git_sync, own.as_ref(), fork.is_dev);
-            if own.is_none() && repos(Some(git_sync)).is_empty() {
-                *git_sync = Value::Null;
-            }
+        // A malformed value is left for the endpoint to refuse.
+        let stated = match desired.get("git_sync") {
+            Some(v) if v.is_object() || v.is_null() => Some(v),
+            Some(_) => None,
+            None => replace.then_some(&Value::Null),
+        };
+        if let Some(stated) = stated {
+            let applied = fork_git_sync_to_apply(stated, own.as_ref())?;
+            desired.insert("git_sync".to_string(), applied);
         }
         match own {
             Some(own) => current.insert("git_sync".to_string(), own),
@@ -903,34 +904,43 @@ async fn plan(db: &DB, w_id: &str, mut desired: Map<String, Value>, replace: boo
 
 /// A fork's parent, read for its `git_sync`.
 struct ForkParent {
+    /// As the parent's own document states it: a fork of a fork shares the root's file too.
     git_sync: Option<Value>,
-    /// Of the fork itself.
-    is_dev: bool,
 }
 
 /// `Some` when `w_id` is a fork, by the same test as `reject_parent_only_git_sync_settings_on_fork`.
 async fn fork_parent(conn: &mut PgConnection, w_id: &str) -> Result<Option<ForkParent>> {
-    let row: Option<(Option<String>, bool, Option<Value>)> = sqlx::query_as(
-        "SELECT w.parent_workspace_id, w.is_dev_workspace, ps.git_sync FROM workspace w
-         LEFT JOIN workspace_settings ps ON ps.workspace_id = w.parent_workspace_id
-         WHERE w.id = $1",
+    // Nearest first; the depth bound only guards against a cycle.
+    let chain: Vec<(Option<Value>,)> = sqlx::query_as(
+        "WITH RECURSIVE chain AS (
+             SELECT id, parent_workspace_id, 0 AS depth FROM workspace WHERE id = $1
+             UNION ALL
+             SELECT w.id, w.parent_workspace_id, c.depth + 1 FROM workspace w
+             JOIN chain c ON w.id = c.parent_workspace_id WHERE c.depth < 32
+         )
+         SELECT s.git_sync FROM chain c
+         LEFT JOIN workspace_settings s ON s.workspace_id = c.id
+         WHERE c.depth > 0 ORDER BY c.depth",
     )
     .bind(w_id)
-    .fetch_optional(&mut *conn)
+    .fetch_all(&mut *conn)
     .await?;
-    let (parent, is_dev, git_sync) = row.unwrap_or_default();
-    Ok(
-        (parent.is_some() || w_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX))
-            .then(|| ForkParent { git_sync: redact_git_sync(git_sync), is_dev }),
-    )
+    if chain.is_empty() && !w_id.starts_with(windmill_common::workspaces::WM_FORK_PREFIX) {
+        return Ok(None);
+    }
+    let git_sync = chain.into_iter().rev().fold(None, |above, (own,)| {
+        fork_git_sync_document(redact_git_sync(own), above)
+    });
+    Ok(Some(ForkParent { git_sync }))
 }
 
 // A fork shares its parent's settings.yaml (the CLI maps `wm-fork/<branch>/<id>` to the parent's
-// entry), but the parent owns the repos the fork does not carry and, on those it does, the fields
-// a fork may not hold (`reject_parent_only_git_sync_settings_on_fork`). The fork's document shows
-// the parent's values for those, and applying one keeps the fork's: each is the other's inverse,
-// so a fork's pull is not refused and its push cannot turn off the parent's auto-pull on merge.
-const PARENT_OWNED_REPO_KEYS: [&str; 2] = ["auto_pull", "fork_open_prs"];
+// entry), so its `git_sync` there is the parent's. Of it, a fork applies only what selects the
+// items synced, on the repos it carries: auto-pull, fork PRs and promotion mode are not a fork's
+// to take (`reject_parent_only_git_sync_settings_on_fork`), and a field not listed here stays the
+// fork's own. The fork's document is the parent's block with the fork's values for these keys,
+// the inverse of the apply, so a merge of the fork's branch changes only them in the parent.
+const FORK_SYNCED_REPO_KEYS: [&str; 3] = ["settings", "exclude_types_override", "group_by_folder"];
 
 fn repos(git_sync: Option<&Value>) -> &[Value] {
     git_sync
@@ -946,71 +956,48 @@ fn same_repo<'a>(repos: &'a [Value], repo: &Value) -> Option<&'a Value> {
         .find(|r| r.get("git_repo_resource_path") == Some(path))
 }
 
-fn copy_parent_owned(to: &mut Value, from: &Value) {
-    let Some(to) = to.as_object_mut() else {
+/// Sets each repo of `onto` that `from` also lists to `from`'s values for the synced keys.
+fn copy_synced_keys(onto: &mut Value, from: &[Value]) {
+    let Some(repos) = onto.get_mut("repositories").and_then(Value::as_array_mut) else {
         return;
     };
-    for key in PARENT_OWNED_REPO_KEYS {
-        match from.get(key) {
-            Some(v) => to.insert(key.to_string(), v.clone()),
-            None => to.remove(key),
+    for repo in repos {
+        let Some(src) = same_repo(from, repo).cloned() else {
+            continue;
         };
+        let Some(repo) = repo.as_object_mut() else {
+            continue;
+        };
+        for key in FORK_SYNCED_REPO_KEYS {
+            match src.get(key) {
+                Some(v) => repo.insert(key.to_string(), v.clone()),
+                None => repo.remove(key),
+            };
+        }
     }
 }
 
 /// The fork's `git_sync` as its settings.yaml states it.
-fn fork_git_sync_document(own: Value, parent: Option<&Value>) -> Value {
-    let Some(parent) = parent.filter(|p| p.get("repositories").is_some()) else {
+fn fork_git_sync_document(own: Option<Value>, parent: Option<Value>) -> Option<Value> {
+    let Some(mut doc) = parent else {
         return own;
     };
-    let own_repos = repos(Some(&own));
-    let mut out: Vec<Value> = repos(Some(parent))
-        .iter()
-        .map(|p| {
-            same_repo(own_repos, p).map_or_else(
-                || p.clone(),
-                |o| {
-                    let mut o = o.clone();
-                    copy_parent_owned(&mut o, p);
-                    o
-                },
-            )
-        })
-        .collect();
-    out.extend(
-        own_repos
-            .iter()
-            .filter(|o| same_repo(repos(Some(parent)), o).is_none())
-            .cloned(),
-    );
-    let mut own = own;
-    if let Some(obj) = own.as_object_mut() {
-        obj.insert("repositories".to_string(), Value::Array(out));
-    }
-    own
+    copy_synced_keys(&mut doc, repos(own.as_ref()));
+    Some(doc)
 }
 
 /// What a fork applies of the `git_sync` its settings.yaml states.
-/// In the fork's own repo order, which the document does not keep. Only a dev workspace may hold
-/// a promotion repo, and one detached from dev can still carry its own.
-fn keep_fork_owned_git_sync(desired: &mut Value, own: Option<&Value>, is_dev: bool) {
-    let stated = repos(Some(desired)).to_vec();
-    let Some(obj) = desired
-        .as_object_mut()
-        .filter(|o| o.contains_key("repositories"))
-    else {
-        return;
+fn fork_git_sync_to_apply(stated: &Value, own: Option<&Value>) -> Result<Value> {
+    if stated.get("repositories").is_some_and(|r| !r.is_array()) {
+        return Err(Error::BadRequest(
+            "git_sync.repositories must be a list".to_string(),
+        ));
+    }
+    let Some(mut applied) = own.cloned() else {
+        return Ok(Value::Null);
     };
-    let kept = repos(own)
-        .iter()
-        .filter_map(|o| {
-            let mut repo = same_repo(&stated, o)?.clone();
-            copy_parent_owned(&mut repo, o);
-            (is_dev || repo.get("use_individual_branch") != Some(&Value::Bool(true)))
-                .then_some(repo)
-        })
-        .collect();
-    obj.insert("repositories".to_string(), Value::Array(kept));
+    copy_synced_keys(&mut applied, repos(Some(stated)));
+    Ok(applied)
 }
 
 fn plan_document(
@@ -2090,57 +2077,41 @@ mod tests {
     }
 
     #[test]
-    fn a_fork_keeps_its_own_parent_owned_git_sync_fields() {
+    fn a_fork_applies_only_the_synced_keys_of_the_repos_it_carries() {
         let parent = json!({ "repositories": [
-            { "git_repo_resource_path": "f/r", "include_path": ["f/**"],
+            { "git_repo_resource_path": "f/r", "settings": { "include_path": ["f/**"] },
               "auto_pull": { "enabled": true, "sync_forks": true }, "fork_open_prs": true },
             { "git_repo_resource_path": "f/promo", "use_individual_branch": true },
         ] });
+        // A dev workspace's promotion repo is the repo the parent syncs normally.
         let fork = json!({ "repositories": [
-            { "git_repo_resource_path": "f/r", "include_path": ["u/**"],
-              "auto_pull": { "enabled": false }, "fork_open_prs": false },
+            { "git_repo_resource_path": "f/own" },
+            { "git_repo_resource_path": "f/r", "settings": { "include_path": ["u/**"] },
+              "use_individual_branch": true, "auto_pull": { "enabled": false } },
         ] });
-        let expected = json!({ "repositories": [
-            { "git_repo_resource_path": "f/r", "include_path": ["f/**"],
-              "auto_pull": { "enabled": false }, "fork_open_prs": false },
-        ] });
-        let mut d = parent.clone();
-        keep_fork_owned_git_sync(&mut d, Some(&fork), false);
-        assert_eq!(d, expected);
+        assert_eq!(
+            fork_git_sync_to_apply(&parent, Some(&fork)).unwrap(),
+            json!({ "repositories": [
+                { "git_repo_resource_path": "f/own" },
+                { "git_repo_resource_path": "f/r", "settings": { "include_path": ["f/**"] },
+                  "use_individual_branch": true, "auto_pull": { "enabled": false } },
+            ] })
+        );
 
-        // The fork's document states the parent's side, so pushing it back changes nothing in
-        // the parent, and applying it to the fork changes nothing there.
-        let shown = fork_git_sync_document(fork.clone(), Some(&parent));
+        // The fork's document is the parent's block with the fork's synced keys, and applying it
+        // back to the fork is a no-op.
+        let shown = fork_git_sync_document(Some(fork.clone()), Some(parent.clone())).unwrap();
         assert_eq!(
             shown,
             json!({ "repositories": [
-                { "git_repo_resource_path": "f/r", "include_path": ["u/**"],
+                { "git_repo_resource_path": "f/r", "settings": { "include_path": ["u/**"] },
                   "auto_pull": { "enabled": true, "sync_forks": true }, "fork_open_prs": true },
                 { "git_repo_resource_path": "f/promo", "use_individual_branch": true },
             ] })
         );
-        let mut d = shown;
-        keep_fork_owned_git_sync(&mut d, Some(&fork), false);
-        assert_eq!(d, fork);
+        assert_eq!(fork_git_sync_to_apply(&shown, Some(&fork)).unwrap(), fork);
 
-        // A fork's own repo listed first still round-trips, and a dev workspace detached from
-        // dev drops the promotion repo it kept, which a non-dev fork may not hold.
-        let fork = json!({ "repositories": [
-            { "git_repo_resource_path": "f/promo", "use_individual_branch": true },
-            { "git_repo_resource_path": "f/own" },
-            { "git_repo_resource_path": "f/r", "auto_pull": { "enabled": false } },
-        ] });
-        let mut d = fork_git_sync_document(fork.clone(), Some(&parent));
-        keep_fork_owned_git_sync(&mut d, Some(&fork), true);
-        assert_eq!(d, fork);
-        let mut d = fork_git_sync_document(fork.clone(), Some(&parent));
-        keep_fork_owned_git_sync(&mut d, Some(&fork), false);
-        assert_eq!(
-            d,
-            json!({ "repositories": [
-                { "git_repo_resource_path": "f/own" },
-                { "git_repo_resource_path": "f/r", "auto_pull": { "enabled": false } },
-            ] })
-        );
+        assert!(fork_git_sync_to_apply(&json!({ "repositories": null }), Some(&fork)).is_err());
+        assert_eq!(fork_git_sync_to_apply(&parent, None).unwrap(), Value::Null);
     }
 }
