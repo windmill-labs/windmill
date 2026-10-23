@@ -95,7 +95,7 @@
 					{item}
 					value="read_run"
 					label="Read and run"
-					tooltip="Explore, and run deployed scripts and flows. The client changes nothing itself; the scripts and flows it runs can."
+					tooltip="Explore, and run deployed scripts, flows and agents. The client changes nothing itself; what it runs can."
 				/>
 				<ToggleButton
 					{item}

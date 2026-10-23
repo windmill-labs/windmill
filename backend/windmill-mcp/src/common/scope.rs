@@ -23,7 +23,7 @@ pub struct McpScopeConfig {
     /// The workspaces a token without a bound workspace may act in
     /// (`mcp:workspaces:a,b`); `None` is every workspace its owner belongs to.
     pub workspaces: Option<Vec<String>>,
-    /// `mcp:read_run`: reads, plus running deployed scripts and flows, and nothing else.
+    /// `mcp:read_run`: reads, plus running deployed scripts, flows and agents, and nothing else.
     pub read_run: bool,
     /// `mcp:read_only`: reads alone, as the token's read-only flag does. An OAuth grant
     /// carries scopes and no flag, so this is how a sign-in asks for read-only access.

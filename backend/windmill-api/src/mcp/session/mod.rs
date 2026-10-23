@@ -116,8 +116,8 @@ const DESTRUCTIVE: &[&str] = &[
 /// nothing on the tools server, so it runs nothing here either.
 const RUNS_A_JOB: &[&str] = &["get_db_schema"];
 
-/// Tools that run a deployed script or flow, the one write a read-and-run token keeps.
-const RUNS_DEPLOYED: &[&str] = &["run_script", "run_flow"];
+/// Tools that run a deployed script, flow or agent, the one write a read-and-run token keeps.
+const RUNS_DEPLOYED: &[&str] = &["run_script", "run_flow", "run_agent"];
 
 fn allowed(def: &ToolDef, access: SessionAccess) -> bool {
     let read = def.read_only && !RUNS_A_JOB.contains(&def.name.as_str());
@@ -368,7 +368,7 @@ fn guarded_url(
     // A run also stores its secret arguments as expiring variables; the write tools that
     // could create other variables are not offered to a read-and-run token.
     let run_writes = method == "POST"
-        && ["jobs/run/p/", "jobs/run/f/"]
+        && ["jobs/run/p/", "jobs/run/f/", "jobs/run/agent/"]
             .iter()
             .any(|run| route.starts_with(&format!("/w/{w_id}/{run}")))
         || method == "POST" && route == format!("/w/{w_id}/variables/create");
@@ -582,6 +582,7 @@ mod tests {
         // preview takes code.
         assert!(url("POST", "/w/ws/jobs/run/p/u/a/b", ReadAndRun).is_ok());
         assert!(url("POST", "/w/ws/jobs/run/f/u/a/b", ReadAndRun).is_ok());
+        assert!(url("POST", "/w/ws/jobs/run/agent/u/a/b", ReadAndRun).is_ok());
         assert!(url("POST", "/w/ws/jobs/run/preview", ReadAndRun).is_err());
         assert!(url("POST", "/w/ws/drafts/update", ReadAndRun).is_err());
         assert!(url("POST", "/w/ws/variables/create", ReadAndRun).is_ok());

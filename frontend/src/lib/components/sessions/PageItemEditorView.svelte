@@ -2,6 +2,7 @@
 	import { setContext, untrack } from 'svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { enterpriseLicense } from '$lib/stores'
+	import { copilotInfo } from '$lib/aiStore'
 	import { resource } from 'runed'
 	import { Button } from '$lib/components/common'
 	import { lookupPageItem } from './pageItemLookup'
@@ -81,9 +82,7 @@
 		const t = triggerEditor
 		untrack(() => {
 			v?.editVariable(path)
-			// An agent opens on JSON: the generic form would render its configuration field by
-			// field and write a default into each one the value leaves out, drafting just by opening.
-			void r?.initEdit(path, { json: lookup.current?.resourceType === 'ai_agent' })
+			void r?.initEdit(path)
 			void t?.openEdit(path, false)
 		})
 	})
@@ -170,6 +169,21 @@
 					{onSaved}
 					onClose={closeTab}
 				/>
+			{:else if item.kind === 'resource' && lookup.current.resourceType === 'ai_agent'}
+				<!-- An agent has an editor of its own, which the resource editor would show as JSON. -->
+				{#await import('$lib/components/flows/content/AgentEditorModal.svelte')}
+					{@render loading()}
+				{:then Module}
+					<Module.default
+						layout="pane"
+						fixedTarget={{ path: item.path, workspace: workspaceId }}
+						owns={() => false}
+						enableAi={$copilotInfo.enabled}
+						onClose={closeTab}
+						onRenamed={(_, to) => onSaved(to)}
+						onSummary={(summary) => runtime.previewTabs.setPageItemFriendlyLabel(item, summary)}
+					/>
+				{/await}
 			{:else if item.kind === 'resource'}
 				<ResourceEditorDrawer
 					bind:this={resourceEditor}

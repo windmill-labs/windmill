@@ -721,6 +721,7 @@
 	$effect(() => {
 		return registerToolDisplayActionHandler('open_created_resource', (action) => {
 			if (action.type !== 'open_created_resource') return
+			// An agent's resource tab renders the agent's own editor.
 			const ref: PageItemRef | undefined =
 				action.resource === 'trigger'
 					? action.triggerKind && {
@@ -728,7 +729,7 @@
 							triggerKind: action.triggerKind,
 							path: action.path
 						}
-					: { kind: action.resource, path: action.path }
+					: { kind: action.resource === 'agent' ? 'resource' : action.resource, path: action.path }
 			if (ref) owner?.open({ type: 'pageitem', ref })
 		})
 	})

@@ -31,6 +31,8 @@
 	import { previewTargetForDeployKind } from './sessionPreviewTabs.svelte'
 	import { PIPELINE_DRAFT_KIND, pipelineFolderFromBundlePath } from '$lib/pipelinePaths'
 	import type { PreviewTarget } from './previewRouter'
+	import { ResourceService } from '$lib/gen'
+	import { resource } from 'runed'
 	import JobsSegment from '$lib/components/copilot/chat/JobsSegment.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import ArtifactsSegment from '$lib/components/copilot/chat/artifacts/ArtifactsSegment.svelte'
@@ -163,6 +165,31 @@
 			: []
 	)
 	const dockCounts = $derived(badgeCounts(dockItems))
+	// An agent is a resource the draft list cannot tell apart, but it has an icon of its own.
+	// Keyed on the joined paths so a re-derived list doesn't re-fetch.
+	const resourcePaths = $derived(
+		dockItems
+			.filter((i) => i.deployKind === 'resource')
+			.map((i) => i.path)
+			.join('\n')
+	)
+	const agentPaths = resource(
+		() => [committedId, resourcePaths] as const,
+		async ([workspace, joined]) => {
+			if (!workspace || !joined) return new Set<string>()
+			const types = await Promise.all(
+				joined.split('\n').map((path) =>
+					ResourceService.getResource({ workspace, path, getDraft: true }).then(
+						(r) => (r.resource_type === 'ai_agent' ? path : undefined),
+						() => undefined
+					)
+				)
+			)
+			return new Set(types.filter((p) => p !== undefined))
+		}
+	)
+	const isAgentRow = (item: DeployItem) =>
+		item.deployKind === 'resource' && (agentPaths.current?.has(item.path) ?? false)
 
 	// Deletion-only fork chat: the mask has entries but every one failed the
 	// (resolved) existence check — the chat's edits were deletions, which have no
@@ -331,7 +358,11 @@
 					maxHeightClass="max-h-[min(9rem,50vh)]"
 				>
 					{#snippet row(item)}
-						<RowIcon kind={item.deployKind} path={item.path} size={14} />
+						<RowIcon
+							kind={isAgentRow(item) ? 'agent' : item.deployKind}
+							path={item.path}
+							size={14}
+						/>
 						<span class="min-w-0 flex-1 truncate font-mono font-normal text-primary">
 							{rowLabel(item)}
 						</span>

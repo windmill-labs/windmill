@@ -522,7 +522,8 @@ export type CreatedResourceAction = {
 	id: string
 	type: 'open_created_resource'
 	label: string
-	resource: 'schedule' | 'trigger' | 'resource' | 'variable'
+	/** `agent` is an `ai_agent` resource, opened on its own editor rather than as a resource. */
+	resource: 'schedule' | 'trigger' | 'resource' | 'agent' | 'variable'
 	path: string
 	targetKind?: 'script' | 'flow'
 	triggerKind?: CreatedResourceTriggerKind
@@ -576,6 +577,11 @@ export type RunFormDisplay = {
 	 * flow. Its page can be opened to look at, but it has no form to confirm this call on, so
 	 * the card keeps the run. */
 	conversational?: boolean
+	/** What runs is not a script or flow, such as an agent, so no deployed page of either kind
+	 * can take the form over: the card keeps it. */
+	noDeployedPage?: boolean
+	/** What the card's prose calls the runnable when `runnableKind` would name it wrongly. */
+	cardNoun?: string
 	/** Of whatever version is about to run: the deployed script, or the draft a test
 	 * previews. Only the rendered form reads it, so it is dropped once one of the flags
 	 * below unmounts that form: kept, every settled card would carry a copy of the schema
@@ -698,7 +704,7 @@ export type ToolDisplayMessage = {
 	/** Workspace item this tool created or updated. Rendered as a discrete,
 	 * always-visible card that opens (or focuses) the item's preview in the
 	 * session side panel. Set only for session chats — the side panel is their surface. */
-	previewCard?: { kind: PreviewCardKind; path: string }
+	previewCard?: { kind: PreviewCardKind | 'agent'; path: string }
 	/** Whole text on both sides of an edit this call saved. Kept in full rather than as a
 	 * reference: drafts are overwritten in place, so the sides cannot be fetched back later. */
 	codeDiff?: ToolCodeDiff

@@ -211,18 +211,19 @@
 	},
 	{
 		"name": "get_instructions",
-		"description": "Get authoring guidance for scripts, flows, data pipelines, resources, apps, or data tables: their migrations and permissions, and the SQL SDK (wmill.datatable()) used inside runnables.",
+		"description": "Get authoring guidance for scripts, flows, AI agents, data pipelines, resources, apps, or data tables: their migrations and permissions, and the SQL SDK (wmill.datatable()) used inside runnables.",
 		"parameters": {
 			"type": "object",
 			"properties": {
 				"subject": {
-					"description": "What to get authoring instructions for: a workspace item type (script, flow, resource, app), \"pipeline\" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or \"datatable\" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, or \"workspace_settings\" for the keys and rules of the workspace settings (admins only). Schedules, triggers, and variables don't need instructions — their tool schemas describe everything.",
+					"description": "What to get authoring instructions for: a workspace item type (script, flow, resource, app), \"agent\" for a saved AI agent (an `ai_agent` resource, as the Agents page lists it), \"pipeline\" for building a data pipeline (a DAG of annotated scripts wired by storage assets — NOT a flow), or \"datatable\" for how data tables work (schema changes and migrations, roles and permissions) plus the wmill.datatable() SQL SDK used inside runnables, or \"workspace_settings\" for the keys and rules of the workspace settings (admins only). Schedules, triggers, and variables don't need instructions — their tool schemas describe everything.",
 					"type": "string",
 					"enum": [
 						"script",
 						"flow",
 						"resource",
 						"app",
+						"agent",
 						"datatable",
 						"pipeline",
 						"workspace_settings"
@@ -1174,6 +1175,96 @@
 			},
 			"required": [
 				"path"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "test_run_agent",
+		"description": "Execute a test run of an AI agent by path, preferring its draft when one exists, so an agent you drafted can be tried before the user deploys it. It runs with exactly the `args` you send.",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the agent (`ai_agent` resource) to test.",
+					"type": "string"
+				},
+				"args": {
+					"description": "The run's inputs: `user_message`, and `user_attachments` for files the user attaches.",
+					"type": "object",
+					"properties": {
+						"user_message": {
+							"description": "The message the agent answers.",
+							"type": "string"
+						}
+					},
+					"required": [
+						"user_message"
+					],
+					"additionalProperties": {}
+				},
+				"memory_id": {
+					"description": "A UUID naming the conversation this turn belongs to: reuse the same one across calls to test memory and follow-ups, and omit it for a one-off turn in a conversation of its own. Generate the UUID yourself so you can pass it again.",
+					"type": "string"
+				},
+				"background": {
+					"description": "Run in the background without waiting. Set true for jobs you expect to be long (deploys, backfills, big queries) — you will be notified when it finishes. Leave unset for normal runs, which wait briefly and only background automatically if slow.",
+					"type": "boolean"
+				},
+				"wait_seconds": {
+					"description": "How many seconds to wait for the job in-turn before it detaches into the background jobs tray. Defaults to 15. Raise it (capped at 120) for a job you expect to finish in, say, 30–60s and want the result in this same turn. Ignored when background is true. Do not use this to poll — larger values just hold the turn longer.",
+					"type": "number"
+				}
+			},
+			"required": [
+				"path",
+				"args"
+			],
+			"additionalProperties": false
+		},
+		"read_only": false
+	},
+	{
+		"name": "run_agent",
+		"description": "Run a DEPLOYED AI agent for real, as its own page runs it. It runs with exactly the `args` you send. Use only when the user names the deployed version (\"the deployed X\", \"in production\", \"for real\").",
+		"parameters": {
+			"type": "object",
+			"properties": {
+				"path": {
+					"description": "Workspace path of the deployed agent (`ai_agent` resource) to run.",
+					"type": "string"
+				},
+				"args": {
+					"description": "The run's inputs: `user_message`, and `user_attachments` for files the user attaches.",
+					"type": "object",
+					"properties": {
+						"user_message": {
+							"description": "The message the agent answers.",
+							"type": "string"
+						}
+					},
+					"required": [
+						"user_message"
+					],
+					"additionalProperties": {}
+				},
+				"memory_id": {
+					"description": "A UUID naming the conversation this turn belongs to: reuse the same one across calls to test memory and follow-ups, and omit it for a one-off turn in a conversation of its own. Generate the UUID yourself so you can pass it again.",
+					"type": "string"
+				},
+				"background": {
+					"description": "Run in the background without waiting. Set true for jobs you expect to be long (deploys, backfills, big queries) — you will be notified when it finishes. Leave unset for normal runs, which wait briefly and only background automatically if slow.",
+					"type": "boolean"
+				},
+				"wait_seconds": {
+					"description": "How many seconds to wait for the job in-turn before it detaches into the background jobs tray. Defaults to 15. Raise it (capped at 120) for a job you expect to finish in, say, 30–60s and want the result in this same turn. Ignored when background is true. Do not use this to poll — larger values just hold the turn longer.",
+					"type": "number"
+				}
+			},
+			"required": [
+				"path",
+				"args"
 			],
 			"additionalProperties": false
 		},
