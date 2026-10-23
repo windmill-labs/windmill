@@ -180,23 +180,6 @@ where
     Ok(token.access_token)
 }
 
-/// Whether account `id` exists in `w_id`, read through the caller's user transaction. `account`
-/// carries no RLS, so this gates nothing beyond the workspace the caller is already authorized
-/// for: a refresh asked for by account id is scoped by that membership, not by ownership.
-pub async fn account_visible(
-    user_conn: &mut sqlx::PgConnection,
-    w_id: &str,
-    id: i32,
-) -> error::Result<bool> {
-    Ok(sqlx::query_scalar!(
-        "SELECT EXISTS (SELECT 1 FROM account WHERE workspace_id = $1 AND id = $2) AS \"exists!\"",
-        w_id,
-        id
-    )
-    .fetch_one(user_conn)
-    .await?)
-}
-
 async fn current_token(db: &DB, w_id: &str, path: &str) -> error::Result<String> {
     let value = sqlx::query_scalar!(
         "SELECT value FROM variable WHERE workspace_id = $1 AND path = $2",

@@ -10,10 +10,9 @@ use serde::{Deserialize, Serialize};
 use windmill_api_auth::ApiAuthed;
 use windmill_common::{error::JsonResult, DB};
 
-use crate::{
-    get_workspace_integration, map_external_error, require_native_integration_use, External,
-    ServiceName,
-};
+use windmill_common::db::UserDB;
+
+use crate::{map_external_error, picker_connection, ConnectionQuery, External, ServiceName};
 
 use super::Google;
 
@@ -85,16 +84,26 @@ pub struct DriveFilesQuery {
     pub page_token: Option<String>,
     #[serde(default)]
     pub shared_with_me: bool,
+    pub connection_path: Option<String>,
 }
 
 async fn list_calendars(
     authed: ApiAuthed,
     Extension(handler): Extension<Arc<Google>>,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path(workspace_id): Path<String>,
+    Query(query): Query<ConnectionQuery>,
 ) -> JsonResult<Vec<GoogleCalendarEntry>> {
-    require_native_integration_use(&db, &workspace_id, &authed).await?;
-    get_workspace_integration(&db, &workspace_id, ServiceName::Google).await?;
+    let connection_path = picker_connection(
+        &authed,
+        &db,
+        user_db,
+        &workspace_id,
+        ServiceName::Google,
+        query.connection_path.as_deref(),
+    )
+    .await?;
 
     let url = format!(
         "{}/users/me/calendarList",
@@ -102,7 +111,15 @@ async fn list_calendars(
     );
 
     let response: GoogleCalendarListResponse = handler
-        .http_client_request::<_, ()>(&url, Method::GET, &workspace_id, &db, None, None)
+        .http_client_request::<_, ()>(
+            &url,
+            Method::GET,
+            &workspace_id,
+            &connection_path,
+            &db,
+            None,
+            None,
+        )
         .await
         .map_err(map_external_error)?;
 
@@ -123,11 +140,19 @@ async fn list_drive_files(
     authed: ApiAuthed,
     Extension(handler): Extension<Arc<Google>>,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path(workspace_id): Path<String>,
     Query(query): Query<DriveFilesQuery>,
 ) -> JsonResult<GoogleDriveFilesResponse> {
-    require_native_integration_use(&db, &workspace_id, &authed).await?;
-    get_workspace_integration(&db, &workspace_id, ServiceName::Google).await?;
+    let connection_path = picker_connection(
+        &authed,
+        &db,
+        user_db,
+        &workspace_id,
+        ServiceName::Google,
+        query.connection_path.as_deref(),
+    )
+    .await?;
 
     let drive_query = if query.shared_with_me {
         "sharedWithMe = true and trashed = false".to_string()
@@ -156,7 +181,15 @@ async fn list_drive_files(
     }
 
     let response: DriveApiResponse = handler
-        .http_client_request::<_, ()>(&url, Method::GET, &workspace_id, &db, None, None)
+        .http_client_request::<_, ()>(
+            &url,
+            Method::GET,
+            &workspace_id,
+            &connection_path,
+            &db,
+            None,
+            None,
+        )
         .await
         .map_err(map_external_error)?;
 
@@ -199,10 +232,19 @@ async fn list_shared_drives(
     authed: ApiAuthed,
     Extension(handler): Extension<Arc<Google>>,
     Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
     Path(workspace_id): Path<String>,
+    Query(query): Query<ConnectionQuery>,
 ) -> JsonResult<Vec<SharedDriveEntry>> {
-    require_native_integration_use(&db, &workspace_id, &authed).await?;
-    get_workspace_integration(&db, &workspace_id, ServiceName::Google).await?;
+    let connection_path = picker_connection(
+        &authed,
+        &db,
+        user_db,
+        &workspace_id,
+        ServiceName::Google,
+        query.connection_path.as_deref(),
+    )
+    .await?;
 
     let url = format!(
         "{}/drives?pageSize=100&fields=drives(id,name)",
@@ -210,7 +252,15 @@ async fn list_shared_drives(
     );
 
     let response: SharedDrivesApiResponse = handler
-        .http_client_request::<_, ()>(&url, Method::GET, &workspace_id, &db, None, None)
+        .http_client_request::<_, ()>(
+            &url,
+            Method::GET,
+            &workspace_id,
+            &connection_path,
+            &db,
+            None,
+            None,
+        )
         .await
         .map_err(map_external_error)?;
 
