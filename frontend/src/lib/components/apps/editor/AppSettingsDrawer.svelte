@@ -91,7 +91,7 @@
 		/** A deploy was refused over these errors: show them before the fields are edited. */
 		showErrors?: boolean
 		/** Changes who can open the deployed app at once, leaving the rest of its deployed policy. */
-		setAccessMode?: (mode: NonNullable<Policy['execution_mode']>) => Promise<void>
+		setAccessMode: (mode: NonNullable<Policy['execution_mode']>) => Promise<void>
 	} = $props()
 
 	const opWs = $derived(operatingWorkspace ?? $operatingWorkspaceStore)
@@ -147,24 +147,29 @@
 
 	// The server refuses to change the mode alone of an app that runs as someone else unless the
 	// caller may keep that identity, and always for a builder, who is also refused on an app whose
-	// deployed policy is not sandboxed: for them it changes on deploy.
+	// deployed policy is not sandboxed. The control is locked rather than holding the choice for a
+	// deploy: no draft carries the mode, so a held choice would be lost on reload or Review & Deploy.
+	let deployedApp = $derived(!!savedApp && !newApp)
 	let deployedRunsAs = $derived(savedApp?.policy?.on_behalf_of as string | undefined)
 	let runsAsAnotherForCaller = $derived(
-		!!deployedRunsAs &&
+		deployedApp &&
+			!!deployedRunsAs &&
 			deployedRunsAs !== (actingUser?.username ? `u/${actingUser.username}` : undefined) &&
 			(!canPreserveOnBehalfOf(actingUser) || composeOnlyApps)
 	)
-	let unsandboxedForBuilder = $derived(composeOnlyApps && savedApp?.policy?.sandbox !== true)
-	let modeChangesOnDeploy = $derived(runsAsAnotherForCaller || unsandboxedForBuilder)
+	let unsandboxedForBuilder = $derived(
+		deployedApp && composeOnlyApps && savedApp?.policy?.sandbox !== true
+	)
+	let accessModeLocked = $derived(runsAsAnotherForCaller || unsandboxedForBuilder)
 	// One change at a time: a failed request puts back the mode it replaced, which would
 	// overwrite a newer selection that already succeeded.
 	let accessModePending = $state(false)
 	async function onAccessModeChange(mode: string | undefined) {
-		if (mode === undefined || mode === accessMode || accessModePending) return
+		if (mode === undefined || mode === accessMode || accessModePending || accessModeLocked) return
 		const previous = policy.execution_mode
 		policy.execution_mode = mode as Policy['execution_mode']
 		// A not-yet-deployed app has no row to update: its first deploy carries the mode.
-		if (!savedApp || newApp || modeChangesOnDeploy || !setAccessMode) return
+		if (!deployedApp) return
 		accessModePending = true
 		try {
 			await setAccessMode(mode as NonNullable<Policy['execution_mode']>)
@@ -210,7 +215,7 @@
 	loadGlobalWorkspacedRouteSetting()
 
 	let secretUrl: string | undefined = $state(undefined)
-	let secretUrlHref = $derived(secretUrl ? computeSecretUrl(secretUrl) : undefined)
+	let secretUrlHref = $derived(secretUrl ? computeSecretUrl(secretUrl, opWs) : undefined)
 	let fullCustomUrl = $derived(
 		`${window.location.origin}/a/${
 			isCloudHosted() || globalWorkspacedRoute ? opWs + '/' : ''
@@ -480,7 +485,7 @@
 										<ToggleButtonGroup
 											selected={accessMode}
 											on:selected={(e) => onAccessModeChange(e.detail)}
-											disabled={accessModePending}
+											disabled={accessModePending || accessModeLocked}
 										>
 											{#snippet children({ item })}
 												<ToggleButton
@@ -509,14 +514,14 @@
 											{/snippet}
 										</ToggleButtonGroup>
 									</div>
-									{#if savedApp && !newApp && modeChangesOnDeploy}
+									{#if accessModeLocked}
 										<div class="text-xs text-secondary">
 											{#if runsAsAnotherForCaller}
-												This app runs on behalf of <strong>{deployedRunsAs}</strong>, so a change
-												here takes effect when you deploy.
+												This app runs on behalf of <strong>{deployedRunsAs}</strong>. Deploy it so
+												it runs on behalf of you, then change who can open it.
 											{:else}
-												This app is not sandboxed yet, so a change here takes effect when you
-												deploy.
+												This app is not sandboxed yet. Deploy it so it is sandboxed, then change who
+												can open it.
 											{/if}
 										</div>
 									{/if}

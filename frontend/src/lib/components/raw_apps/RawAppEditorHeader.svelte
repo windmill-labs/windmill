@@ -633,7 +633,7 @@
 				app: {
 					value: app!,
 					summary: summary,
-					policy: policyForUpdate(deployedPolicy, savedApp?.policy?.execution_mode),
+					policy: policyForUpdate(deployedPolicy),
 					path: npath,
 					deployment_message: deploymentMsg,
 					preserve_on_behalf_of: true,

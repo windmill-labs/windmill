@@ -443,7 +443,7 @@
 			requestBody: {
 				value: withoutDraftBase($app!),
 				summary: $summary,
-				policy: policyForUpdate(policy, savedApp?.policy?.execution_mode),
+				policy: policyForUpdate(policy),
 				path: npath,
 				deployment_message: deploymentMsg,
 				// custom_path requires admin so to accept update without it, we need to send as undefined when non-admin (when undefined, it will be ignored)

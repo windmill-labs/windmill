@@ -19,15 +19,10 @@ export async function publishAccessMode(
 	})
 }
 
-/** The policy an update deploy sends. The server keeps the deployed mode, read under the row lock,
- *  for a policy that states none, so a deploy states one only to change it: otherwise it would put
- *  back a mode changed since the policy was read. An editor passes the mode it loaded: holding
- *  another one means the settings drawer left that change for the deploy. */
-export function policyForUpdate<P extends Partial<Policy>>(
-	policy: P,
-	deployedMode?: Policy['execution_mode']
-): P {
-	if (deployedMode !== undefined && policy.execution_mode !== deployedMode) return policy
+/** The policy an update deploy sends. The mode changes only through `publishAccessMode`, so an
+ *  update states none and the server keeps the deployed one, read under the row lock: a policy read
+ *  earlier would otherwise put back a mode changed since. */
+export function policyForUpdate<P extends Partial<Policy>>(policy: P): P {
 	const sent = { ...policy }
 	delete sent.execution_mode
 	return sent
