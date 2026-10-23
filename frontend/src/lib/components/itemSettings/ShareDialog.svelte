@@ -268,6 +268,12 @@
 		}
 	})
 
+	const ACCESS_MODE_LABELS: Record<AppAccessMode, string> = {
+		publisher: 'Members',
+		guest: 'Guests',
+		anonymous: 'Public'
+	}
+
 	async function changeApp(
 		change: { execution_mode: AppAccessMode } | { custom_path: string | null }
 	) {
@@ -276,6 +282,13 @@
 			app = await updateDeployedAppAccess($operatingWorkspace!, path, change)
 			onAppChanged?.(app)
 			onChange?.()
+			sendUserToast(
+				'execution_mode' in change
+					? `Who can open ${name} changed to ${ACCESS_MODE_LABELS[change.execution_mode]}`
+					: change.custom_path
+						? `Custom URL of ${name} set to ${change.custom_path}`
+						: `Custom URL of ${name} removed`
+			)
 		} catch (err) {
 			sendUserToast(`Could not change the app's access: ${err?.body ?? err}`, true)
 			// Re-read so the controls show what is deployed, not the choice that was refused.
