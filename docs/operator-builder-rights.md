@@ -107,7 +107,9 @@ can no more switch the sandbox off there than on deploy. A change of `execution_
 `check_operator_composed_app` on the deployed policy under the row lock, but not the readability
 check, which resolves script versions on a second pool connection. It is therefore refused when
 the app runs as anyone but the builder, `wm_deployers` or not: what an app running as its builder
-invokes runs as that builder, who can already run it as themselves by opening the app.
+invokes runs as that builder, who can already run it as themselves by opening the app. It is also
+refused on an app whose stored policy is not sandboxed: the check would fill in the sandbox, and a
+change of the mode alone keeps every other field of the policy.
 
 A builder's **draft** goes through the same `check_operator_composed_app` as its deploy, with
 `BuilderAppWrite::Draft`: an admin may open it in the editor or deploy it as it stands, so any
