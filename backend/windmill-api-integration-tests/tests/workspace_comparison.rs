@@ -2549,6 +2549,26 @@ async fn test_rename_records_the_vacated_path(db: Pool<Postgres>) -> anyhow::Res
             "script deploy failed: {status} — {hash}"
         );
         parent_hash = Some(hash.trim().trim_matches('"').to_string());
+        // Each deploy tallies from its own spawned task: let the create's `write` land
+        // before the rename, or it can overwrite the `rename_from` asserted below.
+        if path == "u/admin/inline" {
+            let mut written = false;
+            for _ in 0..40 {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                written = sqlx::query_scalar!(
+                    "SELECT EXISTS (SELECT 1 FROM workspace_diff
+                     WHERE fork_workspace_id = 'wm-fork-renamed' AND kind = 'script'
+                       AND path = 'u/admin/inline' AND fork_last_event_kind = 'write')"
+                )
+                .fetch_one(&db)
+                .await?
+                .unwrap_or(false);
+                if written {
+                    break;
+                }
+            }
+            assert!(written, "the inline create should be tallied");
+        }
     }
     let mut vacated = None;
     for _ in 0..40 {
@@ -2556,7 +2576,7 @@ async fn test_rename_records_the_vacated_path(db: Pool<Postgres>) -> anyhow::Res
         vacated = sqlx::query!(
             "SELECT fork_last_event_kind, fork_last_event_origin FROM workspace_diff
              WHERE fork_workspace_id = 'wm-fork-renamed' AND kind = 'script'
-               AND path = 'u/admin/inline' AND fork_last_event_kind IS NOT NULL"
+               AND path = 'u/admin/inline' AND fork_last_event_kind <> 'write'"
         )
         .fetch_optional(&db)
         .await?;
@@ -2706,6 +2726,8 @@ async fn test_compare_secret_variables_by_value(db: Pool<Postgres>) -> anyhow::R
         "the same secret must be stored as two different ciphertexts"
     );
 
+    // The creates above tally these rows from a spawned task that can land after the
+    // DELETE, so the plant must upsert.
     sqlx::query!("DELETE FROM workspace_diff WHERE fork_workspace_id = 'wm-fork-secrets'")
         .execute(&db)
         .await?;
@@ -2714,7 +2736,9 @@ async fn test_compare_secret_variables_by_value(db: Pool<Postgres>) -> anyhow::R
          (source_workspace_id, fork_workspace_id, path, kind, ahead, behind, has_changes)
          VALUES
          ('test-workspace', 'wm-fork-secrets', 'u/test-user/same', 'variable', 1, 1, NULL),
-         ('test-workspace', 'wm-fork-secrets', 'u/test-user/different', 'variable', 1, 1, NULL)"
+         ('test-workspace', 'wm-fork-secrets', 'u/test-user/different', 'variable', 1, 1, NULL)
+         ON CONFLICT (source_workspace_id, fork_workspace_id, path, kind)
+         DO UPDATE SET ahead = 1, behind = 1, has_changes = NULL"
     )
     .execute(&db)
     .await?;
