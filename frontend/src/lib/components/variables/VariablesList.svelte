@@ -60,11 +60,13 @@
 	import { useHostedPage } from '$lib/components/hostedPage'
 	import {
 		useOperatingWorkspace,
-		useOperatingUser
+		useOperatingUser,
+		useReadOnlyWorkspace
 	} from '$lib/components/operatingWorkspace.svelte'
 
 	const operatingWorkspace = useOperatingWorkspace()
 	const operatingUser = useOperatingUser()
+	const readOnly = useReadOnlyWorkspace()
 	const editRights = useEditRights()
 	const hosted = useHostedPage()
 
@@ -694,8 +696,8 @@
 								headers={['Name', 'Value']}
 								data={contextualVariables.filter((x) => x.is_custom)}
 								keys={['name', 'value']}
-								getRowActions={operatingUser.current?.is_admin ||
-								operatingUser.current?.is_super_admin
+								getRowActions={!readOnly($operatingWorkspace) &&
+								(operatingUser.current?.is_admin || operatingUser.current?.is_super_admin)
 									? (row) => {
 											return [
 												{

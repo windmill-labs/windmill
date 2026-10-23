@@ -511,6 +511,7 @@ def main():
                 )
                 .unwrap(),
                 policy: None,
+                execution_mode: None,
                 deployment_message: None,
                 custom_path: None,
                 preserve_on_behalf_of: None,

@@ -110,6 +110,30 @@ impl AuthedClient {
         make_basic_get_request(self, &url, None, Some("decoding resource value as json")).await
     }
 
+    /// The value of the `ai_agent` resource at `path`, refused when the resource there is of another
+    /// type. Only writes of an agent are checked for operators, so a step linking a path must not run
+    /// tools from a resource retyped, or recreated as another type, since the link was approved.
+    pub async fn get_agent_value(&self, path: &str) -> anyhow::Result<serde_json::Value> {
+        #[derive(serde::Deserialize)]
+        struct Resource {
+            resource_type: String,
+            value: Option<serde_json::Value>,
+        }
+        let url = format!(
+            "{}/api/w/{}/resources/get/{}",
+            self.base_internal_url, self.workspace, path
+        );
+        let resource: Resource =
+            make_basic_get_request(self, &url, None, Some("decoding the agent resource")).await?;
+        if resource.resource_type != "ai_agent" {
+            anyhow::bail!(
+                "{path} is a {} resource, not an AI agent",
+                resource.resource_type
+            );
+        }
+        Ok(resource.value.unwrap_or_default())
+    }
+
     pub async fn get_variable_value(&self, path: &str) -> anyhow::Result<String> {
         let url = format!(
             "{}/api/w/{}/variables/get_value/{}",

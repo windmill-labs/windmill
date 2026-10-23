@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT value::text AS \"value!\" FROM variable WHERE path = $1 AND workspace_id = $2 AND is_secret = true",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a4badf66d2ae524d15925869c9bfa6b590cb357e19233318d2a2a31555dbc515"
+}
