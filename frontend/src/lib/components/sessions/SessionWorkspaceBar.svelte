@@ -1,16 +1,36 @@
-<script lang="ts">
+<script lang="ts" module>
+	import { get } from 'svelte/store'
 	import { workspaceStore } from '$lib/stores'
+	import { setSessionPendingWorkspace } from './sessionState.svelte'
+	import { switchWorkspace } from '$lib/storeUtils'
+	import { workspaceAIClients } from '$lib/components/copilot/lib'
+	import { fixupUrlAfterWorkspaceSwitch } from '$lib/components/sidebar/workspaceSwitchUrl'
+
+	function followPick(id: string, switchesWorkspace: boolean) {
+		if (!switchesWorkspace || get(workspaceStore) === id) return
+		workspaceAIClients.init(id)
+		switchWorkspace(id)
+		void fixupUrlAfterWorkspaceSwitch(id)
+	}
+
+	/** Point a session that has not sent yet at workspace `id`, as a pick in this bar does. */
+	export function pickSessionWorkspace(sessionId: string, id: string, switchesWorkspace: boolean) {
+		// Pre-send only: writes the pending pick. workspace_id stays undefined until
+		// the user sends their first message. The chat targets this pending workspace
+		// via the manager's workspace resolver, not the global workspaceStore.
+		setSessionPendingWorkspace(sessionId, id)
+		followPick(id, switchesWorkspace)
+	}
+</script>
+
+<script lang="ts">
 	import {
 		getEffectiveWorkspaceId,
 		setSessionPendingFork,
-		setSessionPendingWorkspace,
 		type Session
 	} from './sessionState.svelte'
 	import WorkspaceFamilyPicker from './WorkspaceFamilyPicker.svelte'
 	import WorkspaceScopeTrigger from '$lib/components/WorkspaceScopeTrigger.svelte'
-	import { switchWorkspace } from '$lib/storeUtils'
-	import { workspaceAIClients } from '$lib/components/copilot/lib'
-	import { fixupUrlAfterWorkspaceSwitch } from '$lib/components/sidebar/workspaceSwitchUrl'
 
 	// `switchesWorkspace`: a pick also moves the navigation workspace. For a host whose page
 	// shows the navigation workspace around the composer (Home), where a pick that left it
@@ -18,28 +38,17 @@
 	let { session, switchesWorkspace = false }: { session: Session; switchesWorkspace?: boolean } =
 		$props()
 
-	function followPick(id: string) {
-		if (!switchesWorkspace || $workspaceStore === id) return
-		workspaceAIClients.init(id)
-		switchWorkspace(id)
-		void fixupUrlAfterWorkspaceSwitch(id)
-	}
-
 	// Effective workspace for display: committed → pending pick → active store.
 	const effectiveId = $derived(getEffectiveWorkspaceId(session) ?? $workspaceStore ?? undefined)
 	const pendingFork = $derived(session.pending_fork)
 
 	function pick(id: string) {
-		// Pre-send only: writes the pending pick. workspace_id stays undefined until
-		// the user sends their first message. The chat targets this pending workspace
-		// via the manager's workspace resolver, not the global workspaceStore.
-		setSessionPendingWorkspace(session.id, id)
-		followPick(id)
+		pickSessionWorkspace(session.id, id, switchesWorkspace)
 	}
 
 	function stageFork(req: { parent_workspace_id: string; id: string; name: string }) {
 		setSessionPendingFork(session.id, req)
-		followPick(req.parent_workspace_id)
+		followPick(req.parent_workspace_id, switchesWorkspace)
 	}
 </script>
 

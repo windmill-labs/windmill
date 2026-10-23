@@ -40,11 +40,13 @@ export class StarterPrompts {
 	#user = fromStore(userStore)
 	#capabilities = fromStore(roleCapabilities)
 	#workspace: () => string | undefined
+	#builds: () => boolean
 	#signals: { readonly current: Tagged<ComposerSignals> | undefined }
 
-	/** `workspace`: where the session acts. */
-	constructor(workspace: () => string | undefined) {
+	/** `workspace`: where the session acts. `builds`: false while the session is held in Use. */
+	constructor(workspace: () => string | undefined, builds: () => boolean = () => true) {
 		this.#workspace = workspace
+		this.#builds = builds
 		void onboardingProfile().then((p) => {
 			if (p?.starter_prompts?.length) this.#invite = p.starter_prompts
 		})
@@ -87,10 +89,14 @@ export class StarterPrompts {
 	}
 
 	readonly suggestions: ComposerSuggestion[] = $derived.by(() => {
-		if (this.#invite) return this.#invite.map((p) => ({ ...p, mode: 'build' as const }))
+		const builds = this.#builds()
+		// Not while held in Use: the invite's prompts are written to be built.
+		if (this.#invite && builds) return this.#invite.map((p) => ({ ...p, mode: 'build' as const }))
 		const signals = this.#currentSignals
 		const role = this.#role
-		return signals && role ? composerSuggestions(signals, role) : []
+		if (!signals || !role) return []
+		// A session held in Use authors nothing, so it gets an operator's suggestions.
+		return composerSuggestions(signals, builds ? role : { ...role, operator: true })
 	})
 
 	/** Whether the workspace holds fewer than `FEW_ITEMS`, below which Home's composer rests

@@ -18,9 +18,12 @@
 	import {
 		globalComposerSuggestion,
 		STARTER_PLACEHOLDER,
+		USE_STARTER_PLACEHOLDER,
 		type ComposerSelection
 	} from '$lib/components/copilot/chat/composerBox'
 	import { useSessionPermissions } from './sessionPermissions.svelte'
+	import { useWorkModeLock } from './workModeLock.svelte'
+	import { AIWorkMode } from '$lib/components/copilot/chat/workMode'
 	import EditableInput from '$lib/components/common/EditableInput.svelte'
 	import PageHeaderContent from '$lib/components/PageHeaderContent.svelte'
 	import { Button } from '$lib/components/common'
@@ -106,8 +109,17 @@
 	// and an empty transcript would show the greeting and then glide the composer away.
 	// The first send commits the workspace, so this flips only after the transcript has.
 	const opensSession = $derived(!session?.workspace_id)
-	const starterPrompts = new StarterPrompts(() =>
-		opensSession ? (actingWorkspaceId ?? $workspaceStore ?? undefined) : undefined
+	const permissions = useSessionPermissions(
+		() => runtime?.manager.operatingWorkspace,
+		() => runtime?.manager
+	)
+	const workModeLock = useWorkModeLock(() => session)
+	// Whether the first message goes out in Use. Not `permissions.readOnly`: before that send a
+	// staged fork's session reads the workspace it forks, while the message builds in the fork.
+	const heldInUse = $derived(!!workModeLock.current || runtime?.manager.workMode === AIWorkMode.USE)
+	const starterPrompts = new StarterPrompts(
+		() => (opensSession ? (actingWorkspaceId ?? $workspaceStore ?? undefined) : undefined),
+		() => !heldInUse
 	)
 
 	// Seed the composer with the unsent prompt a reload preserved on the session
@@ -142,7 +154,6 @@
 
 	// Drawn once, and shared by the placeholder and the real composer so the text survives the swap.
 	const suggestionPick = Math.random()
-	const permissions = useSessionPermissions(() => runtime?.manager.operatingWorkspace)
 	const composerPlaceholder = $derived(
 		globalComposerSuggestion(suggestionPick, permissions.canOpenEditor)
 	)
@@ -586,6 +597,7 @@
 							emptyHint={sessionEmptyHint}
 							{inputPreface}
 							actingOn={hasFirstUserMessage ? undefined : actingOn}
+							workModeLock={workModeLock.current}
 						/>
 					{:else}
 						<!-- AIChatDisplay's layout, so the composer stays put when the chat replaces it:
@@ -611,7 +623,9 @@
 									bind:value={() => draftText, setPlaceholderText}
 									toolbar={opensSession ? placeholderToolbar : undefined}
 									placeholder={opensSession
-										? STARTER_PLACEHOLDER
+										? heldInUse
+											? USE_STARTER_PLACEHOLDER
+											: STARTER_PLACEHOLDER
 										: runtime.manager.displayMessages.length > 0
 											? 'Ask followup'
 											: composerPlaceholder}

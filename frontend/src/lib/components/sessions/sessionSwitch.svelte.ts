@@ -272,15 +272,14 @@ export async function openSourceInSession(
 // composer. For entry points that carry a question rather than a target (the
 // global search's "Ask AI"). Always a new session rather than the most recent
 // one (`enterSessionMode`), so the seed cannot overwrite a prompt the user has
-// already typed into a session they are mid-way through.
+// already typed into a session they are mid-way through. `workspace` is the way
+// out of a read-only session, whose workspace is fixed once it has started.
 export async function startSessionWithPrompt(
 	prompt: string,
-	opts?: { autoSend?: boolean }
+	opts?: { autoSend?: boolean; workspace?: string }
 ): Promise<void> {
-	// No setSessionPendingWorkspace: createSession already picked the workspace,
-	// steering off a root the user cannot deploy to onto its dev. Overwriting it
-	// with the raw current workspace would land the session where it cannot edit.
 	const session = createSession()
+	if (opts?.workspace) setSessionPendingWorkspace(session.id, opts.workspace)
 	setSessionDraftPrompt(session.id, prompt)
 	// An empty prompt has nothing to send; leave the composer focused instead.
 	if (opts?.autoSend && prompt.trim()) setSessionAutoSend(session.id)

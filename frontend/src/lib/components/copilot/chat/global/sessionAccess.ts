@@ -1,11 +1,15 @@
 import { get } from 'svelte/store'
 import { userWorkspaces } from '$lib/stores'
-import type { RoleCapabilities } from '$lib/gen'
+import type { ProtectionRuleset, RoleCapabilities } from '$lib/gen'
 import { getWorkspaceRole } from '$lib/user'
 import { roleCanAuthor, roleCanDraft } from '$lib/editRights'
 import { capabilitiesIn, FULL_CAPABILITIES } from '$lib/roleCapabilities'
 import { checkDeployRules } from '$lib/utils_workspace_deploy'
-import type { SessionAccess, SessionCapability } from '../sessionCapabilities'
+import {
+	isRuleActiveInRulesets,
+	readProtectionRulesForWorkspace
+} from '$lib/workspaceProtectionRules.svelte'
+import { USE_MODE_ACCESS, type SessionAccess, type SessionCapability } from '../sessionCapabilities'
 
 const ALL_CAPABILITIES: SessionCapability[] = [
 	'write_draft',
@@ -25,13 +29,15 @@ const ALL_CAPABILITIES: SessionCapability[] = [
 	'manage_apps',
 	'manage_schedules',
 	'manage_triggers',
-	'admin'
+	'admin',
+	'modify_workspace'
 ]
 
-/** Fail open, here and at every resolution failure below: blanking a toolset on a
+/** Fail open, here and at every role resolution failure below: blanking a toolset on a
  * transient error tells a developer mid-session that they cannot author anything,
  * which is worse and far less legible than the 403 they get by trying. Matches
- * `checkDeployPermission`, which fails open for the same reason. */
+ * `checkDeployPermission`, which fails open for the same reason. The protection rule is
+ * the exception (`protects`). */
 export function fullSessionAccess(): SessionAccess {
 	return new Set(ALL_CAPABILITIES)
 }
@@ -45,7 +51,7 @@ export function capabilitiesForRole(role: {
 	deployRulesPass: boolean
 	capabilities: RoleCapabilities
 }): SessionAccess {
-	const capabilities = new Set<SessionCapability>()
+	const capabilities = new Set<SessionCapability>(['modify_workspace'])
 	const caps = role.isAdmin ? FULL_CAPABILITIES : role.capabilities
 	if (roleCanDraft('script', caps)) {
 		capabilities.add('write_draft')
@@ -102,12 +108,53 @@ export function capabilitiesForRole(role: {
 	return capabilities
 }
 
+/** Whether `rulesets` make a session read-only. `DisableDirectDeployment` holds everyone, admins
+ * and bypassers included, since production changes go through its dev workspace or a fork;
+ * `RestrictDeployToDeployers` alone leaves its users their drafts. Unreadable rules protect too:
+ * the server holds deploys to the rule but not drafts. */
+function protects(rulesets: ProtectionRuleset[] | undefined): boolean {
+	return !rulesets || isRuleActiveInRulesets(rulesets, 'DisableDirectDeployment')
+}
+
+// The session UI asks this from every preview tab, the composer and the picker, and the rules
+// fetch behind it is not cached, so they share one verdict per workspace for a minute.
+const READ_ONLY_TTL_MS = 60_000
+const readOnlyVerdicts = new Map<string, { at: number; verdict: Promise<boolean> }>()
+const settledVerdicts = new Map<string, { at: number; readOnly: boolean }>()
+
+/** The read-only verdict alone, for the UI around a session. Fails closed as the chat does; a
+ * failed read is not kept, so the next ask reads the rules again. */
+export function isReadOnlySessionWorkspace(workspace: string): Promise<boolean> {
+	const cached = readOnlyVerdicts.get(workspace)
+	if (cached && Date.now() - cached.at < READ_ONLY_TTL_MS) return cached.verdict
+	const at = Date.now()
+	const verdict = readProtectionRulesForWorkspace(workspace).then((rulesets) => {
+		if (!rulesets) readOnlyVerdicts.delete(workspace)
+		else settledVerdicts.set(workspace, { at, readOnly: protects(rulesets) })
+		return protects(rulesets)
+	})
+	readOnlyVerdicts.set(workspace, { at, verdict })
+	return verdict
+}
+
+/** The verdict read for `workspace` within the minute, without asking: what the UI stands on
+ * while a fresh component waits for its own ask. */
+export function settledReadOnlyVerdict(workspace: string): boolean | undefined {
+	const settled = settledVerdicts.get(workspace)
+	return settled && Date.now() - settled.at < READ_ONLY_TTL_MS ? settled.readOnly : undefined
+}
+
 export async function resolveSessionAccess(workspace: string): Promise<SessionAccess> {
-	// Shares the 5-minute memo with the identity the same pre-flight resolves beside this
-	// one, so a send costs one `whoami` rather than two, at the cost of a role changed
-	// elsewhere landing within that window rather than on the very next message.
-	// `lookup_failed` covers a rejected request AND a body too malformed to map.
-	const lookup = await getWorkspaceRole(workspace)
+	const [rulesets, lookup] = await Promise.all([
+		// Not the memoized verdict above: the chat's toolset follows a rule change on the next send.
+		readProtectionRulesForWorkspace(workspace),
+		// Shares the 5-minute memo with the identity the same pre-flight resolves beside this
+		// one, so a send costs one `whoami` rather than two, at the cost of a role changed
+		// elsewhere landing within that window rather than on the very next message.
+		// `lookup_failed` covers a rejected request AND a body too malformed to map.
+		getWorkspaceRole(workspace)
+	])
+	if (protects(rulesets)) return USE_MODE_ACCESS
 	if (lookup.kind !== 'resolved') {
 		return fullSessionAccess()
 	}
@@ -115,7 +162,7 @@ export async function resolveSessionAccess(workspace: string): Promise<SessionAc
 
 	return capabilitiesForRole({
 		isAdmin: !!me.is_admin || !!me.is_super_admin,
-		deployRulesPass: (await checkDeployRules(workspace, me)).ok,
+		deployRulesPass: (await checkDeployRules(workspace, me, rulesets)).ok,
 		capabilities: capabilitiesIn(
 			me,
 			get(userWorkspaces).find((w) => w.id === workspace)

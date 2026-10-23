@@ -8,6 +8,7 @@ import type { ChatCompletionMessageParam } from 'openai/resources/chat/completio
 import type { DisplayMessage } from './shared'
 import type { AttachedImage } from './imageUtils'
 import { AIChatManager, AIMode, AIAutonomyMode } from './AIChatManager.svelte'
+import { AIWorkMode, USE_MODE_WITHDRAWN } from './workMode'
 import { makePasteToken } from './pasteTokens'
 import { chatState } from './sharedChatState.svelte'
 import { PLAN_MODE_MESSAGES } from './planModeMessages'
@@ -51,9 +52,12 @@ vi.mock('monaco-editor', () => ({
 vi.mock('$lib/utils/featureUsage', () => ({ logFeatureUsage: vi.fn() }))
 
 vi.mock('$lib/gen', () => ({
-	WorkspaceService: {},
+	WorkspaceService: {
+		listProtectionRules: vi.fn(async () => [])
+	},
 	ResourceService: {
-		listResource: mocks.listResource
+		listResource: mocks.listResource,
+		listResourceTypeNames: vi.fn(async () => [])
 	},
 	ScriptService: {},
 	FlowService: {},
@@ -986,13 +990,11 @@ describe('AIChatManager autonomy mode', () => {
 })
 
 // The posture's own behaviour lives in planModeController.test.ts. What is left here is the
-// wiring only the manager owns: which pending confirmation cards a change of autonomy mode
-// answers, and with what.
+// wiring only the manager owns: which pending confirmation cards a change of work mode or of
+// autonomy mode answers, and with what.
 describe('AIChatManager plan mode posture', () => {
 	beforeEach(() => {
 		localStorage.clear()
-		// Plan mode is never the persisted posture, so a case starts from the one it is
-		// entered from and hands back to.
 		localStorage.setItem(`ai-chat-autonomy-mode::${TEST_EMAIL}`, AIAutonomyMode.DEFAULT)
 		vi.clearAllMocks()
 	})
@@ -1005,7 +1007,7 @@ describe('AIChatManager plan mode posture', () => {
 		return manager
 	}
 
-	it('enters plan mode through the tool and remembers the posture to hand back to', async () => {
+	it('enters plan mode through the tool and leaves the confirmations setting alone', async () => {
 		const manager = sessionManager(AIAutonomyMode.ACCEPT_EDIT)
 
 		await manager.planMode.enterTool.fn({
@@ -1017,12 +1019,12 @@ describe('AIChatManager plan mode posture', () => {
 		})
 
 		expect(manager.planModeActive).toBe(true)
-		expect(manager.prePlanAutonomyMode).toBe(AIAutonomyMode.ACCEPT_EDIT)
+		expect(manager.autonomyMode).toBe(AIAutonomyMode.ACCEPT_EDIT)
 	})
 
 	it('refuses to move a session chat out of GLOBAL, so the gate cannot lift under it', () => {
 		const manager = sessionManager(AIAutonomyMode.ACCEPT_EDIT)
-		manager.setAutonomyMode(AIAutonomyMode.PLAN)
+		manager.setWorkMode(AIWorkMode.PLAN)
 		expect(manager.planModeActive).toBe(true)
 		// Without a configured model changeMode returns early on SCRIPT, and the case would pass
 		// against the very guard it is meant to pin.
@@ -1083,20 +1085,73 @@ describe('AIChatManager plan mode posture', () => {
 	it('answers a pending plan card the way the picker was moved', async () => {
 		const entering = sessionManager()
 		const enterPending = entering.requestConfirmation('call_enter', 'enter_plan_mode')
-		entering.setAutonomyMode(AIAutonomyMode.PLAN)
+		entering.setWorkMode(AIWorkMode.PLAN)
 		expect(await enterPending).toBe(true)
 
 		// Leaving plan mode any other way is not a sign-off on the plan on the card.
-		const leaving = sessionManager(AIAutonomyMode.PLAN)
+		const leaving = sessionManager()
+		leaving.setWorkMode(AIWorkMode.PLAN)
 		const exitPending = leaving.requestConfirmation('call_exit', 'exit_plan_mode')
-		leaving.setAutonomyMode(AIAutonomyMode.DEFAULT)
+		leaving.setWorkMode(AIWorkMode.BUILD)
 		expect(await exitPending).toBe(false)
 
-		// Opting into YOLO does mean "run it".
-		const yolo = sessionManager(AIAutonomyMode.PLAN)
+		// Building under YOLO does mean "run it".
+		const yolo = sessionManager(AIAutonomyMode.YOLO)
+		yolo.setWorkMode(AIWorkMode.PLAN)
 		const yoloPending = yolo.requestConfirmation('call_exit', 'exit_plan_mode')
-		yolo.setAutonomyMode(AIAutonomyMode.YOLO)
+		yolo.setWorkMode(AIWorkMode.BUILD)
 		expect(await yoloPending).toBe(true)
+	})
+
+	it('waits for the user on a plan card while planning under YOLO', async () => {
+		// YOLO is the posture an approved plan is carried out in; the approval itself is not its
+		// to give, or a plan no card ever showed would be run.
+		const manager = sessionManager()
+		manager.setWorkMode(AIWorkMode.PLAN)
+		manager.setAutonomyMode(AIAutonomyMode.YOLO)
+		let settled = false
+		void manager.requestConfirmation('call_exit', 'exit_plan_mode').then(() => (settled = true))
+		await Promise.resolve()
+		expect(settled).toBe(false)
+		expect(manager.planMode.tools.map((t) => t.def.function.name)).toEqual(['exit_plan_mode'])
+	})
+
+	// The call was made with Build's tools; approving its card after the switch to Use must not
+	// run the write the session no longer ships.
+	it('does not run a write approved after the session switched to Use', async () => {
+		const { processToolCall } = await import('./shared')
+		const manager = sessionManager()
+		manager.configureGlobalMode()
+		const write = manager.availableTools.find((t) => t.def.function.name === 'write_script')!
+		const fn = vi.fn(async () => 'written')
+		let asked = false
+		const result = processToolCall({
+			tools: [{ ...write, fn, requiresConfirmation: true }] as any,
+			toolCall: {
+				id: 'call_write',
+				type: 'function',
+				function: { name: 'write_script', arguments: '{}' }
+			} as any,
+			helpers: {},
+			workspace: 'test-workspace',
+			toolCallbacks: {
+				setToolStatus: vi.fn(),
+				removeToolStatus: vi.fn(),
+				requestConfirmation: (id: string, name?: string) => {
+					asked = true
+					return manager.requestConfirmation(id, name)
+				},
+				shouldAutoAcceptToolConfirmations: manager.shouldAutoAcceptTool,
+				isToolWithdrawn: manager.isToolWithdrawn
+			} as any
+		})
+		await vi.waitFor(() => expect(asked).toBe(true))
+
+		manager.setWorkMode(AIWorkMode.USE)
+		manager.handleToolConfirmation('call_write', true)
+
+		expect((await result).content).toBe(USE_MODE_WITHDRAWN.result)
+		expect(fn).not.toHaveBeenCalled()
 	})
 })
 
@@ -4947,6 +5002,26 @@ describe('AIChatManager tool views', () => {
 		expect(manager.systemMessage.content).not.toContain('write_script')
 	})
 
+	// Use is the user's own pick, so no profile resolves for it: the switch alone has to strip
+	// the writes from the tools and the prompt, and hand them back on Build.
+	it('ships only reads and runs in Use, and the writes again in Build', () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.configureGlobalMode()
+		const names = () => manager.availableTools.map((t) => t.def.function.name)
+		expect(names()).toContain('write_script')
+
+		manager.setWorkMode(AIWorkMode.USE)
+		expect(names()).toEqual(expect.arrayContaining(['list_workspace_items', 'run_script']))
+		expect(names()).not.toContain('write_script')
+		expect(manager.systemMessage.content).not.toContain('write_script')
+
+		manager.setWorkMode(AIWorkMode.BUILD)
+		expect(names()).toContain('write_script')
+		expect(manager.systemMessage.content).toContain('write_script')
+	})
+
 	// Which transition each posture offers is planModeController.test.ts's; what this pins is
 	// that only `tools` follows the picker. `isSessionChat` is what offers plan mode at all.
 	it('holds availableTools steady across the autonomy picker', async () => {
@@ -4962,5 +5037,57 @@ describe('AIChatManager tool views', () => {
 		manager.setAutonomyMode(AIAutonomyMode.YOLO)
 		expect(names(manager.tools)).not.toContain('enter_plan_mode')
 		expect(names(manager.availableTools)).toEqual(before)
+	})
+
+	it('offers the switch out of the mode the session is in, and switches only once called', async () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.configureGlobalMode()
+		// The posture is persisted, and the test above leaves it on Yolo.
+		manager.setAutonomyMode(AIAutonomyMode.DEFAULT)
+		const shipped = () => manager.tools.map((t) => t.def.function.name)
+		expect(shipped()).toContain('enter_use_mode')
+		expect(shipped()).not.toContain('enter_build_mode')
+
+		// Plan leaves through its plan's approval, and Yolo would answer the card for the user.
+		manager.setWorkMode(AIWorkMode.PLAN)
+		expect(shipped()).not.toContain('enter_use_mode')
+		expect(shipped()).not.toContain('enter_build_mode')
+		manager.setWorkMode(AIWorkMode.USE)
+		manager.setAutonomyMode(AIAutonomyMode.YOLO)
+		expect(shipped()).not.toContain('enter_build_mode')
+		manager.setAutonomyMode(AIAutonomyMode.DEFAULT)
+
+		const enterBuild = manager.tools.find((t) => t.def.function.name === 'enter_build_mode')
+		expect(manager.workMode).toBe(AIWorkMode.USE)
+		await enterBuild?.fn({} as any)
+		expect(manager.workMode).toBe(AIWorkMode.BUILD)
+		expect(manager.systemMessage.content).toContain('write_script')
+	})
+
+	// The card is the only consent the switch has: the picker can answer it by going where it
+	// asked, and turning on Yolo must not approve it.
+	it('resolves a pending switch card from the picker, and never from Yolo', async () => {
+		const manager = new AIChatManager()
+		manager.mode = AIMode.GLOBAL
+		manager.isSessionChat = true
+		manager.configureGlobalMode()
+		manager.setAutonomyMode(AIAutonomyMode.DEFAULT)
+		manager.setWorkMode(AIWorkMode.USE)
+
+		const toPlan = manager.requestConfirmation('a', 'enter_build_mode')
+		manager.setWorkMode(AIWorkMode.PLAN)
+		await expect(toPlan).resolves.toBe(false)
+
+		manager.setWorkMode(AIWorkMode.USE)
+		const toBuild = manager.requestConfirmation('b', 'enter_build_mode')
+		manager.setWorkMode(AIWorkMode.BUILD)
+		await expect(toBuild).resolves.toBe(true)
+
+		manager.setWorkMode(AIWorkMode.USE)
+		const underYolo = manager.requestConfirmation('c', 'enter_build_mode')
+		manager.setAutonomyMode(AIAutonomyMode.YOLO)
+		await expect(underYolo).resolves.toBe(false)
 	})
 })
