@@ -356,8 +356,7 @@
   "quickbooks": {
     "auth_url": "https://appcenter.intuit.com/connect/oauth2",
     "token_url": "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
-    "scopes": ["com.intuit.quickbooks.accounting"],
-    "resource_fields": ["isSandBox"]
+    "scopes": ["com.intuit.quickbooks.accounting"]
   },
   "visma": {
     "auth_url": "https://connect.visma.com/connect/authorize",
