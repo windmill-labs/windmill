@@ -62,17 +62,6 @@ pub async fn parse_raw_script_schema(
     Ok(to_raw_value(&schema))
 }
 
-pub fn is_completed_input_transform(transform: &InputTransform) -> bool {
-    match transform {
-        InputTransform::Static { value } => {
-            let val = value.get().trim();
-            !val.is_empty() && val != "null"
-        }
-        InputTransform::Javascript { expr } => !expr.trim().is_empty(),
-        InputTransform::Ai => false,
-    }
-}
-
 /// Filters out properties from a JSON schema that have completed input transforms.
 /// This allows AI agents to only see and fill parameters that don't have user-configured values.
 pub fn filter_schema_by_input_transforms(
@@ -88,7 +77,7 @@ pub fn filter_schema_by_input_transforms(
     let keys_to_remove: HashSet<String> = input_transforms
         .iter()
         .filter_map(|(key, transform)| {
-            let is_completed = is_completed_input_transform(transform);
+            let is_completed = transform.is_completed();
             if is_completed {
                 Some(key.clone())
             } else {
@@ -779,7 +768,12 @@ mod tests {
                 .unwrap();
         let preset = ["a", "c", "f"]
             .iter()
-            .map(|k| (k.to_string(), InputTransform::Static { value: to_raw_value(&1) }))
+            .map(|k| {
+                (
+                    k.to_string(),
+                    InputTransform::Static { value: to_raw_value(&1) },
+                )
+            })
             .collect();
 
         let filtered = filter_schema_by_input_transforms(schema, &preset).unwrap();
