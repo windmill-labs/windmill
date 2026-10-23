@@ -72,7 +72,7 @@
               "value": {
                 "type": "rawscript",
                 "language": "bun",
-                "content": "export async function main(charges: { invoice_id: number; email: string }[]) {\n  for (const charge of charges) {\n    await fetch('https://mail.example.com/receipts', { method: 'POST', body: JSON.stringify(charge) })\n  }\n  return { sent: charges.length }\n}\n",
+                "content": "// Each charge is what the payment API answered, which carries the customer to email.\nexport async function main(charges: { id: string; customer_id: number }[]) {\n  for (const charge of charges) {\n    const res = await fetch('https://mail.example.com/receipts', { method: 'POST', body: JSON.stringify(charge) })\n    if (!res.ok) throw new Error(`receipt failed for charge ${charge.id}`)\n  }\n  return { sent: charges.length }\n}\n",
                 "input_transforms": {
                   "charges": {
                     "type": "javascript",
