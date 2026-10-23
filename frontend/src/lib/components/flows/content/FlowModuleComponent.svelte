@@ -71,7 +71,8 @@
 		signDebugRequest,
 		getDebugErrorMessage
 	} from '$lib/components/debug'
-	import { Bug, Terminal } from 'lucide-svelte'
+	import { Bug, Hand, Terminal } from 'lucide-svelte'
+	import Popover from '$lib/components/Popover.svelte'
 	import { sendUserToast } from '$lib/utils'
 	import { useOperatingWorkspace } from '$lib/components/operatingWorkspace.svelte'
 
@@ -1153,11 +1154,18 @@
 											/>
 										{/if}
 										{#if isAgentTool}
-											<Tab
-												value="tool_settings"
-												active={Boolean(toolRequiresApproval)}
-												label="Tool settings"
-											/>
+											<Tab value="tool_settings" label="Tool settings">
+												{#snippet extra()}
+													{#if toolRequiresApproval}
+														<div class="flex flex-row items-center gap-1 text-secondary">
+															<Popover notClickable>
+																<Hand size={12} />
+																{#snippet text()}Require approval · On{/snippet}
+															</Popover>
+														</div>
+													{/if}
+												{/snippet}
+											</Tab>
 										{/if}
 										{#if !preprocessorModule && !isAgentTool}
 											<Tab value="advanced" label="Run settings">
