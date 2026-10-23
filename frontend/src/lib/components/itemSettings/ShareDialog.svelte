@@ -3,13 +3,15 @@
 </script>
 
 <script lang="ts">
-	import { Alert, Button } from '$lib/components/common'
+	import { Alert, Button, Section } from '$lib/components/common'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import {
 		AppService,
+		FlowService,
 		FolderService,
 		GranularAclService,
 		GroupService,
+		ScriptService,
 		type AppWithLastVersion,
 		type Folder
 	} from '$lib/gen'
@@ -64,11 +66,14 @@
 
 	let app: AppWithLastVersion | undefined = $state()
 	let appBusy = $state(false)
+	/** Who the deployed flow or script runs as, and whether the user may change it, once read. An
+	 *  app's run-as user is in its policy. */
+	let runnableIdentity: { runAs: string | undefined; canEdit: boolean } | undefined = $state()
 
 	let name = $derived(path.split('/').pop() ?? path)
 	let noun = $derived(kind === 'raw_app' ? 'app' : kind)
 	let isApp = $derived(kind === 'app' || kind === 'raw_app')
-	let runAs = $derived(app?.policy.on_behalf_of_email ?? app?.policy.on_behalf_of)
+	let runAs = $derived(app?.policy.on_behalf_of ?? app?.policy.on_behalf_of_email)
 	// Who can open the app is part of its policy, which only someone who can edit the app may
 	// rewrite; the lists and detail pages open this dialog for readers too.
 	let canWriteApp = $derived(
@@ -87,6 +92,21 @@
 	let itemUrl = $derived(
 		`${window.location.origin}/${kind === 'flow' ? 'flows' : 'scripts'}/get/${path}?workspace=${$operatingWorkspace}`
 	)
+	// What a run can reach. It changes only with a deploy, so Share explains it and says where.
+	let permissions = $derived.by(() => {
+		const identity = isApp ? app && { runAs, canEdit: canWriteApp } : runnableIdentity
+		if (!identity) return undefined
+		const who = identity.runAs
+		return {
+			summary: who ? `Uses the access of ${who}` : 'Uses the access of whoever runs it',
+			body: !who
+				? 'A run can use only the resources and variables that the person who starts it can access.'
+				: isApp
+					? `Its runnables can use the resources and variables ${who} can access, for everyone who can open the app.`
+					: `Every run can use the resources and variables ${who} can access, whoever starts it. Who started a run stays recorded, and the code can read their email from WM_END_USER_EMAIL.`,
+			canEdit: identity.canEdit
+		}
+	})
 
 	/** `stagedPath` is the path the editor's draft deploys the item to. */
 	export function openDialog(
@@ -104,9 +124,13 @@
 		moveLoss = undefined
 		deployLabel = undefined
 		app = undefined
+		runnableIdentity = undefined
 		open = true
 		if (kind === 'app' || kind === 'raw_app') {
 			void loadApp()
+		} else {
+			// Without it the section stays hidden: it only explains.
+			void loadRunnableIdentity().catch(() => {})
 		}
 		if (moveTo) void loadMoveLoss()
 	}
@@ -139,6 +163,20 @@
 		const asked = path
 		const row = await AppService.getAppLiteByPath({ workspace: $operatingWorkspace!, path })
 		if (path === asked) app = row
+	}
+
+	async function loadRunnableIdentity() {
+		const asked = path
+		const workspace = $operatingWorkspace!
+		const row =
+			kind === 'flow'
+				? await FlowService.getFlowByPath({ workspace, path })
+				: await ScriptService.getScriptByPath({ workspace, path })
+		if (path !== asked) return
+		runnableIdentity = {
+			runAs: row.on_behalf_of ?? row.on_behalf_of_email ?? undefined,
+			canEdit: editRights.canEditItem(kind, path, row.extra_perms)
+		}
 	}
 
 	async function readFolder(p: string): Promise<Folder | undefined> {
@@ -318,6 +356,25 @@
 					<ClipboardPanel content={itemUrl} size="md" />
 				</Label>
 			</section>
+		{/if}
+
+		{#if permissions}
+			<Section label="Permissions" collapsable>
+				{#snippet badge()}
+					<span class="text-xs text-secondary">{permissions.summary}</span>
+				{/snippet}
+				<div class="flex flex-col gap-1 text-xs text-secondary">
+					<span class="font-medium text-emphasis">{permissions.summary}</span>
+					<span>{permissions.body}</span>
+					{#if permissions.canEdit}
+						<span>
+							{fromEditor
+								? 'To change it, edit Settings › Permissions and deploy.'
+								: `To change it, edit Settings › Permissions in the ${noun}'s editor and deploy.`}
+						</span>
+					{/if}
+				</div>
+			</Section>
 		{/if}
 
 		<div class="flex flex-row items-center gap-2">
