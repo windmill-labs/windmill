@@ -23,17 +23,19 @@ const DESCRIPTIONS: Record<WorkModeSwitchTool, string> = {
 		'Asks the user to switch this session to Use, which reads and runs deployed items and changes nothing. Call it only when they ask you to stop changing the workspace in this session, never for a single question. The switch happens only if they accept.'
 }
 
+// `declined` names the switch, not a mode: picking another mode in the picker declines the card too.
 const RESULTS: Record<WorkModeSwitchTool, { switched: string; declined: string }> = {
 	[ENTER_BUILD_MODE_TOOL]: {
 		switched:
 			'The user switched this session to Use & build. The tools that change the workspace are available from your next step: go on with the change they asked for.',
 		declined:
-			'The user kept this session in Use. Do not make the change: answer within Use, and say they can pick Use & build in the mode picker whenever they want it.'
+			'The user did not switch this session to Use & build. Do not make the change: carry on in the mode the session is in now, and say they can pick Use & build in the mode picker whenever they want it.'
 	},
 	[ENTER_USE_MODE_TOOL]: {
 		switched:
 			'The user switched this session to Use: from your next step you read and run deployed items, and change nothing.',
-		declined: 'The user kept this session in Use & build. Carry on.'
+		declined:
+			'The user did not switch this session to Use. Carry on in the mode the session is in now.'
 	}
 }
 
