@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT v.value, r.value AS \"resource_value\", a.id AS \"account_id?\",\n             a.refresh_token AS \"refresh_token?\", a.is_workspace_integration AS \"managed?\"\n         FROM variable v\n         JOIN resource r ON r.workspace_id = v.workspace_id AND r.path = v.path\n         LEFT JOIN account a ON a.workspace_id = v.workspace_id AND a.id = v.account\n         WHERE v.workspace_id = $1 AND v.path = $2 AND r.resource_type = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "value",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "resource_value",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "account_id?",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "refresh_token?",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "managed?",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2e03f1558f80907dda9b03578721468694d3894fb0ef703b4cbf95dac97ba7a9"
+}

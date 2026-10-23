@@ -149,6 +149,7 @@
 		}
 		return list
 	})
+	const selected = $derived(connections?.find((c) => c.path === value))
 	const unusable = $derived(
 		connections !== undefined && !!value && !connections.some((c) => c.path === value)
 	)
@@ -224,6 +225,31 @@
 				</Button>
 			{/if}
 		</div>
+	{/if}
+	{#if selected?.missing_scopes?.length}
+		{@const missing = selected}
+		<Alert type="warning" title="This account is missing permissions" size="xs">
+			<div class="flex flex-col gap-2">
+				<span>
+					Triggers need {missing.missing_scopes?.join(', ')}. Reconnecting asks for them and keeps
+					what the account already has.
+				</span>
+				{#if canReconnect(missing)}
+					<div>
+						<Button
+							unifiedSize="xs"
+							variant="default"
+							wrapperClasses="w-fit"
+							startIcon={{ icon: RefreshCw }}
+							disabled={connecting}
+							onclick={() => reconnect(missing)}
+						>
+							Reconnect
+						</Button>
+					</div>
+				{/if}
+			</div>
+		</Alert>
 	{/if}
 	{#if unusable}
 		<Alert type="warning" title="You cannot use this connection" size="xs">

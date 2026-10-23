@@ -97,6 +97,25 @@
 					bind:password={value['secret']}
 				/>
 			</label>
+			<div>
+				<Toggle
+					options={{
+						right:
+							'Allow workspace admins to set up Nextcloud integration triggers using these credentials'
+					}}
+					checked={value['share_with_workspaces'] ?? false}
+					on:change={(e) => {
+						value = { ...value, share_with_workspaces: e.detail }
+					}}
+				/>
+				{#if value['share_with_workspaces']}
+					<p class="text-xs text-tertiary mt-1">
+						Workspace admins will be able to connect Nextcloud integration triggers without
+						configuring their own OAuth client. The credentials are not exposed to them. Connections
+						use whichever redirect URI the client is registered with.
+					</p>
+				{/if}
+			</div>
 			<CollapseLink text="Instructions">
 				<div class="text-xs text-primary border rounded-md p-4">
 					1. Go to your Nextcloud instance as an administrator<br />

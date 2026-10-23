@@ -19,7 +19,7 @@
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
 	import NativeConnectionPicker from '$lib/components/triggers/native/NativeConnectionPicker.svelte'
-	import { nativeOAuthRedirectUri } from '$lib/components/triggers/native/utils'
+	import { workspaceAppRedirectUri } from '$lib/components/triggers/native/utils'
 
 	interface WorkspaceIntegration {
 		service_name: string
@@ -28,6 +28,7 @@
 			client_secret: string
 			base_url: string
 			instance_shared?: boolean
+			redirect_uri?: string
 		} | null
 	}
 
@@ -304,7 +305,7 @@
 
 <div class="flex flex-col">
 	<SettingsPageHeader
-		title="Native triggers"
+		title="Integration triggers"
 		description="Configure the OAuth app of each service. Members connect their own account when creating a trigger, or use the shared account, and each trigger acts as the account it was created with."
 		link="https://www.windmill.dev/docs/core_concepts/native_triggers"
 	/>
@@ -416,7 +417,10 @@
 					<OAuthClientConfig
 						bind:open={configOpen[serviceName]}
 						{serviceName}
-						redirectUri={nativeOAuthRedirectUri(serviceName as NativeServiceName)}
+						redirectUri={workspaceAppRedirectUri(
+							serviceName as NativeServiceName,
+							workspaceApp ? integration?.oauth_data : null
+						)}
 						serviceDisplayName={config.displayName}
 						existingConfig={workspaceApp ? integration?.oauth_data : null}
 						requiresBaseUrl={config.requiresBaseUrl !== false}

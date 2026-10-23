@@ -355,6 +355,63 @@ async fn test_decrypt_instance_level(db: Pool<Postgres>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// A resource connected for runnables is a connection too: its account was issued by the instance
+/// connect client (`gworkspace`, not the trigger flow's `google`), and the workspace may have no
+/// OAuth app at all. Its stored scopes say what a trigger still lacks.
+#[sqlx::test(migrations = "../migrations", fixtures("base"))]
+async fn test_connected_resource_is_a_connection(db: Pool<Postgres>) -> anyhow::Result<()> {
+    let path = "u/test-user/my_google";
+    let account_id: i32 = sqlx::query_scalar(
+        "INSERT INTO account (workspace_id, client, expires_at, refresh_token, scopes)
+         VALUES ('test-workspace', 'gworkspace', now() + interval '1 hour', 'r',
+                 ARRAY['https://www.googleapis.com/auth/drive.readonly'])
+         RETURNING id",
+    )
+    .fetch_one(&db)
+    .await?;
+    let mc = build_crypt(&db, "test-workspace").await?;
+    sqlx::query(
+        "INSERT INTO variable (workspace_id, path, value, is_secret, description, account, is_oauth)
+         VALUES ('test-workspace', $1, $2, true, '', $3, true)",
+    )
+    .bind(path)
+    .bind(encrypt(&mc, "resource-token"))
+    .bind(account_id)
+    .execute(&db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO resource (workspace_id, path, value, resource_type, extra_perms, created_by)
+         VALUES ('test-workspace', $1, $2, 'gworkspace', '{}'::jsonb, 'test-user')",
+    )
+    .bind(path)
+    .bind(json!({ "token": format!("$var:{path}") }))
+    .execute(&db)
+    .await?;
+
+    let config: OAuthConfig =
+        decrypt_oauth_data(&db, "test-workspace", ServiceName::Google, Some(path)).await?;
+    assert_eq!(config.access_token, "resource-token");
+    assert_eq!(config.account_id, Some(account_id));
+    assert!(!config.managed);
+
+    let mut tx = UserDB::new(db.clone()).begin(&test_authed()).await?;
+    let connections =
+        list_usable_connections(&db, &mut tx, "test-workspace", ServiceName::Google).await?;
+    tx.commit().await?;
+    let connection = connections.iter().find(|c| c.path == path).expect("listed");
+    assert_eq!(
+        connection.missing_scopes.as_deref(),
+        Some(
+            &[
+                "https://www.googleapis.com/auth/calendar.readonly".to_string(),
+                "https://www.googleapis.com/auth/calendar.events".to_string(),
+            ][..]
+        )
+    );
+
+    Ok(())
+}
+
 #[sqlx::test(migrations = "../migrations", fixtures("base"))]
 async fn test_token_update_persists(db: Pool<Postgres>) -> anyhow::Result<()> {
     let resource_path = "u/test-user/native_gworkspace";
