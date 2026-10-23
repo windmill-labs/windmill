@@ -8,9 +8,7 @@
 		type RawAppBuildMode,
 		type RawAppTemplatePickerResult
 	} from '$lib/components/raw_apps/RawAppTemplatePicker.svelte'
-	import { runtimeRawAppToDraft, type RawAppDraft } from './appDraftCodec'
-	import { userStore } from '$lib/stores'
-	import { mintDraftPath } from '$lib/mintDraftPath'
+	import { runtimeRawAppToDraft } from './appDraftCodec'
 	import ViewportOverlays from '$lib/components/common/ViewportOverlays.svelte'
 	import { withWorkspaceParam } from './sessionMode.svelte'
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
@@ -166,37 +164,7 @@
 		})
 	})
 
-	// The fork is saved as a draft under a fresh path before its tab opens: the tab's
-	// editor loads it by path, and the session reopens it from there after a reload.
-	async function forkApp() {
-		const source = cell.store.val
-		if (!source) return
-		const forkPath = mintDraftPath()
-		const draft: RawAppDraft = {
-			summary: '',
-			files: $state.snapshot(source.files),
-			runnables: $state.snapshot(source.runnables),
-			data: $state.snapshot(source.data),
-			// The forker's identity, since the source's would publish as its owner, but the
-			// source's sandbox and SDK scopes: the copied code's SDK calls depend on them.
-			policy: {
-				on_behalf_of: $userStore?.username.includes('@')
-					? $userStore?.username
-					: `u/${$userStore?.username}`,
-				on_behalf_of_email: $userStore?.email,
-				execution_mode: 'publisher',
-				sandbox: source.policy?.sandbox ?? false,
-				frontend_sdk_scopes: $state.snapshot(source.policy?.frontend_sdk_scopes)
-			}
-		}
-		const key = { workspace: workspaceId, itemKind: 'raw_app' as const, path: forkPath }
-		UserDraft.save('raw_app', forkPath, draft, { workspace: workspaceId })
-		await UserDraft.forcePersist('raw_app', forkPath, { workspace: workspaceId })
-		const saved = UserDraftDbSyncer.getState(key)
-		if (saved.state === 'failed') {
-			sendUserToast(`Could not save the fork: ${saved.failureMessage ?? 'unknown error'}`, true)
-			return
-		}
+	function openFork(forkPath: string) {
 		runtime.previewTabs.open({
 			type: 'item',
 			item: { kind: 'app', raw_app: true, path: forkPath, summary: '' }
@@ -421,7 +389,7 @@
 				{diffDrawer}
 				{onNavigate}
 				onDetails={onSeeDetails}
-				onFork={forkApp}
+				onOpenFork={openFork}
 				condensedHeader={true}
 				onResetToDeployed={reloadDeployed}
 				onDeploy={(e) => runtime.itemDeployed(workspaceId, 'raw_app', path, e.path)}

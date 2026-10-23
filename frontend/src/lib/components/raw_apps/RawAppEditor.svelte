@@ -173,8 +173,8 @@
 		// Threaded to the AutosaveIndicator's "Reset to deployed" button.
 		/** `Exit & see details`: see RawAppEditorHeader. */
 		onDetails?: (e: { path: string }) => void
-		/** `Fork`: see RawAppEditorHeader. */
-		onFork?: () => void
+		/** See RawAppEditorHeader. */
+		onOpenFork?: (path: string) => void
 		onResetToDeployed?: () => void | Promise<void>
 		/** The app_version the draft forked from, for the deploy-time "new version
 		 *  deployed" guard: deploying is refused with a confirmation while it is not
@@ -246,7 +246,7 @@
 		compact = false,
 		pendingDraftPath = $bindable(undefined),
 		onDetails,
-		onFork,
+		onOpenFork,
 		onResetToDeployed,
 		loadedFromDraft = false,
 		othersDraftsCount = 0,
@@ -2729,7 +2729,7 @@ addEventListener('message', function (e) {
 		{onNavigate}
 		{onDeploy}
 		{onDetails}
-		{onFork}
+		{onOpenFork}
 		{onResetToDeployed}
 		{loadedFromDraft}
 		{othersDraftsCount}
