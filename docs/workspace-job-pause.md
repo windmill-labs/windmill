@@ -13,9 +13,8 @@ General tab of workspace settings, or `pauseWorkspaceJobs` / `pause_workspace_jo
   `pause_decision`); anything pushed under `PausePolicy::Exempt` (datatable migrations, raw app
   bundles). A job with a parent always runs: the flow or job it belongs to already started.
   "Admin" is the caller (`push`'s `authed`), never the identity the job runs as: a member running
-  an on-behalf-of-admin script is held. An on-behalf-of run reaches `push` with no `authed`, so an
-  admin's run of such a script is held too; the sweep's SQL (`permissioned_as = 'u/' ||
-  created_by`) matches that, so a job is never exempted at push time and held by a later sweep.
+  an on-behalf-of-admin script is held. An on-behalf-of run reaches `push` with no `authed`, so
+  the run endpoints exempt an admin's such run themselves (`exempt_if`, `sync_run_policy`).
 - **Held**: script, flow and single-step-flow jobs are queued as `unassigned_*`, 30 days out, the
   same way a suspended trigger holds its jobs, plus a `workspace_held_job` row carrying when the
   job was due.
@@ -42,6 +41,15 @@ synchronous entry point needs the same wrapper. The policy is a task-local: it d
   For up to that long after a pause starts, another server or worker can still queue or start a
   job; the monitor re-sweeps paused workspaces every pass, and `sync push --pause-jobs` waits out
   the TTL before deploying so a job that started in that window runs on the pre-deploy state.
+  The sweep only judges jobs created before `paused_at` (the start of the pause, kept when it is
+  extended) plus that window: later ones were judged by `check_push`, which knows who started
+  them, and the sweep must not hold a job `check_push` let through.
+- Pausing, resuming and the monitor's release take a per-workspace advisory lock
+  (`lock_workspace`), so a release never acts on a "not paused" read a new pause made stale.
+  Every pause request renews `pause_id`; `sync push --pause-jobs` resumes with its own id and gets
+  a 409 instead if another deploy paused since.
+- A held job is `unassigned_*` and due 30 days out; "Run now" refuses it, since a worker fails an
+  `unassigned_*` job it reaches.
 - A job a waiting caller (`run_wait_result`, a sync route) pushed before the pause and that has not
   started yet is held by the sweep like any queued job: that caller times out rather than getting
   a 503, and the job runs on resume. Telling those jobs apart would need per-job state.

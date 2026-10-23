@@ -48,14 +48,33 @@ export async function waitForPauseToPropagate() {
   await new Promise((r) => setTimeout(r, PAUSE_PROPAGATION_MS));
 }
 
-export async function resumeWorkspaceJobs(workspaceId: string) {
-  const released = await wmill.resumeJobs({ workspace: workspaceId });
+/**
+ * With `pauseId`, resumes only if no one paused again since (another deploy's pause stays) and
+ * says whether it resumed.
+ */
+export async function resumeWorkspaceJobs(
+  workspaceId: string,
+  pauseId?: string,
+): Promise<boolean> {
+  let released: number;
+  try {
+    released = await wmill.resumeJobs({
+      workspace: workspaceId,
+      requestBody: pauseId ? { pause_id: pauseId } : undefined,
+    });
+  } catch (e: any) {
+    if (pauseId && e?.status === 409) {
+      log.warn(`Jobs not resumed: ${e.body ?? e.message}`);
+      return false;
+    }
+    throw e;
+  }
   log.info(
     colors.green(
       `Jobs of ${workspaceId} resumed, ${released} held job${released === 1 ? "" : "s"} released`,
     ),
   );
-  return released;
+  return true;
 }
 
 const DEPENDENCY_JOB_KINDS = "dependencies,flowdependencies,appdependencies";

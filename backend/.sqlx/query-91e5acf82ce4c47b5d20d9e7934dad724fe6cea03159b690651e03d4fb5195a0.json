@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH candidates AS (\n            SELECT q.id, q.scheduled_for\n            FROM v2_job_queue q\n            JOIN v2_job j ON j.id = q.id\n            JOIN workspace_job_pause wp ON wp.workspace_id = q.workspace_id\n            LEFT JOIN job_perms p ON p.job_id = q.id\n            WHERE q.workspace_id = $1\n              AND j.created_at < wp.paused_at + make_interval(secs => $2)\n              AND NOT q.running\n              -- a flow requeued after its preprocessor is not running but has started\n              AND q.started_at IS NULL\n              AND j.parent_job IS NULL\n              AND j.kind IN ('script', 'flow', 'singlestepflow')\n              -- an admin's direct run, judged by who started it as `check_push` does: for an\n              -- on-behalf-of run the job's permissions are someone else's\n              AND NOT (\n                    j.trigger IS NULL\n                    AND (j.trigger_kind IS NULL OR j.trigger_kind = 'webhook')\n                    AND (\n                        (COALESCE(p.is_admin, false) AND j.permissioned_as = 'u/' || j.created_by)\n                        OR EXISTS (SELECT 1 FROM usr u WHERE u.workspace_id = q.workspace_id\n                            AND u.username = j.created_by AND u.is_admin)\n                    )\n              )\n            FOR UPDATE OF q SKIP LOCKED\n        ),\n        held AS (\n            INSERT INTO workspace_held_job (job_id, workspace_id, scheduled_for)\n            SELECT id, $1, scheduled_for FROM candidates\n            ON CONFLICT (job_id) DO NOTHING\n        ),\n        queued AS (\n            UPDATE v2_job_queue q SET scheduled_for = now() + interval '30 days'\n            FROM candidates c WHERE q.id = c.id\n        ),\n        kinds AS (\n            UPDATE v2_job j SET kind = CASE j.kind\n                    WHEN 'script' THEN 'unassigned_script'::JOB_KIND\n                    WHEN 'flow' THEN 'unassigned_flow'::JOB_KIND\n                    ELSE 'unassigned_singlestepflow'::JOB_KIND\n                END\n            FROM candidates c WHERE j.id = c.id\n        )\n        SELECT count(*) AS \"count!\" FROM candidates",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "91e5acf82ce4c47b5d20d9e7934dad724fe6cea03159b690651e03d4fb5195a0"
+}

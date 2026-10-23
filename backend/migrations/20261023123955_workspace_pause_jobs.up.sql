@@ -5,8 +5,12 @@ CREATE TABLE IF NOT EXISTS workspace_job_pause (
     workspace_id VARCHAR(50) PRIMARY KEY REFERENCES workspace(id) ON DELETE CASCADE,
     paused_until TIMESTAMPTZ NOT NULL,
     paused_by VARCHAR(255) NOT NULL,
+    -- When this pause started; extending it keeps it. Jobs pushed well after it were already
+    -- judged by the push itself, so the queue sweep leaves them alone.
     paused_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    reason TEXT
+    reason TEXT,
+    -- Renewed by every pause request, so whoever paused can resume only if no one paused since.
+    pause_id UUID NOT NULL DEFAULT gen_random_uuid()
 );
 
 -- The jobs a workspace pause holds, as opposed to those a suspended trigger holds: both are queued

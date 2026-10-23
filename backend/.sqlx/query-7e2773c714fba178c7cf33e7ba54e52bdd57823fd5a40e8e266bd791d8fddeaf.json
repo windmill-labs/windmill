@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT pause_id, paused_by FROM workspace_job_pause WHERE workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pause_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "paused_by",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "7e2773c714fba178c7cf33e7ba54e52bdd57823fd5a40e8e266bd791d8fddeaf"
+}

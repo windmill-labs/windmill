@@ -948,6 +948,9 @@ async fn run_queued_job_now(
          FROM (SELECT id, scheduled_for FROM v2_job_queue WHERE id = $1 AND workspace_id = $2 FOR UPDATE) prev
          WHERE q.id = prev.id AND NOT q.running AND q.suspend = 0 AND q.canceled_by IS NULL
             AND q.scheduled_for > now()
+            -- held by a job pause or a suspended trigger: due now, a worker would fail it
+            AND NOT EXISTS (SELECT 1 FROM v2_job j WHERE j.id = q.id
+                AND j.kind IN ('unassigned_script', 'unassigned_flow', 'unassigned_singlestepflow'))
          RETURNING prev.scheduled_for",
         id,
         w_id,
@@ -969,7 +972,7 @@ async fn run_queued_job_now(
             {
                 Error::BadRequest(format!(
                     "job {id} is not waiting for a future start: it is running, suspended, \
-                     canceled or already due"
+                     canceled, already due, or held until its trigger or the workspace resumes"
                 ))
             } else {
                 Error::NotFound(format!("queued job id {id} does not exist"))
@@ -8149,6 +8152,16 @@ async fn log_job_view(
     Ok(())
 }
 
+/// A caller waits on these runs, so a job a workspace pause would hold is refused. An admin's run is
+/// exempt, but `push` gets no `authed` for an on-behalf-of run and cannot see an admin started it.
+fn sync_run_policy(on_behalf_of: bool, authed: &ApiAuthed) -> PausePolicy {
+    if on_behalf_of && authed.is_admin {
+        PausePolicy::Exempt
+    } else {
+        PausePolicy::Refuse
+    }
+}
+
 pub async fn run_wait_result_job_by_path_get(
     cross_site: CrossSiteGetGuard,
     method: hyper::http::Method,
@@ -8219,7 +8232,7 @@ pub async fn run_wait_result_job_by_path_get(
     let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = with_policy(
-        PausePolicy::Refuse,
+        sync_run_policy(push_authed.is_none(), &authed),
         push(
             &db,
             tx,
@@ -8373,7 +8386,7 @@ pub async fn run_wait_result_script_by_path_internal(
     let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = with_policy(
-        PausePolicy::Refuse,
+        sync_run_policy(push_authed.is_none(), &authed),
         push(
             &db,
             tx,
@@ -8495,7 +8508,7 @@ pub async fn run_wait_result_script_by_hash(
     let end_user_email = run_end_user_email(&db, &w_id, &authed, None).await?;
     let scope_ceiling = windmill_api_auth::caller_scope_ceiling(&db, &authed).await?;
     let (uuid, tx) = with_policy(
-        PausePolicy::Refuse,
+        sync_run_policy(push_authed.is_none(), &authed),
         push(
             &db,
             tx,

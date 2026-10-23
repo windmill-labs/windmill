@@ -87,11 +87,12 @@ async fn pause_holds_and_resume_releases(db: Pool<Postgres>) -> anyhow::Result<(
         .send()
         .await?;
     assert_eq!(resp.status(), 403, "pausing is admin only");
-    let resp = post(format!("{ws}/workspaces/pause_jobs"), ADMIN)
-        .json(&json!({"duration_s": 600}))
-        .send()
-        .await?;
+    let pause = |token: &'static str| {
+        post(format!("{ws}/workspaces/pause_jobs"), token).json(&json!({"duration_s": 600}))
+    };
+    let resp = pause(ADMIN).send().await?;
     assert_eq!(resp.status(), 200, "{}", resp.text().await?);
+    let first_pause_id = resp.json::<serde_json::Value>().await?["pause_id"].clone();
 
     assert_eq!(kind_and_due(&db, scheduled).await.0, "unassigned_script");
 
@@ -122,9 +123,27 @@ async fn pause_holds_and_resume_releases(db: Pool<Postgres>) -> anyhow::Result<(
     assert_eq!(run_as, "u/test-user");
     assert_eq!(kind_and_due(&db, obo).await.0, "unassigned_script");
 
-    // An admin's direct run is not held.
+    // An admin's direct run is not held, even of a script that runs on behalf of someone else.
     let direct = job_id(run(ADMIN, "").send().await?).await;
     assert_eq!(kind_and_due(&db, direct).await.0, "script");
+    let resp = post(format!("{ws}/scripts/create"), ADMIN)
+        .json(&json!({
+            "path": "u/test-user/obo_member", "summary": "", "description": "",
+            "content": "echo hi", "language": "bash",
+            "on_behalf_of": "u/test-user-2", "preserve_on_behalf_of": true,
+            "schema": {"type": "object", "properties": {}, "required": []}
+        }))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    let admin_obo = job_id(
+        post(format!("{ws}/jobs/run/p/u/test-user/obo_member"), ADMIN)
+            .json(&json!({}))
+            .send()
+            .await?,
+    )
+    .await;
+    assert_eq!(kind_and_due(&db, admin_obo).await.0, "script");
 
     // A caller waiting for the result is refused rather than left waiting.
     let resp = post(
@@ -136,6 +155,14 @@ async fn pause_holds_and_resume_releases(db: Pool<Postgres>) -> anyhow::Result<(
     .await?;
     assert_eq!(resp.status(), 503);
     assert!(resp.headers().contains_key("retry-after"));
+
+    // A deploy resumes only the pause it started: another one paused since.
+    assert_eq!(pause(ADMIN).send().await?.status(), 200);
+    let resp = post(format!("{ws}/workspaces/resume_jobs"), ADMIN)
+        .json(&json!({"pause_id": first_pause_id}))
+        .send()
+        .await?;
+    assert_eq!(resp.status(), 409);
 
     let resp = post(format!("{ws}/workspaces/resume_jobs"), ADMIN)
         .send()

@@ -343,7 +343,9 @@
 			!job.suspend &&
 			!!job.scheduled_for &&
 			forLater(job.scheduled_for) &&
-			!(job.schedule_path && new Date(job.scheduled_for).getMilliseconds() === 0)
+			!(job.schedule_path && new Date(job.scheduled_for).getMilliseconds() === 0) &&
+			// held by a job pause or a suspended trigger: only resuming them releases it
+			!job.job_kind.startsWith('unassigned_')
 	)
 
 	async function runJobNow(id: string) {

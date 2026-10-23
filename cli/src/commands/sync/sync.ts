@@ -6770,8 +6770,9 @@ export async function push(
     } catch (e) {
       log.warn(`Failed to push shared UI folder: ${e}`);
     }
+    let migrations: "ok" | "pending" | "failed" = "ok";
     try {
-      await offerToRunNewMigrations(
+      const { pending } = await offerToRunNewMigrations(
         workspace.workspaceId,
         newDatatableMigrations,
         {
@@ -6779,7 +6780,9 @@ export async function push(
           jsonOutput: opts.jsonOutput,
         },
       );
+      if (pending) migrations = "pending";
     } catch (e: any) {
+      migrations = "failed";
       log.warn(
         `Failed to run new datatable migrations: ${e?.body ?? e?.message ?? e}`,
       );
@@ -6817,19 +6820,31 @@ export async function push(
             `Jobs stay paused until ${jobsPause.paused_until} (--keep-paused). Run 'wmill workspace resume-jobs' when ready.`,
           ),
         );
-      } else if (failedChanges.length > 0 || !deps.finished || deps.failed > 0) {
-        log.warn(
-          `Jobs stay paused until ${jobsPause.paused_until} because ` +
-            (failedChanges.length > 0
-              ? "some changes failed to push"
-              : deps.failed > 0
-                ? `${deps.failed} dependency job(s) failed`
-                : "dependency jobs are still running") +
-            ". Run 'wmill workspace resume-jobs' once the workspace is consistent.",
-        );
       } else {
-        await resumeWorkspaceJobs(workspace.workspaceId);
-        jobsResumed = true;
+        const stayPausedBecause =
+          failedChanges.length > 0
+            ? "some changes failed to push"
+            : migrations === "failed"
+              ? "the new datatable migrations failed"
+              : migrations === "pending"
+                ? "the new datatable migrations were not run"
+                : deps.failed > 0
+                  ? `${deps.failed} dependency job(s) failed`
+                  : !deps.finished
+                    ? "dependency jobs are still running"
+                    : undefined;
+        if (stayPausedBecause) {
+          log.warn(
+            `Jobs stay paused until ${jobsPause.paused_until} because ${stayPausedBecause}. ` +
+              "Run 'wmill workspace resume-jobs' once the workspace is consistent.",
+          );
+          if (migrations === "failed") process.exitCode = 1;
+        } else {
+          jobsResumed = await resumeWorkspaceJobs(
+            workspace.workspaceId,
+            jobsPause.pause_id,
+          );
+        }
       }
     }
     const pushedCount = changes.length - failedChanges.length;

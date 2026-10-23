@@ -345,14 +345,14 @@ export async function pushLocalMigrations(
 /**
  * After a push that introduced new migrations, list them and (interactively)
  * offer to run them, equivalent to `wmill datatable migrate up` on each affected
- * data table.
+ * data table. Says whether new migrations were left pending; a failed run throws.
  */
 export async function offerToRunNewMigrations(
   workspace: string,
   newMigrations: { datatable: string; timestamp: number; name: string }[],
   opts?: { yes?: boolean; jsonOutput?: boolean },
-): Promise<void> {
-  if (newMigrations.length === 0) return;
+): Promise<{ pending: boolean }> {
+  if (newMigrations.length === 0) return { pending: false };
 
   log.info(colors.green("New migrations were pushed:"));
   for (const m of newMigrations) {
@@ -363,7 +363,7 @@ export async function offerToRunNewMigrations(
   // non-interactive contexts (--yes, --json, no TTY).
   const interactive = !opts?.jsonOutput && !opts?.yes && !!process.stdin.isTTY;
   if (!interactive) {
-    return;
+    return { pending: true };
   }
 
   const shouldRun = await Confirm.prompt({
@@ -371,10 +371,11 @@ export async function offerToRunNewMigrations(
     default: false,
   });
   if (!shouldRun) {
-    return;
+    return { pending: true };
   }
 
   for (const datatable of new Set(newMigrations.map((m) => m.datatable))) {
     await runMigrations(workspace, datatable);
   }
+  return { pending: false };
 }

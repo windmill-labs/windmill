@@ -130,6 +130,15 @@ pub async fn with_policy<F: std::future::Future>(policy: PausePolicy, f: F) -> F
     PAUSE_POLICY.scope(policy, f).await
 }
 
+/// Runs `f` under [`PausePolicy::Exempt`] when `exempt`, as is.
+pub async fn exempt_if<F: std::future::Future>(exempt: bool, f: F) -> F::Output {
+    if exempt {
+        with_policy(PausePolicy::Exempt, f).await
+    } else {
+        f.await
+    }
+}
+
 pub fn current_policy() -> Option<PausePolicy> {
     PAUSE_POLICY.try_with(|p| *p).ok()
 }
@@ -179,24 +188,35 @@ pub async fn hold_queued_jobs(tx: &mut Transaction<'_, Postgres>, w_id: &str) ->
 
 /// The sweep half of [`hold_queued_jobs`], also run by the monitor while a pause lasts: a server
 /// or worker whose cached read still says "not paused" queues jobs for up to the cache TTL.
+///
+/// Only jobs pushed before the pause reached every cache are judged here. Later ones were judged
+/// by `check_push`, which knows who started them (an admin's on-behalf-of run is let through)
+/// where these columns do not, so the sweep must not undo its decision.
 async fn sweep_queued_jobs(tx: &mut Transaction<'_, Postgres>, w_id: &str) -> Result<i64> {
     let held = sqlx::query_scalar!(
         r#"WITH candidates AS (
             SELECT q.id, q.scheduled_for
             FROM v2_job_queue q
             JOIN v2_job j ON j.id = q.id
+            JOIN workspace_job_pause wp ON wp.workspace_id = q.workspace_id
             LEFT JOIN job_perms p ON p.job_id = q.id
             WHERE q.workspace_id = $1
+              AND j.created_at < wp.paused_at + make_interval(secs => $2)
               AND NOT q.running
               -- a flow requeued after its preprocessor is not running but has started
               AND q.started_at IS NULL
               AND j.parent_job IS NULL
               AND j.kind IN ('script', 'flow', 'singlestepflow')
+              -- an admin's direct run, judged by who started it as `check_push` does: for an
+              -- on-behalf-of run the job's permissions are someone else's
               AND NOT (
-                    COALESCE(p.is_admin, false)
-                    AND j.permissioned_as = 'u/' || j.created_by
-                    AND j.trigger IS NULL
+                    j.trigger IS NULL
                     AND (j.trigger_kind IS NULL OR j.trigger_kind = 'webhook')
+                    AND (
+                        (COALESCE(p.is_admin, false) AND j.permissioned_as = 'u/' || j.created_by)
+                        OR EXISTS (SELECT 1 FROM usr u WHERE u.workspace_id = q.workspace_id
+                            AND u.username = j.created_by AND u.is_admin)
+                    )
               )
             FOR UPDATE OF q SKIP LOCKED
         ),
@@ -218,7 +238,8 @@ async fn sweep_queued_jobs(tx: &mut Transaction<'_, Postgres>, w_id: &str) -> Re
             FROM candidates c WHERE j.id = c.id
         )
         SELECT count(*) AS "count!" FROM candidates"#,
-        w_id
+        w_id,
+        (CACHE_TTL_SECS + 5) as f64,
     )
     .fetch_one(&mut **tx)
     .await?;
@@ -257,7 +278,8 @@ async fn release_held_jobs(tx: &mut Transaction<'_, Postgres>, w_id: &str) -> Re
 }
 
 /// Hands an `unassigned_*` job a suspended trigger held over to the workspace pause, which then
-/// releases it with the jobs it holds itself. Used when the trigger releases its jobs mid-pause.
+/// releases it with the jobs it holds itself. Used when the trigger releases its jobs mid-pause;
+/// should the pause end first, the monitor releases the row as one left without a pause.
 pub async fn hold_released_trigger_job(
     tx: &mut Transaction<'_, Postgres>,
     w_id: &str,
@@ -274,8 +296,20 @@ pub async fn hold_released_trigger_job(
     Ok(())
 }
 
+/// Serializes pausing, resuming and the monitor's release for one workspace until `tx` ends, so a
+/// release never runs on the strength of a "not paused" read that a new pause just made stale.
+pub async fn lock_workspace(tx: &mut Transaction<'_, Postgres>, w_id: &str) -> Result<()> {
+    sqlx::query!(
+        "SELECT pg_advisory_xact_lock(hashtextextended('workspace_job_pause:' || $1, 0))",
+        w_id
+    )
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 /// Ends the pause of `w_id` and releases its jobs. Checks no permission: the caller must be a
-/// workspace admin's request.
+/// workspace admin's request, holding [`lock_workspace`].
 pub async fn resume(tx: &mut Transaction<'_, Postgres>, w_id: &str) -> Result<i64> {
     sqlx::query!(
         "DELETE FROM workspace_job_pause WHERE workspace_id = $1",
@@ -314,6 +348,7 @@ pub async fn maintain_pauses(db: &DB) -> Result<()> {
     .await?;
     for w_id in workspaces {
         let mut tx = db.begin().await?;
+        lock_workspace(&mut tx, &w_id).await?;
         let ended = sqlx::query!(
             "DELETE FROM workspace_job_pause WHERE workspace_id = $1 AND paused_until <= now()",
             &w_id

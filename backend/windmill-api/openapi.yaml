@@ -8756,6 +8756,17 @@ paths:
         - workspace
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                pause_id:
+                  type: string
+                  format: uuid
+                  description: resume only if the current pause still has this id (409 otherwise)
       responses:
         "200":
           description: the number of held jobs released
@@ -8763,6 +8774,8 @@ paths:
             application/json:
               schema:
                 type: integer
+        "409":
+          description: jobs were paused again since the pause named by pause_id; they stay paused
 
   /oauth/login_callback/{client_name}:
     post:
@@ -37328,11 +37341,16 @@ components:
         held_count:
           type: integer
           description: jobs held by the pause, waiting to be released
+        pause_id:
+          type: string
+          format: uuid
+          description: renewed by every pause request; pass it to resumeJobs to resume only if no one paused since
       required:
         - paused_until
         - paused_by
         - paused_at
         - held_count
+        - pause_id
 
     WorkspaceInvite:
       type: object
