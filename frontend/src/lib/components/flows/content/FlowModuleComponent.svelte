@@ -868,7 +868,6 @@
 			on:reload={reloadModule}
 			bind:summary={flowModule.summary}
 			bind:description={toolDescription}
-			bind:requiresApproval={toolRequiresApproval}
 			{isAgentTool}
 			{siblingToolNames}
 		>
@@ -1153,6 +1152,13 @@
 												label="Chat"
 											/>
 										{/if}
+										{#if isAgentTool}
+											<Tab
+												value="tool_settings"
+												active={Boolean(toolRequiresApproval)}
+												label="Tool settings"
+											/>
+										{/if}
 										{#if !preprocessorModule && !isAgentTool}
 											<Tab value="advanced" label="Run settings">
 												{#snippet extra()}
@@ -1395,6 +1401,24 @@
 														right: 'Omit assistant and tool messages from the flow conversation',
 														rightTooltip:
 															'When enabled, this AI agent still runs normally, but its assistant response and tool-use messages are not stored in chat-mode conversation history.'
+													}}
+												/>
+											</Section>
+										</div>
+									{:else if visibleSelected === 'tool_settings' && isAgentTool}
+										<div class="flex-1 overflow-auto p-4">
+											<Section label="Approval">
+												<Toggle
+													size="xs"
+													textClass="text-xs font-normal text-primary"
+													disabled={noEditor}
+													bind:checked={
+														() => toolRequiresApproval ?? false, (v) => (toolRequiresApproval = v)
+													}
+													options={{
+														right: 'Require approval',
+														rightTooltip:
+															'Each call waits for someone to approve or reject it from the run page or the chat, without holding a worker. Other calls in the same turn run right away. A rejected call is reported to the agent as not run. An agent used as a tool of another agent cannot wait, so it leaves such tools out.'
 													}}
 												/>
 											</Section>

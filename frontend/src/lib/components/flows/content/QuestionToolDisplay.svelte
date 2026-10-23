@@ -1,5 +1,4 @@
 <script lang="ts">
-	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { SecondsInput } from '$lib/components/common'
 	import Label from '$lib/components/Label.svelte'
 	import FlowCard from '../common/FlowCard.svelte'
@@ -14,12 +13,11 @@
 </script>
 
 <FlowCard {noEditor} title={BUILTIN_TOOLS.question.label}>
-	<div class="flex flex-col gap-6 overflow-auto p-4" style="scrollbar-gutter: stable">
-		<Alert title="The agent asks when it needs a person" type="info">
-			The agent can call <code>ask_question</code> with a question. The run stops without holding a worker
-			until someone answers from the run page or the chat, then the agent continues with the answer.
-			To have someone approve a tool's calls instead, turn on Require approval on that tool.
-		</Alert>
+	<div class="flex flex-col gap-4 overflow-auto p-4" style="scrollbar-gutter: stable">
+		<p class="text-xs font-normal text-secondary">
+			Lets the agent ask a person a question and wait for the answer, from the run page or the chat,
+			without holding a worker.
+		</p>
 		<Label
 			label="Timeout"
 			tooltip="How long to wait for an answer. Past it, the agent is told nobody answered."
