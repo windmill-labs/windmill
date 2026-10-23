@@ -129,7 +129,9 @@
 	}
 
 	// Members cannot write the workspace connection; the server refuses anyone else it does not own.
+	// A resource connected elsewhere is deleted from Resources, where its other uses are visible.
 	function canDisconnect(c: NativeTriggerConnection): boolean {
+		if (!c.managed) return false
 		if ($userStore?.is_admin) return true
 		return !c.workspace && !!c.owner && c.owner === $userStore?.username
 	}

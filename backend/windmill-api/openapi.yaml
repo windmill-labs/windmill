@@ -40023,6 +40023,12 @@ components:
         workspace:
           type: boolean
           description: Whether this is the workspace connection, which every member may use
+        managed:
+          type: boolean
+          description: >-
+            Whether the integration trigger connect flow made it. Any other connection is a
+            resource connected elsewhere, which can be reconnected here but only deleted from
+            Resources.
         scopes:
           type: array
           nullable: true
@@ -40038,6 +40044,7 @@ components:
       required:
         - path
         - workspace
+        - managed
 
     CreateTriggerResponse:
       type: object

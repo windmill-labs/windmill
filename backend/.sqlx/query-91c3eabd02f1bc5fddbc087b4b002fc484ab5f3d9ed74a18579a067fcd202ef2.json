@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT v.path, r.created_by AS \"owner?\", true AS \"workspace!\", a.scopes AS \"scopes?\",\n           NULL::text[] AS \"missing_scopes?\"\n         FROM workspace_integrations wi\n         JOIN variable v ON v.workspace_id = wi.workspace_id AND v.path = wi.resource_path\n         JOIN resource r ON r.workspace_id = v.workspace_id AND r.path = v.path\n         LEFT JOIN account a ON a.workspace_id = v.workspace_id AND a.id = v.account\n         WHERE wi.workspace_id = $1 AND wi.service_name = $2 AND r.resource_type = $3",
+  "query": "SELECT v.path, r.created_by AS \"owner?\", true AS \"workspace!\",\n           COALESCE(a.is_workspace_integration, false) AS \"managed!\", a.scopes AS \"scopes?\",\n           NULL::text[] AS \"missing_scopes?\"\n         FROM workspace_integrations wi\n         JOIN variable v ON v.workspace_id = wi.workspace_id AND v.path = wi.resource_path\n         JOIN resource r ON r.workspace_id = v.workspace_id AND r.path = v.path\n         LEFT JOIN account a ON a.workspace_id = v.workspace_id AND a.id = v.account\n         WHERE wi.workspace_id = $1 AND wi.service_name = $2 AND r.resource_type = $3",
   "describe": {
     "columns": [
       {
@@ -20,11 +20,16 @@
       },
       {
         "ordinal": 3,
+        "name": "managed!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
         "name": "scopes?",
         "type_info": "TextArray"
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "missing_scopes?",
         "type_info": "TextArray"
       }
@@ -51,9 +56,10 @@
       false,
       true,
       null,
+      null,
       true,
       null
     ]
   },
-  "hash": "d63cd8c176f743a9e144c23912f3f91c128106e9a66ccedd3891bb884c622087"
+  "hash": "91c3eabd02f1bc5fddbc087b4b002fc484ab5f3d9ed74a18579a067fcd202ef2"
 }

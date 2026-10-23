@@ -702,8 +702,8 @@ async fn list_integrations(
     Ok(Json(integrations))
 }
 
-/// Whether members can connect an account for this service: the workspace has an OAuth client,
-/// or the instance shares one.
+/// Whether the caller can create triggers for this service: the workspace has an OAuth client, the
+/// instance shares one, or the caller can already use a connection, such as a connected resource.
 #[cfg(feature = "native_trigger")]
 async fn integration_exist(
     authed: ApiAuthed,
@@ -731,8 +731,14 @@ async fn integration_exist(
     .fetch_one(&mut *tx)
     .await?
     .unwrap_or(false);
+    if exists {
+        return Ok(Json(true));
+    }
+    let usable = !list_usable_connections(&db, &mut tx, &workspace_id, service_name)
+        .await?
+        .is_empty();
 
-    Ok(Json(exists))
+    Ok(Json(usable))
 }
 
 #[cfg(feature = "native_trigger")]
@@ -791,8 +797,17 @@ async fn oauth_callback(
     // write a connection at this path.
     let mut tx = user_db.begin(&authed).await?;
 
-    // Reconnecting at a path replaces the connection there; triggers using it keep working.
-    let replaced_account = cleanup_connection(&mut *tx, &workspace_id, &resource_path).await?;
+    // Reconnecting at a path swaps the token and account in place: the resource and variable keep
+    // their sharing and description, which a connected resource's runnables rely on, and the
+    // triggers using the path keep working.
+    let replaced_account = sqlx::query_scalar!(
+        "SELECT account FROM variable WHERE workspace_id = $1 AND path = $2",
+        workspace_id,
+        resource_path,
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .flatten();
 
     // 1. Create account record for token refresh
     let account_id = sqlx::query_scalar!(
@@ -1107,7 +1122,7 @@ pub async fn delete_unlinked_account(db: &DB, workspace_id: &str, account_id: Op
         return;
     };
     if let Err(e) = sqlx::query!(
-        "DELETE FROM account WHERE workspace_id = $1 AND id = $2 AND is_workspace_integration = true
+        "DELETE FROM account WHERE workspace_id = $1 AND id = $2
          AND NOT EXISTS (SELECT 1 FROM variable WHERE workspace_id = $1 AND account = $2)",
         workspace_id,
         account_id,
@@ -1339,10 +1354,20 @@ async fn delete_connection(
     let mut tx = user_db.clone().begin(&authed).await?;
     let usable = list_usable_connections(&db, &mut tx, &workspace_id, service_name).await?;
     tx.commit().await?;
-    if !usable.iter().any(|c| c.path == path) {
-        return Err(Error::NotFound(format!(
-            "No {service_name} connection at {path}"
-        )));
+    match usable.iter().find(|c| c.path == path) {
+        None => {
+            return Err(Error::NotFound(format!(
+                "No {service_name} connection at {path}"
+            )))
+        }
+        // Disconnecting deletes the resource, which runnables may use: that is for Resources.
+        Some(c) if !c.managed => {
+            return Err(Error::BadRequest(format!(
+                "{path} is a resource connected outside integration triggers. Delete it from \
+                 Resources instead."
+            )))
+        }
+        Some(_) => {}
     }
 
     // Disconnecting deletes these triggers, so a path-scoped token must cover each of them. Only

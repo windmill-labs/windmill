@@ -159,7 +159,7 @@ impl ServiceName {
             // `repo` is required to list private repositories via /user/repos and
             // /search/repositories. It also covers webhook management, so it
             // supersedes `admin:repo_hook`.
-            ServiceName::Github => "repo read:user",
+            ServiceName::Github => "repo",
         }
     }
 
@@ -1871,6 +1871,8 @@ pub struct Connection {
     pub owner: Option<String>,
     /// The workspace connection, which every member may use.
     pub workspace: bool,
+    /// Made by the integration trigger connect flow, rather than a resource connected elsewhere.
+    pub managed: bool,
     /// The scopes requested when the account was connected; unknown when absent.
     pub scopes: Option<Vec<String>>,
     /// The scopes this service's triggers need that `scopes` lacks; unknown when absent.
@@ -1889,7 +1891,8 @@ pub async fn list_usable_connections(
 ) -> Result<Vec<Connection>> {
     let mut connections = sqlx::query_as!(
         Connection,
-        r#"SELECT v.path, r.created_by AS "owner?", false AS "workspace!", a.scopes AS "scopes?",
+        r#"SELECT v.path, r.created_by AS "owner?", false AS "workspace!",
+           COALESCE(a.is_workspace_integration, false) AS "managed!", a.scopes AS "scopes?",
            NULL::text[] AS "missing_scopes?"
          FROM variable v
          JOIN resource r ON r.workspace_id = v.workspace_id AND r.path = v.path
@@ -1913,13 +1916,22 @@ pub async fn list_usable_connections(
             c.missing_scopes = c.scopes.as_ref().map(|have| {
                 required
                     .iter()
-                    .filter(|s| !have.contains(s))
+                    .filter(|need| !have.iter().any(|h| scope_covers(h, need)))
                     .cloned()
                     .collect()
             });
         }
     }
     Ok(connections)
+}
+
+/// Whether a granted scope includes a required one: Google's `.../auth/drive` includes
+/// `.../auth/drive.readonly`.
+fn scope_covers(have: &str, need: &str) -> bool {
+    have == need
+        || need
+            .strip_prefix(have)
+            .is_some_and(|rest| rest.starts_with('.'))
 }
 
 /// The connection an admin shared with the whole workspace, if it still exists.
@@ -1930,7 +1942,8 @@ pub async fn workspace_connection(
 ) -> Result<Option<Connection>> {
     let connection = sqlx::query_as!(
         Connection,
-        r#"SELECT v.path, r.created_by AS "owner?", true AS "workspace!", a.scopes AS "scopes?",
+        r#"SELECT v.path, r.created_by AS "owner?", true AS "workspace!",
+           COALESCE(a.is_workspace_integration, false) AS "managed!", a.scopes AS "scopes?",
            NULL::text[] AS "missing_scopes?"
          FROM workspace_integrations wi
          JOIN variable v ON v.workspace_id = wi.workspace_id AND v.path = wi.resource_path
