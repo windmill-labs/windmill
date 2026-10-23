@@ -224,13 +224,15 @@ async fn update_config(
 
     #[cfg(not(feature = "enterprise"))]
     let config = if name.starts_with("worker__") {
-        // In CE, only allow setting worker_tags, cache_clear, init_bash, native_mode and paused
+        // In CE, only allow setting worker_tags, cache_clear, init_bash, native_mode, paused and
+        // disable_job_proxy
         serde_json::json!({
             "worker_tags": config.get("worker_tags"),
             "cache_clear": config.get("cache_clear"),
             "init_bash": config.get("init_bash"),
             "native_mode": config.get("native_mode"),
-            "paused": config.get("paused")
+            "paused": config.get("paused"),
+            "disable_job_proxy": config.get("disable_job_proxy")
         })
     } else {
         config

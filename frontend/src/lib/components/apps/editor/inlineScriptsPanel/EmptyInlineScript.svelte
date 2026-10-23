@@ -101,14 +101,14 @@
 </script>
 
 <Drawer bind:this={picker} size="1000px">
-	<DrawerContent title="Script/Flow Picker" on:close={picker.closeDrawer}>
+	<DrawerContent title="Fork a script" on:close={picker.closeDrawer}>
 		<div>
 			<div class="max-w-6xl">
 				<Tabs bind:selected={tab}>
-					<Tab value="workspacescripts" label="Workspace Scripts" icon={Building} />
+					<Tab value="workspacescripts" label="Workspace scripts" icon={Building} />
 
 					{#if !composeOnlyApps}
-						<Tab value="hubscripts" label="Hub Scripts" icon={Globe2} />
+						<Tab value="hubscripts" label="Hub scripts" icon={Globe2} />
 					{/if}
 				</Tabs>
 				<div class="my-2"></div>

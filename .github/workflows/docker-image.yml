@@ -197,47 +197,41 @@ jobs:
       ARCH: amd64
     steps:
       - uses: actions/checkout@v4
-      - run: |
-          # pulling docker image with desired arch so that actions-docker-extract doesn't do it
-          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
-          docker pull --platform "linux/$ARCH" ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee@${{ needs.build_ee.outputs.digest }}
 
-      - run: |
-          # Checks the image is in docker prior to running actions-docker-extract. It fails if not
-          # Also useful to visually check that the arch is the right opencontainers
-          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
-          docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee@${{ needs.build_ee.outputs.digest }}
-
-      - uses: shrink/actions-docker-extract@v3
-        id: extract
-        with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
-          path: "/usr/src/app/windmill"
-
-      - uses: shrink/actions-docker-extract@v3
-        id: extract-duckdb-ffi-internal
-        with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
-          path: "/usr/src/app/windmill_duckdb_runner"
-
-      - uses: shrink/actions-docker-extract@v3
-        id: extract-ee
-        with:
-          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee@${{ needs.build_ee.outputs.digest }}
-          path: "/usr/src/app/windmill"
-
-      - name: Rename binary with corresponding architecture
+      # The runner disk cannot hold the CE and EE images at once, so each image
+      # is pulled, extracted from and removed before the next one is pulled.
+      - name: Extract binaries
+        env:
+          CE_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
+          EE_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee@${{ needs.build_ee.outputs.digest }}
         run: |
-          mv "${{ steps.extract.outputs.destination }}/windmill" "${{ steps.extract.outputs.destination }}/windmill-${ARCH}"
-          mv "${{ steps.extract-ee.outputs.destination }}/windmill" "${{ steps.extract-ee.outputs.destination }}/windmill-ee-${ARCH}"
+          set -euo pipefail
+          mkdir -p release
+          # extract <image> (<path in image> <release file name>)...
+          extract() {
+            local image=$1 cid
+            shift
+            docker pull --platform "linux/$ARCH" "$image"
+            docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image"
+            cid=$(docker create --platform "linux/$ARCH" "$image")
+            while [ $# -gt 0 ]; do
+              docker cp "$cid:$1" "release/$2"
+              shift 2
+            done
+            docker rm "$cid"
+            docker rmi "$image"
+            df -h /
+          }
+          extract "$CE_IMAGE" \
+            /usr/src/app/windmill "windmill-$ARCH" \
+            /usr/src/app/windmill_duckdb_runner windmill_duckdb_runner
+          extract "$EE_IMAGE" /usr/src/app/windmill "windmill-ee-$ARCH"
+          ls -la release
 
       - name: Attach binary to release
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            ${{ steps.extract.outputs.destination }}/*
-            ${{ steps.extract-ee.outputs.destination }}/*
-            ${{ steps.extract-duckdb-ffi-internal.outputs.destination }}/*
+          files: release/*
 
   upload_ee_debug_to_s3:
     needs: [build_ee]
