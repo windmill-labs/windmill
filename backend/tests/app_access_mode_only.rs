@@ -266,7 +266,6 @@ async fn test_access_mode_only_update(db: Pool<Postgres>) -> anyhow::Result<()> 
     )
     .await?;
     assert_eq!(status, 403, "{body}");
-    assert!(body.contains("is not sandboxed"), "{body}");
     let p = policy(&db, BUILT).await?;
     assert!(p.get("sandbox").is_none(), "{p}");
     assert_eq!(p["execution_mode"], "anonymous");

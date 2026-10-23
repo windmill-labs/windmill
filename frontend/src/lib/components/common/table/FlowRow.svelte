@@ -32,13 +32,15 @@
 		Archive,
 		Copy,
 		Eye,
-		HistoryIcon
+		HistoryIcon,
+		Clock
 	} from 'lucide-svelte'
 	import FlowHistory from '$lib/components/flows/FlowHistory.svelte'
 	import ChatFlowBadge from '$lib/components/flows/ChatFlowBadge.svelte'
 	import RowLabels from './RowLabels.svelte'
 	import AskAiRowButton from './AskAiRowButton.svelte'
-	import { getDeployUiSettings } from '$lib/components/home/deploy_ui'
+	import { cachedDeployUiSettings, warmDeployUiSettings } from '$lib/components/home/deploy_ui'
+	import { menuGroups, submenu } from './menuGroups'
 	import { editInForkAllowed, editInForkLabel, onEditInForkClick } from '$lib/utils/editInFork'
 	import EditInForkButton from './EditInForkButton.svelte'
 	import { isCloudHosted } from '$lib/cloud'
@@ -85,6 +87,8 @@
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
+
+	warmDeployUiSettings()
 
 	async function archiveFlow(path: string, archived: boolean): Promise<void> {
 		try {
@@ -199,24 +203,152 @@
 			size="sm"
 			aiId={`flow-row-dropdown-${flow.summary?.length > 0 ? flow.summary : flow.path}`}
 			aiDescription={`Open dropdown for flow ${flow.summary?.length > 0 ? flow.summary : flow.path} options`}
-			items={async () => {
+			items={() => {
 				let { draft_only, path, archived } = flow
 				let owner = isOwner(path, $userStore, $workspaceStore)
 				const canEdit = flow.canWrite && showEditButton
 				if (draft_only) {
-					return [
-						...selectMenuItems(rowSelection),
+					return menuGroups(
+						selectMenuItems(rowSelection),
+						[
+							{
+								displayName: 'Move/Rename',
+								icon: FolderOpen,
+								action: () => {
+									// Addressed by the generated path its draft row sits at, but
+									// named by the path typed in the editor.
+									moveDrawer.openDrawer((flow as any).draft_path ?? path, flow.summary, 'flow', {
+										storagePath: path
+									})
+								},
+								disabled: !showEditButton,
+								hide: hideForOperator
+							}
+						],
+						[
+							{
+								displayName: 'Delete',
+								icon: Trash,
+								action: (event) => {
+									// @ts-ignore
+									if (event?.shiftKey) {
+										deleteFlow(path)
+									} else {
+										deleteConfirmedCallback = () => {
+											deleteFlow(path)
+										}
+									}
+								},
+								type: 'delete',
+								// A draft-only row is always the authed user's own draft (the
+								// list endpoint only surfaces own/legacy draft-only rows), so
+								// discarding it never requires write permission on the path.
+								disabled: !showEditButton,
+								hide: hideForOperator
+							}
+						]
+					)
+				}
+				return menuGroups(
+					selectMenuItems(rowSelection),
+					[
+						{
+							displayName: 'View runs',
+							icon: List,
+							href: `/runs/${path}`
+						},
+						submenu('History', Clock, [
+							{
+								displayName: 'Versions',
+								icon: HistoryIcon,
+								action: () => {
+									flowHistory?.open()
+								},
+								hide: hideForOperator
+							},
+							{
+								displayName: 'Audit logs',
+								icon: Eye,
+								href: `/audit_logs?resource=${path}`,
+								hide: !$roleCapabilities.code || !$roleCapabilities.visibility.audit_logs
+							}
+						])
+					],
+					[
+						{
+							displayName: 'Duplicate/Fork',
+							icon: GitFork,
+							href: `/flows/add?template=${path}`,
+							disabled: !showEditButton,
+							hide: hideForOperator
+						},
+						{
+							displayName: editInForkLabel($workspaceStore, $userWorkspaces),
+							icon: Pen,
+							// No `href`: the handler resolves the destination asynchronously, and a melt
+							// menu item's anchor navigates before a delegated onclick can preventDefault it.
+							action: (e) => onEditInForkClick(e, 'flow', path),
+							hide:
+								!$roleCapabilities.code ||
+								isCloudHosted() ||
+								!editInForkAllowed($workspaceStore, $userWorkspaces)
+						},
+						{
+							displayName: 'Copy path',
+							icon: Copy,
+							action: () => {
+								copyToClipboard(path)
+							}
+						}
+					],
+					[
 						{
 							displayName: 'Move/Rename',
 							icon: FolderOpen,
 							action: () => {
-								// Addressed by the generated path its draft row sits at, but
-								// named by the path typed in the editor.
-								moveDrawer.openDrawer((flow as any).draft_path ?? path, flow.summary, 'flow', {
-									storagePath: path
-								})
+								moveDrawer.openDrawer(path, flow.summary, 'flow')
 							},
-							disabled: !showEditButton,
+							disabled: !owner || archived || !canEdit,
+							hide: hideForOperator
+						},
+						{
+							displayName: 'Schedule',
+							icon: Calendar,
+							action: () => {
+								scheduleEditor?.openNew(true, path)
+							},
+							disabled: archived,
+							hide: hideForOperator || !$roleCapabilities.manage_schedules
+						},
+						{
+							displayName: 'Permissions',
+							icon: Shield,
+							action: () => {
+								shareModal.openDrawer && shareModal.openDrawer(path, 'flow')
+							},
+							hide: hideForOperator
+						},
+						{
+							displayName: 'Deploy to staging/prod',
+							icon: ChevronUpSquare,
+							action: () => {
+								deploymentDrawer.openDrawer(path, 'flow')
+							},
+							disabled: archived,
+							hide:
+								$roleCapabilities.flows !== 'full' ||
+								!isDeployable('flow', path, cachedDeployUiSettings())
+						}
+					],
+					[
+						{
+							displayName: archived ? 'Unarchive' : 'Archive',
+							icon: Archive,
+							action: () => {
+								path && archiveFlow(path, !archived)
+							},
+							type: 'delete',
+							disabled: !owner || !canEdit,
 							hide: hideForOperator
 						},
 						{
@@ -233,127 +365,11 @@
 								}
 							},
 							type: 'delete',
-							// A draft-only row is always the authed user's own draft (the
-							// list endpoint only surfaces own/legacy draft-only rows), so
-							// discarding it never requires write permission on the path.
-							disabled: !showEditButton,
+							disabled: !owner || !canEdit,
 							hide: hideForOperator
 						}
 					]
-				}
-				return [
-					...selectMenuItems(rowSelection),
-					{
-						displayName: 'View runs',
-						icon: List,
-						href: `/runs/${path}`
-					},
-					{
-						displayName: 'Duplicate/Fork',
-						icon: GitFork,
-						href: `/flows/add?template=${path}`,
-						disabled: !showEditButton,
-						hide: hideForOperator
-					},
-					{
-						displayName: editInForkLabel($workspaceStore, $userWorkspaces),
-						icon: Pen,
-						// No `href`: the handler resolves the destination asynchronously, and a melt
-						// menu item's anchor navigates before a delegated onclick can preventDefault it.
-						action: (e) => onEditInForkClick(e, 'flow', path),
-						hide:
-							!$roleCapabilities.code ||
-							isCloudHosted() ||
-							!editInForkAllowed($workspaceStore, $userWorkspaces)
-					},
-					{
-						displayName: 'Audit logs',
-						icon: Eye,
-						href: `/audit_logs?resource=${path}`,
-						hide: !$roleCapabilities.code || !$roleCapabilities.visibility.audit_logs
-					},
-					{
-						displayName: 'Move/Rename',
-						icon: FolderOpen,
-						action: () => {
-							moveDrawer.openDrawer(path, flow.summary, 'flow')
-						},
-						disabled: !owner || archived || !canEdit,
-						hide: hideForOperator
-					},
-					{
-						displayName: 'Copy path',
-						icon: Copy,
-						action: () => {
-							copyToClipboard(path)
-						}
-					},
-					...(isDeployable('flow', path, await getDeployUiSettings())
-						? [
-								{
-									displayName: 'Deploy to staging/prod',
-									icon: ChevronUpSquare,
-									action: () => {
-										deploymentDrawer.openDrawer(path, 'flow')
-									},
-									disabled: archived,
-									hide: $roleCapabilities.flows !== 'full'
-								}
-							]
-						: []),
-					{
-						displayName: 'Deployments',
-						icon: HistoryIcon,
-						action: () => {
-							flowHistory?.open()
-						},
-						hide: hideForOperator
-					},
-					{
-						displayName: 'Schedule',
-						icon: Calendar,
-						action: () => {
-							scheduleEditor?.openNew(true, path)
-						},
-						disabled: archived,
-						hide: hideForOperator || !$roleCapabilities.manage_schedules
-					},
-					{
-						displayName: 'Permissions',
-						icon: Shield,
-						action: () => {
-							shareModal.openDrawer && shareModal.openDrawer(path, 'flow')
-						},
-						hide: hideForOperator
-					},
-					{
-						displayName: archived ? 'Unarchive' : 'Archive',
-						icon: Archive,
-						action: () => {
-							path && archiveFlow(path, !archived)
-						},
-						type: 'delete',
-						disabled: !owner || !canEdit,
-						hide: hideForOperator
-					},
-					{
-						displayName: 'Delete',
-						icon: Trash,
-						action: (event) => {
-							// @ts-ignore
-							if (event?.shiftKey) {
-								deleteFlow(path)
-							} else {
-								deleteConfirmedCallback = () => {
-									deleteFlow(path)
-								}
-							}
-						},
-						type: 'delete',
-						disabled: !owner || !canEdit,
-						hide: hideForOperator
-					}
-				]
+				)
 			}}
 			on:open={() => {
 				menuOpen = true

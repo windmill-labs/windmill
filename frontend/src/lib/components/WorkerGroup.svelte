@@ -105,6 +105,7 @@
 		periodic_script_interval_seconds?: number
 		env_vars_static?: Map<string, string>
 		env_vars_allowlist?: string[]
+		disable_job_proxy?: boolean
 		additional_python_paths?: string[]
 		pip_local_dependencies?: string[]
 		min_alive_workers_alert_threshold?: number
@@ -212,6 +213,7 @@
 					init_bash?: string
 					env_vars_static?: Map<string, string>
 					env_vars_allowlist?: string[]
+					disable_job_proxy?: boolean
 					additional_python_paths?: string[]
 					pip_local_dependencies?: string[]
 					min_alive_workers_alert_threshold?: number
@@ -327,6 +329,7 @@
 		'priority_tags',
 		'additional_python_paths',
 		'pip_local_dependencies',
+		'disable_job_proxy',
 		'object_store_cache_config',
 		'serves_dev_workspaces'
 	] as const
@@ -909,6 +912,30 @@
 					disabled={!canEditConfig}
 				/>
 			</Label>
+			<div class="mt-8"></div>
+			<Label label="Worker proxy">
+				{#snippet header()}
+					<Tooltip>
+						{#snippet text()}
+							Whether jobs get the worker's HTTP_PROXY, HTTPS_PROXY and NO_PROXY. Dependency
+							installs always go through the proxy, whatever this is set to. Removing the variables
+							does not stop a job from reaching the proxy if it knows its address. Workers pick the
+							change up without restarting.
+						{/snippet}
+					</Tooltip>
+				{/snippet}
+				<Toggle
+					size="sm"
+					options={{ right: "Pass the worker's proxy to jobs" }}
+					checked={nconfig?.disable_job_proxy !== true}
+					on:change={(ev) => {
+						if (nconfig !== undefined) {
+							nconfig.disable_job_proxy = ev.detail ? undefined : true
+						}
+					}}
+					disabled={!canEditConfig}
+				/>
+			</Label>
 		{/if}
 
 		<div class="mt-8"></div>
@@ -1051,6 +1078,7 @@
 		<div class="mt-8"></div>
 
 		<AutoscalingConfigEditor
+			worker_group={name}
 			worker_tags={config?.worker_tags}
 			group_has_tags={nconfig.worker_tags !== undefined
 				? nconfig.worker_tags.length > 0

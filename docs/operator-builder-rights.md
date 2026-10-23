@@ -1,8 +1,8 @@
 # Operator builder rights
 
 Two workspace settings, `operator_settings.builder_flows` and `operator_settings.builder_apps`,
-that let every operator of that workspace compose flows and full-code apps out of runnables that
-already exist. Neither lets them author backend code or run arbitrary code on a worker, the
+that let every operator of that workspace compose flows (and AI agents, under the flow right) and
+full-code apps out of runnables that already exist. Neither lets them author backend code or run arbitrary code on a worker, the
 boundary the operator role draws. The app right does let them write the app's frontend code,
 which runs in the viewer's browser and is why that right rests on sandbox isolation.
 
@@ -32,12 +32,23 @@ anything that carries code. Three of its rules exist because the obvious walk mi
   past it.
 - **An AI agent step's `tools`.** `ToolValue::FlowModule` wraps a whole `FlowModuleValue`, so a
   tool can be a raw script.
-- **An AI agent step's `agent` link.** A linked agent resolves its tools from an `ai_agent`
-  resource at run time, and operators may write resources, so the tool list is outside this check
-  and can be swapped for a raw script after the flow is approved.
-
 It also returns what a value-only walk cannot authorize, for the caller to check against its own
 permissions:
+
+- **every agent a step links**. A linked agent resolves its tools from its `ai_agent` resource at
+  run time, outside this walk, so the link is allowed only to an agent the builder can read. That
+  is safe because of the agent rule below: an agent's tools are either a developer's code or
+  passed this same check when an operator saved them. Two things keep it safe:
+  - The step's `tool_inputs` replace a tool's inputs at run time, including the ones the agent's
+    author set. A builder's step may bind only the inputs the agent leaves open
+    (`check_bound_agent_inputs_are_open`, on `InputTransform::is_completed`), and the flow editor
+    lets a builder edit only those, showing the rest read-only. What it binds there, a `$var:` or
+    a JavaScript expression included, is what its own steps may already pass a deployed runnable; an input the author set
+    stays theirs. The check runs on the flow's write, so a tool or input the agent gains later is
+    open to a binding written before it, like the retyped path below.
+  - The worker refuses a linked path whose resource is no longer an `ai_agent`
+    (`get_agent_value`). Only writes of an agent are checked, so a path retyped, or recreated as
+    another type, after the link was approved would otherwise run whatever `tools` it now holds.
 
 - **the worker tags the steps pin**, or a builder routes a job onto a privileged worker group;
 - **every runnable a step references**. `script_to_payload` resolves a step's path with the root DB
@@ -61,12 +72,27 @@ Call it on every write **and** every preview: `run_preview_flow_job` and
 it the way to run what the write path refuses. A flow draft goes through `validate_operator_flow`
 too: a developer who loads a builder's draft in the editor runs its code as themselves.
 
+## Agents
+
+An agent is an `ai_agent` resource, and operators may write resources, so the `flows` capability
+is also the right to build agents. Without it a restricted role writes no agent at all. Its tools run in the
+agent's own runs, which take only inputs and run what is stored, and in every flow step linking
+it. So `validate_operator_agent` holds an operator's agent to the composed-flow rules by checking
+its tools as the tools of a one-step flow. It is called from `resolve_agent_on_behalf_of`, which
+every write of an agent's value passes through: create, update, retype, update-value and version
+restore. An operator's resource draft is checked the same way when it names `ai_agent` **or** an
+agent is deployed at its path, whatever type the draft names: deploying a draft from the resource
+editor keeps the row's type. A draft saved before an agent is created at its path is not
+re-checked when someone else deploys it. A new route that writes an agent's value must go through
+that function.
+
 The same reasoning applies to a builder-authored app, with one extra step. `execute_component`
 resolves the runnable it runs on the root handle, so `validate_operator_composed_app` checks every
 referenced path under the caller's RLS and refuses hub ones. For a script it checks the version a
 run would pick: grants are per version, and a path reused after its versions were archived starts
 with none while the archived ones keep theirs. But it has to check **two** surfaces,
-because they are not the same list: the policy's `script/<path>` and `flow/<path>` triggerables,
+because they are not the same list: the policy's `script/<path>`, `flow/<path>` and
+`agent/<path>` triggerables (an agent is checked as an `ai_agent` resource the caller can read),
 and the by-path entries of the app value's `runnables` map, which is what the editor resolves a
 `runnable_id` against and sends. Read only that map, and refuse an entry whose `type`, `path` or
 `runType` is not text.
@@ -77,8 +103,8 @@ at run time for `component = "a:b"`. Every colon is a possible split, so the che
 suffix that parses as a runnable rather than guessing which one a request will use.
 
 What makes those checks bind is that **`ExecutionMode::Viewer` is refused for a builder app**. In
-Viewer mode `execute_component` falls back to a default triggerable for any `script/`/`flow/`
-path, so the policy stops being the list of what the app may invoke, and the job runs as the
+Viewer mode `execute_component` falls back to a default triggerable for any `script/`/`flow/`/
+`agent/` path, so the policy stops being the list of what the app may invoke, and the job runs as the
 *viewer*: an admin who merely opened the app would run anything in the workspace as themselves.
 `Publisher`, `Guest` and `Anonymous` have no such fallback; all three run as the publisher. If you ever relax the Viewer refusal, the
 deploy-time path checks above stop being an authorization boundary.
