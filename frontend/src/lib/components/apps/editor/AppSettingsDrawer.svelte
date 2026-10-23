@@ -146,13 +146,16 @@
 	})
 
 	// The server refuses to change the mode alone of an app that runs as someone else unless the
-	// caller may keep that identity, and always for a builder: for them it changes on deploy.
+	// caller may keep that identity, and always for a builder, who is also refused on an app whose
+	// deployed policy is not sandboxed: for them it changes on deploy.
 	let deployedRunsAs = $derived(savedApp?.policy?.on_behalf_of as string | undefined)
-	let modeChangesOnDeploy = $derived(
+	let runsAsAnotherForCaller = $derived(
 		!!deployedRunsAs &&
 			deployedRunsAs !== (actingUser?.username ? `u/${actingUser.username}` : undefined) &&
 			(!canPreserveOnBehalfOf(actingUser) || composeOnlyApps)
 	)
+	let unsandboxedForBuilder = $derived(composeOnlyApps && savedApp?.policy?.sandbox !== true)
+	let modeChangesOnDeploy = $derived(runsAsAnotherForCaller || unsandboxedForBuilder)
 	// One change at a time: a failed request puts back the mode it replaced, which would
 	// overwrite a newer selection that already succeeded.
 	let accessModePending = $state(false)
@@ -508,8 +511,13 @@
 									</div>
 									{#if savedApp && !newApp && modeChangesOnDeploy}
 										<div class="text-xs text-secondary">
-											This app runs on behalf of <strong>{deployedRunsAs}</strong>, so a change here
-											takes effect when you deploy.
+											{#if runsAsAnotherForCaller}
+												This app runs on behalf of <strong>{deployedRunsAs}</strong>, so a change
+												here takes effect when you deploy.
+											{:else}
+												This app is not sandboxed yet, so a change here takes effect when you
+												deploy.
+											{/if}
 										</div>
 									{/if}
 									<div class="text-xs text-secondary">
