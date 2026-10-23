@@ -51,7 +51,8 @@ lazy_static::lazy_static! {
     pub static ref OAUTH_CLIENTS: arc_swap::ArcSwap<AllClients> = arc_swap::ArcSwap::from_pointee(AllClients {
         logins: HashMap::new(),
         connects: HashMap::new(),
-        slack: None
+        slack: None,
+        slack_signing_secret: None,
     });
 }
 
@@ -252,6 +253,13 @@ pub struct OAuthClient {
     pub tenant: Option<String>,
     #[serde(default = "default_grant_types")]
     pub grant_types: Vec<String>,
+    /// The Slack app's signing secret, which authenticates the requests Slack sends Windmill.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "windmill_common::utils::empty_as_none"
+    )]
+    pub signing_secret: Option<String>,
 }
 
 impl std::fmt::Debug for OAuthClient {
@@ -265,6 +273,10 @@ impl std::fmt::Debug for OAuthClient {
             .field("login_config", &self.login_config)
             .field("tenant", &self.tenant)
             .field("grant_types", &self.grant_types)
+            .field(
+                "signing_secret",
+                &self.signing_secret.as_ref().map(|_| "***"),
+            )
             .finish()
     }
 }
@@ -286,11 +298,23 @@ fn default_grant_types() -> Vec<String> {
 }
 
 /// Container for all OAuth clients (login, connect, and slack)
-#[derive(Debug)]
 pub struct AllClients {
     pub logins: BasicClientsMap,
     pub connects: BasicClientsMap,
     pub slack: Option<OClient>,
+    /// The instance Slack app's signing secret, from its OAuth setting.
+    pub slack_signing_secret: Option<String>,
+}
+
+impl std::fmt::Debug for AllClients {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AllClients")
+            .field("logins", &self.logins)
+            .field("connects", &self.connects)
+            .field("slack", &self.slack)
+            .field("slack_signing_secret", &self.slack_signing_secret.as_ref().map(|_| "***"))
+            .finish()
+    }
 }
 
 /// Slack token response from OAuth flow
@@ -515,6 +539,7 @@ pub async fn build_client_credentials_oauth_client(
             .map(|e| e.grant_types.clone())
             .unwrap_or_else(default_grant_types),
         tenant: instance_entry.as_ref().and_then(|e| e.tenant.clone()),
+        signing_secret: None,
     };
 
     let base_url = (**BASE_URL.load()).clone();
