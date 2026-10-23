@@ -2,13 +2,9 @@
 	import { Alert, Badge, Button, CopyButton, TabContent, Tabs } from '$lib/components/common'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { SlackAgentChannel } from '$lib/gen'
-	import { userStore } from '$lib/stores'
-	import { copilotInfo } from '$lib/aiStore'
-	import { prefersSessionHandoff } from '$lib/components/copilot/chat/global/gate'
 	import { useEditRights } from '$lib/operatorWriteRights'
-	import { openEditorInSession } from '$lib/components/sessions/sessionSwitch.svelte'
-	import { mintDraftPath } from '$lib/mintDraftPath'
-	import { sendUserToast } from '$lib/toast'
+	import { createRawAppFromAgent } from '$lib/components/details/createRawAppFromScript'
+	import { goto } from '$app/navigation'
 	import WebhooksPanel from '$lib/components/triggers/webhook/WebhooksPanel.svelte'
 
 	/**
@@ -59,23 +55,11 @@
 
 	let handle = $derived(`+${agentPath.split('/').pop()}`)
 
-	// Built in an AI session, as a new app from home is.
 	const editRights = useEditRights(() => workspace)
-	let canBuildApp = $derived(
-		$copilotInfo.enabled &&
-			prefersSessionHandoff($userStore?.operator) &&
-			editRights.roleCanAuthor('raw_app')
-	)
-	function buildApp() {
-		openEditorInSession(
-			{ kind: 'raw_app', path: mintDraftPath() },
-			workspace,
-			{ new_draft: 'true' },
-			{
-				seedPrompt: `Build a chat app over the AI agent \`${agentPath}\`.`,
-				autoSend: true
-			}
-		).catch((err) => sendUserToast(`Could not start building the app: ${err}`, true))
+	async function buildApp() {
+		// The raw app editor reads the payload from sessionStorage on mount.
+		sessionStorage.setItem('rawAppImport', JSON.stringify(createRawAppFromAgent(agentPath)))
+		await goto('/apps_raw/add')
 	}
 </script>
 
@@ -193,25 +177,21 @@
 
 				<TabContent value="app" class="flex flex-col gap-4 p-4">
 					<span class="text-xs text-secondary">
-						A chat app for your team, built by AI with Windmill's chat SDK. It keeps each person's
-						conversations, and you can shape it like any other app.
+						A chat app for your team, built on Windmill's chat SDK. It runs the agent as the app, so
+						people need no access to the agent, and keeps their conversations in their browser. You
+						can shape it like any other app.
 					</span>
 					<div class="flex flex-col items-start gap-1">
-						<Button unifiedSize="sm" variant="default" disabled={!canBuildApp} onClick={buildApp}>
+						<Button
+							unifiedSize="sm"
+							variant="default"
+							disabled={!editRights.roleCanAuthor('raw_app')}
+							onClick={buildApp}
+						>
 							Build an app for this agent
 						</Button>
 						{#if !editRights.roleCanAuthor('raw_app')}
 							<span class="text-2xs text-hint">Operators cannot build apps in this workspace.</span>
-						{:else if !$copilotInfo.enabled}
-							<span class="text-2xs text-hint">
-								Enable Windmill AI in the
-								<a href="/workspace_settings?tab=ai" target="_blank">workspace settings</a>
-								to build it.
-							</span>
-						{:else if !canBuildApp}
-							<span class="text-2xs text-hint"
-								>It is built in an AI session, which you cannot open here yet.</span
-							>
 						{/if}
 					</div>
 				</TabContent>
