@@ -73,7 +73,7 @@
 			? `Stop running this ${kind} on behalf of ${savedUser}?`
 			: `Deploy this ${kind}?`}
 	confirmationText="Deploy"
-	loading={folderDefaultLoading}
+	confirmDisabled={folderDefaultLoading}
 	keyListen={!pickerOpen}
 	alwaysPortal
 	onConfirmed={() => {
