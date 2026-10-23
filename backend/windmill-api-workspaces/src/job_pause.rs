@@ -42,7 +42,10 @@ struct JobsPaused {
     pause_id: Uuid,
 }
 
-async fn read_pause(db: &DB, w_id: &str) -> windmill_common::error::Result<Option<JobsPaused>> {
+async fn read_pause<'c, E: sqlx::PgExecutor<'c>>(
+    db: E,
+    w_id: &str,
+) -> windmill_common::error::Result<Option<JobsPaused>> {
     Ok(sqlx::query_as!(
         JobsPaused,
         r#"SELECT paused_until, paused_by, paused_at, reason, pause_id,
@@ -140,6 +143,8 @@ async fn pause_jobs(
         ),
     )
     .await?;
+    // Read before the commit releases the lock: a later pause would hand this one its `pause_id`.
+    let pause = read_pause(&mut *tx, &w_id).await?;
     tx.commit().await?;
     job_pause::evict(&w_id);
 
@@ -149,7 +154,7 @@ async fn pause_jobs(
     };
     log_feature_usage("workspace_job_pause", "paused", source);
 
-    Ok(Json(read_pause(&db, &w_id).await?))
+    Ok(Json(pause))
 }
 
 #[derive(Deserialize, Default)]

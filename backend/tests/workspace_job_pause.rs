@@ -135,7 +135,8 @@ async fn pause_holds_and_resume_releases(db: Pool<Postgres>) -> anyhow::Result<(
         }))
         .send()
         .await?;
-    assert_eq!(resp.status(), 201, "{}", resp.text().await?);
+    assert_eq!(resp.status(), 201);
+    let obo_hash = resp.text().await?;
     let admin_obo = job_id(
         post(format!("{ws}/jobs/run/p/u/test-user/obo_member"), ADMIN)
             .json(&json!({}))
@@ -144,6 +145,14 @@ async fn pause_holds_and_resume_releases(db: Pool<Postgres>) -> anyhow::Result<(
     )
     .await;
     assert_eq!(kind_and_due(&db, admin_obo).await.0, "script");
+    let admin_obo_hash = job_id(
+        post(format!("{ws}/jobs/run/h/{obo_hash}"), ADMIN)
+            .json(&json!({}))
+            .send()
+            .await?,
+    )
+    .await;
+    assert_eq!(kind_and_due(&db, admin_obo_hash).await.0, "script");
 
     // A caller waiting for the result is refused rather than left waiting.
     let resp = post(
