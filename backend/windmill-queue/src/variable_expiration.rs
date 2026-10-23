@@ -79,7 +79,7 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
                   value_valid_until AS "value_valid_until!", is_secret AS "is_secret!",
                   expiration_dispatched_for, expiration_notified_at,
                   handler_path AS "handler_path!",
-                  extra_args AS "extra_args: Json<Box<RawValue>>"
+                  extra_args AS "extra_args: Json<Box<RawValue>>", now() AS "read_at!"
            FROM (
                SELECT v.workspace_id, v.path, v.description, v.value_valid_until, v.is_secret,
                       v.expiration_dispatched_for, v.expiration_notified_at,
@@ -202,11 +202,14 @@ async fn dispatch_expiring_variables_inner(db: &DB) {
                 // ahead of every other workspace.
                 failed_this_pass.insert(row.workspace_id.clone());
                 if let Err(e) = sqlx::query!(
-                    // A handler saved since this pass read it gets its own first try.
-                    "UPDATE workspace_settings SET variable_expiration_failed_at = now()
+                    // Stamped with the read, not now(): a handler redeployed while this pass ran
+                    // must count as deployed since the failure. A handler saved under another
+                    // path gets its own first try.
+                    "UPDATE workspace_settings SET variable_expiration_failed_at = $3
                      WHERE workspace_id = $1 AND variable_expiration_handler->>'path' = $2",
                     row.workspace_id,
                     row.handler_path,
+                    row.read_at,
                 )
                 .execute(db)
                 .await

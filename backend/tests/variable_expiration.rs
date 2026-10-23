@@ -431,6 +431,42 @@ async fn test_deploying_the_handler_ends_the_wait(db: Pool<Postgres>) -> anyhow:
     Ok(())
 }
 
+/// A handler deployed while the failing pass is still running must end the wait too. The
+/// trigger deploys it in the same statement that records the failure.
+#[sqlx::test(fixtures("base"))]
+async fn test_deploying_the_handler_mid_pass_ends_the_wait(
+    db: Pool<Postgres>,
+) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    configure_handler(&db, r#"{"path": "script/u/test-user/expiry_handler"}"#).await?;
+    seed_variable(&db, "u/test-user/due", "30 minutes").await?;
+    sqlx::raw_sql(
+        r#"CREATE FUNCTION deploy_mid_pass() RETURNS trigger LANGUAGE plpgsql AS $$
+           BEGIN
+               INSERT INTO script (workspace_id, hash, path, summary, description, content, created_by, language, lock)
+               VALUES (NEW.workspace_id, 42, 'u/test-user/expiry_handler', '', '', 'export function main() {}', 'test-user', 'bun', '');
+               RETURN NEW;
+           END $$;
+           CREATE TRIGGER deploy_mid_pass BEFORE UPDATE OF variable_expiration_failed_at ON workspace_settings
+           FOR EACH ROW EXECUTE FUNCTION deploy_mid_pass();"#,
+    )
+    .execute(&db)
+    .await?;
+
+    dispatch_expiring_variables(&db).await;
+    sqlx::raw_sql("DROP TRIGGER deploy_mid_pass ON workspace_settings")
+        .execute(&db)
+        .await?;
+    dispatch_expiring_variables(&db).await;
+
+    assert_eq!(
+        queued_handler_jobs(&db, "u/test-user/expiry_handler").await?,
+        1,
+        "the handler deployed mid-pass waited out the delay"
+    );
+    Ok(())
+}
+
 /// The handler endpoint: admin-only, existence-checked, and clearing by omission, which
 /// `wmill sync push` relies on to propagate an absent handler.
 #[sqlx::test(fixtures("base"))]

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings SET variable_expiration_failed_at = $3\n                     WHERE workspace_id = $1 AND variable_expiration_handler->>'path' = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "67439610a4b96e4b339029a1f9578ea20d35e9f75165aacbeb7cf927f96076f0"
+}
