@@ -9697,6 +9697,8 @@ async fn create_workspace_fork(
     Query(q): Query<CreateWorkspaceForkQuery>,
     Json(nw): Json<CreateWorkspaceFork>,
 ) -> Result<String> {
+    // Ahead of everything below: the stale-state purges must not run for a caller refused here.
+    check_can_fork(&db, &authed, &parent_workspace_id).await?;
     enforce_fork_depth(&db, &parent_workspace_id, 0).await?;
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
@@ -9790,7 +9792,6 @@ async fn create_workspace_fork(
     #[cfg(not(feature = "enterprise"))]
     _check_nb_of_workspaces(&db).await?;
 
-    check_can_fork(&db, &authed, &parent_workspace_id).await?;
     enforce_isolated_forks(&db, &authed, &parent_workspace_id, &nw).await?;
 
     if nw.is_dev_workspace {

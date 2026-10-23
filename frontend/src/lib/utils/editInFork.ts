@@ -24,13 +24,14 @@ export type ItemType = 'script' | 'flow' | 'app' | 'raw_app'
  * A role without `code` gets it only when it may fork and there is no canonical dev: a new fork
  * makes the member a developer, but in an existing dev workspace they keep their role and have
  * nothing to edit. User identity is read non-reactively (it's stable within a session); reactivity
- * comes from the workspace args.
+ * comes from the workspace args. Pass `caps` when `currentWorkspaceId` is not the navigation
+ * workspace: `$roleCapabilities` describes only that one.
  */
 export function editInForkAllowed(
 	currentWorkspaceId: string | undefined,
-	allWorkspaces: UserWorkspace[]
+	allWorkspaces: UserWorkspace[],
+	caps: RoleCapabilities = get(roleCapabilities)
 ): boolean {
-	const caps = get(roleCapabilities)
 	const user = get(userStore)
 	const dev = findCanonicalDevWorkspace(currentWorkspaceId, allWorkspaces)
 	if (!caps.code) return canCreateFork(user, caps) && !dev

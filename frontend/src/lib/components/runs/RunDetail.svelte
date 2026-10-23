@@ -773,7 +773,7 @@
 		(job?.job_kind === 'script' || job?.job_kind === 'flow') &&
 			(!showEditButton || !editRights.capabilities.code) &&
 			!isCloudHosted() &&
-			editInForkAllowed(workspaceId, $userWorkspaces)
+			editInForkAllowed(workspaceId, $userWorkspaces, editRights.capabilities)
 	)
 	/** Which actions the row has: they come and go as the job runs and completes, often while the
 	 *  row is folded into the menu, where the bar cannot see them change (`actionsVersion`). */

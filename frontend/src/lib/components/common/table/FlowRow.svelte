@@ -189,7 +189,7 @@
 					</Button>
 				</div>
 			{/if}
-			{#if !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !flow.canWrite)}
+			{#if !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (hideForOperator || !showEditButton || !flow.canWrite)}
 				<EditInForkButton itemType="flow" path={flow.path} />
 			{/if}
 		</span>

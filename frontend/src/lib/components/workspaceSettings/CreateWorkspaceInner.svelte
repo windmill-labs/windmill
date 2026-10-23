@@ -153,9 +153,10 @@
 			subtitle: w.is_dev_workspace ? 'dev workspace' : w.id === familyRoot?.id ? undefined : 'fork'
 		}))
 	)
-	let defaultBaseWorkspaceId = $derived(
-		findDefaultForkBase($workspaceStore, forkableWorkspaces)?.id
-	)
+	let defaultBaseWorkspaceId = $derived.by(() => {
+		const id = findDefaultForkBase($workspaceStore, forkableWorkspaces)?.id
+		return baseCandidates.some((w) => w.id === id) ? id : baseCandidates[0]?.id
+	})
 	// Seed the base once the family is known; keep an explicit user choice as long as it stays valid.
 	$effect(() => {
 		if (!isFork) return

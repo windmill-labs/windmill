@@ -254,7 +254,7 @@
 					{/if}
 				{/if}
 			{/if}
-			{#if !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!showEditButton || !script.canWrite)}
+			{#if !isCloudHosted() && editInForkAllowed($workspaceStore, $userWorkspaces) && (!$roleCapabilities.code || !showEditButton || !script.canWrite)}
 				<EditInForkButton itemType="script" path={script.path} />
 			{/if}
 		</span>

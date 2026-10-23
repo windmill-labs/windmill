@@ -133,7 +133,9 @@ restricts everyone it does not exempt. `canCreateFork` in `frontend/src/lib/util
 mirrors it.
 
 A member who forks is a developer in the fork whatever their role: the creator row copies only
-`is_admin`, so `workspace_role` stays NULL and `operator` keeps its false default. That is the
+`is_admin`, so `workspace_role` stays NULL and `operator` keeps its false default. The exception
+is a dev workspace created with `copy_members`: the copy brings the creator's parent row, role
+included, and the creator row is then a no-op, so they keep their parent role there. That is the
 point of granting `fork`, a copy to build in, and it means granting it to a restricted role grants
 that role arbitrary code execution. Deploying scripts, flows and apps back runs with the user's
 role in the parent, where its write checks refuse what the role cannot author, so an admin or a
