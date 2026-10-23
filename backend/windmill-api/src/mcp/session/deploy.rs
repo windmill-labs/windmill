@@ -399,29 +399,7 @@ async fn deploy_app(
 
     let mut policy = object_or_empty("policy");
     settle_execution_mode(&mut policy, exists);
-    // The note states the mode the app ends up with, the deployed one for an update. What a
-    // runnable runs as is the server's to decide, so the note names who can reach the app and
-    // never an identity.
-    let mode = if exists {
-        deployed_execution_mode(ctx, &target).await?
-    } else {
-        policy.get("execution_mode").cloned()
-    };
-    match mode.as_ref().and_then(Value::as_str) {
-        Some("anonymous") => notes.push(
-            "This app is deployed as anonymous: its backend runnables are now reachable by anyone \
-             with the URL, without logging in. Tell the user plainly what is now reachable and by whom."
-                .to_string(),
-        ),
-        // `guest` is stored whether or not a guest is admitted: silent unless it is live.
-        Some("guest") if guest_access_is_live(ctx).await => notes.push(
-            "This app is deployed as guest: anyone the instance's identity provider authenticates \
-             can now open it and run its backend runnables, member of this workspace or not. Tell \
-             the user plainly what is now reachable and by whom."
-                .to_string(),
-        ),
-        _ => {}
-    }
+    let created_mode = policy.get("execution_mode").cloned();
 
     let mut app = Map::new();
     app.insert("path".into(), json!(target));
@@ -464,6 +442,35 @@ async fn deploy_app(
         }
         ctx.post(&ctx.ws("apps/create_raw_source"), Value::Object(app))
             .await?;
+    }
+
+    // An update keeps the deployed mode, so the note states the stored row's, read after the
+    // write. What a runnable runs as is the server's to decide, so the note names who can reach
+    // the app and never an identity.
+    let mode = if exists {
+        deployed_execution_mode(ctx, &target).await.ok().flatten()
+    } else {
+        created_mode
+    };
+    match mode.as_ref().and_then(Value::as_str) {
+        Some("anonymous") => notes.push(
+            "This app is deployed as anonymous: its backend runnables are now reachable by anyone \
+             with the URL, without logging in. Tell the user plainly what is now reachable and by whom."
+                .to_string(),
+        ),
+        // `guest` is stored whether or not a guest is admitted: silent unless it is live.
+        Some("guest") if guest_access_is_live(ctx).await => notes.push(
+            "This app is deployed as guest: anyone the instance's identity provider authenticates \
+             can now open it and run its backend runnables, member of this workspace or not. Tell \
+             the user plainly what is now reachable and by whom."
+                .to_string(),
+        ),
+        None => notes.push(
+            "Its access mode could not be read back after the deploy, so tell the user to check \
+             who can open the app."
+                .to_string(),
+        ),
+        _ => {}
     }
     Ok((!notes.is_empty()).then(|| notes.join(" ")))
 }
