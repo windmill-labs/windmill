@@ -155,8 +155,22 @@ async fn test_access_mode_only_update(db: Pool<Postgres>) -> anyhow::Result<()> 
     // ========================================
     const OWN: &str = "u/test-user-2/own";
     create(&ws, USER, OWN, json!({ "execution_mode": "publisher" })).await?;
+    sqlx::query(
+        "INSERT INTO draft (workspace_id, path, typ, value, email)
+         VALUES ('test-workspace', $1, 'app', '{}', 'test2@windmill.dev')",
+    )
+    .bind(OWN)
+    .execute(&db)
+    .await?;
     let (status, body) = update(&ws, OWN, USER, json!({ "execution_mode": "anonymous" })).await?;
     assert_eq!(status, 200, "{body}");
+    let drafts: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM draft WHERE workspace_id = 'test-workspace' AND path = $1",
+    )
+    .bind(OWN)
+    .fetch_one(&db)
+    .await?;
+    assert_eq!(drafts, 1, "a mode-only change must keep the caller's draft");
     let (status, body) = update(
         &ws,
         OWN,
