@@ -72,7 +72,7 @@
               "value": {
                 "type": "rawscript",
                 "language": "bun",
-                "content": "export async function main(charges: unknown[]) {\n  return { sent: charges.length }\n}\n",
+                "content": "export async function main(charges: { invoice_id: number; email: string }[]) {\n  for (const charge of charges) {\n    await fetch('https://mail.example.com/receipts', { method: 'POST', body: JSON.stringify(charge) })\n  }\n  return { sent: charges.length }\n}\n",
                 "input_transforms": {
                   "charges": {
                     "type": "javascript",
